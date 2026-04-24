@@ -12,6 +12,7 @@ WhaleCode 的主技术栈应从早期的 TypeScript / Node / Bun 调整为 **Rus
 
 核心判断：
 
+- 第一个版本目标不是先实现完整差异化能力，而是先交付一个主流竞品级通用 coding agent CLI 底座。
 - WhaleCode 的长期难点是本地执行内核，而不是普通 API wrapper。
 - CLI、TUI、Agent Supervisor、工具调度、权限、沙箱、补丁合并、会话恢复和并发控制应放在 Rust 核心中。
 - Web Viewer、可视化面板、部分插件开发体验可以继续用 TypeScript / React / Vite。
@@ -652,7 +653,7 @@ npm --prefix apps/viewer run build
 - permission、exec、patch、session、context、MCP/skills、observability 设计均有 Codex 首选参考路径。
 - repo 中没有未提交生成物。
 
-### Phase 1 — 单 Agent 纵切
+### Phase 1 — 通用 Agent CLI 底座
 
 交付：
 
@@ -668,6 +669,7 @@ npm --prefix apps/viewer run build
 
 验收：
 
+- CLI 能完成主流 coding agent 基础闭环：理解任务、读取文件、搜索代码、编辑文件、生成 diff、运行受控命令、解释结果。
 - CLI 能在真实 repo 中 read/search/edit 一个文件。
 - write/edit 必须 read-before-write。
 - DeepSeek mock SSE 覆盖 thinking + tool-call sub-turn。
@@ -675,6 +677,7 @@ npm --prefix apps/viewer run build
 - Permission deny 优先级测试通过。
 - Primitive module enable/disable 后 gate/hook 行为可测试。
 - fixture JSONL 可 replay 出差异化原语的最小状态。
+- 关闭所有非基础 Primitive Module 后，CLI 仍能作为通用 coding agent 工作。
 
 ### Phase 2 — 群体协同 + Create/Debug 工作流
 
@@ -816,3 +819,4 @@ npm --prefix apps/viewer run build
 4. MCP 和 Skills 通过协议接入，不能绕过 Rust PermissionEngine。
 5. Codex CLI 更值得深入参考，但不直接 fork 成 WhaleCode 主线。
 6. 成熟基础设施按 Codex-first 审计后实现，WhaleCode 自研只集中在 DeepSeek 适配、Create/Debug 原语、Swarm、Viewer 和群体协同策略。
+7. V1 必须先具备主流 coding agent CLI 能力；差异化原语通过 `PrimitiveModule` 插件化增强底座，而不是替代底座。

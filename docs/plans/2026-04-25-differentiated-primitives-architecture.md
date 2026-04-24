@@ -102,6 +102,39 @@ pub struct PrimitiveManifest {
 
 这条原则的直接后果是：证据链、脚手架、参考驱动、Viewer、技能自进化都是 WhaleCode 的默认内置模块，但不是不可替换的底层设计语言。它们可以组合成 Create/Debug workflow，也可以在特定任务、成本模式或用户配置下关闭。
 
+### 2.3 Generic Agent Substrate First
+
+实现这些特化能力之前，必须先完成一个通用 coding-agent runtime 底座。这个底座不是产品定位上的退化，而是为了给所有 Primitive Module 提供稳定承载层：
+
+```text
+V1 Generic Agent CLI
+  -> ModelRuntime
+  -> AgentLoop
+  -> ToolRuntime
+  -> Permission / Sandbox
+  -> Patch / Workspace
+  -> Session / Replay
+  -> ContextManager
+  -> PrimitiveHost
+  -> Built-in Primitive Modules
+```
+
+V1 的产品目标是先做到主流竞品级 coding agent CLI 能力：
+
+- 能在真实 repo 内理解任务、读取文件、搜索代码、编辑文件、生成 patch。
+- 能安全执行受控 shell/git/test/build 命令。
+- 能做 read-before-write、diff preview、permission prompt、approval/deny。
+- 能保持长会话、工具调用历史、session JSONL、replay 和 redaction。
+- 能支持基础 slash commands，例如 `/status`、`/compact`、`/debug`、`/create`。
+- 能通过 Codex-first 审计覆盖主流 coding agent 底座行为。
+
+Primitive Module 的职责是在这个底座上增强或约束工作流，而不是补齐底座缺失能力。换句话说：
+
+- 没有证据链模块，V1 也应该是可用的 coding agent CLI。
+- 没有 Viewer 模块，V1 也应该能安全读写、执行、提交 patch。
+- 没有技能自进化，Skills/MCP 也应该有静态可用版本。
+- 差异化模块只能通过注册 gate/hook/reducer/permission overlay 扩展底座，不能要求 agent loop 为自己写专属分支。
+
 ---
 
 ## 三、证据链 Debug
@@ -631,6 +664,27 @@ skill_rollback_executed
 
 ## 十、落地顺序
 
+本节只描述差异化原语的落地顺序。项目整体顺序必须先完成 Generic Agent Substrate，再启用这些特化模块。
+
+### Phase 0 — Generic Agent CLI Substrate
+
+前置交付：
+
+- model streaming + tool-call sub-turn。
+- single-agent loop。
+- read/search/edit/write/shell/git tools。
+- permission、sandbox、approval、grant。
+- patch/workspace safety。
+- JSONL session、redaction、replay。
+- context compaction、fragment、artifact refs。
+- primitive host skeleton。
+
+验收：
+
+- CLI 能像主流 coding agent 一样完成真实 repo 中的读、搜、改、测、解释和 diff。
+- primitive host 关闭所有非基础模块后，CLI 仍然可作为通用 coding agent 使用。
+- 后续每个 Primitive Module 都能单独启停并被测试。
+
 ### Phase 1A — Protocol First
 
 交付：
@@ -713,6 +767,7 @@ skill_rollback_executed
 
 这五个能力都要进入 runtime：
 
+- V1 先交付竞品级通用 coding agent CLI 底座，差异化能力在其上插件化增强。
 - 它们以可插拔 Primitive Module 进入 runtime，而不是写死进 agent loop。
 - 证据链 Debug 是诊断模块，提供 DebugCase / Evidence / RootCause gates。
 - 脚手架先行是 Create gate 模块，不是提示词建议。

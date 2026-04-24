@@ -9,6 +9,7 @@
 - **技术栈**: Rust-first core + TypeScript Web Viewer
 - **目标模型**: `deepseek-v4-flash` + `deepseek-v4-pro`
 - **核心定位**: Multi-Agent First + Coding-Native，极致适配 DeepSeek 模型特性
+- **V1 目标**: 先交付一个对标 Codex CLI / Claude Code / OpenCode / Pi 主流能力的通用 coding agent CLI；差异化能力通过 Primitive Module 插件化增强，而不是写死在底层。
 
 > 技术栈决策已更新为 Rust-first，详见 `docs/plans/2026-04-25-rust-first-technology-architecture.md` 与 `docs/adr/2026-04-25-rust-first-core-runtime.md`。本文早期章节中的 TypeScript 风格代码块保留为结构化伪代码，真正的 MVP 接口以第十八章 Rust 形态和新技术架构文档为准。
 
@@ -2862,9 +2863,9 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 - 每个差异化原语都有 artifact、gate、event、replay 和 enable/disable 验收。
 - 没有未决开放问题阻塞 Phase 1。
 
-### 20.2 Phase 1 — 单 Agent 可运行纵切
+### 20.2 Phase 1 — 通用 Agent CLI 底座
 
-目标：先做可运行的 coding agent，不做完整多 Agent 网格。
+目标：先做一个像主流竞品一样能完成真实 coding 工作的 agent CLI，不做完整多 Agent 网格，也不要求所有差异化原语默认启用。这个阶段的产物必须在关闭非基础 Primitive Module 后仍然可用。
 
 交付范围：
 1. `crates/whalecode-protocol`: event/message/tool/session schema。
@@ -2878,6 +2879,7 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 9. 差异化原语 schema skeleton：`ReferenceDecision`、`ScaffoldArtifact`、`DebugCase`、`EvidenceRecord`、`ViewerConcern`、`SkillInvocationEvent`。
 
 验收：
+- CLI 支持主流 coding agent 基础闭环：理解任务、读取文件、搜索代码、编辑文件、生成 diff、运行受控命令、解释结果。
 - 能在真实仓库内读取、搜索、编辑一个文件。
 - 写文件前必须 read-before-write，写后返回 diff metadata。
 - DeepSeek thinking + tool call 的多 sub-turn 测试通过。
@@ -2885,6 +2887,7 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 - Session JSONL 可 replay 出最终消息、工具调用、patch 和 phase transitions。
 - fixture JSONL 可 replay 出 reference、scaffold、debug、viewer concern 和 skill telemetry 的最小状态。
 - primitive module 被关闭后，对应 gate/hook 不再参与新 phase，历史 session 仍可 replay。
+- 关闭所有非基础 Primitive Module 后，CLI 仍然能作为通用 coding agent 完成 read/search/edit/test 工作流。
 
 ### 20.3 Phase 2 — 多 Agent 群体协同 + Create/Debug DAG
 

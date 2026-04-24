@@ -7,6 +7,7 @@
 - **模型**: `deepseek-v4-flash` + `deepseek-v4-pro`
 - **核心定位**: Multi-Agent First + Coding-Native，极致适配 DeepSeek 模型
 - **原生任务**: Create（构建发散）和 Debug（诊断收敛）作为架构原语
+- **V1 目标**: 先交付主流竞品级通用 coding agent CLI 底座；差异化能力通过 PrimitiveModule 插件化增强
 
 ## 核心能力
 
