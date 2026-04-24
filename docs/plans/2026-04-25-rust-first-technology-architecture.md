@@ -6,6 +6,8 @@
 
 WhaleCode 的主技术栈应从早期的 TypeScript / Node / Bun 调整为 **Rust-first core + TypeScript web viewer**。
 
+多 Agent 群体协同的运行时设计见 `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md`。本文的 Rust workspace 和 Phase 2 规划以该文档为准扩展 `whalecode-swarm`。
+
 核心判断：
 
 - WhaleCode 的长期难点是本地执行内核，而不是普通 API wrapper。
@@ -159,6 +161,9 @@ whalecode
   │   ├─ CLI / TUI
   │   ├─ Supervisor
   │   ├─ Agent Runtime
+  │   ├─ Swarm Runtime
+  │   ├─ Cohort Scheduler
+  │   ├─ Concurrency Governor
   │   ├─ Message Bus
   │   ├─ Workflow Phase Machine
   │   ├─ Tool Runtime
@@ -200,8 +205,8 @@ whalecode
 
 ```text
 crates/
-  whalecode-protocol/     # Shared event/message/tool/session schema
-  whalecode-core/         # Supervisor, AgentRuntime, MessageBus
+  whalecode-protocol/     # Shared event/message/tool/session/swarm schema
+  whalecode-core/         # Supervisor, AgentRuntime, SwarmRuntime, MessageBus
   whalecode-model/        # Model routes, DeepSeek adapter, capability probe
   whalecode-context/      # ContextManager, compaction, fragments
   whalecode-tools/        # Built-in read/search/edit/write/git/shell tools
@@ -209,6 +214,7 @@ crates/
   whalecode-patch/        # PatchArtifact, diff, ownership, apply engine
   whalecode-session/      # JSONL store, replay, fork, SQLite index later
   whalecode-workflow/     # Create/Debug phase machines and gates
+  whalecode-swarm/        # CohortScheduler, WorkUnit, Tournament, EvidenceRace
   whalecode-mcp/          # stdio JSON-RPC client, MCP tool mapping
   whalecode-observe/      # tracing bridge, redaction, event sinks
   whalecode-cli/          # clap commands and non-interactive mode
@@ -232,6 +238,7 @@ tests/
 
 - `whalecode-protocol` 不依赖其他业务 crate，避免循环依赖。
 - `whalecode-core` 只依赖抽象 trait，不直接依赖具体工具实现。
+- `whalecode-swarm` 不执行工具、不写文件，只负责 cohort、work unit、budget、concurrency 和 consensus 编排。
 - `whalecode-tools` 不决定权限，只声明工具 metadata 和执行能力。
 - `whalecode-permission` 不执行工具，只返回 allow/deny/ask。
 - `whalecode-session` 不理解业务逻辑，只 append/replay event。
@@ -656,11 +663,16 @@ npm --prefix apps/viewer run build
 - JSONL session 可 replay。
 - Permission deny 优先级测试通过。
 
-### Phase 2 — Create/Debug 工作流
+### Phase 2 — 群体协同 + Create/Debug 工作流
 
 交付：
 
 - `whalecode-workflow`
+- `whalecode-swarm`
+- `SwarmSpec`、`CohortSpec`、`WorkUnit`
+- Scout / Analyst / Implementer / Reviewer / Judge / Verifier cohorts
+- Tournament、Evidence Race、Patch League
+- ConcurrencyGovernor 和 SwarmBudget
 - Create phase machine。
 - Debug phase machine。
 - PatchArtifact ownership gate。
@@ -668,8 +680,11 @@ npm --prefix apps/viewer run build
 
 验收：
 
-- Create 能完成 scaffold -> implement -> review -> confirm。
-- Debug 能完成 hypothesize -> collect_evidence -> fix -> verify。
+- Create 能完成 plan tournament -> scaffold -> patch league / sharded implement -> review -> confirm。
+- Debug 能完成 hypothesis cohort -> evidence race -> root-cause judge -> fix candidates -> verify。
+- 8 个只读 Scout 可并行产出结构化 Finding。
+- 同一 work unit 可产 2-4 个 PatchArtifact 候选，共享工作区只应用最终 patch。
+- 429 mock、延迟和 token budget 能触发 ConcurrencyGovernor 降宽。
 - HYPOTHESIZE 阶段没有写权限。
 - Viewer critical concern 可阻止 phase transition。
 

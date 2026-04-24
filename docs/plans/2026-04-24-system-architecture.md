@@ -21,18 +21,18 @@
 | 上下文窗口 | **1M tokens** | 上下文资源池化，按角色分配预算 |
 | 最大输出 | **384K tokens** | Implementer 一次输出大量代码，减少通信 |
 | 思考链 (Thinking) | `reasoning_content` | 当前按 DeepSeek API 的 thinking 模式设计；工具调用期间必须保留并回传当轮 `reasoning_content` |
-| 推理强度 | `thinking` / 模型选择 | V4 未发布参数单独封装；当前 API 以 `thinking: enabled` + 模型路由表达推理强度 |
+| 推理强度 | `thinking` + `reasoning_effort` | 当前 API 支持 thinking toggle；thinking effort 使用 `high` / `max`，由 `ModelCapabilityProbe` 映射 |
 | 平行工具调用 | 工具调用 + runtime 并发 | API 返回多个 tool call 时由 WhaleCode runtime 按工具并发安全性调度 |
-| 缓存定价 | cache hit 比 miss **便宜 5 倍** | 共享 System Prompt 让多 Agent 共享缓存 |
-| API 兼容 | **OpenAI 格式** | 直接用 `openai` SDK，生态丰富 |
-| V4-Flash 定价 | ¥2/M 输出 | **极低成本**运行大量并行 Agent |
-| V4-Pro 定价 | ¥24/M 输出 | 只在关键路径 (Architect/Reviewer) 使用 |
+| 缓存定价 | Flash cache hit 比 miss 便宜 **5 倍** | 共享 Stable Prefix，让多 Agent fan-out 尽量命中 context cache |
+| API 兼容 | **OpenAI / Anthropic 格式** | Rust core 直接实现 HTTP/SSE adapter，保留 SDK 兼容但不依赖 SDK 作为核心边界 |
+| V4-Flash 定价 | $0.28/M 输出 | 极低成本运行 Scout / Analyst / Implementer 等大量并行 Agent |
+| V4-Pro 定价 | $3.48/M 输出 | 只在 Architect / Judge / Viewer / Root-cause 等关键路径使用 |
 
-> **注意**：本项目目标模型是 DeepSeek V4，但截至 2026-04-24，官方 API 文档公开可用的是 `deepseek-chat` / `deepseek-reasoner` 对应的 DeepSeek-V3.2。上表中的 V4 级别上下文窗口、输出长度、Flash/Pro 分层与人民币定价属于目标假设，必须通过 `ModelCapabilityProbe` 在运行时确认后才能启用。MVP 阶段默认按当前官方 API 能力运行，并把 V4 能力作为 feature flag：
-> - 实际上下文窗口、最大输出和 thinking/tool-call 兼容性来自 provider capability probe
-> - 缓存命中率和成本节省只作为统计指标，不作为调度正确性前提
-> - 并发限制、429、响应延迟通过 rate-limit profiler 实测
-> - 定价随 API 版本和区域变化，成本估算必须带 `pricing_source` 与 `observed_at`
+> **注意**：截至 2026-04-25，DeepSeek 官方 API 文档已公开列出 `deepseek-v4-flash` / `deepseek-v4-pro`，并标注旧 `deepseek-chat` / `deepseek-reasoner` 将于 2026-07-24 废弃。WhaleCode 仍必须通过 `ModelCapabilityProbe` 在运行时确认模型、context、output、thinking、tool-call、pricing 和 429 行为：
+> - 实际上下文窗口、最大输出和 thinking/tool-call 兼容性来自 provider capability probe。
+> - 缓存命中率和成本节省只作为调度优化，不作为正确性前提。
+> - DeepSeek API 会动态限制并发并返回 429；Supervisor 必须用 `ConcurrencyGovernor` 动态调宽/降宽。
+> - 定价随 API 版本和区域变化，成本估算必须带 `pricing_source` 与 `observed_at`。
 
 ---
 
@@ -44,6 +44,8 @@
 - 调度器是核心组件，不是附加功能
 - Agent 实例是轻量的（一个 loop + 一个 channel），可大规模创建
 - 失败和隔离是设计假设，不是异常情况
+
+多 Agent 群体协同的详细设计见 `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md`。核心思想是用大量 V4-Flash agent 做并行探索、候选生成和局部实现，用少量 V4-Pro agent 做关键裁判、整合和对抗审查，通过 Tournament / Evidence Race / Patch League 把数量转化为质量。
 
 ---
 
@@ -2071,10 +2073,10 @@ Agent 间通过 Message Bus 传递引用，不复制上下文：
 | **1M 上下文窗口** | 压缩触发阈值提升到 ~755K，大部分短作业零压缩 |
 | **缓存定价优势** | Layer 0 (System Prompt) 跨 Agent 共享前缀，cache hit 比例最大化；具体折扣来自 provider pricing probe |
 | **超长输出 384K** | 保留足够输出头寸（always reserve 50K+ for output） |
-| **V4-Flash 低成本** | 日常独立轮次压缩走 V4-Flash（¥2/M），极低压缩成本 |
+| **V4-Flash 低成本** | 日常独立轮次压缩、Scout、Analyst、Implementer 候选优先走 V4-Flash |
 | **V4-Pro 高质量** | 关键路径（Architect/Debugger/Viewer）的压缩和上下文重建走 V4-Pro，保证质量 |
 
-> **注意**：DeepSeek V4 的具体模型名、定价和 1M 上下文窗口在 WhaleCode 中作为目标能力处理；当前官方 API 文档公开的是 `deepseek-chat` / `deepseek-reasoner` 与 V3.2 能力。MVP 必须以 provider capability probe 的结果为准，不能依赖写死的 V4 参数。
+> **注意**：DeepSeek V4 的具体模型能力和价格仍以 provider capability probe 与官方 pricing source 为准。即使官方文档已列出 V4 Flash/Pro，也不能在 runtime 中写死 context、output、thinking、tool-call、并发和价格参数。
 
 缓存优化示例：
 
@@ -2275,7 +2277,7 @@ class ObservabilityCollector {
 | Token (Output) | 38,210 | 累计输出 Token |
 | Cache Hit Rate | 67% | 缓存命中率（直接影响成本） |
 | Session Duration | 12m 34s | 当前会话已运行时间 |
-| Estimated Cost | ¥0.42 | 估算 API 费用 |
+| Estimated Cost | $0.42 | 估算 API 费用 |
 
 #### 4. 时间线与日志
 
@@ -2378,12 +2380,12 @@ Debug 模式下，Agent 网络图切换为**证据链视图**：
 | Architect 持续介入 | Architect 在设计阶段产出 DAG；每个 Phase Gate 只做轻量检查；重大偏离由 Supervisor 重新唤醒 Architect | 避免 Architect 常驻消耗 Pro 预算 | Gate fail 或 Viewer critical concern |
 | 混合任务 | 先拆成 Debug 子 DAG 和 Create 子 DAG。默认 Debug 先行，除非 Create 是复现/诊断前置条件 | 修复根因比堆功能更安全 | 用户明确要求先做功能 |
 | Implementer 冲突 | Phase 1 禁止并行写同一文件；Phase 2 引入 `PatchArtifact` + ownership + 三方合并 | 文件冲突是多 Agent 最大不确定性来源 | 文件 ownership 可以被 DAG 静态证明时放开 |
-| 并行度上限 | 默认 `maxAgents=3`、`maxWritableAgents=1`、`maxReadOnlyAgents=4`；受 API 429、token、CPU、文件 ownership 动态下调 | 先保证确定性，再提吞吐 | 实测 rate-limit profiler 通过 |
+| 并行度上限 | 默认由 `SwarmMode` 决定：economy 少量 agent，balanced 中等 fan-out，swarm 扩大 Scout/Analyst/Implementer 候选；共享工作区仍保持 `maxWorkspaceWriters=1` | 让系统能用数量换质量，同时守住写入安全 | 429、延迟、token、CPU、file ownership、cache hit 反馈触发动态调宽/降宽 |
 | 会话持久化 | 使用 JSONL event-sourced session 作为 Phase 1；SQLite 作为 Phase 2 索引/查询层 | JSONL 易审计、易回放、易调试 | 会话列表/检索性能成为瓶颈 |
 | 证据链收敛超时 | 每轮最多 5 个假设，最多 3 轮证据收集；仍未收敛则输出 `stuck_report` 请求用户补充 | 防止 Debug DAG 无限循环 | 用户选择继续深挖 |
 | 假设生成数量 | 初始 3-5 个；第二轮允许最多 8 个，但必须引用新增证据或被排除假设 | 保持诊断可解释 | 复杂系统故障可手动提升 |
 | Viewer 触发频率 | 默认只审查 Phase Gate、写入 artifact、权限升级、失败恢复、Reviewer 结论；不监听每个 token/普通消息 | 控制成本和 429 风险 | strict-review 模式开启 |
-| DeepSeek V4 参数 | V4 作为目标能力，不硬编码。运行时用 `ModelCapabilityProbe` 决定 context、output、thinking、tool-call、pricing | 官方 API 能力会变动 | probe 结果持久化并带版本戳 |
+| DeepSeek V4 参数 | 官方已列出 V4 Flash/Pro，但 runtime 仍用 `ModelCapabilityProbe` 决定 context、output、thinking、tool-call、pricing、429 行为 | 官方 API 能力和价格会变动 | probe 结果持久化并带版本戳 |
 
 ### 16.1 Debug 只读边界
 
@@ -2832,6 +2834,7 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 交付：
 - `docs/plans/2026-04-24-system-architecture.md` 补齐参考映射、接口、MVP 验收和引用。
 - `docs/plans/2026-04-25-rust-first-technology-architecture.md` 固化 Rust-first 技术架构。
+- `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md` 固化多 Agent 群体协同、Tournament、Evidence Race、Patch League、ConcurrencyGovernor 设计。
 - `docs/adr/2026-04-25-rust-first-core-runtime.md` 记录主栈决策。
 - `.gitignore` 忽略 `tmp/`、`.DS_Store`、`node_modules/`、`dist/`、`coverage/`、`.env*`。
 - 选定 Rust workspace + TypeScript Web Viewer。
@@ -2862,22 +2865,27 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 - 所有 tool result 截断策略可测试。
 - Session JSONL 可 replay 出最终消息、工具调用、patch 和 phase transitions。
 
-### 20.3 Phase 2 — 受控 Subagent + Create/Debug DAG
+### 20.3 Phase 2 — 多 Agent 群体协同 + Create/Debug DAG
 
-目标：引入多 Agent，但只开放可证明安全的并行。
+目标：引入可证明安全的群体协同，把数量转化为质量。详细设计见 `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md`。
 
 交付范围：
-1. `Searcher` 只读 subagent，可并行。
-2. `Implementer` 产出 `PatchArtifact`，不直接写共享区。
-3. `Supervisor` 支持 DAG 验证、file ownership、phase gates。
-4. Create workflow: analyze → design → scaffold → implement → review → confirm。
-5. Debug workflow: analyze → hypothesize → collect_evidence → evaluate → fix → verify。
+1. Phase 2A：`SwarmSpec`、`CohortSpec`、`WorkUnit`、Scout Cohort、Artifact store、ConcurrencyGovernor MVP。
+2. Phase 2B：Analyst Cohort、CandidateScore、ConsensusReport、Pro Judge gate、independence score。
+3. Phase 2C：Implementer Cohort、Patch League、dry-run apply、Reviewer scorecard、Verifier matrix。
+4. Phase 2D：HypothesisSet、EvidencePlan、Evidence Race、falsification rules、RootCauseDecision。
+5. Create workflow: analyze → design tournament → scaffold → patch league / sharded implement → review → confirm。
+6. Debug workflow: analyze → hypothesis cohort → evidence race → root-cause judge → fix candidates → verify。
 
 验收：
-- Searcher 并行不会写文件。
+- 同一任务可并行启动 8 个只读 Scout，且 Searcher/Scout 不会写文件。
+- 同一需求能生成至少 3 个 plan candidate，并由 Judge 选择、合成或拒绝。
+- 同一 work unit 可产 2-4 个 PatchArtifact 候选，共享工作区只应用最终 patch。
 - 两个 Implementer 同时触碰同一文件时，Supervisor 阻止并输出 conflict report。
 - Debug HYPOTHESIZE 阶段无法执行写命令。
+- 至少 3 个 Debug 假设可并行收集证据，被证伪假设停止继续消耗。
 - Debug 修复必须带复现消失证据和回归测试。
+- 429 mock、延迟和 token budget 能触发 ConcurrencyGovernor 降宽。
 
 ### 20.4 Phase 3 — Viewer 与可视化
 
@@ -2975,31 +2983,37 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 
 ### 23.1 外部来源
 
-1. DeepSeek API Docs — Models & Pricing: https://api-docs.deepseek.com/quick_start/pricing
-   用途：确认当前官方 API 的模型名、context、max output、tool-call 支持和价格表；设计中将 V4 能力改为 probe-gated 目标假设。
-2. DeepSeek API Docs — Thinking Mode: https://api-docs.deepseek.com/guides/thinking_mode
+1. DeepSeek API Docs — Your First API Call: https://api-docs.deepseek.com/
+   用途：确认 `deepseek-v4-flash` / `deepseek-v4-pro`、OpenAI/Anthropic compatible base URL，以及旧模型 deprecation 信息。
+2. DeepSeek API Docs — Models & Pricing: https://api-docs.deepseek.com/quick_start/pricing
+   用途：确认当前官方 API 的 V4 Flash/Pro 模型名、1M context、384K max output、tool-call 支持和价格表；runtime 仍通过 provider probe 记录能力与价格版本。
+3. DeepSeek API Docs — Thinking Mode: https://api-docs.deepseek.com/guides/thinking_mode
    用途：确认 `reasoning_content`、thinking tool calls、多轮对话中 reasoning 的保留/清理要求。
-3. DeepSeek API Docs — Tool Calls: https://api-docs.deepseek.com/guides/tool_calls
+4. DeepSeek API Docs — Tool Calls: https://api-docs.deepseek.com/guides/tool_calls
    用途：确认当前 API 的 function/tool call 形态，并把并行执行责任放在 WhaleCode runtime。
-4. DeepSeek API Docs — Context Caching: https://api-docs.deepseek.com/guides/kv_cache/
+5. DeepSeek API Docs — Context Caching: https://api-docs.deepseek.com/guides/kv_cache/
    用途：确认缓存是默认服务能力、64-token 单元和 best-effort 属性；缓存不作为调度正确性前提。
-5. OpenAI Codex repository: https://github.com/openai/codex
+6. DeepSeek API Docs — Rate Limit: https://api-docs.deepseek.com/quick_start/rate_limit/
+   用途：确认动态并发限制、HTTP 429、SSE keep-alive 和长时间未开始推理的连接关闭行为。
+7. DeepSeek API Docs — Create Chat Completion: https://api-docs.deepseek.com/api/create-chat-completion
+   用途：确认 `deepseek-v4-flash` / `deepseek-v4-pro` model enum、thinking 参数和 usage 中 cache/reasoning token 字段。
+8. OpenAI Codex repository: https://github.com/openai/codex
    用途：参考 compaction、context fragment、permission/sandbox、tool orchestration、mailbox 和 thread history。
-6. OpenCode repository: https://github.com/opencode-ai/opencode
+9. OpenCode repository: https://github.com/opencode-ai/opencode
    用途：参考 file edit safety、permission request、session service、pubsub、LSP diagnostics。
-7. Pi monorepo: https://github.com/badlogic/pi-mono
+10. Pi monorepo: https://github.com/badlogic/pi-mono
    用途：参考 agent loop、tool execution mode、JSONL session、web-ui 组件化；Rust core 只迁移语义，不迁移 TS runtime。
-8. Claude Code from Scratch repository: https://github.com/Windy3f3f3f3f/claude-code-from-scratch
+11. Claude Code from Scratch repository: https://github.com/Windy3f3f3f3f/claude-code-from-scratch
    用途：参考最小 Agent/Tool/Skill/MCP/Subagent 实现边界。
-9. Rust official site: https://www.rust-lang.org/
+12. Rust official site: https://www.rust-lang.org/
    用途：确认 Rust-first core 的可靠性、性能和内存安全定位。
-10. Tokio official site: https://tokio.rs/
+13. Tokio official site: https://tokio.rs/
    用途：确认 async runtime 覆盖 I/O、timer、filesystem、sync 和 scheduling。
-11. ratatui official site: https://ratatui.rs/
+14. ratatui official site: https://ratatui.rs/
    用途：确认 Rust TUI 生态可覆盖终端交互。
-12. Node.js Permission Model docs: https://nodejs.org/api/permissions.html
+15. Node.js Permission Model docs: https://nodejs.org/api/permissions.html
    用途：确认 Node permission model 不应作为 coding agent 的核心安全边界。
-13. Deno Security and Permissions docs: https://docs.deno.com/runtime/fundamentals/security/
+16. Deno Security and Permissions docs: https://docs.deno.com/runtime/fundamentals/security/
    用途：确认 `allow-run` 子进程权限会削弱 runtime sandbox，shell 安全必须由 WhaleCode 自己控制。
 
 ### 23.2 本地源码证据

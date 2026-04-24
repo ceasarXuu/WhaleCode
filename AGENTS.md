@@ -12,7 +12,7 @@
 
 | 能力 | 说明 |
 |------|------|
-| **Multi-Agent 网格** | 7 角色（Architect/Debugger/Implementer/Searcher/Reviewer/Viewer/Supervisor），角色网格协作，Agent 从不独立存在 |
+| **Multi-Agent 群体协同** | 7 角色 + Scout/Analyst/Reviewer/Judge/Verifier cohorts，通过 Tournament / Evidence Race / Patch League 用数量换质量 |
 | **Agent Message Bus** | 统一消息总线（unicast/broadcast/p2p/request-reply），traceId 追踪全链路 |
 | **证据链 Debug** | Goal → Hypotheses → Evidence 链式推理，假设证伪收敛到根因，HYPOTHESIZE 阶段全员只读 |
 | **脚手架先行 Create** | Logging/Testing/Constraints 三基建必须先于功能代码，DAG 验证强制执行 |
@@ -34,8 +34,8 @@
 | 超长输出 384K | 保留 >50K 输出头寸，分块流式写入 |
 | 5x 缓存定价 | 共享 System Prompt 前缀跨 Agent 命中缓存 |
 | 平行工具调用 | 工具系统原生支持并行执行 |
-| V4-Flash ¥2/M | 低成本执行 Implementer/Searcher 任务 |
-| V4-Pro ¥24/M | 关键路径使用（设计、诊断、审查、批判、上下文压缩）|
+| V4-Flash 低成本 | 大量并行 Scout/Analyst/Implementer 候选，具体价格以 provider probe 为准 |
+| V4-Pro 高质量 | 关键路径使用（设计、诊断、审查、批判、上下文压缩），具体价格以 provider probe 为准 |
 
 # 工程约束
 - 本项目是开源项目，注意管理好隐私数据禁止泄露，经常更新和优化 gitignore
