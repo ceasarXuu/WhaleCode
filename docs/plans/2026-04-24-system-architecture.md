@@ -6,9 +6,11 @@
 
 构建以 DeepSeek V4 模型为核心的终端 AI coding agent，对标 Claude Code / OpenCode / Codex CLI / Pi。
 
-- **技术栈**: TypeScript (Node.js 22+ / Bun)
+- **技术栈**: Rust-first core + TypeScript Web Viewer
 - **目标模型**: `deepseek-v4-flash` + `deepseek-v4-pro`
 - **核心定位**: Multi-Agent First + Coding-Native，极致适配 DeepSeek 模型特性
+
+> 技术栈决策已更新为 Rust-first，详见 `docs/plans/2026-04-25-rust-first-technology-architecture.md` 与 `docs/adr/2026-04-25-rust-first-core-runtime.md`。本文早期章节中的 TypeScript 风格代码块保留为结构化伪代码，真正的 MVP 接口以第十八章 Rust 形态和新技术架构文档为准。
 
 ---
 
@@ -180,9 +182,9 @@ Create 的核心原则：
 │  ┌───────────────────┐    ┌───────────────────────────────┐  │
 │  │ 1a: Architect      │    │ 1b: Searcher ×N (参考研究)    │  │
 │  │ • 理解需求          │    │ • WebSearch: "用户管理系统      │  │
-│  │ • 分析项目结构      │    │   最佳实践 Node.js"            │  │
-│  │ • 识别技术栈        │    │ • 技术评估: "NextAuth vs      │  │
-│  │                     │    │   Clerk 对比"                 │  │
+│  │ • 分析项目结构      │    │   最佳实践 Rust CLI agent"     │  │
+│  │ • 识别技术栈        │    │ • 技术评估: "ratatui vs       │  │
+│  │                     │    │   bubbletea 对比"             │  │
 │  │                     │    │ • 竞品分析: "类似项目踩坑记录"  │  │
 │  │                     │    │ • 失败案例: "权限系统的常见漏洞" │  │
 │  └────────┬──────────┘    └──────────────┬────────────────┘  │
@@ -218,9 +220,9 @@ Create 的核心原则：
 ┌──────────────────────────────────────────────────────────────┐
 │ Phase 3: Scaffolding — 基建先行                               │
 │  • 每个基建 Implementer 在选型时也必须做参考研究:               │
-│    → "选 pino 还是 winston？社区趋势和性能对比"               │
-│    → "Vitest vs Jest 迁移现状"                                │
-│    → "ESLint flat config 迁移最佳实践"                        │
+│    → "tracing 结构化日志与 JSONL event sink 最佳实践"          │
+│    → "cargo test vs nextest 在 workspace 中的取舍"             │
+│    → "clippy/rustfmt workspace 约束最佳实践"                   │
 │                                                               │
 │   ┌────────────────────┬───────────────────┬──────────────┐  │
 │   │ Logging            │ Testing           │ Constraints  │  │
@@ -351,9 +353,9 @@ Searcher 不再仅限于本地搜索，而是获得外部研究能力：
 | 工具 | 用途 | 示例 |
 |------|------|------|
 | `WebSearch` | 搜索最佳实践、教程、对比 | "RBAC 权限设计最佳实践 2025" |
-| `GitHubSearch` | 查找参考实现、项目结构 | "开源 Node.js RBAC 项目" |
-| `RegistryLookup` | 包生态评估 | npm trends: express vs fastify |
-| `DocSearch` | 框架官方文档 | NextAuth.js 配置指南 |
+| `GitHubSearch` | 查找参考实现、项目结构 | "开源 Rust CLI agent 项目" |
+| `RegistryLookup` | 包生态评估 | crates.io: ratatui vs alternatives |
+| `DocSearch` | 框架官方文档 | Tokio / clap / ratatui 配置指南 |
 | `FailureLookup` | 失败案例/反模式 | "权限系统常见漏洞" |
 
 #### 脚手架先行在 DAG 中的表达
@@ -382,8 +384,8 @@ const SCREENING_RULES = {
 | 基建类别 | 典型产出 | 验收标准 |
 |---------|---------|---------|
 | **Logging** | Logger 配置、分级策略、请求追踪中间件、错误格式化器 | `log.info()` 输出结构化 JSON，支持 debug/info/warn/error 四级，含 requestId |
-| **Testing** | 测试框架配置、test utils、Mock 工厂、CI workflow | `npm test` 可运行，有示例测试通过，覆盖率报告可生成 |
-| **Constraints** | ESLint 配置、Prettier 配置、Husky hooks、tsconfig strict、目录结构 | `npm run lint` 通过新代码，commit 前自动格式化，TypeScript strict 模式启用 |
+| **Testing** | Rust 测试框架配置、fixture repo、mock DeepSeek SSE、CI workflow | `cargo test --workspace` 可运行，有示例测试通过，session replay 可验证 |
+| **Constraints** | `rustfmt`、`clippy`、workspace lint、目录结构、Web Viewer 前端 lint | `cargo fmt --check` 和 `cargo clippy --workspace --all-targets -- -D warnings` 通过 |
 
 ### 6.2 Debug 工作流（基于证据链）
 
@@ -789,7 +791,7 @@ Debug Phase 3 (Collect Evidence):
 经过上面 5 层约束过滤后，System Prompt 只负责"怎么做"，不需要负责"做什么"：
 
 ```
-✅ 好的提示词: "在设置日志框架时，推荐使用 pino，配置结构化 JSON 输出，
+✅ 好的提示词: "在设置日志框架时，推荐使用 tracing，配置结构化 JSON 输出，
    包含 timestamp、level、msg、requestId 字段"
 
 ❌ 不好的提示词: "请记住，在实现功能代码之前必须先搭建设施"
@@ -1796,12 +1798,12 @@ Agent 主循环继续，使用压缩后的历史
 </handoff_note>
 <summary>
   已完成用户管理系统的方案设计，输出包含 5 个任务、3 个参考引用。
-  Architect 选择了 RBAC 权限模型，参考了 NextAuth.js 和 CASL。
+  Architect 选择了 RBAC 权限模型，参考了 axum tower middleware 和 CASL 的策略表达。
   需要 Implementer 实现 User/ Role/ Permission 三个核心模块。
 </summary>
 <key_decisions>
   - 权限模型: RBAC (参考: CASL docs, section 3.2)
-  - 认证方案: JWT + refresh token (参考: NextAuth.js #412)
+  - 认证方案: JWT + refresh token (参考: axum/tower middleware pattern)
   - 数据库: Prisma + PostgreSQL，已有 schema
 </key_decisions>
 <open_items>
@@ -2285,7 +2287,7 @@ class ObservabilityCollector {
 12:30:08  [Impl A]    Tool: glob("src/**/*.ts")  ✓ 12ms
 12:30:10  [Viewer]    Concern: "日志配置缺少 requestId 追踪"
 12:30:12  [Impl A]    Tool: write("src/utils/logger.ts") ✓ 45ms
-12:30:15  [Impl A]    Tool: bash("npm install pino")     ✓ 2.3s
+12:30:15  [Impl A]    Tool: bash("cargo add tracing")    ✓ 2.3s
 12:30:18  [Token]     Impl A: ↑2,341 ↓512 cache:62%
 ```
 
@@ -2403,7 +2405,7 @@ type ShellCapability =
   | { kind: "write_exec"; argv: readonly string[]; cwd: string };
 ```
 
-`readonly_exec` 仅用于测试可复现性时的读型命令，例如 `npm test -- --runInBand` 这类会写缓存的命令默认不在 HYPOTHESIZE 开放。需要写缓存的测试命令进入 `COLLECT_EVIDENCE`，并在临时 sandbox 中执行。
+`readonly_exec` 仅用于测试可复现性时的读型命令，例如 `cargo test --no-run` 或会写 `target/` 的测试命令默认不在 HYPOTHESIZE 开放。需要写缓存的测试命令进入 `COLLECT_EVIDENCE`，并在临时 sandbox 中执行。
 
 ### 16.2 并行写入策略
 
@@ -2502,7 +2504,7 @@ type LogEventEnvelope<T> = {
 
 | 参考项目 | 本地快照 | 上游 | 许可证 | WhaleCode 借鉴点 | 不借鉴点 |
 |----------|----------|------|--------|------------------|----------|
-| Codex CLI | `tmp/whalecode-refs/codex-cli` @ `c10f95dda` | https://github.com/openai/codex | Apache-2.0 | 权限/沙箱、工具调度、context compaction、context fragment、agent mailbox、thread history 重建 | Rust/Bazel 复杂工程形态不适合 Phase 1 TypeScript MVP |
+| Codex CLI | `tmp/whalecode-refs/codex-cli` @ `c10f95dda` | https://github.com/openai/codex | Apache-2.0 | Rust CLI/core/tool/context/permission/session 设计、权限/沙箱、工具调度、context compaction、context fragment、agent mailbox、thread history 重建 | 不直接 fork 产品边界；不照搬其 Bazel/多 crate 复杂度和 OpenAI/Codex 专属假设 |
 | OpenCode | `tmp/whalecode-refs/opencode` @ `73ee493` | https://github.com/opencode-ai/opencode | MIT | 文件编辑安全、permission request、session service、pubsub、LSP diagnostics、task session | Go 技术栈和 DB-first 架构不直接迁移 |
 | Pi | `tmp/whalecode-refs/pi` @ `c0675041` | https://github.com/badlogic/pi-mono | MIT | TypeScript monorepo、agent loop、streaming event、tool sequential/parallel mode、JSONL session、web-ui 组件化 | 通用 Agent 定位，不直接继承其单 Agent 产品边界 |
 | Claude Code from Scratch | `tmp/whalecode-refs/cc-from-scratch` @ `e5ce492` | https://github.com/Windy3f3f3f3f/claude-code-from-scratch | MIT | 最小 Agent、Tool、Subagent、Skill、MCP 教学实现，适合 MVP 骨架对照 | 安全和并发模型过轻，不作为生产标准 |
@@ -2512,20 +2514,20 @@ type LogEventEnvelope<T> = {
 
 | WhaleCode 模块 | 主要参考 | 本地证据 | 补全设计 |
 |----------------|----------|----------|----------|
-| `AgentLoop` | Pi | `packages/agent/src/agent-loop.ts` | 采用事件流 + tool loop；支持 steering/follow-up；不在 loop 内混入 workflow phase |
-| `ToolRuntime` | Codex + Pi | `core/src/tools/parallel.rs`、`agent-loop.ts` | 工具带 `executionMode`；只读工具可并发，写工具串行；所有工具输出进入 truncation |
+| `AgentLoop` | Codex + Pi | `codex-rs/core`、`packages/agent/src/agent-loop.ts` | Rust core 采用事件流 + tool loop；支持 steering/follow-up；不在 loop 内混入 workflow phase |
+| `ToolRuntime` | Codex + Pi | `core/src/tools/parallel.rs`、`agent-loop.ts` | Rust 工具带 `executionMode`；只读工具可并发，写工具串行；所有工具输出进入 truncation |
 | `PermissionEngine` | Codex + OpenCode | `config/permissions.rs`、`permission.go` | profile 编译 + permission request；deny 优先；session grant 与 persistent grant 分开 |
 | `FileEditTools` | OpenCode + Codex apply-patch | `write.go`、`edit.go`、`apply-patch` crate | read-before-write、mtime 检查、diff metadata、patch artifact、LSP diagnostics |
-| `SessionStore` | Pi + OpenCode | `session-manager.ts`、`session.go` | Phase 1 JSONL event log；Phase 2 SQLite index；支持 parent session 和 replay |
+| `SessionStore` | Codex + Pi + OpenCode | `thread_history.rs`、`session-manager.ts`、`session.go` | Phase 1 JSONL event log；Phase 2 SQLite index；支持 parent session 和 replay |
 | `MessageBus` | Codex mailbox + local pubsub | `agent/mailbox.rs`、`pubsub/broker.go` | 单进程内存 bus 起步；事件带 seq、traceId、causality；后续可换 Redis |
 | `ContextManager` | Codex | `compact.rs`、`context_manager/history.rs`、`context/fragment.rs` | separate-turn compaction、replacement history、fragment marker、remove-first emergency |
 | `Skills` | cc-from-scratch + Codex | `skills.ts`、`core/src/skills.rs` | frontmatter + project/user priority；Phase 1 静态，self-evolving 延后 |
-| `MCP` | cc-from-scratch + Codex | `mcp.ts`、`mcp_tool_call.rs` | stdio MCP client + tool prefix；权限映射后才能暴露给 Agent |
-| `Observability` | Pi events + Codex thread history | `agent-loop.ts` event sink、`thread_history.rs` | 所有核心动作 emit event；Web UI 只读消费 event store |
+| `MCP` | Codex + cc-from-scratch | `codex-mcp`、`rmcp-client`、`mcp.ts` | Rust stdio MCP client + tool prefix；权限映射后才能暴露给 Agent |
+| `Observability` | Codex thread history + Pi events | `thread_history.rs`、`agent-loop.ts` event sink | 所有核心动作 emit event；Web UI 只读消费 event store |
 
 ### 17.2 不直接照搬的点
 
-1. 不照搬 Codex 的 Rust workspace 和 Bazel/多 crate 复杂度；WhaleCode Phase 1 用 TypeScript package 边界表达架构。
+1. 不直接 fork Codex CLI；WhaleCode 采用 Rust-first core，但按自身 Multi-Agent First、Create/Debug、DeepSeek 路由和 Viewer 约束重新实现。
 2. 不照搬 OpenCode 的 DB-first session；早期 JSONL 更利于 debug、回放和用户手动检查。
 3. 不照搬 Pi 的通用 Agent 产品形态；WhaleCode 的差异点仍是 Create/Debug 原语和多 Agent DAG。
 4. 不照搬 `cc-from-scratch` 的通用 `run_shell` 权限；它适合作最小教学实现，不足以覆盖开源 agent 的安全边界。
@@ -2535,52 +2537,68 @@ type LogEventEnvelope<T> = {
 
 ## 十八、MVP 接口草案
 
-接口草案用于约束第一版工程落地。实际代码可以调整命名，但语义不能弱化。
+接口草案用于约束第一版工程落地。技术栈决策已在 `docs/plans/2026-04-25-rust-first-technology-architecture.md` 中更新为 Rust-first core，本章保留核心语义并改为 Rust 形态。实际代码可以调整命名，但语义不能弱化。
 
 ### 18.1 包结构
 
 ```text
-packages/
-  core/              # AgentLoop, Supervisor, MessageBus, SessionStore, ContextManager
-  deepseek/          # DeepSeek/OpenAI-compatible client adapter and capability probe
-  tools/             # Read/Edit/Write/Shell/Git/Web/MCP tool implementations
-  workflows/         # Create and Debug phase machines + DAG validators
-  cli/               # Commander/Bun CLI entry, REPL, slash commands
-  observability/     # Event schemas, redaction, JSONL/SQLite store, WebSocket bridge
-  web/               # Phase 3 visualization UI
+crates/
+  whalecode-protocol/     # Shared event/message/tool/session schema
+  whalecode-core/         # AgentLoop, Supervisor, MessageBus
+  whalecode-model/        # DeepSeek adapter, capability probe, model routing
+  whalecode-context/      # ContextManager, compaction, fragments
+  whalecode-tools/        # Read/Edit/Write/Shell/Git/Web/MCP built-in tools
+  whalecode-permission/   # Permission profiles, grants, ask/deny decisions
+  whalecode-patch/        # PatchArtifact, diff, ownership, apply engine
+  whalecode-session/      # JSONL store, replay, fork, SQLite index later
+  whalecode-workflow/     # Create/Debug phase machines + DAG validators
+  whalecode-mcp/          # stdio JSON-RPC client, MCP tool mapping
+  whalecode-observe/      # Event schemas, redaction, tracing/JSONL bridge
+  whalecode-cli/          # clap commands, REPL, slash commands
+  whalecode-tui/          # ratatui interactive UI
+
+apps/
+  viewer/                 # React + Vite visualization UI
 ```
 
 ### 18.2 Agent Loop
 
-```typescript
-type AgentRole =
-  | "architect"
-  | "debugger"
-  | "implementer"
-  | "searcher"
-  | "reviewer"
-  | "viewer"
-  | "supervisor";
+```rust
+pub enum AgentRole {
+    Architect,
+    Debugger,
+    Implementer,
+    Searcher,
+    Reviewer,
+    Viewer,
+    Supervisor,
+}
 
-type AgentState = "idle" | "busy" | "blocked" | "done" | "failed";
+pub enum AgentState {
+    Idle,
+    Busy,
+    Blocked,
+    Done,
+    Failed,
+}
 
-type AgentLoopConfig = {
-  role: AgentRole;
-  model: ModelRoute;
-  tools: ToolSpec[];
-  context: ContextManager;
-  bus: MessageBus;
-  permission: PermissionEngine;
-  events: ObservabilitySink;
-  abortSignal?: AbortSignal;
-};
+pub struct AgentLoopConfig {
+    pub role: AgentRole,
+    pub model: ModelRoute,
+    pub tools: Vec<ToolSpec>,
+    pub context: Arc<dyn ContextManager>,
+    pub bus: Arc<dyn MessageBus>,
+    pub permission: Arc<dyn PermissionEngine>,
+    pub events: Arc<dyn ObservabilitySink>,
+}
 
-interface AgentLoop {
-  id: AgentId;
-  state(): AgentState;
-  start(task: TaskAssignment): Promise<TaskResult>;
-  interrupt(reason: string): Promise<void>;
-  close(): Promise<void>;
+#[async_trait::async_trait]
+pub trait AgentLoop {
+    fn id(&self) -> AgentId;
+    fn state(&self) -> AgentState;
+    async fn start(&mut self, task: TaskAssignment) -> Result<TaskResult, AgentError>;
+    async fn interrupt(&mut self, reason: InterruptReason) -> Result<(), AgentError>;
+    async fn close(&mut self) -> Result<(), AgentError>;
 }
 ```
 
@@ -2592,61 +2610,58 @@ interface AgentLoop {
 
 ### 18.3 DeepSeek Adapter
 
-```typescript
-type ModelCapability = {
-  provider: "deepseek";
-  model: string;
-  observedAt: string;
-  contextWindow: number;
-  maxOutputTokens: number;
-  supportsThinking: boolean;
-  supportsToolCalls: boolean;
-  supportsThinkingToolCalls: boolean;
-  supportsStrictToolSchema: boolean;
-  pricing?: {
-    inputCacheHitPerMTok: number;
-    inputCacheMissPerMTok: number;
-    outputPerMTok: number;
-    currency: "USD" | "CNY";
-    source: string;
-  };
-};
-
-interface ModelCapabilityProbe {
-  probe(model: string): Promise<ModelCapability>;
-  cached(model: string): ModelCapability | undefined;
+```rust
+pub struct ModelCapability {
+    pub provider: ProviderId,
+    pub model: String,
+    pub observed_at: DateTime<Utc>,
+    pub context_window: usize,
+    pub max_output_tokens: usize,
+    pub supports_thinking: bool,
+    pub supports_tool_calls: bool,
+    pub supports_thinking_tool_calls: bool,
+    pub supports_strict_tool_schema: bool,
+    pub pricing: Option<ModelPricing>,
 }
 
-interface LlmClient {
-  stream(input: LlmRequest, signal?: AbortSignal): AsyncIterable<LlmEvent>;
+#[async_trait::async_trait]
+pub trait ModelCapabilityProbe {
+    async fn probe(&self, model: &str) -> Result<ModelCapability, ModelError>;
+    fn cached(&self, model: &str) -> Option<ModelCapability>;
+}
+
+#[async_trait::async_trait]
+pub trait LlmClient {
+    async fn stream(&self, input: LlmRequest) -> Result<LlmStream, ModelError>;
 }
 ```
 
 DeepSeek adapter 的硬约束：
 - `baseURL` 默认 `https://api.deepseek.com`，可通过配置覆盖。
-- thinking 参数通过 OpenAI SDK 的 `extra_body` 注入。
+- thinking 参数通过 DeepSeek 当前 API 支持的 request body 字段表达；Rust core 不把 OpenAI SDK 作为核心依赖。
 - thinking + tool calls 的 sub-turn 保留 `reasoning_content`，新用户 turn 前清理旧 reasoning。
 - `parallel_tool_calls` 不作为 DeepSeek 必选参数；并发由 `ToolRuntime` 自己决定。
 - V4 模型名、1M context、384K output、Flash/Pro 价格只有 probe 通过后才进入 runtime。
 
 ### 18.4 Message Bus
 
-```typescript
-type BusEnvelope<T = MessagePayload> = {
-  id: string;
-  seq: number;
-  traceId: string;
-  causality: string[];
-  from: AgentId | "supervisor";
-  to: AgentId | "broadcast" | AgentRole;
-  payload: T;
-  createdAt: string;
-};
+```rust
+pub struct BusEnvelope<T> {
+    pub id: EventId,
+    pub seq: u64,
+    pub trace_id: TraceId,
+    pub causality: Vec<EventId>,
+    pub from: ActorId,
+    pub to: BusTarget,
+    pub payload: T,
+    pub created_at: DateTime<Utc>,
+}
 
-interface MessageBus {
-  publish<T extends MessagePayload>(envelope: Omit<BusEnvelope<T>, "id" | "seq" | "createdAt">): BusEnvelope<T>;
-  subscribe(filter: BusFilter, handler: (envelope: BusEnvelope) => void | Promise<void>): Unsubscribe;
-  drain(agentId: AgentId): BusEnvelope[];
+#[async_trait::async_trait]
+pub trait MessageBus {
+    async fn publish(&self, envelope: DraftEnvelope) -> Result<BusEnvelope<EventPayload>, BusError>;
+    async fn subscribe(&self, filter: BusFilter) -> Result<BusSubscription, BusError>;
+    async fn drain(&self, agent_id: AgentId) -> Result<Vec<BusEnvelope<EventPayload>>, BusError>;
 }
 ```
 
@@ -2658,21 +2673,26 @@ MVP 用内存 bus，并满足：
 
 ### 18.5 Tool Runtime
 
-```typescript
-type ToolExecutionMode = "parallel_safe" | "sequential" | "exclusive_write";
+```rust
+pub enum ToolExecutionMode {
+    ParallelSafe,
+    Sequential,
+    ExclusiveWrite,
+}
 
-type ToolSpec = {
-  name: string;
-  description: string;
-  inputSchema: JsonSchema;
-  permissions: ToolPermission[];
-  executionMode: ToolExecutionMode;
-  outputPolicy: TruncationPolicy;
-};
+pub struct ToolSpec {
+    pub name: ToolName,
+    pub description: String,
+    pub input_schema: JsonSchema,
+    pub permissions: Vec<ToolPermission>,
+    pub execution_mode: ToolExecutionMode,
+    pub output_policy: TruncationPolicy,
+}
 
-interface ToolRuntime {
-  list(role: AgentRole, phase: WorkflowPhase): ToolSpec[];
-  execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult>;
+#[async_trait::async_trait]
+pub trait ToolRuntime {
+    async fn list(&self, role: AgentRole, phase: WorkflowPhase) -> Vec<ToolSpec>;
+    async fn execute(&self, call: ToolCall, ctx: ToolContext) -> Result<ToolResult, ToolError>;
 }
 ```
 
@@ -2684,16 +2704,23 @@ interface ToolRuntime {
 
 ### 18.6 Permission Engine
 
-```typescript
-type PermissionDecision =
-  | { action: "allow"; source: "profile" | "session" | "hook" | "supervisor" }
-  | { action: "deny"; reason: string }
-  | { action: "ask"; prompt: PermissionPrompt };
+```rust
+pub enum PermissionDecision {
+    Allow { source: PermissionSource },
+    Deny { reason: String },
+    Ask { prompt: PermissionPrompt },
+}
 
-interface PermissionEngine {
-  decide(request: PermissionRequest, ctx: PermissionContext): Promise<PermissionDecision>;
-  grant(request: PermissionRequest, scope: "once" | "session" | "project"): Promise<void>;
-  deny(request: PermissionRequest, reason: string): Promise<void>;
+#[async_trait::async_trait]
+pub trait PermissionEngine {
+    async fn decide(
+        &self,
+        request: PermissionRequest,
+        ctx: PermissionContext,
+    ) -> Result<PermissionDecision, PermissionError>;
+
+    async fn grant(&self, request: PermissionRequest, scope: GrantScope) -> Result<(), PermissionError>;
+    async fn deny(&self, request: PermissionRequest, reason: String) -> Result<(), PermissionError>;
 }
 ```
 
@@ -2708,22 +2735,24 @@ interface PermissionEngine {
 
 ### 18.7 Session Store
 
-```typescript
-type SessionEntry =
-  | { type: "session_started"; id: string; cwd: string; parentId?: string; createdAt: string }
-  | { type: "message"; envelope: BusEnvelope }
-  | { type: "tool_call"; call: ToolCall; redactedArgs: unknown }
-  | { type: "tool_result"; result: ToolResult }
-  | { type: "phase_transition"; from: WorkflowPhase; to: WorkflowPhase }
-  | { type: "patch_artifact"; artifact: PatchArtifact }
-  | { type: "compaction"; summary: string; replacementStartSeq: number; tokensBefore: number; tokensAfter: number }
-  | { type: "verification"; result: VerificationResult };
+```rust
+pub enum SessionEntry {
+    SessionStarted(SessionStarted),
+    Message(BusEnvelope<EventPayload>),
+    ToolCall { call: ToolCall, redacted_args: serde_json::Value },
+    ToolResult(ToolResult),
+    PhaseTransition { from: WorkflowPhase, to: WorkflowPhase },
+    PatchArtifact(PatchArtifact),
+    Compaction(CompactionEntry),
+    Verification(VerificationResult),
+}
 
-interface SessionStore {
-  append(entry: SessionEntry): Promise<void>;
-  read(sessionId: string): AsyncIterable<SessionEntry>;
-  replay(sessionId: string): Promise<ReplaySnapshot>;
-  fork(sessionId: string, fromSeq: number): Promise<string>;
+#[async_trait::async_trait]
+pub trait SessionStore {
+    async fn append(&self, entry: SessionEntry) -> Result<(), SessionError>;
+    async fn read(&self, session_id: SessionId) -> Result<SessionStream, SessionError>;
+    async fn replay(&self, session_id: SessionId) -> Result<ReplaySnapshot, SessionError>;
+    async fn fork(&self, session_id: SessionId, from_seq: u64) -> Result<SessionId, SessionError>;
 }
 ```
 
@@ -2731,33 +2760,39 @@ Phase 1 存储格式：`~/.whalecode/sessions/<session-id>.jsonl`。每行一个
 
 ### 18.8 Workflow Phase Machine
 
-```typescript
-type WorkflowKind = "create" | "debug";
-type WorkflowPhase =
-  | "idle"
-  | "analyze"
-  | "design"
-  | "scaffold"
-  | "implement"
-  | "review"
-  | "confirm"
-  | "hypothesize"
-  | "collect_evidence"
-  | "evaluate"
-  | "fix"
-  | "verify"
-  | "result";
+```rust
+pub enum WorkflowKind {
+    Create,
+    Debug,
+}
 
-type PhaseGate = {
-  from: WorkflowPhase;
-  to: WorkflowPhase;
-  checks: GateCheck[];
-};
+pub enum WorkflowPhase {
+    Idle,
+    Analyze,
+    Design,
+    Scaffold,
+    Implement,
+    Review,
+    Confirm,
+    Hypothesize,
+    CollectEvidence,
+    Evaluate,
+    Fix,
+    Verify,
+    Result,
+}
 
-interface WorkflowMachine {
-  current(): WorkflowPhase;
-  canTransition(to: WorkflowPhase, ctx: WorkflowContext): Promise<GateResult>;
-  transition(to: WorkflowPhase, ctx: WorkflowContext): Promise<void>;
+pub struct PhaseGate {
+    pub from: WorkflowPhase,
+    pub to: WorkflowPhase,
+    pub checks: Vec<GateCheck>,
+}
+
+#[async_trait::async_trait]
+pub trait WorkflowMachine {
+    fn current(&self) -> WorkflowPhase;
+    async fn can_transition(&self, to: WorkflowPhase, ctx: WorkflowContext) -> GateResult;
+    async fn transition(&mut self, to: WorkflowPhase, ctx: WorkflowContext) -> Result<(), WorkflowError>;
 }
 ```
 
@@ -2767,22 +2802,24 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 
 ## 十九、技术栈
 
+详细技术架构规划见 `docs/plans/2026-04-25-rust-first-technology-architecture.md`。本章只保留主选型摘要。
+
 | 组件 | 选择 | 原因 | 参考 |
 |------|------|------|------|
-| 运行时 | Node.js 22+ / Bun | TypeScript 生态好；Bun 可提供单文件分发 | Pi、cc-from-scratch |
-| 包管理 | pnpm workspaces | monorepo 清晰，锁文件稳定 | Codex CLI / Pi 均采用 workspace 思路 |
-| CLI | Commander | 成熟稳定 | cc-from-scratch |
-| API SDK | `openai` npm | DeepSeek API OpenAI-compatible | DeepSeek official docs |
-| Schema | Zod | 类型安全，适合 artifact contracts | 本项目约束层 |
-| 测试 | Vitest | TS 项目启动成本低 | Pi |
-| 格式/Lint | Biome + TypeScript strict | 快速、少配置，适合早期统一风格 | Pi |
-| Git/Patch | `diff` + 自研 `PatchArtifact` | 先生成 artifact，再由 Supervisor 应用 | OpenCode + Codex apply-patch |
-| Shell | execa / node child_process 包装 | 需要 timeout、env redaction、stream output | Codex unified_exec 思路 |
-| MCP | 官方 MCP SDK 或 stdio JSON-RPC adapter | Phase 1 可以先做 stdio client | cc-from-scratch |
-| 会话存储 | JSONL first, SQLite index later | 可回放、可审计、易恢复 | Pi + OpenCode |
-| TUI | Ink + React | Phase 2，命令行交互丰富 | 既有生态 |
-| 可视化前端 | React + Vite | Phase 3，Agent 网络图和证据链视图 | Pi web-ui 思路 |
-| 实时通信 | WebSocket / SSE | 只读推送 session events | 可观测性层 |
+| 核心运行时 | Rust stable | 本地执行安全、并发状态、单二进制分发、长期可维护性更适合 coding agent core | Codex CLI |
+| Async runtime | Tokio | streaming、subprocess、timeout、bus、Web bridge 都是 async I/O 问题 | Codex CLI / Tokio |
+| CLI | clap | Rust CLI 标准选择，适合子命令、completion、配置参数 | Codex CLI |
+| TUI | ratatui + crossterm | 终端交互、diff preview、permission prompt、tool progress | Codex CLI |
+| HTTP / SSE | reqwest + stream parser | DeepSeek OpenAI-compatible API 需要手写 thinking/tool-call 兼容层 | DeepSeek official docs |
+| Schema / serialization | serde / serde_json / serde_yaml | 事件、session、tool schema、配置都需要版本化结构化数据 | Rust 生态 |
+| 测试 | cargo test + integration fixtures | Rust core 需要覆盖权限、phase、tool runtime、session replay | Codex CLI |
+| 格式/Lint | cargo fmt + clippy | Rust workspace 基线质量门禁 | Rust 生态 |
+| Git/Patch | 自研 `PatchArtifact` + unified diff parser | 先生成 artifact，再由 Supervisor 应用，避免多 Agent 直接写共享区 | OpenCode + Codex apply-patch |
+| Shell | Rust subprocess wrapper | timeout、env redaction、stream output、exit metadata、permission gate | Codex unified_exec 思路 |
+| MCP | stdio JSON-RPC adapter first；Phase 2 评估 Rust SDK | MCP 工具必须经过 PermissionEngine 和 truncation/redaction | cc-from-scratch + MCP docs |
+| 会话存储 | JSONL first, SQLite index later | 可回放、可审计、易恢复，后续增加索引 | Pi + OpenCode |
+| Web Viewer | TypeScript + React + Vite | 可视化前端仍用 Web 生态 | Pi web-ui 思路 |
+| 实时通信 | Rust SSE / WebSocket | 只读推送 session events，断线后按 seq 补事件 | 可观测性层 |
 
 ---
 
@@ -2794,8 +2831,10 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 
 交付：
 - `docs/plans/2026-04-24-system-architecture.md` 补齐参考映射、接口、MVP 验收和引用。
+- `docs/plans/2026-04-25-rust-first-technology-architecture.md` 固化 Rust-first 技术架构。
+- `docs/adr/2026-04-25-rust-first-core-runtime.md` 记录主栈决策。
 - `.gitignore` 忽略 `tmp/`、`.DS_Store`、`node_modules/`、`dist/`、`coverage/`、`.env*`。
-- 选定 pnpm workspace + Node 22+。
+- 选定 Rust workspace + TypeScript Web Viewer。
 - 建立 `docs/adr/`，记录关键设计变更。
 
 验收：
@@ -2808,11 +2847,13 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 目标：先做可运行的 coding agent，不做完整多 Agent 网格。
 
 交付范围：
-1. `packages/core`: `AgentLoop`、`MessageBus`、`SessionStore`、`ContextManager` 基础实现。
-2. `packages/deepseek`: OpenAI-compatible streaming client、thinking support、capability probe。
-3. `packages/tools`: `read`、`glob`、`grep`、`edit`、`write`、`git_read`、受控 `shell`。
-4. `packages/cli`: 基础 REPL、`/create`、`/debug`、`/compact`、`/status`。
-5. `packages/observability`: JSONL event log、redaction、session replay。
+1. `crates/whalecode-protocol`: event/message/tool/session schema。
+2. `crates/whalecode-core`: `AgentLoop`、`Supervisor`、`MessageBus` 基础实现。
+3. `crates/whalecode-model`: DeepSeek streaming client、thinking support、capability probe。
+4. `crates/whalecode-tools`: `read`、`glob`、`grep`、`edit`、`write`、`git_read`、受控 `shell`。
+5. `crates/whalecode-permission`: permission profiles、grant、ask/deny。
+6. `crates/whalecode-session`: JSONL event log、redaction、session replay。
+7. `crates/whalecode-cli`: 基础 REPL、`/create`、`/debug`、`/compact`、`/status`。
 
 验收：
 - 能在真实仓库内读取、搜索、编辑一个文件。
@@ -2895,8 +2936,10 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 
 ### 21.3 测试验收
 
-- `pnpm test` 通过。
-- `pnpm lint` 通过。
+- `cargo test --workspace` 通过。
+- `cargo fmt --check` 通过。
+- `cargo clippy --workspace --all-targets -- -D warnings` 通过。
+- `npm --prefix apps/viewer run build` 通过（Phase 3 后启用）。
 - DeepSeek adapter 有 mock streaming 测试，覆盖 thinking + tool call。
 - ToolRuntime 有并发/串行测试。
 - PermissionEngine 有 deny > phase > role > grant 的优先级测试。
@@ -2945,9 +2988,19 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 6. OpenCode repository: https://github.com/opencode-ai/opencode
    用途：参考 file edit safety、permission request、session service、pubsub、LSP diagnostics。
 7. Pi monorepo: https://github.com/badlogic/pi-mono
-   用途：参考 TypeScript agent loop、tool execution mode、JSONL session、web-ui 组件化。
+   用途：参考 agent loop、tool execution mode、JSONL session、web-ui 组件化；Rust core 只迁移语义，不迁移 TS runtime。
 8. Claude Code from Scratch repository: https://github.com/Windy3f3f3f3f/claude-code-from-scratch
-   用途：参考最小 TypeScript Agent/Tool/Skill/MCP/Subagent 实现边界。
+   用途：参考最小 Agent/Tool/Skill/MCP/Subagent 实现边界。
+9. Rust official site: https://www.rust-lang.org/
+   用途：确认 Rust-first core 的可靠性、性能和内存安全定位。
+10. Tokio official site: https://tokio.rs/
+   用途：确认 async runtime 覆盖 I/O、timer、filesystem、sync 和 scheduling。
+11. ratatui official site: https://ratatui.rs/
+   用途：确认 Rust TUI 生态可覆盖终端交互。
+12. Node.js Permission Model docs: https://nodejs.org/api/permissions.html
+   用途：确认 Node permission model 不应作为 coding agent 的核心安全边界。
+13. Deno Security and Permissions docs: https://docs.deno.com/runtime/fundamentals/security/
+   用途：确认 `allow-run` 子进程权限会削弱 runtime sandbox，shell 安全必须由 WhaleCode 自己控制。
 
 ### 23.2 本地源码证据
 

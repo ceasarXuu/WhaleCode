@@ -3,7 +3,7 @@
 构建以 DeepSeek V4 为核心的终端 AI coding agent，对标 Claude Code / OpenCode / Codex CLI / Pi。
 
 - **开源**
-- **技术栈**: TypeScript (Node.js/Bun)
+- **技术栈**: Rust-first core + TypeScript Web Viewer
 - **模型**: `deepseek-v4-flash` + `deepseek-v4-pro`
 - **核心定位**: Multi-Agent First + Coding-Native，极致适配 DeepSeek 模型
 - **原生任务**: Create（构建发散）和 Debug（诊断收敛）作为架构原语
