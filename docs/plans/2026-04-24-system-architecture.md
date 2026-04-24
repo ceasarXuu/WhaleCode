@@ -2386,6 +2386,7 @@ Debug 模式下，Agent 网络图切换为**证据链视图**：
 | 假设生成数量 | 初始 3-5 个；第二轮允许最多 8 个，但必须引用新增证据或被排除假设 | 保持诊断可解释 | 复杂系统故障可手动提升 |
 | Viewer 触发频率 | 默认只审查 Phase Gate、写入 artifact、权限升级、失败恢复、Reviewer 结论；不监听每个 token/普通消息 | 控制成本和 429 风险 | strict-review 模式开启 |
 | DeepSeek V4 参数 | 官方已列出 V4 Flash/Pro，但 runtime 仍用 `ModelCapabilityProbe` 决定 context、output、thinking、tool-call、pricing、429 行为 | 官方 API 能力和价格会变动 | probe 结果持久化并带版本戳 |
+| 成熟基础设施设计 | 采用 Codex-first Reference Audit Gate：权限、沙箱、工具执行、补丁、会话、上下文、MCP/Skills、日志先审计 Codex CLI；不足处再参考 Claude/OpenCode/Pi | 这些方向已经被成熟 coding 产品反复验证，WhaleCode 不应从 0 自创底座 | Codex 没覆盖或与 DeepSeek/Multi-Agent/Create-Debug 差异冲突时，用 ADR 记录替代方案 |
 
 ### 16.1 Debug 只读边界
 
@@ -2503,6 +2504,15 @@ type LogEventEnvelope<T> = {
 ## 十七、参考实现映射
 
 参考目录位于 `tmp/whalecode-refs/`，只作为设计证据，不直接复制代码。复制代码前必须单独做 license 审查和归属标注。
+
+详细的 Codex-first 审计准则见 `docs/plans/2026-04-25-codex-first-reference-audit.md`。后续所有成熟基础设施模块都必须补齐 `reference_source`、`borrowed_behavior`、`whalecode_delta`、`rejected_behavior`、`license_boundary`、`acceptance_tests`，没有完成审计不得进入实现。
+
+参考优先级：
+
+1. Codex CLI：Rust core、permission、sandbox、unified exec、apply patch、context compaction、session trace、MCP/skills。
+2. Claude Code 语义：plan mode、subagent、permission modes、skills 体验；通过公开复刻项目观察，不作为生产安全标准。
+3. OpenCode：permission request UX、read-before-write、diff metadata、LSP diagnostics、session service。
+4. Pi：JSONL session tree、event bus、web UI/runtime presentation。
 
 | 参考项目 | 本地快照 | 上游 | 许可证 | WhaleCode 借鉴点 | 不借鉴点 |
 |----------|----------|------|--------|------------------|----------|
@@ -2835,6 +2845,7 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 - `docs/plans/2026-04-24-system-architecture.md` 补齐参考映射、接口、MVP 验收和引用。
 - `docs/plans/2026-04-25-rust-first-technology-architecture.md` 固化 Rust-first 技术架构。
 - `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md` 固化多 Agent 群体协同、Tournament、Evidence Race、Patch League、ConcurrencyGovernor 设计。
+- `docs/plans/2026-04-25-codex-first-reference-audit.md` 固化成熟基础设施的 Codex-first 审计门禁。
 - `docs/adr/2026-04-25-rust-first-core-runtime.md` 记录主栈决策。
 - `.gitignore` 忽略 `tmp/`、`.DS_Store`、`node_modules/`、`dist/`、`coverage/`、`.env*`。
 - 选定 Rust workspace + TypeScript Web Viewer。
@@ -2843,6 +2854,7 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 验收：
 - 文档有 ≥3 外部引用。
 - 每个核心模块有明确参考来源和不借鉴边界。
+- 每个成熟基础设施模块都有 Codex-first audit 字段。
 - 没有未决开放问题阻塞 Phase 1。
 
 ### 20.2 Phase 1 — 单 Agent 可运行纵切

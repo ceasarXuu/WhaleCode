@@ -41,8 +41,10 @@ Rejected as product strategy. Codex CLI should be a reference implementation for
 - DeepSeek support should be implemented as a Rust HTTP/SSE adapter with capability probing.
 - Web Viewer consumes versioned events from Rust core and must remain read-only by default.
 - Skills and MCP tools must be mediated by the Rust Permission Engine.
+- Mature coding-agent infrastructure must pass the Codex-first Reference Audit Gate before implementation. Permission, sandbox, unified exec, patch, session, context, MCP/skills, and observability should start from Codex CLI behavior, then adapt only where WhaleCode's DeepSeek, multi-agent, Create/Debug, or Viewer requirements require it.
 
 ## References
 
 - Detailed plan: `docs/plans/2026-04-25-rust-first-technology-architecture.md`
 - System architecture: `docs/plans/2026-04-24-system-architecture.md`
+- Reference audit: `docs/plans/2026-04-25-codex-first-reference-audit.md`
