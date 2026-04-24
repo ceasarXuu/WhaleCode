@@ -9,6 +9,7 @@ WhaleCode 的多 Agent 设计不是“多个聊天机器人互相讨论”，而
 核心假设：
 
 - 单个 Flash agent 可以平庸，但大量 Flash agent 可快速覆盖搜索空间。
+- agent 数量只有在视角、工具、上下文切片或候选路径足够不相关时才会转化为质量；同质 agent 只会更快地产生一致错误。
 - Pro agent 不应承担所有工作，而应作为关键路径的裁判、整合者和高风险决策者。
 - 质量不是靠单 agent 一次输出，而是靠“并行探索 → 候选竞争 → 证据加权 → 交叉审查 → 验证闭环”产生。
 - 1M context 不是让每个 agent 无限堆上下文，而是让 Supervisor 能构造高质量共享任务包，并让每个 agent 在独立上下文内处理更大的局部问题。
@@ -25,6 +26,7 @@ WhaleCode 的多 Agent 设计不是“多个聊天机器人互相讨论”，而
 | Many cheap attempts | 用 Flash 大量生成候选、收集证据、跑局部实现 |
 | Few expensive decisions | 用 Pro 做设计裁判、根因裁判、合并裁判、最终审查 |
 | Independence before consensus | 先让 agent 独立工作，再聚合，避免互相影响导致同质化 |
+| Diversity before width | 先扩大视角、模型、工具和上下文差异，再扩大 agent 数量 |
 | Evidence over votes | 多数票不能直接代表正确，必须按证据质量、测试结果和风险加权 |
 | Artifact-first communication | Agent 之间传 artifact reference，不传大段聊天历史 |
 | Cache-aware fan-out | 群体请求共享稳定前缀，提高 cache hit 概率 |
@@ -664,12 +666,13 @@ Supervisor 需要把“群体作战”转成可计算质量函数，而不是凭
 
 ```text
 QualityScore =
-  evidence_strength * 0.30
-  + verification_strength * 0.25
-  + reviewer_agreement * 0.15
-  + independence_score * 0.10
-  + architecture_fit * 0.10
-  + maintainability * 0.10
+  evidence_strength * 0.28
+  + verification_strength * 0.24
+  + diversity_effective_channels * 0.12
+  + reviewer_agreement * 0.12
+  + independence_score * 0.08
+  + architecture_fit * 0.08
+  + maintainability * 0.08
   - risk_penalty
   - integration_cost_penalty
 ```
@@ -677,6 +680,7 @@ QualityScore =
 说明：
 
 - `independence_score` 衡量候选是否来自真正独立的上下文/lens。
+- `diversity_effective_channels` 衡量候选之间是否提供非冗余信息，而不是简单统计 agent 数量。
 - `reviewer_agreement` 不是简单多数票，Reviewer 必须给 evidence。
 - `verification_strength` 高于 Reviewer 主观判断。
 - Pro Judge 可覆盖分数，但必须写入 override reason。
@@ -801,7 +805,173 @@ SharedTaskPack 是多 Agent 质量的核心。它让大量 agent 从同一高质
 
 ---
 
-## 十五、落地阶段
+## 十五、业界研究补充与设计修正
+
+### 15.1 研究结论摘要
+
+调研结论：业界已有方案证明多 Agent 在软件工程、推理和信息检索任务上有真实收益，但收益不是来自“群聊”或“多数票”，而是来自角色分工、独立采样、过程约束、证据验证和多样性。WhaleCode 的设计应把 DeepSeek V4 的低成本高并发当作 test-time compute，而不是让 agent 无约束互相说服。
+
+| 来源 | 关键启发 | 对 WhaleCode 的设计影响 |
+|------|----------|--------------------------|
+| AutoGen | 多 agent conversation 可以作为通用应用框架，但需要开发者显式定义 agent 能力、工具、人类输入和交互行为 | Message Bus 必须是可编程协议层，不应退化成开放聊天室 |
+| CAMEL | role-playing 与 inception prompting 能推动自主协作，并用于观察 agent society 行为 | 角色 specialization 有价值，但角色必须绑定 artifact contract 和退出条件 |
+| ChatDev | 软件开发可拆为设计、编码、测试等沟通链，并通过 communication discipline 减少幻觉 | Create workflow 应保留阶段链，但每阶段只传结构化 artifact |
+| MetaGPT | 朴素串联 LLM 会产生 cascading hallucinations，SOP 和中间结果校验可降低错误 | DAG gate、SOP、Artifact Contract 是核心正确性机制 |
+| AgentVerse | 群体可动态调整组成，并出现正负两类社会行为 | CohortScheduler 需要记录社会行为信号，如同化、重复、无效争论 |
+| Self-Consistency | 多条独立推理路径再聚合通常优于贪婪单路径 | Analysis Tournament 和 Patch League 应先盲生成，再聚合 |
+| More Agents Is All You Need | sampling-and-voting 可随 agent 数提升表现，但本质是采样与聚合 | fan-out 可作为候选采样器，不能把 voting 当最终正确性证明 |
+| Multiagent Debate | 多轮辩论可改善推理和事实性 | Debate 应只在 artifact 提交后触发，并由 evidence gate 控制 |
+| Controlled Debate Study | 推理强度和群体多样性是主因，majority pressure 会压制独立修正 | 必须加入 Anti-Conformity Protocol，保留少数正确候选 |
+| AgentCoder | Programmer、Test Designer、Test Executor 分离能提升代码生成和测试闭环 | Reviewer、Verifier、Implementer 必须解耦，测试反馈不能由同一实现 agent 自证 |
+| MapCoder | 代码生成可拆成 retrieval、planning、generation、debugging 的多 agent 循环 | Debug/Create 的 WorkUnit 应显式包含 recall/plan/code/debug 子阶段 |
+| LLM-Based MAS for SE Survey | LLM-MAS 覆盖 SDLC 多阶段，但仍有 agent capability、synergy、trustworthiness 研究缺口 | WhaleCode 需要内建协同指标和可 replay 证据，而不是只做功能演示 |
+| SE Design Pattern Survey | 角色协作是 SE 多 Agent 最常见设计模式，功能适配和代码质量是核心质量属性 | 角色网格合理，但必须用质量属性和模式约束每个角色的产物 |
+| Agent Scaling via Diversity | 同质 agent 扩展很快饱和，多样 agent 通过非冗余信息通道提升效率 | 增加 `DiversityPolicy` 和 `effective_agent_count`，用差异化替代盲目堆数量 |
+
+### 15.2 必须加入的架构修正
+
+#### DiversityPolicy
+
+每个 Cohort 创建前，Supervisor 生成 DiversityPolicy：
+
+```rust
+pub struct DiversityPolicy {
+    pub min_effective_channels: u8,
+    pub lens_set: Vec<LensId>,
+    pub context_slice_strategy: SliceStrategy,
+    pub tool_mix: Vec<ToolProfile>,
+    pub model_mix: Vec<ModelProfile>,
+    pub temperature_band: TemperatureBand,
+    pub forbid_duplicate_prompt_suffix: bool,
+}
+```
+
+规则：
+
+- 同一 cohort 内 agent 不应只复制相同 prompt suffix。
+- 低成本模式优先使用不同 lens 和 context slice，不一定切换模型。
+- 高风险模式可混用 Flash/Pro 或不同 thinking effort，但必须记录成本差异。
+- DiversityPolicy 生成后写入 session log，用于复盘“数量是否真的变成质量”。
+
+#### IndependenceProtocol
+
+聚合前必须有盲生成阶段：
+
+1. Supervisor 分发 SharedTaskPack 和独立 suffix。
+2. agent 只提交 artifact，不可读取其他 agent 的结论。
+3. artifact store 锁定首轮产物。
+4. Judge 只在首轮产物齐备或 timeout 后启动。
+5. 后续 debate 只能引用 artifact id 和 evidence id，不可复制大段自然语言立场。
+
+这能避免早期强势错误答案污染整个群体。
+
+#### Anti-ConformityProtocol
+
+针对多数压力和同质收敛，新增约束：
+
+- Judge 聚合前隐藏 candidate 支持数量，先看 evidence 和 verification。
+- 少数派 candidate 如果 evidence 强或 test 通过，必须进入 final consideration。
+- Review 阶段要求至少一个 Reviewer 扮演 disconfirming lens，只寻找反例。
+- ConsensusReport 必须记录被否决的强少数候选及原因。
+- 若多数候选共享同一未验证假设，Supervisor 必须触发 Evidence Race，而不能直接采纳多数。
+
+#### EvidenceWeightedConsensus
+
+`ConsensusReport` 不使用简单投票：
+
+```rust
+pub struct EvidenceWeightedConsensus {
+    pub candidates: Vec<CandidateId>,
+    pub evidence_scores: Vec<EvidenceScore>,
+    pub verification_scores: Vec<VerificationScore>,
+    pub diversity_scores: Vec<DiversityScore>,
+    pub dissenting_candidates: Vec<CandidateId>,
+    pub selected: CandidateId,
+    pub selected_reason: String,
+    pub rejected_strong_minority: Vec<RejectedCandidate>,
+}
+```
+
+排序优先级：
+
+1. verification result。
+2. evidence strength。
+3. falsifiability。
+4. architecture fit。
+5. independence/diversity。
+6. reviewer agreement。
+7. cost。
+
+多数 agreement 只能作为弱信号。
+
+#### CorrelationScore 与 effective_agent_count
+
+Supervisor 需要估算 agent 输出的冗余程度：
+
+```rust
+pub struct CohortDiversityMetric {
+    pub raw_agent_count: u16,
+    pub effective_agent_count: f32,
+    pub semantic_similarity_mean: f32,
+    pub duplicate_claim_ratio: f32,
+    pub unique_evidence_ratio: f32,
+    pub unique_failure_mode_ratio: f32,
+}
+```
+
+StopRule 新增：
+
+- `effective_agent_count / raw_agent_count < 0.35` 时停止继续扩宽。
+- 连续两轮 unique evidence 增量低于阈值时停止扩散。
+- 同质度过高时优先换 lens/tool/context slice，而不是继续增加同类 agent。
+
+#### DebateGate
+
+Debate 不是默认模式，只在满足条件时启动：
+
+- 候选质量接近，且验证结果不足以区分。
+- 存在强少数候选。
+- root cause 决策仍有多个未证伪假设。
+- 高风险设计需要对抗性审查。
+
+Debate 输出必须是新增 evidence、反例或明确假设修正。只表达偏好或重复观点的 debate turn 计为无效工具调用，并降低后续宽度。
+
+### 15.3 已知风险补充
+
+| 风险 | 已知失败模式 | WhaleCode 防护 |
+|------|--------------|----------------|
+| 同质扩展饱和 | 16 个相同视角 agent 可能不如 2 个互补 agent | `DiversityPolicy`、`effective_agent_count`、lens/tool/context 多样化 |
+| 错误共识 | 多 agent 一起确认同一个错误假设 | `EvidenceWeightedConsensus`、Verifier 优先、强少数保留 |
+| 多数压力 | agent 在 debate 中服从多数，压制正确少数派 | 盲首轮、隐藏支持数量、Anti-ConformityProtocol |
+| 级联幻觉 | 上游错误 artifact 被下游当事实复用 | artifact 置信度、evidence refs、gate 前禁止提升置信度 |
+| 通信爆炸 | 全连接讨论导致 token 成本和上下文污染 | sparse topology、artifact refs、DebateGate |
+| 裁判偏置 | Pro Judge 错误压过正确候选 | Judge override 必须可审计；Viewer 可挑战；强少数写入报告 |
+| 自证测试 | 实现 agent 自己设计的测试覆盖不了真实风险 | Test Designer / Verifier 与 Implementer 分离 |
+| benchmark 迁移失败 | 论文 benchmark 收益无法直接迁移到真实 repo | 建立 repo-local eval、session replay、成本/质量 A/B |
+| 涌现行为不可控 | agent 产生重复争论、角色漂移、越权工具调用 | role contract、tool permission、conversation budget、Supervisor kill rule |
+
+### 15.4 新增观测指标
+
+多 Agent 架构必须把群体收益量化，否则容易只看到“跑了很多 agent”：
+
+| 指标 | 含义 | 用途 |
+|------|------|------|
+| `patch_pass_at_k` | k 个 patch candidate 中至少一个通过验证的概率 | 衡量 fan-out 是否提升实现成功率 |
+| `first_valid_candidate_latency_ms` | 第一个可验证候选出现时间 | 衡量以速度换质量是否成立 |
+| `accepted_candidate_rank` | 最终候选在首轮候选中的原始排名 | 判断 Judge 是否真的从群体中挑优 |
+| `effective_agent_count` | 去冗余后的有效信息通道数 | 判断是否继续扩宽 |
+| `unique_evidence_ratio` | 非重复 evidence 占比 | 判断 Scout/Analyst 是否有真实覆盖率 |
+| `correct_minority_rescued` | 少数候选被后续证据证明正确的次数 | 衡量 Anti-ConformityProtocol 价值 |
+| `wrong_majority_blocked` | 多数候选被 verifier/viewer 阻止的次数 | 衡量 evidence-over-votes 价值 |
+| `debate_reversal_rate` | debate 后候选排序变化率 | 判断 debate 是否产生新信息 |
+| `cost_per_accepted_patch` | 最终接受 patch 的总 token/API 成本 | 防止低价高并发变成隐性浪费 |
+| `judge_override_rate` | Pro Judge 覆盖自动分数的比例 | 发现评分函数缺陷 |
+
+这些指标应进入 Web Viewer 的统计面板，并进入 JSONL session replay，后续才能用真实项目数据调参。
+
+---
+
+## 十六、落地阶段
 
 ### Phase 2A — Read-only Cohort
 
@@ -899,7 +1069,7 @@ SharedTaskPack 是多 Agent 质量的核心。它让大量 agent 从同一高质
 
 ---
 
-## 十六、对现有文档的影响
+## 十七、对现有文档的影响
 
 本次设计已同步：
 
@@ -909,7 +1079,7 @@ SharedTaskPack 是多 Agent 质量的核心。它让大量 agent 从同一高质
 
 ---
 
-## 十七、参考来源
+## 十八、参考来源
 
 外部来源：
 
@@ -927,6 +1097,34 @@ SharedTaskPack 是多 Agent 质量的核心。它让大量 agent 从同一高质
    用途：确认动态并发限制、HTTP 429、SSE keep-alive 和 10 分钟未开始推理关闭连接。
 7. DeepSeek API Docs — Create Chat Completion: https://api-docs.deepseek.com/api/create-chat-completion
    用途：确认 model enum、thinking 参数、usage 字段和 reasoning token 字段。
+8. AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation: https://arxiv.org/abs/2308.08155
+   用途：参考可编程多 Agent conversation、agent 能力组合、tool/human/LLM 混合模式。
+9. CAMEL: Communicative Agents for "Mind" Exploration of Large Language Model Society: https://arxiv.org/abs/2303.17760
+   用途：参考 role-playing、自主协作和 agent society 行为观察。
+10. ChatDev: Communicative Agents for Software Development: https://arxiv.org/abs/2307.07924
+    用途：参考软件开发阶段链、communicative dehallucination 和设计/编码/测试协作。
+11. MetaGPT: Meta Programming for A Multi-Agent Collaborative Framework: https://arxiv.org/abs/2308.00352
+    用途：参考 SOP、assembly line、多角色协作，以及朴素 LLM 串联的 cascading hallucination 风险。
+12. AgentVerse: Facilitating Multi-Agent Collaboration and Exploring Emergent Behaviors: https://arxiv.org/abs/2308.10848
+    用途：参考动态群体组成和正负社会行为观测。
+13. Self-Consistency Improves Chain of Thought Reasoning in Language Models: https://arxiv.org/abs/2203.11171
+    用途：参考独立采样多条推理路径再聚合，而不是贪婪单路径。
+14. More Agents Is All You Need: https://arxiv.org/abs/2402.05120
+    用途：参考 sampling-and-voting 式 agent scaling，并限制其适用边界。
+15. Improving Factuality and Reasoning in Language Models through Multiagent Debate: https://arxiv.org/abs/2305.14325
+    用途：参考 multi-agent debate 对推理和事实性的潜在提升。
+16. Can LLM Agents Really Debate? A Controlled Study of Multi-Agent Debate in Logical Reasoning: https://arxiv.org/abs/2511.07784
+    用途：参考 debate 的限制、majority pressure 风险，以及推理强度和多样性的重要性。
+17. AgentCoder: Multi-Agent-based Code Generation with Iterative Testing and Optimisation: https://arxiv.org/abs/2312.13010
+    用途：参考 Programmer / Test Designer / Test Executor 分离的代码生成闭环。
+18. MapCoder: Multi-Agent Code Generation for Competitive Problem Solving: https://openreview.net/forum?id=lG61pruG1Iz
+    用途：参考 retrieval、planning、code generation、debugging 的多 Agent 程序合成循环。
+19. LLM-Based Multi-Agent Systems for Software Engineering: Literature Review, Vision and the Road Ahead: https://arxiv.org/abs/2404.04834
+    用途：参考 LLM-MAS 在 SDLC 的研究地图、能力边界和可信协同缺口。
+20. Designing LLM-based Multi-Agent Systems for Software Engineering Tasks: Quality Attributes, Design Patterns and Rationale: https://arxiv.org/abs/2511.08475
+    用途：参考 SE 多 Agent 的质量属性、角色协作模式和设计理由。
+21. Understanding Agent Scaling in LLM-Based Multi-Agent Systems via Diversity: https://openreview.net/forum?id=9BN2W5BCfE
+    用途：参考同质 agent 饱和、多样性带来非冗余信息通道、effective channel 估算。
 
 本地参考：
 
@@ -939,13 +1137,15 @@ SharedTaskPack 是多 Agent 质量的核心。它让大量 agent 从同一高质
 
 ---
 
-## 十八、执行结论
+## 十九、执行结论
 
 WhaleCode 的多 Agent 设计应升级为群体协同架构：
 
 1. 用 Flash agent 做大规模并行探索、候选生成和局部实现。
 2. 用 Pro agent 做少数关键裁判、合成、根因收敛和对抗审查。
-3. 用 SharedTaskPack + stable prefix 提升上下文质量和 cache hit 概率。
-4. 用 Tournament / Evidence Race / Patch League 把数量转化为质量。
-5. 用 ConcurrencyGovernor 和 SwarmBudget 防止成本、429 和延迟失控。
-6. 用 Artifact-first Message Bus 保持上下文隔离和可 replay。
+3. 用 DiversityPolicy 确保群体宽度变成非冗余信息通道，而不是同质重复。
+4. 用 SharedTaskPack + stable prefix 提升上下文质量和 cache hit 概率。
+5. 用 Tournament / Evidence Race / Patch League 把数量转化为质量。
+6. 用 EvidenceWeightedConsensus 和 Anti-ConformityProtocol 抵抗错误多数和少数派压制。
+7. 用 ConcurrencyGovernor 和 SwarmBudget 防止成本、429 和延迟失控。
+8. 用 Artifact-first Message Bus 保持上下文隔离和可 replay。

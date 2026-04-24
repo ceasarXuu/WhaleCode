@@ -238,7 +238,7 @@ tests/
 
 - `whalecode-protocol` 不依赖其他业务 crate，避免循环依赖。
 - `whalecode-core` 只依赖抽象 trait，不直接依赖具体工具实现。
-- `whalecode-swarm` 不执行工具、不写文件，只负责 cohort、work unit、budget、concurrency 和 consensus 编排。
+- `whalecode-swarm` 不执行工具、不写文件，只负责 cohort、work unit、DiversityPolicy、budget、concurrency 和 evidence-weighted consensus 编排。
 - `whalecode-tools` 不决定权限，只声明工具 metadata 和执行能力。
 - `whalecode-permission` 不执行工具，只返回 allow/deny/ask。
 - `whalecode-session` 不理解业务逻辑，只 append/replay event。
@@ -671,7 +671,8 @@ npm --prefix apps/viewer run build
 - `whalecode-swarm`
 - `SwarmSpec`、`CohortSpec`、`WorkUnit`
 - Scout / Analyst / Implementer / Reviewer / Judge / Verifier cohorts
-- Tournament、Evidence Race、Patch League
+- DiversityPolicy、effective_agent_count、Anti-ConformityProtocol
+- Tournament、Evidence Race、Patch League、EvidenceWeightedConsensus
 - ConcurrencyGovernor 和 SwarmBudget
 - Create phase machine。
 - Debug phase machine。

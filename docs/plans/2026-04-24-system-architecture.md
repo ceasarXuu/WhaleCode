@@ -45,7 +45,7 @@
 - Agent 实例是轻量的（一个 loop + 一个 channel），可大规模创建
 - 失败和隔离是设计假设，不是异常情况
 
-多 Agent 群体协同的详细设计见 `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md`。核心思想是用大量 V4-Flash agent 做并行探索、候选生成和局部实现，用少量 V4-Pro agent 做关键裁判、整合和对抗审查，通过 Tournament / Evidence Race / Patch League 把数量转化为质量。
+多 Agent 群体协同的详细设计见 `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md`。核心思想是用大量 V4-Flash agent 做并行探索、候选生成和局部实现，用少量 V4-Pro agent 做关键裁判、整合和对抗审查，通过 DiversityPolicy、Tournament、Evidence Race、Patch League、EvidenceWeightedConsensus 把数量转化为非冗余证据和可验证质量。
 
 ---
 
@@ -2871,7 +2871,7 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 
 交付范围：
 1. Phase 2A：`SwarmSpec`、`CohortSpec`、`WorkUnit`、Scout Cohort、Artifact store、ConcurrencyGovernor MVP。
-2. Phase 2B：Analyst Cohort、CandidateScore、ConsensusReport、Pro Judge gate、independence score。
+2. Phase 2B：Analyst Cohort、DiversityPolicy、CandidateScore、EvidenceWeightedConsensus、Pro Judge gate、independence/effective-agent score。
 3. Phase 2C：Implementer Cohort、Patch League、dry-run apply、Reviewer scorecard、Verifier matrix。
 4. Phase 2D：HypothesisSet、EvidencePlan、Evidence Race、falsification rules、RootCauseDecision。
 5. Create workflow: analyze → design tournament → scaffold → patch league / sharded implement → review → confirm。

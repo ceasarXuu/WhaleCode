@@ -12,7 +12,7 @@
 
 | 能力 | 说明 |
 |------|------|
-| **Multi-Agent 群体协同** | 7 角色 + Scout/Analyst/Reviewer/Judge/Verifier cohorts，通过 Tournament / Evidence Race / Patch League 用数量换质量 |
+| **Multi-Agent 群体协同** | 7 角色 + Scout/Analyst/Reviewer/Judge/Verifier cohorts，通过 DiversityPolicy / Tournament / Evidence Race / Patch League / EvidenceWeightedConsensus 用数量换非冗余质量 |
 | **Agent Message Bus** | 统一消息总线（unicast/broadcast/p2p/request-reply），traceId 追踪全链路 |
 | **证据链 Debug** | Goal → Hypotheses → Evidence 链式推理，假设证伪收敛到根因，HYPOTHESIZE 阶段全员只读 |
 | **脚手架先行 Create** | Logging/Testing/Constraints 三基建必须先于功能代码，DAG 验证强制执行 |
