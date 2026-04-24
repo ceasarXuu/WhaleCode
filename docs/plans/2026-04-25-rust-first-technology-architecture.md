@@ -8,7 +8,7 @@ WhaleCode 的主技术栈应从早期的 TypeScript / Node / Bun 调整为 **Rus
 
 多 Agent 群体协同的运行时设计见 `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md`。本文的 Rust workspace 和 Phase 2 规划以该文档为准扩展 `whalecode-swarm`。
 
-证据链 Debug、脚手架先行、参考驱动、独立 Viewer、技能自进化的差异化原语设计见 `docs/plans/2026-04-25-differentiated-primitives-architecture.md`。这些能力必须先落到 `whalecode-protocol` 的 artifact/event schema，再进入 workflow、swarm、viewer 和 skill evolution runtime。
+证据链 Debug、脚手架先行、参考驱动、独立 Viewer、技能自进化的差异化原语设计见 `docs/plans/2026-04-25-differentiated-primitives-architecture.md`。这些能力必须先落到 `whalecode-protocol` 的 artifact/event schema，并通过 `PrimitiveModule` contract 可插拔接入，再进入 workflow、swarm、viewer 和 skill evolution runtime。
 
 核心判断：
 
@@ -217,6 +217,7 @@ crates/
   whalecode-permission/   # Permission profiles, grants, ask/deny decisions
   whalecode-patch/        # PatchArtifact, diff, ownership, apply engine
   whalecode-session/      # JSONL store, replay, fork, SQLite index later
+  whalecode-primitives/   # PrimitiveRegistry, module manifests, gates/hooks/reducers
   whalecode-workflow/     # Create/Debug phase machines and gates
   whalecode-swarm/        # CohortScheduler, WorkUnit, Tournament, EvidenceRace
   whalecode-mcp/          # stdio JSON-RPC client, MCP tool mapping
@@ -246,6 +247,8 @@ tests/
 - `whalecode-tools` 不决定权限，只声明工具 metadata 和执行能力。
 - `whalecode-permission` 不执行工具，只返回 allow/deny/ask。
 - `whalecode-session` 不理解业务逻辑，只 append/replay event。
+- `whalecode-primitives` 只管理模块 manifest、gate/hook/reducer 注册和 enable/disable；不直接执行工具、不持久化业务状态。
+- 差异化能力不能向 `whalecode-core`、`whalecode-tools`、`whalecode-session` 写入专属分支；必须通过 `PrimitiveModule` contract 接入。
 - `whalecode-tui` 和 `apps/viewer` 都消费同一事件模型。
 
 ---
@@ -659,6 +662,7 @@ npm --prefix apps/viewer run build
 - `whalecode-tools`
 - `whalecode-permission`
 - `whalecode-session`
+- `whalecode-primitives`
 - `whalecode-cli`
 - 差异化原语 schema skeleton：Reference、Scaffold、Debug Evidence、Viewer Concern、Skill Evolution telemetry。
 
@@ -669,6 +673,7 @@ npm --prefix apps/viewer run build
 - DeepSeek mock SSE 覆盖 thinking + tool-call sub-turn。
 - JSONL session 可 replay。
 - Permission deny 优先级测试通过。
+- Primitive module enable/disable 后 gate/hook 行为可测试。
 - fixture JSONL 可 replay 出差异化原语的最小状态。
 
 ### Phase 2 — 群体协同 + Create/Debug 工作流
