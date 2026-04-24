@@ -26,6 +26,8 @@
 | **实时可视化** | Web 端 Agent 网络图动画、DAG 进度、统计面板（token/工具调用/缓存命中率） |
 | **模型分层** | 复杂推理用 V4-Pro，常规执行用 V4-Flash，按角色自动选择 |
 
+差异化原语（证据链、脚手架先行、参考驱动、独立 Viewer、技能自进化）必须实现为 artifact schema、phase gate、session event 和 replayable state，不能只停留在提示词或愿景描述。
+
 ## DeepSeek V4 极致适配
 
 | 特性 | 适配策略 |

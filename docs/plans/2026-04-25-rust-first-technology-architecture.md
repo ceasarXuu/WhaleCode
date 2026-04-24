@@ -8,6 +8,8 @@ WhaleCode 的主技术栈应从早期的 TypeScript / Node / Bun 调整为 **Rus
 
 多 Agent 群体协同的运行时设计见 `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md`。本文的 Rust workspace 和 Phase 2 规划以该文档为准扩展 `whalecode-swarm`。
 
+证据链 Debug、脚手架先行、参考驱动、独立 Viewer、技能自进化的差异化原语设计见 `docs/plans/2026-04-25-differentiated-primitives-architecture.md`。这些能力必须先落到 `whalecode-protocol` 的 artifact/event schema，再进入 workflow、swarm、viewer 和 skill evolution runtime。
+
 核心判断：
 
 - WhaleCode 的长期难点是本地执行内核，而不是普通 API wrapper。
@@ -658,6 +660,7 @@ npm --prefix apps/viewer run build
 - `whalecode-permission`
 - `whalecode-session`
 - `whalecode-cli`
+- 差异化原语 schema skeleton：Reference、Scaffold、Debug Evidence、Viewer Concern、Skill Evolution telemetry。
 
 验收：
 
@@ -666,6 +669,7 @@ npm --prefix apps/viewer run build
 - DeepSeek mock SSE 覆盖 thinking + tool-call sub-turn。
 - JSONL session 可 replay。
 - Permission deny 优先级测试通过。
+- fixture JSONL 可 replay 出差异化原语的最小状态。
 
 ### Phase 2 — 群体协同 + Create/Debug 工作流
 
@@ -682,6 +686,7 @@ npm --prefix apps/viewer run build
 - Debug phase machine。
 - PatchArtifact ownership gate。
 - Reviewer verification gate。
+- ReferenceGate、ScaffoldGate、RootCauseGate、ViewerConcernGate。
 
 验收：
 
@@ -692,6 +697,8 @@ npm --prefix apps/viewer run build
 - 429 mock、延迟和 token budget 能触发 ConcurrencyGovernor 降宽。
 - HYPOTHESIZE 阶段没有写权限。
 - Viewer critical concern 可阻止 phase transition。
+- Create 无 scaffold verification 不能进入 feature implement。
+- Debug 无 root-cause evidence 不能进入 fix。
 
 ### Phase 3 — TUI
 
@@ -790,6 +797,7 @@ npm --prefix apps/viewer run build
 
 - Codex-first Reference Audit: `docs/plans/2026-04-25-codex-first-reference-audit.md`
 - 任何 Rust core 模块设计都必须记录 Codex 路径、采用行为、WhaleCode 差异、不采用边界和测试。
+- Differentiated Primitives Architecture: `docs/plans/2026-04-25-differentiated-primitives-architecture.md`
 
 ---
 

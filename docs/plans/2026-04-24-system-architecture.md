@@ -47,6 +47,8 @@
 
 多 Agent 群体协同的详细设计见 `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md`。核心思想是用大量 V4-Flash agent 做并行探索、候选生成和局部实现，用少量 V4-Pro agent 做关键裁判、整合和对抗审查，通过 DiversityPolicy、Tournament、Evidence Race、Patch League、EvidenceWeightedConsensus 把数量转化为非冗余证据和可验证质量。
 
+WhaleCode 相对参考项目的其他差异化原语见 `docs/plans/2026-04-25-differentiated-primitives-architecture.md`。证据链 Debug、脚手架先行、参考驱动、独立 Viewer、技能自进化都必须实现为 artifact schema、phase gate、session event 和 replayable state，不能只靠提示词约束。
+
 ---
 
 ## 四、两类原生任务：Create 与 Debug
@@ -2846,6 +2848,7 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 - `docs/plans/2026-04-25-rust-first-technology-architecture.md` 固化 Rust-first 技术架构。
 - `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md` 固化多 Agent 群体协同、Tournament、Evidence Race、Patch League、ConcurrencyGovernor 设计。
 - `docs/plans/2026-04-25-codex-first-reference-audit.md` 固化成熟基础设施的 Codex-first 审计门禁。
+- `docs/plans/2026-04-25-differentiated-primitives-architecture.md` 固化证据链、脚手架先行、参考驱动、Viewer、技能自进化的运行时原语设计。
 - `docs/adr/2026-04-25-rust-first-core-runtime.md` 记录主栈决策。
 - `.gitignore` 忽略 `tmp/`、`.DS_Store`、`node_modules/`、`dist/`、`coverage/`、`.env*`。
 - 选定 Rust workspace + TypeScript Web Viewer。
@@ -2855,6 +2858,7 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 - 文档有 ≥3 外部引用。
 - 每个核心模块有明确参考来源和不借鉴边界。
 - 每个成熟基础设施模块都有 Codex-first audit 字段。
+- 每个差异化原语都有 artifact、gate、event 和 replay 验收。
 - 没有未决开放问题阻塞 Phase 1。
 
 ### 20.2 Phase 1 — 单 Agent 可运行纵切
@@ -2869,6 +2873,7 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 5. `crates/whalecode-permission`: permission profiles、grant、ask/deny。
 6. `crates/whalecode-session`: JSONL event log、redaction、session replay。
 7. `crates/whalecode-cli`: 基础 REPL、`/create`、`/debug`、`/compact`、`/status`。
+8. 差异化原语 schema skeleton：`ReferenceDecision`、`ScaffoldArtifact`、`DebugCase`、`EvidenceRecord`、`ViewerConcern`、`SkillInvocationEvent`。
 
 验收：
 - 能在真实仓库内读取、搜索、编辑一个文件。
@@ -2876,6 +2881,7 @@ Create 和 Debug 各自拥有独立 gates；gates 只读检查，不执行修复
 - DeepSeek thinking + tool call 的多 sub-turn 测试通过。
 - 所有 tool result 截断策略可测试。
 - Session JSONL 可 replay 出最终消息、工具调用、patch 和 phase transitions。
+- fixture JSONL 可 replay 出 reference、scaffold、debug、viewer concern 和 skill telemetry 的最小状态。
 
 ### 20.3 Phase 2 — 多 Agent 群体协同 + Create/Debug DAG
 
