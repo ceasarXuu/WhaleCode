@@ -1,5 +1,5 @@
 use std::{
-    env, fs,
+    env,
     path::{Path, PathBuf},
 };
 
@@ -12,13 +12,16 @@ use whalecode_permission::{
     PermissionRequest,
 };
 use whalecode_protocol::{
-    AgentId, AgentRole, EventEnvelope, ModelEvent, ModelStreamDelta, PermissionDecisionKind,
-    PermissionEvent, PhaseEvent, SessionEvent, SessionFinishStatus, SessionId,
-    SessionLifecycleEvent, ToolCallId, ToolEvent, ToolStatus, TraceId, TranscriptEvent,
-    WorkflowPhase,
+    AgentId, AgentRole, ModelEvent, ModelStreamDelta, PermissionDecisionKind, PermissionEvent,
+    PhaseEvent, SessionEvent, SessionFinishStatus, SessionLifecycleEvent, ToolCallId, ToolEvent,
+    ToolStatus, TranscriptEvent, WorkflowPhase,
 };
-use whalecode_session::{JsonlSessionStore, SessionError};
+use whalecode_session::SessionError;
 use whalecode_tools::{ToolError, ToolRequest, ToolResultEnvelope, ToolRuntime};
+
+mod recorder;
+
+use recorder::{ensure_parent_dir, EventRecorder};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentState {
@@ -302,16 +305,6 @@ pub fn run_bootstrap_agent(
     })
 }
 
-fn ensure_parent_dir(path: &Path) -> Result<(), AgentError> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|source| AgentError::CreateSessionDir {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
-    Ok(())
-}
-
 fn permission_event_kind(decision: &PermissionDecision) -> PermissionDecisionKind {
     match decision {
         PermissionDecision::Allow => PermissionDecisionKind::Allowed,
@@ -331,43 +324,5 @@ fn preview_lines(result: &ToolResultEnvelope, max_lines: usize) -> String {
         format!("{lines}, ...")
     } else {
         lines
-    }
-}
-
-struct EventRecorder {
-    store: JsonlSessionStore,
-    session_id: SessionId,
-    trace_id: TraceId,
-    sequence: u64,
-}
-
-impl EventRecorder {
-    fn open(path: &Path) -> Result<Self, AgentError> {
-        Ok(Self {
-            store: JsonlSessionStore::open(path)?,
-            session_id: SessionId::from(format!("session-{}", Utc::now().timestamp_micros())),
-            trace_id: TraceId::from(format!("trace-{}", Utc::now().timestamp_micros())),
-            sequence: 0,
-        })
-    }
-
-    fn append(&mut self, payload: SessionEvent) -> Result<(), AgentError> {
-        self.sequence += 1;
-        let event = EventEnvelope::new(
-            self.session_id.clone(),
-            self.trace_id.clone(),
-            self.sequence,
-            payload,
-        );
-        self.store.append(&event)?;
-        Ok(())
-    }
-
-    fn next_sequence(&self) -> u64 {
-        self.sequence + 1
-    }
-
-    fn events_written(&self) -> u64 {
-        self.sequence
     }
 }
