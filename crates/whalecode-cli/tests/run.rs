@@ -38,4 +38,31 @@ fn whale_status_reports_bootstrap_runtime() {
     let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
     assert!(stdout.contains("command: whale"));
     assert!(stdout.contains("runtime: bootstrap_agent_loop"));
+    assert!(stdout.contains("live_model_smoke: whale model-smoke"));
+}
+
+#[test]
+fn whale_model_smoke_requires_explicit_deepseek_api_key() {
+    let output = Command::new(env!("CARGO_BIN_EXE_whale"))
+        .args(["model-smoke", "hello"])
+        .env_remove("DEEPSEEK_API_KEY")
+        .output()
+        .expect("run whale model-smoke");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(stderr.contains("DEEPSEEK_API_KEY"));
+}
+
+#[test]
+fn whale_model_smoke_treats_empty_deepseek_api_key_as_missing() {
+    let output = Command::new(env!("CARGO_BIN_EXE_whale"))
+        .args(["model-smoke", "hello"])
+        .env("DEEPSEEK_API_KEY", "")
+        .output()
+        .expect("run whale model-smoke");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(stderr.contains("DEEPSEEK_API_KEY"));
 }

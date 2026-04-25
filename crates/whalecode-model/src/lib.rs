@@ -58,7 +58,9 @@ impl DeepSeekConfig {
         Self {
             base_url: env::var("DEEPSEEK_BASE_URL")
                 .unwrap_or_else(|_| DEEPSEEK_DEFAULT_BASE_URL.to_owned()),
-            api_key: env::var("DEEPSEEK_API_KEY").ok(),
+            api_key: env::var("DEEPSEEK_API_KEY")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
             model: env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEEPSEEK_DEFAULT_MODEL.to_owned()),
             thinking: ThinkingMode::Enabled,
             reasoning_effort: ReasoningEffort::Medium,

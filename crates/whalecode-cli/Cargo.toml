@@ -14,7 +14,9 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
 whalecode-core = { path = "../whalecode-core" }
+whalecode-model = { path = "../whalecode-model" }
 
 [dev-dependencies]
 tempfile.workspace = true

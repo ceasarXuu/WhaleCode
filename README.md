@@ -56,4 +56,13 @@ export DEEPSEEK_MODEL="deepseek-v4-flash"
 export DEEPSEEK_BASE_URL="https://api.deepseek.com"
 ```
 
+After setting `DEEPSEEK_API_KEY`, run a provider-only smoke test:
+
+```bash
+whale model-smoke --model deepseek-v4-flash "say hello"
+```
+
+`model-smoke` does not run tools or edit files; it only verifies live model auth,
+streaming, and response aggregation.
+
 More setup details are in `docs/runbooks/rust-development-environment.md`.

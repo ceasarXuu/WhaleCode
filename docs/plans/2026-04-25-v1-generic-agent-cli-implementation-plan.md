@@ -70,7 +70,7 @@ acceptance_tests:
 
 ## DeepSeek Adapter Slice
 
-Implemented next: `whalecode-model` now owns DeepSeek chat-completion request construction, environment-derived provider config, data-only SSE parsing, `reasoning_content` deltas, text deltas, and tool-call argument deltas. Live AgentLoop wiring remains disabled until the adapter has a provider smoke command and failure semantics.
+Implemented next: `whalecode-model` now owns DeepSeek chat-completion request construction, environment-derived provider config, data-only SSE parsing, `reasoning_content` deltas, text deltas, and tool-call argument deltas. `whale model-smoke` is the provider-only live smoke entry. Live AgentLoop wiring remains disabled until failure semantics and tool-call continuation are verified.
 
 ```yaml
 reference_source:
@@ -99,6 +99,7 @@ acceptance_tests:
   - request payload serializes model, thinking, reasoning_effort, and stream fields
   - SSE parser emits reasoning, text, tool-call, and finished events
   - malformed SSE JSON fails clearly
+  - whale model-smoke fails clearly without DEEPSEEK_API_KEY
 ```
 
 ## Milestone 0: Workspace Scaffold

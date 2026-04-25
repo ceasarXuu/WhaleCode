@@ -5,6 +5,10 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use whalecode_core::{default_session_path, run_bootstrap_agent, AgentError};
+use whalecode_model::{
+    response_from_stream_events, ChatMessage, DeepSeekChatRequest, DeepSeekClient, DeepSeekConfig,
+    ModelError, DEEPSEEK_DEFAULT_MODEL,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "whale")]
@@ -25,13 +29,34 @@ enum Command {
         #[arg(long)]
         session: Option<PathBuf>,
     },
+    ModelSmoke {
+        #[arg(required = true, num_args = 1..)]
+        prompt: Vec<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        base_url: Option<String>,
+    },
 }
 
-fn main() -> Result<(), CliError> {
+#[tokio::main]
+async fn main() {
+    if let Err(error) = run_cli().await {
+        eprintln!("error: {error}");
+        std::process::exit(1);
+    }
+}
+
+async fn run_cli() -> Result<(), CliError> {
     let cli = Cli::parse();
     match cli.command {
         Some(Command::Status) => print_status()?,
         Some(Command::Run { task, cwd, session }) => run_once(task, cwd, session)?,
+        Some(Command::ModelSmoke {
+            prompt,
+            model,
+            base_url,
+        }) => model_smoke(prompt, model, base_url).await?,
         None => run_interactive()?,
     }
     Ok(())
@@ -49,6 +74,8 @@ enum CliError {
     WriteOutput(std::io::Error),
     #[error("agent error: {0}")]
     Agent(#[from] AgentError),
+    #[error("model error: {0}")]
+    Model(#[from] ModelError),
 }
 
 fn print_status() -> Result<(), CliError> {
@@ -59,6 +86,7 @@ fn print_status() -> Result<(), CliError> {
     println!("session_store: jsonl");
     println!("model: bootstrap-local");
     println!("deepseek_adapter: request_builder_and_sse_parser");
+    println!("live_model_smoke: whale model-smoke --model {DEEPSEEK_DEFAULT_MODEL} \"hello\"");
     println!("primitive_host: scaffolded");
     println!("next_session_path: {}", session_path.display());
     Ok(())
@@ -108,6 +136,30 @@ fn run_interactive() -> Result<(), CliError> {
         }
         run_once(vec![task.to_owned()], None, None)?;
     }
+    Ok(())
+}
+
+async fn model_smoke(
+    prompt: Vec<String>,
+    model: Option<String>,
+    base_url: Option<String>,
+) -> Result<(), CliError> {
+    let prompt = normalize_task(prompt)?;
+    let mut config = DeepSeekConfig::from_env();
+    if let Some(model) = model {
+        config.model = model;
+    }
+    if let Some(base_url) = base_url {
+        config.base_url = base_url;
+    }
+
+    let request = DeepSeekChatRequest::streaming(&config, vec![ChatMessage::user(prompt)]);
+    let events = DeepSeekClient::new(config).stream_chat(&request).await?;
+    let response = response_from_stream_events(events.clone());
+
+    println!("{}", response.final_text);
+    println!();
+    println!("model_events: {}", events.len());
     Ok(())
 }
 
