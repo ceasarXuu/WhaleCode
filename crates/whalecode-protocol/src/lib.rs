@@ -3,9 +3,7 @@ use serde::{Deserialize, Serialize};
 
 macro_rules! id_type {
     ($name:ident) => {
-        #[derive(
-            Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-        )]
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
         pub struct $name(pub String);
 
         impl From<&str> for $name {
@@ -67,14 +65,32 @@ pub enum WorkflowPhase {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionEvent {
     SessionStarted,
-    UserMessage { content: String },
-    AssistantMessage { content: String },
-    ToolCallStarted { call_id: ToolCallId, tool_name: String },
-    ToolCallFinished { call_id: ToolCallId, status: ToolStatus },
-    PatchArtifactCreated { artifact_id: ArtifactId },
-    PrimitiveRegistered { primitive_id: PrimitiveId },
-    PrimitiveEnabled { primitive_id: PrimitiveId },
-    PrimitiveDisabled { primitive_id: PrimitiveId },
+    UserMessage {
+        content: String,
+    },
+    AssistantMessage {
+        content: String,
+    },
+    ToolCallStarted {
+        call_id: ToolCallId,
+        tool_name: String,
+    },
+    ToolCallFinished {
+        call_id: ToolCallId,
+        status: ToolStatus,
+    },
+    PatchArtifactCreated {
+        artifact_id: ArtifactId,
+    },
+    PrimitiveRegistered {
+        primitive_id: PrimitiveId,
+    },
+    PrimitiveEnabled {
+        primitive_id: PrimitiveId,
+    },
+    PrimitiveDisabled {
+        primitive_id: PrimitiveId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use whalecode_protocol::{AgentId, AgentRole, WorkflowPhase, WorkUnitId};
+use whalecode_protocol::{AgentId, AgentRole, WorkUnitId, WorkflowPhase};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ApprovalPolicy {

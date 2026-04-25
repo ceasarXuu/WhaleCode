@@ -15,6 +15,9 @@ pub struct ModelCapabilities {
 pub enum ModelStreamEvent {
     TextDelta(String),
     ReasoningDelta(String),
-    ToolCallDelta { name: String, arguments_delta: String },
+    ToolCallDelta {
+        name: String,
+        arguments_delta: String,
+    },
     Finished,
 }
