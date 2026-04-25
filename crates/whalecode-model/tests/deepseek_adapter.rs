@@ -88,10 +88,14 @@ data: [DONE]
         events,
         vec![
             ModelStreamEvent::ToolCallDelta {
+                index: 0,
+                id: Some("call_1".to_owned()),
                 name: "read_file".to_owned(),
                 arguments_delta: "{\"path\"".to_owned(),
             },
             ModelStreamEvent::ToolCallDelta {
+                index: 0,
+                id: None,
                 name: String::new(),
                 arguments_delta: ":\"README.md\"}".to_owned(),
             },

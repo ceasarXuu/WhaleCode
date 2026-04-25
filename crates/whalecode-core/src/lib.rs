@@ -178,6 +178,8 @@ impl AgentLoop {
                     }))?;
                 }
                 ModelStreamEvent::ToolCallDelta {
+                    index: _,
+                    id: _,
                     name,
                     arguments_delta,
                 } => recorder.append(SessionEvent::Model(ModelEvent::StreamDelta {

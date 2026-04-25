@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
 
+mod tool_calls;
+
+pub use tool_calls::*;
+
 pub const DEEPSEEK_DEFAULT_BASE_URL: &str = "https://api.deepseek.com";
 pub const DEEPSEEK_DEFAULT_MODEL: &str = "deepseek-v4-flash";
 pub const DEEPSEEK_PRO_MODEL: &str = "deepseek-v4-pro";
@@ -25,6 +29,8 @@ pub enum ModelStreamEvent {
     TextDelta(String),
     ReasoningDelta(String),
     ToolCallDelta {
+        index: usize,
+        id: Option<String>,
         name: String,
         arguments_delta: String,
     },
@@ -322,6 +328,10 @@ struct DeepSeekDelta {
 
 #[derive(Debug, Deserialize)]
 struct DeepSeekToolCallDelta {
+    index: Option<usize>,
+    id: Option<String>,
+    #[serde(rename = "type")]
+    kind: Option<String>,
     function: Option<DeepSeekFunctionDelta>,
 }
 
@@ -348,10 +358,13 @@ fn events_from_chunk(chunk: &DeepSeekStreamChunk) -> Vec<ModelStreamEvent> {
             let Some(function) = &tool_call.function else {
                 continue;
             };
+            let _kind = tool_call.kind.as_deref().unwrap_or("function");
             let name = function.name.clone().unwrap_or_default();
             let arguments_delta = function.arguments.clone().unwrap_or_default();
             if !name.is_empty() || !arguments_delta.is_empty() {
                 events.push(ModelStreamEvent::ToolCallDelta {
+                    index: tool_call.index.unwrap_or(0),
+                    id: tool_call.id.clone(),
                     name,
                     arguments_delta,
                 });
