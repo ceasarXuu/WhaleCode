@@ -99,7 +99,33 @@ acceptance_tests:
   - request payload serializes model, thinking, reasoning_effort, and stream fields
   - SSE parser emits reasoning, text, tool-call, and finished events
   - malformed SSE JSON fails clearly
-  - whale model-smoke fails clearly without DEEPSEEK_API_KEY
+  - whale model-smoke fails clearly without DEEPSEEK_API_KEY or stored user secret
+```
+
+## API Key Secret Slice
+
+Implemented next: interactive `whale` now supports `/apikey` so the user can paste a DeepSeek API key without editing repo files or project config. Whale stores the key in a user-level secret file and live provider calls read `DEEPSEEK_API_KEY` first, then the stored user secret.
+
+```yaml
+reference_source:
+  codex:
+    - tmp/whalecode-refs/codex-cli/codex-rs/core/src/config.rs
+    - tmp/whalecode-refs/codex-cli/codex-rs/login/src/lib.rs
+borrowed_behavior:
+  - keep credentials out of project files and git-tracked config
+  - let environment variables override persisted local credentials
+  - expose credential status without printing the secret value
+whalecode_delta:
+  - first implementation uses ~/.whale/secrets/deepseek_api_key with 0600 file permissions on Unix-like systems
+  - tests isolate the secret root with WHALE_SECRET_HOME so local developer credentials never affect CI results
+rejected_behavior:
+  - no API key stored in the workspace or repository root
+  - no key value printed in status output or test output
+acceptance_tests:
+  - /apikey stores a key outside the repo
+  - stored key is loaded by DeepSeekConfig when DEEPSEEK_API_KEY is absent
+  - empty secret files are treated as missing
+  - stored key file has private permissions on Unix-like systems
 ```
 
 ## Patch Safety Slice
@@ -162,7 +188,7 @@ rejected_behavior:
 license_boundary:
   - design-only reference; no copied reference-project source code
 acceptance_tests:
-  - whale run --live fails clearly without DEEPSEEK_API_KEY and still writes a failure session
+  - whale run --live fails clearly without DEEPSEEK_API_KEY or stored user secret and still writes a failure session
   - streamed tool-call deltas are grouped by index/id before execution
   - edit_file requires --allow-write and patch-safe apply
   - run_command requires --allow-command and executes in the workspace with timeout

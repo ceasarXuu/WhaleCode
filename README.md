@@ -55,7 +55,20 @@ whale status
 whale run "inspect this repo"
 ```
 
-Optional DeepSeek environment variables for the upcoming live adapter wiring:
+Store the DeepSeek API key from inside Whale:
+
+```text
+whale
+whale> /apikey
+DeepSeek API key:
+```
+
+The key is saved under the user-level secret store
+`~/.whale/secrets/deepseek_api_key` with private file permissions on Unix-like
+systems. It is not written to the repository. `DEEPSEEK_API_KEY` still takes
+priority when present, which is useful for temporary overrides or CI.
+
+Optional DeepSeek environment variables:
 
 ```bash
 export DEEPSEEK_API_KEY="..."
@@ -63,7 +76,8 @@ export DEEPSEEK_MODEL="deepseek-v4-flash"
 export DEEPSEEK_BASE_URL="https://api.deepseek.com"
 ```
 
-After setting `DEEPSEEK_API_KEY`, run a provider-only smoke test:
+After storing the key or setting `DEEPSEEK_API_KEY`, run a provider-only smoke
+test:
 
 ```bash
 whale model-smoke --model deepseek-v4-flash "say hello"

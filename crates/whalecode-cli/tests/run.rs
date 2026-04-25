@@ -71,9 +71,11 @@ fn whale_status_reports_bootstrap_runtime() {
 
 #[test]
 fn whale_model_smoke_requires_explicit_deepseek_api_key() {
+    let whale_home = tempdir().expect("whale home");
     let output = Command::new(env!("CARGO_BIN_EXE_whale"))
         .args(["model-smoke", "hello"])
         .env_remove("DEEPSEEK_API_KEY")
+        .env("WHALE_SECRET_HOME", whale_home.path())
         .output()
         .expect("run whale model-smoke");
 
@@ -84,9 +86,11 @@ fn whale_model_smoke_requires_explicit_deepseek_api_key() {
 
 #[test]
 fn whale_model_smoke_treats_empty_deepseek_api_key_as_missing() {
+    let whale_home = tempdir().expect("whale home");
     let output = Command::new(env!("CARGO_BIN_EXE_whale"))
         .args(["model-smoke", "hello"])
         .env("DEEPSEEK_API_KEY", "")
+        .env("WHALE_SECRET_HOME", whale_home.path())
         .output()
         .expect("run whale model-smoke");
 
@@ -98,6 +102,7 @@ fn whale_model_smoke_treats_empty_deepseek_api_key_as_missing() {
 #[test]
 fn whale_run_live_requires_explicit_deepseek_api_key() {
     let repo = tempdir().expect("repo");
+    let whale_home = tempdir().expect("whale home");
     std::fs::write(repo.path().join("README.md"), "# Fixture\n").expect("write readme");
     let session_path = repo.path().join("session.jsonl");
 
@@ -112,6 +117,7 @@ fn whale_run_live_requires_explicit_deepseek_api_key() {
             session_path.to_str().expect("session path"),
         ])
         .env_remove("DEEPSEEK_API_KEY")
+        .env("WHALE_SECRET_HOME", whale_home.path())
         .output()
         .expect("run whale");
 
@@ -119,4 +125,49 @@ fn whale_run_live_requires_explicit_deepseek_api_key() {
     let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
     assert!(stderr.contains("DEEPSEEK_API_KEY"));
     assert!(session_path.exists());
+}
+
+#[test]
+fn whale_interactive_apikey_stores_key_outside_repo() {
+    use std::{io::Write, process::Stdio};
+
+    let repo = tempdir().expect("repo");
+    let whale_home = tempdir().expect("whale home");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_whale"))
+        .current_dir(repo.path())
+        .env("WHALE_SECRET_HOME", whale_home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("spawn whale");
+
+    {
+        let stdin = child.stdin.as_mut().expect("stdin");
+        stdin
+            .write_all(b"/apikey\nstored-test-key\n/exit\n")
+            .expect("write stdin");
+    }
+
+    let output = child.wait_with_output().expect("wait whale");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    assert!(stdout.contains("DeepSeek API key saved to user secret store"));
+
+    let secret_path = whale_home.path().join("secrets/deepseek_api_key");
+    assert_eq!(
+        std::fs::read_to_string(&secret_path).expect("read secret"),
+        "stored-test-key"
+    );
+    assert!(!repo.path().join(".whale/secrets/deepseek_api_key").exists());
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&secret_path)
+            .expect("metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+    }
 }

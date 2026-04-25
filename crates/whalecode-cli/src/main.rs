@@ -1,5 +1,5 @@
 use std::{
-    io::{self, Write},
+    io::{self, IsTerminal, Write},
     path::PathBuf,
 };
 
@@ -9,8 +9,9 @@ use whalecode_core::{
     LiveAgentOptions,
 };
 use whalecode_model::{
-    response_from_stream_events, ChatMessage, DeepSeekChatRequest, DeepSeekClient, DeepSeekConfig,
-    ModelError, DEEPSEEK_DEFAULT_MODEL,
+    deepseek_api_key_source, response_from_stream_events, store_deepseek_api_key, ChatMessage,
+    DeepSeekApiKeySource, DeepSeekChatRequest, DeepSeekClient, DeepSeekConfig, ModelError,
+    SecretStoreError, DEEPSEEK_DEFAULT_MODEL,
 };
 
 #[derive(Debug, Parser)]
@@ -110,6 +111,8 @@ enum CliError {
     Agent(#[from] AgentError),
     #[error("model error: {0}")]
     Model(#[from] ModelError),
+    #[error("secret store error: {0}")]
+    Secret(#[from] SecretStoreError),
 }
 
 fn print_status() -> Result<(), CliError> {
@@ -118,6 +121,10 @@ fn print_status() -> Result<(), CliError> {
     println!("WhaleCode V1 generic agent CLI substrate");
     println!("command: whale");
     println!("workspace: {}", workspace.display());
+    println!(
+        "deepseek_api_key: {}",
+        api_key_source_label(deepseek_api_key_source())
+    );
     println!("runtime: bootstrap_agent_loop + live_deepseek_tool_loop");
     println!("session_store: jsonl");
     println!("model: bootstrap-local or {DEEPSEEK_DEFAULT_MODEL}");
@@ -177,7 +184,7 @@ async fn run_interactive() -> Result<(), CliError> {
     let mut stdout = io::stdout();
     writeln!(
         stdout,
-        "Whale bootstrap agent. Type a task and press Enter, or /exit to quit."
+        "Whale bootstrap agent. Type a task and press Enter, /apikey to store a DeepSeek key, or /exit to quit."
     )
     .map_err(CliError::WriteOutput)?;
     loop {
@@ -197,6 +204,10 @@ async fn run_interactive() -> Result<(), CliError> {
         if matches!(task, "/exit" | "exit" | "quit") {
             break;
         }
+        if task == "/apikey" {
+            save_api_key_interactively(&mut stdout)?;
+            continue;
+        }
         run_once(RunInvocation {
             task: vec![task.to_owned()],
             cwd: None,
@@ -210,6 +221,40 @@ async fn run_interactive() -> Result<(), CliError> {
         .await?;
     }
     Ok(())
+}
+
+fn save_api_key_interactively(stdout: &mut io::Stdout) -> Result<(), CliError> {
+    let key = prompt_api_key(stdout)?;
+    let path = store_deepseek_api_key(&key)?;
+    writeln!(
+        stdout,
+        "DeepSeek API key saved to user secret store: {}",
+        path.display()
+    )
+    .map_err(CliError::WriteOutput)?;
+    Ok(())
+}
+
+fn prompt_api_key(stdout: &mut io::Stdout) -> Result<String, CliError> {
+    if io::stdin().is_terminal() && io::stdout().is_terminal() {
+        rpassword::prompt_password("DeepSeek API key: ").map_err(CliError::ReadInput)
+    } else {
+        writeln!(stdout, "DeepSeek API key:").map_err(CliError::WriteOutput)?;
+        stdout.flush().map_err(CliError::WriteOutput)?;
+        let mut key = String::new();
+        io::stdin()
+            .read_line(&mut key)
+            .map_err(CliError::ReadInput)?;
+        Ok(key)
+    }
+}
+
+fn api_key_source_label(source: DeepSeekApiKeySource) -> &'static str {
+    match source {
+        DeepSeekApiKeySource::Environment => "environment",
+        DeepSeekApiKeySource::UserSecret => "user_secret",
+        DeepSeekApiKeySource::Missing => "missing",
+    }
 }
 
 async fn model_smoke(

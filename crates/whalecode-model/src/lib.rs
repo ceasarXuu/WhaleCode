@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
 
+mod secrets;
 mod tool_calls;
 
+pub use secrets::*;
 pub use tool_calls::*;
 
 pub const DEEPSEEK_DEFAULT_BASE_URL: &str = "https://api.deepseek.com";
@@ -64,9 +66,7 @@ impl DeepSeekConfig {
         Self {
             base_url: env::var("DEEPSEEK_BASE_URL")
                 .unwrap_or_else(|_| DEEPSEEK_DEFAULT_BASE_URL.to_owned()),
-            api_key: env::var("DEEPSEEK_API_KEY")
-                .ok()
-                .filter(|value| !value.trim().is_empty()),
+            api_key: resolve_deepseek_api_key(),
             model: env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEEPSEEK_DEFAULT_MODEL.to_owned()),
             thinking: ThinkingMode::Enabled,
             reasoning_effort: ReasoningEffort::Medium,
@@ -225,7 +225,9 @@ impl DeepSeekClient {
 
 #[derive(Debug, Error)]
 pub enum ModelError {
-    #[error("DEEPSEEK_API_KEY is required for live DeepSeek calls")]
+    #[error(
+        "DeepSeek API key is required for live DeepSeek calls; set DEEPSEEK_API_KEY or run /apikey inside whale"
+    )]
     MissingApiKey,
     #[error("model http request failed: {0}")]
     Http(#[from] reqwest::Error),
