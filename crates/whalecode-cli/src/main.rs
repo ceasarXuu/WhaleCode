@@ -4,7 +4,10 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
-use whalecode_core::{default_session_path, run_bootstrap_agent, AgentError};
+use whalecode_core::{
+    default_live_max_turns, default_session_path, run_bootstrap_agent, run_live_agent, AgentError,
+    LiveAgentOptions,
+};
 use whalecode_model::{
     response_from_stream_events, ChatMessage, DeepSeekChatRequest, DeepSeekClient, DeepSeekConfig,
     ModelError, DEEPSEEK_DEFAULT_MODEL,
@@ -28,6 +31,14 @@ enum Command {
         cwd: Option<PathBuf>,
         #[arg(long)]
         session: Option<PathBuf>,
+        #[arg(long)]
+        live: bool,
+        #[arg(long)]
+        allow_write: bool,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long, default_value_t = default_live_max_turns())]
+        max_turns: usize,
     },
     ModelSmoke {
         #[arg(required = true, num_args = 1..)]
@@ -51,13 +62,21 @@ async fn run_cli() -> Result<(), CliError> {
     let cli = Cli::parse();
     match cli.command {
         Some(Command::Status) => print_status()?,
-        Some(Command::Run { task, cwd, session }) => run_once(task, cwd, session)?,
+        Some(Command::Run {
+            task,
+            cwd,
+            session,
+            live,
+            allow_write,
+            model,
+            max_turns,
+        }) => run_once(task, cwd, session, live, allow_write, model, max_turns).await?,
         Some(Command::ModelSmoke {
             prompt,
             model,
             base_url,
         }) => model_smoke(prompt, model, base_url).await?,
-        None => run_interactive()?,
+        None => run_interactive().await?,
     }
     Ok(())
 }
@@ -82,27 +101,48 @@ fn print_status() -> Result<(), CliError> {
     let session_path = default_session_path()?;
     println!("WhaleCode V1 generic agent CLI substrate");
     println!("command: whale");
-    println!("runtime: bootstrap_agent_loop");
+    println!("runtime: bootstrap_agent_loop + live_deepseek_tool_loop");
     println!("session_store: jsonl");
-    println!("model: bootstrap-local");
-    println!("deepseek_adapter: request_builder_and_sse_parser");
+    println!("model: bootstrap-local or {DEEPSEEK_DEFAULT_MODEL}");
+    println!("deepseek_adapter: request_builder_sse_parser_tool_calls");
     println!("live_model_smoke: whale model-smoke --model {DEEPSEEK_DEFAULT_MODEL} \"hello\"");
+    println!("live_run: whale run --live --allow-write \"fix the bug\"");
     println!("primitive_host: scaffolded");
     println!("next_session_path: {}", session_path.display());
     Ok(())
 }
 
-fn run_once(
+async fn run_once(
     task: Vec<String>,
     cwd: Option<PathBuf>,
     session: Option<PathBuf>,
+    live: bool,
+    allow_write: bool,
+    model: Option<String>,
+    max_turns: usize,
 ) -> Result<(), CliError> {
     let task = normalize_task(task)?;
     let cwd = match cwd {
         Some(path) => path,
         None => std::env::current_dir().map_err(CliError::CurrentDir)?,
     };
-    let summary = run_bootstrap_agent(task, cwd, session)?;
+    let summary = if live {
+        let session_path = match session {
+            Some(path) => path,
+            None => default_session_path()?,
+        };
+        run_live_agent(LiveAgentOptions {
+            task,
+            cwd,
+            session_path,
+            model: model.unwrap_or_else(|| DEEPSEEK_DEFAULT_MODEL.to_owned()),
+            allow_write,
+            max_turns,
+        })
+        .await?
+    } else {
+        run_bootstrap_agent(task, cwd, session)?
+    };
     println!("{}", summary.final_message);
     println!();
     println!("session: {}", summary.session_path.display());
@@ -110,7 +150,7 @@ fn run_once(
     Ok(())
 }
 
-fn run_interactive() -> Result<(), CliError> {
+async fn run_interactive() -> Result<(), CliError> {
     let mut stdout = io::stdout();
     writeln!(
         stdout,
@@ -134,7 +174,16 @@ fn run_interactive() -> Result<(), CliError> {
         if matches!(task, "/exit" | "exit" | "quit") {
             break;
         }
-        run_once(vec![task.to_owned()], None, None)?;
+        run_once(
+            vec![task.to_owned()],
+            None,
+            None,
+            false,
+            false,
+            None,
+            default_live_max_turns(),
+        )
+        .await?;
     }
     Ok(())
 }

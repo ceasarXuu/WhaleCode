@@ -66,3 +66,29 @@ fn whale_model_smoke_treats_empty_deepseek_api_key_as_missing() {
     let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
     assert!(stderr.contains("DEEPSEEK_API_KEY"));
 }
+
+#[test]
+fn whale_run_live_requires_explicit_deepseek_api_key() {
+    let repo = tempdir().expect("repo");
+    std::fs::write(repo.path().join("README.md"), "# Fixture\n").expect("write readme");
+    let session_path = repo.path().join("session.jsonl");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_whale"))
+        .args([
+            "run",
+            "--live",
+            "inspect fixture",
+            "--cwd",
+            repo.path().to_str().expect("repo path"),
+            "--session",
+            session_path.to_str().expect("session path"),
+        ])
+        .env_remove("DEEPSEEK_API_KEY")
+        .output()
+        .expect("run whale");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(stderr.contains("DEEPSEEK_API_KEY"));
+    assert!(session_path.exists());
+}

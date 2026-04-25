@@ -9,8 +9,10 @@ authors.workspace = true
 [dependencies]
 chrono.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 whalecode-model = { path = "../whalecode-model" }
+whalecode-patch = { path = "../whalecode-patch" }
 whalecode-permission = { path = "../whalecode-permission" }
 whalecode-protocol = { path = "../whalecode-protocol" }
 whalecode-session = { path = "../whalecode-session" }

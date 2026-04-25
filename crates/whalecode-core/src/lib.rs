@@ -19,7 +19,11 @@ use whalecode_protocol::{
 use whalecode_session::SessionError;
 use whalecode_tools::{ToolError, ToolRequest, ToolResultEnvelope, ToolRuntime};
 
+mod live;
+mod live_tools;
 mod recorder;
+
+pub use live::*;
 
 use recorder::{ensure_parent_dir, EventRecorder};
 
@@ -81,6 +85,12 @@ pub enum AgentError {
     PermissionRejected { tool: String },
     #[error("tool error: {0}")]
     Tool(#[from] ToolError),
+    #[error("model error: {0}")]
+    Model(#[from] whalecode_model::ModelError),
+    #[error("patch error: {0}")]
+    Patch(#[from] whalecode_patch::PatchError),
+    #[error("live agent exceeded max turns ({max_turns})")]
+    MaxTurns { max_turns: usize },
 }
 
 #[derive(Debug, Clone)]
@@ -305,7 +315,7 @@ pub fn run_bootstrap_agent(
     })
 }
 
-fn permission_event_kind(decision: &PermissionDecision) -> PermissionDecisionKind {
+pub(crate) fn permission_event_kind(decision: &PermissionDecision) -> PermissionDecisionKind {
     match decision {
         PermissionDecision::Allow => PermissionDecisionKind::Allowed,
         PermissionDecision::Ask { .. } => PermissionDecisionKind::Asked,
