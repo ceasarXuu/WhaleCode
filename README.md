@@ -36,10 +36,10 @@ cargo run -p whalecode-cli --bin whale -- run --live "inspect this repo"
 Current workspace status: bootstrap CLI loop plus a live DeepSeek tool loop. The
 `whale` binary can start a replayable local bootstrap agent turn, run read-only
 workspace tools, persist JSONL session events, stream DeepSeek text/reasoning
-and tool-call deltas, and apply `edit_file` through a patch-safe exact
-replacement path when `--allow-write` is explicit. Context compaction, controlled
-verification commands, and primitive host execution are still follow-up
-milestones.
+and tool-call deltas, apply `edit_file` through a patch-safe exact replacement
+path when `--allow-write` is explicit, and run bounded verification commands
+when `--allow-command` is explicit. Context compaction and primitive host
+execution are still follow-up milestones.
 
 Install the local CLI into your active Cargo bin directory:
 
@@ -70,11 +70,14 @@ Run the live agent against the current repository:
 
 ```bash
 whale run --live "inspect this repo"
-whale run --live --allow-write "fix the bug in src/lib.rs"
+whale run --live --allow-write --allow-command "fix the bug in src/lib.rs and run the relevant test"
 ```
 
 Without `--allow-write`, `edit_file` calls are rejected and recorded in the
 session log. With `--allow-write`, edits still require an exact old-string match
-and a fresh file snapshot before Whale writes to disk.
+and a fresh file snapshot before Whale writes to disk. Without
+`--allow-command`, `run_command` calls are rejected and recorded; with
+`--allow-command`, commands run in the workspace with argument arrays and a
+timeout rather than through a shell string.
 
 More setup details are in `docs/runbooks/rust-development-environment.md`.

@@ -36,6 +36,8 @@ enum Command {
         #[arg(long)]
         allow_write: bool,
         #[arg(long)]
+        allow_command: bool,
+        #[arg(long)]
         model: Option<String>,
         #[arg(long, default_value_t = default_live_max_turns())]
         max_turns: usize,
@@ -68,9 +70,22 @@ async fn run_cli() -> Result<(), CliError> {
             session,
             live,
             allow_write,
+            allow_command,
             model,
             max_turns,
-        }) => run_once(task, cwd, session, live, allow_write, model, max_turns).await?,
+        }) => {
+            run_once(RunInvocation {
+                task,
+                cwd,
+                session,
+                live,
+                allow_write,
+                allow_command,
+                model,
+                max_turns,
+            })
+            .await?
+        }
         Some(Command::ModelSmoke {
             prompt,
             model,
@@ -106,28 +121,31 @@ fn print_status() -> Result<(), CliError> {
     println!("model: bootstrap-local or {DEEPSEEK_DEFAULT_MODEL}");
     println!("deepseek_adapter: request_builder_sse_parser_tool_calls");
     println!("live_model_smoke: whale model-smoke --model {DEEPSEEK_DEFAULT_MODEL} \"hello\"");
-    println!("live_run: whale run --live --allow-write \"fix the bug\"");
+    println!("live_run: whale run --live --allow-write --allow-command \"fix the bug\"");
     println!("primitive_host: scaffolded");
     println!("next_session_path: {}", session_path.display());
     Ok(())
 }
 
-async fn run_once(
+struct RunInvocation {
     task: Vec<String>,
     cwd: Option<PathBuf>,
     session: Option<PathBuf>,
     live: bool,
     allow_write: bool,
+    allow_command: bool,
     model: Option<String>,
     max_turns: usize,
-) -> Result<(), CliError> {
-    let task = normalize_task(task)?;
-    let cwd = match cwd {
+}
+
+async fn run_once(invocation: RunInvocation) -> Result<(), CliError> {
+    let task = normalize_task(invocation.task)?;
+    let cwd = match invocation.cwd {
         Some(path) => path,
         None => std::env::current_dir().map_err(CliError::CurrentDir)?,
     };
-    let summary = if live {
-        let session_path = match session {
+    let summary = if invocation.live {
+        let session_path = match invocation.session {
             Some(path) => path,
             None => default_session_path()?,
         };
@@ -135,13 +153,16 @@ async fn run_once(
             task,
             cwd,
             session_path,
-            model: model.unwrap_or_else(|| DEEPSEEK_DEFAULT_MODEL.to_owned()),
-            allow_write,
-            max_turns,
+            model: invocation
+                .model
+                .unwrap_or_else(|| DEEPSEEK_DEFAULT_MODEL.to_owned()),
+            allow_write: invocation.allow_write,
+            allow_command: invocation.allow_command,
+            max_turns: invocation.max_turns,
         })
         .await?
     } else {
-        run_bootstrap_agent(task, cwd, session)?
+        run_bootstrap_agent(task, cwd, invocation.session)?
     };
     println!("{}", summary.final_message);
     println!();
@@ -174,15 +195,16 @@ async fn run_interactive() -> Result<(), CliError> {
         if matches!(task, "/exit" | "exit" | "quit") {
             break;
         }
-        run_once(
-            vec![task.to_owned()],
-            None,
-            None,
-            false,
-            false,
-            None,
-            default_live_max_turns(),
-        )
+        run_once(RunInvocation {
+            task: vec![task.to_owned()],
+            cwd: None,
+            session: None,
+            live: false,
+            allow_write: false,
+            allow_command: false,
+            model: None,
+            max_turns: default_live_max_turns(),
+        })
         .await?;
     }
     Ok(())

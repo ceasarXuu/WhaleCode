@@ -13,10 +13,8 @@ use whalecode_protocol::{
 use whalecode_tools::ToolRuntime;
 
 use crate::{
-    live_tools::{execute_model_tool, live_tool_defs},
-    recorder::ensure_parent_dir,
-    recorder::EventRecorder,
-    AgentError, AgentRunSummary,
+    live_tool_defs::live_tool_defs, live_tools::execute_model_tool, recorder::ensure_parent_dir,
+    recorder::EventRecorder, AgentError, AgentRunSummary,
 };
 
 const DEFAULT_MAX_TURNS: usize = 8;
@@ -28,6 +26,7 @@ pub struct LiveAgentOptions {
     pub session_path: PathBuf,
     pub model: String,
     pub allow_write: bool,
+    pub allow_command: bool,
     pub max_turns: usize,
 }
 
@@ -57,7 +56,7 @@ pub async fn run_live_agent(options: LiveAgentOptions) -> Result<AgentRunSummary
     }))?;
 
     let mut messages = vec![
-        system_message(options.allow_write),
+        system_message(options.allow_write, options.allow_command),
         ChatMessage::user(&options.task),
     ];
     let mut tool_summaries = Vec::new();
@@ -119,7 +118,9 @@ pub async fn run_live_agent(options: LiveAgentOptions) -> Result<AgentRunSummary
                 &mut recorder,
                 &call,
                 options.allow_write,
-            )?;
+                options.allow_command,
+            )
+            .await?;
             tool_summaries.push(format!("{}: {}", call.name, tool_result.summary));
             messages.push(tool_message(call.id, tool_result.message));
         }
@@ -206,16 +207,21 @@ fn tool_message(tool_call_id: String, content: String) -> ChatMessage {
     }
 }
 
-fn system_message(allow_write: bool) -> ChatMessage {
+fn system_message(allow_write: bool, allow_command: bool) -> ChatMessage {
     let write_policy = if allow_write {
         "You may call edit_file. It applies one exact replacement at a time through a stale-read-safe patch engine."
     } else {
         "Do not call edit_file unless the user reruns with --allow-write."
     };
+    let command_policy = if allow_command {
+        "You may call run_command for bounded verification commands. Pass command and args separately; do not assume a shell."
+    } else {
+        "Do not call run_command unless the user reruns with --allow-command."
+    };
     ChatMessage {
         role: ChatMessageRole::System,
         content: format!(
-            "You are WhaleCode, a terminal coding agent. Inspect the repository before changing it. Use list_files, read_file, and search_text to gather evidence. {write_policy} Prefer minimal, testable fixes. Return a concise final summary after tool work is complete."
+            "You are WhaleCode, a terminal coding agent. Inspect the repository before changing it. Use list_files, read_file, and search_text to gather evidence. {write_policy} {command_policy} Prefer minimal, testable fixes. Return a concise final summary after tool work is complete."
         ),
         reasoning_content: None,
         tool_call_id: None,

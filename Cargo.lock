@@ -1759,6 +1759,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 1.0.69",
+ "tokio",
  "whalecode-model",
  "whalecode-patch",
  "whalecode-permission",

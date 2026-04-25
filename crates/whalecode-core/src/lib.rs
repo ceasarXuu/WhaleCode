@@ -19,7 +19,9 @@ use whalecode_protocol::{
 use whalecode_session::SessionError;
 use whalecode_tools::{ToolError, ToolRequest, ToolResultEnvelope, ToolRuntime};
 
+mod command_tool;
 mod live;
+mod live_tool_defs;
 mod live_tools;
 mod recorder;
 

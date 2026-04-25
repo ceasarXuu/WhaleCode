@@ -136,7 +136,7 @@ acceptance_tests:
 
 ## Live DeepSeek Tool Loop Slice
 
-Implemented next: `whale run --live` now calls DeepSeek through the model adapter, exposes model tools, aggregates streamed tool-call deltas, executes read/search tools, gates `edit_file` behind explicit `--allow-write`, applies edits through `whalecode-patch`, and records model/tool/permission/patch/session events to JSONL.
+Implemented next: `whale run --live` now calls DeepSeek through the model adapter, exposes model tools, aggregates streamed tool-call deltas, executes read/search tools, gates `edit_file` behind explicit `--allow-write`, gates bounded verification commands behind explicit `--allow-command`, applies edits through `whalecode-patch`, and records model/tool/permission/patch/session events to JSONL.
 
 ```yaml
 reference_source:
@@ -151,19 +151,21 @@ borrowed_behavior:
   - keep provider streaming, tool execution, permission, and patch safety as separate modules
   - continue the conversation with assistant tool_calls and tool result messages
   - require an explicit write gate before mutating tools can apply
+  - require an explicit command gate before verification commands can execute
   - record rejected writes and failed provider calls into the same replayable session stream
 whalecode_delta:
   - DeepSeek reasoning_content is preserved alongside tool_calls for future thinking-mode continuation
   - model-facing edit_file uses one exact replacement and the repository-owned stale-read snapshot contract
 rejected_behavior:
-  - no default write permission from natural-language intent alone
-  - no shell verification tool until timeout and command governance are designed
+  - no default write or command permission from natural-language intent alone
+  - no shell-string execution; run_command receives command plus argument array
 license_boundary:
   - design-only reference; no copied reference-project source code
 acceptance_tests:
   - whale run --live fails clearly without DEEPSEEK_API_KEY and still writes a failure session
   - streamed tool-call deltas are grouped by index/id before execution
   - edit_file requires --allow-write and patch-safe apply
+  - run_command requires --allow-command and executes in the workspace with timeout
   - cargo fmt/test/clippy pass for the live loop crates
 ```
 
