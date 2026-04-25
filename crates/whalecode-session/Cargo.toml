@@ -11,3 +11,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 whalecode-protocol = { path = "../whalecode-protocol" }
+
+[dev-dependencies]
+chrono.workspace = true
+tempfile = "3"
