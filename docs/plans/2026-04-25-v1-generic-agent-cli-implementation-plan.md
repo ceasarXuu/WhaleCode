@@ -36,7 +36,7 @@ natural-language task
 
 ## Current Bootstrap Slice
 
-Implemented first: `whale` / `whale run` starts a replayable local bootstrap agent turn, persists JSONL session events, routes read-only tools through a permission decision, and reports a final assistant transcript. This is intentionally not yet a live DeepSeek agent and intentionally does not mutate files.
+Implemented first: `whale run --bootstrap` starts a replayable local bootstrap agent turn, persists JSONL session events, routes read-only tools through a permission decision, and reports a final assistant transcript. This mode is now debug-only; the default `whale` and `whale run` paths use the live DeepSeek agent loop.
 
 ```yaml
 reference_source:
@@ -54,14 +54,15 @@ borrowed_behavior:
   - reject mutating tools until permission and patch safety are both in the execution path
 whalecode_delta:
   - expose the product binary as whale
-  - use a bootstrap-local model runtime until the DeepSeek SSE adapter is verified with fixtures
+  - retain bootstrap-local runtime only as explicit debug fallback after the live loop exists
 rejected_behavior:
+  - no bootstrap/mock output on the default user-facing CLI path
   - no unsafe shell/write shortcut in the first CLI loop
   - no DB-first session store before JSONL replay is stable
 license_boundary:
   - design-only reference; no copied reference-project source code
 acceptance_tests:
-  - whale run creates a session file
+  - whale run --bootstrap creates a session file
   - JSONL replay reconstructs user and assistant transcript entries
   - read-only tools are allowed in Analyze phase
   - file listing omits gitignored files and local agent config directories
@@ -162,7 +163,7 @@ acceptance_tests:
 
 ## Live DeepSeek Tool Loop Slice
 
-Implemented next: `whale run --live` now calls DeepSeek through the model adapter, exposes model tools, aggregates streamed tool-call deltas, executes read/search tools, gates `edit_file` behind explicit `--allow-write`, gates bounded verification commands behind explicit `--allow-command`, applies edits through `whalecode-patch`, and records model/tool/permission/patch/session events to JSONL.
+Implemented next: `whale` and `whale run` now call DeepSeek through the model adapter by default, expose model tools, aggregate streamed tool-call deltas, execute read/search tools, gate `edit_file` behind explicit `--allow-write` on one-shot runs, gate bounded verification commands behind explicit `--allow-command`, apply edits through `whalecode-patch`, and record model/tool/permission/patch/session events to JSONL.
 
 ```yaml
 reference_source:
@@ -188,7 +189,7 @@ rejected_behavior:
 license_boundary:
   - design-only reference; no copied reference-project source code
 acceptance_tests:
-  - whale run --live fails clearly without DEEPSEEK_API_KEY or stored user secret and still writes a failure session
+  - whale run fails clearly without DEEPSEEK_API_KEY or stored user secret and still writes a failure session
   - streamed tool-call deltas are grouped by index/id before execution
   - edit_file requires --allow-write and patch-safe apply
   - run_command requires --allow-command and executes in the workspace with timeout

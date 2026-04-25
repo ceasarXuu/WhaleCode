@@ -30,7 +30,6 @@ cargo fmt --check
 cargo test --workspace
 cargo run -p whalecode-cli --bin whale -- status
 cargo run -p whalecode-cli --bin whale -- run "inspect this repo"
-cargo run -p whalecode-cli --bin whale -- run --live "inspect this repo"
 ```
 
 Workspace behavior is intentionally simple in V1: the process current directory
@@ -39,13 +38,13 @@ workspace, or pass `--cwd <path>` to override it for `whale run`. Read/search,
 patch-safe edits, session `cwd` events, and gated verification commands all use
 the selected workspace as their root.
 
-Current workspace status: bootstrap CLI loop plus a live DeepSeek tool loop. The
-`whale` binary can start a replayable local bootstrap agent turn, run read-only
-workspace tools, persist JSONL session events, stream DeepSeek text/reasoning
-and tool-call deltas, apply `edit_file` through a patch-safe exact replacement
-path when `--allow-write` is explicit, and run bounded verification commands
-when `--allow-command` is explicit. Context compaction and primitive host
-execution are still follow-up milestones.
+Current workspace status: live DeepSeek tool loop as the default agent path. The
+`whale` binary can run read-only workspace tools, persist JSONL session events,
+stream DeepSeek text/reasoning and tool-call deltas, apply `edit_file` through a
+patch-safe exact replacement path, and run bounded verification commands when
+`--allow-command` is explicit. Context compaction and primitive host execution
+are still follow-up milestones. The old bootstrap-local runtime is only kept for
+explicit `whale run --bootstrap` debugging.
 
 Install the local CLI into your active Cargo bin directory:
 
@@ -89,8 +88,8 @@ streaming, and response aggregation.
 Run the live agent against the current repository:
 
 ```bash
-whale run --live "inspect this repo"
-whale run --live --allow-write --allow-command "fix the bug in src/lib.rs and run the relevant test"
+whale run "inspect this repo"
+whale run --allow-write --allow-command "fix the bug in src/lib.rs and run the relevant test"
 ```
 
 Without `--allow-write`, `edit_file` calls are rejected and recorded in the

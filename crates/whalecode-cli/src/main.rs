@@ -32,8 +32,10 @@ enum Command {
         cwd: Option<PathBuf>,
         #[arg(long)]
         session: Option<PathBuf>,
-        #[arg(long)]
+        #[arg(long, help = "Accepted for compatibility; run is live by default")]
         live: bool,
+        #[arg(long, conflicts_with = "live")]
+        bootstrap: bool,
         #[arg(long)]
         allow_write: bool,
         #[arg(long)]
@@ -69,7 +71,8 @@ async fn run_cli() -> Result<(), CliError> {
             task,
             cwd,
             session,
-            live,
+            live: _,
+            bootstrap,
             allow_write,
             allow_command,
             model,
@@ -79,7 +82,11 @@ async fn run_cli() -> Result<(), CliError> {
                 task,
                 cwd,
                 session,
-                live,
+                mode: if bootstrap {
+                    RunMode::Bootstrap
+                } else {
+                    RunMode::Live
+                },
                 allow_write,
                 allow_command,
                 model,
@@ -125,12 +132,13 @@ fn print_status() -> Result<(), CliError> {
         "deepseek_api_key: {}",
         api_key_source_label(deepseek_api_key_source())
     );
-    println!("runtime: bootstrap_agent_loop + live_deepseek_tool_loop");
+    println!("runtime: live_deepseek_tool_loop");
     println!("session_store: jsonl");
-    println!("model: bootstrap-local or {DEEPSEEK_DEFAULT_MODEL}");
+    println!("model: {DEEPSEEK_DEFAULT_MODEL}");
     println!("deepseek_adapter: request_builder_sse_parser_tool_calls");
     println!("live_model_smoke: whale model-smoke --model {DEEPSEEK_DEFAULT_MODEL} \"hello\"");
-    println!("live_run: whale run --live --allow-write --allow-command \"fix the bug\"");
+    println!("live_run: whale run --allow-write --allow-command \"fix the bug\"");
+    println!("bootstrap_debug: whale run --bootstrap \"inspect this repo\"");
     println!("primitive_host: scaffolded");
     println!("next_session_path: {}", session_path.display());
     Ok(())
@@ -140,11 +148,17 @@ struct RunInvocation {
     task: Vec<String>,
     cwd: Option<PathBuf>,
     session: Option<PathBuf>,
-    live: bool,
+    mode: RunMode,
     allow_write: bool,
     allow_command: bool,
     model: Option<String>,
     max_turns: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunMode {
+    Live,
+    Bootstrap,
 }
 
 async fn run_once(invocation: RunInvocation) -> Result<(), CliError> {
@@ -153,7 +167,7 @@ async fn run_once(invocation: RunInvocation) -> Result<(), CliError> {
         Some(path) => path,
         None => std::env::current_dir().map_err(CliError::CurrentDir)?,
     };
-    let summary = if invocation.live {
+    let summary = if invocation.mode == RunMode::Live {
         let session_path = match invocation.session {
             Some(path) => path,
             None => default_session_path()?,
@@ -182,9 +196,10 @@ async fn run_once(invocation: RunInvocation) -> Result<(), CliError> {
 
 async fn run_interactive() -> Result<(), CliError> {
     let mut stdout = io::stdout();
+    let mut settings = InteractiveSettings::default();
     writeln!(
         stdout,
-        "Whale bootstrap agent. Type a task and press Enter, /apikey to store a DeepSeek key, or /exit to quit."
+        "Whale live agent. Type a task and press Enter, /apikey to store a DeepSeek key, /permissions to inspect gates, or /exit to quit."
     )
     .map_err(CliError::WriteOutput)?;
     loop {
@@ -208,19 +223,116 @@ async fn run_interactive() -> Result<(), CliError> {
             save_api_key_interactively(&mut stdout)?;
             continue;
         }
-        run_once(RunInvocation {
+        if handle_interactive_command(task, &mut settings, &mut stdout)? {
+            continue;
+        }
+        if let Err(error) = run_once(RunInvocation {
             task: vec![task.to_owned()],
             cwd: None,
             session: None,
-            live: false,
-            allow_write: false,
-            allow_command: false,
-            model: None,
-            max_turns: default_live_max_turns(),
+            mode: RunMode::Live,
+            allow_write: settings.allow_write,
+            allow_command: settings.allow_command,
+            model: Some(settings.model.clone()),
+            max_turns: settings.max_turns,
         })
-        .await?;
+        .await
+        {
+            writeln!(stdout, "error: {error}").map_err(CliError::WriteOutput)?;
+            if is_missing_api_key_error(&error) {
+                writeln!(stdout, "Run /apikey to store your DeepSeek API key.")
+                    .map_err(CliError::WriteOutput)?;
+            }
+        }
     }
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct InteractiveSettings {
+    allow_write: bool,
+    allow_command: bool,
+    model: String,
+    max_turns: usize,
+}
+
+impl Default for InteractiveSettings {
+    fn default() -> Self {
+        Self {
+            allow_write: true,
+            allow_command: false,
+            model: DEEPSEEK_DEFAULT_MODEL.to_owned(),
+            max_turns: default_live_max_turns(),
+        }
+    }
+}
+
+fn handle_interactive_command(
+    task: &str,
+    settings: &mut InteractiveSettings,
+    stdout: &mut io::Stdout,
+) -> Result<bool, CliError> {
+    match task {
+        "/permissions" => {
+            print_interactive_permissions(settings, stdout)?;
+            Ok(true)
+        }
+        "/write on" => {
+            settings.allow_write = true;
+            writeln!(stdout, "edit_file: enabled").map_err(CliError::WriteOutput)?;
+            Ok(true)
+        }
+        "/write off" => {
+            settings.allow_write = false;
+            writeln!(stdout, "edit_file: disabled").map_err(CliError::WriteOutput)?;
+            Ok(true)
+        }
+        "/command on" => {
+            settings.allow_command = true;
+            writeln!(stdout, "run_command: enabled").map_err(CliError::WriteOutput)?;
+            Ok(true)
+        }
+        "/command off" => {
+            settings.allow_command = false;
+            writeln!(stdout, "run_command: disabled").map_err(CliError::WriteOutput)?;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+fn print_interactive_permissions(
+    settings: &InteractiveSettings,
+    stdout: &mut io::Stdout,
+) -> Result<(), CliError> {
+    writeln!(stdout, "mode: live").map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "model: {}", settings.model).map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "edit_file: {}", enabled_label(settings.allow_write))
+        .map_err(CliError::WriteOutput)?;
+    writeln!(
+        stdout,
+        "run_command: {}",
+        enabled_label(settings.allow_command)
+    )
+    .map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "max_turns: {}", settings.max_turns).map_err(CliError::WriteOutput)?;
+    Ok(())
+}
+
+fn enabled_label(enabled: bool) -> &'static str {
+    if enabled {
+        "enabled"
+    } else {
+        "disabled"
+    }
+}
+
+fn is_missing_api_key_error(error: &CliError) -> bool {
+    matches!(
+        error,
+        CliError::Model(ModelError::MissingApiKey)
+            | CliError::Agent(AgentError::Model(ModelError::MissingApiKey))
+    )
 }
 
 fn save_api_key_interactively(stdout: &mut io::Stdout) -> Result<(), CliError> {
