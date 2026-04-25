@@ -38,6 +38,7 @@ natural-language task
 
 **Files:**
 - Create: `Cargo.toml`
+- Create: `rust-toolchain.toml`
 - Create: `crates/whalecode-protocol/Cargo.toml`
 - Create: `crates/whalecode-protocol/src/lib.rs`
 - Create: `crates/whalecode-core/Cargo.toml`
