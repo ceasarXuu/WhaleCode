@@ -8,7 +8,7 @@ use whalecode_patch::WorkspacePatchEngine;
 use whalecode_permission::PermissionEngine;
 use whalecode_protocol::{
     ModelEvent, ModelStreamDelta, PhaseEvent, SessionEvent, SessionFinishStatus,
-    SessionLifecycleEvent, TranscriptEvent, WorkflowPhase,
+    SessionLifecycleEvent, TranscriptEvent, TurnEvent, TurnFinishStatus, TurnId, WorkflowPhase,
 };
 use whalecode_tools::ToolRuntime;
 
@@ -62,7 +62,11 @@ pub async fn run_live_agent(options: LiveAgentOptions) -> Result<AgentRunSummary
     let mut tool_summaries = Vec::new();
     let max_turns = options.max_turns.max(1);
 
-    for _turn in 0..max_turns {
+    for turn_index in 1..=max_turns {
+        recorder.set_turn(TurnId::from(format!("turn-{turn_index}")));
+        recorder.append(SessionEvent::Turn(TurnEvent::Started {
+            index: turn_index as u64,
+        }))?;
         recorder.append(SessionEvent::Model(ModelEvent::RequestStarted {
             model: config.model.clone(),
         }))?;
@@ -74,6 +78,11 @@ pub async fn run_live_agent(options: LiveAgentOptions) -> Result<AgentRunSummary
                 recorder.append(SessionEvent::Model(ModelEvent::RequestFailed {
                     message: error.to_string(),
                 }))?;
+                recorder.append(SessionEvent::Turn(TurnEvent::Finished {
+                    index: turn_index as u64,
+                    status: TurnFinishStatus::Failed,
+                }))?;
+                recorder.clear_turn();
                 recorder.append(SessionEvent::Session(SessionLifecycleEvent::Finished {
                     status: SessionFinishStatus::Failed,
                 }))?;
@@ -97,6 +106,11 @@ pub async fn run_live_agent(options: LiveAgentOptions) -> Result<AgentRunSummary
                 from: WorkflowPhase::Analyze,
                 to: WorkflowPhase::Done,
             }))?;
+            recorder.append(SessionEvent::Turn(TurnEvent::Finished {
+                index: turn_index as u64,
+                status: TurnFinishStatus::Completed,
+            }))?;
+            recorder.clear_turn();
             recorder.append(SessionEvent::Session(SessionLifecycleEvent::Finished {
                 status: SessionFinishStatus::Succeeded,
             }))?;
@@ -111,7 +125,7 @@ pub async fn run_live_agent(options: LiveAgentOptions) -> Result<AgentRunSummary
         let calls = output.tool_calls.clone();
         messages.push(assistant_message(&output));
         for call in calls {
-            let tool_result = execute_model_tool(
+            let tool_result = match execute_model_tool(
                 &tools,
                 &patch_engine,
                 &permission,
@@ -120,10 +134,29 @@ pub async fn run_live_agent(options: LiveAgentOptions) -> Result<AgentRunSummary
                 options.allow_write,
                 options.allow_command,
             )
-            .await?;
+            .await
+            {
+                Ok(result) => result,
+                Err(error) => {
+                    recorder.append(SessionEvent::Turn(TurnEvent::Finished {
+                        index: turn_index as u64,
+                        status: TurnFinishStatus::Failed,
+                    }))?;
+                    recorder.clear_turn();
+                    recorder.append(SessionEvent::Session(SessionLifecycleEvent::Finished {
+                        status: SessionFinishStatus::Failed,
+                    }))?;
+                    return Err(error);
+                }
+            };
             tool_summaries.push(format!("{}: {}", call.name, tool_result.summary));
             messages.push(tool_message(call.id, tool_result.message));
         }
+        recorder.append(SessionEvent::Turn(TurnEvent::Finished {
+            index: turn_index as u64,
+            status: TurnFinishStatus::Continued,
+        }))?;
+        recorder.clear_turn();
     }
 
     recorder.append(SessionEvent::Session(SessionLifecycleEvent::Finished {

@@ -42,7 +42,9 @@ Current workspace status: live DeepSeek tool loop as the default agent path. The
 `whale` binary can run read-only workspace tools, persist JSONL session events,
 stream DeepSeek text/reasoning and tool-call deltas, apply `edit_file` through a
 patch-safe exact replacement path, and run bounded verification commands when
-`--allow-command` is explicit. Context compaction and primitive host execution
+`--allow-command` is explicit. Session logs now include turn grouping, model
+stream events, permission decisions, tool outputs, and patch results so a run can
+be replayed from the terminal. Context compaction and primitive host execution
 are still follow-up milestones. The old bootstrap-local runtime is only kept for
 explicit `whale run --bootstrap` debugging.
 
@@ -90,6 +92,8 @@ Run the live agent against the current repository:
 ```bash
 whale run "inspect this repo"
 whale run --allow-write --allow-command "fix the bug in src/lib.rs and run the relevant test"
+whale logs
+whale logs --session ~/.whale/sessions/session-....jsonl
 ```
 
 Without `--allow-write`, `edit_file` calls are rejected and recorded in the

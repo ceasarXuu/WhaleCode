@@ -50,6 +50,7 @@ pub enum SessionEvent {
     Primitive(PrimitiveEvent),
     Replay(ReplayEvent),
     Phase(PhaseEvent),
+    Turn(TurnEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -156,4 +157,24 @@ pub enum PhaseEvent {
         from: WorkflowPhase,
         to: WorkflowPhase,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TurnEvent {
+    Started {
+        index: u64,
+    },
+    Finished {
+        index: u64,
+        status: TurnFinishStatus,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnFinishStatus {
+    Completed,
+    Continued,
+    Failed,
 }

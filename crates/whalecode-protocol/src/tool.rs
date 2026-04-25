@@ -37,4 +37,11 @@ pub enum ToolEvent {
         status: ToolStatus,
         output_artifact: Option<ArtifactId>,
     },
+    OutputRecorded {
+        call_id: ToolCallId,
+        artifact_id: ArtifactId,
+        summary: String,
+        content_preview: String,
+        truncated: bool,
+    },
 }

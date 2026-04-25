@@ -1,7 +1,7 @@
 use std::{fs, path::Path};
 
 use chrono::Utc;
-use whalecode_protocol::{EventEnvelope, SessionEvent, SessionId, TraceId};
+use whalecode_protocol::{EventEnvelope, SessionEvent, SessionId, TraceId, TurnId};
 use whalecode_session::JsonlSessionStore;
 
 use crate::AgentError;
@@ -20,6 +20,7 @@ pub(crate) struct EventRecorder {
     store: JsonlSessionStore,
     session_id: SessionId,
     trace_id: TraceId,
+    turn_id: Option<TurnId>,
     sequence: u64,
 }
 
@@ -29,20 +30,30 @@ impl EventRecorder {
             store: JsonlSessionStore::open(path)?,
             session_id: SessionId::from(format!("session-{}", Utc::now().timestamp_micros())),
             trace_id: TraceId::from(format!("trace-{}", Utc::now().timestamp_micros())),
+            turn_id: None,
             sequence: 0,
         })
     }
 
     pub(crate) fn append(&mut self, payload: SessionEvent) -> Result<(), AgentError> {
         self.sequence += 1;
-        let event = EventEnvelope::new(
+        let mut event = EventEnvelope::new(
             self.session_id.clone(),
             self.trace_id.clone(),
             self.sequence,
             payload,
         );
+        event.turn_id = self.turn_id.clone();
         self.store.append(&event)?;
         Ok(())
+    }
+
+    pub(crate) fn set_turn(&mut self, turn_id: TurnId) {
+        self.turn_id = Some(turn_id);
+    }
+
+    pub(crate) fn clear_turn(&mut self) {
+        self.turn_id = None;
     }
 
     pub(crate) fn next_sequence(&self) -> u64 {

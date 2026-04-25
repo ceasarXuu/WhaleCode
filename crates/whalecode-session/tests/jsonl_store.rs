@@ -2,7 +2,7 @@ use chrono::Utc;
 use tempfile::tempdir;
 use whalecode_protocol::{
     EventEnvelope, PrimitiveEvent, PrimitiveId, RedactionSummary, SessionEvent, SessionId,
-    ToolCallId, ToolEvent, ToolStatus, TraceId, TranscriptEvent,
+    ToolCallId, ToolEvent, ToolStatus, TraceId, TranscriptEvent, TurnEvent, TurnFinishStatus,
 };
 use whalecode_session::{
     read_jsonl, replay_jsonl, JsonlSessionStore, SessionError, TranscriptRole,
@@ -38,22 +38,45 @@ fn appends_and_replays_jsonl_events_in_order() {
     store
         .append(&event(
             2,
-            SessionEvent::Tool(ToolEvent::CallFinished {
+            SessionEvent::Tool(ToolEvent::OutputRecorded {
                 call_id: ToolCallId::from("tool-1"),
-                status: ToolStatus::Succeeded,
-                output_artifact: None,
+                artifact_id: whalecode_protocol::ArtifactId::from("tool-output-1"),
+                summary: "ok".to_owned(),
+                content_preview: "README.md".to_owned(),
+                truncated: false,
             }),
         ))
         .expect("append second");
+    store
+        .append(&event(
+            3,
+            SessionEvent::Tool(ToolEvent::CallFinished {
+                call_id: ToolCallId::from("tool-1"),
+                status: ToolStatus::Succeeded,
+                output_artifact: Some(whalecode_protocol::ArtifactId::from("tool-output-1")),
+            }),
+        ))
+        .expect("append third");
+    store
+        .append(&event(
+            4,
+            SessionEvent::Turn(TurnEvent::Finished {
+                index: 1,
+                status: TurnFinishStatus::Completed,
+            }),
+        ))
+        .expect("append fourth");
 
     let events = read_jsonl(&path).expect("read jsonl");
-    assert_eq!(events.len(), 2);
+    assert_eq!(events.len(), 4);
     let replay = replay_jsonl(&path).expect("replay");
-    assert_eq!(replay.event_count, 2);
+    assert_eq!(replay.event_count, 4);
     assert_eq!(replay.transcript.len(), 1);
     assert_eq!(replay.transcript[0].role, TranscriptRole::User);
     assert_eq!(replay.transcript[0].content, "hello");
-    assert_eq!(replay.tool_event_count, 1);
+    assert_eq!(replay.tool_event_count, 2);
+    assert_eq!(replay.tool_output_count, 1);
+    assert_eq!(replay.turn_event_count, 1);
 }
 
 #[test]

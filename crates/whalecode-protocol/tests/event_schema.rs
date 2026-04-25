@@ -2,7 +2,8 @@ use chrono::Utc;
 use whalecode_protocol::{
     ArtifactId, EventEnvelope, ModelEvent, ModelStreamDelta, PatchApplyStatus, PatchEvent,
     PermissionDecisionKind, PermissionEvent, PrimitiveEvent, PrimitiveId, SessionEvent, SessionId,
-    SessionLifecycleEvent, ToolCallId, ToolEvent, ToolStatus, TraceId, TranscriptEvent,
+    SessionLifecycleEvent, ToolCallId, ToolEvent, ToolStatus, TraceId, TranscriptEvent, TurnEvent,
+    TurnFinishStatus,
 };
 
 fn envelope(payload: SessionEvent) -> EventEnvelope<SessionEvent> {
@@ -58,6 +59,13 @@ fn roundtrips_tool_family() {
         status: ToolStatus::Succeeded,
         output_artifact: Some(ArtifactId::from("artifact-1")),
     }));
+    assert_roundtrip(SessionEvent::Tool(ToolEvent::OutputRecorded {
+        call_id: ToolCallId::from("tool-1"),
+        artifact_id: ArtifactId::from("artifact-1"),
+        summary: "3 lines".to_owned(),
+        content_preview: "README.md".to_owned(),
+        truncated: false,
+    }));
 }
 
 #[test]
@@ -80,5 +88,13 @@ fn roundtrips_patch_family() {
 fn roundtrips_primitive_family() {
     assert_roundtrip(SessionEvent::Primitive(PrimitiveEvent::Enabled {
         primitive_id: PrimitiveId::from("reference-driven"),
+    }));
+}
+
+#[test]
+fn roundtrips_turn_family() {
+    assert_roundtrip(SessionEvent::Turn(TurnEvent::Finished {
+        index: 1,
+        status: TurnFinishStatus::Completed,
     }));
 }

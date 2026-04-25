@@ -18,6 +18,8 @@ thiserror.workspace = true
 tokio.workspace = true
 whalecode-core = { path = "../whalecode-core" }
 whalecode-model = { path = "../whalecode-model" }
+whalecode-protocol = { path = "../whalecode-protocol" }
+whalecode-session = { path = "../whalecode-session" }
 
 [dev-dependencies]
 tempfile.workspace = true

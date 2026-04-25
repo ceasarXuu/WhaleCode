@@ -40,8 +40,13 @@ pub enum SessionError {
 pub struct ReplaySnapshot {
     pub event_count: usize,
     pub transcript: Vec<TranscriptEntry>,
+    pub model_event_count: usize,
     pub tool_event_count: usize,
+    pub tool_output_count: usize,
+    pub permission_event_count: usize,
     pub patch_event_count: usize,
+    pub phase_event_count: usize,
+    pub turn_event_count: usize,
     pub registered_primitives: BTreeSet<PrimitiveId>,
     pub enabled_primitives: BTreeSet<PrimitiveId>,
 }
@@ -166,11 +171,26 @@ impl ReplaySnapshot {
                     }
                 });
             }
-            SessionEvent::Tool(_) => {
+            SessionEvent::Tool(tool) => {
                 self.tool_event_count += 1;
+                if matches!(tool, whalecode_protocol::ToolEvent::OutputRecorded { .. }) {
+                    self.tool_output_count += 1;
+                }
+            }
+            SessionEvent::Model(_) => {
+                self.model_event_count += 1;
+            }
+            SessionEvent::Permission(_) => {
+                self.permission_event_count += 1;
             }
             SessionEvent::Patch(_) => {
                 self.patch_event_count += 1;
+            }
+            SessionEvent::Phase(_) => {
+                self.phase_event_count += 1;
+            }
+            SessionEvent::Turn(_) => {
+                self.turn_event_count += 1;
             }
             SessionEvent::Primitive(primitive) => match primitive {
                 PrimitiveEvent::Registered { primitive_id } => {

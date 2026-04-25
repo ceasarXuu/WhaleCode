@@ -14,6 +14,8 @@ use whalecode_model::{
     SecretStoreError, DEEPSEEK_DEFAULT_MODEL,
 };
 
+mod session_view;
+
 #[derive(Debug, Parser)]
 #[command(name = "whale")]
 #[command(about = "DeepSeek-first coding agent CLI")]
@@ -25,6 +27,10 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     Status,
+    Logs {
+        #[arg(long)]
+        session: Option<PathBuf>,
+    },
     Run {
         #[arg(required = true, num_args = 1..)]
         task: Vec<String>,
@@ -67,6 +73,7 @@ async fn run_cli() -> Result<(), CliError> {
     let cli = Cli::parse();
     match cli.command {
         Some(Command::Status) => print_status()?,
+        Some(Command::Logs { session }) => session_view::print_session_log(session)?,
         Some(Command::Run {
             task,
             cwd,
@@ -120,6 +127,8 @@ enum CliError {
     Model(#[from] ModelError),
     #[error("secret store error: {0}")]
     Secret(#[from] SecretStoreError),
+    #[error("session view error: {0}")]
+    SessionView(#[from] session_view::SessionViewError),
 }
 
 fn print_status() -> Result<(), CliError> {
@@ -134,6 +143,7 @@ fn print_status() -> Result<(), CliError> {
     );
     println!("runtime: live_deepseek_tool_loop");
     println!("session_store: jsonl");
+    println!("session_logs: whale logs");
     println!("model: {DEEPSEEK_DEFAULT_MODEL}");
     println!("deepseek_adapter: request_builder_sse_parser_tool_calls");
     println!("live_model_smoke: whale model-smoke --model {DEEPSEEK_DEFAULT_MODEL} \"hello\"");

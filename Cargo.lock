@@ -1762,6 +1762,8 @@ dependencies = [
  "tokio",
  "whalecode-core",
  "whalecode-model",
+ "whalecode-protocol",
+ "whalecode-session",
 ]
 
 [[package]]

@@ -12,9 +12,10 @@ use whalecode_permission::{
     PermissionRequest,
 };
 use whalecode_protocol::{
-    AgentId, AgentRole, ModelEvent, ModelStreamDelta, PermissionDecisionKind, PermissionEvent,
-    PhaseEvent, SessionEvent, SessionFinishStatus, SessionLifecycleEvent, ToolCallId, ToolEvent,
-    ToolStatus, TranscriptEvent, WorkflowPhase,
+    AgentId, AgentRole, ArtifactId, ModelEvent, ModelStreamDelta, PermissionDecisionKind,
+    PermissionEvent, PhaseEvent, SessionEvent, SessionFinishStatus, SessionLifecycleEvent,
+    ToolCallId, ToolEvent, ToolStatus, TranscriptEvent, TurnEvent, TurnFinishStatus, TurnId,
+    WorkflowPhase,
 };
 use whalecode_session::SessionError;
 use whalecode_tools::{ToolError, ToolRequest, ToolResultEnvelope, ToolRuntime};
@@ -24,6 +25,7 @@ mod live;
 mod live_tool_defs;
 mod live_tools;
 mod recorder;
+mod tool_log;
 
 pub use live::*;
 
@@ -130,6 +132,8 @@ impl AgentLoop {
             from: WorkflowPhase::Idle,
             to: WorkflowPhase::Analyze,
         }))?;
+        recorder.set_turn(TurnId::from("turn-1"));
+        recorder.append(SessionEvent::Turn(TurnEvent::Started { index: 1 }))?;
         recorder.append(SessionEvent::Model(ModelEvent::RequestStarted {
             model: options.model.clone(),
         }))?;
@@ -220,6 +224,11 @@ impl AgentLoop {
             from: WorkflowPhase::Analyze,
             to: WorkflowPhase::Done,
         }))?;
+        recorder.append(SessionEvent::Turn(TurnEvent::Finished {
+            index: 1,
+            status: TurnFinishStatus::Completed,
+        }))?;
+        recorder.clear_turn();
         recorder.append(SessionEvent::Session(SessionLifecycleEvent::Finished {
             status: SessionFinishStatus::Succeeded,
         }))?;
@@ -278,26 +287,36 @@ impl AgentLoop {
             }
         };
 
+        let output_artifact = ArtifactId::from(format!("tool-output-{}", recorder.next_sequence()));
+        recorder.append(SessionEvent::Tool(ToolEvent::OutputRecorded {
+            call_id: call_id.clone(),
+            artifact_id: output_artifact.clone(),
+            summary: format!("{} bytes", result.original_len),
+            content_preview: preview_lines(&result, 20),
+            truncated: result.truncated,
+        }))?;
         recorder.append(SessionEvent::Tool(ToolEvent::CallFinished {
             call_id,
             status: ToolStatus::Succeeded,
-            output_artifact: None,
+            output_artifact: Some(output_artifact),
         }))?;
         Ok(result)
     }
 }
 
 pub fn default_session_path() -> Result<PathBuf, AgentError> {
+    let stamp = Utc::now()
+        .timestamp_nanos_opt()
+        .unwrap_or_else(|| Utc::now().timestamp_micros() * 1_000);
+    Ok(default_sessions_dir().join(format!("session-{stamp}-{}.jsonl", std::process::id())))
+}
+
+pub fn default_sessions_dir() -> PathBuf {
     let base = env::var_os("WHALE_HOME")
         .map(PathBuf::from)
         .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".whale")))
         .unwrap_or_else(|| PathBuf::from(".whale"));
-    let stamp = Utc::now()
-        .timestamp_nanos_opt()
-        .unwrap_or_else(|| Utc::now().timestamp_micros() * 1_000);
-    Ok(base
-        .join("sessions")
-        .join(format!("session-{stamp}-{}.jsonl", std::process::id())))
+    base.join("sessions")
 }
 
 pub fn run_bootstrap_agent(

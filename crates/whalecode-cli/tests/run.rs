@@ -53,6 +53,43 @@ fn whale_run_defaults_workspace_to_process_current_directory() {
 }
 
 #[test]
+fn whale_logs_replays_session_event_trace() {
+    let repo = tempdir().expect("repo");
+    std::fs::write(repo.path().join("README.md"), "# Fixture\n").expect("write readme");
+    let session_path = repo.path().join("session.jsonl");
+
+    let run_output = Command::new(env!("CARGO_BIN_EXE_whale"))
+        .args([
+            "run",
+            "--bootstrap",
+            "inspect fixture",
+            "--cwd",
+            repo.path().to_str().expect("repo path"),
+            "--session",
+            session_path.to_str().expect("session path"),
+        ])
+        .output()
+        .expect("run whale");
+    assert!(run_output.status.success());
+
+    let logs_output = Command::new(env!("CARGO_BIN_EXE_whale"))
+        .args([
+            "logs",
+            "--session",
+            session_path.to_str().expect("session path"),
+        ])
+        .output()
+        .expect("run whale logs");
+
+    assert!(logs_output.status.success());
+    let stdout = String::from_utf8(logs_output.stdout).expect("stdout utf8");
+    assert!(stdout.contains("session:"));
+    assert!(stdout.contains("turn started index=1"));
+    assert!(stdout.contains("tool output"));
+    assert!(stdout.contains("assistant"));
+}
+
+#[test]
 fn whale_status_reports_live_runtime() {
     let repo = tempdir().expect("repo");
 
@@ -69,6 +106,7 @@ fn whale_status_reports_live_runtime() {
     assert!(stdout.contains(&format!("workspace: {}", canonical_workspace.display())));
     assert!(stdout.contains("runtime: live_deepseek_tool_loop"));
     assert!(stdout.contains("live_model_smoke: whale model-smoke"));
+    assert!(stdout.contains("session_logs: whale logs"));
     assert!(stdout.contains("bootstrap_debug: whale run --bootstrap"));
 }
 

@@ -13,6 +13,7 @@ use whalecode_protocol::{
 use whalecode_tools::{ToolRequest, ToolResultEnvelope, ToolRuntime};
 
 use crate::command_tool::{run_command, RunCommandArgs};
+use crate::tool_log::tool_log_preview;
 use crate::{permission_event_kind, recorder::EventRecorder, AgentError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,10 +123,19 @@ pub(crate) async fn execute_model_tool(
         )),
     }?;
 
+    let output_artifact = ArtifactId::from(format!("tool-output-{}", recorder.next_sequence()));
+    let (content_preview, truncated) = tool_log_preview(&result.message);
+    recorder.append(SessionEvent::Tool(ToolEvent::OutputRecorded {
+        call_id: call_id.clone(),
+        artifact_id: output_artifact.clone(),
+        summary: result.summary.clone(),
+        content_preview,
+        truncated,
+    }))?;
     recorder.append(SessionEvent::Tool(ToolEvent::CallFinished {
         call_id,
         status: result_status(&result.message),
-        output_artifact: None,
+        output_artifact: Some(output_artifact),
     }))?;
     Ok(result)
 }
@@ -161,7 +171,7 @@ async fn execute_command_tool(
     )?;
     if !matches!(decision, PermissionDecision::Allow) {
         return Ok(tool_error(
-            "run_command requires whale run --live --allow-command".to_owned(),
+            "run_command requires whale run --allow-command".to_owned(),
             ToolStatus::Rejected,
         ));
     }
@@ -241,7 +251,7 @@ fn execute_edit_tool(
     )?;
     if !matches!(decision, PermissionDecision::Allow) {
         return Ok(tool_error(
-            "edit_file requires whale run --live --allow-write".to_owned(),
+            "edit_file requires whale run --allow-write".to_owned(),
             ToolStatus::Rejected,
         ));
     }
