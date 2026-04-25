@@ -30,16 +30,16 @@ cargo fmt --check
 cargo test --workspace
 cargo run -p whalecode-cli --bin whale -- status
 cargo run -p whalecode-cli --bin whale -- run "inspect this repo"
+cargo run -p whalecode-cli --bin whale -- run --live "inspect this repo"
 ```
 
-Current workspace status: bootstrap CLI loop plus DeepSeek request/SSE adapter
-foundation. The `whale` binary can start a replayable local bootstrap agent
-turn, run read-only workspace tools, and persist JSONL session events. The model
-crate can build DeepSeek chat-completion requests and parse streaming
-`reasoning_content`, text, and tool-call deltas. The patch crate now provides
-read-before-write snapshots and dry-run replacement previews. Wiring live
-DeepSeek execution into the AgentLoop, mutating tools, context compaction, and
-primitive host execution are still follow-up milestones.
+Current workspace status: bootstrap CLI loop plus a live DeepSeek tool loop. The
+`whale` binary can start a replayable local bootstrap agent turn, run read-only
+workspace tools, persist JSONL session events, stream DeepSeek text/reasoning
+and tool-call deltas, and apply `edit_file` through a patch-safe exact
+replacement path when `--allow-write` is explicit. Context compaction, controlled
+verification commands, and primitive host execution are still follow-up
+milestones.
 
 Install the local CLI into your active Cargo bin directory:
 
@@ -65,5 +65,16 @@ whale model-smoke --model deepseek-v4-flash "say hello"
 
 `model-smoke` does not run tools or edit files; it only verifies live model auth,
 streaming, and response aggregation.
+
+Run the live agent against the current repository:
+
+```bash
+whale run --live "inspect this repo"
+whale run --live --allow-write "fix the bug in src/lib.rs"
+```
+
+Without `--allow-write`, `edit_file` calls are rejected and recorded in the
+session log. With `--allow-write`, edits still require an exact old-string match
+and a fresh file snapshot before Whale writes to disk.
 
 More setup details are in `docs/runbooks/rust-development-environment.md`.

@@ -292,7 +292,7 @@ impl BootstrapModelRuntime {
             request.tool_summaries.join("\n")
         };
         let final_text = format!(
-            "Bootstrap agent accepted the task: {}\n\nRepository observation:\n{}\n\nLive DeepSeek execution and patch-safe writes are not enabled in this slice yet.",
+            "Bootstrap agent accepted the task: {}\n\nRepository observation:\n{}\n\nThis local bootstrap mode does not call DeepSeek or edit files. Use whale run --live --allow-write for the live patch-safe tool loop.",
             request.task, observation
         );
 
