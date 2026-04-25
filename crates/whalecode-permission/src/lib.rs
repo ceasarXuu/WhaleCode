@@ -6,6 +6,7 @@ pub enum ApprovalPolicy {
     Never,
     OnRequest,
     OnFailure,
+    PreApproved,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +69,7 @@ impl PermissionEngine {
             ApprovalPolicy::OnRequest | ApprovalPolicy::OnFailure => PermissionDecision::Ask {
                 reason: format!("{} requires approval", request.subject),
             },
+            ApprovalPolicy::PreApproved => PermissionDecision::Allow,
         }
     }
 }

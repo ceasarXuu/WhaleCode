@@ -77,3 +77,19 @@ fn mutating_operations_ask_when_policy_allows_prompting() {
 
     assert!(matches!(decision, PermissionDecision::Ask { .. }));
 }
+
+#[test]
+fn preapproved_policy_allows_mutating_operations_in_implement_phase() {
+    let engine = PermissionEngine;
+    let decision = engine.decide(
+        &PermissionRequest {
+            subject: "write src/lib.rs".to_owned(),
+            operation: PermissionOperation::WriteFile {
+                path: "src/lib.rs".to_owned(),
+            },
+        },
+        &context(WorkflowPhase::Implement, ApprovalPolicy::PreApproved),
+    );
+
+    assert_eq!(decision, PermissionDecision::Allow);
+}
