@@ -58,7 +58,7 @@ fn print_status() -> Result<(), CliError> {
     println!("runtime: bootstrap_agent_loop");
     println!("session_store: jsonl");
     println!("model: bootstrap-local");
-    println!("deepseek_adapter: pending");
+    println!("deepseek_adapter: request_builder_and_sse_parser");
     println!("primitive_host: scaffolded");
     println!("next_session_path: {}", session_path.display());
     Ok(())

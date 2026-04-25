@@ -68,6 +68,39 @@ acceptance_tests:
   - write/shell operations are rejected or require approval before execution
 ```
 
+## DeepSeek Adapter Slice
+
+Implemented next: `whalecode-model` now owns DeepSeek chat-completion request construction, environment-derived provider config, data-only SSE parsing, `reasoning_content` deltas, text deltas, and tool-call argument deltas. Live AgentLoop wiring remains disabled until the adapter has a provider smoke command and failure semantics.
+
+```yaml
+reference_source:
+  deepseek:
+    - https://api-docs.deepseek.com/api/create-chat-completion
+    - https://api-docs.deepseek.com/guides/thinking_mode
+  codex:
+    - tmp/whalecode-refs/codex-cli/codex-rs/codex-api/src/common.rs
+  opencode:
+    - tmp/whalecode-refs/opencode/internal/llm/provider/openai.go
+    - tmp/whalecode-refs/opencode/internal/llm/agent/agent.go
+borrowed_behavior:
+  - keep provider request/stream parsing separate from AgentLoop orchestration
+  - represent text, reasoning, and tool-call deltas as model stream events
+  - collect tool-call argument deltas without executing tools inside the provider
+  - require an explicit API key before live network calls
+whalecode_delta:
+  - use DeepSeek V4 model names as first-class defaults
+  - preserve reasoning_content because DeepSeek thinking tool-call loops require it in later sub-requests
+rejected_behavior:
+  - do not silently call the live provider from whale run while patch/write safety is incomplete
+  - do not treat provider tool calls as permission to execute tools directly
+license_boundary:
+  - design-only reference; no copied reference-project source code
+acceptance_tests:
+  - request payload serializes model, thinking, reasoning_effort, and stream fields
+  - SSE parser emits reasoning, text, tool-call, and finished events
+  - malformed SSE JSON fails clearly
+```
+
 ## Milestone 0: Workspace Scaffold
 
 **Files:**
