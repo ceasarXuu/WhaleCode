@@ -7,5 +7,14 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-whalecode-protocol = { path = "../whalecode-protocol" }
+chrono.workspace = true
 serde.workspace = true
+thiserror.workspace = true
+whalecode-model = { path = "../whalecode-model" }
+whalecode-permission = { path = "../whalecode-permission" }
+whalecode-protocol = { path = "../whalecode-protocol" }
+whalecode-session = { path = "../whalecode-session" }
+whalecode-tools = { path = "../whalecode-tools" }
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -28,11 +28,21 @@ export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
 ```bash
 cargo fmt --check
 cargo test --workspace
-cargo run -p whalecode-cli -- status
+cargo run -p whalecode-cli --bin whale -- status
+cargo run -p whalecode-cli --bin whale -- run "inspect this repo"
 ```
 
-Current workspace status: scaffolded. The first implementation target is the V1
-generic agent CLI loop: model runtime, tools, permission, patch safety, session
-replay, context management, and primitive host skeleton.
+Current workspace status: bootstrap CLI loop. The `whale` binary can start a
+replayable local bootstrap agent turn, run read-only workspace tools, and persist
+JSONL session events. Live DeepSeek streaming, mutating tools, patch safety,
+context compaction, and primitive host execution are still follow-up milestones.
+
+Install the local CLI into your active Cargo bin directory:
+
+```bash
+cargo install --path crates/whalecode-cli --force --locked
+whale status
+whale run "inspect this repo"
+```
 
 More setup details are in `docs/runbooks/rust-development-environment.md`.

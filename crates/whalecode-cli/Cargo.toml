@@ -5,10 +5,16 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+default-run = "whale"
 
 [[bin]]
-name = "whalecode"
+name = "whale"
 path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+thiserror.workspace = true
+whalecode-core = { path = "../whalecode-core" }
+
+[dev-dependencies]
+tempfile.workspace = true

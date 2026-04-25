@@ -9,3 +9,6 @@ authors.workspace = true
 [dependencies]
 serde.workspace = true
 whalecode-protocol = { path = "../whalecode-protocol" }
+
+[dev-dependencies]
+tempfile.workspace = true

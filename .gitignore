@@ -4,6 +4,7 @@ node_modules/
 dist/
 coverage/
 target/
+.whale/
 .env
 .env.*
 !.env.example

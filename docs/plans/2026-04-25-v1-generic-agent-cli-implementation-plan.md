@@ -34,6 +34,40 @@ natural-language task
   -> replay the transcript and tool/patch events
 ```
 
+## Current Bootstrap Slice
+
+Implemented first: `whale` / `whale run` starts a replayable local bootstrap agent turn, persists JSONL session events, routes read-only tools through a permission decision, and reports a final assistant transcript. This is intentionally not yet a live DeepSeek agent and intentionally does not mutate files.
+
+```yaml
+reference_source:
+  codex:
+    - tmp/whalecode-refs/codex-cli/codex-rs/core/src/thread_manager.rs
+    - tmp/whalecode-refs/codex-cli/codex-rs/core/src/tools/context.rs
+    - tmp/whalecode-refs/codex-cli/codex-rs/core/src/exec_policy.rs
+  opencode:
+    - tmp/whalecode-refs/opencode/internal/llm/tools/edit.go
+borrowed_behavior:
+  - separate CLI command surface, agent loop, tool runtime, permission decision, and append-only session log
+  - record replayable session events before building richer UI or DB indexes
+  - keep tool outputs structured and truncated before model-facing reuse
+  - use gitignore-aware file walking and skip local agent config directories
+  - reject mutating tools until permission and patch safety are both in the execution path
+whalecode_delta:
+  - expose the product binary as whale
+  - use a bootstrap-local model runtime until the DeepSeek SSE adapter is verified with fixtures
+rejected_behavior:
+  - no unsafe shell/write shortcut in the first CLI loop
+  - no DB-first session store before JSONL replay is stable
+license_boundary:
+  - design-only reference; no copied reference-project source code
+acceptance_tests:
+  - whale run creates a session file
+  - JSONL replay reconstructs user and assistant transcript entries
+  - read-only tools are allowed in Analyze phase
+  - file listing omits gitignored files and local agent config directories
+  - write/shell operations are rejected or require approval before execution
+```
+
 ## Milestone 0: Workspace Scaffold
 
 **Files:**
