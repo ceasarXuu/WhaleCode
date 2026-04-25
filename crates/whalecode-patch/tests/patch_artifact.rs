@@ -33,6 +33,32 @@ fn dry_run_replace_one_returns_diff_without_mutating_file() {
 }
 
 #[test]
+fn apply_replace_one_mutates_file_after_snapshot_validation() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("src.txt");
+    std::fs::write(&path, "hello whale\n").expect("write file");
+    let engine = WorkspacePatchEngine::new(dir.path()).expect("engine");
+    let snapshot = engine.snapshot("src.txt").expect("snapshot");
+
+    let preview = engine
+        .apply(&PatchRequest {
+            path: "src.txt".to_owned(),
+            expected_snapshot: snapshot,
+            operation: PatchOperation::ReplaceOne {
+                old: "hello whale".to_owned(),
+                new: "hello codex".to_owned(),
+            },
+        })
+        .expect("apply");
+
+    assert_eq!(preview.status, WorkspacePatchStatus::Applied);
+    assert_eq!(
+        std::fs::read_to_string(path).expect("read file"),
+        "hello codex\n"
+    );
+}
+
+#[test]
 fn stale_read_is_rejected() {
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("src.txt");
@@ -57,6 +83,38 @@ fn stale_read_is_rejected() {
         WorkspacePatchStatus::Rejected {
             reason: PatchRejectReason::StaleRead
         }
+    );
+}
+
+#[test]
+fn apply_revalidates_stale_read_before_writing() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("src.txt");
+    std::fs::write(&path, "old\n").expect("write file");
+    let engine = WorkspacePatchEngine::new(dir.path()).expect("engine");
+    let snapshot = engine.snapshot("src.txt").expect("snapshot");
+    std::fs::write(&path, "changed\n").expect("mutate after snapshot");
+
+    let preview = engine
+        .apply(&PatchRequest {
+            path: "src.txt".to_owned(),
+            expected_snapshot: snapshot,
+            operation: PatchOperation::ReplaceOne {
+                old: "old".to_owned(),
+                new: "new".to_owned(),
+            },
+        })
+        .expect("apply");
+
+    assert_eq!(
+        preview.status,
+        WorkspacePatchStatus::Rejected {
+            reason: PatchRejectReason::StaleRead
+        }
+    );
+    assert_eq!(
+        std::fs::read_to_string(path).expect("read file"),
+        "changed\n"
     );
 }
 

@@ -92,6 +92,11 @@ pub enum PatchError {
         path: PathBuf,
         source: std::io::Error,
     },
+    #[error("failed to write {path}: {source}")]
+    Write {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     #[error("file is not valid UTF-8: {0}")]
     NonUtf8(PathBuf),
 }
@@ -147,45 +152,66 @@ impl WorkspacePatchEngine {
     }
 
     pub fn dry_run_apply(&self, request: &PatchRequest) -> Result<PatchPreview, PatchError> {
+        Ok(self.checked_edit(request)?.preview)
+    }
+
+    pub fn apply(&self, request: &PatchRequest) -> Result<PatchPreview, PatchError> {
+        let checked = self.checked_edit(request)?;
+        if checked.preview.status == WorkspacePatchStatus::Applied {
+            fs::write(&checked.path, checked.updated).map_err(|source| PatchError::Write {
+                path: checked.path,
+                source,
+            })?;
+        }
+        Ok(checked.preview)
+    }
+
+    fn checked_edit(&self, request: &PatchRequest) -> Result<CheckedEdit, PatchError> {
         if request.path != request.expected_snapshot.path {
-            return Ok(rejected(request, PatchRejectReason::PathMismatch));
+            return Ok(CheckedEdit::rejected(
+                request,
+                self.workspace_root.join(&request.path),
+                PatchRejectReason::PathMismatch,
+            ));
         }
         let path = match self.resolve_existing(&request.path) {
             Ok(path) => path,
-            Err(reason) => return Ok(rejected(request, reason)),
+            Err(reason) => {
+                return Ok(CheckedEdit::rejected(
+                    request,
+                    self.workspace_root.join(&request.path),
+                    reason,
+                ));
+            }
         };
         let current = self.snapshot(&request.path)?;
         if current != request.expected_snapshot {
-            return Ok(rejected(request, PatchRejectReason::StaleRead));
+            return Ok(CheckedEdit::rejected(
+                request,
+                path,
+                PatchRejectReason::StaleRead,
+            ));
         }
-        let content = fs::read_to_string(&path).map_err(|source| {
-            if source.kind() == std::io::ErrorKind::InvalidData {
-                PatchError::NonUtf8(path.clone())
-            } else {
-                PatchError::Read {
-                    path: path.clone(),
-                    source,
-                }
-            }
-        })?;
+        let content = self.read_utf8(&path)?;
 
         match &request.operation {
             PatchOperation::ReplaceOne { old, new } => {
-                let matches = content.matches(old).count();
-                if matches == 0 {
-                    return Ok(rejected(request, PatchRejectReason::OldStringMissing));
-                }
-                if matches > 1 {
-                    return Ok(rejected(request, PatchRejectReason::OldStringNotUnique));
-                }
-                let updated = content.replacen(old, new, 1);
-                Ok(PatchPreview {
-                    status: WorkspacePatchStatus::Applied,
-                    touched_files: vec![request.path.clone()],
-                    diff: replacement_diff(&request.path, old, new, &content, &updated),
-                })
+                checked_replace(request, path, content, old, new)
             }
         }
+    }
+
+    fn read_utf8(&self, path: &Path) -> Result<String, PatchError> {
+        fs::read_to_string(path).map_err(|source| {
+            if source.kind() == std::io::ErrorKind::InvalidData {
+                PatchError::NonUtf8(path.to_path_buf())
+            } else {
+                PatchError::Read {
+                    path: path.to_path_buf(),
+                    source,
+                }
+            }
+        })
     }
 
     fn resolve_existing(&self, path: &str) -> Result<PathBuf, PatchRejectReason> {
@@ -223,12 +249,58 @@ impl WorkspacePatchEngine {
     }
 }
 
-fn rejected(request: &PatchRequest, reason: PatchRejectReason) -> PatchPreview {
-    PatchPreview {
-        status: WorkspacePatchStatus::Rejected { reason },
-        touched_files: vec![request.path.clone()],
-        diff: String::new(),
+struct CheckedEdit {
+    path: PathBuf,
+    updated: String,
+    preview: PatchPreview,
+}
+
+impl CheckedEdit {
+    fn rejected(request: &PatchRequest, path: PathBuf, reason: PatchRejectReason) -> Self {
+        Self {
+            path,
+            updated: String::new(),
+            preview: PatchPreview {
+                status: WorkspacePatchStatus::Rejected { reason },
+                touched_files: vec![request.path.clone()],
+                diff: String::new(),
+            },
+        }
     }
+}
+
+fn checked_replace(
+    request: &PatchRequest,
+    path: PathBuf,
+    content: String,
+    old: &str,
+    new: &str,
+) -> Result<CheckedEdit, PatchError> {
+    let matches = content.matches(old).count();
+    if matches == 0 {
+        return Ok(CheckedEdit::rejected(
+            request,
+            path,
+            PatchRejectReason::OldStringMissing,
+        ));
+    }
+    if matches > 1 {
+        return Ok(CheckedEdit::rejected(
+            request,
+            path,
+            PatchRejectReason::OldStringNotUnique,
+        ));
+    }
+    let updated = content.replacen(old, new, 1);
+    Ok(CheckedEdit {
+        path,
+        preview: PatchPreview {
+            status: WorkspacePatchStatus::Applied,
+            touched_files: vec![request.path.clone()],
+            diff: replacement_diff(&request.path, old, new, &content, &updated),
+        },
+        updated,
+    })
 }
 
 fn replacement_diff(path: &str, old: &str, new: &str, before: &str, after: &str) -> String {
