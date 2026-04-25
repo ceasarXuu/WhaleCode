@@ -33,6 +33,12 @@ cargo run -p whalecode-cli --bin whale -- run "inspect this repo"
 cargo run -p whalecode-cli --bin whale -- run --live "inspect this repo"
 ```
 
+Workspace behavior is intentionally simple in V1: the process current directory
+is the default workspace. Run `whale` from a project root to make that folder the
+workspace, or pass `--cwd <path>` to override it for `whale run`. Read/search,
+patch-safe edits, session `cwd` events, and gated verification commands all use
+the selected workspace as their root.
+
 Current workspace status: bootstrap CLI loop plus a live DeepSeek tool loop. The
 `whale` binary can start a replayable local bootstrap agent turn, run read-only
 workspace tools, persist JSONL session events, stream DeepSeek text/reasoning

@@ -28,8 +28,34 @@ fn whale_run_executes_bootstrap_agent_and_writes_session() {
 }
 
 #[test]
-fn whale_status_reports_bootstrap_runtime() {
+fn whale_run_defaults_workspace_to_process_current_directory() {
+    let repo = tempdir().expect("repo");
+    std::fs::write(repo.path().join("README.md"), "# Workspace Root\n").expect("write readme");
+    let session_path = repo.path().join("session.jsonl");
+
     let output = Command::new(env!("CARGO_BIN_EXE_whale"))
+        .current_dir(repo.path())
+        .args([
+            "run",
+            "inspect default workspace",
+            "--session",
+            session_path.to_str().expect("session path"),
+        ])
+        .output()
+        .expect("run whale");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    assert!(stdout.contains("Read README.md"));
+    assert!(session_path.exists());
+}
+
+#[test]
+fn whale_status_reports_bootstrap_runtime() {
+    let repo = tempdir().expect("repo");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_whale"))
+        .current_dir(repo.path())
         .arg("status")
         .output()
         .expect("run whale status");
@@ -37,6 +63,8 @@ fn whale_status_reports_bootstrap_runtime() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
     assert!(stdout.contains("command: whale"));
+    let canonical_workspace = repo.path().canonicalize().expect("canonical workspace");
+    assert!(stdout.contains(&format!("workspace: {}", canonical_workspace.display())));
     assert!(stdout.contains("runtime: bootstrap_agent_loop"));
     assert!(stdout.contains("live_model_smoke: whale model-smoke"));
 }

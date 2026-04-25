@@ -114,8 +114,10 @@ enum CliError {
 
 fn print_status() -> Result<(), CliError> {
     let session_path = default_session_path()?;
+    let workspace = std::env::current_dir().map_err(CliError::CurrentDir)?;
     println!("WhaleCode V1 generic agent CLI substrate");
     println!("command: whale");
+    println!("workspace: {}", workspace.display());
     println!("runtime: bootstrap_agent_loop + live_deepseek_tool_loop");
     println!("session_store: jsonl");
     println!("model: bootstrap-local or {DEEPSEEK_DEFAULT_MODEL}");
