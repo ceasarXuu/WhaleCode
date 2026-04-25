@@ -102,6 +102,38 @@ acceptance_tests:
   - whale model-smoke fails clearly without DEEPSEEK_API_KEY
 ```
 
+## Patch Safety Slice
+
+Implemented next: `whalecode-patch` now owns read-before-write snapshots, SHA-256 content identity, stale-read rejection, path boundary checks, hidden local config rejection, and dry-run single replacement previews. This is still not a mutating write tool; it is the safety contract that future `edit_file` must pass through.
+
+```yaml
+reference_source:
+  codex:
+    - tmp/whalecode-refs/codex-cli/codex-rs/core/src/apply_patch.rs
+    - tmp/whalecode-refs/codex-cli/codex-rs/apply-patch/src/parser.rs
+  opencode:
+    - tmp/whalecode-refs/opencode/internal/llm/tools/edit.go
+    - tmp/whalecode-refs/opencode/internal/llm/tools/write.go
+borrowed_behavior:
+  - require read-before-write identity before an edit can be accepted
+  - reject stale reads instead of guessing how to merge changed files
+  - require replacement text to uniquely identify one target
+  - produce diff metadata before any mutating apply path exists
+whalecode_delta:
+  - make PatchArtifact and dry-run previews reusable by future multi-agent patch league flows
+  - keep hidden agent config and local runtime directories outside patch reach
+rejected_behavior:
+  - no write-to-disk path until permission, preview, and session event recording are wired together
+  - no broad overwrite-file operation as the first edit primitive
+license_boundary:
+  - design-only reference; no copied reference-project source code
+acceptance_tests:
+  - dry-run replace returns diff without mutating the file
+  - stale snapshots are rejected
+  - non-unique replacement targets are rejected
+  - parent directory escape and local agent config paths are rejected
+```
+
 ## Milestone 0: Workspace Scaffold
 
 **Files:**

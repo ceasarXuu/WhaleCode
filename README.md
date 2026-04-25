@@ -36,8 +36,9 @@ Current workspace status: bootstrap CLI loop plus DeepSeek request/SSE adapter
 foundation. The `whale` binary can start a replayable local bootstrap agent
 turn, run read-only workspace tools, and persist JSONL session events. The model
 crate can build DeepSeek chat-completion requests and parse streaming
-`reasoning_content`, text, and tool-call deltas. Wiring live DeepSeek execution
-into the AgentLoop, mutating tools, patch safety, context compaction, and
+`reasoning_content`, text, and tool-call deltas. The patch crate now provides
+read-before-write snapshots and dry-run replacement previews. Wiring live
+DeepSeek execution into the AgentLoop, mutating tools, context compaction, and
 primitive host execution are still follow-up milestones.
 
 Install the local CLI into your active Cargo bin directory:
