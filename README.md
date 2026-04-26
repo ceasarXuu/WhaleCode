@@ -32,6 +32,15 @@ cargo run -p whalecode-cli --bin whale -- status
 cargo run -p whalecode-cli --bin whale -- run "inspect this repo"
 ```
 
+After every code change, run the repo-owned after-change gate:
+
+```bash
+scripts/test-after-change.sh
+```
+
+This combines static checks with runtime CLI smoke checks. The full strategy is
+documented in `docs/testing/2026-04-27-after-change-smoke-regression-strategy.md`.
+
 Workspace behavior is intentionally simple in V1: the process current directory
 is the default workspace. Run `whale` from a project root to make that folder the
 workspace, or pass `--cwd <path>` to override it for `whale run`. Read/search,
