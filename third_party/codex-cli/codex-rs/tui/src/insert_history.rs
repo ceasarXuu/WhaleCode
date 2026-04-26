@@ -1,6 +1,6 @@
 //! Inserts finalized history rows into terminal scrollback.
 //!
-//! Codex uses the terminal scrollback itself for finalized chat history, so inserting a history
+//! Whale uses the terminal scrollback itself for finalized chat history, so inserting a history
 //! cell is an escape-sequence operation rather than a normal ratatui render. The mode determines
 //! how to create room for new history above the inline viewport.
 

@@ -919,7 +919,7 @@ impl Op {
 }
 
 /// Determines the conditions under which the user is consulted to approve
-/// running the command proposed by Codex.
+/// running the command proposed by Whale.
 #[derive(
     Debug,
     Clone,

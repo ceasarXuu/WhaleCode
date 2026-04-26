@@ -12,8 +12,8 @@ pub struct Cli {
     #[arg(value_name = "PROMPT", value_hint = clap::ValueHint::Other)]
     pub prompt: Option<String>,
 
-    // Internal controls set by the top-level `codex resume` subcommand.
-    // These are not exposed as user flags on the base `codex` command.
+    // Internal controls set by the top-level `whale resume` subcommand.
+    // These are not exposed as user flags on the base `whale` command.
     #[clap(skip)]
     pub resume_picker: bool,
 
@@ -21,7 +21,7 @@ pub struct Cli {
     pub resume_last: bool,
 
     /// Internal: resume a specific recorded session by id (UUID). Set by the
-    /// top-level `codex resume <SESSION_ID>` wrapper; not exposed as a public flag.
+    /// top-level `whale resume <SESSION_ID>` wrapper; not exposed as a public flag.
     #[clap(skip)]
     pub resume_session_id: Option<String>,
 
@@ -33,8 +33,8 @@ pub struct Cli {
     #[clap(skip)]
     pub resume_include_non_interactive: bool,
 
-    // Internal controls set by the top-level `codex fork` subcommand.
-    // These are not exposed as user flags on the base `codex` command.
+    // Internal controls set by the top-level `whale fork` subcommand.
+    // These are not exposed as user flags on the base `whale` command.
     #[clap(skip)]
     pub fork_picker: bool,
 
@@ -42,7 +42,7 @@ pub struct Cli {
     pub fork_last: bool,
 
     /// Internal: fork a specific recorded session by id (UUID). Set by the
-    /// top-level `codex fork <SESSION_ID>` wrapper; not exposed as a public flag.
+    /// top-level `whale fork <SESSION_ID>` wrapper; not exposed as a public flag.
     #[clap(skip)]
     pub fork_session_id: Option<String>,
 
@@ -58,7 +58,7 @@ pub struct Cli {
     pub approval_policy: Option<ApprovalModeCliArg>,
 
     /// Enable live web search. When enabled, the native Responses `web_search` tool is available to the model (no per‑call approval).
-    #[arg(long = "search", default_value_t = false)]
+    #[arg(long = "search", default_value_t = false, hide = true)]
     pub web_search: bool,
 
     /// Disable alternate screen mode

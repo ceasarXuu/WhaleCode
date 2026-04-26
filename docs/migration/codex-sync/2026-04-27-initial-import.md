@@ -37,11 +37,16 @@ No patch files.
 
 ## Tests
 
-Pending in this migration step:
+Completed after import and before Whale overlay edits:
 
-- compile Codex Rust workspace from the vendored path;
-- run vendored `codex` binary with isolated `CODEX_HOME` and `HOME`;
-- verify no nested `.git` directory exists under `third_party/codex-cli/`.
+- `cargo check -p codex-cli --locked` from
+  `third_party/codex-cli/codex-rs`.
+- `cargo run -p codex-cli --bin codex -- --version` with isolated `HOME` and
+  `CODEX_HOME`.
+- `cargo run -p codex-cli --bin codex -- --help` with isolated `HOME` and
+  `CODEX_HOME`.
+- verified no nested `.git` directory was imported under
+  `third_party/codex-cli/`.
 
 ## Residual Risks
 
@@ -49,4 +54,3 @@ Pending in this migration step:
   while `codeload.github.com` and the GitHub API were reachable.
 - Future syncs should prefer `git fetch` when Git HTTPS connectivity is healthy,
   but tarball imports remain acceptable when the upstream commit is recorded.
-

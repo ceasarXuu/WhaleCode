@@ -2332,8 +2332,25 @@ async fn responses_websocket_features_do_not_change_wire_api() -> std::io::Resul
         )
         .await?;
 
-        assert_eq!(config.model_provider.wire_api, WireApi::Responses);
+        assert_eq!(config.model_provider.wire_api, WireApi::ChatCompletions);
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn defaults_to_deepseek_flash_provider() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let config = Config::load_from_base_config_with_overrides(
+        ConfigToml::default(),
+        ConfigOverrides::default(),
+        codex_home.abs(),
+    )
+    .await?;
+
+    assert_eq!(config.model_provider_id, "deepseek");
+    assert_eq!(config.model.as_deref(), Some("deepseek-v4-flash"));
+    assert_eq!(config.model_provider.wire_api, WireApi::ChatCompletions);
 
     Ok(())
 }

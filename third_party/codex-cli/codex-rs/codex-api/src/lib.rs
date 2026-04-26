@@ -60,6 +60,7 @@ pub use crate::error::ApiError;
 pub use crate::files::upload_local_file;
 pub use crate::provider::Provider;
 pub use crate::provider::RetryConfig;
+pub use crate::provider::WireApi;
 pub use crate::provider::is_azure_responses_provider;
 pub use crate::requests::Compression;
 pub use crate::sse::stream_from_fixture;

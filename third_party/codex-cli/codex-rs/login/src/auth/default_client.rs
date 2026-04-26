@@ -1,4 +1,4 @@
-//! Default Codex HTTP client: shared `User-Agent`, `originator`, optional residency header, and
+//! Default Whale HTTP client: shared `User-Agent`, `originator`, optional residency header, and
 //! reqwest/`CodexHttpClient` construction.
 //!
 //! Use [`crate::default_client`] or [`codex_login::default_client`] from other crates in this
@@ -30,11 +30,11 @@ use std::sync::RwLock;
 ///
 /// A space is automatically added between the suffix and the rest of the User-Agent string.
 /// The full user agent string is returned from the mcp initialize response.
-/// Parenthesis will be added by Codex. This should only specify what goes inside of the parenthesis.
+/// Parenthesis will be added by Whale. This should only specify what goes inside of the parenthesis.
 pub static USER_AGENT_SUFFIX: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
-pub const DEFAULT_ORIGINATOR: &str = "codex_cli_rs";
-pub const CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
-pub const RESIDENCY_HEADER_NAME: &str = "x-openai-internal-codex-residency";
+pub const DEFAULT_ORIGINATOR: &str = "whale_cli_rs";
+pub const CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR: &str = "WHALE_INTERNAL_ORIGINATOR_OVERRIDE";
+pub const RESIDENCY_HEADER_NAME: &str = "x-whale-residency";
 
 pub use codex_config::ResidencyRequirement;
 
@@ -120,9 +120,9 @@ pub fn originator() -> Originator {
 
 pub fn is_first_party_originator(originator_value: &str) -> bool {
     originator_value == DEFAULT_ORIGINATOR
-        || originator_value == "codex-tui"
-        || originator_value == "codex_vscode"
-        || originator_value.starts_with("Codex ")
+        || originator_value == "whale-tui"
+        || originator_value == "whale_vscode"
+        || originator_value.starts_with("Whale ")
 }
 
 pub fn is_first_party_chat_originator(originator_value: &str) -> bool {
@@ -171,17 +171,17 @@ fn sanitize_user_agent(candidate: String, fallback: &str) -> String {
         .collect();
     if !sanitized.is_empty() && HeaderValue::from_str(sanitized.as_str()).is_ok() {
         tracing::warn!(
-            "Sanitized Codex user agent because provided suffix contained invalid header characters"
+            "Sanitized Whale user agent because provided suffix contained invalid header characters"
         );
         sanitized
     } else if HeaderValue::from_str(fallback).is_ok() {
         tracing::warn!(
-            "Falling back to base Codex user agent because provided suffix could not be sanitized"
+            "Falling back to base Whale user agent because provided suffix could not be sanitized"
         );
         fallback.to_string()
     } else {
         tracing::warn!(
-            "Falling back to default Codex originator because base user agent string is invalid"
+            "Falling back to default Whale originator because base user agent string is invalid"
         );
         originator().value
     }
@@ -193,9 +193,9 @@ pub fn create_client() -> CodexHttpClient {
     CodexHttpClient::new(inner)
 }
 
-/// Builds the default reqwest client used for ordinary Codex HTTP traffic.
+/// Builds the default reqwest client used for ordinary Whale HTTP traffic.
 ///
-/// This starts from the standard Codex user agent, default headers, and sandbox-specific proxy
+/// This starts from the standard Whale user agent, default headers, and sandbox-specific proxy
 /// policy, then layers in shared custom CA handling from `CODEX_CA_CERTIFICATE` /
 /// `SSL_CERT_FILE`. The function remains infallible for compatibility with existing call sites, so
 /// a custom-CA or builder failure is logged and falls back to `reqwest::Client::new()`.
@@ -214,7 +214,7 @@ pub fn build_reqwest_client() -> reqwest::Client {
     })
 }
 
-/// Tries to build the default reqwest client used for ordinary Codex HTTP traffic.
+/// Tries to build the default reqwest client used for ordinary Whale HTTP traffic.
 ///
 /// Callers that need a structured CA-loading failure instead of the legacy logged fallback can use
 /// this method directly.

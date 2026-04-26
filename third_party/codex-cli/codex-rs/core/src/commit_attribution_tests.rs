@@ -12,7 +12,7 @@ fn blank_attribution_disables_trailer_prompt() {
 fn default_attribution_uses_codex_trailer() {
     assert_eq!(
         build_commit_message_trailer(/*config_attribution*/ None).as_deref(),
-        Some("Co-authored-by: Codex <noreply@openai.com>")
+        Some("Co-authored-by: Whale <noreply@whale.local>")
     );
 }
 
@@ -20,7 +20,7 @@ fn default_attribution_uses_codex_trailer() {
 fn resolve_value_handles_default_custom_and_blank() {
     assert_eq!(
         resolve_attribution_value(/*config_attribution*/ None),
-        Some("Codex <noreply@openai.com>".to_string())
+        Some("Whale <noreply@whale.local>".to_string())
     );
     assert_eq!(
         resolve_attribution_value(Some("MyAgent <me@example.com>")),

@@ -1,4 +1,4 @@
-//! Shared command-line flags used by both interactive and non-interactive Codex entry points.
+//! Shared command-line flags used by both interactive and non-interactive Whale entry points.
 
 use crate::SandboxModeCliArg;
 use clap::Args;
@@ -12,7 +12,8 @@ pub struct SharedCliOptions {
         short = 'i',
         value_name = "FILE",
         value_delimiter = ',',
-        num_args = 1..
+        num_args = 1..,
+        hide = true
     )]
     pub images: Vec<PathBuf>,
 

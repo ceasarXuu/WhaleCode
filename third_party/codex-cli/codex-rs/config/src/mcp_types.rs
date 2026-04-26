@@ -119,15 +119,15 @@ pub struct McpServerConfig {
     #[serde(flatten)]
     pub transport: McpServerTransportConfig,
 
-    /// Experimental environment selector for where Codex should start this MCP server.
+    /// Experimental environment selector for where Whale should start this MCP server.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub experimental_environment: Option<String>,
 
-    /// When `false`, Codex skips initializing this MCP server.
+    /// When `false`, Whale skips initializing this MCP server.
     #[serde(default = "default_enabled")]
     pub enabled: bool,
 
-    /// When `true`, `codex exec` exits with an error if this MCP server fails to initialize.
+    /// When `true`, `whale exec` exits with an error if this MCP server fails to initialize.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub required: bool,
 
