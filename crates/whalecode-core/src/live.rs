@@ -31,6 +31,13 @@ pub struct LiveAgentOptions {
 }
 
 pub async fn run_live_agent(options: LiveAgentOptions) -> Result<AgentRunSummary, AgentError> {
+    run_live_agent_with_observer(options, None).await
+}
+
+pub async fn run_live_agent_with_observer(
+    options: LiveAgentOptions,
+    mut observer: Option<&mut dyn FnMut(&ModelStreamEvent)>,
+) -> Result<AgentRunSummary, AgentError> {
     if options.task.trim().is_empty() {
         return Err(AgentError::EmptyTask);
     }
@@ -72,7 +79,20 @@ pub async fn run_live_agent(options: LiveAgentOptions) -> Result<AgentRunSummary
         }))?;
         let request =
             DeepSeekChatRequest::streaming(&config, messages.clone()).with_tools(live_tool_defs());
-        let events = match client.stream_chat(&request).await {
+        let mut record_error = None;
+        let events = match client
+            .stream_chat_with_observer(&request, |event| {
+                if record_error.is_none() {
+                    if let Err(error) = record_model_event(&mut recorder, event) {
+                        record_error = Some(error);
+                    }
+                }
+                if let Some(observer) = observer.as_deref_mut() {
+                    observer(event);
+                }
+            })
+            .await
+        {
             Ok(events) => events,
             Err(error) => {
                 recorder.append(SessionEvent::Model(ModelEvent::RequestFailed {
@@ -89,7 +109,9 @@ pub async fn run_live_agent(options: LiveAgentOptions) -> Result<AgentRunSummary
                 return Err(error.into());
             }
         };
-        record_model_events(&mut recorder, &events)?;
+        if let Some(error) = record_error {
+            return Err(error);
+        }
         recorder.append(SessionEvent::Model(ModelEvent::RequestFinished {
             usage: None,
         }))?;
@@ -169,40 +191,38 @@ pub fn default_live_max_turns() -> usize {
     DEFAULT_MAX_TURNS
 }
 
-fn record_model_events(
+fn record_model_event(
     recorder: &mut EventRecorder,
-    events: &[ModelStreamEvent],
+    event: &ModelStreamEvent,
 ) -> Result<(), AgentError> {
-    for event in events {
-        match event {
-            ModelStreamEvent::TextDelta(content) => {
-                recorder.append(SessionEvent::Model(ModelEvent::StreamDelta {
-                    delta: ModelStreamDelta::Text {
-                        content: content.clone(),
-                    },
-                }))?;
-            }
-            ModelStreamEvent::ReasoningDelta(content) => {
-                recorder.append(SessionEvent::Model(ModelEvent::StreamDelta {
-                    delta: ModelStreamDelta::Reasoning {
-                        content: content.clone(),
-                    },
-                }))?;
-            }
-            ModelStreamEvent::ToolCallDelta {
-                name,
-                arguments_delta,
-                ..
-            } => {
-                recorder.append(SessionEvent::Model(ModelEvent::StreamDelta {
-                    delta: ModelStreamDelta::ToolCall {
-                        name: name.clone(),
-                        arguments_delta: arguments_delta.clone(),
-                    },
-                }))?;
-            }
-            ModelStreamEvent::Finished => {}
+    match event {
+        ModelStreamEvent::TextDelta(content) => {
+            recorder.append(SessionEvent::Model(ModelEvent::StreamDelta {
+                delta: ModelStreamDelta::Text {
+                    content: content.clone(),
+                },
+            }))?;
         }
+        ModelStreamEvent::ReasoningDelta(content) => {
+            recorder.append(SessionEvent::Model(ModelEvent::StreamDelta {
+                delta: ModelStreamDelta::Reasoning {
+                    content: content.clone(),
+                },
+            }))?;
+        }
+        ModelStreamEvent::ToolCallDelta {
+            name,
+            arguments_delta,
+            ..
+        } => {
+            recorder.append(SessionEvent::Model(ModelEvent::StreamDelta {
+                delta: ModelStreamDelta::ToolCall {
+                    name: name.clone(),
+                    arguments_delta: arguments_delta.clone(),
+                },
+            }))?;
+        }
+        ModelStreamEvent::Finished => {}
     }
     Ok(())
 }

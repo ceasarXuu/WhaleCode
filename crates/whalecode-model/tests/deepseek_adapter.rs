@@ -1,8 +1,8 @@
 use serde_json::json;
 use whalecode_model::{
-    parse_sse_stream, response_from_stream_events, ChatMessage, DeepSeekChatRequest,
-    DeepSeekConfig, ModelStreamEvent, ReasoningEffort, ThinkingMode, DEEPSEEK_DEFAULT_BASE_URL,
-    DEEPSEEK_DEFAULT_MODEL,
+    parse_sse_stream, parse_sse_stream_with_observer, response_from_stream_events, ChatMessage,
+    DeepSeekChatRequest, DeepSeekConfig, ModelStreamEvent, ReasoningEffort, ThinkingMode,
+    DEEPSEEK_DEFAULT_BASE_URL, DEEPSEEK_DEFAULT_MODEL,
 };
 
 #[test]
@@ -70,6 +70,31 @@ data: [DONE]
     );
     let response = response_from_stream_events(events);
     assert_eq!(response.final_text, "Hello world");
+}
+
+#[test]
+fn observes_sse_events_as_they_are_parsed() {
+    let input = r#"data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":null,"index":0}]}
+
+data: {"choices":[{"delta":{"content":" stream"},"finish_reason":null,"index":0}]}
+
+data: [DONE]
+
+"#;
+    let mut observed = Vec::new();
+
+    let events = parse_sse_stream_with_observer(input, |event| observed.push(event.clone()))
+        .expect("parse sse");
+
+    assert_eq!(events, observed);
+    assert_eq!(
+        observed,
+        vec![
+            ModelStreamEvent::TextDelta("Hello".to_owned()),
+            ModelStreamEvent::TextDelta(" stream".to_owned()),
+            ModelStreamEvent::Finished,
+        ]
+    );
 }
 
 #[test]

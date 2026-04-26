@@ -184,6 +184,17 @@ impl DeepSeekClient {
         &self,
         request: &DeepSeekChatRequest,
     ) -> Result<Vec<ModelStreamEvent>, ModelError> {
+        self.stream_chat_with_observer(request, |_| {}).await
+    }
+
+    pub async fn stream_chat_with_observer<F>(
+        &self,
+        request: &DeepSeekChatRequest,
+        mut observer: F,
+    ) -> Result<Vec<ModelStreamEvent>, ModelError>
+    where
+        F: FnMut(&ModelStreamEvent),
+    {
         let api_key = self
             .config
             .api_key
@@ -214,10 +225,10 @@ impl DeepSeekClient {
                 message: source.to_string(),
             })?;
             buffer.push_str(text);
-            drain_complete_sse_frames(&mut buffer, &mut events)?;
+            drain_complete_sse_frames(&mut buffer, &mut events, &mut observer)?;
         }
         if !buffer.trim().is_empty() {
-            events.extend(parse_sse_stream(&buffer)?);
+            push_observed_events(&mut events, parse_sse_stream(&buffer)?, &mut observer);
         }
         Ok(events)
     }
@@ -240,13 +251,27 @@ pub enum ModelError {
 }
 
 pub fn parse_sse_stream(input: &str) -> Result<Vec<ModelStreamEvent>, ModelError> {
+    parse_sse_stream_with_observer(input, |_| {})
+}
+
+pub fn parse_sse_stream_with_observer<F>(
+    input: &str,
+    mut observer: F,
+) -> Result<Vec<ModelStreamEvent>, ModelError>
+where
+    F: FnMut(&ModelStreamEvent),
+{
     let mut events = Vec::new();
     for frame in sse_data_frames(input) {
         if frame == "[DONE]" {
-            events.push(ModelStreamEvent::Finished);
+            push_observed_events(&mut events, vec![ModelStreamEvent::Finished], &mut observer);
             continue;
         }
-        events.extend(events_from_chunk(&serde_json::from_str(&frame)?));
+        push_observed_events(
+            &mut events,
+            events_from_chunk(&serde_json::from_str(&frame)?),
+            &mut observer,
+        );
     }
     Ok(events)
 }
@@ -395,6 +420,7 @@ fn sse_data_frames(input: &str) -> Vec<String> {
 fn drain_complete_sse_frames(
     buffer: &mut String,
     events: &mut Vec<ModelStreamEvent>,
+    observer: &mut impl FnMut(&ModelStreamEvent),
 ) -> Result<(), ModelError> {
     while let Some(index) = find_frame_boundary(buffer) {
         let frame = buffer[..index].to_owned();
@@ -404,9 +430,20 @@ fn drain_complete_sse_frames(
             index + 2
         };
         buffer.drain(..drain_to);
-        events.extend(parse_sse_stream(&frame)?);
+        push_observed_events(events, parse_sse_stream(&frame)?, observer);
     }
     Ok(())
+}
+
+fn push_observed_events(
+    events: &mut Vec<ModelStreamEvent>,
+    new_events: Vec<ModelStreamEvent>,
+    observer: &mut impl FnMut(&ModelStreamEvent),
+) {
+    for event in new_events {
+        observer(&event);
+        events.push(event);
+    }
 }
 
 fn find_frame_boundary(buffer: &str) -> Option<usize> {

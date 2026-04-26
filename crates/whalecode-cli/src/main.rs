@@ -5,13 +5,13 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use whalecode_core::{
-    default_live_max_turns, default_session_path, run_bootstrap_agent, run_live_agent, AgentError,
-    LiveAgentOptions,
+    default_live_max_turns, default_session_path, run_bootstrap_agent,
+    run_live_agent_with_observer, AgentError, LiveAgentOptions,
 };
 use whalecode_model::{
     deepseek_api_key_source, response_from_stream_events, store_deepseek_api_key, ChatMessage,
     DeepSeekApiKeySource, DeepSeekChatRequest, DeepSeekClient, DeepSeekConfig, ModelError,
-    SecretStoreError, DEEPSEEK_DEFAULT_MODEL,
+    ModelStreamEvent, SecretStoreError, DEEPSEEK_DEFAULT_MODEL,
 };
 
 mod line_input;
@@ -188,7 +188,7 @@ async fn run_once(invocation: RunInvocation, print_session_footer: bool) -> Resu
             Some(path) => path,
             None => default_session_path()?,
         };
-        run_live_agent(LiveAgentOptions {
+        let options = LiveAgentOptions {
             task,
             cwd,
             session_path,
@@ -198,18 +198,48 @@ async fn run_once(invocation: RunInvocation, print_session_footer: bool) -> Resu
             allow_write: invocation.allow_write,
             allow_command: invocation.allow_command,
             max_turns: invocation.max_turns,
-        })
-        .await?
+        };
+        let mut streamed_text = false;
+        let mut stream_error = None;
+        let summary = {
+            let mut observer = |event: &ModelStreamEvent| {
+                if let ModelStreamEvent::TextDelta(content) = event {
+                    streamed_text = true;
+                    if stream_error.is_none() {
+                        if let Err(error) = write_stream_delta(content) {
+                            stream_error = Some(error);
+                        }
+                    }
+                }
+            };
+            run_live_agent_with_observer(options, Some(&mut observer)).await?
+        };
+        if let Some(error) = stream_error {
+            return Err(CliError::WriteOutput(error));
+        }
+        if streamed_text {
+            println!();
+        } else {
+            println!("{}", summary.final_message);
+        }
+        summary
     } else {
-        run_bootstrap_agent(task, cwd, invocation.session)?
+        let summary = run_bootstrap_agent(task, cwd, invocation.session)?;
+        println!("{}", summary.final_message);
+        summary
     };
-    println!("{}", summary.final_message);
     if print_session_footer {
         println!();
         println!("session: {}", summary.session_path.display());
         println!("events: {}", summary.events_written);
     }
     Ok(())
+}
+
+fn write_stream_delta(content: &str) -> io::Result<()> {
+    let mut stdout = io::stdout();
+    write!(stdout, "{content}")?;
+    stdout.flush()
 }
 
 async fn run_interactive() -> Result<(), CliError> {
@@ -404,10 +434,33 @@ async fn model_smoke(
     }
 
     let request = DeepSeekChatRequest::streaming(&config, vec![ChatMessage::user(prompt)]);
-    let events = DeepSeekClient::new(config).stream_chat(&request).await?;
+    let mut streamed_text = false;
+    let mut stream_error = None;
+    let events = {
+        let mut observer = |event: &ModelStreamEvent| {
+            if let ModelStreamEvent::TextDelta(content) = event {
+                streamed_text = true;
+                if stream_error.is_none() {
+                    if let Err(error) = write_stream_delta(content) {
+                        stream_error = Some(error);
+                    }
+                }
+            }
+        };
+        DeepSeekClient::new(config)
+            .stream_chat_with_observer(&request, &mut observer)
+            .await?
+    };
+    if let Some(error) = stream_error {
+        return Err(CliError::WriteOutput(error));
+    }
     let response = response_from_stream_events(events.clone());
 
-    println!("{}", response.final_text);
+    if streamed_text {
+        println!();
+    } else {
+        println!("{}", response.final_text);
+    }
     println!();
     println!("model_events: {}", events.len());
     Ok(())
