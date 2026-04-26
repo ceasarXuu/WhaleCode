@@ -263,7 +263,6 @@ async fn run_interactive() -> Result<(), CliError> {
     loop {
         let line = match input.read_line().map_err(CliError::ReadInput)? {
             LineInput::Submit(line) => line,
-            LineInput::Cancelled => continue,
             LineInput::Exit => break,
         };
         let task = line.trim();

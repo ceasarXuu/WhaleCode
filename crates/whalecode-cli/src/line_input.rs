@@ -10,7 +10,6 @@ use crossterm::{
 
 pub(crate) enum LineInput {
     Submit(String),
-    Cancelled,
     Exit,
 }
 
@@ -48,11 +47,6 @@ impl LineReader {
                             stdout.flush()?;
                             return Ok(LineInput::Submit(line));
                         }
-                        KeyAction::Cancel => {
-                            write!(stdout, "\r\n")?;
-                            stdout.flush()?;
-                            return Ok(LineInput::Cancelled);
-                        }
                         KeyAction::Exit => {
                             write!(stdout, "\r\n")?;
                             stdout.flush()?;
@@ -87,7 +81,6 @@ impl LineReader {
 
 enum KeyAction {
     Submit,
-    Cancel,
     Exit,
     Redraw,
     Ignore,
@@ -103,7 +96,7 @@ fn handle_key_event(key: KeyEvent, line: &mut String) -> KeyAction {
             delete_last_char(line);
             KeyAction::Redraw
         }
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => KeyAction::Cancel,
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => KeyAction::Exit,
         KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) && line.is_empty() => {
             KeyAction::Exit
         }
@@ -148,7 +141,9 @@ impl Drop for RawModeGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::delete_last_char;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    use super::{delete_last_char, handle_key_event, KeyAction};
 
     #[test]
     fn deletes_cjk_input_by_unicode_scalar_value() {
@@ -159,5 +154,17 @@ mod tests {
             assert_eq!(line, expected);
         }
         assert!(!delete_last_char(&mut line));
+    }
+
+    #[test]
+    fn ctrl_c_exits_the_interactive_prompt() {
+        let mut line = String::new();
+
+        let action = handle_key_event(
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            &mut line,
+        );
+
+        assert!(matches!(action, KeyAction::Exit));
     }
 }
