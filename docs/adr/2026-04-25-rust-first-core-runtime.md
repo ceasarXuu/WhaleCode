@@ -4,7 +4,11 @@ Date: 2026-04-25
 
 ## Status
 
-Accepted
+Superseded by `docs/adr/2026-04-27-codex-cli-upstream-substrate.md`.
+
+This ADR still records why WhaleCode needs a Rust-first local execution core,
+but its "Fork Codex CLI" rejection and Phase 0 from-scratch workspace
+consequence are no longer active.
 
 ## Context
 
@@ -32,19 +36,33 @@ Viable fallback. Go has strong single-binary distribution and concurrency ergono
 
 ### Fork Codex CLI
 
-Rejected as product strategy. Codex CLI should be a reference implementation for Rust architecture patterns, not the WhaleCode product base. WhaleCode’s core primitives are Multi-Agent First, Create/Debug workflows, DeepSeek-specific routing, and Viewer-driven critique.
+Original 2026-04-25 decision: rejected as product strategy. Codex CLI should be
+a reference implementation for Rust architecture patterns, not the WhaleCode
+product base.
+
+2026-04-27 update: this rejection is superseded. WhaleCode will import Codex CLI
+as a whole-repo upstream substrate, while keeping Whale-specific DeepSeek,
+multi-agent, Create/Debug, Primitive, and Viewer behavior in bridge and overlay
+layers.
 
 ## Consequences
 
-- Phase 0 must scaffold a Rust workspace, not a pnpm-first TypeScript monorepo.
+- Phase 0 from-scratch Rust scaffolding is deprecated. The archived demo is in
+  `archive/deprecated/2026-04-27-rust-demo/`; active implementation restarts
+  from Codex upstream import and bridge construction.
 - Existing architecture docs must replace Node/Bun MVP assumptions with Rust-first assumptions.
 - DeepSeek support should be implemented as a Rust HTTP/SSE adapter with capability probing.
 - Web Viewer consumes versioned events from Rust core and must remain read-only by default.
 - Skills and MCP tools must be mediated by the Rust Permission Engine.
-- Mature coding-agent infrastructure must pass the Codex-first Reference Audit Gate before implementation. Permission, sandbox, unified exec, patch, session, context, MCP/skills, and observability should start from Codex CLI behavior, then adapt only where WhaleCode's DeepSeek, multi-agent, Create/Debug, or Viewer requirements require it.
+- Mature coding-agent infrastructure should be adopted from the Codex upstream
+  substrate through Whale bridge interfaces. Permission, sandbox, unified exec,
+  patch, session, context, MCP/skills, and observability are no longer
+  from-scratch rebuild targets.
 
 ## References
 
 - Detailed plan: `docs/plans/2026-04-25-rust-first-technology-architecture.md`
+- Superseding substrate ADR: `docs/adr/2026-04-27-codex-cli-upstream-substrate.md`
+- Migration plan: `docs/plans/2026-04-27-codex-cli-upstream-substrate-migration-plan.md`
 - System architecture: `docs/plans/2026-04-24-system-architecture.md`
 - Reference audit: `docs/plans/2026-04-25-codex-first-reference-audit.md`

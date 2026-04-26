@@ -3,7 +3,7 @@
 构建以 DeepSeek V4 为核心的终端 AI coding agent，对标 Claude Code / OpenCode / Codex CLI / Pi。
 
 - **开源**
-- **技术栈**: Rust-first core + TypeScript Web Viewer
+- **技术栈**: Codex-derived Rust core + TypeScript Web Viewer
 - **模型**: `deepseek-v4-flash` + `deepseek-v4-pro`
 - **核心定位**: Multi-Agent First + Coding-Native，极致适配 DeepSeek 模型
 - **原生任务**: Create（构建发散）和 Debug（诊断收敛）作为架构原语
@@ -18,7 +18,7 @@
 | **证据链 Debug** | Goal → Hypotheses → Evidence 链式推理，假设证伪收敛到根因，HYPOTHESIZE 阶段全员只读 |
 | **脚手架先行 Create** | Logging/Testing/Constraints 三基建必须先于功能代码，DAG 验证强制执行 |
 | **参考驱动设计** | 任何设计前必须搜索社区最佳实践/失败案例，设计文档必须引用 ≥3 外部来源 |
-| **Codex-first 审计** | 权限、沙箱、工具执行、补丁、会话、上下文、MCP/Skills、日志等成熟基础设施先学习 Codex CLI；不足处再参考 Claude Code、OpenCode、Pi |
+| **Codex upstream substrate** | 权限、沙箱、工具执行、补丁、会话、上下文、MCP/Skills、日志等成熟基础设施以 Codex CLI 整仓上游底座为主；不足处再参考 Claude Code、OpenCode、Pi |
 | **6 层架构约束** | Phase Machine → Tool Permissions → DAG Validation → Artifact Contracts → Context Allocation → System Prompt |
 | **独立 Viewer** | 常驻对抗性批判角色（V4-Pro, 只读），全流程渗透每个步骤 |
 | **Skills / Tools / MCP** | 业界通用能力层，可组合 Skills、原子 Tools、MCP 协议接入外部生态 |
@@ -46,4 +46,5 @@
 - 禁止未经允许新开分支，如有必要向用户申请确认
 - 最小化提交原则：每次有小主题改动就积极 commit 并 push到远端，增强安全性，无需用户确认
 - repo中所有改动都要提交，不要有未提交的改动，所有代码都是你改的，不要甩锅给用户
+- `third_party/codex-cli/` 未来作为 Codex upstream vendor 快照时，应尽量保持上游原样；上游文件可保留原始长度和结构，不受本项目普通单文件 500 行限制。Whale 自有代码仍遵守 500 行原则。
 - 严禁为自然语言用户输入设置本地固定答复、寒暄模板、关键词答复或绕过模型的“智能回复”；所有自然语言输入必须进入 Agent/Model 路径，由 Agent 生成回答。CLI/slash 命令只能输出明确的机械状态、错误、路径或配置结果，不能伪装成 Agent 回答。

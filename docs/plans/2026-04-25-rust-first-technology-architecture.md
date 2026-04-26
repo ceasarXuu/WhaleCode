@@ -4,7 +4,15 @@
 
 ## 一、结论
 
-WhaleCode 的主技术栈应从早期的 TypeScript / Node / Bun 调整为 **Rust-first core + TypeScript web viewer**。
+2026-04-27 更新：本文的 Rust-first 方向仍然成立，但“新建 Rust
+workspace 从 0 实现底座”的落地路径已废弃。新的执行主线见
+`docs/plans/2026-04-27-codex-cli-upstream-substrate-migration-plan.md`：
+WhaleCode 将以 Codex CLI whole-repo upstream substrate 为本地执行核心，
+再通过 Whale bridge/overlay 接入 DeepSeek、多 Agent、Primitive、Viewer 和
+Create/Debug。
+
+WhaleCode 的主技术栈从早期的 TypeScript / Node / Bun 调整为
+**Codex-derived Rust core + TypeScript web viewer**。
 
 多 Agent 群体协同的运行时设计见 `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md`。本文的 Rust workspace 和 Phase 2 规划以该文档为准扩展 `whalecode-swarm`。
 
@@ -17,13 +25,17 @@ WhaleCode 的主技术栈应从早期的 TypeScript / Node / Bun 调整为 **Rus
 - CLI、TUI、Agent Supervisor、工具调度、权限、沙箱、补丁合并、会话恢复和并发控制应放在 Rust 核心中。
 - Web Viewer、可视化面板、部分插件开发体验可以继续用 TypeScript / React / Vite。
 - Skills、Tools、MCP 要通过协议边界隔离语言，而不是被单一语言生态绑定。
-- Rust core 的成熟基础设施模块必须先通过 `docs/plans/2026-04-25-codex-first-reference-audit.md` 定义的 Codex-first Reference Audit Gate，不能在 permission、sandbox、exec、patch、session、context、MCP/skills、observability 上从 0 自创方案。
+- Rust core 的成熟基础设施模块必须通过
+  `docs/plans/2026-04-25-codex-first-reference-audit.md` 中更新后的
+  Substrate Adoption Gate。permission、sandbox、exec、patch、session、
+  context、MCP/skills、observability 不再从 0 自创，而是从 Codex upstream
+  substrate 融合。
 
 最终推荐：
 
 | 层级 | 推荐选型 |
 |------|----------|
-| Core runtime | Rust stable |
+| Core runtime | Codex-derived Rust core |
 | Async runtime | Tokio |
 | CLI | clap |
 | TUI | ratatui + crossterm |
@@ -31,8 +43,8 @@ WhaleCode 的主技术栈应从早期的 TypeScript / Node / Bun 调整为 **Rus
 | HTTP / SSE | reqwest + stream parser |
 | Event / logging | tracing + JSONL event sink |
 | Session store | JSONL first, SQLite index later |
-| Patch / diff | Rust PatchArtifact + unified diff parser |
-| MCP | Phase 1 stdio JSON-RPC adapter, Phase 2 评估官方 Rust SDK |
+| Patch / diff | Codex apply-patch substrate + Whale `PatchArtifact` bridge |
+| MCP | Codex MCP/skills substrate + Whale Primitive bridge |
 | Web Viewer | TypeScript + React + Vite |
 | Web bridge | Rust SSE / WebSocket read-only event server |
 | Release | GitHub Releases + platform binaries; later evaluate installer tooling |
@@ -66,7 +78,7 @@ WhaleCode 不是普通的聊天 CLI。它的核心问题是：
 | Single binary UX | 终端工具应优先给用户一个二进制，而不是要求 Node/Bun 运行时 |
 | Observable by default | 所有核心动作必须结构化记录，方便 Debug 和自进化 |
 | Web only where web wins | 可视化、图谱、交互面板用 TypeScript；本地执行核心不用 TypeScript |
-| Reference implementation first | 成熟 coding-agent 基础设施先审计 Codex CLI，不足处再用 Claude/OpenCode/Pi 补充 |
+| Upstream substrate first | 成熟 coding-agent 基础设施先从 Codex CLI 整仓导入和 bridge 融合，不足处再用 Claude/OpenCode/Pi 补充 |
 
 ---
 
@@ -638,33 +650,31 @@ npm --prefix apps/viewer run build
 
 交付：
 
-- 完成 Codex-first Reference Audit Baseline，并把审计结果挂到系统架构和 ADR。
-- 新建 Rust workspace。
+- 完成 Codex upstream substrate baseline，并把审计结果挂到系统架构和 ADR。
+- 导入 `third_party/codex-cli/` pinned upstream snapshot。
+- 建立 `whalecode-codex-bridge` 规划，而不是继续扩展已归档 Rust demo。
 - 新建 `apps/viewer` React/Vite skeleton。
-- 建立 CI：fmt、clippy、test、viewer build。
+- 建立 CI：Codex import/inventory、bridge tests、provider tests、viewer build。
 - 建立 `docs/adr/`。
-- 写入 Rust-first ADR。
+- 写入 Codex substrate ADR。
 
 验收：
 
-- `cargo test --workspace` 通过。
-- `cargo clippy --workspace --all-targets -- -D warnings` 通过。
+- Codex upstream commit、license、import method 和 patch count 有记录。
+- 初始导入不混入 Whale product edits。
 - `npm --prefix apps/viewer run build` 通过。
-- permission、exec、patch、session、context、MCP/skills、observability 设计均有 Codex 首选参考路径。
+- permission、exec、patch、session、context、MCP/skills、observability 均有
+  Codex upstream path 和 adoption mode。
 - repo 中没有未提交生成物。
 
-### Phase 1 — 通用 Agent CLI 底座
+### Phase 1 — Codex-backed 通用 Agent CLI 底座
 
 交付：
 
-- `whalecode-protocol`
-- `whalecode-model`
-- `whalecode-core`
-- `whalecode-tools`
-- `whalecode-permission`
-- `whalecode-session`
-- `whalecode-primitives`
-- `whalecode-cli`
+- `whalecode-codex-bridge`
+- DeepSeek provider adapter
+- Whale protocol / primitive overlay crates
+- Whale CLI wrapper over Codex-derived runtime
 - 差异化原语 schema skeleton：Reference、Scaffold、Debug Evidence、Viewer Concern、Skill Evolution telemetry。
 
 验收：
@@ -796,15 +806,16 @@ npm --prefix apps/viewer run build
 
 | 参考项目 | 本地路径 | 用途 |
 |----------|----------|------|
-| Codex CLI | `tmp/whalecode-refs/codex-cli` | Rust CLI/core/tool/context/permission/session 参考 |
+| Codex CLI | planned `third_party/codex-cli`; historical `tmp/whalecode-refs/codex-cli` | Rust CLI/core/tool/context/permission/session upstream substrate |
 | OpenCode | `tmp/whalecode-refs/opencode` | Go permission/session/file edit safety 参考 |
 | Pi | `tmp/whalecode-refs/pi` | TypeScript agent loop/event/web-ui 参考 |
 | Claude Code from Scratch | `tmp/whalecode-refs/cc-from-scratch` | 最小工具/skill/MCP 概念参考 |
 
-参考审计：
+Substrate adoption：
 
-- Codex-first Reference Audit: `docs/plans/2026-04-25-codex-first-reference-audit.md`
-- 任何 Rust core 模块设计都必须记录 Codex 路径、采用行为、WhaleCode 差异、不采用边界和测试。
+- Codex substrate gate: `docs/plans/2026-04-25-codex-first-reference-audit.md`
+- Codex migration plan: `docs/plans/2026-04-27-codex-cli-upstream-substrate-migration-plan.md`
+- 任何 Rust core 模块设计都必须记录 Codex upstream commit/path、adoption mode、WhaleCode 差异、不采用边界、sync impact 和测试。
 - Differentiated Primitives Architecture: `docs/plans/2026-04-25-differentiated-primitives-architecture.md`
 
 ---
@@ -817,6 +828,8 @@ npm --prefix apps/viewer run build
 2. TypeScript 只承担 Web Viewer、插件 SDK 示例和外围生态。
 3. DeepSeek adapter 在 Rust 中实现，不把 OpenAI SDK 作为核心依赖。
 4. MCP 和 Skills 通过协议接入，不能绕过 Rust PermissionEngine。
-5. Codex CLI 更值得深入参考，但不直接 fork 成 WhaleCode 主线。
-6. 成熟基础设施按 Codex-first 审计后实现，WhaleCode 自研只集中在 DeepSeek 适配、Create/Debug 原语、Swarm、Viewer 和群体协同策略。
+5. Codex CLI 是 whole-repo upstream substrate，不只是参考材料；但 WhaleCode
+   通过 bridge/overlay 避免不可同步的深 fork。
+6. 成熟基础设施从 Codex substrate 融合，WhaleCode 自研只集中在 DeepSeek
+   适配、Create/Debug 原语、Swarm、Viewer 和群体协同策略。
 7. V1 必须先具备主流 coding agent CLI 能力；差异化原语通过 `PrimitiveModule` 插件化增强底座，而不是替代底座。

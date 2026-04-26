@@ -4,6 +4,10 @@ node_modules/
 dist/
 coverage/
 target/
+archive/deprecated/**/target/
+third_party/**/target/
+third_party/**/node_modules/
+third_party/**/dist/
 .whale/
 .env
 .env.*

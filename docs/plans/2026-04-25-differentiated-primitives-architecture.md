@@ -104,17 +104,16 @@ pub struct PrimitiveManifest {
 
 ### 2.3 Generic Agent Substrate First
 
-实现这些特化能力之前，必须先完成一个通用 coding-agent runtime 底座。这个底座不是产品定位上的退化，而是为了给所有 Primitive Module 提供稳定承载层：
+2026-04-27 更新：这里的 substrate 不再表示从 0 完成 Whale 自研 runtime。
+它现在表示 Codex CLI whole-repo upstream substrate + Whale bridge。实现这些
+特化能力之前，必须先完成一个 Codex-backed 通用 coding-agent runtime 底座。
+这个底座不是产品定位上的退化，而是为了给所有 Primitive Module 提供稳定承载层：
 
 ```text
 V1 Generic Agent CLI
-  -> ModelRuntime
-  -> AgentLoop
-  -> ToolRuntime
-  -> Permission / Sandbox
-  -> Patch / Workspace
-  -> Session / Replay
-  -> ContextManager
+  -> Codex upstream substrate
+  -> Whale Codex bridge
+  -> DeepSeek provider
   -> PrimitiveHost
   -> Built-in Primitive Modules
 ```
@@ -126,7 +125,7 @@ V1 的产品目标是先做到主流竞品级 coding agent CLI 能力：
 - 能做 read-before-write、diff preview、permission prompt、approval/deny。
 - 能保持长会话、工具调用历史、session JSONL、replay 和 redaction。
 - 能支持基础 slash commands，例如 `/status`、`/compact`、`/debug`、`/create`。
-- 能通过 Codex-first 审计覆盖主流 coding agent 底座行为。
+- 能通过 Codex upstream substrate 覆盖主流 coding agent 底座行为。
 
 Primitive Module 的职责是在这个底座上增强或约束工作流，而不是补齐底座缺失能力。换句话说：
 
@@ -767,7 +766,7 @@ skill_rollback_executed
 
 这五个能力都要进入 runtime：
 
-- V1 先交付竞品级通用 coding agent CLI 底座，差异化能力在其上插件化增强。
+- V1 先交付 Codex-derived 竞品级通用 coding agent CLI 底座，差异化能力在其上插件化增强。
 - 它们以可插拔 Primitive Module 进入 runtime，而不是写死进 agent loop。
 - 证据链 Debug 是诊断模块，提供 DebugCase / Evidence / RootCause gates。
 - 脚手架先行是 Create gate 模块，不是提示词建议。

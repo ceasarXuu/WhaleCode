@@ -1,122 +1,85 @@
 # WhaleCode
 
-DeepSeek-first terminal AI coding agent.
+DeepSeek-first terminal AI coding agent built on a Codex CLI upstream substrate.
 
-## V1 Goal
+## Current Direction
 
-The first version is a generic coding agent CLI substrate comparable to mainstream
-tools such as Codex CLI, Claude Code, OpenCode, and Pi. WhaleCode-specific
-capabilities are added through pluggable Primitive Modules rather than being
-hard-coded into the agent loop.
+WhaleCode is being repositioned away from a from-scratch Rust demo runtime. The
+active plan is to import Codex CLI as a whole-repo upstream substrate, keep that
+snapshot syncable with future Codex releases, and build Whale-specific behavior
+through bridge and overlay layers.
 
-## Local Development
-
-Requires Rust stable. On macOS, install with:
-
-```bash
-brew install rustup-init
-/opt/homebrew/opt/rustup/bin/rustup default stable
-/opt/homebrew/opt/rustup/bin/rustup component add rustfmt clippy
-```
-
-If `cargo` is not found in a new zsh session, add this to `~/.zshrc`:
-
-```bash
-export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
-```
-
-```bash
-cargo fmt --check
-cargo test --workspace
-cargo run -p whalecode-cli --bin whale -- status
-cargo run -p whalecode-cli --bin whale -- run "inspect this repo"
-```
-
-After every code change, run the repo-owned after-change gate:
-
-```bash
-scripts/test-after-change.sh
-```
-
-This combines static checks with runtime CLI smoke checks. The full strategy is
-documented in `docs/testing/2026-04-27-after-change-smoke-regression-strategy.md`.
-
-Workspace behavior is intentionally simple in V1: the process current directory
-is the default workspace. Run `whale` from a project root to make that folder the
-workspace, or pass `--cwd <path>` to override it for `whale run`. Read/search,
-patch-safe edits, session `cwd` events, and gated verification commands all use
-the selected workspace as their root.
-
-Current workspace status: live DeepSeek tool loop as the default agent path. The
-`whale` binary sends every natural-language user input through the live Agent,
-can run read-only workspace tools, persist JSONL session events, stream DeepSeek
-text/reasoning and tool-call deltas, apply `edit_file` through a patch-safe exact
-replacement path, and run bounded verification commands when `--allow-command`
-is explicit. Session logs now include turn grouping, model stream events,
-permission decisions, tool outputs, and patch results so a run can be replayed
-from the terminal. Live assistant text is flushed to stdout as model deltas
-arrive instead of waiting for the whole turn to finish. Each completed turn
-prints input and output token counts from provider usage metadata. In interactive
-mode, `whale` uses crossterm raw keyboard events for Unicode-safe input editing,
-prints the session JSONL path once at startup, and reuses that session log for
-subsequent turns. Context compaction and primitive host execution are still
-follow-up milestones. The old
-bootstrap-local runtime is only kept for explicit `whale run --bootstrap`
-debugging.
-
-Install the local CLI into your active Cargo bin directory:
-
-```bash
-cargo install --path crates/whalecode-cli --force --locked
-whale status
-whale run "inspect this repo"
-```
-
-Store the DeepSeek API key from inside Whale:
+Active architecture:
 
 ```text
-whale
-whale> /apikey
-DeepSeek API key:
+Codex CLI upstream substrate
+  -> Whale Codex bridge
+  -> DeepSeek V4 provider
+  -> Multi-agent / Primitive / Viewer / Create-Debug overlay
 ```
 
-The key is saved under the user-level secret store
-`~/.whale/secrets/deepseek_api_key` with private file permissions on Unix-like
-systems. It is not written to the repository. `DEEPSEEK_API_KEY` still takes
-priority when present, which is useful for temporary overrides or CI.
+The previous `whalecode-*` Rust demo crates are archived at
+`archive/deprecated/2026-04-27-rust-demo/`. They are retained for recoverability
+and migration reference only; do not continue product work there.
 
-Optional DeepSeek environment variables:
+## Product Goal
+
+Build an open-source terminal AI coding agent centered on DeepSeek V4:
+
+- Rust-first local execution core inherited from Codex-grade substrate work.
+- TypeScript Web Viewer for real-time event and agent visualization later.
+- DeepSeek V4 Flash/Pro routing with reasoning-content streaming.
+- Multi-Agent First coordination through cohorts, WorkUnits, Patch League, and
+  evidence-weighted decisions.
+- Create and Debug as runtime primitives rather than prompt-only workflows.
+- Primitive Modules for scaffolding-first Create, evidence-chain Debug,
+  reference-driven design, independent Viewer, and skill evolution.
+
+## Repository Strategy
+
+Planned active layout:
+
+```text
+third_party/codex-cli/          # pinned Codex CLI upstream snapshot
+patches/codex-cli/              # local patch queue for unavoidable vendor edits
+crates/whalecode-codex-bridge/  # Codex-to-Whale adapter layer
+crates/whalecode-*/             # Whale protocol, provider, swarm, primitive overlay
+apps/viewer/                    # future read-only Web Viewer
+docs/migration/codex-sync/      # upstream sync logs
+archive/deprecated/             # inactive historical implementations
+```
+
+Codex is not just a reference. It is the upstream substrate WhaleCode will
+import, pin, test, diff, and periodically upgrade. Whale-specific changes should
+land in the bridge or overlay layer first. Direct edits inside
+`third_party/codex-cli/` require a patch-queue entry and sync log.
+
+## Key Documents
+
+- Migration plan:
+  `docs/plans/2026-04-27-codex-cli-upstream-substrate-migration-plan.md`
+- ADR:
+  `docs/adr/2026-04-27-codex-cli-upstream-substrate.md`
+- Original system architecture, now aligned to substrate direction:
+  `docs/plans/2026-04-24-system-architecture.md`
+- Primitive architecture:
+  `docs/plans/2026-04-25-differentiated-primitives-architecture.md`
+- Multi-agent architecture:
+  `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md`
+
+## Current Development State
+
+There is intentionally no active root Cargo workspace after the demo archive.
+The next implementation milestone is Codex upstream import plus inventory and
+bridge skeleton, not continued extension of the archived demo.
+
+Until the new substrate is imported, verification is documentation and repo
+hygiene focused:
 
 ```bash
-export DEEPSEEK_API_KEY="..."
-export DEEPSEEK_MODEL="deepseek-v4-flash"
-export DEEPSEEK_BASE_URL="https://api.deepseek.com"
+git status --short
+rg -n "deprecated runtime marker patterns" README.md docs || true
 ```
 
-After storing the key or setting `DEEPSEEK_API_KEY`, run a provider-only smoke
-test:
-
-```bash
-whale model-smoke --model deepseek-v4-flash "say hello"
-```
-
-`model-smoke` does not run tools or edit files; it only verifies live model auth,
-streaming, and response aggregation.
-
-Run the live agent against the current repository:
-
-```bash
-whale run "inspect this repo"
-whale run --allow-write --allow-command "fix the bug in src/lib.rs and run the relevant test"
-whale logs
-whale logs --session ~/.whale/sessions/session-....jsonl
-```
-
-Without `--allow-write`, `edit_file` calls are rejected and recorded in the
-session log. With `--allow-write`, edits still require an exact old-string match
-and a fresh file snapshot before Whale writes to disk. Without
-`--allow-command`, `run_command` calls are rejected and recorded; with
-`--allow-command`, commands run in the workspace with argument arrays and a
-timeout rather than through a shell string.
-
-More setup details are in `docs/runbooks/rust-development-environment.md`.
+After Codex import, repo-owned gates must be rebuilt around substrate import,
+bridge compatibility, DeepSeek provider behavior, and Primitive overlay replay.

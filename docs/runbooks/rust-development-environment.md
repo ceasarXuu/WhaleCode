@@ -4,7 +4,13 @@ Date: 2026-04-25
 
 ## Context
 
-WhaleCode uses a Rust-first core. The repo pins the toolchain through `rust-toolchain.toml`:
+2026-04-27 update: the from-scratch Rust demo workspace has been archived under
+`archive/deprecated/2026-04-27-rust-demo/`. The active direction is Codex CLI
+upstream substrate plus Whale bridge/overlay. This runbook remains useful for
+building Rust code after the Codex substrate import, but the repo root no longer
+has an active `rust-toolchain.toml` or `Cargo.toml`.
+
+The archived demo pinned the toolchain through `rust-toolchain.toml`:
 
 - channel: `stable`
 - components: `rustfmt`, `clippy`
@@ -45,27 +51,25 @@ PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH" cargo test --workspac
 
 ## Verification
 
-From the repo root:
+Before the Codex substrate import, verify only the Rust toolchain itself:
 
 ```bash
 cargo --version
 rustc --version
 rustup show active-toolchain
-cargo fmt --check
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cargo run -p whalecode-cli --bin whale -- status
-cargo run -p whalecode-cli --bin whale -- run "inspect this repo"
 ```
 
-Install and verify the local CLI:
+To inspect the archived demo, enter the archive explicitly:
 
 ```bash
-cargo install --path crates/whalecode-cli --force --locked
-zsh -ic 'which whale && whale status'
+cd archive/deprecated/2026-04-27-rust-demo
+cargo test --workspace --locked
 ```
 
-Expected active toolchain:
+After Codex import, verification commands must be redefined around the
+Codex-derived workspace and `whalecode-codex-bridge`.
+
+Archived-demo expected active toolchain:
 
 ```text
 stable-aarch64-apple-darwin (overridden by '<repo>/rust-toolchain.toml')
@@ -73,11 +77,12 @@ stable-aarch64-apple-darwin (overridden by '<repo>/rust-toolchain.toml')
 
 ## Notes
 
-- `Cargo.lock` is committed because the workspace contains a CLI binary.
+- The archived demo keeps its `Cargo.lock` because it contained a CLI binary.
 - `target/` is ignored and should not be committed.
 - If a future shell cannot find `cargo`, first check whether `/opt/homebrew/opt/rustup/bin` is on `PATH`.
 - If `~/.rustup/settings.toml` already exists, the rustup installer may restore
   the previously configured default toolchain even when the current shell cannot
   find `cargo`; source `~/.cargo/env` before reinstalling or debugging build
   failures.
-- If a future shell cannot find `whale` after `cargo install`, check whether `$HOME/.cargo/bin` is on `PATH`.
+- Do not install the archived `whale` demo as the active CLI. The next active
+  CLI should be rebuilt from the Codex substrate migration.

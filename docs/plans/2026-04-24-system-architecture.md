@@ -6,12 +6,17 @@
 
 构建以 DeepSeek V4 模型为核心的终端 AI coding agent，对标 Claude Code / OpenCode / Codex CLI / Pi。
 
-- **技术栈**: Rust-first core + TypeScript Web Viewer
+- **技术栈**: Codex-derived Rust core + TypeScript Web Viewer
 - **目标模型**: `deepseek-v4-flash` + `deepseek-v4-pro`
 - **核心定位**: Multi-Agent First + Coding-Native，极致适配 DeepSeek 模型特性
-- **V1 目标**: 先交付一个对标 Codex CLI / Claude Code / OpenCode / Pi 主流能力的通用 coding agent CLI；差异化能力通过 Primitive Module 插件化增强，而不是写死在底层。
+- **V1 目标**: 先通过整仓导入 Codex CLI upstream substrate 交付主流
+  coding agent CLI 底座；差异化能力通过 Primitive Module 和 Whale overlay
+  增强，而不是写死在 Codex vendor 层。
 
-> 技术栈决策已更新为 Rust-first，详见 `docs/plans/2026-04-25-rust-first-technology-architecture.md` 与 `docs/adr/2026-04-25-rust-first-core-runtime.md`。本文早期章节中的 TypeScript 风格代码块保留为结构化伪代码，真正的 MVP 接口以第十八章 Rust 形态和新技术架构文档为准。
+> 2026-04-27 更新：从 0 建设 Whale Rust runtime 的 demo 路线已废弃，
+> 当前主线是 `docs/plans/2026-04-27-codex-cli-upstream-substrate-migration-plan.md`。
+> 本文早期章节中的 TypeScript 风格代码块保留为结构化伪代码，底座实现以
+> Codex upstream substrate + Whale bridge/overlay 为准。
 
 ---
 
@@ -2389,7 +2394,7 @@ Debug 模式下，Agent 网络图切换为**证据链视图**：
 | 假设生成数量 | 初始 3-5 个；第二轮允许最多 8 个，但必须引用新增证据或被排除假设 | 保持诊断可解释 | 复杂系统故障可手动提升 |
 | Viewer 触发频率 | 默认只审查 Phase Gate、写入 artifact、权限升级、失败恢复、Reviewer 结论；不监听每个 token/普通消息 | 控制成本和 429 风险 | strict-review 模式开启 |
 | DeepSeek V4 参数 | 官方已列出 V4 Flash/Pro，但 runtime 仍用 `ModelCapabilityProbe` 决定 context、output、thinking、tool-call、pricing、429 行为 | 官方 API 能力和价格会变动 | probe 结果持久化并带版本戳 |
-| 成熟基础设施设计 | 采用 Codex-first Reference Audit Gate：权限、沙箱、工具执行、补丁、会话、上下文、MCP/Skills、日志先审计 Codex CLI；不足处再参考 Claude/OpenCode/Pi | 这些方向已经被成熟 coding 产品反复验证，WhaleCode 不应从 0 自创底座 | Codex 没覆盖或与 DeepSeek/Multi-Agent/Create-Debug 差异冲突时，用 ADR 记录替代方案 |
+| 成熟基础设施设计 | 采用 Codex upstream substrate：权限、沙箱、工具执行、补丁、会话、上下文、MCP/Skills、日志从整仓导入的 Codex CLI 融合；不足处再参考 Claude/OpenCode/Pi | 这些方向已经被成熟 coding 产品反复验证，WhaleCode 不应从 0 自创底座 | Codex 没覆盖或与 DeepSeek/Multi-Agent/Create-Debug 差异冲突时，用 bridge/overlay 或 ADR 记录替代方案 |
 
 ### 16.1 Debug 只读边界
 
@@ -2504,11 +2509,18 @@ type LogEventEnvelope<T> = {
 
 ---
 
-## 十七、参考实现映射
+## 十七、Codex Substrate 映射
 
-参考目录位于 `tmp/whalecode-refs/`，只作为设计证据，不直接复制代码。复制代码前必须单独做 license 审查和归属标注。
+2026-04-27 后，Codex CLI 不再只是 `tmp/whalecode-refs/` 里的参考材料。
+活动主线要求把 Codex CLI 整仓导入 `third_party/codex-cli/`，作为 pinned
+upstream substrate。`tmp/whalecode-refs/` 只保留为历史快照或补充研究材料。
 
-详细的 Codex-first 审计准则见 `docs/plans/2026-04-25-codex-first-reference-audit.md`。后续所有成熟基础设施模块都必须补齐 `reference_source`、`borrowed_behavior`、`whalecode_delta`、`rejected_behavior`、`license_boundary`、`acceptance_tests`，没有完成审计不得进入实现。
+详细的 Substrate Adoption Gate 见
+`docs/plans/2026-04-25-codex-first-reference-audit.md` 和
+`docs/plans/2026-04-27-codex-cli-upstream-substrate-migration-plan.md`。后续所有
+成熟基础设施模块都必须补齐 Codex upstream commit/path、adoption mode、
+WhaleCode delta、rejected behavior、license boundary、sync impact 和
+acceptance tests。
 
 参考优先级：
 
@@ -2519,7 +2531,7 @@ type LogEventEnvelope<T> = {
 
 | 参考项目 | 本地快照 | 上游 | 许可证 | WhaleCode 借鉴点 | 不借鉴点 |
 |----------|----------|------|--------|------------------|----------|
-| Codex CLI | `tmp/whalecode-refs/codex-cli` @ `c10f95dda` | https://github.com/openai/codex | Apache-2.0 | Rust CLI/core/tool/context/permission/session 设计、权限/沙箱、工具调度、context compaction、context fragment、agent mailbox、thread history 重建 | 不直接 fork 产品边界；不照搬其 Bazel/多 crate 复杂度和 OpenAI/Codex 专属假设 |
+| Codex CLI | planned `third_party/codex-cli` pin; historical `tmp/whalecode-refs/codex-cli` @ `c10f95dda` | https://github.com/openai/codex | Apache-2.0 | Rust CLI/core/tool/context/permission/session 设计、权限/沙箱、工具调度、context compaction、context fragment、agent mailbox、thread history 重建；作为 upstream substrate 持续融合 | 不照搬 OpenAI/Codex 产品边界、ChatGPT 登录和云任务默认路径；不无记录修改 vendor |
 | OpenCode | `tmp/whalecode-refs/opencode` @ `73ee493` | https://github.com/opencode-ai/opencode | MIT | 文件编辑安全、permission request、session service、pubsub、LSP diagnostics、task session | Go 技术栈和 DB-first 架构不直接迁移 |
 | Pi | `tmp/whalecode-refs/pi` @ `c0675041` | https://github.com/badlogic/pi-mono | MIT | TypeScript monorepo、agent loop、streaming event、tool sequential/parallel mode、JSONL session、web-ui 组件化 | 通用 Agent 定位，不直接继承其单 Agent 产品边界 |
 | Claude Code from Scratch | `tmp/whalecode-refs/cc-from-scratch` @ `e5ce492` | https://github.com/Windy3f3f3f3f/claude-code-from-scratch | MIT | 最小 Agent、Tool、Subagent、Skill、MCP 教学实现，适合 MVP 骨架对照 | 安全和并发模型过轻，不作为生产标准 |
@@ -2542,7 +2554,9 @@ type LogEventEnvelope<T> = {
 
 ### 17.2 不直接照搬的点
 
-1. 不直接 fork Codex CLI；WhaleCode 采用 Rust-first core，但按自身 Multi-Agent First、Create/Debug、DeepSeek 路由和 Viewer 约束重新实现。
+1. 不再从 0 重新实现 Codex 已成熟的底座；Codex CLI 作为 whole-repo
+   upstream substrate 导入，但 WhaleCode 通过 bridge/overlay 保持 DeepSeek、
+   Multi-Agent First、Create/Debug 和 Viewer 产品边界。
 2. 不照搬 OpenCode 的 DB-first session；早期 JSONL 更利于 debug、回放和用户手动检查。
 3. 不照搬 Pi 的通用 Agent 产品形态；WhaleCode 的差异点仍是 Create/Debug 原语和多 Agent DAG。
 4. 不照搬 `cc-from-scratch` 的通用 `run_shell` 权限；它适合作最小教学实现，不足以覆盖开源 agent 的安全边界。
@@ -2552,7 +2566,9 @@ type LogEventEnvelope<T> = {
 
 ## 十八、MVP 接口草案
 
-接口草案用于约束第一版工程落地。技术栈决策已在 `docs/plans/2026-04-25-rust-first-technology-architecture.md` 中更新为 Rust-first core，本章保留核心语义并改为 Rust 形态。实际代码可以调整命名，但语义不能弱化。
+接口草案用于约束第一版工程落地。2026-04-27 后，实际工程入口以 Codex
+upstream substrate + Whale bridge/overlay 为准；本章保留核心语义，不再要求
+从空白 Rust workspace 开始实现。
 
 ### 18.1 包结构
 
