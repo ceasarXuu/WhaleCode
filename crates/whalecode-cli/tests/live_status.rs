@@ -64,6 +64,50 @@ fn whale_live_run_prints_tool_permission_patch_and_usage_status() {
     );
 }
 
+#[test]
+fn whale_live_run_can_create_file_in_empty_workspace() {
+    let repo = tempdir().expect("repo");
+    let whale_home = tempdir().expect("whale home");
+    let session_path = repo.path().join("session.jsonl");
+    let mock = MockDeepSeek::start(vec![write_file_tool_call_sse(), final_write_answer_sse()]);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_whale"))
+        .args([
+            "run",
+            "create a tiny html page",
+            "--cwd",
+            repo.path().to_str().expect("repo path"),
+            "--session",
+            session_path.to_str().expect("session path"),
+            "--allow-write",
+            "--max-turns",
+            "3",
+        ])
+        .env("DEEPSEEK_API_KEY", "test-key")
+        .env("DEEPSEEK_BASE_URL", mock.base_url())
+        .env("WHALE_SECRET_HOME", whale_home.path())
+        .output()
+        .expect("run whale");
+
+    mock.join();
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    assert!(stdout.contains("tool: write_file index.html"));
+    assert!(stdout.contains("permission: write_file allowed"));
+    assert!(stdout.contains("modified: index.html"));
+    assert!(stdout.contains("Wrote index.html."));
+    assert!(stdout.contains("files changed: 1 (index.html)"));
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("index.html")).expect("read index"),
+        "<!doctype html>\n<title>Whale</title>\n"
+    );
+}
+
 struct MockDeepSeek {
     base_url: String,
     handle: JoinHandle<()>,
@@ -154,6 +198,28 @@ data: [DONE]
 
 fn final_answer_sse() -> String {
     r#"data: {"choices":[{"delta":{"content":"Updated README."},"finish_reason":null,"index":0}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":3,"total_tokens":23,"prompt_cache_hit_tokens":5}}
+
+data: [DONE]
+
+"#
+    .to_owned()
+}
+
+fn write_file_tool_call_sse() -> String {
+    r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"index.html\",\"content\":\"<!doctype html>\\n<title>Whale</title>\\n\"}"}}]},"finish_reason":null,"index":0}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12,"prompt_cache_hit_tokens":4}}
+
+data: [DONE]
+
+"#
+    .to_owned()
+}
+
+fn final_write_answer_sse() -> String {
+    r#"data: {"choices":[{"delta":{"content":"Wrote index.html."},"finish_reason":null,"index":0}]}
 
 data: {"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":3,"total_tokens":23,"prompt_cache_hit_tokens":5}}
 

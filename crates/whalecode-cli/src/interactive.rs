@@ -105,11 +105,13 @@ fn handle_interactive_command(
         }
         "/write on" => {
             settings.allow_write = true;
+            writeln!(stdout, "write_file: enabled").map_err(CliError::WriteOutput)?;
             writeln!(stdout, "edit_file: enabled").map_err(CliError::WriteOutput)?;
             Ok(true)
         }
         "/write off" => {
             settings.allow_write = false;
+            writeln!(stdout, "write_file: disabled").map_err(CliError::WriteOutput)?;
             writeln!(stdout, "edit_file: disabled").map_err(CliError::WriteOutput)?;
             Ok(true)
         }
@@ -133,6 +135,12 @@ fn print_interactive_permissions(
 ) -> Result<(), CliError> {
     writeln!(stdout, "mode: live").map_err(CliError::WriteOutput)?;
     writeln!(stdout, "model: {}", settings.model).map_err(CliError::WriteOutput)?;
+    writeln!(
+        stdout,
+        "write_file: {}",
+        enabled_label(settings.allow_write)
+    )
+    .map_err(CliError::WriteOutput)?;
     writeln!(stdout, "edit_file: {}", enabled_label(settings.allow_write))
         .map_err(CliError::WriteOutput)?;
     writeln!(

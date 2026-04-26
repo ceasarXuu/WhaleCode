@@ -201,9 +201,10 @@ pub(crate) fn print_startup_status(config: &RunDisplayConfig<'_>) -> io::Result<
     let mut stdout = io::stdout();
     writeln!(
         stdout,
-        "workspace: {} | model: {} | edit_file: {} | run_command: {} | max_turns: {}",
+        "workspace: {} | model: {} | write_file: {} | edit_file: {} | run_command: {} | max_turns: {}",
         config.workspace.display(),
         config.model,
+        enabled_label(config.allow_write),
         enabled_label(config.allow_write),
         enabled_label(config.allow_command),
         config.max_turns
@@ -224,7 +225,7 @@ fn enabled_label(enabled: bool) -> &'static str {
 
 fn should_print_permission(subject: &str, decision: &PermissionDecisionKind) -> bool {
     !matches!(decision, PermissionDecisionKind::Allowed)
-        || matches!(subject, "edit_file" | "run_command")
+        || matches!(subject, "edit_file" | "write_file" | "run_command")
 }
 
 fn format_optional_input(input: Option<&str>) -> String {

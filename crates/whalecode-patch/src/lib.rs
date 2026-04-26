@@ -55,6 +55,13 @@ pub struct PatchRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WriteFileRequest {
+    pub path: String,
+    pub content: String,
+    pub create_parent_dirs: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PatchPreview {
     pub status: WorkspacePatchStatus,
     pub touched_files: Vec<String>,
@@ -70,6 +77,7 @@ pub enum WorkspacePatchStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PatchRejectReason {
     OutsideWorkspace,
+    FileNotFound,
     HiddenPath,
     PathMismatch,
     StaleRead,
@@ -166,6 +174,49 @@ impl WorkspacePatchEngine {
         Ok(checked.preview)
     }
 
+    pub fn write_file(&self, request: &WriteFileRequest) -> Result<PatchPreview, PatchError> {
+        let target = match self.resolve_write_target(&request.path, request.create_parent_dirs) {
+            Ok(target) => target,
+            Err(reason) => {
+                return Ok(PatchPreview {
+                    status: WorkspacePatchStatus::Rejected { reason },
+                    touched_files: vec![request.path.clone()],
+                    diff: String::new(),
+                });
+            }
+        };
+        let before = match fs::read_to_string(&target.path) {
+            Ok(content) => Some(content),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+                return Err(PatchError::NonUtf8(target.path));
+            }
+            Err(source) => {
+                return Err(PatchError::Read {
+                    path: target.path,
+                    source,
+                });
+            }
+        };
+        if let Some(parent) = target.path.parent() {
+            fs::create_dir_all(parent).map_err(|source| PatchError::Write {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+        fs::write(&target.path, request.content.as_bytes()).map_err(|source| {
+            PatchError::Write {
+                path: target.path.clone(),
+                source,
+            }
+        })?;
+        Ok(PatchPreview {
+            status: WorkspacePatchStatus::Applied,
+            touched_files: vec![target.relative_path.clone()],
+            diff: write_file_diff(&target.relative_path, before.as_deref(), &request.content),
+        })
+    }
+
     fn checked_edit(&self, request: &PatchRequest) -> Result<CheckedEdit, PatchError> {
         if request.path != request.expected_snapshot.path {
             return Ok(CheckedEdit::rejected(
@@ -232,13 +283,74 @@ impl WorkspacePatchEngine {
         {
             return Err(PatchRejectReason::HiddenPath);
         }
-        let canonical = candidate
-            .canonicalize()
-            .map_err(|_| PatchRejectReason::OutsideWorkspace)?;
+        let canonical = candidate.canonicalize().map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                PatchRejectReason::FileNotFound
+            } else {
+                PatchRejectReason::OutsideWorkspace
+            }
+        })?;
         if !canonical.starts_with(&self.canonical_root) {
             return Err(PatchRejectReason::OutsideWorkspace);
         }
         Ok(canonical)
+    }
+
+    fn resolve_write_target(
+        &self,
+        path: &str,
+        create_parent_dirs: bool,
+    ) -> Result<WriteTarget, PatchRejectReason> {
+        if path.trim().is_empty() {
+            return Err(PatchRejectReason::OutsideWorkspace);
+        }
+        let candidate = if Path::new(path).is_absolute() {
+            PathBuf::from(path)
+        } else {
+            self.canonical_root.join(path)
+        };
+        if candidate
+            .components()
+            .any(|part| matches!(part, Component::ParentDir))
+        {
+            return Err(PatchRejectReason::OutsideWorkspace);
+        }
+        if candidate
+            .components()
+            .any(|part| part.as_os_str().to_str().is_some_and(should_skip_name))
+        {
+            return Err(PatchRejectReason::HiddenPath);
+        }
+        let Some(parent) = candidate.parent() else {
+            return Err(PatchRejectReason::OutsideWorkspace);
+        };
+        if !parent.exists() && !create_parent_dirs {
+            return Err(PatchRejectReason::FileNotFound);
+        }
+        if !parent.exists()
+            && !candidate.starts_with(&self.canonical_root)
+            && !candidate.starts_with(&self.workspace_root)
+        {
+            return Err(PatchRejectReason::OutsideWorkspace);
+        }
+        if create_parent_dirs {
+            fs::create_dir_all(parent).map_err(|_| PatchRejectReason::FileNotFound)?;
+        }
+        let canonical_parent = parent
+            .canonicalize()
+            .map_err(|_| PatchRejectReason::FileNotFound)?;
+        if !canonical_parent.starts_with(&self.canonical_root) {
+            return Err(PatchRejectReason::OutsideWorkspace);
+        }
+        let file_name = candidate
+            .file_name()
+            .ok_or(PatchRejectReason::OutsideWorkspace)?;
+        let path = canonical_parent.join(file_name);
+        let relative_path = self.relative_display(&path);
+        Ok(WriteTarget {
+            path,
+            relative_path,
+        })
     }
 
     fn relative_display(&self, path: &Path) -> String {
@@ -253,6 +365,11 @@ struct CheckedEdit {
     path: PathBuf,
     updated: String,
     preview: PatchPreview,
+}
+
+struct WriteTarget {
+    path: PathBuf,
+    relative_path: String,
 }
 
 impl CheckedEdit {
@@ -311,6 +428,23 @@ fn replacement_diff(path: &str, old: &str, new: &str, before: &str, after: &str)
         sha256_hex(before.as_bytes()),
         sha256_hex(after.as_bytes())
     )
+}
+
+fn write_file_diff(path: &str, before: Option<&str>, after: &str) -> String {
+    match before {
+        Some(before) => format!(
+            "--- a/{path}\n+++ b/{path}\n@@ write_file @@\n-{}\n+{}\n# before_sha256={}\n# after_sha256={}",
+            single_line(before),
+            single_line(after),
+            sha256_hex(before.as_bytes()),
+            sha256_hex(after.as_bytes())
+        ),
+        None => format!(
+            "--- /dev/null\n+++ b/{path}\n@@ write_file @@\n+{}\n# after_sha256={}",
+            single_line(after),
+            sha256_hex(after.as_bytes())
+        ),
+    }
 }
 
 fn single_line(value: &str) -> String {

@@ -1,7 +1,8 @@
-use serde::Deserialize;
 use serde_json::{json, Value};
 use whalecode_model::CollectedToolCall;
-use whalecode_patch::{PatchOperation, PatchRequest, WorkspacePatchEngine, WorkspacePatchStatus};
+use whalecode_patch::{
+    PatchOperation, PatchRequest, WorkspacePatchEngine, WorkspacePatchStatus, WriteFileRequest,
+};
 use whalecode_permission::{
     ApprovalPolicy, PermissionContext, PermissionDecision, PermissionEngine, PermissionOperation,
     PermissionRequest,
@@ -13,6 +14,10 @@ use whalecode_protocol::{
 use whalecode_tools::{ToolRequest, ToolResultEnvelope, ToolRuntime};
 
 use crate::command_tool::{run_command, RunCommandArgs};
+use crate::live_tool_args::{
+    argument_path, argument_query, parse_edit_file, parse_list_files, parse_read_file,
+    parse_search_text, parse_write_file, tool_input_summary,
+};
 use crate::tool_log::tool_log_preview;
 use crate::{permission_event_kind, recorder::EventRecorder, AgentError};
 
@@ -20,33 +25,6 @@ use crate::{permission_event_kind, recorder::EventRecorder, AgentError};
 pub(crate) struct ToolExecutionResult {
     pub(crate) message: String,
     pub(crate) summary: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ListFilesArgs {
-    max_entries: Option<usize>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ReadFileArgs {
-    path: String,
-    max_bytes: Option<usize>,
-}
-
-#[derive(Debug, Deserialize)]
-struct SearchTextArgs {
-    query: String,
-    max_matches: Option<usize>,
-    max_bytes: Option<usize>,
-}
-
-#[derive(Debug, Deserialize)]
-struct EditFileArgs {
-    path: String,
-    #[serde(alias = "old")]
-    old_string: String,
-    #[serde(alias = "new")]
-    new_string: String,
 }
 
 pub(crate) async fn execute_model_tool(
@@ -100,6 +78,14 @@ pub(crate) async fn execute_model_tool(
             parse_search_text,
         ),
         "edit_file" => execute_edit_tool(
+            patch_engine,
+            permission,
+            recorder,
+            &call.name,
+            &call.arguments,
+            allow_write,
+        ),
+        "write_file" => execute_write_file_tool(
             patch_engine,
             permission,
             recorder,
@@ -231,14 +217,9 @@ fn execute_edit_tool(
     arguments: &str,
     allow_write: bool,
 ) -> Result<ToolExecutionResult, AgentError> {
-    let args = match serde_json::from_str::<EditFileArgs>(arguments) {
+    let args = match parse_edit_file(arguments) {
         Ok(args) => args,
-        Err(error) => {
-            return Ok(tool_error(
-                format!("invalid edit_file arguments: {error}"),
-                ToolStatus::Failed,
-            ));
-        }
+        Err(error) => return Ok(tool_error(error, ToolStatus::Failed)),
     };
     let decision = decide(
         permission,
@@ -273,36 +254,52 @@ fn execute_edit_tool(
         Ok(preview) => preview,
         Err(error) => return Ok(tool_error(error.to_string(), ToolStatus::Failed)),
     };
-    let artifact_id = ArtifactId::from(format!("patch-{}", recorder.next_sequence()));
-    recorder.append(SessionEvent::Patch(PatchEvent::ArtifactCreated {
-        artifact_id: artifact_id.clone(),
-        touched_files: preview.touched_files.clone(),
-    }))?;
-    let apply_status = match preview.status {
-        WorkspacePatchStatus::Applied => PatchApplyStatus::Applied,
-        WorkspacePatchStatus::Rejected { .. } => PatchApplyStatus::Rejected,
+    let applied = matches!(preview.status, WorkspacePatchStatus::Applied);
+    record_patch_result(recorder, &preview)?;
+    Ok(patch_tool_result(preview, applied))
+}
+
+fn execute_write_file_tool(
+    patch_engine: &WorkspacePatchEngine,
+    permission: &PermissionEngine,
+    recorder: &mut EventRecorder<'_>,
+    tool_name: &str,
+    arguments: &str,
+    allow_write: bool,
+) -> Result<ToolExecutionResult, AgentError> {
+    let args = match parse_write_file(arguments) {
+        Ok(args) => args,
+        Err(error) => return Ok(tool_error(error, ToolStatus::Failed)),
     };
-    recorder.append(SessionEvent::Patch(PatchEvent::ApplyResult {
-        artifact_id,
-        status: apply_status,
-    }))?;
+    let decision = decide(
+        permission,
+        recorder,
+        tool_name,
+        PermissionOperation::WriteFile {
+            path: args.path.clone(),
+        },
+        WorkflowPhase::Implement,
+        allow_write,
+    )?;
+    if !matches!(decision, PermissionDecision::Allow) {
+        return Ok(tool_error(
+            "write_file requires whale run --allow-write".to_owned(),
+            ToolStatus::Rejected,
+        ));
+    }
+
+    let preview = match patch_engine.write_file(&WriteFileRequest {
+        path: args.path,
+        content: args.content,
+        create_parent_dirs: args.create_parent_dirs.unwrap_or(true),
+    }) {
+        Ok(preview) => preview,
+        Err(error) => return Ok(tool_error(error.to_string(), ToolStatus::Failed)),
+    };
+    record_patch_result(recorder, &preview)?;
 
     let applied = matches!(preview.status, WorkspacePatchStatus::Applied);
-    Ok(tool_success(
-        serde_json::to_string(&json!({
-            "ok": applied,
-            "tool_status": if applied { "succeeded" } else { "rejected" },
-            "status": preview.status,
-            "touched_files": preview.touched_files,
-            "diff": preview.diff,
-        }))
-        .expect("patch result is serializable"),
-        if applied {
-            "patch applied".to_owned()
-        } else {
-            "patch rejected".to_owned()
-        },
-    ))
+    Ok(patch_tool_result(preview, applied))
 }
 
 fn decide(
@@ -337,103 +334,42 @@ fn decide(
     Ok(decision)
 }
 
-fn parse_list_files(arguments: &str) -> Result<ToolRequest, String> {
-    let args = parse_args::<ListFilesArgs>(arguments)?;
-    Ok(ToolRequest::ListFiles {
-        max_entries: args.max_entries.unwrap_or(120).clamp(1, 500),
-    })
-}
-
-fn parse_read_file(arguments: &str) -> Result<ToolRequest, String> {
-    let args = parse_args::<ReadFileArgs>(arguments)?;
-    Ok(ToolRequest::ReadFile {
-        path: args.path,
-        max_bytes: Some(args.max_bytes.unwrap_or(32 * 1024).clamp(1024, 128 * 1024)),
-    })
-}
-
-fn parse_search_text(arguments: &str) -> Result<ToolRequest, String> {
-    let args = parse_args::<SearchTextArgs>(arguments)?;
-    Ok(ToolRequest::SearchText {
-        query: args.query,
-        max_matches: args.max_matches.unwrap_or(50).clamp(1, 200),
-        max_bytes: Some(args.max_bytes.unwrap_or(32 * 1024).clamp(1024, 128 * 1024)),
-    })
-}
-
-fn parse_args<T: for<'de> Deserialize<'de>>(arguments: &str) -> Result<T, String> {
-    serde_json::from_str(arguments).map_err(|error| format!("invalid tool arguments: {error}"))
-}
-
-fn argument_path(arguments: &str) -> String {
-    serde_json::from_str::<Value>(arguments)
-        .ok()
-        .and_then(|value| value.get("path").and_then(Value::as_str).map(str::to_owned))
-        .unwrap_or_default()
-}
-
-fn argument_query(arguments: &str) -> String {
-    serde_json::from_str::<Value>(arguments)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("query")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        })
-        .unwrap_or_default()
-}
-
-fn tool_input_summary(tool_name: &str, arguments: &str) -> Option<String> {
-    let value = serde_json::from_str::<Value>(arguments).ok()?;
-    let summary = match tool_name {
-        "list_files" => value
-            .get("max_entries")
-            .and_then(Value::as_u64)
-            .map(|max| format!("max_entries={max}"))
-            .unwrap_or_else(|| "workspace".to_owned()),
-        "read_file" => value
-            .get("path")
-            .and_then(Value::as_str)
-            .map(|path| path.to_owned())
-            .unwrap_or_else(|| "(missing path)".to_owned()),
-        "search_text" => value
-            .get("query")
-            .and_then(Value::as_str)
-            .map(|query| format!("query={query:?}"))
-            .unwrap_or_else(|| "(missing query)".to_owned()),
-        "edit_file" => value
-            .get("path")
-            .and_then(Value::as_str)
-            .map(|path| path.to_owned())
-            .unwrap_or_else(|| "(missing path)".to_owned()),
-        "run_command" => summarize_command(&value),
-        _ => return None,
+fn record_patch_result(
+    recorder: &mut EventRecorder<'_>,
+    preview: &whalecode_patch::PatchPreview,
+) -> Result<(), AgentError> {
+    let artifact_id = ArtifactId::from(format!("patch-{}", recorder.next_sequence()));
+    recorder.append(SessionEvent::Patch(PatchEvent::ArtifactCreated {
+        artifact_id: artifact_id.clone(),
+        touched_files: preview.touched_files.clone(),
+    }))?;
+    let apply_status = match preview.status {
+        WorkspacePatchStatus::Applied => PatchApplyStatus::Applied,
+        WorkspacePatchStatus::Rejected { .. } => PatchApplyStatus::Rejected,
     };
-    Some(truncate_summary(&summary, 160))
+    recorder.append(SessionEvent::Patch(PatchEvent::ApplyResult {
+        artifact_id,
+        status: apply_status,
+    }))?;
+    Ok(())
 }
 
-fn summarize_command(value: &Value) -> String {
-    let command = value
-        .get("command")
-        .and_then(Value::as_str)
-        .unwrap_or("(missing command)");
-    let mut parts = vec![command.to_owned()];
-    if let Some(args) = value.get("args").and_then(Value::as_array) {
-        parts.extend(args.iter().filter_map(Value::as_str).map(str::to_owned));
-    }
-    parts.join(" ")
-}
-
-fn truncate_summary(value: &str, max_len: usize) -> String {
-    if value.len() <= max_len {
-        return value.to_owned();
-    }
-    let mut boundary = max_len;
-    while !value.is_char_boundary(boundary) {
-        boundary -= 1;
-    }
-    format!("{}...", &value[..boundary])
+fn patch_tool_result(preview: whalecode_patch::PatchPreview, applied: bool) -> ToolExecutionResult {
+    tool_success(
+        serde_json::to_string(&json!({
+            "ok": applied,
+            "tool_status": if applied { "succeeded" } else { "rejected" },
+            "status": preview.status,
+            "touched_files": preview.touched_files,
+            "diff": preview.diff,
+        }))
+        .expect("patch result is serializable"),
+        if applied {
+            "patch applied".to_owned()
+        } else {
+            "patch rejected".to_owned()
+        },
+    )
 }
 
 fn tool_output_json(output: &ToolResultEnvelope) -> String {

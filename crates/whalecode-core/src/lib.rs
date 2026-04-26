@@ -22,6 +22,7 @@ use whalecode_tools::{ToolError, ToolRequest, ToolResultEnvelope, ToolRuntime};
 
 mod command_tool;
 mod live;
+mod live_tool_args;
 mod live_tool_defs;
 mod live_tools;
 mod recorder;

@@ -65,6 +65,22 @@ pub(crate) fn live_tool_defs() -> Vec<Value> {
         json!({
             "type": "function",
             "function": {
+                "name": "write_file",
+                "description": "Create or fully overwrite a UTF-8 workspace file. Use this for new files or full rewrites. Requires --allow-write.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Path relative to the workspace root."},
+                        "content": {"type": "string"},
+                        "create_parent_dirs": {"type": "boolean", "description": "Create missing parent directories. Defaults to true."}
+                    },
+                    "required": ["path", "content"]
+                }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
                 "name": "run_command",
                 "description": "Run a bounded verification command in the workspace. Requires --allow-command. Arguments are passed without a shell.",
                 "parameters": {

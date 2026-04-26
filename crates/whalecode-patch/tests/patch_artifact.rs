@@ -1,6 +1,7 @@
 use tempfile::tempdir;
 use whalecode_patch::{
     PatchOperation, PatchRejectReason, PatchRequest, WorkspacePatchEngine, WorkspacePatchStatus,
+    WriteFileRequest,
 };
 
 #[test]
@@ -197,5 +198,72 @@ fn hidden_agent_config_path_is_rejected() {
         WorkspacePatchStatus::Rejected {
             reason: PatchRejectReason::HiddenPath
         }
+    );
+}
+
+#[test]
+fn write_file_creates_new_nested_file_inside_workspace() {
+    let dir = tempdir().expect("tempdir");
+    let engine = WorkspacePatchEngine::new(dir.path()).expect("engine");
+
+    let preview = engine
+        .write_file(&WriteFileRequest {
+            path: "src/index.html".to_owned(),
+            content: "<h1>Whale</h1>\n".to_owned(),
+            create_parent_dirs: true,
+        })
+        .expect("write file");
+
+    assert_eq!(preview.status, WorkspacePatchStatus::Applied);
+    assert_eq!(preview.touched_files, vec!["src/index.html"]);
+    assert!(preview.diff.contains("--- /dev/null"));
+    assert!(preview.diff.contains("+++ b/src/index.html"));
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("src/index.html")).expect("read file"),
+        "<h1>Whale</h1>\n"
+    );
+}
+
+#[test]
+fn write_file_rejects_hidden_paths() {
+    let dir = tempdir().expect("tempdir");
+    let engine = WorkspacePatchEngine::new(dir.path()).expect("engine");
+
+    let preview = engine
+        .write_file(&WriteFileRequest {
+            path: ".claude/settings.local.json".to_owned(),
+            content: "{}".to_owned(),
+            create_parent_dirs: true,
+        })
+        .expect("write file");
+
+    assert_eq!(
+        preview.status,
+        WorkspacePatchStatus::Rejected {
+            reason: PatchRejectReason::HiddenPath
+        }
+    );
+    assert!(!dir.path().join(".claude/settings.local.json").exists());
+}
+
+#[test]
+fn write_file_accepts_absolute_path_inside_workspace() {
+    let dir = tempdir().expect("tempdir");
+    let engine = WorkspacePatchEngine::new(dir.path()).expect("engine");
+    let absolute_path = dir.path().join("index.html");
+
+    let preview = engine
+        .write_file(&WriteFileRequest {
+            path: absolute_path.display().to_string(),
+            content: "<!doctype html>\n".to_owned(),
+            create_parent_dirs: true,
+        })
+        .expect("write file");
+
+    assert_eq!(preview.status, WorkspacePatchStatus::Applied);
+    assert_eq!(preview.touched_files, vec!["index.html"]);
+    assert_eq!(
+        std::fs::read_to_string(absolute_path).expect("read index"),
+        "<!doctype html>\n"
     );
 }
