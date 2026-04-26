@@ -141,7 +141,7 @@ fn whale_model_smoke_treats_empty_deepseek_api_key_as_missing() {
 }
 
 #[test]
-fn whale_run_routes_greeting_locally_without_model_or_session() {
+fn whale_run_requires_explicit_deepseek_api_key_for_any_natural_input() {
     let repo = tempdir().expect("repo");
     let whale_home = tempdir().expect("whale home");
     let session_path = repo.path().join("session.jsonl");
@@ -160,12 +160,12 @@ fn whale_run_routes_greeting_locally_without_model_or_session() {
         .output()
         .expect("run whale");
 
-    assert!(output.status.success());
+    assert!(!output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
-    assert!(stdout.contains("Hi. Workspace:"));
-    assert!(stdout.contains("code task"));
-    assert!(!stdout.contains("session:"));
-    assert!(!session_path.exists());
+    let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+    assert!(stdout.is_empty());
+    assert!(stderr.contains("DeepSeek API key is required"));
+    assert!(session_path.exists());
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn whale_interactive_defaults_to_live_agent_instead_of_bootstrap() {
 }
 
 #[test]
-fn whale_interactive_routes_greeting_locally_without_model_or_session() {
+fn whale_interactive_sends_greeting_to_live_agent() {
     use std::{io::Write, process::Stdio};
 
     let repo = tempdir().expect("repo");
@@ -295,11 +295,8 @@ fn whale_interactive_routes_greeting_locally_without_model_or_session() {
     let output = child.wait_with_output().expect("wait whale");
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
-    assert!(stdout.contains("Hi. Workspace:"));
-    assert!(stdout.contains("code task"));
-    assert!(!stdout.contains("DeepSeek API key is required"));
-    assert!(!stdout.contains("session:"));
-    assert!(!whale_home.path().join("sessions").exists());
+    assert!(stdout.contains("DeepSeek API key is required"));
+    assert!(whale_home.path().join("sessions").exists());
 }
 
 #[test]

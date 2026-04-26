@@ -21,14 +21,12 @@ use whalecode_session::SessionError;
 use whalecode_tools::{ToolError, ToolRequest, ToolResultEnvelope, ToolRuntime};
 
 mod command_tool;
-mod interaction_router;
 mod live;
 mod live_tool_defs;
 mod live_tools;
 mod recorder;
 mod tool_log;
 
-pub use interaction_router::*;
 pub use live::*;
 
 use recorder::{ensure_parent_dir, EventRecorder};

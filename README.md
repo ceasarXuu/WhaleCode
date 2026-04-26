@@ -39,14 +39,14 @@ patch-safe edits, session `cwd` events, and gated verification commands all use
 the selected workspace as their root.
 
 Current workspace status: live DeepSeek tool loop as the default agent path. The
-`whale` binary routes non-task chatter locally, can run read-only workspace
-tools, persist JSONL session events, stream DeepSeek text/reasoning and
-tool-call deltas, apply `edit_file` through a patch-safe exact replacement path,
-and run bounded verification commands when `--allow-command` is explicit.
-Session logs now include turn grouping, model stream events, permission
-decisions, tool outputs, and patch results so a run can be replayed from the
-terminal. Context compaction and primitive host execution are still follow-up
-milestones. The old bootstrap-local runtime is only kept for explicit
+`whale` binary sends every natural-language user input through the live Agent,
+can run read-only workspace tools, persist JSONL session events, stream DeepSeek
+text/reasoning and tool-call deltas, apply `edit_file` through a patch-safe exact
+replacement path, and run bounded verification commands when `--allow-command`
+is explicit. Session logs now include turn grouping, model stream events,
+permission decisions, tool outputs, and patch results so a run can be replayed
+from the terminal. Context compaction and primitive host execution are still
+follow-up milestones. The old bootstrap-local runtime is only kept for explicit
 `whale run --bootstrap` debugging.
 
 Install the local CLI into your active Cargo bin directory:
