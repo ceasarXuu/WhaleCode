@@ -177,4 +177,5 @@ pub enum TurnFinishStatus {
     Completed,
     Continued,
     Failed,
+    Cancelled,
 }

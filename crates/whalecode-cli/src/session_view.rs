@@ -251,6 +251,7 @@ fn turn_status(status: &TurnFinishStatus) -> &'static str {
         TurnFinishStatus::Completed => "completed",
         TurnFinishStatus::Continued => "continued",
         TurnFinishStatus::Failed => "failed",
+        TurnFinishStatus::Cancelled => "cancelled",
     }
 }
 

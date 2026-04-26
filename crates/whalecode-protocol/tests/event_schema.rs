@@ -95,6 +95,6 @@ fn roundtrips_primitive_family() {
 fn roundtrips_turn_family() {
     assert_roundtrip(SessionEvent::Turn(TurnEvent::Finished {
         index: 1,
-        status: TurnFinishStatus::Completed,
+        status: TurnFinishStatus::Cancelled,
     }));
 }

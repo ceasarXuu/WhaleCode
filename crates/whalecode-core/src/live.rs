@@ -1,9 +1,9 @@
-use std::path::PathBuf;
+use std::{future::Future, path::PathBuf, pin::Pin};
 
 use whalecode_model::{
     collect_model_output, ChatMessage, ChatMessageRole, CollectedModelOutput, DeepSeekChatRequest,
-    DeepSeekClient, DeepSeekConfig, DeepSeekFunctionCall, DeepSeekToolCall, ModelStreamEvent,
-    ModelTokenUsage,
+    DeepSeekClient, DeepSeekConfig, DeepSeekFunctionCall, DeepSeekToolCall, ModelError,
+    ModelStreamEvent, ModelTokenUsage,
 };
 use whalecode_patch::WorkspacePatchEngine;
 use whalecode_permission::PermissionEngine;
@@ -19,6 +19,14 @@ use crate::{
 };
 
 const DEFAULT_MAX_TURNS: usize = 8;
+pub const LIVE_AGENT_INTERRUPTED_MESSAGE: &str = "interrupted";
+
+pub type AgentCancelFuture<'a> = Pin<&'a mut (dyn Future<Output = ()> + 'a)>;
+
+enum ModelRequestOutcome {
+    Completed(Result<Vec<ModelStreamEvent>, ModelError>),
+    Cancelled,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LiveAgentOptions {
@@ -37,7 +45,15 @@ pub async fn run_live_agent(options: LiveAgentOptions) -> Result<AgentRunSummary
 
 pub async fn run_live_agent_with_observer(
     options: LiveAgentOptions,
+    observer: Option<&mut dyn FnMut(&ModelStreamEvent)>,
+) -> Result<AgentRunSummary, AgentError> {
+    run_live_agent_with_observer_and_cancellation(options, observer, None).await
+}
+
+pub async fn run_live_agent_with_observer_and_cancellation(
+    options: LiveAgentOptions,
     mut observer: Option<&mut dyn FnMut(&ModelStreamEvent)>,
+    mut cancellation: Option<AgentCancelFuture<'_>>,
 ) -> Result<AgentRunSummary, AgentError> {
     if options.task.trim().is_empty() {
         return Err(AgentError::EmptyTask);
@@ -82,24 +98,44 @@ pub async fn run_live_agent_with_observer(
         let request =
             DeepSeekChatRequest::streaming(&config, messages.clone()).with_tools(live_tool_defs());
         let mut record_error = None;
-        let events = match client
-            .stream_chat_with_observer(&request, |event| {
-                if record_error.is_none() {
-                    if let Err(error) = record_model_event(&mut recorder, event) {
-                        record_error = Some(error);
-                    }
+        let stream = client.stream_chat_with_observer(&request, |event| {
+            if record_error.is_none() {
+                if let Err(error) = record_model_event(&mut recorder, event) {
+                    record_error = Some(error);
                 }
-                if let Some(observer) = observer.as_deref_mut() {
-                    observer(event);
-                }
-            })
-            .await
-        {
+            }
+            if let Some(observer) = observer.as_deref_mut() {
+                observer(event);
+            }
+        });
+        let request_outcome = if let Some(cancel) = cancellation.as_mut() {
+            tokio::select! {
+                result = stream => ModelRequestOutcome::Completed(result),
+                _ = cancel.as_mut() => ModelRequestOutcome::Cancelled,
+            }
+        } else {
+            ModelRequestOutcome::Completed(stream.await)
+        };
+        let events_result = match request_outcome {
+            ModelRequestOutcome::Completed(result) => result,
+            ModelRequestOutcome::Cancelled => {
+                return finish_cancelled_turn(
+                    &mut recorder,
+                    options.session_path,
+                    turn_index,
+                    total_usage,
+                    tool_summaries,
+                );
+            }
+        };
+        let events = match events_result {
             Ok(events) => events,
             Err(error) => {
-                recorder.append(SessionEvent::Model(ModelEvent::RequestFailed {
-                    message: error.to_string(),
-                }))?;
+                if record_error.is_none() {
+                    recorder.append(SessionEvent::Model(ModelEvent::RequestFailed {
+                        message: error.to_string(),
+                    }))?;
+                }
                 recorder.append(SessionEvent::Turn(TurnEvent::Finished {
                     index: turn_index as u64,
                     status: TurnFinishStatus::Failed,
@@ -255,6 +291,33 @@ fn add_model_usage(total: &mut ModelUsage, usage: &ModelTokenUsage) {
     total.cached_input_tokens += usage.cached_input_tokens;
 }
 
+fn finish_cancelled_turn(
+    recorder: &mut EventRecorder,
+    session_path: PathBuf,
+    turn_index: usize,
+    usage: ModelUsage,
+    tool_summaries: Vec<String>,
+) -> Result<AgentRunSummary, AgentError> {
+    recorder.append(SessionEvent::Model(ModelEvent::RequestFailed {
+        message: "cancelled by user interrupt".to_owned(),
+    }))?;
+    recorder.append(SessionEvent::Turn(TurnEvent::Finished {
+        index: turn_index as u64,
+        status: TurnFinishStatus::Cancelled,
+    }))?;
+    recorder.clear_turn();
+    recorder.append(SessionEvent::Session(SessionLifecycleEvent::Finished {
+        status: SessionFinishStatus::Cancelled,
+    }))?;
+    Ok(AgentRunSummary {
+        final_message: LIVE_AGENT_INTERRUPTED_MESSAGE.to_owned(),
+        session_path,
+        events_written: recorder.events_written(),
+        usage,
+        tool_summaries,
+    })
+}
+
 fn assistant_message(output: &CollectedModelOutput) -> ChatMessage {
     ChatMessage {
         role: ChatMessageRole::Assistant,
@@ -319,5 +382,36 @@ fn non_empty_final_text(value: &str) -> String {
         "Live agent finished without a final message.".to_owned()
     } else {
         value.to_owned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancelled_turn_writes_replayable_cancel_events() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let session_path = dir.path().join("session.jsonl");
+        let mut recorder = EventRecorder::open(&session_path).expect("recorder");
+        recorder.set_turn(TurnId::from("turn-1"));
+
+        let summary = finish_cancelled_turn(
+            &mut recorder,
+            session_path.clone(),
+            1,
+            ModelUsage::default(),
+            vec!["read_file: README.md".to_owned()],
+        )
+        .expect("cancel summary");
+
+        assert_eq!(summary.final_message, LIVE_AGENT_INTERRUPTED_MESSAGE);
+        assert_eq!(summary.session_path, session_path);
+        assert_eq!(summary.events_written, 3);
+        assert_eq!(summary.tool_summaries, vec!["read_file: README.md"]);
+
+        let events = std::fs::read_to_string(dir.path().join("session.jsonl")).expect("events");
+        assert!(events.contains("cancelled by user interrupt"));
+        assert!(events.contains("\"status\":\"cancelled\""));
     }
 }
