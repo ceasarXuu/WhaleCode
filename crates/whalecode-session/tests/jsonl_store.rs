@@ -94,6 +94,31 @@ fn rejects_non_monotonic_sequence_on_append() {
 }
 
 #[test]
+fn reopens_with_existing_last_sequence() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("session.jsonl");
+    let payload = SessionEvent::Transcript(TranscriptEvent::AssistantMessage {
+        content: "done".to_owned(),
+    });
+
+    {
+        let mut store = JsonlSessionStore::open(&path).expect("open store");
+        store
+            .append(&event(1, payload.clone()))
+            .expect("append first");
+    }
+
+    let mut reopened = JsonlSessionStore::open(&path).expect("reopen store");
+    assert_eq!(reopened.last_sequence(), Some(1));
+    reopened
+        .append(&event(2, payload))
+        .expect("append after reopen");
+
+    let events = read_jsonl(&path).expect("read jsonl");
+    assert_eq!(events.len(), 2);
+}
+
+#[test]
 fn reports_malformed_jsonl_line() {
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("session.jsonl");

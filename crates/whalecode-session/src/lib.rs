@@ -88,6 +88,10 @@ impl JsonlSessionStore {
         })
     }
 
+    pub fn last_sequence(&self) -> Option<u64> {
+        self.last_sequence
+    }
+
     pub fn append(&mut self, event: &EventEnvelope<SessionEvent>) -> Result<(), SessionError> {
         ensure_monotonic(self.last_sequence, event.sequence)?;
         serde_json::to_writer(&mut self.writer, event)?;

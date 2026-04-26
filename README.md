@@ -45,9 +45,11 @@ text/reasoning and tool-call deltas, apply `edit_file` through a patch-safe exac
 replacement path, and run bounded verification commands when `--allow-command`
 is explicit. Session logs now include turn grouping, model stream events,
 permission decisions, tool outputs, and patch results so a run can be replayed
-from the terminal. Context compaction and primitive host execution are still
-follow-up milestones. The old bootstrap-local runtime is only kept for explicit
-`whale run --bootstrap` debugging.
+from the terminal. In interactive mode, `whale` prints the session JSONL path
+once at startup and reuses that session log for subsequent turns. Context
+compaction and primitive host execution are still follow-up milestones. The old
+bootstrap-local runtime is only kept for explicit `whale run --bootstrap`
+debugging.
 
 Install the local CLI into your active Cargo bin directory:
 

@@ -26,12 +26,14 @@ pub(crate) struct EventRecorder {
 
 impl EventRecorder {
     pub(crate) fn open(path: &Path) -> Result<Self, AgentError> {
+        let store = JsonlSessionStore::open(path)?;
+        let sequence = store.last_sequence().unwrap_or(0);
         Ok(Self {
-            store: JsonlSessionStore::open(path)?,
+            store,
             session_id: SessionId::from(format!("session-{}", Utc::now().timestamp_micros())),
             trace_id: TraceId::from(format!("trace-{}", Utc::now().timestamp_micros())),
             turn_id: None,
-            sequence: 0,
+            sequence,
         })
     }
 

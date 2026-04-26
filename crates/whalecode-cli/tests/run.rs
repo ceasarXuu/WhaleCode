@@ -272,7 +272,7 @@ fn whale_interactive_defaults_to_live_agent_instead_of_bootstrap() {
 }
 
 #[test]
-fn whale_interactive_sends_greeting_to_live_agent() {
+fn whale_interactive_prints_session_once_and_reuses_it() {
     use std::{io::Write, process::Stdio};
 
     let repo = tempdir().expect("repo");
@@ -289,14 +289,30 @@ fn whale_interactive_sends_greeting_to_live_agent() {
 
     {
         let stdin = child.stdin.as_mut().expect("stdin");
-        stdin.write_all(b"hi\n/exit\n").expect("write stdin");
+        stdin.write_all(b"hi\nhello\n/exit\n").expect("write stdin");
     }
 
     let output = child.wait_with_output().expect("wait whale");
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
     assert!(stdout.contains("DeepSeek API key is required"));
-    assert!(whale_home.path().join("sessions").exists());
+    assert_eq!(stdout.matches("session:").count(), 1);
+    assert!(!stdout.contains("events:"));
+
+    let session_dir = whale_home.path().join("sessions");
+    assert!(session_dir.exists());
+    let session_files = std::fs::read_dir(&session_dir)
+        .expect("read session dir")
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext == "jsonl")
+        })
+        .count();
+    assert_eq!(session_files, 1);
 }
 
 #[test]

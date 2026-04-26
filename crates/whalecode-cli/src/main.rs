@@ -85,20 +85,23 @@ async fn run_cli() -> Result<(), CliError> {
             model,
             max_turns,
         }) => {
-            run_once(RunInvocation {
-                task,
-                cwd,
-                session,
-                mode: if bootstrap {
-                    RunMode::Bootstrap
-                } else {
-                    RunMode::Live
+            run_once(
+                RunInvocation {
+                    task,
+                    cwd,
+                    session,
+                    mode: if bootstrap {
+                        RunMode::Bootstrap
+                    } else {
+                        RunMode::Live
+                    },
+                    allow_write,
+                    allow_command,
+                    model,
+                    max_turns,
                 },
-                allow_write,
-                allow_command,
-                model,
-                max_turns,
-            })
+                true,
+            )
             .await?
         }
         Some(Command::ModelSmoke {
@@ -171,7 +174,7 @@ enum RunMode {
     Bootstrap,
 }
 
-async fn run_once(invocation: RunInvocation) -> Result<(), CliError> {
+async fn run_once(invocation: RunInvocation, print_session_footer: bool) -> Result<(), CliError> {
     let task = normalize_task(invocation.task)?;
     let cwd = match invocation.cwd {
         Some(path) => path,
@@ -198,20 +201,24 @@ async fn run_once(invocation: RunInvocation) -> Result<(), CliError> {
         run_bootstrap_agent(task, cwd, invocation.session)?
     };
     println!("{}", summary.final_message);
-    println!();
-    println!("session: {}", summary.session_path.display());
-    println!("events: {}", summary.events_written);
+    if print_session_footer {
+        println!();
+        println!("session: {}", summary.session_path.display());
+        println!("events: {}", summary.events_written);
+    }
     Ok(())
 }
 
 async fn run_interactive() -> Result<(), CliError> {
     let mut stdout = io::stdout();
     let mut settings = InteractiveSettings::default();
+    let session_path = default_session_path()?;
     writeln!(
         stdout,
         "Whale live agent. Type a task and press Enter, /apikey to store a DeepSeek key, /permissions to inspect gates, or /exit to quit."
     )
     .map_err(CliError::WriteOutput)?;
+    writeln!(stdout, "session: {}", session_path.display()).map_err(CliError::WriteOutput)?;
     loop {
         write!(stdout, "whale> ").map_err(CliError::WriteOutput)?;
         stdout.flush().map_err(CliError::WriteOutput)?;
@@ -236,16 +243,19 @@ async fn run_interactive() -> Result<(), CliError> {
         if handle_interactive_command(task, &mut settings, &mut stdout)? {
             continue;
         }
-        if let Err(error) = run_once(RunInvocation {
-            task: vec![task.to_owned()],
-            cwd: None,
-            session: None,
-            mode: RunMode::Live,
-            allow_write: settings.allow_write,
-            allow_command: settings.allow_command,
-            model: Some(settings.model.clone()),
-            max_turns: settings.max_turns,
-        })
+        if let Err(error) = run_once(
+            RunInvocation {
+                task: vec![task.to_owned()],
+                cwd: None,
+                session: Some(session_path.clone()),
+                mode: RunMode::Live,
+                allow_write: settings.allow_write,
+                allow_command: settings.allow_command,
+                model: Some(settings.model.clone()),
+                max_turns: settings.max_turns,
+            },
+            false,
+        )
         .await
         {
             writeln!(stdout, "error: {error}").map_err(CliError::WriteOutput)?;
