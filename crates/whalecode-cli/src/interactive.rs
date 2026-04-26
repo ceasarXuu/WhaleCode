@@ -5,7 +5,9 @@ use whalecode_model::{store_deepseek_api_key, ModelError, DEEPSEEK_DEFAULT_MODEL
 
 use crate::{
     line_input::{LineInput, LineReader},
-    run_once_with_ctrl_c, CliError, RunInvocation, RunMode,
+    run_once_with_ctrl_c,
+    run_status::{print_startup_status, RunDisplayConfig},
+    CliError, RunInvocation, RunMode,
 };
 
 pub(crate) async fn run_interactive() -> Result<(), CliError> {
@@ -18,7 +20,16 @@ pub(crate) async fn run_interactive() -> Result<(), CliError> {
         "Whale live agent. Type a task and press Enter, /apikey to store a DeepSeek key, /permissions to inspect gates, or /exit to quit. Ctrl+C interrupts the current turn or exits at the prompt."
     )
     .map_err(CliError::WriteOutput)?;
-    writeln!(stdout, "session: {}", session_path.display()).map_err(CliError::WriteOutput)?;
+    let workspace = std::env::current_dir().map_err(CliError::CurrentDir)?;
+    print_startup_status(&RunDisplayConfig {
+        workspace: &workspace,
+        model: &settings.model,
+        allow_write: settings.allow_write,
+        allow_command: settings.allow_command,
+        max_turns: settings.max_turns,
+        session_path: Some(&session_path),
+    })
+    .map_err(CliError::WriteOutput)?;
     loop {
         let line = match input.read_line().map_err(CliError::ReadInput)? {
             LineInput::Submit(line) => line,

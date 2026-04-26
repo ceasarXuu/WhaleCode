@@ -16,15 +16,18 @@ pub(crate) fn ensure_parent_dir(path: &Path) -> Result<(), AgentError> {
     Ok(())
 }
 
-pub(crate) struct EventRecorder {
+pub type SessionEventObserver<'a> = &'a mut (dyn FnMut(SessionEvent) + 'a);
+
+pub(crate) struct EventRecorder<'a> {
     store: JsonlSessionStore,
     session_id: SessionId,
     trace_id: TraceId,
     turn_id: Option<TurnId>,
     sequence: u64,
+    observer: Option<SessionEventObserver<'a>>,
 }
 
-impl EventRecorder {
+impl<'a> EventRecorder<'a> {
     pub(crate) fn open(path: &Path) -> Result<Self, AgentError> {
         let store = JsonlSessionStore::open(path)?;
         let sequence = store.last_sequence().unwrap_or(0);
@@ -34,7 +37,13 @@ impl EventRecorder {
             trace_id: TraceId::from(format!("trace-{}", Utc::now().timestamp_micros())),
             turn_id: None,
             sequence,
+            observer: None,
         })
+    }
+
+    pub(crate) fn with_observer(mut self, observer: Option<SessionEventObserver<'a>>) -> Self {
+        self.observer = observer;
+        self
     }
 
     pub(crate) fn append(&mut self, payload: SessionEvent) -> Result<(), AgentError> {
@@ -43,10 +52,13 @@ impl EventRecorder {
             self.session_id.clone(),
             self.trace_id.clone(),
             self.sequence,
-            payload,
+            payload.clone(),
         );
         event.turn_id = self.turn_id.clone();
         self.store.append(&event)?;
+        if let Some(observer) = self.observer.as_deref_mut() {
+            observer(payload);
+        }
         Ok(())
     }
 

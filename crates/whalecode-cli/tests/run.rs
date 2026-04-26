@@ -165,7 +165,10 @@ fn whale_run_requires_explicit_deepseek_api_key_for_any_natural_input() {
     assert!(!output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
     let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
-    assert!(stdout.is_empty());
+    assert!(stdout.contains("workspace:"));
+    assert!(stdout.contains("model: deepseek-v4-flash"));
+    assert!(stdout.contains("session:"));
+    assert_eq!(stdout.matches("session:").count(), 1);
     assert!(stderr.contains("DeepSeek API key is required"));
     assert!(session_path.exists());
 }

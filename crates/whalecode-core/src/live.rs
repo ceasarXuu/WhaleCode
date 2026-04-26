@@ -22,6 +22,7 @@ const DEFAULT_MAX_TURNS: usize = 8;
 pub const LIVE_AGENT_INTERRUPTED_MESSAGE: &str = "interrupted";
 
 pub type AgentCancelFuture<'a> = Pin<&'a mut (dyn Future<Output = ()> + 'a)>;
+pub type AgentSessionEventObserver<'a> = &'a mut (dyn FnMut(SessionEvent) + 'a);
 
 enum ModelRequestOutcome {
     Completed(Result<Vec<ModelStreamEvent>, ModelError>),
@@ -52,7 +53,16 @@ pub async fn run_live_agent_with_observer(
 
 pub async fn run_live_agent_with_observer_and_cancellation(
     options: LiveAgentOptions,
+    observer: Option<&mut dyn FnMut(&ModelStreamEvent)>,
+    cancellation: Option<AgentCancelFuture<'_>>,
+) -> Result<AgentRunSummary, AgentError> {
+    run_live_agent_with_observers_and_cancellation(options, observer, None, cancellation).await
+}
+
+pub async fn run_live_agent_with_observers_and_cancellation(
+    options: LiveAgentOptions,
     mut observer: Option<&mut dyn FnMut(&ModelStreamEvent)>,
+    session_observer: Option<AgentSessionEventObserver<'_>>,
     mut cancellation: Option<AgentCancelFuture<'_>>,
 ) -> Result<AgentRunSummary, AgentError> {
     if options.task.trim().is_empty() {
@@ -63,7 +73,7 @@ pub async fn run_live_agent_with_observer_and_cancellation(
     let tools = ToolRuntime::new(&options.cwd)?;
     let patch_engine = WorkspacePatchEngine::new(&options.cwd)?;
     let permission = PermissionEngine;
-    let mut recorder = EventRecorder::open(&options.session_path)?;
+    let mut recorder = EventRecorder::open(&options.session_path)?.with_observer(session_observer);
     let mut config = DeepSeekConfig::from_env();
     config.model = options.model.clone();
     let client = DeepSeekClient::new(config.clone());
@@ -233,7 +243,7 @@ pub fn default_live_max_turns() -> usize {
 }
 
 fn record_model_event(
-    recorder: &mut EventRecorder,
+    recorder: &mut EventRecorder<'_>,
     event: &ModelStreamEvent,
 ) -> Result<(), AgentError> {
     match event {
@@ -292,7 +302,7 @@ fn add_model_usage(total: &mut ModelUsage, usage: &ModelTokenUsage) {
 }
 
 fn finish_cancelled_turn(
-    recorder: &mut EventRecorder,
+    recorder: &mut EventRecorder<'_>,
     session_path: PathBuf,
     turn_index: usize,
     usage: ModelUsage,

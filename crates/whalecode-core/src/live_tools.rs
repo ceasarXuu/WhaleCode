@@ -53,7 +53,7 @@ pub(crate) async fn execute_model_tool(
     tools: &ToolRuntime,
     patch_engine: &WorkspacePatchEngine,
     permission: &PermissionEngine,
-    recorder: &mut EventRecorder,
+    recorder: &mut EventRecorder<'_>,
     call: &CollectedToolCall,
     allow_write: bool,
     allow_command: bool,
@@ -62,6 +62,7 @@ pub(crate) async fn execute_model_tool(
     recorder.append(SessionEvent::Tool(ToolEvent::CallStarted {
         call_id: call_id.clone(),
         tool_name: call.name.clone(),
+        input_summary: tool_input_summary(&call.name, &call.arguments),
     }))?;
 
     let result = match call.name.as_str() {
@@ -143,7 +144,7 @@ pub(crate) async fn execute_model_tool(
 async fn execute_command_tool(
     tools: &ToolRuntime,
     permission: &PermissionEngine,
-    recorder: &mut EventRecorder,
+    recorder: &mut EventRecorder<'_>,
     tool_name: &str,
     arguments: &str,
     allow_command: bool,
@@ -186,7 +187,7 @@ async fn execute_command_tool(
 fn execute_read_tool<F>(
     tools: &ToolRuntime,
     permission: &PermissionEngine,
-    recorder: &mut EventRecorder,
+    recorder: &mut EventRecorder<'_>,
     tool_name: &str,
     operation: PermissionOperation,
     arguments: &str,
@@ -225,7 +226,7 @@ where
 fn execute_edit_tool(
     patch_engine: &WorkspacePatchEngine,
     permission: &PermissionEngine,
-    recorder: &mut EventRecorder,
+    recorder: &mut EventRecorder<'_>,
     tool_name: &str,
     arguments: &str,
     allow_write: bool,
@@ -306,7 +307,7 @@ fn execute_edit_tool(
 
 fn decide(
     permission: &PermissionEngine,
-    recorder: &mut EventRecorder,
+    recorder: &mut EventRecorder<'_>,
     tool_name: &str,
     operation: PermissionOperation,
     phase: WorkflowPhase,
@@ -381,6 +382,58 @@ fn argument_query(arguments: &str) -> String {
                 .map(str::to_owned)
         })
         .unwrap_or_default()
+}
+
+fn tool_input_summary(tool_name: &str, arguments: &str) -> Option<String> {
+    let value = serde_json::from_str::<Value>(arguments).ok()?;
+    let summary = match tool_name {
+        "list_files" => value
+            .get("max_entries")
+            .and_then(Value::as_u64)
+            .map(|max| format!("max_entries={max}"))
+            .unwrap_or_else(|| "workspace".to_owned()),
+        "read_file" => value
+            .get("path")
+            .and_then(Value::as_str)
+            .map(|path| path.to_owned())
+            .unwrap_or_else(|| "(missing path)".to_owned()),
+        "search_text" => value
+            .get("query")
+            .and_then(Value::as_str)
+            .map(|query| format!("query={query:?}"))
+            .unwrap_or_else(|| "(missing query)".to_owned()),
+        "edit_file" => value
+            .get("path")
+            .and_then(Value::as_str)
+            .map(|path| path.to_owned())
+            .unwrap_or_else(|| "(missing path)".to_owned()),
+        "run_command" => summarize_command(&value),
+        _ => return None,
+    };
+    Some(truncate_summary(&summary, 160))
+}
+
+fn summarize_command(value: &Value) -> String {
+    let command = value
+        .get("command")
+        .and_then(Value::as_str)
+        .unwrap_or("(missing command)");
+    let mut parts = vec![command.to_owned()];
+    if let Some(args) = value.get("args").and_then(Value::as_array) {
+        parts.extend(args.iter().filter_map(Value::as_str).map(str::to_owned));
+    }
+    parts.join(" ")
+}
+
+fn truncate_summary(value: &str, max_len: usize) -> String {
+    if value.len() <= max_len {
+        return value.to_owned();
+    }
+    let mut boundary = max_len;
+    while !value.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    format!("{}...", &value[..boundary])
 }
 
 fn tool_output_json(output: &ToolResultEnvelope) -> String {

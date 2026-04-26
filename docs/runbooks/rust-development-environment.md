@@ -26,6 +26,15 @@ export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
 export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
+If Homebrew is unavailable but network access is enabled, the standard rustup
+installer is the fallback:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+. "$HOME/.cargo/env"
+rustup component add rustfmt clippy
+```
+
 In this environment the paths are appended to `~/.zshrc`, not `~/.zprofile`, so new interactive zsh sessions can find `cargo`, `rustc`, `rustup`, and locally installed CLI binaries such as `whale`.
 
 Non-interactive Codex shell calls may not read `~/.zshrc`. Prefix verification commands when needed:
@@ -67,4 +76,8 @@ stable-aarch64-apple-darwin (overridden by '<repo>/rust-toolchain.toml')
 - `Cargo.lock` is committed because the workspace contains a CLI binary.
 - `target/` is ignored and should not be committed.
 - If a future shell cannot find `cargo`, first check whether `/opt/homebrew/opt/rustup/bin` is on `PATH`.
+- If `~/.rustup/settings.toml` already exists, the rustup installer may restore
+  the previously configured default toolchain even when the current shell cannot
+  find `cargo`; source `~/.cargo/env` before reinstalling or debugging build
+  failures.
 - If a future shell cannot find `whale` after `cargo install`, check whether `$HOME/.cargo/bin` is on `PATH`.

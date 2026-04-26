@@ -247,7 +247,7 @@ impl AgentLoop {
     fn run_read_tool(
         &self,
         tools: &ToolRuntime,
-        recorder: &mut EventRecorder,
+        recorder: &mut EventRecorder<'_>,
         tool_name: &str,
         operation: PermissionOperation,
         request: ToolRequest,
@@ -274,6 +274,7 @@ impl AgentLoop {
         recorder.append(SessionEvent::Tool(ToolEvent::CallStarted {
             call_id: call_id.clone(),
             tool_name: tool_name.to_owned(),
+            input_summary: None,
         }))?;
 
         let result = match permission {

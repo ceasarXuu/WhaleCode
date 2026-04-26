@@ -6,8 +6,8 @@ use std::{
 use clap::{Parser, Subcommand};
 use whalecode_core::{
     default_live_max_turns, default_session_path, run_bootstrap_agent,
-    run_live_agent_with_observer, run_live_agent_with_observer_and_cancellation, AgentCancelFuture,
-    AgentError, LiveAgentOptions, LIVE_AGENT_INTERRUPTED_MESSAGE,
+    run_live_agent_with_observers_and_cancellation, AgentCancelFuture, AgentError,
+    LiveAgentOptions, LIVE_AGENT_INTERRUPTED_MESSAGE,
 };
 use whalecode_model::{
     deepseek_api_key_source, response_from_stream_events, ChatMessage, DeepSeekApiKeySource,
@@ -18,7 +18,10 @@ use whalecode_protocol::ModelUsage;
 
 mod interactive;
 mod line_input;
+mod run_status;
 mod session_view;
+
+use run_status::{print_startup_status, RunDisplayConfig, RunStatus};
 
 #[derive(Debug, Parser)]
 #[command(name = "whale")]
@@ -196,12 +199,14 @@ async fn run_once_with_cancellation(
     print_session_footer: bool,
     cancellation: Option<AgentCancelFuture<'_>>,
 ) -> Result<(), CliError> {
+    let mode = invocation.mode;
     let task = normalize_task(invocation.task)?;
     let cwd = match invocation.cwd {
         Some(path) => path,
         None => std::env::current_dir().map_err(CliError::CurrentDir)?,
     };
-    let summary = if invocation.mode == RunMode::Live {
+    let prints_live_startup_status = mode == RunMode::Live && print_session_footer;
+    let summary = if mode == RunMode::Live {
         let session_path = match invocation.session {
             Some(path) => path,
             None => default_session_path()?,
@@ -219,6 +224,18 @@ async fn run_once_with_cancellation(
         };
         let mut streamed_text = false;
         let mut stream_error = None;
+        let mut run_status = RunStatus::new();
+        if print_session_footer {
+            print_startup_status(&RunDisplayConfig {
+                workspace: &options.cwd,
+                model: &options.model,
+                allow_write: options.allow_write,
+                allow_command: options.allow_command,
+                max_turns: options.max_turns,
+                session_path: Some(&options.session_path),
+            })
+            .map_err(CliError::WriteOutput)?;
+        }
         let summary = {
             let mut observer = |event: &ModelStreamEvent| {
                 if let ModelStreamEvent::TextDelta(content) = event {
@@ -230,18 +247,29 @@ async fn run_once_with_cancellation(
                     }
                 }
             };
+            let mut session_observer = |event| run_status.observe(&event);
             if let Some(cancellation) = cancellation {
-                run_live_agent_with_observer_and_cancellation(
+                run_live_agent_with_observers_and_cancellation(
                     options,
                     Some(&mut observer),
+                    Some(&mut session_observer),
                     Some(cancellation),
                 )
                 .await?
             } else {
-                run_live_agent_with_observer(options, Some(&mut observer)).await?
+                run_live_agent_with_observers_and_cancellation(
+                    options,
+                    Some(&mut observer),
+                    Some(&mut session_observer),
+                    None,
+                )
+                .await?
             }
         };
         if let Some(error) = stream_error {
+            return Err(CliError::WriteOutput(error));
+        }
+        if let Some(error) = run_status.take_error() {
             return Err(CliError::WriteOutput(error));
         }
         if streamed_text {
@@ -252,14 +280,17 @@ async fn run_once_with_cancellation(
         } else {
             println!("{}", summary.final_message);
         }
+        run_status
+            .print_summary(&summary.usage)
+            .map_err(CliError::WriteOutput)?;
         summary
     } else {
         let summary = run_bootstrap_agent(task, cwd, invocation.session)?;
         println!("{}", summary.final_message);
+        print_token_usage(&summary.usage);
         summary
     };
-    print_token_usage(&summary.usage);
-    if print_session_footer {
+    if print_session_footer && !prints_live_startup_status {
         println!();
         println!("session: {}", summary.session_path.display());
         println!("events: {}", summary.events_written);
@@ -274,6 +305,7 @@ async fn wait_for_ctrl_c() {
 fn print_token_usage(usage: &ModelUsage) {
     println!("input tokens: {}", usage.input_tokens);
     println!("output tokens: {}", usage.output_tokens);
+    println!("cached input tokens: {}", usage.cached_input_tokens);
 }
 
 fn write_stream_delta(content: &str) -> io::Result<()> {

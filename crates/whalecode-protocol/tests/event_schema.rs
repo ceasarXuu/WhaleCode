@@ -54,6 +54,11 @@ fn roundtrips_model_family() {
 
 #[test]
 fn roundtrips_tool_family() {
+    assert_roundtrip(SessionEvent::Tool(ToolEvent::CallStarted {
+        call_id: ToolCallId::from("tool-1"),
+        tool_name: "edit_file".to_owned(),
+        input_summary: Some("README.md".to_owned()),
+    }));
     assert_roundtrip(SessionEvent::Tool(ToolEvent::CallFinished {
         call_id: ToolCallId::from("tool-1"),
         status: ToolStatus::Succeeded,

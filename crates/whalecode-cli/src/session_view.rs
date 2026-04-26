@@ -132,8 +132,16 @@ fn describe_model(event: &ModelEvent) -> String {
 
 fn describe_tool(event: &ToolEvent) -> String {
     match event {
-        ToolEvent::CallStarted { call_id, tool_name } => {
-            format!("tool started id={} name={tool_name}", call_id.0)
+        ToolEvent::CallStarted {
+            call_id,
+            tool_name,
+            input_summary,
+        } => {
+            let input = input_summary
+                .as_ref()
+                .map(|summary| format!(" input={}", preview(summary)))
+                .unwrap_or_default();
+            format!("tool started id={} name={tool_name}{input}", call_id.0)
         }
         ToolEvent::CallFinished {
             call_id,
