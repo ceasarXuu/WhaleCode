@@ -141,7 +141,35 @@ fn whale_model_smoke_treats_empty_deepseek_api_key_as_missing() {
 }
 
 #[test]
-fn whale_run_requires_explicit_deepseek_api_key_by_default() {
+fn whale_run_routes_greeting_locally_without_model_or_session() {
+    let repo = tempdir().expect("repo");
+    let whale_home = tempdir().expect("whale home");
+    let session_path = repo.path().join("session.jsonl");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_whale"))
+        .args([
+            "run",
+            "hi",
+            "--cwd",
+            repo.path().to_str().expect("repo path"),
+            "--session",
+            session_path.to_str().expect("session path"),
+        ])
+        .env_remove("DEEPSEEK_API_KEY")
+        .env("WHALE_SECRET_HOME", whale_home.path())
+        .output()
+        .expect("run whale");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    assert!(stdout.contains("Hi. Workspace:"));
+    assert!(stdout.contains("code task"));
+    assert!(!stdout.contains("session:"));
+    assert!(!session_path.exists());
+}
+
+#[test]
+fn whale_run_actionable_task_requires_explicit_deepseek_api_key_by_default() {
     let repo = tempdir().expect("repo");
     let whale_home = tempdir().expect("whale home");
     std::fs::write(repo.path().join("README.md"), "# Fixture\n").expect("write readme");
@@ -229,7 +257,9 @@ fn whale_interactive_defaults_to_live_agent_instead_of_bootstrap() {
 
     {
         let stdin = child.stdin.as_mut().expect("stdin");
-        stdin.write_all(b"hi\n/exit\n").expect("write stdin");
+        stdin
+            .write_all(b"inspect this repository\n/exit\n")
+            .expect("write stdin");
     }
 
     let output = child.wait_with_output().expect("wait whale");
@@ -239,6 +269,37 @@ fn whale_interactive_defaults_to_live_agent_instead_of_bootstrap() {
     assert!(stdout.contains("DeepSeek API key is required"));
     assert!(stdout.contains("Run /apikey"));
     assert!(!stdout.contains("Bootstrap agent accepted the task"));
+}
+
+#[test]
+fn whale_interactive_routes_greeting_locally_without_model_or_session() {
+    use std::{io::Write, process::Stdio};
+
+    let repo = tempdir().expect("repo");
+    let whale_home = tempdir().expect("whale home");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_whale"))
+        .current_dir(repo.path())
+        .env_remove("DEEPSEEK_API_KEY")
+        .env("WHALE_HOME", whale_home.path())
+        .env("WHALE_SECRET_HOME", whale_home.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("spawn whale");
+
+    {
+        let stdin = child.stdin.as_mut().expect("stdin");
+        stdin.write_all(b"hi\n/exit\n").expect("write stdin");
+    }
+
+    let output = child.wait_with_output().expect("wait whale");
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    assert!(stdout.contains("Hi. Workspace:"));
+    assert!(stdout.contains("code task"));
+    assert!(!stdout.contains("DeepSeek API key is required"));
+    assert!(!stdout.contains("session:"));
+    assert!(!whale_home.path().join("sessions").exists());
 }
 
 #[test]

@@ -5,8 +5,8 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use whalecode_core::{
-    default_live_max_turns, default_session_path, run_bootstrap_agent, run_live_agent, AgentError,
-    LiveAgentOptions,
+    default_live_max_turns, default_session_path, route_interaction, run_bootstrap_agent,
+    run_live_agent, AgentError, InteractionRoute, LiveAgentOptions,
 };
 use whalecode_model::{
     deepseek_api_key_source, response_from_stream_events, store_deepseek_api_key, ChatMessage,
@@ -178,6 +178,10 @@ async fn run_once(invocation: RunInvocation) -> Result<(), CliError> {
         None => std::env::current_dir().map_err(CliError::CurrentDir)?,
     };
     let summary = if invocation.mode == RunMode::Live {
+        if let InteractionRoute::LocalReply { message } = route_interaction(&task, &cwd) {
+            println!("{message}");
+            return Ok(());
+        }
         let session_path = match invocation.session {
             Some(path) => path,
             None => default_session_path()?,
