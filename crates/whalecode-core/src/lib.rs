@@ -12,10 +12,10 @@ use whalecode_permission::{
     PermissionRequest,
 };
 use whalecode_protocol::{
-    AgentId, AgentRole, ArtifactId, ModelEvent, ModelStreamDelta, PermissionDecisionKind,
-    PermissionEvent, PhaseEvent, SessionEvent, SessionFinishStatus, SessionLifecycleEvent,
-    ToolCallId, ToolEvent, ToolStatus, TranscriptEvent, TurnEvent, TurnFinishStatus, TurnId,
-    WorkflowPhase,
+    AgentId, AgentRole, ArtifactId, ModelEvent, ModelStreamDelta, ModelUsage,
+    PermissionDecisionKind, PermissionEvent, PhaseEvent, SessionEvent, SessionFinishStatus,
+    SessionLifecycleEvent, ToolCallId, ToolEvent, ToolStatus, TranscriptEvent, TurnEvent,
+    TurnFinishStatus, TurnId, WorkflowPhase,
 };
 use whalecode_session::SessionError;
 use whalecode_tools::{ToolError, ToolRequest, ToolResultEnvelope, ToolRuntime};
@@ -69,6 +69,7 @@ pub struct AgentRunSummary {
     pub final_message: String,
     pub session_path: PathBuf,
     pub events_written: u64,
+    pub usage: ModelUsage,
     pub tool_summaries: Vec<String>,
 }
 
@@ -207,6 +208,7 @@ impl AgentLoop {
                         arguments_delta,
                     },
                 }))?,
+                ModelStreamEvent::Usage(_) => {}
                 ModelStreamEvent::Finished => {
                     recorder.append(SessionEvent::Model(ModelEvent::RequestFinished {
                         usage: None,
@@ -237,6 +239,7 @@ impl AgentLoop {
             final_message: response.final_text,
             session_path: options.session_path,
             events_written: recorder.events_written(),
+            usage: ModelUsage::default(),
             tool_summaries,
         })
     }

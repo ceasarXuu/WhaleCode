@@ -13,6 +13,7 @@ use whalecode_model::{
     DeepSeekApiKeySource, DeepSeekChatRequest, DeepSeekClient, DeepSeekConfig, ModelError,
     ModelStreamEvent, SecretStoreError, DEEPSEEK_DEFAULT_MODEL,
 };
+use whalecode_protocol::ModelUsage;
 
 mod line_input;
 mod session_view;
@@ -228,12 +229,18 @@ async fn run_once(invocation: RunInvocation, print_session_footer: bool) -> Resu
         println!("{}", summary.final_message);
         summary
     };
+    print_token_usage(&summary.usage);
     if print_session_footer {
         println!();
         println!("session: {}", summary.session_path.display());
         println!("events: {}", summary.events_written);
     }
     Ok(())
+}
+
+fn print_token_usage(usage: &ModelUsage) {
+    println!("input tokens: {}", usage.input_tokens);
+    println!("output tokens: {}", usage.output_tokens);
 }
 
 fn write_stream_delta(content: &str) -> io::Result<()> {
@@ -461,9 +468,23 @@ async fn model_smoke(
     } else {
         println!("{}", response.final_text);
     }
+    let usage = usage_from_events(&events);
+    print_token_usage(&usage);
     println!();
     println!("model_events: {}", events.len());
     Ok(())
+}
+
+fn usage_from_events(events: &[ModelStreamEvent]) -> ModelUsage {
+    let mut usage = ModelUsage::default();
+    for event in events {
+        if let ModelStreamEvent::Usage(chunk_usage) = event {
+            usage.input_tokens += chunk_usage.input_tokens;
+            usage.output_tokens += chunk_usage.output_tokens;
+            usage.cached_input_tokens += chunk_usage.cached_input_tokens;
+        }
+    }
+    usage
 }
 
 fn normalize_task(task: Vec<String>) -> Result<String, CliError> {

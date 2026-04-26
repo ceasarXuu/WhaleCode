@@ -54,6 +54,7 @@ pub fn collect_model_output(events: &[ModelStreamEvent]) -> CollectedModelOutput
                 }
                 call.arguments.push_str(arguments_delta);
             }
+            ModelStreamEvent::Usage(_) => {}
             ModelStreamEvent::Finished => finished = true,
         }
     }

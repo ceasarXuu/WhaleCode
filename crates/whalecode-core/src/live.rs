@@ -3,11 +3,12 @@ use std::path::PathBuf;
 use whalecode_model::{
     collect_model_output, ChatMessage, ChatMessageRole, CollectedModelOutput, DeepSeekChatRequest,
     DeepSeekClient, DeepSeekConfig, DeepSeekFunctionCall, DeepSeekToolCall, ModelStreamEvent,
+    ModelTokenUsage,
 };
 use whalecode_patch::WorkspacePatchEngine;
 use whalecode_permission::PermissionEngine;
 use whalecode_protocol::{
-    ModelEvent, ModelStreamDelta, PhaseEvent, SessionEvent, SessionFinishStatus,
+    ModelEvent, ModelStreamDelta, ModelUsage, PhaseEvent, SessionEvent, SessionFinishStatus,
     SessionLifecycleEvent, TranscriptEvent, TurnEvent, TurnFinishStatus, TurnId, WorkflowPhase,
 };
 use whalecode_tools::ToolRuntime;
@@ -67,6 +68,7 @@ pub async fn run_live_agent_with_observer(
         ChatMessage::user(&options.task),
     ];
     let mut tool_summaries = Vec::new();
+    let mut total_usage = ModelUsage::default();
     let max_turns = options.max_turns.max(1);
 
     for turn_index in 1..=max_turns {
@@ -112,8 +114,10 @@ pub async fn run_live_agent_with_observer(
         if let Some(error) = record_error {
             return Err(error);
         }
+        let request_usage = usage_from_events(&events);
+        add_usage(&mut total_usage, &request_usage);
         recorder.append(SessionEvent::Model(ModelEvent::RequestFinished {
-            usage: None,
+            usage: Some(request_usage),
         }))?;
 
         let output = collect_model_output(&events);
@@ -140,6 +144,7 @@ pub async fn run_live_agent_with_observer(
                 final_message,
                 session_path: options.session_path,
                 events_written: recorder.events_written(),
+                usage: total_usage,
                 tool_summaries,
             });
         }
@@ -222,9 +227,32 @@ fn record_model_event(
                 },
             }))?;
         }
+        ModelStreamEvent::Usage(_) => {}
         ModelStreamEvent::Finished => {}
     }
     Ok(())
+}
+
+fn usage_from_events(events: &[ModelStreamEvent]) -> ModelUsage {
+    let mut usage = ModelUsage::default();
+    for event in events {
+        if let ModelStreamEvent::Usage(chunk_usage) = event {
+            add_model_usage(&mut usage, chunk_usage);
+        }
+    }
+    usage
+}
+
+fn add_usage(total: &mut ModelUsage, usage: &ModelUsage) {
+    total.input_tokens += usage.input_tokens;
+    total.output_tokens += usage.output_tokens;
+    total.cached_input_tokens += usage.cached_input_tokens;
+}
+
+fn add_model_usage(total: &mut ModelUsage, usage: &ModelTokenUsage) {
+    total.input_tokens += usage.input_tokens;
+    total.output_tokens += usage.output_tokens;
+    total.cached_input_tokens += usage.cached_input_tokens;
 }
 
 fn assistant_message(output: &CollectedModelOutput) -> ChatMessage {

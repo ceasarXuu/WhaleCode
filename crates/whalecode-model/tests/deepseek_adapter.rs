@@ -1,8 +1,8 @@
 use serde_json::json;
 use whalecode_model::{
     parse_sse_stream, parse_sse_stream_with_observer, response_from_stream_events, ChatMessage,
-    DeepSeekChatRequest, DeepSeekConfig, ModelStreamEvent, ReasoningEffort, ThinkingMode,
-    DEEPSEEK_DEFAULT_BASE_URL, DEEPSEEK_DEFAULT_MODEL,
+    DeepSeekChatRequest, DeepSeekConfig, ModelStreamEvent, ModelTokenUsage, ReasoningEffort,
+    ThinkingMode, DEEPSEEK_DEFAULT_BASE_URL, DEEPSEEK_DEFAULT_MODEL,
 };
 
 #[test]
@@ -21,6 +21,7 @@ fn builds_streaming_request_with_thinking_enabled() {
 
     assert_eq!(value["model"], "deepseek-v4-flash");
     assert_eq!(value["stream"], true);
+    assert_eq!(value["stream_options"]["include_usage"], true);
     assert_eq!(value["thinking"]["type"], "enabled");
     assert_eq!(value["reasoning_effort"], "high");
     assert_eq!(value["messages"][0]["role"], "user");
@@ -53,6 +54,8 @@ data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":null,"index":0}]}
 
 data: {"choices":[{"delta":{"content":" world"},"finish_reason":null,"index":0}]}
 
+data: {"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18,"prompt_cache_hit_tokens":3}}
+
 data: [DONE]
 
 "#;
@@ -65,6 +68,11 @@ data: [DONE]
             ModelStreamEvent::ReasoningDelta("thinking".to_owned()),
             ModelStreamEvent::TextDelta("Hello".to_owned()),
             ModelStreamEvent::TextDelta(" world".to_owned()),
+            ModelStreamEvent::Usage(ModelTokenUsage {
+                input_tokens: 11,
+                output_tokens: 7,
+                cached_input_tokens: 3,
+            }),
             ModelStreamEvent::Finished,
         ]
     );

@@ -6,9 +6,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
 
+mod bootstrap;
 mod secrets;
 mod tool_calls;
 
+pub use bootstrap::*;
 pub use secrets::*;
 pub use tool_calls::*;
 
@@ -36,7 +38,15 @@ pub enum ModelStreamEvent {
         name: String,
         arguments_delta: String,
     },
+    Usage(ModelTokenUsage),
     Finished,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelTokenUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cached_input_tokens: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,6 +142,7 @@ pub struct DeepSeekChatRequest {
     pub stream: bool,
     pub thinking: ThinkingControl,
     pub reasoning_effort: String,
+    pub stream_options: StreamOptions,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -144,6 +155,11 @@ pub struct ThinkingControl {
     pub kind: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StreamOptions {
+    pub include_usage: bool,
+}
+
 impl DeepSeekChatRequest {
     pub fn streaming(config: &DeepSeekConfig, messages: Vec<ChatMessage>) -> Self {
         Self {
@@ -154,6 +170,9 @@ impl DeepSeekChatRequest {
                 kind: config.thinking.as_api_str().to_owned(),
             },
             reasoning_effort: config.reasoning_effort.as_api_str().to_owned(),
+            stream_options: StreamOptions {
+                include_usage: true,
+            },
             tools: None,
             tool_choice: None,
         }
@@ -287,58 +306,11 @@ pub fn response_from_stream_events(events: Vec<ModelStreamEvent>) -> ModelRespon
     ModelResponse { events, final_text }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelRequest {
-    pub model: String,
-    pub task: String,
-    pub tool_summaries: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelResponse {
-    pub events: Vec<ModelStreamEvent>,
-    pub final_text: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BootstrapModelRuntime {
-    pub model: String,
-}
-
-impl BootstrapModelRuntime {
-    pub fn new(model: impl Into<String>) -> Self {
-        Self {
-            model: model.into(),
-        }
-    }
-
-    pub fn complete(&self, request: ModelRequest) -> ModelResponse {
-        let observation = if request.tool_summaries.is_empty() {
-            "No repository tools were executed.".to_owned()
-        } else {
-            request.tool_summaries.join("\n")
-        };
-        let final_text = format!(
-            "Bootstrap agent accepted the task: {}\n\nRepository observation:\n{}\n\nThis local bootstrap mode does not call DeepSeek or edit files. Use whale run --allow-write for the live patch-safe tool loop.",
-            request.task, observation
-        );
-
-        ModelResponse {
-            events: vec![
-                ModelStreamEvent::ReasoningDelta(
-                    "Build a replayable turn before enabling mutating tools.".to_owned(),
-                ),
-                ModelStreamEvent::TextDelta(final_text.clone()),
-                ModelStreamEvent::Finished,
-            ],
-            final_text,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
 struct DeepSeekStreamChunk {
+    #[serde(default)]
     choices: Vec<DeepSeekStreamChoice>,
+    usage: Option<DeepSeekUsage>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -351,6 +323,13 @@ struct DeepSeekDelta {
     content: Option<String>,
     reasoning_content: Option<String>,
     tool_calls: Option<Vec<DeepSeekToolCallDelta>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeepSeekUsage {
+    prompt_tokens: u64,
+    completion_tokens: u64,
+    prompt_cache_hit_tokens: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -370,6 +349,13 @@ struct DeepSeekFunctionDelta {
 
 fn events_from_chunk(chunk: &DeepSeekStreamChunk) -> Vec<ModelStreamEvent> {
     let mut events = Vec::new();
+    if let Some(usage) = &chunk.usage {
+        events.push(ModelStreamEvent::Usage(ModelTokenUsage {
+            input_tokens: usage.prompt_tokens,
+            output_tokens: usage.completion_tokens,
+            cached_input_tokens: usage.prompt_cache_hit_tokens.unwrap_or(0),
+        }));
+    }
     for choice in &chunk.choices {
         if let Some(reasoning) = choice.delta.reasoning_content.as_deref() {
             if !reasoning.is_empty() {

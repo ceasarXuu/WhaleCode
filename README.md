@@ -46,8 +46,9 @@ replacement path, and run bounded verification commands when `--allow-command`
 is explicit. Session logs now include turn grouping, model stream events,
 permission decisions, tool outputs, and patch results so a run can be replayed
 from the terminal. Live assistant text is flushed to stdout as model deltas
-arrive instead of waiting for the whole turn to finish. In interactive mode,
-`whale` uses crossterm raw keyboard events for Unicode-safe input editing,
+arrive instead of waiting for the whole turn to finish. Each completed turn
+prints input and output token counts from provider usage metadata. In interactive
+mode, `whale` uses crossterm raw keyboard events for Unicode-safe input editing,
 prints the session JSONL path once at startup, and reuses that session log for
 subsequent turns. Context compaction and primitive host execution are still
 follow-up milestones. The old

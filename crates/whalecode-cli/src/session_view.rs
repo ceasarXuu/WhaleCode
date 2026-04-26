@@ -117,9 +117,13 @@ fn describe_model(event: &ModelEvent) -> String {
                 preview(arguments_delta)
             ),
         },
-        ModelEvent::RequestFinished { usage } => {
-            format!("model request finished usage={}", usage.is_some())
-        }
+        ModelEvent::RequestFinished { usage } => match usage {
+            Some(usage) => format!(
+                "model request finished input_tokens={} output_tokens={} cached_input_tokens={}",
+                usage.input_tokens, usage.output_tokens, usage.cached_input_tokens
+            ),
+            None => "model request finished usage=false".to_owned(),
+        },
         ModelEvent::RequestFailed { message } => {
             format!("model request failed {}", preview(message))
         }

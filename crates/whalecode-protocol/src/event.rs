@@ -99,7 +99,7 @@ pub enum ModelStreamDelta {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,

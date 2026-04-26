@@ -24,6 +24,8 @@ fn whale_run_executes_bootstrap_agent_and_writes_session() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
     assert!(stdout.contains("Bootstrap agent accepted the task"));
+    assert!(stdout.contains("input tokens: 0"));
+    assert!(stdout.contains("output tokens: 0"));
     assert!(stdout.contains("session:"));
     assert!(session_path.exists());
 }
