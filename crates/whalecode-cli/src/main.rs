@@ -14,7 +14,10 @@ use whalecode_model::{
     SecretStoreError, DEEPSEEK_DEFAULT_MODEL,
 };
 
+mod line_input;
 mod session_view;
+
+use line_input::{LineInput, LineReader};
 
 #[derive(Debug, Parser)]
 #[command(name = "whale")]
@@ -213,6 +216,7 @@ async fn run_interactive() -> Result<(), CliError> {
     let mut stdout = io::stdout();
     let mut settings = InteractiveSettings::default();
     let session_path = default_session_path()?;
+    let mut input = LineReader::new("whale> ");
     writeln!(
         stdout,
         "Whale live agent. Type a task and press Enter, /apikey to store a DeepSeek key, /permissions to inspect gates, or /exit to quit."
@@ -220,15 +224,11 @@ async fn run_interactive() -> Result<(), CliError> {
     .map_err(CliError::WriteOutput)?;
     writeln!(stdout, "session: {}", session_path.display()).map_err(CliError::WriteOutput)?;
     loop {
-        write!(stdout, "whale> ").map_err(CliError::WriteOutput)?;
-        stdout.flush().map_err(CliError::WriteOutput)?;
-        let mut line = String::new();
-        let bytes = io::stdin()
-            .read_line(&mut line)
-            .map_err(CliError::ReadInput)?;
-        if bytes == 0 {
-            break;
-        }
+        let line = match input.read_line().map_err(CliError::ReadInput)? {
+            LineInput::Submit(line) => line,
+            LineInput::Cancelled => continue,
+            LineInput::Exit => break,
+        };
         let task = line.trim();
         if task.is_empty() {
             continue;
