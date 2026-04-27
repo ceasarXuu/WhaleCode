@@ -175,6 +175,8 @@ use super::footer::render_footer_line;
 use super::footer::reset_mode_after_activity;
 use super::footer::side_conversation_context_line;
 use super::footer::single_line_footer_layout;
+use super::footer::status_line_contains_context_window;
+use super::footer::status_right_indicator_with_context;
 use super::footer::toggle_shortcut_mode;
 use super::footer::uses_passive_footer_status_layout;
 use super::paste_burst::CharDecision;
@@ -3989,6 +3991,9 @@ impl ChatComposer {
                             show_queue_hint,
                         )
                     };
+                    let status_line_has_context = combined_status_line
+                        .as_ref()
+                        .is_some_and(status_line_contains_context_window);
                     let right_line =
                         if let Some(label) = self.side_conversation_context_label.as_ref() {
                             Some(side_conversation_context_line(label))
@@ -4005,11 +4010,25 @@ impl ChatComposer {
                                 self.goal_status_indicator.as_ref(),
                                 /*show_cycle_hint*/ false,
                             );
-                            let full_width = full.as_ref().map(|l| l.width() as u16).unwrap_or(0);
-                            if can_show_left_with_context(hint_rect, left_width, full_width) {
-                                full
+                            if status_line_has_context {
+                                let full_width =
+                                    full.as_ref().map(|line| line.width() as u16).unwrap_or(0);
+                                if can_show_left_with_context(hint_rect, left_width, full_width) {
+                                    full
+                                } else {
+                                    compact
+                                }
                             } else {
-                                compact
+                                Some(status_right_indicator_with_context(
+                                    hint_rect,
+                                    left_width,
+                                    full,
+                                    compact,
+                                    context_window_line(
+                                        footer_props.context_window_percent,
+                                        footer_props.context_window_used_tokens,
+                                    ),
+                                ))
                             }
                         } else {
                             Some(context_window_line(

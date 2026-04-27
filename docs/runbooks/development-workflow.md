@@ -150,11 +150,26 @@ Choose the smallest valid gate for the files you changed.
 | App-server model list | `cargo test -p codex-app-server --test all --locked model_list` | Web/API model selection behavior changed. |
 | Provider/API transport | `cargo test -p codex-api --locked chat_completions` | SSE, streaming, auth, or usage parsing changed. |
 | TUI/CLI surface | `cargo build -p codex-cli --bin whale --locked` | Manual TUI smoke or local install is needed. |
+| TUI footer/status line | `cargo test -p codex-tui footer_` and `cargo test -p codex-tui status_line_` | Composer layout, token budget, or snapshot baselines are affected. |
 | App-server CLI/helper | `cargo check -p codex-app-server --bin whale-app-server --locked` | VS Code/app-server protocol behavior changed. |
 | Forwarded helper command | `cargo check -p <helper-crate> --bin <helper-binary> --locked` | Local install or npm/release packaging changed. |
 
 Prefer package-level tests before building the full CLI. A full CLI build is a
 smoke gate, not the first response to every small Rust edit.
+
+On Windows, full `cargo test -p codex-tui` can overflow the default Rust test
+thread stack before it reaches the actual changed surface. If you need the full
+package suite, set a larger stack for the current shell first:
+
+```powershell
+$env:RUST_MIN_STACK = "8388608"
+cargo test -p codex-tui
+```
+
+If that full suite emits unrelated `.snap.new` files while you are investigating
+a narrow TUI change, move those generated files to a dated temp backup rather
+than deleting them, then rerun the smallest matching snapshot tests without
+`INSTA_UPDATE`.
 
 ## DeepSeek Default Model Gate
 
