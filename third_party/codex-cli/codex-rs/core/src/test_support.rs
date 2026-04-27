@@ -12,11 +12,11 @@ use codex_login::AuthManager;
 use codex_login::CodexAuth;
 use codex_model_provider::create_model_provider;
 use codex_model_provider_info::ModelProviderInfo;
-use codex_models_manager::bundled_models_response;
 use codex_models_manager::collaboration_mode_presets;
 use codex_models_manager::manager::SharedModelsManager;
 use codex_models_manager::test_support::construct_model_info_offline_for_tests;
 use codex_models_manager::test_support::get_model_offline_for_tests;
+use codex_models_manager::test_support::model_presets_offline_for_tests;
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelPreset;
@@ -27,14 +27,7 @@ use crate::config::Config;
 use crate::thread_manager;
 use crate::unified_exec;
 
-static TEST_MODEL_PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| {
-    let mut response = bundled_models_response()
-        .unwrap_or_else(|err| panic!("bundled models.json should parse: {err}"));
-    response.models.sort_by(|a, b| a.priority.cmp(&b.priority));
-    let mut presets: Vec<ModelPreset> = response.models.into_iter().map(Into::into).collect();
-    ModelPreset::mark_default_by_picker_visibility(&mut presets);
-    presets
-});
+static TEST_MODEL_PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| model_presets_offline_for_tests());
 
 pub fn set_thread_manager_test_mode(enabled: bool) {
     thread_manager::set_thread_manager_test_mode_for_tests(enabled);

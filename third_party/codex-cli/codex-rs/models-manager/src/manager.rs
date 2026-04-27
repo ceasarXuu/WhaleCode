@@ -22,6 +22,7 @@ use tracing::info;
 
 const MODEL_CACHE_FILE: &str = "models_cache.json";
 const DEFAULT_MODEL_CACHE_TTL: Duration = Duration::from_secs(300);
+const WHALE_DEFAULT_MODEL: &str = "deepseek-v4-flash";
 
 /// Remote endpoint used by the OpenAI-compatible model manager.
 ///
@@ -115,6 +116,7 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
         presets = ModelPreset::filter_by_auth(presets, uses_codex_backend);
 
         ModelPreset::mark_default_by_picker_visibility(&mut presets);
+        mark_whale_default_model(&mut presets);
 
         presets
     }
@@ -408,6 +410,17 @@ fn default_model_from_available(available: Vec<ModelPreset>) -> String {
         .or_else(|| available.first())
         .map(|model| model.model.clone())
         .unwrap_or_default()
+}
+
+pub(crate) fn mark_whale_default_model(presets: &mut [ModelPreset]) {
+    if let Some(default_index) = presets
+        .iter()
+        .position(|preset| preset.model == WHALE_DEFAULT_MODEL && preset.show_in_picker)
+    {
+        for (index, preset) in presets.iter_mut().enumerate() {
+            preset.is_default = index == default_index;
+        }
+    }
 }
 
 fn find_model_by_longest_prefix(model: &str, candidates: &[ModelInfo]) -> Option<ModelInfo> {

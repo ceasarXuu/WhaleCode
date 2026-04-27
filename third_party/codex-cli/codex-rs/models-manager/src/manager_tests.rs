@@ -767,6 +767,64 @@ fn build_available_models_picks_default_after_hiding_hidden_models() {
     assert_eq!(available, vec![expected_hidden, expected_visible]);
 }
 
+#[test]
+fn build_available_models_prefers_deepseek_flash_as_whale_default() {
+    let manager = static_manager_for_tests(ModelsResponse { models: Vec::new() });
+
+    let gpt_model = remote_model("gpt-5.5", "GPT-5.5", /*priority*/ 0);
+    let deepseek_model = remote_model(
+        "deepseek-v4-flash",
+        "DeepSeek V4 Flash",
+        /*priority*/ 1,
+    );
+
+    let available = manager.build_available_models(vec![gpt_model, deepseek_model]);
+
+    assert_eq!(default_model_from_available(available), "deepseek-v4-flash");
+}
+
+#[tokio::test]
+async fn bundled_models_default_to_deepseek_flash() {
+    let manager = StaticModelsManager::new(
+        None,
+        crate::bundled_models_response().expect("bundled models.json should parse"),
+        CollaborationModesConfig::default(),
+    );
+
+    assert_eq!(
+        manager
+            .get_default_model(&None, RefreshStrategy::Offline)
+            .await,
+        "deepseek-v4-flash"
+    );
+}
+
+#[tokio::test]
+async fn bundled_models_keep_deepseek_choices_at_picker_top() {
+    let manager = StaticModelsManager::new(
+        None,
+        crate::bundled_models_response().expect("bundled models.json should parse"),
+        CollaborationModesConfig::default(),
+    );
+
+    let visible_models = manager
+        .list_models(RefreshStrategy::Offline)
+        .await
+        .into_iter()
+        .filter(|preset| preset.show_in_picker)
+        .map(|preset| preset.model)
+        .take(2)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        visible_models,
+        vec![
+            "deepseek-v4-flash".to_string(),
+            "deepseek-v4-pro".to_string()
+        ]
+    );
+}
+
 #[tokio::test]
 async fn static_manager_treats_agent_identity_as_backend_auth_for_filtering() {
     let chatgpt_only_model = {
@@ -852,5 +910,13 @@ fn bundled_models_json_roundtrips() {
     assert!(
         !response.models.is_empty(),
         "bundled models.json should contain at least one model"
+    );
+    assert!(
+        response
+            .models
+            .iter()
+            .find(|model| model.slug == "gpt-5.5")
+            .is_none_or(|model| model.availability_nux.is_none()),
+        "Whale should not show OpenAI availability NUX copy"
     );
 }
