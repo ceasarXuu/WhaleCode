@@ -94,9 +94,29 @@ cargo build -p codex-cli --bin whale --locked
 Install the debug binary for local TUI smoke:
 
 ```powershell
-Copy-Item "$env:CARGO_TARGET_DIR\debug\whale.exe" "$env:USERPROFILE\.cargo\bin\whale.exe" -Force
+$DebugWhale = "$env:CARGO_TARGET_DIR\debug\whale.exe"
+Get-Process whale -ErrorAction SilentlyContinue | Stop-Process -Force
+Copy-Item $DebugWhale "$env:USERPROFILE\.cargo\bin\whale.exe" -Force
+Copy-Item $DebugWhale "$env:USERPROFILE\.local\bin\whale.exe" -Force
 whale --version
 whale debug models
+```
+
+Whale may exist in both `%USERPROFILE%\.cargo\bin` and
+`%USERPROFILE%\.local\bin`. Update both when smoking a local build, then verify
+the resolved binary and hashes:
+
+```powershell
+where.exe whale
+Get-FileHash "$env:USERPROFILE\.cargo\bin\whale.exe", "$env:USERPROFILE\.local\bin\whale.exe", $DebugWhale
+```
+
+If `Copy-Item -Force` fails or a new terminal still shows old behavior, check
+for a running TUI that is holding the old executable open:
+
+```powershell
+Get-Process whale -ErrorAction SilentlyContinue |
+    Select-Object Id,Path,StartTime
 ```
 
 Expected first picker entries:

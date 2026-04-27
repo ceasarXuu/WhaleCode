@@ -49,7 +49,7 @@ pub(crate) fn builtins_for_input(flags: BuiltinCommandFlags) -> Vec<(&'static st
 /// Side-conversation gating is intentionally enforced by dispatch rather than exact lookup so a
 /// typed command can produce a side-specific unavailable message while the popup still hides it.
 pub(crate) fn find_builtin_command(name: &str, flags: BuiltinCommandFlags) -> Option<SlashCommand> {
-    let cmd = SlashCommand::from_str(name).ok()?;
+    let cmd = SlashCommand::from_str(canonical_builtin_command_name(name)).ok()?;
     builtins_for_input(BuiltinCommandFlags {
         side_conversation_active: false,
         ..flags
@@ -57,6 +57,13 @@ pub(crate) fn find_builtin_command(name: &str, flags: BuiltinCommandFlags) -> Op
     .into_iter()
     .any(|(_, visible_cmd)| visible_cmd == cmd)
     .then_some(cmd)
+}
+
+fn canonical_builtin_command_name(name: &str) -> &str {
+    match name {
+        "models" => "model",
+        _ => name,
+    }
 }
 
 /// Whether any visible built-in fuzzily matches the provided prefix.
@@ -113,6 +120,14 @@ mod tests {
         assert_eq!(
             find_builtin_command("clean", all_enabled_flags()),
             Some(SlashCommand::Stop)
+        );
+    }
+
+    #[test]
+    fn models_command_alias_resolves_for_dispatch() {
+        assert_eq!(
+            find_builtin_command("models", all_enabled_flags()),
+            Some(SlashCommand::Model)
         );
     }
 
