@@ -165,6 +165,18 @@ Use a live model smoke only when network access and billing are expected:
 whale exec "Reply with one short sentence."
 ```
 
+When validating DeepSeek thinking mode with tools, use a prompt that forces at
+least one read-only command:
+
+```powershell
+$env:DEEPSEEK_API_KEY = [Environment]::GetEnvironmentVariable("DEEPSEEK_API_KEY", "User")
+whale exec "Run a read-only directory listing of D:\WhaleCode, then reply with exactly: OK"
+```
+
+This catches the DeepSeek protocol requirement that assistant messages with
+tool calls must carry the matching `reasoning_content` back into subsequent
+Chat Completions requests.
+
 ## Documentation And Log Discipline
 
 Every repeated operational lesson should land in documentation before it is

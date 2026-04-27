@@ -1182,27 +1182,31 @@ impl PluginsManager {
                     warn!("failed to start configured marketplace auto-upgrade task: {err}");
                 }
             }
-            start_startup_remote_plugin_sync_once(
-                Arc::clone(self),
-                self.codex_home.clone(),
-                config.clone(),
-                auth_manager.clone(),
-            );
+            if auth_manager.current_auth_uses_codex_backend() {
+                start_startup_remote_plugin_sync_once(
+                    Arc::clone(self),
+                    self.codex_home.clone(),
+                    config.clone(),
+                    auth_manager.clone(),
+                );
 
-            let config = config.clone();
-            let manager = Arc::clone(self);
-            tokio::spawn(async move {
-                let auth = auth_manager.auth().await;
-                if let Err(err) = manager
-                    .featured_plugin_ids_for_config(&config, auth.as_ref())
-                    .await
-                {
-                    warn!(
-                        error = %err,
-                        "failed to warm featured plugin ids cache"
-                    );
-                }
-            });
+                let config = config.clone();
+                let manager = Arc::clone(self);
+                tokio::spawn(async move {
+                    let auth = auth_manager.auth().await;
+                    if let Err(err) = manager
+                        .featured_plugin_ids_for_config(&config, auth.as_ref())
+                        .await
+                    {
+                        warn!(
+                            error = %err,
+                            "failed to warm featured plugin ids cache"
+                        );
+                    }
+                });
+            } else {
+                info!("skipping remote plugin startup tasks for non-Codex backend auth");
+            }
         }
     }
 

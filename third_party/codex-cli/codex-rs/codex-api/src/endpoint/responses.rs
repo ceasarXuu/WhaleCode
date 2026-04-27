@@ -1,6 +1,7 @@
 use crate::auth::SharedAuthProvider;
 use crate::common::ResponseStream;
 use crate::common::ResponsesApiRequest;
+use crate::endpoint::chat_completions::chat_messages_from_response_items;
 use crate::endpoint::session::EndpointSession;
 use crate::error::ApiError;
 use crate::provider::Provider;
@@ -16,9 +17,6 @@ use crate::telemetry::SseTelemetry;
 use codex_client::HttpTransport;
 use codex_client::RequestCompression;
 use codex_client::RequestTelemetry;
-use codex_protocol::models::ContentItem;
-use codex_protocol::models::FunctionCallOutputBody;
-use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::SessionSource;
 use http::HeaderMap;
 use http::HeaderValue;
@@ -222,12 +220,7 @@ fn build_chat_completions_body(request: ResponsesApiRequest) -> Value {
             "content": request.instructions,
         }));
     }
-    messages.extend(
-        request
-            .input
-            .iter()
-            .flat_map(chat_messages_from_response_item),
-    );
+    messages.extend(chat_messages_from_response_items(&request.input));
     body.insert("messages".to_string(), Value::Array(messages));
 
     let tools = chat_tools_from_responses_tools(&request.tools);
@@ -242,78 +235,6 @@ fn build_chat_completions_body(request: ResponsesApiRequest) -> Value {
     }
 
     Value::Object(body)
-}
-
-fn chat_messages_from_response_item(item: &ResponseItem) -> Vec<Value> {
-    match item {
-        ResponseItem::Message { role, content, .. } => {
-            let role = if role == "developer" { "system" } else { role };
-            let text = content_items_to_text(content);
-            if text.trim().is_empty() {
-                Vec::new()
-            } else {
-                vec![serde_json::json!({ "role": role, "content": text })]
-            }
-        }
-        ResponseItem::FunctionCall {
-            name,
-            arguments,
-            call_id,
-            ..
-        }
-        | ResponseItem::CustomToolCall {
-            name,
-            input: arguments,
-            call_id,
-            ..
-        } => vec![serde_json::json!({
-            "role": "assistant",
-            "content": Value::Null,
-            "tool_calls": [{
-                "id": call_id,
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "arguments": arguments,
-                }
-            }]
-        })],
-        ResponseItem::FunctionCallOutput { call_id, output }
-        | ResponseItem::CustomToolCallOutput {
-            call_id, output, ..
-        } => vec![serde_json::json!({
-            "role": "tool",
-            "tool_call_id": call_id,
-            "content": function_output_to_text(&output.body),
-        })],
-        ResponseItem::ToolSearchOutput {
-            call_id: Some(call_id),
-            tools,
-            ..
-        } => vec![serde_json::json!({
-            "role": "tool",
-            "tool_call_id": call_id,
-            "content": serde_json::to_string(tools).unwrap_or_default(),
-        })],
-        _ => Vec::new(),
-    }
-}
-
-fn content_items_to_text(content: &[ContentItem]) -> String {
-    content
-        .iter()
-        .filter_map(|item| match item {
-            ContentItem::InputText { text } | ContentItem::OutputText { text } => {
-                Some(text.as_str())
-            }
-            ContentItem::InputImage { .. } => Some("[Image omitted: DeepSeek is text-only]"),
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn function_output_to_text(body: &FunctionCallOutputBody) -> String {
-    body.to_text().unwrap_or_default()
 }
 
 fn chat_tools_from_responses_tools(tools: &[Value]) -> Vec<Value> {
