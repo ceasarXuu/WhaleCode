@@ -58,6 +58,8 @@ land in the bridge or overlay layer first. Direct edits inside
 
 - Migration plan:
   `docs/plans/2026-04-27-codex-cli-upstream-substrate-migration-plan.md`
+- Cross-system restore runbook:
+  `docs/runbooks/cross-system-restore.md`
 - ADR:
   `docs/adr/2026-04-27-codex-cli-upstream-substrate.md`
 - Original system architecture, now aligned to substrate direction:
@@ -69,17 +71,15 @@ land in the bridge or overlay layer first. Direct edits inside
 
 ## Current Development State
 
-There is intentionally no active root Cargo workspace after the demo archive.
-The next implementation milestone is Codex upstream import plus inventory and
-bridge skeleton, not continued extension of the archived demo.
-
-Until the new substrate is imported, verification is documentation and repo
-hygiene focused:
+The active Rust workspace now lives under `third_party/codex-cli/codex-rs`.
+The repo root still has no active Cargo workspace; enter the vendored Codex
+workspace for build and smoke commands.
 
 ```bash
-git status --short
-rg -n "deprecated runtime marker patterns" README.md docs || true
+cd third_party/codex-cli/codex-rs
+cargo check -p codex-cli --locked
+cargo run --quiet -p codex-cli --bin whale -- --version
 ```
 
-After Codex import, repo-owned gates must be rebuilt around substrate import,
-bridge compatibility, DeepSeek provider behavior, and Primitive overlay replay.
+For a new machine or low-disk migration, start with
+`docs/runbooks/cross-system-restore.md`.

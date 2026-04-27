@@ -4,17 +4,17 @@ Date: 2026-04-27
 
 ## Status
 
-Updated for the Codex upstream substrate migration. The previous test script and
-Rust demo workspace are archived under
-`archive/deprecated/2026-04-27-rust-demo/`.
+Updated after the Codex upstream substrate import and the first Whale brand /
+DeepSeek overlay. The previous test script and Rust demo workspace are archived
+under `archive/deprecated/2026-04-27-rust-demo/`.
 
 ## Goal
 
 Every change must keep the repository aligned with the active direction:
 Codex CLI whole-repo upstream substrate, Whale bridge, DeepSeek provider, and
 multi-agent Primitive overlay. During the transition there is intentionally no
-active root Cargo workspace; tests focus on documentation consistency, archive
-integrity, and migration readiness until Codex import lands.
+active root Cargo workspace. Rust checks run from
+`third_party/codex-cli/codex-rs`.
 
 ## Current Gate
 
@@ -22,21 +22,35 @@ Run after documentation or repo-structure changes:
 
 ```bash
 git status --short
-rg -n "deprecated runtime marker patterns" README.md docs || true
-find archive/deprecated/2026-04-27-rust-demo -maxdepth 2 -type f | sort | head
+git diff --check
+rg -n "Codex import lands|Until the new substrate is imported" \
+  README.md docs \
+  --glob '!docs/testing/2026-04-27-after-change-smoke-regression-strategy.md' \
+  || true
 ```
 
 Expected:
 
 - `git status --short` only shows intentional changes.
-- Search hits, if any, are explicitly historical, superseded, or archived-demo
-  references.
-- The demo archive exists and contains its README plus the previous workspace
-  metadata.
+- `git diff --check` reports no whitespace errors.
+- Search hits, if any, are explicitly historical or superseded references.
+
+Run after Rust provider, CLI, config, or substrate changes:
+
+```bash
+cd third_party/codex-cli/codex-rs
+cargo check -p codex-cli --locked
+cargo test -p codex-api --locked chat_completions
+cargo test -p codex-model-provider-info --locked
+cargo test -p codex-core --locked defaults_to_deepseek_flash_provider
+cargo test -p codex-core --locked responses_websocket_features_do_not_change_wire_api
+cargo test -p codex-core --locked config_schema_matches_fixture
+cargo run --quiet -p codex-cli --bin whale -- --version
+```
 
 ## Future Gates
 
-After Codex import, rebuild the repo-owned test script around these stages:
+Keep rebuilding the repo-owned test script around these stages:
 
 | Gate | Purpose |
 | --- | --- |

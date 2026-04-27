@@ -66,8 +66,16 @@ cd archive/deprecated/2026-04-27-rust-demo
 cargo test --workspace --locked
 ```
 
-After Codex import, verification commands must be redefined around the
-Codex-derived workspace and `whalecode-codex-bridge`.
+After Codex import, verify the active Codex-derived workspace directly:
+
+```bash
+cd third_party/codex-cli/codex-rs
+cargo check -p codex-cli --locked
+cargo run --quiet -p codex-cli --bin whale -- --version
+```
+
+For low-disk machines, follow `docs/runbooks/cross-system-restore.md` and set
+`CARGO_TARGET_DIR` outside the repo before building.
 
 Archived-demo expected active toolchain:
 
