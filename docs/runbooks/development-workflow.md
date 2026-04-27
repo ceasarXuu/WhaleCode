@@ -94,25 +94,33 @@ cargo build -p codex-cli --bin whale --locked
 Install the debug binary for local TUI smoke:
 
 ```powershell
-$DebugWhale = "$env:CARGO_TARGET_DIR\debug\whale.exe"
-Get-Process whale -ErrorAction SilentlyContinue | Stop-Process -Force
-Copy-Item $DebugWhale "$env:USERPROFILE\.cargo\bin\whale.exe" -Force
-Copy-Item $DebugWhale "$env:USERPROFILE\.local\bin\whale.exe" -Force
+Set-Location D:\WhaleCode
+.\scripts\install-whale-local.ps1 -PersistUserPath -BackupLegacyCopies
 whale --version
 whale debug models
 ```
 
-Whale may exist in both `%USERPROFILE%\.cargo\bin` and
-`%USERPROFILE%\.local\bin`. Update both when smoking a local build, then verify
-the resolved binary and hashes:
+The isolated local install path is `%USERPROFILE%\.whale\bin\whale.exe`.
+Do not copy Whale into `%USERPROFILE%\.cargo\bin`, `%USERPROFILE%\.local\bin`,
+`%APPDATA%\npm`, or WindowsApps. Those are shared tool locations and can make
+Whale appear coupled to official Codex or npm-installed CLIs.
+
+Verify the resolved binary and CLI separation:
 
 ```powershell
 where.exe whale
-Get-FileHash "$env:USERPROFILE\.cargo\bin\whale.exe", "$env:USERPROFILE\.local\bin\whale.exe", $DebugWhale
+where.exe codex
+.\scripts\check-cli-isolation.ps1
 ```
 
-If `Copy-Item -Force` fails or a new terminal still shows old behavior, check
-for a running TUI that is holding the old executable open:
+Existing terminals and long-running agent processes may keep an old PATH until
+they are restarted. `check-cli-isolation.ps1` refreshes PATH from the user and
+machine environment by default to validate what a new terminal will see. Use
+`-UseCurrentProcessPath` only when you intentionally want to diagnose the
+currently running shell.
+
+If install fails or a new terminal still shows old behavior, check for a
+running TUI that is holding the old executable open:
 
 ```powershell
 Get-Process whale -ErrorAction SilentlyContinue |
@@ -194,6 +202,36 @@ about:
 Runtime feature changes should also add structured logs or session events where
 they help future diagnosis. Documentation is not a substitute for runtime
 observability.
+
+## Official Codex Isolation
+
+Whale development must not mutate official Codex installation or runtime state.
+Keep these boundaries:
+
+- Whale binary: `%USERPROFILE%\.whale\bin\whale.exe`
+- Whale runtime state: `%USERPROFILE%\.whale` or process-scoped `WHALE_HOME`
+- official Codex npm package: `%APPDATA%\npm\node_modules\@openai\codex`
+- official Codex app package: `%ProgramFiles%\WindowsApps\OpenAI.Codex_*`
+- official Codex runtime state: `%USERPROFILE%\.codex`
+
+Do not install Whale into npm global directories, WindowsApps, `.cargo\bin`, or
+`.local\bin`. Do not copy `.codex` into `.whale`, and do not point
+`CODEX_HOME` at `WHALE_HOME`.
+
+Run the isolation guard after changing install scripts, PATH setup, wrapper
+files, or local machine configuration:
+
+```powershell
+.\scripts\check-cli-isolation.ps1
+```
+
+If official Codex reports a missing optional dependency, repair Codex itself
+without changing Whale:
+
+```powershell
+npm install -g @openai/codex@latest --include=optional
+codex --version
+```
 
 ## Git Discipline
 

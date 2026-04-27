@@ -89,3 +89,8 @@ For a new machine or low-disk migration, start with
 `docs/runbooks/cross-system-restore.md`. For native Windows development, use
 `docs/runbooks/windows-development-restore.md`, then use
 `docs/runbooks/development-workflow.md` for the normal edit-test-install loop.
+
+On Windows, install local Whale builds only through
+`scripts/install-whale-local.ps1`. The script installs `whale.exe` under
+`%USERPROFILE%\.whale\bin` and keeps it separate from official Codex locations
+such as `%APPDATA%\npm` and WindowsApps.

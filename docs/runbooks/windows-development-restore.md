@@ -108,7 +108,7 @@ Make sure future shells can resolve user-installed tools:
 
 ```powershell
 $Need = @(
-  "$env:USERPROFILE\.cargo\bin",
+  "$env:USERPROFILE\.whale\bin",
   "$env:APPDATA\npm",
   "$env:LOCALAPPDATA\Microsoft\WinGet\Links"
 )
@@ -324,6 +324,21 @@ Optional help-surface guard:
 ```
 
 Expected: no output for the normal help surface.
+
+## Local Install Without Codex Coupling
+
+Install Whale only into its dedicated user bin directory:
+
+```powershell
+Set-Location D:\dev\WhaleCode
+.\scripts\install-whale-local.ps1 -PersistUserPath -BackupLegacyCopies
+.\scripts\check-cli-isolation.ps1
+```
+
+The script refuses shared CLI directories such as `%APPDATA%\npm`,
+WindowsApps, `%USERPROFILE%\.cargo\bin`, and `%USERPROFILE%\.local\bin`.
+That keeps local Whale builds separate from the official Codex npm package and
+the Windows Store/App Installer Codex package.
 
 ## Configure DeepSeek
 
