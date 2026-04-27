@@ -16,6 +16,10 @@ multi-agent Primitive overlay. During the transition there is intentionally no
 active root Cargo workspace. Rust checks run from
 `third_party/codex-cli/codex-rs`.
 
+For the day-to-day command matrix, use
+`docs/runbooks/development-workflow.md`. This file remains the higher-level
+after-change strategy.
+
 ## Current Gate
 
 Run after documentation or repo-structure changes:

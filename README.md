@@ -60,6 +60,8 @@ land in the bridge or overlay layer first. Direct edits inside
   `docs/plans/2026-04-27-codex-cli-upstream-substrate-migration-plan.md`
 - Cross-system restore runbook:
   `docs/runbooks/cross-system-restore.md`
+- Development workflow manual:
+  `docs/runbooks/development-workflow.md`
 - Windows development restore runbook:
   `docs/runbooks/windows-development-restore.md`
 - ADR:
@@ -85,4 +87,5 @@ cargo run --quiet -p codex-cli --bin whale -- --version
 
 For a new machine or low-disk migration, start with
 `docs/runbooks/cross-system-restore.md`. For native Windows development, use
-`docs/runbooks/windows-development-restore.md`.
+`docs/runbooks/windows-development-restore.md`, then use
+`docs/runbooks/development-workflow.md` for the normal edit-test-install loop.

@@ -7,6 +7,9 @@ Windows host development with the MSVC Rust toolchain, not WSL. WSL can be a
 useful fallback for Linux parity, but it does not validate native Windows path,
 process, terminal, keyring, or sandbox behavior.
 
+For the normal edit-test loop after restore, use
+`docs/runbooks/development-workflow.md`.
+
 ## Current Windows Status
 
 WhaleCode is intended to be cross-platform, but the current Whale overlay has
@@ -208,16 +211,18 @@ directory before the first build:
 $env:WHALE_CACHE_ROOT = "D:\BuildCache\whalecode"
 New-Item -ItemType Directory -Force $env:WHALE_CACHE_ROOT | Out-Null
 $env:CARGO_TARGET_DIR = Join-Path $env:WHALE_CACHE_ROOT "cargo-target"
-$env:CARGO_INCREMENTAL = "0"
+$env:CARGO_INCREMENTAL = "1"
 ```
 
 Keep these variables in the same PowerShell session for all build and test
-commands. If you want them persisted for your user later:
+commands. `CARGO_INCREMENTAL=1` is the day-to-day setting. Use
+`CARGO_INCREMENTAL=0` only for clean reproduction or CI-like verification. If
+you want the local-development defaults persisted for your user later:
 
 ```powershell
 [Environment]::SetEnvironmentVariable("WHALE_CACHE_ROOT", "D:\BuildCache\whalecode", "User")
 [Environment]::SetEnvironmentVariable("CARGO_TARGET_DIR", "D:\BuildCache\whalecode\cargo-target", "User")
-[Environment]::SetEnvironmentVariable("CARGO_INCREMENTAL", "0", "User")
+[Environment]::SetEnvironmentVariable("CARGO_INCREMENTAL", "1", "User")
 ```
 
 ## Build Whale
@@ -228,7 +233,7 @@ SDK are available:
 
 ```powershell
 $VsDevCmd = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
-cmd /d /s /c "call `"$VsDevCmd`" -arch=x64 -host_arch=x64 >nul && set `"PATH=%USERPROFILE%\.cargo\bin;%APPDATA%\npm;%LOCALAPPDATA%\Microsoft\WinGet\Links;%PATH%`" && set `"CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target`" && set `"CARGO_INCREMENTAL=0`" && cd /d D:\dev\WhaleCode\third_party\codex-cli\codex-rs && cargo check -p codex-cli --locked"
+cmd /d /s /c "call `"$VsDevCmd`" -arch=x64 -host_arch=x64 >nul && set `"PATH=%USERPROFILE%\.cargo\bin;%APPDATA%\npm;%LOCALAPPDATA%\Microsoft\WinGet\Links;%PATH%`" && set `"CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target`" && set `"CARGO_INCREMENTAL=1`" && cd /d D:\dev\WhaleCode\third_party\codex-cli\codex-rs && cargo check -p codex-cli --locked"
 ```
 
 In `cmd.exe`, always use `set "NAME=value"` when chaining with `&&`. Plain
@@ -387,7 +392,7 @@ foreach ($Path in $BuildPaths) {
 }
 
 $env:CARGO_TARGET_DIR = "D:\BuildCache\whalecode\cargo-target"
-$env:CARGO_INCREMENTAL = "0"
+$env:CARGO_INCREMENTAL = "1"
 ```
 
 Move regenerable build output to a recoverable backup before deleting anything:
