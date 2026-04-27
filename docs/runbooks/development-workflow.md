@@ -89,26 +89,54 @@ especially the `codex-tui` and final CLI dependency closure.
 The corrected policy is:
 
 - `release`: local optimized smoke profile, `opt-level = 1`, `lto = false`,
-  `incremental = true`, and `codegen-units = 256`.
+  `incremental = true`, `codegen-units = 256`, and no symbol stripping.
 - `dist`: explicit production distribution profile, `opt-level = 3`,
-  `lto = "fat"`, `incremental = false`, and `codegen-units = 1`.
+  `lto = "fat"`, `incremental = false`, `codegen-units = 1`, and symbol
+  stripping.
 
 This follows Cargo's own profile model: `--release` is just
 `--profile release`, custom profiles inherit from a named profile, and each
 custom profile writes to its own target directory.
 
-The corrected Windows measurement on 2026-04-28:
+The corrected Windows measurements on 2026-04-28:
 
 ```text
 cold cargo build -p codex-cli --bin whale --release --locked: 13m 06s
 warm cargo build -p codex-cli --bin whale --release --locked: 3.2s
+cold-ish cargo build -p codex-cli --bin whale --locked after profile/helper churn: 2m 55s
+warm cargo build -p codex-cli --bin whale --locked: 3.0s
+cold-ish cargo build -p codex-cli --bin whale --release --locked after helper split: 14m 16s
+warm cargo build -p codex-cli --bin whale --release --locked: 3.4s
+steady warm cargo build --release --locked --bin whale plus all forwarded helpers: 2.5s
 ```
 
-The cold build is still a large first compile because `whale` currently links
-the TUI, app-server, MCP server, cloud-task, exec, and proxy dependency
-closures. The fixed part is that the build now completes and subsequent local
-release builds reuse incremental state instead of re-entering a long LTO/link
-path.
+The next dependency split moved hidden and non-primary command ownership out of
+the top-level CLI. `whale` now forwards these surfaces to sibling helpers:
+
+- `whale app-server ...` -> `whale-app-server`
+- `whale mcp-server` -> `whale-mcp-server`
+- `whale cloud ...` / `whale cloud-tasks ...` -> `whale-cloud-tasks`
+- `whale responses-api-proxy ...` -> `whale-responses-api-proxy`
+- `whale stdio-to-uds ...` -> `whale-stdio-to-uds`
+- `whale exec-server ...` -> `whale-exec-server`
+- `whale debug app-server send-message-v2 ...` ->
+  `whale-app-server-test-client`
+
+Helpers that need to re-enter the agent CLI receive the original `whale`
+binary path via hidden runtime flags, so the split does not accidentally make a
+helper spawn itself. Keep those runtime flags private implementation detail.
+
+This removes app-server, MCP server, cloud task UI, exec-server, stdio bridge,
+proxy, and app-server test-client implementation crates from the main CLI
+dependency closure. The main binary still carries the core agent stack, TUI, and
+non-interactive exec path. The remaining heavy transitive app-server cost now
+enters through `codex-app-server-client` in `codex-tui` and `codex-exec`, not
+through hidden slash or debug helper command ownership. Further cold-build cuts
+must split that public TUI/exec app-server transport boundary; do not put helper
+crates back into `codex-cli`.
+
+The cloud-task mock backend is also now a dev-dependency, so normal local and
+release builds do not compile the test-only mock client.
 
 ## Inner Loop Rules
 
@@ -122,6 +150,8 @@ Choose the smallest valid gate for the files you changed.
 | App-server model list | `cargo test -p codex-app-server --test all --locked model_list` | Web/API model selection behavior changed. |
 | Provider/API transport | `cargo test -p codex-api --locked chat_completions` | SSE, streaming, auth, or usage parsing changed. |
 | TUI/CLI surface | `cargo build -p codex-cli --bin whale --locked` | Manual TUI smoke or local install is needed. |
+| App-server CLI/helper | `cargo check -p codex-app-server --bin whale-app-server --locked` | VS Code/app-server protocol behavior changed. |
+| Forwarded helper command | `cargo check -p <helper-crate> --bin <helper-binary> --locked` | Local install or npm/release packaging changed. |
 
 Prefer package-level tests before building the full CLI. A full CLI build is a
 smoke gate, not the first response to every small Rust edit.
@@ -200,6 +230,25 @@ cargo build -p codex-cli --bin whale --release --locked
 Set-Location D:\WhaleCode
 .\scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\release\whale.exe -PersistUserPath -BackupLegacyCopies
 ```
+
+Build helper binaries only when you need to exercise the forwarded helper
+commands locally:
+
+```powershell
+cargo build -p codex-app-server --bin whale-app-server --release --locked
+cargo build -p codex-app-server-test-client --bin whale-app-server-test-client --release --locked
+cargo build -p codex-cloud-tasks --bin whale-cloud-tasks --release --locked
+cargo build -p codex-exec-server --bin whale-exec-server --release --locked
+cargo build -p codex-mcp-server --bin whale-mcp-server --release --locked
+cargo build -p codex-responses-api-proxy --bin whale-responses-api-proxy --release --locked
+cargo build -p codex-stdio-to-uds --bin whale-stdio-to-uds --release --locked
+Set-Location D:\WhaleCode
+.\scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\release\whale.exe -PersistUserPath -BackupLegacyCopies
+```
+
+The installer copies all forwarded helper binaries when they exist next to the
+selected `whale.exe`. If a forwarded command reports that a helper is missing,
+build the specific helper binary above and rerun the installer.
 
 Use the explicit dist profile only for final distribution when binary size is
 worth the extra compile time:

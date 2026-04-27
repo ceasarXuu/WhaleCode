@@ -64,50 +64,26 @@ jobs:
             target: aarch64-apple-darwin
             bundle: primary
             artifact_name: aarch64-apple-darwin
-            binaries: "whale codex-responses-api-proxy"
+            binaries: "whale whale-app-server whale-app-server-test-client whale-cloud-tasks whale-exec-server whale-mcp-server whale-responses-api-proxy whale-stdio-to-uds"
             build_dmg: "true"
-          - runner: macos-15-xlarge
-            target: aarch64-apple-darwin
-            bundle: app-server
-            artifact_name: aarch64-apple-darwin-app-server
-            binaries: "codex-app-server"
-            build_dmg: "false"
           - runner: macos-15-xlarge
             target: x86_64-apple-darwin
             bundle: primary
             artifact_name: x86_64-apple-darwin
-            binaries: "whale codex-responses-api-proxy"
+            binaries: "whale whale-app-server whale-app-server-test-client whale-cloud-tasks whale-exec-server whale-mcp-server whale-responses-api-proxy whale-stdio-to-uds"
             build_dmg: "true"
-          - runner: macos-15-xlarge
-            target: x86_64-apple-darwin
-            bundle: app-server
-            artifact_name: x86_64-apple-darwin-app-server
-            binaries: "codex-app-server"
-            build_dmg: "false"
           # Release artifacts intentionally ship MUSL-linked Linux binaries.
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-musl
             bundle: primary
             artifact_name: x86_64-unknown-linux-musl
-            binaries: "whale codex-responses-api-proxy"
-            build_dmg: "false"
-          - runner: ubuntu-24.04
-            target: x86_64-unknown-linux-musl
-            bundle: app-server
-            artifact_name: x86_64-unknown-linux-musl-app-server
-            binaries: "codex-app-server"
+            binaries: "whale whale-app-server whale-app-server-test-client whale-cloud-tasks whale-exec-server whale-mcp-server whale-responses-api-proxy whale-stdio-to-uds"
             build_dmg: "false"
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
             bundle: primary
             artifact_name: aarch64-unknown-linux-musl
-            binaries: "whale codex-responses-api-proxy"
-            build_dmg: "false"
-          - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
-            bundle: app-server
-            artifact_name: aarch64-unknown-linux-musl-app-server
-            binaries: "codex-app-server"
+            binaries: "whale whale-app-server whale-app-server-test-client whale-cloud-tasks whale-exec-server whale-mcp-server whale-responses-api-proxy whale-stdio-to-uds"
             build_dmg: "false"
 
     steps:

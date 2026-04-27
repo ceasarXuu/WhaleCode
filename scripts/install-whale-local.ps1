@@ -96,6 +96,29 @@ function Backup-LegacyWhale {
     Move-Item -LiteralPath $Path -Destination $Destination
 }
 
+function Backup-LegacyHelper {
+    param(
+        [string]$Path,
+        [string]$BackupRoot
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return
+    }
+
+    New-Item -ItemType Directory -Force $BackupRoot | Out-Null
+    $Item = Get-Item -LiteralPath $Path
+    $BaseName = $Item.BaseName -replace "[^A-Za-z0-9._-]", "_"
+    $Extension = $Item.Extension
+    $Destination = Join-Path $BackupRoot ("$BaseName-$(Get-Date -Format 'yyyyMMddHHmmss')$Extension")
+    $Index = 1
+    while (Test-Path -LiteralPath $Destination) {
+        $Destination = Join-Path $BackupRoot ("$BaseName-$(Get-Date -Format 'yyyyMMddHHmmss')-$Index$Extension")
+        $Index += 1
+    }
+    Move-Item -LiteralPath $Path -Destination $Destination
+}
+
 Assert-IsolatedInstallDir -Path $InstallDir
 
 $Candidates = @()
@@ -112,11 +135,44 @@ $Candidates += (Join-Path $RepoRoot "third_party\codex-cli\codex-rs\target\relea
 $Candidates += (Join-Path $RepoRoot "third_party\codex-cli\codex-rs\target\dist\whale.exe")
 
 $Source = Resolve-ExistingFile -Candidates $Candidates
+$SourceDir = Split-Path -Parent $Source
 $InstallDir = [System.IO.Path]::GetFullPath($InstallDir)
 $Destination = Join-Path $InstallDir "whale.exe"
 
 New-Item -ItemType Directory -Force $InstallDir | Out-Null
 Copy-Item -LiteralPath $Source -Destination $Destination -Force
+
+$HelperBinaries = @(
+    "whale-app-server.exe",
+    "whale-app-server-test-client.exe",
+    "whale-cloud-tasks.exe",
+    "whale-exec-server.exe",
+    "whale-mcp-server.exe",
+    "whale-responses-api-proxy.exe",
+    "whale-stdio-to-uds.exe"
+)
+foreach ($Helper in $HelperBinaries) {
+    $HelperSource = Join-Path $SourceDir $Helper
+    if (Test-Path -LiteralPath $HelperSource -PathType Leaf) {
+        Copy-Item -LiteralPath $HelperSource -Destination (Join-Path $InstallDir $Helper) -Force
+    }
+}
+
+$LegacyHelperBinaries = @(
+    "codex-app-server.exe",
+    "codex-app-server-test-client.exe",
+    "codex-cloud-tasks.exe",
+    "codex-exec-server.exe",
+    "codex-mcp-server.exe",
+    "codex-responses-api-proxy.exe",
+    "codex-stdio-to-uds.exe"
+)
+if ($BackupLegacyCopies) {
+    $LegacyHelperBackupRoot = Join-Path $env:USERPROFILE ".whale\backups\legacy-helper"
+    foreach ($Helper in $LegacyHelperBinaries) {
+        Backup-LegacyHelper -Path (Join-Path $InstallDir $Helper) -BackupRoot $LegacyHelperBackupRoot
+    }
+}
 
 if ($BackupLegacyCopies) {
     $BackupRoot = Join-Path $env:USERPROFILE ".whale\backups\legacy-bin"

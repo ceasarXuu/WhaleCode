@@ -150,8 +150,8 @@ impl McpProcess {
         env_overrides: &[(&str, Option<&str>)],
         args: &[&str],
     ) -> anyhow::Result<Self> {
-        let program = codex_utils_cargo_bin::cargo_bin("codex-app-server")
-            .context("should find binary for codex-app-server")?;
+        let program = codex_utils_cargo_bin::cargo_bin("whale-app-server")
+            .context("should find binary for whale-app-server")?;
         let mut cmd = Command::new(program);
 
         cmd.stdin(Stdio::piped());
@@ -182,7 +182,7 @@ impl McpProcess {
         let mut process = cmd
             .kill_on_drop(true)
             .spawn()
-            .context("codex-mcp-server proc should start")?;
+            .context("whale-app-server proc should start")?;
         let stdin = process
             .stdin
             .take()

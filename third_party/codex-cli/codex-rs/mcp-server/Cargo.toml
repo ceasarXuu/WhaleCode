@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "codex-mcp-server"
+name = "whale-mcp-server"
 path = "src/main.rs"
 
 [lib]
@@ -17,6 +17,7 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
 codex-arg0 = { workspace = true }
 codex-config = { workspace = true }
 codex-core = { workspace = true }

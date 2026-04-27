@@ -23,7 +23,7 @@ pub struct CliConfigOverrides {
     /// parse as TOML, the raw string is used as a literal.
     ///
     /// Examples:
-    ///   - `-c model="o3"`
+    ///   - `-c model="deepseek-v4-pro"`
     ///   - `-c 'sandbox_permissions=["disk-full-read-access"]'`
     ///   - `-c shell_environment_policy.inherit=all`
     #[arg(
@@ -61,7 +61,7 @@ impl CliConfigOverrides {
 
                 // Attempt to parse as TOML. If that fails, treat it as a raw
                 // string. This allows convenient usage such as
-                // `-c model=o3` without the quotes.
+                // `-c model=deepseek-v4-pro` without the quotes.
                 let value: Value = match parse_toml_value(value_str) {
                     Ok(v) => v,
                     Err(_) => {

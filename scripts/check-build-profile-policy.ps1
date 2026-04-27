@@ -4,6 +4,13 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $CargoToml = Join-Path $RepoRoot "third_party\codex-cli\codex-rs\Cargo.toml"
+$CliCargoToml = Join-Path $RepoRoot "third_party\codex-cli\codex-rs\cli\Cargo.toml"
+$CloudTasksCargoToml = Join-Path $RepoRoot "third_party\codex-cli\codex-rs\cloud-tasks\Cargo.toml"
+$InstallWhaleLocal = Join-Path $RepoRoot "scripts\install-whale-local.ps1"
+$BuildNpmPackage = Join-Path $RepoRoot "third_party\codex-cli\codex-cli\scripts\build_npm_package.py"
+$InstallNativeDeps = Join-Path $RepoRoot "third_party\codex-cli\codex-cli\scripts\install_native_deps.py"
+$ConfigOverride = Join-Path $RepoRoot "third_party\codex-cli\codex-rs\utils\cli\src\config_override.rs"
+$CloudTasksCli = Join-Path $RepoRoot "third_party\codex-cli\codex-rs\cloud-tasks\src\cli.rs"
 $Workflow = Join-Path $RepoRoot "docs\runbooks\development-workflow.md"
 $RustReleaseWorkflow = Join-Path $RepoRoot "third_party\codex-cli\.github\workflows\rust-release.yml"
 $RustReleaseWindowsWorkflow = Join-Path $RepoRoot "third_party\codex-cli\.github\workflows\rust-release-windows.yml"
@@ -46,8 +53,76 @@ function Require-Value {
 }
 
 $CargoContent = Get-Content -Path $CargoToml -Encoding UTF8 -Raw
+$CliCargoContent = Get-Content -Path $CliCargoToml -Encoding UTF8 -Raw
+$CloudTasksCargoContent = Get-Content -Path $CloudTasksCargoToml -Encoding UTF8 -Raw
+$InstallWhaleLocalContent = Get-Content -Path $InstallWhaleLocal -Encoding UTF8 -Raw
+$BuildNpmPackageContent = Get-Content -Path $BuildNpmPackage -Encoding UTF8 -Raw
+$InstallNativeDepsContent = Get-Content -Path $InstallNativeDeps -Encoding UTF8 -Raw
+$ConfigOverrideContent = Get-Content -Path $ConfigOverride -Encoding UTF8 -Raw
+$CloudTasksCliContent = Get-Content -Path $CloudTasksCli -Encoding UTF8 -Raw
 $Release = Get-ProfileSection -Content $CargoContent -Name "release"
 $Dist = Get-ProfileSection -Content $CargoContent -Name "dist"
+
+$DisallowedCliDeps = @(
+    "codex-app-server",
+    "codex-app-server-test-client",
+    "codex-cloud-tasks",
+    "codex-exec-server",
+    "codex-mcp-server",
+    "codex-responses-api-proxy",
+    "codex-stdio-to-uds"
+)
+foreach ($Dependency in $DisallowedCliDeps) {
+    if ($CliCargoContent -match "(?m)^$([regex]::Escape($Dependency))\s*=") {
+        throw "The whale CLI must not directly depend on $Dependency; forward to the helper binary instead."
+    }
+}
+$CloudTasksDependencies = [regex]::Match($CloudTasksCargoContent, '(?ms)^\[dependencies\]\s*(.*?)(?=^\[|\z)').Groups[1].Value
+if ($CloudTasksDependencies -match '(?m)^codex-cloud-tasks-mock-client\s*=') {
+    throw "codex-cloud-tasks-mock-client must stay in cloud-tasks dev-dependencies, not normal dependencies."
+}
+
+$WhaleHelperBinaries = @(
+    "whale-app-server",
+    "whale-app-server-test-client",
+    "whale-cloud-tasks",
+    "whale-exec-server",
+    "whale-mcp-server",
+    "whale-responses-api-proxy",
+    "whale-stdio-to-uds"
+)
+foreach ($Helper in $WhaleHelperBinaries) {
+    if ($InstallWhaleLocalContent -notmatch "$([regex]::Escape($Helper))\.exe") {
+        throw "install-whale-local.ps1 must copy $Helper.exe next to whale.exe."
+    }
+}
+if ($InstallWhaleLocalContent -notmatch "legacy-helper") {
+    throw "install-whale-local.ps1 must move old codex-named helper binaries into a backup directory."
+}
+
+$WhaleNpmComponents = @(
+    "whale-app-server",
+    "whale-app-server-test-client",
+    "whale-cloud-tasks",
+    "whale-exec-server",
+    "whale-mcp-server",
+    "whale-responses-api-proxy",
+    "whale-stdio-to-uds"
+)
+foreach ($Component in $WhaleNpmComponents) {
+    if ($BuildNpmPackageContent -notmatch [regex]::Escape($Component)) {
+        throw "build_npm_package.py must stage $Component in Whale platform packages."
+    }
+    if ($InstallNativeDepsContent -notmatch [regex]::Escape($Component)) {
+        throw "install_native_deps.py must install $Component into Whale native vendor payloads."
+    }
+}
+if ($ConfigOverrideContent -match 'model="o3"') {
+    throw "CLI config override examples must use a DeepSeek model, not an OpenAI model."
+}
+if ($CloudTasksCliContent -match "Codex Cloud|codex cloud") {
+    throw "Cloud task help text must use Whale Cloud branding."
+}
 
 Require-Value `
     -Section $Release `
@@ -69,6 +144,11 @@ Require-Value `
     -Key "codegen-units" `
     -Expected "256" `
     -Message "The default release profile must keep parallel release codegen enabled."
+Require-Value `
+    -Section $Release `
+    -Key "strip" `
+    -Expected '"none"' `
+    -Message "The default release profile must not strip local build artifacts."
 Require-Value `
     -Section $Dist `
     -Key "inherits" `
@@ -94,6 +174,11 @@ Require-Value `
     -Key "codegen-units" `
     -Expected "1" `
     -Message "The dist profile must keep single-unit codegen for final distribution."
+Require-Value `
+    -Section $Dist `
+    -Key "strip" `
+    -Expected '"symbols"' `
+    -Message "The dist profile must strip distribution artifacts."
 
 $WorkflowContent = Get-Content -Path $Workflow -Encoding UTF8 -Raw
 if ($WorkflowContent -match "CARGO_PROFILE_RELEASE_LTO\s*=") {
@@ -105,6 +190,14 @@ if ($WorkflowContent -notmatch "cargo build -p codex-cli --bin whale --profile d
 
 $ReleaseWorkflowContent = Get-Content -Path $RustReleaseWorkflow -Encoding UTF8 -Raw
 $WindowsWorkflowContent = Get-Content -Path $RustReleaseWindowsWorkflow -Encoding UTF8 -Raw
+foreach ($Helper in $WhaleHelperBinaries) {
+    if ($ReleaseWorkflowContent -notmatch [regex]::Escape($Helper)) {
+        throw "Rust release workflow must build and publish $Helper for Whale platform packages."
+    }
+    if ($WindowsWorkflowContent -notmatch [regex]::Escape($Helper)) {
+        throw "Windows release workflow must build and publish $Helper for Whale platform packages."
+    }
+}
 if ($ReleaseWorkflowContent -notmatch "cargo build --target \$\{\{ matrix\.target \}\} --profile dist") {
     throw "Rust release workflow must build distribution artifacts with --profile dist."
 }

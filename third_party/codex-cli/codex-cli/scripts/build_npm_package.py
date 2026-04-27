@@ -67,14 +67,35 @@ PACKAGE_EXPANSIONS: dict[str, list[str]] = {
     "whalecode": ["whalecode", *WHALE_PLATFORM_PACKAGES],
 }
 
+WHALE_HELPER_COMPONENTS = [
+    "whale-app-server",
+    "whale-app-server-test-client",
+    "whale-cloud-tasks",
+    "whale-exec-server",
+    "whale-mcp-server",
+    "whale-responses-api-proxy",
+    "whale-stdio-to-uds",
+]
+WHALE_WINDOWS_COMPONENTS = ["codex-windows-sandbox-setup", "codex-command-runner"]
+
 PACKAGE_NATIVE_COMPONENTS: dict[str, list[str]] = {
     "whalecode": [],
-    "whalecode-linux-x64": ["whale", "rg"],
-    "whalecode-linux-arm64": ["whale", "rg"],
-    "whalecode-darwin-x64": ["whale", "rg"],
-    "whalecode-darwin-arm64": ["whale", "rg"],
-    "whalecode-win32-x64": ["whale", "rg", "codex-windows-sandbox-setup", "codex-command-runner"],
-    "whalecode-win32-arm64": ["whale", "rg", "codex-windows-sandbox-setup", "codex-command-runner"],
+    "whalecode-linux-x64": ["whale", *WHALE_HELPER_COMPONENTS, "rg"],
+    "whalecode-linux-arm64": ["whale", *WHALE_HELPER_COMPONENTS, "rg"],
+    "whalecode-darwin-x64": ["whale", *WHALE_HELPER_COMPONENTS, "rg"],
+    "whalecode-darwin-arm64": ["whale", *WHALE_HELPER_COMPONENTS, "rg"],
+    "whalecode-win32-x64": [
+        "whale",
+        *WHALE_HELPER_COMPONENTS,
+        *WHALE_WINDOWS_COMPONENTS,
+        "rg",
+    ],
+    "whalecode-win32-arm64": [
+        "whale",
+        *WHALE_HELPER_COMPONENTS,
+        *WHALE_WINDOWS_COMPONENTS,
+        "rg",
+    ],
     "codex-responses-api-proxy": ["codex-responses-api-proxy"],
     "codex-sdk": [],
 }
@@ -88,10 +109,32 @@ PACKAGE_CHOICES = tuple(PACKAGE_NATIVE_COMPONENTS)
 
 COMPONENT_DEST_DIR: dict[str, str] = {
     "whale": "whale",
+    "whale-app-server": "whale",
+    "whale-app-server-test-client": "whale",
+    "whale-cloud-tasks": "whale",
+    "whale-exec-server": "whale",
+    "whale-mcp-server": "whale",
+    "whale-responses-api-proxy": "whale",
     "codex-responses-api-proxy": "codex-responses-api-proxy",
+    "whale-stdio-to-uds": "whale",
     "codex-windows-sandbox-setup": "whale",
     "codex-command-runner": "whale",
     "rg": "path",
+}
+
+COMPONENT_BINARY_BASENAME: dict[str, str] = {
+    "whale": "whale",
+    "whale-app-server": "whale-app-server",
+    "whale-app-server-test-client": "whale-app-server-test-client",
+    "whale-cloud-tasks": "whale-cloud-tasks",
+    "whale-exec-server": "whale-exec-server",
+    "whale-mcp-server": "whale-mcp-server",
+    "whale-responses-api-proxy": "whale-responses-api-proxy",
+    "codex-responses-api-proxy": "codex-responses-api-proxy",
+    "whale-stdio-to-uds": "whale-stdio-to-uds",
+    "codex-windows-sandbox-setup": "codex-windows-sandbox-setup",
+    "codex-command-runner": "codex-command-runner",
+    "rg": "rg",
 }
 
 
@@ -402,6 +445,15 @@ def copy_native_binaries(
                 raise RuntimeError(
                     f"Missing native component '{component}' in vendor source: {src_component_dir}"
                 )
+            binary_basename = COMPONENT_BINARY_BASENAME.get(component)
+            if binary_basename is not None:
+                expected_binary = src_component_dir / native_binary_name(
+                    target_dir.name, binary_basename
+                )
+                if not expected_binary.is_file():
+                    raise RuntimeError(
+                        f"Missing native binary for component '{component}': {expected_binary}"
+                    )
 
             dest_component_dir = dest_target_dir / dest_dir_name
             if dest_component_dir.exists():
@@ -413,6 +465,12 @@ def copy_native_binaries(
         if missing_targets:
             missing_list = ", ".join(missing_targets)
             raise RuntimeError(f"Missing target directories in vendor source: {missing_list}")
+
+
+def native_binary_name(target: str, binary_basename: str) -> str:
+    if "windows" in target:
+        return f"{binary_basename}.exe"
+    return binary_basename
 
 
 def run_npm_pack(staging_dir: Path, output_path: Path) -> Path:

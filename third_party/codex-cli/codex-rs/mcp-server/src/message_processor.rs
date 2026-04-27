@@ -216,7 +216,7 @@ impl MessageProcessor {
         }
 
         let server_info = Implementation {
-            name: "codex-mcp-server".to_string(),
+            name: "whale-mcp-server".to_string(),
             title: Some("Codex".to_string()),
             version: env!("CARGO_PKG_VERSION").to_string(),
             description: None,

@@ -49,10 +49,45 @@ BINARY_COMPONENTS = {
         dest_dir="whale",
         binary_basename="whale",
     ),
+    "whale-app-server": BinaryComponent(
+        artifact_prefix="whale-app-server",
+        dest_dir="whale",
+        binary_basename="whale-app-server",
+    ),
+    "whale-app-server-test-client": BinaryComponent(
+        artifact_prefix="whale-app-server-test-client",
+        dest_dir="whale",
+        binary_basename="whale-app-server-test-client",
+    ),
+    "whale-cloud-tasks": BinaryComponent(
+        artifact_prefix="whale-cloud-tasks",
+        dest_dir="whale",
+        binary_basename="whale-cloud-tasks",
+    ),
+    "whale-exec-server": BinaryComponent(
+        artifact_prefix="whale-exec-server",
+        dest_dir="whale",
+        binary_basename="whale-exec-server",
+    ),
+    "whale-mcp-server": BinaryComponent(
+        artifact_prefix="whale-mcp-server",
+        dest_dir="whale",
+        binary_basename="whale-mcp-server",
+    ),
+    "whale-responses-api-proxy": BinaryComponent(
+        artifact_prefix="whale-responses-api-proxy",
+        dest_dir="whale",
+        binary_basename="whale-responses-api-proxy",
+    ),
     "codex-responses-api-proxy": BinaryComponent(
         artifact_prefix="codex-responses-api-proxy",
         dest_dir="codex-responses-api-proxy",
         binary_basename="codex-responses-api-proxy",
+    ),
+    "whale-stdio-to-uds": BinaryComponent(
+        artifact_prefix="whale-stdio-to-uds",
+        dest_dir="whale",
+        binary_basename="whale-stdio-to-uds",
     ),
     "codex-windows-sandbox-setup": BinaryComponent(
         artifact_prefix="codex-windows-sandbox-setup",
@@ -136,7 +171,8 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Limit installation to the specified components."
             " May be repeated. Defaults to whale, codex-windows-sandbox-setup,"
-            " codex-command-runner, and rg."
+            " codex-command-runner, and rg. Platform package staging adds Whale helper"
+            " binaries explicitly."
         ),
     )
     parser.add_argument(

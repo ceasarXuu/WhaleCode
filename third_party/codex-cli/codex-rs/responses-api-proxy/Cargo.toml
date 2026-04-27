@@ -12,6 +12,10 @@ path = "src/lib.rs"
 name = "codex-responses-api-proxy"
 path = "src/main.rs"
 
+[[bin]]
+name = "whale-responses-api-proxy"
+path = "src/bin/whale_responses_api_proxy.rs"
+
 [lints]
 workspace = true
 

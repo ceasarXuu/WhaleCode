@@ -8,6 +8,10 @@ version.workspace = true
 name = "codex_cloud_tasks"
 path = "src/lib.rs"
 
+[[bin]]
+name = "whale-cloud-tasks"
+path = "src/main.rs"
+
 [lints]
 workspace = true
 
@@ -17,8 +21,6 @@ chrono = { workspace = true, features = ["serde"] }
 clap = { workspace = true, features = ["derive"] }
 codex-client = { workspace = true }
 codex-cloud-tasks-client = { workspace = true }
-# TODO: codex-cloud-tasks-mock-client should be in dev-dependencies.
-codex-cloud-tasks-mock-client = { workspace = true }
 codex-core = { workspace = true }
 codex-git-utils = { workspace = true }
 codex-login = { path = "../login" }
@@ -42,4 +44,5 @@ unicode-width = { workspace = true }
 workspace = true
 
 [dev-dependencies]
+codex-cloud-tasks-mock-client = { workspace = true }
 pretty_assertions = { workspace = true }

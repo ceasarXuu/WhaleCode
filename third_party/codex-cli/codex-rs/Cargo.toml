@@ -463,9 +463,9 @@ opt-level = 1
 lto = false
 incremental = true
 split-debuginfo = "off"
-# Because we bundle some of these executables with the TypeScript CLI, we
-# remove everything to make the binary as small as possible.
-strip = "symbols"
+# Keep local release builds focused on compile/link latency. The dist profile
+# below performs distribution-size stripping.
+strip = "none"
 
 # Keep local release codegen highly parallel. Use the dist profile below when a
 # final size-first build is needed.
@@ -477,6 +477,7 @@ opt-level = 3
 lto = "fat"
 incremental = false
 codegen-units = 1
+strip = "symbols"
 
 [profile.ci-test]
 debug = 1         # Reduce debug symbol size

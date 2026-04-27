@@ -1,4 +1,3 @@
-use clap::Args;
 use clap::CommandFactory;
 use clap::Parser;
 use clap_complete::Shell;
@@ -17,12 +16,10 @@ use codex_cli::run_login_with_agent_identity;
 use codex_cli::run_login_with_api_key;
 use codex_cli::run_login_with_device_code;
 use codex_cli::run_logout;
-use codex_cloud_tasks::Cli as CloudTasksCli;
 use codex_exec::Cli as ExecCli;
 use codex_exec::Command as ExecCommand;
 use codex_exec::ReviewArgs;
 use codex_execpolicy::ExecPolicyCheckCommand;
-use codex_responses_api_proxy::Args as ResponsesApiProxyArgs;
 use codex_rollout_trace::REDUCED_STATE_FILE_NAME;
 use codex_rollout_trace::replay_bundle;
 use codex_state::StateRuntime;
@@ -31,9 +28,9 @@ use codex_tui::AppExitInfo;
 use codex_tui::Cli as TuiCli;
 use codex_tui::ExitReason;
 use codex_tui::UpdateAction;
-use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_cli::CliConfigOverrides;
 use owo_colors::OwoColorize;
+use std::ffi::OsString;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use supports_color::Stream;
@@ -156,11 +153,11 @@ enum Subcommand {
 
     /// [EXPERIMENTAL] Browse tasks from Whale Cloud and apply changes locally.
     #[clap(name = "cloud", alias = "cloud-tasks", hide = true)]
-    Cloud(CloudTasksCli),
+    Cloud(ForwardedSubcommandArgs),
 
     /// Internal: run the responses API proxy.
     #[clap(hide = true)]
-    ResponsesApiProxy(ResponsesApiProxyArgs),
+    ResponsesApiProxy(ForwardedSubcommandArgs),
 
     /// Internal: relay stdio to a Unix domain socket.
     #[clap(hide = true, name = "stdio-to-uds")]
@@ -416,39 +413,13 @@ struct LogoutCommand {
 
 #[derive(Debug, Parser)]
 struct AppServerCommand {
-    /// Omit to run the app server; specify a subcommand for tooling.
-    #[command(subcommand)]
-    subcommand: Option<AppServerSubcommand>,
-
-    /// Transport endpoint URL. Supported values: `stdio://` (default),
-    /// `unix://`, `unix://PATH`, `ws://IP:PORT`, `off`.
+    /// Arguments forwarded to the sibling `whale-app-server` binary.
     #[arg(
-        long = "listen",
-        value_name = "URL",
-        default_value = codex_app_server::AppServerTransport::DEFAULT_LISTEN_URL
+        value_name = "ARGS",
+        trailing_var_arg = true,
+        allow_hyphen_values = true
     )]
-    listen: codex_app_server::AppServerTransport,
-
-    /// Controls whether analytics are enabled by default.
-    ///
-    /// Analytics are disabled by default for app-server. Users have to explicitly opt in
-    /// via the `analytics` section in the config.toml file.
-    ///
-    /// However, for first-party use cases like the VSCode IDE extension, we default analytics
-    /// to be enabled by default by setting this flag. Users can still opt out by setting this
-    /// in their config.toml:
-    ///
-    /// ```toml
-    /// [analytics]
-    /// enabled = false
-    /// ```
-    ///
-    /// See upstream metrics documentation for the inherited telemetry schema.
-    #[arg(long = "analytics-default-enabled")]
-    analytics_default_enabled: bool,
-
-    #[command(flatten)]
-    auth: codex_app_server::AppServerWebsocketAuthArgs,
+    args: Vec<OsString>,
 }
 
 #[derive(Debug, Parser)]
@@ -462,73 +433,22 @@ struct ExecServerCommand {
     listen: String,
 }
 
-#[derive(Debug, clap::Subcommand)]
-#[allow(clippy::enum_variant_names)]
-enum AppServerSubcommand {
-    /// Proxy stdio bytes to the running app-server control socket.
-    Proxy(AppServerProxyCommand),
-
-    /// [experimental] Generate TypeScript bindings for the app server protocol.
-    GenerateTs(GenerateTsCommand),
-
-    /// [experimental] Generate JSON Schema for the app server protocol.
-    GenerateJsonSchema(GenerateJsonSchemaCommand),
-
-    /// [internal] Generate internal JSON Schema artifacts for Whale tooling.
-    #[clap(hide = true)]
-    GenerateInternalJsonSchema(GenerateInternalJsonSchemaCommand),
-}
-
-#[derive(Debug, Args)]
-struct AppServerProxyCommand {
-    /// Path to the app-server Unix domain socket to connect to.
-    #[arg(long = "sock", value_name = "SOCKET_PATH", value_parser = parse_socket_path)]
-    socket_path: Option<AbsolutePathBuf>,
-}
-
-#[derive(Debug, Args)]
-struct GenerateTsCommand {
-    /// Output directory where .ts files will be written
-    #[arg(short = 'o', long = "out", value_name = "DIR")]
-    out_dir: PathBuf,
-
-    /// Optional path to the Prettier executable to format generated files
-    #[arg(short = 'p', long = "prettier", value_name = "PRETTIER_BIN")]
-    prettier: Option<PathBuf>,
-
-    /// Include experimental methods and fields in the generated output
-    #[arg(long = "experimental", default_value_t = false)]
-    experimental: bool,
-}
-
-#[derive(Debug, Args)]
-struct GenerateJsonSchemaCommand {
-    /// Output directory where the schema bundle will be written
-    #[arg(short = 'o', long = "out", value_name = "DIR")]
-    out_dir: PathBuf,
-
-    /// Include experimental methods and fields in the generated output
-    #[arg(long = "experimental", default_value_t = false)]
-    experimental: bool,
-}
-
-#[derive(Debug, Args)]
-struct GenerateInternalJsonSchemaCommand {
-    /// Output directory where internal JSON Schema artifacts will be written
-    #[arg(short = 'o', long = "out", value_name = "DIR")]
-    out_dir: PathBuf,
+#[derive(Debug, Parser)]
+struct ForwardedSubcommandArgs {
+    /// Arguments forwarded to the sibling helper binary.
+    #[arg(
+        value_name = "ARGS",
+        trailing_var_arg = true,
+        allow_hyphen_values = true
+    )]
+    args: Vec<OsString>,
 }
 
 #[derive(Debug, Parser)]
 struct StdioToUdsCommand {
     /// Path to the Unix domain socket to connect to.
-    #[arg(value_name = "SOCKET_PATH", value_parser = parse_socket_path)]
-    socket_path: AbsolutePathBuf,
-}
-
-fn parse_socket_path(raw: &str) -> Result<AbsolutePathBuf, String> {
-    AbsolutePathBuf::relative_to_current_dir(raw)
-        .map_err(|err| format!("failed to resolve socket path `{raw}`: {err}"))
+    #[arg(value_name = "SOCKET_PATH")]
+    socket_path: PathBuf,
 }
 
 fn format_exit_messages(exit_info: AppExitInfo, color_enabled: bool) -> Vec<String> {
@@ -628,12 +548,21 @@ fn run_execpolicycheck(cmd: ExecPolicyCheckCommand) -> anyhow::Result<()> {
     cmd.run()
 }
 
-async fn run_debug_app_server_command(cmd: DebugAppServerCommand) -> anyhow::Result<()> {
+fn run_debug_app_server_command(
+    cmd: DebugAppServerCommand,
+    arg0_paths: &Arg0DispatchPaths,
+) -> anyhow::Result<()> {
     match cmd.subcommand {
         DebugAppServerSubcommand::SendMessageV2(cmd) => {
-            let codex_bin = std::env::current_exe()?;
-            codex_app_server_test_client::send_message_v2(&codex_bin, &[], cmd.user_message, &None)
-                .await
+            let codex_bin = arg0_paths
+                .codex_self_exe
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("Whale executable path is not configured"))?;
+            run_sibling_binary(
+                "whale-app-server-test-client",
+                debug_app_server_send_message_v2_args(codex_bin.into_os_string(), cmd.user_message),
+            )?;
+            Ok(())
         }
     }
 }
@@ -790,7 +719,9 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                 root_remote_auth_token_env.as_deref(),
                 "mcp-server",
             )?;
-            codex_mcp_server::run_main(arg0_paths.clone(), root_config_overrides).await?;
+            let mut forwarded_args = config_overrides_to_forwarded_args(root_config_overrides);
+            forwarded_args.extend(forwarded_codex_runtime_args(&arg0_paths)?);
+            run_sibling_binary("whale-mcp-server", forwarded_args)?;
         }
         Some(Subcommand::Mcp(mut mcp_cli)) => {
             reject_remote_mode_for_subcommand(
@@ -821,63 +752,15 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
             }
         }
         Some(Subcommand::AppServer(app_server_cli)) => {
-            let AppServerCommand {
-                subcommand,
-                listen,
-                analytics_default_enabled,
-                auth,
-            } = app_server_cli;
-            reject_remote_mode_for_app_server_subcommand(
+            reject_remote_mode_for_subcommand(
                 root_remote.as_deref(),
                 root_remote_auth_token_env.as_deref(),
-                subcommand.as_ref(),
+                "app-server",
             )?;
-            match subcommand {
-                None => {
-                    let transport = listen;
-                    let auth = auth.try_into_settings()?;
-                    codex_app_server::run_main_with_transport(
-                        arg0_paths.clone(),
-                        root_config_overrides,
-                        codex_core::config_loader::LoaderOverrides::default(),
-                        analytics_default_enabled,
-                        transport,
-                        codex_protocol::protocol::SessionSource::VSCode,
-                        auth,
-                    )
-                    .await?;
-                }
-                Some(AppServerSubcommand::Proxy(proxy_cli)) => {
-                    let socket_path = match proxy_cli.socket_path {
-                        Some(socket_path) => socket_path,
-                        None => {
-                            let codex_home = find_codex_home()?;
-                            codex_app_server::app_server_control_socket_path(&codex_home)?
-                        }
-                    };
-                    codex_stdio_to_uds::run(socket_path.as_path()).await?;
-                }
-                Some(AppServerSubcommand::GenerateTs(gen_cli)) => {
-                    let options = codex_app_server_protocol::GenerateTsOptions {
-                        experimental_api: gen_cli.experimental,
-                        ..Default::default()
-                    };
-                    codex_app_server_protocol::generate_ts_with_options(
-                        &gen_cli.out_dir,
-                        gen_cli.prettier.as_deref(),
-                        options,
-                    )?;
-                }
-                Some(AppServerSubcommand::GenerateJsonSchema(gen_cli)) => {
-                    codex_app_server_protocol::generate_json_with_experimental(
-                        &gen_cli.out_dir,
-                        gen_cli.experimental,
-                    )?;
-                }
-                Some(AppServerSubcommand::GenerateInternalJsonSchema(gen_cli)) => {
-                    codex_app_server_protocol::generate_internal_json_schema(&gen_cli.out_dir)?;
-                }
-            }
+            let mut forwarded_args = config_overrides_to_forwarded_args(root_config_overrides);
+            forwarded_args.extend(forwarded_codex_runtime_args(&arg0_paths)?);
+            forwarded_args.extend(app_server_cli.args);
+            run_sibling_binary("whale-app-server", forwarded_args)?;
         }
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         Some(Subcommand::App(app_cli)) => {
@@ -1010,18 +893,15 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
             )?;
             print_completion(completion_cli);
         }
-        Some(Subcommand::Cloud(mut cloud_cli)) => {
+        Some(Subcommand::Cloud(cloud_cli)) => {
             reject_remote_mode_for_subcommand(
                 root_remote.as_deref(),
                 root_remote_auth_token_env.as_deref(),
                 "cloud",
             )?;
-            prepend_config_flags(
-                &mut cloud_cli.config_overrides,
-                root_config_overrides.clone(),
-            );
-            codex_cloud_tasks::run_main(cloud_cli, arg0_paths.codex_linux_sandbox_exe.clone())
-                .await?;
+            let mut forwarded_args = config_overrides_to_forwarded_args(root_config_overrides);
+            forwarded_args.extend(cloud_cli.args);
+            run_sibling_binary("whale-cloud-tasks", forwarded_args)?;
         }
         Some(Subcommand::Sandbox(sandbox_args)) => match sandbox_args.cmd {
             SandboxCommand::Macos(mut seatbelt_cli) => {
@@ -1088,7 +968,7 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                     root_remote_auth_token_env.as_deref(),
                     "debug app-server",
                 )?;
-                run_debug_app_server_command(cmd).await?;
+                run_debug_app_server_command(cmd, &arg0_paths)?;
             }
             DebugSubcommand::PromptInput(cmd) => {
                 reject_remote_mode_for_subcommand(
@@ -1149,8 +1029,7 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                 root_remote_auth_token_env.as_deref(),
                 "responses-api-proxy",
             )?;
-            tokio::task::spawn_blocking(move || codex_responses_api_proxy::run_main(args))
-                .await??;
+            run_sibling_binary("whale-responses-api-proxy", args.args)?;
         }
         Some(Subcommand::StdioToUds(cmd)) => {
             reject_remote_mode_for_subcommand(
@@ -1158,8 +1037,7 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                 root_remote_auth_token_env.as_deref(),
                 "stdio-to-uds",
             )?;
-            let socket_path = cmd.socket_path;
-            codex_stdio_to_uds::run(socket_path.as_path()).await?;
+            run_sibling_binary("whale-stdio-to-uds", vec![cmd.socket_path.into_os_string()])?;
         }
         Some(Subcommand::ExecServer(cmd)) => {
             reject_remote_mode_for_subcommand(
@@ -1167,7 +1045,7 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                 root_remote_auth_token_env.as_deref(),
                 "exec-server",
             )?;
-            run_exec_server_command(cmd, &arg0_paths).await?;
+            run_exec_server_command(cmd, &arg0_paths)?;
         }
         Some(Subcommand::Features(FeaturesCli { sub })) => match sub {
             FeaturesSubcommand::List => {
@@ -1239,21 +1117,14 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_exec_server_command(
+fn run_exec_server_command(
     cmd: ExecServerCommand,
     arg0_paths: &Arg0DispatchPaths,
 ) -> anyhow::Result<()> {
-    let codex_self_exe = arg0_paths
-        .codex_self_exe
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("Whale executable path is not configured"))?;
-    let runtime_paths = codex_exec_server::ExecServerRuntimePaths::new(
-        codex_self_exe,
-        arg0_paths.codex_linux_sandbox_exe.clone(),
-    )?;
-    codex_exec_server::run_main(&cmd.listen, runtime_paths)
-        .await
-        .map_err(anyhow::Error::from_boxed)
+    run_sibling_binary(
+        "whale-exec-server",
+        exec_server_forwarded_args(cmd, arg0_paths)?,
+    )
 }
 
 async fn enable_feature_in_config(interactive: &TuiCli, feature: &str) -> anyhow::Result<()> {
@@ -1469,6 +1340,84 @@ fn prepend_config_flags(
         .splice(0..0, cli_config_overrides.raw_overrides);
 }
 
+fn config_overrides_to_forwarded_args(config_overrides: CliConfigOverrides) -> Vec<OsString> {
+    let mut args = Vec::with_capacity(config_overrides.raw_overrides.len() * 2);
+    for raw_override in config_overrides.raw_overrides {
+        args.push(OsString::from("--config"));
+        args.push(OsString::from(raw_override));
+    }
+    args
+}
+
+fn forwarded_codex_runtime_args(arg0_paths: &Arg0DispatchPaths) -> anyhow::Result<Vec<OsString>> {
+    let codex_self_exe = arg0_paths
+        .codex_self_exe
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("Whale executable path is not configured"))?;
+    let mut args = vec![
+        OsString::from("--codex-bin"),
+        codex_self_exe.into_os_string(),
+    ];
+    if let Some(linux_sandbox_exe) = arg0_paths.codex_linux_sandbox_exe.clone() {
+        args.push(OsString::from("--linux-sandbox-bin"));
+        args.push(linux_sandbox_exe.into_os_string());
+    }
+    Ok(args)
+}
+
+fn exec_server_forwarded_args(
+    cmd: ExecServerCommand,
+    arg0_paths: &Arg0DispatchPaths,
+) -> anyhow::Result<Vec<OsString>> {
+    let mut args = vec![OsString::from("--listen"), OsString::from(cmd.listen)];
+    args.extend(forwarded_codex_runtime_args(arg0_paths)?);
+    Ok(args)
+}
+
+fn debug_app_server_send_message_v2_args(
+    codex_bin: OsString,
+    user_message: String,
+) -> Vec<OsString> {
+    vec![
+        OsString::from("--codex-bin"),
+        codex_bin,
+        OsString::from("send-message-v2"),
+        OsString::from("--experimental-api"),
+        OsString::from(user_message),
+    ]
+}
+
+fn sibling_binary_file_name(binary_name: &str) -> String {
+    if cfg!(windows) {
+        format!("{binary_name}.exe")
+    } else {
+        binary_name.to_string()
+    }
+}
+
+fn run_sibling_binary(binary_name: &str, args: Vec<OsString>) -> anyhow::Result<()> {
+    let current_exe = std::env::current_exe()?;
+    let current_dir = current_exe
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("failed to resolve current executable directory"))?;
+    let binary_path = current_dir.join(sibling_binary_file_name(binary_name));
+    if !binary_path.is_file() {
+        anyhow::bail!(
+            "Required helper `{}` was not found next to `{}`. Build and install the helper binary, then retry.",
+            binary_path.display(),
+            current_exe.display()
+        );
+    }
+
+    let status = std::process::Command::new(&binary_path)
+        .args(args)
+        .status()?;
+    match status.code() {
+        Some(code) => std::process::exit(code),
+        None => anyhow::bail!("helper `{}` terminated by signal", binary_path.display()),
+    }
+}
+
 fn reject_remote_mode_for_subcommand(
     remote: Option<&str>,
     remote_auth_token_env: Option<&str>,
@@ -1485,23 +1434,6 @@ fn reject_remote_mode_for_subcommand(
         );
     }
     Ok(())
-}
-
-fn reject_remote_mode_for_app_server_subcommand(
-    remote: Option<&str>,
-    remote_auth_token_env: Option<&str>,
-    subcommand: Option<&AppServerSubcommand>,
-) -> anyhow::Result<()> {
-    let subcommand_name = match subcommand {
-        None => "app-server",
-        Some(AppServerSubcommand::Proxy(_)) => "app-server proxy",
-        Some(AppServerSubcommand::GenerateTs(_)) => "app-server generate-ts",
-        Some(AppServerSubcommand::GenerateJsonSchema(_)) => "app-server generate-json-schema",
-        Some(AppServerSubcommand::GenerateInternalJsonSchema(_)) => {
-            "app-server generate-internal-json-schema"
-        }
-    };
-    reject_remote_mode_for_subcommand(remote, remote_auth_token_env, subcommand_name)
 }
 
 fn read_remote_auth_token_from_env_var_with<F>(
@@ -1809,12 +1741,6 @@ mod tests {
             unreachable!()
         };
         app_server
-    }
-
-    fn default_app_server_socket_path() -> AbsolutePathBuf {
-        let codex_home = find_codex_home().expect("whale home");
-        codex_app_server::app_server_control_socket_path(&codex_home)
-            .expect("default app-server socket path")
     }
 
     #[test]
@@ -2187,20 +2113,131 @@ mod tests {
     }
 
     #[test]
-    fn app_server_analytics_default_disabled_without_flag() {
+    fn app_server_forwards_no_args() {
         let app_server = app_server_from_args(["whale", "app-server"].as_ref());
-        assert!(!app_server.analytics_default_enabled);
+        assert!(app_server.args.is_empty());
+    }
+
+    #[test]
+    fn app_server_forwards_server_flags() {
+        let app_server = app_server_from_args(
+            [
+                "whale",
+                "app-server",
+                "--listen",
+                "ws://127.0.0.1:4500",
+                "--analytics-default-enabled",
+                "--ws-auth",
+                "signed-bearer-token",
+                "--ws-shared-secret-file",
+                "/tmp/whale-secret",
+            ]
+            .as_ref(),
+        );
         assert_eq!(
-            app_server.listen,
-            codex_app_server::AppServerTransport::Stdio
+            app_server.args,
+            vec![
+                OsString::from("--listen"),
+                OsString::from("ws://127.0.0.1:4500"),
+                OsString::from("--analytics-default-enabled"),
+                OsString::from("--ws-auth"),
+                OsString::from("signed-bearer-token"),
+                OsString::from("--ws-shared-secret-file"),
+                OsString::from("/tmp/whale-secret"),
+            ]
         );
     }
 
     #[test]
-    fn app_server_analytics_default_enabled_with_flag() {
+    fn app_server_forwards_tooling_subcommands() {
         let app_server =
-            app_server_from_args(["whale", "app-server", "--analytics-default-enabled"].as_ref());
-        assert!(app_server.analytics_default_enabled);
+            app_server_from_args(["whale", "app-server", "proxy", "--sock", "whale.sock"].as_ref());
+        assert_eq!(
+            app_server.args,
+            vec![
+                OsString::from("proxy"),
+                OsString::from("--sock"),
+                OsString::from("whale.sock"),
+            ]
+        );
+    }
+
+    #[test]
+    fn config_overrides_are_forwarded_as_cli_flags() {
+        let forwarded = config_overrides_to_forwarded_args(CliConfigOverrides {
+            raw_overrides: vec!["model=deepseek-v4-flash".to_string()],
+        });
+        assert_eq!(
+            forwarded,
+            vec![
+                OsString::from("--config"),
+                OsString::from("model=deepseek-v4-flash"),
+            ]
+        );
+    }
+
+    #[test]
+    fn runtime_paths_are_forwarded_to_helper_binaries() {
+        let forwarded = forwarded_codex_runtime_args(&Arg0DispatchPaths {
+            codex_self_exe: Some(PathBuf::from("/tmp/whale")),
+            codex_linux_sandbox_exe: Some(PathBuf::from("/tmp/codex-linux-sandbox")),
+            main_execve_wrapper_exe: None,
+        })
+        .expect("runtime args");
+
+        assert_eq!(
+            forwarded,
+            vec![
+                OsString::from("--codex-bin"),
+                OsString::from("/tmp/whale"),
+                OsString::from("--linux-sandbox-bin"),
+                OsString::from("/tmp/codex-linux-sandbox"),
+            ]
+        );
+    }
+
+    #[test]
+    fn exec_server_forwards_listen_and_runtime_paths() {
+        let forwarded = exec_server_forwarded_args(
+            ExecServerCommand {
+                listen: "ws://127.0.0.1:5000".to_string(),
+            },
+            &Arg0DispatchPaths {
+                codex_self_exe: Some(PathBuf::from("/tmp/whale")),
+                codex_linux_sandbox_exe: None,
+                main_execve_wrapper_exe: None,
+            },
+        )
+        .expect("exec-server args");
+
+        assert_eq!(
+            forwarded,
+            vec![
+                OsString::from("--listen"),
+                OsString::from("ws://127.0.0.1:5000"),
+                OsString::from("--codex-bin"),
+                OsString::from("/tmp/whale"),
+            ]
+        );
+    }
+
+    #[test]
+    fn debug_app_server_test_client_preserves_v2_experimental_mode() {
+        let forwarded = debug_app_server_send_message_v2_args(
+            OsString::from("/tmp/whale"),
+            "hello".to_string(),
+        );
+
+        assert_eq!(
+            forwarded,
+            vec![
+                OsString::from("--codex-bin"),
+                OsString::from("/tmp/whale"),
+                OsString::from("send-message-v2"),
+                OsString::from("--experimental-api"),
+                OsString::from("hello"),
+            ]
+        );
     }
 
     #[test]
@@ -2268,18 +2305,14 @@ mod tests {
     }
 
     #[test]
-    fn reject_remote_auth_token_env_for_app_server_generate_internal_json_schema() {
-        let subcommand =
-            AppServerSubcommand::GenerateInternalJsonSchema(GenerateInternalJsonSchemaCommand {
-                out_dir: PathBuf::from("/tmp/out"),
-            });
-        let err = reject_remote_mode_for_app_server_subcommand(
+    fn reject_remote_auth_token_env_for_app_server() {
+        let err = reject_remote_mode_for_subcommand(
             /*remote*/ None,
             Some("CODEX_REMOTE_AUTH_TOKEN"),
-            Some(&subcommand),
+            "app-server",
         )
-        .expect_err("non-interactive app-server subcommands should reject --remote-auth-token-env");
-        assert!(err.to_string().contains("generate-internal-json-schema"));
+        .expect_err("app-server should reject --remote-auth-token-env");
+        assert!(err.to_string().contains("app-server"));
     }
 
     #[test]
@@ -2308,172 +2341,6 @@ mod tests {
         })
         .expect_err("empty env vars should be rejected");
         assert!(err.to_string().contains("is empty"));
-    }
-
-    #[test]
-    fn app_server_listen_websocket_url_parses() {
-        let app_server = app_server_from_args(
-            ["whale", "app-server", "--listen", "ws://127.0.0.1:4500"].as_ref(),
-        );
-        assert_eq!(
-            app_server.listen,
-            codex_app_server::AppServerTransport::WebSocket {
-                bind_address: "127.0.0.1:4500".parse().expect("valid socket address"),
-            }
-        );
-    }
-
-    #[test]
-    fn app_server_listen_stdio_url_parses() {
-        let app_server =
-            app_server_from_args(["whale", "app-server", "--listen", "stdio://"].as_ref());
-        assert_eq!(
-            app_server.listen,
-            codex_app_server::AppServerTransport::Stdio
-        );
-    }
-
-    #[test]
-    fn app_server_listen_unix_socket_url_parses() {
-        let app_server =
-            app_server_from_args(["whale", "app-server", "--listen", "unix://"].as_ref());
-        assert_eq!(
-            app_server.listen,
-            codex_app_server::AppServerTransport::UnixSocket {
-                socket_path: default_app_server_socket_path()
-            }
-        );
-    }
-
-    #[test]
-    fn app_server_listen_unix_socket_path_parses() {
-        let app_server = app_server_from_args(
-            ["whale", "app-server", "--listen", "unix:///tmp/whale.sock"].as_ref(),
-        );
-        assert_eq!(
-            app_server.listen,
-            codex_app_server::AppServerTransport::UnixSocket {
-                socket_path: AbsolutePathBuf::from_absolute_path("/tmp/whale.sock")
-                    .expect("absolute path should parse")
-            }
-        );
-    }
-
-    #[test]
-    fn app_server_listen_off_parses() {
-        let app_server = app_server_from_args(["whale", "app-server", "--listen", "off"].as_ref());
-        assert_eq!(app_server.listen, codex_app_server::AppServerTransport::Off);
-    }
-
-    #[test]
-    fn app_server_listen_invalid_url_fails_to_parse() {
-        let parse_result =
-            MultitoolCli::try_parse_from(["whale", "app-server", "--listen", "http://foo"]);
-        assert!(parse_result.is_err());
-    }
-
-    #[test]
-    fn app_server_proxy_subcommand_parses() {
-        let app_server = app_server_from_args(["whale", "app-server", "proxy"].as_ref());
-        assert!(matches!(
-            app_server.subcommand,
-            Some(AppServerSubcommand::Proxy(AppServerProxyCommand {
-                socket_path: None
-            }))
-        ));
-    }
-
-    #[test]
-    fn app_server_proxy_sock_path_parses() {
-        let app_server =
-            app_server_from_args(["whale", "app-server", "proxy", "--sock", "whale.sock"].as_ref());
-        let Some(AppServerSubcommand::Proxy(proxy)) = app_server.subcommand else {
-            panic!("expected proxy subcommand");
-        };
-        assert_eq!(
-            proxy.socket_path,
-            Some(
-                AbsolutePathBuf::relative_to_current_dir("whale.sock")
-                    .expect("relative path should resolve")
-            )
-        );
-    }
-
-    #[test]
-    fn reject_remote_auth_token_env_for_app_server_proxy() {
-        let subcommand = AppServerSubcommand::Proxy(AppServerProxyCommand { socket_path: None });
-        let err = reject_remote_mode_for_app_server_subcommand(
-            /*remote*/ None,
-            Some("CODEX_REMOTE_AUTH_TOKEN"),
-            Some(&subcommand),
-        )
-        .expect_err("app-server proxy should reject --remote-auth-token-env");
-        assert!(err.to_string().contains("app-server proxy"));
-    }
-
-    #[test]
-    fn app_server_capability_token_flags_parse() {
-        let app_server = app_server_from_args(
-            [
-                "whale",
-                "app-server",
-                "--ws-auth",
-                "capability-token",
-                "--ws-token-file",
-                "/tmp/whale-token",
-            ]
-            .as_ref(),
-        );
-        assert_eq!(
-            app_server.auth.ws_auth,
-            Some(codex_app_server::WebsocketAuthCliMode::CapabilityToken)
-        );
-        assert_eq!(
-            app_server.auth.ws_token_file,
-            Some(PathBuf::from("/tmp/whale-token"))
-        );
-    }
-
-    #[test]
-    fn app_server_signed_bearer_flags_parse() {
-        let app_server = app_server_from_args(
-            [
-                "whale",
-                "app-server",
-                "--ws-auth",
-                "signed-bearer-token",
-                "--ws-shared-secret-file",
-                "/tmp/whale-secret",
-                "--ws-issuer",
-                "issuer",
-                "--ws-audience",
-                "audience",
-                "--ws-max-clock-skew-seconds",
-                "9",
-            ]
-            .as_ref(),
-        );
-        assert_eq!(
-            app_server.auth.ws_auth,
-            Some(codex_app_server::WebsocketAuthCliMode::SignedBearerToken)
-        );
-        assert_eq!(
-            app_server.auth.ws_shared_secret_file,
-            Some(PathBuf::from("/tmp/whale-secret"))
-        );
-        assert_eq!(app_server.auth.ws_issuer.as_deref(), Some("issuer"));
-        assert_eq!(app_server.auth.ws_audience.as_deref(), Some("audience"));
-        assert_eq!(app_server.auth.ws_max_clock_skew_seconds, Some(9));
-    }
-
-    #[test]
-    fn app_server_rejects_removed_insecure_non_loopback_flag() {
-        let parse_result = MultitoolCli::try_parse_from([
-            "whale",
-            "app-server",
-            "--allow-unauthenticated-non-loopback-ws",
-        ]);
-        assert!(parse_result.is_err());
     }
 
     #[test]
