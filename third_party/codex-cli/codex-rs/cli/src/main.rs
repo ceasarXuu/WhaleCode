@@ -1414,6 +1414,7 @@ fn retain_whale_models_for_debug(catalog: &mut codex_protocol::openai_models::Mo
     catalog
         .models
         .retain(|model| model.slug.starts_with("deepseek-"));
+    catalog.models.sort_by(|a, b| a.priority.cmp(&b.priority));
 }
 
 async fn run_debug_clear_memories_command(
@@ -1869,7 +1870,7 @@ mod tests {
                 .iter()
                 .map(|model| model.slug.as_str())
                 .collect::<Vec<_>>(),
-            vec!["deepseek-v4-flash", "deepseek-v4-pro"]
+            vec!["deepseek-v4-pro", "deepseek-v4-flash"]
         );
     }
 

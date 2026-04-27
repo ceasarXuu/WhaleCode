@@ -25,8 +25,8 @@ separate product.
 - User-facing text: help, login, onboarding, TUI labels, tooltips, resume
   instructions, MCP examples, attribution, and keyring labels use Whale naming.
 - Provider default: DeepSeek is the default built-in provider.
-- Default models: `deepseek-v4-flash` for normal execution and
-  `deepseek-v4-pro` for high-quality roles.
+- Default models: `deepseek-v4-pro` for normal execution and
+  `deepseek-v4-flash` for fast low-latency roles.
 - Wire protocol: DeepSeek uses OpenAI-compatible Chat Completions streaming,
   including `reasoning_content` deltas and streamed tool-call assembly.
 - Upstream mergeability: internal crate names and many `codex_*` APIs remain
@@ -56,7 +56,7 @@ All commands were run from `third_party/codex-cli/codex-rs` unless noted.
 cargo check -p codex-cli --locked
 cargo test -p codex-api --locked chat_completions
 cargo test -p codex-model-provider-info --locked
-cargo test -p codex-core --locked defaults_to_deepseek_flash_provider
+cargo test -p codex-core --locked defaults_to_deepseek_pro_provider
 cargo test -p codex-core --locked responses_websocket_features_do_not_change_wire_api
 cargo test -p codex-core --locked config_schema_matches_fixture
 cargo run --quiet -p codex-cli --bin whale -- --version

@@ -799,7 +799,7 @@ fn build_available_models_removes_non_deepseek_from_whale_listing() {
 }
 
 #[tokio::test]
-async fn bundled_models_default_to_deepseek_flash() {
+async fn bundled_models_default_to_deepseek_pro() {
     let manager = StaticModelsManager::new(
         None,
         crate::bundled_models_response().expect("bundled models.json should parse"),
@@ -810,7 +810,7 @@ async fn bundled_models_default_to_deepseek_flash() {
         manager
             .get_default_model(&None, RefreshStrategy::Offline)
             .await,
-        "deepseek-v4-flash"
+        "deepseek-v4-pro"
     );
 }
 
@@ -833,8 +833,8 @@ async fn bundled_models_only_list_deepseek_choices() {
     assert_eq!(
         visible_models,
         vec![
-            "deepseek-v4-flash".to_string(),
-            "deepseek-v4-pro".to_string()
+            "deepseek-v4-pro".to_string(),
+            "deepseek-v4-flash".to_string()
         ]
     );
 }
@@ -930,6 +930,13 @@ fn bundled_models_json_roundtrips() {
             .models
             .iter()
             .any(|model| model.slug == "deepseek-v4-flash"),
+        "bundled models.json should include Whale's fast DeepSeek model"
+    );
+    assert!(
+        response
+            .models
+            .iter()
+            .any(|model| model.slug == "deepseek-v4-pro"),
         "bundled models.json should include Whale's default DeepSeek model"
     );
 }

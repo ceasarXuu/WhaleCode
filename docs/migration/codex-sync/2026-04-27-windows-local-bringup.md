@@ -108,7 +108,7 @@ result: passed, 2 tests
 cargo test -p codex-model-provider-info --locked
 result: passed, 20 tests
 
-cargo test -p codex-core --locked defaults_to_deepseek_flash_provider
+cargo test -p codex-core --locked defaults_to_deepseek_pro_provider
 result: passed, 1 test
 
 cargo test -p codex-core --locked responses_websocket_features_do_not_change_wire_api

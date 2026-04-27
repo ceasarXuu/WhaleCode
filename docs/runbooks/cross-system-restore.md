@@ -187,8 +187,8 @@ Then run a small model smoke only when network access and billing are expected:
 Default provider/model expectations:
 
 - provider: DeepSeek
-- normal model: `deepseek-v4-flash`
-- high-quality model: `deepseek-v4-pro`
+- default model: `deepseek-v4-pro`
+- fast model: `deepseek-v4-flash`
 - text-only capability until DeepSeek image/search support is explicitly
   verified and enabled
 
@@ -215,7 +215,7 @@ Run these after the first successful build:
 ```bash
 cargo test -p codex-api --locked chat_completions
 cargo test -p codex-model-provider-info --locked
-cargo test -p codex-core --locked defaults_to_deepseek_flash_provider
+cargo test -p codex-core --locked defaults_to_deepseek_pro_provider
 cargo test -p codex-core --locked responses_websocket_features_do_not_change_wire_api
 cargo test -p codex-core --locked config_schema_matches_fixture
 ```

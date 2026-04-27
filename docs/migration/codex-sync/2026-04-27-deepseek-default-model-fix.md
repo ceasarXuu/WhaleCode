@@ -13,7 +13,7 @@ to DeepSeek V4.
 There are two default-model paths:
 
 - core config defaults `model_provider` to `deepseek` and `model` to
-  `deepseek-v4-flash`;
+  `deepseek-v4-pro`;
 - the TUI bootstrap also consumes `model/list`, where the default model is
   determined by the model catalog's `is_default` marker.
 
@@ -23,14 +23,14 @@ accidental selection leaked OpenAI-specific copy into Whale startup.
 
 ## Fix
 
-The model manager now explicitly re-marks `deepseek-v4-flash` as Whale's
+The model manager now explicitly re-marks `deepseek-v4-pro` as Whale's
 default picker model after auth filtering and generic picker visibility
 selection. The bundled catalog also gives the DeepSeek entries top picker
 priority and removes the GPT-5.5 availability NUX copy.
 
 Regression tests now cover:
 
-- bundled default model resolves to `deepseek-v4-flash`;
+- bundled default model resolves to `deepseek-v4-pro`;
 - DeepSeek Flash and Pro remain the first two visible picker entries;
 - GPT-5.5 does not carry OpenAI availability NUX copy in the Whale catalog.
 
@@ -67,4 +67,5 @@ whale debug models
 whale debug models --bundled
 ```
 
-Both outputs should contain only `deepseek-v4-flash` and `deepseek-v4-pro`.
+Both outputs should contain only `deepseek-v4-pro` and `deepseek-v4-flash`.
+`deepseek-v4-pro` should sort first and be the default.

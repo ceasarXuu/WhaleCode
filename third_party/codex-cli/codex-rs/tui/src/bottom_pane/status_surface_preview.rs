@@ -48,7 +48,7 @@ impl StatusSurfacePreviewItem {
             StatusSurfacePreviewItem::TotalOutputTokens => "0 out",
             StatusSurfacePreviewItem::SessionId => "550e8400-e29b-41d4",
             StatusSurfacePreviewItem::FastMode => "Fast on",
-            StatusSurfacePreviewItem::Model => "deepseek-v4-flash",
+            StatusSurfacePreviewItem::Model => "deepseek-v4-pro",
             StatusSurfacePreviewItem::ModelWithReasoning => "deepseek-v4-pro medium",
             StatusSurfacePreviewItem::TaskProgress => "Tasks 0/0",
         }

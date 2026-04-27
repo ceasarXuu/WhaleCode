@@ -1009,7 +1009,7 @@ pub fn validate_feature_requirements_for_config_toml(
 
 fn default_model_for_provider(model_provider_id: &str) -> Option<String> {
     match model_provider_id {
-        DEEPSEEK_PROVIDER_ID => Some("deepseek-v4-flash".to_string()),
+        DEEPSEEK_PROVIDER_ID => Some("deepseek-v4-pro".to_string()),
         _ => None,
     }
 }

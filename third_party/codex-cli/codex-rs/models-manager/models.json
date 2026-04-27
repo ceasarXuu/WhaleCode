@@ -3,7 +3,7 @@
     {
       "slug": "deepseek-v4-flash",
       "display_name": "DeepSeek V4 Flash",
-      "description": "Default Whale coding model for fast everyday implementation work.",
+      "description": "Fast Whale coding model for low-latency everyday implementation work.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
         {
@@ -14,7 +14,7 @@
       "shell_type": "shell_command",
       "visibility": "list",
       "supported_in_api": true,
-      "priority": -100,
+      "priority": -90,
       "additional_speed_tiers": [],
       "availability_nux": null,
       "upgrade": null,
@@ -45,7 +45,7 @@
     {
       "slug": "deepseek-v4-pro",
       "display_name": "DeepSeek V4 Pro",
-      "description": "Higher quality Whale model for planning, diagnosis, review, and verification.",
+      "description": "Default Whale coding model for planning, diagnosis, review, and verification.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
         {
@@ -56,7 +56,7 @@
       "shell_type": "shell_command",
       "visibility": "list",
       "supported_in_api": true,
-      "priority": -90,
+      "priority": -100,
       "additional_speed_tiers": [],
       "availability_nux": null,
       "upgrade": null,

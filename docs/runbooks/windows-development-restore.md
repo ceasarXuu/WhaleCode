@@ -359,7 +359,7 @@ Run targeted tests after the first successful build:
 ```powershell
 cargo test -p codex-api --locked chat_completions
 cargo test -p codex-model-provider-info --locked
-cargo test -p codex-core --locked defaults_to_deepseek_flash_provider
+cargo test -p codex-core --locked defaults_to_deepseek_pro_provider
 cargo test -p codex-core --locked responses_websocket_features_do_not_change_wire_api
 cargo test -p codex-core --locked config_schema_matches_fixture
 ```

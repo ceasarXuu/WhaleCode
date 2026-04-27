@@ -66,7 +66,7 @@ Choose the smallest valid gate for the files you changed.
 | --- | --- | --- |
 | Documentation only | `git diff --check` | Links, commands, or paths changed and need live validation. |
 | Model catalog/default selection | `cargo test -p codex-models-manager --locked` | TUI or app-server model picker behavior is affected. |
-| Core model defaults/config | `cargo test -p codex-core --locked defaults_to_deepseek_flash_provider` | Provider routing, auth, or config schema changed. |
+| Core model defaults/config | `cargo test -p codex-core --locked defaults_to_deepseek_pro_provider` | Provider routing, auth, or config schema changed. |
 | App-server model list | `cargo test -p codex-app-server --test all --locked model_list` | Web/API model selection behavior changed. |
 | Provider/API transport | `cargo test -p codex-api --locked chat_completions` | SSE, streaming, auth, or usage parsing changed. |
 | TUI/CLI surface | `cargo build -p codex-cli --bin whale --locked` | Manual TUI smoke or local install is needed. |
@@ -81,7 +81,7 @@ branding, run:
 
 ```powershell
 cargo test -p codex-models-manager --locked
-cargo test -p codex-core --locked defaults_to_deepseek_flash_provider
+cargo test -p codex-core --locked defaults_to_deepseek_pro_provider
 cargo test -p codex-app-server --test all --locked model_list
 ```
 
@@ -122,11 +122,13 @@ Get-Process whale -ErrorAction SilentlyContinue |
 Expected first picker entries:
 
 ```text
-deepseek-v4-flash
 deepseek-v4-pro
+deepseek-v4-flash
 ```
 
 No GPT, ChatGPT, OpenAI, or Codex-branded model should appear in the picker.
+`deepseek-v4-pro` should be marked as the default/current model unless the user
+has explicitly selected another model in config.
 
 ## Release Build Policy
 
