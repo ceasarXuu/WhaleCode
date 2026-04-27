@@ -2,10 +2,6 @@ name: rust-release-windows
 
 on:
   workflow_call:
-    inputs:
-      release-lto:
-        required: true
-        type: string
     secrets:
       AZURE_TRUSTED_SIGNING_CLIENT_ID:
         required: true
@@ -30,9 +26,6 @@ jobs:
     defaults:
       run:
         working-directory: codex-rs
-    env:
-      CARGO_PROFILE_RELEASE_LTO: ${{ inputs.release-lto }}
-
     strategy:
       fail-fast: false
       matrix:
@@ -107,7 +100,7 @@ jobs:
           for binary in ${{ matrix.binaries }}; do
             build_args+=(--bin "$binary")
           done
-          cargo build --target ${{ matrix.target }} --release --timings "${build_args[@]}"
+          cargo build --target ${{ matrix.target }} --profile dist --timings "${build_args[@]}"
 
       - name: Upload Cargo timings
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
@@ -119,10 +112,10 @@ jobs:
       - name: Stage Windows binaries
         shell: bash
         run: |
-          output_dir="target/${{ matrix.target }}/release/staged-${{ matrix.bundle }}"
+          output_dir="target/${{ matrix.target }}/dist/staged-${{ matrix.bundle }}"
           mkdir -p "$output_dir"
           for binary in ${{ matrix.binaries }}; do
-            cp "target/${{ matrix.target }}/release/${binary}.exe" "$output_dir/${binary}.exe"
+            cp "target/${{ matrix.target }}/dist/${binary}.exe" "$output_dir/${binary}.exe"
           done
 
       - name: Upload Windows binaries
@@ -130,7 +123,7 @@ jobs:
         with:
           name: windows-binaries-${{ matrix.target }}-${{ matrix.bundle }}
           path: |
-            codex-rs/target/${{ matrix.target }}/release/staged-${{ matrix.bundle }}/*
+            codex-rs/target/${{ matrix.target }}/dist/staged-${{ matrix.bundle }}/*
 
   build-windows:
     needs:
@@ -169,26 +162,26 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: windows-binaries-${{ matrix.target }}-primary
-          path: codex-rs/target/${{ matrix.target }}/release
+          path: codex-rs/target/${{ matrix.target }}/dist
 
       - name: Download prebuilt Windows helper binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: windows-binaries-${{ matrix.target }}-helpers
-          path: codex-rs/target/${{ matrix.target }}/release
+          path: codex-rs/target/${{ matrix.target }}/dist
 
       - name: Download prebuilt Windows app-server binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: windows-binaries-${{ matrix.target }}-app-server
-          path: codex-rs/target/${{ matrix.target }}/release
+          path: codex-rs/target/${{ matrix.target }}/dist
 
       - name: Verify binaries
         shell: bash
         run: |
           set -euo pipefail
           for binary in ${WINDOWS_BINARIES}; do
-            ls -lh "target/${{ matrix.target }}/release/${binary}.exe"
+            ls -lh "target/${{ matrix.target }}/dist/${binary}.exe"
           done
 
       - name: Sign Windows binaries with Azure Trusted Signing
@@ -196,6 +189,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           binaries: ${{ env.WINDOWS_BINARIES }}
+          profile-dir: dist
           client-id: ${{ secrets.AZURE_TRUSTED_SIGNING_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TRUSTED_SIGNING_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_TRUSTED_SIGNING_SUBSCRIPTION_ID }}
@@ -210,7 +204,7 @@ jobs:
           mkdir -p "$dest"
 
           for binary in ${WINDOWS_BINARIES}; do
-            cp "target/${{ matrix.target }}/release/${binary}.exe" \
+            cp "target/${{ matrix.target }}/dist/${binary}.exe" \
               "$dest/${binary}-${{ matrix.target }}.exe"
           done
 

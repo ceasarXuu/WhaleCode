@@ -456,13 +456,26 @@ debug = 0
 strip = true
 
 [profile.release]
-lto = "fat"
+opt-level = 1
+# Keep the default release profile suitable for local optimized smoke builds.
+# The Whale binary pulls in a large TUI/app-server dependency closure, so
+# production-size optimizations are reserved for the explicit dist profile.
+lto = false
+incremental = true
 split-debuginfo = "off"
 # Because we bundle some of these executables with the TypeScript CLI, we
 # remove everything to make the binary as small as possible.
 strip = "symbols"
 
-# See https://github.com/openai/codex/issues/1411 for details.
+# Keep local release codegen highly parallel. Use the dist profile below when a
+# final size-first build is needed.
+codegen-units = 256
+
+[profile.dist]
+inherits = "release"
+opt-level = 3
+lto = "fat"
+incremental = false
 codegen-units = 1
 
 [profile.ci-test]

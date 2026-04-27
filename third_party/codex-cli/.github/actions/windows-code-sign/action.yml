@@ -25,6 +25,10 @@ inputs:
   certificate-profile-name:
     description: Certificate profile name for signing.
     required: true
+  profile-dir:
+    description: Cargo profile output directory containing built artifacts.
+    required: false
+    default: "release"
 
 runs:
   using: composite
@@ -42,13 +46,14 @@ runs:
       env:
         TARGET: ${{ inputs.target }}
         BINARIES: ${{ inputs.binaries }}
+        PROFILE_DIR: ${{ inputs.profile-dir }}
       run: |
         set -euo pipefail
 
         {
           echo "files<<EOF"
           for binary in ${BINARIES}; do
-            echo "${GITHUB_WORKSPACE}/codex-rs/target/${TARGET}/release/${binary}.exe"
+            echo "${GITHUB_WORKSPACE}/codex-rs/target/${TARGET}/${PROFILE_DIR}/${binary}.exe"
           done
           echo "EOF"
         } >> "$GITHUB_OUTPUT"

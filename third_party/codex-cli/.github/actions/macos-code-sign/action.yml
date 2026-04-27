@@ -15,6 +15,10 @@ inputs:
     description: Whether to sign and notarize the macOS dmg.
     required: false
     default: "true"
+  profile-dir:
+    description: Cargo profile output directory containing built artifacts.
+    required: false
+    default: "release"
   apple-certificate:
     description: Base64-encoded Apple signing certificate (P12).
     required: true
@@ -123,6 +127,7 @@ runs:
       env:
         TARGET: ${{ inputs.target }}
         BINARIES: ${{ inputs.binaries }}
+        PROFILE_DIR: ${{ inputs.profile-dir }}
       run: |
         set -euo pipefail
 
@@ -139,7 +144,7 @@ runs:
         entitlements_path="$GITHUB_ACTION_PATH/codex.entitlements.plist"
 
         for binary in ${BINARIES}; do
-          path="codex-rs/target/${TARGET}/release/${binary}"
+          path="codex-rs/target/${TARGET}/${PROFILE_DIR}/${binary}"
           codesign --force --options runtime --timestamp --entitlements "$entitlements_path" --sign "$APPLE_CODESIGN_IDENTITY" "${keychain_args[@]}" "$path"
         done
 
@@ -149,6 +154,7 @@ runs:
       env:
         TARGET: ${{ inputs.target }}
         BINARIES: ${{ inputs.binaries }}
+        PROFILE_DIR: ${{ inputs.profile-dir }}
         APPLE_NOTARIZATION_KEY_P8: ${{ inputs.apple-notarization-key-p8 }}
         APPLE_NOTARIZATION_KEY_ID: ${{ inputs.apple-notarization-key-id }}
         APPLE_NOTARIZATION_ISSUER_ID: ${{ inputs.apple-notarization-issuer-id }}
@@ -173,7 +179,7 @@ runs:
 
         notarize_binary() {
           local binary="$1"
-          local source_path="codex-rs/target/${TARGET}/release/${binary}"
+          local source_path="codex-rs/target/${TARGET}/${PROFILE_DIR}/${binary}"
           local archive_path="${RUNNER_TEMP}/${binary}.zip"
 
           if [[ ! -f "$source_path" ]]; then
@@ -196,6 +202,7 @@ runs:
       shell: bash
       env:
         TARGET: ${{ inputs.target }}
+        PROFILE_DIR: ${{ inputs.profile-dir }}
         APPLE_NOTARIZATION_KEY_P8: ${{ inputs.apple-notarization-key-p8 }}
         APPLE_NOTARIZATION_KEY_ID: ${{ inputs.apple-notarization-key-id }}
         APPLE_NOTARIZATION_ISSUER_ID: ${{ inputs.apple-notarization-issuer-id }}
@@ -218,8 +225,8 @@ runs:
 
         source "$GITHUB_ACTION_PATH/notary_helpers.sh"
 
-        dmg_name="codex-${TARGET}.dmg"
-        dmg_path="codex-rs/target/${TARGET}/release/${dmg_name}"
+        dmg_name="whale-${TARGET}.dmg"
+        dmg_path="codex-rs/target/${TARGET}/${PROFILE_DIR}/${dmg_name}"
 
         if [[ ! -f "$dmg_path" ]]; then
           echo "dmg $dmg_path not found"

@@ -1,6 +1,6 @@
 # Whale Development Workflow Manual
 
-Date: 2026-04-27
+Date: 2026-04-28
 
 Use this manual for day-to-day Whale development. It turns the first Windows
 bring-up lessons into a repeatable inner loop.
@@ -62,8 +62,8 @@ Changing model catalog or default-model code can therefore invalidate much of
 the CLI stack. With `CARGO_INCREMENTAL=0`, Cargo cannot reuse the usual local
 incremental state, so even debug rebuilds can stay slow.
 
-Release installs are slower again because the current release profile uses
-expensive final optimization and link settings. The key settings in
+Release installs used to be slower again because the old release profile used
+expensive final optimization and link settings. The old settings in
 `third_party/codex-cli/codex-rs/Cargo.toml` are:
 
 ```toml
@@ -86,7 +86,29 @@ finished quickly, `.fingerprint` timestamps advanced through
 more than 20 minutes. The bottleneck is the `whale` release codegen/link path,
 especially the `codex-tui` and final CLI dependency closure.
 
-Do not use release install as the default edit-test loop.
+The corrected policy is:
+
+- `release`: local optimized smoke profile, `opt-level = 1`, `lto = false`,
+  `incremental = true`, and `codegen-units = 256`.
+- `dist`: explicit production distribution profile, `opt-level = 3`,
+  `lto = "fat"`, `incremental = false`, and `codegen-units = 1`.
+
+This follows Cargo's own profile model: `--release` is just
+`--profile release`, custom profiles inherit from a named profile, and each
+custom profile writes to its own target directory.
+
+The corrected Windows measurement on 2026-04-28:
+
+```text
+cold cargo build -p codex-cli --bin whale --release --locked: 13m 06s
+warm cargo build -p codex-cli --bin whale --release --locked: 3.2s
+```
+
+The cold build is still a large first compile because `whale` currently links
+the TUI, app-server, MCP server, cloud-task, exec, and proxy dependency
+closures. The fixed part is that the build now completes and subsequent local
+release builds reuse incremental state instead of re-entering a long LTO/link
+path.
 
 ## Inner Loop Rules
 
@@ -170,7 +192,8 @@ has explicitly selected another model in config.
 
 ## Release Build Policy
 
-Use release install for packaging, performance checks, or final distribution:
+Use the default release profile for local optimized builds, package smoke, and
+performance checks:
 
 ```powershell
 cargo build -p codex-cli --bin whale --release --locked
@@ -178,27 +201,18 @@ Set-Location D:\WhaleCode
 .\scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\release\whale.exe -PersistUserPath -BackupLegacyCopies
 ```
 
-Do not use it as the normal local smoke path. On Windows it can spend a long
-time in final release optimization and linking even after codegen appears
-mostly complete. Do not use `cargo install` as the Whale local install path,
-because it writes into shared Cargo bin directories instead of the isolated
-`%USERPROFILE%\.whale\bin` directory.
-
-When a local release-like binary is needed but the default release profile is
-too slow for iteration, use process-local profile overrides:
+Use the explicit dist profile only for final distribution when binary size is
+worth the extra compile time:
 
 ```powershell
-$env:CARGO_PROFILE_RELEASE_LTO = "thin"
-$env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = "16"
-cargo build -p codex-cli --bin whale --release --locked
-Remove-Item Env:\CARGO_PROFILE_RELEASE_LTO
-Remove-Item Env:\CARGO_PROFILE_RELEASE_CODEGEN_UNITS
+cargo build -p codex-cli --bin whale --profile dist --locked
+Set-Location D:\WhaleCode
+.\scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\dist\whale.exe -PersistUserPath -BackupLegacyCopies
 ```
 
-Use the default release profile only for final packaging or CI parity. For npm
-dev publish probes, a validated debug binary is acceptable when the purpose is
-package identity, launcher behavior, and model-list smoke rather than final
-performance.
+Do not use `cargo install` as the Whale local install path, because it writes
+into shared Cargo bin directories instead of the isolated
+`%USERPROFILE%\.whale\bin` directory.
 
 If a build appears stuck, check the actual processes before assuming a hang:
 
@@ -208,6 +222,17 @@ Get-Process cargo,rustc,link -ErrorAction SilentlyContinue |
 Get-CimInstance Win32_Process -Filter "name='rustc.exe'" |
   Select-Object ProcessId,CommandLine
 ```
+
+Run the profile guard after changing Cargo profiles or this runbook:
+
+```powershell
+.\scripts\check-build-profile-policy.ps1
+```
+
+Cargo references:
+
+- https://doc.rust-lang.org/cargo/reference/profiles.html
+- https://doc.rust-lang.org/book/ch14-01-release-profiles.html
 
 ## Runtime Configuration Smoke
 

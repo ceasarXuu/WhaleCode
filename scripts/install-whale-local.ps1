@@ -105,9 +105,11 @@ if (-not [string]::IsNullOrWhiteSpace($BinaryPath)) {
 if (-not [string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
     $Candidates += (Join-Path $env:CARGO_TARGET_DIR "debug\whale.exe")
     $Candidates += (Join-Path $env:CARGO_TARGET_DIR "release\whale.exe")
+    $Candidates += (Join-Path $env:CARGO_TARGET_DIR "dist\whale.exe")
 }
 $Candidates += (Join-Path $RepoRoot "third_party\codex-cli\codex-rs\target\debug\whale.exe")
 $Candidates += (Join-Path $RepoRoot "third_party\codex-cli\codex-rs\target\release\whale.exe")
+$Candidates += (Join-Path $RepoRoot "third_party\codex-cli\codex-rs\target\dist\whale.exe")
 
 $Source = Resolve-ExistingFile -Candidates $Candidates
 $InstallDir = [System.IO.Path]::GetFullPath($InstallDir)
