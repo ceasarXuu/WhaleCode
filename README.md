@@ -1,96 +1,115 @@
 # WhaleCode
 
-DeepSeek-first terminal AI coding agent built on a Codex CLI upstream substrate.
+WhaleCode is an open-source terminal AI coding agent built for developers who
+want a Claude Code / Codex CLI style workflow with DeepSeek V4 at the center.
 
-## Current Direction
+It is designed to work inside real repositories: read code, plan changes, run
+commands, apply patches, verify results, and keep a replayable record of what
+happened. The product direction is multi-agent first, coding-native, and
+optimized for DeepSeek V4 Flash and Pro.
 
-WhaleCode is being repositioned away from a from-scratch Rust demo runtime. The
-active plan is to import Codex CLI as a whole-repo upstream substrate, keep that
-snapshot syncable with future Codex releases, and build Whale-specific behavior
-through bridge and overlay layers.
+## Why WhaleCode
 
-Active architecture:
+Modern coding agents are becoming the main interface between developers and
+large codebases. WhaleCode focuses on three product goals:
+
+- Make terminal-based AI coding practical for daily engineering work.
+- Use multiple specialized agents when one linear assistant is not enough.
+- Turn create and debug workflows into explicit runtime primitives, not just
+  prompt conventions.
+
+WhaleCode starts from the mature Codex CLI substrate for local execution,
+permissions, tools, patches, sessions, context handling, logs, MCP, and skills.
+Whale-specific behavior is added through bridge and overlay layers so the
+project can keep upstream compatibility while evolving its own product surface.
+
+## Core Capabilities
+
+| Capability | What it means for users |
+| --- | --- |
+| DeepSeek V4 first | Routes work across `deepseek-v4-flash` and `deepseek-v4-pro`, with support for long context, long output, and reasoning-content streaming. |
+| Terminal-native coding | Operates directly in your repo, using shell commands, patches, tests, logs, and local files as first-class workflow objects. |
+| Multi-agent collaboration | Coordinates role-based agents such as scouts, analysts, implementers, reviewers, judges, and verifiers to reduce single-agent blind spots. |
+| Create primitive | Treats new feature construction as a structured workflow with scaffolding, constraints, logging, tests, and verification gates. |
+| Debug primitive | Builds evidence chains from goals, hypotheses, logs, runtime behavior, and patches so diagnosis converges on root cause. |
+| Primitive modules | Keeps differentiated workflows pluggable so capabilities can be measured, replayed, improved, or removed without rewriting the core. |
+| Web Viewer direction | Plans a read-only TypeScript viewer for agent networks, DAG progress, tool activity, and session statistics. |
+
+## Product Shape
+
+WhaleCode is being built as a practical CLI first:
 
 ```text
-Codex CLI upstream substrate
-  -> Whale Codex bridge
+Developer terminal
+  -> WhaleCode CLI
+  -> Codex-derived execution substrate
+  -> Whale bridge and primitive modules
   -> DeepSeek V4 provider
-  -> Multi-agent / Primitive / Viewer / Create-Debug overlay
+  -> optional Web Viewer
 ```
 
-The previous `whalecode-*` Rust demo crates are archived at
-`archive/deprecated/2026-04-27-rust-demo/`. They are retained for recoverability
-and migration reference only; do not continue product work there.
+The near-term V1 goal is to deliver a mainstream coding-agent CLI foundation:
 
-## Product Goal
+- safe command execution and patch application;
+- repository-aware context management;
+- reliable session logs and replayable state;
+- model/provider configuration for DeepSeek V4;
+- create/debug workflows that can be tested as product behavior;
+- extension points for skills, tools, MCP servers, and primitive modules.
 
-Build an open-source terminal AI coding agent centered on DeepSeek V4:
+## Current Status
 
-- Rust-first local execution core inherited from Codex-grade substrate work.
-- TypeScript Web Viewer for real-time event and agent visualization later.
-- DeepSeek V4 Flash/Pro routing with reasoning-content streaming.
-- Multi-Agent First coordination through cohorts, WorkUnits, Patch League, and
-  evidence-weighted decisions.
-- Create and Debug as runtime primitives rather than prompt-only workflows.
-- Primitive Modules for scaffolding-first Create, evidence-chain Debug,
-  reference-driven design, independent Viewer, and skill evolution.
+WhaleCode is under active development. The repository currently vendors Codex
+CLI under `third_party/codex-cli/` and layers Whale-specific work around that
+upstream substrate.
 
-## Repository Strategy
+The active Rust workspace lives here:
 
-Planned active layout:
-
-```text
-third_party/codex-cli/          # pinned Codex CLI upstream snapshot
-patches/codex-cli/              # local patch queue for unavoidable vendor edits
-crates/whalecode-codex-bridge/  # Codex-to-Whale adapter layer
-crates/whalecode-*/             # Whale protocol, provider, swarm, primitive overlay
-apps/viewer/                    # future read-only Web Viewer
-docs/migration/codex-sync/      # upstream sync logs
-archive/deprecated/             # inactive historical implementations
-```
-
-Codex is not just a reference. It is the upstream substrate WhaleCode will
-import, pin, test, diff, and periodically upgrade. Whale-specific changes should
-land in the bridge or overlay layer first. Direct edits inside
-`third_party/codex-cli/` require a patch-queue entry and sync log.
-
-## Key Documents
-
-- Migration plan:
-  `docs/plans/2026-04-27-codex-cli-upstream-substrate-migration-plan.md`
-- Cross-system restore runbook:
-  `docs/runbooks/cross-system-restore.md`
-- Development workflow manual:
-  `docs/runbooks/development-workflow.md`
-- Windows development restore runbook:
-  `docs/runbooks/windows-development-restore.md`
-- ADR:
-  `docs/adr/2026-04-27-codex-cli-upstream-substrate.md`
-- Original system architecture, now aligned to substrate direction:
-  `docs/plans/2026-04-24-system-architecture.md`
-- Primitive architecture:
-  `docs/plans/2026-04-25-differentiated-primitives-architecture.md`
-- Multi-agent architecture:
-  `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md`
-
-## Current Development State
-
-The active Rust workspace now lives under `third_party/codex-cli/codex-rs`.
-The repo root still has no active Cargo workspace; enter the vendored Codex
-workspace for build and smoke commands.
-
-```bash
+```powershell
 cd third_party/codex-cli/codex-rs
 cargo check -p codex-cli --locked
 cargo run --quiet -p codex-cli --bin whale -- --version
 ```
 
-For a new machine or low-disk migration, start with
-`docs/runbooks/cross-system-restore.md`. For native Windows development, use
-`docs/runbooks/windows-development-restore.md`, then use
-`docs/runbooks/development-workflow.md` for the normal edit-test-install loop.
+On Windows, local Whale builds should be installed through:
 
-On Windows, install local Whale builds only through
-`scripts/install-whale-local.ps1`. The script installs `whale.exe` under
-`%USERPROFILE%\.whale\bin` and keeps it separate from official Codex locations
-such as `%APPDATA%\npm` and WindowsApps.
+```powershell
+scripts/install-whale-local.ps1
+```
+
+The installer places `whale.exe` under `%USERPROFILE%\.whale\bin` and keeps it
+separate from official Codex locations such as `%APPDATA%\npm` and WindowsApps.
+
+## Repository Map
+
+```text
+third_party/codex-cli/          Codex CLI upstream substrate snapshot
+patches/codex-cli/              local patch queue for unavoidable vendor edits
+docs/                           product, architecture, ADR, and runbook docs
+scripts/                        local development and installation scripts
+archive/deprecated/             recoverable historical implementations
+```
+
+Whale-specific product work should prefer bridge, overlay, module, or script
+layers before changing the vendored upstream directly. When upstream files must
+change, the work should be documented so future Codex syncs remain manageable.
+
+## Documentation
+
+- [Development workflow](docs/runbooks/development-workflow.md)
+- [Windows development restore](docs/runbooks/windows-development-restore.md)
+- [Cross-system restore](docs/runbooks/cross-system-restore.md)
+- [Codex upstream substrate ADR](docs/adr/2026-04-27-codex-cli-upstream-substrate.md)
+- [System architecture](docs/plans/2026-04-24-system-architecture.md)
+- [Differentiated primitives architecture](docs/plans/2026-04-25-differentiated-primitives-architecture.md)
+- [Multi-agent collaboration architecture](docs/plans/2026-04-25-multi-agent-collaboration-architecture.md)
+
+## Project Principles
+
+- Open source by default.
+- Coding behavior must be generated through the agent/model path, not hardcoded
+  keyword replies or fake intelligence.
+- Differentiated features must become artifact schemas, phase gates, session
+  events, and replayable state.
+- Logging, testing, and constraints are part of product quality, not cleanup
+  tasks after implementation.
