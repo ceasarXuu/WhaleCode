@@ -70,9 +70,9 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profil
 rustup component add rustfmt clippy
 ```
 
-Windows is not the primary restore path yet. If needed, use rustup, Git for
-Windows, and PowerShell equivalents for the environment variables below, then
-start with `cargo check -p codex-cli --locked`.
+For native Windows development, use
+`docs/runbooks/windows-development-restore.md`. The Windows path needs its own
+PowerShell, MSVC toolchain, path-length, and runtime-state checks.
 
 ## Network Recovery
 
