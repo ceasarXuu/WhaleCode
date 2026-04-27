@@ -52,3 +52,19 @@ copy D:\BuildCache\whalecode\cargo-target\debug\whale.exe %USERPROFILE%\.cargo\b
 
 Use release install as a separate performance/package build, not as the fastest
 inner-loop smoke step.
+
+## Follow-up: Model Listing Scope
+
+Whale now keeps public model listings scoped to DeepSeek models. The model
+manager filters picker/listing presets to `deepseek-*`, app-server `model/list`
+tests assert that hidden-model requests still stay Whale-scoped, and
+`whale debug models` applies the same filter before printing raw catalog data.
+
+When validating local output, check both normal and bundled debug paths:
+
+```text
+whale debug models
+whale debug models --bundled
+```
+
+Both outputs should contain only `deepseek-v4-flash` and `deepseek-v4-pro`.

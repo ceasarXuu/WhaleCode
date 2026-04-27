@@ -98,12 +98,16 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
     let expected_models = expected_visible_models();
 
     assert_eq!(items, expected_models);
+    assert!(
+        items.iter().all(|item| item.model.starts_with("deepseek-")),
+        "model/list should expose only Whale DeepSeek models"
+    );
     assert!(next_cursor.is_none());
     Ok(())
 }
 
 #[tokio::test]
-async fn list_models_includes_hidden_models() -> Result<()> {
+async fn list_models_include_hidden_still_stays_whale_scoped() -> Result<()> {
     let codex_home = TempDir::new()?;
     write_models_cache(codex_home.path())?;
     let mut mcp = McpProcess::new(codex_home.path()).await?;
@@ -129,7 +133,10 @@ async fn list_models_includes_hidden_models() -> Result<()> {
         next_cursor,
     } = to_response::<ModelListResponse>(response)?;
 
-    assert!(items.iter().any(|item| item.hidden));
+    assert!(
+        items.iter().all(|item| item.model.starts_with("deepseek-")),
+        "model/list must not expose non-DeepSeek models even when hidden models are requested"
+    );
     assert!(next_cursor.is_none());
     Ok(())
 }

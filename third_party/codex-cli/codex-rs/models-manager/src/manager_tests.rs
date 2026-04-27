@@ -340,8 +340,8 @@ async fn get_model_info_rejects_multi_segment_namespace_suffix_matching() {
 #[tokio::test]
 async fn refresh_available_models_sorts_by_priority() {
     let remote_models = vec![
-        remote_model("priority-low", "Low", /*priority*/ 1),
-        remote_model("priority-high", "High", /*priority*/ 0),
+        remote_model("deepseek-priority-low", "Low", /*priority*/ 1),
+        remote_model("deepseek-priority-high", "High", /*priority*/ 0),
     ];
     let codex_home = tempdir().expect("temp dir");
     let endpoint = TestModelsEndpoint::new(vec![remote_models.clone()]);
@@ -357,11 +357,11 @@ async fn refresh_available_models_sorts_by_priority() {
     let available = manager.list_models(RefreshStrategy::OnlineIfUncached).await;
     let high_idx = available
         .iter()
-        .position(|model| model.model == "priority-high")
+        .position(|model| model.model == "deepseek-priority-high")
         .expect("priority-high should be listed");
     let low_idx = available
         .iter()
-        .position(|model| model.model == "priority-low")
+        .position(|model| model.model == "deepseek-priority-low")
         .expect("priority-low should be listed");
     assert!(
         high_idx < low_idx,
@@ -467,13 +467,13 @@ async fn refresh_available_models_refetches_when_version_mismatch() {
 #[tokio::test]
 async fn refresh_available_models_drops_removed_remote_models() {
     let initial_models = vec![remote_model(
-        "remote-old",
+        "deepseek-remote-old",
         "Remote Old",
         /*priority*/ 1,
     )];
     let codex_home = tempdir().expect("temp dir");
     let refreshed_models = vec![remote_model(
-        "remote-new",
+        "deepseek-remote-new",
         "Remote New",
         /*priority*/ 1,
     )];
@@ -495,11 +495,15 @@ async fn refresh_available_models_drops_removed_remote_models() {
         .try_list_models()
         .expect("models should be available");
     assert!(
-        available.iter().any(|preset| preset.model == "remote-new"),
+        available
+            .iter()
+            .any(|preset| preset.model == "deepseek-remote-new"),
         "new remote model should be listed"
     );
     assert!(
-        !available.iter().any(|preset| preset.model == "remote-old"),
+        !available
+            .iter()
+            .any(|preset| preset.model == "deepseek-remote-old"),
         "removed remote model should not be listed"
     );
     assert_eq!(
@@ -754,9 +758,13 @@ fn build_available_models_picks_default_after_hiding_hidden_models() {
     let manager = static_manager_for_tests(ModelsResponse { models: Vec::new() });
 
     let hidden_model =
-        remote_model_with_visibility("hidden", "Hidden", /*priority*/ 0, "hide");
-    let visible_model =
-        remote_model_with_visibility("visible", "Visible", /*priority*/ 1, "list");
+        remote_model_with_visibility("deepseek-hidden", "Hidden", /*priority*/ 0, "hide");
+    let visible_model = remote_model_with_visibility(
+        "deepseek-v4-flash",
+        "DeepSeek V4 Flash",
+        /*priority*/ 1,
+        "list",
+    );
 
     let expected_hidden = ModelPreset::from(hidden_model.clone());
     let mut expected_visible = ModelPreset::from(visible_model.clone());
@@ -768,18 +776,25 @@ fn build_available_models_picks_default_after_hiding_hidden_models() {
 }
 
 #[test]
-fn build_available_models_prefers_deepseek_flash_as_whale_default() {
+fn build_available_models_removes_non_deepseek_from_whale_listing() {
     let manager = static_manager_for_tests(ModelsResponse { models: Vec::new() });
 
-    let gpt_model = remote_model("gpt-5.5", "GPT-5.5", /*priority*/ 0);
+    let external_model = remote_model("external-model", "External Model", /*priority*/ 0);
     let deepseek_model = remote_model(
         "deepseek-v4-flash",
         "DeepSeek V4 Flash",
         /*priority*/ 1,
     );
 
-    let available = manager.build_available_models(vec![gpt_model, deepseek_model]);
+    let available = manager.build_available_models(vec![external_model, deepseek_model]);
 
+    assert_eq!(
+        available
+            .iter()
+            .map(|preset| preset.model.as_str())
+            .collect::<Vec<_>>(),
+        vec!["deepseek-v4-flash"]
+    );
     assert_eq!(default_model_from_available(available), "deepseek-v4-flash");
 }
 
@@ -800,7 +815,7 @@ async fn bundled_models_default_to_deepseek_flash() {
 }
 
 #[tokio::test]
-async fn bundled_models_keep_deepseek_choices_at_picker_top() {
+async fn bundled_models_only_list_deepseek_choices() {
     let manager = StaticModelsManager::new(
         None,
         crate::bundled_models_response().expect("bundled models.json should parse"),
@@ -813,7 +828,6 @@ async fn bundled_models_keep_deepseek_choices_at_picker_top() {
         .into_iter()
         .filter(|preset| preset.show_in_picker)
         .map(|preset| preset.model)
-        .take(2)
         .collect::<Vec<_>>();
 
     assert_eq!(
@@ -828,11 +842,11 @@ async fn bundled_models_keep_deepseek_choices_at_picker_top() {
 #[tokio::test]
 async fn static_manager_treats_agent_identity_as_backend_auth_for_filtering() {
     let chatgpt_only_model = {
-        let mut model = remote_model("chatgpt-only", "ChatGPT Only", /*priority*/ 0);
+        let mut model = remote_model("deepseek-chatgpt-only", "ChatGPT Only", /*priority*/ 0);
         model.supported_in_api = false;
         model
     };
-    let api_model = remote_model("api-model", "API Model", /*priority*/ 1);
+    let api_model = remote_model("deepseek-api-model", "API Model", /*priority*/ 1);
     let manager = StaticModelsManager::new(
         Some(AuthManager::from_auth_for_testing(
             agent_identity_auth_for_tests(),
@@ -850,7 +864,7 @@ async fn static_manager_treats_agent_identity_as_backend_auth_for_filtering() {
             .iter()
             .map(|model| model.model.as_str())
             .collect::<Vec<_>>(),
-        vec!["chatgpt-only", "api-model"]
+        vec!["deepseek-chatgpt-only", "deepseek-api-model"]
     );
 }
 
@@ -859,11 +873,11 @@ async fn static_manager_reads_latest_auth_mode() {
     let auth_manager =
         AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
     let chatgpt_only_model = {
-        let mut model = remote_model("chatgpt-only", "ChatGPT Only", /*priority*/ 0);
+        let mut model = remote_model("deepseek-chatgpt-only", "ChatGPT Only", /*priority*/ 0);
         model.supported_in_api = false;
         model
     };
-    let api_model = remote_model("api-model", "API Model", /*priority*/ 1);
+    let api_model = remote_model("deepseek-api-model", "API Model", /*priority*/ 1);
     let manager = StaticModelsManager::new(
         Some(Arc::clone(&auth_manager)),
         ModelsResponse {
@@ -878,7 +892,7 @@ async fn static_manager_reads_latest_auth_mode() {
             .iter()
             .map(|model| model.model.as_str())
             .collect::<Vec<_>>(),
-        vec!["chatgpt-only", "api-model"]
+        vec!["deepseek-chatgpt-only", "deepseek-api-model"]
     );
 
     auth_manager.set_external_auth(Arc::new(TestExternalApiKeyAuth));
@@ -889,7 +903,7 @@ async fn static_manager_reads_latest_auth_mode() {
             .iter()
             .map(|model| model.model.as_str())
             .collect::<Vec<_>>(),
-        vec!["api-model"]
+        vec!["deepseek-api-model"]
     );
 }
 
@@ -915,8 +929,7 @@ fn bundled_models_json_roundtrips() {
         response
             .models
             .iter()
-            .find(|model| model.slug == "gpt-5.5")
-            .is_none_or(|model| model.availability_nux.is_none()),
-        "Whale should not show OpenAI availability NUX copy"
+            .any(|model| model.slug == "deepseek-v4-flash"),
+        "bundled models.json should include Whale's default DeepSeek model"
     );
 }

@@ -104,10 +104,9 @@ Expected first picker entries:
 ```text
 deepseek-v4-flash
 deepseek-v4-pro
-gpt-5.5
 ```
 
-`gpt-5.5` must not carry an OpenAI availability NUX message in Whale.
+No GPT, ChatGPT, OpenAI, or Codex-branded model should appear in the picker.
 
 ## Release Build Policy
 

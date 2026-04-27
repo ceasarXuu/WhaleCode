@@ -3,6 +3,7 @@ use crate::collaboration_mode_presets::CollaborationModesConfig;
 use crate::collaboration_mode_presets::builtin_collaboration_mode_presets;
 use crate::config::ModelsManagerConfig;
 use crate::model_info;
+use crate::model_presets::retain_whale_models_for_listing;
 use async_trait::async_trait;
 use codex_login::AuthManager;
 use codex_protocol::config_types::CollaborationModeMask;
@@ -17,8 +18,7 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::sync::TryLockError;
 use tracing::Instrument as _;
-use tracing::error;
-use tracing::info;
+use tracing::{debug, error, info};
 
 const MODEL_CACHE_FILE: &str = "models_cache.json";
 const DEFAULT_MODEL_CACHE_TTL: Duration = Duration::from_secs(300);
@@ -114,6 +114,8 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
             .auth_manager()
             .is_some_and(AuthManager::current_auth_uses_codex_backend);
         presets = ModelPreset::filter_by_auth(presets, uses_codex_backend);
+        retain_whale_models_for_listing(&mut presets);
+        debug!(model_count = presets.len(), "filtered Whale model listing");
 
         ModelPreset::mark_default_by_picker_visibility(&mut presets);
         mark_whale_default_model(&mut presets);

@@ -1388,7 +1388,7 @@ async fn run_debug_models_command(
     cmd: DebugModelsCommand,
     root_config_overrides: CliConfigOverrides,
 ) -> anyhow::Result<()> {
-    let catalog = if cmd.bundled {
+    let mut catalog = if cmd.bundled {
         bundled_models_response()?
     } else {
         let cli_overrides = root_config_overrides
@@ -1403,10 +1403,17 @@ async fn run_debug_models_command(
             .raw_model_catalog(RefreshStrategy::OnlineIfUncached)
             .await
     };
+    retain_whale_models_for_debug(&mut catalog);
 
     serde_json::to_writer(std::io::stdout(), &catalog)?;
     println!();
     Ok(())
+}
+
+fn retain_whale_models_for_debug(catalog: &mut codex_protocol::openai_models::ModelsResponse) {
+    catalog
+        .models
+        .retain(|model| model.slug.starts_with("deepseek-"));
 }
 
 async fn run_debug_clear_memories_command(
@@ -1848,6 +1855,22 @@ mod tests {
         };
 
         assert!(cmd.bundled);
+    }
+
+    #[test]
+    fn debug_models_output_is_whale_scoped() {
+        let mut catalog = bundled_models_response().expect("bundled models should parse");
+
+        retain_whale_models_for_debug(&mut catalog);
+
+        assert_eq!(
+            catalog
+                .models
+                .iter()
+                .map(|model| model.slug.as_str())
+                .collect::<Vec<_>>(),
+            vec!["deepseek-v4-flash", "deepseek-v4-pro"]
+        );
     }
 
     #[test]
