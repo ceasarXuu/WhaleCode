@@ -32,6 +32,13 @@ npm login
 npm whoami
 ```
 
+If the account has publish-time 2FA enabled, `npm publish` requires either a
+current one-time password or a granular access token with bypass 2FA enabled:
+
+```powershell
+npm publish $Tarball --tag dev-win32-x64 --otp 123456
+```
+
 Check package availability before the first public publish:
 
 ```powershell
@@ -66,6 +73,18 @@ The explicit `--tag dev` keeps prerelease dry-runs away from the default
 Do not run `npm install -g .` from this repository as a normal development
 install path. Use `scripts/install-whale-local.ps1` for local builds so npm
 global state and official Codex stay isolated.
+
+## First Publish Probe
+
+To prove npm ownership without moving the root package's `latest` tag, publish a
+single platform dev package first:
+
+```powershell
+npm publish .\dist\npm\whalecode-npm-win32-x64-0.0.0-dev.tgz --tag dev-win32-x64
+```
+
+If npm returns `E403` with a two-factor-authentication message, rerun with
+`--otp <current-code>` or use a publish token that is allowed to bypass 2FA.
 
 ## Release Tarballs
 
