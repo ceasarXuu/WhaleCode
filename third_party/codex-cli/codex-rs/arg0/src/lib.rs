@@ -141,6 +141,10 @@ pub fn arg0_dispatch() -> Option<Arg0PathEntryGuard> {
     match prepend_path_entry_for_codex_aliases() {
         Ok(path_entry) => Some(path_entry),
         Err(err) => {
+            if err.kind() == std::io::ErrorKind::InvalidInput {
+                eprintln!("ERROR: {err}");
+                std::process::exit(1);
+            }
             // It is possible that Codex will proceed successfully even if
             // updating the PATH fails, so warn the user and move on.
             eprintln!("WARNING: proceeding, even though we could not update PATH: {err}");

@@ -143,12 +143,16 @@ has explicitly selected another model in config.
 Use release install for packaging, performance checks, or final distribution:
 
 ```powershell
-cargo install --path cli --bin whale --locked --force
+cargo build -p codex-cli --bin whale --release --locked
+Set-Location D:\WhaleCode
+.\scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\release\whale.exe -PersistUserPath -BackupLegacyCopies
 ```
 
 Do not use it as the normal local smoke path. On Windows it can spend a long
 time in final release optimization and linking even after codegen appears
-mostly complete.
+mostly complete. Do not use `cargo install` as the Whale local install path,
+because it writes into shared Cargo bin directories instead of the isolated
+`%USERPROFILE%\.whale\bin` directory.
 
 ## Runtime Configuration Smoke
 
@@ -216,13 +220,15 @@ Keep these boundaries:
 
 Do not install Whale into npm global directories, WindowsApps, `.cargo\bin`, or
 `.local\bin`. Do not copy `.codex` into `.whale`, and do not point
-`CODEX_HOME` at `WHALE_HOME`.
+`CODEX_HOME` at `WHALE_HOME`. Whale also rejects `WHALE_HOME` values that point
+at an official `.codex` state directory or the same path as `CODEX_HOME`.
 
 Run the isolation guard after changing install scripts, PATH setup, wrapper
 files, or local machine configuration:
 
 ```powershell
 .\scripts\check-cli-isolation.ps1
+.\scripts\check-codex-collision-risk.ps1
 ```
 
 If official Codex reports a missing optional dependency, repair Codex itself
@@ -232,6 +238,12 @@ without changing Whale:
 npm install -g @openai/codex@latest --include=optional
 codex --version
 ```
+
+The vendored upstream npm package under `third_party/codex-cli/codex-cli` still
+has upstream `@openai/codex` package metadata. Treat it as source/vendor input,
+not as a Whale installer. Never run a global npm install from that package for
+local Whale development unless the package metadata has first been renamed and
+validated as a Whale package.
 
 ## Git Discipline
 

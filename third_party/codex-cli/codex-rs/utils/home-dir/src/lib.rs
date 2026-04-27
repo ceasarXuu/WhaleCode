@@ -46,7 +46,7 @@ fn find_codex_home_from_env(codex_home_env: Option<&str>) -> std::io::Result<Abs
                         format!("failed to canonicalize WHALE_HOME {val:?}: {err}"),
                     )
                 })?;
-                AbsolutePathBuf::from_absolute_path(canonical)
+                validate_whale_home_path(canonical, std::env::var("CODEX_HOME").ok().as_deref())
             }
         }
         None => {
@@ -60,6 +60,38 @@ fn find_codex_home_from_env(codex_home_env: Option<&str>) -> std::io::Result<Abs
             AbsolutePathBuf::from_absolute_path(p)
         }
     }
+}
+
+fn validate_whale_home_path(
+    canonical: PathBuf,
+    codex_home_env: Option<&str>,
+) -> std::io::Result<AbsolutePathBuf> {
+    if canonical.file_name().and_then(|name| name.to_str()) == Some(".codex") {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "WHALE_HOME must not point at an official Codex state directory: {}",
+                canonical.display()
+            ),
+        ));
+    }
+
+    if let Some(codex_home) = codex_home_env.filter(|value| !value.is_empty()) {
+        let codex_path = PathBuf::from(codex_home)
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from(codex_home));
+        if canonical == codex_path {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "WHALE_HOME and CODEX_HOME must not point at the same directory: {}",
+                    canonical.display()
+                ),
+            ));
+        }
+    }
+
+    AbsolutePathBuf::from_absolute_path(canonical)
 }
 
 #[cfg(test)]
@@ -120,6 +152,44 @@ mod tests {
             .expect("canonicalize temp home");
         let expected = AbsolutePathBuf::from_absolute_path(expected).expect("absolute home");
         assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn find_codex_home_env_rejects_dot_codex_directory() {
+        let temp_home = TempDir::new().expect("temp home");
+        let dot_codex = temp_home.path().join(".codex");
+        fs::create_dir_all(&dot_codex).expect("create dot codex");
+        let dot_codex_str = dot_codex
+            .to_str()
+            .expect("dot codex path should be valid utf-8");
+
+        let err = find_codex_home_from_env(Some(dot_codex_str)).expect_err("reject .codex");
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert!(
+            err.to_string().contains("official Codex state"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_whale_home_rejects_matching_codex_home() {
+        let temp_home = TempDir::new().expect("temp home");
+        let canonical = temp_home
+            .path()
+            .canonicalize()
+            .expect("canonical temp home");
+        let codex_home = canonical
+            .to_str()
+            .expect("codex home path should be valid utf-8")
+            .to_string();
+
+        let err = super::validate_whale_home_path(canonical, Some(codex_home.as_str()))
+            .expect_err("matching homes must be rejected");
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert!(
+            err.to_string().contains("WHALE_HOME and CODEX_HOME"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

@@ -333,12 +333,18 @@ Install Whale only into its dedicated user bin directory:
 Set-Location D:\dev\WhaleCode
 .\scripts\install-whale-local.ps1 -PersistUserPath -BackupLegacyCopies
 .\scripts\check-cli-isolation.ps1
+.\scripts\check-codex-collision-risk.ps1
 ```
 
 The script refuses shared CLI directories such as `%APPDATA%\npm`,
 WindowsApps, `%USERPROFILE%\.cargo\bin`, and `%USERPROFILE%\.local\bin`.
 That keeps local Whale builds separate from the official Codex npm package and
 the Windows Store/App Installer Codex package.
+
+The collision-risk check also verifies that Whale runtime state uses `.whale`,
+rejects official `.codex` state paths, auth and local-secrets keyring services
+are Whale-scoped, and no unexpected signing key or certificate files are
+present in the repository.
 
 ## Configure DeepSeek
 

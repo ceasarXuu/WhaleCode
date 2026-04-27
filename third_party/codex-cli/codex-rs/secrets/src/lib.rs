@@ -19,7 +19,7 @@ mod sanitizer;
 pub use local::LocalSecretsBackend;
 pub use sanitizer::redact_secrets;
 
-const KEYRING_SERVICE: &str = "codex";
+const KEYRING_SERVICE: &str = "whale";
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SecretName(String);
@@ -226,5 +226,10 @@ mod tests {
         assert!(manager.delete(&scope, &name)?);
         assert_eq!(manager.get(&scope, &name)?, None);
         Ok(())
+    }
+
+    #[test]
+    fn keyring_service_is_whale_scoped() {
+        assert_eq!(keyring_service(), "whale");
     }
 }
