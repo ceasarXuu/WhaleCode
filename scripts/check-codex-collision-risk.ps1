@@ -89,8 +89,8 @@ Require-FileContains `
     -Message "Rust CLI binary must be whale."
 Require-FileContains `
     -Path "third_party\codex-cli\codex-cli\package.json" `
-    -Pattern '"name": "whalecode"' `
-    -Message "npm CLI package must be named whalecode, not @openai/codex."
+    -Pattern '"name": "@ceasarxuu/whalecode"' `
+    -Message "npm CLI package must be named @ceasarxuu/whalecode, not @openai/codex."
 Require-FileContains `
     -Path "third_party\codex-cli\codex-cli\package.json" `
     -Pattern '"whale": "bin/whale\.js"' `
@@ -105,11 +105,11 @@ Require-FileContains `
     -Message "npm CLI launcher must mark Whale npm-managed launches with Whale env vars."
 Require-FileContains `
     -Path "third_party\codex-cli\codex-cli\scripts\build_npm_package.py" `
-    -Pattern 'WHALE_NPM_NAME = "whalecode"' `
+    -Pattern 'WHALE_NPM_NAME = "@ceasarxuu/whalecode"' `
     -Message "npm package builder must stage the Whale package name."
 Require-FileContains `
     -Path "third_party\codex-cli\codex-rs\tui\src\update_action.rs" `
-    -Pattern 'whalecode@latest' `
+    -Pattern '@ceasarxuu/whalecode@latest' `
     -Message "TUI npm update command must target the Whale npm package."
 
 $NpmCodexLauncher = Join-Path $RepoRoot "third_party\codex-cli\codex-cli\bin\codex.js"

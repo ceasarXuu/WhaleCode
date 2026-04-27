@@ -36,8 +36,12 @@ impl UpdateAction {
     /// Returns the list of command-line arguments for invoking the update.
     pub fn command_args(self) -> (&'static str, &'static [&'static str]) {
         match self {
-            UpdateAction::NpmGlobalLatest => ("npm", &["install", "-g", "whalecode@latest"]),
-            UpdateAction::BunGlobalLatest => ("bun", &["install", "-g", "whalecode@latest"]),
+            UpdateAction::NpmGlobalLatest => {
+                ("npm", &["install", "-g", "@ceasarxuu/whalecode@latest"])
+            }
+            UpdateAction::BunGlobalLatest => {
+                ("bun", &["install", "-g", "@ceasarxuu/whalecode@latest"])
+            }
             UpdateAction::BrewUpgrade => ("brew", &["upgrade", "--cask", "whale"]),
             UpdateAction::StandaloneUnix => ("sh", &["-c", "whale update"]),
             UpdateAction::StandaloneWindows => ("powershell", &["-c", "whale update"]),
@@ -118,11 +122,11 @@ mod tests {
     fn package_manager_update_commands_target_whalecode() {
         assert_eq!(
             UpdateAction::NpmGlobalLatest.command_args(),
-            ("npm", &["install", "-g", "whalecode@latest"][..])
+            ("npm", &["install", "-g", "@ceasarxuu/whalecode@latest"][..])
         );
         assert_eq!(
             UpdateAction::BunGlobalLatest.command_args(),
-            ("bun", &["install", "-g", "whalecode@latest"][..])
+            ("bun", &["install", "-g", "@ceasarxuu/whalecode@latest"][..])
         );
     }
 }

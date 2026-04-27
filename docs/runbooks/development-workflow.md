@@ -43,7 +43,15 @@ $env:CARGO_INCREMENTAL = "1"
 Use `CARGO_INCREMENTAL=0` only for clean reproduction, CI-like checks, or when
 you are deliberately trading rebuild speed for less incremental state.
 
-## Why Full Debug Builds Are Slow
+Some spawned automation shells may not inherit the user PATH immediately. If
+`cargo` is not recognized but Rust is installed for the user, repair only the
+current process before running tests:
+
+```powershell
+$env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+```
+
+## Why Full Builds Are Slow
 
 The first measured Windows bottleneck was not a single slow command. It was
 dependency fan-out.
@@ -55,8 +63,30 @@ the CLI stack. With `CARGO_INCREMENTAL=0`, Cargo cannot reuse the usual local
 incremental state, so even debug rebuilds can stay slow.
 
 Release installs are slower again because the current release profile uses
-expensive final optimization and link settings. Do not use release install as
-the default edit-test loop.
+expensive final optimization and link settings. The key settings in
+`third_party/codex-cli/codex-rs/Cargo.toml` are:
+
+```toml
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+```
+
+`fat` LTO plus `codegen-units = 1` intentionally optimizes across the whole
+program, but it also collapses the final codegen and link path into one or a few
+long CPU-bound units. On Windows this can look like Cargo is stuck even while
+`rustc.exe` is still consuming CPU. This is a build-profile bottleneck, not a
+sign that the machine is too slow.
+
+The 2026-04-28 release-build probe showed this shape clearly: helper binaries
+finished quickly, `.fingerprint` timestamps advanced through
+`codex-windows-sandbox`, `codex-app-server`, and `codex-tui`, but the final
+`release\whale.exe` stayed stale while release `rustc.exe` work continued for
+more than 20 minutes. The bottleneck is the `whale` release codegen/link path,
+especially the `codex-tui` and final CLI dependency closure.
+
+Do not use release install as the default edit-test loop.
 
 ## Inner Loop Rules
 
@@ -154,6 +184,31 @@ mostly complete. Do not use `cargo install` as the Whale local install path,
 because it writes into shared Cargo bin directories instead of the isolated
 `%USERPROFILE%\.whale\bin` directory.
 
+When a local release-like binary is needed but the default release profile is
+too slow for iteration, use process-local profile overrides:
+
+```powershell
+$env:CARGO_PROFILE_RELEASE_LTO = "thin"
+$env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = "16"
+cargo build -p codex-cli --bin whale --release --locked
+Remove-Item Env:\CARGO_PROFILE_RELEASE_LTO
+Remove-Item Env:\CARGO_PROFILE_RELEASE_CODEGEN_UNITS
+```
+
+Use the default release profile only for final packaging or CI parity. For npm
+dev publish probes, a validated debug binary is acceptable when the purpose is
+package identity, launcher behavior, and model-list smoke rather than final
+performance.
+
+If a build appears stuck, check the actual processes before assuming a hang:
+
+```powershell
+Get-Process cargo,rustc,link -ErrorAction SilentlyContinue |
+  Select-Object Id,ProcessName,CPU,StartTime,Path
+Get-CimInstance Win32_Process -Filter "name='rustc.exe'" |
+  Select-Object ProcessId,CommandLine
+```
+
 ## Runtime Configuration Smoke
 
 Use user or process environment variables for secrets. Do not commit secrets to
@@ -240,8 +295,8 @@ codex --version
 ```
 
 The Whale npm package under `third_party/codex-cli/codex-cli` is named
-`whalecode` and exposes only the `whale` command. It must not publish or install
-`@openai/codex`, `codex.js`, or a `codex` command. See
+`@ceasarxuu/whalecode` and exposes only the `whale` command. It must not publish
+or install `@openai/codex`, `codex.js`, or a `codex` command. See
 `docs/runbooks/npm-publishing.md` before any npm release.
 
 ## Git Discipline

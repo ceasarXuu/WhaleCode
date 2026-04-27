@@ -1,5 +1,5 @@
 {
-  "name": "whalecode",
+  "name": "@ceasarxuu/whalecode",
   "version": "0.0.0-dev",
   "description": "Whale coding agent CLI.",
   "license": "Apache-2.0",

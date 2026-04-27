@@ -12,7 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 
-const WHALE_NPM_NAME = "whalecode";
+const WHALE_NPM_NAME = "@ceasarxuu/whalecode";
 
 const PLATFORM_PACKAGE_BY_TARGET = {
   "x86_64-unknown-linux-musl": "whalecode-linux-x64",

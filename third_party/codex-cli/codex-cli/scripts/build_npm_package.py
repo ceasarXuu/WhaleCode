@@ -14,10 +14,10 @@ CODEX_CLI_ROOT = SCRIPT_DIR.parent
 REPO_ROOT = CODEX_CLI_ROOT.parent
 RESPONSES_API_PROXY_NPM_ROOT = REPO_ROOT / "codex-rs" / "responses-api-proxy" / "npm"
 CODEX_SDK_ROOT = REPO_ROOT / "sdk" / "typescript"
-WHALE_NPM_NAME = "whalecode"
+WHALE_NPM_NAME = "@ceasarxuu/whalecode"
 
 # `npm_name` is the local optional-dependency alias consumed by `bin/whale.js`.
-# The underlying package published to npm is always `whalecode`.
+# The underlying package published to npm is always `@ceasarxuu/whalecode`.
 WHALE_PLATFORM_PACKAGES: dict[str, dict[str, str]] = {
     "whalecode-linux-x64": {
         "npm_name": "whalecode-linux-x64",

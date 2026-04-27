@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 #[cfg(not(debug_assertions))]
-pub(crate) const PACKAGE_URL: &str = "https://registry.npmjs.org/whalecode";
+pub(crate) const PACKAGE_URL: &str = "https://registry.npmjs.org/@ceasarxuu%2fwhalecode";
 
 #[derive(Deserialize, Debug, Clone)]
 pub(crate) struct NpmPackageInfo {
@@ -76,7 +76,7 @@ mod tests {
         serde_json::json!({
             "dist": {
                 "integrity": format!("sha512-{version}"),
-                "tarball": format!("https://registry.npmjs.org/whalecode/-/whalecode-{version}.tgz"),
+                "tarball": format!("https://registry.npmjs.org/@ceasarxuu/whalecode/-/whalecode-{version}.tgz"),
             }
         })
     }
