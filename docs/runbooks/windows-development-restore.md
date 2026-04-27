@@ -43,6 +43,10 @@ Recommended baseline:
 - Visual Studio 2022 Build Tools with C++ tools
 - Rust MSVC toolchain
 - ripgrep
+- Node.js 22 or newer plus `pnpm`
+- `just` for local repository maintenance tasks
+- `cargo-insta` for TUI and snapshot-test review
+- Bazelisk when running Bazel-backed lockfile or lint tasks
 
 Avoid deep paths under OneDrive, Desktop, or synced folders. They increase path
 length, file-locking, and antivirus interference.
@@ -59,6 +63,8 @@ winget install `
   --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
 winget install --id Rustlang.Rustup -e
 winget install --id BurntSushi.ripgrep.MSVC -e
+winget install --id Casey.Just -e
+winget install --id Bazel.Bazelisk -e
 ```
 
 Restart PowerShell after installation, then configure Rust:
@@ -70,10 +76,51 @@ rustc --version
 cargo --version
 git --version
 rg --version
+just --version
 ```
 
 If `link.exe` or Windows SDK files are not found during build, open a fresh
 "Developer PowerShell for VS 2022" shell and retry the build there.
+
+Install JavaScript and snapshot-test helpers after Node and Rust are available:
+
+```powershell
+corepack prepare pnpm@10.33.0 --activate
+cargo install cargo-insta --locked
+```
+
+If `corepack enable` fails with `EPERM` while trying to write shims under
+`C:\Program Files\nodejs`, use a user-level npm prefix instead:
+
+```powershell
+$UserNpm = Join-Path $env:APPDATA "npm"
+New-Item -ItemType Directory -Force $UserNpm | Out-Null
+npm config set prefix $UserNpm
+npm install -g pnpm@10.33.0
+$env:Path = "$UserNpm;$env:Path"
+pnpm --version
+```
+
+Make sure future shells can resolve user-installed tools:
+
+```powershell
+$Need = @(
+  "$env:USERPROFILE\.cargo\bin",
+  "$env:APPDATA\npm",
+  "$env:LOCALAPPDATA\Microsoft\WinGet\Links"
+)
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$Parts = @()
+if ($UserPath) {
+  $Parts = $UserPath -split ";" | Where-Object { $_ }
+}
+foreach ($Path in $Need) {
+  if ($Parts -notcontains $Path) {
+    $Parts += $Path
+  }
+}
+[Environment]::SetEnvironmentVariable("Path", ($Parts -join ";"), "User")
+```
 
 ## Git And Path Setup
 
@@ -174,6 +221,20 @@ commands. If you want them persisted for your user later:
 ```
 
 ## Build Whale
+
+When using a normal PowerShell instead of "Developer PowerShell for VS 2022",
+wrap build commands with `VsDevCmd.bat` so `cl.exe`, `link.exe`, and the Windows
+SDK are available:
+
+```powershell
+$VsDevCmd = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
+cmd /d /s /c "call `"$VsDevCmd`" -arch=x64 -host_arch=x64 >nul && set `"PATH=%USERPROFILE%\.cargo\bin;%APPDATA%\npm;%LOCALAPPDATA%\Microsoft\WinGet\Links;%PATH%`" && set `"CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target`" && set `"CARGO_INCREMENTAL=0`" && cd /d D:\dev\WhaleCode\third_party\codex-cli\codex-rs && cargo check -p codex-cli --locked"
+```
+
+In `cmd.exe`, always use `set "NAME=value"` when chaining with `&&`. Plain
+`set NAME=value && ...` can put the space before `&&` into the environment
+variable value; for `CARGO_TARGET_DIR`, that produces a confusing path such as
+`cargo-target ` and Cargo may fail before creating the target directory.
 
 ```powershell
 Set-Location D:\dev\WhaleCode\third_party\codex-cli\codex-rs
