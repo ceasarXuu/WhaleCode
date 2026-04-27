@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install Codex native binaries (Rust CLI plus ripgrep helpers)."""
+"""Install Whale native binaries (Rust CLI plus ripgrep helpers)."""
 
 import argparse
 from contextlib import contextmanager
@@ -20,7 +20,7 @@ from urllib.request import urlopen
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 CODEX_CLI_ROOT = SCRIPT_DIR.parent
-DEFAULT_WORKFLOW_URL = "https://github.com/openai/codex/actions/runs/17952349351"  # rust-v0.40.0
+DEFAULT_WORKFLOW_URL = ""
 VENDOR_DIR_NAME = "vendor"
 RG_MANIFEST = CODEX_CLI_ROOT / "bin" / "rg"
 BINARY_TARGETS = (
@@ -35,7 +35,7 @@ BINARY_TARGETS = (
 
 @dataclass(frozen=True)
 class BinaryComponent:
-    artifact_prefix: str  # matches the artifact filename prefix (e.g. codex-<target>.zst)
+    artifact_prefix: str  # matches the artifact filename prefix (e.g. whale-<target>.zst)
     dest_dir: str  # directory under vendor/<target>/ where the binary is installed
     binary_basename: str  # executable name inside dest_dir (before optional .exe)
     targets: tuple[str, ...] | None = None  # limit installation to specific targets
@@ -44,10 +44,10 @@ class BinaryComponent:
 WINDOWS_TARGETS = tuple(target for target in BINARY_TARGETS if "windows" in target)
 
 BINARY_COMPONENTS = {
-    "codex": BinaryComponent(
-        artifact_prefix="codex",
-        dest_dir="codex",
-        binary_basename="codex",
+    "whale": BinaryComponent(
+        artifact_prefix="whale",
+        dest_dir="whale",
+        binary_basename="whale",
     ),
     "codex-responses-api-proxy": BinaryComponent(
         artifact_prefix="codex-responses-api-proxy",
@@ -56,13 +56,13 @@ BINARY_COMPONENTS = {
     ),
     "codex-windows-sandbox-setup": BinaryComponent(
         artifact_prefix="codex-windows-sandbox-setup",
-        dest_dir="codex",
+        dest_dir="whale",
         binary_basename="codex-windows-sandbox-setup",
         targets=WINDOWS_TARGETS,
     ),
     "codex-command-runner": BinaryComponent(
         artifact_prefix="codex-command-runner",
-        dest_dir="codex",
+        dest_dir="whale",
         binary_basename="codex-command-runner",
         targets=WINDOWS_TARGETS,
     ),
@@ -120,12 +120,12 @@ def _gha_group(title: str):
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Install native Codex binaries.")
+    parser = argparse.ArgumentParser(description="Install native Whale binaries.")
     parser.add_argument(
         "--workflow-url",
         help=(
             "GitHub Actions workflow URL that produced the artifacts. Defaults to a "
-            "known good run when omitted."
+            "Whale release workflow run. Required when installing native binaries."
         ),
     )
     parser.add_argument(
@@ -135,7 +135,7 @@ def parse_args() -> argparse.Namespace:
         choices=tuple(list(BINARY_COMPONENTS) + ["rg"]),
         help=(
             "Limit installation to the specified components."
-            " May be repeated. Defaults to codex, codex-windows-sandbox-setup,"
+            " May be repeated. Defaults to whale, codex-windows-sandbox-setup,"
             " codex-command-runner, and rg."
         ),
     )
@@ -159,23 +159,27 @@ def main() -> int:
     vendor_dir.mkdir(parents=True, exist_ok=True)
 
     components = args.components or [
-        "codex",
+        "whale",
         "codex-windows-sandbox-setup",
         "codex-command-runner",
         "rg",
     ]
 
     workflow_url = (args.workflow_url or DEFAULT_WORKFLOW_URL).strip()
-    if not workflow_url:
-        workflow_url = DEFAULT_WORKFLOW_URL
+    binary_components = [name for name in components if name in BINARY_COMPONENTS]
+    if binary_components and not workflow_url:
+        raise RuntimeError("Pass --workflow-url for the Whale release run that produced native artifacts.")
 
-    workflow_id = workflow_url.rstrip("/").split("/")[-1]
-    print(f"Downloading native artifacts from workflow {workflow_id}...")
+    workflow_id = workflow_url.rstrip("/").split("/")[-1] if workflow_url else ""
+
+    if binary_components:
+        print(f"Downloading native artifacts from workflow {workflow_id}...")
 
     with _gha_group(f"Download native artifacts from workflow {workflow_id}"):
-        with tempfile.TemporaryDirectory(prefix="codex-native-artifacts-") as artifacts_dir_str:
+        with tempfile.TemporaryDirectory(prefix="whale-native-artifacts-") as artifacts_dir_str:
             artifacts_dir = Path(artifacts_dir_str)
-            _download_artifacts(workflow_id, artifacts_dir)
+            if binary_components:
+                _download_artifacts(workflow_id, artifacts_dir)
             install_binary_components(
                 artifacts_dir,
                 vendor_dir,
@@ -267,7 +271,7 @@ def _download_artifacts(workflow_id: str, dest_dir: Path) -> None:
         "--dir",
         str(dest_dir),
         "--repo",
-        "openai/codex",
+        "ceasarXuu/WhaleCode",
         workflow_id,
     ]
     subprocess.check_call(cmd)

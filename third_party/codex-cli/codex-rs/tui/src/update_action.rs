@@ -36,8 +36,8 @@ impl UpdateAction {
     /// Returns the list of command-line arguments for invoking the update.
     pub fn command_args(self) -> (&'static str, &'static [&'static str]) {
         match self {
-            UpdateAction::NpmGlobalLatest => ("npm", &["install", "-g", "@whalecode/whale"]),
-            UpdateAction::BunGlobalLatest => ("bun", &["install", "-g", "@whalecode/whale"]),
+            UpdateAction::NpmGlobalLatest => ("npm", &["install", "-g", "whalecode@latest"]),
+            UpdateAction::BunGlobalLatest => ("bun", &["install", "-g", "whalecode@latest"]),
             UpdateAction::BrewUpgrade => ("brew", &["upgrade", "--cask", "whale"]),
             UpdateAction::StandaloneUnix => ("sh", &["-c", "whale update"]),
             UpdateAction::StandaloneWindows => ("powershell", &["-c", "whale update"]),
@@ -88,7 +88,7 @@ mod tests {
             UpdateAction::from_install_context(&InstallContext::Standalone {
                 platform: StandalonePlatform::Unix,
                 release_dir: native_release_dir.clone(),
-                resources_dir: Some(native_release_dir.join("codex-resources")),
+                resources_dir: Some(native_release_dir.join("whale-resources")),
             }),
             Some(UpdateAction::StandaloneUnix)
         );
@@ -96,7 +96,7 @@ mod tests {
             UpdateAction::from_install_context(&InstallContext::Standalone {
                 platform: StandalonePlatform::Windows,
                 release_dir: native_release_dir.clone(),
-                resources_dir: Some(native_release_dir.join("codex-resources")),
+                resources_dir: Some(native_release_dir.join("whale-resources")),
             }),
             Some(UpdateAction::StandaloneWindows)
         );
@@ -111,6 +111,18 @@ mod tests {
         assert_eq!(
             UpdateAction::StandaloneWindows.command_args(),
             ("powershell", &["-c", "whale update"][..])
+        );
+    }
+
+    #[test]
+    fn package_manager_update_commands_target_whalecode() {
+        assert_eq!(
+            UpdateAction::NpmGlobalLatest.command_args(),
+            ("npm", &["install", "-g", "whalecode@latest"][..])
+        );
+        assert_eq!(
+            UpdateAction::BunGlobalLatest.command_args(),
+            ("bun", &["install", "-g", "whalecode@latest"][..])
         );
     }
 }

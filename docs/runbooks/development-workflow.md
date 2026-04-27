@@ -239,11 +239,10 @@ npm install -g @openai/codex@latest --include=optional
 codex --version
 ```
 
-The vendored upstream npm package under `third_party/codex-cli/codex-cli` still
-has upstream `@openai/codex` package metadata. Treat it as source/vendor input,
-not as a Whale installer. Never run a global npm install from that package for
-local Whale development unless the package metadata has first been renamed and
-validated as a Whale package.
+The Whale npm package under `third_party/codex-cli/codex-cli` is named
+`whalecode` and exposes only the `whale` command. It must not publish or install
+`@openai/codex`, `codex.js`, or a `codex` command. See
+`docs/runbooks/npm-publishing.md` before any npm release.
 
 ## Git Discipline
 

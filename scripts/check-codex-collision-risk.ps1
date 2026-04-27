@@ -27,6 +27,23 @@ function Require-FileContains {
     }
 }
 
+function Require-FileNotContains {
+    param(
+        [string]$Path,
+        [string]$Pattern,
+        [string]$Message
+    )
+
+    $FullPath = Join-Path $RepoRoot $Path
+    if (-not (Test-Path -LiteralPath $FullPath -PathType Leaf)) {
+        return
+    }
+
+    if (Select-String -LiteralPath $FullPath -Pattern $Pattern -Quiet) {
+        $Violations.Add($Message)
+    }
+}
+
 function Test-EnvPathCollision {
     param(
         [string]$LeftName,
@@ -70,6 +87,51 @@ Require-FileContains `
     -Path "third_party\codex-cli\codex-rs\cli\Cargo.toml" `
     -Pattern 'name = "whale"' `
     -Message "Rust CLI binary must be whale."
+Require-FileContains `
+    -Path "third_party\codex-cli\codex-cli\package.json" `
+    -Pattern '"name": "whalecode"' `
+    -Message "npm CLI package must be named whalecode, not @openai/codex."
+Require-FileContains `
+    -Path "third_party\codex-cli\codex-cli\package.json" `
+    -Pattern '"whale": "bin/whale\.js"' `
+    -Message "npm CLI package must expose the whale command."
+Require-FileContains `
+    -Path "third_party\codex-cli\codex-cli\bin\whale.js" `
+    -Pattern 'whalecode-win32-x64' `
+    -Message "npm CLI launcher must resolve Whale platform packages."
+Require-FileContains `
+    -Path "third_party\codex-cli\codex-cli\bin\whale.js" `
+    -Pattern 'WHALE_MANAGED_BY_NPM' `
+    -Message "npm CLI launcher must mark Whale npm-managed launches with Whale env vars."
+Require-FileContains `
+    -Path "third_party\codex-cli\codex-cli\scripts\build_npm_package.py" `
+    -Pattern 'WHALE_NPM_NAME = "whalecode"' `
+    -Message "npm package builder must stage the Whale package name."
+Require-FileContains `
+    -Path "third_party\codex-cli\codex-rs\tui\src\update_action.rs" `
+    -Pattern 'whalecode@latest' `
+    -Message "TUI npm update command must target the Whale npm package."
+
+$NpmCodexLauncher = Join-Path $RepoRoot "third_party\codex-cli\codex-cli\bin\codex.js"
+if (Test-Path -LiteralPath $NpmCodexLauncher -PathType Leaf) {
+    $Violations.Add("npm CLI package must not retain a codex.js launcher.")
+}
+Require-FileNotContains `
+    -Path "third_party\codex-cli\codex-cli\package.json" `
+    -Pattern '@openai/codex|bin/codex\.js' `
+    -Message "npm CLI package metadata must not point at official Codex package names or launcher paths."
+Require-FileNotContains `
+    -Path "third_party\codex-cli\codex-cli\bin\whale.js" `
+    -Pattern '@openai/codex|CODEX_MANAGED_BY_NPM|CODEX_MANAGED_BY_BUN|codex\.exe' `
+    -Message "npm CLI launcher must not resolve official Codex packages, env vars, or binary names."
+Require-FileNotContains `
+    -Path "third_party\codex-cli\codex-cli\scripts\build_npm_package.py" `
+    -Pattern '@openai/codex|CODEX_NPM_NAME|CODEX_PLATFORM_PACKAGES|bin/codex\.js' `
+    -Message "npm package builder must not stage official Codex package names."
+Require-FileNotContains `
+    -Path "third_party\codex-cli\codex-cli\README.md" `
+    -Pattern '@openai/codex|npm install -g @openai|bin/codex\.js' `
+    -Message "npm package README must not publish official Codex install instructions."
 
 $ForbiddenCerts = Get-ChildItem -Path $RepoRoot -Recurse -File -Include `
     *.pfx,*.p12,*.pem,*.key,*.crt,*.cer,*.der,*.snk,*.keystore,*.jks,*.mobileprovision,*.entitlements `
@@ -101,11 +163,6 @@ if (-not [string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
             $Violations.Add("CARGO_TARGET_DIR is under an official Codex or shared package path: $TargetDir")
         }
     }
-}
-
-$VendorPackage = Join-Path $RepoRoot "third_party\codex-cli\codex-cli\package.json"
-if (Select-String -LiteralPath $VendorPackage -Pattern '"name": "@openai/codex"' -Quiet) {
-    $Warnings.Add("Vendored upstream npm package is still @openai/codex; do not install it globally for Whale.")
 }
 
 if (-not $SkipCliPathCheck) {
