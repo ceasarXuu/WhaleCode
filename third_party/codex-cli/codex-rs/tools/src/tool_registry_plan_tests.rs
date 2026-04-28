@@ -859,6 +859,7 @@ fn web_search_config_is_forwarded_to_tool_spec() {
             timezone: Some("America/Los_Angeles".to_string()),
         }),
         search_context_size: Some(codex_protocol::config_types::WebSearchContextSize::High),
+        ..Default::default()
     };
 
     let available_models = Vec::new();

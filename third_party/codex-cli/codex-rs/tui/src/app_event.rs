@@ -41,6 +41,7 @@ use codex_plugin::PluginCapabilitySummary;
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::config_types::Personality;
 use codex_protocol::config_types::ServiceTier;
+use codex_protocol::config_types::WebSearchProvider;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::SandboxPolicy;
@@ -495,6 +496,17 @@ pub(crate) enum AppEvent {
     /// Open the full model picker (non-auto models).
     OpenAllModelsPopup {
         models: Vec<ModelPreset>,
+    },
+
+    /// Open the search-provider API key prompt after a provider is selected.
+    OpenSearchProviderKeyPrompt {
+        provider: WebSearchProvider,
+    },
+
+    /// Persist a search-provider API key/token to the local credential store.
+    PersistSearchProviderSecret {
+        provider: WebSearchProvider,
+        secret: String,
     },
 
     /// Open the confirmation prompt before enabling full access mode.

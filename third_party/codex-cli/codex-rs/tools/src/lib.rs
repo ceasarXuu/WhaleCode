@@ -24,6 +24,7 @@ mod tool_spec;
 mod tool_suggest;
 mod utility_tool;
 mod view_image;
+mod web_tool;
 
 pub use agent_job_tool::create_report_agent_job_result_tool;
 pub use agent_job_tool::create_spawn_agents_on_csv_tool;
@@ -150,3 +151,5 @@ pub use utility_tool::create_list_dir_tool;
 pub use utility_tool::create_test_sync_tool;
 pub use view_image::ViewImageToolOptions;
 pub use view_image::create_view_image_tool;
+pub use web_tool::WEB_FETCH_TOOL_NAME;
+pub use web_tool::create_web_fetch_tool;

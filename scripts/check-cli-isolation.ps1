@@ -16,6 +16,9 @@ if ([string]::IsNullOrWhiteSpace($WhaleInstallDir)) {
 }
 
 $ExpectedWhaleRoot = [System.IO.Path]::GetFullPath($WhaleInstallDir).TrimEnd("\")
+$WhaleLocalBinPrefix = [System.IO.Path]::GetFullPath(
+    (Join-Path $env:USERPROFILE ".whale\bin")
+).TrimEnd("\")
 $Violations = New-Object System.Collections.Generic.List[string]
 
 if (-not $UseCurrentProcessPath) {
@@ -37,13 +40,22 @@ function Test-IsUnderRoot {
         $Resolved.StartsWith("$Root\", [System.StringComparison]::OrdinalIgnoreCase)
 }
 
+function Test-IsUnderWhaleLocalBin {
+    param([string]$Path)
+
+    $Resolved = [System.IO.Path]::GetFullPath($Path).TrimEnd("\")
+    return $Resolved.Equals($WhaleLocalBinPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $Resolved.StartsWith("$WhaleLocalBinPrefix\", [System.StringComparison]::OrdinalIgnoreCase) -or
+        $Resolved.StartsWith("$WhaleLocalBinPrefix-", [System.StringComparison]::OrdinalIgnoreCase)
+}
+
 $WhaleCommands = @(Get-Command whale -All -ErrorAction SilentlyContinue)
 if ($WhaleCommands.Count -eq 0) {
     $Violations.Add("whale is not on PATH")
 }
 
 foreach ($Command in $WhaleCommands) {
-    if (-not (Test-IsUnderRoot -Path $Command.Source -Root $ExpectedWhaleRoot)) {
+    if (-not (Test-IsUnderWhaleLocalBin -Path $Command.Source)) {
         $Violations.Add("whale resolves outside isolated Whale bin: $($Command.Source)")
     }
 }
@@ -72,6 +84,7 @@ if ($Violations.Count -gt 0) {
 
 Write-Host "CLI isolation OK"
 Write-Host "Whale root: $ExpectedWhaleRoot"
+Write-Host "Allowed Whale bin prefix: $WhaleLocalBinPrefix"
 Write-Host "Whale commands:"
 $WhaleCommands | Select-Object Source | Format-Table -AutoSize
 Write-Host "Codex commands:"

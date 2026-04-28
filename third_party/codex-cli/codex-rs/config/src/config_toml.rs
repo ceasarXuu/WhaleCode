@@ -45,6 +45,7 @@ use codex_protocol::config_types::SandboxMode;
 use codex_protocol::config_types::ServiceTier;
 use codex_protocol::config_types::TrustLevel;
 use codex_protocol::config_types::Verbosity;
+use codex_protocol::config_types::WebFetchToolConfig;
 use codex_protocol::config_types::WebSearchMode;
 use codex_protocol::config_types::WebSearchToolConfig;
 use codex_protocol::config_types::WindowsSandboxLevel;
@@ -542,6 +543,9 @@ pub struct ToolsToml {
     )]
     pub web_search: Option<WebSearchToolConfig>,
 
+    #[serde(default)]
+    pub web_fetch: Option<WebFetchToolConfig>,
+
     /// Enable the `view_image` tool that lets the agent attach local images.
     #[serde(default)]
     pub view_image: Option<bool>,
@@ -622,6 +626,7 @@ impl From<ToolsToml> for Tools {
     fn from(tools_toml: ToolsToml) -> Self {
         Self {
             web_search: tools_toml.web_search.is_some().then_some(true),
+            web_fetch: tools_toml.web_fetch.is_some().then_some(true),
             view_image: tools_toml.view_image,
         }
     }

@@ -97,6 +97,13 @@ pub struct WebSearchToolOptions<'a> {
 }
 
 pub fn create_web_search_tool(options: WebSearchToolOptions<'_>) -> Option<ToolSpec> {
+    if options
+        .web_search_config
+        .is_some_and(|config| !config.client.enabled)
+    {
+        return None;
+    }
+
     let external_web_access = match options.web_search_mode {
         Some(WebSearchMode::Cached) => Some(false),
         Some(WebSearchMode::Live) => Some(true),

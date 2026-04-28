@@ -1481,6 +1481,10 @@ pub enum EventMsg {
 
     WebSearchEnd(WebSearchEndEvent),
 
+    WebFetchBegin(WebFetchBeginEvent),
+
+    WebFetchEnd(WebFetchEndEvent),
+
     ImageGenerationBegin(ImageGenerationBeginEvent),
 
     ImageGenerationEnd(ImageGenerationEndEvent),
@@ -2476,6 +2480,21 @@ pub struct WebSearchEndEvent {
     pub call_id: String,
     pub query: String,
     pub action: WebSearchAction,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
+pub struct WebFetchBeginEvent {
+    pub call_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
+pub struct WebFetchEndEvent {
+    pub call_id: String,
+    pub url: String,
+    pub final_url: String,
+    pub status: String,
+    pub truncated: bool,
+    pub content_chars: usize,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]

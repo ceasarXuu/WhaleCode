@@ -329,6 +329,7 @@ web_search = true
         cfg.tools,
         Some(ToolsToml {
             web_search: None,
+            web_fetch: None,
             view_image: None,
         })
     );
@@ -348,6 +349,7 @@ web_search = false
         cfg.tools,
         Some(ToolsToml {
             web_search: None,
+            web_fetch: None,
             view_image: None,
         })
     );

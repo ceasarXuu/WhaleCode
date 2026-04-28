@@ -175,6 +175,14 @@ Choose the smallest valid gate for the files you changed.
 Prefer package-level tests before building the full CLI. A full CLI build is a
 smoke gate, not the first response to every small Rust edit.
 
+For app-server integration tests in the Whale fork, isolate child processes with
+`WHALE_HOME`, not only `CODEX_HOME`. `CODEX_HOME` is kept only as a Codex
+compatibility boundary and Whale runtime config loads from `WHALE_HOME`.
+If a config RPC test unexpectedly reports `C:\Users\<user>\.whale\config.toml`
+as its user layer or writes a value like `model = "gpt-new"` into the real local
+config, restore the user config and fix the test harness before trusting the
+result.
+
 ## DeepSeek Default Model Gate
 
 After changing model catalog, default picker, provider visibility, or Whale
@@ -227,6 +235,22 @@ running TUI that is holding the old executable open:
 Get-Process whale -ErrorAction SilentlyContinue |
     Select-Object Id,Path,StartTime
 ```
+
+Windows cannot overwrite an executable while that exact `whale.exe` is running.
+When the active agent process locks `%USERPROFILE%\.whale\bin\whale.exe`, install
+the new build into a side-by-side isolated bin and put it first in the user PATH:
+
+```powershell
+.\scripts\install-whale-local.ps1 `
+  -InstallDir "$env:USERPROFILE\.whale\bin-current" `
+  -PersistUserPath
+.\scripts\check-cli-isolation.ps1 `
+  -WhaleInstallDir "$env:USERPROFILE\.whale\bin-current"
+```
+
+This makes new terminals resolve the fresh build while the already-running TUI
+continues using its original image. Re-run the normal install later after the old
+process exits if you want `%USERPROFILE%\.whale\bin\whale.exe` updated too.
 
 Expected first picker entries:
 

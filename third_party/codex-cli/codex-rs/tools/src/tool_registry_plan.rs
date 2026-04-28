@@ -57,6 +57,7 @@ use crate::create_view_image_tool;
 use crate::create_wait_agent_tool_v1;
 use crate::create_wait_agent_tool_v2;
 use crate::create_wait_tool;
+use crate::create_web_fetch_tool;
 use crate::create_web_search_tool;
 use crate::create_write_stdin_tool;
 use crate::default_namespace_description;
@@ -65,6 +66,7 @@ use crate::mcp_tool_to_responses_api_tool;
 use crate::request_permissions_tool_description;
 use crate::request_user_input_tool_description;
 use crate::tool_registry_plan_types::agent_type_description;
+use codex_protocol::config_types::WebSearchMode;
 use codex_protocol::openai_models::ApplyPatchToolType;
 use codex_protocol::openai_models::ConfigShellToolType;
 use std::collections::BTreeMap;
@@ -364,6 +366,13 @@ pub fn build_tool_registry_plan(
         plan.register_handler("test_sync_tool", ToolHandlerKind::TestSync);
     }
 
+    let client_web_search_enabled =
+        !matches!(config.web_search_mode, None | Some(WebSearchMode::Disabled))
+            && config
+                .web_search_config
+                .as_ref()
+                .is_none_or(|web_config| web_config.client.enabled);
+
     if let Some(web_search_tool) = create_web_search_tool(WebSearchToolOptions {
         web_search_mode: config.web_search_mode,
         web_search_config: config.web_search_config.as_ref(),
@@ -374,6 +383,22 @@ pub fn build_tool_registry_plan(
             /*supports_parallel_tool_calls*/ false,
             config.code_mode_enabled,
         );
+    }
+
+    if client_web_search_enabled {
+        plan.register_handler("web_search", ToolHandlerKind::WebSearch);
+        if config
+            .web_search_config
+            .as_ref()
+            .is_none_or(|web_config| web_config.fetch.enabled)
+        {
+            plan.push_spec(
+                create_web_fetch_tool(),
+                /*supports_parallel_tool_calls*/ true,
+                config.code_mode_enabled,
+            );
+            plan.register_handler("web_fetch", ToolHandlerKind::WebFetch);
+        }
     }
 
     if config.image_gen_tool {

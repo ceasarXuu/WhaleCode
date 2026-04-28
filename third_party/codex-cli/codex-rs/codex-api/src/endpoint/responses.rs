@@ -269,6 +269,9 @@ fn chat_tools_from_responses_tools(tools: &[Value]) -> Vec<Value> {
         .iter()
         .filter_map(|tool| {
             let object = tool.as_object()?;
+            if object.get("type").and_then(Value::as_str) == Some("web_search") {
+                return Some(chat_web_search_function_tool());
+            }
             if object.get("type").and_then(Value::as_str) != Some("function") {
                 return None;
             }
@@ -290,6 +293,84 @@ fn chat_tools_from_responses_tools(tools: &[Value]) -> Vec<Value> {
             }))
         })
         .collect()
+}
+
+fn chat_web_search_function_tool() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Search the web for candidate sources and return lightweight ranked results. Use web_fetch separately to read selected URLs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Search query." },
+                    "max_results": { "type": "integer", "description": "Maximum number of results to return." },
+                    "freshness": {
+                        "type": "string",
+                        "enum": ["any", "day", "week", "month", "year"],
+                        "description": "Optional recency preference."
+                    },
+                    "domains": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional domains to prefer, such as github.com or docs.rs."
+                    },
+                    "exclude_domains": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional domains to exclude."
+                    },
+                    "source_hint": {
+                        "type": "string",
+                        "enum": ["general", "technical", "github", "docs", "community", "research", "news"],
+                        "description": "Optional source type hint for query shaping."
+                    },
+                    "provider_policy": {
+                        "type": "string",
+                        "enum": ["auto", "single", "fanout"],
+                        "description": "Routing policy. Use auto by default, single for a selected provider, fanout for multi-provider comparison."
+                    },
+                    "preferred_providers": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["brave", "jina", "github", "exa", "tavily", "stack_exchange"]
+                        },
+                        "description": "Optional provider order for this query."
+                    },
+                    "github": {
+                        "type": "object",
+                        "properties": {
+                            "search_type": {
+                                "type": "string",
+                                "enum": ["repositories", "code", "issues", "commits", "users"]
+                            },
+                            "repo": { "type": "string" },
+                            "org": { "type": "string" },
+                            "user": { "type": "string" },
+                            "language": { "type": "string" },
+                            "path": { "type": "string" },
+                            "filename": { "type": "string" }
+                        },
+                        "additionalProperties": false
+                    },
+                    "stack_exchange": {
+                        "type": "object",
+                        "properties": {
+                            "site": { "type": "string", "description": "Stack Exchange site, defaults to stackoverflow." },
+                            "tags": { "type": "array", "items": { "type": "string" } },
+                            "accepted": { "type": "boolean" },
+                            "sort": { "type": "string" }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }
+        }
+    })
 }
 
 #[cfg(test)]
@@ -337,5 +418,20 @@ mod tests {
 
         assert_eq!(body["thinking"], json!({ "type": "disabled" }));
         assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn chat_completions_maps_hosted_web_search_to_function_tool() {
+        let mut request = chat_request(None);
+        request.tools = vec![json!({ "type": "web_search", "external_web_access": true })];
+
+        let body = build_chat_completions_body(request);
+
+        assert_eq!(body["tools"][0]["type"], json!("function"));
+        assert_eq!(body["tools"][0]["function"]["name"], json!("web_search"));
+        assert_eq!(
+            body["tools"][0]["function"]["parameters"]["required"],
+            json!(["query"])
+        );
     }
 }

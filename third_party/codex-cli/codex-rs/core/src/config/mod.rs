@@ -1506,20 +1506,45 @@ fn resolve_web_search_config(
     config_toml: &ConfigToml,
     config_profile: &ConfigProfile,
 ) -> Option<WebSearchConfig> {
-    let base = config_toml
+    let base_search = config_toml
         .tools
         .as_ref()
         .and_then(|tools| tools.web_search.as_ref());
-    let profile = config_profile
+    let profile_search = config_profile
         .tools
         .as_ref()
         .and_then(|tools| tools.web_search.as_ref());
+    let base_fetch = config_toml
+        .tools
+        .as_ref()
+        .and_then(|tools| tools.web_fetch.as_ref());
+    let profile_fetch = config_profile
+        .tools
+        .as_ref()
+        .and_then(|tools| tools.web_fetch.as_ref());
 
-    match (base, profile) {
+    let search_config = match (base_search, profile_search) {
         (None, None) => None,
-        (Some(base), None) => Some(base.clone().into()),
-        (None, Some(profile)) => Some(profile.clone().into()),
-        (Some(base), Some(profile)) => Some(base.merge(profile).into()),
+        (Some(base), None) => Some(base.clone()),
+        (None, Some(profile)) => Some(profile.clone()),
+        (Some(base), Some(profile)) => Some(base.merge(profile)),
+    };
+    let fetch_config = match (base_fetch, profile_fetch) {
+        (None, None) => None,
+        (Some(base), None) => Some(base.clone()),
+        (None, Some(profile)) => Some(profile.clone()),
+        (Some(base), Some(profile)) => Some(base.merge(profile)),
+    };
+
+    match (search_config, fetch_config) {
+        (None, None) => None,
+        (search_config, fetch_config) => {
+            let mut config: WebSearchConfig = search_config.map(Into::into).unwrap_or_default();
+            if let Some(fetch_config) = fetch_config {
+                config.fetch = fetch_config.into();
+            }
+            Some(config)
+        }
     }
 }
 

@@ -624,6 +624,13 @@ impl App {
             AppEvent::OpenAllModelsPopup { models } => {
                 self.chat_widget.open_all_models_popup(models);
             }
+            AppEvent::OpenSearchProviderKeyPrompt { provider } => {
+                self.chat_widget.show_search_provider_key_prompt(provider);
+            }
+            AppEvent::PersistSearchProviderSecret { provider, secret } => {
+                self.chat_widget
+                    .persist_search_provider_secret(provider, secret);
+            }
             AppEvent::OpenFullAccessConfirmation {
                 preset,
                 return_to_permissions,

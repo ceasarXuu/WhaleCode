@@ -35,6 +35,7 @@ pub(crate) struct CustomPromptView {
     // UI state
     textarea: TextArea,
     textarea_state: RefCell<TextAreaState>,
+    masked: bool,
     completion: Option<ViewCompletion>,
 }
 
@@ -59,8 +60,20 @@ impl CustomPromptView {
             on_submit,
             textarea,
             textarea_state: RefCell::new(TextAreaState::default()),
+            masked: false,
             completion: None,
         }
+    }
+
+    pub(crate) fn new_secret(
+        title: String,
+        placeholder: String,
+        context_label: Option<String>,
+        on_submit: PromptSubmitted,
+    ) -> Self {
+        let mut view = Self::new(title, placeholder, String::new(), context_label, on_submit);
+        view.masked = true;
+        view
     }
 }
 
@@ -191,8 +204,19 @@ impl Renderable for CustomPromptView {
                     width: input_area.width.saturating_sub(2),
                     height: text_area_height,
                 };
-                let mut state = self.textarea_state.borrow_mut();
-                StatefulWidgetRef::render_ref(&(&self.textarea), textarea_rect, buf, &mut state);
+                if self.masked {
+                    let masked = "*".repeat(self.textarea.text().chars().count());
+                    Clear.render(textarea_rect, buf);
+                    Paragraph::new(Line::from(masked)).render(textarea_rect, buf);
+                } else {
+                    let mut state = self.textarea_state.borrow_mut();
+                    StatefulWidgetRef::render_ref(
+                        &(&self.textarea),
+                        textarea_rect,
+                        buf,
+                        &mut state,
+                    );
+                }
                 if self.textarea.text().is_empty() {
                     Paragraph::new(Line::from(self.placeholder.clone().dim()))
                         .render(textarea_rect, buf);
@@ -241,6 +265,15 @@ impl Renderable for CustomPromptView {
             width: area.width.saturating_sub(2),
             height: text_area_height,
         };
+        if self.masked {
+            let text_width =
+                self.textarea
+                    .text()
+                    .chars()
+                    .count()
+                    .min(textarea_rect.width.saturating_sub(1) as usize) as u16;
+            return Some((textarea_rect.x.saturating_add(text_width), textarea_rect.y));
+        }
         let state = *self.textarea_state.borrow();
         self.textarea.cursor_pos_with_state(textarea_rect, state)
     }

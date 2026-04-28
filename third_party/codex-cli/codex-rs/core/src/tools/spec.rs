@@ -95,6 +95,8 @@ pub(crate) fn build_specs_with_discoverable_tools(
     use crate::tools::handlers::UnavailableToolHandler;
     use crate::tools::handlers::UnifiedExecHandler;
     use crate::tools::handlers::ViewImageHandler;
+    use crate::tools::handlers::WebFetchHandler;
+    use crate::tools::handlers::WebSearchHandler;
     use crate::tools::handlers::multi_agents::CloseAgentHandler;
     use crate::tools::handlers::multi_agents::ResumeAgentHandler;
     use crate::tools::handlers::multi_agents::SendInputHandler;
@@ -151,6 +153,8 @@ pub(crate) fn build_specs_with_discoverable_tools(
     let dynamic_tool_handler = Arc::new(DynamicToolHandler);
     let goal_handler = Arc::new(GoalHandler);
     let view_image_handler = Arc::new(ViewImageHandler);
+    let web_fetch_handler = Arc::new(WebFetchHandler);
+    let web_search_handler = Arc::new(WebSearchHandler);
     let mcp_handler = Arc::new(McpHandler);
     let mcp_resource_handler = Arc::new(McpResourceHandler);
     let shell_command_handler = Arc::new(ShellCommandHandler::from(config.shell_command_backend));
@@ -278,6 +282,12 @@ pub(crate) fn build_specs_with_discoverable_tools(
             }
             ToolHandlerKind::ViewImage => {
                 builder.register_handler(handler.name, view_image_handler.clone());
+            }
+            ToolHandlerKind::WebFetch => {
+                builder.register_handler(handler.name, web_fetch_handler.clone());
+            }
+            ToolHandlerKind::WebSearch => {
+                builder.register_handler(handler.name, web_search_handler.clone());
             }
             ToolHandlerKind::WaitAgentV1 => {
                 builder.register_handler(handler.name, Arc::new(WaitAgentHandler));

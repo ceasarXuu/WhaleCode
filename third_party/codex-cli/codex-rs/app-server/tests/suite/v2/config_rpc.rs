@@ -23,6 +23,8 @@ use codex_app_server_protocol::ToolsV2;
 use codex_app_server_protocol::WriteStatus;
 use codex_core::config::set_project_trust_level;
 use codex_protocol::config_types::TrustLevel;
+use codex_protocol::config_types::WebFetchProvider;
+use codex_protocol::config_types::WebFetchToolConfig;
 use codex_protocol::config_types::WebSearchContextSize;
 use codex_protocol::config_types::WebSearchLocation;
 use codex_protocol::config_types::WebSearchToolConfig;
@@ -137,7 +139,9 @@ view_image = false
                 context_size: Some(WebSearchContextSize::Low),
                 allowed_domains: Some(vec!["example.com".to_string()]),
                 location: None,
+                ..Default::default()
             }),
+            web_fetch: None,
             view_image: Some(false),
         }
     );
@@ -214,6 +218,49 @@ location = { country = "US", city = "New York", timezone = "America/New_York" }
                 city: Some("New York".to_string()),
                 timezone: Some("America/New_York".to_string()),
             }),
+            ..Default::default()
+        }),
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn config_read_includes_web_fetch_tool_config() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    write_config(
+        &codex_home,
+        r#"
+[tools.web_fetch]
+provider = "direct"
+max_chars = 12000
+timeout_ms = 7000
+"#,
+    )?;
+
+    let mut mcp = McpProcess::new(codex_home.path()).await?;
+    timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
+
+    let request_id = mcp
+        .send_config_read_request(ConfigReadParams {
+            include_layers: false,
+            cwd: None,
+        })
+        .await?;
+    let resp: JSONRPCResponse = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(request_id)),
+    )
+    .await??;
+    let ConfigReadResponse { config, .. } = to_response(resp)?;
+
+    assert_eq!(
+        config.tools.expect("tools present").web_fetch,
+        Some(WebFetchToolConfig {
+            provider: Some(WebFetchProvider::Direct),
+            max_chars: Some(12000),
+            timeout_ms: Some(7000),
+            ..Default::default()
         }),
     );
 

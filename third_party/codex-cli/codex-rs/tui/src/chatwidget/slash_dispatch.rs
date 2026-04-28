@@ -354,6 +354,9 @@ impl ChatWidget {
                     );
                 }
             }
+            SlashCommand::SearchProvider => {
+                self.open_search_provider_popup();
+            }
             SlashCommand::DebugConfig => {
                 self.add_debug_config_output();
             }
@@ -567,6 +570,9 @@ impl ChatWidget {
                 "verbose" => self.add_mcp_output(McpServerStatusDetail::Full),
                 _ => self.add_error_message("Usage: /mcp [verbose]".to_string()),
             },
+            SlashCommand::SearchProvider => {
+                self.dispatch_search_provider_command(trimmed);
+            }
             SlashCommand::Rename if !trimmed.is_empty() => {
                 if !self.ensure_thread_rename_allowed() {
                     return;
@@ -829,6 +835,7 @@ impl ChatWidget {
             SlashCommand::Fast
             | SlashCommand::Status
             | SlashCommand::DebugConfig
+            | SlashCommand::SearchProvider
             | SlashCommand::Ps
             | SlashCommand::Stop
             | SlashCommand::MemoryDrop

@@ -381,6 +381,9 @@ mod interrupts;
 use self::interrupts::InterruptManager;
 mod session_header;
 use self::session_header::SessionHeader;
+mod search_provider;
+mod search_provider_health;
+mod search_provider_support;
 mod skills;
 mod slash_dispatch;
 use self::skills::collect_tool_mentions;
@@ -7718,6 +7721,7 @@ impl ChatWidget {
             EventMsg::McpToolCallEnd(ev) => self.on_mcp_tool_call_end(ev),
             EventMsg::WebSearchBegin(ev) => self.on_web_search_begin(ev),
             EventMsg::WebSearchEnd(ev) => self.on_web_search_end(ev),
+            EventMsg::WebFetchBegin(_) | EventMsg::WebFetchEnd(_) => {}
             EventMsg::GetHistoryEntryResponse(ev) => self.handle_history_entry_response(ev),
             EventMsg::McpListToolsResponse(ev) => self.on_list_mcp_tools(ev),
             EventMsg::ListSkillsResponse(ev) => self.on_list_skills(ev),

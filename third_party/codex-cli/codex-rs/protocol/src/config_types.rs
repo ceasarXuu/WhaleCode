@@ -159,7 +159,18 @@ pub enum Personality {
 }
 
 #[derive(
-    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS, Default,
+    Debug,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Display,
+    JsonSchema,
+    TS,
+    Default,
 )]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
@@ -177,6 +188,82 @@ pub enum WebSearchContextSize {
     Low,
     Medium,
     High,
+}
+
+#[derive(
+    Debug,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Display,
+    JsonSchema,
+    TS,
+    Default,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum WebSearchProvider {
+    #[default]
+    Brave,
+    Jina,
+    Github,
+    Exa,
+    Tavily,
+    StackExchange,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum WebSearchFallbackProvider {
+    Brave,
+    Jina,
+    Github,
+    Exa,
+    Tavily,
+    StackExchange,
+    Off,
+}
+
+impl WebSearchFallbackProvider {
+    fn into_runtime_provider(self) -> Option<WebSearchProvider> {
+        match self {
+            WebSearchFallbackProvider::Brave => Some(WebSearchProvider::Brave),
+            WebSearchFallbackProvider::Jina => Some(WebSearchProvider::Jina),
+            WebSearchFallbackProvider::Github => Some(WebSearchProvider::Github),
+            WebSearchFallbackProvider::Exa => Some(WebSearchProvider::Exa),
+            WebSearchFallbackProvider::Tavily => Some(WebSearchProvider::Tavily),
+            WebSearchFallbackProvider::StackExchange => Some(WebSearchProvider::StackExchange),
+            WebSearchFallbackProvider::Off => None,
+        }
+    }
+}
+
+#[derive(
+    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS, Default,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum WebSearchStrategy {
+    #[default]
+    Auto,
+    Single,
+    Fanout,
+}
+
+#[derive(
+    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS, Default,
+)]
+#[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
+pub enum WebFetchProvider {
+    #[default]
+    Jina,
+    Direct,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq, JsonSchema, TS)]
@@ -202,6 +289,19 @@ impl WebSearchLocation {
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq, JsonSchema, TS)]
 #[schemars(deny_unknown_fields)]
 pub struct WebSearchToolConfig {
+    pub enabled: Option<bool>,
+    pub provider: Option<WebSearchProvider>,
+    pub fallback_provider: Option<WebSearchFallbackProvider>,
+    pub strategy: Option<WebSearchStrategy>,
+    pub max_providers_per_query: Option<usize>,
+    pub brave_api_key_env: Option<String>,
+    pub exa_api_key_env: Option<String>,
+    pub tavily_api_key_env: Option<String>,
+    pub github_token_env: Option<String>,
+    pub stack_exchange_key_env: Option<String>,
+    pub stack_exchange_site: Option<String>,
+    pub max_results: Option<usize>,
+    pub timeout_ms: Option<u64>,
     pub context_size: Option<WebSearchContextSize>,
     pub allowed_domains: Option<Vec<String>>,
     pub location: Option<WebSearchLocation>,
@@ -210,6 +310,39 @@ pub struct WebSearchToolConfig {
 impl WebSearchToolConfig {
     pub fn merge(&self, other: &Self) -> Self {
         Self {
+            enabled: other.enabled.or(self.enabled),
+            provider: other.provider.or(self.provider),
+            fallback_provider: other.fallback_provider.or(self.fallback_provider),
+            strategy: other.strategy.or(self.strategy),
+            max_providers_per_query: other
+                .max_providers_per_query
+                .or(self.max_providers_per_query),
+            brave_api_key_env: other
+                .brave_api_key_env
+                .clone()
+                .or_else(|| self.brave_api_key_env.clone()),
+            exa_api_key_env: other
+                .exa_api_key_env
+                .clone()
+                .or_else(|| self.exa_api_key_env.clone()),
+            tavily_api_key_env: other
+                .tavily_api_key_env
+                .clone()
+                .or_else(|| self.tavily_api_key_env.clone()),
+            github_token_env: other
+                .github_token_env
+                .clone()
+                .or_else(|| self.github_token_env.clone()),
+            stack_exchange_key_env: other
+                .stack_exchange_key_env
+                .clone()
+                .or_else(|| self.stack_exchange_key_env.clone()),
+            stack_exchange_site: other
+                .stack_exchange_site
+                .clone()
+                .or_else(|| self.stack_exchange_site.clone()),
+            max_results: other.max_results.or(self.max_results),
+            timeout_ms: other.timeout_ms.or(self.timeout_ms),
             context_size: other.context_size.or(self.context_size),
             allowed_domains: other
                 .allowed_domains
@@ -221,6 +354,26 @@ impl WebSearchToolConfig {
                 (None, Some(other_location)) => Some(other_location.clone()),
                 (None, None) => None,
             },
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq, JsonSchema, TS)]
+#[schemars(deny_unknown_fields)]
+pub struct WebFetchToolConfig {
+    pub enabled: Option<bool>,
+    pub provider: Option<WebFetchProvider>,
+    pub max_chars: Option<usize>,
+    pub timeout_ms: Option<u64>,
+}
+
+impl WebFetchToolConfig {
+    pub fn merge(&self, other: &Self) -> Self {
+        Self {
+            enabled: other.enabled.or(self.enabled),
+            provider: other.provider.or(self.provider),
+            max_chars: other.max_chars.or(self.max_chars),
+            timeout_ms: other.timeout_ms.or(self.timeout_ms),
         }
     }
 }
@@ -258,6 +411,66 @@ pub struct WebSearchConfig {
     pub filters: Option<WebSearchFilters>,
     pub user_location: Option<WebSearchUserLocation>,
     pub search_context_size: Option<WebSearchContextSize>,
+    pub client: WebSearchClientConfig,
+    pub fetch: WebFetchConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, TS)]
+#[schemars(deny_unknown_fields)]
+pub struct WebSearchClientConfig {
+    pub enabled: bool,
+    pub provider: WebSearchProvider,
+    pub fallback_provider: Option<WebSearchProvider>,
+    pub strategy: WebSearchStrategy,
+    pub max_providers_per_query: usize,
+    pub brave_api_key_env: String,
+    pub exa_api_key_env: String,
+    pub tavily_api_key_env: String,
+    pub github_token_env: String,
+    pub stack_exchange_key_env: String,
+    pub stack_exchange_site: String,
+    pub max_results: usize,
+    pub timeout_ms: u64,
+}
+
+impl Default for WebSearchClientConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            provider: WebSearchProvider::Brave,
+            fallback_provider: Some(WebSearchProvider::Jina),
+            strategy: WebSearchStrategy::Auto,
+            max_providers_per_query: 2,
+            brave_api_key_env: "BRAVE_SEARCH_API_KEY".to_string(),
+            exa_api_key_env: "EXA_API_KEY".to_string(),
+            tavily_api_key_env: "TAVILY_API_KEY".to_string(),
+            github_token_env: "GITHUB_TOKEN".to_string(),
+            stack_exchange_key_env: "STACK_EXCHANGE_KEY".to_string(),
+            stack_exchange_site: "stackoverflow".to_string(),
+            max_results: 8,
+            timeout_ms: 10_000,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, TS)]
+#[schemars(deny_unknown_fields)]
+pub struct WebFetchConfig {
+    pub enabled: bool,
+    pub provider: WebFetchProvider,
+    pub max_chars: usize,
+    pub timeout_ms: u64,
+}
+
+impl Default for WebFetchConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            provider: WebFetchProvider::Jina,
+            max_chars: 50_000,
+            timeout_ms: 15_000,
+        }
+    }
 }
 
 impl From<WebSearchLocation> for WebSearchUserLocation {
@@ -274,6 +487,7 @@ impl From<WebSearchLocation> for WebSearchUserLocation {
 
 impl From<WebSearchToolConfig> for WebSearchConfig {
     fn from(config: WebSearchToolConfig) -> Self {
+        let default_client = WebSearchClientConfig::default();
         Self {
             filters: config
                 .allowed_domains
@@ -282,6 +496,51 @@ impl From<WebSearchToolConfig> for WebSearchConfig {
                 }),
             user_location: config.location.map(Into::into),
             search_context_size: config.context_size,
+            client: WebSearchClientConfig {
+                enabled: config.enabled.unwrap_or(default_client.enabled),
+                provider: config.provider.unwrap_or(default_client.provider),
+                fallback_provider: config
+                    .fallback_provider
+                    .map(WebSearchFallbackProvider::into_runtime_provider)
+                    .unwrap_or(default_client.fallback_provider),
+                strategy: config.strategy.unwrap_or(default_client.strategy),
+                max_providers_per_query: config
+                    .max_providers_per_query
+                    .unwrap_or(default_client.max_providers_per_query),
+                brave_api_key_env: config
+                    .brave_api_key_env
+                    .unwrap_or(default_client.brave_api_key_env),
+                exa_api_key_env: config
+                    .exa_api_key_env
+                    .unwrap_or(default_client.exa_api_key_env),
+                tavily_api_key_env: config
+                    .tavily_api_key_env
+                    .unwrap_or(default_client.tavily_api_key_env),
+                github_token_env: config
+                    .github_token_env
+                    .unwrap_or(default_client.github_token_env),
+                stack_exchange_key_env: config
+                    .stack_exchange_key_env
+                    .unwrap_or(default_client.stack_exchange_key_env),
+                stack_exchange_site: config
+                    .stack_exchange_site
+                    .unwrap_or(default_client.stack_exchange_site),
+                max_results: config.max_results.unwrap_or(default_client.max_results),
+                timeout_ms: config.timeout_ms.unwrap_or(default_client.timeout_ms),
+            },
+            fetch: WebFetchConfig::default(),
+        }
+    }
+}
+
+impl From<WebFetchToolConfig> for WebFetchConfig {
+    fn from(config: WebFetchToolConfig) -> Self {
+        let default_fetch = WebFetchConfig::default();
+        Self {
+            enabled: config.enabled.unwrap_or(default_fetch.enabled),
+            provider: config.provider.unwrap_or(default_fetch.provider),
+            max_chars: config.max_chars.unwrap_or(default_fetch.max_chars),
+            timeout_ms: config.timeout_ms.unwrap_or(default_fetch.timeout_ms),
         }
     }
 }
@@ -674,8 +933,12 @@ mod tests {
                 city: None,
                 timezone: Some("America/Los_Angeles".to_string()),
             }),
+            ..Default::default()
         };
         let overlay = WebSearchToolConfig {
+            enabled: Some(false),
+            provider: Some(WebSearchProvider::Jina),
+            fallback_provider: Some(WebSearchFallbackProvider::Off),
             context_size: Some(WebSearchContextSize::High),
             allowed_domains: None,
             location: Some(WebSearchLocation {
@@ -684,9 +947,13 @@ mod tests {
                 city: Some("Seattle".to_string()),
                 timezone: None,
             }),
+            ..Default::default()
         };
 
         let expected = WebSearchToolConfig {
+            enabled: Some(false),
+            provider: Some(WebSearchProvider::Jina),
+            fallback_provider: Some(WebSearchFallbackProvider::Off),
             context_size: Some(WebSearchContextSize::High),
             allowed_domains: Some(vec!["openai.com".to_string()]),
             location: Some(WebSearchLocation {
@@ -695,6 +962,7 @@ mod tests {
                 city: Some("Seattle".to_string()),
                 timezone: Some("America/Los_Angeles".to_string()),
             }),
+            ..Default::default()
         };
 
         assert_eq!(expected, base.merge(&overlay));

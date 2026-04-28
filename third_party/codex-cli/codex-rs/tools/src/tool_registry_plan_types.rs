@@ -38,6 +38,8 @@ pub enum ToolHandlerKind {
     ToolSuggest,
     UnifiedExec,
     ViewImage,
+    WebFetch,
+    WebSearch,
     WaitAgentV1,
     WaitAgentV2,
 }
