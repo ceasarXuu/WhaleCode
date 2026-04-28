@@ -16,6 +16,25 @@ Set-Location D:\WhaleCode\third_party\codex-cli\codex-rs
 The repository root is not an active Cargo workspace. Run Rust build, test, and
 install commands from `third_party/codex-cli/codex-rs`.
 
+## Worktree Branches
+
+Feature work that should be isolated from `main` can use a sibling Git
+worktree. The first alpha feature branch was created as:
+
+```powershell
+git worktree add -b whalecode-alpha D:\whalecode-alpha
+Set-Location D:\whalecode-alpha
+git commit --allow-empty -m "chore: initialize whalecode alpha worktree"
+git push -u origin whalecode-alpha
+```
+
+On Windows sandboxed shells, writes for a sibling worktree may still touch the
+main repository metadata under `D:\WhaleCode\.git\worktrees\...`. If a commit
+fails while creating `index.lock`, rerun the Git command in an approved host
+shell instead of deleting lock files by hand. Pushes can also fail with
+`SEC_E_NO_CREDENTIALS` when the sandbox cannot access the normal Windows Git
+credential context; rerun the same `git push` from the host shell.
+
 ## Build Environment
 
 On Windows, use MSVC Rust. If the shell is not already a Developer PowerShell,
