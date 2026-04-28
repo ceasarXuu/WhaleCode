@@ -237,20 +237,17 @@ Get-Process whale -ErrorAction SilentlyContinue |
 ```
 
 Windows cannot overwrite an executable while that exact `whale.exe` is running.
-When the active agent process locks `%USERPROFILE%\.whale\bin\whale.exe`, install
-the new build into a side-by-side isolated bin and put it first in the user PATH:
+When the active agent process locks `%USERPROFILE%\.whale\bin\whale.exe`, stop
+that process and rerun the normal installer:
 
 ```powershell
-.\scripts\install-whale-local.ps1 `
-  -InstallDir "$env:USERPROFILE\.whale\bin-current" `
-  -PersistUserPath
-.\scripts\check-cli-isolation.ps1 `
-  -WhaleInstallDir "$env:USERPROFILE\.whale\bin-current"
+Stop-Process -Id <pid>
+.\scripts\install-whale-local.ps1 -PersistUserPath
+.\scripts\check-cli-isolation.ps1
 ```
 
-This makes new terminals resolve the fresh build while the already-running TUI
-continues using its original image. Re-run the normal install later after the old
-process exits if you want `%USERPROFILE%\.whale\bin\whale.exe` updated too.
+Do not create a second Whale bin directory for normal local installs. It makes
+PATH order and future verification harder to reason about.
 
 Expected first picker entries:
 
