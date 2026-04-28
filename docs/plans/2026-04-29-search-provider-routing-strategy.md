@@ -59,6 +59,8 @@ runtime providers:
 
 - provider enum 只覆盖 Brave/Jina，未覆盖 GitHub、Exa、Tavily、Stack Exchange。
 - `/search-provider` 只支持 Brave/Jina，不能配置多 provider。
+- `/search-provider` 仍是文本状态/子命令雏形，不符合用户要求的“选择服务商 -> 输入
+  API key/token -> done”交互。
 - 当前 registry 是 primary + fallback，不是按任务意图路由或多 provider blending。
 - `web_search` 参数还不足以表达 `provider_policy`、`scope`、`repo`、`language`、
   `tags`、`search_kind` 等结构化意图。
@@ -374,41 +376,99 @@ timeout_ms = 15000
 
 API key 策略：
 
-- 所有 provider 都优先读 env var。
-- `/search-provider key <provider> <ENV_VAR>` 只设置 env var 名称，不写入 secret。
-- 后续如支持本地 credential store，也必须位于用户 runtime home，且全链路脱敏。
-- 没有 key 的 provider 进入 `unconfigured` 状态，不影响其他 provider。
+- 面向普通用户的主路径不是手动写 env var，而是通过 `/search-provider` 交互式输入
+  API key/token。
+- 交互式输入的 secret 写入 Whale 用户级 credential store，不写入仓库、计划文档、
+  session transcript 或普通日志。
+- Windows 本地优先用系统凭据/DPAPI 能力；若实现初期需要文件型 credential store，
+  必须位于 `%USERPROFILE%\.whale`，并做本机用户权限限制和全链路脱敏。
+- env var 仍作为高级/自动化路径保留，例如 `BRAVE_SEARCH_API_KEY`、`EXA_API_KEY`、
+  `TAVILY_API_KEY`、`GITHUB_TOKEN`、`STACK_EXCHANGE_KEY`。
+- credential store 优先级高于 env var 还是低于 env var，需要在实现设计里固定；建议
+  默认优先 env var，避免覆盖 CI/脚本环境，交互式输入只写本机用户配置。
+- 没有 key/token 的 provider 进入 `unconfigured` 状态，不影响其他 provider。
 
 ## `/search-provider` 命令修订
 
-旧命令只支持 Brave/Jina，需要扩展为 provider registry 管理命令。
+关键 UX 决策：`/search-provider` 裸命令必须打开选择器，而不是打印一段状态和要求
+用户记子命令。这个交互要和现有选择型命令保持一致：`/model` 打开模型选择 popup，
+`/permissions` 打开权限选择 popup，`/search-provider` 也应打开 provider 选择 popup。
 
-建议命令：
+主流程：
 
 ```text
 /search-provider
-/search-provider list
+  -> 打开 SearchProviderPicker
+  -> 用户选择 provider
+  -> 如果未配置 key/token，打开 secret input prompt
+  -> 用户输入 API key/token
+  -> Whale 保存到用户 credential store
+  -> 立即执行 provider health check
+  -> 成功后启用 provider，并返回 done/status
+```
+
+Provider picker 首屏至少包含：
+
+- Auto router
+- GitHub Search API
+- Exa
+- Tavily
+- Brave Search API
+- Stack Exchange API
+
+每个 provider 行展示：
+
+- 名称。
+- 适用场景短标签，例如 `GitHub code/issues`、`Docs/changelog`、`Research`、
+  `General web`、`Stack Overflow Q&A`。
+- 状态：`configured`、`needs key`、`healthy`、`rate-limited`、`disabled`。
+- 费用/限流提示的短文案，例如 `requires key`、`token recommended`。
+
+Provider 选择后的行为：
+
+- 选择 `Auto router`：打开 provider 管理视图，允许一次性看到所有 provider 状态；不要求
+  立即输入 key。
+- 选择 GitHub：提示输入 `GITHUB_TOKEN` 或选择跳过；如果跳过，只启用无需认证的公共能力，
+  并在 code/private search 场景提示需要 token。
+- 选择 Exa：提示输入 Exa API key。
+- 选择 Tavily：提示输入 Tavily API key。
+- 选择 Brave：提示输入 Brave Search API key。
+- 选择 Stack Exchange：提示输入 Stack Exchange key；access token 作为高级选项，不放在
+  第一层主流程。
+
+Secret input 要求：
+
+- 输入框必须 mask secret。
+- 支持 Esc 取消，不落盘。
+- 提交后只显示 `saved` / `test ok` / `test failed: <sanitized error>`。
+- 任何错误输出不得包含 secret 原文或 Authorization header。
+- 如果 health check 失败，保留 secret 但标记 provider 为 `configured/unhealthy`，并允许用户
+  立即重试或删除。
+
+完成态要求：
+
+- 成功配置后显示一行短状态，例如：
+
+```text
+Exa configured and healthy. Auto router will use it for docs, changelog, and technical search.
+```
+
+- 不需要用户再运行别的命令才生效。
+- 不要求用户理解 config TOML、env var、provider role 或 routing profile。
+
+高级命令可以保留，但不能成为主路径：
+
+```text
 /search-provider status
-/search-provider enable brave|exa|tavily|github|stack_exchange
-/search-provider disable brave|exa|tavily|github|stack_exchange
-/search-provider key brave BRAVE_SEARCH_API_KEY
-/search-provider key exa EXA_API_KEY
-/search-provider key tavily TAVILY_API_KEY
-/search-provider key github GITHUB_TOKEN
-/search-provider key stack_exchange STACK_EXCHANGE_KEY
-/search-provider test brave|exa|tavily|github|stack_exchange|all
-/search-provider strategy auto|single|fanout
-/search-provider profile technical|general|research|github|community
+/search-provider list
+/search-provider test all
+/search-provider test exa
 /search-provider off
 /search-provider on
 ```
 
-命令输出要求：
-
-- 显示 enabled/configured/healthy/rate-limited/unconfigured。
-- 显示 key 来源，但不显示 key 值。
-- 显示最近一次 health check 时间、延迟、错误类别。
-- `test all` 要逐 provider 测试，不能因为某个 provider 失败就中断。
+这些高级命令只服务自动化、debug 和 power user。普通用户只需要记住
+`/search-provider`。
 
 ## 成本与限流策略
 
@@ -547,15 +607,22 @@ fallback: direct_fetch
 ### 阶段 2：配置与 `/search-provider`
 
 - 扩展 config schema。
-- 扩展 `/search-provider` 命令。
+- 扩展 `/search-provider` 命令，但主路径必须是 popup/picker，不是子命令教程。
+- 新增 SearchProviderPicker：复用现有 TUI popup 交互风格，行为上对齐 `/model` 和
+  `/permissions`。
+- 新增 masked secret input prompt：选择 provider 后输入 API key/token。
+- 新增用户级 credential store 写入、读取、删除和脱敏显示。
 - 加 provider health state。
-- 加 key env 名称配置和脱敏。
+- 保留 env var 配置作为高级路径，但不能替代交互式 key 输入。
 
 验收：
 
+- 裸 `/search-provider` 会打开 provider picker。
+- 选择 provider 后能输入 key/token 并完成 health check。
+- 成功后 provider 立即启用，不需要用户再编辑配置文件或运行额外命令。
 - 能启停每个 provider。
 - 能逐 provider test。
-- secret 不进输出。
+- secret 不进输出、日志或 session transcript。
 
 ### 阶段 3：结构化技术 provider
 
