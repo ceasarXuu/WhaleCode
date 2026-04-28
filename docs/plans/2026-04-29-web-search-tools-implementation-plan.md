@@ -2,6 +2,14 @@
 
 日期：2026-04-29
 
+## 修订状态
+
+本文件记录的是第一版 Brave + Jina 方案，已被同日的新 provider 路由策略取代。
+
+当前执行口径见：
+
+- `docs/plans/2026-04-29-search-provider-routing-strategy.md`
+
 ## 结论
 
 第一阶段明确拆成两个工具：
