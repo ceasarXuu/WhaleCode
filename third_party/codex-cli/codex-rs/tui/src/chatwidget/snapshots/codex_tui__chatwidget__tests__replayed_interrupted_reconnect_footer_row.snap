@@ -1,5 +1,5 @@
 ---
-source: tui/src/chatwidget/tests/history_replay.rs
+source: tui/src/chatwidget/tests.rs
 expression: header
 ---
-› Ask Whale to do anything
+› Ask Codex to do anything

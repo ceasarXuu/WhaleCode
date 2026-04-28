@@ -16,9 +16,7 @@
 //!   confirmation, shortcut help, or queue hints.
 //! - "contextual footer" means the footer is free to show ambient context instead of an
 //!   instruction. In that state, the footer may render the configured status line, the active
-//!   agent label, side-conversation state, or some combination of those. The context-window
-//!   indicator remains the default right-side anchor so token budget visibility does not depend on
-//!   the optional status-line contents.
+//!   agent label, side-conversation state, or some combination of those.
 //!
 //! Single-line collapse overview:
 //! 1. The composer decides the current `FooterMode` and hint flags, then calls
@@ -491,68 +489,6 @@ pub(crate) fn mode_indicator_line(
     show_cycle_hint: bool,
 ) -> Option<Line<'static>> {
     indicator.map(|indicator| Line::from(vec![indicator.styled_span(show_cycle_hint)]))
-}
-
-fn append_context_to_status_indicator(
-    mut indicator: Line<'static>,
-    context_line: Line<'static>,
-) -> Line<'static> {
-    if indicator.width() == 0 {
-        return context_line;
-    }
-
-    indicator.spans.push(" · ".dim());
-    indicator.spans.extend(context_line.spans);
-    indicator
-}
-
-pub(crate) fn status_right_indicator_with_context(
-    area: Rect,
-    left_width: u16,
-    full_indicator: Option<Line<'static>>,
-    compact_indicator: Option<Line<'static>>,
-    context_line: Line<'static>,
-) -> Line<'static> {
-    let mut combined_candidates = Vec::new();
-    let mut indicator_candidates = Vec::new();
-
-    if let Some(indicator) = full_indicator {
-        indicator_candidates.push(indicator.clone());
-        combined_candidates.push(append_context_to_status_indicator(
-            indicator,
-            context_line.clone(),
-        ));
-    }
-    if let Some(indicator) = compact_indicator {
-        indicator_candidates.push(indicator.clone());
-        combined_candidates.push(append_context_to_status_indicator(
-            indicator,
-            context_line.clone(),
-        ));
-    }
-
-    if let Some(line) = combined_candidates
-        .into_iter()
-        .find(|line| can_show_left_with_context(area, left_width, line.width() as u16))
-    {
-        return line;
-    }
-
-    if let Some(line) = indicator_candidates
-        .iter()
-        .find(|line| can_show_left_with_context(area, left_width, line.width() as u16))
-        .cloned()
-    {
-        return line;
-    }
-
-    indicator_candidates.pop().unwrap_or(context_line)
-}
-
-pub(crate) fn status_line_contains_context_window(line: &Line<'_>) -> bool {
-    line.spans
-        .iter()
-        .any(|span| span.content.contains("Context "))
 }
 
 pub(crate) fn goal_status_indicator_line(
@@ -1295,33 +1231,17 @@ mod tests {
                         show_queue_hint,
                     )
                 };
-                let status_line_has_context = passive_status_line
-                    .as_ref()
-                    .is_some_and(status_line_contains_context_window);
                 let right_line = if status_line_active {
                     let full = mode_indicator_line(collaboration_mode_indicator, show_cycle_hint);
                     let compact = mode_indicator_line(
                         collaboration_mode_indicator,
                         /*show_cycle_hint*/ false,
                     );
-                    if status_line_has_context {
-                        let full_width = full.as_ref().map(|line| line.width() as u16).unwrap_or(0);
-                        if can_show_left_with_context(area, left_width, full_width) {
-                            full
-                        } else {
-                            compact
-                        }
+                    let full_width = full.as_ref().map(|line| line.width() as u16).unwrap_or(0);
+                    if can_show_left_with_context(area, left_width, full_width) {
+                        full
                     } else {
-                        Some(status_right_indicator_with_context(
-                            area,
-                            left_width,
-                            full,
-                            compact,
-                            context_window_line(
-                                props.context_window_percent,
-                                props.context_window_used_tokens,
-                            ),
-                        ))
+                        compact
                     }
                 } else {
                     Some(context_window_line(
