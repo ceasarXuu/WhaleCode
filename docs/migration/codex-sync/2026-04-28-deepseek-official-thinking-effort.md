@@ -34,3 +34,15 @@ serialized as `thinking: { "type": "disabled" }` without `reasoning_effort`.
 - DeepSeek API `create-chat-completion` documents `thinking` and
   `reasoning_effort` as Chat Completions request fields:
   https://api-docs.deepseek.com/api/create-chat-completion
+
+## Local install note
+
+After rebuilding `whale.exe` and helper binaries, run
+`scripts/install-whale-local.ps1 -PersistUserPath -BackupLegacyCopies` from the
+repo root to update `%USERPROFILE%\.whale\bin`.
+
+If Windows reports that `%USERPROFILE%\.whale\bin\whale.exe` is in use, find the
+old process with `Get-Process whale` and stop that stale local Whale process
+before retrying the install. Verification should include `whale debug models`;
+both DeepSeek presets must report `default_reasoning_level: "high"` and
+supported efforts `high` and `max`.
