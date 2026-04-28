@@ -848,10 +848,17 @@ impl ModelClientSession {
                     Some(summary)
                 },
             })
+        } else if provider.wire_api == codex_api::WireApi::ChatCompletions
+            && (effort.is_some() || default_reasoning_effort.is_some())
+        {
+            Some(Reasoning {
+                effort: effort.or(default_reasoning_effort),
+                summary: None,
+            })
         } else {
             None
         };
-        let include = if reasoning.is_some() {
+        let include = if model_info.supports_reasoning_summaries && reasoning.is_some() {
             vec!["reasoning.encrypted_content".to_string()]
         } else {
             Vec::new()

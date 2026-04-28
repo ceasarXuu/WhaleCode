@@ -130,6 +130,7 @@ fn reasoning_effort_preset(effort: ReasoningEffort) -> ReasoningEffortPreset {
             ReasoningEffort::Medium => "Balances speed and reasoning depth for everyday tasks",
             ReasoningEffort::High => "Greater reasoning depth for complex problems",
             ReasoningEffort::XHigh => "Extra high reasoning depth for complex problems",
+            ReasoningEffort::Max => "Maximum reasoning depth for complex problems",
         }
         .to_string(),
     }

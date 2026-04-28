@@ -17,6 +17,7 @@ use crate::telemetry::SseTelemetry;
 use codex_client::HttpTransport;
 use codex_client::RequestCompression;
 use codex_client::RequestTelemetry;
+use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use codex_protocol::protocol::SessionSource;
 use http::HeaderMap;
 use http::HeaderValue;
@@ -233,6 +234,32 @@ fn build_chat_completions_body(request: ResponsesApiRequest) -> Value {
             );
         }
     }
+    if let Some(reasoning) = request.reasoning {
+        match reasoning.effort {
+            Some(ReasoningEffortConfig::None) => {
+                body.insert(
+                    "thinking".to_string(),
+                    serde_json::json!({ "type": "disabled" }),
+                );
+            }
+            Some(effort) => {
+                body.insert(
+                    "thinking".to_string(),
+                    serde_json::json!({ "type": "enabled" }),
+                );
+                body.insert(
+                    "reasoning_effort".to_string(),
+                    Value::String(effort.to_string()),
+                );
+            }
+            None => {
+                body.insert(
+                    "thinking".to_string(),
+                    serde_json::json!({ "type": "enabled" }),
+                );
+            }
+        }
+    }
 
     Value::Object(body)
 }
@@ -263,4 +290,52 @@ fn chat_tools_from_responses_tools(tools: &[Value]) -> Vec<Value> {
             }))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::Reasoning;
+    use serde_json::json;
+
+    fn chat_request(reasoning: Option<Reasoning>) -> ResponsesApiRequest {
+        ResponsesApiRequest {
+            model: "deepseek-v4-pro".to_string(),
+            instructions: String::new(),
+            input: Vec::new(),
+            tools: Vec::new(),
+            tool_choice: "auto".to_string(),
+            parallel_tool_calls: true,
+            reasoning,
+            store: false,
+            stream: true,
+            include: Vec::new(),
+            service_tier: None,
+            prompt_cache_key: None,
+            text: None,
+            client_metadata: None,
+        }
+    }
+
+    #[test]
+    fn chat_completions_body_preserves_official_deepseek_reasoning_effort() {
+        let body = build_chat_completions_body(chat_request(Some(Reasoning {
+            effort: Some(ReasoningEffortConfig::Max),
+            summary: None,
+        })));
+
+        assert_eq!(body["thinking"], json!({ "type": "enabled" }));
+        assert_eq!(body["reasoning_effort"], json!("max"));
+    }
+
+    #[test]
+    fn chat_completions_body_can_disable_deepseek_thinking() {
+        let body = build_chat_completions_body(chat_request(Some(Reasoning {
+            effort: Some(ReasoningEffortConfig::None),
+            summary: None,
+        })));
+
+        assert_eq!(body["thinking"], json!({ "type": "disabled" }));
+        assert!(body.get("reasoning_effort").is_none());
+    }
 }

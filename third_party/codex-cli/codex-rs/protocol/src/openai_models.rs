@@ -48,6 +48,7 @@ pub enum ReasoningEffort {
     Medium,
     High,
     XHigh,
+    Max,
 }
 
 impl FromStr for ReasoningEffort {
@@ -519,6 +520,7 @@ fn effort_rank(effort: ReasoningEffort) -> i32 {
         ReasoningEffort::Medium => 3,
         ReasoningEffort::High => 4,
         ReasoningEffort::XHigh => 5,
+        ReasoningEffort::Max => 6,
     }
 }
 
@@ -583,6 +585,7 @@ mod tests {
     #[test]
     fn reasoning_effort_from_str_accepts_known_values() {
         assert_eq!("high".parse(), Ok(ReasoningEffort::High));
+        assert_eq!("max".parse(), Ok(ReasoningEffort::Max));
         assert_eq!("minimal".parse(), Ok(ReasoningEffort::Minimal));
     }
 

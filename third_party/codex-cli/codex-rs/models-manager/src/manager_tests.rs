@@ -13,6 +13,7 @@ use codex_login::auth::AgentIdentityAuth;
 use codex_login::auth::AgentIdentityAuthRecord;
 use codex_protocol::account::PlanType;
 use codex_protocol::openai_models::ModelsResponse;
+use codex_protocol::openai_models::ReasoningEffort;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::collections::VecDeque;
@@ -837,6 +838,32 @@ async fn bundled_models_only_list_deepseek_choices() {
             "deepseek-v4-flash".to_string()
         ]
     );
+}
+
+#[tokio::test]
+async fn bundled_deepseek_models_use_official_reasoning_efforts() {
+    let manager = StaticModelsManager::new(
+        None,
+        crate::bundled_models_response().expect("bundled models.json should parse"),
+        CollaborationModesConfig::default(),
+    );
+
+    let models = manager.list_models(RefreshStrategy::Offline).await;
+    for slug in ["deepseek-v4-pro", "deepseek-v4-flash"] {
+        let preset = models
+            .iter()
+            .find(|preset| preset.model == slug)
+            .expect("bundled DeepSeek preset should exist");
+        assert_eq!(preset.default_reasoning_effort, ReasoningEffort::High);
+        assert_eq!(
+            preset
+                .supported_reasoning_efforts
+                .iter()
+                .map(|preset| preset.effort)
+                .collect::<Vec<_>>(),
+            vec![ReasoningEffort::High, ReasoningEffort::Max]
+        );
+    }
 }
 
 #[tokio::test]

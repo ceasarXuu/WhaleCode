@@ -4,11 +4,15 @@
       "slug": "deepseek-v4-flash",
       "display_name": "DeepSeek V4 Flash",
       "description": "Fast Whale coding model for low-latency everyday implementation work.",
-      "default_reasoning_level": "medium",
+      "default_reasoning_level": "high",
       "supported_reasoning_levels": [
         {
-          "effort": "medium",
-          "description": "Default reasoning depth for Whale coding tasks"
+          "effort": "high",
+          "description": "DeepSeek official high thinking effort"
+        },
+        {
+          "effort": "max",
+          "description": "DeepSeek official max thinking effort"
         }
       ],
       "shell_type": "shell_command",
@@ -46,11 +50,15 @@
       "slug": "deepseek-v4-pro",
       "display_name": "DeepSeek V4 Pro",
       "description": "Default Whale coding model for planning, diagnosis, review, and verification.",
-      "default_reasoning_level": "medium",
+      "default_reasoning_level": "high",
       "supported_reasoning_levels": [
         {
-          "effort": "medium",
-          "description": "Default reasoning depth for Whale coding tasks"
+          "effort": "high",
+          "description": "DeepSeek official high thinking effort"
+        },
+        {
+          "effort": "max",
+          "description": "DeepSeek official max thinking effort"
         }
       ],
       "shell_type": "shell_command",

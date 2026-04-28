@@ -575,11 +575,29 @@ impl Codex {
         };
         // TODO (aibrahim): Consolidate config.model and config.model_reasoning_effort into config.collaboration_mode
         // to avoid extracting these fields separately and constructing CollaborationMode here.
+        let supported_reasoning_levels = model_info
+            .supported_reasoning_levels
+            .iter()
+            .map(|preset| preset.effort)
+            .collect::<Vec<_>>();
+        let model_reasoning_effort = if supported_reasoning_levels.is_empty()
+            && model_info.default_reasoning_level.is_none()
+        {
+            config.model_reasoning_effort
+        } else {
+            match config.model_reasoning_effort {
+                Some(current) if supported_reasoning_levels.contains(&current) => Some(current),
+                _ => supported_reasoning_levels
+                    .get(supported_reasoning_levels.len().saturating_sub(1) / 2)
+                    .copied()
+                    .or(model_info.default_reasoning_level),
+            }
+        };
         let collaboration_mode = CollaborationMode {
             mode: ModeKind::Default,
             settings: Settings {
                 model: model.clone(),
-                reasoning_effort: config.model_reasoning_effort,
+                reasoning_effort: model_reasoning_effort,
                 developer_instructions: None,
             },
         };
