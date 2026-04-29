@@ -2,6 +2,15 @@
 
 ---
 
+## 具体行为内核设计
+
+本文件定义多 Agent 群体协同的总体架构、协作模式和设计原则。具体到可实现的
+Supervisor / Cohort / WorkUnit / Message Bus / Artifact / DeepSeek 调度 / Viewer
+控制面的行为内核，见
+`docs/plans/2026-04-29-multi-agent-behavior-kernel-design.md`。
+
+---
+
 ## 一、设计目标
 
 WhaleCode 的多 Agent 设计不是“多个聊天机器人互相讨论”，而是一个受 Supervisor 控制的群体计算系统。目标是用 DeepSeek V4 的速度、低成本、大上下文和缓存能力，把单个 agent 的不稳定性转化为群体层面的高覆盖率、高吞吐和高质量。
