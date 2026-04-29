@@ -12,6 +12,7 @@ use codex_tools::WebSearchToolManifest;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 pub(super) fn image_generation_tool_auth_allowed(auth_manager: Option<&AuthManager>) -> bool {
     auth_manager.is_some_and(AuthManager::current_auth_uses_codex_backend)
@@ -760,9 +761,11 @@ fn resolve_web_search_tool_manifest_for_turn(
         return WebSearchToolManifest::Generic;
     }
 
+    let started = Instant::now();
     let web_config = web_search_config.cloned().unwrap_or_default();
     let availability =
         crate::web_tools::resolve_web_tool_manifest_availability(&web_config, codex_home);
+    let latency_ms = started.elapsed().as_millis();
     let provider_names = availability
         .search_providers
         .iter()
@@ -774,6 +777,7 @@ fn resolve_web_search_tool_manifest_for_turn(
         provider_count = availability.search_providers.len(),
         providers = %provider_names,
         fetch_enabled = web_config.fetch.enabled,
+        latency_ms,
         "web tool manifest availability resolved"
     );
 
