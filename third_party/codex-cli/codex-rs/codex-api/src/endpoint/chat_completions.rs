@@ -151,11 +151,9 @@ fn reasoning_content_to_text(content: &Option<Vec<ReasoningItemContent>>) -> Str
 fn content_items_to_text(content: &[ContentItem]) -> String {
     content
         .iter()
-        .filter_map(|item| match item {
-            ContentItem::InputText { text } | ContentItem::OutputText { text } => {
-                Some(text.as_str())
-            }
-            ContentItem::InputImage { .. } => Some("[Image omitted: DeepSeek is text-only]"),
+        .map(|item| match item {
+            ContentItem::InputText { text } | ContentItem::OutputText { text } => text.as_str(),
+            ContentItem::InputImage { .. } => "[Image omitted: DeepSeek is text-only]",
         })
         .collect::<Vec<_>>()
         .join("\n")

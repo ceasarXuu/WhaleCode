@@ -5428,7 +5428,7 @@ mod tests {
         let mention = popup
             .selected_mention()
             .expect("expected skill mention to be selected");
-        assert_eq!(mention.insert_text, "$codex".to_string());
+        assert_eq!(mention.insert_text, "$whale".to_string());
         assert_eq!(mention.path, Some(skill_path.display().to_string()));
     }
 

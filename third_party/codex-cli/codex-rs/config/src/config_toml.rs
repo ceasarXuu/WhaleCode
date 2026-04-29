@@ -555,7 +555,7 @@ pub struct ToolsToml {
 #[serde(untagged)]
 enum WebSearchToolConfigInput {
     Enabled(bool),
-    Config(WebSearchToolConfig),
+    Config(Box<WebSearchToolConfig>),
 }
 
 fn deserialize_optional_web_search_tool_config<'de, D>(
@@ -572,7 +572,7 @@ where
             let _ = enabled;
             None
         }
-        Some(WebSearchToolConfigInput::Config(config)) => Some(config),
+        Some(WebSearchToolConfigInput::Config(config)) => Some(*config),
     })
 }
 

@@ -16,6 +16,7 @@ use codex_config::types::McpServerToolConfig;
 use codex_hooks::Hooks;
 use codex_hooks::HooksConfig;
 use codex_model_provider::create_model_provider;
+use codex_model_provider_info::WireApi;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::SandboxPolicy;
 use core_test_support::PathExt;
@@ -1523,6 +1524,7 @@ async fn guardian_mode_skips_auto_when_annotations_do_not_require_approval() {
         .expect("test setup should allow updating approval policy");
     let mut config = (*turn_context.config).clone();
     config.model_provider.base_url = Some(format!("{}/v1", server.uri()));
+    config.model_provider.wire_api = WireApi::Responses;
     config.approvals_reviewer = ApprovalsReviewer::AutoReview;
     let config = Arc::new(config);
     let models_manager = models_manager_with_provider(
@@ -1800,6 +1802,7 @@ async fn guardian_mode_mcp_denial_returns_rationale_message() {
         .expect("test setup should allow updating approval policy");
     let mut config = (*turn_context.config).clone();
     config.model_provider.base_url = Some(format!("{}/v1", server.uri()));
+    config.model_provider.wire_api = WireApi::Responses;
     config.approvals_reviewer = ApprovalsReviewer::AutoReview;
     let config = Arc::new(config);
     let models_manager = models_manager_with_provider(
@@ -1850,7 +1853,10 @@ async fn guardian_mode_mcp_denial_returns_rationale_message() {
     else {
         panic!("guardian-denied MCP approval should carry a rejection message");
     };
-    assert!(message.contains("Reason: The tool call would expose private calendar data"));
+    assert!(
+        message.contains("Reason: The tool call would expose private calendar data"),
+        "guardian denial message did not include rationale: {message}"
+    );
     assert!(message.contains("policy circumvention"));
     assert_eq!(
         guardian_request_log.single_request().path(),
@@ -2263,6 +2269,7 @@ async fn approve_mode_routes_arc_ask_user_to_guardian_when_guardian_reviewer_is_
     let mut config = (*turn_context.config).clone();
     config.chatgpt_base_url = server.uri();
     config.model_provider.base_url = Some(format!("{}/v1", server.uri()));
+    config.model_provider.wire_api = WireApi::Responses;
     config.approvals_reviewer = ApprovalsReviewer::AutoReview;
     let config = Arc::new(config);
     let models_manager = models_manager_with_provider(

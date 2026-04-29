@@ -2170,6 +2170,14 @@
           "description": "Enable the `view_image` tool that lets the agent attach local images.",
           "type": "boolean"
         },
+        "web_fetch": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/WebFetchToolConfig"
+            }
+          ],
+          "default": null
+        },
         "web_search": {
           "allOf": [
             {
@@ -2308,11 +2316,52 @@
       ],
       "type": "string"
     },
+    "WebFetchProvider": {
+      "enum": [
+        "jina",
+        "direct"
+      ],
+      "type": "string"
+    },
+    "WebFetchToolConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "max_chars": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "provider": {
+          "$ref": "#/definitions/WebFetchProvider"
+        },
+        "timeout_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "WebSearchContextSize": {
       "enum": [
         "low",
         "medium",
         "high"
+      ],
+      "type": "string"
+    },
+    "WebSearchFallbackProvider": {
+      "enum": [
+        "brave",
+        "jina",
+        "github",
+        "exa",
+        "tavily",
+        "stack_exchange",
+        "off"
       ],
       "type": "string"
     },
@@ -2342,6 +2391,25 @@
       ],
       "type": "string"
     },
+    "WebSearchProvider": {
+      "enum": [
+        "brave",
+        "jina",
+        "github",
+        "exa",
+        "tavily",
+        "stack_exchange"
+      ],
+      "type": "string"
+    },
+    "WebSearchStrategy": {
+      "enum": [
+        "auto",
+        "single",
+        "fanout"
+      ],
+      "type": "string"
+    },
     "WebSearchToolConfig": {
       "additionalProperties": false,
       "properties": {
@@ -2351,11 +2419,56 @@
           },
           "type": "array"
         },
+        "brave_api_key_env": {
+          "type": "string"
+        },
         "context_size": {
           "$ref": "#/definitions/WebSearchContextSize"
         },
+        "enabled": {
+          "type": "boolean"
+        },
+        "exa_api_key_env": {
+          "type": "string"
+        },
+        "fallback_provider": {
+          "$ref": "#/definitions/WebSearchFallbackProvider"
+        },
+        "github_token_env": {
+          "type": "string"
+        },
         "location": {
           "$ref": "#/definitions/WebSearchLocation"
+        },
+        "max_providers_per_query": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "max_results": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "provider": {
+          "$ref": "#/definitions/WebSearchProvider"
+        },
+        "stack_exchange_key_env": {
+          "type": "string"
+        },
+        "stack_exchange_site": {
+          "type": "string"
+        },
+        "strategy": {
+          "$ref": "#/definitions/WebSearchStrategy"
+        },
+        "tavily_api_key_env": {
+          "type": "string"
+        },
+        "timeout_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
         }
       },
       "type": "object"

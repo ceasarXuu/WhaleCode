@@ -155,11 +155,7 @@ impl SlashCommand {
     pub fn available_in_side_conversation(self) -> bool {
         matches!(
             self,
-            SlashCommand::Copy
-                | SlashCommand::Diff
-                | SlashCommand::Mention
-                | SlashCommand::Status
-                | SlashCommand::SearchProvider
+            SlashCommand::Copy | SlashCommand::Diff | SlashCommand::Mention | SlashCommand::Status
         )
     }
 

@@ -18,7 +18,9 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::sync::TryLockError;
 use tracing::Instrument as _;
-use tracing::{debug, error, info};
+use tracing::debug;
+use tracing::error;
+use tracing::info;
 
 const MODEL_CACHE_FILE: &str = "models_cache.json";
 const DEFAULT_MODEL_CACHE_TTL: Duration = Duration::from_secs(300);

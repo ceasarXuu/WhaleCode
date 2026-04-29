@@ -10,6 +10,7 @@ use codex_secrets::SecretName;
 use codex_secrets::SecretScope;
 use codex_secrets::SecretsBackendKind;
 use codex_secrets::SecretsManager;
+use futures::future::join_all;
 use reqwest::Client;
 use serde::Deserialize;
 use serde::Serialize;
@@ -210,13 +211,14 @@ impl WebProviderRegistry {
         let started = Instant::now();
         let providers = self.route_providers(&request);
         let fanout = matches!(request.provider_policy, ProviderPolicy::Fanout);
-        let mut successes = Vec::new();
+        if fanout {
+            return self.search_fanout(providers, &request, started).await;
+        }
         let mut fallback_reason_text = None;
         let mut first_error = None;
 
         for (index, provider) in providers.into_iter().enumerate() {
             match self.search_with_provider(provider, &request).await {
-                Ok(output) if fanout => successes.push(output),
                 Ok(mut output) => {
                     output.latency_ms = started.elapsed().as_millis();
                     output.fallback_used = index > 0;
@@ -228,6 +230,34 @@ impl WebProviderRegistry {
                     first_error.get_or_insert(err);
                 }
                 Err(err) => return Err(err),
+            }
+        }
+
+        Err(first_error.unwrap_or_else(|| {
+            WebToolError::InvalidArguments("no search provider is configured".to_string())
+        }))
+    }
+
+    async fn search_fanout(
+        &self,
+        providers: Vec<WebSearchProvider>,
+        request: &SearchRequest,
+        started: Instant,
+    ) -> Result<WebSearchOutput, WebToolError> {
+        let results = join_all(
+            providers
+                .into_iter()
+                .map(|provider| async move { self.search_with_provider(provider, request).await }),
+        )
+        .await;
+        let mut successes = Vec::new();
+        let mut first_error = None;
+        for result in results {
+            match result {
+                Ok(output) => successes.push(output),
+                Err(err) => {
+                    first_error.get_or_insert(err);
+                }
             }
         }
 
@@ -266,21 +296,28 @@ impl WebProviderRegistry {
         if let Some(providers) = request.preferred_providers.as_ref() {
             candidates.extend(providers.iter().copied());
         } else {
-            candidates.extend(routed_candidates(request));
+            let routed = routed_candidates(request);
+            if self.search_config.client.provider == WebSearchProvider::default() {
+                candidates.extend(routed);
+                candidates.push(self.search_config.client.provider);
+            } else {
+                candidates.push(self.search_config.client.provider);
+                candidates.extend(routed);
+            }
         }
 
-        candidates.push(self.search_config.client.provider);
         if let Some(provider) = self.search_config.client.fallback_provider {
             candidates.push(provider);
         }
         candidates.push(WebSearchProvider::Jina);
 
+        let mut candidates = dedupe_providers(candidates);
         if matches!(request.provider_policy, ProviderPolicy::Single) {
             candidates.truncate(1);
         } else if matches!(request.provider_policy, ProviderPolicy::Fanout) {
             candidates.truncate(self.search_config.client.max_providers_per_query.max(1));
         }
-        dedupe_providers(candidates)
+        candidates
     }
 
     async fn search_with_provider(
@@ -431,6 +468,7 @@ impl FetchRequest {
     }
 }
 
+/// Performs a candidate-source search using one configured upstream provider.
 #[async_trait]
 pub(super) trait SearchProvider: Send + Sync {
     async fn search(
@@ -440,6 +478,7 @@ pub(super) trait SearchProvider: Send + Sync {
     ) -> Result<WebSearchOutput, WebToolError>;
 }
 
+/// Reads one already selected URL and returns model-consumable document text.
 #[async_trait]
 pub(super) trait FetchProvider: Send + Sync {
     async fn fetch(

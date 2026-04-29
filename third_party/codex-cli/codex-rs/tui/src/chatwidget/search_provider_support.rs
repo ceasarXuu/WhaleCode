@@ -132,3 +132,12 @@ pub(super) fn web_search_mode_name(mode: WebSearchMode) -> &'static str {
         WebSearchMode::Live => "live",
     }
 }
+
+pub(super) fn is_valid_env_var_name(env_var: &str) -> bool {
+    let mut chars = env_var.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first.is_ascii_uppercase() || first == '_')
+        && chars.all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '_')
+}

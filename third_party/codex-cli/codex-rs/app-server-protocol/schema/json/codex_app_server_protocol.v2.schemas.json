@@ -14773,6 +14773,16 @@
             "null"
           ]
         },
+        "web_fetch": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WebFetchToolConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "web_search": {
           "anyOf": [
             {
@@ -15360,6 +15370,51 @@
       "title": "WarningNotification",
       "type": "object"
     },
+    "WebFetchProvider": {
+      "enum": [
+        "jina",
+        "direct"
+      ],
+      "type": "string"
+    },
+    "WebFetchToolConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "max_chars": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WebFetchProvider"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeout_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "WebSearchAction": {
       "oneOf": [
         {
@@ -15469,6 +15524,18 @@
       ],
       "type": "string"
     },
+    "WebSearchFallbackProvider": {
+      "enum": [
+        "brave",
+        "jina",
+        "github",
+        "exa",
+        "tavily",
+        "stack_exchange",
+        "off"
+      ],
+      "type": "string"
+    },
     "WebSearchLocation": {
       "additionalProperties": false,
       "properties": {
@@ -15507,6 +15574,25 @@
       ],
       "type": "string"
     },
+    "WebSearchProvider": {
+      "enum": [
+        "brave",
+        "jina",
+        "github",
+        "exa",
+        "tavily",
+        "stack_exchange"
+      ],
+      "type": "string"
+    },
+    "WebSearchStrategy": {
+      "enum": [
+        "auto",
+        "single",
+        "fanout"
+      ],
+      "type": "string"
+    },
     "WebSearchToolConfig": {
       "additionalProperties": false,
       "properties": {
@@ -15516,6 +15602,12 @@
           },
           "type": [
             "array",
+            "null"
+          ]
+        },
+        "brave_api_key_env": {
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -15529,6 +15621,34 @@
             }
           ]
         },
+        "enabled": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "exa_api_key_env": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fallback_provider": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WebSearchFallbackProvider"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "github_token_env": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "location": {
           "anyOf": [
             {
@@ -15537,6 +15657,68 @@
             {
               "type": "null"
             }
+          ]
+        },
+        "max_providers_per_query": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_results": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WebSearchProvider"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stack_exchange_key_env": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stack_exchange_site": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WebSearchStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tavily_api_key_env": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeout_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
           ]
         }
       },

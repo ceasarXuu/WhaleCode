@@ -90,7 +90,13 @@ async fn search_provider_health_check(
                 .send()
                 .await
         }
-        WebSearchProvider::Jina => return Ok(()),
+        WebSearchProvider::Jina => {
+            client
+                .get("https://s.jina.ai/whale%20code%20health%20check")
+                .header("Accept", "text/plain")
+                .send()
+                .await
+        }
     }
     .map_err(|err| err.to_string())?;
 

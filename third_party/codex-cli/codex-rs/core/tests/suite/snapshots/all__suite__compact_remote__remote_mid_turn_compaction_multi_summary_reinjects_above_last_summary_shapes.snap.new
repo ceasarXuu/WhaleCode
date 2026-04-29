@@ -1,5 +1,6 @@
 ---
 source: core/tests/suite/compact_remote.rs
+assertion_line: 2662
 expression: "format_labeled_requests_snapshot(\"After a prior manual /compact produced an older remote compaction item, the next turn hits remote auto-compaction before the next sampling request. The compact request carries forward that earlier compaction item, and the next sampling request shows the latest compaction item with context reinjected before USER_TWO.\",\n&[(\"Remote Compaction Request\", &compact_request),\n(\"Second Turn Request (After Compaction)\", &second_turn_request),])"
 ---
 Scenario: After a prior manual /compact produced an older remote compaction item, the next turn hits remote auto-compaction before the next sampling request. The compact request carries forward that earlier compaction item, and the next sampling request shows the latest compaction item with context reinjected before USER_TWO.
@@ -11,7 +12,7 @@ Scenario: After a prior manual /compact produced an older remote compaction item
 03:message/user:<ENVIRONMENT_CONTEXT:cwd=<CWD>>
 04:message/user:USER_TWO
 05:function_call/shell_command
-06:function_call_output:Exit code: 0\nWall time: 0.9 seconds\nOutput:\nmulti-summary\n
+06:function_call_output:Exit code: 0\nWall time: 1.1 seconds\nOutput:\nmulti-summary\n
 
 ## Second Turn Request (After Compaction)
 00:message/user:USER_ONE

@@ -27,7 +27,7 @@ use crate::config::Config;
 use crate::thread_manager;
 use crate::unified_exec;
 
-static TEST_MODEL_PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| model_presets_offline_for_tests());
+static TEST_MODEL_PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(model_presets_offline_for_tests);
 
 pub fn set_thread_manager_test_mode(enabled: bool) {
     thread_manager::set_thread_manager_test_mode_for_tests(enabled);

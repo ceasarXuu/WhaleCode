@@ -19,6 +19,7 @@ use codex_execpolicy::Evaluation;
 use codex_execpolicy::RuleMatch;
 use codex_features::Feature;
 use codex_model_provider::create_model_provider;
+use codex_model_provider_info::WireApi;
 use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::models::AdditionalPermissionProfile as PermissionProfile;
 use codex_protocol::models::ContentItem;
@@ -92,6 +93,7 @@ async fn request_permissions_routes_to_guardian_when_reviewer_is_enabled() {
     let mut config = (*turn_context_raw.config).clone();
     config.approvals_reviewer = ApprovalsReviewer::AutoReview;
     config.model_provider.base_url = Some(format!("{}/v1", server.uri()));
+    config.model_provider.wire_api = WireApi::Responses;
     let config = Arc::new(config);
     let models_manager = models_manager_with_provider(
         config.codex_home.to_path_buf(),
@@ -440,6 +442,7 @@ async fn strict_auto_review_turn_grant_forces_guardian_for_shell_policy_skip() {
     let mut config = (*turn_context_raw.config).clone();
     config.approvals_reviewer = ApprovalsReviewer::User;
     config.model_provider.base_url = Some(format!("{}/v1", server.uri()));
+    config.model_provider.wire_api = WireApi::Responses;
     let config = Arc::new(config);
     let models_manager = models_manager_with_provider(
         config.codex_home.to_path_buf(),

@@ -22,6 +22,7 @@ use crate::mcp_call_tool_result_output_schema;
 use codex_app_server_protocol::AppInfo;
 use codex_features::Feature;
 use codex_features::Features;
+use codex_protocol::config_types::WebFetchConfig;
 use codex_protocol::config_types::WebSearchConfig;
 use codex_protocol::config_types::WebSearchMode;
 use codex_protocol::config_types::WindowsSandboxLevel;
@@ -97,6 +98,7 @@ fn test_full_toolset_specs_for_gpt5_codex_unified_exec_web_search() {
             search_context_size: None,
             search_content_types: None,
         },
+        create_web_fetch_tool(),
         create_image_generation_tool("png"),
         create_view_image_tool(ViewImageToolOptions {
             can_request_original_image_detail: config.can_request_original_image_detail,
@@ -903,7 +905,6 @@ fn web_search_tool_type_text_and_image_sets_search_content_types() {
     let mut model_info = model_info();
     model_info.web_search_tool_type = WebSearchToolType::TextAndImage;
     let features = Features::with_defaults();
-
     let available_models = Vec::new();
     let tools_config = ToolsConfig::new(&ToolsConfigParams {
         model_info: &model_info,
@@ -933,6 +934,83 @@ fn web_search_tool_type_text_and_image_sets_search_content_types() {
             search_content_types: Some(vec!["text".to_string(), "image".to_string()]),
         }
     );
+}
+
+#[test]
+fn web_search_registers_local_search_and_fetch_handlers_by_default() {
+    let model_info = model_info();
+    let features = Features::with_defaults();
+    let available_models = Vec::new();
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        image_generation_tool_auth_allowed: true,
+        web_search_mode: Some(WebSearchMode::Live),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    });
+    let (tools, handlers) = build_specs(
+        &tools_config,
+        /*mcp_tools*/ None,
+        /*deferred_mcp_tools*/ None,
+        &[],
+    );
+
+    assert_contains_tool_names(&tools, &["web_search", "web_fetch"]);
+    assert_eq!(find_tool(&tools, "web_fetch").spec, create_web_fetch_tool());
+    assert!(handlers.contains(&ToolHandlerSpec {
+        name: "web_search".into(),
+        kind: ToolHandlerKind::WebSearch,
+    }));
+    assert!(handlers.contains(&ToolHandlerSpec {
+        name: "web_fetch".into(),
+        kind: ToolHandlerKind::WebFetch,
+    }));
+}
+
+#[test]
+fn web_fetch_tool_is_omitted_when_fetch_is_disabled() {
+    let model_info = model_info();
+    let features = Features::with_defaults();
+    let web_search_config = WebSearchConfig {
+        fetch: WebFetchConfig {
+            enabled: false,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let available_models = Vec::new();
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        image_generation_tool_auth_allowed: true,
+        web_search_mode: Some(WebSearchMode::Live),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    })
+    .with_web_search_config(Some(web_search_config));
+    let (tools, handlers) = build_specs(
+        &tools_config,
+        /*mcp_tools*/ None,
+        /*deferred_mcp_tools*/ None,
+        &[],
+    );
+
+    assert_contains_tool_names(&tools, &["web_search"]);
+    assert_lacks_tool_name(&tools, "web_fetch");
+    assert!(handlers.contains(&ToolHandlerSpec {
+        name: "web_search".into(),
+        kind: ToolHandlerKind::WebSearch,
+    }));
+    assert!(!handlers.contains(&ToolHandlerSpec {
+        name: "web_fetch".into(),
+        kind: ToolHandlerKind::WebFetch,
+    }));
 }
 
 #[test]

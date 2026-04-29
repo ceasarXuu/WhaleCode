@@ -974,8 +974,11 @@ async fn workspace_write_turns_continue_to_expose_managed_network_proxy() -> any
 #[tokio::test]
 async fn user_shell_commands_do_not_inherit_managed_network_proxy() -> anyhow::Result<()> {
     let sandbox_policy = SandboxPolicy::new_workspace_write_policy();
+    let managed_proxy_url = "http://127.0.0.1:43129";
+    let mut proxy_config = NetworkProxyConfig::default();
+    proxy_config.network.proxy_url = managed_proxy_url.to_string();
     let network_spec = crate::config::NetworkProxySpec::from_config_and_constraints(
-        NetworkProxyConfig::default(),
+        proxy_config,
         Some(NetworkConstraints {
             enabled: Some(true),
             ..Default::default()
@@ -993,9 +996,15 @@ async fn user_shell_commands_do_not_inherit_managed_network_proxy() -> anyhow::R
     assert!(turn_context.network.is_some());
 
     #[cfg(windows)]
-    let command = r#"$val = $env:HTTP_PROXY; if ([string]::IsNullOrEmpty($val)) { $val = 'not-set' } ; [System.Console]::Write($val)"#.to_string();
+    let command = format!(
+        r#"$val = $env:HTTP_PROXY; if ($val -eq '{}') {{ $val = 'managed-proxy' }} else {{ $val = 'not-managed' }} ; [System.Console]::Write($val)"#,
+        managed_proxy_url
+    );
     #[cfg(not(windows))]
-    let command = r#"sh -c "printf '%s' \"${HTTP_PROXY:-not-set}\"""#.to_string();
+    let command = format!(
+        r#"sh -c 'if [ "${{HTTP_PROXY:-}}" = "{}" ]; then printf managed-proxy; else printf not-managed; fi'"#,
+        managed_proxy_url
+    );
 
     execute_user_shell_command(
         Arc::clone(&session),
@@ -1010,7 +1019,7 @@ async fn user_shell_commands_do_not_inherit_managed_network_proxy() -> anyhow::R
         let event = rx.recv().await.expect("channel open");
         if let EventMsg::ExecCommandEnd(event) = event.msg {
             assert_eq!(event.exit_code, 0);
-            assert_eq!(event.stdout.trim(), "not-set");
+            assert_eq!(event.stdout.trim(), "not-managed");
             break;
         }
     }

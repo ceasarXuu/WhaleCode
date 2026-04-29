@@ -374,7 +374,7 @@ fn issue_url_for_category(
         | FeedbackCategory::Other => Some(match feedback_audience {
             FeedbackAudience::OpenAiEmployee => slack_feedback_url(thread_id),
             FeedbackAudience::External => {
-                format!("{BASE_CLI_BUG_ISSUE_URL}&steps=Uploaded%20thread:%20{thread_id}")
+                format!("{BASE_CLI_BUG_ISSUE_URL}?steps=Uploaded%20thread:%20{thread_id}")
             }
         }),
         FeedbackCategory::GoodResult => None,

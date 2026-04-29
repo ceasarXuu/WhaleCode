@@ -14,8 +14,9 @@ use codex_secrets::SecretsManager;
 use toml_edit::value;
 
 const SEARCH_PROVIDER_USAGE: &str = "Usage: /search-provider [status|configure|set PROVIDER|fallback PROVIDER|fallback off|key PROVIDER [ENV_VAR]|test|on|off]";
-const SEARCH_PROVIDER_SETUP: [WebSearchProvider; 5] = [
+const SEARCH_PROVIDER_SETUP: [WebSearchProvider; 6] = [
     WebSearchProvider::Brave,
+    WebSearchProvider::Jina,
     WebSearchProvider::Github,
     WebSearchProvider::Exa,
     WebSearchProvider::Tavily,
@@ -322,10 +323,7 @@ impl ChatWidget {
     }
 
     fn set_provider_key_env(&mut self, provider: WebSearchProvider, env_var: &str) {
-        if !env_var
-            .chars()
-            .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '_')
-        {
+        if !is_valid_env_var_name(env_var) {
             self.add_error_message("Invalid environment variable name.".to_string());
             return;
         }
@@ -350,22 +348,45 @@ impl ChatWidget {
 
     fn add_search_provider_test_result(&mut self) {
         let web_config = self.config.web_search_config.clone().unwrap_or_default();
-        let provider = web_search_provider_name(web_config.client.provider);
+        let provider = web_config.client.provider;
+        let provider_name = web_search_provider_name(provider);
         let fallback = web_config
             .client
             .fallback_provider
             .map(web_search_provider_name)
             .unwrap_or("off");
-        let status = if web_config.client.enabled
-            && self.provider_is_locally_configured(web_config.client.provider)
-        {
-            "ok"
+        if !web_config.client.enabled {
+            self.add_info_message(
+                format!(
+                    "search_provider_test=disabled provider={provider_name} fallback={fallback}"
+                ),
+                /*hint*/ None,
+            );
+            return;
+        }
+        let secret = if provider == WebSearchProvider::Jina {
+            String::new()
         } else {
-            "needs_key"
+            let Some(secret) = self.search_provider_secret_value(provider) else {
+                self.add_info_message(
+                    format!(
+                        "search_provider_test=needs_key provider={provider_name} fallback={fallback}"
+                    ),
+                    /*hint*/ None,
+                );
+                return;
+            };
+            secret
         };
         self.add_info_message(
-            format!("search_provider_test={status} provider={provider} fallback={fallback}"),
+            format!("search_provider_test=running provider={provider_name} fallback={fallback}"),
             /*hint*/ None,
+        );
+        spawn_search_provider_health_check(
+            self.app_event_tx.clone(),
+            provider,
+            secret,
+            web_config.client.stack_exchange_site,
         );
     }
 
@@ -384,8 +405,25 @@ impl ChatWidget {
         }
     }
 
-    fn provider_is_locally_configured(&self, provider: WebSearchProvider) -> bool {
-        provider == WebSearchProvider::Jina || self.search_provider_key_status(provider) != "unset"
+    fn search_provider_secret_value(&self, provider: WebSearchProvider) -> Option<String> {
+        let web_config = self.config.web_search_config.clone().unwrap_or_default();
+        let env_name = web_config_key_env(&web_config, provider)?;
+        if let Ok(value) = std::env::var(env_name)
+            && !value.trim().is_empty()
+        {
+            return Some(value.trim().to_string());
+        }
+        let name = SecretName::new(env_name).ok()?;
+        let manager = SecretsManager::new(
+            self.config.codex_home.to_path_buf(),
+            SecretsBackendKind::Local,
+        );
+        manager
+            .get(&SecretScope::Global, &name)
+            .ok()
+            .flatten()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.trim().to_string())
     }
 
     fn secret_exists(&self, env_name: &str) -> bool {
