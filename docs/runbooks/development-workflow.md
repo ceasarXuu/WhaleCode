@@ -16,6 +16,35 @@ Set-Location D:\WhaleCode\third_party\codex-cli\codex-rs
 The repository root is not an active Cargo workspace. Run Rust build, test, and
 install commands from `third_party/codex-cli/codex-rs`.
 
+## Version And Build Number
+
+Whale reuses the Codex CLI release-version flow instead of adding a parallel
+version source:
+
+- Release semver lives in
+  `third_party/codex-cli/codex-rs/Cargo.toml` under
+  `[workspace.package].version`.
+- Rust release tags must stay `rust-vX.Y.Z`; the release workflow validates
+  that the tag matches the Cargo workspace version.
+- npm staging uses the same release semver through
+  `scripts/stage_npm_packages.py --release-version`.
+
+Whale adds one checked-in monotonic build number at
+`third_party/codex-cli/BUILD_NUMBER`. Increment it when preparing a release
+build, keep it a positive integer, and commit it with the version bump. The TUI
+embeds it at compile time and renders startup/status headers as
+`vX.Y.Z build N`. GitHub Release display names include the build number, while
+artifact names, npm versions, and WinGet versions keep the semver-only Codex
+flow.
+
+Run this guard after changing version, build, release workflow, or packaging
+files:
+
+```powershell
+Set-Location D:\WhaleCode
+.\scripts\check-build-profile-policy.ps1
+```
+
 ## Worktree Branches
 
 Feature work that should be isolated from `main` can use a sibling Git

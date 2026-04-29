@@ -5,7 +5,11 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $CargoToml = Join-Path $RepoRoot "third_party\codex-cli\codex-rs\Cargo.toml"
 $CliCargoToml = Join-Path $RepoRoot "third_party\codex-cli\codex-rs\cli\Cargo.toml"
+$TuiCargoToml = Join-Path $RepoRoot "third_party\codex-cli\codex-rs\tui\Cargo.toml"
+$TuiBuildRs = Join-Path $RepoRoot "third_party\codex-cli\codex-rs\tui\build.rs"
+$TuiVersionRs = Join-Path $RepoRoot "third_party\codex-cli\codex-rs\tui\src\version.rs"
 $CloudTasksCargoToml = Join-Path $RepoRoot "third_party\codex-cli\codex-rs\cloud-tasks\Cargo.toml"
+$BuildNumber = Join-Path $RepoRoot "third_party\codex-cli\BUILD_NUMBER"
 $InstallWhaleLocal = Join-Path $RepoRoot "scripts\install-whale-local.ps1"
 $BuildNpmPackage = Join-Path $RepoRoot "third_party\codex-cli\codex-cli\scripts\build_npm_package.py"
 $InstallNativeDeps = Join-Path $RepoRoot "third_party\codex-cli\codex-cli\scripts\install_native_deps.py"
@@ -54,7 +58,11 @@ function Require-Value {
 
 $CargoContent = Get-Content -Path $CargoToml -Encoding UTF8 -Raw
 $CliCargoContent = Get-Content -Path $CliCargoToml -Encoding UTF8 -Raw
+$TuiCargoContent = Get-Content -Path $TuiCargoToml -Encoding UTF8 -Raw
+$TuiBuildContent = Get-Content -Path $TuiBuildRs -Encoding UTF8 -Raw
+$TuiVersionContent = Get-Content -Path $TuiVersionRs -Encoding UTF8 -Raw
 $CloudTasksCargoContent = Get-Content -Path $CloudTasksCargoToml -Encoding UTF8 -Raw
+$BuildNumberContent = (Get-Content -Path $BuildNumber -Encoding UTF8 -Raw).Trim()
 $InstallWhaleLocalContent = Get-Content -Path $InstallWhaleLocal -Encoding UTF8 -Raw
 $BuildNpmPackageContent = Get-Content -Path $BuildNpmPackage -Encoding UTF8 -Raw
 $InstallNativeDepsContent = Get-Content -Path $InstallNativeDeps -Encoding UTF8 -Raw
@@ -62,6 +70,23 @@ $ConfigOverrideContent = Get-Content -Path $ConfigOverride -Encoding UTF8 -Raw
 $CloudTasksCliContent = Get-Content -Path $CloudTasksCli -Encoding UTF8 -Raw
 $Release = Get-ProfileSection -Content $CargoContent -Name "release"
 $Dist = Get-ProfileSection -Content $CargoContent -Name "dist"
+
+$WorkspaceVersionMatch = [regex]::Match($CargoContent, '(?ms)^\[workspace\.package\]\s*(.*?)(?=^\[|\z)')
+if (-not $WorkspaceVersionMatch.Success -or $WorkspaceVersionMatch.Groups[1].Value -notmatch '(?m)^\s*version\s*=\s*"[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?"') {
+    throw "Cargo workspace package version must be the Whale release semver source of truth."
+}
+if ($BuildNumberContent -notmatch '^[1-9][0-9]*$') {
+    throw "third_party\codex-cli\BUILD_NUMBER must be a positive integer."
+}
+if ($TuiCargoContent -notmatch '(?m)^\s*build\s*=\s*"build\.rs"') {
+    throw "codex-tui must use build.rs so Whale build number is embedded in the TUI."
+}
+if ($TuiBuildContent -notmatch 'BUILD_NUMBER' -or $TuiBuildContent -notmatch 'WHALE_BUILD_NUMBER') {
+    throw "codex-tui build.rs must read BUILD_NUMBER and export WHALE_BUILD_NUMBER."
+}
+if ($TuiVersionContent -notmatch 'WHALE_BUILD_NUMBER' -or $TuiVersionContent -notmatch 'whale_version_display') {
+    throw "TUI version module must expose the Whale version/build display string."
+}
 
 $DisallowedCliDeps = @(
     "codex-app-server",
@@ -190,6 +215,15 @@ if ($WorkflowContent -notmatch "cargo build -p codex-cli --bin whale --profile d
 
 $ReleaseWorkflowContent = Get-Content -Path $RustReleaseWorkflow -Encoding UTF8 -Raw
 $WindowsWorkflowContent = Get-Content -Path $RustReleaseWindowsWorkflow -Encoding UTF8 -Raw
+if ($ReleaseWorkflowContent -notmatch 'BUILD_NUMBER') {
+    throw "Rust release workflow must validate Whale BUILD_NUMBER."
+}
+if ($ReleaseWorkflowContent -notmatch 'steps\.release_name\.outputs\.version') {
+    throw "Rust release workflow must keep semver output separate from display name for npm and WinGet."
+}
+if ($ReleaseWorkflowContent -notmatch 'display_name') {
+    throw "Rust release workflow must include the build number in the GitHub Release display name."
+}
 foreach ($Helper in $WhaleHelperBinaries) {
     if ($ReleaseWorkflowContent -notmatch [regex]::Escape($Helper)) {
         throw "Rust release workflow must build and publish $Helper for Whale platform packages."

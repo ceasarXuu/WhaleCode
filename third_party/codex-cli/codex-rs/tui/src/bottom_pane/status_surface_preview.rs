@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::version::whale_version_display;
 use ratatui::text::Line;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -29,8 +30,8 @@ pub(crate) enum StatusSurfacePreviewItem {
 }
 
 impl StatusSurfacePreviewItem {
-    fn placeholder(self) -> &'static str {
-        match self {
+    fn placeholder(self) -> String {
+        let text = match self {
             StatusSurfacePreviewItem::AppName => "whale",
             StatusSurfacePreviewItem::ProjectName => "my-project",
             StatusSurfacePreviewItem::ProjectRoot => "my-project",
@@ -42,7 +43,7 @@ impl StatusSurfacePreviewItem {
             StatusSurfacePreviewItem::ContextUsed => "Context 0% used",
             StatusSurfacePreviewItem::FiveHourLimit => "5h 0%",
             StatusSurfacePreviewItem::WeeklyLimit => "weekly 0%",
-            StatusSurfacePreviewItem::CodexVersion => "0.0.0",
+            StatusSurfacePreviewItem::CodexVersion => return whale_version_display(),
             StatusSurfacePreviewItem::ContextWindowSize => "0 window",
             StatusSurfacePreviewItem::UsedTokens => "0 used",
             StatusSurfacePreviewItem::TotalInputTokens => "0 in",
@@ -55,7 +56,8 @@ impl StatusSurfacePreviewItem {
                 "deepseek-v4-pro medium (87K/1M)"
             }
             StatusSurfacePreviewItem::TaskProgress => "Tasks 0/0",
-        }
+        };
+        text.to_string()
     }
 
     pub(crate) fn iter() -> impl Iterator<Item = Self> {

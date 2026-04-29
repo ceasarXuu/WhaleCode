@@ -118,6 +118,12 @@ For a real release, stage the CLI package from the repository root of the
 vendored CLI checkout after the Rust release workflow has produced native
 artifacts:
 
+The npm package version is the Codex-compatible semver from
+`third_party/codex-cli/codex-rs/Cargo.toml` and the `rust-vX.Y.Z` tag. Do not
+append the Whale build number to npm versions; the build number is checked in at
+`third_party/codex-cli/BUILD_NUMBER`, embedded in the native TUI, and shown in
+the GitHub Release display name.
+
 ```powershell
 Set-Location D:\WhaleCode\third_party\codex-cli
 python .\scripts\stage_npm_packages.py `
