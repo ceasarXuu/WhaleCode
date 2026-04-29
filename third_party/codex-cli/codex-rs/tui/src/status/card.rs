@@ -105,6 +105,7 @@ struct StatusHistoryCell {
     session_id: Option<String>,
     forked_from: Option<String>,
     token_usage: StatusTokenUsageData,
+    auto_compact_token_limit: Option<i64>,
     rate_limit_state: Arc<RwLock<StatusRateLimitState>>,
 }
 
@@ -350,6 +351,7 @@ impl StatusHistoryCell {
                 session_id,
                 forked_from,
                 token_usage,
+                auto_compact_token_limit: config.model_auto_compact_token_limit,
                 agents_summary,
                 rate_limit_state: rate_limit_state.clone(),
             },
@@ -389,6 +391,13 @@ impl StatusHistoryCell {
             Span::from(window_fmt).dim(),
             Span::from(")").dim(),
         ])
+    }
+
+    fn auto_compact_threshold_spans(&self) -> Option<Vec<Span<'static>>> {
+        self.auto_compact_token_limit
+            .map(format_tokens_compact)
+            .map(Span::from)
+            .map(|span| vec![span])
     }
 
     fn rate_limit_lines(
@@ -613,6 +622,9 @@ impl HistoryCell for StatusHistoryCell {
         if self.token_usage.context_window.is_some() {
             push_label(&mut labels, &mut seen, "Context window");
         }
+        if self.auto_compact_token_limit.is_some() {
+            push_label(&mut labels, &mut seen, "Auto compact threshold");
+        }
 
         self.collect_rate_limit_labels(&rate_limit_state, &mut seen, &mut labels);
 
@@ -680,6 +692,9 @@ impl HistoryCell for StatusHistoryCell {
 
         if let Some(spans) = self.context_window_spans() {
             lines.push(formatter.line("Context window", spans));
+        }
+        if let Some(spans) = self.auto_compact_threshold_spans() {
+            lines.push(formatter.line("Auto compact threshold", spans));
         }
 
         lines.extend(self.rate_limit_lines(&rate_limit_state, available_inner_width, &formatter));

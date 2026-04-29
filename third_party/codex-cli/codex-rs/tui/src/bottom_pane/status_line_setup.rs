@@ -55,6 +55,9 @@ pub(crate) enum StatusLineItem {
     /// Model name with reasoning level suffix.
     ModelWithReasoning,
 
+    /// Model name with reasoning level and current context usage.
+    ModelWithReasoningAndContext,
+
     /// Current working directory path.
     CurrentDir,
 
@@ -122,6 +125,9 @@ impl StatusLineItem {
         match self {
             StatusLineItem::ModelName => "Current model name",
             StatusLineItem::ModelWithReasoning => "Current model name with reasoning level",
+            StatusLineItem::ModelWithReasoningAndContext => {
+                "Current model name with reasoning level and context usage"
+            }
             StatusLineItem::CurrentDir => "Current working directory",
             StatusLineItem::ProjectRoot => "Project name (omitted when unavailable)",
             StatusLineItem::GitBranch => "Current Git branch (omitted when unavailable)",
@@ -160,6 +166,9 @@ impl StatusLineItem {
         match self {
             StatusLineItem::ModelName => StatusSurfacePreviewItem::Model,
             StatusLineItem::ModelWithReasoning => StatusSurfacePreviewItem::ModelWithReasoning,
+            StatusLineItem::ModelWithReasoningAndContext => {
+                StatusSurfacePreviewItem::ModelWithReasoningAndContext
+            }
             StatusLineItem::CurrentDir => StatusSurfacePreviewItem::CurrentDir,
             StatusLineItem::ProjectRoot => StatusSurfacePreviewItem::ProjectRoot,
             StatusLineItem::GitBranch => StatusSurfacePreviewItem::GitBranch,

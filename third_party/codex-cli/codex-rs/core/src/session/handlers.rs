@@ -662,7 +662,10 @@ pub async fn compact(sess: &Arc<Session>, sub_id: String) {
     sess.spawn_task(
         Arc::clone(&turn_context),
         vec![UserInput::Text {
-            text: turn_context.compact_prompt().to_string(),
+            text: crate::compact::compact_prompt_for_provider(
+                turn_context.compact_prompt(),
+                turn_context.provider.info(),
+            ),
             // Compaction prompt is synthesized; no UI element ranges to preserve.
             text_elements: Vec::new(),
         }],

@@ -153,6 +153,37 @@ async fn turn_started_uses_runtime_context_window_before_first_token_count() {
         "expected /status to avoid raw config context window, got: {context_line}"
     );
 }
+
+#[tokio::test]
+async fn status_output_shows_auto_compact_threshold_under_context_window() {
+    let (mut chat, mut rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
+
+    chat.config.model_auto_compact_token_limit = Some(755_000);
+    chat.handle_codex_event(Event {
+        id: "token-usage".into(),
+        msg: EventMsg::TokenCount(TokenCountEvent {
+            info: Some(make_token_info(87_000, 1_000_000)),
+            rate_limits: None,
+        }),
+    });
+
+    chat.add_status_output(
+        /*refreshing_rate_limits*/ false, /*request_id*/ None,
+    );
+
+    let cells = drain_insert_history(&mut rx);
+    let rendered = lines_to_single_string(cells.last().expect("status output inserted"));
+
+    assert!(rendered.contains("Context window"));
+    assert!(
+        rendered.contains("Auto compact threshold"),
+        "expected threshold line in /status output: {rendered}"
+    );
+    assert!(
+        rendered.contains("755K"),
+        "expected formatted compact threshold in /status output: {rendered}"
+    );
+}
 #[tokio::test]
 async fn helpers_are_available_and_do_not_panic() {
     let (tx_raw, _rx) = unbounded_channel::<AppEvent>();
@@ -1309,6 +1340,26 @@ async fn status_line_context_remaining_renders_labeled_percent() {
     assert!(
         drain_insert_history(&mut rx).is_empty(),
         "context-remaining should remain a valid status line item"
+    );
+}
+
+#[tokio::test]
+async fn status_line_model_with_reasoning_and_context_renders_used_over_window() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("deepseek-v4-pro")).await;
+    chat.set_reasoning_effort(Some(ReasoningEffortConfig::High));
+    chat.handle_codex_event(Event {
+        id: "token-usage".into(),
+        msg: EventMsg::TokenCount(TokenCountEvent {
+            info: Some(make_token_info(87_000, 1_000_000)),
+            rate_limits: None,
+        }),
+    });
+
+    assert_eq!(
+        chat.status_line_value_for_item(
+            &crate::bottom_pane::StatusLineItem::ModelWithReasoningAndContext
+        ),
+        Some("deepseek-v4-pro high (87K/1M)".to_string())
     );
 }
 

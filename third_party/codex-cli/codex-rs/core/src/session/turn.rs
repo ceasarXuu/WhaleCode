@@ -11,10 +11,11 @@ use crate::client_common::Prompt;
 use crate::client_common::ResponseEvent;
 use crate::collect_env_var_dependencies;
 use crate::collect_explicit_skill_mentions;
+use crate::compact::CompactStrategy;
 use crate::compact::InitialContextInjection;
 use crate::compact::collect_user_messages;
+use crate::compact::compact_strategy;
 use crate::compact::run_inline_auto_compact_task;
-use crate::compact::should_use_remote_compact_task;
 use crate::compact_remote::run_inline_remote_auto_compact_task;
 use crate::connectors;
 use crate::context::ContextualUserFragment;
@@ -790,24 +791,27 @@ async fn run_auto_compact(
     reason: CompactionReason,
     phase: CompactionPhase,
 ) -> CodexResult<()> {
-    if should_use_remote_compact_task(turn_context.provider.info()) {
-        run_inline_remote_auto_compact_task(
-            Arc::clone(sess),
-            Arc::clone(turn_context),
-            initial_context_injection,
-            reason,
-            phase,
-        )
-        .await?;
-    } else {
-        run_inline_auto_compact_task(
-            Arc::clone(sess),
-            Arc::clone(turn_context),
-            initial_context_injection,
-            reason,
-            phase,
-        )
-        .await?;
+    match compact_strategy(turn_context.provider.info()) {
+        CompactStrategy::OpenAiRemote => {
+            run_inline_remote_auto_compact_task(
+                Arc::clone(sess),
+                Arc::clone(turn_context),
+                initial_context_injection,
+                reason,
+                phase,
+            )
+            .await?;
+        }
+        CompactStrategy::DeepSeekPro | CompactStrategy::LocalFallback => {
+            run_inline_auto_compact_task(
+                Arc::clone(sess),
+                Arc::clone(turn_context),
+                initial_context_injection,
+                reason,
+                phase,
+            )
+            .await?;
+        }
     }
     Ok(())
 }

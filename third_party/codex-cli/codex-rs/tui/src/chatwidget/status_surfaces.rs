@@ -423,6 +423,9 @@ impl ChatWidget {
         match item {
             StatusLineItem::ModelName => Some(self.model_display_name().to_string()),
             StatusLineItem::ModelWithReasoning => Some(self.model_with_reasoning_display_name()),
+            StatusLineItem::ModelWithReasoningAndContext => {
+                Some(self.model_with_reasoning_and_context_display_name())
+            }
             StatusLineItem::CurrentDir => {
                 Some(format_directory_display(
                     self.status_line_cwd(),
@@ -523,6 +526,9 @@ impl ChatWidget {
             StatusSurfacePreviewItem::FastMode => StatusLineItem::FastMode,
             StatusSurfacePreviewItem::Model => StatusLineItem::ModelName,
             StatusSurfacePreviewItem::ModelWithReasoning => StatusLineItem::ModelWithReasoning,
+            StatusSurfacePreviewItem::ModelWithReasoningAndContext => {
+                StatusLineItem::ModelWithReasoningAndContext
+            }
         };
         self.status_line_value_for_item(&status_line_item)
     }
@@ -610,6 +616,19 @@ impl ChatWidget {
                 ""
             };
         format!("{} {label}{fast_label}", self.model_display_name())
+    }
+
+    fn model_with_reasoning_and_context_display_name(&self) -> String {
+        let model = self.model_with_reasoning_display_name();
+        let Some((used_tokens, context_window)) = self.status_line_context_window_usage() else {
+            return model;
+        };
+        format!(
+            "{} ({}/{})",
+            model,
+            format_tokens_compact(used_tokens),
+            format_tokens_compact(context_window)
+        )
     }
 
     /// Computes the compact runtime status label used by the terminal title.

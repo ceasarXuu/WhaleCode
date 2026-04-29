@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use super::SessionTask;
 use super::SessionTaskContext;
+use crate::compact::CompactStrategy;
 use crate::session::turn_context::TurnContext;
 use crate::state::TaskKind;
 use codex_protocol::user_input::UserInput;
@@ -27,19 +28,15 @@ impl SessionTask for CompactTask {
         _cancellation_token: CancellationToken,
     ) -> Option<String> {
         let session = session.clone_session();
-        let _ = if crate::compact::should_use_remote_compact_task(ctx.provider.info()) {
-            session.services.session_telemetry.counter(
-                "codex.task.compact",
-                /*inc*/ 1,
-                &[("type", "remote")],
-            );
+        let strategy = crate::compact::compact_strategy(ctx.provider.info());
+        session.services.session_telemetry.counter(
+            "codex.task.compact",
+            /*inc*/ 1,
+            &[("type", strategy.telemetry_type())],
+        );
+        let _ = if matches!(strategy, CompactStrategy::OpenAiRemote) {
             crate::compact_remote::run_remote_compact_task(session.clone(), ctx).await
         } else {
-            session.services.session_telemetry.counter(
-                "codex.task.compact",
-                /*inc*/ 1,
-                &[("type", "local")],
-            );
             crate::compact::run_compact_task(session.clone(), ctx, input).await
         };
         None

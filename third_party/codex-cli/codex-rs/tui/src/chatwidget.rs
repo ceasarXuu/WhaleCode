@@ -424,7 +424,7 @@ use unicode_segmentation::UnicodeSegmentation;
 const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it locally";
 const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
-const DEFAULT_STATUS_LINE_ITEMS: [&str; 2] = ["model-with-reasoning", "current-dir"];
+const DEFAULT_STATUS_LINE_ITEMS: [&str; 2] = ["model-with-reasoning-and-context", "current-dir"];
 // Track information about an in-flight exec command.
 struct RunningCommand {
     command: Vec<String>,
@@ -8293,6 +8293,17 @@ impl ChatWidget {
             .as_ref()
             .and_then(|info| info.model_context_window)
             .or(self.config.model_context_window)
+    }
+
+    fn status_line_context_window_usage(&self) -> Option<(i64, i64)> {
+        let info = self.token_info.as_ref()?;
+        let context_window = info
+            .model_context_window
+            .or(self.config.model_context_window)?;
+        Some((
+            info.last_token_usage.tokens_in_context_window(),
+            context_window,
+        ))
     }
 
     fn status_line_context_remaining_percent(&self) -> Option<i64> {

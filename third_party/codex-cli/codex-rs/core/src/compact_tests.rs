@@ -3,6 +3,7 @@ use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::WireApi;
 use codex_protocol::models::DEFAULT_IMAGE_DETAIL;
 use pretty_assertions::assert_eq;
+use std::sync::Arc;
 
 async fn process_compacted_history_with_test_session(
     compacted_history: Vec<ResponseItem>,
@@ -212,6 +213,46 @@ fn should_use_remote_compact_task_for_azure_provider() {
     };
 
     assert!(should_use_remote_compact_task(&provider));
+}
+
+#[test]
+fn deepseek_provider_uses_deepseek_pro_compact_strategy() {
+    let provider = ModelProviderInfo::create_deepseek_provider();
+
+    assert_eq!(compact_strategy(&provider), CompactStrategy::DeepSeekPro);
+    assert!(!should_use_remote_compact_task(&provider));
+}
+
+#[test]
+fn deepseek_compact_prompt_appends_whale_retention_notes() {
+    let provider = ModelProviderInfo::create_deepseek_provider();
+    let prompt = compact_prompt_for_provider(SUMMARIZATION_PROMPT, &provider);
+
+    assert!(prompt.starts_with(SUMMARIZATION_PROMPT));
+    assert!(prompt.contains("Whale state retention notes"));
+}
+
+#[tokio::test]
+async fn deepseek_compact_sampling_context_uses_pro_model() {
+    let (session, turn_context) = crate::session::tests::make_session_and_context().await;
+    let flash_turn_context = Arc::new(
+        turn_context
+            .with_model(
+                "deepseek-v4-flash".to_string(),
+                &session.services.models_manager,
+            )
+            .await,
+    );
+
+    let sampling_turn_context =
+        compact_sampling_turn_context(&session, &flash_turn_context, CompactStrategy::DeepSeekPro)
+            .await;
+
+    assert_eq!(flash_turn_context.model_info.slug, "deepseek-v4-flash");
+    assert_eq!(
+        sampling_turn_context.model_info.slug,
+        DEEPSEEK_COMPACT_MODEL
+    );
 }
 
 #[tokio::test]

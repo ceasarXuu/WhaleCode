@@ -24,6 +24,7 @@ pub(crate) enum StatusSurfacePreviewItem {
     FastMode,
     Model,
     ModelWithReasoning,
+    ModelWithReasoningAndContext,
     TaskProgress,
 }
 
@@ -50,6 +51,9 @@ impl StatusSurfacePreviewItem {
             StatusSurfacePreviewItem::FastMode => "Fast on",
             StatusSurfacePreviewItem::Model => "deepseek-v4-pro",
             StatusSurfacePreviewItem::ModelWithReasoning => "deepseek-v4-pro medium",
+            StatusSurfacePreviewItem::ModelWithReasoningAndContext => {
+                "deepseek-v4-pro medium (87K/1M)"
+            }
             StatusSurfacePreviewItem::TaskProgress => "Tasks 0/0",
         }
     }
@@ -76,6 +80,7 @@ impl StatusSurfacePreviewItem {
             Self::FastMode,
             Self::Model,
             Self::ModelWithReasoning,
+            Self::ModelWithReasoningAndContext,
             Self::TaskProgress,
         ]
         .into_iter()

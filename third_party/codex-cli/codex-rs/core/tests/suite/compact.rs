@@ -649,6 +649,7 @@ async fn multiple_auto_compact_per_task_runs_after_token_limit_hit() {
     let codex = test_codex()
         .with_config(move |config| {
             config.model_provider.name = non_openai_provider_name;
+            config.model_auto_compact_token_limit = Some(200_000);
         })
         .build(&server)
         .await
@@ -3059,6 +3060,7 @@ async fn snapshot_request_shape_pre_turn_compaction_including_incoming_user_mess
     let codex = test_codex()
         .with_config(move |config| {
             config.model_provider = model_provider;
+            config.model = Some("gpt-5.4".to_string());
             set_test_compact_prompt(config);
             config.model_auto_compact_token_limit = Some(200);
         })

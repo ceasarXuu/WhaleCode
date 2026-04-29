@@ -42,7 +42,17 @@ use codex_model_provider_info::ModelProviderInfo;
 
 pub const SUMMARIZATION_PROMPT: &str = include_str!("../templates/compact/prompt.md");
 pub const SUMMARY_PREFIX: &str = include_str!("../templates/compact/summary_prefix.md");
+pub(crate) const DEEPSEEK_COMPACT_MODEL: &str = "deepseek-v4-pro";
 const COMPACT_USER_MESSAGE_MAX_TOKENS: usize = 20_000;
+const WHALE_COMPACT_PROMPT_APPENDIX: &str = r#"
+
+Whale state retention notes:
+- Preserve the current task goal, explicit user decisions, and open discussion points.
+- Preserve executed and pending tool actions, verification results, and unresolved failures.
+- Preserve multi-agent roles, assignments, conclusions, and disagreements.
+- Preserve Debug hypothesis/evidence status when present.
+- Preserve Create scaffolding, testing, logging, and constraint status when present.
+"#;
 
 /// Controls whether compaction replacement history must include initial context.
 ///
@@ -59,8 +69,50 @@ pub(crate) enum InitialContextInjection {
     DoNotInject,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CompactStrategy {
+    OpenAiRemote,
+    DeepSeekPro,
+    LocalFallback,
+}
+
+impl CompactStrategy {
+    pub(crate) fn telemetry_type(self) -> &'static str {
+        match self {
+            Self::OpenAiRemote => "remote",
+            Self::DeepSeekPro => "deepseek",
+            Self::LocalFallback => "local",
+        }
+    }
+}
+
+pub(crate) fn compact_strategy(provider: &ModelProviderInfo) -> CompactStrategy {
+    if provider.supports_remote_compaction() {
+        CompactStrategy::OpenAiRemote
+    } else if provider.is_deepseek() {
+        CompactStrategy::DeepSeekPro
+    } else {
+        CompactStrategy::LocalFallback
+    }
+}
+
+#[cfg(test)]
 pub(crate) fn should_use_remote_compact_task(provider: &ModelProviderInfo) -> bool {
-    provider.supports_remote_compaction()
+    matches!(compact_strategy(provider), CompactStrategy::OpenAiRemote)
+}
+
+pub(crate) fn compact_prompt_for_provider(
+    base_prompt: &str,
+    provider: &ModelProviderInfo,
+) -> String {
+    compact_prompt_for_strategy(base_prompt, compact_strategy(provider))
+}
+
+fn compact_prompt_for_strategy(base_prompt: &str, strategy: CompactStrategy) -> String {
+    match strategy {
+        CompactStrategy::DeepSeekPro => format!("{base_prompt}{WHALE_COMPACT_PROMPT_APPENDIX}"),
+        CompactStrategy::OpenAiRemote | CompactStrategy::LocalFallback => base_prompt.to_string(),
+    }
 }
 
 pub(crate) async fn run_inline_auto_compact_task(
@@ -70,7 +122,8 @@ pub(crate) async fn run_inline_auto_compact_task(
     reason: CompactionReason,
     phase: CompactionPhase,
 ) -> CodexResult<()> {
-    let prompt = turn_context.compact_prompt().to_string();
+    let prompt =
+        compact_prompt_for_provider(turn_context.compact_prompt(), turn_context.provider.info());
     let input = vec![UserInput::Text {
         text: prompt,
         // Compaction prompt is synthesized; no UI element ranges to preserve.
@@ -123,6 +176,15 @@ async fn run_compact_task_inner(
     reason: CompactionReason,
     phase: CompactionPhase,
 ) -> CodexResult<()> {
+    let strategy = compact_strategy(turn_context.provider.info());
+    tracing::info!(
+        strategy = ?strategy,
+        trigger = ?trigger,
+        phase = ?phase,
+        source_model = %turn_context.model_info.slug,
+        compact_model = %compact_strategy_model_label(strategy, turn_context.model_info.slug.as_str()),
+        "running compact primitive"
+    );
     let attempt = CompactionAnalyticsAttempt::begin(
         sess.as_ref(),
         turn_context.as_ref(),
@@ -132,9 +194,11 @@ async fn run_compact_task_inner(
         phase,
     )
     .await;
+    let sampling_turn_context = compact_sampling_turn_context(&sess, &turn_context, strategy).await;
     let result = run_compact_task_inner_impl(
         Arc::clone(&sess),
         Arc::clone(&turn_context),
+        sampling_turn_context,
         input,
         initial_context_injection,
     )
@@ -149,9 +213,38 @@ async fn run_compact_task_inner(
     result
 }
 
+fn compact_strategy_model_label<'a>(strategy: CompactStrategy, source_model: &'a str) -> &'a str {
+    match strategy {
+        CompactStrategy::DeepSeekPro => DEEPSEEK_COMPACT_MODEL,
+        CompactStrategy::OpenAiRemote | CompactStrategy::LocalFallback => source_model,
+    }
+}
+
+async fn compact_sampling_turn_context(
+    sess: &Session,
+    turn_context: &Arc<TurnContext>,
+    strategy: CompactStrategy,
+) -> Arc<TurnContext> {
+    if matches!(strategy, CompactStrategy::DeepSeekPro)
+        && turn_context.model_info.slug != DEEPSEEK_COMPACT_MODEL
+    {
+        Arc::new(
+            turn_context
+                .with_model(
+                    DEEPSEEK_COMPACT_MODEL.to_string(),
+                    &sess.services.models_manager,
+                )
+                .await,
+        )
+    } else {
+        Arc::clone(turn_context)
+    }
+}
+
 async fn run_compact_task_inner_impl(
     sess: Arc<Session>,
     turn_context: Arc<TurnContext>,
+    sampling_turn_context: Arc<TurnContext>,
     input: Vec<UserInput>,
     initial_context_injection: InitialContextInjection,
 ) -> CodexResult<()> {
@@ -168,7 +261,7 @@ async fn run_compact_task_inner_impl(
 
     let mut truncated_count = 0usize;
 
-    let max_retries = turn_context.provider.info().stream_max_retries();
+    let max_retries = sampling_turn_context.provider.info().stream_max_retries();
     let mut retries = 0;
     let mut client_session = sess.services.model_client.new_session();
     // Reuse one client session so turn-scoped state (sticky routing, websocket incremental
@@ -179,7 +272,7 @@ async fn run_compact_task_inner_impl(
         // Clone is required because of the loop
         let turn_input = history
             .clone()
-            .for_prompt(&turn_context.model_info.input_modalities);
+            .for_prompt(&sampling_turn_context.model_info.input_modalities);
         let turn_input_len = turn_input.len();
         let prompt = Prompt {
             input: turn_input,
@@ -191,6 +284,7 @@ async fn run_compact_task_inner_impl(
         let attempt_result = drain_to_completed(
             &sess,
             turn_context.as_ref(),
+            sampling_turn_context.as_ref(),
             &mut client_session,
             turn_metadata_header.as_deref(),
             &prompt,
@@ -534,6 +628,7 @@ fn build_compacted_history_with_limit(
 async fn drain_to_completed(
     sess: &Session,
     turn_context: &TurnContext,
+    sampling_turn_context: &TurnContext,
     client_session: &mut ModelClientSession,
     turn_metadata_header: Option<&str>,
     prompt: &Prompt,
@@ -541,11 +636,11 @@ async fn drain_to_completed(
     let mut stream = client_session
         .stream(
             prompt,
-            &turn_context.model_info,
-            &turn_context.session_telemetry,
-            turn_context.reasoning_effort,
-            turn_context.reasoning_summary,
-            turn_context.config.service_tier,
+            &sampling_turn_context.model_info,
+            &sampling_turn_context.session_telemetry,
+            sampling_turn_context.reasoning_effort,
+            sampling_turn_context.reasoning_summary,
+            sampling_turn_context.config.service_tier,
             turn_metadata_header,
             // Rollout tracing currently models remote compaction only; local compaction streams
             // are left untraced until the reducer has a first-class local compaction lifecycle.
