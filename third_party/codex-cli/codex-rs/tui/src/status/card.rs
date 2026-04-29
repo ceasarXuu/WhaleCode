@@ -7,6 +7,8 @@ use crate::version::CODEX_CLI_VERSION;
 use chrono::DateTime;
 use chrono::Local;
 use codex_model_provider_info::WireApi;
+use codex_models_manager::bundled_models_response;
+use codex_models_manager::manager::construct_model_info_from_candidates;
 use codex_protocol::ThreadId;
 use codex_protocol::account::PlanType;
 use codex_protocol::openai_models::ReasoningEffort;
@@ -337,6 +339,7 @@ impl StatusHistoryCell {
             refreshing_rate_limits,
         }));
         let agents_summary = Arc::new(RwLock::new(agents_summary));
+        let auto_compact_token_limit = effective_auto_compact_token_limit(config, &model_name);
 
         (
             Self {
@@ -351,7 +354,7 @@ impl StatusHistoryCell {
                 session_id,
                 forked_from,
                 token_usage,
-                auto_compact_token_limit: config.model_auto_compact_token_limit,
+                auto_compact_token_limit,
                 agents_summary,
                 rate_limit_state: rate_limit_state.clone(),
             },
@@ -707,6 +710,34 @@ impl HistoryCell for StatusHistoryCell {
             .collect();
 
         with_border_with_inner_width(truncated_lines, inner_width)
+    }
+}
+
+fn effective_auto_compact_token_limit(config: &Config, model_name: &str) -> Option<i64> {
+    let bundled_catalog = config
+        .model_catalog
+        .is_none()
+        .then(bundled_models_response)
+        .transpose()
+        .ok()
+        .flatten();
+    let candidates = config
+        .model_catalog
+        .as_ref()
+        .or(bundled_catalog.as_ref())
+        .map(|catalog| catalog.models.as_slice())
+        .unwrap_or_default();
+    let model_info = construct_model_info_from_candidates(
+        model_name,
+        candidates,
+        &config.to_models_manager_config(),
+    );
+    if config.model_auto_compact_token_limit.is_some()
+        || model_info.auto_compact_token_limit.is_some()
+    {
+        model_info.auto_compact_token_limit()
+    } else {
+        None
     }
 }
 

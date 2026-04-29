@@ -219,6 +219,7 @@ pub enum CompactionReason {
 pub enum CompactionImplementation {
     Responses,
     ResponsesCompact,
+    DeepseekPro,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -234,6 +235,7 @@ pub enum CompactionPhase {
 pub enum CompactionStrategy {
     Memento,
     PrefixCompaction,
+    DeepseekCompact,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]

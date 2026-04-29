@@ -156,9 +156,8 @@ async fn turn_started_uses_runtime_context_window_before_first_token_count() {
 
 #[tokio::test]
 async fn status_output_shows_auto_compact_threshold_under_context_window() {
-    let (mut chat, mut rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
+    let (mut chat, mut rx, _ops) = make_chatwidget_manual(Some("deepseek-v4-pro")).await;
 
-    chat.config.model_auto_compact_token_limit = Some(755_000);
     chat.handle_codex_event(Event {
         id: "token-usage".into(),
         msg: EventMsg::TokenCount(TokenCountEvent {

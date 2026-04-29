@@ -16,6 +16,7 @@ use crate::session::turn_context::TurnContext;
 use codex_analytics::CompactionImplementation;
 use codex_analytics::CompactionPhase;
 use codex_analytics::CompactionReason;
+use codex_analytics::CompactionStrategy;
 use codex_analytics::CompactionTrigger;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
@@ -88,6 +89,7 @@ async fn run_remote_compact_task_inner(
         trigger,
         reason,
         CompactionImplementation::ResponsesCompact,
+        CompactionStrategy::Memento,
         phase,
     )
     .await;

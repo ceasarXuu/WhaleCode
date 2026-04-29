@@ -31,7 +31,7 @@ use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::TurnStartedEvent;
 use codex_protocol::protocol::WarningEvent;
 use codex_protocol::user_input::UserInput;
-use codex_rollout_trace::InferenceTraceContext;
+use codex_rollout_trace::CompactionCheckpointTracePayload;
 use codex_utils_output_truncation::TruncationPolicy;
 use codex_utils_output_truncation::approx_token_count;
 use codex_utils_output_truncation::truncate_text;
@@ -190,7 +190,8 @@ async fn run_compact_task_inner(
         turn_context.as_ref(),
         trigger,
         reason,
-        CompactionImplementation::Responses,
+        compaction_implementation_for_strategy(strategy),
+        compaction_analytics_strategy_for_strategy(strategy),
         phase,
     )
     .await;
@@ -217,6 +218,24 @@ fn compact_strategy_model_label<'a>(strategy: CompactStrategy, source_model: &'a
     match strategy {
         CompactStrategy::DeepSeekPro => DEEPSEEK_COMPACT_MODEL,
         CompactStrategy::OpenAiRemote | CompactStrategy::LocalFallback => source_model,
+    }
+}
+
+fn compaction_implementation_for_strategy(strategy: CompactStrategy) -> CompactionImplementation {
+    match strategy {
+        CompactStrategy::DeepSeekPro => CompactionImplementation::DeepseekPro,
+        CompactStrategy::OpenAiRemote | CompactStrategy::LocalFallback => {
+            CompactionImplementation::Responses
+        }
+    }
+}
+
+fn compaction_analytics_strategy_for_strategy(strategy: CompactStrategy) -> CompactionStrategy {
+    match strategy {
+        CompactStrategy::DeepSeekPro => CompactionStrategy::DeepseekCompact,
+        CompactStrategy::OpenAiRemote | CompactStrategy::LocalFallback => {
+            CompactionStrategy::Memento
+        }
     }
 }
 
@@ -248,7 +267,15 @@ async fn run_compact_task_inner_impl(
     input: Vec<UserInput>,
     initial_context_injection: InitialContextInjection,
 ) -> CodexResult<()> {
-    let compaction_item = TurnItem::ContextCompaction(ContextCompactionItem::new());
+    let context_compaction_item = ContextCompactionItem::new();
+    let compaction_id = context_compaction_item.id.clone();
+    let compaction_trace = sess.services.rollout_thread_trace.compaction_trace_context(
+        turn_context.sub_id.as_str(),
+        compaction_id.as_str(),
+        sampling_turn_context.model_info.slug.as_str(),
+        sampling_turn_context.provider.info().name.as_str(),
+    );
+    let compaction_item = TurnItem::ContextCompaction(context_compaction_item);
     sess.emit_turn_item_started(&turn_context, &compaction_item)
         .await;
     let initial_input_for_turn: ResponseInputItem = ResponseInputItem::from(input);
@@ -287,6 +314,7 @@ async fn run_compact_task_inner_impl(
             sampling_turn_context.as_ref(),
             &mut client_session,
             turn_metadata_header.as_deref(),
+            compaction_id.as_str(),
             &prompt,
         )
         .await;
@@ -344,6 +372,7 @@ async fn run_compact_task_inner_impl(
         }
     }
 
+    let trace_input_history = history.raw_items().to_vec();
     let history_snapshot = sess.clone_history().await;
     let history_items = history_snapshot.raw_items();
     let summary_suffix = get_last_assistant_message_from_turn(history_items).unwrap_or_default();
@@ -374,6 +403,10 @@ async fn run_compact_task_inner_impl(
         message: summary_text.clone(),
         replacement_history: Some(new_history.clone()),
     };
+    compaction_trace.record_installed(&CompactionCheckpointTracePayload {
+        input_history: &trace_input_history,
+        replacement_history: &new_history,
+    });
     sess.replace_compacted_history(new_history, reference_context_item, compacted_item)
         .await;
     client_session.reset_websocket_session();
@@ -395,6 +428,7 @@ pub(crate) struct CompactionAnalyticsAttempt {
     trigger: CompactionTrigger,
     reason: CompactionReason,
     implementation: CompactionImplementation,
+    strategy: CompactionStrategy,
     phase: CompactionPhase,
     active_context_tokens_before: i64,
     started_at: u64,
@@ -408,6 +442,7 @@ impl CompactionAnalyticsAttempt {
         trigger: CompactionTrigger,
         reason: CompactionReason,
         implementation: CompactionImplementation,
+        strategy: CompactionStrategy,
         phase: CompactionPhase,
     ) -> Self {
         let enabled = sess.enabled(Feature::GeneralAnalytics);
@@ -419,6 +454,7 @@ impl CompactionAnalyticsAttempt {
             trigger,
             reason,
             implementation,
+            strategy,
             phase,
             active_context_tokens_before,
             started_at: now_unix_seconds(),
@@ -445,7 +481,7 @@ impl CompactionAnalyticsAttempt {
                 reason: self.reason,
                 implementation: self.implementation,
                 phase: self.phase,
-                strategy: CompactionStrategy::Memento,
+                strategy: self.strategy,
                 status,
                 error,
                 active_context_tokens_before: self.active_context_tokens_before,
@@ -631,8 +667,15 @@ async fn drain_to_completed(
     sampling_turn_context: &TurnContext,
     client_session: &mut ModelClientSession,
     turn_metadata_header: Option<&str>,
+    compaction_id: &str,
     prompt: &Prompt,
 ) -> CodexResult<()> {
+    let compact_turn_id = format!("{}:compact:{compaction_id}", turn_context.sub_id);
+    let inference_trace = sess.services.rollout_thread_trace.inference_trace_context(
+        compact_turn_id,
+        sampling_turn_context.model_info.slug.as_str(),
+        sampling_turn_context.provider.info().name.as_str(),
+    );
     let mut stream = client_session
         .stream(
             prompt,
@@ -642,9 +685,7 @@ async fn drain_to_completed(
             sampling_turn_context.reasoning_summary,
             sampling_turn_context.config.service_tier,
             turn_metadata_header,
-            // Rollout tracing currently models remote compaction only; local compaction streams
-            // are left untraced until the reducer has a first-class local compaction lifecycle.
-            &InferenceTraceContext::disabled(),
+            &inference_trace,
         )
         .await?;
     loop {

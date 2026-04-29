@@ -232,6 +232,24 @@ fn deepseek_compact_prompt_appends_whale_retention_notes() {
     assert!(prompt.contains("Whale state retention notes"));
 }
 
+#[test]
+fn deepseek_compact_strategy_uses_deepseek_analytics_dimensions() {
+    assert_eq!(
+        serde_json::to_value(compaction_implementation_for_strategy(
+            CompactStrategy::DeepSeekPro
+        ))
+        .expect("serialize implementation"),
+        "deepseek_pro"
+    );
+    assert_eq!(
+        serde_json::to_value(compaction_analytics_strategy_for_strategy(
+            CompactStrategy::DeepSeekPro
+        ))
+        .expect("serialize strategy"),
+        "deepseek_compact"
+    );
+}
+
 #[tokio::test]
 async fn deepseek_compact_sampling_context_uses_pro_model() {
     let (session, turn_context) = crate::session::tests::make_session_and_context().await;
