@@ -2,12 +2,14 @@ use super::*;
 use codex_model_provider::SharedModelProvider;
 use codex_model_provider::create_model_provider;
 use codex_model_provider_info::WireApi;
+use codex_protocol::config_types::WebSearchConfig;
 use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::models::SandboxEnforcement;
 use codex_protocol::protocol::TurnEnvironmentSelection;
 use codex_sandboxing::policy_transforms::effective_file_system_sandbox_policy;
 use codex_sandboxing::policy_transforms::effective_network_sandbox_policy;
-use codex_tools::WebSearchToolManifestMode;
+use codex_tools::WebSearchToolManifest;
+use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
@@ -424,37 +426,12 @@ impl Session {
         let auth_manager_for_context = auth_manager.clone();
         let provider_for_context = create_model_provider(provider, auth_manager);
         let session_telemetry_for_context = session_telemetry;
-        let web_search_tool_manifest_mode = web_search_tool_manifest_mode_for_turn(
+        let web_search_tool_manifest = resolve_web_search_tool_manifest_for_turn(
             &provider_for_context.info().wire_api,
             per_turn_config.web_search_mode.value(),
+            per_turn_config.web_search_config.as_ref(),
+            &per_turn_config.codex_home,
         );
-        let web_search_available_providers = match web_search_tool_manifest_mode {
-            WebSearchToolManifestMode::ProviderSpecific => {
-                let web_config = per_turn_config
-                    .web_search_config
-                    .clone()
-                    .unwrap_or_default();
-                let availability = crate::web_tools::resolve_web_tool_manifest_availability(
-                    &web_config,
-                    &per_turn_config.codex_home,
-                );
-                let provider_names = availability
-                    .search_providers
-                    .iter()
-                    .map(|provider| format!("{provider:?}"))
-                    .collect::<Vec<_>>()
-                    .join(",");
-                info!(
-                    target: "codex_core::web_tools",
-                    provider_count = availability.search_providers.len(),
-                    providers = %provider_names,
-                    fetch_enabled = web_config.fetch.enabled,
-                    "web tool manifest availability resolved"
-                );
-                Some(availability.search_providers)
-            }
-            _ => None,
-        };
         let tools_config = ToolsConfig::new(&ToolsConfigParams {
             model_info: &model_info,
             available_models: &models_manager.try_list_models().unwrap_or_default(),
@@ -471,8 +448,7 @@ impl Session {
             main_execve_wrapper_exe,
         )
         .with_web_search_config(per_turn_config.web_search_config.clone())
-        .with_web_search_tool_manifest_mode(web_search_tool_manifest_mode)
-        .with_web_search_available_providers(web_search_available_providers)
+        .with_web_search_tool_manifest(web_search_tool_manifest)
         .with_allow_login_shell(per_turn_config.permissions.allow_login_shell)
         .with_has_environment(environment.is_some())
         .with_spawn_agent_usage_hint(per_turn_config.multi_agent_v2.usage_hint_enabled)
@@ -774,16 +750,46 @@ impl Session {
     }
 }
 
-fn web_search_tool_manifest_mode_for_turn(
+fn resolve_web_search_tool_manifest_for_turn(
     wire_api: &WireApi,
     web_search_mode: WebSearchMode,
-) -> WebSearchToolManifestMode {
-    match (wire_api, web_search_mode) {
-        (WireApi::ChatCompletions, WebSearchMode::Live) => {
-            WebSearchToolManifestMode::ProviderSpecific
-        }
-        _ => WebSearchToolManifestMode::Generic,
+    web_search_config: Option<&WebSearchConfig>,
+    codex_home: &Path,
+) -> WebSearchToolManifest {
+    if !uses_provider_specific_web_search_manifest(wire_api, web_search_mode) {
+        return WebSearchToolManifest::Generic;
     }
+
+    let web_config = web_search_config.cloned().unwrap_or_default();
+    let availability =
+        crate::web_tools::resolve_web_tool_manifest_availability(&web_config, codex_home);
+    let provider_names = availability
+        .search_providers
+        .iter()
+        .map(|provider| format!("{provider:?}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    info!(
+        target: "codex_core::web_tools",
+        provider_count = availability.search_providers.len(),
+        providers = %provider_names,
+        fetch_enabled = web_config.fetch.enabled,
+        "web tool manifest availability resolved"
+    );
+
+    WebSearchToolManifest::ProviderSpecific {
+        providers: availability.search_providers,
+    }
+}
+
+fn uses_provider_specific_web_search_manifest(
+    wire_api: &WireApi,
+    web_search_mode: WebSearchMode,
+) -> bool {
+    matches!(
+        (wire_api, web_search_mode),
+        (WireApi::ChatCompletions, WebSearchMode::Live)
+    )
 }
 
 #[cfg(test)]
@@ -792,20 +798,34 @@ mod tests {
 
     #[test]
     fn provider_specific_manifest_is_only_for_live_chat_completions() {
+        assert!(uses_provider_specific_web_search_manifest(
+            &WireApi::ChatCompletions,
+            WebSearchMode::Live
+        ));
+        assert!(!uses_provider_specific_web_search_manifest(
+            &WireApi::ChatCompletions,
+            WebSearchMode::Cached
+        ));
+        assert!(!uses_provider_specific_web_search_manifest(
+            &WireApi::Responses,
+            WebSearchMode::Live
+        ));
+    }
+
+    #[test]
+    fn provider_specific_manifest_defaults_missing_web_search_config() {
+        let temp_home = tempfile::tempdir().expect("tempdir");
+
         assert_eq!(
-            web_search_tool_manifest_mode_for_turn(&WireApi::ChatCompletions, WebSearchMode::Live),
-            WebSearchToolManifestMode::ProviderSpecific
-        );
-        assert_eq!(
-            web_search_tool_manifest_mode_for_turn(
+            resolve_web_search_tool_manifest_for_turn(
                 &WireApi::ChatCompletions,
-                WebSearchMode::Cached
+                WebSearchMode::Live,
+                None,
+                temp_home.path()
             ),
-            WebSearchToolManifestMode::Generic
-        );
-        assert_eq!(
-            web_search_tool_manifest_mode_for_turn(&WireApi::Responses, WebSearchMode::Live),
-            WebSearchToolManifestMode::Generic
+            WebSearchToolManifest::ProviderSpecific {
+                providers: Vec::new()
+            }
         );
     }
 }

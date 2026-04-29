@@ -987,11 +987,9 @@ fn web_search_dynamic_manifest_registers_only_available_provider_tools() {
         windows_sandbox_level: WindowsSandboxLevel::Disabled,
     })
     .with_web_search_config(Some(WebSearchConfig::default()))
-    .with_web_search_tool_manifest_mode(WebSearchToolManifestMode::ProviderSpecific)
-    .with_web_search_available_providers(Some(vec![
-        WebSearchProvider::Exa,
-        WebSearchProvider::Github,
-    ]));
+    .with_web_search_tool_manifest(WebSearchToolManifest::ProviderSpecific {
+        providers: vec![WebSearchProvider::Exa, WebSearchProvider::Github],
+    });
     let (tools, handlers) = build_specs(
         &tools_config,
         /*mcp_tools*/ None,
@@ -1017,7 +1015,7 @@ fn web_search_dynamic_manifest_registers_only_available_provider_tools() {
 }
 
 #[test]
-fn web_search_generic_manifest_ignores_available_provider_list() {
+fn web_search_generic_manifest_registers_generic_search() {
     let model_info = model_info();
     let features = Features::with_defaults();
     let available_models = Vec::new();
@@ -1032,7 +1030,7 @@ fn web_search_generic_manifest_ignores_available_provider_list() {
         windows_sandbox_level: WindowsSandboxLevel::Disabled,
     })
     .with_web_search_config(Some(WebSearchConfig::default()))
-    .with_web_search_available_providers(Some(vec![WebSearchProvider::Tavily]));
+    .with_web_search_tool_manifest(WebSearchToolManifest::Generic);
     let (tools, handlers) = build_specs(
         &tools_config,
         /*mcp_tools*/ None,
@@ -1064,8 +1062,9 @@ fn web_search_provider_manifest_never_falls_back_to_generic_search() {
         windows_sandbox_level: WindowsSandboxLevel::Disabled,
     })
     .with_web_search_config(Some(WebSearchConfig::default()))
-    .with_web_search_tool_manifest_mode(WebSearchToolManifestMode::ProviderSpecific)
-    .with_web_search_available_providers(Some(Vec::new()));
+    .with_web_search_tool_manifest(WebSearchToolManifest::ProviderSpecific {
+        providers: Vec::new(),
+    });
     let (tools, handlers) = build_specs(
         &tools_config,
         /*mcp_tools*/ None,

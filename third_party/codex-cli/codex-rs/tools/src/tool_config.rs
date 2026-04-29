@@ -38,10 +38,10 @@ pub enum UnifiedExecShellMode {
     ZshFork(ZshForkConfig),
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum WebSearchToolManifestMode {
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum WebSearchToolManifest {
     Generic,
-    ProviderSpecific,
+    ProviderSpecific { providers: Vec<WebSearchProvider> },
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -98,8 +98,7 @@ pub struct ToolsConfig {
     pub apply_patch_tool_type: Option<ApplyPatchToolType>,
     pub web_search_mode: Option<WebSearchMode>,
     pub web_search_config: Option<WebSearchConfig>,
-    pub web_search_tool_manifest_mode: WebSearchToolManifestMode,
-    pub web_search_available_providers: Option<Vec<WebSearchProvider>>,
+    pub web_search_tool_manifest: WebSearchToolManifest,
     pub web_search_tool_type: WebSearchToolType,
     pub image_gen_tool: bool,
     pub search_tool: bool,
@@ -219,8 +218,7 @@ impl ToolsConfig {
             apply_patch_tool_type,
             web_search_mode: *web_search_mode,
             web_search_config: None,
-            web_search_tool_manifest_mode: WebSearchToolManifestMode::Generic,
-            web_search_available_providers: None,
+            web_search_tool_manifest: WebSearchToolManifest::Generic,
             web_search_tool_type: model_info.web_search_tool_type,
             image_gen_tool: include_image_gen_tool,
             search_tool: include_search_tool,
@@ -319,16 +317,8 @@ impl ToolsConfig {
         self
     }
 
-    pub fn with_web_search_tool_manifest_mode(mut self, mode: WebSearchToolManifestMode) -> Self {
-        self.web_search_tool_manifest_mode = mode;
-        self
-    }
-
-    pub fn with_web_search_available_providers(
-        mut self,
-        providers: Option<Vec<WebSearchProvider>>,
-    ) -> Self {
-        self.web_search_available_providers = providers;
+    pub fn with_web_search_tool_manifest(mut self, manifest: WebSearchToolManifest) -> Self {
+        self.web_search_tool_manifest = manifest;
         self
     }
 

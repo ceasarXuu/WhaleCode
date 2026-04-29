@@ -16,7 +16,7 @@ use crate::ToolSearchSourceInfo;
 use crate::ToolSpec;
 use crate::ToolsConfig;
 use crate::ViewImageToolOptions;
-use crate::WebSearchToolManifestMode;
+use crate::WebSearchToolManifest;
 use crate::WebSearchToolOptions;
 use crate::coalesce_loadable_tool_specs;
 use crate::collect_code_mode_exec_prompt_tool_definitions;
@@ -377,13 +377,9 @@ pub fn build_tool_registry_plan(
                 .is_none_or(|web_config| web_config.client.enabled);
 
     if client_web_search_enabled {
-        match config.web_search_tool_manifest_mode {
-            WebSearchToolManifestMode::ProviderSpecific => {
-                let available_providers = config
-                    .web_search_available_providers
-                    .as_deref()
-                    .unwrap_or_default();
-                for provider in available_providers {
+        match &config.web_search_tool_manifest {
+            WebSearchToolManifest::ProviderSpecific { providers } => {
+                for provider in providers {
                     plan.push_spec(
                         create_web_search_provider_tool(*provider),
                         /*supports_parallel_tool_calls*/ true,
@@ -395,7 +391,7 @@ pub fn build_tool_registry_plan(
                     );
                 }
             }
-            WebSearchToolManifestMode::Generic => {
+            WebSearchToolManifest::Generic => {
                 if let Some(web_search_tool) = create_web_search_tool(WebSearchToolOptions {
                     web_search_mode: config.web_search_mode,
                     web_search_config: config.web_search_config.as_ref(),
