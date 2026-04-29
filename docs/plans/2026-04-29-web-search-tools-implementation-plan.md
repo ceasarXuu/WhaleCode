@@ -8,7 +8,7 @@
 
 当前执行口径见：
 
-- `docs/plans/2026-04-29-search-provider-routing-strategy.md`
+- `docs/plans/2026-04-29-dynamic-web-tool-manifest-plan.md`
 
 ## 结论
 

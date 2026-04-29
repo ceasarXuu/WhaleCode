@@ -6,6 +6,7 @@ use crate::tools::handlers::parse_arguments;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 use crate::web_tools::WebToolError;
+use crate::web_tools::providers::ProviderPolicy;
 use crate::web_tools::providers::WebFetchArgs;
 use crate::web_tools::providers::WebProviderRegistry;
 use crate::web_tools::providers::WebSearchArgs;
@@ -36,6 +37,7 @@ impl ToolHandler for WebSearchHandler {
             session,
             turn,
             call_id,
+            tool_name,
             payload,
             ..
         } = invocation;
@@ -44,7 +46,11 @@ impl ToolHandler for WebSearchHandler {
                 "web_search handler received unsupported payload".to_string(),
             ));
         };
-        let args: WebSearchArgs = parse_arguments(&arguments)?;
+        let mut args: WebSearchArgs = parse_arguments(&arguments)?;
+        if let Some(provider) = codex_tools::web_search_provider_from_tool_name(&tool_name.name) {
+            args.provider_policy = Some(ProviderPolicy::Single);
+            args.preferred_providers = Some(vec![provider]);
+        }
         let query_for_event = args.query.clone();
         let config = runtime_config_for_search(turn.config.web_search_config.clone())?;
         let registry = WebProviderRegistry::new(config, turn.config.codex_home.to_path_buf())
@@ -60,7 +66,7 @@ impl ToolHandler for WebSearchHandler {
             .await;
         info!(
             target: "codex_core::web_tools",
-            tool = "web_search",
+            tool = %tool_name,
             query_hash = %hash_for_log(&query_for_event),
             "web search started"
         );

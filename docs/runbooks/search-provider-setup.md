@@ -4,10 +4,19 @@
 
 This runbook covers the local setup flow for Whale's agent web search providers.
 
-Model-visible tools stay stable:
+Model-visible search tools are generated from configured provider credentials:
 
-- `web_search`: provider-routed candidate discovery.
+- `brave_search`: broad web and news discovery through Brave Search.
+- `exa_search`: technical docs, repos, changelogs, and semantic technical search.
+- `tavily_search`: agent-native web research and multi-page discovery.
+- `github_search`: GitHub repositories, code, issues, commits, and users.
+- `stack_exchange_search`: Stack Overflow and Stack Exchange Q&A.
+- `jina_search`: Jina Search discovery when a Jina key is configured.
 - `web_fetch`: URL reading through Jina readability or direct HTTP fetch.
+
+Unavailable search providers are not exposed to the model. `web_fetch` remains a
+single URL-reading tool because choosing a readability/fetch provider is runtime
+safety behavior, not an agent task.
 
 Provider credentials are stored by the TUI in the `codex-secrets` local backend, not in `config.toml`.
 
@@ -19,9 +28,9 @@ Provider credentials are stored by the TUI in the `codex-secrets` local backend,
 4. Whale stores the secret under the default env-style name and persists:
    - `web_search = "live"`
    - `tools.web_search.enabled = true`
-   - `tools.web_search.provider = "<provider>"`
-   - `tools.web_search.strategy = "auto"`
+   - the provider-specific secret env name, for example `EXA_API_KEY`
 5. The TUI runs a provider-specific health check and reports `health_check=ok` or the HTTP failure code.
+6. On the next turn, the tool manifest includes the matching provider-specific search tool.
 
 Default secret names:
 
@@ -63,11 +72,10 @@ This keeps shell-based automation compatible while letting normal users configur
 
 The runtime keeps search discovery and URL reading separate:
 
-- `web_search` chooses among Brave, Tavily, Exa, GitHub, Stack Exchange, and Jina Search based on source hint, configured provider, strategy, and credential availability.
+- The tool manifest exposes only search providers with configured credentials.
 - `web_fetch` reads selected URLs through Jina Reader or direct HTTP.
-- Providers that need a key and do not have one are filtered before network calls.
-- GitHub and Stack Exchange may still run without keys where their public API supports the selected search type; GitHub code search is skipped without a token.
-- Fanout limits are applied after unavailable providers are removed, so missing keys do not consume fanout slots.
+- Provider-specific search tools bind directly to their provider; the runtime does not auto-select a different provider for that tool.
+- Providers that need a key and do not have one are omitted before the model sees the tool list.
 - Logs include provider routing, skipped providers, provider start, success/failure, result count, and latency. They must not include raw queries or secret values.
 
 ## Verification

@@ -422,6 +422,34 @@ impl Session {
         let auth_manager_for_context = auth_manager.clone();
         let provider_for_context = create_model_provider(provider, auth_manager);
         let session_telemetry_for_context = session_telemetry;
+        let web_search_available_providers =
+            if matches!(per_turn_config.web_search_mode.value(), WebSearchMode::Live) {
+                per_turn_config
+                    .web_search_config
+                    .as_ref()
+                    .map(|web_config| {
+                        let availability = crate::web_tools::resolve_web_tool_manifest_availability(
+                            web_config,
+                            &per_turn_config.codex_home,
+                        );
+                        let provider_names = availability
+                            .search_providers
+                            .iter()
+                            .map(|provider| format!("{provider:?}"))
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        info!(
+                            target: "codex_core::web_tools",
+                            provider_count = availability.search_providers.len(),
+                            providers = %provider_names,
+                            fetch_enabled = web_config.fetch.enabled,
+                            "web tool manifest availability resolved"
+                        );
+                        availability.search_providers
+                    })
+            } else {
+                None
+            };
         let tools_config = ToolsConfig::new(&ToolsConfigParams {
             model_info: &model_info,
             available_models: &models_manager.try_list_models().unwrap_or_default(),
@@ -438,6 +466,7 @@ impl Session {
             main_execve_wrapper_exe,
         )
         .with_web_search_config(per_turn_config.web_search_config.clone())
+        .with_web_search_available_providers(web_search_available_providers)
         .with_allow_login_shell(per_turn_config.permissions.allow_login_shell)
         .with_has_environment(environment.is_some())
         .with_spawn_agent_usage_hint(per_turn_config.multi_agent_v2.usage_hint_enabled)

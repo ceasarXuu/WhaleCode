@@ -2,6 +2,13 @@
 
 日期：2026-04-29
 
+## 修订状态
+
+本文件记录的是上一版“单 `web_search` + runtime provider 路由”方案。该方案已经被动态工具
+manifest 方案取代，当前执行口径见：
+
+- `docs/plans/2026-04-29-dynamic-web-tool-manifest-plan.md`
+
 ## 结论
 
 计划变更：第一阶段不再只接 Brave + Jina。需要把以下 provider 都接入：

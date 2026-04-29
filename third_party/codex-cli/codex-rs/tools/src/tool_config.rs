@@ -3,6 +3,7 @@ use codex_features::Feature;
 use codex_features::Features;
 use codex_protocol::config_types::WebSearchConfig;
 use codex_protocol::config_types::WebSearchMode;
+use codex_protocol::config_types::WebSearchProvider;
 use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::openai_models::ApplyPatchToolType;
 use codex_protocol::openai_models::ConfigShellToolType;
@@ -91,6 +92,7 @@ pub struct ToolsConfig {
     pub apply_patch_tool_type: Option<ApplyPatchToolType>,
     pub web_search_mode: Option<WebSearchMode>,
     pub web_search_config: Option<WebSearchConfig>,
+    pub web_search_available_providers: Option<Vec<WebSearchProvider>>,
     pub web_search_tool_type: WebSearchToolType,
     pub image_gen_tool: bool,
     pub search_tool: bool,
@@ -210,6 +212,7 @@ impl ToolsConfig {
             apply_patch_tool_type,
             web_search_mode: *web_search_mode,
             web_search_config: None,
+            web_search_available_providers: None,
             web_search_tool_type: model_info.web_search_tool_type,
             image_gen_tool: include_image_gen_tool,
             search_tool: include_search_tool,
@@ -305,6 +308,14 @@ impl ToolsConfig {
 
     pub fn with_web_search_config(mut self, web_search_config: Option<WebSearchConfig>) -> Self {
         self.web_search_config = web_search_config;
+        self
+    }
+
+    pub fn with_web_search_available_providers(
+        mut self,
+        providers: Option<Vec<WebSearchProvider>>,
+    ) -> Self {
+        self.web_search_available_providers = providers;
         self
     }
 

@@ -1,9 +1,11 @@
 mod handlers;
+mod manifest;
 mod providers;
 mod safety;
 
 pub(crate) use handlers::WebFetchHandler;
 pub(crate) use handlers::WebSearchHandler;
+pub(crate) use manifest::resolve_web_tool_manifest_availability;
 
 use thiserror::Error;
 

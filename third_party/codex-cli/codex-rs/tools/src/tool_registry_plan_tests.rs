@@ -25,6 +25,7 @@ use codex_features::Features;
 use codex_protocol::config_types::WebFetchConfig;
 use codex_protocol::config_types::WebSearchConfig;
 use codex_protocol::config_types::WebSearchMode;
+use codex_protocol::config_types::WebSearchProvider;
 use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::models::VIEW_IMAGE_TOOL_NAME;
@@ -967,6 +968,50 @@ fn web_search_registers_local_search_and_fetch_handlers_by_default() {
     assert!(handlers.contains(&ToolHandlerSpec {
         name: "web_fetch".into(),
         kind: ToolHandlerKind::WebFetch,
+    }));
+}
+
+#[test]
+fn web_search_dynamic_manifest_registers_only_available_provider_tools() {
+    let model_info = model_info();
+    let features = Features::with_defaults();
+    let available_models = Vec::new();
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        image_generation_tool_auth_allowed: true,
+        web_search_mode: Some(WebSearchMode::Live),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    })
+    .with_web_search_config(Some(WebSearchConfig::default()))
+    .with_web_search_available_providers(Some(vec![
+        WebSearchProvider::Exa,
+        WebSearchProvider::Github,
+    ]));
+    let (tools, handlers) = build_specs(
+        &tools_config,
+        /*mcp_tools*/ None,
+        /*deferred_mcp_tools*/ None,
+        &[],
+    );
+
+    assert_contains_tool_names(&tools, &["exa_search", "github_search", "web_fetch"]);
+    assert_lacks_tool_name(&tools, "web_search");
+    assert_lacks_tool_name(&tools, "brave_search");
+    assert!(handlers.contains(&ToolHandlerSpec {
+        name: "exa_search".into(),
+        kind: ToolHandlerKind::WebSearch,
+    }));
+    assert!(handlers.contains(&ToolHandlerSpec {
+        name: "github_search".into(),
+        kind: ToolHandlerKind::WebSearch,
+    }));
+    assert!(!handlers.contains(&ToolHandlerSpec {
+        name: "web_search".into(),
+        kind: ToolHandlerKind::WebSearch,
     }));
 }
 
