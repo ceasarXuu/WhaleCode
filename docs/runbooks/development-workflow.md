@@ -222,6 +222,15 @@ where.exe codex
 .\scripts\check-cli-isolation.ps1
 ```
 
+`check-cli-isolation.ps1` intentionally runs both `whale --version` and
+`codex --version`. Treat any stderr from either command as a failed smoke test
+even if PowerShell reports script exit code `0`. On Windows, a
+`thread 'main' has overflowed its stack` message means the freshly built
+`whale.exe` itself is unhealthy; verify both
+`D:\BuildCache\whalecode\cargo-target\debug\whale.exe --version` and the
+installed `%USERPROFILE%\.whale\bin\whale.exe --version` before accepting the
+install.
+
 Existing terminals and long-running agent processes may keep an old PATH until
 they are restarted. `check-cli-isolation.ps1` refreshes PATH from the user and
 machine environment by default to validate what a new terminal will see. Use
