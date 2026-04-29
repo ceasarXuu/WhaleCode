@@ -799,6 +799,7 @@ fn uses_provider_specific_web_search_manifest(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codex_protocol::config_types::WebSearchProvider;
 
     #[test]
     fn provider_specific_manifest_is_only_for_live_chat_completions() {
@@ -828,7 +829,7 @@ mod tests {
                 temp_home.path()
             ),
             WebSearchToolManifest::ProviderSpecific {
-                providers: Vec::new()
+                providers: vec![WebSearchProvider::Brave, WebSearchProvider::Jina]
             }
         );
     }

@@ -1,7 +1,7 @@
 # Problem P-001: First turn starts late after user input
 - Status: fixed
 - Created: 2026-04-30 01:52
-- Updated: 2026-04-30 02:12
+- Updated: 2026-04-30 02:48
 - Objective: Determine and fix why the first natural-language user input can appear idle before Whale starts work.
 - Symptoms:
   - User sent "检查项目架构设计" once and saw no visible work until sending another message.
@@ -22,18 +22,21 @@
   - `whale debug prompt-input` is fast when `web_search` is disabled or when all provider API keys are present in env.
   - The slow path appears when provider env vars are missing and manifest resolution falls back to local secret-store reads.
   - The patched installed binary reduces the same prompt-input path from 25.370s to 2.078s by removing per-provider secret decrypts.
+  - User feedback confirmed 2s is still unacceptable for the first prompt path.
+  - Removing secret-store reads from manifest construction brought repeated prompt-input runs to about 143-147ms.
 - Ruled out:
   - none
 - Fix criteria:
   - Add evidence that identifies the slow pre-`task_started` step.
   - Apply a targeted fix or diagnostic infrastructure tied to that evidence.
   - Validate that the first accepted input surfaces visible progress promptly, or that logs can prove the remaining blocker.
-- Current conclusion: Fixed in code and installed locally. Provider-specific web-search manifest resolution now batches secret-name discovery and caches availability by config/env/secret-file metadata, so later turn construction in the same process avoids the secret-store decrypt path.
+- Current conclusion: Fixed. Provider-specific manifest construction no longer reads the secret store; it exposes configured providers and env-discovered hints, while actual web tool execution remains responsible for auth validation.
 - Related hypotheses:
   - H-001
   - H-002
+  - H-003
 - Resolution basis:
-  - H-001, H-002, E-006
+  - H-001, H-002, H-003, E-008
 - Close reason:
   - not closed
 
@@ -205,3 +208,71 @@
   ```
 - Interpretation: The previously isolated pre-turn prompt-input path no longer spends 25s in repeated manifest secret-store lookups. TUI-visible behavior uses the same turn-context manifest construction path.
 - Time: 2026-04-30 02:12
+
+## Hypothesis H-003: One remaining secret-store list is still too slow for pre-turn startup
+- Status: confirmed
+- Parent: P-001
+- Claim: Even a single local secret-store list during manifest construction leaves first-turn startup at about 2 seconds, which is too slow for user input acknowledgement.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - H-002
+- Rationale:
+  - The first patch changed multiple secret-store decrypts to one list call. The measured path is much faster but still above an acceptable interactive startup budget.
+- Falsifiable predictions:
+  - If true: removing secret-store reads from manifest construction should make the same prompt-input path close to the web-search-disabled baseline.
+  - If false: removing secret-store reads will leave prompt-input near 2 seconds, meaning another stage dominates.
+- Verification plan:
+  - Change manifest resolution to derive provider tool exposure from config and env-only hints, leaving secret validation to actual tool execution.
+- Related evidence:
+  - E-006
+  - E-007
+  - E-008
+- Conclusion: confirmed and fixed by making manifest resolution secret-store-free.
+- Next step: stop.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-007: User rejects remaining 2s startup
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: user-feedback
+- Source: conversation
+- Raw content:
+  ```text
+  你不觉得2s 仍然长的可怕吗
+  ```
+- Interpretation: The previous validation is insufficient; the fix criteria should require removing secret-store I/O from the pre-turn path, not merely reducing repeated I/O.
+- Time: 2026-04-30 02:20
+
+## Evidence E-008: Secret-store-free manifest validation
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+- Direction: supports
+- Type: fix-validation
+- Source: Cargo tests, local build, installed `C:\Users\77585\.whale\bin\whale.exe`
+- Raw content:
+  ```text
+  cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core web_tools::manifest
+  3 passed
+
+  cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core provider_specific_manifest
+  2 passed
+
+  scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -PersistUserPath -BackupLegacyCopies
+  SHA256: 2CD9DBD204440671A782E473BEA842760BE3BBFF590E3597A8FCC91F741331E9
+
+  whale -C D:\side-deepseek debug prompt-input 'hi' *> $null
+  First run after install: 0.456s
+  Repeated runs: 147ms, 146ms, 144ms, 143ms, 145ms
+
+  whale -C D:\side-deepseek -c 'web_search="disabled"' debug prompt-input 'hi' *> $null
+  TotalSeconds: 0.156
+  ```
+- Interpretation: The remaining 2s secret-store list was removed from pre-turn manifest construction. The web-search-enabled path is now close to the disabled baseline after normal process warmup.
+- Time: 2026-04-30 02:48
