@@ -13,7 +13,7 @@
 - 其他 provider 继续走 Codex local fallback compact。
 - 所有触发场景统一覆盖：手动 `/compact`、自动 pre-turn compact、自动 post-turn/mid-turn compact、模型窗口切换触发 compact、主 agent、子 agent。
 - TUI 默认 footer 显示轻量上下文占用：`deepseek-v4-pro high (87k/1M)`。
-- `/status` 在 `Context window` 下方新增 `Auto compact threshold` 行，例如 `755K`。
+- `/status` 继续复用 Codex 现有 `Context window` 计算和展示，只在其下方新增 `Auto compact threshold` 行，例如 `755K`。
 - prompt 基本沿用 Codex prompt，只补充少量 Whale 状态保真要求。
 
 ## 设计边界
@@ -23,7 +23,7 @@
 1. 把 compact 定义为一等 PrimitiveModule：有触发策略、执行策略、输入输出契约、事件、指标和测试。
 2. 最小侵入 Codex base：把现在的 `remote vs local fallback` 二分选择，扩展成 `remote vs deepseek vs local fallback`。
 3. DeepSeek compact 只改变 compact 使用的模型和 prompt profile，不改变历史替换算法。
-4. 上下文展示只增加必要信息，避免 footer 信息过载。
+4. 上下文展示只增加必要信息，避免 footer 信息过载；上下文占用计算直接复用 Codex 现有 token usage 逻辑，不新增第二套口径。
 
 ### 不做什么
 
@@ -175,6 +175,8 @@ deepseek-v4-pro high (87k/1M)
 设计约束：
 
 - 只显示 used/window，不显示百分比。
+- used/window 数据直接来自 Codex 已维护的 `TokenUsageInfo`，与 `/status` 的 `Context window` 使用同一来源。
+- 如需格式化 helper，优先抽取/复用现有 status/context formatter，不新增 token 估算逻辑。
 - token 数使用 compact formatter：`87k`、`1M`。
 - 保持一行内展示，不新增 footer 高度。
 - 当 token usage 暂不可用时，退化为现有 `model reasoning` 展示，不显示空括号。
@@ -207,7 +209,9 @@ model-with-reasoning-and-context, current-dir
 
 ### `/status`
 
-`/status` 继续保留更详细展示。在 `Context window` 下新增一行：
+`/status` 继续保留 Codex 已有更详细展示。`Context window` 的 used/window/percent 计算必须直接复用当前 status card 已有逻辑，不在 Whale 侧新增计算公式或独立状态。
+
+唯一新增内容是在 `Context window` 下新增一行：
 
 ```text
 Auto compact threshold: 755K
@@ -218,6 +222,7 @@ Auto compact threshold: 755K
 - 有 `model_auto_compact_token_limit` 时显示。
 - 没有阈值时显示 `unavailable` 或省略，需要跟现有 status card unavailable 风格一致。
 - 不把阈值放进 footer。
+- 不重写 `Context window` 行，不改变已有 token usage 取值来源、百分比算法和格式化策略。
 
 当前相关入口：
 
@@ -259,7 +264,8 @@ Auto compact threshold: 755K
 
 4. 更新 UI
    - 新增默认 status line 组合项。
-   - `/status` 新增 auto compact threshold 行。
+   - footer 的 used/window 展示复用现有 `TokenUsageInfo` 和 status/context formatting helper。
+   - `/status` 只新增 auto compact threshold 行，保留原 `Context window` 计算。
    - 更新 TUI tests 和 snapshots。
 
 5. 补测试和日志
