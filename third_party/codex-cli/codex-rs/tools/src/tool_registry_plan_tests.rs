@@ -987,6 +987,7 @@ fn web_search_dynamic_manifest_registers_only_available_provider_tools() {
         windows_sandbox_level: WindowsSandboxLevel::Disabled,
     })
     .with_web_search_config(Some(WebSearchConfig::default()))
+    .with_web_search_tool_manifest_mode(WebSearchToolManifestMode::ProviderSpecific)
     .with_web_search_available_providers(Some(vec![
         WebSearchProvider::Exa,
         WebSearchProvider::Github,
@@ -1009,6 +1010,72 @@ fn web_search_dynamic_manifest_registers_only_available_provider_tools() {
         name: "github_search".into(),
         kind: ToolHandlerKind::WebSearch,
     }));
+    assert!(!handlers.contains(&ToolHandlerSpec {
+        name: "web_search".into(),
+        kind: ToolHandlerKind::WebSearch,
+    }));
+}
+
+#[test]
+fn web_search_generic_manifest_ignores_available_provider_list() {
+    let model_info = model_info();
+    let features = Features::with_defaults();
+    let available_models = Vec::new();
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        image_generation_tool_auth_allowed: true,
+        web_search_mode: Some(WebSearchMode::Live),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    })
+    .with_web_search_config(Some(WebSearchConfig::default()))
+    .with_web_search_available_providers(Some(vec![WebSearchProvider::Tavily]));
+    let (tools, handlers) = build_specs(
+        &tools_config,
+        /*mcp_tools*/ None,
+        /*deferred_mcp_tools*/ None,
+        &[],
+    );
+
+    assert_contains_tool_names(&tools, &["web_search", "web_fetch"]);
+    assert_lacks_tool_name(&tools, "tavily_search");
+    assert!(handlers.contains(&ToolHandlerSpec {
+        name: "web_search".into(),
+        kind: ToolHandlerKind::WebSearch,
+    }));
+}
+
+#[test]
+fn web_search_provider_manifest_never_falls_back_to_generic_search() {
+    let model_info = model_info();
+    let features = Features::with_defaults();
+    let available_models = Vec::new();
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        image_generation_tool_auth_allowed: true,
+        web_search_mode: Some(WebSearchMode::Live),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    })
+    .with_web_search_config(Some(WebSearchConfig::default()))
+    .with_web_search_tool_manifest_mode(WebSearchToolManifestMode::ProviderSpecific)
+    .with_web_search_available_providers(Some(Vec::new()));
+    let (tools, handlers) = build_specs(
+        &tools_config,
+        /*mcp_tools*/ None,
+        /*deferred_mcp_tools*/ None,
+        &[],
+    );
+
+    assert_contains_tool_names(&tools, &["web_fetch"]);
+    assert_lacks_tool_name(&tools, "web_search");
+    assert_lacks_tool_name(&tools, "brave_search");
     assert!(!handlers.contains(&ToolHandlerSpec {
         name: "web_search".into(),
         kind: ToolHandlerKind::WebSearch,

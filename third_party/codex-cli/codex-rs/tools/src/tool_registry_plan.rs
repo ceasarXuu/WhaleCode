@@ -16,6 +16,7 @@ use crate::ToolSearchSourceInfo;
 use crate::ToolSpec;
 use crate::ToolsConfig;
 use crate::ViewImageToolOptions;
+use crate::WebSearchToolManifestMode;
 use crate::WebSearchToolOptions;
 use crate::coalesce_loadable_tool_specs;
 use crate::collect_code_mode_exec_prompt_tool_definitions;
@@ -376,29 +377,38 @@ pub fn build_tool_registry_plan(
                 .is_none_or(|web_config| web_config.client.enabled);
 
     if client_web_search_enabled {
-        if let Some(available_providers) = config.web_search_available_providers.as_ref() {
-            for provider in available_providers {
-                plan.push_spec(
-                    create_web_search_provider_tool(*provider),
-                    /*supports_parallel_tool_calls*/ true,
-                    config.code_mode_enabled,
-                );
-                plan.register_handler(
-                    web_search_provider_tool_name(*provider),
-                    ToolHandlerKind::WebSearch,
-                );
+        match config.web_search_tool_manifest_mode {
+            WebSearchToolManifestMode::ProviderSpecific => {
+                let available_providers = config
+                    .web_search_available_providers
+                    .as_deref()
+                    .unwrap_or_default();
+                for provider in available_providers {
+                    plan.push_spec(
+                        create_web_search_provider_tool(*provider),
+                        /*supports_parallel_tool_calls*/ true,
+                        config.code_mode_enabled,
+                    );
+                    plan.register_handler(
+                        web_search_provider_tool_name(*provider),
+                        ToolHandlerKind::WebSearch,
+                    );
+                }
             }
-        } else if let Some(web_search_tool) = create_web_search_tool(WebSearchToolOptions {
-            web_search_mode: config.web_search_mode,
-            web_search_config: config.web_search_config.as_ref(),
-            web_search_tool_type: config.web_search_tool_type,
-        }) {
-            plan.push_spec(
-                web_search_tool,
-                /*supports_parallel_tool_calls*/ false,
-                config.code_mode_enabled,
-            );
-            plan.register_handler("web_search", ToolHandlerKind::WebSearch);
+            WebSearchToolManifestMode::Generic => {
+                if let Some(web_search_tool) = create_web_search_tool(WebSearchToolOptions {
+                    web_search_mode: config.web_search_mode,
+                    web_search_config: config.web_search_config.as_ref(),
+                    web_search_tool_type: config.web_search_tool_type,
+                }) {
+                    plan.push_spec(
+                        web_search_tool,
+                        /*supports_parallel_tool_calls*/ false,
+                        config.code_mode_enabled,
+                    );
+                    plan.register_handler("web_search", ToolHandlerKind::WebSearch);
+                }
+            }
         }
     }
 

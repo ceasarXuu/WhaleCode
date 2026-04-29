@@ -1,11 +1,13 @@
 use super::*;
 use codex_model_provider::SharedModelProvider;
 use codex_model_provider::create_model_provider;
+use codex_model_provider_info::WireApi;
 use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::models::SandboxEnforcement;
 use codex_protocol::protocol::TurnEnvironmentSelection;
 use codex_sandboxing::policy_transforms::effective_file_system_sandbox_policy;
 use codex_sandboxing::policy_transforms::effective_network_sandbox_policy;
+use codex_tools::WebSearchToolManifestMode;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
@@ -422,34 +424,37 @@ impl Session {
         let auth_manager_for_context = auth_manager.clone();
         let provider_for_context = create_model_provider(provider, auth_manager);
         let session_telemetry_for_context = session_telemetry;
-        let web_search_available_providers =
-            if matches!(per_turn_config.web_search_mode.value(), WebSearchMode::Live) {
-                per_turn_config
+        let web_search_tool_manifest_mode = web_search_tool_manifest_mode_for_turn(
+            &provider_for_context.info().wire_api,
+            per_turn_config.web_search_mode.value(),
+        );
+        let web_search_available_providers = match web_search_tool_manifest_mode {
+            WebSearchToolManifestMode::ProviderSpecific => {
+                let web_config = per_turn_config
                     .web_search_config
-                    .as_ref()
-                    .map(|web_config| {
-                        let availability = crate::web_tools::resolve_web_tool_manifest_availability(
-                            web_config,
-                            &per_turn_config.codex_home,
-                        );
-                        let provider_names = availability
-                            .search_providers
-                            .iter()
-                            .map(|provider| format!("{provider:?}"))
-                            .collect::<Vec<_>>()
-                            .join(",");
-                        info!(
-                            target: "codex_core::web_tools",
-                            provider_count = availability.search_providers.len(),
-                            providers = %provider_names,
-                            fetch_enabled = web_config.fetch.enabled,
-                            "web tool manifest availability resolved"
-                        );
-                        availability.search_providers
-                    })
-            } else {
-                None
-            };
+                    .clone()
+                    .unwrap_or_default();
+                let availability = crate::web_tools::resolve_web_tool_manifest_availability(
+                    &web_config,
+                    &per_turn_config.codex_home,
+                );
+                let provider_names = availability
+                    .search_providers
+                    .iter()
+                    .map(|provider| format!("{provider:?}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                info!(
+                    target: "codex_core::web_tools",
+                    provider_count = availability.search_providers.len(),
+                    providers = %provider_names,
+                    fetch_enabled = web_config.fetch.enabled,
+                    "web tool manifest availability resolved"
+                );
+                Some(availability.search_providers)
+            }
+            _ => None,
+        };
         let tools_config = ToolsConfig::new(&ToolsConfigParams {
             model_info: &model_info,
             available_models: &models_manager.try_list_models().unwrap_or_default(),
@@ -466,6 +471,7 @@ impl Session {
             main_execve_wrapper_exe,
         )
         .with_web_search_config(per_turn_config.web_search_config.clone())
+        .with_web_search_tool_manifest_mode(web_search_tool_manifest_mode)
         .with_web_search_available_providers(web_search_available_providers)
         .with_allow_login_shell(per_turn_config.permissions.allow_login_shell)
         .with_has_environment(environment.is_some())
@@ -765,5 +771,41 @@ impl Session {
             turn_environments,
         )
         .await
+    }
+}
+
+fn web_search_tool_manifest_mode_for_turn(
+    wire_api: &WireApi,
+    web_search_mode: WebSearchMode,
+) -> WebSearchToolManifestMode {
+    match (wire_api, web_search_mode) {
+        (WireApi::ChatCompletions, WebSearchMode::Live) => {
+            WebSearchToolManifestMode::ProviderSpecific
+        }
+        _ => WebSearchToolManifestMode::Generic,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_specific_manifest_is_only_for_live_chat_completions() {
+        assert_eq!(
+            web_search_tool_manifest_mode_for_turn(&WireApi::ChatCompletions, WebSearchMode::Live),
+            WebSearchToolManifestMode::ProviderSpecific
+        );
+        assert_eq!(
+            web_search_tool_manifest_mode_for_turn(
+                &WireApi::ChatCompletions,
+                WebSearchMode::Cached
+            ),
+            WebSearchToolManifestMode::Generic
+        );
+        assert_eq!(
+            web_search_tool_manifest_mode_for_turn(&WireApi::Responses, WebSearchMode::Live),
+            WebSearchToolManifestMode::Generic
+        );
     }
 }

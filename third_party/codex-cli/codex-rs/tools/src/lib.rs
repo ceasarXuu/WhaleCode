@@ -104,6 +104,7 @@ pub use tool_config::ToolUserShellType;
 pub use tool_config::ToolsConfig;
 pub use tool_config::ToolsConfigParams;
 pub use tool_config::UnifiedExecShellMode;
+pub use tool_config::WebSearchToolManifestMode;
 pub use tool_config::ZshForkConfig;
 pub use tool_definition::ToolDefinition;
 pub use tool_discovery::DiscoverablePluginInfo;
