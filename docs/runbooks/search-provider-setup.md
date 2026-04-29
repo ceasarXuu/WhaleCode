@@ -4,7 +4,7 @@
 
 This runbook covers the local setup flow for Whale's agent web search providers.
 
-Model-visible search tools are generated from configured provider credentials:
+Model-visible search tools are generated from configured provider markers:
 
 - `brave_search`: broad web and news discovery through Brave Search.
 - `exa_search`: technical docs, repos, changelogs, and semantic technical search.
@@ -18,7 +18,11 @@ Unavailable search providers are not exposed to the model. `web_fetch` remains a
 single URL-reading tool because choosing a readability/fetch provider is runtime
 safety behavior, not an agent task.
 
-Provider credentials are stored by the TUI in the `codex-secrets` local backend, not in `config.toml`.
+Provider credentials are stored by the TUI in the `codex-secrets` local backend,
+not in `config.toml`. `config.toml` stores only lightweight metadata: the
+selected provider, env-style lookup names, and `tools.web_search.configured_providers`
+markers showing which providers had a key/token filled in. The marker is not a
+validity check.
 
 ## Interactive Setup
 
@@ -28,6 +32,7 @@ Provider credentials are stored by the TUI in the `codex-secrets` local backend,
 4. Whale stores the secret under the default env-style name and persists:
    - `web_search = "live"`
    - `tools.web_search.enabled = true`
+   - `tools.web_search.configured_providers = ["<provider>"]`
    - the provider-specific secret env name, for example `EXA_API_KEY`
 5. The TUI runs a provider-specific health check and reports `health_check=ok` or the HTTP failure code.
 6. On the next turn, the tool manifest includes the matching provider-specific search tool.
@@ -59,23 +64,41 @@ The popup is the primary UX. Subcommands exist for scripting and diagnosis:
 
 `/search-provider key <provider> ENV_VAR` changes the lookup name only. It does not store a secret value.
 
-## Runtime Credential Lookup
+## Manifest And Runtime Credential Lookup
+
+The turn-start manifest path must stay cheap. It does not read `codex-secrets`
+and does not validate whether an API key is usable. A provider-specific search
+tool is exposed when either condition is true:
+
+1. The provider appears in `tools.web_search.configured_providers`.
+2. The configured provider env var is present and non-empty in the current
+   process environment.
+
+Selecting a provider with `/search-provider set <provider>` changes the default
+runtime provider, but it does not by itself mark that provider as credentialed.
+`/search-provider key <provider> ENV_VAR` changes the lookup name only; it does
+not store a secret value or mark the provider as configured.
+
+Actual provider adapters resolve credentials when the tool is called:
 
 Provider adapters resolve credentials in this order:
 
 1. Process environment variable named by config.
 2. `codex-secrets` global secret with the same name.
 
-This keeps shell-based automation compatible while letting normal users configure keys entirely inside the TUI.
+This keeps shell-based automation compatible while letting normal users
+configure keys entirely inside the TUI. If the marker exists but the key is
+missing, expired, or invalid, the actual tool call fails at runtime.
 
 ## Routing And Degradation
 
 The runtime keeps search discovery and URL reading separate:
 
-- The tool manifest exposes only search providers with configured credentials.
+- The tool manifest exposes only search providers with configured markers or
+  non-empty process env vars.
 - `web_fetch` reads selected URLs through Jina Reader or direct HTTP.
 - Provider-specific search tools bind directly to their provider; the runtime does not auto-select a different provider for that tool.
-- Providers that need a key and do not have one are omitted before the model sees the tool list.
+- Providers with no configured marker and no non-empty process env var are omitted before the model sees the tool list.
 - Logs include provider routing, skipped providers, provider start, success/failure, result count, and latency. They must not include raw queries or secret values.
 
 ## Verification

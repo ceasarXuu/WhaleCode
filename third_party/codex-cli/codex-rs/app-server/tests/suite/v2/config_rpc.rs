@@ -27,6 +27,7 @@ use codex_protocol::config_types::WebFetchProvider;
 use codex_protocol::config_types::WebFetchToolConfig;
 use codex_protocol::config_types::WebSearchContextSize;
 use codex_protocol::config_types::WebSearchLocation;
+use codex_protocol::config_types::WebSearchProvider;
 use codex_protocol::config_types::WebSearchToolConfig;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -186,6 +187,7 @@ web_search = "live"
 
 [tools.web_search]
 context_size = "high"
+configured_providers = ["tavily"]
 allowed_domains = ["example.com"]
 location = { country = "US", city = "New York", timezone = "America/New_York" }
 "#,
@@ -211,6 +213,7 @@ location = { country = "US", city = "New York", timezone = "America/New_York" }
         config.tools.expect("tools present").web_search,
         Some(WebSearchToolConfig {
             context_size: Some(WebSearchContextSize::High),
+            configured_providers: Some(vec![WebSearchProvider::Tavily]),
             allowed_domains: Some(vec!["example.com".to_string()]),
             location: Some(WebSearchLocation {
                 country: Some("US".to_string()),

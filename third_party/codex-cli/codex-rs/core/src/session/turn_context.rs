@@ -829,7 +829,7 @@ mod tests {
                 temp_home.path()
             ),
             WebSearchToolManifest::ProviderSpecific {
-                providers: vec![WebSearchProvider::Brave, WebSearchProvider::Jina]
+                providers: Vec::<WebSearchProvider>::new()
             }
         );
     }

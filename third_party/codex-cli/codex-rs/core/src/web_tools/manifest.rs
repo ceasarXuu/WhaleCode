@@ -35,9 +35,8 @@ fn resolve_search_providers_for_manifest(
     }
 
     let mut providers = Vec::new();
-    push_unique_provider(&mut providers, config.client.provider);
-    if let Some(provider) = config.client.fallback_provider {
-        push_unique_provider(&mut providers, provider);
+    for provider in &config.client.configured_providers {
+        push_unique_provider(&mut providers, *provider);
     }
 
     for (provider, env_name) in search_provider_envs(config) {
@@ -83,10 +82,11 @@ mod tests {
     use codex_protocol::config_types::WebSearchConfig;
 
     #[test]
-    fn manifest_exposes_configured_provider_and_env_hints() {
+    fn manifest_exposes_configured_provider_markers_and_env_hints() {
         let mut config = WebSearchConfig::default();
         config.client.provider = WebSearchProvider::Tavily;
         config.client.fallback_provider = None;
+        config.client.configured_providers = vec![WebSearchProvider::Tavily];
         config.client.exa_api_key_env = "TEST_EXA".to_string();
         config.client.github_token_env = "TEST_GITHUB".to_string();
 
@@ -115,13 +115,14 @@ mod tests {
     }
 
     #[test]
-    fn manifest_exposes_configured_provider_without_secret_lookup() {
+    fn manifest_ignores_selected_provider_without_marker_or_env() {
         let mut config = WebSearchConfig::default();
         config.client.provider = WebSearchProvider::Tavily;
-        config.client.fallback_provider = None;
+        config.client.fallback_provider = Some(WebSearchProvider::Jina);
+        config.client.configured_providers = Vec::new();
 
         let providers = resolve_search_providers_for_manifest(&config, |_| false);
 
-        assert_eq!(providers, vec![WebSearchProvider::Tavily]);
+        assert!(providers.is_empty());
     }
 }

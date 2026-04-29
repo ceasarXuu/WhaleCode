@@ -292,6 +292,7 @@ pub struct WebSearchToolConfig {
     pub enabled: Option<bool>,
     pub provider: Option<WebSearchProvider>,
     pub fallback_provider: Option<WebSearchFallbackProvider>,
+    pub configured_providers: Option<Vec<WebSearchProvider>>,
     pub strategy: Option<WebSearchStrategy>,
     pub max_providers_per_query: Option<usize>,
     pub brave_api_key_env: Option<String>,
@@ -314,6 +315,10 @@ impl WebSearchToolConfig {
             enabled: other.enabled.or(self.enabled),
             provider: other.provider.or(self.provider),
             fallback_provider: other.fallback_provider.or(self.fallback_provider),
+            configured_providers: other
+                .configured_providers
+                .clone()
+                .or_else(|| self.configured_providers.clone()),
             strategy: other.strategy.or(self.strategy),
             max_providers_per_query: other
                 .max_providers_per_query
@@ -426,6 +431,7 @@ pub struct WebSearchClientConfig {
     pub enabled: bool,
     pub provider: WebSearchProvider,
     pub fallback_provider: Option<WebSearchProvider>,
+    pub configured_providers: Vec<WebSearchProvider>,
     pub strategy: WebSearchStrategy,
     pub max_providers_per_query: usize,
     pub brave_api_key_env: String,
@@ -445,6 +451,7 @@ impl Default for WebSearchClientConfig {
             enabled: true,
             provider: WebSearchProvider::Brave,
             fallback_provider: Some(WebSearchProvider::Jina),
+            configured_providers: Vec::new(),
             strategy: WebSearchStrategy::Auto,
             max_providers_per_query: 2,
             brave_api_key_env: "BRAVE_SEARCH_API_KEY".to_string(),
@@ -495,6 +502,11 @@ impl From<WebSearchLocation> for WebSearchUserLocation {
 impl From<WebSearchToolConfig> for WebSearchConfig {
     fn from(config: WebSearchToolConfig) -> Self {
         let default_client = WebSearchClientConfig::default();
+        let explicit_provider = config.provider;
+        let explicit_fallback_provider = config.fallback_provider;
+        let configured_providers = config.configured_providers.unwrap_or_else(|| {
+            legacy_configured_web_search_providers(explicit_provider, explicit_fallback_provider)
+        });
         Self {
             filters: config
                 .allowed_domains
@@ -505,11 +517,11 @@ impl From<WebSearchToolConfig> for WebSearchConfig {
             search_context_size: config.context_size,
             client: WebSearchClientConfig {
                 enabled: config.enabled.unwrap_or(default_client.enabled),
-                provider: config.provider.unwrap_or(default_client.provider),
-                fallback_provider: config
-                    .fallback_provider
+                provider: explicit_provider.unwrap_or(default_client.provider),
+                fallback_provider: explicit_fallback_provider
                     .map(WebSearchFallbackProvider::into_runtime_provider)
                     .unwrap_or(default_client.fallback_provider),
+                configured_providers,
                 strategy: config.strategy.unwrap_or(default_client.strategy),
                 max_providers_per_query: config
                     .max_providers_per_query
@@ -540,6 +552,31 @@ impl From<WebSearchToolConfig> for WebSearchConfig {
             },
             fetch: WebFetchConfig::default(),
         }
+    }
+}
+
+fn legacy_configured_web_search_providers(
+    provider: Option<WebSearchProvider>,
+    fallback_provider: Option<WebSearchFallbackProvider>,
+) -> Vec<WebSearchProvider> {
+    let mut providers = Vec::new();
+    if let Some(provider) = provider {
+        push_unique_web_search_provider(&mut providers, provider);
+    }
+    if let Some(provider) =
+        fallback_provider.and_then(WebSearchFallbackProvider::into_runtime_provider)
+    {
+        push_unique_web_search_provider(&mut providers, provider);
+    }
+    providers
+}
+
+fn push_unique_web_search_provider(
+    providers: &mut Vec<WebSearchProvider>,
+    provider: WebSearchProvider,
+) {
+    if !providers.contains(&provider) {
+        providers.push(provider);
     }
 }
 
@@ -949,6 +986,7 @@ mod tests {
             enabled: Some(false),
             provider: Some(WebSearchProvider::Jina),
             fallback_provider: Some(WebSearchFallbackProvider::Off),
+            configured_providers: Some(vec![WebSearchProvider::Jina]),
             context_size: Some(WebSearchContextSize::High),
             allowed_domains: None,
             location: Some(WebSearchLocation {
@@ -964,6 +1002,7 @@ mod tests {
             enabled: Some(false),
             provider: Some(WebSearchProvider::Jina),
             fallback_provider: Some(WebSearchFallbackProvider::Off),
+            configured_providers: Some(vec![WebSearchProvider::Jina]),
             context_size: Some(WebSearchContextSize::High),
             allowed_domains: Some(vec!["openai.com".to_string()]),
             location: Some(WebSearchLocation {
@@ -976,5 +1015,36 @@ mod tests {
         };
 
         assert_eq!(expected, base.merge(&overlay));
+    }
+
+    #[test]
+    fn web_search_tool_config_builds_configured_provider_markers() {
+        let explicit = WebSearchConfig::from(WebSearchToolConfig {
+            provider: Some(WebSearchProvider::Brave),
+            fallback_provider: Some(WebSearchFallbackProvider::Jina),
+            configured_providers: Some(vec![WebSearchProvider::Tavily]),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            explicit.client.configured_providers,
+            vec![WebSearchProvider::Tavily]
+        );
+
+        let legacy = WebSearchConfig::from(WebSearchToolConfig {
+            provider: Some(WebSearchProvider::Tavily),
+            fallback_provider: Some(WebSearchFallbackProvider::Jina),
+            configured_providers: None,
+            ..Default::default()
+        });
+
+        assert_eq!(
+            legacy.client.configured_providers,
+            vec![WebSearchProvider::Tavily, WebSearchProvider::Jina]
+        );
+
+        let default_config = WebSearchConfig::from(WebSearchToolConfig::default());
+
+        assert!(default_config.client.configured_providers.is_empty());
     }
 }

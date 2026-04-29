@@ -4,6 +4,7 @@ use codex_protocol::config_types::WebSearchConfig;
 use codex_protocol::config_types::WebSearchMode;
 use codex_protocol::config_types::WebSearchProvider;
 use codex_protocol::config_types::WebSearchStrategy;
+use toml_edit::Item as TomlItem;
 use toml_edit::value;
 
 pub(super) fn segments(values: &[&str]) -> Vec<String> {
@@ -34,6 +35,17 @@ pub(super) fn web_search_provider_display_name(provider: WebSearchProvider) -> &
         WebSearchProvider::Tavily => "Tavily",
         WebSearchProvider::StackExchange => "Stack Exchange",
     }
+}
+
+pub(super) fn provider_names(providers: &[WebSearchProvider]) -> String {
+    if providers.is_empty() {
+        return "none".to_string();
+    }
+    providers
+        .iter()
+        .map(|provider| web_search_provider_name(*provider))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 pub(super) fn parse_web_search_provider(value: &str) -> Option<WebSearchProvider> {
@@ -108,6 +120,28 @@ pub(super) fn provider_key_env_edits(
         segments: segments(&["tools", "web_search", key]),
         value: value(env_name),
     }]
+}
+
+pub(super) fn configured_provider_edit(providers: &[WebSearchProvider]) -> ConfigEdit {
+    let names = providers
+        .iter()
+        .map(|provider| web_search_provider_name(*provider))
+        .collect::<toml_edit::Array>();
+    ConfigEdit::SetPath {
+        segments: segments(&["tools", "web_search", "configured_providers"]),
+        value: TomlItem::Value(names.into()),
+    }
+}
+
+pub(super) fn configured_providers_with(
+    config: &WebSearchConfig,
+    provider: WebSearchProvider,
+) -> Vec<WebSearchProvider> {
+    let mut providers = config.client.configured_providers.clone();
+    if !providers.contains(&provider) {
+        providers.push(provider);
+    }
+    providers
 }
 
 pub(super) fn web_search_strategy_name(strategy: WebSearchStrategy) -> &'static str {

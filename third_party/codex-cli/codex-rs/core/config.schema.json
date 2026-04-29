@@ -2422,6 +2422,12 @@
         "brave_api_key_env": {
           "type": "string"
         },
+        "configured_providers": {
+          "items": {
+            "$ref": "#/definitions/WebSearchProvider"
+          },
+          "type": "array"
+        },
         "context_size": {
           "$ref": "#/definitions/WebSearchContextSize"
         },

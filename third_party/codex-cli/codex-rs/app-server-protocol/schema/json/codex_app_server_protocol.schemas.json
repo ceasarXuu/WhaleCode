@@ -17725,6 +17725,15 @@
               "null"
             ]
           },
+          "configured_providers": {
+            "items": {
+              "$ref": "#/definitions/v2/WebSearchProvider"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "context_size": {
             "anyOf": [
               {

@@ -109,6 +109,8 @@ impl ChatWidget {
             return;
         }
 
+        let mut web_config = self.web_config_for_update();
+        let configured_providers = configured_providers_with(&web_config, provider);
         let mut edits = provider_key_env_edits(provider, env_name);
         edits.extend([
             ConfigEdit::SetPath {
@@ -127,14 +129,15 @@ impl ChatWidget {
                 segments: segments(&["tools", "web_search", "strategy"]),
                 value: value("auto"),
             },
+            configured_provider_edit(&configured_providers),
         ]);
         if !self.apply_search_provider_edits(edits) {
             return;
         }
 
-        let mut web_config = self.web_config_for_update();
         web_config.client.enabled = true;
         web_config.client.provider = provider;
+        web_config.client.configured_providers = configured_providers;
         web_config.client.strategy = WebSearchStrategy::Auto;
         set_web_config_key_env(&mut web_config, provider, env_name);
         self.config.web_search_config = Some(web_config);
@@ -193,6 +196,7 @@ impl ChatWidget {
             .fallback_provider
             .map(web_search_provider_name)
             .unwrap_or("off");
+        let configured = provider_names(&web_config.client.configured_providers);
         let fetch_provider = web_fetch_provider_name(web_config.fetch.provider);
         let key_status = SEARCH_PROVIDER_SETUP
             .into_iter()
@@ -204,12 +208,13 @@ impl ChatWidget {
             .join(" ");
         self.add_info_message(
             format!(
-                "web_search={} mode={} provider={} strategy={} fallback={} max_results={} keys=[{}] web_fetch={} fetch_provider={} fetch_max_chars={}",
+                "web_search={} mode={} provider={} strategy={} fallback={} configured=[{}] max_results={} keys=[{}] web_fetch={} fetch_provider={} fetch_max_chars={}",
                 on_off(web_config.client.enabled),
                 mode,
                 provider,
                 web_search_strategy_name(web_config.client.strategy),
                 fallback,
+                configured,
                 web_config.client.max_results,
                 key_status,
                 on_off(web_config.fetch.enabled),
@@ -222,6 +227,11 @@ impl ChatWidget {
 
     fn set_search_provider(&mut self, provider: WebSearchProvider) {
         let provider_name = web_search_provider_name(provider);
+        let configured_providers = self
+            .web_config_for_update()
+            .client
+            .configured_providers
+            .clone();
         let edits = vec![
             ConfigEdit::SetPath {
                 segments: segments(&["web_search"]),
@@ -239,11 +249,13 @@ impl ChatWidget {
                 segments: segments(&["tools", "web_search", "strategy"]),
                 value: value("auto"),
             },
+            configured_provider_edit(&configured_providers),
         ];
         if self.apply_search_provider_edits(edits) {
             let mut web_config = self.web_config_for_update();
             web_config.client.enabled = true;
             web_config.client.provider = provider;
+            web_config.client.configured_providers = configured_providers;
             web_config.client.strategy = WebSearchStrategy::Auto;
             self.config.web_search_config = Some(web_config);
             if let Err(err) = self.config.web_search_mode.set(WebSearchMode::Live) {
@@ -255,7 +267,12 @@ impl ChatWidget {
     }
 
     fn set_search_fallback(&mut self, fallback: Option<WebSearchProvider>) {
-        let edit = match fallback {
+        let configured_providers = self
+            .web_config_for_update()
+            .client
+            .configured_providers
+            .clone();
+        let mut edits = vec![match fallback {
             Some(provider) => ConfigEdit::SetPath {
                 segments: segments(&["tools", "web_search", "fallback_provider"]),
                 value: value(web_search_provider_name(provider)),
@@ -264,10 +281,12 @@ impl ChatWidget {
                 segments: segments(&["tools", "web_search", "fallback_provider"]),
                 value: value("off"),
             },
-        };
-        if self.apply_search_provider_edits([edit]) {
+        }];
+        edits.push(configured_provider_edit(&configured_providers));
+        if self.apply_search_provider_edits(edits) {
             let mut web_config = self.web_config_for_update();
             web_config.client.fallback_provider = fallback;
+            web_config.client.configured_providers = configured_providers;
             self.config.web_search_config = Some(web_config);
             let fallback_name = fallback.map(web_search_provider_name).unwrap_or("off");
             self.add_info_message(format!("web_search fallback={fallback_name}"), None);
@@ -393,8 +412,8 @@ impl ChatWidget {
         if std::env::var(env_name).is_ok_and(|value| !value.trim().is_empty()) {
             return "env";
         }
-        if self.secret_exists(env_name) {
-            "stored"
+        if web_config.client.configured_providers.contains(&provider) {
+            "configured"
         } else {
             "unset"
         }
@@ -419,21 +438,6 @@ impl ChatWidget {
             .flatten()
             .filter(|value| !value.trim().is_empty())
             .map(|value| value.trim().to_string())
-    }
-
-    fn secret_exists(&self, env_name: &str) -> bool {
-        let Ok(name) = SecretName::new(env_name) else {
-            return false;
-        };
-        let manager = SecretsManager::new(
-            self.config.codex_home.to_path_buf(),
-            SecretsBackendKind::Local,
-        );
-        manager
-            .get(&SecretScope::Global, &name)
-            .ok()
-            .flatten()
-            .is_some_and(|value| !value.trim().is_empty())
     }
 
     fn web_config_for_update(&self) -> WebSearchConfig {

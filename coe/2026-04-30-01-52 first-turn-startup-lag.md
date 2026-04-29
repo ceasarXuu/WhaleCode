@@ -1,7 +1,7 @@
 # Problem P-001: First turn starts late after user input
 - Status: fixed
 - Created: 2026-04-30 01:52
-- Updated: 2026-04-30 02:48
+- Updated: 2026-04-30 03:24
 - Objective: Determine and fix why the first natural-language user input can appear idle before Whale starts work.
 - Symptoms:
   - User sent "检查项目架构设计" once and saw no visible work until sending another message.
@@ -24,19 +24,21 @@
   - The patched installed binary reduces the same prompt-input path from 25.370s to 2.078s by removing per-provider secret decrypts.
   - User feedback confirmed 2s is still unacceptable for the first prompt path.
   - Removing secret-store reads from manifest construction brought repeated prompt-input runs to about 143-147ms.
+  - Provider-specific manifest exposure now uses configured-provider markers and non-empty env vars only; API key validity is checked only during actual tool execution.
 - Ruled out:
   - none
 - Fix criteria:
   - Add evidence that identifies the slow pre-`task_started` step.
   - Apply a targeted fix or diagnostic infrastructure tied to that evidence.
   - Validate that the first accepted input surfaces visible progress promptly, or that logs can prove the remaining blocker.
-- Current conclusion: Fixed. Provider-specific manifest construction no longer reads the secret store; it exposes configured providers and env-discovered hints, while actual web tool execution remains responsible for auth validation.
+- Current conclusion: Fixed. Provider-specific manifest construction no longer reads the secret store or treats provider selection as key validation. It exposes configured-provider markers and env-discovered hints, while actual web tool execution remains responsible for credential lookup and auth failure handling.
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
+  - H-004
 - Resolution basis:
-  - H-001, H-002, H-003, E-008
+  - H-001, H-002, H-003, H-004, E-008, E-010
 - Close reason:
   - not closed
 
@@ -276,3 +278,82 @@
   ```
 - Interpretation: The remaining 2s secret-store list was removed from pre-turn manifest construction. The web-search-enabled path is now close to the disabled baseline after normal process warmup.
 - Time: 2026-04-30 02:48
+
+## Hypothesis H-004: Manifest should use filled markers instead of provider selection or key checks
+- Status: confirmed
+- Parent: P-001
+- Claim: Provider-specific manifest exposure should be derived from a persisted "key was filled" marker plus cheap env presence, not from default provider/fallback selection and not from validating whether the key works.
+- Layer: fix-validation
+- Factor relation: part_of
+- Depends on:
+  - H-003
+- Rationale:
+  - User clarified that Whale should optimistically expose a provider after the user fills a key/token and let actual tool execution fail if the credential is missing, expired, or invalid.
+- Falsifiable predictions:
+  - If true: a selected provider without `configured_providers` and without env should not enter the provider-specific manifest.
+  - If false: manifest generation would still expose tools based on provider selection or would touch secret storage / network auth before `task_started`.
+- Verification plan:
+  - Add `tools.web_search.configured_providers`, write it when a key is saved, update manifest resolution to read that marker plus env presence only, and validate with unit tests plus prompt-input timing.
+- Related evidence:
+  - E-009
+  - E-010
+- Conclusion: confirmed. The implementation now separates provider selection, filled-marker exposure, and runtime credential validation.
+- Next step: stop.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-009: User clarified filled-marker semantics
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: user-feedback
+- Source: conversation
+- Raw content:
+  ```text
+  Use only a marker that the key/token was filled in. Do not validate whether the key is valid before exposing the provider to the agent; if the actual tool call fails, it fails there.
+  ```
+- Interpretation: Manifest construction should be metadata-only and optimistic, not an auth check.
+- Time: 2026-04-30 03:24
+
+## Evidence E-010: Filled-marker implementation validation
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: fix-validation
+- Source: Cargo tests, schema generation, local build, installed `C:\Users\77585\.whale\bin\whale.exe`
+- Raw content:
+  ```text
+  cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-protocol web_search_tool_config --quiet
+  2 passed
+
+  cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core web_tools::manifest --quiet
+  3 passed
+
+  cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core provider_specific_manifest --quiet
+  2 passed
+
+  cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-tools web_search_dynamic_manifest --quiet
+  1 passed
+
+  cargo check --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-tui --quiet
+  passed
+
+  cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-app-server-protocol schema_fixtures --quiet
+  2 passed
+
+  cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-app-server config_read_includes_nested_web_search_tool_config --quiet
+  1 passed
+
+  cargo build --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-cli --bin whale
+  Finished dev profile
+
+  scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -PersistUserPath -BackupLegacyCopies
+  SHA256: 1D65806D2567E55DC37EBCB0485A8E94AC10B9D1F6337C7A95932EDAB3503672
+
+  whale -C D:\side-deepseek debug prompt-input 'hi'
+  267ms, 146ms, 145ms, 148ms, 156ms, avg 172ms
+  ```
+- Interpretation: Tests cover config markers, manifest filtering, turn-context provider-specific manifest behavior, schema fixtures, TUI compilation, and installed CLI timing. The prompt-input path remains near the previous secret-store-free baseline.
+- Time: 2026-04-30 03:24
