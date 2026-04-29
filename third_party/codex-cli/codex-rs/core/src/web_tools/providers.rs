@@ -18,6 +18,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::time::Instant;
+use tracing::info;
 use url::Url;
 
 mod fetch_adapters;
@@ -210,7 +211,15 @@ impl WebProviderRegistry {
         let request = SearchRequest::from_args(args, &self.search_config, self.codex_home.clone())?;
         let started = Instant::now();
         let providers = self.route_providers(&request);
+        let (mut providers, skipped) = self.available_search_providers(providers, &request);
         let fanout = matches!(request.provider_policy, ProviderPolicy::Fanout);
+        if fanout {
+            providers.truncate(self.search_config.client.max_providers_per_query.max(1));
+        }
+        self.log_search_route(&request, &providers, &skipped);
+        if providers.is_empty() {
+            return Err(no_available_provider_error(&skipped));
+        }
         if fanout {
             return self.search_fanout(providers, &request, started).await;
         }
@@ -218,7 +227,7 @@ impl WebProviderRegistry {
         let mut first_error = None;
 
         for (index, provider) in providers.into_iter().enumerate() {
-            match self.search_with_provider(provider, &request).await {
+            match self.search_with_logged_provider(provider, &request).await {
                 Ok(mut output) => {
                     output.latency_ms = started.elapsed().as_millis();
                     output.fallback_used = index > 0;
@@ -244,11 +253,9 @@ impl WebProviderRegistry {
         request: &SearchRequest,
         started: Instant,
     ) -> Result<WebSearchOutput, WebToolError> {
-        let results = join_all(
-            providers
-                .into_iter()
-                .map(|provider| async move { self.search_with_provider(provider, request).await }),
-        )
+        let results = join_all(providers.into_iter().map(|provider| async move {
+            self.search_with_logged_provider(provider, request).await
+        }))
         .await;
         let mut successes = Vec::new();
         let mut first_error = None;
@@ -286,9 +293,40 @@ impl WebProviderRegistry {
         let request = FetchRequest::from_args(args, &self.search_config.fetch)?;
         let started = Instant::now();
         let provider = self.search_config.fetch.provider;
-        let mut output = self.fetch_with_provider(provider, &request).await?;
-        output.latency_ms = started.elapsed().as_millis();
-        Ok(output)
+        info!(
+            target: "codex_core::web_tools",
+            tool = "web_fetch",
+            provider = web_fetch_provider_name(provider),
+            "web fetch provider started"
+        );
+        let result = self.fetch_with_provider(provider, &request).await;
+        let latency_ms = started.elapsed().as_millis();
+        match result {
+            Ok(mut output) => {
+                output.latency_ms = latency_ms;
+                info!(
+                    target: "codex_core::web_tools",
+                    tool = "web_fetch",
+                    provider = web_fetch_provider_name(provider),
+                    content_chars = output.content_chars,
+                    truncated = output.truncated,
+                    latency_ms,
+                    "web fetch provider succeeded"
+                );
+                Ok(output)
+            }
+            Err(err) => {
+                info!(
+                    target: "codex_core::web_tools",
+                    tool = "web_fetch",
+                    provider = web_fetch_provider_name(provider),
+                    latency_ms,
+                    error = %safe_error_summary(&err),
+                    "web fetch provider failed"
+                );
+                Err(err)
+            }
+        }
     }
 
     fn route_providers(&self, request: &SearchRequest) -> Vec<WebSearchProvider> {
@@ -314,10 +352,86 @@ impl WebProviderRegistry {
         let mut candidates = dedupe_providers(candidates);
         if matches!(request.provider_policy, ProviderPolicy::Single) {
             candidates.truncate(1);
-        } else if matches!(request.provider_policy, ProviderPolicy::Fanout) {
-            candidates.truncate(self.search_config.client.max_providers_per_query.max(1));
         }
         candidates
+    }
+
+    fn available_search_providers(
+        &self,
+        providers: Vec<WebSearchProvider>,
+        request: &SearchRequest,
+    ) -> (Vec<WebSearchProvider>, Vec<SkippedProvider>) {
+        let mut available = Vec::new();
+        let mut skipped = Vec::new();
+        for provider in providers {
+            match missing_search_secret(provider, request) {
+                Ok(None) => available.push(provider),
+                Ok(Some(reason)) => skipped.push(SkippedProvider { provider, reason }),
+                Err(err) => skipped.push(SkippedProvider {
+                    provider,
+                    reason: format!("secret lookup failed: {}", safe_error_summary(&err)),
+                }),
+            }
+        }
+        (available, skipped)
+    }
+
+    fn log_search_route(
+        &self,
+        request: &SearchRequest,
+        providers: &[WebSearchProvider],
+        skipped: &[SkippedProvider],
+    ) {
+        info!(
+            target: "codex_core::web_tools",
+            tool = "web_search",
+            policy = provider_policy_name(request.provider_policy),
+            source_hint = request.source_hint.map(source_hint_name).unwrap_or("none"),
+            configured_provider = web_search_provider_name(self.search_config.client.provider),
+            providers = %format_provider_list(providers),
+            skipped = %format_skipped_providers(skipped),
+            "web search routed"
+        );
+    }
+
+    async fn search_with_logged_provider(
+        &self,
+        provider: WebSearchProvider,
+        request: &SearchRequest,
+    ) -> Result<WebSearchOutput, WebToolError> {
+        let started = Instant::now();
+        info!(
+            target: "codex_core::web_tools",
+            tool = "web_search",
+            provider = web_search_provider_name(provider),
+            "web search provider started"
+        );
+        let result = self.search_with_provider(provider, request).await;
+        let latency_ms = started.elapsed().as_millis();
+        match &result {
+            Ok(output) => {
+                info!(
+                    target: "codex_core::web_tools",
+                    tool = "web_search",
+                    provider = web_search_provider_name(provider),
+                    results_count = output.results.len(),
+                    latency_ms,
+                    "web search provider succeeded"
+                );
+            }
+            Err(err) => {
+                info!(
+                    target: "codex_core::web_tools",
+                    tool = "web_search",
+                    provider = web_search_provider_name(provider),
+                    fallback_candidate = err.is_fallback_candidate(),
+                    latency_ms,
+                    error = %safe_error_summary(err),
+                    "web search provider failed"
+                );
+            }
+        }
+        result
     }
 
     async fn search_with_provider(
@@ -364,6 +478,7 @@ pub(super) struct SearchRequest {
     pub(super) brave_api_key_env: String,
     pub(super) exa_api_key_env: String,
     pub(super) tavily_api_key_env: String,
+    pub(super) jina_api_key_env: String,
     pub(super) github_token_env: String,
     pub(super) stack_exchange_key_env: String,
     pub(super) stack_exchange_site: String,
@@ -402,6 +517,7 @@ impl SearchRequest {
             brave_api_key_env: config.client.brave_api_key_env.clone(),
             exa_api_key_env: config.client.exa_api_key_env.clone(),
             tavily_api_key_env: config.client.tavily_api_key_env.clone(),
+            jina_api_key_env: config.client.jina_api_key_env.clone(),
             github_token_env: config.client.github_token_env.clone(),
             stack_exchange_key_env: config.client.stack_exchange_key_env.clone(),
             stack_exchange_site: config.client.stack_exchange_site.clone(),
@@ -533,4 +649,145 @@ fn dedupe_providers(providers: Vec<WebSearchProvider>) -> Vec<WebSearchProvider>
         .into_iter()
         .filter(|provider| seen.insert(*provider))
         .collect()
+}
+
+struct SkippedProvider {
+    provider: WebSearchProvider,
+    reason: String,
+}
+
+fn missing_search_secret(
+    provider: WebSearchProvider,
+    request: &SearchRequest,
+) -> Result<Option<String>, WebToolError> {
+    let Some((provider_name, env_var)) = required_search_secret(provider, request) else {
+        return Ok(None);
+    };
+    if request.optional_secret(env_var)?.is_some() {
+        Ok(None)
+    } else {
+        Ok(Some(format!(
+            "missing {provider_name} API key environment variable {env_var}"
+        )))
+    }
+}
+
+fn required_search_secret<'a>(
+    provider: WebSearchProvider,
+    request: &'a SearchRequest,
+) -> Option<(&'static str, &'a str)> {
+    match provider {
+        WebSearchProvider::Brave => Some(("brave", request.brave_api_key_env.as_str())),
+        WebSearchProvider::Exa => Some(("exa", request.exa_api_key_env.as_str())),
+        WebSearchProvider::Tavily => Some(("tavily", request.tavily_api_key_env.as_str())),
+        WebSearchProvider::Jina => Some(("jina", request.jina_api_key_env.as_str())),
+        WebSearchProvider::Github if github_search_requires_token(request) => {
+            Some(("github", request.github_token_env.as_str()))
+        }
+        WebSearchProvider::Github | WebSearchProvider::StackExchange => None,
+    }
+}
+
+fn github_search_requires_token(request: &SearchRequest) -> bool {
+    if matches!(request.github.search_type, Some(GithubSearchType::Code)) {
+        return true;
+    }
+    let query = request.query.to_ascii_lowercase();
+    query.contains("repo:")
+        || query.contains("path:")
+        || query.contains("filename:")
+        || query.contains(" in:file")
+}
+
+fn no_available_provider_error(skipped: &[SkippedProvider]) -> WebToolError {
+    if skipped.is_empty() {
+        return WebToolError::InvalidArguments("no search provider is configured".to_string());
+    }
+    WebToolError::InvalidArguments(format!(
+        "no available search provider; skipped {}",
+        format_skipped_providers(skipped)
+    ))
+}
+
+fn format_provider_list(providers: &[WebSearchProvider]) -> String {
+    if providers.is_empty() {
+        return "none".to_string();
+    }
+    providers
+        .iter()
+        .map(|provider| web_search_provider_name(*provider))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn format_skipped_providers(skipped: &[SkippedProvider]) -> String {
+    if skipped.is_empty() {
+        return "none".to_string();
+    }
+    skipped
+        .iter()
+        .map(|skip| {
+            format!(
+                "{}({})",
+                web_search_provider_name(skip.provider),
+                skip.reason
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn provider_policy_name(policy: ProviderPolicy) -> &'static str {
+    match policy {
+        ProviderPolicy::Auto => "auto",
+        ProviderPolicy::Single => "single",
+        ProviderPolicy::Fanout => "fanout",
+    }
+}
+
+fn source_hint_name(source_hint: SourceHint) -> &'static str {
+    match source_hint {
+        SourceHint::General => "general",
+        SourceHint::Technical => "technical",
+        SourceHint::Github => "github",
+        SourceHint::Docs => "docs",
+        SourceHint::Community => "community",
+        SourceHint::Research => "research",
+        SourceHint::News => "news",
+    }
+}
+
+fn web_search_provider_name(provider: WebSearchProvider) -> &'static str {
+    match provider {
+        WebSearchProvider::Brave => "brave",
+        WebSearchProvider::Jina => "jina",
+        WebSearchProvider::Github => "github",
+        WebSearchProvider::Exa => "exa",
+        WebSearchProvider::Tavily => "tavily",
+        WebSearchProvider::StackExchange => "stack_exchange",
+    }
+}
+
+fn web_fetch_provider_name(provider: WebFetchProvider) -> &'static str {
+    match provider {
+        WebFetchProvider::Jina => "jina",
+        WebFetchProvider::Direct => "direct",
+    }
+}
+
+fn safe_error_summary(err: &WebToolError) -> String {
+    match err {
+        WebToolError::MissingApiKey { provider, env_var } => {
+            format!("{provider} missing API key environment variable {env_var}")
+        }
+        WebToolError::Http {
+            provider, status, ..
+        } => format!("{provider} returned HTTP {status}"),
+        WebToolError::Network { provider, .. } => format!("{provider} request failed"),
+        WebToolError::Parse { provider, .. } => format!("{provider} response parse failed"),
+        WebToolError::Disabled { tool } => format!("{tool} is disabled"),
+        WebToolError::InvalidArguments(message) => format!("invalid arguments: {message}"),
+        WebToolError::UnsafeUrl(message) => format!("unsafe URL rejected: {message}"),
+        WebToolError::SecretStore { .. } => "secret store error".to_string(),
+    }
 }

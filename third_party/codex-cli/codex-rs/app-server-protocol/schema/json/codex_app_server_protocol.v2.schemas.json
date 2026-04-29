@@ -15649,6 +15649,12 @@
             "null"
           ]
         },
+        "jina_api_key_env": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "location": {
           "anyOf": [
             {

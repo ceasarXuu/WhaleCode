@@ -65,7 +65,7 @@ fn single_policy_uses_configured_provider() {
 }
 
 #[test]
-fn fanout_dedupes_before_limiting_provider_count() {
+fn fanout_route_keeps_candidates_until_availability_filtering() {
     let mut config = WebSearchConfig::default();
     config.client.provider = WebSearchProvider::Brave;
     config.client.max_providers_per_query = 2;
@@ -78,7 +78,11 @@ fn fanout_dedupes_before_limiting_provider_count() {
 
     assert_eq!(
         providers,
-        vec![WebSearchProvider::Brave, WebSearchProvider::Exa]
+        vec![
+            WebSearchProvider::Brave,
+            WebSearchProvider::Exa,
+            WebSearchProvider::Jina
+        ]
     );
 }
 
@@ -94,4 +98,70 @@ fn preferred_single_provider_bypasses_auto_route() {
     let providers = registry.route_providers(&request);
 
     assert_eq!(providers, vec![WebSearchProvider::StackExchange]);
+}
+
+#[test]
+fn availability_filter_skips_paid_providers_without_keys() {
+    let mut config = WebSearchConfig::default();
+    config.client.brave_api_key_env = "WHALE_TEST_MISSING_BRAVE_SEARCH_API_KEY".to_string();
+    config.client.exa_api_key_env = "WHALE_TEST_MISSING_EXA_API_KEY".to_string();
+    config.client.tavily_api_key_env = "WHALE_TEST_MISSING_TAVILY_API_KEY".to_string();
+    config.client.jina_api_key_env = "WHALE_TEST_MISSING_JINA_API_KEY".to_string();
+    let registry = WebProviderRegistry::new(config.clone(), PathBuf::from(".")).expect("registry");
+    let mut args = search_args("rust async stack overflow", None);
+    args.provider_policy = Some(ProviderPolicy::Fanout);
+    args.preferred_providers = Some(vec![
+        WebSearchProvider::Tavily,
+        WebSearchProvider::Brave,
+        WebSearchProvider::StackExchange,
+        WebSearchProvider::Github,
+    ]);
+    let request = SearchRequest::from_args(args, &config, PathBuf::from(".")).expect("request");
+
+    let providers = registry.route_providers(&request);
+    let (mut available, skipped) = registry.available_search_providers(providers, &request);
+    available.truncate(config.client.max_providers_per_query);
+
+    assert_eq!(
+        available,
+        vec![WebSearchProvider::StackExchange, WebSearchProvider::Github]
+    );
+    assert_eq!(skipped.len(), 3);
+    assert!(
+        skipped
+            .iter()
+            .any(|skip| skip.provider == WebSearchProvider::Tavily)
+    );
+    assert!(
+        skipped
+            .iter()
+            .any(|skip| skip.provider == WebSearchProvider::Brave)
+    );
+    assert!(
+        skipped
+            .iter()
+            .any(|skip| skip.provider == WebSearchProvider::Jina)
+    );
+}
+
+#[test]
+fn github_code_search_is_skipped_without_token() {
+    let mut config = WebSearchConfig::default();
+    config.client.github_token_env = "WHALE_TEST_MISSING_GITHUB_TOKEN".to_string();
+    let registry = WebProviderRegistry::new(config.clone(), PathBuf::from(".")).expect("registry");
+    let mut args = search_args("repo:openai/codex tool registry", Some(SourceHint::Github));
+    args.github = Some(GithubSearchArgs {
+        search_type: Some(GithubSearchType::Code),
+        ..Default::default()
+    });
+    args.preferred_providers = Some(vec![WebSearchProvider::Github]);
+    args.provider_policy = Some(ProviderPolicy::Single);
+    let request = SearchRequest::from_args(args, &config, PathBuf::from(".")).expect("request");
+
+    let providers = registry.route_providers(&request);
+    let (available, skipped) = registry.available_search_providers(providers, &request);
+
+    assert!(available.is_empty());
+    assert_eq!(skipped.len(), 1);
+    assert_eq!(skipped[0].provider, WebSearchProvider::Github);
 }

@@ -94,6 +94,7 @@ async fn search_provider_health_check(
             client
                 .get("https://s.jina.ai/whale%20code%20health%20check")
                 .header("Accept", "text/plain")
+                .bearer_auth(secret)
                 .send()
                 .await
         }

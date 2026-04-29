@@ -56,8 +56,8 @@ pub(super) fn web_search_provider_secret_env(provider: WebSearchProvider) -> Opt
         WebSearchProvider::Github => Some("GITHUB_TOKEN"),
         WebSearchProvider::Exa => Some("EXA_API_KEY"),
         WebSearchProvider::Tavily => Some("TAVILY_API_KEY"),
+        WebSearchProvider::Jina => Some("JINA_API_KEY"),
         WebSearchProvider::StackExchange => Some("STACK_EXCHANGE_KEY"),
-        WebSearchProvider::Jina => None,
     }
 }
 
@@ -70,8 +70,8 @@ pub(super) fn web_config_key_env(
         WebSearchProvider::Github => Some(config.client.github_token_env.as_str()),
         WebSearchProvider::Exa => Some(config.client.exa_api_key_env.as_str()),
         WebSearchProvider::Tavily => Some(config.client.tavily_api_key_env.as_str()),
+        WebSearchProvider::Jina => Some(config.client.jina_api_key_env.as_str()),
         WebSearchProvider::StackExchange => Some(config.client.stack_exchange_key_env.as_str()),
-        WebSearchProvider::Jina => None,
     }
 }
 
@@ -85,10 +85,10 @@ pub(super) fn set_web_config_key_env(
         WebSearchProvider::Github => config.client.github_token_env = env_name.to_string(),
         WebSearchProvider::Exa => config.client.exa_api_key_env = env_name.to_string(),
         WebSearchProvider::Tavily => config.client.tavily_api_key_env = env_name.to_string(),
+        WebSearchProvider::Jina => config.client.jina_api_key_env = env_name.to_string(),
         WebSearchProvider::StackExchange => {
             config.client.stack_exchange_key_env = env_name.to_string()
         }
-        WebSearchProvider::Jina => {}
     }
 }
 
@@ -101,8 +101,8 @@ pub(super) fn provider_key_env_edits(
         WebSearchProvider::Github => "github_token_env",
         WebSearchProvider::Exa => "exa_api_key_env",
         WebSearchProvider::Tavily => "tavily_api_key_env",
+        WebSearchProvider::Jina => "jina_api_key_env",
         WebSearchProvider::StackExchange => "stack_exchange_key_env",
-        WebSearchProvider::Jina => return Vec::new(),
     };
     vec![ConfigEdit::SetPath {
         segments: segments(&["tools", "web_search", key]),

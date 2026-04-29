@@ -31,9 +31,10 @@ Default secret names:
 | GitHub Search | `GITHUB_TOKEN` |
 | Exa | `EXA_API_KEY` |
 | Tavily | `TAVILY_API_KEY` |
+| Jina Search | `JINA_API_KEY` |
 | Stack Exchange | `STACK_EXCHANGE_KEY` |
 
-Jina does not require an API key and remains the fetch/readability default plus emergency search fallback.
+Jina has two different roles. `web_fetch` still uses Jina Reader as the default readability/fetch provider and can work without a key. Jina Search uses `s.jina.ai` and is treated as a credentialed search provider through `JINA_API_KEY`; without that key it is skipped instead of being called.
 
 ## Debug Commands
 
@@ -57,6 +58,17 @@ Provider adapters resolve credentials in this order:
 2. `codex-secrets` global secret with the same name.
 
 This keeps shell-based automation compatible while letting normal users configure keys entirely inside the TUI.
+
+## Routing And Degradation
+
+The runtime keeps search discovery and URL reading separate:
+
+- `web_search` chooses among Brave, Tavily, Exa, GitHub, Stack Exchange, and Jina Search based on source hint, configured provider, strategy, and credential availability.
+- `web_fetch` reads selected URLs through Jina Reader or direct HTTP.
+- Providers that need a key and do not have one are filtered before network calls.
+- GitHub and Stack Exchange may still run without keys where their public API supports the selected search type; GitHub code search is skipped without a token.
+- Fanout limits are applied after unavailable providers are removed, so missing keys do not consume fanout slots.
+- Logs include provider routing, skipped providers, provider start, success/failure, result count, and latency. They must not include raw queries or secret values.
 
 ## Verification
 

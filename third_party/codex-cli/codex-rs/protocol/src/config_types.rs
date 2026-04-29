@@ -297,6 +297,7 @@ pub struct WebSearchToolConfig {
     pub brave_api_key_env: Option<String>,
     pub exa_api_key_env: Option<String>,
     pub tavily_api_key_env: Option<String>,
+    pub jina_api_key_env: Option<String>,
     pub github_token_env: Option<String>,
     pub stack_exchange_key_env: Option<String>,
     pub stack_exchange_site: Option<String>,
@@ -329,6 +330,10 @@ impl WebSearchToolConfig {
                 .tavily_api_key_env
                 .clone()
                 .or_else(|| self.tavily_api_key_env.clone()),
+            jina_api_key_env: other
+                .jina_api_key_env
+                .clone()
+                .or_else(|| self.jina_api_key_env.clone()),
             github_token_env: other
                 .github_token_env
                 .clone()
@@ -426,6 +431,7 @@ pub struct WebSearchClientConfig {
     pub brave_api_key_env: String,
     pub exa_api_key_env: String,
     pub tavily_api_key_env: String,
+    pub jina_api_key_env: String,
     pub github_token_env: String,
     pub stack_exchange_key_env: String,
     pub stack_exchange_site: String,
@@ -444,6 +450,7 @@ impl Default for WebSearchClientConfig {
             brave_api_key_env: "BRAVE_SEARCH_API_KEY".to_string(),
             exa_api_key_env: "EXA_API_KEY".to_string(),
             tavily_api_key_env: "TAVILY_API_KEY".to_string(),
+            jina_api_key_env: "JINA_API_KEY".to_string(),
             github_token_env: "GITHUB_TOKEN".to_string(),
             stack_exchange_key_env: "STACK_EXCHANGE_KEY".to_string(),
             stack_exchange_site: "stackoverflow".to_string(),
@@ -516,6 +523,9 @@ impl From<WebSearchToolConfig> for WebSearchConfig {
                 tavily_api_key_env: config
                     .tavily_api_key_env
                     .unwrap_or(default_client.tavily_api_key_env),
+                jina_api_key_env: config
+                    .jina_api_key_env
+                    .unwrap_or(default_client.jina_api_key_env),
                 github_token_env: config
                     .github_token_env
                     .unwrap_or(default_client.github_token_env),

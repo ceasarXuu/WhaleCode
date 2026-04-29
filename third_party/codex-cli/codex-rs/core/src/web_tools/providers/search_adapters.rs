@@ -65,12 +65,14 @@ impl SearchProvider for JinaSearchProvider {
         client: &Client,
         request: &SearchRequest,
     ) -> Result<WebSearchOutput, WebToolError> {
+        let api_key = request.required_secret("jina", &request.jina_api_key_env)?;
         let encoded_query = url::form_urlencoded::byte_serialize(request.shaped_query.as_bytes())
             .collect::<String>();
         let body = client
             .get(format!("https://s.jina.ai/{encoded_query}"))
             .timeout(request.timeout)
             .header("Accept", "text/plain")
+            .bearer_auth(api_key)
             .send()
             .await
             .map_err(|source| WebToolError::Network {

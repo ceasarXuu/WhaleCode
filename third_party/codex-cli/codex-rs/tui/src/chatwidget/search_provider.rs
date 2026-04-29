@@ -364,19 +364,14 @@ impl ChatWidget {
             );
             return;
         }
-        let secret = if provider == WebSearchProvider::Jina {
-            String::new()
-        } else {
-            let Some(secret) = self.search_provider_secret_value(provider) else {
-                self.add_info_message(
-                    format!(
-                        "search_provider_test=needs_key provider={provider_name} fallback={fallback}"
-                    ),
-                    /*hint*/ None,
-                );
-                return;
-            };
-            secret
+        let Some(secret) = self.search_provider_secret_value(provider) else {
+            self.add_info_message(
+                format!(
+                    "search_provider_test=needs_key provider={provider_name} fallback={fallback}"
+                ),
+                /*hint*/ None,
+            );
+            return;
         };
         self.add_info_message(
             format!("search_provider_test=running provider={provider_name} fallback={fallback}"),

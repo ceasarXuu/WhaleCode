@@ -2437,6 +2437,9 @@
         "github_token_env": {
           "type": "string"
         },
+        "jina_api_key_env": {
+          "type": "string"
+        },
         "location": {
           "$ref": "#/definitions/WebSearchLocation"
         },
