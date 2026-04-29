@@ -16,7 +16,7 @@ const MISSPELLED_APPLY_PATCH_ARG0: &str = "applypatch";
 #[cfg(unix)]
 const EXECVE_WRAPPER_ARG0: &str = "codex-execve-wrapper";
 const LOCK_FILENAME: &str = ".lock";
-const TOKIO_WORKER_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;
+const ARG0_DISPATCH_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Arg0DispatchPaths {
@@ -176,7 +176,33 @@ pub fn arg0_dispatch() -> Option<Arg0PathEntryGuard> {
 ///
 /// This function should be used to wrap any `main()` function in binary crates
 /// in this workspace that depends on these helper CLIs.
+#[cfg(windows)]
 pub fn arg0_dispatch_or_else<F, Fut>(main_fn: F) -> anyhow::Result<()>
+where
+    F: FnOnce(Arg0DispatchPaths) -> Fut + Send + 'static,
+    Fut: Future<Output = anyhow::Result<()>>,
+{
+    match std::thread::Builder::new()
+        .name("codex-arg0-main".to_string())
+        .stack_size(ARG0_DISPATCH_STACK_SIZE_BYTES)
+        .spawn(move || arg0_dispatch_or_else_impl(main_fn))?
+        .join()
+    {
+        Ok(result) => result,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+#[cfg(not(windows))]
+pub fn arg0_dispatch_or_else<F, Fut>(main_fn: F) -> anyhow::Result<()>
+where
+    F: FnOnce(Arg0DispatchPaths) -> Fut,
+    Fut: Future<Output = anyhow::Result<()>>,
+{
+    arg0_dispatch_or_else_impl(main_fn)
+}
+
+fn arg0_dispatch_or_else_impl<F, Fut>(main_fn: F) -> anyhow::Result<()>
 where
     F: FnOnce(Arg0DispatchPaths) -> Fut,
     Fut: Future<Output = anyhow::Result<()>>,
@@ -239,7 +265,7 @@ fn linux_sandbox_exe_path(
 fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     builder.enable_all();
-    builder.thread_stack_size(TOKIO_WORKER_STACK_SIZE_BYTES);
+    builder.thread_stack_size(ARG0_DISPATCH_STACK_SIZE_BYTES);
     Ok(builder.build()?)
 }
 

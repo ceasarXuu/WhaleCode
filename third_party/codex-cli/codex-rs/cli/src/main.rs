@@ -647,28 +647,7 @@ fn stage_str(stage: Stage) -> &'static str {
     }
 }
 
-#[cfg(windows)]
-const WINDOWS_MAIN_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;
-
-#[cfg(windows)]
 fn main() -> anyhow::Result<()> {
-    match std::thread::Builder::new()
-        .name("whale-main".to_string())
-        .stack_size(WINDOWS_MAIN_STACK_SIZE_BYTES)
-        .spawn(main_impl)?
-        .join()
-    {
-        Ok(result) => result,
-        Err(panic) => std::panic::resume_unwind(panic),
-    }
-}
-
-#[cfg(not(windows))]
-fn main() -> anyhow::Result<()> {
-    main_impl()
-}
-
-fn main_impl() -> anyhow::Result<()> {
     arg0_dispatch_or_else(|arg0_paths: Arg0DispatchPaths| async move {
         cli_main(arg0_paths).await?;
         Ok(())
