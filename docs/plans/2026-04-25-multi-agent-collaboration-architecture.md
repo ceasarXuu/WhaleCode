@@ -503,7 +503,9 @@ Current node: <node_title>
 请先停止该 session 的运行，或等待它 completed/suspended 后再继续。
 ```
 
-MapIndex 只保存可检索 metadata，不等于 active runtime：
+`MapIndex` 只保存可检索 metadata，不等于 active runtime。
+第一版不要新建独立索引服务；它应是从现有 thread/session/rollout metadata 派生出来的轻量 manifest 视图。
+实现上优先复用现有会话持久化、thread history、rollout event 和配置目录，只有这些载体无法满足最小读写时，才增加新的本地小文件或表。
 
 ```rust
 pub struct MapIndexEntry {
@@ -547,6 +549,8 @@ V1 明确不做：
 - full snapshot scan。
 - 对所有历史 map 做全量语义匹配。
 - 自动恢复语义相似的 map。
+- 独立后台索引进程。
+- 独立向量库或数据库服务。
 
 默认检索范围必须先被 metadata 限界：
 
@@ -1780,6 +1784,8 @@ Submit the expected result, a Blocker result, or a MapUpdateRequest result for a
 | mailbox | 临时通知和唤醒；`wait_agent` 只等 mailbox 变化，不直接返回结果正文 |
 | collab session events | 复用 spawn/message/wait/close begin/end 事件，追加 map metadata |
 | completion notification | 复用 child-to-parent `InterAgentCommunication` 作为 result ingestion 的触发来源之一 |
+| rollout / thread history | 持久化 map snapshot、map event、result ref 和 replay 所需证据 |
+| existing config/session state | 保存 session-scoped `multi_agent_runtime_mode` 和 active map id |
 | tools/sandbox/approval | 继续执行工具和权限边界 |
 
 `standard` 模式不变。
@@ -1805,6 +1811,7 @@ Ready MapNode
 - map discovery：当前 session 处理新 user goal 前可检索 MapIndex；如果命中其他 session 持有的 active map，只返回占用提示，不接管。
 - completion notification：复用现有 child-to-parent `InterAgentCommunication`，但不能把“通知到了”等同于“node completed”；主 agent 或 result ingestion 仍需把结果归档到 node。
 - events：优先扩展现有 collab event payload 或追加轻量 map event，不新增并行事件总线。
+- result ingestion：第一版优先从 subagent final answer、completion notification、rollout/thread history 中提取 result envelope；不要为了结果提交先新增一套独立 submit-result 工具，除非真实实现证明现有路径无法可靠承载。
 
 不要做的事情：
 
@@ -1814,6 +1821,7 @@ Ready MapNode
 - 不把 mailbox 文本直接当成 node result。
 - 不重写普通 tool dispatcher。
 - 不把 `Feature::MultiAgentV2` 与 Whale 的 `multi_agent_runtime_mode` 混成同一个开关。
+- 不新增独立消息总线、调度器、索引服务或结果提交服务。
 
 ## 运行推演
 
