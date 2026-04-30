@@ -1219,8 +1219,8 @@ lease 失效条件：
 collab_action_allowed if:
   lease.status == active
   action in spawn_agent | send_message | followup_task | wait_agent | close_agent | submit_result
-  current_graph_version == lease.issued_at_graph_version
   current_node_version == lease.issued_at_node_version
+  no committed map mutation has invalidated lease.graph_read_set
 ```
 
 失败时不要让模型“自己解释继续做”，runtime 直接返回结构化错误：
@@ -1301,10 +1301,18 @@ pub struct ContextPack {
     pub id: ContextPackId,
     pub graph_version: GraphVersion,
     pub node_version: NodeVersion,
+    pub graph_read_set: GraphReadSet,
     pub required_sources: Vec<ContextSource>,
     pub results: Vec<ResultRef>,
     pub constraints: Vec<String>,
     pub freshness_tokens: Vec<FreshnessToken>,
+}
+
+pub struct GraphReadSet {
+    pub node_id: NodeId,
+    pub upstream_nodes: Vec<NodeId>,
+    pub dependency_edges: Vec<EdgeId>,
+    pub inherited_results: Vec<ResultId>,
 }
 
 pub struct FreshnessToken {
@@ -1315,24 +1323,27 @@ pub struct FreshnessToken {
 ```
 
 这里的 `stale context` 不是“内容质量差”，也不是模型判断错误。
-它是一个乐观锁机制：assignment 发出时，runtime 给这次工作打包一份上下文快照，并记录这份快照依赖的版本 token。
+它是一个依赖范围内的乐观锁机制：assignment 发出时，runtime 给这次工作打包一份上下文快照，并记录这份快照实际依赖的版本 token。
 subagent 提交 result 时，runtime 再把 result 携带的 token 与当前事实源逐项比对。
-只要某个依赖在 assignment 执行期间被更新，result 就是 stale，不能直接推进 gate。
+只有这个 assignment 实际依赖的内容在执行期间被更新，result 才是 stale，不能直接推进 gate。
 
 换句话说：
 
 ```text
-stale context = result 基于旧快照产出，不再保证适用于当前 map/node/source 状态。
+stale context = result 基于当前 assignment 的旧依赖读集产出，不再保证适用于这个 node 当前依赖的事实状态。
 ```
 
 它防的是 stale write，不是防“分析质量差”。
+这里的 context 不是整个 map 的全局上下文，而是该 assignment 的 scoped read-set。
+两个没有依赖关系的 sibling nodes，彼此的 node context、status、result 如何变化，都不应让对方 stale。
 
-第一版只做版本 token 检查。
+第一版只做依赖范围内的版本 token 检查。
 需要记录的 token：
 
 | Token | 来源 | 什么时候变化 |
 | --- | --- | --- |
-| `graph_version` | `ActionMapInstance.graph_version` | map mutation 提交后变化 |
+| `graph_version` | `ActionMapInstance.graph_version` | 只作为“图发生过变化”的提示，不直接导致 stale |
+| `graph_read_set` | assignment 实际依赖的节点、边、上游结果 | 其中任一元素被修改、替换、删除或依赖关系改变时，才导致 stale |
 | `node_version` | `MapNode.version` | node context、blocker、目标、required result 或 gate 变化后变化 |
 | `source_version` | `ContextPack.required_sources` | 明确依赖的文件、文档、命令输出、日志片段等来源变化后变化 |
 | `result_version` | inherited results | 上游 result 被替换、废弃、重跑或 supersede 后变化 |
@@ -1343,11 +1354,14 @@ stale context = result 基于旧快照产出，不再保证适用于当前 map/n
 issue assignment:
   context_pack.graph_version = current_map.graph_version
   context_pack.node_version = current_node.version
+  context_pack.graph_read_set = current node + declared upstream deps + inherited results
   context_pack.freshness_tokens = versions of required sources and inherited results
 
 subagent submits result:
   if result.base_graph_version != current_map.graph_version:
-    reject as stale
+    compute graph changes since result.base_graph_version
+    if any change touches context_pack.graph_read_set:
+      reject as stale
   if result.base_node_version != current_node.version:
     reject as stale
   for each freshness_token in context_pack:
@@ -1359,7 +1373,8 @@ subagent submits result:
 
 哪些东西会让 result stale：
 
-- map 生长、拆分 node、新增依赖边，导致 `graph_version` 改变。
+- map mutation 影响当前 node、当前 node 的上游依赖路径、当前 node 的 required result/gate，或 inherited result。
+- split / replace 当前 node，或 split / replace 当前 node 依赖的上游 node。
 - 当前 node 的 blocker、目标、上下文边界、required result、gate 被修改，导致 `node_version` 改变。
 - assignment 明确依赖的文件、文档、日志片段或命令输出被更新，导致 `source_version` 改变。
 - 上游 result 被替换、重跑或标记 superseded，导致 `result_version` 改变。
@@ -1368,8 +1383,25 @@ subagent submits result:
 
 - 不在 `ContextPack.required_sources` 里的无关文件变化。
 - 另一个无依赖 sibling node 完成。
+- 另一个无依赖 sibling node 的 context、status、blocker、result 变化。
 - 新增一个与当前 node 没有依赖路径的并行 node。
+- 其他 branch 的 map mutation，只要没有触及当前 assignment 的 `graph_read_set`。
 - 主 agent 主观觉得结果“不够好”。
+
+例子：
+
+```text
+node_A: inspect_spawn_flow
+node_B: inspect_session_registry
+
+如果 A 和 B 没有依赖边：
+- node_A 完成不会让 node_B 的 running assignment stale。
+- node_B blocked 不会让 node_A 的 running assignment stale。
+- 给 node_A 新增 source refs 不会影响 node_B。
+
+只有当 map mutation 新增 B depends_on A，或者 B 的 ContextPack 显式继承了 A 的 result，
+B 后续提交才需要检查 A 的 result_version。
+```
 
 第一版 `source_version` 只来自显式记录，不做全局推断：
 
