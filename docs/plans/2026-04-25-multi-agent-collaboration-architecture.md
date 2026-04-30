@@ -70,10 +70,11 @@ Multi-agent 框架必须可插拔。
 
 Experiment 模式的硬约束：
 
-- agent 每次行动都必须由 map 驱动。
-- 行动可以绑定已有 `ActionMapInstance`。
+- agent 每次行动都必须由 map 驱动，并绑定到 map 中的某个 `MapNode`。
+- 行动可以绑定已有 `ActionMapInstance`，但不能只绑定 map 而缺少 node。
 - 如果没有可用 map，runtime 必须先从 `BaseMap` 新建 `ActionMapInstance`。
-- 无 map 绑定时，agent 不允许 spawn、接收 assignment、执行工具或提交结果。
+- 无 map/node 绑定时，agent 不允许 spawn、接收 assignment、执行工具或提交结果。
+- 子 agent 只能通过 `AgentAssignment + AssignmentLease` 进入某个 node；node 是 map 中的子任务，不是角色、线程或自由消息主题。
 - 任何自然语言 follow-up 如果改变任务目标，必须先更新或新建 map，再继续行动。
 
 这里的约束只表示“行动必须有 map 坐标和可追踪记录”，不表示 map 可以强迫 agent 继续执行。
@@ -188,7 +189,11 @@ created -> running -> completed
 
 ## MapNode
 
-Node 是行动点，不是角色，也不是 agent。
+Node 是 map 中的子任务和行动点，不是角色，也不是 agent。
+
+子 agent 不能直接绑定在 map 根上行动，必须绑定到一个具体 `MapNode`。
+同一个 agent 可以随着新 assignment 移动到不同 node，但任意一次行动都只能属于一个当前 node。
+这样 map 才能回答三个问题：这个 agent 正在解决哪个子任务、使用了哪份上下文、产物应该归属到哪里。
 
 ```rust
 pub struct MapNode {
@@ -320,6 +325,9 @@ if mode == experiment and no active map:
 
 if mode == experiment and action has no map_id/node_id/lease_id:
   reject action or convert it into a map update request
+
+if mode == experiment and subagent action targets only map_id:
+  reject action and require runtime to select or create a ready node
 ```
 
 ### Assignment Lease
@@ -731,7 +739,7 @@ Ready MapNode
 
 具体落点：
 
-- `spawn_agent`：在 `spawn.rs` 创建 child 前，确保有 active map、ready node、assignment；把 `task_name` 约束为 node-derived path。
+- `spawn_agent`：在 `spawn.rs` 创建 child 前，确保有 active map、ready node、assignment；禁止只以 map 为目标创建 child；把 `task_name` 约束为 node-derived path。
 - `send_message` / `followup_task`：在 `message_tool.rs` 发送 mailbox 前，校验 target agent 是否有 active assignment lease。
 - `wait_agent`：继续复用 mailbox seq 等待；experiment 模式下等待结果必须进入 artifact ingestion，不能只靠自然语言完成节点。
 - `close_agent`：继续复用 `AgentControl::close_agent`；experiment 模式下同时 revoke assignment lease。
@@ -977,10 +985,10 @@ agent: stopped
 - session state 记录当前模式。
 - 模式切换写 event。
 - `standard` 行为保持现状。
-- `experiment` 模式下无 active map 时自动从 `BaseMap` 创建 map。
+- `experiment` 模式下无 active map 时自动从 `BaseMap` 创建 map，并选择或创建 ready node。
 - `spawn_agent`、`send_message`、`followup_task`、`wait_agent`、`close_agent` 入口接入 `MapActionGuard`。
 
-验收：关闭 experiment 后，当前 spawn/send/wait/close 行为不变；开启 experiment 后，没有 map 绑定的 agent 行动会被拒绝或先触发 map 创建。
+验收：关闭 experiment 后，当前 spawn/send/wait/close 行为不变；开启 experiment 后，没有 map/node 绑定的 agent 行动会被拒绝或先触发 map + node 创建。
 
 ### MA-1：Map 与 Node
 
@@ -989,7 +997,7 @@ agent: stopped
 - 根据用户任务从唯一 `BaseMap` 初始化最小 map。
 - 支持查看当前 map。
 
-验收：一个复杂任务能从 `BaseMap` 初始化出 3-8 个可解释节点，并允许 runtime 根据实际任务跳过、拆分或补充节点。
+验收：一个复杂任务能从 `BaseMap` 初始化出 3-8 个可解释节点，并允许 runtime 根据实际任务跳过、拆分或补充节点；任何 subagent assignment 都能追溯到唯一 node。
 
 ### MA-2：Assignment 与 ContextPack
 
