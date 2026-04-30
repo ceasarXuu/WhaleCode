@@ -266,6 +266,7 @@ pub struct AgentAssignment {
     pub id: AssignmentId,
     pub map_id: ActionMapId,
     pub node_id: NodeId,
+    pub lease_id: AssignmentLeaseId,
     pub objective: String,
     pub context_pack: ContextPack,
     pub allowed_tools: Vec<ToolName>,
@@ -274,7 +275,136 @@ pub struct AgentAssignment {
 }
 ```
 
-agent 可以在 map 上移动，但每次移动都必须生成新的 assignment 和 context pack。assignment 必须同时绑定 `map_id` 和 `node_id`；只绑定 agent 或 thread 不算 map 驱动。
+agent 可以在 map 上移动，但每次移动都必须生成新的 assignment 和 context pack。assignment 必须同时绑定 `map_id`、`node_id` 和 `lease_id`；只绑定 agent 或 thread 不算 map 驱动。
+
+## Map 驱动执行机制
+
+“每次行动都由 map 驱动”必须由 runtime 强制，不能依赖 agent 自觉。
+
+### 入口拦截
+
+Experiment 模式下，所有会导致 agent 行动的入口都先经过 `MapActionGuard`：
+
+```text
+user follow-up
+spawn_agent
+send_message / followup_task
+tool call
+artifact submit
+close / complete node
+```
+
+`MapActionGuard` 的决策：
+
+```text
+if mode == standard:
+  allow current Codex behavior
+
+if mode == experiment and no active map:
+  create ActionMapInstance from BaseMap
+  append MapCreated
+  continue through map-bound path
+
+if mode == experiment and action has no map_id/node_id/lease_id:
+  reject action or convert it into a map update request
+```
+
+### Assignment Lease
+
+`AssignmentLease` 是 agent 执行节点的临时许可。没有有效 lease，agent 不能执行工具或提交结果。
+
+```rust
+pub struct AssignmentLease {
+    pub id: AssignmentLeaseId,
+    pub map_id: ActionMapId,
+    pub node_id: NodeId,
+    pub assignment_id: AssignmentId,
+    pub agent_id: AgentId,
+    pub issued_at_graph_version: GraphVersion,
+    pub issued_at_node_version: NodeVersion,
+    pub allowed_tools: Vec<ToolName>,
+    pub status: LeaseStatus,
+}
+```
+
+`LeaseStatus`：
+
+```text
+active -> completed
+       -> expired
+       -> revoked
+       -> stale
+```
+
+lease 失效条件：
+
+- map 被 paused 或 aborted。
+- node 已 completed、skipped 或 blocked。
+- node version 改变且 assignment 未刷新。
+- agent 尝试使用未授权工具。
+- agent 尝试提交不匹配的 artifact 类型。
+
+### Tool Guard
+
+Experiment 模式下，工具调用必须带当前 lease 上下文。
+
+```text
+tool_call_allowed if:
+  lease.status == active
+  tool.name in lease.allowed_tools
+  current_graph_version == lease.issued_at_graph_version
+  current_node_version == lease.issued_at_node_version
+```
+
+失败时不要让模型“自己解释继续做”，runtime 直接返回结构化错误：
+
+```text
+MapActionRejected {
+  reason: missing_map | missing_node | missing_lease | stale_lease | tool_not_allowed
+  required_recovery: create_map | refresh_assignment | request_node_update
+}
+```
+
+### Artifact Submit Guard
+
+artifact 提交必须引用 assignment：
+
+```text
+artifact.map_id == assignment.map_id
+artifact.node_id == assignment.node_id
+artifact.assignment_id == assignment.id
+artifact.base_graph_version == assignment.context_pack.graph_version
+artifact.base_node_version == assignment.context_pack.node_version
+artifact.kind == assignment.expected_artifact
+```
+
+不满足时，artifact 进入 rejected，不允许进入 gate。
+
+### Prompt 注入不是约束
+
+assignment 可以注入到 agent prompt 中，帮助模型理解当前 map/node：
+
+```text
+Current map: <map_id>
+Current node: <node_id>
+Assignment: <assignment_id>
+Expected artifact: <kind>
+Allowed tools: <tools>
+```
+
+但这只是辅助。真正约束来自 `MapActionGuard`、`AssignmentLease`、`Tool Guard` 和 `Artifact Submit Guard`。
+
+### 恢复策略
+
+如果 agent 试图越过 map 行动：
+
+- 缺 map：创建 `BaseMap` 实例，然后重新生成 assignment。
+- 缺 node：让 runtime 选择 ready node，或创建 clarify/update node。
+- lease stale：刷新 context pack，重新发 assignment。
+- tool 不允许：返回拒绝，并要求 agent 提交 `Blocker` 或请求 node update。
+- 用户改变目标：暂停当前节点，更新 map，再生成新 assignment。
+
+这些恢复都必须写 MapEvent。
 
 ## ContextPack
 
@@ -392,6 +522,9 @@ pub enum MapEvent {
     NodeAdded,
     NodeStarted,
     AssignmentIssued,
+    AssignmentLeaseIssued,
+    AssignmentLeaseRevoked,
+    MapActionRejected,
     ArtifactSubmitted,
     GateEvaluated,
     NodeCompleted,
@@ -435,6 +568,7 @@ Events are state transitions.
 | mailbox | 临时通知和唤醒 |
 | session events | 承载 MapEvent |
 | tools/sandbox/approval | 执行工具和权限边界 |
+| tool handlers | 插入 `Tool Guard`，拒绝无 lease 或越权工具调用 |
 
 `standard` 模式不变。
 
@@ -460,6 +594,7 @@ Ready MapNode
 - 模式切换写 event。
 - `standard` 行为保持现状。
 - `experiment` 模式下无 active map 时自动从 `BaseMap` 创建 map。
+- 所有 agent 行动入口接入 `MapActionGuard`。
 
 验收：关闭 experiment 后，当前 spawn/send/wait/close 行为不变；开启 experiment 后，没有 map 绑定的 agent 行动会被拒绝或先触发 map 创建。
 
@@ -476,10 +611,12 @@ Ready MapNode
 
 - Ready node 可生成 assignment。
 - assignment 携带 context pack。
+- assignment 生成 active lease。
+- 工具调用必须通过 lease 校验。
 - artifact 记录 base version。
 - stale artifact 被拒绝或要求重跑。
 
-验收：上游节点变化后，下游旧 artifact 不能直接通过 gate。
+验收：上游节点变化后，下游旧 artifact 不能直接通过 gate；无 active lease 的工具调用和 artifact 提交会被拒绝。
 
 ### MA-3：Artifact 与 Gate
 
