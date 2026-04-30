@@ -374,6 +374,9 @@ pub struct MapNode {
     pub title: String,
     pub purpose: String,
     pub status: NodeStatus,
+    pub active: bool,
+    pub origin_node_id: Option<NodeId>,
+    pub group_label: Option<String>,
     pub context_boundary: ContextBoundary,
     pub context_state: NodeContextState,
     pub required_artifacts: Vec<ArtifactKind>,
@@ -382,6 +385,10 @@ pub struct MapNode {
     pub version: NodeVersion,
 }
 ```
+
+第一版 node 是平面图节点，不支持嵌套 node。
+不要设计 `children`、runtime parent/child status 传播或 parent gate。
+如果需要表达某些 node 来自同一次拆分或同一主题，只使用 `origin_node_id` 和 `group_label` 这类展示/追溯 metadata，不参与 runtime 状态机。
 
 `dependencies` 不放在 `MapNode` 内部，而是由 `ActionMapInstance.edges` 表达。
 这样 node 保持为子任务状态容器，图关系由 map 统一维护。
@@ -514,10 +521,23 @@ ready_nodes = nodes where:
 
 | 来源 | 能做什么 | 不能做什么 |
 | --- | --- | --- |
-| 根 agent | 初始化 map；根据用户 follow-up 或 artifact 请求提出 map mutation | 不能绕过 runtime 直接改状态 |
-| subagent | 通过 `MapUpdateRequest` 或 `Blocker` 请求新增、拆分或更新 node | 不能直接创建 node，不能直接改 edge/status |
+| 根 agent | 初始化 map；根据用户 follow-up 或 artifact 请求接受、修正或拒绝 map mutation | 不能绕过 runtime 直接改状态 |
+| subagent | 通过 `MapUpdateRequest` 或 `Blocker` 请求新增、拆分或更新 node | 不能直接创建 node，不能直接改 edge/status，不能自行执行新发现的工作 |
 | runtime | 校验并提交 mutation，写入 graph_version 和 MapEvent | 不能凭空生成业务判断，只能执行已被根 agent 接受的 mutation |
 | user follow-up | 改变目标、补充信息、确认 blocker | 不直接编辑内部图；由根 agent 转成 map update |
+
+流程：
+
+```text
+subagent discovers new work
+  -> submit MapUpdateRequest artifact
+  -> main agent accepts, revises, or rejects it
+  -> runtime validates and applies mutation
+  -> new node becomes visible in flat graph
+```
+
+subagent 可以请求 map 生长，但没有 map 结构写权限。
+这条规则避免局部执行者把图扩成只服务自己局部视角的任务集合。
 
 提交 map mutation 的最小规则：
 
@@ -544,7 +564,7 @@ runtime 接受 mutation 前必须检查：
 ```text
 graph_version += 1
 append MapEvent::MapUpdated
-append NodeAdded / EdgeAdded / NodeStatusChanged as needed
+append NodeAdded / EdgeAdded / NodeReplaced / NodeStatusChanged as needed
 recompute ready_nodes
 ```
 
@@ -555,6 +575,21 @@ map 生长的关键约束：
 - 如果新任务与当前 running node 无依赖关系，它可以成为 sibling node，并与其他 ready nodes 并行被 claim。
 - 如果新任务是当前 node 的前置条件，当前 node 应进入 `blocked` 或回到 `pending`，等待新 node 完成。
 - map 生长不能直接把任何 node 标记为 completed；完成仍只能来自 artifact + gate。
+
+第一版不做嵌套 node。
+`SplitNode` 不是创建 parent/children，而是把一个过大的 node 替换为多个平面 sibling nodes：
+
+```text
+SplitNode(A):
+  A.active = false
+  AddNode(A1, origin_node_id = A, group_label = A.title)
+  AddNode(A2, origin_node_id = A, group_label = A.title)
+  redirect incoming/outgoing edges as needed
+  append NodeReplaced(old=A, new=[A1, A2])
+```
+
+被 split 的旧 node 保留为历史和审计目标，但不再进入 `ready_nodes`，也不能再被 agent claim。
+不要为了 split 增加 `skipped`、`parent_completed` 或 child status propagation。
 
 ## Map Degradation Budget
 
@@ -1079,6 +1114,7 @@ pub enum MapEvent {
     MapReplaced,
     NodeAdded,
     EdgeAdded,
+    NodeReplaced,
     NodeStarted,
     NodeStatusChanged,
     AssignmentIssued,
@@ -1282,6 +1318,7 @@ Do not:
 - hide blockers
 - keep working after you know the assignment is blocked
 - start newly discovered work before requesting a map update
+- create or edit map nodes directly
 - invent quality scores
 ```
 
@@ -1420,8 +1457,8 @@ node_3 -> node_4
 node_4 -> node_5
 ```
 
-如果 runtime 后续把 `node_2` 拆成 `node_2a: 查 spawn/send/wait/close` 和 `node_2b: 查 session event/registry`，这两个 sibling nodes 之间不需要无向边。
-它们没有依赖路径，且都 ready 时，就可以分别被不同 agent claim。
+如果 runtime 后续把 `node_2` 拆成 `node_2a: 查 spawn/send/wait/close` 和 `node_2b: 查 session event/registry`，这两个节点是平面 sibling nodes，不是 `node_2` 的内部子节点。
+它们通过 `origin_node_id = node_2` 保留追溯信息；没有依赖路径且都 ready 时，就可以分别被不同 agent claim。
 
 ### Step 3：ready node 生成 assignment
 
