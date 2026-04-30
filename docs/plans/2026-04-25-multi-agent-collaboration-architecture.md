@@ -9,6 +9,10 @@ Supervisor / Cohort / WorkUnit / Message Bus / Artifact / DeepSeek 调度 / View
 控制面的行为内核，见
 `docs/plans/2026-04-29-multi-agent-behavior-kernel-design.md`。
 
+进一步把“小组作业”抽象成可执行 Action Map、并定义模板实例化、上下文边界、
+agent 游标移动、节点读写锁、图状态机、MapEvent 和图即沟通机制的 runtime
+设计，见 `docs/plans/2026-04-30-action-map-runtime-design.md`。
+
 ---
 
 ## 一、设计目标
