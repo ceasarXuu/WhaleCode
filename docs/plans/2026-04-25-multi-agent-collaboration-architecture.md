@@ -556,6 +556,147 @@ map 生长的关键约束：
 - 如果新任务是当前 node 的前置条件，当前 node 应进入 `blocked` 或回到 `pending`，等待新 node 完成。
 - map 生长不能直接把任何 node 标记为 completed；完成仍只能来自 artifact + gate。
 
+## Map Degradation Budget
+
+Map 可以生长，但生长失控、成本过高或负面结果过多时，可能说明当前思路已经劣化。
+劣化预算不是质量分，也不是自动判死刑；它只是 runtime 对成本和负面信号的机械预警。
+
+原则：
+
+```text
+High cost is a warning, not a verdict.
+Replacement is a controlled recovery path, not automatic failure handling.
+```
+
+第一版只使用可稳定计数的信号，不做语义矛盾识别：
+
+| Signal | 含义 |
+| --- | --- |
+| `node_count` | 当前 map 节点数 |
+| `map_update_count` | map mutation 次数 |
+| `recovery_node_count` | 为恢复、澄清、返工创建的节点数 |
+| `blocker_count` | `Blocker` artifact 数量 |
+| `failed_gate_count` | formal gate fail 次数 |
+| `revoked_lease_count` | lease 被 revoke 次数 |
+| `version_mismatch_count` | artifact/context version mismatch 次数 |
+| `tool_call_count` | 工具调用次数 |
+| `agent_turn_count` | agent turn 数 |
+| `wall_clock_minutes` | map active 执行耗时 |
+| `context_pack_total_tokens` | context pack 累计 token 估算 |
+
+预算档位：
+
+| Signal | Low | Medium | High |
+| --- | ---: | ---: | ---: |
+| `node_count` | 8 | 18 | 35 |
+| `map_update_count` | 4 | 10 | 20 |
+| `recovery_node_count` | 2 | 5 | 10 |
+| `blocker_count` | 2 | 5 | 10 |
+| `failed_gate_count` | 2 | 5 | 10 |
+| `revoked_lease_count` | 2 | 5 | 10 |
+| `version_mismatch_count` | 3 | 8 | 16 |
+| `tool_call_count` | 40 | 120 | 300 |
+| `agent_turn_count` | 12 | 35 | 80 |
+| `wall_clock_minutes` | 20 | 60 | 180 |
+| `context_pack_total_tokens` | 80k | 250k | 700k |
+
+触发规则：
+
+```text
+degradation_warning if:
+  any hard limit exceeded
+  OR at least 3 soft limits exceeded
+```
+
+第一版 hard limits：
+
+- `wall_clock_minutes`
+- `context_pack_total_tokens`
+- `tool_call_count`
+
+预算升级：
+
+| 当前预算 | 触发 warning 后的行为 |
+| --- | --- |
+| `low` | 向主 agent 发出内部 warning；主 agent 可升级到 `medium` 或创建恢复 node |
+| `medium` | 向主 agent 发出 warning；主 agent 必须记录 `DegradationReview`，可升级到 `high` |
+| `high` | 暴露给用户，除非 policy 已经明确允许或拒绝 replacement |
+
+用户策略：
+
+| Policy | 行为 |
+| --- | --- |
+| `ask` | high 预算仍触发 warning 时询问用户 |
+| `auto_allow_replace` | 主 agent 可在记录理由后创建 replacement map |
+| `auto_deny_replace` | 不允许 replacement，只能继续修补、降 scope 或停止说明 |
+
+默认 policy 是 `ask`。
+
+结构：
+
+```rust
+pub enum DegradationBudget {
+    Low,
+    Medium,
+    High,
+}
+
+pub enum DegradationPolicy {
+    Ask,
+    AutoAllowReplace,
+    AutoDenyReplace,
+}
+
+pub struct MapDegradationSignals {
+    pub node_count: usize,
+    pub map_update_count: usize,
+    pub recovery_node_count: usize,
+    pub blocker_count: usize,
+    pub failed_gate_count: usize,
+    pub revoked_lease_count: usize,
+    pub version_mismatch_count: usize,
+    pub tool_call_count: usize,
+    pub agent_turn_count: usize,
+    pub wall_clock_minutes: u64,
+    pub context_pack_total_tokens: usize,
+}
+```
+
+high 预算仍触发 warning 时，用户可见提示应说明不确定性：
+
+```text
+当前任务已经超过 high 劣化预算。
+这可能说明任务本身非常复杂，也可能说明当前 map 的思路已经产生严重偏差。
+是否允许换一个思路重新创建 map，只选择性继承已确认材料？
+```
+
+Map replacement：
+
+```text
+old_map.status = abandoned
+old_map.abandon_reason = superseded_by_replacement
+new_map.created_from = old_map.id
+```
+
+只允许选择性 carry over：
+
+- explicit user constraints
+- verified facts
+- fresh and useful artifacts
+- unresolved blockers still relevant
+
+不 carry over：
+
+- noisy recovery nodes
+- stale context packs
+- speculative branches
+- failed branches
+- low-confidence artifacts
+
+状态上不新增 `degraded`。
+`degraded` 是 replacement reason，不是 `MapStatus`。
+第一版不做自动检测 replacement；runtime 只发 warning 和执行主 agent 选择的 replacement transaction。
+
 ## NodeExecution
 
 `NodeExecution` 只描述一个节点本次怎么执行。
@@ -836,6 +977,7 @@ pub struct ArtifactEnvelope<T> {
 | `VerificationResult` | 测试、构建、复现、静态检查结果 |
 | `Blocker` | 合法停止记录：需要用户输入、工具/上下文不足、风险过高或无法继续的原因 |
 | `MapUpdateRequest` | 请求 map 生长或修正：新增、拆分、补充 node context |
+| `DegradationReview` | 主 agent 对劣化 warning 的判断、升级预算或 replacement 建议 |
 | `FinalSynthesis` | 主 agent 对 user goal、关键 artifacts、limitations 和 residual risks 的最终语义收束 |
 
 不做额外评分、投票或共识类产物。
@@ -932,6 +1074,9 @@ pub enum MapEvent {
     MapResumed,
     MapAbandoned,
     MapOwnershipRejected,
+    MapDegradationWarning,
+    MapBudgetUpgraded,
+    MapReplaced,
     NodeAdded,
     EdgeAdded,
     NodeStarted,
@@ -967,6 +1112,7 @@ ready_nodes
 running_nodes + active_leases
 blocked_nodes
 pending MapUpdateRequests
+degradation warnings and budget
 completed nodes
 stale artifacts or stale context packs
 final goal coverage
@@ -990,10 +1136,12 @@ flowchart TD
     G -->|blocked: other reason| I["Create recovery node or stop"]
     G -->|stale context| J["Refresh context or map update"]
     G -->|pending update| K["Accept/revise/reject map mutation"]
+    G -->|degradation warning| Q["Review budget or replacement"]
     H --> A
     I --> A
     J --> A
     K --> A
+    Q --> A
 
     G -->|none| L{"Semantically sufficient for user goal?"}
     L -->|yes| M["Create FinalSynthesis and complete map"]
@@ -1076,6 +1224,7 @@ Stopping is allowed when you need user input, hit a tool/context limit, or canno
 When stopping, submit a Blocker artifact with the reason and the next needed input.
 Gate is a formal protocol check, not a quality or semantic-completeness judgment.
 The main agent is responsible for deciding whether artifacts are sufficient for the user goal.
+If degradation warnings are raised, review whether to upgrade the budget, repair the map, ask the user, or replace the map.
 Do not invent quality scores. Record evidence, limitations, blockers, and verification results.
 ```
 
@@ -1091,6 +1240,7 @@ Do not invent quality scores. Record evidence, limitations, blockers, and verifi
 停止时必须提交 Blocker artifact，说明原因和下一步需要的信息。
 Gate 只是形式化协议检查，不判断质量或语义完成度。
 主 agent 负责判断 artifact 是否足以回答用户目标。
+收到劣化 warning 时，必须评估是升级预算、修补 map、询问用户，还是创建 replacement map。
 不要编造质量分，只记录证据、限制、阻塞和验证结果。
 ```
 
@@ -1119,7 +1269,7 @@ Allowed actions:
 <allowed tools / read-write scope / explicit constraints>
 
 Expected artifact:
-kind: <Finding | Analysis | PatchProposal | ReviewResult | VerificationResult | Blocker | MapUpdateRequest | FinalSynthesis>
+kind: <Finding | Analysis | PatchProposal | ReviewResult | VerificationResult | Blocker | MapUpdateRequest | DegradationReview | FinalSynthesis>
 must include:
 - evidence_refs
 - limitations
