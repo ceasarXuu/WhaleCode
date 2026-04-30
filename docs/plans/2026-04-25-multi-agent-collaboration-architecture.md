@@ -1304,35 +1304,92 @@ pub struct ContextPack {
     pub required_sources: Vec<ContextSource>,
     pub results: Vec<ResultRef>,
     pub constraints: Vec<String>,
+    pub freshness_tokens: Vec<FreshnessToken>,
+}
+
+pub struct FreshnessToken {
+    pub scope: FreshnessScope,
+    pub id: String,
+    pub version: String,
 }
 ```
 
 这里的 `stale context` 不是“内容质量差”，也不是模型判断错误。
-它只表示 assignment 使用的上下文快照已经不是当前 map/node 的最新事实源，因此该结果可能是 stale write，不能直接推进 gate。
+它是一个乐观锁机制：assignment 发出时，runtime 给这次工作打包一份上下文快照，并记录这份快照依赖的版本 token。
+subagent 提交 result 时，runtime 再把 result 携带的 token 与当前事实源逐项比对。
+只要某个依赖在 assignment 执行期间被更新，result 就是 stale，不能直接推进 gate。
 
-第一版只做版本和来源检查：
+换句话说：
 
 ```text
-fresh if:
-  assignment.graph_version == current.graph_version
-  assignment.node_version == current.node_version
-  required result versions unchanged
-
-stale if:
-  upstream result changed
-  node status changed
-  source ref in ContextPack changed after context pack was issued
-  inherited result was superseded
+stale context = result 基于旧快照产出，不再保证适用于当前 map/node/source 状态。
 ```
 
-第一版 `relevant source` 只来自显式记录，不做全局推断：
+它防的是 stale write，不是防“分析质量差”。
+
+第一版只做版本 token 检查。
+需要记录的 token：
+
+| Token | 来源 | 什么时候变化 |
+| --- | --- | --- |
+| `graph_version` | `ActionMapInstance.graph_version` | map mutation 提交后变化 |
+| `node_version` | `MapNode.version` | node context、blocker、目标、required result 或 gate 变化后变化 |
+| `source_version` | `ContextPack.required_sources` | 明确依赖的文件、文档、命令输出、日志片段等来源变化后变化 |
+| `result_version` | inherited results | 上游 result 被替换、废弃、重跑或 supersede 后变化 |
+
+判断流程：
+
+```text
+issue assignment:
+  context_pack.graph_version = current_map.graph_version
+  context_pack.node_version = current_node.version
+  context_pack.freshness_tokens = versions of required sources and inherited results
+
+subagent submits result:
+  if result.base_graph_version != current_map.graph_version:
+    reject as stale
+  if result.base_node_version != current_node.version:
+    reject as stale
+  for each freshness_token in context_pack:
+    if current_version(token.scope, token.id) != token.version:
+      reject as stale
+  otherwise:
+    result is fresh enough for formal gate
+```
+
+哪些东西会让 result stale：
+
+- map 生长、拆分 node、新增依赖边，导致 `graph_version` 改变。
+- 当前 node 的 blocker、目标、上下文边界、required result、gate 被修改，导致 `node_version` 改变。
+- assignment 明确依赖的文件、文档、日志片段或命令输出被更新，导致 `source_version` 改变。
+- 上游 result 被替换、重跑或标记 superseded，导致 `result_version` 改变。
+
+哪些东西不会自动让 result stale：
+
+- 不在 `ContextPack.required_sources` 里的无关文件变化。
+- 另一个无依赖 sibling node 完成。
+- 新增一个与当前 node 没有依赖路径的并行 node。
+- 主 agent 主观觉得结果“不够好”。
+
+第一版 `source_version` 只来自显式记录，不做全局推断：
 
 - `ContextPack.required_sources`
 - node `context_state.source_refs`
 - inherited results
 - assignment 明确允许或要求读取的文件范围
 
-如果 stale，result 不能直接通过 gate，必须刷新 context pack、重新发 assignment，或由主 agent判断旧结果只适合当作参考材料。
+如果 stale，result 不能直接通过 gate。
+runtime 应把它保存为 stale result 或 rejected result，通知主 agent：
+
+```text
+ResultRejected {
+  reason: stale_context
+  stale_tokens: [...]
+  recovery: refresh_context_pack | rerun_assignment | keep_as_reference
+}
+```
+
+主 agent 决定刷新 context pack 后重跑、创建恢复 node，还是只把旧 result 当作参考材料。
 
 ## Result Envelope
 
