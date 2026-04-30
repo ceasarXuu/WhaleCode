@@ -128,7 +128,8 @@ flowchart TD
     RV --> M
 ```
 
-并行只是 `NodeExecution` 的一种策略，不再单独抽象成一套组织系统。
+并行不是 node 内的多人同时执行。第一版的并行来自多个无依赖的 ready nodes 同时被不同 agent claim。
+同一个 node 同一时刻只能有一个 active lease。
 
 ## BaseMap
 
@@ -170,6 +171,7 @@ pub struct ActionMapInstance {
     pub status: MapStatus,
     pub graph_version: GraphVersion,
     pub nodes: Vec<MapNode>,
+    pub edges: Vec<MapEdge>,
     pub artifacts: Vec<ArtifactRef>,
     pub events: Vec<MapEventRef>,
 }
@@ -201,13 +203,46 @@ pub struct MapNode {
     pub title: String,
     pub purpose: String,
     pub status: NodeStatus,
-    pub dependencies: Vec<NodeId>,
     pub context_boundary: ContextBoundary,
+    pub context_state: NodeContextState,
     pub required_artifacts: Vec<ArtifactKind>,
     pub gate: GateSpec,
+    pub active_lease: Option<AssignmentLeaseId>,
     pub version: NodeVersion,
 }
 ```
+
+`dependencies` 不放在 `MapNode` 内部，而是由 `ActionMapInstance.edges` 表达。
+这样 node 保持为子任务状态容器，图关系由 map 统一维护。
+
+```rust
+pub struct NodeContextState {
+    pub source_refs: Vec<ContextRef>,
+    pub inherited_artifacts: Vec<ArtifactRef>,
+    pub local_notes: Vec<NodeNote>,
+    pub blockers: Vec<ArtifactRef>,
+}
+```
+
+Node 持有与该子任务相关的上下文状态，agent 只临时执行：
+
+| 所有者 | 持有内容 |
+| --- | --- |
+| `MapNode` | context boundary、context pack source refs、inherited artifacts、local notes、blockers、active lease、node version |
+| `Agent` | 临时推理过程、工具执行过程、最终提交的 artifact |
+
+任何 agent 接手 node 时，都必须从 node 的 `context_state` 和 inherited artifacts 恢复工作，而不是依赖前一个 agent 的私有记忆。
+agent 停止、失败或被关闭后，node 仍保留可接手状态。
+
+同一时刻一个 node 最多只能被一个 agent 持有：
+
+```text
+node.active_lease == none      -> runtime may issue assignment
+node.active_lease == lease_id  -> node is claimed; other agents cannot claim it
+```
+
+这里的持有是 active execution lease，不是永久所有权。
+一个 node 历史上可以被多个 agent 接手，但每个时间点只能有一个 active holder。
 
 `NodeStatus` 第一版只需要：
 
@@ -233,6 +268,45 @@ agent 停止不等于节点完成：
 - `waiting_user` 和 `blocked` 都是合法停止结果，只阻止该 node 被标记为 completed。
 - 用户补充信息或 map 更新后，runtime 可以刷新 assignment 并让同一个或其他 agent 继续。
 
+`running` 表示 node 已被某个 active lease claim。
+只有当前 lease 对应的 agent 能提交该 node 的 artifact；其他 agent 必须等待 lease 完成、失效或被 revoke。
+
+## MapEdge
+
+第一版只保留有向依赖边，不引入无向边。
+
+```rust
+pub struct MapEdge {
+    pub from: NodeId,
+    pub to: NodeId,
+    pub kind: EdgeKind,
+}
+
+pub enum EdgeKind {
+    DependsOn,
+}
+```
+
+语义：
+
+```text
+A -> B means B depends on A.
+B cannot become ready or claimed until A is completed.
+```
+
+可并行不需要显式边表达。
+两个 node 之间没有依赖路径，且都满足 ready 条件时，runtime 可以把它们同时派给不同 agent。
+
+```text
+ready_nodes = nodes where:
+  status == ready
+  active_lease == none
+  all upstream dependency edges point from completed nodes
+```
+
+不要用无向边表达“可并行”。无向边容易混淆为共享上下文、冲突关系、同阶段、审查关系或协作关系。
+这些关系如果未来被真实任务证明必要，应作为明确的 relation 类型另行设计；第一版不做。
+
 ## NodeExecution
 
 `NodeExecution` 只描述一个节点本次怎么执行。
@@ -248,7 +322,6 @@ pub struct NodeExecution {
 
 pub enum ExecutionStrategy {
     Single,
-    Parallel,
     Review,
     Verify,
 }
@@ -259,7 +332,6 @@ pub enum ExecutionStrategy {
 | Strategy | 用途 |
 | --- | --- |
 | `Single` | 一个 agent 执行节点 |
-| `Parallel` | 多个 agent 分片执行同一节点 |
 | `Review` | 对已有 artifact 做审查 |
 | `Verify` | 对已有 artifact 做验证 |
 
@@ -269,10 +341,12 @@ pub enum ExecutionStrategy {
 
 ```text
 small/simple node -> Single
-large/read-only scan -> Parallel
 artifact needs critique -> Review
 artifact needs proof -> Verify
 ```
+
+如果任务需要并行扫描，runtime 应优先把工作拆成多个 sibling nodes，再由不同 agent 分别 claim。
+不要让多个 agent 同时 claim 同一个 node。
 
 ## AgentAssignment
 
@@ -341,6 +415,18 @@ if mode == experiment and subagent action targets only map_id:
 - `CollabAgentSpawnBegin/End`、`CollabAgentInteractionBegin/End`、`CollabWaitingBegin/End` 作为现有 session event。
 
 lease 可以先作为 Map Runtime 中的内存/rollout metadata，绑定 `assignment_id -> AgentPath/ThreadId`，不需要替换 `AgentRegistry`。
+签发 active lease 必须是 node claim 的原子动作：
+
+```text
+if node.status == ready and node.active_lease == none:
+  issue AssignmentLease
+  node.active_lease = lease_id
+  node.status = running
+else:
+  reject claim
+```
+
+这条规则保证一个 node 同一时刻最多只有一个 agent 持有。
 
 ```rust
 pub struct AssignmentLease {
@@ -796,7 +882,16 @@ node_2: 梳理现有 multi-agent 基建
 node_3: 分析 map runtime 接入风险
 node_4: 形成 MVP 实施顺序
 node_5: 审查方案是否过度设计
+
+edges:
+node_1 -> node_2
+node_2 -> node_3
+node_3 -> node_4
+node_4 -> node_5
 ```
+
+如果 runtime 后续把 `node_2` 拆成 `node_2a: 查 spawn/send/wait/close` 和 `node_2b: 查 session event/registry`，这两个 sibling nodes 之间不需要无向边。
+它们没有依赖路径，且都 ready 时，就可以分别被不同 agent claim。
 
 ### Step 3：ready node 生成 assignment
 
@@ -994,21 +1089,22 @@ agent: stopped
 
 - 定义 `ActionMapInstance`。
 - 定义 `MapNode`。
+- 定义有向 `MapEdge`。
 - 根据用户任务从唯一 `BaseMap` 初始化最小 map。
 - 支持查看当前 map。
 
-验收：一个复杂任务能从 `BaseMap` 初始化出 3-8 个可解释节点，并允许 runtime 根据实际任务跳过、拆分或补充节点；任何 subagent assignment 都能追溯到唯一 node。
+验收：一个复杂任务能从 `BaseMap` 初始化出 3-8 个可解释节点和有向依赖边，并允许 runtime 根据实际任务跳过、拆分或补充节点；任何 subagent assignment 都能追溯到唯一 node。
 
 ### MA-2：Assignment 与 ContextPack
 
 - Ready node 可生成 assignment。
 - assignment 携带 context pack。
-- assignment 生成 active lease。
+- assignment 生成 active lease，并原子 claim node。
 - multi-agent 协作工具必须通过 lease 校验。
 - artifact 记录 base version。
 - stale artifact 被拒绝或要求重跑。
 
-验收：上游节点变化后，下游旧 artifact 不能直接通过 gate；无 active lease 的 multi-agent 协作工具调用和 artifact 提交会被拒绝。
+验收：上游节点变化后，下游旧 artifact 不能直接通过 gate；无 active lease 的 multi-agent 协作工具调用和 artifact 提交会被拒绝；同一个 node 无法同时签发两个 active leases。
 
 ### MA-3：Artifact 与 Gate
 
