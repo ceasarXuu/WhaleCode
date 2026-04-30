@@ -565,6 +565,116 @@ Events are state transitions.
 
 如果消息内容影响任务结论，必须转成 artifact。
 
+## Prompt 合同
+
+Prompt 不是强约束，强约束由 runtime guard、lease、artifact gate 执行。但 prompt 必须把当前 map/node/assignment 说明清楚，否则 agent 很难正确行动。
+
+第一版复用现有注入点：
+
+| 现有机制 | Prompt 用法 |
+| --- | --- |
+| `multi_agent_v2.usage_hint_text` | 根 agent 看到 experiment 模式规则和 map-first 工作方式 |
+| `developer_instructions` | 注入当前模式、active map 摘要、当前节点约束 |
+| `build_agent_spawn_config(... base_instructions ...)` | 子 agent 继承基础行为规则 |
+| `spawn_agent.message` | 传递 assignment-specific prompt |
+| `InterAgentCommunication.content` | 临时 follow-up 或 completion 文本，不能替代 artifact |
+
+### 根 agent prompt
+
+根 agent 在 experiment 模式下必须收到短规则：
+
+```text
+You are operating in WhaleCode multi-agents experiment mode.
+Every agent action must be bound to an ActionMapInstance.
+If no active map exists, create one from BaseMap before delegating work.
+Do not treat free-form messages as completed work.
+A node can complete only through accepted artifacts and gate evaluation.
+Do not invent quality scores. Record evidence, limitations, blockers, and verification results.
+```
+
+中文等价要求：
+
+```text
+当前是 multi-agents experiment 模式。
+所有 agent 行动必须绑定 ActionMapInstance。
+没有 active map 时，先从 BaseMap 创建 map，再委派。
+自然语言消息不能直接代表节点完成。
+节点只能通过 artifact + gate 完成。
+不要编造质量分，只记录证据、限制、阻塞和验证结果。
+```
+
+### Assignment prompt
+
+子 agent 的 `spawn_agent.message` 必须由 assignment 生成，而不是让主 agent 临场自由写一封任务信。
+
+最小结构：
+
+```text
+Map: <map_id>
+Node: <node_id> - <node_title>
+Assignment: <assignment_id>
+Lease: <lease_id>
+
+Objective:
+<one concrete objective>
+
+Context:
+- graph_version: <version>
+- node_version: <version>
+- required sources: <short list>
+- inherited artifacts: <ids or none>
+
+Allowed actions:
+<allowed tools / read-write scope / explicit constraints>
+
+Expected artifact:
+kind: <Finding | Analysis | PatchProposal | ReviewResult | VerificationResult | Blocker>
+must include:
+- evidence_refs
+- limitations
+- files or commands inspected, when applicable
+- verification run, when applicable
+
+Do not:
+- work outside this node without a new assignment
+- claim the node is complete
+- hide blockers
+- invent quality scores
+```
+
+### Artifact submission prompt
+
+当 agent 准备提交结果时，prompt 应要求它按 artifact 结构输出，而不是写总结信：
+
+```text
+Submit an artifact for the current assignment.
+Use the expected artifact kind.
+Include the assignment id, map id, node id, evidence refs, limitations, and any blockers.
+If you cannot satisfy the expected artifact, submit a Blocker artifact instead.
+```
+
+### Map update prompt
+
+用户 follow-up 改变任务目标时，根 agent 不应直接继续执行，而应先更新 map：
+
+```text
+The user changed or refined the task.
+Before delegating more work, update the active ActionMapInstance:
+- keep completed nodes unchanged unless invalidated
+- mark stale nodes if their assumptions changed
+- add or revise nodes only as needed
+- issue new assignments after the map update
+```
+
+### Prompt 失败处理
+
+如果 agent 输出绕过 map 的自然语言结果，runtime 不应让模型自己判断是否通过，而应返回恢复提示：
+
+```text
+Your response was not accepted because it was not submitted as an artifact for the active map node.
+Submit the expected artifact or a Blocker artifact for assignment <assignment_id>.
+```
+
 ## 与当前 Codex 基建的关系
 
 现有 Codex subagent 机制继续作为执行底座：
