@@ -181,14 +181,16 @@ pub struct ActionMapInstance {
 `MapStatus` 第一版只需要：
 
 ```text
-created -> running -> completed
-              |
-              -> blocked
-              -> paused
-              -> aborted
+active -> completed
+       -> abandoned
 ```
 
+`active` 覆盖 map 已创建且仍在推进、等待、阻塞或生长的所有情况。
+`completed` 表示主 agent 已提交 `FinalSynthesis`，且 formal gate 通过。
+`abandoned` 表示用户或主 agent 明确放弃继续推进。
+
 不要先做复杂 phase machine。是否需要 phase，等真实任务证明 node/gate 不够用以后再引入。
+也不要设计 map 级 `blocked`、`paused` 这类派生状态；它们可以从 node、lease、blocker 和 pending update 计算出来。
 
 ## MapNode
 
@@ -251,17 +253,14 @@ node.active_lease == lease_id  -> node is claimed; other agents cannot claim it
 pending -> ready -> running -> completed
                        |
                        -> blocked
-                       -> waiting_user
-ready -> skipped
 ready -> pending
-ready/running/completed -> stale -> ready
 ```
 
 节点在协议层关闭必须满足：
 
 - required artifacts 已提交。
 - formal gate 通过。
-- 没有 stale context。
+- context fresh。
 - 没有 unresolved blocker。
 
 `completed` 只表示该 node 满足当前 map 协议下的形式化关闭条件，不表示开放任务已经被 runtime 客观证明“正确完成”或“高质量完成”。
@@ -269,9 +268,8 @@ ready/running/completed -> stale -> ready
 
 agent 停止不等于节点完成：
 
-- 需要用户补充信息时，agent 提交 `Blocker`，node 进入 `waiting_user`。
+- 需要用户补充信息时，agent 提交 `Blocker(stop_reason=need_user_input)`，node 进入 `blocked`。
 - agent 判断无法继续时，agent 提交 `Blocker`，node 进入 `blocked`。
-- `waiting_user` 和 `blocked` 都是合法停止结果，只阻止该 node 被标记为 completed。
 - 用户补充信息或 map 更新后，runtime 可以刷新 assignment 并让同一个或其他 agent 继续。
 
 `running` 表示 node 已被某个 active lease claim。
@@ -285,14 +283,14 @@ agent 停止不等于节点完成：
 | `ready` | map update 新增未完成上游依赖 | `pending` | runtime |
 | `ready` | active lease 原子签发成功 | `running` | runtime |
 | `running` | 当前 lease 提交 required artifacts 且 gate pass | `completed` | runtime |
-| `running` | 当前 lease 提交 `Blocker(stop_reason=need_user_input)` | `waiting_user` | runtime |
-| `running` | 当前 lease 提交 `Blocker(stop_reason=unable_to_proceed/tool_limit/context_missing)` | `blocked` | runtime |
-| `ready` | map update 判定 node 不再需要 | `skipped` | runtime |
-| `ready/running/completed` | 用户目标或上游 artifact 变化使假设失效 | `stale` | runtime |
-| `stale` | context_state 刷新并重新满足依赖 | `ready` | runtime |
+| `running` | 当前 lease 提交 `Blocker` | `blocked` | runtime |
+| `blocked` | blocker 被用户补充、map update 或恢复 artifact 解决 | `ready` | runtime |
+| `running` | 用户目标或上游 artifact 变化使 assignment 过期 | `pending` 或 `ready` | runtime |
 
-如果 `running` node 被标记为 `stale`，runtime 必须先 revoke 当前 lease，再更新 node。
-agent 不能自己把 node 标记为 completed、skipped、blocked 或 stale。
+stale 不再是 node 状态。它是 context/version 检查结果。
+如果 `running` node 的 context 过期，runtime 必须先 revoke 当前 lease，再根据依赖是否满足把 node 重新计算为 `pending` 或 `ready`。
+如果 node 不再需要，runtime 不新增 `skipped` 状态；应通过 map update 移除其依赖影响，并在事件中记录原因。
+agent 不能自己把 node 标记为 `completed`、`blocked`、`pending` 或 `ready`。
 
 ## MapEdge
 
@@ -342,8 +340,6 @@ ready_nodes = nodes where:
 | `AddNode` | 执行中发现必须新增的子任务 |
 | `AddEdge` | 新 node 或旧 node 之间新增有向依赖 |
 | `UpdateNodeContext` | 用户补充信息、artifact 或 blocker 改变 node 上下文 |
-| `MarkStale` | 用户目标或上游结论变化导致 node 假设失效 |
-| `SkipNode` | node 已无必要继续执行 |
 | `SplitNode` | node 过大，需要拆成多个 sibling nodes |
 
 谁可以创建新 node：
@@ -362,7 +358,7 @@ MapUpdateRequest:
   base_graph_version: <version>
   reason: <why this map change is needed>
   mutations:
-    - AddNode | AddEdge | UpdateNodeContext | MarkStale | SkipNode | SplitNode
+    - AddNode | AddEdge | UpdateNodeContext | SplitNode
   affected_nodes: <ids>
   evidence_refs: <artifact ids or user turn ids>
 ```
@@ -373,7 +369,7 @@ runtime 接受 mutation 前必须检查：
 - 新增 node 有明确 purpose、context boundary、required artifacts 和 gate。
 - 新增 edge 不形成 cycle。
 - 如果影响 running node，先 revoke active lease。
-- 被影响的下游 assignment/artifact 必须标记 stale 或要求重跑。
+- 被影响的下游 assignment/artifact 必须因为 version mismatch 被拒绝或要求重跑。
 
 提交成功后：
 
@@ -389,7 +385,7 @@ map 生长的关键约束：
 - 新任务必须先变成 node，才能派给 agent。
 - 新 node 默认 `pending`；只有依赖满足且无 active lease 时才能 `ready`。
 - 如果新任务与当前 running node 无依赖关系，它可以成为 sibling node，并与其他 ready nodes 并行被 claim。
-- 如果新任务是当前 node 的前置条件，当前 node 应进入 `blocked` 或 `stale`，等待新 node 完成。
+- 如果新任务是当前 node 的前置条件，当前 node 应进入 `blocked` 或回到 `pending`，等待新 node 完成。
 - map 生长不能直接把任何 node 标记为 completed；完成仍只能来自 artifact + gate。
 
 ## NodeExecution
@@ -530,19 +526,18 @@ pub struct AssignmentLease {
 `LeaseStatus`：
 
 ```text
-active -> completed
+active -> closed
        -> expired
        -> revoked
-       -> stale
 ```
 
-这里的 `completed` 表示 assignment 已经有结构化返回，不等于 node completed。
-agent 提交 `Blocker` 后，lease 可以结束，但 node 只能进入 `blocked` 或 `waiting_user`。
+这里的 `closed` 表示 assignment 已经有结构化返回，不等于 node completed。
+agent 提交 `Blocker` 后，lease 可以结束，但 node 只进入 `blocked`。
 
 lease 失效条件：
 
-- map 被 paused 或 aborted。
-- node 已 completed、skipped、blocked 或 waiting_user。
+- map 被 completed 或 abandoned。
+- node 已 completed 或 blocked。
 - node version 改变且 assignment 未刷新。
 - agent 尝试使用未授权工具。
 - agent 尝试提交不匹配的 artifact 类型。
@@ -606,7 +601,7 @@ Allowed tools: <tools>
 - lease stale：刷新 context pack，重新发 assignment。
 - tool 不允许：返回拒绝，并要求 agent 提交 `Blocker` 或请求 node update。
 - 发现新任务：要求 agent 提交 `MapUpdateRequest`，由根 agent 接受后 runtime 提交 map mutation。
-- agent 主动停止：接收 `Blocker`，结束当前 lease，把 node 标记为 `blocked` 或 `waiting_user`。
+- agent 主动停止：接收 `Blocker`，结束当前 lease，把 node 标记为 `blocked`。
 - 用户改变目标：暂停当前节点，更新 map，再生成新 assignment。
 
 这些恢复都必须写 MapEvent。
@@ -671,7 +666,7 @@ pub struct ArtifactEnvelope<T> {
 | `ReviewResult` | 对 artifact 的审查意见 |
 | `VerificationResult` | 测试、构建、复现、静态检查结果 |
 | `Blocker` | 合法停止记录：需要用户输入、工具/上下文不足、风险过高或无法继续的原因 |
-| `MapUpdateRequest` | 请求 map 生长或修正：新增、拆分、跳过、标记 stale、补充 node context |
+| `MapUpdateRequest` | 请求 map 生长或修正：新增、拆分、补充 node context |
 | `FinalSynthesis` | 主 agent 对 user goal、关键 artifacts、limitations 和 residual risks 的最终语义收束 |
 
 不做额外评分、投票或共识类产物。
@@ -683,7 +678,7 @@ Gate 是 runtime 的形式化准出机制。
 Gate 不评估“质量分”，也不判断开放任务在语义上是否已经充分完成。它只检查明确、有限、可机械判断的协议条件是否满足。
 它可以阻断明显缺证据、上下文过期、验证缺失、存在 blocker 或存在 pending map update 的节点，但不能声称某个复杂结果已经被客观证明为“正确”“完整”或“高质量”。
 
-Gate 只约束“节点是否满足协议关闭条件”，不约束“agent 是否可以停止”。当 agent 提交 `Blocker` 时，runtime 应记录合法停止原因，并把 node 保持在 `blocked` 或 `waiting_user`，而不是继续驱动 agent 硬做。
+Gate 只约束“节点是否满足协议关闭条件”，不约束“agent 是否可以停止”。当 agent 提交 `Blocker` 时，runtime 应记录合法停止原因，并把 node 保持在 `blocked`，而不是继续驱动 agent 硬做。
 当 agent 提交 `MapUpdateRequest` 时，它进入 map mutation 流程，不直接关闭 node；只有 mutation 被提交且当前 node 仍满足 formal gate，node 才能进入 `completed`。
 
 runtime 可以判断：
@@ -797,10 +792,9 @@ graph_version
 ready_nodes
 running_nodes + active_leases
 blocked_nodes
-waiting_user_nodes
-stale_nodes
 pending MapUpdateRequests
-completed/skipped nodes
+completed nodes
+stale artifacts or stale context packs
 final goal coverage
 ```
 
@@ -817,10 +811,10 @@ flowchart TD
     E -->|yes| F["Issue assignment + lease"]
     F --> A
 
-    E -->|no| G{"Blocked, waiting, stale, or pending update?"}
-    G -->|waiting_user| H["Ask user"]
-    G -->|blocked| I["Create recovery node or stop"]
-    G -->|stale| J["Refresh context or map update"]
+    E -->|no| G{"Blocked, stale context, or pending update?"}
+    G -->|blocked: need_user_input| H["Ask user"]
+    G -->|blocked: other reason| I["Create recovery node or stop"]
+    G -->|stale context| J["Refresh context or map update"]
     G -->|pending update| K["Accept/revise/reject map mutation"]
     H --> A
     I --> A
@@ -850,8 +844,8 @@ Map can complete only when:
 - no active leases
 - no pending MapUpdateRequest
 - no unresolved blocker that affects user goal
-- no stale node that affects user goal
-- all required nodes are completed or skipped
+- no stale context or stale artifact that affects user goal
+- all required nodes are completed
 - FinalSynthesis artifact exists
 - FinalSynthesis formal gate passes
 ```
@@ -988,7 +982,8 @@ If you discover new work that must be tracked before execution, submit a MapUpda
 The user changed or refined the task.
 Before delegating more work, update the active ActionMapInstance:
 - keep completed nodes unchanged unless invalidated
-- mark stale nodes if their assumptions changed
+- bump affected node versions if assumptions changed
+- revoke active leases when their context is no longer fresh
 - add or revise nodes only as needed
 - add edges for real dependencies only
 - never use undirected edges for parallelism
@@ -1066,9 +1061,9 @@ flowchart TD
     R1 -->|yes| F["Finding / Analysis artifact"]
     R1 -->|needs input or cannot proceed| BL["Blocker artifact"]
     F --> G["Formal gate checks schema/version/blockers"]
-    BL --> W["Node waiting_user or blocked"]
+    BL --> W["Node blocked with stop_reason"]
     G -->|pass| C["Node completed"]
-    G -->|fail/stale/blocked| H["Refresh assignment or update map"]
+    G -->|fail/stale-context/blocked| H["Refresh assignment or update map"]
 ```
 
 ### Step 1：模式切换
@@ -1084,7 +1079,7 @@ flowchart TD
 ```text
 map_001:
   user_goal: 分析 multi-agent 架构风险并给出 MVP 落地方案
-  status: running
+  status: active
 
 node_1: 明确目标和边界
 node_2: 梳理现有 multi-agent 基建
@@ -1212,7 +1207,7 @@ affected_nodes:
 graph_version: 1 -> 2
 NodeAdded(node_2a)
 EdgeAdded(node_2a -> node_3)
-NodeStatusChanged(node_3: pending or stale)
+NodeStatusChanged(node_3: pending)
 ready_nodes recomputed
 ```
 
@@ -1248,9 +1243,10 @@ question:
 runtime 接收后：
 
 ```text
-lease_004: completed
-node_3: waiting_user
-map_001: running, with waiting node
+lease_004: closed
+node_3: blocked
+blocker.stop_reason: need_user_input
+map_001: active
 
 events:
 - ArtifactSubmitted(Blocker)
@@ -1274,8 +1270,8 @@ runtime 判断这是对当前 blocker 的补充，而不是全新任务。
 
 ```text
 graph_version: 2 -> 3
-node_3: waiting_user -> ready
-old lease: stale or completed
+node_3: blocked -> ready
+old lease: closed
 new assignment: assign_005
 ```
 
@@ -1361,7 +1357,7 @@ agent: stopped
 - assignment 生成 active lease，并原子 claim node。
 - multi-agent 协作工具必须通过 lease 校验。
 - artifact 记录 base version。
-- stale artifact 被拒绝或要求重跑。
+- version-mismatched artifact 被拒绝或要求重跑。
 
 验收：上游节点变化后，下游旧 artifact 不能直接通过 gate；无 active lease 的 multi-agent 协作工具调用和 artifact 提交会被拒绝；同一个 node 无法同时签发两个 active leases。
 
@@ -1370,7 +1366,7 @@ agent: stopped
 - agent 提交结构化 artifact。
 - formal gate 检查 artifact schema、version、blocker、pending update 和 required artifact presence。
 - node protocol closure 只能由 formal gate 触发。
-- agent 提交 `Blocker` 时，assignment 可以结束，但 node 只能进入 `blocked` 或 `waiting_user`。
+- agent 提交 `Blocker` 时，assignment 可以结束，但 node 只能进入 `blocked`。
 
 验收：自然语言“我完成了”不能直接完成节点；自然语言“我需要用户补充信息/我无法继续”必须被记录为 `Blocker`，而不是被当成异常协议失败；runtime 不输出质量分，也不声明开放任务已被客观证明完成。
 
