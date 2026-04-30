@@ -28,6 +28,7 @@ use crate::render::line_utils::prefix_lines;
 use crate::render::line_utils::push_owned_lines;
 use crate::render::renderable::Renderable;
 use crate::style::proposed_plan_style;
+use crate::style::user_message_marker_style;
 use crate::style::user_message_style;
 #[cfg(test)]
 use crate::test_support::PathBufExt;
@@ -377,9 +378,10 @@ impl HistoryCell for UserHistoryCell {
         }
 
         if let Some(wrapped_message) = wrapped_message {
+            let marker_style = user_message_marker_style().bold();
             lines.extend(prefix_lines(
                 wrapped_message,
-                "› ".bold().dim(),
+                Span::styled("user › ", marker_style),
                 "  ".into(),
             ));
         }
