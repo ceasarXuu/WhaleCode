@@ -75,6 +75,7 @@ Experiment 模式的硬约束：
 - 如果没有可用 map，runtime 必须先从 `BaseMap` 新建 `ActionMapInstance`。
 - 无 map/node 绑定时，agent 不允许 spawn、接收 assignment、执行工具或提交结果。
 - 子 agent 只能通过 `AgentAssignment + AssignmentLease` 进入某个 node；node 是 map 中的子任务，不是角色、线程或自由消息主题。
+- 执行中发现的新任务必须先通过 map mutation 生长为 node，不能直接派给 agent。
 - 任何自然语言 follow-up 如果改变任务目标，必须先更新或新建 map，再继续行动。
 
 这里的约束只表示“行动必须有 map 坐标和可追踪记录”，不表示 map 可以强迫 agent 继续执行。
@@ -252,6 +253,8 @@ pending -> ready -> running -> completed
                        -> blocked
                        -> waiting_user
 ready -> skipped
+ready -> pending
+ready/running/completed -> stale -> ready
 ```
 
 节点完成必须满足：
@@ -270,6 +273,23 @@ agent 停止不等于节点完成：
 
 `running` 表示 node 已被某个 active lease claim。
 只有当前 lease 对应的 agent 能提交该 node 的 artifact；其他 agent 必须等待 lease 完成、失效或被 revoke。
+
+状态切换只能由 runtime 写入，agent 只能通过 artifact、Blocker、MapUpdateRequest 或用户 follow-up 间接触发。
+
+| 当前状态 | 触发 | 下一状态 | 写入者 |
+| --- | --- | --- | --- |
+| `pending` | 所有上游依赖完成 | `ready` | runtime |
+| `ready` | map update 新增未完成上游依赖 | `pending` | runtime |
+| `ready` | active lease 原子签发成功 | `running` | runtime |
+| `running` | 当前 lease 提交 required artifacts 且 gate pass | `completed` | runtime |
+| `running` | 当前 lease 提交 `Blocker(stop_reason=need_user_input)` | `waiting_user` | runtime |
+| `running` | 当前 lease 提交 `Blocker(stop_reason=unable_to_proceed/tool_limit/context_missing)` | `blocked` | runtime |
+| `ready` | map update 判定 node 不再需要 | `skipped` | runtime |
+| `ready/running/completed` | 用户目标或上游 artifact 变化使假设失效 | `stale` | runtime |
+| `stale` | context_state 刷新并重新满足依赖 | `ready` | runtime |
+
+如果 `running` node 被标记为 `stale`，runtime 必须先 revoke 当前 lease，再更新 node。
+agent 不能自己把 node 标记为 completed、skipped、blocked 或 stale。
 
 ## MapEdge
 
@@ -306,6 +326,68 @@ ready_nodes = nodes where:
 
 不要用无向边表达“可并行”。无向边容易混淆为共享上下文、冲突关系、同阶段、审查关系或协作关系。
 这些关系如果未来被真实任务证明必要，应作为明确的 relation 类型另行设计；第一版不做。
+
+## Map Growth
+
+初始 map 由根 agent 基于 `BaseMap` 创建，但 `ActionMapInstance` 在执行过程中必须允许生长。
+生长只表示对当前任务图做最小必要修改，不表示引入领域 map、phase machine 或自由规划器。
+
+允许的第一版 map mutation：
+
+| Mutation | 用途 |
+| --- | --- |
+| `AddNode` | 执行中发现必须新增的子任务 |
+| `AddEdge` | 新 node 或旧 node 之间新增有向依赖 |
+| `UpdateNodeContext` | 用户补充信息、artifact 或 blocker 改变 node 上下文 |
+| `MarkStale` | 用户目标或上游结论变化导致 node 假设失效 |
+| `SkipNode` | node 已无必要继续执行 |
+| `SplitNode` | node 过大，需要拆成多个 sibling nodes |
+
+谁可以创建新 node：
+
+| 来源 | 能做什么 | 不能做什么 |
+| --- | --- | --- |
+| 根 agent | 初始化 map；根据用户 follow-up 或 artifact 请求提出 map mutation | 不能绕过 runtime 直接改状态 |
+| subagent | 通过 `MapUpdateRequest` 或 `Blocker` 请求新增、拆分或更新 node | 不能直接创建 node，不能直接改 edge/status |
+| runtime | 校验并提交 mutation，写入 graph_version 和 MapEvent | 不能凭空生成业务判断，只能执行已被根 agent 接受的 mutation |
+| user follow-up | 改变目标、补充信息、确认 blocker | 不直接编辑内部图；由根 agent 转成 map update |
+
+提交 map mutation 的最小规则：
+
+```text
+MapUpdateRequest:
+  base_graph_version: <version>
+  reason: <why this map change is needed>
+  mutations:
+    - AddNode | AddEdge | UpdateNodeContext | MarkStale | SkipNode | SplitNode
+  affected_nodes: <ids>
+  evidence_refs: <artifact ids or user turn ids>
+```
+
+runtime 接受 mutation 前必须检查：
+
+- `base_graph_version` 仍然 fresh。
+- 新增 node 有明确 purpose、context boundary、required artifacts 和 gate。
+- 新增 edge 不形成 cycle。
+- 如果影响 running node，先 revoke active lease。
+- 被影响的下游 assignment/artifact 必须标记 stale 或要求重跑。
+
+提交成功后：
+
+```text
+graph_version += 1
+append MapEvent::MapUpdated
+append NodeAdded / EdgeAdded / NodeStatusChanged as needed
+recompute ready_nodes
+```
+
+map 生长的关键约束：
+
+- 新任务必须先变成 node，才能派给 agent。
+- 新 node 默认 `pending`；只有依赖满足且无 active lease 时才能 `ready`。
+- 如果新任务与当前 running node 无依赖关系，它可以成为 sibling node，并与其他 ready nodes 并行被 claim。
+- 如果新任务是当前 node 的前置条件，当前 node 应进入 `blocked` 或 `stale`，等待新 node 完成。
+- map 生长不能直接把任何 node 标记为 completed；完成仍只能来自 artifact + gate。
 
 ## NodeExecution
 
@@ -493,7 +575,7 @@ artifact.node_id == assignment.node_id
 artifact.assignment_id == assignment.id
 artifact.base_graph_version == assignment.context_pack.graph_version
 artifact.base_node_version == assignment.context_pack.node_version
-artifact.kind == assignment.expected_artifact || artifact.kind == Blocker
+artifact.kind == assignment.expected_artifact || artifact.kind == Blocker || artifact.kind == MapUpdateRequest
 ```
 
 不满足时，artifact 进入 rejected，不允许进入 gate。
@@ -520,6 +602,7 @@ Allowed tools: <tools>
 - 缺 node：让 runtime 选择 ready node，或创建 clarify/update node。
 - lease stale：刷新 context pack，重新发 assignment。
 - tool 不允许：返回拒绝，并要求 agent 提交 `Blocker` 或请求 node update。
+- 发现新任务：要求 agent 提交 `MapUpdateRequest`，由根 agent 接受后 runtime 提交 map mutation。
 - agent 主动停止：接收 `Blocker`，结束当前 lease，把 node 标记为 `blocked` 或 `waiting_user`。
 - 用户改变目标：暂停当前节点，更新 map，再生成新 assignment。
 
@@ -585,6 +668,7 @@ pub struct ArtifactEnvelope<T> {
 | `ReviewResult` | 对 artifact 的审查意见 |
 | `VerificationResult` | 测试、构建、复现、静态检查结果 |
 | `Blocker` | 合法停止记录：需要用户输入、工具/上下文不足、风险过高或无法继续的原因 |
+| `MapUpdateRequest` | 请求 map 生长或修正：新增、拆分、跳过、标记 stale、补充 node context |
 
 不做额外评分、投票或共识类产物。
 
@@ -595,6 +679,7 @@ Gate 是唯一准出机制。
 Gate 不评估“质量分”，只检查明确条件是否满足。它可以阻断明显缺证据、上下文过期、验证缺失或存在 blocker 的节点，但不能声称某个复杂结果已经被客观量化为“高质量”。
 
 Gate 只约束“节点是否可以完成”，不约束“agent 是否可以停止”。当 agent 提交 `Blocker` 时，runtime 应记录合法停止原因，并把 node 保持在 `blocked` 或 `waiting_user`，而不是继续驱动 agent 硬做。
+当 agent 提交 `MapUpdateRequest` 时，它进入 map mutation 流程，不直接完成 node；只有 mutation 被提交且当前 node 仍满足 gate，node 才能继续进入 completed。
 
 ```rust
 pub struct GateSpec {
@@ -617,6 +702,7 @@ pub enum GateResult {
 - base version 是否仍然 fresh。
 - required verification 是否通过。
 - 是否存在 blocker。
+- 是否存在未处理的 map update request。
 - artifact 是否显式记录关键限制和未验证部分。
 
 ```mermaid
@@ -629,7 +715,9 @@ flowchart TD
     D -->|no| F
     D -->|yes| E{"Blocker exists?"}
     E -->|yes| BL["Gate Blocked"]
-    E -->|no| P["Gate Pass"]
+    E -->|no| U{"Pending map update?"}
+    U -->|yes| BL
+    U -->|no| P["Gate Pass"]
 ```
 
 ## MapEvent
@@ -640,8 +728,11 @@ flowchart TD
 pub enum MapEvent {
     ModeChanged,
     MapCreated,
+    MapUpdated,
     NodeAdded,
+    EdgeAdded,
     NodeStarted,
+    NodeStatusChanged,
     AssignmentIssued,
     AssignmentLeaseIssued,
     AssignmentLeaseRevoked,
@@ -746,7 +837,7 @@ Allowed actions:
 <allowed tools / read-write scope / explicit constraints>
 
 Expected artifact:
-kind: <Finding | Analysis | PatchProposal | ReviewResult | VerificationResult | Blocker>
+kind: <Finding | Analysis | PatchProposal | ReviewResult | VerificationResult | Blocker | MapUpdateRequest>
 must include:
 - evidence_refs
 - limitations
@@ -758,6 +849,7 @@ Do not:
 - claim the node is complete
 - hide blockers
 - keep working after you know the assignment is blocked
+- start newly discovered work before requesting a map update
 - invent quality scores
 ```
 
@@ -771,6 +863,7 @@ Use the expected artifact kind.
 Include the assignment id, map id, node id, evidence refs, limitations, and any blockers.
 If you need user input, hit a tool/context limit, or cannot proceed, submit a Blocker artifact instead.
 The Blocker must include: stop_reason, what was tried, what is missing, and the exact question or recovery needed.
+If you discover new work that must be tracked before execution, submit a MapUpdateRequest instead.
 ```
 
 ### Map update prompt
@@ -783,6 +876,8 @@ Before delegating more work, update the active ActionMapInstance:
 - keep completed nodes unchanged unless invalidated
 - mark stale nodes if their assumptions changed
 - add or revise nodes only as needed
+- add edges for real dependencies only
+- never use undirected edges for parallelism
 - issue new assignments after the map update
 ```
 
@@ -792,7 +887,7 @@ Before delegating more work, update the active ActionMapInstance:
 
 ```text
 Your response was not accepted because it was not submitted as an artifact for the active map node.
-Submit the expected artifact or a Blocker artifact for assignment <assignment_id>.
+Submit the expected artifact, a Blocker artifact, or a MapUpdateRequest artifact for assignment <assignment_id>.
 ```
 
 ## 与当前 Codex 基建的关系
@@ -964,17 +1059,61 @@ NodeCompleted
 
 然后 `node_2` 进入 `completed`，依赖它的后续 node 才能进入 `ready`。
 
-### Step 6：agent 可以合法停止
+### Step 6：执行中发现新任务，map 生长
+
+如果执行 `node_2` 时，subagent 发现“artifact ingestion 入口不清楚，必须新增一个专门的源码定位任务”，它不能直接开始做新任务，也不能直接创建 node。
+正确返回是 `MapUpdateRequest`：
+
+```text
+Artifact: artifact_003
+kind: MapUpdateRequest
+map_id: map_001
+node_id: node_2
+assignment_id: assign_002
+base_graph_version: 1
+
+reason:
+需要先定位 artifact ingestion 入口，否则 node_3 的风险分析缺少实现锚点。
+
+mutations:
+- AddNode:
+    id: node_2a
+    title: 定位 artifact ingestion 入口
+    purpose: 找到 completion notification 如何转成 artifact ingestion
+    required_artifacts: [Finding]
+    gate: source refs present
+- AddEdge:
+    from: node_2a
+    to: node_3
+
+affected_nodes:
+- node_3
+```
+
+根 agent 判断该请求合理后，runtime 提交 mutation：
+
+```text
+graph_version: 1 -> 2
+NodeAdded(node_2a)
+EdgeAdded(node_2a -> node_3)
+NodeStatusChanged(node_3: pending or stale)
+ready_nodes recomputed
+```
+
+如果 `node_2a` 没有未完成上游依赖且没有 active lease，它会进入 `ready`，之后才能被某个 agent claim。
+这就是 map 生长：新发现的任务先成为 node，再通过 assignment 派发。
+
+### Step 7：agent 可以合法停止
 
 如果执行 `node_3` 时，agent 发现需要用户确认“第一版是否只约束 multi-agent 协作入口，还是普通 shell/read/edit 也要强拦截”，它不应该硬编结论。
 正确返回是 `Blocker`：
 
 ```text
-Artifact: artifact_003
+Artifact: artifact_004
 kind: Blocker
 map_id: map_001
 node_id: node_3
-assignment_id: assign_003
+assignment_id: assign_004
 
 stop_reason: need_user_input
 what_was_tried:
@@ -993,7 +1132,7 @@ question:
 runtime 接收后：
 
 ```text
-lease_003: completed
+lease_004: completed
 node_3: waiting_user
 map_001: running, with waiting node
 
@@ -1006,7 +1145,7 @@ events:
 
 这不是协议失败。map 只是记录工作状态，不能强迫 agent 继续执行。
 
-### Step 7：用户补充后继续
+### Step 8：用户补充后继续
 
 用户回答：
 
@@ -1018,16 +1157,16 @@ runtime 判断这是对当前 blocker 的补充，而不是全新任务。
 它更新 map：
 
 ```text
-graph_version: 1 -> 2
+graph_version: 2 -> 3
 node_3: waiting_user -> ready
 old lease: stale or completed
-new assignment: assign_004
+new assignment: assign_005
 ```
 
-新的 `ContextPack` 带上 `artifact_003` 和用户补充信息。
+新的 `ContextPack` 带上 `artifact_004` 和用户补充信息。
 同一个 agent 或另一个 agent 可以继续执行 `node_3`。
 
-### Step 8：无法继续的停止分支
+### Step 9：无法继续的停止分支
 
 如果 agent 不是需要用户输入，而是判断自己无法继续，也提交 `Blocker`：
 
@@ -1065,6 +1204,7 @@ agent: stopped
 - `assignment` 决定 agent 本次具体做什么。
 - `lease` 决定 agent 是否有权对 node 产生产物。
 - `artifact` 决定 agent 的结果是否可被 runtime 消费。
+- `MapUpdateRequest` 允许执行中发现的新任务生长为 node。
 - `gate` 决定 node 是否能完成。
 - `Blocker` 允许 agent 合法停止，而不是为了通过流程编造进展。
 
@@ -1090,10 +1230,12 @@ agent: stopped
 - 定义 `ActionMapInstance`。
 - 定义 `MapNode`。
 - 定义有向 `MapEdge`。
+- 定义 `NodeStatus` 状态机和 runtime-only 状态切换规则。
+- 定义 `MapUpdateRequest` 和 map mutation 提交流程。
 - 根据用户任务从唯一 `BaseMap` 初始化最小 map。
 - 支持查看当前 map。
 
-验收：一个复杂任务能从 `BaseMap` 初始化出 3-8 个可解释节点和有向依赖边，并允许 runtime 根据实际任务跳过、拆分或补充节点；任何 subagent assignment 都能追溯到唯一 node。
+验收：一个复杂任务能从 `BaseMap` 初始化出 3-8 个可解释节点和有向依赖边；执行中发现的新任务能通过 `MapUpdateRequest` 生长为新 node；任何 subagent assignment 都能追溯到唯一 node。
 
 ### MA-2：Assignment 与 ContextPack
 
