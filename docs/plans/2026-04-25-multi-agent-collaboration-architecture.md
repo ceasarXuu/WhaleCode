@@ -56,7 +56,7 @@ Multi-agent 框架必须可插拔。
 /multi-agents experiment
   实验模式。
   启用 Action Map Runtime。
-  后续 multi-agent 行为必须绑定 map node、artifact 和 gate。
+  后续所有 agent 行为必须绑定 map。
 ```
 
 第一阶段状态应是 session-scoped，不改变全局默认值。runtime 只需要记录当前模式、active map id 和切换 turn。
@@ -67,6 +67,14 @@ Multi-agent 框架必须可插拔。
 - `experiment -> standard`：停止对新行为施加 Action Map 约束；已运行 subagent 不强杀。
 - 切换不清空 session、rollout、compact 历史或 agent registry。
 - 每次切换必须写 session event，便于 replay。
+
+Experiment 模式的硬约束：
+
+- agent 每次行动都必须由 map 驱动。
+- 行动可以绑定已有 `ActionMapInstance`。
+- 如果没有可用 map，runtime 必须先从 `BaseMap` 新建 `ActionMapInstance`。
+- 无 map 绑定时，agent 不允许 spawn、接收 assignment、执行工具或提交结果。
+- 任何自然语言 follow-up 如果改变任务目标，必须先更新或新建 map，再继续行动。
 
 ## 最小运行模型
 
@@ -256,6 +264,7 @@ Agent 是执行资源，不是固定角色。
 ```rust
 pub struct AgentAssignment {
     pub id: AssignmentId,
+    pub map_id: ActionMapId,
     pub node_id: NodeId,
     pub objective: String,
     pub context_pack: ContextPack,
@@ -265,7 +274,7 @@ pub struct AgentAssignment {
 }
 ```
 
-agent 可以在 map 上移动，但每次移动都必须生成新的 assignment 和 context pack。
+agent 可以在 map 上移动，但每次移动都必须生成新的 assignment 和 context pack。assignment 必须同时绑定 `map_id` 和 `node_id`；只绑定 agent 或 thread 不算 map 驱动。
 
 ## ContextPack
 
@@ -450,8 +459,9 @@ Ready MapNode
 - session state 记录当前模式。
 - 模式切换写 event。
 - `standard` 行为保持现状。
+- `experiment` 模式下无 active map 时自动从 `BaseMap` 创建 map。
 
-验收：关闭 experiment 后，当前 spawn/send/wait/close 行为不变。
+验收：关闭 experiment 后，当前 spawn/send/wait/close 行为不变；开启 experiment 后，没有 map 绑定的 agent 行动会被拒绝或先触发 map 创建。
 
 ### MA-1：Map 与 Node
 
