@@ -738,6 +738,235 @@ Ready MapNode
 - completion notification：复用现有 child-to-parent `InterAgentCommunication`，把它视为 artifact ingestion 的输入来源之一。
 - events：优先扩展现有 collab event payload 或追加轻量 map event，不新增并行事件总线。
 
+## 运行推演
+
+假设用户开启实验模式后提出任务：
+
+```text
+帮我分析 WhaleCode 当前 multi-agent 架构，找出实现风险，并给出第一阶段落地方案。
+```
+
+系统实际运行应像一个 map-bound 派工系统，而不是自由群聊。
+
+```mermaid
+flowchart TD
+    U["User task"] --> M{"experiment mode?"}
+    M -->|yes| B["Create ActionMapInstance from BaseMap"]
+    B --> N1["Node 1: clarify goal/scope"]
+    B --> N2["Node 2: inspect existing infra"]
+    B --> N3["Node 3: identify risks"]
+    B --> N4["Node 4: propose MVP plan"]
+
+    N2 --> A1["Assignment + ContextPack + Lease"]
+    A1 --> S1["Subagent executes"]
+    S1 --> R1{"Can submit expected artifact?"}
+    R1 -->|yes| F["Finding / Analysis artifact"]
+    R1 -->|needs input or cannot proceed| BL["Blocker artifact"]
+    F --> G["Gate checks schema/version/blockers"]
+    BL --> W["Node waiting_user or blocked"]
+    G -->|pass| C["Node completed"]
+    G -->|fail/stale/blocked| H["Refresh assignment or update map"]
+```
+
+### Step 1：模式切换
+
+用户输入 `/multi-agents experiment` 后，runtime 只更新 session-scoped mode，并写入 `ModeChanged` event。
+它不清空上下文，不杀已有 subagent，也不改变 `standard` 的默认行为。
+
+### Step 2：从 BaseMap 初始化工作地图
+
+当根 agent 准备处理复杂任务时，`MapActionGuard` 发现当前没有 active map，于是从唯一 `BaseMap` 创建 `ActionMapInstance`。
+第一版不选择领域 map，只按任务组织出 3-8 个可解释节点：
+
+```text
+map_001:
+  user_goal: 分析 multi-agent 架构风险并给出 MVP 落地方案
+  status: running
+
+node_1: 明确目标和边界
+node_2: 梳理现有 multi-agent 基建
+node_3: 分析 map runtime 接入风险
+node_4: 形成 MVP 实施顺序
+node_5: 审查方案是否过度设计
+```
+
+### Step 3：ready node 生成 assignment
+
+runtime 为 ready node 生成 assignment，而不是让根 agent 临时写自由任务信：
+
+```text
+Map: map_001
+Node: node_2 - 梳理现有 multi-agent 基建
+Assignment: assign_002
+Lease: lease_002
+
+Objective:
+梳理当前 Codex-derived multi-agent 基建中可复用的 spawn/send/wait/close、registry 和 event 能力。
+
+Context:
+- graph_version: 1
+- node_version: 1
+- required sources: multi-agent docs, collab handler files
+- inherited artifacts: artifact_001
+
+Expected artifact:
+kind: Finding
+```
+
+同时创建 active `AssignmentLease`，绑定 `assignment_id -> AgentPath/ThreadId`。
+subagent 后续通过 `send_message`、`wait_agent`、`close_agent` 或 artifact submission 时，都必须带着这个 map/node/lease 坐标。
+
+### Step 4：subagent 执行并提交 artifact
+
+subagent 在 `ContextPack` 边界内读取材料，提交结构化产物：
+
+```text
+Artifact: artifact_002
+kind: Finding
+map_id: map_001
+node_id: node_2
+assignment_id: assign_002
+base_graph_version: 1
+base_node_version: 1
+
+findings:
+- 现有基建已有 spawn/send/wait/close 入口。
+- AgentRegistry 继续记录 live thread 状态。
+- CollabAgentSpawn/Interaction/Waiting event 可复用为 map event 的底层证据。
+
+limitations:
+- 第一版尚未逐个拦截普通 shell/read/edit 工具。
+```
+
+`Artifact Submit Guard` 检查 map、node、assignment、version 和 artifact kind。
+通过后 artifact 才能进入 gate。
+
+### Step 5：gate 只决定 node 能否完成
+
+Gate 检查明确条件：
+
+- artifact schema 有效。
+- required artifact 已提交。
+- graph/node version 仍然 fresh。
+- 没有 unresolved blocker。
+- limitation 已记录。
+
+如果通过，runtime 写入：
+
+```text
+ArtifactSubmitted
+GateEvaluated(Pass)
+NodeCompleted
+```
+
+然后 `node_2` 进入 `completed`，依赖它的后续 node 才能进入 `ready`。
+
+### Step 6：agent 可以合法停止
+
+如果执行 `node_3` 时，agent 发现需要用户确认“第一版是否只约束 multi-agent 协作入口，还是普通 shell/read/edit 也要强拦截”，它不应该硬编结论。
+正确返回是 `Blocker`：
+
+```text
+Artifact: artifact_003
+kind: Blocker
+map_id: map_001
+node_id: node_3
+assignment_id: assign_003
+
+stop_reason: need_user_input
+what_was_tried:
+- 已检查 MapActionGuard 设计。
+- 已检查 artifact gate 设计。
+- 已检查普通工具暂不逐个重写的约束。
+
+what_is_missing:
+- 用户是否接受第一版只强约束 multi-agent 协作入口。
+
+question:
+- 第一版是否只要求 spawn/send/wait/close/artifact map-bound？
+- 还是要求 shell/read/edit 也必须绑定 map/node/lease？
+```
+
+runtime 接收后：
+
+```text
+lease_003: completed
+node_3: waiting_user
+map_001: running, with waiting node
+
+events:
+- ArtifactSubmitted(Blocker)
+- UserInputRequested
+- AgentStopped
+- NodeBlocked
+```
+
+这不是协议失败。map 只是记录工作状态，不能强迫 agent 继续执行。
+
+### Step 7：用户补充后继续
+
+用户回答：
+
+```text
+第一版只管 multi-agent 协作入口，普通工具先靠 prompt 和 artifact gate 约束。
+```
+
+runtime 判断这是对当前 blocker 的补充，而不是全新任务。
+它更新 map：
+
+```text
+graph_version: 1 -> 2
+node_3: waiting_user -> ready
+old lease: stale or completed
+new assignment: assign_004
+```
+
+新的 `ContextPack` 带上 `artifact_003` 和用户补充信息。
+同一个 agent 或另一个 agent 可以继续执行 `node_3`。
+
+### Step 8：无法继续的停止分支
+
+如果 agent 不是需要用户输入，而是判断自己无法继续，也提交 `Blocker`：
+
+```text
+kind: Blocker
+stop_reason: unable_to_proceed
+what_was_tried:
+- searched handlers
+- checked docs
+- inspected session events
+
+what_is_missing:
+- cannot locate artifact ingestion implementation
+
+recovery_needed:
+- root agent should inspect code locally
+- or create a new node to locate artifact ingestion path
+```
+
+runtime 结果：
+
+```text
+lease: completed
+node: blocked
+agent: stopped
+```
+
+根 agent 可以选择自己接手、重新派发、创建新的 search node，或回到用户说明阻塞。
+
+### 推演结论
+
+这套机制的运行边界是：
+
+- `map` 决定下一步工作在哪里发生。
+- `assignment` 决定 agent 本次具体做什么。
+- `lease` 决定 agent 是否有权对 node 产生产物。
+- `artifact` 决定 agent 的结果是否可被 runtime 消费。
+- `gate` 决定 node 是否能完成。
+- `Blocker` 允许 agent 合法停止，而不是为了通过流程编造进展。
+
+第一版要验证的核心假设是：multi-agent 协作能否从自由写信，升级为 map-bound 的可追踪小组作业，同时不把 agent 锁死在流程里。
+
 ## MVP 实施顺序
 
 ### MA-0：模式开关
