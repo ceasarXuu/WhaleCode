@@ -26,13 +26,14 @@ Action Map + 结构化 Artifact + Gate
 - 不为了“multi-agent first”而制造多 agent 仪式。
 - 不维护两套表达同一规则的对象。
 - 不让实验模式破坏当前可用的 Codex subagent 默认行为。
+- 不设计全局质量分。复杂 agent 任务没有客观准确的单一质量分，系统只能记录证据、验证结果、阻塞点和人工/模型审查意见。
 
 任何新 runtime 概念进入核心前，必须能回答：
 
 ```text
 + 没有它，当前系统出现了什么明确失败？
 + 这个失败是否能在真实任务或最小实验中复现？
-+ 引入它以后，如何度量它确实减少失败而不是制造复杂度？
++ 引入它以后，是否能通过可复现失败、可观察症状或明确人工反馈证明它减少了问题，而不是制造复杂度？
 ```
 
 答不上来，就不进入核心设计。
@@ -92,8 +93,8 @@ UserTask
 | `MapNode` | 一个可执行行动点 |
 | `NodeExecution` | 某个节点本次如何执行 |
 | `AgentAssignment` | 发给 agent 的具体工作包 |
-| `Artifact` | agent 提交的结构化、可验证产物 |
-| `Gate` | 判断节点或阶段是否可推进 |
+| `Artifact` | agent 提交的结构化产物，记录证据、结论和限制 |
+| `Gate` | 根据可检查条件判断节点或阶段是否可推进 |
 | `MapEvent` | 状态变化记录，用于 replay 和审计 |
 
 系统主循环：
@@ -302,7 +303,8 @@ pub struct ArtifactEnvelope<T> {
     pub kind: ArtifactKind,
     pub base_graph_version: GraphVersion,
     pub base_node_version: NodeVersion,
-    pub confidence: Confidence,
+    pub evidence_refs: Vec<ArtifactRef>,
+    pub limitations: Vec<String>,
     pub body: T,
 }
 ```
@@ -323,6 +325,8 @@ pub struct ArtifactEnvelope<T> {
 ## Gate
 
 Gate 是唯一准出机制。
+
+Gate 不评估“质量分”，只检查明确条件是否满足。它可以阻断明显缺证据、上下文过期、验证缺失或存在 blocker 的节点，但不能声称某个复杂结果已经被客观量化为“高质量”。
 
 ```rust
 pub struct GateSpec {
@@ -345,6 +349,7 @@ pub enum GateResult {
 - base version 是否仍然 fresh。
 - required verification 是否通过。
 - 是否存在 blocker。
+- artifact 是否显式记录关键限制和未验证部分。
 
 ```mermaid
 flowchart TD
