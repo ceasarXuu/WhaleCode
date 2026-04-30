@@ -143,7 +143,7 @@ pub(crate) const DEFAULT_ENV_VARS: &[&str] = &[
 
 #[cfg(windows)]
 pub(crate) const DEFAULT_ENV_VARS: &[&str] =
-    codex_protocol::shell_environment::WINDOWS_CORE_ENV_VARS;
+    codex_config::shell_environment::WINDOWS_CORE_ENV_VARS;
 
 #[cfg(test)]
 mod tests {
