@@ -238,9 +238,9 @@ discoverable != claimable
 | `active` 且 owner 是其他 session | yes | no | 拒绝接管，提示用户等待或停止 owner session |
 | `suspended` | yes | yes, after user confirmation | 可恢复为当前 session 的 active map |
 | `completed` | yes | no by default | 可引用结果；继续工作应新建 follow-up map |
-| `abandoned` | maybe | no | 默认不提示，除非用户明确搜索或高相关 |
+| `abandoned` | maybe | no | 默认不提示，除非用户明确按 title/id/keyword 搜索 |
 
-当新 session 的用户意图匹配到另一个 session 正在运行的 active map 时，runtime 不应自动新建重复 map，也不应尝试接管：
+当新 session 的用户输入命中另一个 session 正在运行的 active map 时，runtime 不应自动新建重复 map，也不应尝试接管：
 
 ```text
 if matched_map.status == active
@@ -272,6 +272,7 @@ pub struct MapIndexEntry {
     pub map_id: ActionMapId,
     pub title: String,
     pub user_goal_summary: String,
+    pub keywords: Vec<String>,
     pub status: MapStatus,
     pub owner_session_id: Option<SessionId>,
     pub last_active_at: Timestamp,
@@ -281,8 +282,74 @@ pub struct MapIndexEntry {
     pub artifact_summary_refs: Vec<ArtifactRef>,
     pub workspace_id: WorkspaceId,
     pub repo_ref: Option<RepoRef>,
+    pub index_visibility: IndexVisibility,
     pub privacy_scope: PrivacyScope,
 }
+```
+
+`MapIndexEntry` 就是 map 的 manifest。
+它用于渐进式暴露，不是完整 map。
+完整 `MapSnapshot` 只有在当前 session 已持有该 map，或用户确认继续 suspended map / 引用 completed map 后，才按需加载。
+
+第一版 map discovery 采用 tools 暴露方式的同类设计：
+
+```text
+MapManifest / MapIndexEntry
+  -> metadata filter
+  -> keyword/BM25 search
+  -> top K manifests
+  -> main agent decides whether to ask user
+  -> load MapSnapshot only after confirmation or ownership check
+```
+
+V1 明确不做：
+
+- semantic search。
+- embedding index。
+- full snapshot scan。
+- 对所有历史 map 做全量语义匹配。
+- 自动恢复语义相似的 map。
+
+默认检索范围必须先被 metadata 限界：
+
+```text
+workspace_id == current_workspace
+repo_ref compatible with current repo/branch
+status in [active, suspended]
+privacy_scope allows current session
+index_visibility in [hot, warm]
+updated_at within retention window
+```
+
+`completed` map 默认只在用户有明显继续/之前/上次/引用结果等意图，或 keyword/title/id 明确命中时进入候选。
+`abandoned` map 默认不进入候选。
+
+`index_visibility` 不是 map 状态，只是检索层策略：
+
+| Visibility | 行为 |
+| --- | --- |
+| `hot` | 当前 workspace 默认检索 |
+| `warm` | 近期 suspended / active 相关任务可检索 |
+| `cold` | 只在显式历史查询或 title/id/keyword 命中时检索 |
+| `hidden` | 默认不检索 |
+
+MapIndex 刷新也要克制，避免每个细节污染检索。
+第一版只在关键事件刷新 manifest：
+
+- `MapCreated`
+- `MapSuspended`
+- `MapResumed`
+- `MapCompleted`
+- `MapAbandoned`
+- `FinalSynthesis` 更新
+- major blocker added/resolved
+
+原则：
+
+```text
+map_search is BM25/keyword over manifest metadata.
+MapSnapshot is lazy-loaded.
+Map discovery can suggest; it cannot claim, resume, or duplicate active work by itself.
 ```
 
 第一版禁止：
