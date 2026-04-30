@@ -76,6 +76,10 @@ Experiment 模式的硬约束：
 - 无 map 绑定时，agent 不允许 spawn、接收 assignment、执行工具或提交结果。
 - 任何自然语言 follow-up 如果改变任务目标，必须先更新或新建 map，再继续行动。
 
+这里的约束只表示“行动必须有 map 坐标和可追踪记录”，不表示 map 可以强迫 agent 继续执行。
+agent 发现缺少用户输入、工具权限不足、上下文不足、风险过高或自己无法继续时，可以合法停止并提交 `Blocker`。
+此时 runtime 记录 map/node 状态，但不能把停止当成协议失败，也不能要求 agent 编造进展来满足节点完成。
+
 ## 最小运行模型
 
 核心链路只有这些对象：
@@ -206,6 +210,7 @@ pub struct MapNode {
 pending -> ready -> running -> completed
                        |
                        -> blocked
+                       -> waiting_user
 ready -> skipped
 ```
 
@@ -215,6 +220,13 @@ ready -> skipped
 - gate 通过。
 - 没有 stale context。
 - 没有 unresolved blocker。
+
+agent 停止不等于节点完成：
+
+- 需要用户补充信息时，agent 提交 `Blocker`，node 进入 `waiting_user`。
+- agent 判断无法继续时，agent 提交 `Blocker`，node 进入 `blocked`。
+- `waiting_user` 和 `blocked` 都是合法停止结果，只阻止该 node 被标记为 completed。
+- 用户补充信息或 map 更新后，runtime 可以刷新 assignment 并让同一个或其他 agent 继续。
 
 ## NodeExecution
 
@@ -345,10 +357,13 @@ active -> completed
        -> stale
 ```
 
+这里的 `completed` 表示 assignment 已经有结构化返回，不等于 node completed。
+agent 提交 `Blocker` 后，lease 可以结束，但 node 只能进入 `blocked` 或 `waiting_user`。
+
 lease 失效条件：
 
 - map 被 paused 或 aborted。
-- node 已 completed、skipped 或 blocked。
+- node 已 completed、skipped、blocked 或 waiting_user。
 - node version 改变且 assignment 未刷新。
 - agent 尝试使用未授权工具。
 - agent 尝试提交不匹配的 artifact 类型。
@@ -384,7 +399,7 @@ artifact.node_id == assignment.node_id
 artifact.assignment_id == assignment.id
 artifact.base_graph_version == assignment.context_pack.graph_version
 artifact.base_node_version == assignment.context_pack.node_version
-artifact.kind == assignment.expected_artifact
+artifact.kind == assignment.expected_artifact || artifact.kind == Blocker
 ```
 
 不满足时，artifact 进入 rejected，不允许进入 gate。
@@ -411,6 +426,7 @@ Allowed tools: <tools>
 - 缺 node：让 runtime 选择 ready node，或创建 clarify/update node。
 - lease stale：刷新 context pack，重新发 assignment。
 - tool 不允许：返回拒绝，并要求 agent 提交 `Blocker` 或请求 node update。
+- agent 主动停止：接收 `Blocker`，结束当前 lease，把 node 标记为 `blocked` 或 `waiting_user`。
 - 用户改变目标：暂停当前节点，更新 map，再生成新 assignment。
 
 这些恢复都必须写 MapEvent。
@@ -474,7 +490,7 @@ pub struct ArtifactEnvelope<T> {
 | `PatchProposal` | 候选改动说明或 patch 引用 |
 | `ReviewResult` | 对 artifact 的审查意见 |
 | `VerificationResult` | 测试、构建、复现、静态检查结果 |
-| `Blocker` | 阻塞原因和需要的输入 |
+| `Blocker` | 合法停止记录：需要用户输入、工具/上下文不足、风险过高或无法继续的原因 |
 
 不做额外评分、投票或共识类产物。
 
@@ -483,6 +499,8 @@ pub struct ArtifactEnvelope<T> {
 Gate 是唯一准出机制。
 
 Gate 不评估“质量分”，只检查明确条件是否满足。它可以阻断明显缺证据、上下文过期、验证缺失或存在 blocker 的节点，但不能声称某个复杂结果已经被客观量化为“高质量”。
+
+Gate 只约束“节点是否可以完成”，不约束“agent 是否可以停止”。当 agent 提交 `Blocker` 时，runtime 应记录合法停止原因，并把 node 保持在 `blocked` 或 `waiting_user`，而不是继续驱动 agent 硬做。
 
 ```rust
 pub struct GateSpec {
@@ -535,6 +553,8 @@ pub enum MapEvent {
     AssignmentLeaseRevoked,
     MapActionRejected,
     ArtifactSubmitted,
+    AgentStopped,
+    UserInputRequested,
     GateEvaluated,
     NodeCompleted,
     NodeBlocked,
@@ -589,6 +609,8 @@ Every agent action must be bound to an ActionMapInstance.
 If no active map exists, create one from BaseMap before delegating work.
 Do not treat free-form messages as completed work.
 A node can complete only through accepted artifacts and gate evaluation.
+Stopping is allowed when you need user input, hit a tool/context limit, or cannot proceed.
+When stopping, submit a Blocker artifact with the reason and the next needed input.
 Do not invent quality scores. Record evidence, limitations, blockers, and verification results.
 ```
 
@@ -600,6 +622,8 @@ Do not invent quality scores. Record evidence, limitations, blockers, and verifi
 没有 active map 时，先从 BaseMap 创建 map，再委派。
 自然语言消息不能直接代表节点完成。
 节点只能通过 artifact + gate 完成。
+需要用户输入、遇到工具/上下文限制或无法继续时，可以停止。
+停止时必须提交 Blocker artifact，说明原因和下一步需要的信息。
 不要编造质量分，只记录证据、限制、阻塞和验证结果。
 ```
 
@@ -639,6 +663,7 @@ Do not:
 - work outside this node without a new assignment
 - claim the node is complete
 - hide blockers
+- keep working after you know the assignment is blocked
 - invent quality scores
 ```
 
@@ -650,7 +675,8 @@ Do not:
 Submit an artifact for the current assignment.
 Use the expected artifact kind.
 Include the assignment id, map id, node id, evidence refs, limitations, and any blockers.
-If you cannot satisfy the expected artifact, submit a Blocker artifact instead.
+If you need user input, hit a tool/context limit, or cannot proceed, submit a Blocker artifact instead.
+The Blocker must include: stop_reason, what was tried, what is missing, and the exact question or recovery needed.
 ```
 
 ### Map update prompt
@@ -752,8 +778,9 @@ Ready MapNode
 - agent 提交结构化 artifact。
 - gate 检查 artifact、version、blocker。
 - node completion 只能由 gate 触发。
+- agent 提交 `Blocker` 时，assignment 可以结束，但 node 只能进入 `blocked` 或 `waiting_user`。
 
-验收：自然语言“我完成了”不能直接完成节点。
+验收：自然语言“我完成了”不能直接完成节点；自然语言“我需要用户补充信息/我无法继续”必须被记录为 `Blocker`，而不是被当成异常协议失败。
 
 ### MA-4：Review / Verify 策略
 
