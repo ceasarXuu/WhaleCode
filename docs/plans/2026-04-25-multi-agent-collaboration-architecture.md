@@ -1462,81 +1462,64 @@ Ready MapNode
 subagent 不是在 map 中移动的长期成员，而是每个 assignment lease 创建一次的临时执行进程。
 
 ```mermaid
-flowchart TD
-    %% 这张图描述 experiment 模式下的一次完整运行。
-    %% 核心原则：map/node 持有状态，assignment/lease 持有执行许可，subagent 只是临时执行进程。
+graph TD
+    U["用户任务：分析 multi-agent 架构风险并给出 MVP 落地方案"] --> Mode{"当前是否为 experiment 模式"}
+    Mode -->|否| Std["standard 模式：保持 Codex 现有 spawn send wait close 行为"]
+    Mode -->|是| Guard["MapActionGuard 介入：检查 active map node lease"]
 
-    U["用户任务<br/>分析 multi-agent 架构风险并给出 MVP 落地方案"] --> Mode{"当前是否为<br/>experiment 模式？"}
-    Mode -->|否| Std["走 standard 模式<br/>保持 Codex 现有 spawn/send/wait/close 行为"]
-    Mode -->|是| Guard["MapActionGuard 介入<br/>检查 active map / node / lease"]
+    Guard --> HasMap{"是否已有可用 ActionMapInstance"}
+    HasMap -->|没有| Init["从唯一 BaseMap 初始化：创建 map_001"]
+    HasMap -->|当前 session 可持有| Load["加载当前 map snapshot：只暴露必要上下文"]
+    HasMap -->|其他 session 正在持有| Occupied["返回占用提示：不接管 不抢占 不重复创建 active map"]
 
-    Guard --> HasMap{"是否已有可用<br/>ActionMapInstance？"}
-    HasMap -->|没有| Init["从唯一 BaseMap 初始化<br/>创建 map_001"]
-    HasMap -->|已有且当前 session 可持有| Load["加载当前 map snapshot<br/>只暴露必要上下文"]
-    HasMap -->|命中其他 session 的 active map| Occupied["返回占用提示<br/>不接管、不抢占、不重复创建 active map"]
-
-    Init --> Nodes["生成初始平面节点<br/>node_1 明确边界<br/>node_2 梳理基建<br/>node_3 分析风险<br/>node_4 形成计划<br/>node_5 审查过度设计"]
-    Load --> ReadyScan["重新计算 ready_nodes<br/>只选择依赖已满足且无 active lease 的节点"]
+    Init --> Nodes["生成初始平面节点：node_1 明确边界 node_2 梳理基建 node_3 分析风险 node_4 形成计划 node_5 审查过度设计"]
+    Load --> ReadyScan["重新计算 ready_nodes：只选择依赖已满足且无 active lease 的节点"]
     Nodes --> ReadyScan
 
-    ReadyScan --> Ready{"是否存在<br/>ready node？"}
-    Ready -->|否，存在 blocker| AskUser["向用户询问缺失信息<br/>map 保持 active 或 suspended"]
-    Ready -->|否，等待上游完成| Wait["等待 artifact / blocker / map update<br/>不让 agent 自由游走"]
-    Ready -->|是| Claim["原子 claim node<br/>node.active_lease = lease_id<br/>node.status = running"]
+    ReadyScan --> Ready{"是否存在 ready node"}
+    Ready -->|否，存在 blocker| AskUser["向用户询问缺失信息：map 保持 active 或 suspended"]
+    Ready -->|否，等待上游完成| Wait["等待 artifact blocker map update：不让 agent 自由游走"]
+    Ready -->|是| Claim["原子 claim node：node.active_lease 设为 lease_id，node.status 设为 running"]
 
-    Claim --> Assign["生成 AgentAssignment<br/>绑定 map_id / node_id / lease_id<br/>生成 ContextPack<br/>选择 agent_type: default / explorer / worker"]
-    Assign --> Spawn["spawn 临时 subagent<br/>生命周期只属于当前 lease<br/>不会跨 node 移动"]
-    Spawn --> Exec["subagent 在 ContextPack 内执行<br/>可以读写允许范围内的材料<br/>不能直接创建 node 或改 map 状态"]
+    Claim --> Assign["生成 AgentAssignment：绑定 map_id node_id lease_id，生成 ContextPack，选择 agent_type"]
+    Assign --> Spawn["spawn 临时 subagent：生命周期只属于当前 lease，不会跨 node 移动"]
+    Spawn --> Exec["subagent 在 ContextPack 内执行：只能在允许范围内行动，不能直接创建 node 或改 map 状态"]
 
-    Exec --> Outcome{"subagent 输出什么？"}
-    Outcome -->|预期 artifact| Artifact["提交 Finding / Analysis / PatchProposal 等<br/>必须包含 evidence_refs / limitations / version"]
-    Outcome -->|发现新任务| UpdateReq["提交 MapUpdateRequest<br/>只请求 map 生长<br/>不能直接开始新任务"]
-    Outcome -->|需要用户或无法继续| Blocker["提交 Blocker<br/>stop_reason = need_user_input / unable_to_proceed"]
-    Outcome -->|自由文本总结| Reject["Artifact Submit Guard 拒绝<br/>要求按结构化 artifact 重交"]
+    Exec --> Outcome{"subagent 输出什么"}
+    Outcome -->|预期 artifact| Artifact["提交 Finding Analysis PatchProposal：包含 evidence_refs limitations version"]
+    Outcome -->|发现新任务| UpdateReq["提交 MapUpdateRequest：只请求 map 生长，不能直接开始新任务"]
+    Outcome -->|需要用户或无法继续| Blocker["提交 Blocker：记录 stop_reason 和恢复需求"]
+    Outcome -->|自由文本总结| Reject["Artifact Submit Guard 拒绝：要求按结构化 artifact 重交"]
 
-    Artifact --> Gate["Formal Gate<br/>只检查 schema / version / required artifacts / blockers<br/>不打质量分，不判断语义充分性"]
-    Gate --> GatePass{"formal gate 是否通过？"}
-    GatePass -->|通过| Complete["node -> completed<br/>关闭 lease<br/>关闭或忽略临时 subagent"]
-    GatePass -->|失败或 stale| Refresh["revoke/close 旧 lease<br/>刷新 context 或更新 map<br/>重新生成 assignment"]
+    Artifact --> Gate["Formal Gate：只检查 schema version artifacts blockers，不打质量分，不判断语义充分性"]
+    Gate --> GatePass{"formal gate 是否通过"}
+    GatePass -->|通过| Complete["node completed：关闭 lease，关闭或忽略临时 subagent"]
+    GatePass -->|失败或 stale| Refresh["revoke 或 close 旧 lease：刷新 context 或更新 map，重新生成 assignment"]
 
-    UpdateReq --> MainReview["主 agent 审核 MapUpdateRequest<br/>接受 / 修正 / 拒绝"]
-    MainReview -->|接受或修正| Mutate["runtime 提交 mutation<br/>graph_version + 1<br/>AddNode / AddEdge / UpdateNodeContext / SplitNode"]
-    MainReview -->|拒绝| CloseReq["关闭当前 lease<br/>保留 artifact 和拒绝理由"]
+    UpdateReq --> MainReview["主 agent 审核 MapUpdateRequest：接受 修正 或拒绝"]
+    MainReview -->|接受或修正| Mutate["runtime 提交 mutation：graph_version 加一，执行 AddNode AddEdge UpdateNodeContext SplitNode"]
+    MainReview -->|拒绝| CloseReq["关闭当前 lease：保留 artifact 和拒绝理由"]
     Mutate --> ReadyScan
 
-    Blocker --> Blocked["node -> blocked<br/>关闭 lease<br/>关闭或忽略临时 subagent<br/>blocker 写入 node.context_state"]
-    Blocked --> UserInput{"用户是否补充信息？"}
-    UserInput -->|补充后仍属于当前 map| Resolve["更新 node context<br/>blocked -> ready<br/>生成新的 assignment/lease<br/>spawn 新临时 subagent"]
-    UserInput -->|转向其他话题| Suspend["map -> suspended<br/>当前任务可被后续 session 发现"]
+    Blocker --> Blocked["node blocked：关闭 lease，关闭或忽略临时 subagent，blocker 写入 node.context_state"]
+    Blocked --> UserInput{"用户是否补充信息"}
+    UserInput -->|补充后仍属于当前 map| Resolve["更新 node context：blocked 变 ready，生成新的 assignment 和 lease，spawn 新临时 subagent"]
+    UserInput -->|转向其他话题| Suspend["map suspended：当前任务可被后续 session 发现"]
     Resolve --> ReadyScan
 
-    Complete --> GoalCheck{"主 agent 判断<br/>用户目标语义上是否足够完成？"}
-    GoalCheck -->|不足| Grow["创建 review / verify / follow-up node<br/>仍通过 map mutation 生长"]
-    GoalCheck -->|足够| Final["生成 FinalSynthesis artifact<br/>map -> completed"]
+    Complete --> GoalCheck{"主 agent 判断目标是否足够完成"}
+    GoalCheck -->|不足| Grow["创建 review verify follow-up node：仍通过 map mutation 生长"]
+    GoalCheck -->|足够| Final["生成 FinalSynthesis artifact：map completed"]
     Grow --> ReadyScan
 
     Refresh --> ReadyScan
     Reject --> Exec
     CloseReq --> ReadyScan
 
-    Note1["注释：并行来自多个 ready nodes<br/>每个 node 一个 active lease<br/>不是一个 node 内多个 agent 抢写"] -.-> ReadyScan
-    Note2["注释：node 持有上下文<br/>subagent 私有记忆不能成为后续执行依据"] -.-> Spawn
-    Note3["注释：map 可以生长<br/>但只有主 agent 接受后 runtime 才能提交 mutation"] -.-> MainReview
-    Note4["注释：lease 是锁和生命周期边界<br/>lease 结束后 subagent 不再接收新 node"] -.-> Complete
-
-    classDef state fill:#eef6ff,stroke:#4078c0,stroke-width:1px,color:#111;
-    classDef runtime fill:#f3f4f6,stroke:#6b7280,stroke-width:1px,color:#111;
-    classDef agent fill:#fff7ed,stroke:#c2410c,stroke-width:1px,color:#111;
-    classDef artifact fill:#ecfdf5,stroke:#047857,stroke-width:1px,color:#111;
-    classDef stop fill:#fef2f2,stroke:#b91c1c,stroke-width:1px,color:#111;
-    classDef note fill:#fffbeb,stroke:#b45309,stroke-dasharray: 4 3,color:#111;
-
-    class Init,Nodes,ReadyScan,Complete,Blocked,Suspend,Final state;
-    class Guard,Claim,Assign,Gate,Mutate,Refresh runtime;
-    class Spawn,Exec agent;
-    class Artifact,UpdateReq,Blocker artifact;
-    class Occupied,Reject stop;
-    class Note1,Note2,Note3,Note4 note;
+    Note1["注释：并行来自多个 ready nodes；每个 node 一个 active lease；不是一个 node 内多个 agent 抢写"] -.-> ReadyScan
+    Note2["注释：node 持有上下文；subagent 私有记忆不能成为后续执行依据"] -.-> Spawn
+    Note3["注释：map 可以生长；但只有主 agent 接受后 runtime 才能提交 mutation"] -.-> MainReview
+    Note4["注释：lease 是锁和生命周期边界；lease 结束后 subagent 不再接收新 node"] -.-> Complete
 ```
 
 ### Step 1：模式切换
