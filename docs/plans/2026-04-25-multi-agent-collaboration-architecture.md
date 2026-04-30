@@ -42,28 +42,43 @@ Action Map + Result Envelope + Gate
 
 Multi-agent 框架必须可插拔。
 
+这里的“可插拔”不是新增一套并行 agent runtime，而是在现有 Codex `MultiAgentV2`
+工具链上增加一个 Whale 自己的 map-bound 约束层。
+真实代码路径已经有 `spawn_agent`、`send_message`、`followup_task`、`wait_agent`、`close_agent`、
+`AgentControl`、`AgentRegistry`、`AgentPath`、mailbox 和 collab event。
+第一版必须复用这些能力，只在 experiment 模式下增加 map/node/lease/result/gate 约束。
+
+注意：现有 TUI 中 `/multi-agents` 已经是“切换 active agent thread / 打开 agent picker”的命令。
+它不能同时承担 `standard | experiment` 模式选择，否则命令语义会冲突。
+因此第一版使用独立的 Whale runtime mode 命令：
+
 ```text
-/multi-agents standard
+/map-mode standard
   当前默认模式。
-  继续使用 Codex-style subagent/thread/message/wait 行为。
+  继续使用现有 Codex MultiAgentV2 subagent/thread/message/wait 行为。
   主 agent 可直接 spawn/send/wait/close。
   不强制 Action Map、Result Envelope、Gate。
 
-/multi-agents standart
-  兼容拼写别名，行为等同 standard。
-  CLI 应提示 canonical name 是 standard。
-
-/multi-agents experiment
+/map-mode experiment
   实验模式。
-  启用 Action Map Runtime。
-  后续所有 agent 行为必须绑定 map。
+  启用 Action Map 约束层。
+  后续 multi-agent 协作行为必须绑定 map/node/lease。
 
 /map-restart
   experiment 模式下弃用当前 active/suspended map，并从 BaseMap 重新开始。
   这是可恢复的 replacement，不删除旧 map。
 ```
 
-第一阶段状态应是 session-scoped，不改变全局默认值。runtime 只需要记录当前模式、active map id 和切换 turn。
+第一阶段状态应是 session-scoped，不改变全局默认值。
+runtime 只需要记录当前 `multi_agent_runtime_mode`、active map id 和切换 turn。
+
+底层 Feature 需要分层：
+
+| 层级 | 含义 | 第一版策略 |
+| --- | --- | --- |
+| `Feature::MultiAgentV2` | Codex 已有多 agent 工具面和 handler | 继续作为底座，不改变其 `standard` 行为 |
+| `multi_agent_runtime_mode = standard` | Whale 当前默认协作模式 | 直接走现有 MultiAgentV2 路径 |
+| `multi_agent_runtime_mode = experiment` | Whale Action Map 约束模式 | 在 MultiAgentV2 handler 前后增加 map/node/lease/result guard |
 
 切换规则：
 
@@ -76,10 +91,11 @@ Multi-agent 框架必须可插拔。
 
 Experiment 模式的硬约束：
 
-- agent 每次行动都必须由 map 驱动，并绑定到 map 中的某个 `MapNode`。
+- 任何 multi-agent 协作行动都必须由 map 驱动，并绑定到 map 中的某个 `MapNode`。
 - 行动可以绑定已有 `ActionMapInstance`，但不能只绑定 map 而缺少 node。
 - 如果没有可用 map，runtime 必须先从 `BaseMap` 新建 `ActionMapInstance`。
-- 无 map/node 绑定时，agent 不允许 spawn、接收 assignment、执行工具或提交结果。
+- 无 map/node/lease 绑定时，agent 不允许发起 multi-agent 协作行为或提交 node result。
+- 普通 shell/read/edit 等工具第一版不逐个拦截；它们通过 assignment prompt、allowed tool policy、现有 sandbox/approval 和 result gate 约束。
 - 子 agent 只能通过 `AgentAssignment + AssignmentLease` 进入某个 node；node 是 map 中的子任务，不是角色、线程或自由消息主题。
 - 子 agent 不在 map 或 node 之间移动；每次 node 执行默认创建一个临时 subagent，lease 结束后关闭或忽略。
 - 执行中发现的新任务必须先通过 map mutation 生长为 node，不能直接派给 agent。
@@ -1080,10 +1096,37 @@ lease 内可以继续使用同一个 live thread 完成 `send_message`、`wait_a
 ## Map 驱动执行机制
 
 “每次行动都由 map 驱动”必须由 runtime 强制，不能依赖 agent 自觉。
+但第一版的可强制边界必须与真实代码路径一致：
+
+```text
+runtime 强制:
+  multi-agent 协作入口
+  assignment / lease
+  result ingestion
+  node state transition
+
+prompt + policy 约束:
+  普通 shell/read/edit 等工具调用
+```
+
+因此第一版的“行动”具体指会改变 multi-agent 协作拓扑、agent 生命周期、node result 或 map/node 状态的行为。
+普通工具执行仍发生在现有工具系统内，但它的可接受产物必须回到当前 node 的 result envelope。
 
 ### 入口拦截
 
-`MapActionGuard` 不是一套新调度器，而是现有入口上的轻量校验层。第一版只接入已经存在的 Codex V2 multi-agent handler：
+`MapActionGuard` 不是一套新调度器，而是现有入口上的轻量校验层。
+真实路径是：
+
+```text
+tools/src/agent_tool.rs
+  -> core/src/tools/spec.rs
+  -> core/src/tools/handlers/multi_agents_v2/*
+  -> AgentControl
+  -> Session mailbox / thread turn
+  -> completion notification
+```
+
+第一版只接入已经存在的 Codex V2 multi-agent handler：
 
 ```text
 spawn_agent handler
@@ -1091,25 +1134,29 @@ send_message / followup_task handler
 wait_agent handler
 close_agent handler
 session user follow-up handling
+completion notification / result ingestion
 ```
 
-普通 shell/read/edit 等工具暂不逐个重写。第一版通过 assignment prompt、allowed tool policy、现有 sandbox/approval 和 result gate 管住结果；只有真实任务证明需要更细粒度工具拦截时，才扩展到通用 tool dispatcher。
+普通 shell/read/edit 等工具暂不逐个重写。
+原因是当前目标是验证 multi-agent 协作约束，而不是替换通用工具系统。
+第一版通过 assignment prompt、allowed tool policy、现有 sandbox/approval 和 result gate 管住结果；
+只有真实任务证明需要更细粒度工具拦截时，才扩展到通用 tool dispatcher。
 
 `MapActionGuard` 的决策：
 
 ```text
-if mode == standard:
+if multi_agent_runtime_mode == standard:
   allow current Codex behavior
 
-if mode == experiment and no active map:
+if multi_agent_runtime_mode == experiment and no active map:
   create ActionMapInstance from BaseMap
   append MapCreated
   continue through map-bound path
 
-if mode == experiment and action has no map_id/node_id/lease_id:
+if multi_agent_runtime_mode == experiment and multi-agent action has no map_id/node_id/lease_id:
   reject action or convert it into a map update request
 
-if mode == experiment and subagent action targets only map_id:
+if multi_agent_runtime_mode == experiment and subagent action targets only map_id:
   reject action and require runtime to select or create a ready node
 ```
 
@@ -1208,7 +1255,7 @@ lease 失效是局部判断，只看当前 node、当前 node 的依赖边、显
 ```text
 collab_action_allowed if:
   lease.status == active
-  action in spawn_agent | send_message | followup_task | wait_agent | close_agent | submit_result
+  action in spawn_agent | send_message | followup_task | wait_agent | close_agent | result_ingestion
   current_node_version == lease.issued_at_node_version
   no committed map mutation has invalidated current node dependencies
 ```
@@ -1723,14 +1770,17 @@ Submit the expected result, a Blocker result, or a MapUpdateRequest result for a
 
 | Codex substrate | experiment 模式中的用途 |
 | --- | --- |
+| `tools/src/agent_tool.rs` | 继续定义 `spawn_agent`、`send_message`、`followup_task`、`wait_agent`、`list_agents`、`close_agent` 的工具 schema |
+| `core/src/tools/spec.rs` | 继续根据 feature 注册 MultiAgentV2 handler |
+| `core/src/tools/handlers/multi_agents_v2/*` | 第一版最主要 hook 点，在 handler 前后插入 `MapActionGuard` |
 | `AgentControl` | 继续负责 spawn/resume/send/close subagent thread |
 | `AgentPath` | 复用为当前 lease 对应 subagent thread 的路径锚点 |
 | `AgentRegistry` | 继续记录 live subagent/thread 状态；Map Runtime 不替换它 |
 | `SessionSource::SubAgent(ThreadSpawn)` | 继续承载 parent、depth、agent_path、role 元数据 |
-| mailbox | 临时通知和唤醒 |
+| mailbox | 临时通知和唤醒；`wait_agent` 只等 mailbox 变化，不直接返回结果正文 |
 | collab session events | 复用 spawn/message/wait/close begin/end 事件，追加 map metadata |
+| completion notification | 复用 child-to-parent `InterAgentCommunication` 作为 result ingestion 的触发来源之一 |
 | tools/sandbox/approval | 继续执行工具和权限边界 |
-| multi_agents_v2 handlers | 插入轻量 `MapActionGuard`，不重写通用工具系统 |
 
 `standard` 模式不变。
 
@@ -1747,14 +1797,23 @@ Ready MapNode
 
 具体落点：
 
-- `spawn_agent`：在 `spawn.rs` 创建 child 前，确保有 active map、ready node、assignment；禁止只以 map 为目标创建 child；把 `task_name` 约束为 node-derived path。
+- `spawn_agent`：在 `multi_agents_v2/spawn.rs` 创建 child 前，确保有 active map、ready node、assignment 和 active lease；禁止只以 map 为目标创建 child；把 `task_name` 约束为 node-derived path。
 - `send_message` / `followup_task`：在 `message_tool.rs` 发送 mailbox 前，校验 target agent 是否有 active assignment lease。
-- `wait_agent`：继续复用 mailbox seq 等待；experiment 模式下等待结果必须进入 result ingestion，不能只靠自然语言完成节点。
+- `wait_agent`：继续复用 mailbox seq 等待；它只唤醒主 agent，不取结果正文；experiment 模式下结果必须通过 completion notification / mailbox drain / result ingestion 写入 node result context。
 - `close_agent`：继续复用 `AgentControl::close_agent`；experiment 模式下同时 revoke assignment lease。
 - user follow-up：如果当前 turn 切到其他话题，active map 进入 `suspended`；如果 turn 回到 suspended map 的目标，runtime 将其恢复为 `active`。
 - map discovery：当前 session 处理新 user goal 前可检索 MapIndex；如果命中其他 session 持有的 active map，只返回占用提示，不接管。
-- completion notification：复用现有 child-to-parent `InterAgentCommunication`，把它视为 result ingestion 的输入来源之一。
+- completion notification：复用现有 child-to-parent `InterAgentCommunication`，但不能把“通知到了”等同于“node completed”；主 agent 或 result ingestion 仍需把结果归档到 node。
 - events：优先扩展现有 collab event payload 或追加轻量 map event，不新增并行事件总线。
+
+不要做的事情：
+
+- 不替换 `AgentControl`。
+- 不替换 `AgentRegistry`。
+- 不让 `wait_agent` 承担取结果职责。
+- 不把 mailbox 文本直接当成 node result。
+- 不重写普通 tool dispatcher。
+- 不把 `Feature::MultiAgentV2` 与 Whale 的 `multi_agent_runtime_mode` 混成同一个开关。
 
 ## 运行推演
 
@@ -1835,8 +1894,9 @@ graph TD
 
 ### Step 1：模式切换
 
-用户输入 `/multi-agents experiment` 后，runtime 只更新 session-scoped mode，并写入 `ModeChanged` event。
+用户输入 `/map-mode experiment` 后，runtime 只更新 session-scoped `multi_agent_runtime_mode`，并写入 `ModeChanged` event。
 它不清空上下文，不杀已有 subagent，也不改变 `standard` 的默认行为。
+`/multi-agents` 仍保留为现有 agent thread picker，不参与 runtime mode 切换。
 
 ### Step 1.5：恢复 suspended map
 
@@ -2208,17 +2268,17 @@ event: MapReplaced(old = map_001, new = map_002)
 
 ### MA-0：模式开关
 
-- 实现 `/multi-agents standard`。
-- 实现 `/multi-agents standart` alias。
-- 实现 `/multi-agents experiment`。
+- 保留现有 `/multi-agents` 作为 agent thread picker，不改变其语义。
+- 实现 `/map-mode standard`。
+- 实现 `/map-mode experiment`。
 - 实现 `/map-restart`。
-- session state 记录当前模式。
+- session state 记录 `multi_agent_runtime_mode`。
 - 模式切换写 event。
 - `standard` 行为保持现状。
 - `experiment` 模式下无 active map 时自动从 `BaseMap` 创建 map，并选择或创建 ready node。
 - `spawn_agent`、`send_message`、`followup_task`、`wait_agent`、`close_agent` 入口接入 `MapActionGuard`。
 
-验收：关闭 experiment 后，当前 spawn/send/wait/close 行为不变；开启 experiment 后，没有 map/node 绑定的 agent 行动会被拒绝或先触发 map + node 创建；`/map-restart` 能弃用当前 map 并创建 replacement map。
+验收：关闭 experiment 后，当前 spawn/send/wait/close 行为不变；开启 experiment 后，没有 map/node/lease 绑定的 multi-agent 协作行为会被拒绝或先触发 map + node 创建；`/map-restart` 能弃用当前 map 并创建 replacement map；`/multi-agents` 仍能按现状切换 agent thread。
 
 ### MA-1：Map 与 Node
 
