@@ -599,6 +599,16 @@ impl AsyncManagedClient {
     }
 
     async fn listed_tools(&self) -> Option<Vec<ToolInfo>> {
+        self.listed_tools_inner(/*allow_blocking_startup*/ true)
+            .await
+    }
+
+    async fn listed_tools_non_blocking(&self) -> Option<Vec<ToolInfo>> {
+        self.listed_tools_inner(/*allow_blocking_startup*/ false)
+            .await
+    }
+
+    async fn listed_tools_inner(&self, allow_blocking_startup: bool) -> Option<Vec<ToolInfo>> {
         let annotate_tools = |tools: Vec<ToolInfo>| {
             let mut tools = tools;
             for tool in &mut tools {
@@ -653,6 +663,8 @@ impl AsyncManagedClient {
         // Keep cache payloads raw; plugin provenance is resolved per-session at read time.
         let tools = if let Some(startup_tools) = self.startup_snapshot_while_initializing() {
             Some(startup_tools)
+        } else if !allow_blocking_startup && !self.startup_complete.load(Ordering::Acquire) {
+            None
         } else {
             match self.client().await {
                 Ok(client) => Some(client.listed_tools()),
@@ -891,6 +903,21 @@ impl McpConnectionManager {
         let mut tools = Vec::new();
         for managed_client in self.clients.values() {
             let Some(server_tools) = managed_client.listed_tools().await else {
+                continue;
+            };
+            tools.extend(server_tools);
+        }
+        qualify_tools(tools)
+    }
+
+    /// Returns tools from clients that are already ready, plus any startup
+    /// snapshot cache. Pending clients without a snapshot are skipped so prompt
+    /// construction does not wait on optional MCP server startup.
+    #[instrument(level = "trace", skip_all)]
+    pub async fn list_all_tools_non_blocking(&self) -> HashMap<String, ToolInfo> {
+        let mut tools = Vec::new();
+        for managed_client in self.clients.values() {
+            let Some(server_tools) = managed_client.listed_tools_non_blocking().await else {
                 continue;
             };
             tools.extend(server_tools);
