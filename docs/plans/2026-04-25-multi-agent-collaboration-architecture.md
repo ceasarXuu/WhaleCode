@@ -230,23 +230,20 @@ clarify_task
 
 ### 候选节点暴露机制
 
-候选节点库不应作为一大段完整说明无条件塞进 prompt。
-它应该像 tools 的 manifest 暴露方式一样，采用“轻量 manifest -> 关键词筛选 -> 短名单注入 -> 按需展开”的渐进式暴露。
-这样既能给 map 创建过程足够结构，又不会让候选库污染每次推理上下文。
-
-第一版只需要静态内置 `BaseMapCandidateCatalog`，不做语义检索、embedding 或动态学习。
+候选节点库直接作为 `BaseMap` metadata 暴露给 map 创建过程。
+第一版不做 manifest 检索、关键词筛选、BM25、短名单或按需展开。
+原因是候选节点只在创建 map 时暴露一次，后续 node 执行不会反复注入完整候选库。
 
 ```rust
-pub struct BaseMapCandidateCatalog {
+pub struct BaseMap {
     pub version: BaseMapVersion,
-    pub candidates: Vec<CandidateNodeManifest>,
+    pub skeleton: Vec<BaseMapStep>,
+    pub candidate_nodes: Vec<BaseMapCandidateNode>,
 }
 
-pub struct CandidateNodeManifest {
+pub struct BaseMapCandidateNode {
     pub id: CandidateNodeKind,
     pub title: String,
-    pub intent_keywords: Vec<String>,
-    pub summary: String,
     pub default_result: ResultKind,
     pub default_dependencies: Vec<CandidateNodeKind>,
     pub default_agent_type: AgentType,
@@ -255,25 +252,25 @@ pub struct CandidateNodeManifest {
 }
 ```
 
-其中 `summary` 用于短名单展示，`expansion_hint` 用于把候选节点实例化为具体 node。
-例如 `inspect_repo_context` 的 manifest 不应该直接生成一个泛节点，而应提示主 agent 改写成 `inspect_spawn_wait_close_flow`、`inspect_session_event_registry` 这类贴合当前任务的节点。
+`candidate_nodes` 是初始化 map 的参考清单，不是必须全部使用的流程。
+`expansion_hint` 用于提醒主 agent 把候选节点实例化为具体 node。
+例如 `inspect_repo_context` 不应该直接生成一个泛节点，而应改写成 `inspect_spawn_wait_close_flow`、`inspect_session_event_registry` 这类贴合当前任务的节点。
 
 map 创建流程：
 
 ```text
 UserGoal
-  -> extract keywords and task signals
-  -> filter BaseMapCandidateCatalog by keyword/BM25 and hard rules
-  -> expose top candidates to main agent
+  -> load BaseMap metadata
+  -> expose all candidate_nodes to main agent
   -> main agent selects, renames, merges, splits candidates
   -> runtime validates node count, dependencies, result kind, gate kind
   -> create ActionMapInstance
 ```
 
-暴露给主 agent 的不是完整 catalog，而是一个短名单：
+暴露给主 agent 的内容就是完整候选节点 metadata：
 
 ```text
-BaseMap candidate shortlist:
+BaseMap metadata:
 
 - define_scope
   use_when: goal, non-goal, success criteria, delivery boundary are unclear
@@ -296,17 +293,6 @@ BaseMap candidate shortlist:
   result: TestPlan
   dependency: design_solution
 ```
-
-短名单选择规则：
-
-- `define_scope` 默认始终暴露，除非用户目标已经非常明确且是单步机械任务。
-- 涉及代码、已有机制或真实运行路径时，暴露 `inspect_repo_context`。
-- 涉及外部 API、模型能力、竞品行为、社区实践或用户明确要求参考资料时，暴露 `search_external_references`。
-- 涉及新功能、架构、状态、协议或数据结构时，暴露 `design_solution`。
-- 涉及上线、调试、长期维护或新增 runtime 行为时，暴露 `design_logging`。
-- 涉及代码改动或行为承诺时，暴露 `design_tests`、`smoke_test`、`regression_test`。
-- 涉及实现落地时，暴露 `implement_change` 和 `code_review`，但它们通常不能作为第一批 ready nodes。
-- `final_synthesis` 默认暴露，但只在关键依赖完成后 ready。
 
 runtime 对候选节点实例化只做形式化校验：
 
@@ -1602,7 +1588,7 @@ Prompt 不是强约束，强约束由 runtime guard、lease、result gate 执行
 | 现有机制 | Prompt 用法 |
 | --- | --- |
 | `multi_agent_v2.usage_hint_text` | 主 agent 看到 experiment 模式规则和 map-first 工作方式 |
-| `developer_instructions` | 注入当前模式、active map 摘要、当前节点约束、BaseMap 候选节点短名单 |
+| `developer_instructions` | 注入当前模式、active map 摘要、当前节点约束；map 创建时额外注入完整 BaseMap metadata |
 | `build_agent_spawn_config(... base_instructions ...)` | 子 agent 继承基础行为规则 |
 | `spawn_agent.message` | 传递 assignment-specific prompt |
 | `InterAgentCommunication.content` | 临时 follow-up 或 completion 文本，不能替代 result envelope |
@@ -1615,7 +1601,7 @@ Prompt 不是强约束，强约束由 runtime guard、lease、result gate 执行
 You are operating in WhaleCode multi-agents experiment mode.
 Every agent action must be bound to an ActionMapInstance.
 If no active map exists, create one from BaseMap before delegating work.
-When creating a map, select concrete nodes from the provided BaseMap candidate shortlist.
+When creating a map, select concrete nodes from the provided BaseMap metadata.
 Avoid generic nodes such as plan, execute, summarize when a more specific project-development node applies.
 Do not treat free-form messages as completed work.
 A node can close only through accepted node results and formal gate evaluation.
@@ -1634,7 +1620,7 @@ Do not invent quality scores. Record evidence, limitations, blockers, and verifi
 当前是 multi-agents experiment 模式。
 所有 agent 行动必须绑定 ActionMapInstance。
 没有 active map 时，先从 BaseMap 创建 map，再委派。
-创建 map 时，优先从注入的 BaseMap 候选节点短名单选择具体节点。
+创建 map 时，优先从注入的 BaseMap metadata 选择具体节点。
 不要在可以使用更具体项目开发节点时生成“计划”“实施”“总结”这类泛节点。
 自然语言消息不能直接代表节点完成。
 节点只能通过 node result + formal gate 在协议层关闭。
@@ -1882,12 +1868,12 @@ recompute ready_nodes
 ### Step 2：从 BaseMap 初始化工作地图
 
 当主 agent 准备处理复杂任务时，`MapActionGuard` 发现当前没有 active map，于是从唯一 `BaseMap` 创建 `ActionMapInstance`。
-第一版不选择领域 map，但必须从 `BaseMap` 候选节点库中挑选具体节点，组织出 3-8 个可解释、可执行、可审查的节点：
+第一版不选择领域 map，但必须从 `BaseMap` metadata 的候选节点库中挑选具体节点，组织出 3-8 个可解释、可执行、可审查的节点：
 
-runtime 先根据 user goal 生成候选节点短名单，再把短名单注入给主 agent：
+runtime 在创建 map 时一次性把 `BaseMap` metadata 注入给主 agent：
 
 ```text
-BaseMap candidate shortlist:
+BaseMap metadata:
 - define_scope
 - inspect_repo_context
 - design_solution
@@ -1897,7 +1883,7 @@ BaseMap candidate shortlist:
 - final_synthesis
 ```
 
-主 agent 基于短名单创建具体 node，而不是直接复制候选名：
+主 agent 基于 metadata 创建具体 node，而不是直接复制候选名：
 
 ```text
 map_001:
