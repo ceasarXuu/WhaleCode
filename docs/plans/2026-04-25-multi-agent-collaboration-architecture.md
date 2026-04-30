@@ -76,6 +76,7 @@ Experiment 模式的硬约束：
 - 如果没有可用 map，runtime 必须先从 `BaseMap` 新建 `ActionMapInstance`。
 - 无 map/node 绑定时，agent 不允许 spawn、接收 assignment、执行工具或提交结果。
 - 子 agent 只能通过 `AgentAssignment + AssignmentLease` 进入某个 node；node 是 map 中的子任务，不是角色、线程或自由消息主题。
+- 子 agent 不在 map 或 node 之间移动；每次 node 执行默认创建一个临时 subagent，lease 结束后关闭或忽略。
 - 执行中发现的新任务必须先通过 map mutation 生长为 node，不能直接派给 agent。
 - 任何自然语言 follow-up 如果改变任务目标，必须先更新或新建 map，再继续行动。
 
@@ -130,7 +131,7 @@ flowchart TD
     RV --> M
 ```
 
-并行不是 node 内的多人同时执行。第一版的并行来自多个无依赖的 ready nodes 同时被不同 agent claim。
+并行不是 node 内的多人同时执行。第一版的并行来自多个无依赖的 ready nodes 同时被不同临时 subagents claim。
 同一个 node 同一时刻只能有一个 active lease。
 
 ## Agent Role / Execution Profile
@@ -399,8 +400,9 @@ Map discovery can suggest; it cannot claim, resume, or duplicate active work by 
 Node 是 map 中的子任务和行动点，不是角色，也不是 agent。
 
 子 agent 不能直接绑定在 map 根上行动，必须绑定到一个具体 `MapNode`。
-同一个 agent 可以随着新 assignment 移动到不同 node，但任意一次行动都只能属于一个当前 node。
-这样 map 才能回答三个问题：这个 agent 正在解决哪个子任务、使用了哪份上下文、产物应该归属到哪里。
+subagent 不跨 node 移动，也不作为长期工作者保留在 map 中。
+runtime 每次执行 node 时生成新的 assignment 和 lease，并为该 lease 创建临时 subagent。
+这样 map 才能回答三个问题：当前 lease 正在解决哪个子任务、使用了哪份上下文、产物应该归属到哪里。
 
 ```rust
 pub struct MapNode {
@@ -436,17 +438,17 @@ pub struct NodeContextState {
 }
 ```
 
-Node 持有与该子任务相关的上下文状态，agent 只临时执行：
+Node 持有与该子任务相关的上下文状态，subagent 只在 assignment lease 期间临时执行：
 
 | 所有者 | 持有内容 |
 | --- | --- |
 | `MapNode` | context boundary、context pack source refs、inherited artifacts、local notes、blockers、active lease、node version |
-| `Agent` | 临时推理过程、工具执行过程、最终提交的 artifact |
+| `Subagent` | 单次 lease 内的临时推理过程、工具执行过程、最终提交的 artifact |
 
-任何 agent 接手 node 时，都必须从 node 的 `context_state` 和 inherited artifacts 恢复工作，而不是依赖前一个 agent 的私有记忆。
-agent 停止、失败或被关闭后，node 仍保留可接手状态。
+任何新 assignment 继续某个 node 时，都必须从 node 的 `context_state` 和 inherited artifacts 恢复工作，而不是依赖前一个 subagent 的私有记忆。
+subagent 停止、失败或被关闭后，node 仍保留可由新 assignment 接手的状态。
 
-同一时刻一个 node 最多只能被一个 agent 持有：
+同一时刻一个 node 最多只能被一个 active lease 持有：
 
 ```text
 node.active_lease == none      -> runtime may issue assignment
@@ -454,7 +456,7 @@ node.active_lease == lease_id  -> node is claimed; other agents cannot claim it
 ```
 
 这里的持有是 active execution lease，不是永久所有权。
-一个 node 历史上可以被多个 agent 接手，但每个时间点只能有一个 active holder。
+一个 node 历史上可以被多次 assignment 接手，但每个时间点只能有一个 active lease。
 
 `NodeStatus` 第一版只需要：
 
@@ -479,10 +481,10 @@ agent 停止不等于节点完成：
 
 - 需要用户补充信息时，agent 提交 `Blocker(stop_reason=need_user_input)`，node 进入 `blocked`。
 - agent 判断无法继续时，agent 提交 `Blocker`，node 进入 `blocked`。
-- 用户补充信息或 map 更新后，runtime 可以刷新 assignment 并让同一个或其他 agent 继续。
+- 用户补充信息或 map 更新后，runtime 创建新的 assignment 和临时 subagent 继续；不复用旧 subagent 跨 lease 执行。
 
 `running` 表示 node 已被某个 active lease claim。
-只有当前 lease 对应的 agent 能提交该 node 的 artifact；其他 agent 必须等待 lease 完成、失效或被 revoke。
+只有当前 lease 对应的 subagent 能提交该 node 的 artifact；其他 subagent 必须等待 lease 完成、失效或被 revoke。
 
 状态切换只能由 runtime 写入，agent 只能通过 artifact、Blocker、MapUpdateRequest 或用户 follow-up 间接触发。
 
@@ -525,7 +527,7 @@ B cannot become ready or claimed until A is completed.
 ```
 
 可并行不需要显式边表达。
-两个 node 之间没有依赖路径，且都满足 ready 条件时，runtime 可以把它们同时派给不同 agent。
+两个 node 之间没有依赖路径，且都满足 ready 条件时，runtime 可以把它们同时派给不同临时 subagents。
 
 ```text
 ready_nodes = nodes where:
@@ -622,7 +624,7 @@ SplitNode(A):
   append NodeReplaced(old=A, new=[A1, A2])
 ```
 
-被 split 的旧 node 保留为历史和审计目标，但不再进入 `ready_nodes`，也不能再被 agent claim。
+被 split 的旧 node 保留为历史和审计目标，但不再进入 `ready_nodes`，也不能再被 subagent claim。
 不要为了 split 增加 `skipped`、`parent_completed` 或 child status propagation。
 
 ## Map Degradation Budget
@@ -804,12 +806,12 @@ artifact needs critique -> Review
 artifact needs proof -> Verify
 ```
 
-如果任务需要并行扫描，runtime 应优先把工作拆成多个 sibling nodes，再由不同 agent 分别 claim。
-不要让多个 agent 同时 claim 同一个 node。
+如果任务需要并行扫描，runtime 应优先把工作拆成多个 sibling nodes，再由不同临时 subagents 分别 claim。
+不要让多个 subagents 同时 claim 同一个 node。
 
 ## AgentAssignment
 
-Agent 是执行资源，不是固定角色。
+Agent 是一次 lease 的临时执行资源，不是固定角色，也不是会在 map 中移动的长期成员。
 
 ```rust
 pub enum AgentExecutionProfile {
@@ -832,7 +834,10 @@ pub struct AgentAssignment {
 }
 ```
 
-agent 可以在 map 上移动，但每次移动都必须生成新的 assignment 和 context pack。assignment 必须同时绑定 `map_id`、`node_id` 和 `lease_id`；只绑定 agent 或 thread 不算 map 驱动。
+每个 assignment 都必须同时绑定 `map_id`、`node_id` 和 `lease_id`；只绑定 agent 或 thread 不算 map 驱动。
+第一版默认一个 assignment lease 对应一个临时 subagent。
+lease 内可以继续使用同一个 live thread 完成 `send_message`、`wait_agent`、`close_agent` 等生命周期操作，但 lease 结束后该 subagent 不再接收新 node。
+如果同一 node 后续仍需要更多工作，runtime 必须生成新的 assignment、context pack 和 lease，再 spawn 新的临时 subagent。
 `execution_profile` 只记录本次 assignment 应使用的 Codex `agent_type`，用于 spawn、event 和 replay；它不是 node status，也不是 agent 身份。
 
 ## Map 驱动执行机制
@@ -873,11 +878,11 @@ if mode == experiment and subagent action targets only map_id:
 
 ### Assignment Lease
 
-`AssignmentLease` 是 agent 执行节点的临时许可。第一版不要新建独立锁系统，优先复用现有 identity：
+`AssignmentLease` 是 subagent 执行节点的临时许可，也是 subagent 生命周期边界。第一版不要新建独立锁系统，优先复用现有 identity：
 
-- `AgentPath` 作为 agent 在树上的稳定路径。
+- `AgentPath` 作为 subagent 在当前 lease 内的稳定路径。
 - `task_name` 作为 map node 的路径来源。
-- `AgentRegistry` 记录 live thread 与 agent metadata。
+- `AgentRegistry` 记录 live subagent thread 与 metadata。
 - `SessionSource::SubAgent(ThreadSpawn)` 记录 parent、depth、agent_path、agent_role。
 - `CollabAgentSpawnBegin/End`、`CollabAgentInteractionBegin/End`、`CollabWaitingBegin/End` 作为现有 session event。
 
@@ -893,7 +898,8 @@ else:
   reject claim
 ```
 
-这条规则保证一个 node 同一时刻最多只有一个 agent 持有。
+这条规则保证一个 node 同一时刻最多只有一个 active lease 和一个临时 subagent 持有。
+lease 关闭、过期或被 revoke 后，runtime 应关闭对应 subagent，或至少不再向该 subagent 派发任何新 node。
 
 ```rust
 pub struct AssignmentLease {
@@ -1334,6 +1340,7 @@ Node: <node_id> - <node_title>
 Assignment: <assignment_id>
 Lease: <lease_id>
 Agent type: <default | explorer | worker>
+Lifecycle: temporary subagent for this lease only
 
 Objective:
 <one concrete objective>
@@ -1357,6 +1364,7 @@ must include:
 
 Do not:
 - work outside this node without a new assignment
+- expect to receive another node after this lease closes
 - claim the node is complete
 - hide blockers
 - keep working after you know the assignment is blocked
@@ -1410,8 +1418,8 @@ Submit the expected artifact, a Blocker artifact, or a MapUpdateRequest artifact
 | Codex substrate | experiment 模式中的用途 |
 | --- | --- |
 | `AgentControl` | 继续负责 spawn/resume/send/close subagent thread |
-| `AgentPath` | 复用为 map/node/assignment 对应的稳定路径锚点 |
-| `AgentRegistry` | 继续记录 live agent/thread 状态；Map Runtime 不替换它 |
+| `AgentPath` | 复用为当前 lease 对应 subagent thread 的路径锚点 |
+| `AgentRegistry` | 继续记录 live subagent/thread 状态；Map Runtime 不替换它 |
 | `SessionSource::SubAgent(ThreadSpawn)` | 继续承载 parent、depth、agent_path、role 元数据 |
 | mailbox | 临时通知和唤醒 |
 | collab session events | 复用 spawn/message/wait/close begin/end 事件，追加 map metadata |
@@ -1501,7 +1509,7 @@ node_4 -> node_5
 ```
 
 如果 runtime 后续把 `node_2` 拆成 `node_2a: 查 spawn/send/wait/close` 和 `node_2b: 查 session event/registry`，这两个节点是平面 sibling nodes，不是 `node_2` 的内部子节点。
-它们通过 `origin_node_id = node_2` 保留追溯信息；没有依赖路径且都 ready 时，就可以分别被不同 agent claim。
+它们通过 `origin_node_id = node_2` 保留追溯信息；没有依赖路径且都 ready 时，就可以分别被不同临时 subagents claim。
 
 ### Step 3：ready node 生成 assignment
 
@@ -1617,12 +1625,12 @@ NodeStatusChanged(node_3: pending)
 ready_nodes recomputed
 ```
 
-如果 `node_2a` 没有未完成上游依赖且没有 active lease，它会进入 `ready`，之后才能被某个 agent claim。
+如果 `node_2a` 没有未完成上游依赖且没有 active lease，它会进入 `ready`，之后才能被新的临时 subagent claim。
 这就是 map 生长：新发现的任务先成为 node，再通过 assignment 派发。
 
-### Step 7：agent 可以合法停止
+### Step 7：subagent 可以合法停止
 
-如果执行 `node_3` 时，agent 发现需要用户确认“第一版是否只约束 multi-agent 协作入口，还是普通 shell/read/edit 也要强拦截”，它不应该硬编结论。
+如果执行 `node_3` 时，subagent 发现需要用户确认“第一版是否只约束 multi-agent 协作入口，还是普通 shell/read/edit 也要强拦截”，它不应该硬编结论。
 正确返回是 `Blocker`：
 
 ```text
@@ -1682,11 +1690,11 @@ new assignment: assign_005
 ```
 
 新的 `ContextPack` 带上 `artifact_004` 和用户补充信息。
-同一个 agent 或另一个 agent 可以继续执行 `node_3`。
+runtime 为 `node_3` 创建新的 assignment/lease，并 spawn 一个新的临时 subagent 继续执行。
 
 ### Step 9：无法继续的停止分支
 
-如果 agent 不是需要用户输入，而是判断自己无法继续，也提交 `Blocker`：
+如果 subagent 不是需要用户输入，而是判断自己无法继续，也提交 `Blocker`：
 
 ```text
 kind: Blocker
@@ -1709,10 +1717,10 @@ runtime 结果：
 ```text
 lease: closed
 node: blocked
-agent: stopped
+subagent: stopped
 ```
 
-主 agent 可以选择自己接手、重新派发、创建新的 search node，或回到用户说明阻塞。
+主 agent 可以选择自己处理、重新派发、创建新的 search node，或回到用户说明阻塞。
 
 ### 推演结论
 
