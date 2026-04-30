@@ -133,6 +133,40 @@ flowchart TD
 并行不是 node 内的多人同时执行。第一版的并行来自多个无依赖的 ready nodes 同时被不同 agent claim。
 同一个 node 同一时刻只能有一个 active lease。
 
+## Agent Role / Execution Profile
+
+第一版不设计拟人化岗位角色，也不引入 `architect`、`reviewer`、`judge`、`scout` 这类固定小队身份。
+角色不是协作核心，`map/node/lease/artifact/gate` 才是协作核心。
+
+Experiment 模式直接复用 Codex base 已有的 `agent_type` 机制，只把它当成执行 profile：
+
+| profile | 定位 | 读写倾向 | 选择规则 |
+| --- | --- | --- | --- |
+| `default` | 主力综合判断 | 读写均可 | 复杂判断、map 初始化/生长、冲突处理、最终合成、不确定任务 |
+| `explorer` | 快速信息收集 | 偏读 | 窄范围代码定位、事实验证、上下文收集 |
+| `worker` | 快速代码落地 | 偏写 | 有明确 ownership 的局部实现、修 bug、补测试、机械改造 |
+
+约束：
+
+- 不新增 Whale 自定义岗位角色，除非真实任务证明 `default/explorer/worker` 无法表达执行成本和读写倾向。
+- `explorer` 和 `worker` 都是加速器，追求速度和低成本，不承担最终语义判断。
+- 复杂、不确定、高风险或需要综合权衡的节点默认使用 `default`。
+- 如果无法确定应该选哪个 profile，使用 `default`。
+- profile 不能替代 node 约束；即使是 `explorer` 或 `worker`，也必须先获得 node assignment 和 active lease。
+- profile 不能改变 artifact/gate 规则；子 agent 的自然语言总结不能因为 role 不同而绕过结构化提交。
+
+```mermaid
+flowchart LR
+    N["Ready MapNode"] --> C{"Node intent"}
+    C -->|"inspect / locate / verify facts"| E["agent_type = explorer"]
+    C -->|"bounded code change / test fix"| W["agent_type = worker"]
+    C -->|"uncertain / architectural / synthesis"| D["agent_type = default"]
+    E --> A["AgentAssignment + Lease"]
+    W --> A
+    D --> A
+    A --> R["Artifact + Gate"]
+```
+
 ## BaseMap
 
 第一版只设计唯一一个 `BaseMap`。它不是领域 map，也不试图覆盖架构、Debug、Feature、Refactor 等不同方法论。
@@ -778,11 +812,18 @@ artifact needs proof -> Verify
 Agent 是执行资源，不是固定角色。
 
 ```rust
+pub enum AgentExecutionProfile {
+    Default,
+    Explorer,
+    Worker,
+}
+
 pub struct AgentAssignment {
     pub id: AssignmentId,
     pub map_id: ActionMapId,
     pub node_id: NodeId,
     pub lease_id: AssignmentLeaseId,
+    pub execution_profile: AgentExecutionProfile,
     pub objective: String,
     pub context_pack: ContextPack,
     pub allowed_tools: Vec<ToolName>,
@@ -792,6 +833,7 @@ pub struct AgentAssignment {
 ```
 
 agent 可以在 map 上移动，但每次移动都必须生成新的 assignment 和 context pack。assignment 必须同时绑定 `map_id`、`node_id` 和 `lease_id`；只绑定 agent 或 thread 不算 map 驱动。
+`execution_profile` 只记录本次 assignment 应使用的 Codex `agent_type`，用于 spawn、event 和 replay；它不是 node status，也不是 agent 身份。
 
 ## Map 驱动执行机制
 
@@ -1291,6 +1333,7 @@ Map: <map_id>
 Node: <node_id> - <node_title>
 Assignment: <assignment_id>
 Lease: <lease_id>
+Agent type: <default | explorer | worker>
 
 Objective:
 <one concrete objective>
