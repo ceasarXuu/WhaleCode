@@ -240,6 +240,10 @@ whale debug models
 ```
 
 The isolated local install path is `%USERPROFILE%\.whale\bin\whale.exe`.
+`whale --version` reports the semver only; the monotonic build number is
+embedded in the TUI/status version display (`vX.Y.Z build N`). When bumping
+`BUILD_NUMBER`, update and run the status snapshot gate so the installed build
+number is covered by tests as well as manual smoke.
 Do not copy Whale into `%USERPROFILE%\.cargo\bin`, `%USERPROFILE%\.local\bin`,
 `%APPDATA%\npm`, or WindowsApps. Those are shared tool locations and can make
 Whale appear coupled to official Codex or npm-installed CLIs.
