@@ -108,7 +108,7 @@ UserTask
 | `NodeExecution` | 某个节点本次如何执行 |
 | `AgentAssignment` | 发给 agent 的具体工作包 |
 | `Artifact` | agent 提交的结构化产物，记录证据、结论和限制 |
-| `Gate` | 根据可检查条件判断节点或阶段是否可推进 |
+| `Gate` | runtime 执行的形式化准出检查，不判断开放任务质量 |
 | `MapEvent` | 状态变化记录，用于 replay 和审计 |
 
 系统主循环：
@@ -122,8 +122,8 @@ flowchart TD
     E --> A["AgentAssignment"]
     A --> R["Agent executes freely inside assignment"]
     R --> F["Artifact"]
-    F --> G["Gate"]
-    G -->|pass| NX["Next Node / Complete"]
+    F --> G["Formal Gate"]
+    G -->|pass| NX["Close Node / Next Node"]
     G -->|fail| RV["Revise Node / Ask User / Retry"]
     NX --> M
     RV --> M
@@ -257,12 +257,15 @@ ready -> pending
 ready/running/completed -> stale -> ready
 ```
 
-节点完成必须满足：
+节点在协议层关闭必须满足：
 
 - required artifacts 已提交。
-- gate 通过。
+- formal gate 通过。
 - 没有 stale context。
 - 没有 unresolved blocker。
+
+`completed` 只表示该 node 满足当前 map 协议下的形式化关闭条件，不表示开放任务已经被 runtime 客观证明“正确完成”或“高质量完成”。
+开放任务的语义充分性由主 agent 对照 user goal、artifacts、limitations 和 blockers 判断。
 
 agent 停止不等于节点完成：
 
@@ -669,17 +672,41 @@ pub struct ArtifactEnvelope<T> {
 | `VerificationResult` | 测试、构建、复现、静态检查结果 |
 | `Blocker` | 合法停止记录：需要用户输入、工具/上下文不足、风险过高或无法继续的原因 |
 | `MapUpdateRequest` | 请求 map 生长或修正：新增、拆分、跳过、标记 stale、补充 node context |
+| `FinalSynthesis` | 主 agent 对 user goal、关键 artifacts、limitations 和 residual risks 的最终语义收束 |
 
 不做额外评分、投票或共识类产物。
 
 ## Gate
 
-Gate 是唯一准出机制。
+Gate 是 runtime 的形式化准出机制。
 
-Gate 不评估“质量分”，只检查明确条件是否满足。它可以阻断明显缺证据、上下文过期、验证缺失或存在 blocker 的节点，但不能声称某个复杂结果已经被客观量化为“高质量”。
+Gate 不评估“质量分”，也不判断开放任务在语义上是否已经充分完成。它只检查明确、有限、可机械判断的协议条件是否满足。
+它可以阻断明显缺证据、上下文过期、验证缺失、存在 blocker 或存在 pending map update 的节点，但不能声称某个复杂结果已经被客观证明为“正确”“完整”或“高质量”。
 
-Gate 只约束“节点是否可以完成”，不约束“agent 是否可以停止”。当 agent 提交 `Blocker` 时，runtime 应记录合法停止原因，并把 node 保持在 `blocked` 或 `waiting_user`，而不是继续驱动 agent 硬做。
-当 agent 提交 `MapUpdateRequest` 时，它进入 map mutation 流程，不直接完成 node；只有 mutation 被提交且当前 node 仍满足 gate，node 才能继续进入 completed。
+Gate 只约束“节点是否满足协议关闭条件”，不约束“agent 是否可以停止”。当 agent 提交 `Blocker` 时，runtime 应记录合法停止原因，并把 node 保持在 `blocked` 或 `waiting_user`，而不是继续驱动 agent 硬做。
+当 agent 提交 `MapUpdateRequest` 时，它进入 map mutation 流程，不直接关闭 node；只有 mutation 被提交且当前 node 仍满足 formal gate，node 才能进入 `completed`。
+
+runtime 可以判断：
+
+- artifact schema 是否有效。
+- artifact 是否属于当前 map/node/assignment。
+- artifact base graph/node version 是否 fresh。
+- required artifact 类型是否齐全。
+- 是否存在 unresolved `Blocker`。
+- 是否存在 pending `MapUpdateRequest`。
+- 是否存在 stale context。
+- 如果 node 要求验证，是否存在 fresh `VerificationResult`。
+
+runtime 不能判断：
+
+- 架构方案是否真的优雅。
+- bug 根因是否真的唯一。
+- 代码改动是否最佳。
+- 开放任务是否已经语义上完全解决。
+- agent 的分析是否“质量足够高”。
+
+复杂语义判断如果需要模型参与，必须先变成 artifact，例如 `ReviewResult`、`VerificationResult` 或 `Analysis`。
+runtime gate 只检查这些 artifact 是否存在、fresh、属于当前 node，并不把模型审查意见直接等同于客观质量证明。
 
 ```rust
 pub struct GateSpec {
@@ -695,7 +722,7 @@ pub enum GateResult {
 }
 ```
 
-第一版 gate 只检查：
+第一版 formal gate 只检查：
 
 - artifact 类型是否齐全。
 - artifact schema 是否有效。
@@ -718,6 +745,14 @@ flowchart TD
     E -->|no| U{"Pending map update?"}
     U -->|yes| BL
     U -->|no| P["Gate Pass"]
+```
+
+原则：
+
+```text
+Agent can produce evidence for gate.
+Runtime owns formal gate evaluation.
+Main agent owns semantic sufficiency judgment for the user goal.
 ```
 
 ## MapEvent
@@ -748,6 +783,81 @@ pub enum MapEvent {
 ```
 
 第一版不要做完整 event sourcing 框架，但事件必须足够 replay 当前任务的关键决策。
+
+## 主 Agent 进度控制
+
+主 agent 是 map coordinator，不是 gate executor。
+它通过读取 map snapshot 掌控整体进度，由 runtime 执行状态机、lease、artifact guard 和 formal gate。
+
+主 agent 每轮应读取：
+
+```text
+map.status
+graph_version
+ready_nodes
+running_nodes + active_leases
+blocked_nodes
+waiting_user_nodes
+stale_nodes
+pending MapUpdateRequests
+completed/skipped nodes
+final goal coverage
+```
+
+控制循环：
+
+```mermaid
+flowchart TD
+    A["Read map snapshot"] --> B{"Active lease exists?"}
+    B -->|yes| C["Wait for artifact or blocker"]
+    C --> D["Runtime artifact guard + formal gate"]
+    D --> A
+
+    B -->|no| E{"Ready node exists?"}
+    E -->|yes| F["Issue assignment + lease"]
+    F --> A
+
+    E -->|no| G{"Blocked, waiting, stale, or pending update?"}
+    G -->|waiting_user| H["Ask user"]
+    G -->|blocked| I["Create recovery node or stop"]
+    G -->|stale| J["Refresh context or map update"]
+    G -->|pending update| K["Accept/revise/reject map mutation"]
+    H --> A
+    I --> A
+    J --> A
+    K --> A
+
+    G -->|none| L{"Semantically sufficient for user goal?"}
+    L -->|yes| M["Create FinalSynthesis and complete map"]
+    L -->|no| N["Grow map with review/verify/follow-up node"]
+    N --> A
+```
+
+开放任务的语义充分性由主 agent 负责判断。
+如果 formal gate 通过但主 agent 认为证据不足，它不应要求 runtime 给质量打分，而应让 map 生长：
+
+```text
+AddNode: 审查方案是否遗漏关键风险
+AddNode: 验证结论是否能被测试复现
+AddNode: 对比另一种实现路径
+AddNode: 请求用户确认范围
+```
+
+map 完成条件：
+
+```text
+Map can complete only when:
+- no active leases
+- no pending MapUpdateRequest
+- no unresolved blocker that affects user goal
+- no stale node that affects user goal
+- all required nodes are completed or skipped
+- FinalSynthesis artifact exists
+- FinalSynthesis formal gate passes
+```
+
+`FinalSynthesis` 是主 agent 对 user goal、已完成 artifacts、limitations 和 residual risks 的最终语义收束。
+runtime 只检查它的 schema、freshness、归属和阻塞状态；用户任务是否足够回答，由主 agent 承担责任并在最终回复中显式说明限制。
 
 ## 通信规则
 
@@ -793,9 +903,11 @@ You are operating in WhaleCode multi-agents experiment mode.
 Every agent action must be bound to an ActionMapInstance.
 If no active map exists, create one from BaseMap before delegating work.
 Do not treat free-form messages as completed work.
-A node can complete only through accepted artifacts and gate evaluation.
+A node can close only through accepted artifacts and formal gate evaluation.
 Stopping is allowed when you need user input, hit a tool/context limit, or cannot proceed.
 When stopping, submit a Blocker artifact with the reason and the next needed input.
+Gate is a formal protocol check, not a quality or semantic-completeness judgment.
+The main agent is responsible for deciding whether artifacts are sufficient for the user goal.
 Do not invent quality scores. Record evidence, limitations, blockers, and verification results.
 ```
 
@@ -806,9 +918,11 @@ Do not invent quality scores. Record evidence, limitations, blockers, and verifi
 所有 agent 行动必须绑定 ActionMapInstance。
 没有 active map 时，先从 BaseMap 创建 map，再委派。
 自然语言消息不能直接代表节点完成。
-节点只能通过 artifact + gate 完成。
+节点只能通过 artifact + formal gate 在协议层关闭。
 需要用户输入、遇到工具/上下文限制或无法继续时，可以停止。
 停止时必须提交 Blocker artifact，说明原因和下一步需要的信息。
+Gate 只是形式化协议检查，不判断质量或语义完成度。
+主 agent 负责判断 artifact 是否足以回答用户目标。
 不要编造质量分，只记录证据、限制、阻塞和验证结果。
 ```
 
@@ -837,7 +951,7 @@ Allowed actions:
 <allowed tools / read-write scope / explicit constraints>
 
 Expected artifact:
-kind: <Finding | Analysis | PatchProposal | ReviewResult | VerificationResult | Blocker | MapUpdateRequest>
+kind: <Finding | Analysis | PatchProposal | ReviewResult | VerificationResult | Blocker | MapUpdateRequest | FinalSynthesis>
 must include:
 - evidence_refs
 - limitations
@@ -951,7 +1065,7 @@ flowchart TD
     S1 --> R1{"Can submit expected artifact?"}
     R1 -->|yes| F["Finding / Analysis artifact"]
     R1 -->|needs input or cannot proceed| BL["Blocker artifact"]
-    F --> G["Gate checks schema/version/blockers"]
+    F --> G["Formal gate checks schema/version/blockers"]
     BL --> W["Node waiting_user or blocked"]
     G -->|pass| C["Node completed"]
     G -->|fail/stale/blocked| H["Refresh assignment or update map"]
@@ -1039,9 +1153,9 @@ limitations:
 `Artifact Submit Guard` 检查 map、node、assignment、version 和 artifact kind。
 通过后 artifact 才能进入 gate。
 
-### Step 5：gate 只决定 node 能否完成
+### Step 5：formal gate 只决定 node 能否协议关闭
 
-Gate 检查明确条件：
+Formal gate 检查明确条件：
 
 - artifact schema 有效。
 - required artifact 已提交。
@@ -1058,6 +1172,8 @@ NodeCompleted
 ```
 
 然后 `node_2` 进入 `completed`，依赖它的后续 node 才能进入 `ready`。
+这只表示 `node_2` 满足协议关闭条件，不表示 runtime 已经判断“架构梳理质量足够高”。
+如果主 agent 认为证据仍不足，应创建 review、verify 或 follow-up node，而不是让 gate 做主观质量判断。
 
 ### Step 6：执行中发现新任务，map 生长
 
@@ -1205,8 +1321,9 @@ agent: stopped
 - `lease` 决定 agent 是否有权对 node 产生产物。
 - `artifact` 决定 agent 的结果是否可被 runtime 消费。
 - `MapUpdateRequest` 允许执行中发现的新任务生长为 node。
-- `gate` 决定 node 是否能完成。
+- `gate` 决定 node 是否满足形式化关闭条件。
 - `Blocker` 允许 agent 合法停止，而不是为了通过流程编造进展。
+- 主 agent 负责判断整个 user goal 是否已经语义上足够完成。
 
 第一版要验证的核心假设是：multi-agent 协作能否从自由写信，升级为 map-bound 的可追踪小组作业，同时不把 agent 锁死在流程里。
 
@@ -1251,17 +1368,18 @@ agent: stopped
 ### MA-3：Artifact 与 Gate
 
 - agent 提交结构化 artifact。
-- gate 检查 artifact、version、blocker。
-- node completion 只能由 gate 触发。
+- formal gate 检查 artifact schema、version、blocker、pending update 和 required artifact presence。
+- node protocol closure 只能由 formal gate 触发。
 - agent 提交 `Blocker` 时，assignment 可以结束，但 node 只能进入 `blocked` 或 `waiting_user`。
 
-验收：自然语言“我完成了”不能直接完成节点；自然语言“我需要用户补充信息/我无法继续”必须被记录为 `Blocker`，而不是被当成异常协议失败。
+验收：自然语言“我完成了”不能直接完成节点；自然语言“我需要用户补充信息/我无法继续”必须被记录为 `Blocker`，而不是被当成异常协议失败；runtime 不输出质量分，也不声明开放任务已被客观证明完成。
 
 ### MA-4：Review / Verify 策略
 
 - NodeExecution 支持 `Review`。
 - NodeExecution 支持 `Verify`。
-- verification 结果可以阻断 gate。
+- `ReviewResult` / `VerificationResult` 是 gate 的输入证据，不是 runtime 的主观质量判断。
+- verification artifact 缺失可以阻断 formal gate。
 
 验收：实现类节点在缺少验证时不能完成。
 
