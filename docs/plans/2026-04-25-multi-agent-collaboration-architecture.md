@@ -283,16 +283,17 @@ agent 可以在 map 上移动，但每次移动都必须生成新的 assignment 
 
 ### 入口拦截
 
-Experiment 模式下，所有会导致 agent 行动的入口都先经过 `MapActionGuard`：
+`MapActionGuard` 不是一套新调度器，而是现有入口上的轻量校验层。第一版只接入已经存在的 Codex V2 multi-agent handler：
 
 ```text
-user follow-up
-spawn_agent
-send_message / followup_task
-tool call
-artifact submit
-close / complete node
+spawn_agent handler
+send_message / followup_task handler
+wait_agent handler
+close_agent handler
+session user follow-up handling
 ```
+
+普通 shell/read/edit 等工具暂不逐个重写。第一版通过 assignment prompt、allowed tool policy、现有 sandbox/approval 和 artifact gate 管住结果；只有真实任务证明需要更细粒度工具拦截时，才扩展到通用 tool dispatcher。
 
 `MapActionGuard` 的决策：
 
@@ -311,7 +312,15 @@ if mode == experiment and action has no map_id/node_id/lease_id:
 
 ### Assignment Lease
 
-`AssignmentLease` 是 agent 执行节点的临时许可。没有有效 lease，agent 不能执行工具或提交结果。
+`AssignmentLease` 是 agent 执行节点的临时许可。第一版不要新建独立锁系统，优先复用现有 identity：
+
+- `AgentPath` 作为 agent 在树上的稳定路径。
+- `task_name` 作为 map node 的路径来源。
+- `AgentRegistry` 记录 live thread 与 agent metadata。
+- `SessionSource::SubAgent(ThreadSpawn)` 记录 parent、depth、agent_path、agent_role。
+- `CollabAgentSpawnBegin/End`、`CollabAgentInteractionBegin/End`、`CollabWaitingBegin/End` 作为现有 session event。
+
+lease 可以先作为 Map Runtime 中的内存/rollout metadata，绑定 `assignment_id -> AgentPath/ThreadId`，不需要替换 `AgentRegistry`。
 
 ```rust
 pub struct AssignmentLease {
@@ -344,14 +353,14 @@ lease 失效条件：
 - agent 尝试使用未授权工具。
 - agent 尝试提交不匹配的 artifact 类型。
 
-### Tool Guard
+### Collab Handler Guard
 
-Experiment 模式下，工具调用必须带当前 lease 上下文。
+第一版不拦截所有普通工具调用，只拦截 multi-agent 协作工具和 artifact 提交入口。
 
 ```text
-tool_call_allowed if:
+collab_action_allowed if:
   lease.status == active
-  tool.name in lease.allowed_tools
+  action in spawn_agent | send_message | followup_task | wait_agent | close_agent | submit_artifact
   current_graph_version == lease.issued_at_graph_version
   current_node_version == lease.issued_at_node_version
 ```
@@ -360,7 +369,7 @@ tool_call_allowed if:
 
 ```text
 MapActionRejected {
-  reason: missing_map | missing_node | missing_lease | stale_lease | tool_not_allowed
+  reason: missing_map | missing_node | missing_lease | stale_lease | action_not_allowed
   required_recovery: create_map | refresh_assignment | request_node_update
 }
 ```
@@ -392,7 +401,7 @@ Expected artifact: <kind>
 Allowed tools: <tools>
 ```
 
-但这只是辅助。真正约束来自 `MapActionGuard`、`AssignmentLease`、`Tool Guard` 和 `Artifact Submit Guard`。
+但这只是辅助。真正约束来自 `MapActionGuard`、`AssignmentLease`、collab handler 校验和 `Artifact Submit Guard`。
 
 ### 恢复策略
 
@@ -562,13 +571,14 @@ Events are state transitions.
 
 | Codex substrate | experiment 模式中的用途 |
 | --- | --- |
-| `AgentControl` | 创建和管理 subagent thread |
-| `AgentPath` | agent 的稳定路径标识 |
-| `AgentRegistry` | live agent/thread 状态 |
+| `AgentControl` | 继续负责 spawn/resume/send/close subagent thread |
+| `AgentPath` | 复用为 map/node/assignment 对应的稳定路径锚点 |
+| `AgentRegistry` | 继续记录 live agent/thread 状态；Map Runtime 不替换它 |
+| `SessionSource::SubAgent(ThreadSpawn)` | 继续承载 parent、depth、agent_path、role 元数据 |
 | mailbox | 临时通知和唤醒 |
-| session events | 承载 MapEvent |
-| tools/sandbox/approval | 执行工具和权限边界 |
-| tool handlers | 插入 `Tool Guard`，拒绝无 lease 或越权工具调用 |
+| collab session events | 复用 spawn/message/wait/close begin/end 事件，追加 map metadata |
+| tools/sandbox/approval | 继续执行工具和权限边界 |
+| multi_agents_v2 handlers | 插入轻量 `MapActionGuard`，不重写通用工具系统 |
 
 `standard` 模式不变。
 
@@ -578,10 +588,19 @@ Events are state transitions.
 Ready MapNode
   -> NodeExecution
   -> AgentAssignment + ContextPack
-  -> existing spawn/send/wait runtime
+  -> existing multi_agents_v2 spawn/send/wait/close runtime
   -> Artifact ingestion
   -> Gate
 ```
+
+具体落点：
+
+- `spawn_agent`：在 `spawn.rs` 创建 child 前，确保有 active map、ready node、assignment；把 `task_name` 约束为 node-derived path。
+- `send_message` / `followup_task`：在 `message_tool.rs` 发送 mailbox 前，校验 target agent 是否有 active assignment lease。
+- `wait_agent`：继续复用 mailbox seq 等待；experiment 模式下等待结果必须进入 artifact ingestion，不能只靠自然语言完成节点。
+- `close_agent`：继续复用 `AgentControl::close_agent`；experiment 模式下同时 revoke assignment lease。
+- completion notification：复用现有 child-to-parent `InterAgentCommunication`，把它视为 artifact ingestion 的输入来源之一。
+- events：优先扩展现有 collab event payload 或追加轻量 map event，不新增并行事件总线。
 
 ## MVP 实施顺序
 
@@ -594,7 +613,7 @@ Ready MapNode
 - 模式切换写 event。
 - `standard` 行为保持现状。
 - `experiment` 模式下无 active map 时自动从 `BaseMap` 创建 map。
-- 所有 agent 行动入口接入 `MapActionGuard`。
+- `spawn_agent`、`send_message`、`followup_task`、`wait_agent`、`close_agent` 入口接入 `MapActionGuard`。
 
 验收：关闭 experiment 后，当前 spawn/send/wait/close 行为不变；开启 experiment 后，没有 map 绑定的 agent 行动会被拒绝或先触发 map 创建。
 
@@ -612,11 +631,11 @@ Ready MapNode
 - Ready node 可生成 assignment。
 - assignment 携带 context pack。
 - assignment 生成 active lease。
-- 工具调用必须通过 lease 校验。
+- multi-agent 协作工具必须通过 lease 校验。
 - artifact 记录 base version。
 - stale artifact 被拒绝或要求重跑。
 
-验收：上游节点变化后，下游旧 artifact 不能直接通过 gate；无 active lease 的工具调用和 artifact 提交会被拒绝。
+验收：上游节点变化后，下游旧 artifact 不能直接通过 gate；无 active lease 的 multi-agent 协作工具调用和 artifact 提交会被拒绝。
 
 ### MA-3：Artifact 与 Gate
 
