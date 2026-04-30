@@ -2,8 +2,6 @@ use crate::exec_command::relativize_to_home;
 use crate::legacy_core::config::Config;
 use crate::status::StatusAccountDisplay;
 use crate::text_formatting;
-use chrono::DateTime;
-use chrono::Local;
 use codex_protocol::account::PlanType;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use std::path::Path;
@@ -159,15 +157,6 @@ pub(crate) fn format_directory_display(directory: &Path, max_width: Option<usize
     }
 
     formatted
-}
-
-pub(crate) fn format_reset_timestamp(dt: DateTime<Local>, captured_at: DateTime<Local>) -> String {
-    let time = dt.format("%H:%M").to_string();
-    if dt.date_naive() == captured_at.date_naive() {
-        time
-    } else {
-        format!("{time} on {}", dt.format("%-d %b"))
-    }
 }
 
 fn title_case(s: &str) -> String {

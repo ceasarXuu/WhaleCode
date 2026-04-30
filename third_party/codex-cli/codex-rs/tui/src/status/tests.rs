@@ -84,6 +84,20 @@ fn sanitize_directory(lines: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+fn assert_no_status_rate_limits(rendered: &[String]) {
+    for line in rendered {
+        assert!(
+            !line.contains("Credits:")
+                && !line.contains("Limits:")
+                && !line.contains("5h limit:")
+                && !line.contains("weekly limit:")
+                && !line.contains("Warning:")
+                && !line.contains("codex/settings/usage"),
+            "expected /status to hide Codex account limit data, got {rendered:?}"
+        );
+    }
+}
+
 fn reset_at_from(captured_at: &chrono::DateTime<chrono::Local>, seconds: i64) -> i64 {
     (*captured_at + ChronoDuration::seconds(seconds))
         .with_timezone(&Utc)
@@ -394,12 +408,7 @@ async fn status_snapshot_shows_unlimited_credits() {
         /*reasoning_effort_override*/ None,
     );
     let rendered = render_lines(&composite.display_lines(/*width*/ 120));
-    assert!(
-        rendered
-            .iter()
-            .any(|line| line.contains("Credits:") && line.contains("Unlimited")),
-        "expected Credits: Unlimited line, got {rendered:?}"
-    );
+    assert_no_status_rate_limits(&rendered);
 }
 
 #[tokio::test]
@@ -444,12 +453,7 @@ async fn status_snapshot_shows_positive_credits() {
         /*reasoning_effort_override*/ None,
     );
     let rendered = render_lines(&composite.display_lines(/*width*/ 120));
-    assert!(
-        rendered
-            .iter()
-            .any(|line| line.contains("Credits:") && line.contains("13 credits")),
-        "expected Credits line with rounded credits, got {rendered:?}"
-    );
+    assert_no_status_rate_limits(&rendered);
 }
 
 #[tokio::test]

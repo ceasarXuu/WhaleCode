@@ -31,8 +31,9 @@ version source:
 
 Whale adds one checked-in monotonic build number at
 `third_party/codex-cli/BUILD_NUMBER`. Increment it when preparing a release
-build, keep it a positive integer, and commit it with the version bump. The TUI
-embeds it at compile time and renders startup/status headers as
+build or handing off a locally installed build for user verification. Keep it a
+positive integer, and commit it with the version bump. The TUI embeds it at
+compile time and renders startup/status headers as
 `vX.Y.Z build N`. GitHub Release display names include the build number, while
 artifact names, npm versions, and WinGet versions keep the semver-only Codex
 flow.
