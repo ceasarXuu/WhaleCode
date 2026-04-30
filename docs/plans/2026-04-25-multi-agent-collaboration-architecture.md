@@ -11,7 +11,9 @@ Supervisor / Cohort / WorkUnit / Message Bus / Artifact / DeepSeek 调度 / View
 
 进一步把“小组作业”抽象成可执行 Action Map、并定义模板实例化、上下文边界、
 agent 游标移动、节点读写锁、图状态机、MapEvent 和图即沟通机制的 runtime
-设计，见 `docs/plans/2026-04-30-action-map-runtime-design.md`。
+设计，见 `docs/plans/2026-04-30-action-map-runtime-design.md`。该 runtime 必须可插拔：
+`/multi-agents standard` 保持当前默认 Codex subagent 模式，`/multi-agents experiment`
+启用新的 Action Map 实验模式；`/multi-agents standart` 作为 `standard` 的兼容别名。
 
 ---
 
