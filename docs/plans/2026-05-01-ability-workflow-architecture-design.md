@@ -44,6 +44,8 @@ Workflow: 面向具体软件工程场景的可执行流程组合
 因此，`ability` 是 WhaleCode 的“内置原子能力层”，`workflow` 是“场景化软件工程执行层”。
 runtime 只能认识稳定 contract、schema、event、gate 和 replay reducer，不能认识每个行业/平台的自然语言流程细节。
 
+本文仍处于设计早期，必须保持克制。第一版只定义足够支撑 `Create`、`Debug` 和一个场景化 workflow 原型的最小 contract，不提前建设完整市场、复杂策略语言、图形化编排器、跨团队治理模型或行业模板库。
+
 ---
 
 ## 二、设计分层
@@ -71,10 +73,11 @@ User Goal
 | Artifact/Event | 可持久化状态 | design doc、evidence record、test report、release checklist |
 | Viewer/Replay | 可观测与可复盘 | DAG 进度、gate 结果、工具调用、关键证据 |
 
-这套分层避免两个问题：
+这套分层避免三个问题：
 
 1. 把 `Create` / `Debug` 写死到 agent loop，导致后续新增场景都要改核心 runtime。
 2. 把 macOS、Android、Web、CLI、库开发等流程都塞进提示词，导致无法验证、无法回放、无法淘汰。
+3. 把 workflow 降级成 skills 或文档约束，导致 runtime 不能真正控制 phase、gate、权限、artifact 和 replay。
 
 ### 2.2 Ability 与 Workflow 的边界
 
@@ -86,6 +89,10 @@ User Goal
 Ability = capability primitive + schema + gate + policy + telemetry
 Workflow = phase machine + DAG template + ability binding + scenario gate
 ```
+
+Ability 可以扩展。新增 ability 应只补充一个可复用原子能力，例如 `apple_signing_diagnostics` 或 `runtime_smoke`，不能偷偷包含完整场景流程。
+
+Workflow 可以自定义，也可以自由编排。一个 workflow 可以复用内置 ability、绑定第三方 ability、调整 phase 顺序、插入/删除节点、替换 gate，但必须保留 runtime 可理解的结构化状态。
 
 | 问题 | 属于 Ability | 属于 Workflow |
 |---|---|---|
@@ -251,6 +258,31 @@ pub struct AbilityGateResult {
 
 ## 四、Workflow 架构
 
+### 4.0 Runtime 级别定位
+
+Workflow 是 runtime 级别能力，不是 skills、提示词或团队规范的同义词。
+
+Skills 可以给模型提供领域知识、操作说明和局部工具习惯，但它不能可靠地保证：
+
+- phase transition 一定被检查。
+- 写效应一定被当前阶段约束。
+- 必要 artifact 一定按 schema 记录。
+- gate 结果一定可 replay。
+- Viewer 一定能看到真实执行状态。
+
+因此，workflow 必须进入 session runtime：
+
+```text
+WorkflowDefinition
+  -> WorkflowRun state
+  -> AbilityInstance state
+  -> ActionMap DAG
+  -> GateResult
+  -> SessionEvent
+```
+
+Skills 可以被 workflow 调用或引用，但不能替代 workflow。
+
 ### 4.1 Workflow Definition
 
 workflow 是场景化工程流程，不是提示词模板。
@@ -270,6 +302,14 @@ pub struct WorkflowDefinition {
     pub telemetry: WorkflowTelemetrySpec,
 }
 ```
+
+第一版不需要完整 workflow DSL。可以先支持内置 Rust/JSON 定义：
+
+- 固定字段描述 phases、ability bindings、base map template 和 completion gates。
+- 允许用户通过配置选择 workflow、关闭某些 optional ability、调整少量 phase 参数。
+- 暂不支持复杂条件表达式、循环、动态插件市场和图形化编辑。
+
+长期目标是可自定义、可自由编排，但早期实现应先验证 runtime contract 是否正确。
 
 ### 4.2 Workflow Phase
 
@@ -515,6 +555,27 @@ signing_and_notarization -> release_runbook
 ---
 
 ## 七、Runtime 集成
+
+### 7.0 克制边界
+
+这部分只定义 runtime 需要承载的最小状态和事件，不要求立刻实现完整产品平台。
+
+第一版必须避免：
+
+- workflow marketplace。
+- 复杂可视化编排器。
+- 独立 workflow 数据库。
+- 另起一套 agent runtime。
+- 把每个垂直场景做成独立代码分支。
+- 过早定义全部 ability taxonomy。
+
+第一版必须证明：
+
+- workflow 可以选择一组 ability。
+- ability 可以生成结构化 artifact 和 gate。
+- workflow 可以生成 Action Map。
+- phase 和 permission 能被 runtime 约束。
+- session event 可以 replay 出 workflow/ability/map 状态。
 
 ### 7.1 新增模块边界
 
@@ -764,10 +825,12 @@ Action Map DAG
 
 ## 十一、关键决策
 
-1. `ability` 是产品内置原子能力，不是某个 workflow 的私有步骤。
-2. `workflow` 是场景化工程流程，由 ability 组合并生成 Action Map。
-3. `Create` / `Debug` 是第一批 workflow，不是底层 agent loop 分支。
-4. `PrimitiveModule` 保留为实现层，承载 ability 的 schema、gate、hook、reducer。
-5. macOS app development 是 workflow；Apple signing、toolchain probe、notarization check 是 ability。
-6. 所有关键状态都必须 event-sourced、schema 化、replayable、Viewer-visible。
-7. 任何自然语言任务仍进入 Agent/Model 路径，workflow 只改变约束、基建和验证，不生成固定智能回复。
+1. 当前仍是设计早期，第一版只做最小 runtime contract，不做完整 workflow 平台。
+2. `ability` 是产品内置原子能力，不是某个 workflow 的私有步骤；ability 可以扩展和替换。
+3. `workflow` 是 runtime 级别能力，不是 skills、提示词或泛泛规范。
+4. `workflow` 由 ability 组织起来，可以自定义、自由编排，并生成 Action Map。
+5. `Create` / `Debug` 是第一批 workflow，不是底层 agent loop 分支。
+6. `PrimitiveModule` 保留为实现层，承载 ability 的 schema、gate、hook、reducer。
+7. macOS app development 是 workflow；Apple signing、toolchain probe、notarization check 是 ability。
+8. 所有关键状态都必须 event-sourced、schema 化、replayable、Viewer-visible。
+9. 任何自然语言任务仍进入 Agent/Model 路径，workflow 只改变约束、基建和验证，不生成固定智能回复。
