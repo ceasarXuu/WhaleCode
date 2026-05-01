@@ -655,6 +655,71 @@ mod tests {
     }
 
     #[test]
+    fn standard_mode_spawn_assignment_is_disabled() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+
+        let assignment = state
+            .prepare_spawn_assignment(owner, "standard task")
+            .expect("standard mode should not fail");
+
+        assert!(assignment.is_none());
+        assert!(state.active_map_id.is_none());
+        assert!(state.maps.is_empty());
+    }
+
+    #[test]
+    fn running_node_blocks_second_claim_until_lease_is_released() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        let first = state
+            .prepare_spawn_assignment(owner, "first")
+            .expect("first claim succeeds")
+            .expect("first assignment");
+
+        let second = state
+            .prepare_spawn_assignment(owner, "second")
+            .expect_err("no second node should be ready while the first is running");
+        assert!(second.contains("no ready node is available"));
+
+        state.release_lease(&first.lease_id);
+        let reclaimed = state
+            .prepare_spawn_assignment(owner, "second")
+            .expect("released node can be claimed again")
+            .expect("reclaimed assignment");
+        assert_eq!(reclaimed.node_id, "define_scope");
+        assert_eq!(reclaimed.lease_id, "lease-2");
+    }
+
+    #[test]
+    fn release_lease_for_thread_returns_node_to_ready() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        let child = ThreadId::new();
+        let assignment = state
+            .prepare_spawn_assignment(owner, "first")
+            .expect("claim")
+            .expect("assignment");
+        state.attach_agent_to_lease(
+            &assignment.lease_id,
+            child,
+            Some("/root/worker".to_string()),
+        );
+
+        let released = state.release_lease_for_thread(child);
+
+        assert_eq!(released.as_deref(), Some("lease-1"));
+        let map = state.active_map().expect("active map");
+        assert_eq!(
+            map.nodes.get("define_scope").expect("node").status,
+            NodeStatus::Ready
+        );
+        assert!(map.leases.is_empty());
+    }
+
+    #[test]
     fn completed_result_advances_next_node() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -684,6 +749,124 @@ mod tests {
     }
 
     #[test]
+    fn errored_result_blocks_node_and_does_not_unlock_downstream() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        let child = ThreadId::new();
+        let assignment = state
+            .prepare_spawn_assignment(owner, "first")
+            .expect("claim")
+            .expect("assignment");
+        state.attach_agent_to_lease(
+            &assignment.lease_id,
+            child,
+            Some("/root/worker".to_string()),
+        );
+
+        let result = state.record_child_result(child, &AgentStatus::Errored("boom".to_string()));
+
+        assert_eq!(result.as_deref(), Some("result-1"));
+        let map = state.active_map().expect("active map");
+        assert_eq!(
+            map.nodes.get("define_scope").expect("node").status,
+            NodeStatus::Blocked
+        );
+        assert_eq!(
+            map.nodes.get("inspect_code_context").expect("node").status,
+            NodeStatus::Pending
+        );
+        let stored = map.results.get("result-1").expect("stored result");
+        assert_eq!(stored.kind, NodeResultKind::Blocker);
+        assert_eq!(stored.body, "boom");
+    }
+
+    #[test]
+    fn unknown_child_result_does_not_mutate_map() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        let assignment = state
+            .prepare_spawn_assignment(owner, "first")
+            .expect("claim")
+            .expect("assignment");
+
+        let result = state.record_child_result(
+            ThreadId::new(),
+            &AgentStatus::Completed(Some("orphan".to_string())),
+        );
+
+        assert!(result.is_none());
+        let map = state.active_map().expect("active map");
+        assert!(map.results.is_empty());
+        assert_eq!(
+            map.nodes.get(&assignment.node_id).expect("node").status,
+            NodeStatus::Running
+        );
+    }
+
+    #[test]
+    fn active_timeout_targets_require_attached_thread_and_parse_agent_path() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        let child = ThreadId::new();
+        let assignment = state
+            .prepare_spawn_assignment(owner, "first")
+            .expect("claim")
+            .expect("assignment");
+
+        assert!(state.active_timeout_targets().is_empty());
+
+        state.attach_agent_to_lease(
+            &assignment.lease_id,
+            child,
+            Some("/root/worker".to_string()),
+        );
+        let targets = state.active_timeout_targets();
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].thread_id, child);
+        assert_eq!(targets[0].node_id, "define_scope");
+        assert_eq!(
+            targets[0].agent_path.as_ref().map(AgentPath::as_str),
+            Some("/root/worker")
+        );
+    }
+
+    #[test]
+    fn completing_all_seed_nodes_marks_map_completed() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        let mut map_id = None;
+
+        for expected_node in SEED_NODE_IDS {
+            let child = ThreadId::new();
+            let assignment = state
+                .prepare_spawn_assignment(owner, expected_node)
+                .expect("claim")
+                .expect("assignment");
+            map_id = Some(assignment.map_id.clone());
+            assert_eq!(assignment.node_id, *expected_node);
+            state.attach_agent_to_lease(
+                &assignment.lease_id,
+                child,
+                Some(format!("/root/{expected_node}")),
+            );
+            state.record_child_result(
+                child,
+                &AgentStatus::Completed(Some(format!("{expected_node} done"))),
+            );
+        }
+
+        let map_id = map_id.expect("map id");
+        let map = state.maps.get(&map_id).expect("map");
+        assert_eq!(map.status, MapStatus::Completed);
+        assert!(state.active_map().is_none());
+        assert_eq!(map.results.len(), SEED_NODE_IDS.len());
+    }
+
+    #[test]
     fn restart_abandons_previous_map_and_creates_new_seed() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -703,5 +886,23 @@ mod tests {
             MapStatus::Abandoned
         );
         assert_eq!(state.active_map().expect("active").id, next);
+    }
+
+    #[test]
+    fn restart_without_existing_map_creates_seed_map() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+
+        let (previous, next) = state.restart_active_map(owner, "Fresh map");
+
+        assert!(previous.is_none());
+        let map = state.active_map().expect("active map");
+        assert_eq!(map.id, next);
+        assert_eq!(map.title, "Fresh map");
+        assert_eq!(
+            map.nodes.get("define_scope").expect("node").status,
+            NodeStatus::Ready
+        );
     }
 }

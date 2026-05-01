@@ -653,6 +653,26 @@ impl AgentControl {
         result
     }
 
+    pub(crate) async fn record_action_map_child_result(
+        &self,
+        parent_thread_id: ThreadId,
+        child_thread_id: ThreadId,
+        status: &AgentStatus,
+    ) -> bool {
+        let Ok(state) = self.upgrade() else {
+            return false;
+        };
+        let Ok(parent_thread) = state.get_thread(parent_thread_id).await else {
+            return false;
+        };
+        parent_thread
+            .codex
+            .session
+            .record_action_map_child_result(child_thread_id, status)
+            .await
+            .is_some()
+    }
+
     /// Interrupt the current task for an existing agent thread.
     pub(crate) async fn interrupt_agent(&self, agent_id: ThreadId) -> CodexResult<String> {
         let state = self.upgrade()?;
@@ -974,13 +994,9 @@ impl AgentControl {
                 let _ = control
                     .send_inter_agent_communication(parent_thread_id, communication)
                     .await;
-                if let Ok(parent_thread) = state.get_thread(parent_thread_id).await {
-                    let _ = parent_thread
-                        .codex
-                        .session
-                        .record_action_map_child_result(child_thread_id, &status)
-                        .await;
-                }
+                let _ = control
+                    .record_action_map_child_result(parent_thread_id, child_thread_id, &status)
+                    .await;
                 return;
             }
             let Ok(parent_thread) = state.get_thread(parent_thread_id).await else {

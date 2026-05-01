@@ -15,6 +15,42 @@
 
 因此，下文中早期提到的 `MAP_RESULT` envelope、formal gate、完整 map event replay 等内容只作为历史设计草稿保留；当前代码实现以本节为准。
 
+## 自动化测试方案
+
+测试目标不是做自然语言结果质量评估，而是覆盖 Action Map Runtime 的可执行路径，确保 experiment 模式只作为 MultiAgentV2 的薄约束层存在，standard 模式不受影响。第一版以“关键路径 90% 以上行为分支覆盖”为目标，覆盖点如下：
+
+| 层级 | 覆盖对象 | 自动化断言 |
+|---|---|---|
+| BaseMap metadata | 候选节点暴露 | `define_scope`、`smoke_test` 等基础候选存在，供初始化使用 |
+| runtime mode | standard / experiment / restore | standard 不创建 map；experiment 注入上下文；resume restore 不制造新的切换提示 |
+| seed map | 默认节点链路 | 初始只开放第一个 ready node；节点按完成顺序推进 |
+| assignment lease | claim / attach / release | 一个 node 同时只能被一个 lease 持有；release 后可重新 claim |
+| result ingestion | completed / errored / unknown | completed 写 result 并推进下游；errored 写 blocker 并阻断下游；未知 thread 不污染状态 |
+| map lifecycle | restart / completed / abandoned | `/map-restart` 弃用旧 map 并创建新 seed；全节点完成后 map completed |
+| timeout summary | wait timeout target | active lease 生成 timeout target；wait timeout 会 interrupt 子 agent 并发送进展总结请求 |
+| spawn hook | MultiAgentV2 spawn | experiment spawn 前缀包含 map/node/lease；standard 仍走原路径 |
+| completion watcher | 子 agent 完成通知 | 复用 `AgentControl` watcher，把 child final message 写回 node 并释放下游 |
+| close hook | close_agent | 关闭子 agent 后释放 node lease，节点可重新被 claim |
+| TUI slash | `/map-mode` / `/map-restart` | 命令解析、运行中禁用、非法参数提示、op 分发 |
+
+当前回归入口：
+
+```powershell
+rustup run stable cargo test --lib action_map --locked
+rustup run stable cargo test --lib multi_agent --locked
+rustup run stable cargo test --lib map_mode --locked
+rustup run stable cargo test --lib map_restart --locked
+```
+
+其中 `multi_agent` 是主回归套件，会覆盖现有 MultiAgentV2 行为和 Action Map hook 的兼容性。若需要更快定位，可按测试名过滤：
+
+```powershell
+rustup run stable cargo test --lib action_map_experiment --locked
+rustup run stable cargo test --lib action_map_completion_watcher --locked
+rustup run stable cargo test --lib action_map_wait_timeout --locked
+rustup run stable cargo test --lib action_map_close_agent --locked
+```
+
 本文是 `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md` 的工程落地拆解，不重新定义 multi-agent 产品架构。
 
 核心约束只有一条：Action Map Runtime 必须是 Codex MultiAgentV2 的约束层，尽可能复用现有 session、tool handler、agent control、mailbox、rollout、TUI slash command 和 collab event 机制；不得新造一套并行 agent runtime、消息总线、持久化系统或观测事件体系。

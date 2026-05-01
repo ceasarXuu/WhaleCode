@@ -879,6 +879,15 @@ impl Session {
             .prepare_spawn_assignment(self.conversation_id, task_name)
     }
 
+    #[cfg(test)]
+    pub(crate) async fn set_action_map_mode_for_test(
+        &self,
+        mode: codex_protocol::protocol::MapRuntimeMode,
+    ) {
+        let mut state = self.state.lock().await;
+        state.action_map_runtime.set_mode(mode);
+    }
+
     pub(crate) async fn attach_action_map_assignment(
         &self,
         lease_id: &str,
@@ -1659,6 +1668,11 @@ impl Session {
             debug!("failed to notify parent thread {parent_thread_id}: {err}");
             return;
         }
+        let _ = self
+            .services
+            .agent_control
+            .record_action_map_child_result(parent_thread_id, self.conversation_id, &status)
+            .await;
         if let Some(message) = trace_message {
             self.services
                 .rollout_thread_trace

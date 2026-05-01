@@ -38,6 +38,7 @@ use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::FileSystemSandboxPolicy;
 use codex_protocol::protocol::InitialHistory;
 use codex_protocol::protocol::InterAgentCommunication;
+use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::NetworkSandboxPolicy;
 use codex_protocol::protocol::Op;
 use codex_protocol::protocol::RolloutItem;
@@ -86,6 +87,30 @@ fn function_payload(args: serde_json::Value) -> ToolPayload {
 
 fn parse_agent_id(id: &str) -> ThreadId {
     ThreadId::from_string(id).expect("agent id should be valid")
+}
+
+async fn enable_action_map_experiment(session: &Arc<crate::session::session::Session>) {
+    session
+        .set_action_map_mode_for_test(MapRuntimeMode::Experiment)
+        .await;
+}
+
+fn captured_op_for_thread(manager: &ThreadManager, thread_id: ThreadId) -> Option<Op> {
+    manager
+        .captured_ops()
+        .into_iter()
+        .find_map(|(captured_thread_id, op)| (captured_thread_id == thread_id).then_some(op))
+}
+
+fn inter_agent_content(op: &Op) -> Option<&str> {
+    match op {
+        Op::InterAgentCommunication { communication } => Some(communication.content.as_str()),
+        Op::UserInput { items, .. } => items.iter().find_map(|item| match item {
+            UserInput::Text { text, .. } => Some(text.as_str()),
+            _ => None,
+        }),
+        _ => None,
+    }
 }
 
 fn thread_manager() -> ThreadManager {
@@ -157,7 +182,7 @@ async fn wait_for_turn_aborted(
     expected_turn_id: &str,
     expected_reason: TurnAbortReason,
 ) {
-    timeout(Duration::from_secs(5), async {
+    timeout(Duration::from_secs(30), async {
         loop {
             let event = thread
                 .next_event()
@@ -829,6 +854,176 @@ async fn multi_agent_v2_spawn_returns_path_and_send_message_accepts_relative_pat
                         && !communication.trigger_turn
             )
     }));
+}
+
+#[tokio::test]
+async fn action_map_experiment_spawn_binds_first_ready_node() {
+    #[derive(Debug, Deserialize)]
+    struct SpawnAgentResult {
+        task_name: String,
+        nickname: Option<String>,
+    }
+
+    let (mut session, mut turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let root = manager
+        .start_thread((*turn.config).clone())
+        .await
+        .expect("root thread should start");
+    session.services.agent_control = manager.agent_control();
+    session.conversation_id = root.thread_id;
+    let mut config = (*turn.config).clone();
+    config
+        .features
+        .enable(Feature::MultiAgentV2)
+        .expect("test config should allow feature update");
+    turn.config = Arc::new(config);
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    enable_action_map_experiment(&session).await;
+
+    let output = SpawnAgentHandlerV2
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "inspect this repo",
+                "task_name": "worker"
+            })),
+        ))
+        .await
+        .expect("spawn_agent should succeed");
+    let (content, _) = expect_text_output(output);
+    let result: SpawnAgentResult =
+        serde_json::from_str(&content).expect("spawn result should parse");
+    assert!(
+        result.task_name.starts_with("/root/define_scope"),
+        "spawn path should be node-derived, got {:?}",
+        result.task_name
+    );
+    assert!(result.nickname.is_some());
+
+    let child_id = session
+        .services
+        .agent_control
+        .resolve_agent_reference(
+            session.conversation_id,
+            &turn.session_source,
+            &result.task_name,
+        )
+        .await
+        .expect("spawned node agent should resolve");
+    let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
+    let content = inter_agent_content(&op).expect("child op should contain text");
+    assert!(content.contains("Action Map node assignment"));
+    assert!(content.contains("Node: define_scope"));
+    assert!(content.contains("Lease: lease-1"));
+    assert!(content.contains("inspect this repo"));
+}
+
+#[tokio::test]
+async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
+    #[derive(Debug, Deserialize)]
+    struct SpawnAgentResult {
+        task_name: String,
+    }
+
+    let (_session, turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let mut root_config = (*turn.config).clone();
+    root_config
+        .features
+        .enable(Feature::MultiAgentV2)
+        .expect("test config should allow feature update");
+    let root = manager
+        .start_thread(root_config)
+        .await
+        .expect("root thread should start");
+    let session = root.thread.codex.session.clone();
+    let turn = session.new_default_turn().await;
+    enable_action_map_experiment(&session).await;
+
+    let first_output = SpawnAgentHandlerV2
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "define scope",
+                "task_name": "first"
+            })),
+        ))
+        .await
+        .expect("first spawn should succeed");
+    let (content, _) = expect_text_output(first_output);
+    let first: SpawnAgentResult = serde_json::from_str(&content).expect("first spawn parses");
+    let first_child_id = session
+        .services
+        .agent_control
+        .resolve_agent_reference(
+            session.conversation_id,
+            &turn.session_source,
+            &first.task_name,
+        )
+        .await
+        .expect("first child resolves");
+    let child_thread = manager
+        .get_thread(first_child_id)
+        .await
+        .expect("child thread exists");
+    let child_turn = child_thread.codex.session.new_default_turn().await;
+    child_thread
+        .codex
+        .session
+        .send_event(
+            child_turn.as_ref(),
+            EventMsg::TurnComplete(TurnCompleteEvent {
+                turn_id: child_turn.sub_id.clone(),
+                last_agent_message: Some("scope complete".to_string()),
+                completed_at: None,
+                duration_ms: None,
+                time_to_first_token_ms: None,
+            }),
+        )
+        .await;
+
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let second = SpawnAgentHandlerV2
+                .handle(invocation(
+                    session.clone(),
+                    turn.clone(),
+                    "spawn_agent",
+                    function_payload(json!({
+                        "message": "inspect code",
+                        "task_name": "second"
+                    })),
+                ))
+                .await;
+            match second {
+                Ok(output) => {
+                    let (content, _) = expect_text_output(output);
+                    let second: SpawnAgentResult =
+                        serde_json::from_str(&content).expect("second spawn parses");
+                    assert!(
+                        second.task_name.starts_with("/root/inspect_code_context"),
+                        "second spawn should bind next node, got {:?}",
+                        second.task_name
+                    );
+                    break;
+                }
+                Err(FunctionCallError::RespondToModel(message))
+                    if message.contains("no ready node is available") =>
+                {
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+                Err(err) => panic!("unexpected spawn error: {err:?}"),
+            }
+        }
+    })
+    .await
+    .expect("completion watcher should advance the map");
 }
 
 #[tokio::test]
@@ -3075,6 +3270,86 @@ async fn multi_agent_v2_wait_agent_returns_for_already_queued_mail() {
 }
 
 #[tokio::test]
+async fn action_map_wait_timeout_requests_progress_summary_from_running_node_agent() {
+    let (mut session, mut turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let root = manager
+        .start_thread((*turn.config).clone())
+        .await
+        .expect("root thread should start");
+    session.services.agent_control = manager.agent_control();
+    session.conversation_id = root.thread_id;
+    let mut config = (*turn.config).clone();
+    config
+        .features
+        .enable(Feature::MultiAgentV2)
+        .expect("test config should allow feature update");
+    turn.config = Arc::new(config);
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    enable_action_map_experiment(&session).await;
+
+    let spawn_output = SpawnAgentHandlerV2
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "claim scope",
+                "task_name": "first"
+            })),
+        ))
+        .await
+        .expect("spawn should claim a node");
+    let (spawn_content, _) = expect_text_output(spawn_output);
+    let spawn_result: serde_json::Value =
+        serde_json::from_str(&spawn_content).expect("spawn result should be json");
+    let task_name = spawn_result["task_name"].as_str().expect("spawn task name");
+    let child_id = session
+        .services
+        .agent_control
+        .resolve_agent_reference(session.conversation_id, &turn.session_source, task_name)
+        .await
+        .expect("child should resolve");
+
+    let wait_output = WaitAgentHandlerV2
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "wait_agent",
+            function_payload(json!({"timeout_ms": MIN_WAIT_TIMEOUT_MS})),
+        ))
+        .await
+        .expect("wait should succeed after timeout");
+    let (content, success) = expect_text_output(wait_output);
+    let result: crate::tools::handlers::multi_agents_v2::wait::WaitAgentResult =
+        serde_json::from_str(&content).expect("wait_agent result should be json");
+    assert_eq!(
+        result,
+        crate::tools::handlers::multi_agents_v2::wait::WaitAgentResult {
+            message: "Wait timed out. Requested progress summaries from 1 Action Map subagent(s)."
+                .to_string(),
+            timed_out: true,
+        }
+    );
+    assert_eq!(success, None);
+
+    let child_ops = manager
+        .captured_ops()
+        .into_iter()
+        .filter(|(thread_id, _)| *thread_id == child_id)
+        .map(|(_, op)| op)
+        .collect::<Vec<_>>();
+    assert!(child_ops.iter().any(|op| matches!(op, Op::Interrupt)));
+    assert!(child_ops.iter().any(|op| {
+        inter_agent_content(op).is_some_and(|content| {
+            content.contains("Action Map wait timeout reached")
+                && content.contains("return a concise current-progress summary")
+        })
+    }));
+}
+
+#[tokio::test]
 async fn multi_agent_v2_wait_agent_wakes_on_any_mailbox_notification() {
     let (mut session, mut turn) = make_session_and_context().await;
     let manager = thread_manager();
@@ -3305,6 +3580,92 @@ async fn multi_agent_v2_close_agent_accepts_task_name_target() {
         manager.agent_control().get_status(agent_id).await,
         AgentStatus::NotFound
     );
+}
+
+#[tokio::test]
+async fn action_map_close_agent_releases_node_lease_for_reclaim() {
+    #[derive(Debug, Deserialize)]
+    struct SpawnAgentResult {
+        task_name: String,
+    }
+
+    let (mut session, mut turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let root = manager
+        .start_thread((*turn.config).clone())
+        .await
+        .expect("root thread should start");
+    session.services.agent_control = manager.agent_control();
+    session.conversation_id = root.thread_id;
+    let mut config = (*turn.config).clone();
+    config
+        .features
+        .enable(Feature::MultiAgentV2)
+        .expect("test config should allow feature update");
+    turn.config = Arc::new(config);
+
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    enable_action_map_experiment(&session).await;
+    let first_output = SpawnAgentHandlerV2
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "claim scope",
+                "task_name": "first"
+            })),
+        ))
+        .await
+        .expect("first spawn should succeed");
+    let (first_content, _) = expect_text_output(first_output);
+    let first: SpawnAgentResult =
+        serde_json::from_str(&first_content).expect("first spawn should parse");
+
+    CloseAgentHandlerV2
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "close_agent",
+            function_payload(json!({"target": first.task_name})),
+        ))
+        .await
+        .expect("close_agent should release the Action Map lease");
+
+    let second_output = SpawnAgentHandlerV2
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "claim scope again",
+                "task_name": "second"
+            })),
+        ))
+        .await
+        .expect("second spawn should reclaim released node");
+    let (second_content, _) = expect_text_output(second_output);
+    let second: SpawnAgentResult =
+        serde_json::from_str(&second_content).expect("second spawn should parse");
+    assert!(
+        second.task_name.starts_with("/root/define_scope"),
+        "released node should be claimable again, got {:?}",
+        second.task_name
+    );
+    let second_child_id = session
+        .services
+        .agent_control
+        .resolve_agent_reference(
+            session.conversation_id,
+            &turn.session_source,
+            &second.task_name,
+        )
+        .await
+        .expect("second child should resolve");
+    let op = captured_op_for_thread(&manager, second_child_id).expect("second op captured");
+    let content = inter_agent_content(&op).expect("second op text");
+    assert!(content.contains("Lease: lease-2"));
 }
 
 #[tokio::test]

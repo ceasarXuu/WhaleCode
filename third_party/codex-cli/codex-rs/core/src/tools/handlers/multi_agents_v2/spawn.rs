@@ -50,7 +50,7 @@ impl ToolHandler for Handler {
         };
         let effective_task_name = action_map_assignment
             .as_ref()
-            .map(|assignment| format!("{}: {}", assignment.node_id, assignment.node_title))
+            .map(|assignment| assignment.node_id.clone())
             .unwrap_or(args.task_name);
         let initial_operation = parse_collab_input(Some(message), /*items*/ None)?;
         let prompt = render_input_preview(&initial_operation);
