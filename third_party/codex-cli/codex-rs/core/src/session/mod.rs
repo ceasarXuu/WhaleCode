@@ -2590,6 +2590,12 @@ impl Session {
         } {
             developer_sections.push(action_map_transition_notice);
         }
+        if let Some(action_map_context) = {
+            let state = self.state.lock().await;
+            state.action_map_runtime.build_developer_context()
+        } {
+            developer_sections.push(action_map_context);
+        }
         if let Some(realtime_update) = crate::context_manager::updates::build_initial_realtime_item(
             reference_context_item.as_ref(),
             previous_turn_settings.as_ref(),
