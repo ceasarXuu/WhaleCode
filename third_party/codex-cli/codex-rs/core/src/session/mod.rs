@@ -1251,7 +1251,7 @@ impl Session {
             let mut state = self.state.lock().await;
             state
                 .action_map_runtime
-                .set_mode(reconstructed_rollout.map_runtime_mode);
+                .restore_mode(reconstructed_rollout.map_runtime_mode);
         }
         self.set_previous_turn_settings(previous_turn_settings.clone())
             .await;
@@ -2583,6 +2583,12 @@ impl Session {
             CollaborationModeInstructions::from_collaboration_mode(&collaboration_mode)
         {
             developer_sections.push(collab_instructions.render());
+        }
+        if let Some(action_map_transition_notice) = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.take_pending_transition_notice()
+        } {
+            developer_sections.push(action_map_transition_notice);
         }
         if let Some(realtime_update) = crate::context_manager::updates::build_initial_realtime_item(
             reference_context_item.as_ref(),

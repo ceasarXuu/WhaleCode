@@ -1306,6 +1306,31 @@ async fn record_initial_history_new_defers_initial_context_until_first_turn() {
 }
 
 #[tokio::test]
+async fn build_initial_context_consumes_action_map_transition_notice_once() {
+    let (session, turn_context) = make_session_and_context().await;
+    {
+        let mut state = session.state.lock().await;
+        state
+            .action_map_runtime
+            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
+    }
+
+    let first_context = session.build_initial_context(&turn_context).await;
+    let first_developer_text = developer_input_texts(&first_context).join("\n");
+    assert!(
+        first_developer_text.contains("Action Map experiment mode is now active"),
+        "expected transition notice in developer context, got: {first_developer_text}"
+    );
+
+    let second_context = session.build_initial_context(&turn_context).await;
+    let second_developer_text = developer_input_texts(&second_context).join("\n");
+    assert!(
+        !second_developer_text.contains("Action Map experiment mode is now active"),
+        "transition notice should be consumed once, got: {second_developer_text}"
+    );
+}
+
+#[tokio::test]
 async fn resumed_history_injects_initial_context_on_first_context_update_only() {
     let (session, turn_context) = make_session_and_context().await;
     let (rollout_items, mut expected) = sample_rollout(&session, &turn_context).await;

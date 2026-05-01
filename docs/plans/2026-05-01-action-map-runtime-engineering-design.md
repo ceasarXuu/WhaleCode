@@ -501,6 +501,41 @@ TUI 增加 `SlashCommand::MapMode`，支持 inline args：
 
 第一版 `/map-mode` 不允许在 root task 正在运行时切换，直接复用现有 `available_during_task = false` 的 slash command gate，避免 active turn 一半按 standard、一半按 experiment 执行。
 
+### Mode Transition Notice
+
+`/map-mode` 不是普通配置项，而是行为协议边界。
+
+切换只影响未来行动，不重写历史、不删除 map、不清空 rollout，也不 retroactively 把旧行为改造成另一种模式。
+但下一轮 agent 必须明确知道“历史仍然存在，但当前行动协议已经变了”。
+
+实现方式：
+
+- `SetMapRuntimeMode` 更新 session-scoped `ActionMapRuntimeState`。
+- 只有用户显式切换 mode 时，runtime 生成一次性 `pending_transition_notice`。
+- 下一次 regular user turn 构造 initial context 时消费这个 notice，并作为 developer-level context 注入。
+- resume/rollout reconstruction 只恢复 mode，不生成 transition notice，避免恢复旧 session 后误导 agent 认为用户刚刚切换模式。
+
+`standard -> experiment` 的 notice 语义：
+
+```text
+Action Map experiment mode is now active.
+Previous standard-mode conversation remains background context only.
+Before taking multi-agent action, create or bind an Action Map and a ready node.
+Future subagent work must be map/node driven.
+```
+
+`experiment -> standard` 的 notice 语义：
+
+```text
+Action Map experiment mode is now disabled.
+Existing maps, nodes, leases, and results remain historical context only.
+Do not continue maintaining the map, require node binding, or follow map-driven protocol unless the user enables experiment mode again.
+Continue with the standard Codex multi-agent behavior.
+```
+
+这条 notice 不能作为自然语言回复展示给用户；它只约束下一轮模型行为。
+如果用户在 map 模式下积累了大量 map/node 上下文后切回 standard，agent 可以参考这些内容作为历史背景，但不得继续按 map 工作法组织行动。
+
 ### `/map-restart`
 
 TUI 增加 `SlashCommand::MapRestart`。
