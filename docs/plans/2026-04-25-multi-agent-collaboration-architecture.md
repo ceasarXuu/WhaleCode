@@ -1646,13 +1646,13 @@ Prompt 不是强约束，强约束由 runtime guard、lease、result gate 执行
 
 | 现有机制 | Prompt 用法 |
 | --- | --- |
-| `multi_agent_v2.root_agent_usage_hint_text` | root/main agent 看到 experiment 模式规则和 map-first 工作方式 |
-| `multi_agent_v2.subagent_usage_hint_text` | spawned subagent 看到 node-bound 执行、result envelope、Blocker 和 MapUpdateRequest 规则 |
-| `multi_agent_v2.usage_hint_text` | 保留给 `spawn_agent` tool description 的短 usage hint，不承担完整 map runtime 规则注入 |
-| `developer_instructions` | 注入当前模式、active map 摘要、当前节点约束；map 创建时额外注入完整 BaseMap metadata |
+| `multi_agent_v2.usage_hint_text` | 当前本地代码已有的 spawn tool description hint；只能放短规则，不承担完整 map runtime 规则注入 |
+| `developer_instructions` / turn context 注入 | 注入当前模式、active map 摘要、当前节点约束；map 创建时额外注入完整 BaseMap metadata |
 | `build_agent_spawn_config(... base_instructions ...)` | 子 agent 继承基础行为规则 |
 | `spawn_agent.message` | 传递 assignment-specific prompt |
 | `InterAgentCommunication.content` | 临时 follow-up 或 completion 文本，不能替代 result envelope |
+
+如果后续同步到上游 root/subagent 分离 hint，再把主 agent 规则和子 agent 规则分别映射过去；第一版不能假设本地代码已经有 `root_agent_usage_hint_text` 或 `subagent_usage_hint_text` 字段。
 
 ### 主 agent prompt
 
@@ -1793,12 +1793,12 @@ Submit the expected result, a Blocker result, or a MapUpdateRequest result for a
 | `SessionSource::SubAgent(ThreadSpawn)` | 继续承载 parent、depth、agent_path、role 元数据 |
 | mailbox | 临时通知和唤醒；`wait_agent` 只等 mailbox 变化，不直接返回结果正文 |
 | collab session events | 复用 spawn/message/wait/close begin/end 事件，追加 map metadata |
-| completion notification | 复用 child-to-parent `InterAgentCommunication` 作为 result ingestion 的触发来源之一 |
+| completion watcher | 复用 `AgentControl::maybe_start_completion_watcher` 读取 `AgentStatus::Completed(last_agent_message)`，作为 result ingestion 的主要 hook |
 | rollout / thread history | 持久化 map snapshot、map event、result ref 和 replay 所需证据 |
 | existing config/session state | 保存 session-scoped `multi_agent_runtime_mode` 和 active map id |
-| `multi_agent_v2.max_concurrent_threads_per_session` | 复用为 experiment 模式的并发 subagent 上限，不另建并发预算系统 |
-| `multi_agent_v2.min_wait_timeout_ms` | 复用为 `wait_agent` 最小等待时间；lease timeout 是更高层语义，不改写 `wait_agent` 返回内容 |
-| `multi_agent_v2.root_agent_usage_hint_text` / `subagent_usage_hint_text` | 复用 upstream root/subagent developer hint 注入点，分别注入主 agent 和子 agent 的 map-mode 规则 |
+| `agent_max_threads` -> spawn tool `max_concurrent_threads_per_session` 描述 | 复用现有并发上限，不另建并发预算系统 |
+| `wait_agent` min/max timeout 常量 | 复用现有等待时间边界；lease timeout 是更高层语义，不改写 `wait_agent` 返回内容 |
+| `multi_agent_v2.usage_hint_text` | 当前本地代码只提供 spawn tool description hint；map-mode 主规则第一版主要通过 assignment prompt 注入 |
 | tools/sandbox/approval | 继续执行工具和权限边界 |
 
 `standard` 模式不变。
@@ -1818,14 +1818,14 @@ Ready MapNode
 
 - `spawn_agent`：在 `multi_agents_v2/spawn.rs` 创建 child 前，确保有 active map、ready node、assignment 和 active lease；禁止只以 map 为目标创建 child；把 `task_name` 约束为 node-derived path。
 - `send_message` / `followup_task`：在 `message_tool.rs` 发送 mailbox 前，校验 target agent 是否有 active assignment lease。
-- `followup_task`：按 upstream 新行为，不再支持 `interrupt` 参数；需要打断时只能走 runtime 内部 `AgentControl::interrupt_agent`，不能让模型通过工具参数自发打断。
-- `wait_agent`：继续复用 mailbox seq 等待；它只唤醒主 agent，不取结果正文；experiment 模式下结果必须通过 completion notification / mailbox drain / result ingestion 写入 node result context。
+- `followup_task`：当前本地代码仍支持 `interrupt` 参数并在 handler 内部调用 `AgentControl::interrupt_agent`；timeout summary 等场景应优先复用这个现有通道，不另建打断机制。
+- `wait_agent`：继续复用 mailbox seq 等待；它只唤醒主 agent，不取结果正文；experiment 模式下结果必须通过 completion watcher / result ingestion 写入 node result context。
 - `close_agent`：继续复用 `AgentControl::close_agent`；experiment 模式下同时 revoke assignment lease。
 - user follow-up：如果当前 turn 切到其他话题，active map 进入 `suspended`；如果 turn 回到 suspended map 的目标，runtime 将其恢复为 `active`。
 - map discovery：当前 session 处理新 user goal 前可检索 MapIndex；如果命中其他 session 持有的 active map，只返回占用提示，不接管。
-- completion notification：复用现有 child-to-parent `InterAgentCommunication`，但不能把“通知到了”等同于“node completed”；主 agent 或 result ingestion 仍需把结果归档到 node。
-- events：优先扩展现有 collab event payload 或追加轻量 map event，不新增并行事件总线。
-- result ingestion：第一版优先从 subagent final answer、completion notification、rollout/thread history 中提取 result envelope；不要为了结果提交先新增一套独立 submit-result 工具，除非真实实现证明现有路径无法可靠承载。
+- completion notification：复用现有 child-to-parent `InterAgentCommunication` 唤醒父 agent，但不能把“通知到了”等同于“node completed”。
+- events：优先复用现有 collab event；map 自身状态必须通过结构化 `EventMsg::MapRuntime` 进入 rollout，不新增并行事件总线。
+- result ingestion：第一版优先从 `AgentStatus::Completed(last_agent_message)` 中提取 result envelope，并在 completion watcher 生成父 agent 通知之前或旁边写入 node result context；不要为了结果提交先新增一套独立 submit-result 工具，除非真实实现证明现有路径无法可靠承载。
 
 不要做的事情：
 
@@ -2299,8 +2299,8 @@ event: MapReplaced(old = map_001, new = map_002)
 - session state 记录 `multi_agent_runtime_mode`。
 - 模式切换写 event。
 - `standard` 行为保持现状。
-- experiment prompt 规则通过 upstream `root_agent_usage_hint_text` / `subagent_usage_hint_text` 注入。
-- 并发上限复用 upstream `max_concurrent_threads_per_session`。
+- experiment prompt 规则当前主要通过 `spawn_agent.message` 的 assignment prompt 注入；本地已有 `multi_agent_v2.usage_hint_text` 只能作为 spawn tool description hint。
+- 并发上限复用当前 `agent_max_threads`，由 spawn tool description 暴露为 `max_concurrent_threads_per_session`。
 - `experiment` 模式下无 active map 时自动从 `BaseMap` 创建 map，并选择或创建 ready node。
 - `spawn_agent`、`send_message`、`followup_task`、`wait_agent`、`close_agent` 入口接入 `MapActionGuard`。
 

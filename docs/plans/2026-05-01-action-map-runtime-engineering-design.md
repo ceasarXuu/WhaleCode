@@ -39,17 +39,18 @@
 | wait handler | `third_party/codex-cli/codex-rs/core/src/tools/handlers/multi_agents_v2/wait.rs` | 继续等待 mailbox seq；不让 wait 返回完整 result |
 | close handler | `third_party/codex-cli/codex-rs/core/src/tools/handlers/multi_agents_v2/close_agent.rs` | 关闭 subagent 时释放 node lease |
 | agent 生命周期 | `third_party/codex-cli/codex-rs/core/src/agent/control.rs` | 继续由 `AgentControl` spawn/send/interrupt/close/list |
+| completion watcher | `third_party/codex-cli/codex-rs/core/src/agent/control.rs` | 子 agent final message 的主要 result ingestion hook |
 | live agent registry | `third_party/codex-cli/codex-rs/core/src/agent/registry.rs` | 继续记录 live thread/path/nickname/role |
 | 父子通知 | `third_party/codex-cli/codex-rs/core/src/agent/mailbox.rs` | 完成通知仍进入父 agent mailbox |
 | session mutable state | `third_party/codex-cli/codex-rs/core/src/state/session.rs` | 增加 session-scoped map runtime state |
 | rollout 持久化 | `third_party/codex-cli/codex-rs/core/src/session/mod.rs` | 复用 `send_event` / `persist_rollout_items` |
 | slash command | `third_party/codex-cli/codex-rs/tui/src/slash_command.rs`、`.../chatwidget/slash_dispatch.rs` | 增加 `/map-mode`、`/map-restart`，不占用 `/subagents` |
-| collab UI 事件 | `third_party/codex-cli/codex-rs/protocol/src/protocol.rs` | 扩展或旁路追加 map event，优先复用已有 collab event |
+| collab UI 事件 | `third_party/codex-cli/codex-rs/protocol/src/protocol.rs` | 增加结构化 map event variant，优先复用已有 collab event |
 
 关键判断：
 
 - `wait_agent` 当前只返回 `Wait completed` / `Wait timed out`，不返回子 agent 内容。这符合设计：结果应进入 node 的 `result_context`，主 agent 收到完成通知后按需读取。
-- 子 agent 完成时，现有 `AgentStatus::Completed(last_agent_message)` 已经能携带最后一条 agent 消息；Action Map Runtime 可以在服务端从这里提取 `MAP_RESULT` envelope，写入 node。模型可见的 mailbox 通知仍只当作“完成触发”，不要把它当成 node 的权威状态源。
+- 子 agent 完成时，现有 `AgentStatus::Completed(last_agent_message)` 已经能携带最后一条 agent 消息；Action Map Runtime 的主要 result ingestion hook 应在 `AgentControl::maybe_start_completion_watcher` 生成父 agent 通知之前或旁边，从 `status` 中提取 `MAP_RESULT` envelope，写入 node。模型可见的 mailbox 通知仍只当作“完成触发”，不要把它当成 node 的权威状态源。
 - `AgentRegistry` 已经有 path、nickname、role、last task message 和并发计数；Action Map Runtime 不应复制一个 live-agent registry。
 - `Mailbox` 已经提供 seq watch 和 drain；Action Map Runtime 不应新增 agent message bus。
 - TUI 已经把 `/subagents` / `/multi-agents` 作为 agent thread picker；map 模式命令必须另起 `/map-mode`。
@@ -112,7 +113,7 @@ flowchart LR
     H -->|复用| AC["AgentControl"]
     H -->|复用| CE["CollabAgent*Event"]
     AM -->|写入| SS["SessionState.action_map_runtime"]
-    AM -->|追加| RO["RolloutItem::EventMsg 或轻量 MapEvent"]
+    AM -->|追加| RO["RolloutItem::EventMsg(MapRuntimeEvent)"]
     TUI["TUI slash command"] -->|只切换状态| SS
 ```
 
@@ -152,8 +153,9 @@ pub(crate) enum MapRuntimeMode {
 
 第一版不新增 map DB。持久化通过现有 rollout 事件完成：
 
-- 每次 map 创建、状态变化、node 状态变化、lease 创建/释放、result 记录，都追加 `MapRuntimeEvent`。
-- resume/fork 时通过已有 rollout reconstruction 流程重建 `ActionMapRuntimeState`。
+- 每次 map 创建、状态变化、node 状态变化、lease 创建/释放、result 记录，都追加结构化 `EventMsg::MapRuntime(MapRuntimeEvent)`。
+- `MapRuntimeEvent` 的序列化类型必须定义在 `codex_protocol::protocol`，否则不能作为 `RolloutItem::EventMsg` 持久化；`core::action_map::events` 只放构造和转换 helper。
+- resume/fork 时通过已有 `session/rollout_reconstruction.rs` 流程重建 `ActionMapRuntimeState`，不能指望默认 `EventMsg(_)` 分支自动恢复 map state。
 - 跨 session discovery 第一版只暴露 lightweight manifest，不加载完整 map snapshot。
 
 如果后续 map 数量过大，再考虑把 `MapIndexEntry` 镜像到现有 `state_db`，但这不是 MA-0/MA-1 的前置条件。
@@ -166,7 +168,7 @@ sequenceDiagram
     participant Resume as rollout reconstruction
 
     Runtime->>Session: mutate ActionMapRuntimeState
-    Runtime->>Session: emit MapRuntimeEvent
+    Runtime->>Session: emit EventMsg::MapRuntime
     Session->>Rollout: persist_rollout_items
     Resume->>Rollout: read rollout items
     Resume->>Session: rebuild ActionMapRuntimeState
@@ -345,7 +347,7 @@ flowchart TD
   - target 必须能解析到现有 child thread。
   - target thread 必须有 active lease。
   - message 默认作为 node context 增量写入对应 node。
-  - 如果 message 是 result submission，则走 result ingestion。
+  - 如果 message 明确携带 `MAP_RESULT` envelope，也可以走 result ingestion；但这不是子 agent final result 的主路径。
   - 如果 message 是继续任务，则必须仍属于同一个 node lease。
 
 不新增 message bus。所有通信仍是 `InterAgentCommunication`。
@@ -375,11 +377,23 @@ flowchart TD
 
 现有 MultiAgentV2 的状态链路已经把 child 最后一条 agent message 放进 `AgentStatus::Completed(last_agent_message)`。第一版不新增结果传输通道，只在这个完成路径旁边做 result ingestion。
 
+准确 hook 是 `core/src/agent/control.rs` 的 completion watcher，而不是 `wait_agent` 或普通 `send_message`：
+
+```text
+child TurnComplete
+  -> agent_status_from_event
+  -> AgentStatus::Completed(last_agent_message)
+  -> AgentControl::maybe_start_completion_watcher
+  -> parse MAP_RESULT
+  -> ActionMapRuntime.record_node_result
+  -> send existing parent mailbox notification
+```
+
 第一版采用两段式语义：
 
 1. subagent 在最终回复中按 prompt 提交 result envelope。
 2. runtime 从 child final message 中解析 envelope，写入 node 的 `result_context`。
-3. parent mailbox 收到完成通知，用来唤醒主 agent。
+3. parent mailbox 收到完成通知，用来唤醒主 agent；通知文本不是 result 的权威存储。
 4. 主 agent 后续需要时，通过下一轮 map context 注入看到 node result；如果 result 过大，只注入摘要和 result ref。
 
 最小 envelope：
@@ -485,6 +499,8 @@ TUI 增加 `SlashCommand::MapMode`，支持 inline args：
 
 命令只输出机械状态，不伪装成 agent 自然语言回复。
 
+第一版 `/map-mode` 不允许在 root task 正在运行时切换，直接复用现有 `available_during_task = false` 的 slash command gate，避免 active turn 一半按 standard、一半按 experiment 执行。
+
 ### `/map-restart`
 
 TUI 增加 `SlashCommand::MapRestart`。
@@ -494,6 +510,18 @@ TUI 增加 `SlashCommand::MapRestart`。
 - standard 模式：提示当前未启用 experiment map runtime。
 - experiment 且无 active/suspended map：提示没有可重启的 map。
 - experiment 且有当前 map：执行 replacement transaction。
+
+`/map-restart` 必须允许用户在任务运行中主动触发，但不能和正在运行的 root turn 并发改同一张 map。
+因此工程路径应复用现有 `Op::Interrupt`：
+
+```text
+if root task running:
+  submit Op::Interrupt
+  record pending MapRestart request
+  apply replacement after TurnAborted
+else:
+  apply replacement immediately
+```
 
 transaction：
 
@@ -565,7 +593,7 @@ subagent 不直接新增 node。
 新增 map event 只记录这些 collab event 不能表达的 map 状态：
 
 ```rust
-pub(crate) enum MapRuntimeEvent {
+pub enum MapRuntimeEvent {
     ModeChanged,
     MapCreated,
     MapSuspended,
@@ -608,7 +636,7 @@ pub(crate) enum MapRuntimeEvent {
 1. `wait_agent` timeout 只追加 warning，不改变 node 状态。
 2. lease timeout 后，runtime 提供 helper 给主 agent生成 timeout follow-up。
 3. 如果 child 空闲，使用现有 `followup_task` 要求它提交 `TimeoutSummary`。
-4. 如果 child 忙且需要强制停，走现有 `AgentControl::interrupt_agent`，再要求 summary。
+4. 如果 child 忙且需要强制停，优先复用当前代码已有的 `followup_task { interrupt: true }`；该 handler 内部已经调用 `AgentControl::interrupt_agent`，不需要为 timeout 另建 interrupt 通道。
 5. summary 仍作为 node result 记录。
 6. 主 agent 决定继续、重派、创建 recovery node、询问用户或重启 map。
 
@@ -688,6 +716,7 @@ pub(crate) enum MapRuntimeEvent {
 改动：
 
 - `core/src/action_map/result.rs`
+- `core/src/agent/control.rs`
 - `core/src/tools/handlers/multi_agents_v2/message_tool.rs`
 - `core/src/tools/handlers/multi_agents_v2/wait.rs`
 - `core/src/tools/handlers/multi_agents_v2/close_agent.rs`
@@ -695,6 +724,7 @@ pub(crate) enum MapRuntimeEvent {
 验收：
 
 - result envelope 写入 node `result_context`。
+- child final message result 通过 completion watcher 入库，不依赖 `wait_agent` 返回内容。
 - `MapUpdateRequest` 记录但不直接 mutate map。
 - `Blocker` 使 node 进入 `blocked`。
 - close agent 释放 lease。
