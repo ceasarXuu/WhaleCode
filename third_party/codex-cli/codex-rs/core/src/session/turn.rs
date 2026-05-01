@@ -1507,6 +1507,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<String> {
         | EventMsg::SessionConfigured(_)
         | EventMsg::ThreadNameUpdated(_)
         | EventMsg::ThreadGoalUpdated(_)
+        | EventMsg::MapRuntime(_)
         | EventMsg::McpStartupUpdate(_)
         | EventMsg::McpStartupComplete(_)
         | EventMsg::McpToolCallBegin(_)

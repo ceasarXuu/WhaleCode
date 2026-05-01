@@ -33,6 +33,8 @@ pub enum SlashCommand {
     Plan,
     Goal,
     Collab,
+    #[strum(serialize = "map-mode")]
+    MapMode,
     Agent,
     Side,
     // Undo,
@@ -109,6 +111,7 @@ impl SlashCommand {
             SlashCommand::Plan => "switch to Plan mode",
             SlashCommand::Goal => "set or view the goal for a long-running task",
             SlashCommand::Collab => "change collaboration mode (experimental)",
+            SlashCommand::MapMode => "switch Action Map runtime mode",
             SlashCommand::Agent | SlashCommand::MultiAgents => "switch the active agent thread",
             SlashCommand::Side => "start a side conversation in an ephemeral fork",
             SlashCommand::Approvals => "choose what Whale is allowed to do",
@@ -144,6 +147,7 @@ impl SlashCommand {
                 | SlashCommand::Goal
                 | SlashCommand::Fast
                 | SlashCommand::Mcp
+                | SlashCommand::MapMode
                 | SlashCommand::SearchProvider
                 | SlashCommand::Side
                 | SlashCommand::Resume
@@ -179,6 +183,7 @@ impl SlashCommand {
             | SlashCommand::Memories
             | SlashCommand::Review
             | SlashCommand::Plan
+            | SlashCommand::MapMode
             | SlashCommand::Clear
             | SlashCommand::Logout
             | SlashCommand::MemoryDrop
@@ -251,5 +256,15 @@ mod tests {
     #[test]
     fn goal_command_is_available_during_task() {
         assert!(SlashCommand::Goal.available_during_task());
+    }
+
+    #[test]
+    fn map_mode_command_parses_and_requires_idle_task() {
+        assert_eq!(
+            SlashCommand::from_str("map-mode"),
+            Ok(SlashCommand::MapMode)
+        );
+        assert!(SlashCommand::MapMode.supports_inline_args());
+        assert!(!SlashCommand::MapMode.available_during_task());
     }
 }

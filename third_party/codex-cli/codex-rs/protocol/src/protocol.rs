@@ -775,6 +775,13 @@ pub enum Op {
     /// model.
     SetThreadMemoryMode { mode: ThreadMemoryMode },
 
+    /// Select the session-scoped Action Map runtime mode.
+    ///
+    /// This is a local-only operation handled by codex-core; it does not
+    /// involve the model. `standard` preserves the current multi-agent
+    /// behavior, while `experiment` enables Action Map hooks as they land.
+    SetMapRuntimeMode { mode: MapRuntimeMode },
+
     /// Request Codex to undo a turn (turn are stacked so it is the same effect as CMD + Z).
     Undo,
 
@@ -907,6 +914,7 @@ impl Op {
             Self::UpdateMemories => "update_memories",
             Self::SetThreadName { .. } => "set_thread_name",
             Self::SetThreadMemoryMode { .. } => "set_thread_memory_mode",
+            Self::SetMapRuntimeMode { .. } => "set_map_runtime_mode",
             Self::Undo => "undo",
             Self::ThreadRollback { .. } => "thread_rollback",
             Self::Review { .. } => "review",
@@ -1467,6 +1475,9 @@ pub enum EventMsg {
     /// Updated long-running goal metadata for the thread.
     ThreadGoalUpdated(ThreadGoalUpdatedEvent),
 
+    /// Action Map runtime state changed for this session.
+    MapRuntime(MapRuntimeEvent),
+
     /// Incremental MCP startup progress updates.
     McpStartupUpdate(McpStartupUpdateEvent),
 
@@ -1747,6 +1758,41 @@ pub struct RealtimeConversationClosedEvent {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
 pub struct RealtimeConversationSdpEvent {
     pub sdp: String,
+}
+
+#[derive(
+    Debug, Clone, Copy, Default, Deserialize, Serialize, Display, PartialEq, Eq, JsonSchema, TS,
+)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum MapRuntimeMode {
+    /// Preserve the current multi-agent behavior.
+    #[default]
+    Standard,
+    /// Enable Action Map runtime hooks as they are implemented.
+    Experiment,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeModeChangedEvent {
+    pub previous_mode: MapRuntimeMode,
+    pub current_mode: MapRuntimeMode,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(tag = "type")]
+pub enum MapRuntimeEvent {
+    ModeChanged(MapRuntimeModeChangedEvent),
+}
+
+impl From<MapRuntimeEvent> for EventMsg {
+    fn from(event: MapRuntimeEvent) -> Self {
+        EventMsg::MapRuntime(event)
+    }
 }
 
 impl From<CollabAgentSpawnBeginEvent> for EventMsg {

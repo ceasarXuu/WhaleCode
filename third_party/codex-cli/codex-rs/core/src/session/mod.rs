@@ -329,6 +329,8 @@ use codex_protocol::protocol::Event;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::ExecApprovalRequestEvent;
 use codex_protocol::protocol::InitialHistory;
+use codex_protocol::protocol::MapRuntimeEvent;
+use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::McpServerRefreshConfig;
 use codex_protocol::protocol::ModelRerouteEvent;
 use codex_protocol::protocol::ModelRerouteReason;
@@ -1245,6 +1247,12 @@ impl Session {
             reconstructed_rollout.reference_context_item,
         )
         .await;
+        {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .set_mode(reconstructed_rollout.map_runtime_mode);
+        }
         self.set_previous_turn_settings(previous_turn_settings.clone())
             .await;
         previous_turn_settings

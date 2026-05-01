@@ -5,6 +5,7 @@
 // the TUI or the tracing stack).
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
+mod action_map;
 mod apply_patch;
 mod apps;
 mod arc_monitor;

@@ -7564,6 +7564,7 @@ impl ChatWidget {
                     event.turn_id,
                 );
             }
+            EventMsg::MapRuntime(_) => {}
             // NOTE: All three AgentMessage arms feed `record_agent_markdown` even
             // when the message is otherwise not rendered (thread-snapshot replay,
             // non-review live messages). This ensures the copy source stays

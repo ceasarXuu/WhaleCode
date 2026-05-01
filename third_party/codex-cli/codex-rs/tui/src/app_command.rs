@@ -14,6 +14,7 @@ use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::ConversationAudioParams;
 use codex_protocol::protocol::ConversationStartParams;
 use codex_protocol::protocol::ConversationTextParams;
+use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::Op;
 use codex_protocol::protocol::ReviewDecision;
 use codex_protocol::protocol::ReviewRequest;
@@ -99,6 +100,9 @@ pub(crate) enum AppCommandView<'a> {
     Compact,
     SetThreadName {
         name: &'a str,
+    },
+    SetMapRuntimeMode {
+        mode: &'a MapRuntimeMode,
     },
     Shutdown,
     ThreadRollback {
@@ -258,6 +262,10 @@ impl AppCommand {
         Self(Op::SetThreadName { name })
     }
 
+    pub(crate) fn set_map_runtime_mode(mode: MapRuntimeMode) -> Self {
+        Self(Op::SetMapRuntimeMode { mode })
+    }
+
     pub(crate) fn thread_rollback(num_turns: u32) -> Self {
         Self(Op::ThreadRollback { num_turns })
     }
@@ -381,6 +389,7 @@ impl AppCommand {
             },
             Op::Compact => AppCommandView::Compact,
             Op::SetThreadName { name } => AppCommandView::SetThreadName { name },
+            Op::SetMapRuntimeMode { mode } => AppCommandView::SetMapRuntimeMode { mode },
             Op::Shutdown => AppCommandView::Shutdown,
             Op::ThreadRollback { num_turns } => AppCommandView::ThreadRollback {
                 num_turns: *num_turns,

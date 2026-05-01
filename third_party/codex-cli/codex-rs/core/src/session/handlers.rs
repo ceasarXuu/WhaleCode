@@ -44,6 +44,9 @@ use codex_protocol::protocol::GuardianAssessmentEvent;
 use codex_protocol::protocol::GuardianAssessmentStatus;
 use codex_protocol::protocol::InterAgentCommunication;
 use codex_protocol::protocol::ListSkillsResponseEvent;
+use codex_protocol::protocol::MapRuntimeEvent;
+use codex_protocol::protocol::MapRuntimeMode;
+use codex_protocol::protocol::MapRuntimeModeChangedEvent;
 use codex_protocol::protocol::McpServerRefreshConfig;
 use codex_protocol::protocol::Op;
 use codex_protocol::protocol::RealtimeConversationListVoicesResponseEvent;
@@ -940,6 +943,36 @@ pub async fn set_thread_memory_mode(sess: &Arc<Session>, sub_id: String, mode: T
     }
 }
 
+pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: MapRuntimeMode) {
+    let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
+    let outcome = {
+        let mut state = sess.state.lock().await;
+        state.action_map_runtime.set_mode(mode)
+    };
+
+    sess.send_event(
+        &turn_context,
+        EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(MapRuntimeModeChangedEvent {
+            previous_mode: outcome.previous_mode,
+            current_mode: outcome.current_mode,
+        })),
+    )
+    .await;
+
+    let status = if outcome.changed {
+        format!(
+            "Action Map runtime mode changed to {}.",
+            outcome.current_mode
+        )
+    } else {
+        format!(
+            "Action Map runtime mode is already {}.",
+            outcome.current_mode
+        )
+    };
+    sess.notify_background_event(&turn_context, status).await;
+}
+
 pub async fn shutdown(sess: &Arc<Session>, sub_id: String) -> bool {
     sess.abort_all_tasks(TurnAbortReason::Interrupted).await;
     let _ = sess.conversation.shutdown().await;
@@ -1205,6 +1238,10 @@ pub(super) async fn submission_loop(
                 }
                 Op::SetThreadMemoryMode { mode } => {
                     set_thread_memory_mode(&sess, sub.id.clone(), mode).await;
+                    false
+                }
+                Op::SetMapRuntimeMode { mode } => {
+                    set_map_runtime_mode(&sess, sub.id.clone(), mode).await;
                     false
                 }
                 Op::RunUserShellCommand { command } => {

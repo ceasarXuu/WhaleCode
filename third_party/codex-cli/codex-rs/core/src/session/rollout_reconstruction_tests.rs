@@ -8,6 +8,7 @@ use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::CompactedItem;
 use codex_protocol::protocol::InitialHistory;
 use codex_protocol::protocol::InterAgentCommunication;
+use codex_protocol::protocol::MapRuntimeModeChangedEvent;
 use codex_protocol::protocol::ResumedHistory;
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
@@ -53,6 +54,31 @@ fn inter_agent_assistant_message(text: &str) -> ResponseItem {
         end_turn: None,
         phase: None,
     }
+}
+
+#[tokio::test]
+async fn reconstruct_history_restores_latest_map_runtime_mode() {
+    let (session, turn_context) = make_session_and_context().await;
+    let rollout_items = vec![
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(
+            MapRuntimeModeChangedEvent {
+                previous_mode: MapRuntimeMode::Standard,
+                current_mode: MapRuntimeMode::Experiment,
+            },
+        ))),
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(
+            MapRuntimeModeChangedEvent {
+                previous_mode: MapRuntimeMode::Experiment,
+                current_mode: MapRuntimeMode::Standard,
+            },
+        ))),
+    ];
+
+    let reconstructed = session
+        .reconstruct_history_from_rollout(&turn_context, &rollout_items)
+        .await;
+
+    assert_eq!(reconstructed.map_runtime_mode, MapRuntimeMode::Standard);
 }
 
 #[tokio::test]

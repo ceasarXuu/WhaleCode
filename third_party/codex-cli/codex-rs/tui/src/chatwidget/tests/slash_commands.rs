@@ -1172,6 +1172,46 @@ async fn usage_error_slash_command_is_available_from_local_recall() {
 }
 
 #[tokio::test]
+async fn map_mode_slash_command_submits_runtime_mode_op() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+
+    submit_composer_text(&mut chat, "/map-mode experiment");
+
+    let mut observed = None;
+    while let Ok(op) = op_rx.try_recv() {
+        if matches!(op, Op::SetMapRuntimeMode { .. }) {
+            observed = Some(op);
+            break;
+        }
+    }
+    assert_matches!(
+        observed,
+        Some(Op::SetMapRuntimeMode {
+            mode: MapRuntimeMode::Experiment
+        })
+    );
+}
+
+#[tokio::test]
+async fn invalid_map_mode_slash_command_reports_usage_without_op() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+
+    submit_composer_text(&mut chat, "/map-mode maybe");
+
+    assert_no_submit_op(&mut op_rx);
+    let cells = drain_insert_history(&mut rx);
+    let rendered = cells
+        .iter()
+        .map(|cell| lines_to_single_string(cell))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        rendered.contains("Usage: /map-mode [standard|experiment]"),
+        "expected map mode usage message, got: {rendered:?}"
+    );
+}
+
+#[tokio::test]
 async fn unrecognized_slash_command_is_not_added_to_local_recall() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 

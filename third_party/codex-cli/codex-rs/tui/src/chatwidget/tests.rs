@@ -169,6 +169,7 @@ pub(super) use codex_protocol::protocol::GuardianRiskLevel;
 pub(super) use codex_protocol::protocol::GuardianUserAuthorization;
 pub(super) use codex_protocol::protocol::ImageGenerationEndEvent;
 pub(super) use codex_protocol::protocol::ItemCompletedEvent;
+pub(super) use codex_protocol::protocol::MapRuntimeMode;
 pub(super) use codex_protocol::protocol::McpStartupCompleteEvent;
 pub(super) use codex_protocol::protocol::McpStartupStatus;
 pub(super) use codex_protocol::protocol::McpStartupUpdateEvent;

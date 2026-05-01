@@ -9,6 +9,7 @@ use super::*;
 use crate::app_event::ThreadGoalSetMode;
 use crate::bottom_pane::prompt_args::parse_slash_name;
 use crate::bottom_pane::slash_commands;
+use codex_protocol::protocol::MapRuntimeMode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SlashCommandDispatchSource {
@@ -31,6 +32,7 @@ const SIDE_REVIEW_UNAVAILABLE_MESSAGE: &str =
 const SIDE_SLASH_COMMAND_UNAVAILABLE_HINT: &str = "Press Esc to return to the main thread first.";
 const GOAL_USAGE: &str = "Usage: /goal <objective>";
 const GOAL_USAGE_HINT: &str = "Example: /goal improve benchmark coverage";
+const MAP_MODE_USAGE: &str = "Usage: /map-mode [standard|experiment]";
 
 impl ChatWidget {
     /// Dispatch a bare slash command and record its staged local-history entry.
@@ -230,6 +232,15 @@ impl ChatWidget {
                     return;
                 }
                 self.open_collaboration_modes_popup();
+            }
+            SlashCommand::MapMode => {
+                self.add_info_message(
+                    MAP_MODE_USAGE.to_string(),
+                    Some(
+                        "standard keeps the current multi-agent behavior; experiment enables Action Map hooks as they land."
+                            .to_string(),
+                    ),
+                );
             }
             SlashCommand::Side => {
                 self.request_empty_side_conversation();
@@ -570,6 +581,15 @@ impl ChatWidget {
                 "verbose" => self.add_mcp_output(McpServerStatusDetail::Full),
                 _ => self.add_error_message("Usage: /mcp [verbose]".to_string()),
             },
+            SlashCommand::MapMode => match trimmed.to_ascii_lowercase().as_str() {
+                "standard" => {
+                    self.submit_op(AppCommand::set_map_runtime_mode(MapRuntimeMode::Standard));
+                }
+                "experiment" => {
+                    self.submit_op(AppCommand::set_map_runtime_mode(MapRuntimeMode::Experiment));
+                }
+                _ => self.add_error_message(MAP_MODE_USAGE.to_string()),
+            },
             SlashCommand::SearchProvider => {
                 self.dispatch_search_provider_command(trimmed);
             }
@@ -841,6 +861,7 @@ impl ChatWidget {
             | SlashCommand::MemoryDrop
             | SlashCommand::MemoryUpdate
             | SlashCommand::Mcp
+            | SlashCommand::MapMode
             | SlashCommand::Apps
             | SlashCommand::Plugins
             | SlashCommand::Rollout
