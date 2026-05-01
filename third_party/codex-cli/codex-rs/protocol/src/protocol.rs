@@ -782,6 +782,12 @@ pub enum Op {
     /// behavior, while `experiment` enables Action Map hooks as they land.
     SetMapRuntimeMode { mode: MapRuntimeMode },
 
+    /// Abandon the active Action Map and create a fresh seed map.
+    ///
+    /// This is a local-only operation handled by codex-core; it does not
+    /// involve the model.
+    RestartActionMap,
+
     /// Request Codex to undo a turn (turn are stacked so it is the same effect as CMD + Z).
     Undo,
 
@@ -915,6 +921,7 @@ impl Op {
             Self::SetThreadName { .. } => "set_thread_name",
             Self::SetThreadMemoryMode { .. } => "set_thread_memory_mode",
             Self::SetMapRuntimeMode { .. } => "set_map_runtime_mode",
+            Self::RestartActionMap => "restart_action_map",
             Self::Undo => "undo",
             Self::ThreadRollback { .. } => "thread_rollback",
             Self::Review { .. } => "review",

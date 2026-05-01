@@ -35,6 +35,8 @@ pub enum SlashCommand {
     Collab,
     #[strum(serialize = "map-mode")]
     MapMode,
+    #[strum(serialize = "map-restart")]
+    MapRestart,
     Agent,
     Side,
     // Undo,
@@ -112,6 +114,7 @@ impl SlashCommand {
             SlashCommand::Goal => "set or view the goal for a long-running task",
             SlashCommand::Collab => "change collaboration mode (experimental)",
             SlashCommand::MapMode => "switch Action Map runtime mode",
+            SlashCommand::MapRestart => "abandon the active Action Map and start fresh",
             SlashCommand::Agent | SlashCommand::MultiAgents => "switch the active agent thread",
             SlashCommand::Side => "start a side conversation in an ephemeral fork",
             SlashCommand::Approvals => "choose what Whale is allowed to do",
@@ -184,6 +187,7 @@ impl SlashCommand {
             | SlashCommand::Review
             | SlashCommand::Plan
             | SlashCommand::MapMode
+            | SlashCommand::MapRestart
             | SlashCommand::Clear
             | SlashCommand::Logout
             | SlashCommand::MemoryDrop
@@ -266,5 +270,15 @@ mod tests {
         );
         assert!(SlashCommand::MapMode.supports_inline_args());
         assert!(!SlashCommand::MapMode.available_during_task());
+    }
+
+    #[test]
+    fn map_restart_command_parses_and_requires_idle_task() {
+        assert_eq!(
+            SlashCommand::from_str("map-restart"),
+            Ok(SlashCommand::MapRestart)
+        );
+        assert!(!SlashCommand::MapRestart.supports_inline_args());
+        assert!(!SlashCommand::MapRestart.available_during_task());
     }
 }

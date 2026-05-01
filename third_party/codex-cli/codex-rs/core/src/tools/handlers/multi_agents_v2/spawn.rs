@@ -40,7 +40,19 @@ impl ToolHandler for Handler {
             .map(str::trim)
             .filter(|role| !role.is_empty());
 
-        let initial_operation = parse_collab_input(Some(args.message), /*items*/ None)?;
+        let action_map_assignment = session
+            .prepare_action_map_spawn_assignment(&args.task_name)
+            .await
+            .map_err(FunctionCallError::RespondToModel)?;
+        let message = match action_map_assignment.as_ref() {
+            Some(assignment) => format!("{}{}", assignment.message_prefix, args.message),
+            None => args.message,
+        };
+        let effective_task_name = action_map_assignment
+            .as_ref()
+            .map(|assignment| format!("{}: {}", assignment.node_id, assignment.node_title))
+            .unwrap_or(args.task_name);
+        let initial_operation = parse_collab_input(Some(message), /*items*/ None)?;
         let prompt = render_input_preview(&initial_operation);
 
         let session_source = turn.session_source.clone();
@@ -93,7 +105,7 @@ impl ToolHandler for Handler {
             &turn.session_source,
             child_depth,
             role_name,
-            Some(args.task_name.clone()),
+            Some(effective_task_name),
         )?;
         let result = session
             .services
@@ -166,6 +178,21 @@ impl ToolHandler for Handler {
                 ),
                 (None, None) => (None, None, None),
             };
+        if let Some(assignment) = action_map_assignment.as_ref() {
+            if let Some(thread_id) = new_thread_id {
+                session
+                    .attach_action_map_assignment(
+                        &assignment.lease_id,
+                        thread_id,
+                        new_agent_path.clone(),
+                    )
+                    .await;
+            } else {
+                session
+                    .release_action_map_assignment(&assignment.lease_id)
+                    .await;
+            }
+        }
         let effective_model = agent_snapshot
             .as_ref()
             .map(|snapshot| snapshot.model.clone())

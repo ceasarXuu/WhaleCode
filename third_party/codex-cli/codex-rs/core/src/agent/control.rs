@@ -974,6 +974,13 @@ impl AgentControl {
                 let _ = control
                     .send_inter_agent_communication(parent_thread_id, communication)
                     .await;
+                if let Ok(parent_thread) = state.get_thread(parent_thread_id).await {
+                    let _ = parent_thread
+                        .codex
+                        .session
+                        .record_action_map_child_result(child_thread_id, &status)
+                        .await;
+                }
                 return;
             }
             let Ok(parent_thread) = state.get_thread(parent_thread_id).await else {

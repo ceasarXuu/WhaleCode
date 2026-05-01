@@ -973,6 +973,18 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
     sess.notify_background_event(&turn_context, status).await;
 }
 
+pub async fn restart_action_map(sess: &Arc<Session>, sub_id: String) {
+    let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
+    let (previous_map_id, new_map_id) = sess.restart_action_map().await;
+    let status = match previous_map_id {
+        Some(previous_map_id) => format!(
+            "Action Map restarted. Previous map {previous_map_id} was abandoned; new map is {new_map_id}."
+        ),
+        None => format!("Action Map started. New map is {new_map_id}."),
+    };
+    sess.notify_background_event(&turn_context, status).await;
+}
+
 pub async fn shutdown(sess: &Arc<Session>, sub_id: String) -> bool {
     sess.abort_all_tasks(TurnAbortReason::Interrupted).await;
     let _ = sess.conversation.shutdown().await;
@@ -1242,6 +1254,10 @@ pub(super) async fn submission_loop(
                 }
                 Op::SetMapRuntimeMode { mode } => {
                     set_map_runtime_mode(&sess, sub.id.clone(), mode).await;
+                    false
+                }
+                Op::RestartActionMap => {
+                    restart_action_map(&sess, sub.id.clone()).await;
                     false
                 }
                 Op::RunUserShellCommand { command } => {

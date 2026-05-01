@@ -242,6 +242,9 @@ impl ChatWidget {
                     ),
                 );
             }
+            SlashCommand::MapRestart => {
+                self.submit_op(AppCommand::restart_action_map());
+            }
             SlashCommand::Side => {
                 self.request_empty_side_conversation();
             }
@@ -590,6 +593,9 @@ impl ChatWidget {
                 }
                 _ => self.add_error_message(MAP_MODE_USAGE.to_string()),
             },
+            SlashCommand::MapRestart => {
+                self.add_error_message("Usage: /map-restart".to_string());
+            }
             SlashCommand::SearchProvider => {
                 self.dispatch_search_provider_command(trimmed);
             }
@@ -862,6 +868,7 @@ impl ChatWidget {
             | SlashCommand::MemoryUpdate
             | SlashCommand::Mcp
             | SlashCommand::MapMode
+            | SlashCommand::MapRestart
             | SlashCommand::Apps
             | SlashCommand::Plugins
             | SlashCommand::Rollout

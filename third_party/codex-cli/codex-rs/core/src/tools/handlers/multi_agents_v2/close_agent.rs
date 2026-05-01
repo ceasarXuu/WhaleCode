@@ -82,6 +82,11 @@ impl ToolHandler for Handler {
             .await
             .map_err(|err| collab_agent_error(agent_id, err))
             .map(|_| ());
+        if result.is_ok() {
+            session
+                .release_action_map_assignment_for_thread(agent_id)
+                .await;
+        }
         session
             .send_event(
                 &turn,

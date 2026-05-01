@@ -1,5 +1,20 @@
 # Action Map Runtime 工程设计
 
+## 当前实现状态（2026-05-01）
+
+本轮工程实现采用“薄约束层”方案，已经落到现有 Codex MultiAgentV2 路径中：
+
+- `/map-mode standard|experiment` 仍然是可插拔开关；standard 不改变原有 MultiAgentV2 行为，experiment 才启用 map-bound hook。
+- experiment 模式下，`spawn_agent` 会在现有 handler 内先认领一个 ready node，生成 assignment lease，并把 node/map/lease 约束作为子 agent 的初始任务前缀注入。
+- 第一版只内置唯一 `BaseMap` seed，不做领域 map，不做复杂模板继承；默认节点链路为边界确认、代码上下文梳理、方案设计、方案实施、冒烟测试、最终合成。
+- 子 agent 完成后复用现有 `AgentControl` completion watcher 和 `AgentStatus::Completed(last_agent_message)`，把 free-form 最终结果写回 node 的 `result_context`。不再设计 `MAP_RESULT` envelope，也不做“质量分”或客观质量 gate。
+- `wait_agent` 仍然只等待 mailbox；如果超时，会对当前 Action Map active lease 对应的子 agent 发送进展总结请求，并先 interrupt 当前 turn，让子 agent 以当前进展总结形式收束。
+- `close_agent` 成功关闭子 agent 后会释放该 thread 持有的 node lease，避免 node 永久停留在 running。
+- `/map-restart` 已接入 TUI 和 core op：弃用当前 active map，并从 BaseMap 创建新 seed map。
+- 当前 map/node/lease/result 状态先放在 `SessionState.action_map_runtime`；mode 切换已通过既有 rollout 事件恢复。完整 map mutation replay 仍是后续持久化增强项，第一版不引入独立 DB 或并行 runtime。
+
+因此，下文中早期提到的 `MAP_RESULT` envelope、formal gate、完整 map event replay 等内容只作为历史设计草稿保留；当前代码实现以本节为准。
+
 本文是 `docs/plans/2026-04-25-multi-agent-collaboration-architecture.md` 的工程落地拆解，不重新定义 multi-agent 产品架构。
 
 核心约束只有一条：Action Map Runtime 必须是 Codex MultiAgentV2 的约束层，尽可能复用现有 session、tool handler、agent control、mailbox、rollout、TUI slash command 和 collab event 机制；不得新造一套并行 agent runtime、消息总线、持久化系统或观测事件体系。

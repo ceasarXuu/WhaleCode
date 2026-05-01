@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicU64;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
+use crate::action_map::ActionMapAssignment;
 use crate::agent::AgentControl;
 use crate::agent::AgentStatus;
 use crate::agent::Mailbox;
@@ -74,6 +75,7 @@ use codex_network_proxy::normalize_host;
 use codex_otel::current_span_trace_id;
 use codex_otel::current_span_w3c_trace_context;
 use codex_otel::set_parent_from_w3c_trace_context;
+use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::ToolName;
 use codex_protocol::account::PlanType as AccountPlanType;
@@ -865,6 +867,104 @@ impl Session {
                 .app_server_client_version
                 .clone(),
         }
+    }
+
+    pub(crate) async fn prepare_action_map_spawn_assignment(
+        &self,
+        task_name: &str,
+    ) -> Result<Option<ActionMapAssignment>, String> {
+        let mut state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .prepare_spawn_assignment(self.conversation_id, task_name)
+    }
+
+    pub(crate) async fn attach_action_map_assignment(
+        &self,
+        lease_id: &str,
+        thread_id: ThreadId,
+        agent_path: Option<String>,
+    ) {
+        let mut state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .attach_agent_to_lease(lease_id, thread_id, agent_path);
+    }
+
+    pub(crate) async fn release_action_map_assignment(&self, lease_id: &str) {
+        let mut state = self.state.lock().await;
+        state.action_map_runtime.release_lease(lease_id);
+    }
+
+    pub(crate) async fn release_action_map_assignment_for_thread(&self, thread_id: ThreadId) {
+        let mut state = self.state.lock().await;
+        let _ = state.action_map_runtime.release_lease_for_thread(thread_id);
+    }
+
+    pub(crate) async fn record_action_map_child_result(
+        &self,
+        child_thread_id: ThreadId,
+        status: &AgentStatus,
+    ) -> Option<String> {
+        let mut state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .record_child_result(child_thread_id, status)
+    }
+
+    pub(crate) async fn restart_action_map(&self) -> (Option<String>, String) {
+        let mut state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .restart_active_map(self.conversation_id, "Restarted Action Map")
+    }
+
+    pub(crate) async fn request_action_map_timeout_summaries(&self) -> usize {
+        let (targets, parent_agent_path) = {
+            let state = self.state.lock().await;
+            let parent_agent_path = state
+                .session_configuration
+                .session_source
+                .get_agent_path()
+                .unwrap_or_else(AgentPath::root);
+            (
+                state.action_map_runtime.active_timeout_targets(),
+                parent_agent_path,
+            )
+        };
+
+        let mut requested = 0usize;
+        for target in targets {
+            let Some(agent_path) = target.agent_path else {
+                continue;
+            };
+            let _ = self
+                .services
+                .agent_control
+                .interrupt_agent(target.thread_id)
+                .await;
+            let message = format!(
+                "Action Map wait timeout reached for map `{}` node `{}` lease `{}`. Stop the current work and return a concise current-progress summary as the node result. Do not start unrelated work.",
+                target.map_id, target.node_id, target.lease_id
+            );
+            let communication = InterAgentCommunication::new(
+                parent_agent_path.clone(),
+                agent_path,
+                Vec::new(),
+                message,
+                /*trigger_turn*/ true,
+            );
+            if self
+                .services
+                .agent_control
+                .send_inter_agent_communication(target.thread_id, communication)
+                .await
+                .is_ok()
+            {
+                requested += 1;
+            }
+        }
+        requested
     }
 
     fn managed_network_proxy_active_for_sandbox_policy(sandbox_policy: &SandboxPolicy) -> bool {

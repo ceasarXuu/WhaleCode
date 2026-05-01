@@ -104,6 +104,7 @@ pub(crate) enum AppCommandView<'a> {
     SetMapRuntimeMode {
         mode: &'a MapRuntimeMode,
     },
+    RestartActionMap,
     Shutdown,
     ThreadRollback {
         num_turns: u32,
@@ -266,6 +267,10 @@ impl AppCommand {
         Self(Op::SetMapRuntimeMode { mode })
     }
 
+    pub(crate) fn restart_action_map() -> Self {
+        Self(Op::RestartActionMap)
+    }
+
     pub(crate) fn thread_rollback(num_turns: u32) -> Self {
         Self(Op::ThreadRollback { num_turns })
     }
@@ -390,6 +395,7 @@ impl AppCommand {
             Op::Compact => AppCommandView::Compact,
             Op::SetThreadName { name } => AppCommandView::SetThreadName { name },
             Op::SetMapRuntimeMode { mode } => AppCommandView::SetMapRuntimeMode { mode },
+            Op::RestartActionMap => AppCommandView::RestartActionMap,
             Op::Shutdown => AppCommandView::Shutdown,
             Op::ThreadRollback { num_turns } => AppCommandView::ThreadRollback {
                 num_turns: *num_turns,

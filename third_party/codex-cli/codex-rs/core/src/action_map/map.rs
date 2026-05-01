@@ -12,7 +12,6 @@ pub(crate) type NodeResultId = String;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MapStatus {
     Active,
-    Suspended,
     Completed,
     Abandoned,
 }
@@ -24,6 +23,18 @@ pub(crate) enum NodeStatus {
     Running,
     Blocked,
     Completed,
+}
+
+impl NodeStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            NodeStatus::Pending => "pending",
+            NodeStatus::Ready => "ready",
+            NodeStatus::Running => "running",
+            NodeStatus::Blocked => "blocked",
+            NodeStatus::Completed => "completed",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +67,15 @@ pub(crate) struct MapEdge {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AssignmentLease {
+    pub(crate) id: AssignmentLeaseId,
+    pub(crate) map_id: ActionMapId,
+    pub(crate) node_id: MapNodeId,
+    pub(crate) agent_thread_id: Option<ThreadId>,
+    pub(crate) agent_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapInstance {
     pub(crate) id: ActionMapId,
     pub(crate) title: String,
@@ -65,6 +85,8 @@ pub(crate) struct ActionMapInstance {
     pub(crate) nodes: HashMap<MapNodeId, MapNode>,
     pub(crate) edges: Vec<MapEdge>,
     pub(crate) created_from: Option<ActionMapId>,
+    pub(crate) leases: HashMap<AssignmentLeaseId, AssignmentLease>,
+    pub(crate) results: HashMap<NodeResultId, NodeResult>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +125,8 @@ impl ActionMapInstance {
             nodes: HashMap::new(),
             edges: Vec::new(),
             created_from: None,
+            leases: HashMap::new(),
+            results: HashMap::new(),
         }
     }
 
@@ -110,6 +134,20 @@ impl ActionMapInstance {
         self.nodes
             .values()
             .filter(|node| node.status == NodeStatus::Ready)
+            .count()
+    }
+
+    pub(crate) fn running_node_count(&self) -> usize {
+        self.nodes
+            .values()
+            .filter(|node| node.status == NodeStatus::Running)
+            .count()
+    }
+
+    pub(crate) fn completed_node_count(&self) -> usize {
+        self.nodes
+            .values()
+            .filter(|node| node.status == NodeStatus::Completed)
             .count()
     }
 }
