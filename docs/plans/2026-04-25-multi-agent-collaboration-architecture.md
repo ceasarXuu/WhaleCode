@@ -2288,6 +2288,8 @@ event: MapReplaced(old = map_001, new = map_002)
 
 ## MVP 实施顺序
 
+具体工程落地拆解见 `docs/plans/2026-05-01-action-map-runtime-engineering-design.md`。本节只保留架构级阶段边界，避免在总设计文档中重复实现细节。
+
 ### MA-0：模式开关
 
 - 保留现有 `/multi-agents` 作为 agent thread picker，不改变其语义。
