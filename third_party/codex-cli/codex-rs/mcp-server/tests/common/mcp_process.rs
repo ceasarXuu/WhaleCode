@@ -64,7 +64,8 @@ impl McpProcess {
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
-        cmd.env("CODEX_HOME", codex_home);
+        cmd.env("WHALE_HOME", codex_home);
+        cmd.env_remove("CODEX_HOME");
         cmd.env("RUST_LOG", "debug");
 
         for (k, v) in env_overrides {
@@ -180,7 +181,7 @@ impl McpProcess {
                 "serverInfo": {
                     "name": "whale-mcp-server",
                     "title": "Codex",
-                    "version": "0.0.0",
+                    "version": build_version,
                     "user_agent": user_agent
                 },
                 "protocolVersion": ProtocolVersion::V_2025_03_26
