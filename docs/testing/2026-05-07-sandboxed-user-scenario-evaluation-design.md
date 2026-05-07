@@ -236,11 +236,13 @@ TUI 自动化不作为第一版主路径。TUI 适合后续验证 `/map-mode`、
 状态：已完成。回归入口：
 
 ```powershell
-rustup run stable cargo test --lib action_map --locked
+.\scripts\run-action-map-regression.ps1
 rustup run stable cargo test --lib multi_agent --locked
 rustup run stable cargo test --lib map_mode --locked
 rustup run stable cargo test --lib map_restart --locked
 ```
+
+`run-action-map-regression.ps1` 会固定使用 `target-test` 和低并发，保存完整 cargo 输出，并生成 `target/test-reports/action-map-<timestamp>/report.md`。报告中包含 exit code、`test result` 汇总、失败摘录和运行窗口内相关 Windows crash event，避免只靠终端尾部判断是否成功。
 
 ### 阶段 1：deterministic 场景骨架
 
