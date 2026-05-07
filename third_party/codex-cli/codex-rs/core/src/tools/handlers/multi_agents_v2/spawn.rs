@@ -41,7 +41,7 @@ impl ToolHandler for Handler {
             .filter(|role| !role.is_empty());
 
         let action_map_assignment = session
-            .prepare_action_map_spawn_assignment(&args.task_name)
+            .prepare_action_map_spawn_assignment(&turn, &args.task_name)
             .await
             .map_err(FunctionCallError::RespondToModel)?;
         let message = match action_map_assignment.as_ref() {
@@ -182,6 +182,7 @@ impl ToolHandler for Handler {
             if let Some(thread_id) = new_thread_id {
                 session
                     .attach_action_map_assignment(
+                        &turn,
                         &assignment.lease_id,
                         thread_id,
                         new_agent_path.clone(),
@@ -189,7 +190,7 @@ impl ToolHandler for Handler {
                     .await;
             } else {
                 session
-                    .release_action_map_assignment(&assignment.lease_id)
+                    .release_action_map_assignment(&turn, &assignment.lease_id, "spawn_failed")
                     .await;
             }
         }

@@ -1790,10 +1790,101 @@ pub struct MapRuntimeModeChangedEvent {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeMapCreatedEvent {
+    pub map_id: String,
+    pub title: String,
+    pub owner_session_id: Option<ThreadId>,
+    pub created_from: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeMapStatusChangedEvent {
+    pub map_id: String,
+    pub previous_status: String,
+    pub current_status: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeNodeStatusChangedEvent {
+    pub map_id: String,
+    pub node_id: String,
+    pub node_title: String,
+    pub previous_status: String,
+    pub current_status: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeLeaseCreatedEvent {
+    pub map_id: String,
+    pub node_id: String,
+    pub lease_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeLeaseAttachedEvent {
+    pub map_id: String,
+    pub node_id: String,
+    pub lease_id: String,
+    pub agent_thread_id: ThreadId,
+    pub agent_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeLeaseReleasedEvent {
+    pub map_id: String,
+    pub node_id: String,
+    pub lease_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeNodeResultRecordedEvent {
+    pub map_id: String,
+    pub node_id: String,
+    pub lease_id: String,
+    pub result_id: String,
+    pub kind: String,
+    pub source_thread_id: ThreadId,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeTimeoutSummaryRequestedEvent {
+    pub map_id: String,
+    pub node_id: String,
+    pub lease_id: String,
+    pub agent_thread_id: ThreadId,
+    pub agent_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(tag = "type")]
 pub enum MapRuntimeEvent {
     ModeChanged(MapRuntimeModeChangedEvent),
+    MapCreated(MapRuntimeMapCreatedEvent),
+    MapStatusChanged(MapRuntimeMapStatusChangedEvent),
+    NodeStatusChanged(MapRuntimeNodeStatusChangedEvent),
+    LeaseCreated(MapRuntimeLeaseCreatedEvent),
+    LeaseAttached(MapRuntimeLeaseAttachedEvent),
+    LeaseReleased(MapRuntimeLeaseReleasedEvent),
+    NodeResultRecorded(MapRuntimeNodeResultRecordedEvent),
+    TimeoutSummaryRequested(MapRuntimeTimeoutSummaryRequestedEvent),
 }
 
 impl From<MapRuntimeEvent> for EventMsg {

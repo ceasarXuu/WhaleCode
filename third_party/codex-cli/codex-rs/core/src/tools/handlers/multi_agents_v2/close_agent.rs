@@ -84,7 +84,7 @@ impl ToolHandler for Handler {
             .map(|_| ());
         if result.is_ok() {
             session
-                .release_action_map_assignment_for_thread(agent_id)
+                .release_action_map_assignment_for_thread(&turn, agent_id, "close_agent")
                 .await;
         }
         session

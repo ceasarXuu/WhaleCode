@@ -16,6 +16,16 @@ pub(crate) enum MapStatus {
     Abandoned,
 }
 
+impl MapStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            MapStatus::Active => "active",
+            MapStatus::Completed => "completed",
+            MapStatus::Abandoned => "abandoned",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NodeStatus {
     Pending,
@@ -95,6 +105,17 @@ pub(crate) enum NodeResultKind {
     Blocker,
     MapUpdateRequest,
     TimeoutSummary,
+}
+
+impl NodeResultKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            NodeResultKind::Result => "result",
+            NodeResultKind::Blocker => "blocker",
+            NodeResultKind::MapUpdateRequest => "map_update_request",
+            NodeResultKind::TimeoutSummary => "timeout_summary",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

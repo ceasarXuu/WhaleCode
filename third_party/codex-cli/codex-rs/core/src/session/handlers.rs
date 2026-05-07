@@ -975,7 +975,7 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
 
 pub async fn restart_action_map(sess: &Arc<Session>, sub_id: String) {
     let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
-    let (previous_map_id, new_map_id) = sess.restart_action_map().await;
+    let (previous_map_id, new_map_id) = sess.restart_action_map(&turn_context).await;
     let status = match previous_map_id {
         Some(previous_map_id) => format!(
             "Action Map restarted. Previous map {previous_map_id} was abandoned; new map is {new_map_id}."

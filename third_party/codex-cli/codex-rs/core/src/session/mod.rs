@@ -9,6 +9,7 @@ use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use crate::action_map::ActionMapAssignment;
+use crate::action_map::ActionMapRuntimeState;
 use crate::agent::AgentControl;
 use crate::agent::AgentStatus;
 use crate::agent::Mailbox;
@@ -871,12 +872,18 @@ impl Session {
 
     pub(crate) async fn prepare_action_map_spawn_assignment(
         &self,
+        turn_context: &TurnContext,
         task_name: &str,
     ) -> Result<Option<ActionMapAssignment>, String> {
-        let mut state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .prepare_spawn_assignment(self.conversation_id, task_name)
+        let (assignment, events) = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .prepare_spawn_assignment(self.conversation_id, task_name)
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(assignment)
     }
 
     #[cfg(test)]
@@ -890,24 +897,51 @@ impl Session {
 
     pub(crate) async fn attach_action_map_assignment(
         &self,
+        turn_context: &TurnContext,
         lease_id: &str,
         thread_id: ThreadId,
         agent_path: Option<String>,
     ) {
-        let mut state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .attach_agent_to_lease(lease_id, thread_id, agent_path);
+        let event = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .attach_agent_to_lease(lease_id, thread_id, agent_path)
+        };
+        self.emit_action_map_events_for_turn(turn_context, event.into_iter().collect())
+            .await;
     }
 
-    pub(crate) async fn release_action_map_assignment(&self, lease_id: &str) {
-        let mut state = self.state.lock().await;
-        state.action_map_runtime.release_lease(lease_id);
+    pub(crate) async fn release_action_map_assignment(
+        &self,
+        turn_context: &TurnContext,
+        lease_id: &str,
+        reason: &str,
+    ) {
+        let events = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.release_lease(lease_id, reason)
+        };
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
     }
 
-    pub(crate) async fn release_action_map_assignment_for_thread(&self, thread_id: ThreadId) {
-        let mut state = self.state.lock().await;
-        let _ = state.action_map_runtime.release_lease_for_thread(thread_id);
+    pub(crate) async fn release_action_map_assignment_for_thread(
+        &self,
+        turn_context: &TurnContext,
+        thread_id: ThreadId,
+        reason: &str,
+    ) {
+        let events = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .release_lease_for_thread(thread_id, reason)
+                .map(|(_, events)| events)
+                .unwrap_or_default()
+        };
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
     }
 
     pub(crate) async fn record_action_map_child_result(
@@ -915,20 +949,36 @@ impl Session {
         child_thread_id: ThreadId,
         status: &AgentStatus,
     ) -> Option<String> {
-        let mut state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .record_child_result(child_thread_id, status)
+        let result = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .record_child_result(child_thread_id, status)
+        };
+        let (result_id, events) = result?;
+        self.emit_action_map_events_raw(events).await;
+        Some(result_id)
     }
 
-    pub(crate) async fn restart_action_map(&self) -> (Option<String>, String) {
-        let mut state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .restart_active_map(self.conversation_id, "Restarted Action Map")
+    pub(crate) async fn restart_action_map(
+        &self,
+        turn_context: &TurnContext,
+    ) -> (Option<String>, String) {
+        let (previous, next, events) = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .restart_active_map(self.conversation_id, "Restarted Action Map")
+        };
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        (previous, next)
     }
 
-    pub(crate) async fn request_action_map_timeout_summaries(&self) -> usize {
+    pub(crate) async fn request_action_map_timeout_summaries(
+        &self,
+        turn_context: &TurnContext,
+    ) -> usize {
         let (targets, parent_agent_path) = {
             let state = self.state.lock().await;
             let parent_agent_path = state
@@ -943,8 +993,9 @@ impl Session {
         };
 
         let mut requested = 0usize;
+        let mut events = Vec::new();
         for target in targets {
-            let Some(agent_path) = target.agent_path else {
+            let Some(agent_path) = target.agent_path.clone() else {
                 continue;
             };
             let _ = self
@@ -971,9 +1022,36 @@ impl Session {
                 .is_ok()
             {
                 requested += 1;
+                if let Some(event) = ActionMapRuntimeState::timeout_summary_requested_event(&target)
+                {
+                    events.push(event);
+                }
             }
         }
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
         requested
+    }
+
+    async fn emit_action_map_events_for_turn(
+        &self,
+        turn_context: &TurnContext,
+        events: Vec<MapRuntimeEvent>,
+    ) {
+        for event in events {
+            self.send_event(turn_context, EventMsg::MapRuntime(event))
+                .await;
+        }
+    }
+
+    async fn emit_action_map_events_raw(&self, events: Vec<MapRuntimeEvent>) {
+        for event in events {
+            self.send_event_raw(Event {
+                id: self.next_internal_sub_id(),
+                msg: EventMsg::MapRuntime(event),
+            })
+            .await;
+        }
     }
 
     fn managed_network_proxy_active_for_sandbox_policy(sandbox_policy: &SandboxPolicy) -> bool {

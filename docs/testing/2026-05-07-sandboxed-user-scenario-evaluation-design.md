@@ -30,7 +30,10 @@ Date: 2026-05-07
 | session 事件 | `protocol/src/protocol.rs` + rollout | 复用 `EventMsg` 和 rollout JSONL，不新增事件总线 |
 | trace 还原 | `rollout-trace` | 后续把场景 run 输出接入现有 trace reducer，而不是单独写可视化数据模型 |
 
-当前缺口也必须承认：`MapRuntimeEvent` 目前只持久化 `ModeChanged`。节点 claim、lease attach/release、result record、map restart 等虽然在内存路径中存在，但黑盒日志还不能完整还原。要观察“实际 map 运行情况”，需要先补最小事件面。
+当前实现状态：
+
+- 2026-05-07：阶段 0 已补齐最小 `MapRuntimeEvent` 事件面，map 创建、map 状态切换、node 状态切换、lease 创建/绑定/释放、node result 记录、timeout summary 请求都会进入现有 `EventMsg::MapRuntime` / rollout 路径。
+- 完整 map replay 仍不是第一步目标；当前先保证黑盒场景能从 rollout 看到真实 map 推进事实。
 
 ## 总体架构
 

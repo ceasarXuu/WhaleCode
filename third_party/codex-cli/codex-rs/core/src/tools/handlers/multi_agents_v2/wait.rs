@@ -59,7 +59,7 @@ impl ToolHandler for Handler {
             !wait_for_mailbox_change(&mut mailbox_seq_rx, deadline).await
         };
         let timeout_summary_requests = if timed_out {
-            session.request_action_map_timeout_summaries().await
+            session.request_action_map_timeout_summaries(&turn).await
         } else {
             0
         };
