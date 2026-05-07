@@ -33,7 +33,10 @@ Date: 2026-05-07
 当前实现状态：
 
 - 2026-05-07：阶段 0 已补齐最小 `MapRuntimeEvent` 事件面，map 创建、map 状态切换、node 状态切换、lease 创建/绑定/释放、node result 记录、timeout summary 请求都会进入现有 `EventMsg::MapRuntime` / rollout 路径。
-- 完整 map replay 仍不是第一步目标；当前先保证黑盒场景能从 rollout 看到真实 map 推进事实。
+- 2026-05-08：阶段 1 已落地 deterministic app-server 场景骨架，覆盖小型 bugfix 和模糊需求，产出 `report.md`、`diff.patch`、`test-output.txt`、`map-timeline.json`、`provider-requests.json`。
+- 2026-05-08：阶段 2 已补上 map runtime 会话级事件路径测试，验证 `map_created`、`node_status_changed`、`lease_created`、`lease_attached`、`node_result_recorded`、`lease_released` 能从 rollout 还原；timeout summary、单 node 单 lease、close/reclaim 继续由现有 `multi_agent` 回归覆盖。
+- 2026-05-08：阶段 3 已提供真实模型 exploratory 沙盒脚本 `scripts/run-action-map-exploratory-scenario.ps1`。它不进 CI，只准备沙盒、prompt、独立 `WHALE_HOME` 和报告位置，用户在 TUI 中显式执行 `/map-mode experiment` 后观察真实模型行为。
+- 完整 map replay 仍不是第一步目标；当前先保证场景能从 rollout 看到真实 map 推进事实。
 
 ## 总体架构
 
@@ -230,6 +233,15 @@ TUI 自动化不作为第一版主路径。TUI 适合后续验证 `/map-mode`、
 - `rollout_reconstruction` 至少能恢复 mode；完整 map replay 可后续做，但事件必须先持久化。
 - `rollout-trace` 不因新增 map event 失败，能标记 `map_runtime` 事件。
 
+状态：已完成。回归入口：
+
+```powershell
+rustup run stable cargo test --lib action_map --locked
+rustup run stable cargo test --lib multi_agent --locked
+rustup run stable cargo test --lib map_mode --locked
+rustup run stable cargo test --lib map_restart --locked
+```
+
 ### 阶段 1：deterministic 场景骨架
 
 新增 repo 内测试 runner 或脚本，先运行 2 个低难度 mock 场景：
@@ -244,6 +256,24 @@ TUI 自动化不作为第一版主路径。TUI 适合后续验证 `/map-mode`、
 - 产出 `report.md`、`diff.patch`、`test-output.txt`、`map-timeline.json`。
 - CI 可稳定运行，不需要真实 API key。
 
+状态：已完成。实现入口：
+
+- `third_party/codex-cli/codex-rs/app-server/tests/suite/v2/scenario_evaluation.rs`
+- `deterministic_scenario_small_bugfix_produces_artifacts_v2`
+- `deterministic_scenario_ambiguous_requirement_stops_for_clarification_v2`
+
+验证命令：
+
+```powershell
+rustup run stable cargo test -p codex-app-server --test all scenario_evaluation --locked
+```
+
+产物目录：
+
+```text
+third_party/codex-cli/codex-rs/target/scenario-runs/<scenario-id>/<run-id>/artifacts/
+```
+
 ### 阶段 2：map runtime 路径覆盖
 
 增加并行调查、timeout summary、map restart 场景。
@@ -254,6 +284,22 @@ TUI 自动化不作为第一版主路径。TUI 适合后续验证 `/map-mode`、
 - 验证 “subagent 必须绑定 node”。
 - 验证 “一个 node 同时只能被一个 agent 持有”。
 
+状态：已完成第一版路径覆盖。实现入口：
+
+- `third_party/codex-cli/codex-rs/core/tests/suite/action_map_scenario_evaluation.rs`
+- `map_runtime_conversation_records_node_bound_subagent_events`
+- 既有 `core/src/tools/handlers/multi_agents_tests.rs` 覆盖 `action_map_wait_timeout_requests_progress_summary_from_running_node_agent`、`action_map_close_agent_releases_node_lease_for_reclaim` 等路径。
+
+验证命令：
+
+```powershell
+rustup run stable cargo test -p codex-core --test all map_runtime_conversation_records_node_bound_subagent_events --locked
+rustup run stable cargo test --lib action_map_wait_timeout --locked
+rustup run stable cargo test --lib action_map_close_agent --locked
+```
+
+说明：当前 `/map-mode experiment` 是 core/TUI 控制面，不是 app-server V2 的 `thread/start` 参数。为了避免为测试新造并行控制面，第一版把“真实 Whale 进程对话”放在 app-server deterministic 场景，把“map runtime 事件和 node-bound subagent 约束”放在 core 会话级测试。
+
 ### 阶段 3：真实模型探索
 
 允许用户本机手动运行 exploratory 场景，使用真实 DeepSeek 配置。
@@ -263,6 +309,27 @@ TUI 自动化不作为第一版主路径。TUI 适合后续验证 `/map-mode`、
 - 不进入 CI。
 - 报告标记模型、时间、配置、成本信号。
 - 不把自然语言表现压缩成质量分，只保留 transcript 和事实证据。
+
+状态：已完成手动探索入口。实现入口：
+
+```powershell
+.\scripts\run-action-map-exploratory-scenario.ps1
+.\scripts\run-action-map-exploratory-scenario.ps1 -Launch -Model deepseek-v4-pro
+```
+
+脚本会创建：
+
+```text
+target/scenario-runs/<scenario-id>/<timestamp>/
+  repo/
+  whale-home/
+  artifacts/
+    prompt.txt
+    report.md
+    rollout.jsonl   # 如果本次 TUI 运行产生了 rollout
+```
+
+真实模型路径必须由用户在 TUI 中显式执行 `/map-mode experiment`，再粘贴脚本生成的 `prompt.txt`。这保持 slash command 的真实交互语义，不把 `/map-mode` 伪装成自然语言 prompt。
 
 ## 与现有测试的关系
 
@@ -283,6 +350,6 @@ TUI 自动化不作为第一版主路径。TUI 适合后续验证 `/map-mode`、
 - 不做语义检索型场景库；场景 manifest 先按目录和 id 发现，数量大以后再考虑索引。
 - 不做质量分；所有判断都落到结果、协议、成本和证据。
 
-## 推荐下一步
+## 后续扩展
 
-先实现阶段 0 和阶段 1。原因很直接：当前 map 内存状态已经有了，但 rollout 事件不够，先补观测面才能让沙盒场景看到真实 map；随后用两个低难度 deterministic 场景验证 runner、mock 模型、沙盒、报告链路是否闭合。
+阶段 0-3 第一版已经闭合。后续再扩展时，优先增加更多真实工程 fixtures 和 viewer 可观测页面；不要把场景库升级成语义检索系统，也不要引入自然语言质量分。

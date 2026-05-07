@@ -40,6 +40,7 @@ mod request_permissions;
 mod request_user_input;
 mod review;
 mod safety_check_downgrade;
+mod scenario_evaluation;
 mod skills_list;
 mod thread_archive;
 mod thread_fork;

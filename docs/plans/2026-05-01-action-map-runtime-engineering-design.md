@@ -13,7 +13,7 @@
 - `/map-restart` 已接入 TUI 和 core op：弃用当前 active map，并从 BaseMap 创建新 seed map。
 - 当前 map/node/lease/result 状态先放在 `SessionState.action_map_runtime`；mode 切换已通过既有 rollout 事件恢复。完整 map mutation replay 仍是后续持久化增强项，第一版不引入独立 DB 或并行 runtime。
 
-因此，下文中早期提到的 `MAP_RESULT` envelope、formal gate、完整 map event replay 等内容只作为历史设计草稿保留；当前代码实现以本节为准。
+因此，本文后续所有设计均以 free-form result、node/lease 坐标校验和现有 rollout event 为准，不再引入 `MAP_RESULT` envelope、质量 gate 或独立持久化体系。
 
 ## 自动化测试方案
 
@@ -57,7 +57,7 @@ rustup run stable cargo test --lib action_map_close_agent --locked
 
 ## 目标
 
-第一版只验证 `BaseMap -> node -> assignment lease -> temporary subagent -> result -> formal gate` 这条链路能否跑通。
+第一版只验证 `BaseMap -> node -> assignment lease -> temporary subagent -> free-form result -> node status update` 这条链路能否跑通。
 
 必须做到：
 
@@ -101,7 +101,7 @@ rustup run stable cargo test --lib action_map_close_agent --locked
 关键判断：
 
 - `wait_agent` 当前只返回 `Wait completed` / `Wait timed out`，不返回子 agent 内容。这符合设计：结果应进入 node 的 `result_context`，主 agent 收到完成通知后按需读取。
-- 子 agent 完成时，现有 `AgentStatus::Completed(last_agent_message)` 已经能携带最后一条 agent 消息；Action Map Runtime 的主要 result ingestion hook 应在 `AgentControl::maybe_start_completion_watcher` 生成父 agent 通知之前或旁边，从 `status` 中提取 `MAP_RESULT` envelope，写入 node。模型可见的 mailbox 通知仍只当作“完成触发”，不要把它当成 node 的权威状态源。
+- 子 agent 完成时，现有 `AgentStatus::Completed(last_agent_message)` 已经能携带最后一条 agent 消息；Action Map Runtime 的主要 result ingestion hook 应在 `AgentControl::maybe_start_completion_watcher` 生成父 agent 通知之前或旁边，把 `status` 中的 free-form final message 写入 node。模型可见的 mailbox 通知仍只当作“完成触发”，不要把它当成 node 的权威状态源。
 - `AgentRegistry` 已经有 path、nickname、role、last task message 和并发计数；Action Map Runtime 不应复制一个 live-agent registry。
 - `Mailbox` 已经提供 seq watch 和 drain；Action Map Runtime 不应新增 agent message bus。
 - TUI 已经把 `/subagents` / `/multi-agents` 作为 agent thread picker；map 模式命令必须另起 `/map-mode`。
@@ -398,7 +398,7 @@ flowchart TD
   - target 必须能解析到现有 child thread。
   - target thread 必须有 active lease。
   - message 默认作为 node context 增量写入对应 node。
-  - 如果 message 明确携带 `MAP_RESULT` envelope，也可以走 result ingestion；但这不是子 agent final result 的主路径。
+  - message 不定义结果 envelope；第一版只把 completion watcher 捕获到的最终回复作为 node result。
   - 如果 message 是继续任务，则必须仍属于同一个 node lease。
 
 不新增 message bus。所有通信仍是 `InterAgentCommunication`。
@@ -435,47 +435,32 @@ child TurnComplete
   -> agent_status_from_event
   -> AgentStatus::Completed(last_agent_message)
   -> AgentControl::maybe_start_completion_watcher
-  -> parse MAP_RESULT
+  -> capture free-form final message
   -> ActionMapRuntime.record_node_result
   -> send existing parent mailbox notification
 ```
 
 第一版采用两段式语义：
 
-1. subagent 在最终回复中按 prompt 提交 result envelope。
-2. runtime 从 child final message 中解析 envelope，写入 node 的 `result_context`。
+1. subagent 在最终回复中提交当前 node 的自由文本结果。
+2. runtime 从 child final message 中读取正文，写入 node 的 `result_context`。
 3. parent mailbox 收到完成通知，用来唤醒主 agent；通知文本不是 result 的权威存储。
 4. 主 agent 后续需要时，通过下一轮 map context 注入看到 node result；如果 result 过大，只注入摘要和 result ref。
 
-最小 envelope：
-
-```text
-MAP_RESULT
-assignment_id: <lease_id>
-map_id: <map_id>
-node_id: <node_id>
-kind: Result | Blocker | MapUpdateRequest | TimeoutSummary
-
-<自由文本正文>
-END_MAP_RESULT
-```
-
 设计理由：
 
-- 只约束外壳，不约束正文结构。
+- 只约束 node/lease/thread 外层坐标，不约束正文结构。
 - 允许复杂任务返回分析、补丁摘要、证据、日志、失败说明等任意形式。
 - 结果属于 node，不属于临时 agent；临时 agent 销毁后 node 仍可接手。
 - 不依赖 `wait_agent` 返回内容；`wait_agent` 只负责等待 mailbox 变化。
 
-formal gate 只检查：
+runtime 只检查：
 
-- envelope 存在。
-- assignment/map/node 坐标匹配。
+- child thread 仍绑定有效 lease。
+- lease 对应的 map/node 坐标匹配。
 - lease 仍绑定该 thread。
-- result kind 合法。
-- `MapUpdateRequest` 不被当成 node completed。
 
-formal gate 不判断质量，不判断任务是否“真的做好”。
+runtime 不判断质量，不判断任务是否“真的做好”。
 
 主 agent 的结果读取第一版不新增工具。runtime 在 turn 开始前通过现有 pending input / context 注入机制提供当前 active map 的 compact view：
 
@@ -496,7 +481,7 @@ node_result_available:
 复用两层：
 
 - tool description hint：当前本地代码已有 `multi_agent_v2.usage_hint_text`，由 `turn_context.rs` 注入到 `spawn_agent` tool description。
-- assignment prompt：`spawn_agent.message` 由 `action_map::prompt` 生成，包含 map/node/lease/context/result envelope 规则。
+- assignment prompt：`spawn_agent.message` 由 `action_map::prompt` 生成，包含 map/node/lease/context/free-form result 规则。
 
 如果后续同步到新版上游提供 root/subagent 分离 hint，则直接把同一套规则映射到上游字段，不新增 Whale 独立 developer-message 注入通道。
 
@@ -523,7 +508,7 @@ Assignment: <lease_id>
 不要直接创建或修改 map/node。
 发现新任务时，提交 MapUpdateRequest。
 无法推进时，提交 Blocker。
-完成时，提交 MAP_RESULT envelope。
+完成时，直接用清晰的自由文本提交当前 node 的结果、证据和遗留风险。
 
 Node context:
 <context_pack>
@@ -797,11 +782,10 @@ pub enum MapRuntimeEvent {
 - duplicate lease 被拒绝。
 - dependency 未完成时不能 claim 下游 node。
 
-### MA-3：result ingestion 和 formal gate
+### MA-3：result ingestion 和 node status update
 
 改动：
 
-- `core/src/action_map/result.rs`
 - `core/src/agent/control.rs`
 - `core/src/tools/handlers/multi_agents_v2/message_tool.rs`
 - `core/src/tools/handlers/multi_agents_v2/wait.rs`
@@ -809,17 +793,15 @@ pub enum MapRuntimeEvent {
 
 验收：
 
-- result envelope 写入 node `result_context`。
+- free-form final message 写入 node `result_context`。
 - child final message result 通过 completion watcher 入库，不依赖 `wait_agent` 返回内容。
-- `MapUpdateRequest` 记录但不直接 mutate map。
-- `Blocker` 使 node 进入 `blocked`。
 - close agent 释放 lease。
 - wait timeout 不误判 node failed/completed。
 
 测试：
 
-- result parser unit test。
-- formal gate unit test。
+- child completion result ingestion test。
+- node/lease coordinate acceptance test。
 - wait timeout event test。
 - close releases lease test。
 
@@ -866,7 +848,7 @@ rustup run stable cargo test -p codex-tui slash --locked
 |---|---|
 | 约束层侵入 standard 模式 | 所有 guard 入口先检查 `mode == experiment`，standard 直接 return existing path |
 | map 状态和 AgentRegistry 重复 | map 只记录 lease/thread 绑定，不记录 live agent 全量状态 |
-| result 解析过度设计 | 只解析 envelope 外壳，正文自由 |
+| result 解析过度设计 | 不解析内部结构，只记录 completion watcher 捕获到的最终回复 |
 | rollout replay 复杂 | 第一版只 replay map event，不从自然语言反推状态 |
 | TUI 命令污染自然语言路径 | slash command 只输出机械状态，不生成模型回答 |
 | upstream 继续变化 | hook 点限制在 MultiAgentV2 handler 和 SessionState，prompt hint 兼容现有 `usage_hint_text` 和未来 root/subagent hint |
@@ -879,8 +861,8 @@ rustup run stable cargo test -p codex-tui slash --locked
 2. 主 agent 接到复杂任务，runtime 从 BaseMap 创建 active map。
 3. 主 agent 派发一个 ready node。
 4. `spawn_agent` 创建临时 subagent，node 进入 running。
-5. subagent 提交 `MAP_RESULT`。
-6. runtime 把 result 写入 node，formal gate 关闭 node。
+5. subagent 提交当前 node 的 free-form 最终结果。
+6. runtime 把 result 写入 node，并根据 child completion 推进 node 状态。
 7. 主 agent 根据 map 继续下一个 ready node 或完成 map。
 8. 用户输入 `/map-restart` 后，旧 map abandoned，新 map 从 BaseMap 重新开始。
 
