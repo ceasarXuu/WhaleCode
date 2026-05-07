@@ -1,5 +1,5 @@
 param(
-    [string]$TestFilter = "action_map",
+    [string]$TestFilter = "realistic_user_bugfix_runs_agent_actions_with_action_map",
     [string]$CodexRsRoot = "",
     [string]$TargetDir = "",
     [string]$ReportRoot = "",
@@ -14,11 +14,22 @@ function Resolve-FullPath([string]$PathValue) {
     return $created.FullName
 }
 
-function Escape-Markdown([string]$Value) {
-    if ($null -eq $Value) {
-        return ""
+function Select-LatestScenarioReport([string]$CodexRsRootValue, [string]$ScenarioId) {
+    $scenarioRoot = Join-Path $CodexRsRootValue "target\scenario-runs\$ScenarioId"
+    if (-not (Test-Path $scenarioRoot)) {
+        return $null
     }
-    return $Value.Replace("|", "\|")
+    $latestRun = Get-ChildItem -Path $scenarioRoot -Directory -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+    if (-not $latestRun) {
+        return $null
+    }
+    $report = Join-Path $latestRun.FullName "artifacts\report.md"
+    if (Test-Path $report) {
+        return Get-Item $report
+    }
+    return $null
 }
 
 function New-TestSummary($Lines) {
@@ -56,19 +67,6 @@ function Select-FailureLines($Lines) {
     return $selected | Select-Object -Unique
 }
 
-function Select-RelevantCrashEvents([datetime]$StartTime, [datetime]$EndTime) {
-    $events = Get-WinEvent -FilterHashtable @{
-        LogName = "Application"
-        StartTime = $StartTime
-        EndTime = $EndTime
-        Level = 2
-    } -ErrorAction SilentlyContinue
-
-    return $events | Where-Object {
-        $_.Message -match "rustc\.exe|cargo\.exe|rustup\.exe|Astropath\.exe|codex-command-runner|PowerShell"
-    } | Select-Object -First 20 TimeCreated, ProviderName, Id, Message
-}
-
 if ([string]::IsNullOrWhiteSpace($CodexRsRoot)) {
     $CodexRsRoot = Join-Path $PSScriptRoot "..\third_party\codex-cli\codex-rs"
 }
@@ -85,10 +83,20 @@ if ([string]::IsNullOrWhiteSpace($ReportRoot)) {
 $ReportRoot = Resolve-FullPath $ReportRoot
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
-$runDir = Resolve-FullPath (Join-Path $ReportRoot "action-map-$stamp")
+$runDir = Resolve-FullPath (Join-Path $ReportRoot "action-map-e2e-$stamp")
+$stdoutPath = Join-Path $runDir "cargo-test.stdout.log"
+$stderrPath = Join-Path $runDir "cargo-test.stderr.log"
 $logPath = Join-Path $runDir "cargo-test.log"
 $reportPath = Join-Path $runDir "report.md"
-$commandText = "rustup run stable cargo test --lib $TestFilter --locked --jobs $Jobs"
+$commandArgs = @(
+    "run", "stable", "cargo", "test",
+    "-p", "codex-core",
+    "--test", "all",
+    $TestFilter,
+    "--locked",
+    "--jobs", [string]$Jobs
+)
+$commandText = "rustup $($commandArgs -join ' ')"
 
 if ($PlanOnly) {
     Write-Host "CodexRsRoot: $CodexRsRoot"
@@ -98,19 +106,16 @@ if ($PlanOnly) {
     exit 0
 }
 
-$started = Get-Date
-$stdoutPath = Join-Path $runDir "cargo-test.stdout.log"
-$stderrPath = Join-Path $runDir "cargo-test.stderr.log"
-
 $oldTargetDir = $env:CARGO_TARGET_DIR
 $oldBuildJobs = $env:CARGO_BUILD_JOBS
 $env:CARGO_TARGET_DIR = $TargetDir
 $env:CARGO_BUILD_JOBS = [string]$Jobs
+$started = Get-Date
 
 try {
     $process = Start-Process `
         -FilePath "rustup" `
-        -ArgumentList @("run", "stable", "cargo", "test", "--lib", $TestFilter, "--locked", "--jobs", [string]$Jobs) `
+        -ArgumentList $commandArgs `
         -WorkingDirectory $CodexRsRoot `
         -RedirectStandardOutput $stdoutPath `
         -RedirectStandardError $stderrPath `
@@ -124,30 +129,23 @@ finally {
     $env:CARGO_BUILD_JOBS = $oldBuildJobs
 }
 
+$finished = Get-Date
 $stdoutText = if (Test-Path $stdoutPath) { Get-Content -Raw -Encoding UTF8 $stdoutPath } else { "" }
 $stderrText = if (Test-Path $stderrPath) { Get-Content -Raw -Encoding UTF8 $stderrPath } else { "" }
-$finished = Get-Date
-
 $lines = @(($stdoutText, $stderrText) -join [Environment]::NewLine -split "`r?`n")
 $lines | Set-Content -Encoding UTF8 $logPath
 
 $summaries = @(New-TestSummary $lines)
 $failureLines = @(Select-FailureLines $lines)
-$crashEvents = @(Select-RelevantCrashEvents $started.AddSeconds(-5) $finished.AddSeconds(5))
-$failedCount = ($summaries | Measure-Object -Property Failed -Sum).Sum
-if ($null -eq $failedCount) {
-    $failedCount = 0
-}
 $passedCount = ($summaries | Measure-Object -Property Passed -Sum).Sum
-if ($null -eq $passedCount) {
-    $passedCount = 0
-}
-$matchedBinaries = @($summaries | Where-Object { $_.Passed -gt 0 -or $_.Failed -gt 0 -or $_.Ignored -gt 0 })
-
+if ($null -eq $passedCount) { $passedCount = 0 }
+$failedCount = ($summaries | Measure-Object -Property Failed -Sum).Sum
+if ($null -eq $failedCount) { $failedCount = 0 }
 $overall = if ($exitCode -eq 0 -and $failedCount -eq 0) { "PASS" } else { "FAIL" }
+$scenarioReport = Select-LatestScenarioReport $CodexRsRoot "action-map-realistic-user-bugfix"
 
 $report = New-Object System.Collections.Generic.List[string]
-$report.Add("# Action Map Regression Report")
+$report.Add("# Action Map E2E Scenario Report")
 $report.Add("")
 $report.Add("- overall: $overall")
 $report.Add("- exit_code: $exitCode")
@@ -157,10 +155,9 @@ $report.Add("- target_dir: $TargetDir")
 $report.Add("- started: $($started.ToString("o"))")
 $report.Add("- finished: $($finished.ToString("o"))")
 $report.Add("- log: $logPath")
-$report.Add("- matched_test_binaries: $($matchedBinaries.Count)")
 $report.Add("- total_passed_tests: $passedCount")
 $report.Add("- total_failed_tests: $failedCount")
-$report.Add("- relevant_crash_events: $($crashEvents.Count)")
+$report.Add("- scenario_report: $($scenarioReport.FullName)")
 $report.Add("")
 $report.Add("## Test Result Lines")
 $report.Add("")
@@ -170,7 +167,7 @@ if ($summaries.Count -eq 0) {
     $report.Add("| status | passed | failed | ignored | measured | filtered | duration |")
     $report.Add("|---|---:|---:|---:|---:|---:|---|")
     foreach ($summary in $summaries) {
-        $report.Add("| $(Escape-Markdown $summary.Status) | $($summary.Passed) | $($summary.Failed) | $($summary.Ignored) | $($summary.Measured) | $($summary.Filtered) | $(Escape-Markdown $summary.Duration) |")
+        $report.Add("| $($summary.Status) | $($summary.Passed) | $($summary.Failed) | $($summary.Ignored) | $($summary.Measured) | $($summary.Filtered) | $($summary.Duration) |")
     }
 }
 $report.Add("")
@@ -183,26 +180,13 @@ if ($failureLines.Count -eq 0) {
     $report.AddRange([string[]]$failureLines)
     $report.Add("~~~")
 }
-$report.Add("")
-$report.Add("## Relevant Windows Crash Events")
-$report.Add("")
-if ($crashEvents.Count -eq 0) {
-    $report.Add("No relevant Application Error events were found during this run window.")
-} else {
-    foreach ($event in $crashEvents) {
-        $firstLine = (($event.Message -split "`r?`n") | Select-Object -First 1)
-        $report.Add("- $($event.TimeCreated.ToString("o")) [$($event.ProviderName)#$($event.Id)] $firstLine")
-    }
-}
-$report.Add("")
-$report.Add("## Notes")
-$report.Add("")
-$report.Add("- Lines with 0 passed; 0 failed; ... filtered out are normal for crates that do not contain tests matching the filter.")
-$report.Add("- Treat exit_code = 0 plus no failure markers as the authoritative pass signal for this filtered cargo run.")
 
 $report | Set-Content -Encoding UTF8 $reportPath
 
 Write-Host "Report: $reportPath"
 Write-Host "Log: $logPath"
+if ($scenarioReport) {
+    Write-Host "ScenarioReport: $($scenarioReport.FullName)"
+}
 Write-Host "Overall: $overall"
 exit $exitCode
