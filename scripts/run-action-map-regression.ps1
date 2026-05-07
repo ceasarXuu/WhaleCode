@@ -84,7 +84,7 @@ if ([string]::IsNullOrWhiteSpace($ReportRoot)) {
 }
 $ReportRoot = Resolve-FullPath $ReportRoot
 
-$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
 $runDir = Resolve-FullPath (Join-Path $ReportRoot "action-map-$stamp")
 $logPath = Join-Path $runDir "cargo-test.log"
 $reportPath = Join-Path $runDir "report.md"
@@ -98,25 +98,37 @@ if ($PlanOnly) {
     exit 0
 }
 
+$started = Get-Date
+$stdoutPath = Join-Path $runDir "cargo-test.stdout.log"
+$stderrPath = Join-Path $runDir "cargo-test.stderr.log"
+
 $oldTargetDir = $env:CARGO_TARGET_DIR
 $oldBuildJobs = $env:CARGO_BUILD_JOBS
 $env:CARGO_TARGET_DIR = $TargetDir
 $env:CARGO_BUILD_JOBS = [string]$Jobs
 
-$started = Get-Date
-Push-Location $CodexRsRoot
 try {
-    $output = & rustup run stable cargo test --lib $TestFilter --locked --jobs $Jobs 2>&1
-    $exitCode = $LASTEXITCODE
+    $process = Start-Process `
+        -FilePath "rustup" `
+        -ArgumentList @("run", "stable", "cargo", "test", "--lib", $TestFilter, "--locked", "--jobs", [string]$Jobs) `
+        -WorkingDirectory $CodexRsRoot `
+        -RedirectStandardOutput $stdoutPath `
+        -RedirectStandardError $stderrPath `
+        -NoNewWindow `
+        -Wait `
+        -PassThru
+    $exitCode = $process.ExitCode
 }
 finally {
-    Pop-Location
     $env:CARGO_TARGET_DIR = $oldTargetDir
     $env:CARGO_BUILD_JOBS = $oldBuildJobs
 }
+
+$stdoutText = if (Test-Path $stdoutPath) { Get-Content -Raw -Encoding UTF8 $stdoutPath } else { "" }
+$stderrText = if (Test-Path $stderrPath) { Get-Content -Raw -Encoding UTF8 $stderrPath } else { "" }
 $finished = Get-Date
 
-$lines = @($output | ForEach-Object { $_.ToString() })
+$lines = @(($stdoutText, $stderrText) -join [Environment]::NewLine -split "`r?`n")
 $lines | Set-Content -Encoding UTF8 $logPath
 
 $summaries = @(New-TestSummary $lines)
