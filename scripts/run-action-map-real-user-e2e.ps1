@@ -270,6 +270,16 @@ finally {
 }
 $gitDiffText = if (Test-Path $gitDiffPath) { Get-Content -Raw -Encoding UTF8 $gitDiffPath } else { "" }
 
+$observabilityHtmlPath = Join-Path $artifactDir "action-map-observability.html"
+$observabilityMarkdownPath = Join-Path $artifactDir "action-map-observability.md"
+$observabilityJsonPath = Join-Path $artifactDir "action-map-observability.json"
+$observabilityExitCode = 0
+if ($rollout) {
+    $exportScript = Join-Path $PSScriptRoot "export-action-map-observability.ps1"
+    & $exportScript -RolloutPath $rolloutCopy -JsonlPath $jsonlPath -OutputDir $artifactDir | Out-Host
+    $observabilityExitCode = $LASTEXITCODE
+}
+
 $threadStartedCount = Count-Matches $jsonlText '"type"\s*:\s*"thread\.started"'
 $turnCompletedCount = Count-Matches $jsonlText '"type"\s*:\s*"turn\.completed"'
 $commandExecutionCount = Count-Matches $jsonlText '"type"\s*:\s*"command_execution"'
@@ -305,6 +315,8 @@ if ($rollout -and $leaseAttachedCount -lt 1) { $failures.Add("rollout does not s
 if ($rollout -and $mapCompletionCount -lt 1) { $failures.Add("rollout does not show node_result_recorded or lease_released") }
 if ($mapRestartShellMisuseCount -gt 0) { $failures.Add("agent attempted to run /map-restart as a shell command") }
 if ($rolloutRecordErrorCount -gt 0) { $failures.Add("runtime reported rollout persistence errors") }
+if ($rollout -and $observabilityExitCode -ne 0) { $failures.Add("action map observability export failed with exit code $observabilityExitCode") }
+if ($rollout -and -not (Test-Path $observabilityHtmlPath)) { $failures.Add("action map observability HTML was not generated") }
 if ($failures.Count -gt 0) { $overall = "FAIL" }
 
 $report = New-Object System.Collections.Generic.List[string]
@@ -361,6 +373,9 @@ $report.Add("- last_message: $lastMessagePath")
 $report.Add("- validation_stdout: $validationStdoutPath")
 $report.Add("- validation_stderr: $validationStderrPath")
 $report.Add("- git_diff: $gitDiffPath")
+$report.Add("- action_map_observability_html: $observabilityHtmlPath")
+$report.Add("- action_map_observability_md: $observabilityMarkdownPath")
+$report.Add("- action_map_observability_json: $observabilityJsonPath")
 $report.Add("")
 $report.Add("## Last Message Preview")
 $report.Add("")

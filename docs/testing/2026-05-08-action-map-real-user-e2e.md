@@ -30,6 +30,16 @@ It then runs:
 
 The prompt is passed through stdin, matching a real CLI user request without embedding a fake model response. `--map-restart` uses the app-server Action Map restart request before the turn starts, so the agent no longer needs to treat `/map-restart` as natural-language work or accidentally run it as a shell command.
 
+The E2E also exports a human-readable observability bundle next to the raw artifacts:
+
+```text
+action-map-observability.html
+action-map-observability.md
+action-map-observability.json
+```
+
+The HTML view is intentionally static and local-only. It reconstructs the map, node states, lease lifecycle, subagent binding, result recording, collaboration tool calls, and timeline from the real rollout/JSONL output.
+
 ## Required Evidence
 
 The report is marked PASS only when all of these are true:
@@ -47,13 +57,14 @@ The report is marked PASS only when all of these are true:
   - `node_result_recorded` or `lease_released`
 - The run contains no evidence that `/map-restart` was attempted as a shell command.
 - The run contains no `failed to record rollout items` runtime errors.
+- The Action Map observability HTML is generated.
 
 ## Latest Verified Run
 
 Latest successful run:
 
 ```text
-target/real-user-e2e/action-map-real-user-cache-bugfix/20260508-210449-093/artifacts/report.md
+target/real-user-e2e/action-map-real-user-cache-bugfix/20260508-213428-623/artifacts/report.md
 ```
 
 Observed evidence:
@@ -61,7 +72,8 @@ Observed evidence:
 ```text
 thread_started: 1
 turn_completed: 1
-command_execution: 22
+command_execution: 30
+file_change: 2
 spawn_agent: 2
 map_created: 1
 lease_created: 1
