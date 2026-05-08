@@ -12,6 +12,7 @@ pub(crate) mod exec_events;
 
 pub use cli::Cli;
 pub use cli::Command;
+use cli::ExecMapRuntimeMode;
 pub use cli::ReviewArgs;
 use codex_app_server_client::DEFAULT_IN_PROCESS_CHANNEL_CAPACITY;
 use codex_app_server_client::EnvironmentManager;
@@ -35,6 +36,8 @@ use codex_app_server_protocol::Thread as AppServerThread;
 use codex_app_server_protocol::ThreadItem as AppServerThreadItem;
 use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadListResponse;
+use codex_app_server_protocol::ThreadMapRuntimeModeSetParams;
+use codex_app_server_protocol::ThreadMapRuntimeModeSetResponse;
 use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadReadResponse;
 use codex_app_server_protocol::ThreadResumeParams;
@@ -198,6 +201,7 @@ struct ExecRunArgs {
     images: Vec<PathBuf>,
     json_mode: bool,
     last_message_file: Option<PathBuf>,
+    map_mode: Option<ExecMapRuntimeMode>,
     model_provider: Option<String>,
     oss: bool,
     output_schema_path: Option<PathBuf>,
@@ -229,11 +233,18 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         ignore_rules,
         color,
         last_message_file,
+        map_mode,
         json: json_mode,
         prompt,
         output_schema: output_schema_path,
         config_overrides,
     } = cli;
+    let mut config_overrides = config_overrides;
+    if map_mode == Some(ExecMapRuntimeMode::Experiment) {
+        config_overrides
+            .raw_overrides
+            .push("features.multi_agent_v2=true".to_string());
+    }
     let shared = shared.into_inner();
     let SharedCliOptions {
         images,
@@ -519,6 +530,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         images,
         json_mode,
         last_message_file,
+        map_mode,
         model_provider,
         oss,
         output_schema_path,
@@ -540,6 +552,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         images,
         json_mode,
         last_message_file,
+        map_mode,
         model_provider,
         oss,
         output_schema_path,
@@ -711,6 +724,23 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
     let session_configured = fallback_session_configured;
 
     exec_span.record("thread.id", primary_thread_id_for_span.as_str());
+
+    if let Some(map_mode) = map_mode {
+        let mode = map_mode.into();
+        send_request_with_response::<ThreadMapRuntimeModeSetResponse>(
+            &client,
+            ClientRequest::ThreadMapRuntimeModeSet {
+                request_id: request_ids.next(),
+                params: ThreadMapRuntimeModeSetParams {
+                    thread_id: primary_thread_id_for_span.clone(),
+                    mode,
+                },
+            },
+            "thread/mapRuntimeMode/set",
+        )
+        .await
+        .map_err(anyhow::Error::msg)?;
+    }
 
     // Print the effective configuration and initial request so users can see what Whale
     // is using.

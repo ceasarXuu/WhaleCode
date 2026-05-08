@@ -2,6 +2,7 @@ use clap::Args;
 use clap::FromArgMatches;
 use clap::Parser;
 use clap::ValueEnum;
+use codex_protocol::protocol::MapRuntimeMode;
 use codex_utils_cli::CliConfigOverrides;
 use codex_utils_cli::SharedCliOptions;
 use std::path::PathBuf;
@@ -64,11 +65,30 @@ pub struct Cli {
     )]
     pub last_message_file: Option<PathBuf>,
 
+    /// Select the multi-agent runtime mode for this exec session.
+    #[arg(long = "map-mode", value_enum, global = true)]
+    pub map_mode: Option<ExecMapRuntimeMode>,
+
     /// Initial instructions for the agent. If not provided as an argument (or
     /// if `-` is used), instructions are read from stdin. If stdin is piped and
     /// a prompt is also provided, stdin is appended as a `<stdin>` block.
     #[arg(value_name = "PROMPT", value_hint = clap::ValueHint::Other)]
     pub prompt: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ExecMapRuntimeMode {
+    Standard,
+    Experiment,
+}
+
+impl From<ExecMapRuntimeMode> for MapRuntimeMode {
+    fn from(mode: ExecMapRuntimeMode) -> Self {
+        match mode {
+            ExecMapRuntimeMode::Standard => Self::Standard,
+            ExecMapRuntimeMode::Experiment => Self::Experiment,
+        }
+    }
 }
 
 impl std::ops::Deref for Cli {

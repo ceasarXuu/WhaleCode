@@ -40,21 +40,6 @@ impl ToolHandler for Handler {
             .map(str::trim)
             .filter(|role| !role.is_empty());
 
-        let action_map_assignment = session
-            .prepare_action_map_spawn_assignment(&turn, &args.task_name)
-            .await
-            .map_err(FunctionCallError::RespondToModel)?;
-        let message = match action_map_assignment.as_ref() {
-            Some(assignment) => format!("{}{}", assignment.message_prefix, args.message),
-            None => args.message,
-        };
-        let effective_task_name = action_map_assignment
-            .as_ref()
-            .map(|assignment| assignment.node_id.clone())
-            .unwrap_or(args.task_name);
-        let initial_operation = parse_collab_input(Some(message), /*items*/ None)?;
-        let prompt = render_input_preview(&initial_operation);
-
         let session_source = turn.session_source.clone();
         let child_depth = next_thread_spawn_depth(&session_source);
         let max_depth = turn.config.agent_max_depth;
@@ -63,19 +48,6 @@ impl ToolHandler for Handler {
                 "Agent depth limit reached. Solve the task yourself.".to_string(),
             ));
         }
-        session
-            .send_event(
-                &turn,
-                CollabAgentSpawnBeginEvent {
-                    call_id: call_id.clone(),
-                    sender_thread_id: session.conversation_id,
-                    prompt: prompt.clone(),
-                    model: args.model.clone().unwrap_or_default(),
-                    reasoning_effort: args.reasoning_effort.unwrap_or_default(),
-                }
-                .into(),
-            )
-            .await;
         let mut config =
             build_agent_spawn_config(&session.get_base_instructions().await, turn.as_ref())?;
         if matches!(fork_mode, Some(SpawnAgentForkMode::FullHistory)) {
@@ -100,13 +72,69 @@ impl ToolHandler for Handler {
         apply_spawn_agent_runtime_overrides(&mut config, turn.as_ref())?;
         apply_spawn_agent_overrides(&mut config, child_depth);
 
-        let spawn_source = thread_spawn_source(
+        let action_map_assignment = session
+            .prepare_action_map_spawn_assignment(&turn, &args.task_name)
+            .await
+            .map_err(FunctionCallError::RespondToModel)?;
+        let message = match action_map_assignment.as_ref() {
+            Some(assignment) => format!("{}{}", assignment.message_prefix, args.message),
+            None => args.message,
+        };
+        let effective_task_name = action_map_assignment
+            .as_ref()
+            .map(|assignment| assignment.node_id.clone())
+            .unwrap_or_else(|| args.task_name.clone());
+        let initial_operation = match parse_collab_input(Some(message), /*items*/ None) {
+            Ok(initial_operation) => initial_operation,
+            Err(err) => {
+                if let Some(assignment) = action_map_assignment.as_ref() {
+                    session
+                        .release_action_map_assignment(
+                            &turn,
+                            &assignment.lease_id,
+                            "invalid_spawn_input",
+                        )
+                        .await;
+                }
+                return Err(err);
+            }
+        };
+        let prompt = render_input_preview(&initial_operation);
+        session
+            .send_event(
+                &turn,
+                CollabAgentSpawnBeginEvent {
+                    call_id: call_id.clone(),
+                    sender_thread_id: session.conversation_id,
+                    prompt: prompt.clone(),
+                    model: args.model.clone().unwrap_or_default(),
+                    reasoning_effort: args.reasoning_effort.unwrap_or_default(),
+                }
+                .into(),
+            )
+            .await;
+
+        let spawn_source = match thread_spawn_source(
             session.conversation_id,
             &turn.session_source,
             child_depth,
             role_name,
             Some(effective_task_name),
-        )?;
+        ) {
+            Ok(spawn_source) => spawn_source,
+            Err(err) => {
+                if let Some(assignment) = action_map_assignment.as_ref() {
+                    session
+                        .release_action_map_assignment(
+                            &turn,
+                            &assignment.lease_id,
+                            "invalid_spawn_source",
+                        )
+                        .await;
+                }
+                return Err(err);
+            }
+        };
         let result = session
             .services
             .agent_control

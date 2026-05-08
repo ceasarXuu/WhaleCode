@@ -309,6 +309,11 @@ client_request_definitions! {
         params: v2::ThreadMemoryModeSetParams,
         response: v2::ThreadMemoryModeSetResponse,
     },
+    #[experimental("thread/mapRuntimeMode/set")]
+    ThreadMapRuntimeModeSet => "thread/mapRuntimeMode/set" {
+        params: v2::ThreadMapRuntimeModeSetParams,
+        response: v2::ThreadMapRuntimeModeSetResponse,
+    },
     #[experimental("memory/reset")]
     MemoryReset => "memory/reset" {
         params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,

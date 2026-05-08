@@ -170,6 +170,8 @@ use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadListResponse;
 use codex_app_server_protocol::ThreadLoadedListParams;
 use codex_app_server_protocol::ThreadLoadedListResponse;
+use codex_app_server_protocol::ThreadMapRuntimeModeSetParams;
+use codex_app_server_protocol::ThreadMapRuntimeModeSetResponse;
 use codex_app_server_protocol::ThreadMemoryModeSetParams;
 use codex_app_server_protocol::ThreadMemoryModeSetResponse;
 use codex_app_server_protocol::ThreadMetadataGitInfoUpdateParams;
@@ -987,6 +989,10 @@ impl CodexMessageProcessor {
             }
             ClientRequest::ThreadMemoryModeSet { request_id, params } => {
                 self.thread_memory_mode_set(to_connection_request_id(request_id), params)
+                    .await;
+            }
+            ClientRequest::ThreadMapRuntimeModeSet { request_id, params } => {
+                self.thread_map_runtime_mode_set(to_connection_request_id(request_id), params)
                     .await;
             }
             ClientRequest::MemoryReset { request_id, params } => {
@@ -3354,6 +3360,37 @@ impl CodexMessageProcessor {
 
         self.outgoing
             .send_response(request_id, MemoryResetResponse {})
+            .await;
+    }
+
+    async fn thread_map_runtime_mode_set(
+        &self,
+        request_id: ConnectionRequestId,
+        params: ThreadMapRuntimeModeSetParams,
+    ) {
+        let ThreadMapRuntimeModeSetParams { thread_id, mode } = params;
+        let (_thread_uuid, thread) = match self.load_thread(&thread_id).await {
+            Ok(v) => v,
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        if let Err(err) = self
+            .submit_core_op(&request_id, thread.as_ref(), Op::SetMapRuntimeMode { mode })
+            .await
+        {
+            self.send_internal_error(
+                request_id,
+                format!("failed to set thread map runtime mode: {err}"),
+            )
+            .await;
+            return;
+        }
+
+        self.outgoing
+            .send_response(request_id, ThreadMapRuntimeModeSetResponse {})
             .await;
     }
 
