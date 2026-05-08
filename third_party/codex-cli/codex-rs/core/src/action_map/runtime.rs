@@ -422,6 +422,9 @@ impl ActionMapRuntimeState {
         }
 
         let mut context = String::from("Action Map experiment mode is active.\n");
+        context.push_str(
+            "Runtime slash commands such as /map-restart are UI commands, not shell commands; do not run them via shell_command.\n",
+        );
         if let Some(map) = self.active_map() {
             context.push_str("Active Action Map:\n");
             context.push_str("- id: ");

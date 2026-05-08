@@ -33,6 +33,8 @@ use codex_app_server_protocol::ReviewTarget as ApiReviewTarget;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
 use codex_app_server_protocol::Thread as AppServerThread;
+use codex_app_server_protocol::ThreadActionMapRestartParams;
+use codex_app_server_protocol::ThreadActionMapRestartResponse;
 use codex_app_server_protocol::ThreadItem as AppServerThreadItem;
 use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadListResponse;
@@ -202,6 +204,7 @@ struct ExecRunArgs {
     json_mode: bool,
     last_message_file: Option<PathBuf>,
     map_mode: Option<ExecMapRuntimeMode>,
+    map_restart: bool,
     model_provider: Option<String>,
     oss: bool,
     output_schema_path: Option<PathBuf>,
@@ -234,6 +237,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         color,
         last_message_file,
         map_mode,
+        map_restart,
         json: json_mode,
         prompt,
         output_schema: output_schema_path,
@@ -531,6 +535,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         json_mode,
         last_message_file,
         map_mode,
+        map_restart,
         model_provider,
         oss,
         output_schema_path,
@@ -553,6 +558,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         json_mode,
         last_message_file,
         map_mode,
+        map_restart,
         model_provider,
         oss,
         output_schema_path,
@@ -737,6 +743,21 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                 },
             },
             "thread/mapRuntimeMode/set",
+        )
+        .await
+        .map_err(anyhow::Error::msg)?;
+    }
+
+    if map_restart {
+        send_request_with_response::<ThreadActionMapRestartResponse>(
+            &client,
+            ClientRequest::ThreadActionMapRestart {
+                request_id: request_ids.next(),
+                params: ThreadActionMapRestartParams {
+                    thread_id: primary_thread_id_for_span.clone(),
+                },
+            },
+            "thread/actionMap/restart",
         )
         .await
         .map_err(anyhow::Error::msg)?;

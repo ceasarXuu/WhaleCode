@@ -196,12 +196,16 @@ $helpText = & $WhaleBin exec --help 2>&1
 if (($helpText -join [Environment]::NewLine) -notmatch "--map-mode") {
     throw "Installed whale exec does not expose --map-mode. Build and install the current tree before running this real-user E2E."
 }
+if (($helpText -join [Environment]::NewLine) -notmatch "--map-restart") {
+    throw "Installed whale exec does not expose --map-restart. Build and install the current tree before running this real-user E2E."
+}
 
 $started = Get-Date
 $execArgs = @(
     "exec",
     "--json",
     "--map-mode", "experiment",
+    "--map-restart",
     "-m", $Model,
     "-C", $repoDir,
     "--dangerously-bypass-approvals-and-sandbox",
@@ -278,6 +282,8 @@ $mapCreatedCount = Count-Matches $rolloutText '"map_created"|MapCreated'
 $leaseCreatedCount = Count-Matches $rolloutText '"lease_created"|LeaseCreated'
 $leaseAttachedCount = Count-Matches $rolloutText '"lease_attached"|LeaseAttached'
 $mapCompletionCount = Count-Matches $rolloutText '"node_result_recorded"|"lease_released"|NodeResultRecorded|LeaseReleased'
+$mapRestartShellMisuseCount = Count-Matches ($stderrText + $jsonlText) "map-restart.*not recognized|The term '/map-restart'|The term 'map-restart'"
+$rolloutRecordErrorCount = Count-Matches $stderrText "failed to record rollout items"
 
 $overall = "PASS"
 $failures = New-Object System.Collections.Generic.List[string]
@@ -297,6 +303,8 @@ if ($rollout -and $mapCreatedCount -lt 1) { $failures.Add("rollout does not show
 if ($rollout -and $leaseCreatedCount -lt 1) { $failures.Add("rollout does not show lease_created") }
 if ($rollout -and $leaseAttachedCount -lt 1) { $failures.Add("rollout does not show lease_attached") }
 if ($rollout -and $mapCompletionCount -lt 1) { $failures.Add("rollout does not show node_result_recorded or lease_released") }
+if ($mapRestartShellMisuseCount -gt 0) { $failures.Add("agent attempted to run /map-restart as a shell command") }
+if ($rolloutRecordErrorCount -gt 0) { $failures.Add("runtime reported rollout persistence errors") }
 if ($failures.Count -gt 0) { $overall = "FAIL" }
 
 $report = New-Object System.Collections.Generic.List[string]
@@ -331,6 +339,8 @@ $report.Add("- map_created: $mapCreatedCount")
 $report.Add("- lease_created: $leaseCreatedCount")
 $report.Add("- lease_attached: $leaseAttachedCount")
 $report.Add("- map_completion_or_release: $mapCompletionCount")
+$report.Add("- map_restart_shell_misuse: $mapRestartShellMisuseCount")
+$report.Add("- rollout_record_errors: $rolloutRecordErrorCount")
 $report.Add("")
 $report.Add("## Failures")
 $report.Add("")

@@ -41,6 +41,7 @@ export type { InputModality } from "./InputModality";
 export type { LocalShellAction } from "./LocalShellAction";
 export type { LocalShellExecAction } from "./LocalShellExecAction";
 export type { LocalShellStatus } from "./LocalShellStatus";
+export type { MapRuntimeMode } from "./MapRuntimeMode";
 export type { MessagePhase } from "./MessagePhase";
 export type { ModeKind } from "./ModeKind";
 export type { NetworkPolicyAmendment } from "./NetworkPolicyAmendment";

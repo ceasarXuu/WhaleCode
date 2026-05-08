@@ -6962,6 +6962,24 @@
       ],
       "type": "object"
     },
+    "MapRuntimeMode": {
+      "oneOf": [
+        {
+          "description": "Preserve the current multi-agent behavior.",
+          "enum": [
+            "standard"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Enable Action Map runtime hooks as they are implemented.",
+          "enum": [
+            "experiment"
+          ],
+          "type": "string"
+        }
+      ]
+    },
     "MarketplaceAddParams": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {

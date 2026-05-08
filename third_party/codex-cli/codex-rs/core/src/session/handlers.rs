@@ -986,6 +986,8 @@ pub async fn restart_action_map(sess: &Arc<Session>, sub_id: String) {
 }
 
 pub async fn shutdown(sess: &Arc<Session>, sub_id: String) -> bool {
+    sess.shutting_down
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     sess.abort_all_tasks(TurnAbortReason::Interrupted).await;
     let _ = sess.conversation.shutdown().await;
     sess.services

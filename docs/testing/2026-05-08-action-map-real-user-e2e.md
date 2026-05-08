@@ -25,10 +25,10 @@ target/real-user-e2e/action-map-real-user-cache-bugfix/<timestamp>/
 It then runs:
 
 ```powershell
-%USERPROFILE%\.whale\bin\whale.exe exec --json --map-mode experiment -m deepseek-v4-flash -C <repo> --dangerously-bypass-approvals-and-sandbox --output-last-message <file> -
+%USERPROFILE%\.whale\bin\whale.exe exec --json --map-mode experiment --map-restart -m deepseek-v4-flash -C <repo> --dangerously-bypass-approvals-and-sandbox --output-last-message <file> -
 ```
 
-The prompt is passed through stdin, matching a real CLI user request without embedding a fake model response.
+The prompt is passed through stdin, matching a real CLI user request without embedding a fake model response. `--map-restart` uses the app-server Action Map restart request before the turn starts, so the agent no longer needs to treat `/map-restart` as natural-language work or accidentally run it as a shell command.
 
 ## Required Evidence
 
@@ -45,13 +45,15 @@ The report is marked PASS only when all of these are true:
   - `lease_created`
   - `lease_attached`
   - `node_result_recorded` or `lease_released`
+- The run contains no evidence that `/map-restart` was attempted as a shell command.
+- The run contains no `failed to record rollout items` runtime errors.
 
 ## Latest Verified Run
 
 Latest successful run:
 
 ```text
-target/real-user-e2e/action-map-real-user-cache-bugfix/20260508-161749-774/artifacts/report.md
+target/real-user-e2e/action-map-real-user-cache-bugfix/20260508-210449-093/artifacts/report.md
 ```
 
 Observed evidence:
@@ -59,12 +61,14 @@ Observed evidence:
 ```text
 thread_started: 1
 turn_completed: 1
-command_execution: 32
+command_execution: 22
 spawn_agent: 2
 map_created: 1
 lease_created: 1
 lease_attached: 1
-map_completion_or_release: 1
+map_completion_or_release: 2
+map_restart_shell_misuse: 0
+rollout_record_errors: 0
 validation_exit_code: 0
 ```
 
@@ -77,3 +81,11 @@ Fix: `whale exec --map-mode experiment` now forces the existing `multi_agent_v2`
 The next real run found a second runtime bug: `multi_agent_v2` claimed a node before validating spawn arguments. If validation failed, the node lease could remain stuck and block all later subagent work.
 
 Fix: `multi_agent_v2` now performs pre-spawn validation before claiming an Action Map node, and releases the lease if later input/source construction fails.
+
+The next product-path issue was command routing. `/map-restart` exists as a TUI slash command, but the real `whale exec` path had no equivalent machine entrypoint. A model could interpret the text as something to execute in PowerShell, which produces noise and hides the intended map lifecycle action.
+
+Fix: the app-server now exposes `thread/actionMap/restart`, and `whale exec --map-restart` sends that request before the first turn. The real-user E2E script now requires the installed binary to expose both `--map-mode` and `--map-restart`, and fails if the run shows `/map-restart` shell misuse.
+
+The same real run exposed a shutdown-time observability issue: after the app-server closed a session, late rollout appends could still try to write through a removed live thread recorder and log `failed to record rollout items: thread ... not found`.
+
+Fix: session shutdown now marks the session as shutting down before tearing down live persistence. Late `ThreadNotFound` rollout appends during that window are treated as benign shutdown races instead of runtime errors, while non-shutdown persistence failures remain errors. The real-user E2E script now fails on rollout persistence errors in stderr.

@@ -69,6 +69,10 @@ pub struct Cli {
     #[arg(long = "map-mode", value_enum, global = true)]
     pub map_mode: Option<ExecMapRuntimeMode>,
 
+    /// Restart the active Action Map before the first exec turn.
+    #[arg(long = "map-restart", global = true, default_value_t = false)]
+    pub map_restart: bool,
+
     /// Initial instructions for the agent. If not provided as an argument (or
     /// if `-` is used), instructions are read from stdin. If stdin is piped and
     /// a prompt is also provided, stdin is appended as a `<stdin>` block.
