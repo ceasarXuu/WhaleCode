@@ -1228,6 +1228,22 @@ async fn map_restart_slash_command_submits_restart_op() {
 }
 
 #[tokio::test]
+async fn map_show_slash_command_submits_show_op() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+
+    submit_composer_text(&mut chat, "/map-show");
+
+    let mut observed = false;
+    while let Ok(op) = op_rx.try_recv() {
+        if matches!(op, Op::ShowActionMap) {
+            observed = true;
+            break;
+        }
+    }
+    assert!(observed);
+}
+
+#[tokio::test]
 async fn unrecognized_slash_command_is_not_added_to_local_recall() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 

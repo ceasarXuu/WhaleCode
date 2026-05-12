@@ -20,6 +20,7 @@ use codex_protocol::models::PermissionProfile;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::protocol::ActionMapSnapshot;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::Event;
 use codex_protocol::protocol::Op;
@@ -172,6 +173,10 @@ impl CodexThread {
     /// Persist whether this thread is eligible for future memory generation.
     pub async fn set_thread_memory_mode(&self, mode: ThreadMemoryMode) -> anyhow::Result<()> {
         self.codex.set_thread_memory_mode(mode).await
+    }
+
+    pub async fn action_map_snapshot(&self) -> ActionMapSnapshot {
+        self.codex.session.action_map_snapshot().await
     }
 
     pub async fn steer_input(

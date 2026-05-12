@@ -7164,6 +7164,25 @@ hide_spawn_agent_metadata = true
 }
 
 #[tokio::test]
+async fn multi_agent_v2_enabled_from_cli_override_nested_shape() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(codex_home.path().to_path_buf()))
+        .cli_overrides(vec![(
+            "features.multi_agent_v2.enabled".to_string(),
+            TomlValue::Boolean(true),
+        )])
+        .build()
+        .await?;
+
+    assert!(config.features.enabled(Feature::MultiAgentV2));
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn profile_multi_agent_v2_config_overrides_base() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     std::fs::write(

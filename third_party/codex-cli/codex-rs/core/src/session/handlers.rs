@@ -985,6 +985,13 @@ pub async fn restart_action_map(sess: &Arc<Session>, sub_id: String) {
     sess.notify_background_event(&turn_context, status).await;
 }
 
+pub async fn show_action_map(sess: &Arc<Session>, sub_id: String) {
+    let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
+    let snapshot = sess.action_map_snapshot().await;
+    let status = crate::action_map::format_action_map_snapshot(&snapshot);
+    sess.notify_background_event(&turn_context, status).await;
+}
+
 pub async fn shutdown(sess: &Arc<Session>, sub_id: String) -> bool {
     sess.shutting_down
         .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -1260,6 +1267,10 @@ pub(super) async fn submission_loop(
                 }
                 Op::RestartActionMap => {
                     restart_action_map(&sess, sub.id.clone()).await;
+                    false
+                }
+                Op::ShowActionMap => {
+                    show_action_map(&sess, sub.id.clone()).await;
                     false
                 }
                 Op::RunUserShellCommand { command } => {

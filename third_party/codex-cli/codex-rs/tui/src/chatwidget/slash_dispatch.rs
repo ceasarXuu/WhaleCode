@@ -245,6 +245,9 @@ impl ChatWidget {
             SlashCommand::MapRestart => {
                 self.submit_op(AppCommand::restart_action_map());
             }
+            SlashCommand::MapShow => {
+                self.submit_op(AppCommand::show_action_map());
+            }
             SlashCommand::Side => {
                 self.request_empty_side_conversation();
             }
@@ -596,6 +599,9 @@ impl ChatWidget {
             SlashCommand::MapRestart => {
                 self.add_error_message("Usage: /map-restart".to_string());
             }
+            SlashCommand::MapShow => {
+                self.add_error_message("Usage: /map-show".to_string());
+            }
             SlashCommand::SearchProvider => {
                 self.dispatch_search_provider_command(trimmed);
             }
@@ -869,6 +875,7 @@ impl ChatWidget {
             | SlashCommand::Mcp
             | SlashCommand::MapMode
             | SlashCommand::MapRestart
+            | SlashCommand::MapShow
             | SlashCommand::Apps
             | SlashCommand::Plugins
             | SlashCommand::Rollout

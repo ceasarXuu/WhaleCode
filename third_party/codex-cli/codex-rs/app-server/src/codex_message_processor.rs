@@ -136,6 +136,8 @@ use codex_app_server_protocol::SkillsListParams;
 use codex_app_server_protocol::SkillsListResponse;
 use codex_app_server_protocol::SortDirection;
 use codex_app_server_protocol::Thread;
+use codex_app_server_protocol::ThreadActionMapReadParams;
+use codex_app_server_protocol::ThreadActionMapReadResponse;
 use codex_app_server_protocol::ThreadActionMapRestartParams;
 use codex_app_server_protocol::ThreadActionMapRestartResponse;
 use codex_app_server_protocol::ThreadApproveGuardianDeniedActionParams;
@@ -999,6 +1001,10 @@ impl CodexMessageProcessor {
             }
             ClientRequest::ThreadActionMapRestart { request_id, params } => {
                 self.thread_action_map_restart(to_connection_request_id(request_id), params)
+                    .await;
+            }
+            ClientRequest::ThreadActionMapRead { request_id, params } => {
+                self.thread_action_map_read(to_connection_request_id(request_id), params)
                     .await;
             }
             ClientRequest::MemoryReset { request_id, params } => {
@@ -3425,6 +3431,26 @@ impl CodexMessageProcessor {
 
         self.outgoing
             .send_response(request_id, ThreadActionMapRestartResponse {})
+            .await;
+    }
+
+    async fn thread_action_map_read(
+        &self,
+        request_id: ConnectionRequestId,
+        params: ThreadActionMapReadParams,
+    ) {
+        let ThreadActionMapReadParams { thread_id } = params;
+        let (_thread_uuid, thread) = match self.load_thread(&thread_id).await {
+            Ok(v) => v,
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let snapshot = thread.action_map_snapshot().await;
+        self.outgoing
+            .send_response(request_id, ThreadActionMapReadResponse { snapshot })
             .await;
     }
 

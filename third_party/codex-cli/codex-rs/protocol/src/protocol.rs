@@ -788,6 +788,12 @@ pub enum Op {
     /// involve the model.
     RestartActionMap,
 
+    /// Show a human-readable snapshot of the current Action Map.
+    ///
+    /// This is a local-only operation handled by codex-core; it does not
+    /// involve the model.
+    ShowActionMap,
+
     /// Request Codex to undo a turn (turn are stacked so it is the same effect as CMD + Z).
     Undo,
 
@@ -922,6 +928,7 @@ impl Op {
             Self::SetThreadMemoryMode { .. } => "set_thread_memory_mode",
             Self::SetMapRuntimeMode { .. } => "set_map_runtime_mode",
             Self::RestartActionMap => "restart_action_map",
+            Self::ShowActionMap => "show_action_map",
             Self::Undo => "undo",
             Self::ThreadRollback { .. } => "thread_rollback",
             Self::Review { .. } => "review",
@@ -1779,6 +1786,81 @@ pub enum MapRuntimeMode {
     Standard,
     /// Enable Action Map runtime hooks as they are implemented.
     Experiment,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshot {
+    pub mode: MapRuntimeMode,
+    pub active_map_id: Option<String>,
+    pub maps: Vec<ActionMapSnapshotMap>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotMap {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub owner_session_id: Option<ThreadId>,
+    pub base_map_version: String,
+    pub created_from: Option<String>,
+    pub ready_node_count: usize,
+    pub running_node_count: usize,
+    pub completed_node_count: usize,
+    pub nodes: Vec<ActionMapSnapshotNode>,
+    pub edges: Vec<ActionMapSnapshotEdge>,
+    pub leases: Vec<ActionMapSnapshotLease>,
+    pub results: Vec<ActionMapSnapshotResult>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotNode {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub context_summary: String,
+    pub source_refs: Vec<String>,
+    pub active_lease: Option<String>,
+    pub result_ids: Vec<String>,
+    pub origin_node_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotEdge {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotLease {
+    pub id: String,
+    pub map_id: String,
+    pub node_id: String,
+    pub agent_thread_id: Option<ThreadId>,
+    pub agent_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotResult {
+    pub id: String,
+    pub assignment_id: String,
+    pub map_id: String,
+    pub node_id: String,
+    pub kind: String,
+    pub body: String,
+    pub source_thread_id: ThreadId,
+    pub created_at_ms: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]

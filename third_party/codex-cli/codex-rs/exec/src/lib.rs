@@ -247,7 +247,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
     if map_mode == Some(ExecMapRuntimeMode::Experiment) {
         config_overrides
             .raw_overrides
-            .push("features.multi_agent_v2=true".to_string());
+            .push("features.multi_agent_v2.enabled=true".to_string());
     }
     let shared = shared.into_inner();
     let SharedCliOptions {

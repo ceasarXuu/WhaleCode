@@ -1,6 +1,12 @@
 // GENERATED CODE! DO NOT MODIFY BY HAND!
 
 export type { AbsolutePathBuf } from "./AbsolutePathBuf";
+export type { ActionMapSnapshot } from "./ActionMapSnapshot";
+export type { ActionMapSnapshotEdge } from "./ActionMapSnapshotEdge";
+export type { ActionMapSnapshotLease } from "./ActionMapSnapshotLease";
+export type { ActionMapSnapshotMap } from "./ActionMapSnapshotMap";
+export type { ActionMapSnapshotNode } from "./ActionMapSnapshotNode";
+export type { ActionMapSnapshotResult } from "./ActionMapSnapshotResult";
 export type { AgentPath } from "./AgentPath";
 export type { ApplyPatchApprovalParams } from "./ApplyPatchApprovalParams";
 export type { ApplyPatchApprovalResponse } from "./ApplyPatchApprovalResponse";

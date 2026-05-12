@@ -606,15 +606,18 @@ Map discovery can suggest; it cannot claim, resume, or duplicate active work by 
 
 ### Map 可观测性边界
 
-`/map-show` 不进入第一版核心 runtime 的硬依赖。
+`/map-show` 只承担 terminal 里的机械摘要能力，不承担完整人类友好可视化。
 原因是真实 map 可能很大，而且 agent 使用的 map 不一定是人类在 terminal 中容易阅读的形态。
 
-第一版只需要 runtime 能提供 map snapshot / manifest / node result context 的读取能力。
-人类友好的展示应归入后续可观测性主题，例如本地 viewer 页面：
+第一版 runtime 需要提供 map snapshot / manifest / node result context 的读取能力。
+人类友好的展示归入可观测性主题，例如本地 viewer 页面：
 
 ```text
 /map-show
-  -> return local viewer URL or compact manifest
+  -> compact terminal summary
+thread/actionMap/read
+  -> structured snapshot for viewer/export/tests
+observability export
   -> full graph visualization lives in observability UI
 ```
 

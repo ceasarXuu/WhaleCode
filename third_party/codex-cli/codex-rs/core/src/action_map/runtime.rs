@@ -5,6 +5,12 @@ use std::time::UNIX_EPOCH;
 
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
+use codex_protocol::protocol::ActionMapSnapshot;
+use codex_protocol::protocol::ActionMapSnapshotEdge;
+use codex_protocol::protocol::ActionMapSnapshotLease;
+use codex_protocol::protocol::ActionMapSnapshotMap;
+use codex_protocol::protocol::ActionMapSnapshotNode;
+use codex_protocol::protocol::ActionMapSnapshotResult;
 use codex_protocol::protocol::AgentStatus;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeLeaseAttachedEvent;
@@ -139,6 +145,20 @@ impl ActionMapRuntimeState {
             .as_ref()
             .and_then(|map_id| self.maps.get(map_id))
             .filter(|map| map.status == MapStatus::Active)
+    }
+
+    pub(crate) fn snapshot(&self) -> ActionMapSnapshot {
+        let mut maps = self
+            .maps
+            .values()
+            .map(snapshot_map)
+            .collect::<Vec<ActionMapSnapshotMap>>();
+        maps.sort_by(|left, right| left.id.cmp(&right.id));
+        ActionMapSnapshot {
+            mode: self.mode,
+            active_map_id: self.active_map_id.clone(),
+            maps,
+        }
     }
 
     pub(crate) fn restart_active_map(
@@ -542,6 +562,105 @@ impl ActionMapRuntimeState {
     }
 }
 
+pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String {
+    let mut output = String::new();
+    output.push_str("Action Map\n");
+    output.push_str("- mode: ");
+    output.push_str(&snapshot.mode.to_string());
+    output.push('\n');
+    output.push_str("- active map: ");
+    output.push_str(snapshot.active_map_id.as_deref().unwrap_or("none"));
+    output.push('\n');
+    if snapshot.maps.is_empty() {
+        output.push_str("\nNo Action Map has been created in this thread.\n");
+        return output;
+    }
+
+    for map in &snapshot.maps {
+        output.push('\n');
+        output.push_str("Map ");
+        output.push_str(&map.id);
+        output.push_str(": ");
+        output.push_str(&map.title);
+        output.push('\n');
+        output.push_str("- status: ");
+        output.push_str(&map.status);
+        output.push_str("\n- nodes: ready=");
+        output.push_str(&map.ready_node_count.to_string());
+        output.push_str(", running=");
+        output.push_str(&map.running_node_count.to_string());
+        output.push_str(", completed=");
+        output.push_str(&map.completed_node_count.to_string());
+        output.push('\n');
+        output.push_str("- owner session: ");
+        output.push_str(
+            &map.owner_session_id
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "none".to_string()),
+        );
+        output.push('\n');
+        output.push_str("\nNodes:\n");
+        for node in &map.nodes {
+            output.push_str("- ");
+            output.push_str(&node.id);
+            output.push_str(" [");
+            output.push_str(&node.status);
+            output.push_str("] ");
+            output.push_str(&node.title);
+            if let Some(lease) = node.active_lease.as_ref() {
+                output.push_str(" lease=");
+                output.push_str(lease);
+            }
+            if !node.result_ids.is_empty() {
+                output.push_str(" results=");
+                output.push_str(&node.result_ids.join(","));
+            }
+            output.push('\n');
+        }
+
+        if !map.leases.is_empty() {
+            output.push_str("\nLeases:\n");
+            for lease in &map.leases {
+                output.push_str("- ");
+                output.push_str(&lease.id);
+                output.push_str(" node=");
+                output.push_str(&lease.node_id);
+                output.push_str(" agent=");
+                output.push_str(
+                    &lease
+                        .agent_thread_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_else(|| "unattached".to_string()),
+                );
+                if let Some(path) = lease.agent_path.as_ref() {
+                    output.push_str(" path=");
+                    output.push_str(path);
+                }
+                output.push('\n');
+            }
+        }
+
+        if !map.results.is_empty() {
+            output.push_str("\nResults:\n");
+            for result in &map.results {
+                output.push_str("- ");
+                output.push_str(&result.id);
+                output.push_str(" node=");
+                output.push_str(&result.node_id);
+                output.push_str(" kind=");
+                output.push_str(&result.kind);
+                output.push_str(" from=");
+                output.push_str(&result.source_thread_id.to_string());
+                output.push_str("\n  ");
+                output.push_str(&single_line_preview(&result.body, 220));
+                output.push('\n');
+            }
+        }
+    }
+
+    output
+}
+
 fn seed_map(
     id: ActionMapId,
     title: String,
@@ -583,6 +702,90 @@ fn seed_map(
         });
     }
     map
+}
+
+fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
+    let mut nodes = map
+        .nodes
+        .values()
+        .map(|node| ActionMapSnapshotNode {
+            id: node.id.clone(),
+            title: node.title.clone(),
+            status: node.status.as_str().to_string(),
+            context_summary: node.context.summary.clone(),
+            source_refs: node.context.source_refs.clone(),
+            active_lease: node.active_lease.clone(),
+            result_ids: node
+                .result_context
+                .iter()
+                .map(|result| result.id.clone())
+                .collect(),
+            origin_node_id: node.origin_node_id.clone(),
+        })
+        .collect::<Vec<_>>();
+    nodes.sort_by(|left, right| left.id.cmp(&right.id));
+
+    let mut leases = map
+        .leases
+        .values()
+        .map(|lease| ActionMapSnapshotLease {
+            id: lease.id.clone(),
+            map_id: lease.map_id.clone(),
+            node_id: lease.node_id.clone(),
+            agent_thread_id: lease.agent_thread_id,
+            agent_path: lease.agent_path.clone(),
+        })
+        .collect::<Vec<_>>();
+    leases.sort_by(|left, right| left.id.cmp(&right.id));
+
+    let mut results = map
+        .results
+        .values()
+        .map(|result| ActionMapSnapshotResult {
+            id: result.id.clone(),
+            assignment_id: result.assignment_id.clone(),
+            map_id: result.map_id.clone(),
+            node_id: result.node_id.clone(),
+            kind: result.kind.as_str().to_string(),
+            body: result.body.clone(),
+            source_thread_id: result.source_thread_id,
+            created_at_ms: result.created_at_ms,
+        })
+        .collect::<Vec<_>>();
+    results.sort_by(|left, right| left.id.cmp(&right.id));
+
+    ActionMapSnapshotMap {
+        id: map.id.clone(),
+        title: map.title.clone(),
+        status: map.status.as_str().to_string(),
+        owner_session_id: map.owner_session_id,
+        base_map_version: map.base_map_version.clone(),
+        created_from: map.created_from.clone(),
+        ready_node_count: map.ready_node_count(),
+        running_node_count: map.running_node_count(),
+        completed_node_count: map.completed_node_count(),
+        nodes,
+        edges: map
+            .edges
+            .iter()
+            .map(|edge| ActionMapSnapshotEdge {
+                from: edge.from.clone(),
+                to: edge.to.clone(),
+            })
+            .collect(),
+        leases,
+        results,
+    }
+}
+
+fn single_line_preview(text: &str, max_chars: usize) -> String {
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() <= max_chars {
+        return normalized;
+    }
+    let mut preview = normalized.chars().take(max_chars).collect::<String>();
+    preview.push_str("...");
+    preview
 }
 
 fn refresh_ready_nodes(map: &mut ActionMapInstance) -> Vec<MapRuntimeEvent> {
@@ -995,6 +1198,60 @@ mod tests {
             map.nodes.get("inspect_code_context").expect("node").status,
             NodeStatus::Ready
         );
+    }
+
+    #[test]
+    fn snapshot_and_formatter_expose_map_runtime_state() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        let child = ThreadId::new();
+
+        let assignment = state
+            .prepare_spawn_assignment(owner, "inspect runtime")
+            .expect("assignment succeeds")
+            .0
+            .expect("experiment assignment");
+        state.attach_agent_to_lease(
+            &assignment.lease_id,
+            child,
+            Some("/root/worker".to_string()),
+        );
+        state.record_child_result(
+            child,
+            &AgentStatus::Completed(Some("scope is clear".to_string())),
+        );
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.mode, MapRuntimeMode::Experiment);
+        assert_eq!(
+            snapshot.active_map_id.as_deref(),
+            Some(assignment.map_id.as_str())
+        );
+        assert_eq!(snapshot.maps.len(), 1);
+        let map = &snapshot.maps[0];
+        assert_eq!(map.id, assignment.map_id);
+        assert_eq!(map.completed_node_count, 1);
+        assert_eq!(map.ready_node_count, 1);
+        assert!(map.leases.is_empty());
+        assert_eq!(map.results.len(), 1);
+        assert_eq!(map.results[0].node_id, "define_scope");
+        assert_eq!(map.results[0].kind, "result");
+        assert_eq!(map.results[0].body, "scope is clear");
+        let completed_node = map
+            .nodes
+            .iter()
+            .find(|node| node.id == "define_scope")
+            .expect("completed node");
+        assert_eq!(completed_node.status, "completed");
+        assert_eq!(completed_node.result_ids, vec!["result-1".to_string()]);
+
+        let formatted = format_action_map_snapshot(&snapshot);
+        assert!(formatted.contains("Action Map"));
+        assert!(formatted.contains("mode: experiment"));
+        assert!(formatted.contains("define_scope"));
+        assert!(formatted.contains("result-1 node=define_scope kind=result"));
+        assert!(formatted.contains("scope is clear"));
     }
 
     #[test]

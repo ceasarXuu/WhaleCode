@@ -324,6 +324,7 @@ use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
+use codex_protocol::protocol::ActionMapSnapshot;
 use codex_protocol::protocol::ApplyPatchApprovalRequestEvent;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::BackgroundEventEvent;
@@ -2939,6 +2940,11 @@ impl Session {
     pub(crate) async fn reference_context_item(&self) -> Option<TurnContextItem> {
         let state = self.state.lock().await;
         state.reference_context_item()
+    }
+
+    pub(crate) async fn action_map_snapshot(&self) -> ActionMapSnapshot {
+        let state = self.state.lock().await;
+        state.action_map_runtime.snapshot()
     }
 
     /// Persist the latest turn context snapshot for the first real user turn and for

@@ -5,6 +5,7 @@ dist/
 coverage/
 target/
 target-test/
+target-map-show/
 archive/deprecated/**/target/
 third_party/**/target/
 third_party/**/node_modules/

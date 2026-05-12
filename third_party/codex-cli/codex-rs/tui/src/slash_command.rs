@@ -37,6 +37,8 @@ pub enum SlashCommand {
     MapMode,
     #[strum(serialize = "map-restart")]
     MapRestart,
+    #[strum(serialize = "map-show")]
+    MapShow,
     Agent,
     Side,
     // Undo,
@@ -115,6 +117,7 @@ impl SlashCommand {
             SlashCommand::Collab => "change collaboration mode (experimental)",
             SlashCommand::MapMode => "switch Action Map runtime mode",
             SlashCommand::MapRestart => "abandon the active Action Map and start fresh",
+            SlashCommand::MapShow => "show the current Action Map status",
             SlashCommand::Agent | SlashCommand::MultiAgents => "switch the active agent thread",
             SlashCommand::Side => "start a side conversation in an ephemeral fork",
             SlashCommand::Approvals => "choose what Whale is allowed to do",
@@ -209,7 +212,8 @@ impl SlashCommand {
             | SlashCommand::Feedback
             | SlashCommand::Quit
             | SlashCommand::Exit
-            | SlashCommand::Side => true,
+            | SlashCommand::Side
+            | SlashCommand::MapShow => true,
             SlashCommand::Rollout => true,
             SlashCommand::TestApproval => true,
             SlashCommand::Realtime => true,
@@ -280,5 +284,15 @@ mod tests {
         );
         assert!(!SlashCommand::MapRestart.supports_inline_args());
         assert!(!SlashCommand::MapRestart.available_during_task());
+    }
+
+    #[test]
+    fn map_show_command_parses_and_is_available_during_task() {
+        assert_eq!(
+            SlashCommand::from_str("map-show"),
+            Ok(SlashCommand::MapShow)
+        );
+        assert!(!SlashCommand::MapShow.supports_inline_args());
+        assert!(SlashCommand::MapShow.available_during_task());
     }
 }

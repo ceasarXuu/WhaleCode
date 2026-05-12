@@ -40,6 +40,15 @@ action-map-observability.json
 
 The HTML view is intentionally static and local-only. It reconstructs the map, node states, lease lifecycle, subagent binding, result recording, collaboration tool calls, and timeline from the real rollout/JSONL output.
 
+Runtime observability now has two direct read surfaces in addition to rollout export:
+
+```text
+/map-show
+thread/actionMap/read
+```
+
+`/map-show` is the TUI terminal summary command for fast inspection. `thread/actionMap/read` returns the structured Action Map snapshot for viewer, automation, and external observability integrations.
+
 ## Required Evidence
 
 The report is marked PASS only when all of these are true:
@@ -58,27 +67,29 @@ The report is marked PASS only when all of these are true:
 - The run contains no evidence that `/map-restart` was attempted as a shell command.
 - The run contains no `failed to record rollout items` runtime errors.
 - The Action Map observability HTML is generated.
+- The command/API read path is covered by `/map-show` slash dispatch tests, core snapshot formatting tests, and app-server protocol/schema checks.
 
 ## Latest Verified Run
 
 Latest successful run:
 
 ```text
-target/real-user-e2e/action-map-real-user-cache-bugfix/20260508-213428-623/artifacts/report.md
+target/real-user-e2e/action-map-real-user-cache-bugfix/20260510-034456-537/artifacts/report.md
 ```
 
 Observed evidence:
 
 ```text
+overall: PASS
 thread_started: 1
 turn_completed: 1
-command_execution: 30
-file_change: 2
+command_execution: 28
+git_diff_bytes: 768
 spawn_agent: 2
 map_created: 1
 lease_created: 1
 lease_attached: 1
-map_completion_or_release: 2
+map_completion_or_release: 1
 map_restart_shell_misuse: 0
 rollout_record_errors: 0
 validation_exit_code: 0
@@ -88,7 +99,7 @@ validation_exit_code: 0
 
 The first real run showed that `--map-mode experiment` only switched the Action Map mode, while the installed configuration could still expose the old multi-agent tool handler. That meant the agent could spawn a subagent without real node/lease binding.
 
-Fix: `whale exec --map-mode experiment` now forces the existing `multi_agent_v2` feature on for that exec session, so Action Map node binding uses the existing v2 multi-agent infrastructure.
+Fix: `whale exec --map-mode experiment` now forces the existing `multi_agent_v2` feature on for that exec session by enabling `features.multi_agent_v2.enabled`, so Action Map node binding uses the existing v2 multi-agent infrastructure instead of the legacy spawn handler.
 
 The next real run found a second runtime bug: `multi_agent_v2` claimed a node before validating spawn arguments. If validation failed, the node lease could remain stuck and block all later subagent work.
 
@@ -101,3 +112,7 @@ Fix: the app-server now exposes `thread/actionMap/restart`, and `whale exec --ma
 The same real run exposed a shutdown-time observability issue: after the app-server closed a session, late rollout appends could still try to write through a removed live thread recorder and log `failed to record rollout items: thread ... not found`.
 
 Fix: session shutdown now marks the session as shutting down before tearing down live persistence. Late `ThreadNotFound` rollout appends during that window are treated as benign shutdown races instead of runtime errors, while non-shutdown persistence failures remain errors. The real-user E2E script now fails on rollout persistence errors in stderr.
+
+The 2026-05-10 run exposed a regression in the first fix: passing `features.multi_agent_v2=true` on the CLI created the wrong TOML shape for a configurable feature, so the old handler could still be exposed. The E2E failed with no `lease_created` / `lease_attached` evidence.
+
+Fix: the exec override now uses `features.multi_agent_v2.enabled=true`. The next installed-binary E2E run passed with real `spawn_agent`, `lease_created`, `lease_attached`, `lease_released`, static observability export, and no rollout persistence errors.

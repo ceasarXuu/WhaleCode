@@ -130,6 +130,254 @@
       "title": "AccountUpdatedNotification",
       "type": "object"
     },
+    "ActionMapSnapshot": {
+      "properties": {
+        "activeMapId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maps": {
+          "items": {
+            "$ref": "#/definitions/ActionMapSnapshotMap"
+          },
+          "type": "array"
+        },
+        "mode": {
+          "$ref": "#/definitions/MapRuntimeMode"
+        }
+      },
+      "required": [
+        "maps",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "ActionMapSnapshotEdge": {
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    "ActionMapSnapshotLease": {
+      "properties": {
+        "agentPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "agentThreadId": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "mapId": {
+          "type": "string"
+        },
+        "nodeId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "mapId",
+        "nodeId"
+      ],
+      "type": "object"
+    },
+    "ActionMapSnapshotMap": {
+      "properties": {
+        "baseMapVersion": {
+          "type": "string"
+        },
+        "completedNodeCount": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "createdFrom": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "edges": {
+          "items": {
+            "$ref": "#/definitions/ActionMapSnapshotEdge"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "leases": {
+          "items": {
+            "$ref": "#/definitions/ActionMapSnapshotLease"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/definitions/ActionMapSnapshotNode"
+          },
+          "type": "array"
+        },
+        "ownerSessionId": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "readyNodeCount": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "results": {
+          "items": {
+            "$ref": "#/definitions/ActionMapSnapshotResult"
+          },
+          "type": "array"
+        },
+        "runningNodeCount": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "baseMapVersion",
+        "completedNodeCount",
+        "edges",
+        "id",
+        "leases",
+        "nodes",
+        "readyNodeCount",
+        "results",
+        "runningNodeCount",
+        "status",
+        "title"
+      ],
+      "type": "object"
+    },
+    "ActionMapSnapshotNode": {
+      "properties": {
+        "activeLease": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "contextSummary": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "originNodeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resultIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sourceRefs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "status": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "contextSummary",
+        "id",
+        "resultIds",
+        "sourceRefs",
+        "status",
+        "title"
+      ],
+      "type": "object"
+    },
+    "ActionMapSnapshotResult": {
+      "properties": {
+        "assignmentId": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "mapId": {
+          "type": "string"
+        },
+        "nodeId": {
+          "type": "string"
+        },
+        "sourceThreadId": {
+          "$ref": "#/definitions/ThreadId"
+        }
+      },
+      "required": [
+        "assignmentId",
+        "body",
+        "createdAtMs",
+        "id",
+        "kind",
+        "mapId",
+        "nodeId",
+        "sourceThreadId"
+      ],
+      "type": "object"
+    },
     "AddCreditsNudgeCreditType": {
       "enum": [
         "credits",
