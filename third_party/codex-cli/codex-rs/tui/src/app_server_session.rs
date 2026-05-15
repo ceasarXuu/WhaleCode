@@ -35,6 +35,10 @@ use codex_app_server_protocol::ReviewStartResponse;
 use codex_app_server_protocol::SkillsListParams;
 use codex_app_server_protocol::SkillsListResponse;
 use codex_app_server_protocol::Thread;
+use codex_app_server_protocol::ThreadActionMapReadParams;
+use codex_app_server_protocol::ThreadActionMapReadResponse;
+use codex_app_server_protocol::ThreadActionMapRestartParams;
+use codex_app_server_protocol::ThreadActionMapRestartResponse;
 use codex_app_server_protocol::ThreadApproveGuardianDeniedActionParams;
 use codex_app_server_protocol::ThreadApproveGuardianDeniedActionResponse;
 use codex_app_server_protocol::ThreadBackgroundTerminalsCleanParams;
@@ -56,6 +60,8 @@ use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadListResponse;
 use codex_app_server_protocol::ThreadLoadedListParams;
 use codex_app_server_protocol::ThreadLoadedListResponse;
+use codex_app_server_protocol::ThreadMapRuntimeModeSetParams;
+use codex_app_server_protocol::ThreadMapRuntimeModeSetResponse;
 use codex_app_server_protocol::ThreadMemoryMode;
 use codex_app_server_protocol::ThreadMemoryModeSetParams;
 use codex_app_server_protocol::ThreadMemoryModeSetResponse;
@@ -105,6 +111,7 @@ use codex_protocol::protocol::ConversationStartTransport;
 use codex_protocol::protocol::ConversationTextParams;
 use codex_protocol::protocol::CreditsSnapshot;
 use codex_protocol::protocol::GuardianAssessmentEvent;
+use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::RateLimitSnapshot;
 use codex_protocol::protocol::RateLimitWindow;
 use codex_protocol::protocol::ReviewRequest;
@@ -659,6 +666,57 @@ impl AppServerSession {
             .await
             .wrap_err("thread/memoryMode/set failed in TUI")?;
         Ok(())
+    }
+
+    pub(crate) async fn thread_map_runtime_mode_set(
+        &mut self,
+        thread_id: ThreadId,
+        mode: MapRuntimeMode,
+    ) -> Result<()> {
+        let request_id = self.next_request_id();
+        let _: ThreadMapRuntimeModeSetResponse = self
+            .client
+            .request_typed(ClientRequest::ThreadMapRuntimeModeSet {
+                request_id,
+                params: ThreadMapRuntimeModeSetParams {
+                    thread_id: thread_id.to_string(),
+                    mode,
+                },
+            })
+            .await
+            .wrap_err("thread/mapRuntimeMode/set failed in TUI")?;
+        Ok(())
+    }
+
+    pub(crate) async fn thread_action_map_restart(&mut self, thread_id: ThreadId) -> Result<()> {
+        let request_id = self.next_request_id();
+        let _: ThreadActionMapRestartResponse = self
+            .client
+            .request_typed(ClientRequest::ThreadActionMapRestart {
+                request_id,
+                params: ThreadActionMapRestartParams {
+                    thread_id: thread_id.to_string(),
+                },
+            })
+            .await
+            .wrap_err("thread/actionMap/restart failed in TUI")?;
+        Ok(())
+    }
+
+    pub(crate) async fn thread_action_map_read(
+        &mut self,
+        thread_id: ThreadId,
+    ) -> Result<ThreadActionMapReadResponse> {
+        let request_id = self.next_request_id();
+        self.client
+            .request_typed(ClientRequest::ThreadActionMapRead {
+                request_id,
+                params: ThreadActionMapReadParams {
+                    thread_id: thread_id.to_string(),
+                },
+            })
+            .await
+            .wrap_err("thread/actionMap/read failed in TUI")
     }
 
     pub(crate) async fn memory_reset(&mut self) -> Result<()> {

@@ -70,6 +70,7 @@ use codex_protocol::models::PermissionProfile;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::Event;
 use codex_protocol::protocol::EventMsg;
+use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::NetworkApprovalContext;
 use codex_protocol::protocol::NetworkApprovalProtocol;
 use codex_protocol::protocol::RolloutItem;
@@ -4904,6 +4905,54 @@ async fn interrupt_without_active_turn_is_treated_as_handled() {
         .expect("interrupt submission should not fail");
 
     assert_eq!(handled, true);
+}
+
+#[tokio::test]
+async fn action_map_commands_are_routed_through_app_server_in_tui() {
+    let mut app = make_test_app().await;
+    let mut app_server = crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
+        .await
+        .expect("embedded app server");
+    let started = app_server
+        .start_thread(app.chat_widget.config_ref())
+        .await
+        .expect("thread/start should succeed");
+    let thread_id = started.session.thread_id;
+    app.enqueue_primary_thread_session(started.session, started.turns)
+        .await
+        .expect("primary thread should be registered");
+
+    let set_mode = AppCommand::set_map_runtime_mode(MapRuntimeMode::Experiment);
+    let handled = app
+        .try_submit_active_thread_op_via_app_server(&mut app_server, thread_id, &set_mode)
+        .await
+        .expect("map runtime mode submission should not fail");
+    assert_eq!(handled, true);
+    let mut observed_mode = MapRuntimeMode::Standard;
+    for _ in 0..20 {
+        let snapshot = app_server
+            .thread_action_map_read(thread_id)
+            .await
+            .expect("thread/actionMap/read should succeed")
+            .snapshot;
+        observed_mode = snapshot.mode;
+        if observed_mode == MapRuntimeMode::Experiment {
+            break;
+        }
+        time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert_eq!(observed_mode, MapRuntimeMode::Experiment);
+
+    for op in [
+        AppCommand::restart_action_map(),
+        AppCommand::show_action_map(),
+    ] {
+        let handled = app
+            .try_submit_active_thread_op_via_app_server(&mut app_server, thread_id, &op)
+            .await
+            .expect("action-map command submission should not fail");
+        assert_eq!(handled, true);
+    }
 }
 
 #[tokio::test]
