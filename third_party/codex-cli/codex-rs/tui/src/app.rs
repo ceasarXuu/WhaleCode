@@ -179,6 +179,7 @@ use tokio::sync::mpsc::unbounded_channel;
 use tokio::task::JoinHandle;
 use toml::Value as TomlValue;
 use uuid::Uuid;
+mod action_map_viewer;
 mod agent_navigation;
 mod app_server_adapter;
 pub(crate) mod app_server_requests;
@@ -200,6 +201,7 @@ mod thread_goal_actions;
 mod thread_routing;
 mod thread_session_state;
 
+use self::action_map_viewer::ActionMapViewerServer;
 use self::agent_navigation::AgentNavigationDirection;
 use self::agent_navigation::AgentNavigationState;
 use self::app_server_requests::PendingAppServerRequests;
@@ -566,6 +568,7 @@ pub(crate) struct App {
     primary_session_configured: Option<ThreadSessionState>,
     pending_primary_events: VecDeque<ThreadBufferedEvent>,
     pending_app_server_requests: PendingAppServerRequests,
+    action_map_viewer: Option<ActionMapViewerServer>,
     // Serialize plugin enablement writes per plugin so stale completions cannot
     // overwrite a newer toggle, even if the plugin is toggled from different
     // cwd contexts.
@@ -929,6 +932,7 @@ impl App {
             primary_session_configured: None,
             pending_primary_events: VecDeque::new(),
             pending_app_server_requests: PendingAppServerRequests::default(),
+            action_map_viewer: None,
             pending_plugin_enabled_writes: HashMap::new(),
         };
         if let Some(started) = initial_started_thread {

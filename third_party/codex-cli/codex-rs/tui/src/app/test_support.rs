@@ -57,6 +57,7 @@ pub(super) async fn make_test_app() -> App {
         primary_session_configured: None,
         pending_primary_events: VecDeque::new(),
         pending_app_server_requests: PendingAppServerRequests::default(),
+        action_map_viewer: None,
         pending_plugin_enabled_writes: HashMap::new(),
     }
 }

@@ -16,6 +16,14 @@ Offline unit tests and mock Responses servers remain useful for deterministic re
 .\scripts\run-action-map-real-user-e2e.ps1
 ```
 
+The TUI `/map-show` browser viewer has its own installed-binary E2E:
+
+```powershell
+.\scripts\run-tui-map-show-viewer-e2e.ps1
+```
+
+That path launches the installed `whale.exe`, sends `/map-mode experiment`, `/map-restart`, `/map-show`, makes a real user turn, then fetches the live `snapshot.json` URL exposed by the localhost viewer.
+
 The script creates a temporary git repository under:
 
 ```text
@@ -47,7 +55,7 @@ Runtime observability now has two direct read surfaces in addition to rollout ex
 thread/actionMap/read
 ```
 
-`/map-show` is the TUI terminal summary command for fast inspection. `thread/actionMap/read` returns the structured Action Map snapshot for viewer, automation, and external observability integrations.
+`/map-show` opens a localhost browser viewer from the TUI. The viewer polls `thread/actionMap/read` every 2 seconds, so it shows the current Action Map without forcing large map state into the terminal. `thread/actionMap/read` remains the structured snapshot API for viewer, automation, and external observability integrations.
 
 ## Required Evidence
 
@@ -67,7 +75,8 @@ The report is marked PASS only when all of these are true:
 - The run contains no evidence that `/map-restart` was attempted as a shell command.
 - The run contains no `failed to record rollout items` runtime errors.
 - The Action Map observability HTML is generated.
-- The command/API read path is covered by `/map-show` slash dispatch tests, core snapshot formatting tests, and app-server protocol/schema checks.
+- The command/API read path is covered by `/map-show` slash dispatch tests, live viewer endpoint tests, core snapshot formatting tests, and app-server protocol/schema checks.
+- The TUI viewer path is covered by launching the installed `whale.exe`, opening `/map-show`, and reading the auto-refresh viewer endpoint.
 
 ## Latest Verified Run
 

@@ -3675,6 +3675,7 @@ async fn make_test_app() -> App {
         primary_session_configured: None,
         pending_primary_events: VecDeque::new(),
         pending_app_server_requests: PendingAppServerRequests::default(),
+        action_map_viewer: None,
         pending_plugin_enabled_writes: HashMap::new(),
     }
 }
@@ -3734,6 +3735,7 @@ async fn make_test_app_with_channels() -> (
             primary_session_configured: None,
             pending_primary_events: VecDeque::new(),
             pending_app_server_requests: PendingAppServerRequests::default(),
+            action_map_viewer: None,
             pending_plugin_enabled_writes: HashMap::new(),
         },
         rx,
@@ -4953,6 +4955,22 @@ async fn action_map_commands_are_routed_through_app_server_in_tui() {
             .expect("action-map command submission should not fail");
         assert_eq!(handled, true);
     }
+
+    let viewer_url = app
+        .action_map_viewer
+        .as_ref()
+        .expect("/map-show should start the browser viewer")
+        .url
+        .clone();
+    assert!(viewer_url.starts_with("http://127.0.0.1:"));
+    let snapshot: serde_json::Value = reqwest::get(format!("{viewer_url}snapshot.json"))
+        .await
+        .expect("viewer snapshot request should succeed")
+        .json()
+        .await
+        .expect("viewer snapshot response should be JSON");
+    assert_eq!(snapshot["ok"], true);
+    assert_eq!(snapshot["snapshot"]["mode"], "experiment");
 }
 
 #[tokio::test]

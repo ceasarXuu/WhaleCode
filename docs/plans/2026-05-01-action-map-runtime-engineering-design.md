@@ -64,8 +64,8 @@ rustup run stable cargo test --lib action_map_close_agent --locked
 - `/map-mode standard` 关闭实验约束，维持当前 MultiAgentV2 行为。
 - `/map-mode experiment` 开启 map-bound 约束，所有 subagent 行动必须绑定 node。
 - `/map-restart` 可恢复地 abandoned 当前 map，并从唯一 `BaseMap` 重新初始化。
-- `/map-show` 输出当前 Action Map 的机械摘要，面向 terminal 快速排障。
-- `thread/actionMap/read` 提供结构化 snapshot，供 viewer、测试脚本和外部可观测性页面读取。
+- `/map-show` 在 TUI 中打开本地 browser viewer，不在 terminal 中展开大段 map 内容。
+- viewer 通过 `thread/actionMap/read` 每 2 秒读取最新结构化 snapshot，供人工观察、测试脚本和外部可观测性页面复用。
 - subagent 仍由现有 `spawn_agent` 创建，仍由现有 mailbox 通知父 agent，仍由现有 `wait_agent` 等待。
 - map/node/result/lease 状态写入现有 session state 和 rollout，可 replay，可观察。
 - 不引入语义检索、独立数据库、独立调度器、长期常驻 subagent、复杂角色体系。
@@ -73,7 +73,7 @@ rustup run stable cargo test --lib action_map_close_agent --locked
 非目标：
 
 - 不实现领域 map。
-- 不在 terminal 内实现 human-friendly 图形化 map viewer。
+- 不在 terminal 内实现 human-friendly 图形化 map viewer；terminal 只显示打开的本地 viewer 地址或错误。
 - 不实现跨 session 接管 active map。
 - 不实现质量评分。
 - 不替换 Codex `AgentControl`、`AgentRegistry`、`Mailbox`。

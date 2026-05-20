@@ -606,7 +606,7 @@ Map discovery can suggest; it cannot claim, resume, or duplicate active work by 
 
 ### Map 可观测性边界
 
-`/map-show` 只承担 terminal 里的机械摘要能力，不承担完整人类友好可视化。
+`/map-show` 不在 terminal 里展开 map，而是打开一个本地 browser viewer。
 原因是真实 map 可能很大，而且 agent 使用的 map 不一定是人类在 terminal 中容易阅读的形态。
 
 第一版 runtime 需要提供 map snapshot / manifest / node result context 的读取能力。
@@ -614,14 +614,15 @@ Map discovery can suggest; it cannot claim, resume, or duplicate active work by 
 
 ```text
 /map-show
-  -> compact terminal summary
+  -> localhost browser viewer
+  -> poll thread/actionMap/read for latest snapshot
 thread/actionMap/read
   -> structured snapshot for viewer/export/tests
 observability export
   -> full graph visualization lives in observability UI
 ```
 
-CLI 不应尝试把巨大 map 强行展开在 terminal 中。
+CLI 不应尝试把巨大 map 强行展开在 terminal 中。第一版 viewer 保持极简样式和零前端构建栈，只做 live snapshot 表格化展示，后续复杂图形可视化再归入更完整的 observability UI。
 如果必须在 terminal 展示，只输出机械摘要：map id、status、active node、blocked node、ready node 数量和 viewer URL。
 
 ## MapNode

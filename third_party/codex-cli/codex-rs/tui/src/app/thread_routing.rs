@@ -5,7 +5,6 @@
 //! when the visible thread changes.
 
 use super::*;
-use codex_protocol::protocol::ActionMapSnapshot;
 
 impl App {
     pub(super) async fn shutdown_current_thread(&mut self, app_server: &mut AppServerSession) {
@@ -629,11 +628,7 @@ impl App {
                 Ok(true)
             }
             AppCommandView::ShowActionMap => {
-                let response = app_server.thread_action_map_read(thread_id).await?;
-                self.chat_widget.add_info_message(
-                    format_action_map_snapshot_for_tui(&response.snapshot),
-                    /*hint*/ None,
-                );
+                self.open_action_map_viewer(app_server, thread_id).await?;
                 Ok(true)
             }
             AppCommandView::ThreadRollback { num_turns } => {
@@ -1467,100 +1462,4 @@ impl App {
         }
         Ok(())
     }
-}
-
-fn format_action_map_snapshot_for_tui(snapshot: &ActionMapSnapshot) -> String {
-    let mut output = String::new();
-    output.push_str("Action Map\n");
-    output.push_str("- mode: ");
-    output.push_str(&snapshot.mode.to_string());
-    output.push('\n');
-    output.push_str("- active map: ");
-    output.push_str(snapshot.active_map_id.as_deref().unwrap_or("none"));
-    output.push('\n');
-
-    if snapshot.maps.is_empty() {
-        output.push_str("\nNo Action Map has been created in this thread.\n");
-        return output;
-    }
-
-    for map in &snapshot.maps {
-        output.push('\n');
-        output.push_str("Map ");
-        output.push_str(&map.id);
-        output.push_str(": ");
-        output.push_str(&map.title);
-        output.push('\n');
-        output.push_str("- status: ");
-        output.push_str(&map.status);
-        output.push_str("\n- nodes: ready=");
-        output.push_str(&map.ready_node_count.to_string());
-        output.push_str(", running=");
-        output.push_str(&map.running_node_count.to_string());
-        output.push_str(", completed=");
-        output.push_str(&map.completed_node_count.to_string());
-        output.push('\n');
-        output.push_str("- owner session: ");
-        output.push_str(
-            &map.owner_session_id
-                .map(|id| id.to_string())
-                .unwrap_or_else(|| "none".to_string()),
-        );
-        output.push_str("\n\nNodes:\n");
-
-        for node in &map.nodes {
-            output.push_str("- ");
-            output.push_str(&node.id);
-            output.push_str(" [");
-            output.push_str(&node.status);
-            output.push_str("] ");
-            output.push_str(&node.title);
-            if let Some(lease) = node.active_lease.as_ref() {
-                output.push_str(" lease=");
-                output.push_str(lease);
-            }
-            if !node.result_ids.is_empty() {
-                output.push_str(" results=");
-                output.push_str(&node.result_ids.join(","));
-            }
-            output.push('\n');
-        }
-
-        if !map.leases.is_empty() {
-            output.push_str("\nLeases:\n");
-            for lease in &map.leases {
-                output.push_str("- ");
-                output.push_str(&lease.id);
-                output.push_str(" node=");
-                output.push_str(&lease.node_id);
-                output.push_str(" agent=");
-                output.push_str(
-                    &lease
-                        .agent_thread_id
-                        .map(|id| id.to_string())
-                        .unwrap_or_else(|| "unattached".to_string()),
-                );
-                if let Some(path) = lease.agent_path.as_ref() {
-                    output.push_str(" path=");
-                    output.push_str(path);
-                }
-                output.push('\n');
-            }
-        }
-
-        if !map.results.is_empty() {
-            output.push_str("\nResults:\n");
-            for result in &map.results {
-                output.push_str("- ");
-                output.push_str(&result.id);
-                output.push_str(" node=");
-                output.push_str(&result.node_id);
-                output.push_str(" kind=");
-                output.push_str(&result.kind);
-                output.push('\n');
-            }
-        }
-    }
-
-    output
 }

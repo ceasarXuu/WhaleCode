@@ -117,7 +117,7 @@ impl SlashCommand {
             SlashCommand::Collab => "change collaboration mode (experimental)",
             SlashCommand::MapMode => "switch Action Map runtime mode",
             SlashCommand::MapRestart => "abandon the active Action Map and start fresh",
-            SlashCommand::MapShow => "show the current Action Map status",
+            SlashCommand::MapShow => "open the live Action Map browser viewer",
             SlashCommand::Agent | SlashCommand::MultiAgents => "switch the active agent thread",
             SlashCommand::Side => "start a side conversation in an ephemeral fork",
             SlashCommand::Approvals => "choose what Whale is allowed to do",
