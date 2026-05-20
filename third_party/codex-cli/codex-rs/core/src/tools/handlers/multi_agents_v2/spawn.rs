@@ -293,12 +293,22 @@ impl SpawnAgentArgs {
             ));
         }
 
-        let fork_turns = self
+        let explicit_fork_turns = self
             .fork_turns
             .as_deref()
             .map(str::trim)
-            .filter(|fork_turns| !fork_turns.is_empty())
-            .unwrap_or("all");
+            .filter(|fork_turns| !fork_turns.is_empty());
+        if explicit_fork_turns.is_none()
+            && self
+                .agent_type
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|agent_type| !agent_type.is_empty())
+        {
+            return Ok(None);
+        }
+
+        let fork_turns = explicit_fork_turns.unwrap_or("all");
 
         if fork_turns.eq_ignore_ascii_case("none") {
             return Ok(None);
