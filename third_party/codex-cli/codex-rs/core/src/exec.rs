@@ -96,17 +96,19 @@ pub struct ExecParams {
 
 /// Resolved filesystem overrides for the Windows sandbox backends.
 ///
-/// The unelevated restricted-token backend only consumes extra deny-write
-/// carveouts on top of the legacy `WorkspaceWrite` allow set. The elevated
-/// backend can also consume explicit read and write roots during setup/refresh.
-/// Read-root overrides are layered on top of the baseline helper roots that the
-/// elevated setup path needs to launch the sandboxed command. Split policies
-/// that opt into platform defaults carry that explicitly with the override.
+/// The elevated Windows backend consumes extra deny-read paths plus explicit
+/// read and write roots during setup/refresh. The unelevated restricted-token
+/// backend only consumes extra deny-write carveouts on top of the legacy
+/// `WorkspaceWrite` allow set. Read-root overrides are layered on top of the
+/// baseline helper roots that the elevated setup path needs to launch the
+/// sandboxed command; split policies that opt into platform defaults carry
+/// that explicitly with the override.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WindowsSandboxFilesystemOverrides {
     pub(crate) read_roots_override: Option<Vec<PathBuf>>,
     pub(crate) read_roots_include_platform_defaults: bool,
     pub(crate) write_roots_override: Option<Vec<PathBuf>>,
+    pub(crate) additional_deny_read_paths: Vec<AbsolutePathBuf>,
     pub(crate) additional_deny_write_paths: Vec<AbsolutePathBuf>,
 }
 
@@ -982,22 +984,24 @@ pub(crate) fn resolve_windows_restricted_token_filesystem_overrides(
         ));
     }
 
-    if !file_system_sandbox_policy.has_full_disk_read_access() {
+    // The restricted-token backend can still enforce split write restrictions,
+    // but its WRITE_RESTRICTED token does not make capability SID deny-read ACEs
+    // participate in read access checks. Read restrictions therefore require the
+    // elevated backend, even when the filesystem root remains readable.
+    if !windows_policy_has_root_read_access(file_system_sandbox_policy, sandbox_policy_cwd) {
         return Err(
             "windows unelevated restricted-token sandbox cannot enforce split filesystem read restrictions directly; refusing to run unsandboxed"
                 .to_string(),
         );
     }
 
-    if !file_system_sandbox_policy
-        .get_unreadable_roots_with_cwd(sandbox_policy_cwd)
-        .is_empty()
-        || !file_system_sandbox_policy
-            .get_unreadable_globs_with_cwd(sandbox_policy_cwd)
-            .is_empty()
-    {
+    let additional_deny_read_paths = codex_windows_sandbox::resolve_windows_deny_read_paths(
+        file_system_sandbox_policy,
+        sandbox_policy_cwd,
+    )?;
+    if !additional_deny_read_paths.is_empty() {
         return Err(
-            "windows unelevated restricted-token sandbox cannot enforce unreadable split filesystem carveouts directly; refusing to run unsandboxed"
+            "windows unelevated restricted-token sandbox cannot enforce deny-read restrictions directly; refusing to run unsandboxed"
                 .to_string(),
         );
     }
@@ -1064,7 +1068,7 @@ pub(crate) fn resolve_windows_restricted_token_filesystem_overrides(
         }
     }
 
-    if additional_deny_write_paths.is_empty() {
+    if additional_deny_read_paths.is_empty() && additional_deny_write_paths.is_empty() {
         return Ok(None);
     }
 
@@ -1072,6 +1076,7 @@ pub(crate) fn resolve_windows_restricted_token_filesystem_overrides(
         read_roots_override: None,
         read_roots_include_platform_defaults: false,
         write_roots_override: None,
+        additional_deny_read_paths,
         additional_deny_write_paths: additional_deny_write_paths
             .into_iter()
             .map(|path| AbsolutePathBuf::from_absolute_path(path).map_err(|err| err.to_string()))
@@ -1083,6 +1088,16 @@ fn normalize_windows_override_path(path: &Path) -> std::result::Result<PathBuf, 
     AbsolutePathBuf::from_absolute_path(dunce::simplified(path))
         .map(AbsolutePathBuf::into_path_buf)
         .map_err(|err| err.to_string())
+}
+
+fn windows_policy_has_root_read_access(
+    file_system_sandbox_policy: &FileSystemSandboxPolicy,
+    cwd: &AbsolutePathBuf,
+) -> bool {
+    let Some(root) = cwd.as_path().ancestors().last() else {
+        return false;
+    };
+    file_system_sandbox_policy.can_read_path_with_cwd(root, cwd.as_path())
 }
 
 pub(crate) fn resolve_windows_elevated_filesystem_overrides(
@@ -1106,19 +1121,6 @@ pub(crate) fn resolve_windows_elevated_filesystem_overrides(
             "windows sandbox backend cannot enforce file_system={:?}, network={network_sandbox_policy:?}, legacy_policy={sandbox_policy:?}; refusing to run unsandboxed",
             file_system_sandbox_policy.kind,
         ));
-    }
-
-    if !file_system_sandbox_policy
-        .get_unreadable_roots_with_cwd(sandbox_policy_cwd)
-        .is_empty()
-        || !file_system_sandbox_policy
-            .get_unreadable_globs_with_cwd(sandbox_policy_cwd)
-            .is_empty()
-    {
-        return Err(
-            "windows elevated sandbox cannot enforce unreadable split filesystem carveouts directly; refusing to run unsandboxed"
-                .to_string(),
-        );
     }
 
     let split_writable_roots =
@@ -1162,6 +1164,11 @@ pub(crate) fn resolve_windows_elevated_filesystem_overrides(
         Some(split_root_paths)
     };
 
+    let additional_deny_read_paths = codex_windows_sandbox::resolve_windows_deny_read_paths(
+        file_system_sandbox_policy,
+        sandbox_policy_cwd,
+    )?;
+
     let additional_deny_write_paths = if needs_direct_runtime_enforcement {
         let mut deny_paths = BTreeSet::new();
         for writable_root in &split_writable_roots {
@@ -1198,6 +1205,7 @@ pub(crate) fn resolve_windows_elevated_filesystem_overrides(
 
     if read_roots_override.is_none()
         && write_roots_override.is_none()
+        && additional_deny_read_paths.is_empty()
         && additional_deny_write_paths.is_empty()
     {
         return Ok(None);
@@ -1208,6 +1216,7 @@ pub(crate) fn resolve_windows_elevated_filesystem_overrides(
             && file_system_sandbox_policy.include_platform_defaults(),
         read_roots_override,
         write_roots_override,
+        additional_deny_read_paths,
         additional_deny_write_paths,
     }))
 }
