@@ -732,6 +732,14 @@ impl McpConnectionManager {
         self.server_origins.get(server_name).map(String::as_str)
     }
 
+    pub fn plugin_id_for_mcp_server_name(&self, server_name: &str) -> Option<&str> {
+        self.clients.values().next().and_then(|client| {
+            client
+                .tool_plugin_provenance
+                .plugin_id_for_mcp_server_name(server_name)
+        })
+    }
+
     pub fn set_approval_policy(&self, approval_policy: &Constrained<AskForApproval>) {
         if let Ok(mut policy) = self.elicitation_requests.approval_policy.lock() {
             *policy = approval_policy.value();

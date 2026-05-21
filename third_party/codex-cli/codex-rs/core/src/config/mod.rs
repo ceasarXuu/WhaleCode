@@ -93,6 +93,7 @@ use codex_utils_absolute_path::AbsolutePathBufGuard;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
@@ -852,9 +853,21 @@ impl Config {
     ) -> McpConfig {
         let loaded_plugins = plugins_manager.plugins_for_config(self).await;
         let mut configured_mcp_servers = self.mcp_servers.get().clone();
-        for (name, plugin_server) in loaded_plugins.effective_mcp_servers() {
-            configured_mcp_servers.entry(name).or_insert(plugin_server);
+        let mut plugin_ids_by_mcp_server_name = HashMap::new();
+        for plugin in loaded_plugins
+            .plugins()
+            .iter()
+            .filter(|plugin| plugin.is_active())
+        {
+            for (name, plugin_server) in &plugin.mcp_servers {
+                if let Entry::Vacant(entry) = configured_mcp_servers.entry(name.clone()) {
+                    entry.insert(plugin_server.clone());
+                    plugin_ids_by_mcp_server_name.insert(name.clone(), plugin.config_name.clone());
+                }
+            }
         }
+        plugin_ids_by_mcp_server_name
+            .retain(|server_name, _| configured_mcp_servers.contains_key(server_name));
 
         McpConfig {
             chatgpt_base_url: self.chatgpt_base_url.clone(),
@@ -870,6 +883,7 @@ impl Config {
             use_legacy_landlock: self.features.use_legacy_landlock(),
             apps_enabled: self.features.enabled(Feature::Apps),
             configured_mcp_servers,
+            plugin_ids_by_mcp_server_name,
             plugin_capability_summaries: loaded_plugins.capability_summaries().to_vec(),
         }
     }

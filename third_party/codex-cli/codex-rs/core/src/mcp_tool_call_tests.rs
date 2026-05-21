@@ -62,6 +62,7 @@ fn approval_metadata(
         connector_id: connector_id.map(str::to_string),
         connector_name: connector_name.map(str::to_string),
         connector_description: connector_description.map(str::to_string),
+        plugin_id: None,
         tool_title: tool_title.map(str::to_string),
         tool_description: tool_description.map(str::to_string),
         mcp_app_resource_uri: None,
@@ -753,6 +754,19 @@ async fn mcp_tool_call_request_meta_includes_turn_metadata_for_custom_server() {
 }
 
 #[tokio::test]
+async fn mcp_tool_call_request_meta_includes_plugin_id() {
+    let (_, turn_context) = make_session_and_context().await;
+    let mut metadata = approval_metadata(None, None, None, None, None);
+    metadata.plugin_id = Some("sample@test".to_string());
+
+    let meta =
+        build_mcp_tool_call_request_meta(&turn_context, "sample", "call-sample", Some(&metadata))
+            .expect("plugin tools should receive plugin metadata");
+
+    assert_eq!(meta["plugin_id"], "sample@test");
+}
+
+#[tokio::test]
 async fn codex_apps_tool_call_request_meta_includes_turn_metadata_and_codex_apps_meta() {
     let (_, turn_context) = make_session_and_context().await;
     let expected_turn_metadata = serde_json::from_str::<serde_json::Value>(
@@ -767,6 +781,7 @@ async fn codex_apps_tool_call_request_meta_includes_turn_metadata_and_codex_apps
         connector_id: Some("calendar".to_string()),
         connector_name: Some("Calendar".to_string()),
         connector_description: Some("Manage events".to_string()),
+        plugin_id: None,
         tool_title: Some("Create Event".to_string()),
         tool_description: Some("Create a calendar event.".to_string()),
         mcp_app_resource_uri: None,
@@ -983,6 +998,7 @@ fn guardian_mcp_review_request_includes_annotations_when_present() {
         connector_id: None,
         connector_name: None,
         connector_description: None,
+        plugin_id: None,
         tool_title: None,
         tool_description: None,
         mcp_app_resource_uri: None,
@@ -1547,6 +1563,7 @@ async fn approve_mode_skips_when_annotations_do_not_require_approval() {
         connector_id: None,
         connector_name: None,
         connector_description: None,
+        plugin_id: None,
         tool_title: Some("Read Only Tool".to_string()),
         tool_description: None,
         mcp_app_resource_uri: None,
@@ -1621,6 +1638,7 @@ async fn guardian_mode_skips_auto_when_annotations_do_not_require_approval() {
         connector_id: None,
         connector_name: None,
         connector_description: None,
+        plugin_id: None,
         tool_title: Some("Read Only Tool".to_string()),
         tool_description: None,
         mcp_app_resource_uri: None,
@@ -1677,6 +1695,7 @@ async fn permission_request_hook_allows_mcp_tool_call() {
         connector_id: None,
         connector_name: None,
         connector_description: None,
+        plugin_id: None,
         tool_title: Some("Create entities".to_string()),
         tool_description: None,
         mcp_app_resource_uri: None,
@@ -1808,6 +1827,7 @@ async fn permission_request_hook_runs_after_remembered_mcp_approval() {
         connector_id: None,
         connector_name: None,
         connector_description: None,
+        plugin_id: None,
         tool_title: Some("Create entities".to_string()),
         tool_description: None,
         mcp_app_resource_uri: None,
@@ -1895,6 +1915,7 @@ async fn guardian_mode_mcp_denial_returns_rationale_message() {
         connector_id: None,
         connector_name: None,
         connector_description: None,
+        plugin_id: None,
         tool_title: Some("Dangerous Tool".to_string()),
         tool_description: Some("Reads calendar data.".to_string()),
         mcp_app_resource_uri: None,
@@ -1951,6 +1972,7 @@ async fn prompt_mode_waits_for_approval_when_annotations_do_not_require_approval
         connector_id: None,
         connector_name: None,
         connector_description: None,
+        plugin_id: None,
         tool_title: Some("Read Only Tool".to_string()),
         tool_description: None,
         mcp_app_resource_uri: None,
@@ -2030,6 +2052,7 @@ async fn approve_mode_blocks_when_arc_returns_interrupt_for_model() {
         connector_id: Some("calendar".to_string()),
         connector_name: Some("Calendar".to_string()),
         connector_description: Some("Manage events".to_string()),
+        plugin_id: None,
         tool_title: Some("Dangerous Tool".to_string()),
         tool_description: Some("Performs a risky action.".to_string()),
         mcp_app_resource_uri: None,
@@ -2102,6 +2125,7 @@ async fn custom_approve_mode_blocks_when_arc_returns_interrupt_for_model() {
         connector_id: None,
         connector_name: None,
         connector_description: None,
+        plugin_id: None,
         tool_title: Some("Dangerous Tool".to_string()),
         tool_description: Some("Performs a risky action.".to_string()),
         mcp_app_resource_uri: None,
@@ -2174,6 +2198,7 @@ async fn approve_mode_blocks_when_arc_returns_interrupt_without_annotations() {
         connector_id: Some("calendar".to_string()),
         connector_name: Some("Calendar".to_string()),
         connector_description: Some("Manage events".to_string()),
+        plugin_id: None,
         tool_title: Some("Dangerous Tool".to_string()),
         tool_description: Some("Performs a risky action.".to_string()),
         mcp_app_resource_uri: None,
@@ -2254,6 +2279,7 @@ async fn full_access_mode_skips_arc_monitor_for_all_approval_modes() {
         connector_id: Some("calendar".to_string()),
         connector_name: Some("Calendar".to_string()),
         connector_description: Some("Manage events".to_string()),
+        plugin_id: None,
         tool_title: Some("Dangerous Tool".to_string()),
         tool_description: Some("Performs a risky action.".to_string()),
         mcp_app_resource_uri: None,
@@ -2362,6 +2388,7 @@ async fn approve_mode_routes_arc_ask_user_to_guardian_when_guardian_reviewer_is_
         connector_id: Some("calendar".to_string()),
         connector_name: Some("Calendar".to_string()),
         connector_description: Some("Manage events".to_string()),
+        plugin_id: None,
         tool_title: Some("Dangerous Tool".to_string()),
         tool_description: Some("Performs a risky action.".to_string()),
         mcp_app_resource_uri: None,

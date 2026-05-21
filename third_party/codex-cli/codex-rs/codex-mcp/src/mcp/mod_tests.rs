@@ -21,6 +21,7 @@ fn test_mcp_config(codex_home: PathBuf) -> McpConfig {
         use_legacy_landlock: false,
         apps_enabled: false,
         configured_mcp_servers: HashMap::new(),
+        plugin_ids_by_mcp_server_name: HashMap::new(),
         plugin_capability_summaries: Vec::new(),
     }
 }
@@ -35,23 +36,31 @@ fn qualified_mcp_tool_name_prefix_sanitizes_server_names_without_lowercasing() {
 
 #[test]
 fn tool_plugin_provenance_collects_app_and_mcp_sources() {
-    let provenance = ToolPluginProvenance::from_capability_summaries(&[
-        PluginCapabilitySummary {
-            display_name: "alpha-plugin".to_string(),
-            app_connector_ids: vec![AppConnectorId("connector_example".to_string())],
-            mcp_server_names: vec!["alpha".to_string()],
-            ..PluginCapabilitySummary::default()
-        },
-        PluginCapabilitySummary {
-            display_name: "beta-plugin".to_string(),
-            app_connector_ids: vec![
-                AppConnectorId("connector_example".to_string()),
-                AppConnectorId("connector_gmail".to_string()),
-            ],
-            mcp_server_names: vec!["beta".to_string()],
-            ..PluginCapabilitySummary::default()
-        },
-    ]);
+    let config = McpConfig {
+        plugin_ids_by_mcp_server_name: HashMap::from([(
+            "alpha".to_string(),
+            "alpha@marketplace".to_string(),
+        )]),
+        plugin_capability_summaries: vec![
+            PluginCapabilitySummary {
+                display_name: "alpha-plugin".to_string(),
+                app_connector_ids: vec![AppConnectorId("connector_example".to_string())],
+                mcp_server_names: vec!["alpha".to_string()],
+                ..PluginCapabilitySummary::default()
+            },
+            PluginCapabilitySummary {
+                display_name: "beta-plugin".to_string(),
+                app_connector_ids: vec![
+                    AppConnectorId("connector_example".to_string()),
+                    AppConnectorId("connector_gmail".to_string()),
+                ],
+                mcp_server_names: vec!["beta".to_string()],
+                ..PluginCapabilitySummary::default()
+            },
+        ],
+        ..test_mcp_config(PathBuf::from("/tmp/codex-home"))
+    };
+    let provenance = ToolPluginProvenance::from_config(&config);
 
     assert_eq!(
         provenance,
@@ -70,6 +79,10 @@ fn tool_plugin_provenance_collects_app_and_mcp_sources() {
                 ("alpha".to_string(), vec!["alpha-plugin".to_string()]),
                 ("beta".to_string(), vec!["beta-plugin".to_string()]),
             ]),
+            plugin_ids_by_mcp_server_name: HashMap::from([(
+                "alpha".to_string(),
+                "alpha@marketplace".to_string(),
+            )]),
         }
     );
 }
