@@ -1213,16 +1213,12 @@ async fn run_ratatui_app(
                 }
             }
         } else if cli.fork_last {
-            let filter_cwd = if remote_mode {
-                latest_session_cwd_filter(
-                    remote_mode,
-                    remote_cwd_override.as_deref(),
-                    &config,
-                    cli.fork_show_all,
-                )
-            } else {
-                None
-            };
+            let filter_cwd = latest_session_cwd_filter(
+                remote_mode,
+                remote_cwd_override.as_deref(),
+                &config,
+                cli.fork_show_all,
+            );
             let Some(app_server) = app_server.as_mut() else {
                 unreachable!("app server should be initialized for --fork --last");
             };
