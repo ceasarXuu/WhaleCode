@@ -465,6 +465,7 @@ fn mcp_tool_call_begin_and_end_emit_item_events() {
                 tool: "tool_x".to_string(),
                 status: ApiMcpToolCallStatus::InProgress,
                 arguments: json!({ "key": "value" }),
+                plugin_id: None,
                 mcp_app_resource_uri: None,
                 result: None,
                 error: None,
@@ -481,6 +482,7 @@ fn mcp_tool_call_begin_and_end_emit_item_events() {
                 tool: "tool_x".to_string(),
                 status: ApiMcpToolCallStatus::Completed,
                 arguments: json!({ "key": "value" }),
+                plugin_id: None,
                 mcp_app_resource_uri: None,
                 result: Some(Box::new(McpToolCallResult {
                     content: Vec::new(),
@@ -505,6 +507,7 @@ fn mcp_tool_call_begin_and_end_emit_item_events() {
                         server: "server_a".to_string(),
                         tool: "tool_x".to_string(),
                         arguments: json!({ "key": "value" }),
+                        plugin_id: None,
                         result: None,
                         error: None,
                         status: McpToolCallStatus::InProgress,
@@ -524,6 +527,7 @@ fn mcp_tool_call_begin_and_end_emit_item_events() {
                         server: "server_a".to_string(),
                         tool: "tool_x".to_string(),
                         arguments: json!({ "key": "value" }),
+                        plugin_id: None,
                         result: Some(McpToolCallItemResult {
                             content: Vec::new(),
                             meta: Some(json!({ "resource": "abc" })),
@@ -551,6 +555,7 @@ fn mcp_tool_call_failure_sets_failed_status() {
                 tool: "tool_y".to_string(),
                 status: ApiMcpToolCallStatus::Failed,
                 arguments: json!({ "param": 42 }),
+                plugin_id: None,
                 mcp_app_resource_uri: None,
                 result: None,
                 error: Some(McpToolCallError {
@@ -573,6 +578,7 @@ fn mcp_tool_call_failure_sets_failed_status() {
                         server: "server_b".to_string(),
                         tool: "tool_y".to_string(),
                         arguments: json!({ "param": 42 }),
+                        plugin_id: None,
                         result: None,
                         error: Some(McpToolCallItemError {
                             message: "tool exploded".to_string(),
@@ -598,6 +604,7 @@ fn mcp_tool_call_defaults_arguments_and_preserves_structured_content() {
                 tool: "tool_z".to_string(),
                 status: ApiMcpToolCallStatus::InProgress,
                 arguments: serde_json::Value::Null,
+                plugin_id: None,
                 mcp_app_resource_uri: None,
                 result: None,
                 error: None,
@@ -614,6 +621,7 @@ fn mcp_tool_call_defaults_arguments_and_preserves_structured_content() {
                 tool: "tool_z".to_string(),
                 status: ApiMcpToolCallStatus::Completed,
                 arguments: serde_json::Value::Null,
+                plugin_id: None,
                 mcp_app_resource_uri: None,
                 result: Some(Box::new(McpToolCallResult {
                     content: vec![json!({
@@ -641,6 +649,7 @@ fn mcp_tool_call_defaults_arguments_and_preserves_structured_content() {
                         server: "server_c".to_string(),
                         tool: "tool_z".to_string(),
                         arguments: serde_json::Value::Null,
+                        plugin_id: None,
                         result: None,
                         error: None,
                         status: McpToolCallStatus::InProgress,
@@ -660,6 +669,7 @@ fn mcp_tool_call_defaults_arguments_and_preserves_structured_content() {
                         server: "server_c".to_string(),
                         tool: "tool_z".to_string(),
                         arguments: serde_json::Value::Null,
+                        plugin_id: None,
                         result: Some(McpToolCallItemResult {
                             content: vec![json!({
                                 "type": "text",

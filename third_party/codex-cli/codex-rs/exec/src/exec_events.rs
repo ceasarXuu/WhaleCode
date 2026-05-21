@@ -285,6 +285,9 @@ pub struct McpToolCallItem {
     pub tool: String,
     #[serde(default)]
     pub arguments: JsonValue,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub plugin_id: Option<String>,
     pub result: Option<McpToolCallItemResult>,
     pub error: Option<McpToolCallItemError>,
     pub status: McpToolCallStatus,

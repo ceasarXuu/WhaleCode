@@ -571,6 +571,7 @@ async fn emit_tool_call_begin(
                 call_id: call_id.to_string(),
                 invocation,
                 mcp_app_resource_uri: None,
+                plugin_id: None,
             }),
         )
         .await;
@@ -591,6 +592,7 @@ async fn emit_tool_call_end(
                 call_id: call_id.to_string(),
                 invocation,
                 mcp_app_resource_uri: None,
+                plugin_id: None,
                 duration,
                 result,
             }),

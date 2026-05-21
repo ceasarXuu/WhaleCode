@@ -207,6 +207,7 @@ impl EventProcessorWithJsonOutput {
                 tool,
                 status,
                 arguments,
+                plugin_id,
                 result,
                 error,
                 ..
@@ -221,6 +222,7 @@ impl EventProcessorWithJsonOutput {
                         McpToolCallStatus::Failed => ExecMcpToolCallStatus::Failed,
                     },
                     arguments,
+                    plugin_id,
                     result: result.map(|result| McpToolCallItemResult {
                         content: result.content,
                         meta: result.meta,

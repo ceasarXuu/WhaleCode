@@ -3048,6 +3048,7 @@ async fn construct_mcp_tool_call_notification(
         status: McpToolCallStatus::InProgress,
         arguments: begin_event.invocation.arguments.unwrap_or(JsonValue::Null),
         mcp_app_resource_uri: begin_event.mcp_app_resource_uri,
+        plugin_id: begin_event.plugin_id,
         result: None,
         error: None,
         duration_ms: None,
@@ -3096,6 +3097,7 @@ async fn construct_mcp_tool_call_end_notification(
         status,
         arguments: end_event.invocation.arguments.unwrap_or(JsonValue::Null),
         mcp_app_resource_uri: end_event.mcp_app_resource_uri,
+        plugin_id: end_event.plugin_id,
         result,
         error,
         duration_ms,
@@ -4546,6 +4548,7 @@ mod tests {
                 arguments: Some(serde_json::json!({"server": ""})),
             },
             mcp_app_resource_uri: Some("ui://widget/list-resources.html".to_string()),
+            plugin_id: None,
         };
 
         let thread_id = ThreadId::new().to_string();
@@ -4567,6 +4570,7 @@ mod tests {
                 status: McpToolCallStatus::InProgress,
                 arguments: serde_json::json!({"server": ""}),
                 mcp_app_resource_uri: Some("ui://widget/list-resources.html".to_string()),
+                plugin_id: None,
                 result: None,
                 error: None,
                 duration_ms: None,
@@ -4708,6 +4712,7 @@ mod tests {
                 arguments: None,
             },
             mcp_app_resource_uri: None,
+            plugin_id: None,
         };
 
         let thread_id = ThreadId::new().to_string();
@@ -4729,6 +4734,7 @@ mod tests {
                 status: McpToolCallStatus::InProgress,
                 arguments: JsonValue::Null,
                 mcp_app_resource_uri: None,
+                plugin_id: None,
                 result: None,
                 error: None,
                 duration_ms: None,
@@ -4761,6 +4767,7 @@ mod tests {
                 arguments: Some(serde_json::json!({"server": ""})),
             },
             mcp_app_resource_uri: Some("ui://widget/list-resources.html".to_string()),
+            plugin_id: None,
             duration: Duration::from_nanos(92708),
             result: Ok(result),
         };
@@ -4784,6 +4791,7 @@ mod tests {
                 status: McpToolCallStatus::Completed,
                 arguments: serde_json::json!({"server": ""}),
                 mcp_app_resource_uri: Some("ui://widget/list-resources.html".to_string()),
+                plugin_id: None,
                 result: Some(Box::new(McpToolCallResult {
                     content,
                     structured_content: None,
@@ -4809,6 +4817,7 @@ mod tests {
                 arguments: None,
             },
             mcp_app_resource_uri: None,
+            plugin_id: None,
             duration: Duration::from_millis(1),
             result: Err("boom".to_string()),
         };
@@ -4832,6 +4841,7 @@ mod tests {
                 status: McpToolCallStatus::Failed,
                 arguments: JsonValue::Null,
                 mcp_app_resource_uri: None,
+                plugin_id: None,
                 result: None,
                 error: Some(McpToolCallError {
                     message: "boom".to_string(),

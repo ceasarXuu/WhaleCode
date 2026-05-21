@@ -114,9 +114,14 @@ pub(crate) async fn handle_mcp_tool_call(
 
     let metadata =
         lookup_mcp_tool_metadata(sess.as_ref(), turn_context.as_ref(), &server, &tool_name).await;
-    let mcp_app_resource_uri = metadata
-        .as_ref()
-        .and_then(|metadata| metadata.mcp_app_resource_uri.clone());
+    let item_metadata = McpToolCallItemMetadata {
+        mcp_app_resource_uri: metadata
+            .as_ref()
+            .and_then(|metadata| metadata.mcp_app_resource_uri.clone()),
+        plugin_id: metadata
+            .as_ref()
+            .and_then(|metadata| metadata.plugin_id.clone()),
+    };
     let app_tool_policy = if server == CODEX_APPS_MCP_SERVER_NAME {
         connectors::app_tool_policy(
             &turn_context.config,
@@ -146,7 +151,7 @@ pub(crate) async fn handle_mcp_tool_call(
             turn_context.as_ref(),
             &call_id,
             invocation,
-            mcp_app_resource_uri.clone(),
+            item_metadata.clone(),
             "MCP tool call blocked by app configuration".to_string(),
             /*already_started*/ false,
         )
@@ -179,7 +184,8 @@ pub(crate) async fn handle_mcp_tool_call(
     let tool_call_begin_event = EventMsg::McpToolCallBegin(McpToolCallBeginEvent {
         call_id: call_id.clone(),
         invocation: invocation.clone(),
-        mcp_app_resource_uri: mcp_app_resource_uri.clone(),
+        mcp_app_resource_uri: item_metadata.mcp_app_resource_uri.clone(),
+        plugin_id: item_metadata.plugin_id.clone(),
     });
     notify_mcp_tool_call_event(sess.as_ref(), turn_context.as_ref(), tool_call_begin_event).await;
 
@@ -205,7 +211,7 @@ pub(crate) async fn handle_mcp_tool_call(
                     invocation,
                     metadata.as_ref(),
                     request_meta,
-                    mcp_app_resource_uri,
+                    item_metadata,
                 )
                 .await;
             }
@@ -216,7 +222,7 @@ pub(crate) async fn handle_mcp_tool_call(
                     turn_context.as_ref(),
                     &call_id,
                     invocation,
-                    mcp_app_resource_uri.clone(),
+                    item_metadata.clone(),
                     message,
                     /*already_started*/ true,
                 )
@@ -229,7 +235,7 @@ pub(crate) async fn handle_mcp_tool_call(
                     turn_context.as_ref(),
                     &call_id,
                     invocation,
-                    mcp_app_resource_uri.clone(),
+                    item_metadata.clone(),
                     message,
                     /*already_started*/ true,
                 )
@@ -241,7 +247,7 @@ pub(crate) async fn handle_mcp_tool_call(
                     turn_context.as_ref(),
                     &call_id,
                     invocation,
-                    mcp_app_resource_uri.clone(),
+                    item_metadata.clone(),
                     message,
                     /*already_started*/ true,
                 )
@@ -273,7 +279,7 @@ pub(crate) async fn handle_mcp_tool_call(
         invocation,
         metadata.as_ref(),
         request_meta,
-        mcp_app_resource_uri,
+        item_metadata,
     )
     .await
 }
@@ -283,6 +289,12 @@ pub(crate) struct HandledMcpToolCall {
     pub(crate) tool_input: JsonValue,
 }
 
+#[derive(Clone)]
+struct McpToolCallItemMetadata {
+    mcp_app_resource_uri: Option<String>,
+    plugin_id: Option<String>,
+}
+
 async fn handle_approved_mcp_tool_call(
     sess: &Session,
     turn_context: &TurnContext,
@@ -290,7 +302,7 @@ async fn handle_approved_mcp_tool_call(
     invocation: McpInvocation,
     metadata: Option<&McpToolApprovalMetadata>,
     request_meta: Option<JsonValue>,
-    mcp_app_resource_uri: Option<String>,
+    item_metadata: McpToolCallItemMetadata,
 ) -> HandledMcpToolCall {
     maybe_mark_thread_memory_mode_polluted(sess, turn_context).await;
 
@@ -353,7 +365,8 @@ async fn handle_approved_mcp_tool_call(
     let tool_call_end_event = EventMsg::McpToolCallEnd(McpToolCallEndEvent {
         call_id: call_id.to_string(),
         invocation,
-        mcp_app_resource_uri,
+        mcp_app_resource_uri: item_metadata.mcp_app_resource_uri,
+        plugin_id: item_metadata.plugin_id,
         duration,
         result: truncate_mcp_tool_result_for_event(&result),
     });
@@ -1832,7 +1845,7 @@ async fn notify_mcp_tool_call_skip(
     turn_context: &TurnContext,
     call_id: &str,
     invocation: McpInvocation,
-    mcp_app_resource_uri: Option<String>,
+    item_metadata: McpToolCallItemMetadata,
     message: String,
     already_started: bool,
 ) -> Result<CallToolResult, String> {
@@ -1840,7 +1853,8 @@ async fn notify_mcp_tool_call_skip(
         let tool_call_begin_event = EventMsg::McpToolCallBegin(McpToolCallBeginEvent {
             call_id: call_id.to_string(),
             invocation: invocation.clone(),
-            mcp_app_resource_uri: mcp_app_resource_uri.clone(),
+            mcp_app_resource_uri: item_metadata.mcp_app_resource_uri.clone(),
+            plugin_id: item_metadata.plugin_id.clone(),
         });
         notify_mcp_tool_call_event(sess, turn_context, tool_call_begin_event).await;
     }
@@ -1848,7 +1862,8 @@ async fn notify_mcp_tool_call_skip(
     let tool_call_end_event = EventMsg::McpToolCallEnd(McpToolCallEndEvent {
         call_id: call_id.to_string(),
         invocation,
-        mcp_app_resource_uri,
+        mcp_app_resource_uri: item_metadata.mcp_app_resource_uri,
+        plugin_id: item_metadata.plugin_id,
         duration: Duration::ZERO,
         result: truncate_mcp_tool_result_for_event(&Err(message.clone())),
     });
