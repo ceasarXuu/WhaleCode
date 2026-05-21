@@ -48,22 +48,7 @@ mod windows_impl {
     fn find_git_root(start: &Path) -> Option<PathBuf> {
         let mut cur = dunce::canonicalize(start).ok()?;
         loop {
-            let marker = cur.join(".git");
-            if marker.is_dir() {
-                return Some(cur);
-            }
-            if marker.is_file() {
-                if let Ok(txt) = std::fs::read_to_string(&marker)
-                    && let Some(rest) = txt.trim().strip_prefix("gitdir:")
-                {
-                    let gitdir = rest.trim();
-                    let resolved = if Path::new(gitdir).is_absolute() {
-                        PathBuf::from(gitdir)
-                    } else {
-                        cur.join(gitdir)
-                    };
-                    return resolved.parent().map(Path::to_path_buf).or(Some(cur));
-                }
+            if cur.join(".git").exists() {
                 return Some(cur);
             }
             let parent = cur.parent()?;
