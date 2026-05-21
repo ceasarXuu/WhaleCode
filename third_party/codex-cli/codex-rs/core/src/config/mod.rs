@@ -2324,6 +2324,15 @@ impl Config {
             &mut constrained_sandbox_policy,
             &mut startup_warnings,
         )?;
+        if matches!(original_sandbox_policy, SandboxPolicy::DangerFullAccess)
+            && constrained_sandbox_policy.get() == &SandboxPolicy::new_read_only_policy()
+            && constrained_approval_policy.value() == AskForApproval::Never
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "`approval_policy = \"never\"` cannot be used because requirements do not allow `sandbox_mode = \"danger-full-access\"`; Codex would fall back to read-only permissions with approvals disabled. Choose an `approval_policy` based on what you need, such as `on-request`, or choose an allowed sandbox mode.",
+            ));
+        }
         apply_requirement_constrained_value(
             "web_search_mode",
             web_search_mode,
