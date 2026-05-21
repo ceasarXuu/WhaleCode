@@ -5,6 +5,8 @@
 #[cfg(any(target_os = "windows", test))]
 mod ssh_config_dependencies;
 
+mod deny_read_resolver;
+
 macro_rules! windows_modules {
     ($($name:ident),+ $(,)?) => {
         $(#[cfg(target_os = "windows")] mod $name;)+
@@ -98,6 +100,7 @@ pub use cap::load_or_create_cap_sids;
 pub use cap::workspace_cap_sid_for_cwd;
 #[cfg(target_os = "windows")]
 pub use conpty::spawn_conpty_process_as_user;
+pub use deny_read_resolver::resolve_windows_deny_read_paths;
 #[cfg(target_os = "windows")]
 pub use desktop::LaunchDesktop;
 #[cfg(target_os = "windows")]
