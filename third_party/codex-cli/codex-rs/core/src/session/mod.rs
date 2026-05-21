@@ -507,9 +507,11 @@ impl Codex {
             let _ = config.features.disable(Feature::Collab);
         }
 
+        let mut agents_md_warnings = Vec::new();
         let user_instructions = AgentsMdManager::new(&config)
-            .user_instructions(environment.as_deref())
+            .user_instructions(environment.as_deref(), &mut agents_md_warnings)
             .await;
+        config.startup_warnings.extend(agents_md_warnings);
 
         let exec_policy = if crate::guardian::is_guardian_reviewer_source(&session_source) {
             // Guardian review should rely on the built-in shell safety checks,
