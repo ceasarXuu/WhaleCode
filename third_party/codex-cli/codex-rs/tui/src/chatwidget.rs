@@ -4300,12 +4300,16 @@ impl ChatWidget {
         if !self.bottom_pane.is_task_running() {
             return;
         }
-        self.flush_answer_stream_with_separator();
         let command_display = self
             .unified_exec_processes
             .iter()
             .find(|process| process.key == ev.process_id)
             .map(|process| process.command_display.clone());
+        if ev.stdin.is_empty() && command_display.is_none() {
+            return;
+        }
+
+        self.flush_answer_stream_with_separator();
         if ev.stdin.is_empty() {
             // Empty stdin means we are polling for background output.
             // Surface this in the status indicator (single "waiting" surface) instead of
