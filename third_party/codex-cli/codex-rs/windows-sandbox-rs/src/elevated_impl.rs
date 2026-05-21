@@ -1,3 +1,4 @@
+use codex_utils_absolute_path::AbsolutePathBuf;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -15,7 +16,8 @@ pub struct ElevatedSandboxCaptureRequest<'a> {
     pub read_roots_override: Option<&'a [PathBuf]>,
     pub read_roots_include_platform_defaults: bool,
     pub write_roots_override: Option<&'a [PathBuf]>,
-    pub deny_write_paths_override: &'a [PathBuf],
+    pub deny_read_paths_override: &'a [AbsolutePathBuf],
+    pub deny_write_paths_override: &'a [AbsolutePathBuf],
 }
 
 mod windows_impl {
@@ -109,6 +111,7 @@ mod windows_impl {
             read_roots_override,
             read_roots_include_platform_defaults,
             write_roots_override,
+            deny_read_paths_override,
             deny_write_paths_override,
         } = request;
         let policy = parse_policy(policy_json_or_preset)?;
@@ -131,6 +134,7 @@ mod windows_impl {
             read_roots_override,
             read_roots_include_platform_defaults,
             write_roots_override,
+            deny_read_paths_override,
             deny_write_paths_override,
             proxy_enforced,
         )?;

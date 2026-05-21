@@ -25,7 +25,9 @@ use crate::token::get_logon_sid_bytes;
 use crate::workspace_acl::is_command_cwd_root;
 use crate::workspace_acl::protect_workspace_agents_dir;
 use crate::workspace_acl::protect_workspace_codex_dir;
+use anyhow::Context;
 use anyhow::Result;
+use codex_utils_absolute_path::AbsolutePathBuf;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::path::Path;
@@ -216,12 +218,24 @@ pub(crate) fn apply_legacy_session_acl_rules(
     sandbox_policy_cwd: &Path,
     current_dir: &Path,
     env_map: &HashMap<String, String>,
+    additional_deny_write_paths: &[PathBuf],
     psid_generic: &LocalSid,
     psid_workspace: Option<&LocalSid>,
     persist_aces: bool,
-) -> Vec<PathBuf> {
-    let AllowDenyPaths { allow, deny } =
+) -> Result<Vec<PathBuf>> {
+    let AllowDenyPaths { allow, mut deny } =
         compute_allow_paths(policy, sandbox_policy_cwd, current_dir, env_map);
+    for path in additional_deny_write_paths {
+        if !path.exists() {
+            std::fs::create_dir_all(path).with_context(|| {
+                format!(
+                    "failed to create additional deny-write path {}",
+                    path.display()
+                )
+            })?;
+        }
+        deny.insert(path.clone());
+    }
     let mut guards: Vec<PathBuf> = Vec::new();
     let canonical_cwd = canonicalize_path(current_dir);
     unsafe {
@@ -254,7 +268,7 @@ pub(crate) fn apply_legacy_session_acl_rules(
             }
         }
     }
-    guards
+    Ok(guards)
 }
 
 pub(crate) fn prepare_elevated_spawn_context(
@@ -264,6 +278,8 @@ pub(crate) fn prepare_elevated_spawn_context(
     cwd: &Path,
     env_map: &mut HashMap<String, String>,
     command: &[String],
+    deny_read_paths_override: &[AbsolutePathBuf],
+    deny_write_paths_override: &[AbsolutePathBuf],
 ) -> Result<ElevatedSpawnContext> {
     let common = prepare_spawn_context_common(
         policy_json_or_preset,
@@ -288,6 +304,21 @@ pub(crate) fn prepare_elevated_spawn_context(
     } else {
         None
     };
+    let deny_write_overrides = if deny_write_paths_override.is_empty() {
+        deny_write_paths
+            .iter()
+            .map(|path| {
+                AbsolutePathBuf::from_absolute_path(path).map_err(|err| {
+                    anyhow::anyhow!(
+                        "invalid Windows sandbox deny-write path {}: {err}",
+                        path.display()
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        deny_write_paths_override.to_vec()
+    };
     let sandbox_creds = require_logon_sandbox_creds(
         &common.policy,
         sandbox_policy_cwd,
@@ -297,7 +328,8 @@ pub(crate) fn prepare_elevated_spawn_context(
         /*read_roots_override*/ None,
         /*read_roots_include_platform_defaults*/ false,
         write_roots_override,
-        &deny_write_paths,
+        deny_read_paths_override,
+        &deny_write_overrides,
         /*proxy_enforced*/ false,
     )?;
     let caps = load_or_create_cap_sids(codex_home)?;

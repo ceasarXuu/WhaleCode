@@ -674,6 +674,16 @@ impl UnifiedExecProcessManager {
                     "windows sandbox: failed to resolve codex_home: {err}"
                 ))
             })?;
+            let additional_deny_read_paths = request
+                .windows_sandbox_filesystem_overrides
+                .as_ref()
+                .map(|overrides| overrides.additional_deny_read_paths.clone())
+                .unwrap_or_default();
+            let additional_deny_write_paths = request
+                .windows_sandbox_filesystem_overrides
+                .as_ref()
+                .map(|overrides| overrides.additional_deny_write_paths.clone())
+                .unwrap_or_default();
             let spawned = match request.windows_sandbox_level {
                 codex_protocol::config_types::WindowsSandboxLevel::Elevated => {
                     codex_windows_sandbox::spawn_windows_sandbox_session_elevated(
@@ -684,6 +694,8 @@ impl UnifiedExecProcessManager {
                         request.cwd.as_path(),
                         request.env.clone(),
                         None,
+                        &additional_deny_read_paths,
+                        &additional_deny_write_paths,
                         tty,
                         tty,
                         request.windows_sandbox_private_desktop,
@@ -700,6 +712,8 @@ impl UnifiedExecProcessManager {
                         request.cwd.as_path(),
                         request.env.clone(),
                         None,
+                        &additional_deny_read_paths,
+                        &additional_deny_write_paths,
                         tty,
                         tty,
                         request.windows_sandbox_private_desktop,

@@ -10,6 +10,7 @@ use crate::ipc_framed::SpawnRequest;
 use crate::runner_client::spawn_runner_transport;
 use crate::spawn_prep::prepare_elevated_spawn_context;
 use anyhow::Result;
+use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_pty::ProcessDriver;
 use codex_utils_pty::SpawnedProcess;
 use std::collections::HashMap;
@@ -27,6 +28,8 @@ pub(crate) async fn spawn_windows_sandbox_session_elevated(
     cwd: &Path,
     mut env_map: HashMap<String, String>,
     timeout_ms: Option<u64>,
+    additional_deny_read_paths: &[AbsolutePathBuf],
+    additional_deny_write_paths: &[AbsolutePathBuf],
     tty: bool,
     stdin_open: bool,
     use_private_desktop: bool,
@@ -38,6 +41,8 @@ pub(crate) async fn spawn_windows_sandbox_session_elevated(
         cwd,
         &mut env_map,
         &command,
+        additional_deny_read_paths,
+        additional_deny_write_paths,
     )?;
 
     let spawn_request = SpawnRequest {

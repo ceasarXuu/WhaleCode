@@ -499,7 +499,7 @@ async fn exec_windows_sandbox(
 ) -> Result<RawExecToolCallOutput> {
     use crate::config::find_codex_home;
     use codex_windows_sandbox::run_windows_sandbox_capture_elevated;
-    use codex_windows_sandbox::run_windows_sandbox_capture_with_extra_deny_write_paths;
+    use codex_windows_sandbox::run_windows_sandbox_capture_with_filesystem_overrides;
 
     let ExecParams {
         command,
@@ -540,13 +540,10 @@ async fn exec_windows_sandbox(
     let proxy_enforced = network.is_some();
     let use_elevated = windows_sandbox_uses_elevated_backend(sandbox_level, proxy_enforced);
     let additional_deny_write_paths = windows_sandbox_filesystem_overrides
-        .map(|overrides| {
-            overrides
-                .additional_deny_write_paths
-                .iter()
-                .map(AbsolutePathBuf::to_path_buf)
-                .collect::<Vec<_>>()
-        })
+        .map(|overrides| overrides.additional_deny_write_paths.clone())
+        .unwrap_or_default();
+    let additional_deny_read_paths = windows_sandbox_filesystem_overrides
+        .map(|overrides| overrides.additional_deny_read_paths.clone())
         .unwrap_or_default();
     let elevated_read_roots_override = windows_sandbox_filesystem_overrides
         .and_then(|overrides| overrides.read_roots_override.clone());
@@ -554,15 +551,6 @@ async fn exec_windows_sandbox(
         .is_some_and(|overrides| overrides.read_roots_include_platform_defaults);
     let elevated_write_roots_override = windows_sandbox_filesystem_overrides
         .and_then(|overrides| overrides.write_roots_override.clone());
-    let elevated_deny_write_paths = windows_sandbox_filesystem_overrides
-        .map(|overrides| {
-            overrides
-                .additional_deny_write_paths
-                .iter()
-                .map(AbsolutePathBuf::to_path_buf)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
     let spawn_res = tokio::task::spawn_blocking(move || {
         if use_elevated {
             run_windows_sandbox_capture_elevated(
@@ -580,11 +568,12 @@ async fn exec_windows_sandbox(
                     read_roots_include_platform_defaults:
                         elevated_read_roots_include_platform_defaults,
                     write_roots_override: elevated_write_roots_override.as_deref(),
-                    deny_write_paths_override: &elevated_deny_write_paths,
+                    deny_read_paths_override: &additional_deny_read_paths,
+                    deny_write_paths_override: &additional_deny_write_paths,
                 },
             )
         } else {
-            run_windows_sandbox_capture_with_extra_deny_write_paths(
+            run_windows_sandbox_capture_with_filesystem_overrides(
                 policy_str.as_str(),
                 &sandbox_cwd,
                 codex_home.as_ref(),
@@ -592,6 +581,7 @@ async fn exec_windows_sandbox(
                 &cwd,
                 env,
                 timeout_ms,
+                &additional_deny_read_paths,
                 &additional_deny_write_paths,
                 windows_sandbox_private_desktop,
             )

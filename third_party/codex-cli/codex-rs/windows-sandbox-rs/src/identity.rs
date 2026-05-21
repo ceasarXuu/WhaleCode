@@ -17,6 +17,7 @@ use anyhow::Context;
 use anyhow::Result;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
+use codex_utils_absolute_path::AbsolutePathBuf;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -139,7 +140,8 @@ pub fn require_logon_sandbox_creds(
     read_roots_override: Option<&[PathBuf]>,
     read_roots_include_platform_defaults: bool,
     write_roots_override: Option<&[PathBuf]>,
-    deny_write_paths_override: &[PathBuf],
+    deny_read_paths_override: &[AbsolutePathBuf],
+    deny_write_paths_override: &[AbsolutePathBuf],
     proxy_enforced: bool,
 ) -> Result<SandboxCreds> {
     let sandbox_dir = crate::setup::sandbox_dir(codex_home);
@@ -201,7 +203,18 @@ pub fn require_logon_sandbox_creds(
                 read_roots: Some(needed_read.clone()),
                 read_roots_include_platform_defaults,
                 write_roots: Some(needed_write.clone()),
-                deny_write_paths: Some(deny_write_paths_override.to_vec()),
+                deny_read_paths: Some(
+                    deny_read_paths_override
+                        .iter()
+                        .map(AbsolutePathBuf::to_path_buf)
+                        .collect(),
+                ),
+                deny_write_paths: Some(
+                    deny_write_paths_override
+                        .iter()
+                        .map(AbsolutePathBuf::to_path_buf)
+                        .collect(),
+                ),
             },
         )?;
         identity = select_identity(network_identity, codex_home)?;
@@ -220,7 +233,18 @@ pub fn require_logon_sandbox_creds(
             read_roots: Some(needed_read),
             read_roots_include_platform_defaults,
             write_roots: Some(needed_write),
-            deny_write_paths: Some(deny_write_paths_override.to_vec()),
+            deny_read_paths: Some(
+                deny_read_paths_override
+                    .iter()
+                    .map(AbsolutePathBuf::to_path_buf)
+                    .collect(),
+            ),
+            deny_write_paths: Some(
+                deny_write_paths_override
+                    .iter()
+                    .map(AbsolutePathBuf::to_path_buf)
+                    .collect(),
+            ),
         },
     )?;
     let identity = identity.ok_or_else(|| {

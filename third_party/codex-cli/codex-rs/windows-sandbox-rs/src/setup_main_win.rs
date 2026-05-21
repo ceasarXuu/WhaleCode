@@ -28,6 +28,7 @@ use codex_windows_sandbox::sandbox_bin_dir;
 use codex_windows_sandbox::sandbox_dir;
 use codex_windows_sandbox::sandbox_secrets_dir;
 use codex_windows_sandbox::string_from_sid_bytes;
+use codex_windows_sandbox::sync_persistent_deny_read_acls;
 use codex_windows_sandbox::to_wide;
 use codex_windows_sandbox::workspace_cap_sid_for_cwd;
 use codex_windows_sandbox::write_setup_error_report;
@@ -85,6 +86,8 @@ struct Payload {
     command_cwd: PathBuf,
     read_roots: Vec<PathBuf>,
     write_roots: Vec<PathBuf>,
+    #[serde(default)]
+    deny_read_paths: Vec<PathBuf>,
     #[serde(default)]
     deny_write_paths: Vec<PathBuf>,
     proxy_ports: Vec<u16>,
@@ -558,6 +561,8 @@ fn run_setup_full(payload: &Payload, log: &mut File, sbx_dir: &Path) -> Result<(
             format!("convert sandbox users group SID to PSID failed: {err}"),
         ))
     })?;
+    let sandbox_group_sid_str =
+        string_from_sid_bytes(&sandbox_group_sid).map_err(anyhow::Error::msg)?;
 
     let caps = load_or_create_cap_sids(&payload.codex_home).map_err(|err| {
         anyhow::Error::new(SetupFailure::new(
@@ -615,6 +620,25 @@ fn run_setup_full(payload: &Payload, log: &mut File, sbx_dir: &Path) -> Result<(
         );
     }
 
+    // Deny-read ACEs must be present before the sandboxed command starts. Apply
+    // them synchronously here instead of delegating them to the background
+    // helper used for read grants.
+    let applied_deny_read_paths = unsafe {
+        sync_persistent_deny_read_acls(
+            &payload.codex_home,
+            &sandbox_group_sid_str,
+            &payload.deny_read_paths,
+            sandbox_group_psid,
+        )
+    }
+    .context("apply deny-read ACLs")?;
+    if !applied_deny_read_paths.is_empty() {
+        log_line(
+            log,
+            &format!("applied {} deny-read ACLs", applied_deny_read_paths.len()),
+        )?;
+    }
+
     if payload.read_roots.is_empty() {
         log_line(log, "no read roots to grant; skipping read ACL helper")?;
     } else {
@@ -648,8 +672,6 @@ fn run_setup_full(payload: &Payload, log: &mut File, sbx_dir: &Path) -> Result<(
     }
 
     let cap_sid_str = caps.workspace;
-    let sandbox_group_sid_str =
-        string_from_sid_bytes(&sandbox_group_sid).map_err(anyhow::Error::msg)?;
     let write_mask =
         FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE | FILE_DELETE_CHILD;
     let mut grant_tasks: Vec<PathBuf> = Vec::new();
