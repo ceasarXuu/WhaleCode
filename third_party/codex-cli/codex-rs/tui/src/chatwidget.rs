@@ -264,6 +264,8 @@ const MULTI_AGENT_ENABLE_YES: &str = "Yes, enable";
 const MULTI_AGENT_ENABLE_NO: &str = "Not now";
 const MULTI_AGENT_ENABLE_NOTICE: &str = "Subagents will be enabled in the next session.";
 const TRUSTED_ACCESS_FOR_CYBER_VERIFICATION_WARNING: &str = "Your conversations have multiple flags for possible cybersecurity risk. Responses may take longer because extra safety checks are on. To get authorized for security work, join the Trusted Access for Cyber program: https://chatgpt.com/cyber";
+const MCP_STARTUP_SINGLE_HEADER_PREFIX: &str = "Booting MCP server:";
+const MCP_STARTUP_MULTI_HEADER_PREFIX: &str = "Starting MCP servers";
 const MEMORIES_DOC_URL: &str = "https://github.com/ceasarXuu/WhaleCode";
 const MEMORIES_ENABLE_TITLE: &str = "Enable memories?";
 const MEMORIES_ENABLE_YES: &str = "Yes, enable";
@@ -2772,7 +2774,9 @@ impl ChatWidget {
         self.bottom_pane
             .set_interrupt_hint_visible(/*visible*/ true);
         self.terminal_title_status_kind = TerminalTitleStatusKind::Working;
-        self.set_status_header(String::from("Working"));
+        if self.mcp_startup_status.is_none() || !self.status_header_is_mcp_startup_owned() {
+            self.set_status_header(String::from("Working"));
+        }
         self.full_reasoning_buffer.clear();
         self.reasoning_buffer.clear();
         self.request_redraw();
@@ -3598,11 +3602,11 @@ impl ChatWidget {
                 }
                 let header = if total > 1 {
                     format!(
-                        "Starting MCP servers ({completed}/{total}): {}",
+                        "{MCP_STARTUP_MULTI_HEADER_PREFIX} ({completed}/{total}): {}",
                         to_show.join(", ")
                     )
                 } else {
-                    format!("Booting MCP server: {first}")
+                    format!("{MCP_STARTUP_SINGLE_HEADER_PREFIX} {first}")
                 };
                 self.set_status_header(header);
             }
@@ -3637,14 +3641,28 @@ impl ChatWidget {
             self.on_warning(format!("MCP startup incomplete ({})", parts.join("; ")));
         }
 
+        let mcp_startup_owned_status = self.status_header_is_mcp_startup_owned();
         self.mcp_startup_status = None;
         self.mcp_startup_ignore_updates_until_next_start = true;
         self.mcp_startup_allow_terminal_only_next_round = false;
         self.mcp_startup_pending_next_round.clear();
         self.mcp_startup_pending_next_round_saw_starting = false;
         self.update_task_running_state();
+        if self.bottom_pane.is_task_running() && mcp_startup_owned_status {
+            self.restore_reasoning_status_header();
+        }
         self.maybe_send_next_queued_input();
         self.request_redraw();
+    }
+
+    fn status_header_is_mcp_startup_owned(&self) -> bool {
+        self.current_status
+            .header
+            .starts_with(MCP_STARTUP_SINGLE_HEADER_PREFIX)
+            || self
+                .current_status
+                .header
+                .starts_with(MCP_STARTUP_MULTI_HEADER_PREFIX)
     }
 
     pub(crate) fn finish_mcp_startup_after_lag(&mut self) {
