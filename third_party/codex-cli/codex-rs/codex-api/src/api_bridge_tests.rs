@@ -9,6 +9,12 @@ fn map_api_error_maps_server_overloaded() {
 }
 
 #[test]
+fn map_api_error_maps_transport_timeout_to_request_timeout() {
+    let err = map_api_error(ApiError::Transport(TransportError::Timeout));
+    assert!(matches!(err, CodexErr::RequestTimeout));
+}
+
+#[test]
 fn map_api_error_maps_server_overloaded_from_503_body() {
     let body = serde_json::json!({
         "error": {
