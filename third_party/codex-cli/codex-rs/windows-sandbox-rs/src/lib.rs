@@ -18,6 +18,8 @@ windows_modules!(
     allow,
     audit,
     cap,
+    deny_read_acl,
+    deny_read_state,
     desktop,
     dpapi,
     env,
@@ -78,6 +80,8 @@ mod spawn_prep;
 mod session;
 
 #[cfg(target_os = "windows")]
+pub use acl::add_deny_read_ace;
+#[cfg(target_os = "windows")]
 pub use acl::add_deny_write_ace;
 
 #[cfg(target_os = "windows")]
@@ -100,7 +104,13 @@ pub use cap::load_or_create_cap_sids;
 pub use cap::workspace_cap_sid_for_cwd;
 #[cfg(target_os = "windows")]
 pub use conpty::spawn_conpty_process_as_user;
+#[cfg(target_os = "windows")]
+pub use deny_read_acl::apply_deny_read_acls;
+#[cfg(target_os = "windows")]
+pub use deny_read_acl::plan_deny_read_acl_paths;
 pub use deny_read_resolver::resolve_windows_deny_read_paths;
+#[cfg(target_os = "windows")]
+pub use deny_read_state::sync_persistent_deny_read_acls;
 #[cfg(target_os = "windows")]
 pub use desktop::LaunchDesktop;
 #[cfg(target_os = "windows")]
