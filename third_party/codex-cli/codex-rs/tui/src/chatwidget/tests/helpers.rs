@@ -138,6 +138,20 @@ pub(super) fn test_model_catalog(config: &Config) -> Arc<ModelCatalog> {
     ))
 }
 
+pub(super) fn set_whale_model_catalog(chat: &mut ChatWidget) {
+    let mut models = crate::legacy_core::test_support::all_model_presets().clone();
+    models.retain(|preset| preset.model.starts_with("deepseek-"));
+    chat.model_catalog = Arc::new(ModelCatalog::new(
+        models,
+        CollaborationModesConfig {
+            default_mode_request_user_input: chat
+                .config
+                .features
+                .enabled(Feature::DefaultModeRequestUserInput),
+        },
+    ));
+}
+
 // --- Helpers for tests that need direct construction and event draining ---
 pub(super) async fn make_chatwidget_manual(
     model_override: Option<&str>,

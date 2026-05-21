@@ -1897,7 +1897,8 @@ async fn memories_reset_confirmation_sends_event_on_confirm() {
 
 #[tokio::test]
 async fn model_selection_popup_snapshot() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.2")).await;
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("deepseek-v4-pro")).await;
+    set_whale_model_catalog(&mut chat);
     chat.thread_id = Some(ThreadId::new());
     chat.open_model_popup();
 

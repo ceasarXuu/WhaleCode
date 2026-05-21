@@ -13,6 +13,7 @@ use codex_app_server_protocol::ModelUpgradeInfo;
 use codex_app_server_protocol::ReasoningEffortOption;
 use codex_app_server_protocol::RequestId;
 use codex_protocol::openai_models::ModelPreset;
+use codex_protocol::openai_models::default_input_modalities;
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
@@ -52,19 +53,26 @@ fn model_from_preset(preset: &ModelPreset) -> Model {
 }
 
 fn expected_visible_models() -> Vec<Model> {
-    // Filter by supported_in_api to support testing with both ChatGPT and non-ChatGPT auth modes.
+    // Mirror the cached model catalog used by these app-server tests. The cache
+    // intentionally starts from bundled presets, but Whale's public list must
+    // stay scoped to DeepSeek models after the manager applies listing filters.
     let mut presets = ModelPreset::filter_by_auth(
         codex_core::test_support::all_model_presets().clone(),
         /*chatgpt_mode*/ false,
     );
+    presets.retain(|preset| preset.model.starts_with("deepseek-"));
 
-    // Mirror `ModelsManager::build_available_models()` default selection after auth filtering.
+    // Mirror `ModelsManager::build_available_models()` default selection after filtering.
     ModelPreset::mark_default_by_picker_visibility(&mut presets);
 
     presets
         .iter()
         .filter(|preset| preset.show_in_picker)
-        .map(model_from_preset)
+        .map(|preset| {
+            let mut model = model_from_preset(preset);
+            model.input_modalities = default_input_modalities();
+            model
+        })
         .collect()
 }
 
