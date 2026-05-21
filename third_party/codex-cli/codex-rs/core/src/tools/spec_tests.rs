@@ -1072,7 +1072,7 @@ async fn unavailable_mcp_tools_are_exposed_as_dummy_function_tools() {
 }
 
 #[tokio::test]
-async fn test_mcp_tool_property_missing_type_defaults_to_string() {
+async fn test_mcp_tool_property_missing_type_defaults_to_empty_schema() {
     let config = test_config().await;
     let model_info = construct_model_info_offline("gpt-5.4", &config);
     let mut features = Features::with_defaults();
@@ -1119,10 +1119,7 @@ async fn test_mcp_tool_property_missing_type_defaults_to_string() {
             name: "search".to_string(),
             parameters: JsonSchema::object(
                 /*properties*/
-                BTreeMap::from([(
-                    "query".to_string(),
-                    JsonSchema::string(Some("search query".to_string())),
-                )]),
+                BTreeMap::from([("query".to_string(), JsonSchema::default())]),
                 /*required*/ None,
                 /*additional_properties*/ None
             ),
