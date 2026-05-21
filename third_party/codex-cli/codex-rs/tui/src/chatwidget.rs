@@ -6821,6 +6821,7 @@ impl ChatWidget {
                 tool,
                 arguments,
                 mcp_app_resource_uri,
+                plugin_id,
                 result,
                 error,
                 duration_ms,
@@ -6834,6 +6835,7 @@ impl ChatWidget {
                         arguments: Some(arguments),
                     },
                     mcp_app_resource_uri,
+                    plugin_id,
                     duration: Duration::from_millis(duration_ms.unwrap_or_default().max(0) as u64),
                     result: match (result, error) {
                         (_, Some(error)) => Err(error.message),
@@ -6843,7 +6845,7 @@ impl ChatWidget {
                                 content: result.content,
                                 structured_content: result.structured_content,
                                 is_error: Some(false),
-                                meta: None,
+                                meta: result.meta,
                             })
                         }
                         (None, None) => Err("MCP tool call completed without a result".to_string()),
@@ -7365,6 +7367,7 @@ impl ChatWidget {
                 tool,
                 arguments,
                 mcp_app_resource_uri,
+                plugin_id,
                 ..
             } => {
                 self.on_mcp_tool_call_begin(McpToolCallBeginEvent {
@@ -7375,6 +7378,7 @@ impl ChatWidget {
                         arguments: Some(arguments),
                     },
                     mcp_app_resource_uri,
+                    plugin_id,
                 });
             }
             ThreadItem::WebSearch { id, .. } => {
