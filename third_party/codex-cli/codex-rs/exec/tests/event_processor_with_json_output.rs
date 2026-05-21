@@ -485,7 +485,7 @@ fn mcp_tool_call_begin_and_end_emit_item_events() {
                 result: Some(Box::new(McpToolCallResult {
                     content: Vec::new(),
                     structured_content: None,
-                    meta: None,
+                    meta: Some(json!({ "resource": "abc" })),
                 })),
                 error: None,
                 duration_ms: Some(1_000),
@@ -526,6 +526,7 @@ fn mcp_tool_call_begin_and_end_emit_item_events() {
                         arguments: json!({ "key": "value" }),
                         result: Some(McpToolCallItemResult {
                             content: Vec::new(),
+                            meta: Some(json!({ "resource": "abc" })),
                             structured_content: None,
                         }),
                         error: None,
@@ -664,6 +665,7 @@ fn mcp_tool_call_defaults_arguments_and_preserves_structured_content() {
                                 "type": "text",
                                 "text": "done",
                             })],
+                            meta: None,
                             structured_content: Some(json!({ "status": "ok" })),
                         }),
                         error: None,
