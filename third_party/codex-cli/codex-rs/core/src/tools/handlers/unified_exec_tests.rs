@@ -1,4 +1,5 @@
 use super::*;
+use crate::shell::ShellType;
 use crate::shell::default_user_shell;
 use crate::tools::handlers::parse_arguments_with_base_path;
 use crate::tools::handlers::resolve_workdir_base_path;
@@ -49,13 +50,14 @@ fn test_get_command_uses_default_shell_when_unspecified() -> anyhow::Result<()> 
 
     assert!(args.shell.is_none());
 
-    let command = get_command(
+    let resolved = get_command(
         &args,
         Arc::new(default_user_shell()),
         &UnifiedExecShellMode::Direct,
         /*allow_login_shell*/ true,
     )
     .map_err(anyhow::Error::msg)?;
+    let command = resolved.command;
 
     assert_eq!(command.len(), 3);
     assert_eq!(command[2], "echo hello");
@@ -70,13 +72,14 @@ fn test_get_command_respects_explicit_bash_shell() -> anyhow::Result<()> {
 
     assert_eq!(args.shell.as_deref(), Some("/bin/bash"));
 
-    let command = get_command(
+    let resolved = get_command(
         &args,
         Arc::new(default_user_shell()),
         &UnifiedExecShellMode::Direct,
         /*allow_login_shell*/ true,
     )
     .map_err(anyhow::Error::msg)?;
+    let command = resolved.command;
 
     assert_eq!(command.last(), Some(&"echo hello".to_string()));
     if command
@@ -90,21 +93,37 @@ fn test_get_command_respects_explicit_bash_shell() -> anyhow::Result<()> {
 
 #[test]
 fn test_get_command_respects_explicit_powershell_shell() -> anyhow::Result<()> {
-    let json = r#"{"cmd": "echo hello", "shell": "powershell"}"#;
+    let temp_dir = tempfile::tempdir()?;
+    let powershell_path = temp_dir.path().join(if cfg!(windows) {
+        "powershell.exe"
+    } else {
+        "powershell"
+    });
+    std::fs::write(&powershell_path, "")?;
+    let json = serde_json::json!({
+        "cmd": "echo hello",
+        "shell": powershell_path,
+    })
+    .to_string();
 
-    let args: ExecCommandArgs = parse_arguments(json)?;
+    let args: ExecCommandArgs = parse_arguments(&json)?;
 
-    assert_eq!(args.shell.as_deref(), Some("powershell"));
+    assert_eq!(
+        args.shell.as_deref(),
+        Some(powershell_path.to_string_lossy().as_ref())
+    );
 
-    let command = get_command(
+    let resolved = get_command(
         &args,
         Arc::new(default_user_shell()),
         &UnifiedExecShellMode::Direct,
         /*allow_login_shell*/ true,
     )
     .map_err(anyhow::Error::msg)?;
+    let command = resolved.command;
 
     assert_eq!(command[2], "echo hello");
+    assert_eq!(resolved.shell_type, ShellType::PowerShell);
     Ok(())
 }
 
@@ -116,13 +135,14 @@ fn test_get_command_respects_explicit_cmd_shell() -> anyhow::Result<()> {
 
     assert_eq!(args.shell.as_deref(), Some("cmd"));
 
-    let command = get_command(
+    let resolved = get_command(
         &args,
         Arc::new(default_user_shell()),
         &UnifiedExecShellMode::Direct,
         /*allow_login_shell*/ true,
     )
     .map_err(anyhow::Error::msg)?;
+    let command = resolved.command;
 
     assert_eq!(command[2], "echo hello");
     Ok(())
@@ -166,7 +186,7 @@ fn test_get_command_ignores_explicit_shell_in_zsh_fork_mode() -> anyhow::Result<
         })?,
     });
 
-    let command = get_command(
+    let resolved = get_command(
         &args,
         Arc::new(default_user_shell()),
         &shell_mode,
@@ -175,13 +195,14 @@ fn test_get_command_ignores_explicit_shell_in_zsh_fork_mode() -> anyhow::Result<
     .map_err(anyhow::Error::msg)?;
 
     assert_eq!(
-        command,
+        resolved.command,
         vec![
             shell_zsh_path.to_string_lossy().to_string(),
             "-lc".to_string(),
             "echo hello".to_string()
         ]
     );
+    assert_eq!(resolved.shell_type, ShellType::Zsh);
     Ok(())
 }
 
