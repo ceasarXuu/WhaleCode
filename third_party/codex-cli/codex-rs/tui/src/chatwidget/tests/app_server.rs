@@ -679,6 +679,72 @@ async fn live_app_server_server_overloaded_error_renders_warning() {
 }
 
 #[tokio::test]
+async fn live_app_server_failed_turn_consolidates_streamed_answer() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+
+    chat.handle_server_notification(
+        ServerNotification::TurnStarted(TurnStartedNotification {
+            thread_id: "thread-1".to_string(),
+            turn: AppServerTurn {
+                id: "turn-1".to_string(),
+                items: Vec::new(),
+                status: AppServerTurnStatus::InProgress,
+                error: None,
+                started_at: Some(0),
+                completed_at: None,
+                duration_ms: None,
+            },
+        }),
+        /*replay_kind*/ None,
+    );
+    drain_insert_history(&mut rx);
+
+    chat.handle_server_notification(
+        ServerNotification::AgentMessageDelta(
+            codex_app_server_protocol::AgentMessageDeltaNotification {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                item_id: "item-1".to_string(),
+                delta: "```diff\n+ streamed patch\n```\n".to_string(),
+            },
+        ),
+        /*replay_kind*/ None,
+    );
+    chat.run_commit_tick();
+    while rx.try_recv().is_ok() {}
+
+    chat.handle_server_notification(
+        ServerNotification::Error(ErrorNotification {
+            error: AppServerTurnError {
+                message: "stream disconnected before completion".to_string(),
+                codex_error_info: None,
+                additional_details: None,
+            },
+            will_retry: false,
+            thread_id: "thread-1".to_string(),
+            turn_id: "turn-1".to_string(),
+        }),
+        /*replay_kind*/ None,
+    );
+
+    let mut saw_consolidate = false;
+    while let Ok(event) = rx.try_recv() {
+        if let AppEvent::ConsolidateAgentMessage { source, .. } = event {
+            saw_consolidate = true;
+            assert!(
+                source.contains("streamed patch"),
+                "expected partial stream source to be consolidated, got {source:?}"
+            );
+        }
+    }
+
+    assert!(
+        saw_consolidate,
+        "failed turn should consolidate streamed cells before clearing the stream controller"
+    );
+}
+
+#[tokio::test]
 async fn live_app_server_cyber_policy_error_renders_dedicated_notice() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 
