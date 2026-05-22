@@ -41,7 +41,9 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 
 ```text
 用户自然对话
-  -> runtime 判断属于哪个 task
+  -> runtime 暴露当前 TaskSpace manifest
+  -> 主 agent 判断属于哪个 task
+  -> runtime 校验 agent 给出的 task binding
   -> agent 在该 task 的 map/node 上行动
   -> 结果写回 task/node
   -> 压缩时保留 task 结构
@@ -104,7 +106,8 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 
 ### `/task-abandon`
 
-第一版可不做。后续语义是将当前 active task 标记为 `abandoned`，并让 TaskSpace 在下一轮输入时重新路由。
+第一版可不做。后续语义是将当前 active task 标记为 `abandoned`，并让主 agent 在下一轮输入时基于
+TaskSpace manifest 重新做 routing decision。
 
 ## 核心数据模型
 
@@ -243,7 +246,25 @@ agent 负责：
 
 ## Task Routing
 
-TaskSpace 每轮用户输入前都要做 task routing。
+TaskSpace 每轮用户输入前都要完成 task routing，但 routing 的语义判断必须由主 agent 完成。
+
+runtime 绝不能用关键词、BM25、向量检索、规则打分或其他传统检索/匹配算法自动选择 task。
+原因很简单：task 归属是开放语义判断，runtime 承担不了这个能力，也不应该伪装成能承担。
+
+runtime 只负责三件事：
+
+- 暴露当前 TaskSpace manifest，让 agent 看见有哪些 task 可以继续。
+- 接收主 agent 返回的 routing decision。
+- 校验 decision 是否引用了存在的 task/map/node，是否满足状态机和权限约束。
+
+主 agent 负责：
+
+- 理解用户当前输入和会话上下文。
+- 判断是继续当前 task、切换到 pending task、新建 task，还是询问用户。
+- 给出选择理由和上下文更新。
+- 在被 runtime 接受后，继续执行该 task 的 map/node。
+
+因此这里的 `TaskRoutingDecision` 是 agent output，不是 runtime decision。
 
 ### routing 输入
 
@@ -327,7 +348,8 @@ agent 判断用户输入和已有 task 的 objective/context 不属于同一主�
 “这个问题是继续任务 A，还是新建一个任务？”
 ```
 
-不要做复杂置信分或语义评分。第一版可以用标题、objective、最近活跃时间、显式指代词辅助判断。
+不要做复杂置信分或语义评分。主 agent 第一版可以参考标题、objective、最近活跃时间、显式指代词辅助判断。
+这些信息只作为 manifest 暴露给 agent，不形成 runtime 自动匹配逻辑。
 
 ## Agent 行动绑定
 
@@ -547,13 +569,10 @@ ResultSummary {
 
 ### Referenced Task Packs
 
-当用户输入明显指向 pending task 时，注入对应 task pack。
+当主 agent 判断用户输入指向 pending task，并返回 `SwitchTask` decision 时，runtime 注入对应 task pack。
 
-触发条件第一版保持简单：
-
-- 用户显式提到 task title 或关键词。
-- 用户说“回到刚才那个 X”。
-- active task 不匹配，但 pending task manifest 高度匹配。
+runtime 不根据关键词或相似度主动选择 referenced task pack。它最多把 TaskSpace manifest
+暴露给主 agent；主 agent 做出 `SwitchTask` 后，runtime 再按 task id 读取对应 pack。
 
 Referenced pack 比 active pack 更短：
 
@@ -799,7 +818,7 @@ TaskSpaceSnapshot {
 
 改动：
 
-- routing 可以 create/switch task。
+- agent routing decision 可以 create/switch task。
 - active task 切走时旧 task -> pending。
 - viewer 展示 task list。
 - compression 注入 manifest + active task pack。
@@ -849,7 +868,9 @@ TaskSpaceSnapshot {
 
 期望：
 
-- runtime 选择旧 pending task。
+- runtime 暴露 task manifest。
+- 主 agent 选择旧 pending task 并返回 `SwitchTask`。
+- runtime 校验 task id 存在且未 completed/abandoned。
 - 注入 referenced task pack。
 - 旧 task 恢复为 active。
 
@@ -897,4 +918,3 @@ TaskSpaceSnapshot {
 - task 切换不会污染旧 task。
 - 压缩后 task manifest 和 active task map 结构不丢。
 - viewer 展示的是 TaskSpace，而不是要求用户理解 map。
-
