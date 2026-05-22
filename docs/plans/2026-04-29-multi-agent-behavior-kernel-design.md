@@ -1,5 +1,14 @@
 # Multi-Agent 行为内核具体设计
 
+> **已过时，请不要作为当前实现依据。**
+>
+> 本文保留为早期 multi-agent kernel 方案记录，其中 `Supervisor`、`Cohort`、
+> `WorkUnit`、`Gate`、`Message Bus` 等概念已经被后续设计大幅删减或替换。
+> 当前方向是复用 Codex 既有 session、tool handler、subagent、rollout 和 viewer 基建，
+> 在其上增加轻量 `TaskSpace` runtime。后续设计、实现和测试应以
+> [2026-05-22-taskspace-runtime-design.md](./2026-05-22-taskspace-runtime-design.md)
+> 为准。
+
 日期：2026-04-29
 
 ## 结论

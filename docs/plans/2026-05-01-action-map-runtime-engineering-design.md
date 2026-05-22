@@ -1,5 +1,15 @@
 # Action Map Runtime 工程设计
 
+> **已过时，请不要作为当前实现依据。**
+>
+> 本文记录的是第一版 `/map-mode experiment` 与单 active map 的工程方案。
+> 当前产品概念已经改为用户侧 `TaskSpace` 任务空间：不再直接向用户暴露 map，
+> 不再把一个 session 等同于一个 map；进入 `/taskspace` 后，runtime 需要在
+> session 内根据上下文创建、切换和维护多个 task，每个 task 内部再持有 map/node。
+> 后续工程设计、命令语义、压缩策略和测试计划应以
+> [2026-05-22-taskspace-runtime-design.md](./2026-05-22-taskspace-runtime-design.md)
+> 为准。
+
 ## 当前实现状态（2026-05-01）
 
 本轮工程实现采用“薄约束层”方案，已经落到现有 Codex MultiAgentV2 路径中：

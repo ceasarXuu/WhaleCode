@@ -1,5 +1,14 @@
 ﻿# WhaleCode Multi-Agent 架构设计
 
+> **已过时，请不要作为当前实现依据。**
+>
+> 本文保留为历史讨论记录。当前设计已经从直接暴露 `map` / `/map-mode`
+> 收敛为用户侧 `TaskSpace` 任务空间模型：用户通过 `/taskspace` 单向进入任务空间，
+> runtime 在 session 内维护多个 task，每个 task 内部持有自己的 map/node。
+> 后续设计、实现和测试应以
+> [2026-05-22-taskspace-runtime-design.md](./2026-05-22-taskspace-runtime-design.md)
+> 为准。
+
 日期：2026-04-25
 更新：2026-04-30
 
