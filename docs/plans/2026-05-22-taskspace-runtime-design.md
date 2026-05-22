@@ -56,7 +56,7 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 - `/taskspace`：进入任务空间模式。
 - `/taskspace` 成功后会在对话流中直接打印 TaskSpace viewer URL，用户可以立刻在浏览器中打开。
 - `/task-show`：再次打印或打开任务空间 viewer。第一版也可以让 `/map-show` 作为兼容别名打开同一 viewer。
-- `/task-restart`：当前任务换一条思路重新开始。第一版可继续用 `/map-restart` 作为兼容别名。
+- `/task-reborn`：当前任务换一条思路重生执行路径。第一版可继续用 `/map-restart` 作为兼容别名。
 
 用户不需要理解：
 
@@ -103,9 +103,9 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 - 如果 TaskSpace 已启用但还没有 active task，viewer 仍应可打开，显示 `bootstrap_required` 或 `no active task yet`。
 - 如果 TaskSpace 未启用，返回机械提示：先使用 `/taskspace`。
 
-### `/task-restart`
+### `/task-reborn`
 
-重启当前 active task 的执行路径，而不是重启整个 session。
+重生当前 active task 的执行路径，而不是重启整个 session，也不是新建 task。
 
 这个命令的价值不是“清空任务”，而是在同一个 task identity 下换一条执行路径。
 它主要用于处理 action path 劣化：旧 map 由于错误方向、过度生长、噪声上下文、反复失败或用户明确要求换思路，
@@ -121,7 +121,7 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 限制：
 
 - 只能作用于当前 active task。
-- 必须由用户显式命令触发，runtime 不自动 restart。
+- 必须由用户显式命令触发，runtime 不自动 reborn。
 - 不改变 task id，不改变 task status。
 - 不删除旧 map，不删除旧 result。
 - 旧 map 默认只作为历史路径保留，不再驱动当前行动。
@@ -135,6 +135,83 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 - agent 需要基于当前 task context 重新生成初始 nodes。
 - active_map_id 指向新 map。
 - 对话流中打印 TaskSpace viewer URL，用户可以直接查看新旧路径。
+
+#### reborn map 如何产生
+
+新 map 不是 runtime 按模板机械生成，也不是复制旧 map。
+
+生成流程：
+
+```text
+用户执行 /task-reborn
+  -> runtime 读取 active task
+  -> runtime 构造 RebornContext
+  -> 主 agent 基于 RebornContext 生成 TaskMapDraft
+  -> runtime 校验 TaskMapDraft
+  -> runtime 创建新 map
+  -> task.active_map_id 指向新 map
+  -> task.current_main_node_id 指向新 map 的起始 node
+  -> 旧 map 保留为 historical path
+  -> 打印 viewer URL
+```
+
+`RebornContext` 只包含可迁移的 durable context：
+
+```rust
+RebornContext {
+    task_id: TaskId,
+    title: String,
+    objective: String,
+    durable_facts: Vec<String>,
+    user_constraints: Vec<String>,
+    source_refs: Vec<String>,
+    open_questions: Vec<String>,
+    blockers: Vec<String>,
+    failure_lessons: Vec<String>,
+    previous_map_digest: String,
+    candidate_nodes: Vec<BaseMapCandidateNode>,
+}
+```
+
+不进入 `RebornContext` 的内容：
+
+- 旧 map 的完整 node 列表。
+- 旧 result full body。
+- 旧 agent 的长篇推理过程。
+- 已被用户否定的方案细节。
+- 与新路径无关的临时 shell 输出、报错堆栈和噪声日志。
+
+主 agent 输出 `TaskMapDraft`：
+
+```rust
+TaskMapDraft {
+    title: String,
+    reborn_reason: String,
+    nodes: Vec<NodeDraft>,
+    edges: Vec<EdgeDraft>,
+    current_main_node_id: NodeId,
+    inherited_context_summary: String,
+}
+```
+
+runtime 只做结构校验，不做语义评判：
+
+- 至少有一个 node。
+- `current_main_node_id` 必须存在。
+- edge 只能引用本 draft 中存在的 node。
+- 依赖边不能形成环。
+- node title/context_summary 不能为空。
+- 不允许把旧 map 的 node id 直接复用到新 map。
+- 新 map 创建成功前，旧 active map 仍然是当前执行路径。
+
+agent 负责语义选择：
+
+- 哪些事实应该继承。
+- 哪些失败经验应该保留。
+- 新路径应该从哪个节点开始。
+- 是否需要先询问用户澄清。
+
+如果 agent 认为缺少足够上下文生成新 map，应返回 `AskUser`，runtime 不切换 active_map_id。
 
 ### `/task-abandon`
 
@@ -893,8 +970,10 @@ URL 行为：
 - active task 必须有 active map 和 current_main_node_id。
 - subagent spawn 必须 claim ready node。
 - task switch 会把旧 active task 置 pending。
-- task restart 会保留旧 map 为历史路径，并创建新 map。
-- task restart 不改变 task id，不删除旧 map/result，并重新打印 viewer URL。
+- task reborn 会保留旧 map 为历史路径，并创建新 map。
+- task reborn 不改变 task id，不删除旧 map/result，并重新打印 viewer URL。
+- task reborn 的新 map 由主 agent 输出 `TaskMapDraft`，runtime 只做结构校验。
+- task reborn 校验失败时不切换 `active_map_id`。
 
 ### 压缩测试
 
@@ -952,7 +1031,7 @@ URL 行为：
 旧 Action Map Runtime    -> 新 TaskSpace 内部 Task Map Runtime
 旧 active_map_id         -> 新 active_task_id + task.active_map_id
 旧 /map-show             -> 新 /task-show，旧命令保留为别名
-旧 /map-restart          -> 新 /task-restart，旧命令保留为别名
+旧 /map-restart          -> 新 /task-reborn，旧命令保留为别名
 ```
 
 ## 非目标
