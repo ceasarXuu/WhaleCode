@@ -56,7 +56,6 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 - `/taskspace`：进入任务空间模式。
 - `/task-show`：查看任务空间状态。第一版也可以让 `/map-show` 作为兼容别名打开同一 viewer。
 - `/task-restart`：当前任务换一条思路重新开始。第一版可继续用 `/map-restart` 作为兼容别名。
-- `/task-abandon`：明确放弃当前任务。第一版可以暂不实现。
 
 用户不需要理解：
 
@@ -100,14 +99,19 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 语义：
 
 - 当前 active task 保留 task id 和目标。
-- 当前 active task 的旧 map 进入 `abandoned`。
+- 当前 active task 的旧 map 只作为历史路径保留，不再参与当前执行。
 - 创建新的 task map。
 - agent 需要基于当前 task context 重新生成初始 nodes。
 
 ### `/task-abandon`
 
-第一版可不做。后续语义是将当前 active task 标记为 `abandoned`，并让主 agent 在下一轮输入时基于
-TaskSpace manifest 重新做 routing decision。
+不设计 `/task-abandon`。
+
+原因是 task 不是工单系统里的可关闭对象。用户可能在任意未来轮次重新打开、追问、引用或纠偏一个看似已经结束的任务；
+runtime 也无法客观判断任务已经完成或废弃。因此 TaskSpace 不提供 task abandoned 状态。
+
+如果用户明确说“不做这个了”，主 agent 可以把这句话写入 task context summary，
+然后在切换到其他 task 时让该 task 进入 `pending`。它仍保留在 TaskSpace manifest 中，供未来恢复或引用。
 
 ## 核心数据模型
 
@@ -159,16 +163,23 @@ TaskState {
 
 ### TaskStatus
 
-第一版只保留四个状态：
+第一版只保留两个状态：
 
 ```text
 active      当前正在驱动主 agent 行动
-pending     暂停、切走、等待后续恢复
-completed   agent 判断任务完成
-abandoned   用户明确放弃，或重启路径时旧 map 被废弃
+pending     当前不驱动主 agent 行动，但仍可被未来输入恢复或引用
 ```
 
-不要引入 paused、stale、quality-risk、reviewing 等更多状态。复杂状态可以放入 `blockers` 或 node result summary。
+不要引入 completed、abandoned、paused、stale、quality-risk、reviewing 等更多状态。
+
+原因：
+
+- runtime 无法客观判断一个开放任务是否真的完成。
+- 用户随时可能重新打开、追问或修正一个看似已经完成的任务。
+- 用户“不做了”也不等于这个 task 永久废弃；未来仍可能作为上下文被引用。
+
+因此 `TaskStatus` 只表达当前调度焦点，不表达完成度或价值判断。复杂信息可以写入
+`context_summary`、`blockers`、node result summary 或 task notes。
 
 ### TaskMapState
 
@@ -242,7 +253,7 @@ agent 负责：
 - 创建或更新 task。
 - 生成 task map nodes。
 - 选择当前主 agent 行动绑定哪个 node。
-- 决定 task 是否完成、阻塞、需要询问用户。
+- 决定当前行动是否应继续、停止、等待用户或记录阻塞。
 
 ## Task Routing
 
@@ -443,7 +454,7 @@ Session Transcript Summary
 TaskSpace Manifest
 Active Task Pack
 Referenced Task Packs
-Cold Task Archive
+Cold Pending Task Refs
 ```
 
 ### 压缩目标
@@ -586,9 +597,9 @@ Referenced pack 比 active pack 更短：
 
 不注入完整 edge 和完整 result body。
 
-### Cold Task Archive
+### Cold Pending Task Refs
 
-completed/abandoned task 默认不注入，只保留 manifest 和可读取路径。
+较久未激活的 pending task 默认不注入完整 task pack，只保留 manifest 和可读取路径。
 
 后续如果需要，可以通过 task viewer/API 查询。
 
@@ -604,7 +615,7 @@ TaskSpaceCompressionSnapshot {
     manifest: Vec<TaskManifestEntry>,
     active_task: Option<TaskContextPack>,
     referenced_tasks: Vec<TaskContextPack>,
-    archived_task_refs: Vec<TaskArchiveRef>,
+    cold_pending_task_refs: Vec<TaskArchiveRef>,
 }
 ```
 
@@ -644,7 +655,7 @@ TaskSpace manifest: 1K tokens 以内
 Active task pack: 4K-12K tokens
 Referenced task pack: 每个 1K-3K tokens
 Full result body: 默认不注入
-Cold task archive: 只注入 manifest
+Cold pending task refs: 只注入 manifest
 ```
 
 如果 active task pack 超预算：
@@ -687,8 +698,6 @@ taskspace_enabled
 task_created
 task_activated
 task_pending
-task_completed
-task_abandoned
 task_context_updated
 task_map_created
 task_node_created
@@ -833,7 +842,7 @@ TaskSpaceSnapshot {
 - active task 必须有 active map 和 current_main_node_id。
 - subagent spawn 必须 claim ready node。
 - task switch 会把旧 active task 置 pending。
-- task restart 会 abandoned 旧 map 并创建新 map。
+- task restart 会保留旧 map 为历史路径，并创建新 map。
 
 ### 压缩测试
 
@@ -841,7 +850,7 @@ TaskSpaceSnapshot {
 - active task pack 保留 current node。
 - full result body 不默认注入。
 - result summary 保留关键 source refs。
-- completed/pending task 不会被揉进 session summary。
+- active/pending task 不会被揉进 session summary。
 - 压缩后 developer context 仍包含 TaskSpace enabled 和当前 node 约束。
 
 ### 真实 E2E
@@ -870,7 +879,7 @@ TaskSpaceSnapshot {
 
 - runtime 暴露 task manifest。
 - 主 agent 选择旧 pending task 并返回 `SwitchTask`。
-- runtime 校验 task id 存在且未 completed/abandoned。
+- runtime 校验 task id 存在且状态为 pending。
 - 注入 referenced task pack。
 - 旧 task 恢复为 active。
 
