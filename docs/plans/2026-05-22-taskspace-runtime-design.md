@@ -588,6 +588,101 @@ tool-level guard:
 
 两层都需要。turn hook 负责提前引导，避免用户看到一串工具失败；tool guard 负责硬约束，防止 agent 绕过流程直接行动。
 
+### 结构化控制动作协议
+
+TaskSpace 第一版不要新增一堆自然语言约定。agent 和 runtime 之间只承认少量结构化控制动作。
+
+```rust
+enum TaskSpaceControlAction {
+    Route(TaskRoutingDecision),
+    BindNode(TaskActionBinding),
+    CreateNode(NodeDraft),
+    RebornMap(TaskMapDraft),
+    AskUser { question: String },
+}
+```
+
+这些动作的职责：
+
+| 动作 | 谁生成 | runtime 做什么 | 什么时候用 |
+| --- | --- | --- | --- |
+| `Route` | 主 agent | 校验 task/node，创建或切换 active task | 每轮用户输入后、无 binding 时、用户换话题时 |
+| `BindNode` | 主 agent | 校验 node 属于 active map，并更新 `current_main_node_id` | 主 agent 要从一个 node 推进到另一个 node |
+| `CreateNode` | 主 agent | 校验 node draft，追加到 active map | 发现新子任务且当前 map 没有对应 node |
+| `RebornMap` | 主 agent | 校验 draft，创建新 map 并切换 `active_map_id` | 用户执行 `/task-reborn` 后 |
+| `AskUser` | 主 agent | 停止普通行动，把问题返回用户 | 无法安全 route、无法生成 map、缺关键上下文 |
+
+控制动作必须走专门解析路径，不能混在普通自然语言回答里。
+
+第一版可以先复用现有 assistant output 解析能力或新增一个内部 tool-like pseudo action，但约束是：
+
+- 控制动作成功前，不执行普通工具。
+- 控制动作失败时，返回机械错误和可恢复提示。
+- 控制动作被 runtime 接受后，才更新 session state。
+- 普通工具调用永远不负责创建或切换 task binding。
+
+### 状态不变量
+
+实现时要把这些不变量写成单元测试，而不是只靠 prompt。
+
+| 编号 | 不变量 |
+| --- | --- |
+| I1 | `taskspace.enabled = false` 时，TaskSpace guard 不改变现有默认行为 |
+| I2 | `taskspace.enabled = true` 时，普通工具调用必须有当前 `TaskActionBinding` |
+| I3 | `active_task_id` 指向的 task 必须存在，且 status 必须为 `active` |
+| I4 | 同一 session 同一时刻最多一个 task 为 `active` |
+| I5 | active task 必须有 `active_map_id` |
+| I6 | `active_map_id` 指向的 map 必须存在于该 task 的 `maps` |
+| I7 | `current_main_node_id` 必须存在于 active map |
+| I8 | 普通工具结果必须记录到当前 node attribution |
+| I9 | subagent spawn 必须先 claim ready node，再创建 child thread |
+| I10 | 一个 node 同时最多有一个 active lease |
+| I11 | subagent result 只能写回其 lease 绑定的 node |
+| I12 | `/task-reborn` 校验失败时不得切换 `active_map_id` |
+
+### 失败处理契约
+
+| 场景 | runtime 行为 | agent/user 可恢复路径 |
+| --- | --- | --- |
+| `/taskspace` 后没有 active task | 阻止普通工具，注入 bootstrap required | agent 返回 `CreateTask` 或 `AskUser` |
+| agent 返回不存在的 task id | 拒绝控制动作，不改变 binding | agent 基于最新 manifest 重试或询问用户 |
+| agent 返回不存在的 node id | 拒绝控制动作，不改变 binding | agent 选择已有 node 或创建新 node |
+| active task 缺 active map | 阻止普通工具，要求 map draft | agent 基于 task context 创建 map |
+| active map 缺 current node | 阻止普通工具，要求 `BindNode` | agent 选择 ready/running node |
+| 普通工具调用时无 binding | tool guard 拒绝执行 | 回到 routing/binding |
+| subagent spawn 时无 ready node | 拒绝 spawn，不创建 child thread | agent 创建 node、等待 running node、或询问用户 |
+| node lease attach 失败 | 释放已 claim lease，node 回到 ready 或 blocked | agent 可重试 spawn |
+| subagent 超时 | 请求进展总结，写入 lease node result/blocker | 主 agent 决定继续、重试、创建新 node |
+| `/task-reborn` draft 无效 | 不切换 active map | agent 修正 draft 或询问用户 |
+| viewer read 失败 | 不影响 runtime；返回机械错误 | 用户可重试 `/task-show` |
+
+### 现有代码落点
+
+TaskSpace 不应该另造一套并行 runtime。第一版应从当前 Action Map 能力演进。
+
+现有可复用落点：
+
+| 能力 | 现有路径 | TaskSpace 改造方式 |
+| --- | --- | --- |
+| session state | `third_party/codex-cli/codex-rs/core/src/state/session.rs` | 从 `action_map_runtime` 演进为或包裹进 `taskspace` |
+| developer context 注入 | `third_party/codex-cli/codex-rs/core/src/session/mod.rs` 的 `build_initial_context` 附近 | 注入 TaskSpace manifest、current binding、bootstrap required |
+| mode/command handler | `third_party/codex-cli/codex-rs/core/src/session/handlers.rs` | `/taskspace`、`/task-show`、`/task-reborn` 复用现有 op 分发形态 |
+| subagent spawn hook | `third_party/codex-cli/codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs` | 从 `prepare_action_map_spawn_assignment` 演进为 task/node lease claim |
+| subagent close/release | `third_party/codex-cli/codex-rs/core/src/tools/handlers/multi_agents_v2/close_agent.rs` | 继续释放 node lease |
+| wait timeout summary | `third_party/codex-cli/codex-rs/core/src/tools/handlers/multi_agents_v2/wait.rs` | 继续把超时总结写回 lease node |
+| child result writeback | `third_party/codex-cli/codex-rs/core/src/agent/control.rs` 与 `Session::record_action_map_child_result` | 演进为 task node result writeback |
+| viewer server | `third_party/codex-cli/codex-rs/tui/src/app/action_map_viewer.rs` | 改名或包裹为 TaskSpace viewer，复用本地 HTTP + polling |
+| app-server read API | `thread/actionMap/read` | 第一版可兼容，后续新增 `thread/taskspace/read` |
+| TUI slash dispatch | `third_party/codex-cli/codex-rs/tui/src/chatwidget/slash_dispatch.rs` | 新增 `/taskspace`、`/task-show`、`/task-reborn`，旧命令保留别名 |
+
+不允许第一版新增：
+
+- 独立数据库。
+- 独立消息总线。
+- 独立 subagent runtime。
+- 语义检索路由器。
+- 后台常驻 task scheduler。
+
 ### subagent
 
 subagent 沿用现有 node lease 设计。
