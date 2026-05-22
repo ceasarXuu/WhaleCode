@@ -498,6 +498,96 @@ TaskActionBinding {
 
 每次 turn 开始时，routing/bootstrap/sync 必须给出当前 node。runtime 将它记录到 task。
 
+### agent 如何知道当前 id
+
+不要要求 agent 在每一次普通工具调用里手工携带 `task_id` / `map_id` / `node_id`。
+这会制造大量脆弱点：漏带、带错、复制旧 id、压缩后忘记 id、并行时串 id。
+
+正确机制是：
+
+```text
+agent 只在 routing / binding / map draft 这类控制动作里显式引用 id
+普通工具调用不携带 task/map/node id
+runtime 从 session state 的当前 TaskActionBinding 自动归属
+```
+
+已有 active binding 时，turn-level hook 注入当前绑定：
+
+```text
+TaskSpace is enabled.
+
+Current binding:
+- task_id: task-3
+- map_id: map-2
+- current_node_id: node-5
+- current_node_title: 方案审查
+
+All ordinary tool calls in this turn will be attributed to this node.
+If you need to switch task or node, emit a TaskRoutingDecision or TaskActionBinding first.
+```
+
+此时 agent 调用 shell/read/edit/search/patch 等普通工具时，不需要传 task 坐标。
+tool-level guard 从 session state 读取：
+
+```text
+session.taskspace.active_task_id
+task.active_map_id
+task.current_main_node_id
+```
+
+然后把工具调用和结果归属到当前 node。
+
+没有 active binding 时，runtime 不允许普通工具调用，而是要求 agent 先输出结构化控制动作：
+
+```text
+TaskSpace bootstrap required.
+Before ordinary work, return one TaskRoutingDecision:
+- ContinueTask
+- SwitchTask
+- CreateTask
+- AskUser
+```
+
+agent 返回 `CreateTask` 或 `SwitchTask` 后，runtime 生成或更新真实 id，并写入 session state。
+后续普通工具调用继续走默认绑定。
+
+切换 task/node 时，也不在普通工具参数里塞 id，而是先提交控制动作：
+
+```rust
+TaskActionBinding {
+    task_id: TaskId,
+    map_id: TaskMapId,
+    node_id: NodeId,
+    reason: String,
+}
+```
+
+runtime 校验通过后更新当前 binding。
+
+因此 agent 知道 id 的方式是：
+
+- runtime 每轮注入 TaskSpace manifest 和 current binding。
+- agent 只在需要创建、切换、reborn 或绑定 node 时显式引用 id。
+- 普通行动由 runtime 默认归属到当前 binding。
+- tool guard 负责防止无 binding 或非法 binding 的行动执行。
+
+### hook 与 guard 分工
+
+TaskSpace 约束需要两层入口：
+
+```text
+turn-level hook:
+  在 agent 普通行动前检查是否需要 bootstrap/routing/binding
+  缺少 active task/map/node 时，要求 agent 先输出结构化控制动作
+
+tool-level guard:
+  在工具 handler 真正执行前再次校验当前 TaskActionBinding
+  校验失败则拒绝执行
+  校验通过则把工具调用和结果写回当前 node
+```
+
+两层都需要。turn hook 负责提前引导，避免用户看到一串工具失败；tool guard 负责硬约束，防止 agent 绕过流程直接行动。
+
 ### subagent
 
 subagent 沿用现有 node lease 设计。
@@ -968,6 +1058,9 @@ URL 行为：
 - enable 后无 active task 时，普通工具行动被阻止。
 - task routing create_task 后生成 active task。
 - active task 必须有 active map 和 current_main_node_id。
+- 普通工具调用不需要携带 task/map/node id，会自动归属当前 `TaskActionBinding`。
+- 无当前 `TaskActionBinding` 时，普通工具调用被 guard 拒绝。
+- 切换 task/node 必须先提交结构化 routing/binding 控制动作。
 - subagent spawn 必须 claim ready node。
 - task switch 会把旧 active task 置 pending。
 - task reborn 会保留旧 map 为历史路径，并创建新 map。
