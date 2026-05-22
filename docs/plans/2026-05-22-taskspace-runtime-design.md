@@ -54,7 +54,8 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 用户只需要理解：
 
 - `/taskspace`：进入任务空间模式。
-- `/task-show`：查看任务空间状态。第一版也可以让 `/map-show` 作为兼容别名打开同一 viewer。
+- `/taskspace` 成功后会在对话流中直接打印 TaskSpace viewer URL，用户可以立刻在浏览器中打开。
+- `/task-show`：再次打印或打开任务空间 viewer。第一版也可以让 `/map-show` 作为兼容别名打开同一 viewer。
 - `/task-restart`：当前任务换一条思路重新开始。第一版可继续用 `/map-restart` 作为兼容别名。
 
 用户不需要理解：
@@ -75,14 +76,17 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 
 1. 设置 `taskspace_enabled = true`。
 2. 产生一次 transition notice。
-3. 下一次 agent 行动前必须执行 task bootstrap/sync。
-4. bootstrap/sync 完成前禁止普通工具行动、代码修改和 subagent spawn。
+3. 启动或复用本 session 的 TaskSpace viewer。
+4. 在对话流中打印 viewer URL，例如 `TaskSpace: http://127.0.0.1:<port>/`。
+5. 下一次 agent 行动前必须执行 task bootstrap/sync。
+6. bootstrap/sync 完成前禁止普通工具行动、代码修改和 subagent spawn。
 
 如果当前 session 已经进入 TaskSpace：
 
 1. 返回机械状态：TaskSpace already enabled。
-2. 不重复创建 task。
-3. 不改变 active task。
+2. 重新打印当前 TaskSpace viewer URL。
+3. 不重复创建 task。
+4. 不改变 active task。
 
 不提供 `/taskspace off`。如果用户需要完全回到普通 session，应新开 session。
 
@@ -92,9 +96,36 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 
 第一版可以复用现有 `/map-show` viewer 技术路径，但用户文案应改成 TaskSpace。
 
+`/task-show` 的职责是可观测性，不改变 runtime 状态：
+
+- 如果 viewer 已启动，直接打印或打开已有 URL。
+- 如果 viewer 未启动，启动 viewer 后打印 URL。
+- 如果 TaskSpace 已启用但还没有 active task，viewer 仍应可打开，显示 `bootstrap_required` 或 `no active task yet`。
+- 如果 TaskSpace 未启用，返回机械提示：先使用 `/taskspace`。
+
 ### `/task-restart`
 
 重启当前 active task 的执行路径，而不是重启整个 session。
+
+这个命令的价值不是“清空任务”，而是在同一个 task identity 下换一条执行路径。
+它主要用于处理 action path 劣化：旧 map 由于错误方向、过度生长、噪声上下文、反复失败或用户明确要求换思路，
+已经不适合继续作为当前执行结构。
+
+保留它的理由：
+
+- task 仍然是同一个用户目标，不能新建 unrelated task 来假装重来。
+- 旧 map 里可能有可复用事实、约束、文件引用和失败经验，不能直接丢弃。
+- 新 map 需要从 task objective、用户约束、durable facts、open questions 重新初始化，避免继承旧路径噪声。
+- viewer 需要能对比历史路径和当前路径，帮助用户理解为什么换路。
+
+限制：
+
+- 只能作用于当前 active task。
+- 必须由用户显式命令触发，runtime 不自动 restart。
+- 不改变 task id，不改变 task status。
+- 不删除旧 map，不删除旧 result。
+- 旧 map 默认只作为历史路径保留，不再驱动当前行动。
+- 新 map 初始化时只继承经过压缩筛选的 durable context，不把旧 node 全量复制过来。
 
 语义：
 
@@ -102,6 +133,8 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 - 当前 active task 的旧 map 只作为历史路径保留，不再参与当前执行。
 - 创建新的 task map。
 - agent 需要基于当前 task context 重新生成初始 nodes。
+- active_map_id 指向新 map。
+- 对话流中打印 TaskSpace viewer URL，用户可以直接查看新旧路径。
 
 ### `/task-abandon`
 
@@ -762,8 +795,14 @@ Select the node that the main agent should work on now.
 用户命令：
 
 ```text
+/taskspace
 /task-show
 ```
+
+`/taskspace` 成功开启后必须立即把 viewer URL 打印到对话流中。
+这是用户第一次进入任务空间后的默认可观测入口，避免用户还要猜测 `/task-show` 的存在。
+
+`/task-show` 用于后续再次查看同一个 viewer。
 
 第一版 viewer 保持极简：
 
@@ -793,6 +832,14 @@ TaskSpaceSnapshot {
 
 其中 active task 带详细 map，pending task 默认只带 manifest。
 
+URL 行为：
+
+- viewer server 按 session/thread 复用，避免每次命令打开新端口。
+- URL 可以是 session-scoped local URL，例如 `http://127.0.0.1:<port>/`。
+- `/taskspace` 和 `/task-show` 打印同一个 URL。
+- viewer 页面自动刷新读取 `thread/taskspace/read`，不是一次性静态快照。
+- URL 打印是机械状态输出，不是 agent 自然语言回答。
+
 ## 与当前 Action Map 实现的迁移
 
 不要一次重写所有代码。推荐三阶段。
@@ -808,6 +855,7 @@ TaskSpaceSnapshot {
 - `/map-mode experiment` 的内部语义迁移为 `/taskspace`。
 - 保留 `/map-mode` 作为 debug legacy 命令。
 - `/map-show` 打开 taskspace viewer，兼容旧命令。
+- `/taskspace` enable 成功后自动启动或复用 viewer，并打印 URL。
 
 ### 阶段 2：强制 task bootstrap/sync
 
@@ -837,12 +885,16 @@ TaskSpaceSnapshot {
 ### 单元测试
 
 - `/taskspace` 只能 enable，不能 disable。
+- `/taskspace` enable 成功后会打印 TaskSpace viewer URL。
+- 重复执行 `/taskspace` 不改变 task 状态，但会重新打印同一个 viewer URL。
+- `/task-show` 会打印或打开同一个 viewer URL，不改变 runtime 状态。
 - enable 后无 active task 时，普通工具行动被阻止。
 - task routing create_task 后生成 active task。
 - active task 必须有 active map 和 current_main_node_id。
 - subagent spawn 必须 claim ready node。
 - task switch 会把旧 active task 置 pending。
 - task restart 会保留旧 map 为历史路径，并创建新 map。
+- task restart 不改变 task id，不删除旧 map/result，并重新打印 viewer URL。
 
 ### 压缩测试
 
@@ -863,6 +915,7 @@ TaskSpaceSnapshot {
 - task 有上下文化 objective。
 - task map 至少包含边界、架构梳理、质量扫描等节点。
 - 主 agent 当前行动绑定 node。
+- `/taskspace` 命令输出中已经包含 viewer URL。
 - `/task-show` 可看到 task。
 
 场景 2：同一 session 临时换话题。
