@@ -78,8 +78,9 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 2. 产生一次 transition notice。
 3. 启动或复用本 session 的 TaskSpace viewer。
 4. 在对话流中打印 viewer URL，例如 `TaskSpace: http://127.0.0.1:<port>/`。
-5. 下一次 agent 行动前必须执行 task bootstrap/sync。
-6. bootstrap/sync 完成前禁止普通工具行动、代码修改和 subagent spawn。
+5. 设置 `bootstrap_required = true`、`ever_bootstrapped = false`。
+6. 下一次 agent 行动前必须执行 task bootstrap/sync。
+7. bootstrap/sync 完成前禁止普通工具行动、代码修改和 subagent spawn。
 
 如果当前 session 已经进入 TaskSpace：
 
@@ -122,6 +123,8 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 
 - 只能作用于当前 active task。
 - 必须由用户显式命令触发，runtime 不自动 reborn。
+- 命令 handler 必须设置 `reborn_pending = Some(RebornRequest { task_id, old_map_id })`；
+  没有该标记时，runtime 必须拒绝 agent 自行提交的 `RebornMap`。
 - 不改变 task id，不改变 task status。
 - 不删除旧 map，不删除旧 result。
 - 旧 map 默认只作为历史路径保留，不再驱动当前行动。
@@ -145,12 +148,14 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 ```text
 用户执行 /task-reborn
   -> runtime 读取 active task
+  -> runtime 设置 reborn_pending
   -> runtime 构造 RebornContext
   -> 主 agent 基于 RebornContext 生成 TaskMapDraft
   -> runtime 校验 TaskMapDraft
   -> runtime 创建新 map
   -> task.active_map_id 指向新 map
-  -> task.current_main_node_id 指向新 map 的起始 node
+  -> runtime.current_binding 指向新 map 的起始 node
+  -> runtime 清空 reborn_pending
   -> 旧 map 保留为 historical path
   -> 打印 viewer URL
 ```
@@ -203,31 +208,57 @@ runtime 可以用已有 summary 字段和 compactor 做抽取，但不做任务�
 ```rust
 TaskMapDraft {
     title: String,
-    reborn_reason: String,
+    purpose: TaskMapDraftPurpose,
     nodes: Vec<NodeDraft>,
     edges: Vec<EdgeDraft>,
-    current_main_node_id: NodeId,
+    current_main_local_id: String,
     inherited_context_summary: String,
 }
+
+enum TaskMapDraftPurpose {
+    Initial,
+    Reborn { reason: String },
+}
 ```
+
+`TaskMapDraft` 里的 node id 不是最终 `NodeId`。主 agent 只能生成 draft 内部临时 id：
+
+```rust
+NodeDraft {
+    local_id: String,
+    title: String,
+    context_summary: String,
+    source_refs: Vec<String>,
+}
+
+EdgeDraft {
+    from_local_id: String,
+    to_local_id: String,
+    kind: EdgeKind,
+}
+```
+
+`local_id` 只在本次 draft 内有效，例如 `boundary`、`architecture-review`、`smoke-test`。
+runtime 创建 map 时负责分配正式 `NodeId`，建立 `local_id -> NodeId` 映射，并把 edge、
+`current_main_local_id` 改写成正式 id。agent 不需要知道正式 id 命名规则，也不需要规避旧 map 的 id 空间。
 
 runtime 只做结构校验，不做语义评判：
 
 - 至少有一个 node。
-- `current_main_node_id` 必须存在。
-- edge 只能引用本 draft 中存在的 node。
+- `local_id` 必须非空且在 draft 内唯一。
+- `current_main_local_id` 必须引用本 draft 中存在的 node。
+- edge 只能引用本 draft 中存在的 `local_id`。
 - 依赖边不能形成环。
 - node title/context_summary 不能为空。
-- 不允许把旧 map 的 node id 直接复用到新 map。
 - 新 map 创建成功前，旧 active map 仍然是当前执行路径。
 
 新 map 创建成功后：
 
 - 旧 map 的 `historical = true`。
 - 新 map 的 `parent_map_id = Some(old_active_map_id)`。
-- 新 map 的 `reborn_reason = TaskMapDraft.reborn_reason`。
+- 新 map 的 `reborn_reason` 来自 `TaskMapDraftPurpose::Reborn.reason`。
 - task 的 `active_map_id` 指向新 map。
-- task 的 `current_main_node_id` 指向新 map 的起始 node。
+- `current_binding.node_id` 指向 `current_main_local_id` 映射出的正式 node，task 的 `last_main_node_id` 同步为该 node。
 - 旧 map 的 result body、summary、lease 历史继续保留在旧 map 内，不复制到新 map。
 
 多次 reborn 时形成版本链：
@@ -280,10 +311,22 @@ TaskSpaceRuntimeState {
     tasks: BTreeMap<TaskId, TaskState>,
     pending_transition_notice: Option<String>,
     bootstrap_required: bool,
+    ever_bootstrapped: bool,
     current_binding: Option<TaskActionBinding>,
     last_control_error: Option<TaskSpaceControlError>,
     consecutive_control_failures: u32,
+    bootstrap_failed_reset_at_ms: Option<i64>,
+    reborn_pending: Option<RebornRequest>,
+    latest_compression_snapshot: Option<TaskSpaceCompressionSnapshot>,
     next_task_seq: u64,
+}
+```
+
+```rust
+RebornRequest {
+    task_id: TaskId,
+    old_map_id: TaskMapId,
+    requested_at_ms: i64,
 }
 ```
 
@@ -305,12 +348,16 @@ TaskState {
     active_map_id: Option<TaskMapId>,
     maps: BTreeMap<TaskMapId, TaskMapState>,
 
-    current_main_node_id: Option<NodeId>,
+    last_main_node_id: Option<NodeId>,
+    notes: Vec<TaskNote>,
     created_at_ms: i64,
     updated_at_ms: i64,
     last_active_at_ms: i64,
 }
 ```
+
+`TaskState.last_main_node_id` 只是恢复和 viewer 展示用的最近主节点提示，不是当前行动权威。
+主 agent 当前行动的唯一权威来源是 `TaskSpaceRuntimeState.current_binding`。
 
 ### TaskStatus
 
@@ -336,9 +383,17 @@ pending     当前不驱动主 agent 行动，但仍可被未来输入恢复或�
 
 ```rust
 TaskNote {
-    kind: TaskNoteKind::UserSaysDone | TaskNoteKind::UserSaysStop | TaskNoteKind::AgentBelievesDone,
+    kind: TaskNoteKind,
     summary: String,
     created_at_ms: i64,
+}
+
+enum TaskNoteKind {
+    UserSaysDone,
+    UserSaysStop,
+    AgentBelievesDone,
+    ContextUpdate,
+    RepairNote,
 }
 ```
 
@@ -389,6 +444,119 @@ completed
 blocked
 ```
 
+### TaskMapEdge 与推进规则
+
+第一版只保留两类边：
+
+```rust
+TaskMapEdge {
+    from_node_id: NodeId,
+    to_node_id: NodeId,
+    kind: EdgeKind,
+}
+
+enum EdgeKind {
+    Dependency,
+    Related,
+}
+```
+
+- `Dependency` 是有向依赖边：`from -> to` 表示 `to` 依赖 `from`。
+- `Related` 是无阻塞关系边：用于 viewer 和上下文相邻提示，方向不参与 ready 推进。
+
+ready 推进规则固定为 AND 依赖：
+
+```text
+advance_downstream(completed_node):
+  for each outgoing Dependency edge completed_node -> target:
+    if target.status != blocked:
+      if all incoming Dependency predecessors of target are completed:
+        if target.status is not running/completed:
+          target.status = ready
+          emit task_node_status_changed
+```
+
+如果上游 node 是 `blocked`，下游不会自动 ready。主 agent 可以选择创建替代 node、调整依赖边、
+询问用户，或让用户触发 `/task-reborn`。runtime 不用质量判断替 agent 决定 blocked 依赖是否可忽略。
+没有任何 incoming `Dependency` 边的 node，在 map 创建时初始就是 `ready`。
+
+### AssignmentLease
+
+lease 是 subagent 持有 node 的唯一硬约束。node 是否能再次被接管，不看 subagent 的自然语言结果，
+只看 lease 状态和 `node.active_lease`。
+
+```rust
+AssignmentLease {
+    id: LeaseId,
+    task_id: TaskId,
+    map_id: TaskMapId,
+    node_id: NodeId,
+    state: AssignmentLeaseState,
+    attached_thread_id: Option<ThreadId>,
+    claimed_at_ms: i64,
+    completed_at_ms: Option<i64>,
+    released_at_ms: Option<i64>,
+    release_reason: Option<String>,
+}
+
+enum AssignmentLeaseState {
+    Claimed,
+    Attached(ThreadId),
+    Completed,
+    Released,
+}
+```
+
+状态语义：
+
+- `Claimed`：runtime 已经把 node 标记为 running，但 child thread 还没 attach。
+- `Attached`：child thread 已经绑定该 node，结果只能写回该 node。
+- `Completed`：subagent 正常结束并写回 result，`node.active_lease` 已清空。
+- `Released`：spawn 失败、超时、崩溃或人工关闭导致 lease 被释放，`node.active_lease` 已清空。
+
+`Completed` 和 `Released` 都是历史记录，不再阻止 node 被后续 agent 接管。
+
+### NodeResult
+
+`NodeResult` 是 node 内所有可恢复产出的统一记录，不只表示 subagent 最终回答。
+主 agent 普通工具调用、主 agent 一轮行动摘要、subagent 结果、超时进展总结都写入同一个 `results` 表，
+通过 `kind` 区分来源。
+
+```rust
+NodeResult {
+    id: ResultId,
+    task_id: TaskId,
+    map_id: TaskMapId,
+    node_id: NodeId,
+    kind: NodeResultKind,
+    summary: String,
+    body: String,
+    source_thread_id: ThreadId,
+    source_refs: Vec<String>,
+    created_at_ms: i64,
+}
+
+enum NodeResultKind {
+    MainToolCall,
+    MainTurnSummary,
+    SubagentFinal,
+    TimeoutProgress,
+    SystemRepair,
+}
+```
+
+tool guard 执行普通工具后，必须至少写入 `MainToolCall`：
+
+- `source_thread_id` 填当前主 session/thread id。
+- `summary` 保存工具名、退出状态、关键输出摘要、涉及文件或 symbol。
+- `body` 保存完整工具结果或可恢复引用；过大输出可以保留截断 body + artifact/log ref。
+- `source_refs` 保存本次工具触达的文件、URL、symbol。
+- `result_id` append 到当前 `NodeState.result_ids`。
+
+如果一轮主 agent 行动产生多个小工具结果，runtime 可以额外生成一个 `MainTurnSummary`，
+但不能用它替代原始 `MainToolCall` attribution。I8 中“普通工具结果必须记录到当前 node”
+具体就是写入 `NodeResultKind::MainToolCall`。
+
 ## Runtime 约束
 
 进入 TaskSpace 后，runtime 必须满足：
@@ -397,7 +565,8 @@ blocked
 每次主 agent 行动前：
   必须有 active_task_id
   必须有 active task map
-  必须有 current_main_node_id
+  必须有 current_binding
+  current_binding.task_id/map_id/node_id 必须指向 active task 的 active map 中存在的 node
 
 每次 subagent spawn 前：
   必须有 active_task_id
@@ -476,9 +645,7 @@ enum TaskRoutingDecision {
         title: String,
         objective: String,
         context_summary: String,
-        initial_nodes: Vec<NodeDraft>,
-        initial_edges: Vec<EdgeDraft>,
-        main_node_id: NodeId,
+        initial_map: TaskMapDraft,
     },
     AskUser {
         question: String,
@@ -490,10 +657,29 @@ runtime 校验输出：
 
 - `ContinueTask.task_id` 必须存在。
 - `SwitchTask.task_id` 必须存在。
-- `CreateTask` 必须至少有一个 node。
-- `main_node_id` 必须存在于 active map。
-- edge 不能引用不存在的 node。
+- `ContinueTask.main_node_id` 必须存在于当前 active map。
+- `SwitchTask.main_node_id` 必须存在于目标 task 的 active map。
+- `CreateTask.initial_map.purpose` 必须是 `Initial`。
+- `CreateTask.initial_map` 必须至少有一个 node。
+- `TaskMapDraft.current_main_local_id` 必须引用 `nodes` 中存在的 `local_id`。
+- `NodeDraft.local_id` 必须在本次 map draft 内唯一。
+- edge 不能引用不存在的 `local_id`。
 - active map 至少有一个 ready/running/current node。
+
+创建 task/map 时，runtime 分配正式 `TaskId`、`TaskMapId`、`NodeId`，并把 draft 内部
+`local_id` 映射为正式 id。主 agent 不能在 `CreateTask` 或 `TaskMapDraft` 中自造正式 id。
+第一次 `CreateTask` 成功后，runtime 必须设置 `bootstrap_required = false`、`ever_bootstrapped = true`，
+并把 `current_binding` 指向新 task 的 active map 和 main node。
+
+`CreateTask` 和 `/task-reborn` 共享同一个 map 创建入口：
+
+| 场景 | 输入 | runtime 映射 |
+| --- | --- | --- |
+| 新 task 初始化 | `CreateTask.initial_map`，`purpose=Initial` | 创建 task 后创建第一个 active map，`parent_map_id=None`，`historical=false` |
+| task reborn | `RebornMap.draft`，`purpose=Reborn { reason }` | 保留 task，旧 map `historical=true`，新 map `parent_map_id=old_active_map_id` |
+
+除 task id 和 parent/historical 字段外，两条路径必须调用同一个 `create_task_map_from_draft`。
+这样避免初始 map 和 reborn map 形成两套 schema、两套校验、两套 id 分配逻辑。
 
 ### SwitchTask 应用语义
 
@@ -503,12 +689,13 @@ runtime 校验输出：
 apply SwitchTask(target_task_id):
   1. 读取当前 active task 作为 previous_task
   2. 将 previous_task_context_update 追加到 previous_task.context_summary/task notes
-  3. previous_task.status -> pending
-  4. target_task.status -> active
-  5. 将 target_task_context_update 追加到 target_task.context_summary/task notes
-  6. active_task_id = target_task_id
-  7. current_main_node_id = main_node_id
+  3. previous_task.last_main_node_id = current_binding.node_id
+  4. previous_task.status -> pending
+  5. target_task.status -> active
+  6. 将 target_task_context_update 追加到 target_task.context_summary/task notes
+  7. active_task_id = target_task_id
   8. current_binding = { target_task_id, target.active_map_id, main_node_id }
+  9. target_task.last_main_node_id = main_node_id
 ```
 
 running subagent 不因为 task switch 被强制中断。
@@ -566,7 +753,7 @@ agent 判断用户输入和已有 task 的 objective/context 不属于同一主�
 
 ### 主 agent
 
-主 agent 不需要 lease，但必须有 `current_main_node_id`。
+主 agent 不需要 lease，但必须有 `current_binding.node_id`。
 
 目的：
 
@@ -586,7 +773,12 @@ TaskActionBinding {
 }
 ```
 
-每次 turn 开始时，routing/bootstrap/sync 必须给出当前 node。runtime 将它记录到 task。
+`reason` 不参与权限判断，只写入 `task_main_node_bound` event、viewer 的当前焦点变更说明、
+以及压缩摘要中的最近切换原因。tool guard 不读取 `reason`。
+
+每次 turn 开始时，routing/bootstrap/sync 必须给出当前 node。runtime 将它写入
+`TaskSpaceRuntimeState.current_binding`，并把同一个 node id 镜像到该 task 的 `last_main_node_id`。
+tool guard 只能读取 `current_binding`，不能把 `last_main_node_id` 当成行动授权。
 
 ### agent 如何知道当前 id
 
@@ -620,9 +812,9 @@ If you need to switch task or node, emit a TaskRoutingDecision or TaskActionBind
 tool-level guard 从 session state 读取：
 
 ```text
-session.taskspace.active_task_id
-task.active_map_id
-task.current_main_node_id
+session.taskspace.current_binding.task_id
+session.taskspace.current_binding.map_id
+session.taskspace.current_binding.node_id
 ```
 
 然后把工具调用和结果归属到当前 node。
@@ -684,10 +876,10 @@ TaskSpace 第一版不要新增一堆自然语言约定。agent 和 runtime 之�
 
 ```rust
 enum TaskSpaceControlAction {
-    Route(TaskRoutingDecision),
-    BindNode(TaskActionBinding),
-    CreateNode(NodeDraft),
-    RebornMap(TaskMapDraft),
+    Route { decision: TaskRoutingDecision },
+    BindNode { binding: TaskActionBinding },
+    CreateNode { map_id: TaskMapId, draft: NodeDraft },
+    RebornMap { draft: TaskMapDraft },
     AskUser { question: String },
 }
 ```
@@ -697,26 +889,74 @@ enum TaskSpaceControlAction {
 | 动作 | 谁生成 | runtime 做什么 | 什么时候用 |
 | --- | --- | --- | --- |
 | `Route` | 主 agent | 校验 task/node，创建或切换 active task | 每轮用户输入后、无 binding 时、用户换话题时 |
-| `BindNode` | 主 agent | 校验 node 属于 active map，并更新 `current_main_node_id` | 主 agent 要从一个 node 推进到另一个 node |
-| `CreateNode` | 主 agent | 校验 node draft，追加到 active map | 发现新子任务且当前 map 没有对应 node |
-| `RebornMap` | 主 agent | 校验 draft，创建新 map 并切换 `active_map_id` | 用户执行 `/task-reborn` 后 |
+| `BindNode` | 主 agent | 校验 node 属于 active map，并更新 `current_binding.node_id` 和 task 的 `last_main_node_id` 镜像 | 主 agent 要从一个 node 推进到另一个 node |
+| `CreateNode` | 主 agent | 校验 `map_id == active_map_id` 和 node draft，追加到 active map | 发现新子任务且当前 map 没有对应 node |
+| `RebornMap` | 主 agent | 校验 `draft.purpose=Reborn`，创建新 map 并切换 `active_map_id` | 用户执行 `/task-reborn` 后 |
 | `AskUser` | 主 agent | 停止普通行动，把问题返回用户 | 无法安全 route、无法生成 map、缺关键上下文 |
+
+`CreateNode` 的 `draft.local_id` 只用于这次控制动作内部。runtime 追加 node 时分配正式 `NodeId`，
+并把该正式 id 返回到下一轮 TaskSpace manifest/current binding 中。主 agent 后续只能引用 runtime 暴露的正式 id。
+新增 node 的初始状态固定为 `ready`，除非 agent 同一控制动作后立即 `BindNode` 到该 node。
+
+`RebornMap` 只有在 `reborn_pending` 存在且 task/map 与当前 active task 匹配时才能被接受。
+成功创建新 map 或 agent 返回 `AskUser` 后，runtime 清空 `reborn_pending`；校验失败时保留一次重试机会，
+连续失败进入控制动作失败处理。
+
+`TaskRoutingDecision::AskUser` 是 routing 阶段的结果，必须包在 `Route { decision }` 中提交。
+`TaskSpaceControlAction::AskUser` 只用于非 routing 控制场景，例如 `/task-reborn` draft 无法生成或 binding 无法安全选择。
 
 控制动作必须走专门解析路径，不能混在普通自然语言回答里。
 
-第一版推荐把控制动作实现成内部 tool-like action，而不是从自由文本中解析 JSON。
+第一版把控制动作实现成固定内部 pseudo-tool，而不是从自由文本中解析 JSON。
 原因是 TaskSpace 的正确性依赖这些动作；如果靠 markdown code fence 或自然语言解析，失败模式会太多。
 
-最低要求：
+### 控制动作的物理通道
+
+固定 tool name：
 
 ```text
-agent output channel:
-  ordinary assistant text      -> 给用户看的自然语言
-  taskspace_control_action     -> 给 runtime 的结构化控制动作
+taskspace_control
 ```
 
-`taskspace_control_action` 可以复用现有 tool call / function call / structured output 通道中的一种。
-不管底层选哪种，runtime 看到的必须是 schema 校验后的结构体，而不是任意文本。
+它是 runtime 内部 pseudo-tool：
+
+- 不进入外部 tool registry。
+- 不执行 shell、文件、网络或 MCP 副作用。
+- 在普通 tool dispatch 之前被 TaskSpace runtime 拦截。
+- 只用于提交 `TaskSpaceControlAction`。
+
+wire schema：
+
+```rust
+TaskSpaceControlCall {
+    action: TaskSpaceControlActionKind,
+    payload: serde_json::Value,
+}
+
+enum TaskSpaceControlActionKind {
+    Route,
+    BindNode,
+    CreateNode,
+    RebornMap,
+    AskUser,
+}
+```
+
+runtime 解析顺序：
+
+```text
+handle_model_response(response_items):
+  1. 预扫描本轮所有 tool call
+  2. 如果发现多个 taskspace_control，拒绝整批 response items
+  3. 如果发现一个 taskspace_control，先 schema 校验并应用控制动作
+  4. 控制动作通过后，再处理同轮普通 tool call
+  5. 控制动作失败时，丢弃同轮普通 tool call，普通 assistant text 不作为最终用户回答
+  6. 如果 bootstrap_required 或 current_binding=None 且没有 taskspace_control，
+     拒绝同轮普通 tool call，普通 assistant text 不作为最终用户回答
+```
+
+这意味着模型可以在同一轮先提交 `taskspace_control`，再调用普通工具；runtime 必须先应用控制动作，
+然后才允许普通工具在新的 binding 下运行。如果控制动作不合法，本轮所有普通工具都不执行。
 
 如果同一轮同时出现普通文本和控制动作：
 
@@ -730,11 +970,15 @@ agent output channel:
 | --- | --- |
 | 1 | 记录 `last_control_error`，注入简短 error hint，让 agent 重新输出同一种控制动作 |
 | 2 | 保持当前 binding 不变，禁止普通工具，要求 agent 选择 `AskUser` 或修正控制动作 |
-| >=3 | 停止本轮自动推进，向用户返回机械错误，请用户澄清或重试 |
+| >=3 且 `bootstrap_required = true` 且 `ever_bootstrapped = false` | bootstrap 失败自动回滚到普通 session，清空 TaskSpace 临时状态，输出机械提示：`TaskSpace bootstrap 失败，已回到普通模式；可再次运行 /taskspace 重试。` |
+| >=3 且已经成功 bootstrap 过 | 停止本轮自动推进，保留 TaskSpace 状态，向用户返回机械错误，请用户澄清或重试 |
 
 失败时不能静默回退到上一条普通行动，也不能让 agent 绕过 TaskSpace 继续工具调用。
 
-第一版可以先复用现有 assistant output 中的 structured item 解析能力，或新增一个内部 tool-like pseudo action。
+bootstrap 自动回滚不是用户可用的退出功能。它只发生在 `/taskspace` 启用后还没有创建过任何 active task/map 的阶段，
+目的是避免用户被困在一个无法 bootstrap、又不能普通行动的 session 里。只要 `ever_bootstrapped = true`，
+后续失败都不能自动退出 TaskSpace。
+
 不要从自由文本正文里猜 JSON。约束是：
 
 - 控制动作成功前，不执行普通工具。
@@ -754,7 +998,7 @@ agent output channel:
 | I4 | 同一 session 同一时刻最多一个 task 为 `active` |
 | I5 | active task 必须有 `active_map_id` |
 | I6 | `active_map_id` 指向的 map 必须存在于该 task 的 `maps` |
-| I7 | `current_main_node_id` 必须存在于 active map |
+| I7 | `current_binding.node_id` 必须存在于 active map |
 | I8 | 普通工具结果必须记录到当前 node attribution |
 | I9 | subagent spawn 必须先 claim ready node，再创建 child thread |
 | I10 | 一个 node 同时最多有一个 active lease |
@@ -775,10 +1019,12 @@ agent output channel:
 | active task 缺 active map | 阻止普通工具，要求 map draft | agent 基于 task context 创建 map |
 | active map 缺 current node | 阻止普通工具，要求 `BindNode` | agent 选择 ready/running node |
 | 普通工具调用时无 binding | tool guard 拒绝执行 | 回到 routing/binding |
+| `CreateNode.map_id != active_map_id` | 拒绝控制动作，不追加 node | agent 基于最新 active map 重试 |
 | subagent spawn 时无 ready node | 拒绝 spawn，不创建 child thread | agent 创建 node、等待 running node、或询问用户 |
 | node lease attach 失败 | 释放已 claim lease，node 回到 ready 或 blocked | agent 可重试 spawn |
-| subagent 超时 | 请求进展总结，写入 lease node result/blocker | 主 agent 决定继续、重试、创建新 node |
+| subagent 超时 | 请求进展总结，写入 lease node result/blocker，释放 lease，node 置 blocked | 主 agent 决定继续、重试、创建新 node |
 | `/task-reborn` draft 无效 | 不切换 active map | agent 修正 draft 或询问用户 |
+| bootstrap 连续失败达到阈值且还没有成功创建过 task | 自动回滚到普通 session | 用户可继续普通对话，或再次执行 `/taskspace` |
 | viewer read 失败 | 不影响 runtime；返回机械错误 | 用户可重试 `/task-show` |
 
 ### 现有代码落点
@@ -796,6 +1042,7 @@ TaskSpace 不应该另造一套并行 runtime。第一版应从当前 Action Map
 | subagent close/release | `third_party/codex-cli/codex-rs/core/src/tools/handlers/multi_agents_v2/close_agent.rs` | 继续释放 node lease |
 | wait timeout summary | `third_party/codex-cli/codex-rs/core/src/tools/handlers/multi_agents_v2/wait.rs` | 继续把超时总结写回 lease node |
 | child result writeback | `third_party/codex-cli/codex-rs/core/src/agent/control.rs` 与 `Session::record_action_map_child_result` | 演进为 task node result writeback |
+| result body read | 现有 thread/actionMap read 路径与 tool handler 形态 | 新增只读 `read_task_result` wrapper，按 `ResultId` 返回 full body |
 | viewer server | `third_party/codex-cli/codex-rs/tui/src/app/action_map_viewer.rs` | 改名或包裹为 TaskSpace viewer，复用本地 HTTP + polling |
 | app-server read API | `thread/actionMap/read` | 第一版可兼容，后续新增 `thread/taskspace/read` |
 | TUI slash dispatch | `third_party/codex-cli/codex-rs/tui/src/chatwidget/slash_dispatch.rs` | 新增 `/taskspace`、`/task-show`、`/task-reborn`，旧命令保留别名 |
@@ -890,10 +1137,61 @@ release_claimed_lease(lease_id, reason = "spawn_failed"):
   lock session state
   node.active_lease = None
   node.status = ready
-  remove or mark lease released
+  lease.state = Released
+  lease.released_at_ms = now
+  lease.release_reason = reason
   emit task_node_lease_released
   unlock session state
 ```
+
+### subagent 完成与 lease 释放
+
+subagent 结束后必须在同一处完成 result 写回、node 状态切换、lease 状态切换，不能只写 result。
+
+正常完成：
+
+```text
+record_subagent_result(lease_id, result):
+  lock session state
+  verify lease.state == Attached(child_thread_id)
+  verify lease.task_id/map_id/node_id still exist
+  write full result body and summary into map.results
+  append result_id to node.result_ids
+  node.status = completed or blocked
+  node.active_lease = None
+  lease.state = Completed
+  lease.completed_at_ms = now
+  advance downstream ready nodes if dependency edges are satisfied
+  update task.updated_at_ms and manifest digest
+  emit task_node_result_recorded
+  emit task_node_lease_released
+  unlock session state
+```
+
+超时、child crash、用户关闭 child thread：
+
+```text
+release_attached_lease(lease_id, reason):
+  lock session state
+  if progress summary exists:
+    write it as node result summary/body
+  node.status = blocked
+  node.active_lease = None
+  lease.state = Released
+  lease.released_at_ms = now
+  lease.release_reason = reason
+  update task.updated_at_ms and manifest digest
+  emit task_node_lease_released
+  unlock session state
+```
+
+如果 result 写回的是 pending task：
+
+- 仍然按原 lease 写回原 node。
+- 允许推进该 pending task 内部的下游 ready 状态。
+- 更新该 task 的 `summary_digest`、`last_active_node_title`、`updated_at_ms`。
+- 不切换 `active_task_id`，不把该 task 自动变成 active。
+- 下一轮 manifest 注入时，主 agent 可以看到 pending task 摘要已经变化。
 
 claim 失败要返回明确错误：
 
@@ -902,7 +1200,7 @@ enum ClaimRejected {
     NoReadyNode,
     NodeAlreadyLeased { node_id: NodeId },
     TaskNotActive { task_id: TaskId },
-    MapNotActive { map_id: TaskMapId },
+    MapMismatch { requested_map_id: TaskMapId, active_map_id: TaskMapId },
 }
 ```
 
@@ -918,11 +1216,32 @@ Task 创建时，不创建空 BaseMap。
 1. runtime 暴露 BaseMap metadata 和候选节点。
 2. agent 根据用户输入和当前上下文生成上下文化 task map。
 3. runtime 校验结构。
-4. runtime 创建 task + map + nodes。
-5. runtime 绑定 main_node_id。
+4. runtime 分配正式 task/map/node id，建立 `local_id -> NodeId` 映射。
+5. runtime 创建 task + map + nodes。
+6. runtime 绑定 `TaskMapDraft.current_main_local_id` 对应的正式 node。
 ```
 
 BaseMap 只提供候选节点，不是实际 task。
+
+BaseMap metadata 是静态内置数据，不做领域 map 注册系统。第一版只保留一个 `base`：
+
+```rust
+BaseMapMetadata {
+    version: String,
+    candidate_nodes: Vec<BaseMapCandidateNode>,
+}
+
+BaseMapCandidateNode {
+    key: String,
+    title: String,
+    description: String,
+    category: String,
+}
+```
+
+这些候选节点在 task map 创建和 reborn map 创建时一次性暴露给主 agent。runtime 不根据候选节点自动建图，
+也不在后续每轮反复注入完整候选列表。
+工程上可以放在 taskspace 模块内的静态常量或同目录小型 manifest 文件；第一版不需要动态加载、插件注册或语义检索。
 
 候选节点示例：
 
@@ -1000,12 +1319,14 @@ TaskManifestEntry {
     objective_short: String,
     status: TaskStatus,
     last_active_at_ms: i64,
-    active_node_title: Option<String>,
+    last_active_node_title: Option<String>,
     summary_digest: String,
 }
 ```
 
 Manifest 要短。每个 task 控制在 1 到 3 行。
+pending task 的后台 subagent result 写回时，也必须更新 manifest 中的 `summary_digest`、
+`last_active_node_title` 和更新时间。runtime 不主动切回该 task，但要让主 agent 下一轮能看到这个 task 已经有新进展。
 
 示例：
 
@@ -1028,7 +1349,7 @@ TaskContextPack {
     context_summary: String,
     source_refs: Vec<String>,
     active_map_id: TaskMapId,
-    current_main_node_id: NodeId,
+    current_binding: TaskActionBinding,
     nodes: Vec<NodeContextSummary>,
     edges: Vec<EdgeSummary>,
     latest_results: Vec<ResultSummary>,
@@ -1066,7 +1387,7 @@ NodeContextSummary {
 ResultSummary {
     result_id: ResultId,
     node_id: NodeId,
-    kind: String,
+    kind: NodeResultKind,
     summary: String,
     source_thread_id: ThreadId,
     created_at_ms: i64,
@@ -1075,6 +1396,54 @@ ResultSummary {
 ```
 
 完整 result body 不默认进入 prompt。否则一两个 subagent 大结果就会把 active task pack 膨胀失控。
+
+### 读取完整 result body
+
+既然 prompt 默认只注入 `ResultSummary`，agent 必须有一个按需读取完整 body 的只读工具。
+第一版提供内部只读工具：
+
+```rust
+ReadTaskResultArgs {
+    result_id: ResultId,
+}
+
+ReadTaskResultOutput {
+    result_id: ResultId,
+    task_id: TaskId,
+    map_id: TaskMapId,
+    node_id: NodeId,
+    summary: String,
+    body: String,
+    created_at_ms: i64,
+}
+```
+
+工具名可以是：
+
+```text
+read_task_result
+```
+
+权限规则：
+
+- 只能在 `taskspace.enabled = true` 时调用。
+- `result_id` 必须出现在本轮已注入的 active task pack 或 referenced task pack 中。
+- runtime 只按 id 查找，不做语义搜索。
+- 该工具不改变 task/map/node 状态，只记录只读 audit event。
+- 如果 result 属于 cold pending task，agent 必须先通过 `SwitchTask` 或显式 referenced pack 让该 task 进入本轮可见范围，不能绕过 manifest 随机读取历史结果。
+
+“本轮已注入”的判定由 turn context 持有，不从 prompt 文本反推：
+
+```rust
+TaskSpaceTurnExposure {
+    injected_task_ids: HashSet<TaskId>,
+    injected_map_ids: HashSet<TaskMapId>,
+    injected_result_ids: HashSet<ResultId>,
+}
+```
+
+每次渲染 TaskSpace manifest / active pack / referenced pack 时同步生成这个集合。
+`read_task_result` 只检查 `injected_result_ids`，不会扫描全部历史结果。
 
 ### Referenced Task Packs
 
@@ -1114,12 +1483,28 @@ TaskSpaceCompressionSnapshot {
     active_task: Option<TaskContextPack>,
     referenced_tasks: Vec<TaskContextPack>,
     cold_pending_task_refs: Vec<TaskArchiveRef>,
+    exposure: TaskPackExposureSnapshot,
+}
+
+TaskPackExposureSnapshot {
+    active_task_id: Option<TaskId>,
+    referenced_task_ids: Vec<TaskId>,
+    cold_pending_task_ids: Vec<TaskId>,
 }
 ```
 
 压缩后的 developer context 由该 snapshot 渲染出来。
 
 不要让模型从普通 session summary 中反推 task map。task map 必须由 runtime state 持有。
+
+snapshot 存储位置：
+
+- 最新 snapshot 保存在 `TaskSpaceRuntimeState.latest_compression_snapshot`。
+- 每次创建 snapshot 时发出 `taskspace_compression_snapshot_created` rollout event，供 replay 恢复。
+- 不新增独立文件或独立数据库。
+- replay 时先用事件恢复 runtime state，再用最新 snapshot 渲染 developer context；snapshot 不能替代 authoritative task/map state。
+- `exposure` 只用于压缩预算和调试，明确哪些 pending task 本轮被升温为 referenced pack；
+  它不改变 `TaskStatus`，也不作为 task routing 的输入判断。
 
 ### 防止重要信息丢失
 
@@ -1239,11 +1624,12 @@ repair 规则：
 | `active_task_id` 指向不存在 task | 清空 `active_task_id`，设置 `bootstrap_required = true` |
 | 没有 active task，但存在 status=active 的 task | 选择最近 `last_active_at_ms` 最大的 active task |
 | 多个 task status=active | 只保留 `active_task_id` 指向的 task 为 active，其余置 pending |
+| `active_task_id` 指向的 task status=pending | 将该 task status 修正为 active，记录 repair note |
 | active task 缺 `active_map_id` | 设置 `bootstrap_required = true`，要求 agent 生成 map |
 | `active_map_id` 不存在 | 选择该 task 最新非 historical map；没有则 bootstrap |
-| `current_main_node_id` 不存在 | 选择 active map 第一个 ready/running node；没有则 bootstrap |
+| `current_binding` 缺失或指向不存在 node | 优先用 active task 的有效 `last_main_node_id` 重建 binding；没有则选择 active map 第一个 ready/running node；仍没有则 bootstrap |
 | lease 指向不存在 node | 释放 lease，记录 repair note |
-| node.active_lease 指向不存在 lease | 清空 node.active_lease；running node 可降级 ready 或 blocked |
+| node.active_lease 指向不存在 lease | 清空 node.active_lease；如果 node.status=running，降级为 blocked，并追加 repair note |
 | result 指向不存在 node | 保留 result 为 orphan result，不注入 prompt，只在 viewer debug 区显示 |
 
 repair 不能做：
@@ -1252,6 +1638,7 @@ repair 不能做：
 - 不能自动生成新 task map。
 - 不能删除旧 map/result。
 - 不能把 pending task 变成 active，除非 `active_task_id` 明确指向它。
+- 不能把丢失 lease 的 running node 自动降级为 ready，因为原 subagent 是否仍在执行不可知。
 
 repair 失败时：
 
@@ -1281,7 +1668,9 @@ task_node_lease_created
 task_node_lease_attached
 task_node_lease_released
 task_node_result_recorded
+task_result_body_read
 taskspace_control_action_failed
+taskspace_bootstrap_failed_reset
 taskspace_repair_applied
 taskspace_compression_snapshot_created
 ```
@@ -1292,9 +1681,9 @@ replay 时：
 2. 重放 task lifecycle。
 3. 重放 task map/node/lease/result。
 4. 恢复 active_task_id。
-5. 恢复 current_main_node_id。
+5. 从 active task 的 `active_map_id` 和有效 `last_main_node_id` 重建 `current_binding`；如果无法重建则进入 bootstrap/repair。
 
-如果事件不完整，优先恢复 manifest 和 active task，lease 可以降级为 unattached/running unknown。
+如果事件不完整，优先恢复 manifest 和 active task；无法确认 lease 的 running node 必须保守降级为 blocked 并记录 repair note。
 
 ## Prompt 设计
 
@@ -1304,6 +1693,8 @@ replay 时：
 TaskSpace is enabled for this session.
 You must maintain work as task-scoped state.
 Before ordinary tool use, code edits, or subagent spawning, select or create an active task and bind the current action to a task node.
+When routing, binding, creating nodes, or creating a reborn map, call the internal taskspace_control pseudo-tool.
+Do not express TaskSpace control decisions as natural-language JSON in the assistant message.
 Do not expose internal map/lease terminology to the user unless debugging.
 Use task/node state as the source of truth for ongoing work.
 If the user changes topic, route the input to an existing task or create a new task.
@@ -1320,6 +1711,7 @@ Given the latest user input and the TaskSpace manifest, choose exactly one:
 4. ask the user to clarify
 
 Return only a structured task routing decision.
+Submit it with taskspace_control(action=Route).
 Do not perform ordinary work before this decision is accepted by runtime.
 ```
 
@@ -1330,6 +1722,7 @@ Create a lightweight task path for the selected task.
 Use the candidate node list only as guidance.
 Prefer concrete nodes that match the user's current objective.
 Every node must have a clear title and local context summary.
+Use draft-local node ids only. The runtime will assign final node ids.
 Keep the first map small; it can grow later.
 Select the node that the main agent should work on now.
 ```
@@ -1442,21 +1835,43 @@ V1 viewer 明确为只读：
 - 重复执行 `/taskspace` 不改变 task 状态，但会重新打印同一个 viewer URL。
 - `/task-show` 会打印或打开同一个 viewer URL，不改变 runtime 状态。
 - enable 后无 active task 时，普通工具行动被阻止。
+- `taskspace_control` pseudo-tool 会在普通 tool dispatch 前被解析和应用。
+- `taskspace_control.action` 使用 enum 反序列化，非法 action 直接 schema error。
+- 同一轮多个 `taskspace_control` 会拒绝整批 response items。
+- `bootstrap_required` 或 `current_binding=None` 时，没有 `taskspace_control` 的普通文本和普通工具都不会成为最终行动。
 - task routing create_task 后生成 active task。
+- `CreateTask.initial_map` 与 `RebornMap.draft` 共享 `TaskMapDraft` 和 `create_task_map_from_draft`。
+- `TaskMapDraft` 使用 `NodeDraft.local_id`，runtime 分配正式 `NodeId` 并正确改写 edge 和 main node。
 - 控制动作解析/校验失败时，普通工具不会执行，并记录 failure count。
-- active task 必须有 active map 和 current_main_node_id。
+- bootstrap 前连续控制动作失败达到阈值时自动回滚到普通 session，成功 bootstrap 后不允许自动退出 TaskSpace。
+- active task 必须有 active map 和 `current_binding`。
+- `current_binding` 是主 agent 当前 node 的唯一权威，`TaskState.last_main_node_id` 只是恢复/viewer 镜像。
 - 普通工具调用不需要携带 task/map/node id，会自动归属当前 `TaskActionBinding`。
+- 普通工具结果会写入当前 node 的 `NodeResultKind::MainToolCall`。
 - 无当前 `TaskActionBinding` 时，普通工具调用被 guard 拒绝。
 - 切换 task/node 必须先提交结构化 routing/binding 控制动作。
+- `CreateNode.map_id` 必须等于当前 `active_map_id`。
+- `CreateNode` 创建的新 node 初始状态为 `ready`。
+- `TaskNote` 存储在 `TaskState.notes`，SwitchTask 的 context update 能落盘。
+- `EdgeKind::Dependency` 按所有上游 completed 的 AND 规则推进下游 ready，`Related` 不阻塞。
+- 没有 incoming dependency 的 node 在 map 创建后初始为 `ready`。
 - 并发 subagent spawn 争抢同一个 ready node 时，只有一个 claim 成功，其余返回 `ClaimRejected`。
+- subagent 正常完成后，result 写入 node，lease -> Completed，`node.active_lease` 清空。
+- subagent 超时/崩溃/关闭后，进展总结写入 node，lease -> Released，node -> blocked，`node.active_lease` 清空。
 - task switch 会把旧 active task 置 pending，并保存 `previous_task_context_update`。
 - task switch 不会中断旧 task 中已经 attach 的 subagent lease，后续 result 仍写回旧 node。
+- pending task 的异步 result 写回会更新 manifest 摘要，但不会自动切换 active task。
 - task reborn 会保留旧 map 为历史路径，并创建新 map。
+- `RebornMap` 只有在 `/task-reborn` 设置 `reborn_pending` 后才能被接受。
 - task reborn 不改变 task id，不删除旧 map/result，并重新打印 viewer URL。
-- task reborn 的新 map 由主 agent 输出 `TaskMapDraft`，runtime 只做结构校验。
+- task reborn 的新 map 由主 agent 输出含 `local_id` 的 `TaskMapDraft`，runtime 分配正式 id。
 - task reborn 校验失败时不切换 `active_map_id`。
 - task reborn 后新 map 有 `parent_map_id`，active pack 只注入当前 map + 父 map摘要。
-- repair 能修复 `active_task_id`、`active_map_id`、`current_main_node_id` 指向不存在对象的结构错误。
+- repair 能修复 `active_task_id`、`active_map_id`、`current_binding` 指向不存在对象的结构错误。
+- repair 遇到 `active_task_id` 指向 pending task 时会修正为 active 并记录 repair note。
+- repair 遇到 running node 的缺失 lease 时必须降级 blocked，不能自动 ready。
+- `read_task_result` 只能读取本轮 active/referenced pack 已暴露的 result id，且不改变 runtime 状态。
+- `TaskSpaceTurnExposure.injected_result_ids` 决定 `read_task_result` 的可读范围。
 
 ### 压缩测试
 
@@ -1468,6 +1883,7 @@ V1 viewer 明确为只读：
 - 压缩后 developer context 仍包含 TaskSpace enabled 和当前 node 约束。
 - TaskSpace prompt 注入总量不超过 `TASKSPACE_MAX_PROMPT_TOKENS`。
 - referenced task packs 超预算时按 `last_active_at_ms` 从旧到新淘汰。
+- compression snapshot 保存 `TaskPackExposureSnapshot`，能区分 active/referenced/cold pending。
 - cold pending task 只有在 agent 返回 `SwitchTask` 后才升温为 referenced pack。
 
 ### 真实 E2E
@@ -1538,7 +1954,27 @@ V1 viewer 明确为只读：
 
 - 普通工具不执行。
 - runtime 记录 `last_control_error` 和 `consecutive_control_failures`。
-- 失败达到阈值后向用户返回机械错误，而不是绕过 TaskSpace。
+- bootstrap 前失败达到阈值后回滚普通 session，并提示用户可重新 `/taskspace`。
+- bootstrap 成功后失败达到阈值只停止本轮推进，不退出 TaskSpace。
+
+场景 8：pending task 的后台 subagent 完成。
+
+期望：
+
+- result 写回 pending task 的原 node。
+- lease 释放，node 进入 completed 或 blocked。
+- pending task manifest 摘要更新。
+- active task 不被自动切换。
+- 用户回到该任务时，agent 能看到最新摘要并决定继续。
+
+场景 9：读取完整 result。
+
+期望：
+
+- prompt 只包含 `ResultSummary`。
+- agent 可用 `read_task_result(result_id)` 读取本轮可见 result 的完整 body。
+- 读取不改变 task/map/node 状态。
+- 未在 active/referenced pack 暴露的 result id 被拒绝。
 
 ## 与旧概念的对应关系
 
