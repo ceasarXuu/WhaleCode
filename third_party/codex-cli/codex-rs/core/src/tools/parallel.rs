@@ -113,7 +113,24 @@ impl ToolCallRuntime {
                     _ = cancellation_token.cancelled() => {
                         let secs = started.elapsed().as_secs_f32().max(0.1);
                         dispatch_span.record("aborted", true);
-                        Ok(Self::aborted_response(&call, secs))
+                        let response = Self::aborted_response(&call, secs);
+                        if taskspace_attributed
+                            && session
+                                .prepare_action_map_main_tool_call(&turn, &taskspace_tool_name)
+                                .await
+                                .is_ok()
+                        {
+                            session
+                                .record_action_map_main_tool_result(
+                                    &turn,
+                                    &taskspace_call_id,
+                                    &taskspace_tool_name,
+                                    false,
+                                    response.result.log_preview(),
+                                )
+                                .await;
+                        }
+                        Ok(response)
                     },
                     res = async {
                         let _guard = if supports_parallel {
@@ -139,19 +156,37 @@ impl ToolCallRuntime {
                                 source,
                             )
                             .instrument(dispatch_span.clone())
-                            .await?;
-                        if taskspace_attributed {
-                            session
-                                .record_action_map_main_tool_result(
-                                    &turn,
-                                    &taskspace_call_id,
-                                    &taskspace_tool_name,
-                                    result.result.success_for_logging(),
-                                    result.result.log_preview(),
-                                )
-                                .await;
+                            .await;
+                        match result {
+                            Ok(result) => {
+                                if taskspace_attributed {
+                                    session
+                                        .record_action_map_main_tool_result(
+                                            &turn,
+                                            &taskspace_call_id,
+                                            &taskspace_tool_name,
+                                            result.result.success_for_logging(),
+                                            result.result.log_preview(),
+                                        )
+                                        .await;
+                                }
+                                Ok(result)
+                            }
+                            Err(err) => {
+                                if taskspace_attributed {
+                                    session
+                                        .record_action_map_main_tool_result(
+                                            &turn,
+                                            &taskspace_call_id,
+                                            &taskspace_tool_name,
+                                            false,
+                                            err.to_string(),
+                                        )
+                                        .await;
+                                }
+                                Err(err)
+                            }
                         }
-                        Ok(result)
                     } => res,
                 }
             }));

@@ -125,3 +125,7 @@ Fix: session shutdown now marks the session as shutting down before tearing down
 The 2026-05-10 run exposed a regression in the first fix: passing `features.multi_agent_v2=true` on the CLI created the wrong TOML shape for a configurable feature, so the old handler could still be exposed. The E2E failed with no `lease_created` / `lease_attached` evidence.
 
 Fix: the exec override now uses `features.multi_agent_v2.enabled=true`. The next installed-binary E2E run passed with real `spawn_agent`, `lease_created`, `lease_attached`, `lease_released`, static observability export, and no rollout persistence errors.
+
+The 2026-05-25 dynamic-node regression found that runtime-created nodes such as `node-1` were not fully usable by the real `spawn_agent` path. The dispatcher could claim the dynamic node, but the node id was reused as the subagent path segment, and `AgentPath` rejects hyphens with `agent_name must use only lowercase letters, digits, and underscores`.
+
+Fix: the Action Map dispatcher now exposes and schedules dynamic nodes, while `spawn_agent` sanitizes node-derived task names for `AgentPath` without changing the canonical map node id. The installed-binary E2E run `019e5b88-9ac9-7401-aa24-969a55b93c21` passed with `node-1` created, lease `lease-1` attached to `/root/node_1`, `node_result_recorded`, and `lease_released`.

@@ -249,14 +249,12 @@ impl ActionMapRuntimeState {
         }
 
         self.validate_main_binding()?;
-        let map_id = self
-            .active_map_id
-            .clone()
-            .ok_or_else(|| "TaskSpace mode is active but no active task path exists.".to_string())?;
-        let node_id = self
-            .current_main_node_id
-            .clone()
-            .ok_or_else(|| "TaskSpace mode is active but no current node binding exists.".to_string())?;
+        let map_id = self.active_map_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no active task path exists.".to_string()
+        })?;
+        let node_id = self.current_main_node_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no current node binding exists.".to_string()
+        })?;
         let result_id = self.next_result_id();
         let lease_id = format!("main:{}", call_id);
         let body = format!(
@@ -308,10 +306,9 @@ preview:\n\
         if self.mode != MapRuntimeMode::Experiment {
             return Ok(());
         }
-        let map_id = self
-            .active_map_id
-            .clone()
-            .ok_or_else(|| "TaskSpace mode is active but no active task path exists.".to_string())?;
+        let map_id = self.active_map_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no active task path exists.".to_string()
+        })?;
         let map = self
             .maps
             .get(&map_id)
@@ -346,10 +343,9 @@ preview:\n\
             return Err("TaskSpace mode is not active.".to_string());
         }
         let mut events = self.ensure_active_seed_map(owner_session_id, title.as_str());
-        let map_id = self
-            .active_map_id
-            .clone()
-            .ok_or_else(|| "TaskSpace mode is active but no active task path exists.".to_string())?;
+        let map_id = self.active_map_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no active task path exists.".to_string()
+        })?;
         let node_id = self.next_node_id();
         let map = self
             .maps
@@ -370,7 +366,9 @@ preview:\n\
                 continue;
             }
             let Some(node) = map.nodes.get(dependency) else {
-                return Err(format!("TaskSpace dependency node `{dependency}` does not exist."));
+                return Err(format!(
+                    "TaskSpace dependency node `{dependency}` does not exist."
+                ));
             };
             dependencies.push((dependency.to_string(), node.status));
         }
@@ -434,9 +432,7 @@ preview:\n\
 
         let mut events = self.ensure_active_seed_map(owner_session_id, requested_task_name);
         let Some(map_id) = self.active_map_id.clone() else {
-            return Err(
-                "TaskSpace mode is active but no active task path exists.".to_string(),
-            );
+            return Err("TaskSpace mode is active but no active task path exists.".to_string());
         };
         let Some(node_id) = self.next_ready_node_id(&map_id) else {
             return Err(
@@ -702,8 +698,8 @@ preview:\n\
                 context.push_str(node_id);
             }
             context.push_str("\nNodes:\n");
-            for node_id in SEED_NODE_IDS {
-                if let Some(node) = map.nodes.get(*node_id) {
+            for node_id in ordered_node_ids(map) {
+                if let Some(node) = map.nodes.get(&node_id) {
                     context.push_str("- ");
                     context.push_str(&node.id);
                     context.push_str(": ");
@@ -796,7 +792,9 @@ preview:\n\
             return Err(format!("TaskSpace active task path `{map_id}` is missing."));
         };
         if map.status != MapStatus::Active {
-            return Err(format!("TaskSpace active task path `{map_id}` is not active."));
+            return Err(format!(
+                "TaskSpace active task path `{map_id}` is not active."
+            ));
         }
         let Some(node_id) = self.current_main_node_id.as_ref() else {
             return Err("TaskSpace mode is active but no current node binding exists.".to_string());
@@ -809,12 +807,17 @@ preview:\n\
 
     fn next_ready_node_id(&self, map_id: &str) -> Option<MapNodeId> {
         let map = self.maps.get(map_id)?;
-        SEED_NODE_IDS.iter().find_map(|node_id| {
+        let ready_node = |node_id: &str| {
             map.nodes
-                .get(*node_id)
+                .get(node_id)
                 .filter(|node| node.status == NodeStatus::Ready && node.active_lease.is_none())
                 .map(|node| node.id.clone())
-        })
+        };
+        ordered_node_ids(map)
+            .into_iter()
+            .filter(|node_id| self.current_main_node_id.as_deref() != Some(node_id.as_str()))
+            .find_map(|node_id| ready_node(&node_id))
+            .or_else(|| self.current_main_node_id.as_deref().and_then(ready_node))
     }
 
     fn find_lease_by_thread(
@@ -1001,12 +1004,39 @@ fn seed_map(
 }
 
 fn first_open_node_id(map: &ActionMapInstance) -> Option<MapNodeId> {
-    SEED_NODE_IDS.iter().find_map(|node_id| {
+    ordered_node_ids(map).into_iter().find_map(|node_id| {
         map.nodes
-            .get(*node_id)
-            .filter(|node| node.status != NodeStatus::Completed)
+            .get(&node_id)
+            .filter(|node| !matches!(node.status, NodeStatus::Pending | NodeStatus::Completed))
             .map(|node| node.id.clone())
     })
+}
+
+fn ordered_node_ids(map: &ActionMapInstance) -> Vec<MapNodeId> {
+    let mut ordered = SEED_NODE_IDS
+        .iter()
+        .filter(|node_id| map.nodes.contains_key(**node_id))
+        .map(|node_id| (*node_id).to_string())
+        .collect::<Vec<_>>();
+    let mut dynamic = map
+        .nodes
+        .keys()
+        .filter(|node_id| !SEED_NODE_IDS.contains(&node_id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    dynamic.sort_by(|left, right| node_id_sort_key(left).cmp(&node_id_sort_key(right)));
+    ordered.extend(dynamic);
+    ordered
+}
+
+fn node_id_sort_key(node_id: &str) -> (u8, u64, &str) {
+    if let Some(number) = node_id
+        .strip_prefix("node-")
+        .and_then(|suffix| suffix.parse::<u64>().ok())
+    {
+        return (0, number, node_id);
+    }
+    (1, 0, node_id)
 }
 
 fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
@@ -1194,7 +1224,7 @@ Map: {map_id}\n\
 Node: {node_id} - {node_title}\n\
 Lease: {lease_id}\n\
 \n\
-You must work only on this node's subtask. Use the provided node context and return a concise, free-form result for this node. If you are blocked, explain the blocker clearly. Do not maintain the map directly.\n\n"
+You must work only on this node's subtask. Use the provided node context and return a concise, free-form result for this node. If you are blocked, explain the blocker clearly. Do not maintain the map directly. Do not call taskspace_control, spawn_agent, or wait_agent unless the user task explicitly requires nested delegation.\n\n"
     )
 }
 
@@ -1300,10 +1330,11 @@ mod tests {
                 .iter()
                 .any(|event| matches!(event, MapRuntimeEvent::MapCreated(_)))
         );
-        assert!(events.iter().any(|event| matches!(
-            event,
-            MapRuntimeEvent::NodeStatusChanged(_)
-        )));
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, MapRuntimeEvent::NodeStatusChanged(_)))
+        );
         assert_eq!(state.current_main_node_id.as_deref(), Some("define_scope"));
     }
 
@@ -1378,7 +1409,10 @@ mod tests {
         let map = state.active_map().expect("active map");
         let node = map.nodes.get("node-1").expect("created node");
         assert_eq!(node.status, NodeStatus::Ready);
-        assert_eq!(node.context.summary, "Check logging coverage before implementation.");
+        assert_eq!(
+            node.context.summary,
+            "Check logging coverage before implementation."
+        );
     }
 
     #[test]
@@ -1399,6 +1433,30 @@ mod tests {
             .expect_err("pending dependency cannot bind");
 
         assert!(error.contains("cannot bind"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("define_scope"));
+    }
+
+    #[test]
+    fn bind_main_node_allows_blocked_nodes_for_recovery_work() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.ensure_active_seed_map(owner, "test");
+        let map_id = state.active_map_id.clone().expect("active map");
+        state.current_main_node_id = Some("inspect_code_context".to_string());
+        state
+            .maps
+            .get_mut(&map_id)
+            .expect("map")
+            .nodes
+            .get_mut("define_scope")
+            .expect("node")
+            .status = NodeStatus::Blocked;
+
+        state
+            .bind_main_node("define_scope")
+            .expect("blocked nodes can be rebound");
+
         assert_eq!(state.current_main_node_id.as_deref(), Some("define_scope"));
     }
 
@@ -1481,6 +1539,35 @@ mod tests {
         let context = state.build_developer_context().expect("context");
         assert!(context.contains("define_scope:"));
         assert!(context.contains("[running]"));
+    }
+
+    #[test]
+    fn dynamic_ready_node_is_visible_and_claimable_by_subagent() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+
+        let (node_id, _) = state
+            .create_node_for_main(
+                owner,
+                "Parallel review".to_string(),
+                "Review a side task while main work stays on define_scope.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("node created");
+        assert_eq!(node_id, "node-1");
+        assert_eq!(state.current_main_node_id.as_deref(), Some("define_scope"));
+        let context = state.build_developer_context().expect("context");
+        assert!(context.contains("- node-1: Parallel review [ready]"));
+
+        let (assignment, _) = state
+            .prepare_spawn_assignment(owner, "parallel review")
+            .expect("dynamic assignment succeeds");
+        let assignment = assignment.expect("experiment assignment");
+
+        assert_eq!(assignment.node_id, "node-1");
+        assert_eq!(assignment.node_title, "Parallel review");
     }
 
     #[test]

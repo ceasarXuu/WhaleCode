@@ -964,6 +964,79 @@ async fn action_map_experiment_spawn_binds_first_ready_node() {
 }
 
 #[tokio::test]
+async fn action_map_experiment_spawn_uses_safe_agent_name_for_dynamic_node() {
+    #[derive(Debug, Deserialize)]
+    struct SpawnAgentResult {
+        task_name: String,
+    }
+
+    let (mut session, mut turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let root = manager
+        .start_thread((*turn.config).clone())
+        .await
+        .expect("root thread should start");
+    session.services.agent_control = manager.agent_control();
+    session.conversation_id = root.thread_id;
+    let mut config = (*turn.config).clone();
+    config
+        .features
+        .enable(Feature::MultiAgentV2)
+        .expect("test config should allow feature update");
+    turn.config = Arc::new(config);
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    enable_action_map_experiment(&session).await;
+    let node_id = session
+        .create_action_map_node_for_main(
+            &turn,
+            "Dynamic review".to_string(),
+            "A dynamic node should still get a valid subagent path.".to_string(),
+            Vec::new(),
+            false,
+        )
+        .await
+        .expect("dynamic node should be created");
+    assert_eq!(node_id, "node-1");
+
+    let output = SpawnAgentHandlerV2
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "inspect dynamic node",
+                "task_name": "worker"
+            })),
+        ))
+        .await
+        .expect("spawn_agent should accept sanitized dynamic node task name");
+    let (content, _) = expect_text_output(output);
+    let result: SpawnAgentResult =
+        serde_json::from_str(&content).expect("spawn result should parse");
+    assert!(
+        result.task_name.starts_with("/root/node_1"),
+        "dynamic node id should be sanitized for agent path, got {:?}",
+        result.task_name
+    );
+
+    let child_id = session
+        .services
+        .agent_control
+        .resolve_agent_reference(
+            session.conversation_id,
+            &turn.session_source,
+            &result.task_name,
+        )
+        .await
+        .expect("spawned node agent should resolve");
+    let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
+    let content = inter_agent_content(&op).expect("child op should contain text");
+    assert!(content.contains("Node: node-1 - Dynamic review"));
+    assert!(content.contains("Lease: lease-1"));
+}
+
+#[tokio::test]
 async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
     #[derive(Debug, Deserialize)]
     struct SpawnAgentResult {

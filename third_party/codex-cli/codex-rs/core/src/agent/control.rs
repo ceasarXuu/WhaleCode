@@ -960,6 +960,9 @@ impl AgentControl {
                 Err(_) => control.get_status(child_thread_id).await,
             };
             if !is_final(&status) {
+                let _ = control
+                    .record_action_map_child_result(parent_thread_id, child_thread_id, &status)
+                    .await;
                 return;
             }
 

@@ -82,7 +82,7 @@ impl ToolHandler for Handler {
         };
         let effective_task_name = action_map_assignment
             .as_ref()
-            .map(|assignment| assignment.node_id.clone())
+            .map(|assignment| safe_agent_task_name(&assignment.node_id))
             .unwrap_or_else(|| args.task_name.clone());
         let initial_operation = match parse_collab_input(Some(message), /*items*/ None) {
             Ok(initial_operation) => initial_operation,
@@ -283,6 +283,24 @@ struct SpawnAgentArgs {
     reasoning_effort: Option<ReasoningEffort>,
     fork_turns: Option<String>,
     fork_context: Option<bool>,
+}
+
+fn safe_agent_task_name(node_id: &str) -> String {
+    let task_name = node_id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if task_name.is_empty() {
+        "node".to_string()
+    } else {
+        task_name
+    }
 }
 
 impl SpawnAgentArgs {
