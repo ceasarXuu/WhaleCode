@@ -937,6 +937,34 @@ impl Session {
         }
     }
 
+    pub(crate) async fn bind_action_map_main_node(&self, node_id: &str) -> Result<(), String> {
+        let mut state = self.state.lock().await;
+        state.action_map_runtime.bind_main_node(node_id)
+    }
+
+    pub(crate) async fn create_action_map_node_for_main(
+        &self,
+        turn_context: &TurnContext,
+        title: String,
+        context_summary: String,
+        dependency_node_ids: Vec<String>,
+        bind_current: bool,
+    ) -> Result<String, String> {
+        let (node_id, events) = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.create_node_for_main(
+                self.conversation_id,
+                title,
+                context_summary,
+                dependency_node_ids,
+                bind_current,
+            )
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(node_id)
+    }
+
     #[cfg(test)]
     pub(crate) async fn set_action_map_mode_for_test(
         &self,

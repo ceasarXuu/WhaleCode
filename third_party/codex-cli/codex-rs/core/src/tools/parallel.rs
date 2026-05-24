@@ -232,6 +232,7 @@ impl ToolCallRuntime {
                 | "resume_agent"
                 | "send_input"
                 | "send_message"
+                | "taskspace_control"
                 | "list_agents"
                 | "followup_task"
         )

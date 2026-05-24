@@ -57,6 +57,7 @@ pub(crate) struct ActionMapRuntimeState {
     current_main_node_id: Option<MapNodeId>,
     maps: HashMap<ActionMapId, ActionMapInstance>,
     next_map_seq: u64,
+    next_node_seq: u64,
     next_lease_seq: u64,
     next_result_seq: u64,
 }
@@ -101,6 +102,7 @@ impl Default for ActionMapRuntimeState {
             current_main_node_id: None,
             maps: HashMap::new(),
             next_map_seq: 1,
+            next_node_seq: 1,
             next_lease_seq: 1,
             next_result_seq: 1,
         }
@@ -300,6 +302,125 @@ preview:\n\
             },
         )];
         Ok(Some((result_id, events)))
+    }
+
+    pub(crate) fn bind_main_node(&mut self, node_id: &str) -> Result<(), String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(());
+        }
+        let map_id = self
+            .active_map_id
+            .clone()
+            .ok_or_else(|| "TaskSpace mode is active but no active task path exists.".to_string())?;
+        let map = self
+            .maps
+            .get(&map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        let node = map
+            .nodes
+            .get(node_id)
+            .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
+        if node.status == NodeStatus::Pending {
+            return Err(format!(
+                "TaskSpace node `{node_id}` is still pending; complete its dependencies before binding it."
+            ));
+        }
+        if node.status == NodeStatus::Completed {
+            return Err(format!(
+                "TaskSpace node `{node_id}` is completed; bind an open node or create a follow-up node."
+            ));
+        }
+        self.current_main_node_id = Some(node_id.to_string());
+        Ok(())
+    }
+
+    pub(crate) fn create_node_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        title: String,
+        context_summary: String,
+        dependency_node_ids: Vec<String>,
+        bind_current: bool,
+    ) -> Result<(MapNodeId, Vec<MapRuntimeEvent>), String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Err("TaskSpace mode is not active.".to_string());
+        }
+        let mut events = self.ensure_active_seed_map(owner_session_id, title.as_str());
+        let map_id = self
+            .active_map_id
+            .clone()
+            .ok_or_else(|| "TaskSpace mode is active but no active task path exists.".to_string())?;
+        let node_id = self.next_node_id();
+        let map = self
+            .maps
+            .get_mut(&map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        let title = title.trim();
+        let context_summary = context_summary.trim();
+        if title.is_empty() {
+            return Err("TaskSpace node title cannot be empty.".to_string());
+        }
+        if context_summary.is_empty() {
+            return Err("TaskSpace node context summary cannot be empty.".to_string());
+        }
+        let mut dependencies = Vec::new();
+        for dependency in dependency_node_ids {
+            let dependency = dependency.trim();
+            if dependency.is_empty() {
+                continue;
+            }
+            let Some(node) = map.nodes.get(dependency) else {
+                return Err(format!("TaskSpace dependency node `{dependency}` does not exist."));
+            };
+            dependencies.push((dependency.to_string(), node.status));
+        }
+        let ready = dependencies
+            .iter()
+            .all(|(_, status)| *status == NodeStatus::Completed);
+        if bind_current && !ready {
+            return Err(
+                "TaskSpace cannot bind the main action to a new node until all dependencies are completed."
+                    .to_string(),
+            );
+        }
+        map.nodes.insert(
+            node_id.clone(),
+            MapNode {
+                id: node_id.clone(),
+                title: title.to_string(),
+                status: if ready {
+                    NodeStatus::Ready
+                } else {
+                    NodeStatus::Pending
+                },
+                context: NodeContext {
+                    summary: context_summary.to_string(),
+                    source_refs: Vec::new(),
+                },
+                active_lease: None,
+                result_context: Vec::new(),
+                origin_node_id: None,
+            },
+        );
+        for (dependency, _) in dependencies {
+            map.edges.push(MapEdge {
+                from: dependency,
+                to: node_id.clone(),
+            });
+        }
+        if ready {
+            events.push(node_status_changed_event(
+                &map_id,
+                &node_id,
+                title,
+                NodeStatus::Pending,
+                NodeStatus::Ready,
+            ));
+        }
+        if bind_current {
+            self.current_main_node_id = Some(node_id.clone());
+        }
+        Ok((node_id, events))
     }
 
     pub(crate) fn prepare_spawn_assignment(
@@ -709,6 +830,16 @@ preview:\n\
         let id = format!("map-{}", self.next_map_seq);
         self.next_map_seq += 1;
         id
+    }
+
+    fn next_node_id(&mut self) -> MapNodeId {
+        loop {
+            let id = format!("node-{}", self.next_node_seq);
+            self.next_node_seq += 1;
+            if !self.maps.values().any(|map| map.nodes.contains_key(&id)) {
+                return id;
+            }
+        }
     }
 
     fn next_lease_id(&mut self) -> AssignmentLeaseId {
@@ -1214,6 +1345,58 @@ mod tests {
         assert_eq!(result.kind, NodeResultKind::MainToolCall);
         assert!(result.body.contains("tool: shell"));
         assert!(result.body.contains("preview:\nok"));
+    }
+
+    #[test]
+    fn control_can_create_and_bind_ready_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+
+        let (node_id, events) = state
+            .create_node_for_main(
+                owner,
+                "Review logging".to_string(),
+                "Check logging coverage before implementation.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect("node created");
+
+        assert_eq!(node_id, "node-1");
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::NodeStatusChanged(event)
+                    if event.node_id == "node-1" && event.current_status == "ready"
+            )
+        }));
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("created node");
+        assert_eq!(node.status, NodeStatus::Ready);
+        assert_eq!(node.context.summary, "Check logging coverage before implementation.");
+    }
+
+    #[test]
+    fn control_rejects_binding_pending_dependency_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.ensure_active_seed_map(owner, "test");
+
+        let error = state
+            .create_node_for_main(
+                owner,
+                "Regression".to_string(),
+                "Run after implementation.".to_string(),
+                vec!["implement_solution".to_string()],
+                true,
+            )
+            .expect_err("pending dependency cannot bind");
+
+        assert!(error.contains("cannot bind"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("define_scope"));
     }
 
     #[test]

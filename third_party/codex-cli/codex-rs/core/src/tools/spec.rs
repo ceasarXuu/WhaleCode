@@ -89,6 +89,7 @@ pub(crate) fn build_specs_with_discoverable_tools(
     use crate::tools::handlers::RequestUserInputHandler;
     use crate::tools::handlers::ShellCommandHandler;
     use crate::tools::handlers::ShellHandler;
+    use crate::tools::handlers::TaskSpaceControlHandler;
     use crate::tools::handlers::TestSyncHandler;
     use crate::tools::handlers::ToolSearchHandler;
     use crate::tools::handlers::ToolSuggestHandler;
@@ -258,6 +259,9 @@ pub(crate) fn build_specs_with_discoverable_tools(
             }
             ToolHandlerKind::SpawnAgentV2 => {
                 builder.register_handler(handler.name, Arc::new(SpawnAgentHandlerV2));
+            }
+            ToolHandlerKind::TaskSpaceControl => {
+                builder.register_handler(handler.name, Arc::new(TaskSpaceControlHandler));
             }
             ToolHandlerKind::TestSync => {
                 builder.register_handler(handler.name, Arc::new(TestSyncHandler));

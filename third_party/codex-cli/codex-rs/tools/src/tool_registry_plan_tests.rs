@@ -134,6 +134,10 @@ fn test_full_toolset_specs_for_gpt5_codex_unified_exec_web_search() {
     for spec in collab_specs {
         expected.insert(spec.name().to_string(), spec);
     }
+    if config.collab_tools {
+        let spec = create_taskspace_control_tool();
+        expected.insert(spec.name().to_string(), spec);
+    }
     if !config.multi_agent_v2 {
         let spec = create_resume_agent_tool();
         expected.insert(spec.name().to_string(), spec);
