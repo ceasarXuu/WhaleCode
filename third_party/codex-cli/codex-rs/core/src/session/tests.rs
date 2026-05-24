@@ -1318,14 +1318,14 @@ async fn build_initial_context_consumes_action_map_transition_notice_once() {
     let first_context = session.build_initial_context(&turn_context).await;
     let first_developer_text = developer_input_texts(&first_context).join("\n");
     assert!(
-        first_developer_text.contains("Action Map experiment mode is now active"),
+        first_developer_text.contains("TaskSpace mode is now active"),
         "expected transition notice in developer context, got: {first_developer_text}"
     );
 
     let second_context = session.build_initial_context(&turn_context).await;
     let second_developer_text = developer_input_texts(&second_context).join("\n");
     assert!(
-        !second_developer_text.contains("Action Map experiment mode is now active"),
+        !second_developer_text.contains("TaskSpace mode is now active"),
         "transition notice should be consumed once, got: {second_developer_text}"
     );
 }

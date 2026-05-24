@@ -974,7 +974,7 @@ impl Session {
             let mut state = self.state.lock().await;
             state
                 .action_map_runtime
-                .restart_active_map(self.conversation_id, "Restarted Action Map")
+                .restart_active_map(self.conversation_id, "Reborn TaskSpace path")
         };
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;
@@ -1010,7 +1010,7 @@ impl Session {
                 .interrupt_agent(target.thread_id)
                 .await;
             let message = format!(
-                "Action Map wait timeout reached for map `{}` node `{}` lease `{}`. Stop the current work and return a concise current-progress summary as the node result. Do not start unrelated work.",
+                "TaskSpace wait timeout reached for task path `{}` node `{}` lease `{}`. Stop the current work and return a concise current-progress summary as the node result. Do not start unrelated work.",
                 target.map_id, target.node_id, target.lease_id
             );
             let communication = InterAgentCommunication::new(

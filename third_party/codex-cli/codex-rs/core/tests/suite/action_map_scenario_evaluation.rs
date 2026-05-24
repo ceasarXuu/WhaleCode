@@ -197,9 +197,9 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
     assert!(
         request_bodies.iter().any(|body| {
             let text = body.to_string();
-            text.contains("Action Map node assignment") && text.contains("Node: define_scope")
+            text.contains("TaskSpace node assignment") && text.contains("Node: define_scope")
         }),
-        "child model request should include the Action Map node assignment"
+        "child model request should include the TaskSpace node assignment"
     );
 
     let rollout_path = harness
@@ -277,7 +277,7 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
         harness.server(),
         |req: &Request| {
             body_contains(req, REALISTIC_CHILD_PROMPT)
-                && body_contains(req, "Action Map node assignment")
+                && body_contains(req, "TaskSpace node assignment")
         },
         sse(vec![
             ev_response_created("resp-child-read"),

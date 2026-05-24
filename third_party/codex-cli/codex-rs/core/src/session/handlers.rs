@@ -945,30 +945,53 @@ pub async fn set_thread_memory_mode(sess: &Arc<Session>, sub_id: String, mode: T
 
 pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: MapRuntimeMode) {
     let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
-    let outcome = {
+    let (outcome, bootstrap_events) = {
         let mut state = sess.state.lock().await;
-        state.action_map_runtime.set_mode(mode)
+        state
+            .action_map_runtime
+            .set_mode_for_session(mode, sess.conversation_id)
     };
 
     sess.send_event(
         &turn_context,
         EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(MapRuntimeModeChangedEvent {
-            previous_mode: outcome.previous_mode,
-            current_mode: outcome.current_mode,
+            previous_mode: outcome.mode.previous_mode,
+            current_mode: outcome.mode.current_mode,
         })),
     )
     .await;
+    for event in bootstrap_events {
+        sess.send_event(&turn_context, EventMsg::MapRuntime(event)).await;
+    }
 
-    let status = if outcome.changed {
-        format!(
-            "Action Map runtime mode changed to {}.",
-            outcome.current_mode
-        )
+    let status = if outcome.mode.changed {
+        if outcome.mode.current_mode == MapRuntimeMode::Experiment {
+            match outcome.active_map_id.as_deref() {
+                Some(map_id) => format!(
+                    "TaskSpace enabled. Active task path {map_id} is ready."
+                ),
+                None => "TaskSpace enabled. The next agent turn must create an active task path."
+                    .to_string(),
+            }
+        } else {
+            format!(
+                "TaskSpace runtime mode changed to {}.",
+                outcome.mode.current_mode
+            )
+        }
     } else {
-        format!(
-            "Action Map runtime mode is already {}.",
-            outcome.current_mode
-        )
+        match (
+            outcome.mode.current_mode == MapRuntimeMode::Experiment,
+            outcome.active_map_id.as_deref(),
+        ) {
+            (true, Some(map_id)) => format!(
+                "TaskSpace is already enabled. Active task path {map_id} is ready."
+            ),
+            _ => format!(
+                "TaskSpace runtime mode is already {}.",
+                outcome.mode.current_mode
+            ),
+        }
     };
     sess.notify_background_event(&turn_context, status).await;
 }
@@ -978,9 +1001,9 @@ pub async fn restart_action_map(sess: &Arc<Session>, sub_id: String) {
     let (previous_map_id, new_map_id) = sess.restart_action_map(&turn_context).await;
     let status = match previous_map_id {
         Some(previous_map_id) => format!(
-            "Action Map restarted. Previous map {previous_map_id} was abandoned; new map is {new_map_id}."
+            "Task path reborn. Previous path {previous_map_id} is historical; new path is {new_map_id}."
         ),
-        None => format!("Action Map started. New map is {new_map_id}."),
+        None => format!("Task path started. New path is {new_map_id}."),
     };
     sess.notify_background_event(&turn_context, status).await;
 }

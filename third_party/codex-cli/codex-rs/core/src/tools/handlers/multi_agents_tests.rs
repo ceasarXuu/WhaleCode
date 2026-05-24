@@ -957,7 +957,7 @@ async fn action_map_experiment_spawn_binds_first_ready_node() {
         .expect("spawned node agent should resolve");
     let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
     let content = inter_agent_content(&op).expect("child op should contain text");
-    assert!(content.contains("Action Map node assignment"));
+    assert!(content.contains("TaskSpace node assignment"));
     assert!(content.contains("Node: define_scope"));
     assert!(content.contains("Lease: lease-1"));
     assert!(content.contains("inspect this repo"));
@@ -3368,7 +3368,7 @@ async fn action_map_wait_timeout_requests_progress_summary_from_running_node_age
     assert_eq!(
         result,
         crate::tools::handlers::multi_agents_v2::wait::WaitAgentResult {
-            message: "Wait timed out. Requested progress summaries from 1 Action Map subagent(s)."
+            message: "Wait timed out. Requested progress summaries from 1 TaskSpace subagent(s)."
                 .to_string(),
             timed_out: true,
         }
@@ -3384,7 +3384,7 @@ async fn action_map_wait_timeout_requests_progress_summary_from_running_node_age
     assert!(child_ops.iter().any(|op| matches!(op, Op::Interrupt)));
     assert!(child_ops.iter().any(|op| {
         inter_agent_content(op).is_some_and(|content| {
-            content.contains("Action Map wait timeout reached")
+            content.contains("TaskSpace wait timeout reached")
                 && content.contains("return a concise current-progress summary")
         })
     }));

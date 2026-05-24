@@ -775,20 +775,20 @@ pub enum Op {
     /// model.
     SetThreadMemoryMode { mode: ThreadMemoryMode },
 
-    /// Select the session-scoped Action Map runtime mode.
+    /// Select the session-scoped TaskSpace runtime mode.
     ///
     /// This is a local-only operation handled by codex-core; it does not
     /// involve the model. `standard` preserves the current multi-agent
-    /// behavior, while `experiment` enables Action Map hooks as they land.
+    /// behavior, while `experiment` enables TaskSpace hooks as they land.
     SetMapRuntimeMode { mode: MapRuntimeMode },
 
-    /// Abandon the active Action Map and create a fresh seed map.
+    /// Reborn the active TaskSpace path using the existing map runtime.
     ///
     /// This is a local-only operation handled by codex-core; it does not
     /// involve the model.
     RestartActionMap,
 
-    /// Show a human-readable snapshot of the current Action Map.
+    /// Show a human-readable snapshot of the current TaskSpace path.
     ///
     /// This is a local-only operation handled by codex-core; it does not
     /// involve the model.

@@ -208,6 +208,8 @@ use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::ThreadStartResponse;
 use codex_app_server_protocol::ThreadStartedNotification;
 use codex_app_server_protocol::ThreadStatus;
+use codex_app_server_protocol::ThreadTaskSpaceReadParams;
+use codex_app_server_protocol::ThreadTaskSpaceReadResponse;
 use codex_app_server_protocol::ThreadTurnsListParams;
 use codex_app_server_protocol::ThreadTurnsListResponse;
 use codex_app_server_protocol::ThreadUnarchiveParams;
@@ -1005,6 +1007,10 @@ impl CodexMessageProcessor {
             }
             ClientRequest::ThreadActionMapRead { request_id, params } => {
                 self.thread_action_map_read(to_connection_request_id(request_id), params)
+                    .await;
+            }
+            ClientRequest::ThreadTaskSpaceRead { request_id, params } => {
+                self.thread_taskspace_read(to_connection_request_id(request_id), params)
                     .await;
             }
             ClientRequest::MemoryReset { request_id, params } => {
@@ -3451,6 +3457,26 @@ impl CodexMessageProcessor {
         let snapshot = thread.action_map_snapshot().await;
         self.outgoing
             .send_response(request_id, ThreadActionMapReadResponse { snapshot })
+            .await;
+    }
+
+    async fn thread_taskspace_read(
+        &self,
+        request_id: ConnectionRequestId,
+        params: ThreadTaskSpaceReadParams,
+    ) {
+        let ThreadTaskSpaceReadParams { thread_id } = params;
+        let (_thread_uuid, thread) = match self.load_thread(&thread_id).await {
+            Ok(v) => v,
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let snapshot = thread.action_map_snapshot().await;
+        self.outgoing
+            .send_response(request_id, ThreadTaskSpaceReadResponse { snapshot })
             .await;
     }
 

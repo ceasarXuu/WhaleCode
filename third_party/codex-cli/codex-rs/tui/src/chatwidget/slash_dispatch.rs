@@ -35,6 +35,11 @@ const GOAL_USAGE_HINT: &str = "Example: /goal improve benchmark coverage";
 const MAP_MODE_USAGE: &str = "Usage: /map-mode [standard|experiment]";
 
 impl ChatWidget {
+    fn submit_taskspace_enable(&mut self) {
+        self.submit_op(AppCommand::set_map_runtime_mode(MapRuntimeMode::Experiment));
+        self.submit_op(AppCommand::show_action_map());
+    }
+
     /// Dispatch a bare slash command and record its staged local-history entry.
     ///
     /// The composer stages history before returning `InputResult::Command`; this wrapper commits
@@ -233,11 +238,20 @@ impl ChatWidget {
                 }
                 self.open_collaboration_modes_popup();
             }
+            SlashCommand::TaskSpace => {
+                self.submit_taskspace_enable();
+            }
+            SlashCommand::TaskReborn => {
+                self.submit_op(AppCommand::restart_action_map());
+            }
+            SlashCommand::TaskShow => {
+                self.submit_op(AppCommand::show_action_map());
+            }
             SlashCommand::MapMode => {
                 self.add_info_message(
                     MAP_MODE_USAGE.to_string(),
                     Some(
-                        "standard keeps the current multi-agent behavior; experiment enables Action Map hooks as they land."
+                        "standard keeps the current multi-agent behavior; experiment enables TaskSpace hooks as they land."
                             .to_string(),
                     ),
                 );
@@ -602,6 +616,15 @@ impl ChatWidget {
             SlashCommand::MapShow => {
                 self.add_error_message("Usage: /map-show".to_string());
             }
+            SlashCommand::TaskSpace => {
+                self.add_error_message("Usage: /taskspace".to_string());
+            }
+            SlashCommand::TaskReborn => {
+                self.add_error_message("Usage: /task-reborn".to_string());
+            }
+            SlashCommand::TaskShow => {
+                self.add_error_message("Usage: /task-show".to_string());
+            }
             SlashCommand::SearchProvider => {
                 self.dispatch_search_provider_command(trimmed);
             }
@@ -876,6 +899,9 @@ impl ChatWidget {
             | SlashCommand::MapMode
             | SlashCommand::MapRestart
             | SlashCommand::MapShow
+            | SlashCommand::TaskSpace
+            | SlashCommand::TaskReborn
+            | SlashCommand::TaskShow
             | SlashCommand::Apps
             | SlashCommand::Plugins
             | SlashCommand::Rollout

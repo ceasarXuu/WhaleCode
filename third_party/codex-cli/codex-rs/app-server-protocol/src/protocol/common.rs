@@ -324,6 +324,11 @@ client_request_definitions! {
         params: v2::ThreadActionMapReadParams,
         response: v2::ThreadActionMapReadResponse,
     },
+    #[experimental("thread/taskspace/read")]
+    ThreadTaskSpaceRead => "thread/taskspace/read" {
+        params: v2::ThreadTaskSpaceReadParams,
+        response: v2::ThreadTaskSpaceReadResponse,
+    },
     #[experimental("memory/reset")]
     MemoryReset => "memory/reset" {
         params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,

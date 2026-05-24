@@ -68,6 +68,12 @@ pub(crate) struct SetMapRuntimeModeOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SetTaskSpaceModeOutcome {
+    pub(crate) mode: SetMapRuntimeModeOutcome,
+    pub(crate) active_map_id: Option<ActionMapId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapAssignment {
     pub(crate) map_id: ActionMapId,
     pub(crate) node_id: MapNodeId,
@@ -116,6 +122,26 @@ impl ActionMapRuntimeState {
             current_mode: self.mode,
             changed: previous_mode != self.mode,
         }
+    }
+
+    pub(crate) fn set_mode_for_session(
+        &mut self,
+        mode: MapRuntimeMode,
+        owner_session_id: ThreadId,
+    ) -> (SetTaskSpaceModeOutcome, Vec<MapRuntimeEvent>) {
+        let mode_outcome = self.set_mode(mode);
+        let events = if mode == MapRuntimeMode::Experiment {
+            self.ensure_active_seed_map(owner_session_id, "session bootstrap")
+        } else {
+            Vec::new()
+        };
+        (
+            SetTaskSpaceModeOutcome {
+                mode: mode_outcome,
+                active_map_id: self.active_map_id.clone(),
+            },
+            events,
+        )
     }
 
     pub(crate) fn restore_mode(&mut self, mode: MapRuntimeMode) {
@@ -202,12 +228,12 @@ impl ActionMapRuntimeState {
         let mut events = self.ensure_active_seed_map(owner_session_id, requested_task_name);
         let Some(map_id) = self.active_map_id.clone() else {
             return Err(
-                "Action Map experiment mode is active but no active map exists.".to_string(),
+                "TaskSpace mode is active but no active task path exists.".to_string(),
             );
         };
         let Some(node_id) = self.next_ready_node_id(&map_id) else {
             return Err(
-                "Action Map experiment mode is active, but no ready node is available. Wait for running nodes to finish, ask the user for missing context, or restart the map with /map-restart."
+                "TaskSpace mode is active, but no ready node is available. Wait for running nodes to finish, ask the user for missing context, or reborn the task path with /task-reborn."
                     .to_string(),
             );
         };
@@ -441,12 +467,12 @@ impl ActionMapRuntimeState {
             return None;
         }
 
-        let mut context = String::from("Action Map experiment mode is active.\n");
+        let mut context = String::from("TaskSpace mode is active.\n");
         context.push_str(
-            "Runtime slash commands such as /map-restart are UI commands, not shell commands; do not run them via shell_command.\n",
+            "Runtime slash commands such as /task-reborn and /task-show are UI commands, not shell commands; do not run them via shell_command.\n",
         );
         if let Some(map) = self.active_map() {
-            context.push_str("Active Action Map:\n");
+            context.push_str("Active task path:\n");
             context.push_str("- id: ");
             context.push_str(&map.id);
             context.push_str("\n- title: ");
@@ -474,7 +500,7 @@ impl ActionMapRuntimeState {
             );
         } else {
             context.push_str(
-                "No active Action Map exists. Before taking multi-agent action, create or bind an Action Map and a ready node.\n",
+                "No active task path exists. Before taking multi-agent action, create or bind a task path and a ready node.\n",
             );
             context.push_str(&base_map_metadata_prompt());
         }
@@ -506,9 +532,9 @@ impl ActionMapRuntimeState {
         }
         let id = self.next_map_id();
         let title = if title_hint.trim().is_empty() {
-            "Action Map".to_string()
+            "TaskSpace Path".to_string()
         } else {
-            format!("Action Map: {}", title_hint.trim())
+            format!("TaskSpace Path: {}", title_hint.trim())
         };
         let map = seed_map(id.clone(), title, Some(owner_session_id), None);
         self.active_map_id = Some(id.clone());
@@ -564,7 +590,7 @@ impl ActionMapRuntimeState {
 
 pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String {
     let mut output = String::new();
-    output.push_str("Action Map\n");
+    output.push_str("TaskSpace\n");
     output.push_str("- mode: ");
     output.push_str(&snapshot.mode.to_string());
     output.push('\n');
@@ -572,7 +598,7 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
     output.push_str(snapshot.active_map_id.as_deref().unwrap_or("none"));
     output.push('\n');
     if snapshot.maps.is_empty() {
-        output.push_str("\nNo Action Map has been created in this thread.\n");
+        output.push_str("\nNo task path has been created in this thread.\n");
         return output;
     }
 
@@ -884,7 +910,7 @@ fn initial_node_events(map: &ActionMapInstance) -> Vec<MapRuntimeEvent> {
 
 fn assignment_prompt(map_id: &str, node_id: &str, node_title: &str, lease_id: &str) -> String {
     format!(
-        "Action Map node assignment\n\
+        "TaskSpace node assignment\n\
 Map: {map_id}\n\
 Node: {node_id} - {node_title}\n\
 Lease: {lease_id}\n\
@@ -928,21 +954,21 @@ fn now_ms() -> i64 {
 fn transition_notice(previous_mode: MapRuntimeMode, current_mode: MapRuntimeMode) -> String {
     match (previous_mode, current_mode) {
         (MapRuntimeMode::Standard, MapRuntimeMode::Experiment) => {
-            "Action Map experiment mode is now active.\n\
+            "TaskSpace mode is now active.\n\
 Previous standard-mode conversation remains background context only.\n\
-Before taking multi-agent action, create or bind an Action Map and a ready node.\n\
-Future subagent work must be map/node driven."
+Before taking multi-agent action, create or bind a task path and a ready node.\n\
+Future subagent work must be task/node driven."
                 .to_string()
         }
         (MapRuntimeMode::Experiment, MapRuntimeMode::Standard) => {
-            "Action Map experiment mode is now disabled.\n\
-Existing maps, nodes, leases, and results remain historical context only.\n\
-Do not continue maintaining the map, require node binding, or follow map-driven protocol unless the user enables experiment mode again.\n\
+            "TaskSpace mode is now disabled.\n\
+Existing task paths, nodes, leases, and results remain historical context only.\n\
+Do not continue maintaining the task path, require node binding, or follow task-driven protocol unless the user enables TaskSpace again.\n\
 Continue with the standard Codex multi-agent behavior."
                 .to_string()
         }
         _ => {
-            format!("Action Map runtime mode changed from {previous_mode} to {current_mode}.")
+            format!("TaskSpace runtime mode changed from {previous_mode} to {current_mode}.")
         }
     }
 }
@@ -970,7 +996,7 @@ mod tests {
             state
                 .take_pending_transition_notice()
                 .expect("transition notice")
-                .contains("experiment mode is now active")
+                .contains("TaskSpace mode is now active")
         );
 
         let unchanged = state.set_mode(MapRuntimeMode::Experiment);
@@ -978,6 +1004,27 @@ mod tests {
         assert_eq!(unchanged.current_mode, MapRuntimeMode::Experiment);
         assert!(!unchanged.changed);
         assert!(state.take_pending_transition_notice().is_none());
+    }
+
+    #[test]
+    fn set_experiment_mode_for_session_bootstraps_active_task_path() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+
+        let (outcome, events) = state.set_mode_for_session(MapRuntimeMode::Experiment, owner);
+
+        assert!(outcome.mode.changed);
+        assert_eq!(outcome.active_map_id.as_deref(), Some("map-1"));
+        assert!(state.active_map().is_some());
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, MapRuntimeEvent::MapCreated(_)))
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            MapRuntimeEvent::NodeStatusChanged(_)
+        )));
     }
 
     #[test]
@@ -998,7 +1045,7 @@ mod tests {
 
         state.set_mode(MapRuntimeMode::Experiment);
         let context = state.build_developer_context().expect("experiment context");
-        assert!(context.contains("Action Map experiment mode is active"));
+        assert!(context.contains("TaskSpace mode is active"));
         assert!(context.contains("BaseMap metadata version: base-map-v1"));
         assert!(context.contains("define_scope"));
     }
@@ -1013,7 +1060,7 @@ mod tests {
 
         assert_eq!(map_id, "map-1");
         let context = state.build_developer_context().expect("experiment context");
-        assert!(context.contains("Active Action Map"));
+        assert!(context.contains("Active task path"));
         assert!(context.contains("Investigate runtime"));
         assert!(!context.contains("BaseMap metadata version"));
     }
@@ -1247,7 +1294,7 @@ mod tests {
         assert_eq!(completed_node.result_ids, vec!["result-1".to_string()]);
 
         let formatted = format_action_map_snapshot(&snapshot);
-        assert!(formatted.contains("Action Map"));
+        assert!(formatted.contains("TaskSpace"));
         assert!(formatted.contains("mode: experiment"));
         assert!(formatted.contains("define_scope"));
         assert!(formatted.contains("result-1 node=define_scope kind=result"));

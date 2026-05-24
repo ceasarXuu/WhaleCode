@@ -33,6 +33,12 @@ pub enum SlashCommand {
     Plan,
     Goal,
     Collab,
+    #[strum(serialize = "taskspace")]
+    TaskSpace,
+    #[strum(serialize = "task-reborn")]
+    TaskReborn,
+    #[strum(serialize = "task-show")]
+    TaskShow,
     #[strum(serialize = "map-mode")]
     MapMode,
     #[strum(serialize = "map-restart")]
@@ -115,9 +121,12 @@ impl SlashCommand {
             SlashCommand::Plan => "switch to Plan mode",
             SlashCommand::Goal => "set or view the goal for a long-running task",
             SlashCommand::Collab => "change collaboration mode (experimental)",
-            SlashCommand::MapMode => "switch Action Map runtime mode",
-            SlashCommand::MapRestart => "abandon the active Action Map and start fresh",
-            SlashCommand::MapShow => "open the live Action Map browser viewer",
+            SlashCommand::TaskSpace => "enter TaskSpace mode and open the live viewer",
+            SlashCommand::TaskReborn => "reborn the active task path",
+            SlashCommand::TaskShow => "open the live TaskSpace browser viewer",
+            SlashCommand::MapMode => "switch legacy TaskSpace runtime mode",
+            SlashCommand::MapRestart => "legacy alias for /task-reborn",
+            SlashCommand::MapShow => "legacy alias for /task-show",
             SlashCommand::Agent | SlashCommand::MultiAgents => "switch the active agent thread",
             SlashCommand::Side => "start a side conversation in an ephemeral fork",
             SlashCommand::Approvals => "choose what Whale is allowed to do",
@@ -189,6 +198,8 @@ impl SlashCommand {
             | SlashCommand::Memories
             | SlashCommand::Review
             | SlashCommand::Plan
+            | SlashCommand::TaskSpace
+            | SlashCommand::TaskReborn
             | SlashCommand::MapMode
             | SlashCommand::MapRestart
             | SlashCommand::Clear
@@ -213,6 +224,7 @@ impl SlashCommand {
             | SlashCommand::Quit
             | SlashCommand::Exit
             | SlashCommand::Side
+            | SlashCommand::TaskShow
             | SlashCommand::MapShow => true,
             SlashCommand::Rollout => true,
             SlashCommand::TestApproval => true,
@@ -274,6 +286,30 @@ mod tests {
         );
         assert!(SlashCommand::MapMode.supports_inline_args());
         assert!(!SlashCommand::MapMode.available_during_task());
+    }
+
+    #[test]
+    fn taskspace_commands_parse_with_expected_availability() {
+        assert_eq!(
+            SlashCommand::from_str("taskspace"),
+            Ok(SlashCommand::TaskSpace)
+        );
+        assert!(!SlashCommand::TaskSpace.supports_inline_args());
+        assert!(!SlashCommand::TaskSpace.available_during_task());
+
+        assert_eq!(
+            SlashCommand::from_str("task-reborn"),
+            Ok(SlashCommand::TaskReborn)
+        );
+        assert!(!SlashCommand::TaskReborn.supports_inline_args());
+        assert!(!SlashCommand::TaskReborn.available_during_task());
+
+        assert_eq!(
+            SlashCommand::from_str("task-show"),
+            Ok(SlashCommand::TaskShow)
+        );
+        assert!(!SlashCommand::TaskShow.supports_inline_args());
+        assert!(SlashCommand::TaskShow.available_during_task());
     }
 
     #[test]

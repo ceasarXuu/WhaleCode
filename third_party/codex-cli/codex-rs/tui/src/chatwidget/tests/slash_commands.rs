@@ -1244,6 +1244,47 @@ async fn map_show_slash_command_submits_show_op() {
 }
 
 #[tokio::test]
+async fn taskspace_slash_command_enables_mode_and_opens_viewer() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+
+    submit_composer_text(&mut chat, "/taskspace");
+
+    let mut observed_enable = false;
+    let mut observed_show = false;
+    while let Ok(op) = op_rx.try_recv() {
+        match op {
+            Op::SetMapRuntimeMode {
+                mode: MapRuntimeMode::Experiment,
+            } => observed_enable = true,
+            Op::ShowActionMap => observed_show = true,
+            _ => {}
+        }
+    }
+    assert!(observed_enable);
+    assert!(observed_show);
+}
+
+#[tokio::test]
+async fn task_show_and_reborn_use_existing_taskspace_runtime_ops() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+
+    submit_composer_text(&mut chat, "/task-show");
+    submit_composer_text(&mut chat, "/task-reborn");
+
+    let mut observed_show = false;
+    let mut observed_reborn = false;
+    while let Ok(op) = op_rx.try_recv() {
+        match op {
+            Op::ShowActionMap => observed_show = true,
+            Op::RestartActionMap => observed_reborn = true,
+            _ => {}
+        }
+    }
+    assert!(observed_show);
+    assert!(observed_reborn);
+}
+
+#[tokio::test]
 async fn unrecognized_slash_command_is_not_added_to_local_recall() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 

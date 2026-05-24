@@ -4909,8 +4909,31 @@ async fn interrupt_without_active_turn_is_treated_as_handled() {
     assert_eq!(handled, true);
 }
 
+#[cfg(windows)]
+#[test]
+fn action_map_commands_are_routed_through_app_server_in_tui() {
+    std::thread::Builder::new()
+        .name("action-map-app-server-test".to_string())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(|| {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("tokio runtime");
+            runtime.block_on(action_map_commands_are_routed_through_app_server_in_tui_impl());
+        })
+        .expect("spawn test thread")
+        .join()
+        .expect("test thread should not panic");
+}
+
+#[cfg(not(windows))]
 #[tokio::test]
 async fn action_map_commands_are_routed_through_app_server_in_tui() {
+    action_map_commands_are_routed_through_app_server_in_tui_impl().await;
+}
+
+async fn action_map_commands_are_routed_through_app_server_in_tui_impl() {
     let mut app = make_test_app().await;
     let mut app_server = crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
         .await
@@ -4931,19 +4954,22 @@ async fn action_map_commands_are_routed_through_app_server_in_tui() {
         .expect("map runtime mode submission should not fail");
     assert_eq!(handled, true);
     let mut observed_mode = MapRuntimeMode::Standard;
+    let mut observed_map_count = 0usize;
     for _ in 0..20 {
         let snapshot = app_server
-            .thread_action_map_read(thread_id)
+            .thread_taskspace_read(thread_id)
             .await
-            .expect("thread/actionMap/read should succeed")
+            .expect("thread/taskspace/read should succeed")
             .snapshot;
         observed_mode = snapshot.mode;
-        if observed_mode == MapRuntimeMode::Experiment {
+        observed_map_count = snapshot.maps.len();
+        if observed_mode == MapRuntimeMode::Experiment && observed_map_count > 0 {
             break;
         }
         time::sleep(std::time::Duration::from_millis(25)).await;
     }
     assert_eq!(observed_mode, MapRuntimeMode::Experiment);
+    assert_eq!(observed_map_count, 1);
 
     for op in [
         AppCommand::restart_action_map(),

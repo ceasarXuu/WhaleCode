@@ -35,8 +35,6 @@ use codex_app_server_protocol::ReviewStartResponse;
 use codex_app_server_protocol::SkillsListParams;
 use codex_app_server_protocol::SkillsListResponse;
 use codex_app_server_protocol::Thread;
-use codex_app_server_protocol::ThreadActionMapReadParams;
-use codex_app_server_protocol::ThreadActionMapReadResponse;
 use codex_app_server_protocol::ThreadActionMapRestartParams;
 use codex_app_server_protocol::ThreadActionMapRestartResponse;
 use codex_app_server_protocol::ThreadApproveGuardianDeniedActionParams;
@@ -86,6 +84,8 @@ use codex_app_server_protocol::ThreadShellCommandParams;
 use codex_app_server_protocol::ThreadShellCommandResponse;
 use codex_app_server_protocol::ThreadStartParams;
 use codex_app_server_protocol::ThreadStartResponse;
+use codex_app_server_protocol::ThreadTaskSpaceReadParams;
+use codex_app_server_protocol::ThreadTaskSpaceReadResponse;
 use codex_app_server_protocol::ThreadStartSource;
 use codex_app_server_protocol::ThreadUnsubscribeParams;
 use codex_app_server_protocol::ThreadUnsubscribeResponse;
@@ -703,20 +703,20 @@ impl AppServerSession {
         Ok(())
     }
 
-    pub(crate) async fn thread_action_map_read(
+    pub(crate) async fn thread_taskspace_read(
         &mut self,
         thread_id: ThreadId,
-    ) -> Result<ThreadActionMapReadResponse> {
+    ) -> Result<ThreadTaskSpaceReadResponse> {
         let request_id = self.next_request_id();
         self.client
-            .request_typed(ClientRequest::ThreadActionMapRead {
+            .request_typed(ClientRequest::ThreadTaskSpaceRead {
                 request_id,
-                params: ThreadActionMapReadParams {
+                params: ThreadTaskSpaceReadParams {
                     thread_id: thread_id.to_string(),
                 },
             })
             .await
-            .wrap_err("thread/actionMap/read failed in TUI")
+            .wrap_err("thread/taskspace/read failed in TUI")
     }
 
     pub(crate) async fn memory_reset(&mut self) -> Result<()> {

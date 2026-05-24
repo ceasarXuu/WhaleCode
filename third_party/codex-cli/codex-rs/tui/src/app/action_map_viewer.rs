@@ -1,12 +1,12 @@
-//! Lightweight browser viewer for the current Action Map.
+//! Lightweight browser viewer for the current TaskSpace.
 //!
-//! The TUI opens a localhost page instead of trying to render large map state in the terminal.
-//! The page polls the existing `thread/actionMap/read` RPC, so it observes live runtime state
+//! The TUI opens a localhost page instead of trying to render large task state in the terminal.
+//! The page polls the `thread/taskspace/read` RPC, so it observes live runtime state
 //! without adding a second persistence or event system.
 
 use super::*;
-use codex_app_server_protocol::ThreadActionMapReadParams;
-use codex_app_server_protocol::ThreadActionMapReadResponse;
+use codex_app_server_protocol::ThreadTaskSpaceReadParams;
+use codex_app_server_protocol::ThreadTaskSpaceReadResponse;
 use serde_json::json;
 use std::sync::atomic::AtomicI64;
 use tokio::io::AsyncReadExt;
@@ -54,7 +54,7 @@ impl App {
         app_server: &mut AppServerSession,
         thread_id: ThreadId,
     ) -> Result<()> {
-        let _ = app_server.thread_action_map_read(thread_id).await?;
+        let _ = app_server.thread_taskspace_read(thread_id).await?;
         let should_start = self
             .action_map_viewer
             .as_ref()
@@ -74,7 +74,7 @@ impl App {
     fn open_action_map_viewer_url(&mut self, url: String) {
         if cfg!(test) || std::env::var_os(ACTION_MAP_VIEWER_NO_BROWSER_ENV).is_some() {
             self.chat_widget
-                .add_info_message(format!("Action Map viewer: {url}"), /*hint*/ None);
+                .add_info_message(format!("TaskSpace viewer: {url}"), /*hint*/ None);
             return;
         }
 
@@ -88,10 +88,10 @@ async fn start_action_map_viewer(
 ) -> Result<ActionMapViewerServer> {
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .await
-        .wrap_err("failed to bind Action Map viewer to localhost")?;
+        .wrap_err("failed to bind TaskSpace viewer to localhost")?;
     let addr = listener
         .local_addr()
-        .wrap_err("failed to read Action Map viewer address")?;
+        .wrap_err("failed to read TaskSpace viewer address")?;
     let url = format!("http://127.0.0.1:{}/", addr.port());
     let state = Arc::new(ViewerState {
         thread_id,
@@ -107,7 +107,7 @@ async fn start_action_map_viewer(
             let state = Arc::clone(&state);
             tokio::spawn(async move {
                 if let Err(err) = handle_viewer_connection(stream, state).await {
-                    tracing::debug!(error = %err, "Action Map viewer request failed");
+                    tracing::debug!(error = %err, "TaskSpace viewer request failed");
                 }
             });
         }
@@ -121,7 +121,7 @@ async fn handle_viewer_connection(mut stream: TcpStream, state: Arc<ViewerState>
     let bytes_read = stream
         .read(&mut buffer)
         .await
-        .wrap_err("failed to read Action Map viewer request")?;
+        .wrap_err("failed to read TaskSpace viewer request")?;
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);
     let path = request_path(&request);
     let response = match path.as_deref() {
@@ -136,7 +136,7 @@ async fn handle_viewer_connection(mut stream: TcpStream, state: Arc<ViewerState>
     stream
         .write_all(response.as_bytes())
         .await
-        .wrap_err("failed to write Action Map viewer response")?;
+        .wrap_err("failed to write TaskSpace viewer response")?;
     Ok(())
 }
 
@@ -156,11 +156,11 @@ async fn fetch_snapshot_json(state: &ViewerState) -> String {
             .next_request_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
     );
-    let result: std::result::Result<ThreadActionMapReadResponse, _> = state
+    let result: std::result::Result<ThreadTaskSpaceReadResponse, _> = state
         .request_handle
-        .request_typed(ClientRequest::ThreadActionMapRead {
+        .request_typed(ClientRequest::ThreadTaskSpaceRead {
             request_id,
-            params: ThreadActionMapReadParams {
+            params: ThreadTaskSpaceReadParams {
                 thread_id: state.thread_id.to_string(),
             },
         })
@@ -203,7 +203,7 @@ const ACTION_MAP_VIEWER_HTML: &str = r#"<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Action Map</title>
+<title>TaskSpace</title>
 <style>
 :root{color-scheme:light dark}
 body{margin:24px;font:13px/1.45 Consolas,Menlo,monospace;background:Canvas;color:CanvasText}
@@ -221,7 +221,7 @@ details{border:1px solid #777;padding:8px;margin:8px 0}
 </style>
 </head>
 <body>
-<h1>Action Map</h1>
+<h1>TaskSpace</h1>
 <div id="meta" class="meta">loading...</div>
 <div id="root"></div>
 <script>
@@ -236,7 +236,7 @@ function render(data){
   if(!data.ok){root.appendChild(el('div',data.error||'failed to load snapshot','error'));return}
   const s=data.snapshot;
   meta.textContent=`thread ${data.threadId} | mode ${s.mode} | active ${s.activeMapId||'none'} | refreshed ${new Date(data.fetchedAtMs).toLocaleTimeString()}`;
-  if(!s.maps.length){root.appendChild(el('p','No Action Map has been created in this thread.'));return}
+  if(!s.maps.length){root.appendChild(el('p','No task path has been created in this thread.'));return}
   s.maps.forEach(m=>{
     root.appendChild(el('h2',`${m.title} (${m.id})`));
     const line=el('div');

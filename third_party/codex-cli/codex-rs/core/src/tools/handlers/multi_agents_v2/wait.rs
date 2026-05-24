@@ -98,7 +98,7 @@ impl WaitAgentResult {
     fn from_wait(timed_out: bool, timeout_summary_requests: usize) -> Self {
         let message = if timed_out && timeout_summary_requests > 0 {
             format!(
-                "Wait timed out. Requested progress summaries from {timeout_summary_requests} Action Map subagent(s)."
+                "Wait timed out. Requested progress summaries from {timeout_summary_requests} TaskSpace subagent(s)."
             )
         } else if timed_out {
             "Wait timed out.".to_string()
