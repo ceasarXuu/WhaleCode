@@ -892,6 +892,51 @@ impl Session {
         Ok(assignment)
     }
 
+    pub(crate) async fn prepare_action_map_main_tool_call(
+        &self,
+        turn_context: &TurnContext,
+        tool_name: &str,
+    ) -> Result<(), String> {
+        let events = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .prepare_main_tool_call(self.conversation_id, tool_name)
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(())
+    }
+
+    pub(crate) async fn record_action_map_main_tool_result(
+        &self,
+        turn_context: &TurnContext,
+        call_id: &str,
+        tool_name: &str,
+        success: bool,
+        preview: String,
+    ) {
+        let result = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.record_main_tool_result(
+                self.conversation_id,
+                call_id,
+                tool_name,
+                success,
+                preview,
+            )
+        };
+        match result {
+            Ok(Some((_, events))) => {
+                self.emit_action_map_events_for_turn(turn_context, events).await;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                warn!(%error, "failed to record TaskSpace main tool result");
+            }
+        }
+    }
+
     #[cfg(test)]
     pub(crate) async fn set_action_map_mode_for_test(
         &self,

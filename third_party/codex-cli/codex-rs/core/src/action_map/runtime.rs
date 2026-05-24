@@ -54,6 +54,7 @@ pub(crate) struct ActionMapRuntimeState {
     mode: MapRuntimeMode,
     pending_transition_notice: Option<String>,
     active_map_id: Option<ActionMapId>,
+    current_main_node_id: Option<MapNodeId>,
     maps: HashMap<ActionMapId, ActionMapInstance>,
     next_map_seq: u64,
     next_lease_seq: u64,
@@ -97,6 +98,7 @@ impl Default for ActionMapRuntimeState {
             mode: MapRuntimeMode::Standard,
             pending_transition_notice: None,
             active_map_id: None,
+            current_main_node_id: None,
             maps: HashMap::new(),
             next_map_seq: 1,
             next_lease_seq: 1,
@@ -162,6 +164,7 @@ impl ActionMapRuntimeState {
     ) -> ActionMapId {
         let map = seed_map(id.clone(), title, owner_session_id, None);
         self.active_map_id = Some(id.clone());
+        self.current_main_node_id = first_open_node_id(&map);
         self.maps.insert(id.clone(), map);
         id
     }
@@ -210,10 +213,93 @@ impl ActionMapRuntimeState {
             previous_id.clone(),
         );
         self.active_map_id = Some(new_id.clone());
+        self.current_main_node_id = first_open_node_id(&map);
         events.push(map_created_event(&map));
         events.extend(initial_node_events(&map));
         self.maps.insert(new_id.clone(), map);
         (previous_id, new_id, events)
+    }
+
+    pub(crate) fn prepare_main_tool_call(
+        &mut self,
+        owner_session_id: ThreadId,
+        tool_name: &str,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(Vec::new());
+        }
+
+        let events = self.ensure_active_seed_map(owner_session_id, tool_name);
+        self.ensure_main_binding_for_active_map();
+        self.validate_main_binding().map(|()| events)
+    }
+
+    pub(crate) fn record_main_tool_result(
+        &mut self,
+        owner_session_id: ThreadId,
+        call_id: &str,
+        tool_name: &str,
+        success: bool,
+        preview: String,
+    ) -> Result<Option<(NodeResultId, Vec<MapRuntimeEvent>)>, String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(None);
+        }
+
+        self.validate_main_binding()?;
+        let map_id = self
+            .active_map_id
+            .clone()
+            .ok_or_else(|| "TaskSpace mode is active but no active task path exists.".to_string())?;
+        let node_id = self
+            .current_main_node_id
+            .clone()
+            .ok_or_else(|| "TaskSpace mode is active but no current node binding exists.".to_string())?;
+        let result_id = self.next_result_id();
+        let lease_id = format!("main:{}", call_id);
+        let body = format!(
+            "Main tool call\n\
+tool: {tool_name}\n\
+call_id: {call_id}\n\
+success: {success}\n\
+preview:\n\
+{preview}"
+        );
+        let map = self
+            .maps
+            .get_mut(&map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        let node = map
+            .nodes
+            .get_mut(&node_id)
+            .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
+
+        let result = NodeResult {
+            id: result_id.clone(),
+            assignment_id: lease_id.clone(),
+            map_id: map_id.clone(),
+            node_id: node_id.clone(),
+            kind: NodeResultKind::MainToolCall,
+            body,
+            source_thread_id: owner_session_id,
+            created_at_ms: now_ms(),
+        };
+        map.results.insert(result_id.clone(), result);
+        node.result_context.push(NodeResultRef {
+            id: result_id.clone(),
+            kind: NodeResultKind::MainToolCall,
+        });
+        let events = vec![MapRuntimeEvent::NodeResultRecorded(
+            MapRuntimeNodeResultRecordedEvent {
+                map_id,
+                node_id,
+                lease_id,
+                result_id: result_id.clone(),
+                kind: NodeResultKind::MainToolCall.as_str().to_string(),
+                source_thread_id: owner_session_id,
+            },
+        )];
+        Ok(Some((result_id, events)))
     }
 
     pub(crate) fn prepare_spawn_assignment(
@@ -397,6 +483,7 @@ impl ActionMapRuntimeState {
         node.status = match kind {
             NodeResultKind::Result | NodeResultKind::MapUpdateRequest => NodeStatus::Completed,
             NodeResultKind::Blocker | NodeResultKind::TimeoutSummary => NodeStatus::Blocked,
+            NodeResultKind::MainToolCall => NodeStatus::Running,
         };
         map.leases.remove(&lease_id);
         let mut events = vec![
@@ -432,6 +519,7 @@ impl ActionMapRuntimeState {
             map.status = MapStatus::Completed;
             events.push(map_status_changed_event(map, previous_status));
         }
+        self.ensure_main_binding_for_active_map();
         Some((result_id, events))
     }
 
@@ -483,6 +571,12 @@ impl ActionMapRuntimeState {
             context.push_str(&map.running_node_count().to_string());
             context.push_str("\n- completed nodes: ");
             context.push_str(&map.completed_node_count().to_string());
+            if let Some(node_id) = self.current_main_node_id.as_ref()
+                && map.nodes.contains_key(node_id)
+            {
+                context.push_str("\n- current main action node: ");
+                context.push_str(node_id);
+            }
             context.push_str("\nNodes:\n");
             for node_id in SEED_NODE_IDS {
                 if let Some(node) = map.nodes.get(*node_id) {
@@ -496,7 +590,7 @@ impl ActionMapRuntimeState {
                 }
             }
             context.push_str(
-                "Subagent actions are bound to ready nodes at spawn time. Node result context stays on the node; use it only when it is relevant to the next step.\n",
+                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. Node result context stays on the node; use it only when it is relevant to the next step.\n",
             );
         } else {
             context.push_str(
@@ -538,6 +632,7 @@ impl ActionMapRuntimeState {
         };
         let map = seed_map(id.clone(), title, Some(owner_session_id), None);
         self.active_map_id = Some(id.clone());
+        self.current_main_node_id = first_open_node_id(&map);
         let events = {
             let mut events = vec![map_created_event(&map)];
             events.extend(initial_node_events(&map));
@@ -545,6 +640,47 @@ impl ActionMapRuntimeState {
         };
         self.maps.insert(id, map);
         events
+    }
+
+    fn ensure_main_binding_for_active_map(&mut self) {
+        let Some(map_id) = self.active_map_id.as_ref() else {
+            self.current_main_node_id = None;
+            return;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            self.current_main_node_id = None;
+            return;
+        };
+        if map.status != MapStatus::Active {
+            self.current_main_node_id = None;
+            return;
+        }
+        if let Some(node_id) = self.current_main_node_id.as_ref()
+            && let Some(node) = map.nodes.get(node_id)
+            && node.status != NodeStatus::Completed
+        {
+            return;
+        }
+        self.current_main_node_id = first_open_node_id(map);
+    }
+
+    fn validate_main_binding(&self) -> Result<(), String> {
+        let Some(map_id) = self.active_map_id.as_ref() else {
+            return Err("TaskSpace mode is active but no active task path exists.".to_string());
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return Err(format!("TaskSpace active task path `{map_id}` is missing."));
+        };
+        if map.status != MapStatus::Active {
+            return Err(format!("TaskSpace active task path `{map_id}` is not active."));
+        }
+        let Some(node_id) = self.current_main_node_id.as_ref() else {
+            return Err("TaskSpace mode is active but no current node binding exists.".to_string());
+        };
+        if !map.nodes.contains_key(node_id) {
+            return Err(format!("TaskSpace current node `{node_id}` is missing."));
+        }
+        Ok(())
     }
 
     fn next_ready_node_id(&self, map_id: &str) -> Option<MapNodeId> {
@@ -728,6 +864,15 @@ fn seed_map(
         });
     }
     map
+}
+
+fn first_open_node_id(map: &ActionMapInstance) -> Option<MapNodeId> {
+    SEED_NODE_IDS.iter().find_map(|node_id| {
+        map.nodes
+            .get(*node_id)
+            .filter(|node| node.status != NodeStatus::Completed)
+            .map(|node| node.id.clone())
+    })
 }
 
 fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
@@ -1025,6 +1170,50 @@ mod tests {
             event,
             MapRuntimeEvent::NodeStatusChanged(_)
         )));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("define_scope"));
+    }
+
+    #[test]
+    fn main_tool_call_requires_and_uses_current_node_binding() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+
+        let events = state
+            .prepare_main_tool_call(owner, "shell")
+            .expect("main tool binding");
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::MapCreated(event) if event.map_id == "map-1"
+            )
+        }));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("define_scope"));
+
+        let (result_id, result_events) = state
+            .record_main_tool_result(owner, "call-1", "shell", true, "ok".to_string())
+            .expect("record succeeds")
+            .expect("result recorded");
+
+        assert_eq!(result_id, "result-1");
+        assert!(result_events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::NodeResultRecorded(event)
+                    if event.node_id == "define_scope"
+                        && event.lease_id == "main:call-1"
+                        && event.kind == "main_tool_call"
+                        && event.source_thread_id == owner
+            )
+        }));
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("define_scope").expect("node");
+        assert_eq!(node.status, NodeStatus::Ready);
+        assert_eq!(node.result_context.len(), 1);
+        let result = map.results.get("result-1").expect("stored result");
+        assert_eq!(result.kind, NodeResultKind::MainToolCall);
+        assert!(result.body.contains("tool: shell"));
+        assert!(result.body.contains("preview:\nok"));
     }
 
     #[test]

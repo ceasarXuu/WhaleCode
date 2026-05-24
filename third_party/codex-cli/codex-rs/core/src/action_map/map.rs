@@ -105,6 +105,7 @@ pub(crate) enum NodeResultKind {
     Blocker,
     MapUpdateRequest,
     TimeoutSummary,
+    MainToolCall,
 }
 
 impl NodeResultKind {
@@ -114,6 +115,7 @@ impl NodeResultKind {
             NodeResultKind::Blocker => "blocker",
             NodeResultKind::MapUpdateRequest => "map_update_request",
             NodeResultKind::TimeoutSummary => "timeout_summary",
+            NodeResultKind::MainToolCall => "main_tool_call",
         }
     }
 }

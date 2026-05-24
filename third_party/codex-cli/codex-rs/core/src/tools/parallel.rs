@@ -95,6 +95,9 @@ impl ToolCallRuntime {
         let invocation_cancellation_token = cancellation_token.clone();
         let started = Instant::now();
         let display_name = call.tool_name.display();
+        let taskspace_attributed = Self::should_attribute_taskspace_tool(&call, &source);
+        let taskspace_tool_name = display_name.clone();
+        let taskspace_call_id = call.call_id.clone();
 
         let dispatch_span = trace_span!(
             "dispatch_tool_call_with_code_mode_result",
@@ -119,17 +122,36 @@ impl ToolCallRuntime {
                             Either::Right(lock.write().await)
                         };
 
-                        router
+                        if taskspace_attributed {
+                            session
+                                .prepare_action_map_main_tool_call(&turn, &taskspace_tool_name)
+                                .await
+                                .map_err(FunctionCallError::RespondToModel)?;
+                        }
+
+                        let result = router
                             .dispatch_tool_call_with_code_mode_result(
-                                session,
-                                turn,
+                                Arc::clone(&session),
+                                Arc::clone(&turn),
                                 invocation_cancellation_token,
                                 tracker,
                                 call.clone(),
                                 source,
                             )
                             .instrument(dispatch_span.clone())
-                            .await
+                            .await?;
+                        if taskspace_attributed {
+                            session
+                                .record_action_map_main_tool_result(
+                                    &turn,
+                                    &taskspace_call_id,
+                                    &taskspace_tool_name,
+                                    result.result.success_for_logging(),
+                                    result.result.log_preview(),
+                                )
+                                .await;
+                        }
+                        Ok(result)
                     } => res,
                 }
             }));
@@ -193,5 +215,25 @@ impl ToolCallRuntime {
         } else {
             format!("aborted by user after {secs:.1}s")
         }
+    }
+
+    fn should_attribute_taskspace_tool(call: &ToolCall, source: &ToolCallSource) -> bool {
+        if *source != ToolCallSource::Direct {
+            return false;
+        }
+        if call.tool_name.namespace.is_some() {
+            return true;
+        }
+        !matches!(
+            call.tool_name.name.as_str(),
+            "spawn_agent"
+                | "wait_agent"
+                | "close_agent"
+                | "resume_agent"
+                | "send_input"
+                | "send_message"
+                | "list_agents"
+                | "followup_task"
+        )
     }
 }
