@@ -680,6 +680,9 @@ preview:\n\
         context.push_str(
             "Runtime slash commands such as /task-reborn and /task-show are UI commands, not shell commands; do not run them via shell_command.\n",
         );
+        context.push_str(
+            "Use taskspace_control before ordinary work when the active task path needs a new node or when the main action should move to a different existing node. Runtime chooses ids and validates dependencies; do not invent task/map/node ids in natural language.\n",
+        );
         if let Some(map) = self.active_map() {
             context.push_str("Active task path:\n");
             context.push_str("- id: ");
@@ -711,7 +714,7 @@ preview:\n\
                 }
             }
             context.push_str(
-                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. Node result context stays on the node; use it only when it is relevant to the next step.\n",
+                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Node result context stays on the node; use it only when it is relevant to the next step.\n",
             );
         } else {
             context.push_str(
