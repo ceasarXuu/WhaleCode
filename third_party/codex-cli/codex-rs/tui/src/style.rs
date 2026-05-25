@@ -89,7 +89,10 @@ mod tests {
         let light_bg = (245, 245, 245);
         let dark_bg = (18, 18, 18);
 
-        assert_ne!(user_message_bg_rgb(light_bg), proposed_plan_bg_rgb(light_bg));
+        assert_ne!(
+            user_message_bg_rgb(light_bg),
+            proposed_plan_bg_rgb(light_bg)
+        );
         assert_ne!(user_message_bg_rgb(dark_bg), proposed_plan_bg_rgb(dark_bg));
     }
 

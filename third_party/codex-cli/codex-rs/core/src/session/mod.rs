@@ -928,7 +928,8 @@ impl Session {
         };
         match result {
             Ok(Some((_, events))) => {
-                self.emit_action_map_events_for_turn(turn_context, events).await;
+                self.emit_action_map_events_for_turn(turn_context, events)
+                    .await;
             }
             Ok(None) => {}
             Err(error) => {
