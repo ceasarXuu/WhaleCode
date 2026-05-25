@@ -1,4 +1,5 @@
 use super::*;
+use clap::CommandFactory;
 use pretty_assertions::assert_eq;
 
 #[test]
@@ -69,4 +70,23 @@ fn parses_config_isolation_flags() {
 
     assert!(cli.ignore_user_config);
     assert!(cli.ignore_rules);
+}
+
+#[test]
+fn parses_taskspace_exec_flags() {
+    let cli = Cli::parse_from(["codex-exec", "--taskspace", "--task-reborn", "summarize"]);
+
+    assert!(cli.taskspace);
+    assert!(cli.task_reborn);
+    assert_eq!(cli.prompt.as_deref(), Some("summarize"));
+}
+
+#[test]
+fn hides_legacy_map_exec_flags_from_help() {
+    let help = Cli::command().render_long_help().to_string();
+
+    assert!(help.contains("--taskspace"));
+    assert!(help.contains("--task-reborn"));
+    assert!(!help.contains("--map-mode"));
+    assert!(!help.contains("--map-restart"));
 }

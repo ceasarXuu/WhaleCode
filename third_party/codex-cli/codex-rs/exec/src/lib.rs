@@ -236,6 +236,8 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         ignore_rules,
         color,
         last_message_file,
+        taskspace,
+        task_reborn,
         map_mode,
         map_restart,
         json: json_mode,
@@ -244,7 +246,13 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         config_overrides,
     } = cli;
     let mut config_overrides = config_overrides;
-    if map_mode == Some(ExecMapRuntimeMode::Experiment) {
+    let effective_map_mode = if taskspace {
+        Some(ExecMapRuntimeMode::Experiment)
+    } else {
+        map_mode
+    };
+    let effective_map_restart = map_restart || task_reborn;
+    if effective_map_mode == Some(ExecMapRuntimeMode::Experiment) {
         config_overrides
             .raw_overrides
             .push("features.multi_agent_v2.enabled=true".to_string());
@@ -534,8 +542,8 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         images,
         json_mode,
         last_message_file,
-        map_mode,
-        map_restart,
+        map_mode: effective_map_mode,
+        map_restart: effective_map_restart,
         model_provider,
         oss,
         output_schema_path,

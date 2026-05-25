@@ -1172,78 +1172,6 @@ async fn usage_error_slash_command_is_available_from_local_recall() {
 }
 
 #[tokio::test]
-async fn map_mode_slash_command_submits_runtime_mode_op() {
-    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-
-    submit_composer_text(&mut chat, "/map-mode experiment");
-
-    let mut observed = None;
-    while let Ok(op) = op_rx.try_recv() {
-        if matches!(op, Op::SetMapRuntimeMode { .. }) {
-            observed = Some(op);
-            break;
-        }
-    }
-    assert_matches!(
-        observed,
-        Some(Op::SetMapRuntimeMode {
-            mode: MapRuntimeMode::Experiment
-        })
-    );
-}
-
-#[tokio::test]
-async fn invalid_map_mode_slash_command_reports_usage_without_op() {
-    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-
-    submit_composer_text(&mut chat, "/map-mode maybe");
-
-    assert_no_submit_op(&mut op_rx);
-    let cells = drain_insert_history(&mut rx);
-    let rendered = cells
-        .iter()
-        .map(|cell| lines_to_single_string(cell))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(
-        rendered.contains("Usage: /map-mode [standard|experiment]"),
-        "expected map mode usage message, got: {rendered:?}"
-    );
-}
-
-#[tokio::test]
-async fn map_restart_slash_command_submits_restart_op() {
-    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-
-    submit_composer_text(&mut chat, "/map-restart");
-
-    let mut observed = false;
-    while let Ok(op) = op_rx.try_recv() {
-        if matches!(op, Op::RestartActionMap) {
-            observed = true;
-            break;
-        }
-    }
-    assert!(observed);
-}
-
-#[tokio::test]
-async fn map_show_slash_command_submits_show_op() {
-    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-
-    submit_composer_text(&mut chat, "/map-show");
-
-    let mut observed = false;
-    while let Ok(op) = op_rx.try_recv() {
-        if matches!(op, Op::ShowActionMap) {
-            observed = true;
-            break;
-        }
-    }
-    assert!(observed);
-}
-
-#[tokio::test]
 async fn taskspace_slash_command_enables_mode_and_opens_viewer() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 
@@ -1282,6 +1210,30 @@ async fn task_show_and_reborn_use_existing_taskspace_runtime_ops() {
     }
     assert!(observed_show);
     assert!(observed_reborn);
+}
+
+#[tokio::test]
+async fn legacy_map_slash_commands_are_not_user_visible_commands() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+
+    submit_composer_text(&mut chat, "/map-mode experiment");
+    submit_composer_text(&mut chat, "/map-show");
+    submit_composer_text(&mut chat, "/map-restart");
+    submit_composer_text(&mut chat, "/map-node");
+
+    assert_no_submit_op(&mut op_rx);
+    let cells = drain_insert_history(&mut rx);
+    let rendered = cells
+        .iter()
+        .map(|cell| lines_to_single_string(cell))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for command in ["/map-mode", "/map-show", "/map-restart", "/map-node"] {
+        assert!(
+            rendered.contains(&format!("Unrecognized command '{command}'")),
+            "expected {command} to be rejected, got: {rendered:?}"
+        );
+    }
 }
 
 #[tokio::test]

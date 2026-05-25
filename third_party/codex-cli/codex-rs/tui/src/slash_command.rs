@@ -39,12 +39,6 @@ pub enum SlashCommand {
     TaskReborn,
     #[strum(serialize = "task-show")]
     TaskShow,
-    #[strum(serialize = "map-mode")]
-    MapMode,
-    #[strum(serialize = "map-restart")]
-    MapRestart,
-    #[strum(serialize = "map-show")]
-    MapShow,
     Agent,
     Side,
     // Undo,
@@ -124,9 +118,6 @@ impl SlashCommand {
             SlashCommand::TaskSpace => "enter TaskSpace mode and open the live viewer",
             SlashCommand::TaskReborn => "reborn the active task path",
             SlashCommand::TaskShow => "open the live TaskSpace browser viewer",
-            SlashCommand::MapMode => "switch legacy TaskSpace runtime mode",
-            SlashCommand::MapRestart => "legacy alias for /task-reborn",
-            SlashCommand::MapShow => "legacy alias for /task-show",
             SlashCommand::Agent | SlashCommand::MultiAgents => "switch the active agent thread",
             SlashCommand::Side => "start a side conversation in an ephemeral fork",
             SlashCommand::Approvals => "choose what Whale is allowed to do",
@@ -162,7 +153,6 @@ impl SlashCommand {
                 | SlashCommand::Goal
                 | SlashCommand::Fast
                 | SlashCommand::Mcp
-                | SlashCommand::MapMode
                 | SlashCommand::SearchProvider
                 | SlashCommand::Side
                 | SlashCommand::Resume
@@ -200,8 +190,6 @@ impl SlashCommand {
             | SlashCommand::Plan
             | SlashCommand::TaskSpace
             | SlashCommand::TaskReborn
-            | SlashCommand::MapMode
-            | SlashCommand::MapRestart
             | SlashCommand::Clear
             | SlashCommand::Logout
             | SlashCommand::MemoryDrop
@@ -224,8 +212,7 @@ impl SlashCommand {
             | SlashCommand::Quit
             | SlashCommand::Exit
             | SlashCommand::Side
-            | SlashCommand::TaskShow
-            | SlashCommand::MapShow => true,
+            | SlashCommand::TaskShow => true,
             SlashCommand::Rollout => true,
             SlashCommand::TestApproval => true,
             SlashCommand::Realtime => true,
@@ -279,16 +266,6 @@ mod tests {
     }
 
     #[test]
-    fn map_mode_command_parses_and_requires_idle_task() {
-        assert_eq!(
-            SlashCommand::from_str("map-mode"),
-            Ok(SlashCommand::MapMode)
-        );
-        assert!(SlashCommand::MapMode.supports_inline_args());
-        assert!(!SlashCommand::MapMode.available_during_task());
-    }
-
-    #[test]
     fn taskspace_commands_parse_with_expected_availability() {
         assert_eq!(
             SlashCommand::from_str("taskspace"),
@@ -313,22 +290,10 @@ mod tests {
     }
 
     #[test]
-    fn map_restart_command_parses_and_requires_idle_task() {
-        assert_eq!(
-            SlashCommand::from_str("map-restart"),
-            Ok(SlashCommand::MapRestart)
-        );
-        assert!(!SlashCommand::MapRestart.supports_inline_args());
-        assert!(!SlashCommand::MapRestart.available_during_task());
-    }
-
-    #[test]
-    fn map_show_command_parses_and_is_available_during_task() {
-        assert_eq!(
-            SlashCommand::from_str("map-show"),
-            Ok(SlashCommand::MapShow)
-        );
-        assert!(!SlashCommand::MapShow.supports_inline_args());
-        assert!(SlashCommand::MapShow.available_during_task());
+    fn legacy_map_commands_do_not_parse_as_user_slash_commands() {
+        assert!(SlashCommand::from_str("map-mode").is_err());
+        assert!(SlashCommand::from_str("map-restart").is_err());
+        assert!(SlashCommand::from_str("map-show").is_err());
+        assert!(SlashCommand::from_str("map-node").is_err());
     }
 }

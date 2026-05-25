@@ -77,7 +77,7 @@ $instructions = @(
     "1. Start Whale:",
     "   $($commandLine -join ' ')",
     "2. In the TUI, run:",
-    "   /map-mode experiment",
+    "   /taskspace",
     "3. Paste the prompt from:",
     "   $promptPath",
     "4. After Whale exits, rerun this script without -Launch only if you need a fresh sandbox.",

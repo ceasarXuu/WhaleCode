@@ -35,7 +35,7 @@ Date: 2026-05-07
 - 2026-05-07：阶段 0 已补齐最小 `MapRuntimeEvent` 事件面，map 创建、map 状态切换、node 状态切换、lease 创建/绑定/释放、node result 记录、timeout summary 请求都会进入现有 `EventMsg::MapRuntime` / rollout 路径。
 - 2026-05-08：阶段 1 已落地 deterministic app-server 场景骨架，覆盖小型 bugfix 和模糊需求，产出 `report.md`、`diff.patch`、`test-output.txt`、`map-timeline.json`、`provider-requests.json`。
 - 2026-05-08：阶段 2 已补上 map runtime 会话级事件路径测试，验证 `map_created`、`node_status_changed`、`lease_created`、`lease_attached`、`node_result_recorded`、`lease_released` 能从 rollout 还原；timeout summary、单 node 单 lease、close/reclaim 继续由现有 `multi_agent` 回归覆盖。
-- 2026-05-08：阶段 3 已提供真实模型 exploratory 沙盒脚本 `scripts/run-action-map-exploratory-scenario.ps1`。它不进 CI，只准备沙盒、prompt、独立 `WHALE_HOME` 和报告位置，用户在 TUI 中显式执行 `/map-mode experiment` 后观察真实模型行为。
+- 2026-05-08：阶段 3 已提供真实模型 exploratory 沙盒脚本 `scripts/run-action-map-exploratory-scenario.ps1`。它不进 CI，只准备沙盒、prompt、独立 `WHALE_HOME` 和报告位置，用户在 TUI 中显式执行 `/taskspace` 后观察真实模型行为。
 - 完整 map replay 仍不是第一步目标；当前先保证场景能从 rollout 看到真实 map 推进事实。
 
 ## 总体架构
@@ -148,7 +148,7 @@ allow_restart = false
 | 配置型故障 | medium | 失败来自环境/配置而不是业务代码 | 是否用证据定位，避免乱改业务逻辑 |
 | 可并行调查 | medium | 多个独立模块各有线索 | 是否生成多个可并行 ready node，subagent 各自绑定 node |
 | 超时总结 | medium | mock 子任务迟迟不返回 | 是否触发 timeout summary，主 agent 决定继续/停止 |
-| map restart | high | 用户要求放弃当前思路重来 | `/map-restart` 是否 abandoned 旧 map 并创建新 map |
+| task reborn | high | 用户要求放弃当前思路重来 | `/task-reborn` 是否保留 task identity 并创建新执行路径 |
 | 复杂 debug | high | 多个误导性失败和部分红鲱鱼 | 是否控制成本，出现劣化信号时暴露给用户 |
 
 ## 对话驱动
@@ -175,7 +175,7 @@ sequenceDiagram
     Runner->>Log: 提取 map timeline 和 transcript
 ```
 
-TUI 自动化不作为第一版主路径。TUI 适合后续验证 `/map-mode`、`/map-restart` 交互呈现，但不适合作为核心回归入口。
+TUI 自动化不作为第一版主路径。TUI 适合后续验证 `/taskspace`、`/task-reborn` 交互呈现，但不适合作为核心回归入口。
 
 ## Map 观测事件
 
@@ -183,7 +183,7 @@ TUI 自动化不作为第一版主路径。TUI 适合后续验证 `/map-mode`、
 
 | 事件 | 触发点 | 用途 |
 |---|---|---|
-| `map_created` | experiment 下首次 spawn 或 `/map-restart` | 确认任务绑定到 map |
+| `map_created` | TaskSpace 下首次 spawn 或 `/task-reborn` | 确认任务绑定到 task path |
 | `map_status_changed` | completed / abandoned | 确认生命周期 |
 | `node_status_changed` | pending/ready/running/blocked/completed | 还原推进顺序 |
 | `lease_created` | subagent spawn 前 claim node | 验证一个 node 同时只能被一个 agent 持有 |
@@ -300,7 +300,7 @@ rustup run stable cargo test --lib action_map_wait_timeout --locked
 rustup run stable cargo test --lib action_map_close_agent --locked
 ```
 
-说明：当前 `/map-mode experiment` 是 core/TUI 控制面，不是 app-server V2 的 `thread/start` 参数。为了避免为测试新造并行控制面，第一版把“真实 Whale 进程对话”放在 app-server deterministic 场景，把“map runtime 事件和 node-bound subagent 约束”放在 core 会话级测试。
+说明：当前 `/taskspace` 是 core/TUI 控制面，不是 app-server V2 的 `thread/start` 参数。为了避免为测试新造并行控制面，第一版把“真实 Whale 进程对话”放在 app-server deterministic 场景，把“TaskSpace runtime 事件和 node-bound subagent 约束”放在 core 会话级测试。
 
 ### 阶段 3：真实模型探索
 
@@ -331,7 +331,7 @@ target/scenario-runs/<scenario-id>/<timestamp>/
     rollout.jsonl   # 如果本次 TUI 运行产生了 rollout
 ```
 
-真实模型路径必须由用户在 TUI 中显式执行 `/map-mode experiment`，再粘贴脚本生成的 `prompt.txt`。这保持 slash command 的真实交互语义，不把 `/map-mode` 伪装成自然语言 prompt。
+真实模型路径必须由用户在 TUI 中显式执行 `/taskspace`，再粘贴脚本生成的 `prompt.txt`。这保持 slash command 的真实交互语义，不把 `/taskspace` 伪装成自然语言 prompt。
 
 ## 与现有测试的关系
 

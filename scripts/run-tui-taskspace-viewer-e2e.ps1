@@ -8,14 +8,14 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $RunId = Get-Date -Format "yyyyMMdd-HHmmss-fff"
-$RunRoot = Join-Path $RepoRoot "target\tui-map-show-viewer-e2e\$RunId"
+$RunRoot = Join-Path $RepoRoot "target\tui-taskspace-viewer-e2e\$RunId"
 $RepoDir = Join-Path $RunRoot "repo"
 $ArtifactDir = Join-Path $RunRoot "artifacts"
 $PtyRoot = Join-Path $RepoRoot "target\pty-tools"
 $PtyModule = Join-Path $PtyRoot "node_modules\@homebridge\node-pty-prebuilt-multiarch"
 
 New-Item -ItemType Directory -Force $RepoDir, $ArtifactDir, $PtyRoot | Out-Null
-Set-Content -LiteralPath (Join-Path $RepoDir "README.md") -Encoding UTF8 -Value "# TUI map-show viewer E2E`n"
+Set-Content -LiteralPath (Join-Path $RepoDir "README.md") -Encoding UTF8 -Value "# TUI task-show viewer E2E`n"
 
 if (-not (Test-Path -LiteralPath $WhaleBin)) {
     throw "Cannot find installed Whale binary: $WhaleBin"
@@ -35,8 +35,8 @@ if (-not (Test-Path -LiteralPath $PtyModule)) {
 
 $LogPath = Join-Path $ArtifactDir "tui-output.log"
 $ReportPath = Join-Path $ArtifactDir "report.md"
-$JsPath = Join-Path $ArtifactDir "run-tui-map-show-viewer.js"
-$Marker = "MAP_SHOW_VIEWER_OK_$RunId"
+$JsPath = Join-Path $ArtifactDir "run-tui-taskspace-viewer.js"
+$Marker = "TASKSPACE_VIEWER_OK_$RunId"
 
 $PtyModuleJson = $PtyModule.Replace('\', '/') | ConvertTo-Json -Compress
 $LogPathJson = $LogPath.Replace('\', '/') | ConvertTo-Json -Compress
@@ -67,7 +67,7 @@ let exited = false;
 function write(data) {
   out += data;
   fs.writeFileSync(logPath, out, 'utf8');
-  const matches = [...out.matchAll(/Action Map viewer:\s+(http:\/\/127\.0\.0\.1:\d+\/)/g)];
+  const matches = [...out.matchAll(/(?:Action Map|TaskSpace) viewer:\s+(http:\/\/127\.0\.0\.1:\d+\/)/g)];
   if (matches.length) viewerUrl = matches[matches.length - 1][1];
 }
 
@@ -93,7 +93,7 @@ async function probeViewer() {
 function report(overall, exitCode, failure) {
   const sawStub = out.includes('Not available in TUI yet');
   fs.writeFileSync(reportPath, [
-    '# TUI Map Show Viewer E2E',
+    '# TUI TaskSpace Viewer E2E',
     '',
     '- overall: ' + overall,
     '- exit_code: ' + exitCode,
@@ -124,11 +124,11 @@ function send(ms, text) { setTimeout(() => term.write(text), ms); }
 function cmd(ms, text) { send(ms, text + '\r'); send(ms + 350, '\r'); }
 
 send(2500, '\r');
-cmd(8000, '/map-mode experiment');
-cmd(12000, '/map-restart');
-cmd(16000, '/map-show');
+cmd(8000, '/taskspace');
+cmd(12000, '/task-reborn');
+cmd(16000, '/task-show');
 cmd(22000, 'Reply with exactly ' + marker + ' and nothing else.');
-cmd(90000, '/map-show');
+cmd(90000, '/task-show');
 cmd(120000, '/quit');
 
 const deadline = Date.now() + $TimeoutMs;
@@ -168,5 +168,5 @@ if (Test-Path -LiteralPath $ReportPath) {
     Get-Content -LiteralPath $ReportPath -Encoding UTF8
 }
 if ($ExitCode -ne 0) {
-    throw "TUI map-show viewer E2E failed. Artifacts: $ArtifactDir"
+    throw "TUI task-show viewer E2E failed. Artifacts: $ArtifactDir"
 }

@@ -65,12 +65,25 @@ pub struct Cli {
     )]
     pub last_message_file: Option<PathBuf>,
 
-    /// Select the multi-agent runtime mode for this exec session.
-    #[arg(long = "map-mode", value_enum, global = true)]
+    /// Enable TaskSpace mode for this exec session.
+    #[arg(long = "taskspace", global = true, default_value_t = false)]
+    pub taskspace: bool,
+
+    /// Reborn the active task path before the first exec turn.
+    #[arg(long = "task-reborn", global = true, default_value_t = false)]
+    pub task_reborn: bool,
+
+    /// Legacy hidden compatibility flag for old automation.
+    #[arg(long = "map-mode", value_enum, global = true, hide = true)]
     pub map_mode: Option<ExecMapRuntimeMode>,
 
-    /// Restart the active Action Map before the first exec turn.
-    #[arg(long = "map-restart", global = true, default_value_t = false)]
+    /// Legacy hidden compatibility flag for old automation.
+    #[arg(
+        long = "map-restart",
+        global = true,
+        default_value_t = false,
+        hide = true
+    )]
     pub map_restart: bool,
 
     /// Initial instructions for the agent. If not provided as an argument (or

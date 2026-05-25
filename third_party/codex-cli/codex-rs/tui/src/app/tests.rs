@@ -4985,7 +4985,7 @@ async fn action_map_commands_are_routed_through_app_server_in_tui_impl() {
     let viewer_url = app
         .action_map_viewer
         .as_ref()
-        .expect("/map-show should start the browser viewer")
+        .expect("taskspace viewer command should start the browser viewer")
         .url
         .clone();
     assert!(viewer_url.starts_with("http://127.0.0.1:"));

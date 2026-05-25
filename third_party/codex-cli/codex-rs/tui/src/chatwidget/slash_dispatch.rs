@@ -32,7 +32,6 @@ const SIDE_REVIEW_UNAVAILABLE_MESSAGE: &str =
 const SIDE_SLASH_COMMAND_UNAVAILABLE_HINT: &str = "Press Esc to return to the main thread first.";
 const GOAL_USAGE: &str = "Usage: /goal <objective>";
 const GOAL_USAGE_HINT: &str = "Example: /goal improve benchmark coverage";
-const MAP_MODE_USAGE: &str = "Usage: /map-mode [standard|experiment]";
 
 impl ChatWidget {
     fn submit_taskspace_enable(&mut self) {
@@ -245,21 +244,6 @@ impl ChatWidget {
                 self.submit_op(AppCommand::restart_action_map());
             }
             SlashCommand::TaskShow => {
-                self.submit_op(AppCommand::show_action_map());
-            }
-            SlashCommand::MapMode => {
-                self.add_info_message(
-                    MAP_MODE_USAGE.to_string(),
-                    Some(
-                        "standard keeps the current multi-agent behavior; experiment enables TaskSpace hooks as they land."
-                            .to_string(),
-                    ),
-                );
-            }
-            SlashCommand::MapRestart => {
-                self.submit_op(AppCommand::restart_action_map());
-            }
-            SlashCommand::MapShow => {
                 self.submit_op(AppCommand::show_action_map());
             }
             SlashCommand::Side => {
@@ -601,21 +585,6 @@ impl ChatWidget {
                 "verbose" => self.add_mcp_output(McpServerStatusDetail::Full),
                 _ => self.add_error_message("Usage: /mcp [verbose]".to_string()),
             },
-            SlashCommand::MapMode => match trimmed.to_ascii_lowercase().as_str() {
-                "standard" => {
-                    self.submit_op(AppCommand::set_map_runtime_mode(MapRuntimeMode::Standard));
-                }
-                "experiment" => {
-                    self.submit_op(AppCommand::set_map_runtime_mode(MapRuntimeMode::Experiment));
-                }
-                _ => self.add_error_message(MAP_MODE_USAGE.to_string()),
-            },
-            SlashCommand::MapRestart => {
-                self.add_error_message("Usage: /map-restart".to_string());
-            }
-            SlashCommand::MapShow => {
-                self.add_error_message("Usage: /map-show".to_string());
-            }
             SlashCommand::TaskSpace => {
                 self.add_error_message("Usage: /taskspace".to_string());
             }
@@ -896,9 +865,6 @@ impl ChatWidget {
             | SlashCommand::MemoryDrop
             | SlashCommand::MemoryUpdate
             | SlashCommand::Mcp
-            | SlashCommand::MapMode
-            | SlashCommand::MapRestart
-            | SlashCommand::MapShow
             | SlashCommand::TaskSpace
             | SlashCommand::TaskReborn
             | SlashCommand::TaskShow

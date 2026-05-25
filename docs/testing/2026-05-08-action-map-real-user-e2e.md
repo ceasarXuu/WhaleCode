@@ -16,13 +16,13 @@ Offline unit tests and mock Responses servers remain useful for deterministic re
 .\scripts\run-action-map-real-user-e2e.ps1
 ```
 
-The TUI `/map-show` browser viewer has its own installed-binary E2E:
+The TUI `/task-show` browser viewer has its own installed-binary E2E:
 
 ```powershell
-.\scripts\run-tui-map-show-viewer-e2e.ps1
+.\scripts\run-tui-taskspace-viewer-e2e.ps1
 ```
 
-That path launches the installed `whale.exe`, sends `/map-mode experiment`, `/map-restart`, `/map-show`, makes a real user turn, then fetches the live `snapshot.json` URL exposed by the localhost viewer.
+That path launches the installed `whale.exe`, sends `/taskspace`, `/task-reborn`, `/task-show`, makes a real user turn, then fetches the live `snapshot.json` URL exposed by the localhost viewer.
 
 The script creates a temporary git repository under:
 
@@ -33,10 +33,10 @@ target/real-user-e2e/action-map-real-user-cache-bugfix/<timestamp>/
 It then runs:
 
 ```powershell
-%USERPROFILE%\.whale\bin\whale.exe exec --json --map-mode experiment --map-restart -m deepseek-v4-flash -C <repo> --dangerously-bypass-approvals-and-sandbox --output-last-message <file> -
+%USERPROFILE%\.whale\bin\whale.exe exec --json --taskspace --task-reborn -m deepseek-v4-flash -C <repo> --dangerously-bypass-approvals-and-sandbox --output-last-message <file> -
 ```
 
-The prompt is passed through stdin, matching a real CLI user request without embedding a fake model response. `--map-restart` uses the app-server Action Map restart request before the turn starts, so the agent no longer needs to treat `/map-restart` as natural-language work or accidentally run it as a shell command.
+The prompt is passed through stdin, matching a real CLI user request without embedding a fake model response. `--task-reborn` uses the app-server task path reborn request before the turn starts, so the agent no longer needs to treat `/task-reborn` as natural-language work or accidentally run it as a shell command.
 
 The E2E also exports a human-readable observability bundle next to the raw artifacts:
 
@@ -51,11 +51,11 @@ The HTML view is intentionally static and local-only. It reconstructs the map, n
 Runtime observability now has two direct read surfaces in addition to rollout export:
 
 ```text
-/map-show
+/task-show
 thread/actionMap/read
 ```
 
-`/map-show` opens a localhost browser viewer from the TUI. The viewer polls `thread/actionMap/read` every 2 seconds, so it shows the current Action Map without forcing large map state into the terminal. `thread/actionMap/read` remains the structured snapshot API for viewer, automation, and external observability integrations.
+`/task-show` opens a localhost browser viewer from the TUI. The viewer polls `thread/taskspace/read` every 2 seconds, so it shows the current TaskSpace without forcing large task state into the terminal. `thread/taskspace/read` remains the structured snapshot API for viewer, automation, and external observability integrations.
 
 ## Required Evidence
 
@@ -72,11 +72,11 @@ The report is marked PASS only when all of these are true:
   - `lease_created`
   - `lease_attached`
   - `node_result_recorded` or `lease_released`
-- The run contains no evidence that `/map-restart` was attempted as a shell command.
+- The run contains no evidence that `/task-reborn` was attempted as a shell command.
 - The run contains no `failed to record rollout items` runtime errors.
 - The Action Map observability HTML is generated.
-- The command/API read path is covered by `/map-show` slash dispatch tests, live viewer endpoint tests, core snapshot formatting tests, and app-server protocol/schema checks.
-- The TUI viewer path is covered by launching the installed `whale.exe`, opening `/map-show`, and reading the auto-refresh viewer endpoint.
+- The command/API read path is covered by `/task-show` slash dispatch tests, live viewer endpoint tests, core snapshot formatting tests, and app-server protocol/schema checks.
+- The TUI viewer path is covered by launching the installed `whale.exe`, opening `/task-show`, and reading the auto-refresh viewer endpoint.
 
 ## Latest Verified Run
 
@@ -106,17 +106,17 @@ validation_exit_code: 0
 
 ## Real Bug Found
 
-The first real run showed that `--map-mode experiment` only switched the Action Map mode, while the installed configuration could still expose the old multi-agent tool handler. That meant the agent could spawn a subagent without real node/lease binding.
+The first real run showed that the TaskSpace exec switch only changed the runtime mode, while the installed configuration could still expose the old multi-agent tool handler. That meant the agent could spawn a subagent without real node/lease binding.
 
-Fix: `whale exec --map-mode experiment` now forces the existing `multi_agent_v2` feature on for that exec session by enabling `features.multi_agent_v2.enabled`, so Action Map node binding uses the existing v2 multi-agent infrastructure instead of the legacy spawn handler.
+Fix: `whale exec --taskspace` now forces the existing `multi_agent_v2` feature on for that exec session by enabling `features.multi_agent_v2.enabled`, so TaskSpace node binding uses the existing v2 multi-agent infrastructure instead of the legacy spawn handler.
 
 The next real run found a second runtime bug: `multi_agent_v2` claimed a node before validating spawn arguments. If validation failed, the node lease could remain stuck and block all later subagent work.
 
 Fix: `multi_agent_v2` now performs pre-spawn validation before claiming an Action Map node, and releases the lease if later input/source construction fails.
 
-The next product-path issue was command routing. `/map-restart` exists as a TUI slash command, but the real `whale exec` path had no equivalent machine entrypoint. A model could interpret the text as something to execute in PowerShell, which produces noise and hides the intended map lifecycle action.
+The next product-path issue was command routing. `/task-reborn` exists as a TUI slash command, but the real `whale exec` path had no equivalent machine entrypoint. A model could interpret the text as something to execute in PowerShell, which produces noise and hides the intended task path lifecycle action.
 
-Fix: the app-server now exposes `thread/actionMap/restart`, and `whale exec --map-restart` sends that request before the first turn. The real-user E2E script now requires the installed binary to expose both `--map-mode` and `--map-restart`, and fails if the run shows `/map-restart` shell misuse.
+Fix: the app-server now exposes the reborn/restart request, and `whale exec --task-reborn` sends that request before the first turn. The real-user E2E script now requires the installed binary to expose both `--taskspace` and `--task-reborn`, and fails if the run shows `/task-reborn` shell misuse.
 
 The same real run exposed a shutdown-time observability issue: after the app-server closed a session, late rollout appends could still try to write through a removed live thread recorder and log `failed to record rollout items: thread ... not found`.
 

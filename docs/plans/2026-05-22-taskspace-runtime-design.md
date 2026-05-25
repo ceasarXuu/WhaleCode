@@ -55,8 +55,8 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 
 - `/taskspace`：进入任务空间模式。
 - `/taskspace` 成功后会在对话流中直接打印 TaskSpace viewer URL，用户可以立刻在浏览器中打开。
-- `/task-show`：再次打印或打开任务空间 viewer。第一版也可以让 `/map-show` 作为兼容别名打开同一 viewer。
-- `/task-reborn`：当前任务换一条思路重生执行路径。第一版可继续用 `/map-restart` 作为兼容别名。
+- `/task-show`：再次打印或打开任务空间 viewer。用户可见命令面只保留 TaskSpace 概念。
+- `/task-reborn`：当前任务换一条思路重生执行路径。用户可见命令面只保留 TaskSpace 概念。
 
 用户不需要理解：
 
@@ -95,7 +95,7 @@ TaskSpace 的目标是增加一个轻量、有状态、可约束的 task 层：
 
 打开本地 browser viewer，展示 task list、active task、task map、node、lease、result。
 
-第一版可以复用现有 `/map-show` viewer 技术路径，但用户文案应改成 TaskSpace。
+第一版可以复用现有 viewer 技术路径，但用户文案必须是 TaskSpace。
 
 `/task-show` 的职责是可观测性，不改变 runtime 状态：
 
@@ -1333,7 +1333,7 @@ pending task 的后台 subagent result 写回时，也必须更新 manifest 中�
 ```text
 TaskSpace manifest:
 - task-1 [active] TaskSpace runtime design: define task layer and compression policy. Current node: compression design.
-- task-2 [pending] map-show viewer: browser live viewer implemented and verified.
+- task-2 [pending] task-show viewer: browser live viewer implemented and verified.
 ```
 
 ### Active Task Pack
@@ -1798,9 +1798,9 @@ V1 viewer 明确为只读：
 
 - 新增 `TaskSpaceRuntimeState`。
 - 把现有 `ActionMapRuntimeState` 放入默认 active task。
-- `/map-mode experiment` 的内部语义迁移为 `/taskspace`。
-- 保留 `/map-mode` 作为 debug legacy 命令。
-- `/map-show` 打开 taskspace viewer，兼容旧命令。
+- `/taskspace` 进入 TaskSpace 模式。
+- 旧 `map-*` slash 命令不再作为用户可见命令保留。
+- `/task-show` 打开 taskspace viewer。
 - `/taskspace` enable 成功后自动启动或复用 viewer，并打印 URL。
 
 ### 阶段 2：强制 task bootstrap/sync
@@ -1979,11 +1979,11 @@ V1 viewer 明确为只读：
 ## 与旧概念的对应关系
 
 ```text
-旧 /map-mode experiment  -> 新 /taskspace
+历史“进入 map 实验模式”命令  -> 新 /taskspace，旧 slash 命令不保留
 旧 Action Map Runtime    -> 新 TaskSpace 内部 Task Map Runtime
 旧 active_map_id         -> 新 active_task_id + task.active_map_id
-旧 /map-show             -> 新 /task-show，旧命令保留为别名
-旧 /map-restart          -> 新 /task-reborn，旧命令保留为别名
+历史“查看 map”命令         -> 新 /task-show，旧 slash 命令不保留
+历史“重启 map”命令         -> 新 /task-reborn，旧 slash 命令不保留
 ```
 
 ## 非目标
