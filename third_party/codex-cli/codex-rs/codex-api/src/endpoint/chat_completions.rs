@@ -238,6 +238,60 @@ mod tests {
     }
 
     #[test]
+    fn preserves_reasoning_content_for_parallel_tool_calls() {
+        let messages = chat_messages_from_response_items(&[
+            ResponseItem::Reasoning {
+                id: "reasoning-1".to_string(),
+                summary: Vec::new(),
+                content: Some(vec![ReasoningItemContent::ReasoningText {
+                    text: "Need two directory checks.".to_string(),
+                }]),
+                encrypted_content: None,
+            },
+            ResponseItem::Message {
+                id: None,
+                role: "assistant".to_string(),
+                content: vec![ContentItem::OutputText {
+                    text: "I'll inspect both locations.".to_string(),
+                }],
+                end_turn: None,
+                phase: None,
+            },
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "shell_command".to_string(),
+                namespace: None,
+                arguments: r#"{"command":"Get-ChildItem src"}"#.to_string(),
+                call_id: "call_1".to_string(),
+            },
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "shell_command".to_string(),
+                namespace: None,
+                arguments: r#"{"command":"Get-ChildItem tests"}"#.to_string(),
+                call_id: "call_2".to_string(),
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "call_1".to_string(),
+                output: FunctionCallOutputPayload::from_text("src ok".to_string()),
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "call_2".to_string(),
+                output: FunctionCallOutputPayload::from_text("tests ok".to_string()),
+            },
+        ]);
+
+        assert_eq!(messages.len(), 3);
+        assert_eq!(
+            messages[0]["reasoning_content"],
+            json!("Need two directory checks.")
+        );
+        assert_eq!(messages[0]["tool_calls"].as_array().unwrap().len(), 2);
+        assert_eq!(messages[1]["tool_call_id"], json!("call_1"));
+        assert_eq!(messages[2]["tool_call_id"], json!("call_2"));
+    }
+
+    #[test]
     fn drops_unpaired_reasoning_content() {
         let messages = chat_messages_from_response_items(&[ResponseItem::Reasoning {
             id: "reasoning-only".to_string(),

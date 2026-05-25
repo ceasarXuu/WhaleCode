@@ -1,5 +1,7 @@
 mod history;
 mod normalize;
+#[cfg(test)]
+mod normalize_tests;
 pub(crate) mod updates;
 
 pub(crate) use history::ContextManager;

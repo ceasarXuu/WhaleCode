@@ -203,21 +203,50 @@ pub(crate) fn colocate_call_outputs(items: &mut Vec<ResponseItem>) {
         .cloned()
         .collect();
     let mut reordered = Vec::with_capacity(original.len());
+    let mut idx = 0;
 
-    for (idx, item) in original.iter().enumerate() {
+    while idx < original.len() {
+        let item = &original[idx];
         if output_consumed[idx] {
+            idx += 1;
             continue;
         }
 
         if output_call_id(item).is_some_and(|call_id| known_call_ids.contains(call_id)) {
+            idx += 1;
+            continue;
+        }
+
+        if call_id_for_output_pairing(item).is_some() {
+            let mut call_ids = Vec::new();
+            while idx < original.len() {
+                let call_item = &original[idx];
+                let Some(call_id) = call_id_for_output_pairing(call_item) else {
+                    break;
+                };
+                reordered.push(call_item.clone());
+                call_ids.push(call_id.clone());
+                idx += 1;
+            }
+
+            append_matching_outputs(&original, &mut output_consumed, &mut reordered, &call_ids);
             continue;
         }
 
         reordered.push(item.clone());
+        idx += 1;
+    }
 
-        let Some(call_id) = call_id_for_output_pairing(item) else {
-            continue;
-        };
+    *items = reordered;
+}
+
+fn append_matching_outputs(
+    original: &[ResponseItem],
+    output_consumed: &mut [bool],
+    reordered: &mut Vec<ResponseItem>,
+    call_ids: &[String],
+) {
+    for call_id in call_ids {
         if let Some(output_idx) =
             original
                 .iter()
@@ -232,8 +261,6 @@ pub(crate) fn colocate_call_outputs(items: &mut Vec<ResponseItem>) {
             reordered.push(original[output_idx].clone());
         }
     }
-
-    *items = reordered;
 }
 
 pub(crate) fn remove_corresponding_for(items: &mut Vec<ResponseItem>, item: &ResponseItem) {
