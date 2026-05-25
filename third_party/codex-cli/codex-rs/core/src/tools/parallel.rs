@@ -285,3 +285,19 @@ fn action_map_tool_error_preview(err: &FunctionCallError) -> String {
         FunctionCallError::Fatal(_) => "Tool call failed with a fatal runtime error.".to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::action_map_tool_error_preview;
+    use crate::function_tool::FunctionCallError;
+
+    #[test]
+    fn action_map_error_preview_does_not_persist_raw_error_text() {
+        let preview = action_map_tool_error_preview(&FunctionCallError::RespondToModel(
+            "sensitive path D:\\secret\\project\\file.rs".to_string(),
+        ));
+
+        assert_eq!(preview, "Tool call failed before producing a result.");
+        assert!(!preview.contains("secret"));
+    }
+}

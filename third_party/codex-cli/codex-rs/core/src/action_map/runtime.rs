@@ -1004,10 +1004,15 @@ fn seed_map(
 }
 
 fn first_open_node_id(map: &ActionMapInstance) -> Option<MapNodeId> {
+    first_node_with_status(map, NodeStatus::Ready)
+        .or_else(|| first_node_with_status(map, NodeStatus::Blocked))
+}
+
+fn first_node_with_status(map: &ActionMapInstance, status: NodeStatus) -> Option<MapNodeId> {
     ordered_node_ids(map).into_iter().find_map(|node_id| {
         map.nodes
             .get(&node_id)
-            .filter(|node| matches!(node.status, NodeStatus::Ready | NodeStatus::Blocked))
+            .filter(|node| node.status == status)
             .map(|node| node.id.clone())
     })
 }
@@ -1493,6 +1498,38 @@ mod tests {
     }
 
     #[test]
+    fn main_binding_prefers_ready_nodes_before_blocked_recovery_nodes() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.ensure_active_seed_map(owner, "test");
+        let map_id = state.active_map_id.clone().expect("active map");
+        {
+            let map = state.maps.get_mut(&map_id).expect("map");
+            map.nodes
+                .get_mut("define_scope")
+                .expect("define node")
+                .status = NodeStatus::Completed;
+            map.nodes
+                .get_mut("inspect_code_context")
+                .expect("inspect node")
+                .status = NodeStatus::Blocked;
+            map.nodes
+                .get_mut("design_solution")
+                .expect("design node")
+                .status = NodeStatus::Ready;
+        }
+        state.current_main_node_id = Some("define_scope".to_string());
+
+        state.ensure_main_binding_for_active_map();
+
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some("design_solution")
+        );
+    }
+
+    #[test]
     fn restore_mode_does_not_create_transition_notice() {
         let mut state = ActionMapRuntimeState::default();
 
@@ -1827,6 +1864,36 @@ mod tests {
         let stored = map.results.get("result-1").expect("stored result");
         assert_eq!(stored.kind, NodeResultKind::Blocker);
         assert_eq!(stored.body, "boom");
+    }
+
+    #[test]
+    fn non_final_child_result_blocks_node_and_releases_lease() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        let child = ThreadId::new();
+        let assignment = state
+            .prepare_spawn_assignment(owner, "first")
+            .expect("claim")
+            .0
+            .expect("assignment");
+        state.attach_agent_to_lease(
+            &assignment.lease_id,
+            child,
+            Some("/root/worker".to_string()),
+        );
+
+        let result = state.record_child_result(child, &AgentStatus::Running);
+
+        assert_eq!(result.as_ref().map(|(id, _)| id.as_str()), Some("result-1"));
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("define_scope").expect("node");
+        assert_eq!(node.status, NodeStatus::Blocked);
+        assert!(node.active_lease.is_none());
+        assert!(map.leases.is_empty());
+        let stored = map.results.get("result-1").expect("stored result");
+        assert_eq!(stored.kind, NodeResultKind::Blocker);
+        assert!(stored.body.contains("non-final status"));
     }
 
     #[test]

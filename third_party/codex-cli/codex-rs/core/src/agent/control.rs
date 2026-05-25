@@ -960,88 +960,86 @@ impl AgentControl {
                 Err(_) => control.get_status(child_thread_id).await,
             };
             if !is_final(&status) {
-                if let Ok(state) = control.upgrade() {
-                    let child_thread = state.get_thread(child_thread_id).await.ok();
-                    let message =
-                        format_subagent_notification_message(child_reference.as_str(), &status);
-                    if child_agent_path.is_some()
-                        && child_thread
-                            .as_ref()
-                            .map(|thread| thread.enabled(Feature::MultiAgentV2))
-                            .unwrap_or(true)
-                    {
-                        if let Some(child_agent_path) = child_agent_path.clone()
-                            && let Some(parent_agent_path) = child_agent_path
-                                .as_str()
-                                .rsplit_once('/')
-                                .and_then(|(parent, _)| AgentPath::try_from(parent).ok())
-                        {
-                            let communication = InterAgentCommunication::new(
-                                child_agent_path,
-                                parent_agent_path,
-                                Vec::new(),
-                                message,
-                                /*trigger_turn*/ false,
-                            );
-                            let _ = control
-                                .send_inter_agent_communication(parent_thread_id, communication)
-                                .await;
-                        }
-                    } else if let Ok(parent_thread) = state.get_thread(parent_thread_id).await {
-                        parent_thread
-                            .inject_user_message_without_turn(message)
-                            .await;
-                    }
-                }
+                control
+                    .notify_subagent_completion(
+                        parent_thread_id,
+                        child_thread_id,
+                        child_reference.as_str(),
+                        child_agent_path.as_ref(),
+                        &status,
+                    )
+                    .await;
                 let _ = control
                     .record_action_map_child_result(parent_thread_id, child_thread_id, &status)
                     .await;
                 return;
             }
 
-            let Ok(state) = control.upgrade() else {
-                return;
-            };
-            let child_thread = state.get_thread(child_thread_id).await.ok();
-            let message = format_subagent_notification_message(child_reference.as_str(), &status);
-            if child_agent_path.is_some()
-                && child_thread
-                    .as_ref()
-                    .map(|thread| thread.enabled(Feature::MultiAgentV2))
-                    .unwrap_or(true)
-            {
-                let Some(child_agent_path) = child_agent_path.clone() else {
-                    return;
-                };
-                let Some(parent_agent_path) = child_agent_path
-                    .as_str()
-                    .rsplit_once('/')
-                    .and_then(|(parent, _)| AgentPath::try_from(parent).ok())
-                else {
-                    return;
-                };
-                let communication = InterAgentCommunication::new(
-                    child_agent_path,
-                    parent_agent_path,
-                    Vec::new(),
-                    message,
-                    /*trigger_turn*/ false,
-                );
-                let _ = control
-                    .send_inter_agent_communication(parent_thread_id, communication)
-                    .await;
+            let notified = control
+                .notify_subagent_completion(
+                    parent_thread_id,
+                    child_thread_id,
+                    child_reference.as_str(),
+                    child_agent_path.as_ref(),
+                    &status,
+                )
+                .await;
+            if notified {
                 let _ = control
                     .record_action_map_child_result(parent_thread_id, child_thread_id, &status)
                     .await;
                 return;
             }
-            let Ok(parent_thread) = state.get_thread(parent_thread_id).await else {
-                return;
+        });
+    }
+
+    async fn notify_subagent_completion(
+        &self,
+        parent_thread_id: ThreadId,
+        child_thread_id: ThreadId,
+        child_reference: &str,
+        child_agent_path: Option<&AgentPath>,
+        status: &AgentStatus,
+    ) -> bool {
+        let Ok(state) = self.upgrade() else {
+            return false;
+        };
+        let child_thread = state.get_thread(child_thread_id).await.ok();
+        let message = format_subagent_notification_message(child_reference, status);
+        if child_agent_path.is_some()
+            && child_thread
+                .as_ref()
+                .map(|thread| thread.enabled(Feature::MultiAgentV2))
+                .unwrap_or(true)
+        {
+            let Some(child_agent_path) = child_agent_path.cloned() else {
+                return false;
             };
+            let Some(parent_agent_path) = child_agent_path
+                .as_str()
+                .rsplit_once('/')
+                .and_then(|(parent, _)| AgentPath::try_from(parent).ok())
+            else {
+                return false;
+            };
+            let communication = InterAgentCommunication::new(
+                child_agent_path,
+                parent_agent_path,
+                Vec::new(),
+                message,
+                /*trigger_turn*/ false,
+            );
+            self.send_inter_agent_communication(parent_thread_id, communication)
+                .await
+                .is_ok()
+        } else if let Ok(parent_thread) = state.get_thread(parent_thread_id).await {
             parent_thread
                 .inject_user_message_without_turn(message)
                 .await;
-        });
+            true
+        } else {
+            false
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -1370,6 +1370,69 @@ async fn multi_agent_v2_completion_queues_message_for_direct_parent() {
 }
 
 #[tokio::test]
+async fn non_final_completion_notification_queues_message_for_direct_parent() {
+    let harness = AgentControlHarness::new().await;
+    let (_root_thread_id, root_thread) = harness.start_thread().await;
+    let (worker_thread_id, _worker_thread) = harness.start_thread().await;
+    let worker_path = AgentPath::root().join("worker_a").expect("worker path");
+    let tester_path = worker_path.join("tester").expect("tester path");
+    let child_thread_id = ThreadId::new();
+    let status = AgentStatus::Running;
+
+    assert!(
+        harness
+            .control
+            .notify_subagent_completion(
+                worker_thread_id,
+                child_thread_id,
+                tester_path.as_str(),
+                Some(&tester_path),
+                &status,
+            )
+            .await
+    );
+
+    let expected_message =
+        crate::session_prefix::format_subagent_notification_message(tester_path.as_str(), &status);
+    let expected = (
+        worker_thread_id,
+        Op::InterAgentCommunication {
+            communication: InterAgentCommunication::new(
+                tester_path.clone(),
+                worker_path,
+                Vec::new(),
+                expected_message.clone(),
+                /*trigger_turn*/ false,
+            ),
+        },
+    );
+    let captured = harness
+        .manager
+        .captured_ops()
+        .into_iter()
+        .find(|entry| *entry == expected);
+    assert_eq!(captured, Some(expected));
+
+    let root_history_items = root_thread
+        .codex
+        .session
+        .clone_history()
+        .await
+        .raw_items()
+        .to_vec();
+    assert!(!history_contains_assistant_inter_agent_communication(
+        &root_history_items,
+        &InterAgentCommunication::new(
+            tester_path,
+            AgentPath::root(),
+            Vec::new(),
+            expected_message,
+            /*trigger_turn*/ false,
+        )
+    ));
+}
+
+#[tokio::test]
 async fn completion_watcher_notifies_parent_when_child_is_missing() {
     let harness = AgentControlHarness::new().await;
     let (parent_thread_id, parent_thread) = harness.start_thread().await;
