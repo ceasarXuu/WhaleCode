@@ -218,8 +218,13 @@ th{font-weight:700}
 pre{white-space:pre-wrap;margin:6px 0 0}
 details{border:1px solid #777;padding:8px;margin:8px 0}
 summary{cursor:pointer}
-.graph{position:relative;overflow:auto;border:1px solid #777;margin:8px 0 14px;background:rgba(127,127,127,.06)}
+.graph{position:relative;overflow:hidden;border:1px solid #777;margin:8px 0 14px;background:rgba(127,127,127,.06);height:clamp(340px,62vh,820px);cursor:grab;touch-action:none;user-select:none}
+.graph.dragging{cursor:grabbing}
+.graph-world{position:absolute;left:0;top:0;transform-origin:0 0}
 .graph svg{position:absolute;inset:0;pointer-events:none}
+.graph-controls{position:absolute;right:8px;top:8px;z-index:3;display:flex;gap:4px}
+.graph-controls button{font:12px/1 Consolas,Menlo,monospace;border:1px solid #777;background:Canvas;color:CanvasText;padding:4px 7px}
+.graph-help{position:absolute;left:8px;bottom:8px;color:#777;background:Canvas;padding:2px 5px;border:1px solid #777}
 .graph-node{position:absolute;box-sizing:border-box;width:220px;min-height:76px;border:1px solid #777;background:Canvas;padding:7px}
 .graph-node.running{border-color:#0a84ff}.graph-node.ready{border-color:#6a8f00}.graph-node.completed{border-color:#2d8a4d}.graph-node.blocked{border-color:#b00020}
 .node-title{font-weight:700;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -235,7 +240,7 @@ summary{cursor:pointer}
 <script>
 const root = document.getElementById('root');
 const meta = document.getElementById('meta');
-const ui = {open:new Set(), scrollY:0};
+const ui = {open:new Set(), scrollY:0, graph:new Map(), lastPayload:'', pending:null};
 function el(tag, text, cls){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
 function row(values){const tr=el('tr');values.forEach(v=>tr.appendChild(el('td',v??'')));return tr}
 function table(headers, rows){const t=el('table');const h=el('tr');headers.forEach(x=>h.appendChild(el('th',x)));t.appendChild(h);rows.forEach(r=>t.appendChild(row(r)));return t}
@@ -245,6 +250,12 @@ function restoreUi(){document.querySelectorAll('details[data-key]').forEach(d=>{
 document.addEventListener('toggle',e=>{const k=e.target&&e.target.dataset&&e.target.dataset.key;if(k){e.target.open?ui.open.add(k):ui.open.delete(k)}},true);
 function detail(key, summary, body){const d=el('details');d.dataset.key=key;d.open=ui.open.has(key);d.appendChild(el('summary',summary));d.appendChild(body);return d}
 function short(text, max){text=text||'';return text.length>max?text.slice(0,max-1)+'...':text}
+function activeSelection(){const s=window.getSelection&&window.getSelection();return !!(s&&!s.isCollapsed&&String(s).length)}
+function graphState(key){if(!ui.graph.has(key))ui.graph.set(key,{x:20,y:20,scale:1});return ui.graph.get(key)}
+function applyGraphTransform(world, state){world.style.transform=`translate(${state.x}px,${state.y}px) scale(${state.scale})`}
+function clamp(value,min,max){return Math.max(min,Math.min(max,value))}
+function flushPending(){if(activeSelection()||!ui.pending)return;const data=ui.pending;ui.pending=null;renderIfChanged(data,true)}
+document.addEventListener('selectionchange',()=>{setTimeout(flushPending,120)});
 function graphLayout(nodes, edges){
   const ids=new Set(nodes.map(n=>n.id));
   const incoming=new Map(nodes.map(n=>[n.id,0]));
@@ -267,8 +278,12 @@ function renderGraph(m){
   const g=el('div');g.className='graph';
   if(!m.nodes.length){g.appendChild(el('div','No nodes yet.','node-meta'));return g}
   const layout=graphLayout(m.nodes,m.edges);
-  g.style.width='100%';g.style.height=Math.min(Math.max(layout.height,130),520)+'px';
-  const inner=el('div');inner.style.position='relative';inner.style.width=layout.width+'px';inner.style.height=layout.height+'px';
+  const key='graph:'+m.id;
+  const state=graphState(key);
+  const controls=el('div');controls.className='graph-controls';
+  const zoomIn=el('button','+'),zoomOut=el('button','-'),reset=el('button','reset');
+  controls.appendChild(zoomIn);controls.appendChild(zoomOut);controls.appendChild(reset);g.appendChild(controls);
+  const inner=el('div');inner.className='graph-world';inner.style.width=layout.width+'px';inner.style.height=layout.height+'px';applyGraphTransform(inner,state);
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
   svg.setAttribute('width',layout.width);svg.setAttribute('height',layout.height);
   const defs=document.createElementNS(svg.namespaceURI,'defs');
@@ -277,7 +292,29 @@ function renderGraph(m){
   m.edges.forEach(e=>{const a=layout.pos.get(e.from),b=layout.pos.get(e.to);if(!a||!b)return;const p=document.createElementNS(svg.namespaceURI,'path');const x1=a.x+a.w,y1=a.y+a.h/2,x2=b.x,y2=b.y+b.h/2,mid=(x1+x2)/2;p.setAttribute('class','edge');p.setAttribute('marker-end','url(#arrow)');p.setAttribute('d',`M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`);svg.appendChild(p)});
   inner.appendChild(svg);
   m.nodes.forEach(n=>{const p=layout.pos.get(n.id);const card=el('div');card.className='graph-node '+(n.status||'');card.style.left=p.x+'px';card.style.top=p.y+'px';card.appendChild(el('div',short(n.title||n.id,32),'node-title'));card.appendChild(el('div',n.id+' | '+(n.status||''),'node-meta'));card.appendChild(el('div',short(n.contextSummary||'',72)));card.appendChild(el('div','results '+((n.resultIds||[]).length)+' | '+(n.activeLease?'leased':'free'),'node-meta'));inner.appendChild(card)});
-  g.appendChild(inner);return g;
+  g.appendChild(inner);g.appendChild(el('div','drag to pan | wheel to zoom','graph-help'));
+  function zoomAt(factor, cx, cy){
+    const rect=g.getBoundingClientRect(), px=cx-rect.left, py=cy-rect.top;
+    const beforeX=(px-state.x)/state.scale,beforeY=(py-state.y)/state.scale;
+    state.scale=clamp(state.scale*factor,.35,2.8);
+    state.x=px-beforeX*state.scale;state.y=py-beforeY*state.scale;applyGraphTransform(inner,state);
+  }
+  zoomIn.addEventListener('click',e=>{e.stopPropagation();const r=g.getBoundingClientRect();zoomAt(1.18,r.left+r.width/2,r.top+r.height/2)});
+  zoomOut.addEventListener('click',e=>{e.stopPropagation();const r=g.getBoundingClientRect();zoomAt(1/1.18,r.left+r.width/2,r.top+r.height/2)});
+  reset.addEventListener('click',e=>{e.stopPropagation();state.x=20;state.y=20;state.scale=1;applyGraphTransform(inner,state)});
+  g.addEventListener('wheel',e=>{e.preventDefault();zoomAt(e.deltaY<0?1.12:1/1.12,e.clientX,e.clientY)},{passive:false});
+  let drag=null;
+  g.addEventListener('pointerdown',e=>{if(e.target.closest('button'))return;drag={x:e.clientX,y:e.clientY,baseX:state.x,baseY:state.y};g.classList.add('dragging');g.setPointerCapture(e.pointerId)});
+  g.addEventListener('pointermove',e=>{if(!drag)return;state.x=drag.baseX+e.clientX-drag.x;state.y=drag.baseY+e.clientY-drag.y;applyGraphTransform(inner,state)});
+  function endDrag(e){if(!drag)return;drag=null;g.classList.remove('dragging');try{g.releasePointerCapture(e.pointerId)}catch{}}
+  g.addEventListener('pointerup',endDrag);g.addEventListener('pointercancel',endDrag);
+  return g;
+}
+function renderIfChanged(data, force){
+  const payload=JSON.stringify(data);
+  if(!force&&payload===ui.lastPayload)return;
+  if(activeSelection()){ui.pending=data;return}
+  ui.lastPayload=payload;render(data);
 }
 function render(data){
   saveUi();
@@ -286,6 +323,8 @@ function render(data){
   const s=data.snapshot;
   meta.textContent=`thread ${data.threadId} | mode ${s.mode} | active ${s.activeMapId||'none'} | refreshed ${new Date(data.fetchedAtMs).toLocaleTimeString()}`;
   if(!s.maps.length){next.appendChild(el('p','No task path has been created in this thread.'));root.replaceChildren(next);restoreUi();return}
+  const activeGraphKeys=new Set(s.maps.map(m=>'graph:'+m.id));
+  Array.from(ui.graph.keys()).forEach(k=>{if(!activeGraphKeys.has(k))ui.graph.delete(k)});
   s.maps.forEach(m=>{
     next.appendChild(el('h2',`${m.title} (${m.id})`));
     const line=el('div');
@@ -305,7 +344,7 @@ function render(data){
   restoreUi();
 }
 async function refresh(){
-  try{render(await (await fetch('/snapshot.json',{cache:'no-store'})).json())}
+  try{renderIfChanged(await (await fetch('/snapshot.json',{cache:'no-store'})).json(),false)}
   catch(e){root.replaceChildren(el('div',String(e),'error'))}
 }
 refresh();
@@ -333,6 +372,10 @@ mod tests {
         assert!(ACTION_MAP_VIEWER_HTML.contains("fetch('/snapshot.json'"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("setInterval(refresh,2000)"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("className='graph'"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("activeSelection()"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("renderIfChanged"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("wheel to zoom"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("pointerdown"));
         assert!(
             ACTION_MAP_VIEWER_HTML
                 .contains("document.createElementNS('http://www.w3.org/2000/svg'")
