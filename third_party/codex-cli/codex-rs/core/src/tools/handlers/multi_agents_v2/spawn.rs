@@ -379,3 +379,17 @@ impl ToolOutput for SpawnAgentResult {
         tool_output_code_mode_result(self, "spawn_agent")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::safe_agent_task_name;
+
+    #[test]
+    fn safe_agent_task_name_normalizes_node_ids_for_agent_paths() {
+        assert_eq!(safe_agent_task_name("node-1"), "node_1");
+        assert_eq!(safe_agent_task_name("define_scope"), "define_scope");
+        assert_eq!(safe_agent_task_name("Node-1.External"), "_ode_1__xternal");
+        assert_eq!(safe_agent_task_name("----"), "____");
+        assert_eq!(safe_agent_task_name(""), "node");
+    }
+}

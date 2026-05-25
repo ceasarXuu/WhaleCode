@@ -114,12 +114,11 @@ impl ToolCallRuntime {
                         let secs = started.elapsed().as_secs_f32().max(0.1);
                         dispatch_span.record("aborted", true);
                         let response = Self::aborted_response(&call, secs);
-                        if taskspace_attributed
-                            && session
+                        if taskspace_attributed {
+                            session
                                 .prepare_action_map_main_tool_call(&turn, &taskspace_tool_name)
                                 .await
-                                .is_ok()
-                        {
+                                .map_err(FunctionCallError::RespondToModel)?;
                             session
                                 .record_action_map_main_tool_result(
                                     &turn,
@@ -174,13 +173,14 @@ impl ToolCallRuntime {
                             }
                             Err(err) => {
                                 if taskspace_attributed {
+                                    let preview = action_map_tool_error_preview(&err);
                                     session
                                         .record_action_map_main_tool_result(
                                             &turn,
                                             &taskspace_call_id,
                                             &taskspace_tool_name,
                                             false,
-                                            err.to_string(),
+                                            preview,
                                         )
                                         .await;
                                 }
@@ -271,5 +271,17 @@ impl ToolCallRuntime {
                 | "list_agents"
                 | "followup_task"
         )
+    }
+}
+
+fn action_map_tool_error_preview(err: &FunctionCallError) -> String {
+    match err {
+        FunctionCallError::RespondToModel(_) => {
+            "Tool call failed before producing a result.".to_string()
+        }
+        FunctionCallError::MissingLocalShellCallId => {
+            "Tool call failed because the shell call id was missing.".to_string()
+        }
+        FunctionCallError::Fatal(_) => "Tool call failed with a fatal runtime error.".to_string(),
     }
 }

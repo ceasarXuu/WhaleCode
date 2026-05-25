@@ -1007,7 +1007,7 @@ fn first_open_node_id(map: &ActionMapInstance) -> Option<MapNodeId> {
     ordered_node_ids(map).into_iter().find_map(|node_id| {
         map.nodes
             .get(&node_id)
-            .filter(|node| !matches!(node.status, NodeStatus::Pending | NodeStatus::Completed))
+            .filter(|node| matches!(node.status, NodeStatus::Ready | NodeStatus::Blocked))
             .map(|node| node.id.clone())
     })
 }
@@ -1458,6 +1458,38 @@ mod tests {
             .expect("blocked nodes can be rebound");
 
         assert_eq!(state.current_main_node_id.as_deref(), Some("define_scope"));
+    }
+
+    #[test]
+    fn main_binding_skips_running_nodes_held_by_subagents() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.ensure_active_seed_map(owner, "test");
+        let map_id = state.active_map_id.clone().expect("active map");
+        {
+            let map = state.maps.get_mut(&map_id).expect("map");
+            map.nodes
+                .get_mut("define_scope")
+                .expect("define node")
+                .status = NodeStatus::Completed;
+            map.nodes
+                .get_mut("inspect_code_context")
+                .expect("inspect node")
+                .status = NodeStatus::Running;
+            map.nodes
+                .get_mut("design_solution")
+                .expect("design node")
+                .status = NodeStatus::Ready;
+        }
+        state.current_main_node_id = Some("define_scope".to_string());
+
+        state.ensure_main_binding_for_active_map();
+
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some("design_solution")
+        );
     }
 
     #[test]
