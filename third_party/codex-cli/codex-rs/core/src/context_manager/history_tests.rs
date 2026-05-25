@@ -1341,6 +1341,134 @@ fn normalize_adds_missing_output_for_local_shell_call_with_id() {
     );
 }
 
+#[test]
+fn normalize_moves_interleaved_function_call_output_next_to_call() {
+    let items = vec![
+        ResponseItem::Message {
+            id: None,
+            role: "assistant".to_string(),
+            content: vec![ContentItem::OutputText {
+                text: "I will run a command.".to_string(),
+            }],
+            end_turn: None,
+            phase: None,
+        },
+        ResponseItem::FunctionCall {
+            id: None,
+            name: "shell_command".to_string(),
+            namespace: None,
+            arguments: r#"{"command":"echo hi"}"#.to_string(),
+            call_id: "call-shell".to_string(),
+        },
+        ResponseItem::Message {
+            id: None,
+            role: "developer".to_string(),
+            content: vec![ContentItem::InputText {
+                text: "Approved command prefix saved.".to_string(),
+            }],
+            end_turn: None,
+            phase: None,
+        },
+        ResponseItem::FunctionCallOutput {
+            call_id: "call-shell".to_string(),
+            output: FunctionCallOutputPayload::from_text("ok".to_string()),
+        },
+    ];
+    let mut h = create_history_with_items(items);
+
+    h.normalize_history(&default_input_modalities());
+
+    assert_eq!(
+        h.raw_items(),
+        vec![
+            ResponseItem::Message {
+                id: None,
+                role: "assistant".to_string(),
+                content: vec![ContentItem::OutputText {
+                    text: "I will run a command.".to_string(),
+                }],
+                end_turn: None,
+                phase: None,
+            },
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "shell_command".to_string(),
+                namespace: None,
+                arguments: r#"{"command":"echo hi"}"#.to_string(),
+                call_id: "call-shell".to_string(),
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "call-shell".to_string(),
+                output: FunctionCallOutputPayload::from_text("ok".to_string()),
+            },
+            ResponseItem::Message {
+                id: None,
+                role: "developer".to_string(),
+                content: vec![ContentItem::InputText {
+                    text: "Approved command prefix saved.".to_string(),
+                }],
+                end_turn: None,
+                phase: None,
+            },
+        ]
+    );
+}
+
+#[test]
+fn normalize_moves_deferred_output_after_earlier_matching_call() {
+    let items = vec![
+        ResponseItem::FunctionCallOutput {
+            call_id: "call-taskspace".to_string(),
+            output: FunctionCallOutputPayload::from_text("TaskSpace node created".to_string()),
+        },
+        ResponseItem::Message {
+            id: None,
+            role: "developer".to_string(),
+            content: vec![ContentItem::InputText {
+                text: "runtime notice".to_string(),
+            }],
+            end_turn: None,
+            phase: None,
+        },
+        ResponseItem::FunctionCall {
+            id: None,
+            name: "taskspace_control".to_string(),
+            namespace: None,
+            arguments: r#"{"action":"create_node"}"#.to_string(),
+            call_id: "call-taskspace".to_string(),
+        },
+    ];
+    let mut h = create_history_with_items(items);
+
+    h.normalize_history(&default_input_modalities());
+
+    assert_eq!(
+        h.raw_items(),
+        vec![
+            ResponseItem::Message {
+                id: None,
+                role: "developer".to_string(),
+                content: vec![ContentItem::InputText {
+                    text: "runtime notice".to_string(),
+                }],
+                end_turn: None,
+                phase: None,
+            },
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "taskspace_control".to_string(),
+                namespace: None,
+                arguments: r#"{"action":"create_node"}"#.to_string(),
+                call_id: "call-taskspace".to_string(),
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "call-taskspace".to_string(),
+                output: FunctionCallOutputPayload::from_text("TaskSpace node created".to_string()),
+            },
+        ]
+    );
+}
+
 #[cfg(not(debug_assertions))]
 #[test]
 fn normalize_removes_orphan_function_call_output() {

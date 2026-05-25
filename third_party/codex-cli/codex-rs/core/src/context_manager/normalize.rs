@@ -194,6 +194,48 @@ pub(crate) fn remove_orphan_outputs(items: &mut Vec<ResponseItem>) {
     });
 }
 
+pub(crate) fn colocate_call_outputs(items: &mut Vec<ResponseItem>) {
+    let original = std::mem::take(items);
+    let mut output_consumed = vec![false; original.len()];
+    let known_call_ids: HashSet<String> = original
+        .iter()
+        .filter_map(call_id_for_output_pairing)
+        .cloned()
+        .collect();
+    let mut reordered = Vec::with_capacity(original.len());
+
+    for (idx, item) in original.iter().enumerate() {
+        if output_consumed[idx] {
+            continue;
+        }
+
+        if output_call_id(item).is_some_and(|call_id| known_call_ids.contains(call_id)) {
+            continue;
+        }
+
+        reordered.push(item.clone());
+
+        let Some(call_id) = call_id_for_output_pairing(item) else {
+            continue;
+        };
+        if let Some(output_idx) =
+            original
+                .iter()
+                .enumerate()
+                .find_map(|(candidate_idx, candidate)| {
+                    (!output_consumed[candidate_idx]
+                        && output_call_id(candidate).is_some_and(|output_id| output_id == call_id))
+                    .then_some(candidate_idx)
+                })
+        {
+            output_consumed[output_idx] = true;
+            reordered.push(original[output_idx].clone());
+        }
+    }
+
+    *items = reordered;
+}
+
 pub(crate) fn remove_corresponding_for(items: &mut Vec<ResponseItem>, item: &ResponseItem) {
     match item {
         ResponseItem::FunctionCall { call_id, .. } => {
@@ -287,6 +329,35 @@ where
 {
     if let Some(pos) = items.iter().position(predicate) {
         items.remove(pos);
+    }
+}
+
+fn call_id_for_output_pairing(item: &ResponseItem) -> Option<&String> {
+    match item {
+        ResponseItem::FunctionCall { call_id, .. }
+        | ResponseItem::CustomToolCall { call_id, .. } => Some(call_id),
+        ResponseItem::LocalShellCall {
+            call_id: Some(call_id),
+            ..
+        }
+        | ResponseItem::ToolSearchCall {
+            call_id: Some(call_id),
+            ..
+        } => Some(call_id),
+        _ => None,
+    }
+}
+
+fn output_call_id(item: &ResponseItem) -> Option<&String> {
+    match item {
+        ResponseItem::FunctionCallOutput { call_id, .. }
+        | ResponseItem::CustomToolCallOutput { call_id, .. } => Some(call_id),
+        ResponseItem::ToolSearchOutput {
+            call_id: Some(call_id),
+            execution,
+            ..
+        } if execution != "server" => Some(call_id),
+        _ => None,
     }
 }
 

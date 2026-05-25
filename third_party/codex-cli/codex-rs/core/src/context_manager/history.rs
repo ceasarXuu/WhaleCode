@@ -368,6 +368,10 @@ impl ContextManager {
         // all outputs must have a corresponding function/tool call
         normalize::remove_orphan_outputs(&mut self.items);
 
+        // Chat Completions providers require tool outputs to immediately follow
+        // their matching tool calls; UI/runtime notices may otherwise interleave.
+        normalize::colocate_call_outputs(&mut self.items);
+
         // strip images when model does not support them
         normalize::strip_images_when_unsupported(input_modalities, &mut self.items);
     }
