@@ -60,7 +60,11 @@ let out = '';
 let viewerUrl = null;
 let snapshotOk = false;
 let snapshotMode = '';
+let snapshotMapCount = 0;
+let activeMapId = '';
 let pageOk = false;
+let graphUiOk = false;
+let stateUiOk = false;
 let fetchError = '';
 let exited = false;
 
@@ -79,10 +83,25 @@ async function probeViewer() {
   if (!viewerUrl) return;
   try {
     const html = await (await fetch(viewerUrl, { cache: 'no-store' })).text();
-    pageOk = html.includes("fetch('/snapshot.json'") && html.includes('setInterval(refresh,2000)');
+    graphUiOk = html.includes("className='graph'") &&
+      html.includes("document.createElementNS('http://www.w3.org/2000/svg'") &&
+      html.includes("marker-end','url(#arrow)'");
+    stateUiOk = html.includes("details[data-key]") &&
+      html.includes('saveUi()') &&
+      html.includes('restoreUi()');
+    pageOk = html.includes("fetch('/snapshot.json'") &&
+      html.includes('setInterval(refresh,2000)') &&
+      graphUiOk &&
+      stateUiOk;
     const response = await fetch(viewerUrl + 'snapshot.json', { cache: 'no-store' });
     const json = await response.json();
-    snapshotOk = json.ok === true && json.snapshot && json.snapshot.mode === 'experiment';
+    snapshotMapCount = json.snapshot && Array.isArray(json.snapshot.maps) ? json.snapshot.maps.length : 0;
+    activeMapId = json.snapshot && json.snapshot.activeMapId ? json.snapshot.activeMapId : '';
+    snapshotOk = json.ok === true &&
+      json.snapshot &&
+      json.snapshot.mode === 'experiment' &&
+      snapshotMapCount > 0 &&
+      !!activeMapId;
     snapshotMode = json.snapshot ? json.snapshot.mode : '';
     fetchError = json.error || '';
   } catch (err) {
@@ -99,8 +118,12 @@ function report(overall, exitCode, failure) {
     '- exit_code: ' + exitCode,
     '- viewer_url: ' + (viewerUrl || ''),
     '- page_ok: ' + pageOk,
+    '- graph_ui_ok: ' + graphUiOk,
+    '- state_ui_ok: ' + stateUiOk,
     '- snapshot_ok: ' + snapshotOk,
     '- snapshot_mode: ' + snapshotMode,
+    '- snapshot_map_count: ' + snapshotMapCount,
+    '- active_map_id: ' + activeMapId,
     '- saw_dialogue_marker: ' + (markerCount() > 0),
     '- marker_count: ' + markerCount(),
     '- saw_stub_error: ' + sawStub,

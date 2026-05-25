@@ -206,7 +206,7 @@ const ACTION_MAP_VIEWER_HTML: &str = r#"<!doctype html>
 <title>TaskSpace</title>
 <style>
 :root{color-scheme:light dark}
-body{margin:24px;font:13px/1.45 Consolas,Menlo,monospace;background:Canvas;color:CanvasText}
+body{margin:20px;font:12px/1.45 Consolas,Menlo,monospace;background:Canvas;color:CanvasText}
 h1{font-size:18px;margin:0 0 8px}
 h2{font-size:15px;margin:24px 0 8px;border-bottom:1px solid #777;padding-bottom:4px}
 h3{font-size:13px;margin:16px 0 6px}
@@ -217,6 +217,14 @@ th,td{border:1px solid #777;padding:5px 7px;text-align:left;vertical-align:top}
 th{font-weight:700}
 pre{white-space:pre-wrap;margin:6px 0 0}
 details{border:1px solid #777;padding:8px;margin:8px 0}
+summary{cursor:pointer}
+.graph{position:relative;overflow:auto;border:1px solid #777;margin:8px 0 14px;background:rgba(127,127,127,.06)}
+.graph svg{position:absolute;inset:0;pointer-events:none}
+.graph-node{position:absolute;box-sizing:border-box;width:220px;min-height:76px;border:1px solid #777;background:Canvas;padding:7px}
+.graph-node.running{border-color:#0a84ff}.graph-node.ready{border-color:#6a8f00}.graph-node.completed{border-color:#2d8a4d}.graph-node.blocked{border-color:#b00020}
+.node-title{font-weight:700;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node-meta{color:#777;margin-top:5px}
+.edge{fill:none;stroke:#777;stroke-width:1.2}
 .error{color:#c00}
 </style>
 </head>
@@ -227,30 +235,74 @@ details{border:1px solid #777;padding:8px;margin:8px 0}
 <script>
 const root = document.getElementById('root');
 const meta = document.getElementById('meta');
+const ui = {open:new Set(), scrollY:0};
 function el(tag, text, cls){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
 function row(values){const tr=el('tr');values.forEach(v=>tr.appendChild(el('td',v??'')));return tr}
 function table(headers, rows){const t=el('table');const h=el('tr');headers.forEach(x=>h.appendChild(el('th',x)));t.appendChild(h);rows.forEach(r=>t.appendChild(row(r)));return t}
 function list(value){return Array.isArray(value)&&value.length?value.join(', '):''}
+function saveUi(){document.querySelectorAll('details[data-key]').forEach(d=>d.open?ui.open.add(d.dataset.key):ui.open.delete(d.dataset.key));ui.scrollY=window.scrollY}
+function restoreUi(){document.querySelectorAll('details[data-key]').forEach(d=>{d.open=ui.open.has(d.dataset.key)});requestAnimationFrame(()=>window.scrollTo(0,ui.scrollY))}
+document.addEventListener('toggle',e=>{const k=e.target&&e.target.dataset&&e.target.dataset.key;if(k){e.target.open?ui.open.add(k):ui.open.delete(k)}},true);
+function detail(key, summary, body){const d=el('details');d.dataset.key=key;d.open=ui.open.has(key);d.appendChild(el('summary',summary));d.appendChild(body);return d}
+function short(text, max){text=text||'';return text.length>max?text.slice(0,max-1)+'...':text}
+function graphLayout(nodes, edges){
+  const ids=new Set(nodes.map(n=>n.id));
+  const incoming=new Map(nodes.map(n=>[n.id,0]));
+  const outgoing=new Map(nodes.map(n=>[n.id,[]]));
+  edges.forEach(e=>{if(ids.has(e.from)&&ids.has(e.to)){incoming.set(e.to,(incoming.get(e.to)||0)+1);outgoing.get(e.from).push(e.to)}});
+  const queue=nodes.filter(n=>(incoming.get(n.id)||0)===0).map(n=>n.id);
+  const level=new Map(queue.map(id=>[id,0]));
+  const remaining=new Map(incoming);
+  for(let i=0;i<queue.length;i++){const id=queue[i];(outgoing.get(id)||[]).forEach(to=>{level.set(to,Math.max(level.get(to)||0,(level.get(id)||0)+1));remaining.set(to,(remaining.get(to)||0)-1);if(remaining.get(to)===0)queue.push(to)})}
+  nodes.forEach(n=>{if(!level.has(n.id))level.set(n.id,0)});
+  const columns=new Map();
+  nodes.forEach(n=>{const l=level.get(n.id)||0;if(!columns.has(l))columns.set(l,[]);columns.get(l).push(n.id)});
+  const pos=new Map(), w=220, h=76, gapX=70, gapY=28, pad=18;
+  columns.forEach((ids,l)=>ids.forEach((id,i)=>pos.set(id,{x:pad+l*(w+gapX),y:pad+i*(h+gapY),w,h})));
+  const maxLevel=Math.max(0,...Array.from(columns.keys()));
+  const maxRows=Math.max(1,...Array.from(columns.values()).map(v=>v.length));
+  return {pos,width:pad*2+(maxLevel+1)*w+maxLevel*gapX,height:pad*2+maxRows*h+(maxRows-1)*gapY};
+}
+function renderGraph(m){
+  const g=el('div');g.className='graph';
+  if(!m.nodes.length){g.appendChild(el('div','No nodes yet.','node-meta'));return g}
+  const layout=graphLayout(m.nodes,m.edges);
+  g.style.width='100%';g.style.height=Math.min(Math.max(layout.height,130),520)+'px';
+  const inner=el('div');inner.style.position='relative';inner.style.width=layout.width+'px';inner.style.height=layout.height+'px';
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('width',layout.width);svg.setAttribute('height',layout.height);
+  const defs=document.createElementNS(svg.namespaceURI,'defs');
+  const marker=document.createElementNS(svg.namespaceURI,'marker');marker.setAttribute('id','arrow');marker.setAttribute('markerWidth','8');marker.setAttribute('markerHeight','8');marker.setAttribute('refX','7');marker.setAttribute('refY','3');marker.setAttribute('orient','auto');
+  const head=document.createElementNS(svg.namespaceURI,'path');head.setAttribute('d','M0,0 L7,3 L0,6 Z');head.setAttribute('fill','#777');marker.appendChild(head);defs.appendChild(marker);svg.appendChild(defs);
+  m.edges.forEach(e=>{const a=layout.pos.get(e.from),b=layout.pos.get(e.to);if(!a||!b)return;const p=document.createElementNS(svg.namespaceURI,'path');const x1=a.x+a.w,y1=a.y+a.h/2,x2=b.x,y2=b.y+b.h/2,mid=(x1+x2)/2;p.setAttribute('class','edge');p.setAttribute('marker-end','url(#arrow)');p.setAttribute('d',`M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`);svg.appendChild(p)});
+  inner.appendChild(svg);
+  m.nodes.forEach(n=>{const p=layout.pos.get(n.id);const card=el('div');card.className='graph-node '+(n.status||'');card.style.left=p.x+'px';card.style.top=p.y+'px';card.appendChild(el('div',short(n.title||n.id,32),'node-title'));card.appendChild(el('div',n.id+' | '+(n.status||''),'node-meta'));card.appendChild(el('div',short(n.contextSummary||'',72)));card.appendChild(el('div','results '+((n.resultIds||[]).length)+' | '+(n.activeLease?'leased':'free'),'node-meta'));inner.appendChild(card)});
+  g.appendChild(inner);return g;
+}
 function render(data){
-  root.replaceChildren();
-  if(!data.ok){root.appendChild(el('div',data.error||'failed to load snapshot','error'));return}
+  saveUi();
+  const next=el('div');
+  if(!data.ok){next.appendChild(el('div',data.error||'failed to load snapshot','error'));root.replaceChildren(next);restoreUi();return}
   const s=data.snapshot;
   meta.textContent=`thread ${data.threadId} | mode ${s.mode} | active ${s.activeMapId||'none'} | refreshed ${new Date(data.fetchedAtMs).toLocaleTimeString()}`;
-  if(!s.maps.length){root.appendChild(el('p','No task path has been created in this thread.'));return}
+  if(!s.maps.length){next.appendChild(el('p','No task path has been created in this thread.'));root.replaceChildren(next);restoreUi();return}
   s.maps.forEach(m=>{
-    root.appendChild(el('h2',`${m.title} (${m.id})`));
+    next.appendChild(el('h2',`${m.title} (${m.id})`));
     const line=el('div');
     ['status '+m.status,'ready '+m.readyNodeCount,'running '+m.runningNodeCount,'completed '+m.completedNodeCount,'owner '+(m.ownerSessionId||'none'),'base '+m.baseMapVersion].forEach(x=>line.appendChild(el('span',x,'pill')));
-    root.appendChild(line);
-    root.appendChild(el('h3','nodes'));
-    root.appendChild(table(['id','status','title','context','source refs','lease','results'],m.nodes.map(n=>[n.id,n.status,n.title,n.contextSummary,list(n.sourceRefs),n.activeLease||'',list(n.resultIds)])));
-    if(m.edges.length){root.appendChild(el('h3','edges'));root.appendChild(table(['from','to'],m.edges.map(e=>[e.from,e.to])))}
-    if(m.leases.length){root.appendChild(el('h3','leases'));root.appendChild(table(['id','node','agent thread','agent path'],m.leases.map(l=>[l.id,l.nodeId,l.agentThreadId||'',l.agentPath||''])))}
+    next.appendChild(line);
+    next.appendChild(el('h3','graph'));
+    next.appendChild(renderGraph(m));
+    next.appendChild(detail('nodes:'+m.id,'nodes',table(['id','status','title','context','source refs','lease','results'],m.nodes.map(n=>[n.id,n.status,n.title,n.contextSummary,list(n.sourceRefs),n.activeLease||'',list(n.resultIds)]))));
+    if(m.edges.length){next.appendChild(detail('edges:'+m.id,'edges',table(['from','to'],m.edges.map(e=>[e.from,e.to]))))}
+    if(m.leases.length){next.appendChild(detail('leases:'+m.id,'leases',table(['id','node','agent thread','agent path'],m.leases.map(l=>[l.id,l.nodeId,l.agentThreadId||'',l.agentPath||'']))))}
     if(m.results.length){
-      root.appendChild(el('h3','results'));
-      m.results.forEach(r=>{const d=el('details');d.appendChild(el('summary',`${r.id} | node ${r.nodeId} | ${r.kind} | ${new Date(r.createdAtMs).toLocaleTimeString()}`));d.appendChild(el('pre',r.body));root.appendChild(d)});
+      next.appendChild(el('h3','results'));
+      m.results.forEach(r=>next.appendChild(detail('result:'+r.id,`${r.id} | node ${r.nodeId} | ${r.kind} | ${new Date(r.createdAtMs).toLocaleTimeString()}`,el('pre',r.body))));
     }
   });
+  root.replaceChildren(next);
+  restoreUi();
 }
 async function refresh(){
   try{render(await (await fetch('/snapshot.json',{cache:'no-store'})).json())}
@@ -280,5 +332,12 @@ mod tests {
     fn viewer_html_contains_polling_snapshot_endpoint() {
         assert!(ACTION_MAP_VIEWER_HTML.contains("fetch('/snapshot.json'"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("setInterval(refresh,2000)"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("className='graph'"));
+        assert!(
+            ACTION_MAP_VIEWER_HTML
+                .contains("document.createElementNS('http://www.w3.org/2000/svg'")
+        );
+        assert!(ACTION_MAP_VIEWER_HTML.contains("details[data-key]"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("restoreUi()"));
     }
 }
