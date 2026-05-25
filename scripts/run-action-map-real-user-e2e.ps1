@@ -172,6 +172,7 @@ This project has a cache-key regression. Use Action Map experiment mode to organ
 Hard requirements:
 - Read the repository files before making claims.
 - Spawn a real subagent for investigation.
+- When spawning the investigation subagent, use the default full-history fork and do not set model, agent_type, or reasoning_effort.
 - Make a real code or test change.
 - Run a real validation command.
 - Do not stop at a written plan.
@@ -205,7 +206,6 @@ $execArgs = @(
     "exec",
     "--json",
     "--taskspace",
-    "--task-reborn",
     "-m", $Model,
     "-C", $repoDir,
     "--dangerously-bypass-approvals-and-sandbox",
@@ -284,7 +284,7 @@ $threadStartedCount = Count-Matches $jsonlText '"type"\s*:\s*"thread\.started"'
 $turnCompletedCount = Count-Matches $jsonlText '"type"\s*:\s*"turn\.completed"'
 $commandExecutionCount = Count-Matches $jsonlText '"type"\s*:\s*"command_execution"'
 $fileChangeCount = Count-Matches $jsonlText '"type"\s*:\s*"file_change"'
-$spawnAgentCount = Count-Matches $jsonlText '"tool"\s*:\s*"spawn_agent"'
+$spawnAgentCount = Count-Matches $jsonlText '"(?:tool|name)"\s*:\s*"spawn_agent"'
 $agentMessageCount = Count-Matches $jsonlText '"type"\s*:\s*"agent_message"'
 $mapModeChangedCount = Count-Matches $rolloutText '"mode_changed"|ModeChanged|map_runtime_mode|MapRuntime'
 $mapNodeCount = Count-Matches $rolloutText '"map_created"|"node_status_changed"|"lease_created"|"lease_attached"|"node_result_recorded"|"lease_released"|MapCreated|NodeStatusChanged|LeaseCreated|LeaseAttached|NodeResultRecorded|LeaseReleased'

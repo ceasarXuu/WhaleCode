@@ -62,6 +62,8 @@ let snapshotOk = false;
 let snapshotMode = '';
 let snapshotMapCount = 0;
 let activeMapId = '';
+let rebornCommandSent = false;
+let initialEmptySnapshotOk = false;
 let pageOk = false;
 let graphUiOk = false;
 let stateUiOk = false;
@@ -103,6 +105,14 @@ async function probeViewer() {
       snapshotMapCount > 0 &&
       !!activeMapId;
     snapshotMode = json.snapshot ? json.snapshot.mode : '';
+    if (!rebornCommandSent &&
+      json.ok === true &&
+      json.snapshot &&
+      json.snapshot.mode === 'experiment' &&
+      snapshotMapCount === 0 &&
+      !activeMapId) {
+      initialEmptySnapshotOk = true;
+    }
     fetchError = json.error || '';
   } catch (err) {
     fetchError = String(err);
@@ -124,6 +134,7 @@ function report(overall, exitCode, failure) {
     '- snapshot_mode: ' + snapshotMode,
     '- snapshot_map_count: ' + snapshotMapCount,
     '- active_map_id: ' + activeMapId,
+    '- initial_empty_snapshot_ok: ' + initialEmptySnapshotOk,
     '- saw_dialogue_marker: ' + (markerCount() > 0),
     '- marker_count: ' + markerCount(),
     '- saw_stub_error: ' + sawStub,
@@ -145,19 +156,23 @@ const term = pty.spawn(whale, ['--no-alt-screen', '-C', repo, '-m', model, '--da
 term.onData(write);
 function send(ms, text) { setTimeout(() => term.write(text), ms); }
 function cmd(ms, text) { send(ms, text + '\r'); send(ms + 350, '\r'); }
+function cmdWithHook(ms, text, hook) {
+  setTimeout(() => { hook(); term.write(text + '\r'); }, ms);
+  send(ms + 350, '\r');
+}
 
 send(2500, '\r');
 cmd(8000, '/taskspace');
-cmd(12000, '/task-reborn');
-cmd(16000, '/task-show');
-cmd(22000, 'Reply with exactly ' + marker + ' and nothing else.');
+cmdWithHook(18000, '/task-reborn', () => { rebornCommandSent = true; });
+cmd(22000, '/task-show');
+cmd(28000, 'Reply with exactly ' + marker + ' and nothing else.');
 cmd(90000, '/task-show');
 cmd(120000, '/quit');
 
 const deadline = Date.now() + $TimeoutMs;
 const timer = setInterval(async () => {
   await probeViewer();
-  const pass = viewerUrl && pageOk && snapshotOk && markerCount() > 0 && !out.includes('Not available in TUI yet');
+  const pass = viewerUrl && pageOk && initialEmptySnapshotOk && snapshotOk && markerCount() > 0 && !out.includes('Not available in TUI yet');
   if (pass) {
     clearInterval(timer);
     report('PASS', '', '');
@@ -177,7 +192,7 @@ term.onExit(({ exitCode }) => {
   if (exited) return;
   exited = true;
   clearInterval(timer);
-  const overall = viewerUrl && pageOk && snapshotOk && markerCount() > 0 && !out.includes('Not available in TUI yet') ? 'PASS' : 'FAIL';
+  const overall = viewerUrl && pageOk && initialEmptySnapshotOk && snapshotOk && markerCount() > 0 && !out.includes('Not available in TUI yet') ? 'PASS' : 'FAIL';
   report(overall, exitCode, '');
   process.exit(overall === 'PASS' ? 0 : 1);
 });

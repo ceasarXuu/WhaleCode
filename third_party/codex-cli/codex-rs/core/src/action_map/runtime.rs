@@ -131,20 +131,15 @@ impl ActionMapRuntimeState {
     pub(crate) fn set_mode_for_session(
         &mut self,
         mode: MapRuntimeMode,
-        owner_session_id: ThreadId,
+        _owner_session_id: ThreadId,
     ) -> (SetTaskSpaceModeOutcome, Vec<MapRuntimeEvent>) {
         let mode_outcome = self.set_mode(mode);
-        let events = if mode == MapRuntimeMode::Experiment {
-            self.ensure_active_seed_map(owner_session_id, "session bootstrap")
-        } else {
-            Vec::new()
-        };
         (
             SetTaskSpaceModeOutcome {
                 mode: mode_outcome,
                 active_map_id: self.active_map_id.clone(),
             },
-            events,
+            Vec::new(),
         )
     }
 
@@ -208,32 +203,31 @@ impl ActionMapRuntimeState {
         }
 
         let new_id = self.next_map_id();
-        let map = seed_map(
+        let mut map = ActionMapInstance::new(
             new_id.clone(),
             title.into(),
             Some(owner_session_id),
-            previous_id.clone(),
+            BASE_MAP.version,
         );
+        map.created_from = previous_id.clone();
         self.active_map_id = Some(new_id.clone());
-        self.current_main_node_id = first_open_node_id(&map);
+        self.current_main_node_id = None;
         events.push(map_created_event(&map));
-        events.extend(initial_node_events(&map));
         self.maps.insert(new_id.clone(), map);
         (previous_id, new_id, events)
     }
 
     pub(crate) fn prepare_main_tool_call(
         &mut self,
-        owner_session_id: ThreadId,
-        tool_name: &str,
+        _owner_session_id: ThreadId,
+        _tool_name: &str,
     ) -> Result<Vec<MapRuntimeEvent>, String> {
         if self.mode != MapRuntimeMode::Experiment {
             return Ok(Vec::new());
         }
 
-        let events = self.ensure_active_seed_map(owner_session_id, tool_name);
         self.ensure_main_binding_for_active_map();
-        self.validate_main_binding().map(|()| events)
+        self.validate_main_binding().map(|()| Vec::new())
     }
 
     pub(crate) fn record_main_tool_result(
@@ -342,15 +336,6 @@ preview:\n\
         if self.mode != MapRuntimeMode::Experiment {
             return Err("TaskSpace mode is not active.".to_string());
         }
-        let mut events = self.ensure_active_seed_map(owner_session_id, title.as_str());
-        let map_id = self.active_map_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no active task path exists.".to_string()
-        })?;
-        let node_id = self.next_node_id();
-        let map = self
-            .maps
-            .get_mut(&map_id)
-            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
         let title = title.trim();
         let context_summary = context_summary.trim();
         if title.is_empty() {
@@ -359,6 +344,25 @@ preview:\n\
         if context_summary.is_empty() {
             return Err("TaskSpace node context summary cannot be empty.".to_string());
         }
+        if self.active_map().is_none()
+            && dependency_node_ids
+                .iter()
+                .any(|dependency| !dependency.trim().is_empty())
+        {
+            return Err(
+                "TaskSpace cannot create the first node with dependencies because no active task path exists yet."
+                    .to_string(),
+            );
+        }
+        let mut events = self.ensure_active_task_path(owner_session_id, title);
+        let map_id = self.active_map_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no active task path exists.".to_string()
+        })?;
+        let node_id = self.next_node_id();
+        let map = self
+            .maps
+            .get_mut(&map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
         let mut dependencies = Vec::new();
         for dependency in dependency_node_ids {
             let dependency = dependency.trim();
@@ -423,16 +427,19 @@ preview:\n\
 
     pub(crate) fn prepare_spawn_assignment(
         &mut self,
-        owner_session_id: ThreadId,
-        requested_task_name: &str,
+        _owner_session_id: ThreadId,
+        _requested_task_name: &str,
     ) -> Result<(Option<ActionMapAssignment>, Vec<MapRuntimeEvent>), String> {
         if self.mode != MapRuntimeMode::Experiment {
             return Ok((None, Vec::new()));
         }
 
-        let mut events = self.ensure_active_seed_map(owner_session_id, requested_task_name);
+        let mut events = Vec::new();
         let Some(map_id) = self.active_map_id.clone() else {
-            return Err("TaskSpace mode is active but no active task path exists.".to_string());
+            return Err(
+                "TaskSpace mode is active but no active task path exists. Call taskspace_control(action=create_node, bind_current=true) first to create a task path from the user's current request."
+                    .to_string(),
+            );
         };
         let Some(node_id) = self.next_ready_node_id(&map_id) else {
             return Err(
@@ -627,15 +634,6 @@ preview:\n\
             ),
         ];
         events.extend(refresh_ready_nodes(map));
-        if map
-            .nodes
-            .values()
-            .all(|node| node.status == NodeStatus::Completed)
-        {
-            let previous_status = map.status;
-            map.status = MapStatus::Completed;
-            events.push(map_status_changed_event(map, previous_status));
-        }
         self.ensure_main_binding_for_active_map();
         Some((result_id, events))
     }
@@ -709,12 +707,18 @@ preview:\n\
                     context.push_str("]\n");
                 }
             }
+            if map.nodes.is_empty() {
+                context.push_str(
+                    "No nodes exist yet. Before any ordinary tool call or subagent spawn, call taskspace_control(action=create_node) with a concrete node derived from the user's current task and bind_current=true for the main work node.\n",
+                );
+                context.push_str(&base_map_metadata_prompt());
+            }
             context.push_str(
                 "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Node result context stays on the node; use it only when it is relevant to the next step.\n",
             );
         } else {
             context.push_str(
-                "No active task path exists. Before taking multi-agent action, create or bind a task path and a ready node.\n",
+                "No active task path exists. Before any ordinary tool call or subagent spawn, call taskspace_control(action=create_node) with a concrete node derived from the user's current task and bind_current=true for the main work node.\n",
             );
             context.push_str(&base_map_metadata_prompt());
         }
@@ -736,6 +740,7 @@ preview:\n\
         ))
     }
 
+    #[cfg(test)]
     fn ensure_active_seed_map(
         &mut self,
         owner_session_id: ThreadId,
@@ -758,6 +763,29 @@ preview:\n\
             events.extend(initial_node_events(&map));
             events
         };
+        self.maps.insert(id, map);
+        events
+    }
+
+    fn ensure_active_task_path(
+        &mut self,
+        owner_session_id: ThreadId,
+        title_hint: &str,
+    ) -> Vec<MapRuntimeEvent> {
+        if self.active_map().is_some() {
+            return Vec::new();
+        }
+        let id = self.next_map_id();
+        let title = if title_hint.trim().is_empty() {
+            "TaskSpace Path".to_string()
+        } else {
+            title_hint.trim().to_string()
+        };
+        let map =
+            ActionMapInstance::new(id.clone(), title, Some(owner_session_id), BASE_MAP.version);
+        self.active_map_id = Some(id.clone());
+        self.current_main_node_id = None;
+        let events = vec![map_created_event(&map)];
         self.maps.insert(id, map);
         events
     }
@@ -786,7 +814,10 @@ preview:\n\
 
     fn validate_main_binding(&self) -> Result<(), String> {
         let Some(map_id) = self.active_map_id.as_ref() else {
-            return Err("TaskSpace mode is active but no active task path exists.".to_string());
+            return Err(
+                "TaskSpace mode is active but no active task path exists. Call taskspace_control(action=create_node, bind_current=true) before ordinary work."
+                    .to_string(),
+            );
         };
         let Some(map) = self.maps.get(map_id) else {
             return Err(format!("TaskSpace active task path `{map_id}` is missing."));
@@ -797,7 +828,10 @@ preview:\n\
             ));
         }
         let Some(node_id) = self.current_main_node_id.as_ref() else {
-            return Err("TaskSpace mode is active but no current node binding exists.".to_string());
+            return Err(
+                "TaskSpace mode is active but no current node binding exists. Call taskspace_control(action=create_node, bind_current=true) or taskspace_control(action=bind_node) before ordinary work."
+                    .to_string(),
+            );
         };
         if !map.nodes.contains_key(node_id) {
             return Err(format!("TaskSpace current node `{node_id}` is missing."));
@@ -960,6 +994,7 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
     output
 }
 
+#[cfg(test)]
 fn seed_map(
     id: ActionMapId,
     title: String,
@@ -1206,6 +1241,7 @@ fn node_status_changed_event(
     })
 }
 
+#[cfg(test)]
 fn initial_node_events(map: &ActionMapInstance) -> Vec<MapRuntimeEvent> {
     map.nodes
         .values()
@@ -1291,6 +1327,10 @@ Continue with the standard Codex multi-agent behavior."
 mod tests {
     use super::*;
 
+    fn seed_test_map(state: &mut ActionMapRuntimeState, owner: ThreadId) {
+        state.ensure_active_seed_map(owner, "test");
+    }
+
     #[test]
     fn defaults_to_standard() {
         let state = ActionMapRuntimeState::default();
@@ -1321,44 +1361,55 @@ mod tests {
     }
 
     #[test]
-    fn set_experiment_mode_for_session_bootstraps_active_task_path() {
+    fn set_experiment_mode_for_session_does_not_create_task_path() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
 
         let (outcome, events) = state.set_mode_for_session(MapRuntimeMode::Experiment, owner);
 
         assert!(outcome.mode.changed);
-        assert_eq!(outcome.active_map_id.as_deref(), Some("map-1"));
-        assert!(state.active_map().is_some());
-        assert!(
-            events
-                .iter()
-                .any(|event| matches!(event, MapRuntimeEvent::MapCreated(_)))
-        );
-        assert!(
-            events
-                .iter()
-                .any(|event| matches!(event, MapRuntimeEvent::NodeStatusChanged(_)))
-        );
-        assert_eq!(state.current_main_node_id.as_deref(), Some("define_scope"));
+        assert!(outcome.active_map_id.is_none());
+        assert!(state.active_map().is_none());
+        assert!(events.is_empty());
+        assert!(state.current_main_node_id.is_none());
     }
 
     #[test]
-    fn main_tool_call_requires_and_uses_current_node_binding() {
+    fn main_tool_call_rejects_work_before_agent_created_node() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
 
+        let error = state
+            .prepare_main_tool_call(owner, "shell")
+            .expect_err("ordinary work requires task node first");
+
+        assert!(error.contains("taskspace_control(action=create_node"));
+        assert!(state.maps.is_empty());
+    }
+
+    #[test]
+    fn main_tool_call_uses_agent_created_current_node_binding() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+
+        let (node_id, _) = state
+            .create_node_for_main(
+                owner,
+                "Inspect logging".to_string(),
+                "Understand logging before changing code.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect("node created");
+        assert_eq!(node_id, "node-1");
+
         let events = state
             .prepare_main_tool_call(owner, "shell")
             .expect("main tool binding");
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::MapCreated(event) if event.map_id == "map-1"
-            )
-        }));
-        assert_eq!(state.current_main_node_id.as_deref(), Some("define_scope"));
+        assert!(events.is_empty());
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
 
         let (result_id, result_events) = state
             .record_main_tool_result(owner, "call-1", "shell", true, "ok".to_string())
@@ -1370,14 +1421,14 @@ mod tests {
             matches!(
                 event,
                 MapRuntimeEvent::NodeResultRecorded(event)
-                    if event.node_id == "define_scope"
+                    if event.node_id == "node-1"
                         && event.lease_id == "main:call-1"
                         && event.kind == "main_tool_call"
                         && event.source_thread_id == owner
             )
         }));
         let map = state.active_map().expect("active map");
-        let node = map.nodes.get("define_scope").expect("node");
+        let node = map.nodes.get("node-1").expect("node");
         assert_eq!(node.status, NodeStatus::Ready);
         assert_eq!(node.result_context.len(), 1);
         let result = map.results.get("result-1").expect("stored result");
@@ -1407,17 +1458,47 @@ mod tests {
         assert!(events.iter().any(|event| {
             matches!(
                 event,
+                MapRuntimeEvent::MapCreated(event)
+                    if event.map_id == "map-1" && event.title == "Review logging"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
                 MapRuntimeEvent::NodeStatusChanged(event)
                     if event.node_id == "node-1" && event.current_status == "ready"
             )
         }));
         let map = state.active_map().expect("active map");
+        assert_eq!(map.title, "Review logging");
+        assert_eq!(map.nodes.len(), 1);
         let node = map.nodes.get("node-1").expect("created node");
         assert_eq!(node.status, NodeStatus::Ready);
         assert_eq!(
             node.context.summary,
             "Check logging coverage before implementation."
         );
+    }
+
+    #[test]
+    fn control_rejects_first_node_with_dependencies_without_creating_map() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+
+        let error = state
+            .create_node_for_main(
+                owner,
+                "Regression".to_string(),
+                "Run after implementation.".to_string(),
+                vec!["missing-upstream".to_string()],
+                true,
+            )
+            .expect_err("first node cannot depend on missing upstream nodes");
+
+        assert!(error.contains("first node with dependencies"));
+        assert!(state.maps.is_empty());
+        assert!(state.active_map_id.is_none());
     }
 
     #[test]
@@ -1572,6 +1653,7 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
 
         let (assignment, events) = state
             .prepare_spawn_assignment(owner, "implement maps")
@@ -1579,16 +1661,6 @@ mod tests {
         let assignment = assignment.expect("experiment assignment");
 
         assert_eq!(assignment.node_id, "define_scope");
-        assert!(matches!(events[0], MapRuntimeEvent::MapCreated(_)));
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::NodeStatusChanged(event)
-                    if event.node_id == "define_scope"
-                        && event.previous_status == "pending"
-                        && event.current_status == "ready"
-            )
-        }));
         assert!(events.iter().any(|event| {
             matches!(
                 event,
@@ -1626,7 +1698,7 @@ mod tests {
             )
             .expect("node created");
         assert_eq!(node_id, "node-1");
-        assert_eq!(state.current_main_node_id.as_deref(), Some("define_scope"));
+        assert!(state.current_main_node_id.is_none());
         let context = state.build_developer_context().expect("context");
         assert!(context.contains("- node-1: Parallel review [ready]"));
 
@@ -1655,10 +1727,26 @@ mod tests {
     }
 
     #[test]
+    fn experiment_spawn_assignment_requires_agent_created_task_path() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+
+        let error = state
+            .prepare_spawn_assignment(owner, "standard task")
+            .expect_err("spawn requires a task path first");
+
+        assert!(error.contains("taskspace_control(action=create_node"));
+        assert!(state.active_map_id.is_none());
+        assert!(state.maps.is_empty());
+    }
+
+    #[test]
     fn running_node_blocks_second_claim_until_lease_is_released() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
         let first = state
             .prepare_spawn_assignment(owner, "first")
             .expect("first claim succeeds")
@@ -1685,6 +1773,7 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
         let child = ThreadId::new();
         let assignment = state
             .prepare_spawn_assignment(owner, "first")
@@ -1716,6 +1805,7 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
         let child = ThreadId::new();
         let assignment = state
             .prepare_spawn_assignment(owner, "implement maps")
@@ -1783,6 +1873,7 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
         let child = ThreadId::new();
 
         let assignment = state
@@ -1837,6 +1928,7 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
         let child = ThreadId::new();
         let assignment = state
             .prepare_spawn_assignment(owner, "first")
@@ -1871,6 +1963,7 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
         let child = ThreadId::new();
         let assignment = state
             .prepare_spawn_assignment(owner, "first")
@@ -1901,6 +1994,7 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
         let assignment = state
             .prepare_spawn_assignment(owner, "first")
             .expect("claim")
@@ -1926,6 +2020,7 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
         let child = ThreadId::new();
         let assignment = state
             .prepare_spawn_assignment(owner, "first")
@@ -1959,10 +2054,11 @@ mod tests {
     }
 
     #[test]
-    fn completing_all_seed_nodes_marks_map_completed() {
+    fn completing_all_known_nodes_keeps_map_active_for_growth() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
         let mut map_id = None;
 
         for expected_node in SEED_NODE_IDS {
@@ -1987,16 +2083,17 @@ mod tests {
 
         let map_id = map_id.expect("map id");
         let map = state.maps.get(&map_id).expect("map");
-        assert_eq!(map.status, MapStatus::Completed);
-        assert!(state.active_map().is_none());
+        assert_eq!(map.status, MapStatus::Active);
+        assert_eq!(state.active_map().expect("active").id, map_id);
         assert_eq!(map.results.len(), SEED_NODE_IDS.len());
     }
 
     #[test]
-    fn restart_abandons_previous_map_and_creates_new_seed() {
+    fn restart_abandons_previous_map_and_creates_empty_task_path() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
         let first = state
             .prepare_spawn_assignment(owner, "first")
             .expect("assignment")
@@ -2028,11 +2125,14 @@ mod tests {
             state.maps.get(&first).expect("previous").status,
             MapStatus::Abandoned
         );
-        assert_eq!(state.active_map().expect("active").id, next);
+        let active = state.active_map().expect("active");
+        assert_eq!(active.id, next);
+        assert!(active.nodes.is_empty());
+        assert!(state.current_main_node_id.is_none());
     }
 
     #[test]
-    fn restart_without_existing_map_creates_seed_map() {
+    fn restart_without_existing_map_creates_empty_task_path() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
@@ -2043,9 +2143,7 @@ mod tests {
         let map = state.active_map().expect("active map");
         assert_eq!(map.id, next);
         assert_eq!(map.title, "Fresh map");
-        assert_eq!(
-            map.nodes.get("define_scope").expect("node").status,
-            NodeStatus::Ready
-        );
+        assert!(map.nodes.is_empty());
+        assert!(state.current_main_node_id.is_none());
     }
 }

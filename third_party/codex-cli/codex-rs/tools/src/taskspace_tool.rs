@@ -54,7 +54,7 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
 Use this only when TaskSpace is enabled and you need to update task-map structure before ordinary work.
 
 Supported actions:
-- `create_node`: create a concrete node in the active task path.
+- `create_node`: create a concrete node in the active task path. If no task path exists yet, this initializes a new empty task path first; BaseMap candidate nodes are guidance, not automatic graph nodes.
 - `bind_node`: bind the main agent's next ordinary action to an existing non-pending node.
 
 Do not expose this tool's internal map/node terminology to the user unless debugging TaskSpace itself.

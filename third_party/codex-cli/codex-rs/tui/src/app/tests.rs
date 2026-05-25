@@ -4963,13 +4963,13 @@ async fn action_map_commands_are_routed_through_app_server_in_tui_impl() {
             .snapshot;
         observed_mode = snapshot.mode;
         observed_map_count = snapshot.maps.len();
-        if observed_mode == MapRuntimeMode::Experiment && observed_map_count > 0 {
+        if observed_mode == MapRuntimeMode::Experiment {
             break;
         }
         time::sleep(std::time::Duration::from_millis(25)).await;
     }
     assert_eq!(observed_mode, MapRuntimeMode::Experiment);
-    assert_eq!(observed_map_count, 1);
+    assert_eq!(observed_map_count, 0);
 
     for op in [
         AppCommand::restart_action_map(),
