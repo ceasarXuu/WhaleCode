@@ -1292,32 +1292,21 @@ impl App {
                 self.chat_widget.set_approvals_reviewer(policy);
                 self.sync_active_thread_permission_settings_to_cached_session()
                     .await;
-                let profile = self.active_profile.as_deref();
-                let segments = if let Some(profile) = profile {
-                    vec![
-                        "profiles".to_string(),
-                        profile.to_string(),
-                        "approvals_reviewer".to_string(),
-                    ]
-                } else {
-                    vec!["approvals_reviewer".to_string()]
-                };
-                if let Err(err) = ConfigEditsBuilder::new(&self.config.codex_home)
-                    .with_profile(profile)
-                    .with_edits([ConfigEdit::SetPath {
-                        segments,
-                        value: policy.to_string().into(),
-                    }])
-                    .apply()
-                    .await
-                {
-                    tracing::error!(
-                        error = %err,
-                        "failed to persist approvals reviewer update"
-                    );
-                    self.chat_widget
-                        .add_error_message(format!("Failed to save approvals reviewer: {err}"));
-                }
+            }
+            AppEvent::PersistProjectPermissionSelection {
+                approval_policy,
+                sandbox_policy,
+                approvals_reviewer,
+            } => {
+                self.persist_project_permission_selection(
+                    approval_policy,
+                    sandbox_policy,
+                    approvals_reviewer,
+                )
+                .await;
+            }
+            AppEvent::ProjectPermissionSelectionCancelled => {
+                self.resume_after_project_permission_prompt();
             }
             AppEvent::UpdateFeatureFlags { updates } => {
                 self.update_feature_flags(updates).await;

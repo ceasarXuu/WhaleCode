@@ -120,6 +120,7 @@ use codex_config::types::ApprovalsReviewer;
 use codex_config::types::ModelAvailabilityNuxConfig;
 use codex_exec_server::EnvironmentManager;
 use codex_features::Feature;
+use codex_git_utils::get_git_repo_root;
 use codex_models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_models_manager::model_presets::HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG;
 use codex_models_manager::model_presets::HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG;
@@ -127,6 +128,7 @@ use codex_otel::SessionTelemetry;
 use codex_protocol::ThreadId;
 use codex_protocol::approvals::ExecApprovalRequestEvent;
 use codex_protocol::config_types::Personality;
+use codex_protocol::config_types::SandboxMode;
 #[cfg(target_os = "windows")]
 use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::openai_models::ModelAvailabilityNux;
@@ -881,6 +883,11 @@ impl App {
         if let Some(message) = external_agent_config_migration_message {
             chat_widget.add_info_message(message, /*hint*/ None);
         }
+        let prompt_project_permissions_at_startup =
+            Self::project_permissions_should_prompt_at_startup(&config);
+        if prompt_project_permissions_at_startup {
+            chat_widget.set_initial_user_message_submit_suppressed(true);
+        }
 
         chat_widget
             .maybe_prompt_windows_sandbox_enable(should_prompt_windows_sandbox_nux_at_startup);
@@ -938,6 +945,13 @@ impl App {
         if let Some(started) = initial_started_thread {
             app.enqueue_primary_thread_session(started.session, started.turns)
                 .await?;
+        }
+        if prompt_project_permissions_at_startup {
+            tracing::info!(
+                project_path = %app.active_project_permission_path().display(),
+                "opening startup project permission selection"
+            );
+            app.chat_widget.open_permissions_popup();
         }
 
         // On startup, if Agent mode (workspace-write) or ReadOnly is active, warn about world-writable dirs on Windows.

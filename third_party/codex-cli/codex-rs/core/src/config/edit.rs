@@ -1,13 +1,17 @@
+use crate::config_loader::project_trust_key;
 use crate::path_utils::resolve_symlink_write_paths;
 use crate::path_utils::write_atomically;
 use anyhow::Context;
 use codex_config::CONFIG_TOML_FILE;
+use codex_config::types::ApprovalsReviewer;
 use codex_config::types::McpServerConfig;
 use codex_features::FEATURES;
 use codex_protocol::config_types::Personality;
+use codex_protocol::config_types::SandboxMode;
 use codex_protocol::config_types::ServiceTier;
 use codex_protocol::config_types::TrustLevel;
 use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::protocol::AskForApproval;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::path::Path;
@@ -64,6 +68,13 @@ pub enum ConfigEdit {
     /// Set trust_level under `[projects."<path>"]`,
     /// migrating inline tables to explicit tables.
     SetProjectTrustLevel { path: PathBuf, level: TrustLevel },
+    /// Store the selected permission preset under `[projects."<path>"]`.
+    SetProjectPermissionSelection {
+        path: PathBuf,
+        approval_policy: AskForApproval,
+        sandbox_mode: SandboxMode,
+        approvals_reviewer: ApprovalsReviewer,
+    },
     /// Set the value stored at the exact dotted path.
     SetPath {
         segments: Vec<String>,
@@ -530,6 +541,40 @@ impl ConfigDocument {
                     *level,
                 )?;
                 Ok(true)
+            }
+            ConfigEdit::SetProjectPermissionSelection {
+                path,
+                approval_policy,
+                sandbox_mode,
+                approvals_reviewer,
+            } => {
+                let project_key = project_trust_key(path.as_path());
+                let mut mutated = false;
+                mutated |= self.insert(
+                    &[
+                        "projects".to_string(),
+                        project_key.clone(),
+                        "approval_policy".to_string(),
+                    ],
+                    value(approval_policy.to_string()),
+                );
+                mutated |= self.insert(
+                    &[
+                        "projects".to_string(),
+                        project_key.clone(),
+                        "sandbox_mode".to_string(),
+                    ],
+                    value(sandbox_mode.to_string()),
+                );
+                mutated |= self.insert(
+                    &[
+                        "projects".to_string(),
+                        project_key,
+                        "approvals_reviewer".to_string(),
+                    ],
+                    value(approvals_reviewer.to_string()),
+                );
+                Ok(mutated)
             }
         }
     }
@@ -1062,6 +1107,22 @@ impl ConfigEditsBuilder {
         self.edits.push(ConfigEdit::SetProjectTrustLevel {
             path: project_path.into(),
             level: trust_level,
+        });
+        self
+    }
+
+    pub fn set_project_permission_selection<P: Into<PathBuf>>(
+        mut self,
+        project_path: P,
+        approval_policy: AskForApproval,
+        sandbox_mode: SandboxMode,
+        approvals_reviewer: ApprovalsReviewer,
+    ) -> Self {
+        self.edits.push(ConfigEdit::SetProjectPermissionSelection {
+            path: project_path.into(),
+            approval_policy,
+            sandbox_mode,
+            approvals_reviewer,
         });
         self
     }

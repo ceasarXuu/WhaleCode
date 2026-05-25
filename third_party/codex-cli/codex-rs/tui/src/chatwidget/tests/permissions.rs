@@ -18,6 +18,25 @@ async fn approvals_selection_popup_snapshot() {
     assert_chatwidget_snapshot!("approvals_selection_popup", popup);
 }
 
+#[tokio::test]
+async fn permissions_popup_cancel_emits_resume_event() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+
+    chat.open_permissions_popup();
+    chat.handle_key_event(KeyEvent::from(KeyCode::Esc));
+
+    let mut saw_cancel = false;
+    while let Ok(ev) = rx.try_recv() {
+        if matches!(ev, AppEvent::ProjectPermissionSelectionCancelled) {
+            saw_cancel = true;
+        }
+    }
+    assert!(
+        saw_cancel,
+        "expected permissions popup cancellation to resume pending startup input"
+    );
+}
+
 #[cfg(target_os = "windows")]
 #[tokio::test]
 #[serial]

@@ -1376,9 +1376,13 @@ fn resolve_permission_config_syntax(
     config_layer_stack: &ConfigLayerStack,
     cfg: &ConfigToml,
     sandbox_mode_override: Option<SandboxMode>,
+    project_sandbox_mode: Option<SandboxMode>,
     profile_sandbox_mode: Option<SandboxMode>,
 ) -> Option<PermissionConfigSyntax> {
-    if sandbox_mode_override.is_some() || profile_sandbox_mode.is_some() {
+    if sandbox_mode_override.is_some()
+        || project_sandbox_mode.is_some()
+        || profile_sandbox_mode.is_some()
+    {
         return Some(PermissionConfigSyntax::Legacy);
     }
 
@@ -1814,11 +1818,12 @@ impl Config {
                 resolved_cwd.as_path(),
                 repo_root.as_ref().map(AbsolutePathBuf::as_path),
             )
-            .unwrap_or(ProjectConfig { trust_level: None });
+            .unwrap_or_default();
         let permission_config_syntax = resolve_permission_config_syntax(
             &config_layer_stack,
             &cfg,
             sandbox_mode,
+            active_project.sandbox_mode,
             config_profile.sandbox_mode,
         );
         let has_permission_profiles = cfg
@@ -1983,9 +1988,11 @@ impl Config {
             )
         };
         let approval_policy_was_explicit = approval_policy_override.is_some()
+            || active_project.approval_policy.is_some()
             || config_profile.approval_policy.is_some()
             || cfg.approval_policy.is_some();
         let mut approval_policy = approval_policy_override
+            .or(active_project.approval_policy)
             .or(config_profile.approval_policy)
             .or(cfg.approval_policy)
             .unwrap_or_else(|| {
@@ -2007,9 +2014,11 @@ impl Config {
             approval_policy = constrained_approval_policy.value();
         }
         let approvals_reviewer_was_explicit = approvals_reviewer_override.is_some()
+            || active_project.approvals_reviewer.is_some()
             || config_profile.approvals_reviewer.is_some()
             || cfg.approvals_reviewer.is_some();
         let mut approvals_reviewer = approvals_reviewer_override
+            .or(active_project.approvals_reviewer)
             .or(config_profile.approvals_reviewer)
             .or(cfg.approvals_reviewer)
             .unwrap_or(ApprovalsReviewer::User);

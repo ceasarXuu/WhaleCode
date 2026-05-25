@@ -1,8 +1,11 @@
 use super::*;
 use codex_config::types::AppToolApproval;
+use codex_config::types::ApprovalsReviewer;
 use codex_config::types::McpServerToolConfig;
 use codex_config::types::McpServerTransportConfig;
+use codex_protocol::config_types::SandboxMode;
 use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::protocol::AskForApproval;
 use pretty_assertions::assert_eq;
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
@@ -46,6 +49,47 @@ fn builder_with_edits_applies_custom_paths() {
 
     let contents = std::fs::read_to_string(codex_home.join(CONFIG_TOML_FILE)).expect("read config");
     assert_eq!(contents, "enabled = true\n");
+}
+
+#[test]
+fn set_project_permission_selection_writes_project_scoped_permissions() {
+    let tmp = tempdir().expect("tmpdir");
+    let codex_home = tmp.path();
+    let project_path = tmp.path().join("project");
+
+    ConfigEditsBuilder::new(codex_home)
+        .set_project_permission_selection(
+            &project_path,
+            AskForApproval::Never,
+            SandboxMode::DangerFullAccess,
+            ApprovalsReviewer::AutoReview,
+        )
+        .apply_blocking()
+        .expect("persist project permissions");
+
+    let contents = std::fs::read_to_string(codex_home.join(CONFIG_TOML_FILE)).expect("read config");
+    let parsed: TomlValue = toml::from_str(&contents).expect("parse config");
+    let project = parsed
+        .get("projects")
+        .and_then(TomlValue::as_table)
+        .and_then(|projects| projects.values().next())
+        .and_then(TomlValue::as_table)
+        .expect("project permission table");
+
+    assert_eq!(
+        project.get("approval_policy").and_then(TomlValue::as_str),
+        Some("never")
+    );
+    assert_eq!(
+        project.get("sandbox_mode").and_then(TomlValue::as_str),
+        Some("danger-full-access")
+    );
+    assert_eq!(
+        project
+            .get("approvals_reviewer")
+            .and_then(TomlValue::as_str),
+        Some("guardian_subagent")
+    );
 }
 
 #[test]

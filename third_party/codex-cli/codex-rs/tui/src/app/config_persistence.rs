@@ -84,6 +84,72 @@ impl App {
         }
     }
 
+    pub(super) fn project_permissions_should_prompt_at_startup(config: &Config) -> bool {
+        !config.active_project.has_permission_selection()
+    }
+
+    pub(super) fn active_project_permission_path(&self) -> PathBuf {
+        get_git_repo_root(self.config.cwd.as_path())
+            .unwrap_or_else(|| self.config.cwd.to_path_buf())
+    }
+
+    pub(super) fn resume_after_project_permission_prompt(&mut self) {
+        self.chat_widget
+            .set_initial_user_message_submit_suppressed(false);
+        self.chat_widget.submit_initial_user_message_if_pending();
+    }
+
+    pub(super) async fn persist_project_permission_selection(
+        &mut self,
+        approval_policy: AskForApproval,
+        sandbox_policy: SandboxPolicy,
+        approvals_reviewer: ApprovalsReviewer,
+    ) {
+        let Some(sandbox_mode) = sandbox_mode_for_project_permission_selection(&sandbox_policy)
+        else {
+            tracing::warn!(
+                sandbox_policy = ?sandbox_policy,
+                "skipping project permission persistence for unsupported sandbox policy"
+            );
+            self.resume_after_project_permission_prompt();
+            return;
+        };
+        let project_path = self.active_project_permission_path();
+        let project_path_display = project_path.display().to_string();
+        if let Err(err) = ConfigEditsBuilder::new(&self.config.codex_home)
+            .set_project_permission_selection(
+                project_path.clone(),
+                approval_policy,
+                sandbox_mode,
+                approvals_reviewer,
+            )
+            .apply()
+            .await
+        {
+            tracing::error!(
+                error = %err,
+                project_path = %project_path_display,
+                "failed to persist project permission selection"
+            );
+            self.chat_widget
+                .add_error_message(format!("Failed to save project permissions: {err}"));
+            self.resume_after_project_permission_prompt();
+            return;
+        }
+
+        self.config.active_project.approval_policy = Some(approval_policy);
+        self.config.active_project.sandbox_mode = Some(sandbox_mode);
+        self.config.active_project.approvals_reviewer = Some(approvals_reviewer);
+        self.resume_after_project_permission_prompt();
+        tracing::info!(
+            project_path = %project_path_display,
+            approval_policy = %approval_policy,
+            sandbox_mode = %sandbox_mode,
+            approvals_reviewer = %approvals_reviewer,
+            "persisted project permission selection"
+        );
+    }
+
     pub(super) fn set_approvals_reviewer_in_app_and_widget(&mut self, reviewer: ApprovalsReviewer) {
         self.config.approvals_reviewer = reviewer;
         self.chat_widget.set_approvals_reviewer(reviewer);
@@ -555,6 +621,15 @@ fn sync_runtime_permissions_from_legacy_sandbox_policy(config: &mut Config) {
         codex_protocol::permissions::NetworkSandboxPolicy::from(sandbox_policy);
 }
 
+fn sandbox_mode_for_project_permission_selection(policy: &SandboxPolicy) -> Option<SandboxMode> {
+    match policy {
+        SandboxPolicy::ReadOnly { .. } => Some(SandboxMode::ReadOnly),
+        SandboxPolicy::WorkspaceWrite { .. } => Some(SandboxMode::WorkspaceWrite),
+        SandboxPolicy::DangerFullAccess => Some(SandboxMode::DangerFullAccess),
+        SandboxPolicy::ExternalSandbox { .. } => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -621,6 +696,73 @@ mod tests {
             app_enabled_in_effective_config(&app.config, &app_id),
             Some(false)
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn project_permissions_prompt_when_project_has_no_saved_selection() {
+        let mut app = make_test_app().await;
+
+        app.config.active_project = Default::default();
+
+        assert!(App::project_permissions_should_prompt_at_startup(
+            &app.config
+        ));
+    }
+
+    #[tokio::test]
+    async fn project_permissions_skip_prompt_after_saved_selection() {
+        let mut app = make_test_app().await;
+
+        app.config.active_project.approval_policy = Some(AskForApproval::Never);
+        app.config.active_project.sandbox_mode = Some(SandboxMode::DangerFullAccess);
+        app.config.active_project.approvals_reviewer = Some(ApprovalsReviewer::User);
+
+        assert!(!App::project_permissions_should_prompt_at_startup(
+            &app.config
+        ));
+    }
+
+    #[tokio::test]
+    async fn persist_project_permission_selection_writes_project_config() -> Result<()> {
+        let mut app = make_test_app().await;
+        let codex_home = tempdir()?;
+        let project_dir = tempdir()?;
+        app.config.codex_home = codex_home.path().to_path_buf().abs();
+        app.config.cwd = project_dir.path().to_path_buf().abs();
+
+        app.persist_project_permission_selection(
+            AskForApproval::Never,
+            SandboxPolicy::DangerFullAccess,
+            ApprovalsReviewer::User,
+        )
+        .await;
+
+        let config = std::fs::read_to_string(codex_home.path().join("config.toml"))?;
+        let parsed = toml::from_str::<TomlValue>(&config)?;
+        let project = parsed
+            .as_table()
+            .and_then(|table| table.get("projects"))
+            .and_then(TomlValue::as_table)
+            .and_then(|projects| projects.values().next())
+            .and_then(TomlValue::as_table)
+            .expect("project permissions should be written");
+
+        assert_eq!(
+            project.get("approval_policy").and_then(TomlValue::as_str),
+            Some("never")
+        );
+        assert_eq!(
+            project.get("sandbox_mode").and_then(TomlValue::as_str),
+            Some("danger-full-access")
+        );
+        assert_eq!(
+            project
+                .get("approvals_reviewer")
+                .and_then(TomlValue::as_str),
+            Some("user")
+        );
+        assert!(app.config.active_project.has_permission_selection());
         Ok(())
     }
 

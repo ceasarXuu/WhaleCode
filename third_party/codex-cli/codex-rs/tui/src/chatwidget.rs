@@ -9725,6 +9725,9 @@ impl ChatWidget {
             footer_hint: Some(standard_popup_hint_line()),
             items,
             header: Box::new(()),
+            on_cancel: Some(Box::new(|tx| {
+                tx.send(AppEvent::ProjectPermissionSelectionCancelled);
+            })),
             ..Default::default()
         });
     }
@@ -9775,6 +9778,11 @@ impl ChatWidget {
             tx.send(AppEvent::UpdateAskForApprovalPolicy(approval));
             tx.send(AppEvent::UpdateSandboxPolicy(sandbox_clone));
             tx.send(AppEvent::UpdateApprovalsReviewer(approvals_reviewer));
+            tx.send(AppEvent::PersistProjectPermissionSelection {
+                approval_policy: approval,
+                sandbox_policy: sandbox.clone(),
+                approvals_reviewer,
+            });
             tx.send(AppEvent::InsertHistoryCell(Box::new(
                 history_cell::new_info_event(
                     format!("Permissions updated to {label}"),

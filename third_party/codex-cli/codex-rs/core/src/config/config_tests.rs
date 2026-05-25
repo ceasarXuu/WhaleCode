@@ -2268,6 +2268,64 @@ async fn cli_override_takes_precedence_over_profile_sandbox_mode() -> std::io::R
 }
 
 #[tokio::test]
+async fn project_permission_selection_overrides_global_and_profile_defaults() -> std::io::Result<()>
+{
+    let codex_home = TempDir::new()?;
+    let workspace = TempDir::new()?;
+    let workspace_key = workspace.path().to_string_lossy().to_string();
+    let mut profiles = HashMap::new();
+    profiles.insert(
+        "work".to_string(),
+        ConfigProfile {
+            approval_policy: Some(AskForApproval::OnRequest),
+            sandbox_mode: Some(SandboxMode::ReadOnly),
+            approvals_reviewer: Some(ApprovalsReviewer::User),
+            ..Default::default()
+        },
+    );
+    let cfg = ConfigToml {
+        approval_policy: Some(AskForApproval::UnlessTrusted),
+        approvals_reviewer: Some(ApprovalsReviewer::User),
+        sandbox_mode: Some(SandboxMode::WorkspaceWrite),
+        profiles,
+        profile: Some("work".to_string()),
+        projects: Some(HashMap::from([(
+            workspace_key,
+            ProjectConfig {
+                approval_policy: Some(AskForApproval::Never),
+                sandbox_mode: Some(SandboxMode::DangerFullAccess),
+                approvals_reviewer: Some(ApprovalsReviewer::AutoReview),
+                ..Default::default()
+            },
+        )])),
+        ..Default::default()
+    };
+
+    let config = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides {
+            cwd: Some(workspace.path().to_path_buf()),
+            ..Default::default()
+        },
+        codex_home.abs(),
+    )
+    .await?;
+
+    assert_eq!(
+        config.permissions.approval_policy.value(),
+        AskForApproval::Never
+    );
+    assert_eq!(
+        config.permissions.sandbox_policy.get(),
+        &SandboxPolicy::DangerFullAccess
+    );
+    assert_eq!(config.approvals_reviewer, ApprovalsReviewer::AutoReview);
+    assert!(config.active_project.has_permission_selection());
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn feature_table_overrides_legacy_flags() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     let mut entries = BTreeMap::new();
@@ -5397,7 +5455,7 @@ async fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
             features: Features::with_defaults().into(),
             suppress_unstable_features_warning: false,
             active_profile: Some("o3".to_string()),
-            active_project: ProjectConfig { trust_level: None },
+            active_project: ProjectConfig::default(),
             windows_wsl_setup_acknowledged: false,
             notices: Default::default(),
             check_for_update_on_startup: true,
@@ -5594,7 +5652,7 @@ async fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
         features: Features::with_defaults().into(),
         suppress_unstable_features_warning: false,
         active_profile: Some("gpt3".to_string()),
-        active_project: ProjectConfig { trust_level: None },
+        active_project: ProjectConfig::default(),
         windows_wsl_setup_acknowledged: false,
         notices: Default::default(),
         check_for_update_on_startup: true,
@@ -5745,7 +5803,7 @@ async fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
         features: Features::with_defaults().into(),
         suppress_unstable_features_warning: false,
         active_profile: Some("zdr".to_string()),
-        active_project: ProjectConfig { trust_level: None },
+        active_project: ProjectConfig::default(),
         windows_wsl_setup_acknowledged: false,
         notices: Default::default(),
         check_for_update_on_startup: true,
@@ -5881,7 +5939,7 @@ async fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
         features: Features::with_defaults().into(),
         suppress_unstable_features_warning: false,
         active_profile: Some("gpt5".to_string()),
-        active_project: ProjectConfig { trust_level: None },
+        active_project: ProjectConfig::default(),
         windows_wsl_setup_acknowledged: false,
         notices: Default::default(),
         check_for_update_on_startup: true,
@@ -6092,6 +6150,7 @@ async fn active_project_does_not_match_configured_alias_for_canonical_cwd() -> a
             alias_root.to_string_lossy().to_string(),
             ProjectConfig {
                 trust_level: Some(TrustLevel::Trusted),
+                ..Default::default()
             },
         )])),
         ..Default::default()
@@ -6196,6 +6255,7 @@ trust_level = "untrusted"
         .expect("TOML deserialization should succeed");
     let active_project = ProjectConfig {
         trust_level: Some(TrustLevel::Untrusted),
+        ..Default::default()
     };
 
     let resolution = cfg
@@ -6235,12 +6295,14 @@ async fn derive_sandbox_policy_falls_back_to_constraint_value_for_implicit_defau
             project_key,
             ProjectConfig {
                 trust_level: Some(TrustLevel::Trusted),
+                ..Default::default()
             },
         )])),
         ..Default::default()
     };
     let active_project = ProjectConfig {
         trust_level: Some(TrustLevel::Trusted),
+        ..Default::default()
     };
     let constrained = Constrained::new(SandboxPolicy::DangerFullAccess, |candidate| {
         if matches!(candidate, SandboxPolicy::DangerFullAccess) {
@@ -6280,12 +6342,14 @@ async fn derive_sandbox_policy_preserves_windows_downgrade_for_unsupported_fallb
             project_key,
             ProjectConfig {
                 trust_level: Some(TrustLevel::Trusted),
+                ..Default::default()
             },
         )])),
         ..Default::default()
     };
     let active_project = ProjectConfig {
         trust_level: Some(TrustLevel::Trusted),
+        ..Default::default()
     };
     let constrained = Constrained::new(SandboxPolicy::new_workspace_write_policy(), |candidate| {
         if matches!(candidate, SandboxPolicy::WorkspaceWrite { .. }) {
@@ -6515,6 +6579,7 @@ async fn test_untrusted_project_gets_unless_trusted_approval_policy() -> anyhow:
                 test_path.to_string_lossy().to_string(),
                 ProjectConfig {
                     trust_level: Some(TrustLevel::Untrusted),
+                    ..Default::default()
                 },
             )])),
             ..Default::default()

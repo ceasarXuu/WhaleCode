@@ -465,13 +465,22 @@ impl From<ConfigToml> for UserSavedConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct ProjectConfig {
     pub trust_level: Option<TrustLevel>,
+    pub approval_policy: Option<AskForApproval>,
+    pub sandbox_mode: Option<SandboxMode>,
+    pub approvals_reviewer: Option<ApprovalsReviewer>,
 }
 
 impl ProjectConfig {
+    pub fn has_permission_selection(&self) -> bool {
+        self.approval_policy.is_some()
+            || self.sandbox_mode.is_some()
+            || self.approvals_reviewer.is_some()
+    }
+
     pub fn is_trusted(&self) -> bool {
         matches!(self.trust_level, Some(TrustLevel::Trusted))
     }
@@ -656,10 +665,13 @@ impl ConfigToml {
         active_project: Option<&ProjectConfig>,
         sandbox_policy_constraint: Option<&crate::Constrained<SandboxPolicy>>,
     ) -> SandboxPolicy {
+        let project_sandbox_mode = active_project.and_then(|project| project.sandbox_mode);
         let sandbox_mode_was_explicit = sandbox_mode_override.is_some()
+            || project_sandbox_mode.is_some()
             || profile_sandbox_mode.is_some()
             || self.sandbox_mode.is_some();
         let resolved_sandbox_mode = sandbox_mode_override
+            .or(project_sandbox_mode)
             .or(profile_sandbox_mode)
             .or(self.sandbox_mode)
             .or(if sandbox_mode_was_explicit {

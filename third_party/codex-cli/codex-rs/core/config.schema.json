@@ -1701,6 +1701,15 @@
     "ProjectConfig": {
       "additionalProperties": false,
       "properties": {
+        "approval_policy": {
+          "$ref": "#/definitions/AskForApproval"
+        },
+        "approvals_reviewer": {
+          "$ref": "#/definitions/ApprovalsReviewer"
+        },
+        "sandbox_mode": {
+          "$ref": "#/definitions/SandboxMode"
+        },
         "trust_level": {
           "$ref": "#/definitions/TrustLevel"
         }

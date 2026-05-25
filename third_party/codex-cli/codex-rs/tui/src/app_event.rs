@@ -586,6 +586,15 @@ pub(crate) enum AppEvent {
     /// Update the current approvals reviewer in the running app and widget.
     UpdateApprovalsReviewer(ApprovalsReviewer),
 
+    /// Persist the selected permission preset for the active project.
+    PersistProjectPermissionSelection {
+        approval_policy: AskForApproval,
+        sandbox_policy: SandboxPolicy,
+        approvals_reviewer: ApprovalsReviewer,
+    },
+    /// The startup project-permission prompt was dismissed without a selection.
+    ProjectPermissionSelectionCancelled,
+
     /// Update feature flags and persist them to the top-level config.
     UpdateFeatureFlags {
         updates: Vec<(Feature, bool)>,

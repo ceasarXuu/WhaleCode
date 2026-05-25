@@ -15,6 +15,7 @@ pub enum SlashCommand {
     Model,
     Fast,
     Approvals,
+    #[strum(to_string = "permissions", serialize = "permission")]
     Permissions,
     #[strum(serialize = "setup-default-sandbox")]
     ElevateSandbox,
@@ -258,6 +259,19 @@ mod tests {
     #[test]
     fn clean_alias_parses_to_stop_command() {
         assert_eq!(SlashCommand::from_str("clean"), Ok(SlashCommand::Stop));
+    }
+
+    #[test]
+    fn singular_permission_alias_parses_to_permissions_command() {
+        assert_eq!(
+            SlashCommand::from_str("permissions"),
+            Ok(SlashCommand::Permissions)
+        );
+        assert_eq!(
+            SlashCommand::from_str("permission"),
+            Ok(SlashCommand::Permissions)
+        );
+        assert_eq!(SlashCommand::Permissions.command(), "permissions");
     }
 
     #[test]
