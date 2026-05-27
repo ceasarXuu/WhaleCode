@@ -2,6 +2,10 @@
 
 日期：2026-05-22
 
+> 工程落地请以
+> [2026-05-27-taskspace-runtime-rearchitecture-implementation-plan.md](./2026-05-27-taskspace-runtime-rearchitecture-implementation-plan.md)
+> 为准。本文保留产品语义和概念设计；2026-05-27 文档描述基于真实失败样本后的 runtime 重构实施方案。
+
 ## 结论
 
 Whale 的长期目标不应是让用户手动选择是否使用 Action Map，而是提供一个默认运行的任务空间：
