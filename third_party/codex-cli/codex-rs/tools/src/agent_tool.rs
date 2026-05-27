@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 
 const SPAWN_AGENT_INHERITED_MODEL_GUIDANCE: &str = "Spawned agents inherit your current model by default. Omit `model` to use that preferred default; set `model` only when an explicit override is needed.";
 const SPAWN_AGENT_MODEL_OVERRIDE_DESCRIPTION: &str = "Optional model override for the new agent. Leave unset to inherit the same model as the parent, which is the preferred default. Only set this when the user explicitly asks for a different model or the task clearly requires one.";
+const SPAWN_AGENT_NODE_ID_DESCRIPTION: &str = "Optional TaskSpace node id. When TaskSpace mode has more than one ready node, set node_id to bind the spawned agent to the intended node.";
 
 #[derive(Debug, Clone)]
 pub struct SpawnAgentToolOptions<'a> {
@@ -523,6 +524,10 @@ fn spawn_agent_common_properties_v1(agent_type_description: &str) -> BTreeMap<St
             JsonSchema::string(Some(agent_type_description.to_string())),
         ),
         (
+            "node_id".to_string(),
+            JsonSchema::string(Some(SPAWN_AGENT_NODE_ID_DESCRIPTION.to_string())),
+        ),
+        (
             "fork_context".to_string(),
             JsonSchema::boolean(Some(
                 "When true, fork the current thread history into the new agent before sending the initial prompt. This must be used when you want the new agent to have exactly the same context as you."
@@ -554,6 +559,10 @@ fn spawn_agent_common_properties_v2(agent_type_description: &str) -> BTreeMap<St
         (
             "agent_type".to_string(),
             JsonSchema::string(Some(agent_type_description.to_string())),
+        ),
+        (
+            "node_id".to_string(),
+            JsonSchema::string(Some(SPAWN_AGENT_NODE_ID_DESCRIPTION.to_string())),
         ),
         (
             "fork_turns".to_string(),
@@ -595,7 +604,7 @@ fn spawn_agent_tool_description(
     let tool_description = format!(
         r#"
         {agent_role_guidance}
-        Spawn a sub-agent for a well-scoped task. {return_value_description} {SPAWN_AGENT_INHERITED_MODEL_GUIDANCE}"#
+        Spawn a sub-agent for a well-scoped task. {return_value_description} {SPAWN_AGENT_INHERITED_MODEL_GUIDANCE} When TaskSpace mode has more than one ready node, include node_id so the runtime can bind the new agent to the intended node."#
     );
 
     if !include_usage_hint {
@@ -677,6 +686,7 @@ The spawned agent will have the same tools as you and the ability to spawn its o
 {SPAWN_AGENT_INHERITED_MODEL_GUIDANCE}
 It will be able to send you and other running agents messages, and its final answer will be provided to you when it finishes.
 The new agent's canonical task name will be provided to it along with the message.
+When TaskSpace mode has more than one ready node, include node_id so the runtime can bind the new agent to the intended node.
 {concurrency_guidance}"#
     );
 

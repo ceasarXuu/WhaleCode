@@ -32,6 +32,8 @@ use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::protocol::ActionMapSnapshot;
+use codex_protocol::protocol::ActionMapSnapshotMap;
 use codex_protocol::protocol::AgentStatus;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::EventMsg;
@@ -114,6 +116,34 @@ async fn start_action_map_task_node(
         .await
         .expect("TaskSpace task should start");
     node_id
+}
+
+fn active_action_map_snapshot_map(snapshot: &ActionMapSnapshot) -> &ActionMapSnapshotMap {
+    let active_map_id = snapshot
+        .active_map_id
+        .as_deref()
+        .expect("snapshot should have an active map");
+    snapshot
+        .maps
+        .iter()
+        .find(|map| map.id == active_map_id)
+        .expect("active map should exist")
+}
+
+async fn active_action_map_node_statuses(
+    session: &Arc<crate::session::session::Session>,
+) -> HashMap<String, String> {
+    let snapshot = session.action_map_snapshot().await;
+    active_action_map_snapshot_map(&snapshot)
+        .nodes
+        .iter()
+        .map(|node| (node.id.clone(), node.status.clone()))
+        .collect()
+}
+
+async fn active_action_map_lease_count(session: &Arc<crate::session::session::Session>) -> usize {
+    let snapshot = session.action_map_snapshot().await;
+    active_action_map_snapshot_map(&snapshot).leases.len()
 }
 
 fn captured_op_for_thread(manager: &ThreadManager, thread_id: ThreadId) -> Option<Op> {
@@ -841,6 +871,127 @@ async fn legacy_spawn_agent_claims_taskspace_node_after_start_task() {
 }
 
 #[tokio::test]
+async fn legacy_spawn_agent_requires_node_id_for_multiple_ready_nodes() {
+    let (mut session, turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let root = manager
+        .start_thread((*turn.config).clone())
+        .await
+        .expect("root thread should start");
+    session.services.agent_control = manager.agent_control();
+    session.conversation_id = root.thread_id;
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    enable_action_map_experiment(&session).await;
+    start_action_map_task_node(
+        &session,
+        &turn,
+        "Review architecture",
+        "Subagent should review architecture.",
+        false,
+    )
+    .await;
+    let second_node_id = session
+        .create_action_map_node_for_main(
+            &turn,
+            "Review tests".to_string(),
+            "Subagent should review tests.".to_string(),
+            Vec::new(),
+            false,
+        )
+        .await
+        .expect("second ready node should be created");
+    assert_eq!(second_node_id, "node-2");
+
+    let err = SpawnAgentHandler
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "inspect this repo"
+            })),
+        ))
+        .await
+        .expect_err("legacy spawn_agent should require explicit node_id");
+
+    let FunctionCallError::RespondToModel(message) = err else {
+        panic!("TaskSpace node selection should return a model-facing error");
+    };
+    assert!(message.contains("multiple ready nodes"));
+    assert!(message.contains("node-1 (Review architecture)"));
+    assert!(message.contains("node-2 (Review tests)"));
+    assert!(manager.captured_ops().is_empty());
+    assert_eq!(active_action_map_lease_count(&session).await, 0);
+    let statuses = active_action_map_node_statuses(&session).await;
+    assert_eq!(statuses.get("node-1").map(String::as_str), Some("ready"));
+    assert_eq!(statuses.get("node-2").map(String::as_str), Some("ready"));
+}
+
+#[tokio::test]
+async fn legacy_spawn_agent_claims_explicit_node_id() {
+    #[derive(Debug, Deserialize)]
+    struct SpawnAgentResult {
+        agent_id: String,
+    }
+
+    let (mut session, turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let root = manager
+        .start_thread((*turn.config).clone())
+        .await
+        .expect("root thread should start");
+    session.services.agent_control = manager.agent_control();
+    session.conversation_id = root.thread_id;
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    enable_action_map_experiment(&session).await;
+    start_action_map_task_node(
+        &session,
+        &turn,
+        "Review architecture",
+        "Subagent should review architecture.",
+        false,
+    )
+    .await;
+    session
+        .create_action_map_node_for_main(
+            &turn,
+            "Review tests".to_string(),
+            "Subagent should review tests.".to_string(),
+            Vec::new(),
+            false,
+        )
+        .await
+        .expect("second ready node should be created");
+
+    let output = SpawnAgentHandler
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "inspect tests",
+                "node_id": "node-2"
+            })),
+        ))
+        .await
+        .expect("explicit node_id should disambiguate legacy spawn");
+    let (content, _) = expect_text_output(output);
+    let result: SpawnAgentResult =
+        serde_json::from_str(&content).expect("legacy spawn result should parse");
+    let child_id = parse_agent_id(&result.agent_id);
+    let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
+    let content = inter_agent_content(&op).expect("child op should contain text");
+    assert!(content.contains("Node: node-2 - Review tests"));
+    assert!(content.contains("inspect tests"));
+    assert_eq!(active_action_map_lease_count(&session).await, 1);
+    let statuses = active_action_map_node_statuses(&session).await;
+    assert_eq!(statuses.get("node-1").map(String::as_str), Some("ready"));
+    assert_eq!(statuses.get("node-2").map(String::as_str), Some("running"));
+}
+
+#[tokio::test]
 async fn multi_agent_v2_spawn_requires_task_name() {
     let (mut session, mut turn) = make_session_and_context().await;
     let manager = thread_manager();
@@ -1104,6 +1255,293 @@ async fn action_map_experiment_spawn_binds_first_ready_node() {
     assert!(content.contains("Node: node-1"));
     assert!(content.contains("Lease: lease-1"));
     assert!(content.contains("inspect this repo"));
+}
+
+#[tokio::test]
+async fn action_map_experiment_spawn_requires_node_id_for_multiple_ready_nodes() {
+    let (mut session, mut turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let root = manager
+        .start_thread((*turn.config).clone())
+        .await
+        .expect("root thread should start");
+    session.services.agent_control = manager.agent_control();
+    session.conversation_id = root.thread_id;
+    let mut config = (*turn.config).clone();
+    config
+        .features
+        .enable(Feature::MultiAgentV2)
+        .expect("test config should allow feature update");
+    turn.config = Arc::new(config);
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    enable_action_map_experiment(&session).await;
+    start_action_map_task_node(
+        &session,
+        &turn,
+        "Review architecture",
+        "Subagent should review architecture.",
+        false,
+    )
+    .await;
+    let second_node_id = session
+        .create_action_map_node_for_main(
+            &turn,
+            "Review tests".to_string(),
+            "Subagent should review tests.".to_string(),
+            Vec::new(),
+            false,
+        )
+        .await
+        .expect("second ready node should be created");
+    assert_eq!(second_node_id, "node-2");
+
+    let err = SpawnAgentHandlerV2
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "inspect this repo",
+                "task_name": "worker"
+            })),
+        ))
+        .await
+        .expect_err("spawn_agent should require explicit node_id");
+
+    let FunctionCallError::RespondToModel(message) = err else {
+        panic!("TaskSpace node selection should return a model-facing error");
+    };
+    assert!(message.contains("multiple ready nodes"));
+    assert!(message.contains("node-1 (Review architecture)"));
+    assert!(message.contains("node-2 (Review tests)"));
+    assert!(manager.captured_ops().is_empty());
+    assert_eq!(active_action_map_lease_count(&session).await, 0);
+    let statuses = active_action_map_node_statuses(&session).await;
+    assert_eq!(statuses.get("node-1").map(String::as_str), Some("ready"));
+    assert_eq!(statuses.get("node-2").map(String::as_str), Some("ready"));
+}
+
+#[tokio::test]
+async fn action_map_experiment_spawn_claims_explicit_node_id() {
+    #[derive(Debug, Deserialize)]
+    struct SpawnAgentResult {
+        task_name: String,
+    }
+
+    let (mut session, mut turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let root = manager
+        .start_thread((*turn.config).clone())
+        .await
+        .expect("root thread should start");
+    session.services.agent_control = manager.agent_control();
+    session.conversation_id = root.thread_id;
+    let mut config = (*turn.config).clone();
+    config
+        .features
+        .enable(Feature::MultiAgentV2)
+        .expect("test config should allow feature update");
+    turn.config = Arc::new(config);
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    enable_action_map_experiment(&session).await;
+    start_action_map_task_node(
+        &session,
+        &turn,
+        "Review architecture",
+        "Subagent should review architecture.",
+        false,
+    )
+    .await;
+    session
+        .create_action_map_node_for_main(
+            &turn,
+            "Review tests".to_string(),
+            "Subagent should review tests.".to_string(),
+            Vec::new(),
+            false,
+        )
+        .await
+        .expect("second ready node should be created");
+
+    let output = SpawnAgentHandlerV2
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "inspect tests",
+                "task_name": "worker",
+                "node_id": "node-2"
+            })),
+        ))
+        .await
+        .expect("explicit node_id should disambiguate spawn");
+    let (content, _) = expect_text_output(output);
+    let result: SpawnAgentResult =
+        serde_json::from_str(&content).expect("spawn result should parse");
+
+    let child_id = session
+        .services
+        .agent_control
+        .resolve_agent_reference(
+            session.conversation_id,
+            &turn.session_source,
+            &result.task_name,
+        )
+        .await
+        .expect("spawned node agent should resolve");
+    let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
+    let content = inter_agent_content(&op).expect("child op should contain text");
+    assert!(content.contains("Node: node-2 - Review tests"));
+    assert!(content.contains("inspect tests"));
+    assert_eq!(active_action_map_lease_count(&session).await, 1);
+    let statuses = active_action_map_node_statuses(&session).await;
+    assert_eq!(statuses.get("node-1").map(String::as_str), Some("ready"));
+    assert_eq!(statuses.get("node-2").map(String::as_str), Some("running"));
+}
+
+#[tokio::test]
+async fn action_map_experiment_spawn_rejects_pending_explicit_node_id() {
+    let (mut session, mut turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let root = manager
+        .start_thread((*turn.config).clone())
+        .await
+        .expect("root thread should start");
+    session.services.agent_control = manager.agent_control();
+    session.conversation_id = root.thread_id;
+    let mut config = (*turn.config).clone();
+    config
+        .features
+        .enable(Feature::MultiAgentV2)
+        .expect("test config should allow feature update");
+    turn.config = Arc::new(config);
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    enable_action_map_experiment(&session).await;
+    let first_node_id = start_action_map_task_node(
+        &session,
+        &turn,
+        "Review architecture",
+        "Subagent should review architecture.",
+        false,
+    )
+    .await;
+    let second_node_id = session
+        .create_action_map_node_for_main(
+            &turn,
+            "Review tests".to_string(),
+            "Subagent should review tests after architecture review.".to_string(),
+            vec![first_node_id],
+            false,
+        )
+        .await
+        .expect("dependent second node should be created");
+    assert_eq!(second_node_id, "node-2");
+
+    let err = SpawnAgentHandlerV2
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "inspect tests",
+                "task_name": "worker",
+                "node_id": "node-2"
+            })),
+        ))
+        .await
+        .expect_err("pending node_id must be rejected");
+
+    let FunctionCallError::RespondToModel(message) = err else {
+        panic!("TaskSpace node selection should return a model-facing error");
+    };
+    assert!(message.contains("still pending"));
+    assert!(manager.captured_ops().is_empty());
+    assert_eq!(active_action_map_lease_count(&session).await, 0);
+    let statuses = active_action_map_node_statuses(&session).await;
+    assert_eq!(statuses.get("node-1").map(String::as_str), Some("ready"));
+    assert_eq!(statuses.get("node-2").map(String::as_str), Some("pending"));
+}
+
+#[tokio::test]
+async fn action_map_experiment_hidden_metadata_spawn_claims_explicit_node_id() {
+    #[derive(Debug, Deserialize)]
+    struct SpawnAgentResult {
+        task_name: String,
+    }
+
+    let (mut session, mut turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let root = manager
+        .start_thread((*turn.config).clone())
+        .await
+        .expect("root thread should start");
+    session.services.agent_control = manager.agent_control();
+    session.conversation_id = root.thread_id;
+    let mut config = (*turn.config).clone();
+    config
+        .features
+        .enable(Feature::MultiAgentV2)
+        .expect("test config should allow feature update");
+    config.multi_agent_v2.hide_spawn_agent_metadata = true;
+    turn.config = Arc::new(config);
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    enable_action_map_experiment(&session).await;
+    start_action_map_task_node(
+        &session,
+        &turn,
+        "Review architecture",
+        "Subagent should review architecture.",
+        false,
+    )
+    .await;
+    session
+        .create_action_map_node_for_main(
+            &turn,
+            "Review tests".to_string(),
+            "Subagent should review tests.".to_string(),
+            Vec::new(),
+            false,
+        )
+        .await
+        .expect("second ready node should be created");
+
+    let output = SpawnAgentHandlerV2
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "inspect tests",
+                "task_name": "worker",
+                "node_id": "node-2"
+            })),
+        ))
+        .await
+        .expect("explicit node_id should work when spawn metadata is hidden");
+    let (content, _) = expect_text_output(output);
+    let value: serde_json::Value =
+        serde_json::from_str(&content).expect("spawn result should parse");
+    assert!(value.get("nickname").is_none());
+    let result: SpawnAgentResult =
+        serde_json::from_value(value).expect("hidden metadata result should parse");
+    let child_id = session
+        .services
+        .agent_control
+        .resolve_agent_reference(
+            session.conversation_id,
+            &turn.session_source,
+            &result.task_name,
+        )
+        .await
+        .expect("spawned node agent should resolve");
+    let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
+    let content = inter_agent_content(&op).expect("child op should contain text");
+    assert!(content.contains("Node: node-2 - Review tests"));
 }
 
 #[tokio::test]

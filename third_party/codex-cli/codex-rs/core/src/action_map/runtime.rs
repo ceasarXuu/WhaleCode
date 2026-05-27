@@ -925,12 +925,14 @@ preview:\n\
             && self.active_map_id.as_deref() == Some(target_map_id.as_str())
         {
             self.mark_routing_complete();
-            return Ok(vec![MapRuntimeEvent::TaskRouted(MapRuntimeTaskRoutedEvent {
-                previous_task_id: Some(task_id.to_string()),
-                current_task_id: task_id.to_string(),
-                previous_map_id: Some(target_map_id.clone()),
-                current_map_id: target_map_id,
-            })]);
+            return Ok(vec![MapRuntimeEvent::TaskRouted(
+                MapRuntimeTaskRoutedEvent {
+                    previous_task_id: Some(task_id.to_string()),
+                    current_task_id: task_id.to_string(),
+                    previous_map_id: Some(target_map_id.clone()),
+                    current_map_id: target_map_id,
+                },
+            )]);
         }
 
         let previous_task_id = self.active_task_id.clone();
@@ -1037,6 +1039,7 @@ preview:\n\
         &mut self,
         _owner_session_id: ThreadId,
         _requested_task_name: &str,
+        requested_node_id: Option<&str>,
     ) -> Result<(Option<ActionMapAssignment>, Vec<MapRuntimeEvent>), String> {
         if self.mode != MapRuntimeMode::Experiment {
             return Ok((None, Vec::new()));
@@ -1051,12 +1054,7 @@ preview:\n\
                     .to_string(),
             );
         };
-        let Some(node_id) = self.next_ready_node_id(&map_id) else {
-            return Err(
-                "TaskSpace mode is active, but no ready node is available. Wait for running nodes to finish, ask the user for missing context, or reborn the task path with /task-reborn."
-                    .to_string(),
-            );
-        };
+        let node_id = self.select_spawn_node_id(&map_id, requested_node_id)?;
 
         let lease_id = self.next_lease_id();
         let map = self
@@ -1397,7 +1395,7 @@ preview:\n\
                 context.push_str(&base_map_metadata_prompt());
             }
             context.push_str(
-                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Node result context stays on the node; use it only when it is relevant to the next step.\n",
+                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. If more than one ready node exists, spawn_agent must include node_id for the intended node; if only one ready node exists, runtime may bind it automatically. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Node result context stays on the node; use it only when it is relevant to the next step.\n",
             );
         } else {
             context.push_str(
@@ -1942,19 +1940,93 @@ preview:\n\
             .and_then(|map_id| self.maintenance_barriers.get(map_id))
     }
 
-    fn next_ready_node_id(&self, map_id: &str) -> Option<MapNodeId> {
-        let map = self.maps.get(map_id)?;
-        let ready_node = |node_id: &str| {
-            map.nodes
-                .get(node_id)
-                .filter(|node| node.status == NodeStatus::Ready && node.active_lease.is_none())
-                .map(|node| node.id.clone())
+    fn ready_spawn_node_ids(&self, map_id: &str) -> Vec<MapNodeId> {
+        let Some(map) = self.maps.get(map_id) else {
+            return Vec::new();
         };
         ordered_node_ids(map)
             .into_iter()
-            .filter(|node_id| self.current_main_node_id.as_deref() != Some(node_id.as_str()))
-            .find_map(|node_id| ready_node(&node_id))
-            .or_else(|| self.current_main_node_id.as_deref().and_then(ready_node))
+            .filter(|node_id| {
+                map.nodes.get(node_id).is_some_and(|node| {
+                    node.status == NodeStatus::Ready && node.active_lease.is_none()
+                })
+            })
+            .collect()
+    }
+
+    fn select_spawn_node_id(
+        &self,
+        map_id: &str,
+        requested_node_id: Option<&str>,
+    ) -> Result<MapNodeId, String> {
+        let requested_node_id = requested_node_id
+            .map(str::trim)
+            .filter(|node_id| !node_id.is_empty());
+        if let Some(node_id) = requested_node_id {
+            self.validate_requested_spawn_node(map_id, node_id)?;
+            return Ok(node_id.to_string());
+        }
+
+        let ready_nodes = self.ready_spawn_node_ids(map_id);
+        match ready_nodes.as_slice() {
+            [node_id] => Ok(node_id.clone()),
+            [] => Err(
+                "TaskSpace mode is active, but no ready node is available. Wait for running nodes to finish, ask the user for missing context, or reborn the task path with /task-reborn."
+                    .to_string(),
+            ),
+            _ => Err(format!(
+                "TaskSpace mode has multiple ready nodes. Call spawn_agent with an explicit node_id so the subagent is bound to the intended node: {}.",
+                self.format_ready_spawn_node_candidates(map_id, &ready_nodes)
+            )),
+        }
+    }
+
+    fn validate_requested_spawn_node(&self, map_id: &str, node_id: &str) -> Result<(), String> {
+        let map = self
+            .maps
+            .get(map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        let node = map.nodes.get(node_id).ok_or_else(|| {
+            format!("TaskSpace node `{node_id}` does not exist on active task path `{map_id}`.")
+        })?;
+        if node.active_lease.is_some() {
+            return Err(format!(
+                "TaskSpace node `{node_id}` is already held by an active lease; wait for release or choose another ready node."
+            ));
+        }
+        match node.status {
+            NodeStatus::Ready => Ok(()),
+            NodeStatus::Pending => Err(format!(
+                "TaskSpace node `{node_id}` is still pending; complete its dependencies before assigning it to a subagent."
+            )),
+            NodeStatus::Running => Err(format!(
+                "TaskSpace node `{node_id}` is already running; wait for release or choose another ready node."
+            )),
+            NodeStatus::Blocked => Err(format!(
+                "TaskSpace node `{node_id}` is blocked; resolve or split the blocker before assigning it to a subagent."
+            )),
+            NodeStatus::Completed => Err(format!(
+                "TaskSpace node `{node_id}` is completed; create or choose an open ready node for the subagent."
+            )),
+        }
+    }
+
+    fn format_ready_spawn_node_candidates(&self, map_id: &str, node_ids: &[MapNodeId]) -> String {
+        let Some(map) = self.maps.get(map_id) else {
+            return node_ids.join(", ");
+        };
+        node_ids
+            .iter()
+            .map(|node_id| {
+                let title = map
+                    .nodes
+                    .get(node_id)
+                    .map(|node| single_line_preview(&node.title, 80))
+                    .unwrap_or_default();
+                format!("{node_id} ({title})")
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     fn find_lease_by_thread(
@@ -2842,7 +2914,7 @@ mod tests {
         assert_eq!(node_id, "node-1");
 
         let error = state
-            .prepare_spawn_assignment(owner, "parallel worker")
+            .prepare_spawn_assignment(owner, "parallel worker", None)
             .expect_err("main-held node is not claimable by subagents");
 
         assert!(error.contains("no ready node is available"));
@@ -2985,7 +3057,7 @@ mod tests {
             .expect_err("ordinary tools should be blocked by barrier");
         assert!(error.contains("maintenance barrier"));
         let spawn_error = state
-            .prepare_spawn_assignment(owner, "parallel follow-up")
+            .prepare_spawn_assignment(owner, "parallel follow-up", None)
             .expect_err("spawn should be blocked by barrier");
         assert!(spawn_error.contains("maintenance barrier"));
         let context = state.build_developer_context().expect("context");
@@ -3714,7 +3786,7 @@ mod tests {
         seed_test_map(&mut state, owner);
 
         let (assignment, events) = state
-            .prepare_spawn_assignment(owner, "implement maps")
+            .prepare_spawn_assignment(owner, "implement maps", None)
             .expect("assignment succeeds");
         let assignment = assignment.expect("experiment assignment");
 
@@ -3761,7 +3833,7 @@ mod tests {
         assert!(context.contains("- node-1: Parallel review [ready]"));
 
         let (assignment, _) = state
-            .prepare_spawn_assignment(owner, "parallel review")
+            .prepare_spawn_assignment(owner, "parallel review", None)
             .expect("dynamic assignment succeeds");
         let assignment = assignment.expect("experiment assignment");
 
@@ -3770,12 +3842,239 @@ mod tests {
     }
 
     #[test]
+    fn spawn_assignment_requires_node_id_when_multiple_ready_nodes_exist() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        start_test_task(
+            &mut state,
+            owner,
+            "Parallel review",
+            "Review a side task.",
+            false,
+        );
+        let (second_node_id, _) = state
+            .create_node_for_main(
+                owner,
+                "Parallel implementation".to_string(),
+                "Implement another independent side task.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("second ready node");
+        assert_eq!(second_node_id, "node-2");
+
+        let error = state
+            .prepare_spawn_assignment(owner, "parallel work", None)
+            .expect_err("ambiguous ready nodes must require an explicit node_id");
+
+        assert!(error.contains("multiple ready nodes"));
+        assert!(error.contains("node-1 (Parallel review)"));
+        assert!(error.contains("node-2 (Parallel implementation)"));
+    }
+
+    #[test]
+    fn spawn_assignment_claims_requested_ready_node() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        start_test_task(
+            &mut state,
+            owner,
+            "Parallel review",
+            "Review a side task.",
+            false,
+        );
+        state
+            .create_node_for_main(
+                owner,
+                "Parallel implementation".to_string(),
+                "Implement another independent side task.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("second ready node");
+
+        let (assignment, _) = state
+            .prepare_spawn_assignment(owner, "parallel work", Some("node-2"))
+            .expect("explicit node assignment succeeds");
+        let assignment = assignment.expect("experiment assignment");
+
+        assert_eq!(assignment.node_id, "node-2");
+        let map = state.active_map().expect("active map");
+        assert_eq!(
+            map.nodes.get("node-1").expect("first node").status,
+            NodeStatus::Ready
+        );
+        assert_eq!(
+            map.nodes.get("node-2").expect("second node").status,
+            NodeStatus::Running
+        );
+    }
+
+    #[test]
+    fn spawn_assignment_rejects_requested_non_ready_node() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
+
+        let error = state
+            .prepare_spawn_assignment(owner, "pending work", Some("inspect_code_context"))
+            .expect_err("pending dependency node must not be claimable");
+
+        assert!(error.contains("still pending"));
+    }
+
+    #[test]
+    fn spawn_assignment_rejects_requested_blocked_completed_running_and_leased_nodes() {
+        let cases = [
+            (NodeStatus::Blocked, "blocked"),
+            (NodeStatus::Completed, "completed"),
+            (NodeStatus::Running, "already running"),
+        ];
+
+        for (status, expected_error) in cases {
+            let mut state = ActionMapRuntimeState::default();
+            state.set_mode(MapRuntimeMode::Experiment);
+            let owner = ThreadId::new();
+            start_test_task(
+                &mut state,
+                owner,
+                "Explicit node test",
+                "Verify requested node status validation.",
+                false,
+            );
+            let map_id = state.active_map_id.clone().expect("active map id");
+            state
+                .maps
+                .get_mut(&map_id)
+                .expect("active map")
+                .nodes
+                .get_mut("node-1")
+                .expect("node")
+                .status = status;
+            let before = state.snapshot();
+
+            let error = state
+                .prepare_spawn_assignment(owner, "explicit work", Some("node-1"))
+                .expect_err("non-ready node must not be claimable");
+
+            assert!(
+                error.contains(expected_error),
+                "expected error containing {expected_error:?}, got {error:?}"
+            );
+            let after = state.snapshot();
+            assert_eq!(after.maps, before.maps);
+        }
+
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        start_test_task(
+            &mut state,
+            owner,
+            "Explicit node test",
+            "Verify requested leased node validation.",
+            false,
+        );
+        let first = state
+            .prepare_spawn_assignment(owner, "first holder", Some("node-1"))
+            .expect("first claim succeeds")
+            .0
+            .expect("assignment");
+        let before = state.snapshot();
+        let error = state
+            .prepare_spawn_assignment(owner, "second holder", Some("node-1"))
+            .expect_err("leased node must not be claimable");
+
+        assert_eq!(first.node_id, "node-1");
+        assert!(error.contains("already held by an active lease"));
+        let after = state.snapshot();
+        assert_eq!(after.maps, before.maps);
+    }
+
+    #[test]
+    fn child_result_can_be_recorded_after_late_lease_attach() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
+        let child = ThreadId::new();
+        let assignment = state
+            .prepare_spawn_assignment(owner, "fast child", None)
+            .expect("claim")
+            .0
+            .expect("assignment");
+
+        let missed = state.record_child_result(
+            child,
+            &AgentStatus::Completed(Some("finished before attach".to_string())),
+        );
+        assert!(missed.is_none());
+        state.attach_agent_to_lease(
+            &assignment.lease_id,
+            child,
+            Some("/root/worker".to_string()),
+        );
+
+        let result = state.record_child_result(
+            child,
+            &AgentStatus::Completed(Some("finished before attach".to_string())),
+        );
+
+        assert_eq!(result.as_ref().map(|(id, _)| id.as_str()), Some("result-1"));
+        let map = state.active_map().expect("active map");
+        assert!(map.leases.is_empty());
+        let node = map.nodes.get("define_scope").expect("node");
+        assert_eq!(node.status, NodeStatus::Completed);
+        assert_eq!(
+            map.results.get("result-1").expect("stored result").body,
+            "finished before attach"
+        );
+    }
+
+    #[test]
+    fn duplicate_child_result_after_lease_release_is_ignored() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
+        let child = ThreadId::new();
+        let assignment = state
+            .prepare_spawn_assignment(owner, "fast child", None)
+            .expect("claim")
+            .0
+            .expect("assignment");
+        state.attach_agent_to_lease(
+            &assignment.lease_id,
+            child,
+            Some("/root/worker".to_string()),
+        );
+        let first = state.record_child_result(
+            child,
+            &AgentStatus::Completed(Some("first final result".to_string())),
+        );
+        assert_eq!(first.as_ref().map(|(id, _)| id.as_str()), Some("result-1"));
+        let before = state.snapshot();
+
+        let second = state.record_child_result(
+            child,
+            &AgentStatus::Completed(Some("duplicate final result".to_string())),
+        );
+
+        assert!(second.is_none());
+        let after = state.snapshot();
+        assert_eq!(after.maps, before.maps);
+    }
+
+    #[test]
     fn standard_mode_spawn_assignment_is_disabled() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
 
         let assignment = state
-            .prepare_spawn_assignment(owner, "standard task")
+            .prepare_spawn_assignment(owner, "standard task", None)
             .expect("standard mode should not fail");
 
         assert!(assignment.0.is_none());
@@ -3791,7 +4090,7 @@ mod tests {
         let owner = ThreadId::new();
 
         let error = state
-            .prepare_spawn_assignment(owner, "standard task")
+            .prepare_spawn_assignment(owner, "standard task", None)
             .expect_err("spawn requires a task path first");
 
         assert!(error.contains("taskspace_control(action=start_task"));
@@ -3806,19 +4105,19 @@ mod tests {
         let owner = ThreadId::new();
         seed_test_map(&mut state, owner);
         let first = state
-            .prepare_spawn_assignment(owner, "first")
+            .prepare_spawn_assignment(owner, "first", None)
             .expect("first claim succeeds")
             .0
             .expect("first assignment");
 
         let second = state
-            .prepare_spawn_assignment(owner, "second")
+            .prepare_spawn_assignment(owner, "second", None)
             .expect_err("no second node should be ready while the first is running");
         assert!(second.contains("no ready node is available"));
 
         state.release_lease(&first.lease_id, "test_release");
         let reclaimed = state
-            .prepare_spawn_assignment(owner, "second")
+            .prepare_spawn_assignment(owner, "second", None)
             .expect("released node can be claimed again")
             .0
             .expect("reclaimed assignment");
@@ -3834,7 +4133,7 @@ mod tests {
         seed_test_map(&mut state, owner);
         let child = ThreadId::new();
         let assignment = state
-            .prepare_spawn_assignment(owner, "first")
+            .prepare_spawn_assignment(owner, "first", None)
             .expect("claim")
             .0
             .expect("assignment");
@@ -3866,7 +4165,7 @@ mod tests {
         seed_test_map(&mut state, owner);
         let child = ThreadId::new();
         let assignment = state
-            .prepare_spawn_assignment(owner, "implement maps")
+            .prepare_spawn_assignment(owner, "implement maps", None)
             .expect("assignment succeeds")
             .0
             .expect("experiment assignment");
@@ -3935,7 +4234,7 @@ mod tests {
         let child = ThreadId::new();
 
         let assignment = state
-            .prepare_spawn_assignment(owner, "inspect runtime")
+            .prepare_spawn_assignment(owner, "inspect runtime", None)
             .expect("assignment succeeds")
             .0
             .expect("experiment assignment");
@@ -4176,7 +4475,7 @@ mod tests {
             .expect_err("ordinary work must wait for routing");
         assert!(work_error.contains("TaskSpace task routing is required"));
         let spawn_error = state
-            .prepare_spawn_assignment(owner, "parallel")
+            .prepare_spawn_assignment(owner, "parallel", None)
             .expect_err("spawn must wait for routing");
         assert!(spawn_error.contains("TaskSpace task routing is required"));
 
@@ -4364,7 +4663,7 @@ mod tests {
         seed_test_map(&mut state, owner);
         let child = ThreadId::new();
         let assignment = state
-            .prepare_spawn_assignment(owner, "first")
+            .prepare_spawn_assignment(owner, "first", None)
             .expect("claim")
             .0
             .expect("assignment");
@@ -4399,7 +4698,7 @@ mod tests {
         seed_test_map(&mut state, owner);
         let child = ThreadId::new();
         let assignment = state
-            .prepare_spawn_assignment(owner, "first")
+            .prepare_spawn_assignment(owner, "first", None)
             .expect("claim")
             .0
             .expect("assignment");
@@ -4429,7 +4728,7 @@ mod tests {
         let owner = ThreadId::new();
         seed_test_map(&mut state, owner);
         let assignment = state
-            .prepare_spawn_assignment(owner, "first")
+            .prepare_spawn_assignment(owner, "first", None)
             .expect("claim")
             .0
             .expect("assignment");
@@ -4456,7 +4755,7 @@ mod tests {
         seed_test_map(&mut state, owner);
         let child = ThreadId::new();
         let assignment = state
-            .prepare_spawn_assignment(owner, "first")
+            .prepare_spawn_assignment(owner, "first", None)
             .expect("claim")
             .0
             .expect("assignment");
@@ -4497,7 +4796,7 @@ mod tests {
         for expected_node in SEED_NODE_IDS {
             let child = ThreadId::new();
             let assignment = state
-                .prepare_spawn_assignment(owner, expected_node)
+                .prepare_spawn_assignment(owner, expected_node, None)
                 .expect("claim")
                 .0
                 .expect("assignment");
@@ -4528,7 +4827,7 @@ mod tests {
         let owner = ThreadId::new();
         seed_test_map(&mut state, owner);
         let first = state
-            .prepare_spawn_assignment(owner, "first")
+            .prepare_spawn_assignment(owner, "first", None)
             .expect("assignment")
             .0
             .expect("experiment")

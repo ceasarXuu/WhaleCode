@@ -64,6 +64,7 @@ fn spawn_agent_tool_v2_requires_task_name_and_lists_visible_models() {
     assert!(description.contains("The spawned agent will have the same tools as you"));
     assert!(description.contains("`max_concurrent_threads_per_session = 4`"));
     assert!(description.contains(SPAWN_AGENT_INHERITED_MODEL_GUIDANCE));
+    assert!(description.contains("When TaskSpace mode has more than one ready node"));
     assert!(
         description
             .contains("Available model overrides (optional; inherited parent model is preferred):")
@@ -72,6 +73,13 @@ fn spawn_agent_tool_v2_requires_task_name_and_lists_visible_models() {
     assert!(!description.contains("hidden display (`hidden-model`)"));
     assert!(properties.contains_key("task_name"));
     assert!(properties.contains_key("message"));
+    assert!(properties.contains_key("node_id"));
+    assert_eq!(
+        properties
+            .get("node_id")
+            .and_then(|schema| schema.description.as_deref()),
+        Some(SPAWN_AGENT_NODE_ID_DESCRIPTION)
+    );
     assert!(properties.contains_key("fork_turns"));
     assert!(!properties.contains_key("items"));
     assert!(!properties.contains_key("fork_context"));
@@ -106,7 +114,12 @@ fn spawn_agent_tool_v1_keeps_legacy_fork_context_field() {
         max_concurrent_threads_per_session: None,
     });
 
-    let ToolSpec::Function(ResponsesApiTool { parameters, .. }) = tool else {
+    let ToolSpec::Function(ResponsesApiTool {
+        description,
+        parameters,
+        ..
+    }) = tool
+    else {
         panic!("spawn_agent should be a function tool");
     };
     assert_eq!(
@@ -119,12 +132,61 @@ fn spawn_agent_tool_v1_keeps_legacy_fork_context_field() {
         .expect("spawn_agent should use object params");
 
     assert!(properties.contains_key("fork_context"));
+    assert!(properties.contains_key("node_id"));
+    assert!(description.contains("When TaskSpace mode has more than one ready node"));
+    assert_eq!(
+        properties
+            .get("node_id")
+            .and_then(|schema| schema.description.as_deref()),
+        Some(SPAWN_AGENT_NODE_ID_DESCRIPTION)
+    );
     assert!(!properties.contains_key("fork_turns"));
     assert_eq!(
         properties
             .get("model")
             .and_then(|schema| schema.description.as_deref()),
         Some(SPAWN_AGENT_MODEL_OVERRIDE_DESCRIPTION)
+    );
+}
+
+#[test]
+fn spawn_agent_tool_v2_hidden_metadata_still_exposes_node_id() {
+    let tool = create_spawn_agent_tool_v2(SpawnAgentToolOptions {
+        available_models: &[],
+        agent_type_description: "role help".to_string(),
+        hide_agent_type_model_reasoning: true,
+        include_usage_hint: true,
+        usage_hint_text: None,
+        max_concurrent_threads_per_session: None,
+    });
+
+    let ToolSpec::Function(ResponsesApiTool {
+        parameters,
+        output_schema,
+        ..
+    }) = tool
+    else {
+        panic!("spawn_agent should be a function tool");
+    };
+    let properties = parameters
+        .properties
+        .as_ref()
+        .expect("spawn_agent should use object params");
+
+    assert!(properties.contains_key("task_name"));
+    assert!(properties.contains_key("message"));
+    assert!(properties.contains_key("node_id"));
+    assert_eq!(
+        properties
+            .get("node_id")
+            .and_then(|schema| schema.description.as_deref()),
+        Some(SPAWN_AGENT_NODE_ID_DESCRIPTION)
+    );
+    assert!(!properties.contains_key("agent_type"));
+    assert!(!properties.contains_key("model"));
+    assert_eq!(
+        output_schema.expect("spawn_agent output schema")["required"],
+        json!(["task_name"])
     );
 }
 

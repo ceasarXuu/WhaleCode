@@ -73,7 +73,7 @@ impl ToolHandler for Handler {
         apply_spawn_agent_overrides(&mut config, child_depth);
 
         let action_map_assignment = session
-            .prepare_action_map_spawn_assignment(&turn, &args.task_name)
+            .prepare_action_map_spawn_assignment(&turn, &args.task_name, args.node_id.as_deref())
             .await
             .map_err(FunctionCallError::RespondToModel)?;
         let message = match action_map_assignment.as_ref() {
@@ -216,6 +216,9 @@ impl ToolHandler for Handler {
                         new_agent_path.clone(),
                     )
                     .await;
+                session
+                    .record_final_action_map_child_result_if_needed(thread_id)
+                    .await;
             } else {
                 session
                     .release_action_map_assignment(&turn, &assignment.lease_id, "spawn_failed")
@@ -278,6 +281,7 @@ impl ToolHandler for Handler {
 struct SpawnAgentArgs {
     message: String,
     task_name: String,
+    node_id: Option<String>,
     agent_type: Option<String>,
     model: Option<String>,
     reasoning_effort: Option<ReasoningEffort>,

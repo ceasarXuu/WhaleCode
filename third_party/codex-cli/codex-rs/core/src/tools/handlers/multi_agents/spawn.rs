@@ -71,7 +71,11 @@ impl ToolHandler for Handler {
         apply_spawn_agent_overrides(&mut config, child_depth);
 
         let action_map_assignment = session
-            .prepare_action_map_spawn_assignment(&turn, role_name.unwrap_or(DEFAULT_ROLE_NAME))
+            .prepare_action_map_spawn_assignment(
+                &turn,
+                role_name.unwrap_or(DEFAULT_ROLE_NAME),
+                args.node_id.as_deref(),
+            )
             .await
             .map_err(FunctionCallError::RespondToModel)?;
         if let Some(assignment) = action_map_assignment.as_ref() {
@@ -114,21 +118,23 @@ impl ToolHandler for Handler {
                 return Err(err);
             }
         };
-        let result = Box::pin(session.services.agent_control.spawn_agent_with_metadata(
-            config,
-            initial_operation,
-            Some(spawn_source),
-            SpawnAgentOptions {
-                fork_parent_spawn_call_id: args.fork_context.then(|| call_id.clone()),
-                fork_mode: args.fork_context.then_some(SpawnAgentForkMode::FullHistory),
-                environments: Some(
-                    turn.environments
-                        .iter()
-                        .map(TurnEnvironment::selection)
-                        .collect(),
-                ),
-            },
-        ))
+        let result = Box::pin(
+            session.services.agent_control.spawn_agent_with_metadata(
+                config,
+                initial_operation,
+                Some(spawn_source),
+                SpawnAgentOptions {
+                    fork_parent_spawn_call_id: args.fork_context.then(|| call_id.clone()),
+                    fork_mode: args.fork_context.then_some(SpawnAgentForkMode::FullHistory),
+                    environments: Some(
+                        turn.environments
+                            .iter()
+                            .map(TurnEnvironment::selection)
+                            .collect(),
+                    ),
+                },
+            ),
+        )
         .await
         .map_err(collab_spawn_error);
         let (new_thread_id, new_agent_metadata, status) = match &result {
@@ -172,6 +178,9 @@ impl ToolHandler for Handler {
                         thread_id,
                         new_agent_path.clone(),
                     )
+                    .await;
+                session
+                    .record_final_action_map_child_result_if_needed(thread_id)
                     .await;
             } else {
                 session
@@ -247,6 +256,7 @@ struct SpawnAgentArgs {
     agent_type: Option<String>,
     model: Option<String>,
     reasoning_effort: Option<ReasoningEffort>,
+    node_id: Option<String>,
     #[serde(default)]
     fork_context: bool,
 }

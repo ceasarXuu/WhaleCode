@@ -881,13 +881,25 @@ impl Session {
         &self,
         turn_context: &TurnContext,
         task_name: &str,
+        node_id: Option<&str>,
     ) -> Result<Option<ActionMapAssignment>, String> {
         let (assignment, events) = {
             let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .prepare_spawn_assignment(self.conversation_id, task_name)
-        }?;
+            state.action_map_runtime.prepare_spawn_assignment(
+                self.conversation_id,
+                task_name,
+                node_id,
+            )
+        }
+        .map_err(|err| {
+            debug!(
+                task_name,
+                node_id,
+                error = %err,
+                "rejected TaskSpace spawn assignment"
+            );
+            err
+        })?;
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;
         Ok(assignment)
@@ -1146,6 +1158,31 @@ impl Session {
         Some(result_id)
     }
 
+    pub(crate) async fn record_final_action_map_child_result_if_needed(
+        &self,
+        child_thread_id: ThreadId,
+    ) -> Option<String> {
+        let status = self
+            .services
+            .agent_control
+            .get_status(child_thread_id)
+            .await;
+        if !is_final(&status) {
+            return None;
+        }
+
+        let result_id = self
+            .record_action_map_child_result(child_thread_id, &status)
+            .await;
+        debug!(
+            child_thread_id = %child_thread_id,
+            ?status,
+            result_id = result_id.as_deref().unwrap_or("none"),
+            "checked final TaskSpace child status after lease attach"
+        );
+        result_id
+    }
+
     pub(crate) async fn request_action_map_reborn(&self, turn_context: &TurnContext) {
         let events = {
             let mut state = self.state.lock().await;
@@ -1154,7 +1191,8 @@ impl Session {
         if events.is_empty() {
             self.emit_action_map_snapshot_for_turn(turn_context).await;
         } else {
-            self.emit_action_map_events_for_turn(turn_context, events).await;
+            self.emit_action_map_events_for_turn(turn_context, events)
+                .await;
         }
     }
 

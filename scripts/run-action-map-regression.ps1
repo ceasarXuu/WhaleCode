@@ -89,59 +89,138 @@ $stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
 $runDir = Resolve-FullPath (Join-Path $ReportRoot "action-map-$stamp")
 $logPath = Join-Path $runDir "cargo-test.log"
 $reportPath = Join-Path $runDir "report.md"
-$packageArgs = @()
-foreach ($packageName in $Package) {
-    if (-not [string]::IsNullOrWhiteSpace($packageName)) {
-        $packageArgs += @("-p", $packageName)
+
+function New-CargoTestRun([string]$Name, [string[]]$Packages, [string]$Filter) {
+    [pscustomobject]@{
+        Name = $Name
+        Package = [string[]]$Packages
+        TestFilter = $Filter
     }
 }
-$commandParts = @("rustup", "run", "stable", "cargo", "test") + $packageArgs + @("--lib", $TestFilter, "--locked", "--jobs", [string]$Jobs)
-$commandText = $commandParts -join " "
+
+function Get-PackageArgs([string[]]$Packages) {
+    $args = @()
+    foreach ($packageName in $Packages) {
+        if (-not [string]::IsNullOrWhiteSpace($packageName)) {
+            $args += @("-p", $packageName)
+        }
+    }
+    return $args
+}
+
+function Get-CargoArgumentList($Run) {
+    $packageArgs = Get-PackageArgs $Run.Package
+    return @("run", "stable", "cargo", "test") + $packageArgs + @("--lib", $Run.TestFilter, "--locked", "--jobs", [string]$Jobs)
+}
+
+function Get-CargoCommandText($Run) {
+    return "rustup $((Get-CargoArgumentList $Run) -join ' ')"
+}
+
+$useDefaultMatrix = -not $PSBoundParameters.ContainsKey("Package") -and -not $PSBoundParameters.ContainsKey("TestFilter")
+if ($useDefaultMatrix) {
+    $testRuns = @(
+        New-CargoTestRun "core-action-map" @("codex-core") "action_map"
+        New-CargoTestRun "core-legacy-spawn-agent" @("codex-core") "legacy_spawn_agent"
+        New-CargoTestRun "tools-spawn-agent" @("codex-tools") "spawn_agent"
+        New-CargoTestRun "tools-multi-agent-task-names" @("codex-tools") "multi_agent_v2_uses_task_names"
+        New-CargoTestRun "tools-registry-plan" @("codex-tools") "tool_registry_plan"
+    )
+} else {
+    $testRuns = @(New-CargoTestRun "custom" $Package $TestFilter)
+}
+$commandText = ($testRuns | ForEach-Object { Get-CargoCommandText $_ }) -join "; "
 
 if ($PlanOnly) {
     Write-Host "CodexRsRoot: $CodexRsRoot"
     Write-Host "TargetDir: $TargetDir"
     Write-Host "ReportPath: $reportPath"
-    Write-Host "Packages: $($Package -join ', ')"
-    Write-Host "Command: $commandText"
+    Write-Host "Runs:"
+    foreach ($testRun in $testRuns) {
+        Write-Host "- $($testRun.Name): $(Get-CargoCommandText $testRun)"
+    }
     exit 0
 }
 
 $started = Get-Date
-$stdoutPath = Join-Path $runDir "cargo-test.stdout.log"
-$stderrPath = Join-Path $runDir "cargo-test.stderr.log"
 
 $oldTargetDir = $env:CARGO_TARGET_DIR
 $oldBuildJobs = $env:CARGO_BUILD_JOBS
 $env:CARGO_TARGET_DIR = $TargetDir
 $env:CARGO_BUILD_JOBS = [string]$Jobs
 
+$runResults = @()
 try {
-    $process = Start-Process `
-        -FilePath "rustup" `
-        -ArgumentList (@("run", "stable", "cargo", "test") + $packageArgs + @("--lib", $TestFilter, "--locked", "--jobs", [string]$Jobs)) `
-        -WorkingDirectory $CodexRsRoot `
-        -RedirectStandardOutput $stdoutPath `
-        -RedirectStandardError $stderrPath `
-        -NoNewWindow `
-        -Wait `
-        -PassThru
-    $exitCode = $process.ExitCode
+    foreach ($testRun in $testRuns) {
+        $safeName = $testRun.Name -replace "[^A-Za-z0-9_.-]", "-"
+        $stdoutPath = Join-Path $runDir "cargo-test-$safeName.stdout.log"
+        $stderrPath = Join-Path $runDir "cargo-test-$safeName.stderr.log"
+        $runStarted = Get-Date
+        $argumentList = Get-CargoArgumentList $testRun
+        $process = Start-Process `
+            -FilePath "rustup" `
+            -ArgumentList $argumentList `
+            -WorkingDirectory $CodexRsRoot `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath `
+            -NoNewWindow `
+            -Wait `
+            -PassThru
+        $runFinished = Get-Date
+
+        $stdoutText = if (Test-Path $stdoutPath) { Get-Content -Raw -Encoding UTF8 $stdoutPath } else { "" }
+        $stderrText = if (Test-Path $stderrPath) { Get-Content -Raw -Encoding UTF8 $stderrPath } else { "" }
+        $runLines = @(($stdoutText, $stderrText) -join [Environment]::NewLine -split "`r?`n")
+        $summaries = @(New-TestSummary $runLines)
+        $failureLines = @(Select-FailureLines $runLines)
+        $runFailedCount = ($summaries | Measure-Object -Property Failed -Sum).Sum
+        if ($null -eq $runFailedCount) {
+            $runFailedCount = 0
+        }
+        $runPassedCount = ($summaries | Measure-Object -Property Passed -Sum).Sum
+        if ($null -eq $runPassedCount) {
+            $runPassedCount = 0
+        }
+        $runMatchedBinaries = @($summaries | Where-Object { $_.Passed -gt 0 -or $_.Failed -gt 0 -or $_.Ignored -gt 0 })
+        $runOverall = if ($process.ExitCode -eq 0 -and $runFailedCount -eq 0 -and $runPassedCount -gt 0 -and $runMatchedBinaries.Count -gt 0) { "PASS" } else { "FAIL" }
+
+        $runResults += [pscustomobject]@{
+            Name = $testRun.Name
+            Package = [string[]]$testRun.Package
+            TestFilter = $testRun.TestFilter
+            Command = Get-CargoCommandText $testRun
+            ExitCode = $process.ExitCode
+            Started = $runStarted
+            Finished = $runFinished
+            StdoutPath = $stdoutPath
+            StderrPath = $stderrPath
+            Lines = [string[]]$runLines
+            Summaries = [object[]]$summaries
+            FailureLines = [string[]]$failureLines
+            Passed = $runPassedCount
+            Failed = $runFailedCount
+            MatchedBinaries = $runMatchedBinaries.Count
+            Overall = $runOverall
+        }
+    }
 }
 finally {
     $env:CARGO_TARGET_DIR = $oldTargetDir
     $env:CARGO_BUILD_JOBS = $oldBuildJobs
 }
 
-$stdoutText = if (Test-Path $stdoutPath) { Get-Content -Raw -Encoding UTF8 $stdoutPath } else { "" }
-$stderrText = if (Test-Path $stderrPath) { Get-Content -Raw -Encoding UTF8 $stderrPath } else { "" }
 $finished = Get-Date
 
-$lines = @(($stdoutText, $stderrText) -join [Environment]::NewLine -split "`r?`n")
-$lines | Set-Content -Encoding UTF8 $logPath
+$combinedLines = New-Object System.Collections.Generic.List[string]
+foreach ($run in $runResults) {
+    $combinedLines.Add("===== $($run.Name): $($run.Command) =====")
+    $combinedLines.AddRange([string[]]$run.Lines)
+    $combinedLines.Add("")
+}
+$combinedLines | Set-Content -Encoding UTF8 $logPath
 
-$summaries = @(New-TestSummary $lines)
-$failureLines = @(Select-FailureLines $lines)
+$summaries = @($runResults | ForEach-Object { $_.Summaries })
+$failureLines = @($runResults | ForEach-Object { $_.FailureLines })
 $crashEvents = @(Select-RelevantCrashEvents $started.AddSeconds(-5) $finished.AddSeconds(5))
 $failedCount = ($summaries | Measure-Object -Property Failed -Sum).Sum
 if ($null -eq $failedCount) {
@@ -152,16 +231,23 @@ if ($null -eq $passedCount) {
     $passedCount = 0
 }
 $matchedBinaries = @($summaries | Where-Object { $_.Passed -gt 0 -or $_.Failed -gt 0 -or $_.Ignored -gt 0 })
+$failedRuns = @($runResults | Where-Object { $_.Overall -ne "PASS" })
 
-$overall = if ($exitCode -eq 0 -and $failedCount -eq 0 -and $passedCount -gt 0) { "PASS" } else { "FAIL" }
+$overall = if ($failedRuns.Count -eq 0 -and $failedCount -eq 0 -and $passedCount -gt 0) { "PASS" } else { "FAIL" }
+$exitCode = if ($overall -eq "PASS") {
+    0
+} else {
+    $firstNonZero = @($runResults | Where-Object { $_.ExitCode -ne 0 } | Select-Object -First 1)
+    if ($firstNonZero.Count -gt 0) { $firstNonZero[0].ExitCode } else { 1 }
+}
 
 $report = New-Object System.Collections.Generic.List[string]
 $report.Add("# Action Map Regression Report")
 $report.Add("")
 $report.Add("- overall: $overall")
 $report.Add("- exit_code: $exitCode")
-$report.Add("- command: $commandText")
-$report.Add("- packages: $($Package -join ', ')")
+$report.Add("- command_matrix: $commandText")
+$report.Add("- run_count: $($runResults.Count)")
 $report.Add("- cwd: $CodexRsRoot")
 $report.Add("- target_dir: $TargetDir")
 $report.Add("- started: $($started.ToString("o"))")
@@ -171,6 +257,18 @@ $report.Add("- matched_test_binaries: $($matchedBinaries.Count)")
 $report.Add("- total_passed_tests: $passedCount")
 $report.Add("- total_failed_tests: $failedCount")
 $report.Add("- relevant_crash_events: $($crashEvents.Count)")
+$report.Add("")
+$report.Add("## Test Runs")
+$report.Add("")
+if ($runResults.Count -eq 0) {
+    $report.Add("No cargo test runs were executed.")
+} else {
+    $report.Add("| run | overall | packages | filter | exit | passed | failed | matched binaries | stdout | stderr |")
+    $report.Add("|---|---|---|---|---:|---:|---:|---:|---|---|")
+    foreach ($run in $runResults) {
+        $report.Add("| $(Escape-Markdown $run.Name) | $($run.Overall) | $(Escape-Markdown ($run.Package -join ', ')) | $(Escape-Markdown $run.TestFilter) | $($run.ExitCode) | $($run.Passed) | $($run.Failed) | $($run.MatchedBinaries) | $(Escape-Markdown $run.StdoutPath) | $(Escape-Markdown $run.StderrPath) |")
+    }
+}
 $report.Add("")
 $report.Add("## Test Result Lines")
 $report.Add("")
@@ -207,7 +305,7 @@ if ($crashEvents.Count -eq 0) {
 $report.Add("")
 $report.Add("## Notes")
 $report.Add("")
-$report.Add("- A filtered cargo run is only accepted when at least one matching test passed.")
+$report.Add("- Each filtered cargo run is only accepted when at least one matching test passed.")
 $report.Add("- Lines with 0 passed; 0 failed; ... filtered out are diagnostic noise from crates without matching tests, not a pass signal.")
 
 $report | Set-Content -Encoding UTF8 $reportPath
