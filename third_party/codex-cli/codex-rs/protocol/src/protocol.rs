@@ -1946,6 +1946,7 @@ pub struct MapRuntimeLeaseReleasedEvent {
     pub map_id: String,
     pub node_id: String,
     pub lease_id: String,
+    pub holder: String,
     pub reason: String,
 }
 

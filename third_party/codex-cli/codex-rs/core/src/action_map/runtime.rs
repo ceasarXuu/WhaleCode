@@ -67,6 +67,7 @@ pub(crate) struct ActionMapRuntimeState {
     active_task_id: Option<TaskId>,
     active_map_id: Option<ActionMapId>,
     current_main_node_id: Option<MapNodeId>,
+    current_main_lease_id: Option<AssignmentLeaseId>,
     maintenance_barrier: Option<ActionMapMaintenanceBarrier>,
     tasks: HashMap<TaskId, TaskState>,
     maps: HashMap<ActionMapId, ActionMapInstance>,
@@ -140,6 +141,7 @@ impl Default for ActionMapRuntimeState {
             active_task_id: None,
             active_map_id: None,
             current_main_node_id: None,
+            current_main_lease_id: None,
             maintenance_barrier: None,
             tasks: HashMap::new(),
             maps: HashMap::new(),
@@ -208,6 +210,7 @@ impl ActionMapRuntimeState {
         map.task_id = Some(task_id);
         self.active_map_id = Some(id.clone());
         self.current_main_node_id = first_open_node_id(&map);
+        self.current_main_lease_id = None;
         self.maps.insert(id.clone(), map);
         id
     }
@@ -262,6 +265,8 @@ impl ActionMapRuntimeState {
         let new_id = self.next_map_id();
         let map_title = title.into();
         let task_id = self.ensure_active_task_state(Some(owner_session_id), &map_title);
+        let mut release_events = self.release_current_main_lease("map_restarted");
+        events.append(&mut release_events);
         let mut map = ActionMapInstance::new(
             new_id.clone(),
             map_title,
@@ -273,6 +278,7 @@ impl ActionMapRuntimeState {
         self.register_map_to_task(&task_id, &new_id);
         self.active_map_id = Some(new_id.clone());
         self.current_main_node_id = None;
+        self.current_main_lease_id = None;
         events.push(map_created_event(&map));
         self.maps.insert(new_id.clone(), map);
         (previous_id, new_id, events)
@@ -280,16 +286,17 @@ impl ActionMapRuntimeState {
 
     pub(crate) fn prepare_main_tool_call(
         &mut self,
-        _owner_session_id: ThreadId,
+        owner_session_id: ThreadId,
         _tool_name: &str,
     ) -> Result<Vec<MapRuntimeEvent>, String> {
         if self.mode != MapRuntimeMode::Experiment {
             return Ok(Vec::new());
         }
 
-        self.ensure_main_binding_for_active_map();
         self.validate_maintenance_barrier()?;
-        self.validate_main_binding().map(|()| Vec::new())
+        let events = self.ensure_main_binding_for_active_map(owner_session_id)?;
+        self.validate_main_binding(owner_session_id)?;
+        Ok(events)
     }
 
     pub(crate) fn record_main_tool_result(
@@ -304,15 +311,17 @@ impl ActionMapRuntimeState {
             return Ok(None);
         }
 
-        self.validate_main_binding()?;
+        self.validate_main_binding(owner_session_id)?;
         let map_id = self.active_map_id.clone().ok_or_else(|| {
             "TaskSpace mode is active but no active task path exists.".to_string()
         })?;
         let node_id = self.current_main_node_id.clone().ok_or_else(|| {
             "TaskSpace mode is active but no current node binding exists.".to_string()
         })?;
+        let lease_id = self.current_main_lease_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no current main lease exists.".to_string()
+        })?;
         let result_id = self.next_result_id();
-        let lease_id = format!("main:{}", call_id);
         let body = format!(
             "Main tool call\n\
 tool: {tool_name}\n\
@@ -372,7 +381,11 @@ preview:\n\
         Ok(Some((result_id, events)))
     }
 
-    pub(crate) fn bind_main_node(&mut self, node_id: &str) -> Result<Vec<MapRuntimeEvent>, String> {
+    pub(crate) fn bind_main_node(
+        &mut self,
+        owner_session_id: ThreadId,
+        node_id: &str,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
         if self.mode != MapRuntimeMode::Experiment {
             return Ok(Vec::new());
         }
@@ -387,6 +400,22 @@ preview:\n\
             .nodes
             .get(node_id)
             .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
+        if let Some(barrier) = self.maintenance_barrier.as_ref()
+            && barrier.node_id == node_id
+        {
+            return Err(format!(
+                "TaskSpace maintenance barrier is active for node `{node_id}`; bind a different narrower recovery node or create a follow-up node with taskspace_control(action=create_node, bind_current=true)."
+            ));
+        }
+        if self.current_main_node_id.as_deref() == Some(node_id)
+            && let Some(lease_id) = self.current_main_lease_id.as_ref()
+            && node.active_lease.as_deref() == Some(lease_id.as_str())
+            && let Some(lease) = map.leases.get(lease_id)
+            && lease.holder == LeaseHolder::Main
+            && lease.agent_thread_id == Some(owner_session_id)
+        {
+            return Ok(Vec::new());
+        }
         if node.status == NodeStatus::Pending {
             return Err(format!(
                 "TaskSpace node `{node_id}` is still pending; complete its dependencies before binding it."
@@ -402,15 +431,10 @@ preview:\n\
                 "TaskSpace node `{node_id}` is currently held by a subagent lease; wait for release or bind a different node."
             ));
         }
-        if let Some(barrier) = self.maintenance_barrier.as_ref()
-            && barrier.node_id == node_id
-        {
-            return Err(format!(
-                "TaskSpace maintenance barrier is active for node `{node_id}`; bind a different narrower recovery node or create a follow-up node with taskspace_control(action=create_node, bind_current=true)."
-            ));
-        }
-        self.current_main_node_id = Some(node_id.to_string());
-        Ok(self.clear_maintenance_barrier_for_recovery(node_id))
+        let mut events = self.release_current_main_lease("main_rebound");
+        events.extend(self.claim_main_node(owner_session_id, &map_id, node_id)?);
+        events.extend(self.clear_maintenance_barrier_for_recovery(node_id));
+        Ok(events)
     }
 
     pub(crate) fn create_node_for_main(
@@ -508,8 +532,7 @@ preview:\n\
             ));
         }
         if bind_current {
-            self.current_main_node_id = Some(node_id.clone());
-            events.extend(self.clear_maintenance_barrier_for_recovery(&node_id));
+            events.extend(self.bind_main_node(owner_session_id, &node_id)?);
         }
         Ok((node_id, events))
     }
@@ -541,7 +564,7 @@ preview:\n\
             true,
         )?;
         if let Some(next_node_id) = next_node_id {
-            let bind_events = self.bind_main_node(next_node_id)?;
+            let bind_events = self.bind_main_node(owner_session_id, next_node_id)?;
             events.extend(bind_events);
         }
         Ok((result_id, events))
@@ -611,6 +634,7 @@ preview:\n\
                 map_id: map_id.clone(),
                 node_id: node_id.clone(),
                 holder: LeaseHolder::SubAgent,
+                previous_node_status,
                 agent_thread_id: None,
                 agent_path: None,
             },
@@ -651,6 +675,9 @@ preview:\n\
             let Some(lease) = map.leases.get_mut(lease_id) else {
                 continue;
             };
+            if lease.holder != LeaseHolder::SubAgent {
+                return None;
+            }
             lease.agent_thread_id = Some(thread_id);
             lease.agent_path = agent_path.clone();
             return Some(MapRuntimeEvent::LeaseAttached(
@@ -676,11 +703,13 @@ preview:\n\
             let Some(lease) = map.leases.remove(lease_id) else {
                 continue;
             };
+            let released_main_lease = lease.holder == LeaseHolder::Main;
             let mut events = vec![MapRuntimeEvent::LeaseReleased(
                 MapRuntimeLeaseReleasedEvent {
                     map_id: lease.map_id.clone(),
                     node_id: lease.node_id.clone(),
                     lease_id: lease.id.clone(),
+                    holder: lease.holder.as_str().to_string(),
                     reason,
                 },
             )];
@@ -690,7 +719,7 @@ preview:\n\
                 node.active_lease = None;
                 if node.status == NodeStatus::Running {
                     let previous_status = node.status;
-                    node.status = NodeStatus::Ready;
+                    node.status = lease.previous_node_status;
                     events.push(node_status_changed_event(
                         &map.id,
                         &node.id,
@@ -698,6 +727,12 @@ preview:\n\
                         previous_status,
                         node.status,
                     ));
+                }
+            }
+            if released_main_lease {
+                self.current_main_lease_id = None;
+                if self.current_main_node_id.as_deref() == Some(lease.node_id.as_str()) {
+                    self.current_main_node_id = None;
                 }
             }
             return events;
@@ -768,6 +803,7 @@ preview:\n\
                 map_id: map_id.clone(),
                 node_id: node_id.clone(),
                 lease_id: lease_id.clone(),
+                holder: LeaseHolder::SubAgent.as_str().to_string(),
                 reason: "result_recorded".to_string(),
             }),
             node_status_changed_event(
@@ -779,7 +815,6 @@ preview:\n\
             ),
         ];
         events.extend(refresh_ready_nodes(map));
-        self.ensure_main_binding_for_active_map();
         Some((result_id, events))
     }
 
@@ -792,6 +827,9 @@ preview:\n\
                 map.leases
                     .values()
                     .filter_map(|lease| {
+                        if lease.holder != LeaseHolder::SubAgent {
+                            return None;
+                        }
                         let thread_id = lease.agent_thread_id?;
                         let agent_path = lease
                             .agent_path
@@ -921,6 +959,7 @@ preview:\n\
         self.register_map_to_task(&task_id, &id);
         self.active_map_id = Some(id.clone());
         self.current_main_node_id = first_open_node_id(&map);
+        self.current_main_lease_id = None;
         let events = {
             let mut events = vec![map_created_event(&map)];
             events.extend(initial_node_events(&map));
@@ -1010,30 +1049,119 @@ preview:\n\
         }
     }
 
-    fn ensure_main_binding_for_active_map(&mut self) {
-        let Some(map_id) = self.active_map_id.as_ref() else {
+    fn release_current_main_lease(&mut self, reason: &str) -> Vec<MapRuntimeEvent> {
+        let Some(lease_id) = self.current_main_lease_id.clone() else {
             self.current_main_node_id = None;
-            return;
+            return Vec::new();
         };
-        let Some(map) = self.maps.get(map_id) else {
+        self.release_lease(&lease_id, reason)
+    }
+
+    fn claim_main_node(
+        &mut self,
+        owner_session_id: ThreadId,
+        map_id: &str,
+        node_id: &str,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let lease_id = self.next_lease_id();
+        let map = self
+            .maps
+            .get_mut(map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        let node = map
+            .nodes
+            .get_mut(node_id)
+            .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
+        if node.status == NodeStatus::Pending {
+            return Err(format!(
+                "TaskSpace node `{node_id}` is still pending; complete its dependencies before binding it."
+            ));
+        }
+        if node.status == NodeStatus::Completed {
+            return Err(format!(
+                "TaskSpace node `{node_id}` is completed; bind an open node or create a follow-up node."
+            ));
+        }
+        if node.status == NodeStatus::Running || node.active_lease.is_some() {
+            return Err(format!(
+                "TaskSpace node `{node_id}` is currently held by another lease; wait for release or bind a different node."
+            ));
+        }
+
+        let previous_node_status = node.status;
+        node.status = NodeStatus::Running;
+        node.active_lease = Some(lease_id.clone());
+        let node_title = node.title.clone();
+        map.leases.insert(
+            lease_id.clone(),
+            AssignmentLease {
+                id: lease_id.clone(),
+                map_id: map_id.to_string(),
+                node_id: node_id.to_string(),
+                holder: LeaseHolder::Main,
+                previous_node_status,
+                agent_thread_id: Some(owner_session_id),
+                agent_path: None,
+            },
+        );
+        self.current_main_node_id = Some(node_id.to_string());
+        self.current_main_lease_id = Some(lease_id.clone());
+        Ok(vec![
+            node_status_changed_event(
+                map_id,
+                node_id,
+                &node_title,
+                previous_node_status,
+                NodeStatus::Running,
+            ),
+            MapRuntimeEvent::LeaseCreated(MapRuntimeLeaseCreatedEvent {
+                map_id: map_id.to_string(),
+                node_id: node_id.to_string(),
+                lease_id,
+                holder: LeaseHolder::Main.as_str().to_string(),
+            }),
+        ])
+    }
+
+    fn ensure_main_binding_for_active_map(
+        &mut self,
+        owner_session_id: ThreadId,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let Some(map_id) = self.active_map_id.clone() else {
             self.current_main_node_id = None;
-            return;
+            self.current_main_lease_id = None;
+            return Ok(Vec::new());
+        };
+        let Some(map) = self.maps.get(&map_id) else {
+            self.current_main_node_id = None;
+            self.current_main_lease_id = None;
+            return Ok(Vec::new());
         };
         if map.status != MapStatus::Active {
             self.current_main_node_id = None;
-            return;
+            self.current_main_lease_id = None;
+            return Ok(Vec::new());
         }
         if let Some(node_id) = self.current_main_node_id.as_ref()
             && let Some(node) = map.nodes.get(node_id)
-            && matches!(node.status, NodeStatus::Ready | NodeStatus::Blocked)
-            && node.active_lease.is_none()
+            && node.status == NodeStatus::Running
+            && let Some(lease_id) = self.current_main_lease_id.as_ref()
+            && node.active_lease.as_deref() == Some(lease_id.as_str())
+            && let Some(lease) = map.leases.get(lease_id)
+            && lease.holder == LeaseHolder::Main
+            && lease.agent_thread_id == Some(owner_session_id)
         {
-            return;
+            return Ok(Vec::new());
         }
-        self.current_main_node_id = first_open_node_id(map);
+        let Some(node_id) = first_open_node_id(map) else {
+            self.current_main_node_id = None;
+            self.current_main_lease_id = None;
+            return Ok(Vec::new());
+        };
+        self.claim_main_node(owner_session_id, &map_id, &node_id)
     }
 
-    fn validate_main_binding(&self) -> Result<(), String> {
+    fn validate_main_binding(&self, owner_session_id: ThreadId) -> Result<(), String> {
         let Some(map_id) = self.active_map_id.as_ref() else {
             return Err(
                 "TaskSpace mode is active but no active task path exists. Call taskspace_control(action=create_node, bind_current=true) before ordinary work."
@@ -1068,11 +1196,30 @@ preview:\n\
             ));
         }
         if node.status == NodeStatus::Running || node.active_lease.is_some() {
-            return Err(format!(
-                "TaskSpace current node `{node_id}` is held by a subagent lease; wait for release or bind a different node."
-            ));
+            let Some(lease_id) = self.current_main_lease_id.as_ref() else {
+                return Err(format!(
+                    "TaskSpace current node `{node_id}` is running without a main lease; bind a different node or restart the task path."
+                ));
+            };
+            let Some(lease) = map.leases.get(lease_id) else {
+                return Err(format!(
+                    "TaskSpace current main lease `{lease_id}` is missing; bind a different node or restart the task path."
+                ));
+            };
+            if lease.holder != LeaseHolder::Main
+                || lease.node_id != *node_id
+                || lease.agent_thread_id != Some(owner_session_id)
+                || node.active_lease.as_deref() != Some(lease_id.as_str())
+            {
+                return Err(format!(
+                    "TaskSpace current node `{node_id}` is not held by the current main agent lease; wait for release or bind a different node."
+                ));
+            }
+            return Ok(());
         }
-        Ok(())
+        Err(format!(
+            "TaskSpace current node `{node_id}` has no main lease. Bind it with taskspace_control(action=bind_node) before ordinary work."
+        ))
     }
 
     fn record_main_node_lifecycle_result(
@@ -1099,6 +1246,10 @@ preview:\n\
                 "TaskSpace node `{node_id}` is not the current main action node `{current_node_id}`. Bind it first with taskspace_control(action=bind_node)."
             ));
         }
+        let current_lease_id = self.current_main_lease_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no current main lease exists. Bind the node before finishing or blocking it."
+                .to_string()
+        })?;
 
         {
             let map = self
@@ -1124,15 +1275,21 @@ preview:\n\
                     "TaskSpace node `{node_id}` is already completed; create or bind an open node."
                 ));
             }
-            if node.active_lease.is_some() {
+            let lease = map.leases.get(&current_lease_id).ok_or_else(|| {
+                format!("TaskSpace current main lease `{current_lease_id}` is missing.")
+            })?;
+            if lease.holder != LeaseHolder::Main
+                || lease.node_id != node_id
+                || lease.agent_thread_id != Some(owner_session_id)
+                || node.active_lease.as_deref() != Some(current_lease_id.as_str())
+            {
                 return Err(format!(
-                    "TaskSpace node `{node_id}` is held by a subagent lease; wait for release or bind a different node."
+                    "TaskSpace node `{node_id}` is not held by the current main agent lease."
                 ));
             }
         }
 
         let result_id = self.next_result_id();
-        let lease_id = format!("main:{result_id}");
         let mut barrier_to_clear = None;
         let mut events = Vec::new();
         {
@@ -1145,9 +1302,10 @@ preview:\n\
                 .get_mut(node_id)
                 .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
             let previous_status = node.status;
+            map.leases.remove(&current_lease_id);
             let result = NodeResult {
                 id: result_id.clone(),
-                assignment_id: lease_id.clone(),
+                assignment_id: current_lease_id.clone(),
                 map_id: map_id.clone(),
                 node_id: node_id.to_string(),
                 kind,
@@ -1161,14 +1319,24 @@ preview:\n\
                 kind,
             });
             node.status = next_status;
+            node.active_lease = None;
             events.push(MapRuntimeEvent::NodeResultRecorded(
                 MapRuntimeNodeResultRecordedEvent {
                     map_id: map_id.clone(),
                     node_id: node_id.to_string(),
-                    lease_id,
+                    lease_id: current_lease_id.clone(),
                     result_id: result_id.clone(),
                     kind: kind.as_str().to_string(),
                     source_thread_id: owner_session_id,
+                },
+            ));
+            events.push(MapRuntimeEvent::LeaseReleased(
+                MapRuntimeLeaseReleasedEvent {
+                    map_id: map_id.clone(),
+                    node_id: node_id.to_string(),
+                    lease_id: current_lease_id.clone(),
+                    holder: LeaseHolder::Main.as_str().to_string(),
+                    reason: "result_recorded".to_string(),
                 },
             ));
             if previous_status != next_status {
@@ -1186,6 +1354,7 @@ preview:\n\
         }
 
         self.current_main_node_id = None;
+        self.current_main_lease_id = None;
         if let Some(barrier) = self.maintenance_barrier.as_ref()
             && barrier.map_id == map_id
             && barrier.node_id == node_id
@@ -1300,8 +1469,9 @@ preview:\n\
     ) -> Option<(ActionMapId, AssignmentLeaseId, MapNodeId)> {
         self.maps.iter().find_map(|(map_id, map)| {
             map.leases.iter().find_map(|(lease_id, lease)| {
-                (lease.agent_thread_id == Some(child_thread_id))
-                    .then(|| (map_id.clone(), lease_id.clone(), lease.node_id.clone()))
+                (lease.holder == LeaseHolder::SubAgent
+                    && lease.agent_thread_id == Some(child_thread_id))
+                .then(|| (map_id.clone(), lease_id.clone(), lease.node_id.clone()))
             })
         })
     }
@@ -1951,19 +2121,134 @@ mod tests {
                 event,
                 MapRuntimeEvent::NodeResultRecorded(event)
                     if event.node_id == "node-1"
-                        && event.lease_id == "main:call-1"
+                        && event.lease_id == "lease-1"
                         && event.kind == "main_tool_call"
                         && event.source_thread_id == owner
             )
         }));
         let map = state.active_map().expect("active map");
         let node = map.nodes.get("node-1").expect("node");
-        assert_eq!(node.status, NodeStatus::Ready);
+        assert_eq!(node.status, NodeStatus::Running);
+        assert_eq!(node.active_lease.as_deref(), Some("lease-1"));
         assert_eq!(node.result_context.len(), 1);
         let result = map.results.get("result-1").expect("stored result");
         assert_eq!(result.kind, NodeResultKind::MainToolCall);
+        assert_eq!(result.assignment_id, "lease-1");
         assert!(result.body.contains("tool: shell"));
         assert!(result.body.contains("preview:\nok"));
+    }
+
+    #[test]
+    fn main_held_node_is_not_claimable_by_subagent() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (node_id, _) = state
+            .create_node_for_main(
+                owner,
+                "Main implementation".to_string(),
+                "Main agent owns this node.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect("main node created");
+        assert_eq!(node_id, "node-1");
+
+        let error = state
+            .prepare_spawn_assignment(owner, "parallel worker")
+            .expect_err("main-held node is not claimable by subagents");
+
+        assert!(error.contains("no ready node is available"));
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert_eq!(node.active_lease.as_deref(), Some("lease-1"));
+        assert_eq!(map.leases["lease-1"].holder, LeaseHolder::Main);
+    }
+
+    #[test]
+    fn main_rebind_releases_previous_node_to_previous_status() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .create_node_for_main(
+                owner,
+                "First node".to_string(),
+                "First main node.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect("first node");
+
+        let (second_node_id, events) = state
+            .create_node_for_main(
+                owner,
+                "Second node".to_string(),
+                "Second main node.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect("second node");
+
+        assert_eq!(second_node_id, "node-2");
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::LeaseReleased(event)
+                    if event.node_id == "node-1"
+                        && event.lease_id == "lease-1"
+                        && event.holder == "main"
+                        && event.reason == "main_rebound"
+            )
+        }));
+        let map = state.active_map().expect("active map");
+        let first = map.nodes.get("node-1").expect("first node");
+        assert_eq!(first.status, NodeStatus::Ready);
+        assert!(first.active_lease.is_none());
+        let second = map.nodes.get("node-2").expect("second node");
+        assert_eq!(second.status, NodeStatus::Running);
+        assert_eq!(second.active_lease.as_deref(), Some("lease-2"));
+        assert_eq!(map.leases.len(), 1);
+        assert_eq!(map.leases["lease-2"].holder, LeaseHolder::Main);
+    }
+
+    #[test]
+    fn subagent_result_and_timeout_paths_ignore_main_lease() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        let child = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .create_node_for_main(
+                owner,
+                "Main implementation".to_string(),
+                "Main agent owns this node.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect("main node created");
+
+        assert!(
+            state
+                .attach_agent_to_lease("lease-1", child, Some("/child".to_string()))
+                .is_none()
+        );
+        assert!(state.active_timeout_targets().is_empty());
+        assert!(
+            state
+                .record_child_result(owner, &AgentStatus::Completed(Some("done".to_string())))
+                .is_none()
+        );
+
+        let map = state.active_map().expect("active map");
+        let lease = map.leases.get("lease-1").expect("main lease");
+        assert_eq!(lease.holder, LeaseHolder::Main);
+        assert_eq!(lease.agent_thread_id, Some(owner));
+        assert!(lease.agent_path.is_none());
+        let node = map.nodes.get("node-1").expect("node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert!(node.result_context.is_empty());
     }
 
     #[test]
@@ -2063,7 +2348,7 @@ mod tests {
         }
         assert!(state.prepare_main_tool_call(owner, "shell").is_err());
         let bind_error = state
-            .bind_main_node("node-1")
+            .bind_main_node(owner, "node-1")
             .expect_err("binding the same overgrown node should not clear the barrier");
         assert!(bind_error.contains("different narrower recovery node"));
 
@@ -2174,7 +2459,8 @@ mod tests {
         assert_eq!(map.title, "Review logging");
         assert_eq!(map.nodes.len(), 1);
         let node = map.nodes.get("node-1").expect("created node");
-        assert_eq!(node.status, NodeStatus::Ready);
+        assert_eq!(node.status, NodeStatus::Running);
+        assert_eq!(node.active_lease.as_deref(), Some("lease-1"));
         assert_eq!(
             node.context.summary,
             "Check logging coverage before implementation."
@@ -2241,7 +2527,7 @@ mod tests {
             .status = NodeStatus::Blocked;
 
         state
-            .bind_main_node("define_scope")
+            .bind_main_node(owner, "define_scope")
             .expect("blocked nodes can be rebound");
 
         assert_eq!(state.current_main_node_id.as_deref(), Some("define_scope"));
@@ -2253,6 +2539,9 @@ mod tests {
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         state.ensure_active_seed_map(owner, "test");
+        state
+            .bind_main_node(owner, "define_scope")
+            .expect("bind main node");
 
         let (result_id, events) = state
             .finish_main_node(
@@ -2309,7 +2598,15 @@ mod tests {
                 .get("inspect_code_context")
                 .expect("downstream")
                 .status,
-            NodeStatus::Ready
+            NodeStatus::Running
+        );
+        assert_eq!(
+            map.nodes
+                .get("inspect_code_context")
+                .expect("downstream")
+                .active_lease
+                .as_deref(),
+            Some("lease-2")
         );
     }
 
@@ -2319,6 +2616,9 @@ mod tests {
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         state.ensure_active_seed_map(owner, "test");
+        state
+            .bind_main_node(owner, "define_scope")
+            .expect("bind main node");
 
         let (result_id, events) = state
             .block_main_node(
@@ -2372,6 +2672,9 @@ mod tests {
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         state.ensure_active_seed_map(owner, "test");
+        state
+            .bind_main_node(owner, "define_scope")
+            .expect("bind main node");
 
         let error = state
             .finish_main_node(
@@ -2388,7 +2691,7 @@ mod tests {
         assert!(map.results.is_empty());
         assert_eq!(
             map.nodes.get("define_scope").expect("node").status,
-            NodeStatus::Ready
+            NodeStatus::Running
         );
         assert_eq!(
             map.nodes
@@ -2405,6 +2708,9 @@ mod tests {
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         state.ensure_active_seed_map(owner, "test");
+        state
+            .bind_main_node(owner, "define_scope")
+            .expect("bind main node");
 
         state
             .block_main_node(
@@ -2442,7 +2748,7 @@ mod tests {
         }
 
         let error = state
-            .bind_main_node("define_scope")
+            .bind_main_node(owner, "define_scope")
             .expect_err("leased node cannot be rebound by main");
 
         assert!(error.contains("held by a subagent lease"));
@@ -2472,7 +2778,9 @@ mod tests {
         }
         state.current_main_node_id = Some("define_scope".to_string());
 
-        state.ensure_main_binding_for_active_map();
+        state
+            .ensure_main_binding_for_active_map(owner)
+            .expect("main binding refresh");
 
         assert_eq!(
             state.current_main_node_id.as_deref(),
@@ -2504,7 +2812,9 @@ mod tests {
         }
         state.current_main_node_id = Some("define_scope".to_string());
 
-        state.ensure_main_binding_for_active_map();
+        state
+            .ensure_main_binding_for_active_map(owner)
+            .expect("main binding refresh");
 
         assert_eq!(
             state.current_main_node_id.as_deref(),

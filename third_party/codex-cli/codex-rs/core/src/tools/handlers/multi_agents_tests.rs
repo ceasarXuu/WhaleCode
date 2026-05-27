@@ -922,6 +922,17 @@ async fn action_map_experiment_spawn_binds_first_ready_node() {
     let session = Arc::new(session);
     let turn = Arc::new(turn);
     enable_action_map_experiment(&session).await;
+    let node_id = session
+        .create_action_map_node_for_main(
+            &turn,
+            "Define scope".to_string(),
+            "Subagent should inspect this repo from a concrete TaskSpace node.".to_string(),
+            Vec::new(),
+            false,
+        )
+        .await
+        .expect("spawn node should be created");
+    assert_eq!(node_id, "node-1");
 
     let output = SpawnAgentHandlerV2
         .handle(invocation(
@@ -939,7 +950,7 @@ async fn action_map_experiment_spawn_binds_first_ready_node() {
     let result: SpawnAgentResult =
         serde_json::from_str(&content).expect("spawn result should parse");
     assert!(
-        result.task_name.starts_with("/root/define_scope"),
+        result.task_name.starts_with("/root/node_1"),
         "spawn path should be node-derived, got {:?}",
         result.task_name
     );
@@ -958,7 +969,7 @@ async fn action_map_experiment_spawn_binds_first_ready_node() {
     let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
     let content = inter_agent_content(&op).expect("child op should contain text");
     assert!(content.contains("TaskSpace node assignment"));
-    assert!(content.contains("Node: define_scope"));
+    assert!(content.contains("Node: node-1"));
     assert!(content.contains("Lease: lease-1"));
     assert!(content.contains("inspect this repo"));
 }
@@ -1057,6 +1068,28 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
     let session = root.thread.codex.session.clone();
     let turn = session.new_default_turn().await;
     enable_action_map_experiment(&session).await;
+    let first_node_id = session
+        .create_action_map_node_for_main(
+            &turn,
+            "Define scope".to_string(),
+            "First subagent node for scope definition.".to_string(),
+            Vec::new(),
+            false,
+        )
+        .await
+        .expect("first node should be created");
+    assert_eq!(first_node_id, "node-1");
+    let second_node_id = session
+        .create_action_map_node_for_main(
+            &turn,
+            "Inspect code context".to_string(),
+            "Second subagent node after scope is defined.".to_string(),
+            vec!["node-1".to_string()],
+            false,
+        )
+        .await
+        .expect("dependent second node should be created");
+    assert_eq!(second_node_id, "node-2");
 
     let first_output = SpawnAgentHandlerV2
         .handle(invocation(
@@ -1121,7 +1154,7 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
                     let second: SpawnAgentResult =
                         serde_json::from_str(&content).expect("second spawn parses");
                     assert!(
-                        second.task_name.starts_with("/root/inspect_code_context"),
+                        second.task_name.starts_with("/root/node_2"),
                         "second spawn should bind next node, got {:?}",
                         second.task_name
                     );
@@ -3402,6 +3435,17 @@ async fn action_map_wait_timeout_requests_progress_summary_from_running_node_age
     let session = Arc::new(session);
     let turn = Arc::new(turn);
     enable_action_map_experiment(&session).await;
+    let node_id = session
+        .create_action_map_node_for_main(
+            &turn,
+            "Claim scope".to_string(),
+            "Subagent node used to test timeout summary requests.".to_string(),
+            Vec::new(),
+            false,
+        )
+        .await
+        .expect("timeout test node should be created");
+    assert_eq!(node_id, "node-1");
 
     let spawn_output = SpawnAgentHandlerV2
         .handle(invocation(
@@ -3721,6 +3765,18 @@ async fn action_map_close_agent_releases_node_lease_for_reclaim() {
     let session = Arc::new(session);
     let turn = Arc::new(turn);
     enable_action_map_experiment(&session).await;
+    let node_id = session
+        .create_action_map_node_for_main(
+            &turn,
+            "Claim scope".to_string(),
+            "Subagent node used to test close and reclaim.".to_string(),
+            Vec::new(),
+            false,
+        )
+        .await
+        .expect("close test node should be created");
+    assert_eq!(node_id, "node-1");
+
     let first_output = SpawnAgentHandlerV2
         .handle(invocation(
             session.clone(),
@@ -3763,7 +3819,7 @@ async fn action_map_close_agent_releases_node_lease_for_reclaim() {
     let second: SpawnAgentResult =
         serde_json::from_str(&second_content).expect("second spawn should parse");
     assert!(
-        second.task_name.starts_with("/root/define_scope"),
+        second.task_name.starts_with("/root/node_1"),
         "released node should be claimable again, got {:?}",
         second.task_name
     );

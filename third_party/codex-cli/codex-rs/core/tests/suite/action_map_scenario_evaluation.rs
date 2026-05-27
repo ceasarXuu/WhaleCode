@@ -44,6 +44,7 @@ const REALISTIC_WAIT_CALL_ID: &str = "parent-wait-cache-scope-agent";
 const REALISTIC_IMPLEMENT_NODE_CALL_ID: &str = "create-cache-fix-node";
 const REALISTIC_PATCH_CALL_ID: &str = "parent-apply-cache-fix";
 const REALISTIC_TEST_CALL_ID: &str = "parent-run-cache-validation";
+const REALISTIC_FINISH_NODE_CALL_ID: &str = "parent-finish-cache-fix-node";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result<()> {
@@ -54,7 +55,7 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
         "action": "create_node",
         "title": "调查缓存模块边界",
         "context_summary": "创建一个用于子 agent 调查缓存模块边界的 TaskSpace 节点。",
-        "bind_current": true,
+        "bind_current": false,
     }))?;
     let spawn_args = serde_json::to_string(&json!({
         "message": CHILD_PROMPT,
@@ -238,8 +239,10 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
     ] {
         assert_event_present(&timeline, event_type);
     }
-    assert_eq!(count_event(&timeline, "lease_created"), 1);
-    assert_eq!(count_event(&timeline, "lease_released"), 1);
+    assert_eq!(count_event(&timeline, "lease_created"), 2);
+    assert_eq!(count_event(&timeline, "lease_released"), 2);
+    assert_eq!(count_lease_released_by_holder(&timeline, "subagent"), 1);
+    assert_eq!(count_lease_released_by_holder(&timeline, "main"), 1);
     assert!(
         timeline.iter().any(|event| {
             let text = event.to_string();
@@ -289,7 +292,7 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
         "action": "create_node",
         "title": "调查缓存 key 失败边界",
         "context_summary": "创建一个用于子 agent 阅读缓存代码和测试的 TaskSpace 节点。",
-        "bind_current": true,
+        "bind_current": false,
     }))?;
     let spawn_args = serde_json::to_string(&json!({
         "message": REALISTIC_CHILD_PROMPT,
@@ -427,6 +430,25 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
         harness.server(),
         |req: &Request| body_contains(req, REALISTIC_TEST_CALL_ID),
         sse(vec![
+            ev_response_created("resp-parent-finish-implementation-node"),
+            ev_function_call(
+                REALISTIC_FINISH_NODE_CALL_ID,
+                "taskspace_control",
+                &serde_json::to_string(&json!({
+                    "action": "finish_node",
+                    "node_id": "node-2",
+                    "result_summary": "Cache key namespace normalization was implemented and validated.",
+                }))?,
+            ),
+            ev_completed("resp-parent-finish-implementation-node"),
+        ]),
+    )
+    .await;
+
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, REALISTIC_FINISH_NODE_CALL_ID),
+        sse(vec![
             ev_response_created("resp-parent-final"),
             ev_assistant_message(
                 "msg-parent-final",
@@ -498,6 +520,19 @@ fn count_event(timeline: &[Value], event_type: &str) -> usize {
     timeline
         .iter()
         .filter(|event| event.to_string().contains(event_type))
+        .count()
+}
+
+fn count_lease_released_by_holder(timeline: &[Value], holder: &str) -> usize {
+    timeline
+        .iter()
+        .filter(|event| {
+            event.to_string().contains("lease_released")
+                && event
+                    .pointer("/payload/holder")
+                    .and_then(Value::as_str)
+                    .is_some_and(|event_holder| event_holder == holder)
+        })
         .count()
 }
 

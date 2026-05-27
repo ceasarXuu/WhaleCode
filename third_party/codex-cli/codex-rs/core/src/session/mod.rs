@@ -933,7 +933,12 @@ impl Session {
             }
             Ok(None) => {}
             Err(error) => {
-                warn!(%error, "failed to record TaskSpace main tool result");
+                warn!(
+                    %error,
+                    call_id,
+                    tool_name,
+                    "failed to record TaskSpace main tool result"
+                );
             }
         }
     }
@@ -945,7 +950,9 @@ impl Session {
     ) -> Result<(), String> {
         let events = {
             let mut state = self.state.lock().await;
-            state.action_map_runtime.bind_main_node(node_id)
+            state
+                .action_map_runtime
+                .bind_main_node(self.conversation_id, node_id)
         }?;
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;

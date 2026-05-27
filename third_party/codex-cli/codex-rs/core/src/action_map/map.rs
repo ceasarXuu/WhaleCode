@@ -124,6 +124,7 @@ pub(crate) struct AssignmentLease {
     pub(crate) map_id: ActionMapId,
     pub(crate) node_id: MapNodeId,
     pub(crate) holder: LeaseHolder,
+    pub(crate) previous_node_status: NodeStatus,
     pub(crate) agent_thread_id: Option<ThreadId>,
     pub(crate) agent_path: Option<String>,
 }
