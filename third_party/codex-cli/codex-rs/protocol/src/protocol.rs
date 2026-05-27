@@ -1793,8 +1793,23 @@ pub enum MapRuntimeMode {
 #[ts(rename_all = "camelCase")]
 pub struct ActionMapSnapshot {
     pub mode: MapRuntimeMode,
+    pub active_task_id: Option<String>,
     pub active_map_id: Option<String>,
+    pub tasks: Vec<ActionMapSnapshotTask>,
     pub maps: Vec<ActionMapSnapshotMap>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotTask {
+    pub id: String,
+    pub title: String,
+    pub objective: String,
+    pub status: String,
+    pub owner_session_id: Option<ThreadId>,
+    pub active_map_id: Option<String>,
+    pub map_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -1802,6 +1817,7 @@ pub struct ActionMapSnapshot {
 #[ts(rename_all = "camelCase")]
 pub struct ActionMapSnapshotMap {
     pub id: String,
+    pub task_id: Option<String>,
     pub title: String,
     pub status: String,
     pub owner_session_id: Option<ThreadId>,
@@ -1845,6 +1861,7 @@ pub struct ActionMapSnapshotLease {
     pub id: String,
     pub map_id: String,
     pub node_id: String,
+    pub holder: String,
     pub agent_thread_id: Option<ThreadId>,
     pub agent_path: Option<String>,
 }
@@ -1908,6 +1925,7 @@ pub struct MapRuntimeLeaseCreatedEvent {
     pub map_id: String,
     pub node_id: String,
     pub lease_id: String,
+    pub holder: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]

@@ -124,7 +124,7 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
 
     test.submit_turn(USER_PROMPT).await?;
     let rollout_path = test.codex.rollout_path().context("rollout path")?;
-    let rollout = wait_for_rollout_fragment(&rollout_path, "node_result_recorded").await?;
+    let rollout = wait_for_rollout_fragment(&rollout_path, "lease_released").await?;
     let timeline = map_runtime_timeline(&rollout)?;
     assert_event_present(&timeline, "map_created");
     assert_event_present(&timeline, "node_status_changed");

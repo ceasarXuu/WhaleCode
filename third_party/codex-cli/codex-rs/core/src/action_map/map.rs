@@ -8,6 +8,33 @@ pub(crate) type ActionMapId = String;
 pub(crate) type AssignmentLeaseId = String;
 pub(crate) type MapNodeId = String;
 pub(crate) type NodeResultId = String;
+pub(crate) type TaskId = String;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskStatus {
+    Active,
+    Pending,
+}
+
+impl TaskStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            TaskStatus::Active => "active",
+            TaskStatus::Pending => "pending",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskState {
+    pub(crate) id: TaskId,
+    pub(crate) title: String,
+    pub(crate) objective: String,
+    pub(crate) status: TaskStatus,
+    pub(crate) owner_session_id: Option<ThreadId>,
+    pub(crate) active_map_id: Option<ActionMapId>,
+    pub(crate) map_ids: Vec<ActionMapId>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MapStatus {
@@ -76,11 +103,27 @@ pub(crate) struct MapEdge {
     pub(crate) to: MapNodeId,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LeaseHolder {
+    Main,
+    SubAgent,
+}
+
+impl LeaseHolder {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            LeaseHolder::Main => "main",
+            LeaseHolder::SubAgent => "subagent",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AssignmentLease {
     pub(crate) id: AssignmentLeaseId,
     pub(crate) map_id: ActionMapId,
     pub(crate) node_id: MapNodeId,
+    pub(crate) holder: LeaseHolder,
     pub(crate) agent_thread_id: Option<ThreadId>,
     pub(crate) agent_path: Option<String>,
 }
@@ -88,6 +131,7 @@ pub(crate) struct AssignmentLease {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapInstance {
     pub(crate) id: ActionMapId,
+    pub(crate) task_id: Option<TaskId>,
     pub(crate) title: String,
     pub(crate) status: MapStatus,
     pub(crate) owner_session_id: Option<ThreadId>,
@@ -141,6 +185,7 @@ impl ActionMapInstance {
     ) -> Self {
         Self {
             id,
+            task_id: None,
             title,
             status: MapStatus::Active,
             owner_session_id,

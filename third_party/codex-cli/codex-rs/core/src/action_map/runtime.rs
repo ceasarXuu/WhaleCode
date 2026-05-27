@@ -11,6 +11,7 @@ use codex_protocol::protocol::ActionMapSnapshotLease;
 use codex_protocol::protocol::ActionMapSnapshotMap;
 use codex_protocol::protocol::ActionMapSnapshotNode;
 use codex_protocol::protocol::ActionMapSnapshotResult;
+use codex_protocol::protocol::ActionMapSnapshotTask;
 use codex_protocol::protocol::AgentStatus;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeLeaseAttachedEvent;
@@ -31,6 +32,7 @@ use super::map::ActionMapId;
 use super::map::ActionMapInstance;
 use super::map::AssignmentLease;
 use super::map::AssignmentLeaseId;
+use super::map::LeaseHolder;
 use super::map::MapEdge;
 use super::map::MapNode;
 use super::map::MapNodeId;
@@ -41,6 +43,9 @@ use super::map::NodeResultId;
 use super::map::NodeResultKind;
 use super::map::NodeResultRef;
 use super::map::NodeStatus;
+use super::map::TaskId;
+use super::map::TaskState;
+use super::map::TaskStatus;
 
 const SEED_NODE_IDS: &[&str] = &[
     "define_scope",
@@ -59,10 +64,13 @@ pub(crate) const MAIN_TOOL_RESULT_BUDGET_PER_NODE: usize = 12;
 pub(crate) struct ActionMapRuntimeState {
     mode: MapRuntimeMode,
     pending_transition_notice: Option<String>,
+    active_task_id: Option<TaskId>,
     active_map_id: Option<ActionMapId>,
     current_main_node_id: Option<MapNodeId>,
     maintenance_barrier: Option<ActionMapMaintenanceBarrier>,
+    tasks: HashMap<TaskId, TaskState>,
     maps: HashMap<ActionMapId, ActionMapInstance>,
+    next_task_seq: u64,
     next_map_seq: u64,
     next_node_seq: u64,
     next_lease_seq: u64,
@@ -129,10 +137,13 @@ impl Default for ActionMapRuntimeState {
         Self {
             mode: MapRuntimeMode::Standard,
             pending_transition_notice: None,
+            active_task_id: None,
             active_map_id: None,
             current_main_node_id: None,
             maintenance_barrier: None,
+            tasks: HashMap::new(),
             maps: HashMap::new(),
+            next_task_seq: 1,
             next_map_seq: 1,
             next_node_seq: 1,
             next_lease_seq: 1,
@@ -191,7 +202,10 @@ impl ActionMapRuntimeState {
         title: String,
         owner_session_id: Option<ThreadId>,
     ) -> ActionMapId {
-        let map = seed_map(id.clone(), title, owner_session_id, None);
+        let mut map = seed_map(id.clone(), title, owner_session_id, None);
+        let task_id = self.ensure_active_task_state(owner_session_id, &map.title);
+        self.register_map_to_task(&task_id, &id);
+        map.task_id = Some(task_id);
         self.active_map_id = Some(id.clone());
         self.current_main_node_id = first_open_node_id(&map);
         self.maps.insert(id.clone(), map);
@@ -212,9 +226,17 @@ impl ActionMapRuntimeState {
             .map(snapshot_map)
             .collect::<Vec<ActionMapSnapshotMap>>();
         maps.sort_by(|left, right| left.id.cmp(&right.id));
+        let mut tasks = self
+            .tasks
+            .values()
+            .map(snapshot_task)
+            .collect::<Vec<ActionMapSnapshotTask>>();
+        tasks.sort_by(|left, right| left.id.cmp(&right.id));
         ActionMapSnapshot {
             mode: self.mode,
+            active_task_id: self.active_task_id.clone(),
             active_map_id: self.active_map_id.clone(),
+            tasks,
             maps,
         }
     }
@@ -238,13 +260,17 @@ impl ActionMapRuntimeState {
         }
 
         let new_id = self.next_map_id();
+        let map_title = title.into();
+        let task_id = self.ensure_active_task_state(Some(owner_session_id), &map_title);
         let mut map = ActionMapInstance::new(
             new_id.clone(),
-            title.into(),
+            map_title,
             Some(owner_session_id),
             BASE_MAP.version,
         );
+        map.task_id = Some(task_id.clone());
         map.created_from = previous_id.clone();
+        self.register_map_to_task(&task_id, &new_id);
         self.active_map_id = Some(new_id.clone());
         self.current_main_node_id = None;
         events.push(map_created_event(&map));
@@ -526,6 +552,7 @@ preview:\n\
                 id: lease_id.clone(),
                 map_id: map_id.clone(),
                 node_id: node_id.clone(),
+                holder: LeaseHolder::SubAgent,
                 agent_thread_id: None,
                 agent_path: None,
             },
@@ -541,6 +568,7 @@ preview:\n\
             map_id: map_id.clone(),
             node_id: node_id.clone(),
             lease_id: lease_id.clone(),
+            holder: LeaseHolder::SubAgent.as_str().to_string(),
         }));
 
         Ok((
@@ -829,7 +857,10 @@ preview:\n\
         } else {
             format!("TaskSpace Path: {}", title_hint.trim())
         };
-        let map = seed_map(id.clone(), title, Some(owner_session_id), None);
+        let task_id = self.ensure_active_task_state(Some(owner_session_id), &title);
+        let mut map = seed_map(id.clone(), title, Some(owner_session_id), None);
+        map.task_id = Some(task_id.clone());
+        self.register_map_to_task(&task_id, &id);
         self.active_map_id = Some(id.clone());
         self.current_main_node_id = first_open_node_id(&map);
         let events = {
@@ -855,13 +886,70 @@ preview:\n\
         } else {
             title_hint.trim().to_string()
         };
-        let map =
+        let task_id = self.ensure_active_task_state(Some(owner_session_id), &title);
+        let mut map =
             ActionMapInstance::new(id.clone(), title, Some(owner_session_id), BASE_MAP.version);
+        map.task_id = Some(task_id.clone());
+        self.register_map_to_task(&task_id, &id);
         self.active_map_id = Some(id.clone());
         self.current_main_node_id = None;
         let events = vec![map_created_event(&map)];
         self.maps.insert(id, map);
         events
+    }
+
+    fn ensure_active_task_state(
+        &mut self,
+        owner_session_id: Option<ThreadId>,
+        title_hint: impl AsRef<str>,
+    ) -> TaskId {
+        if let Some(task_id) = self.active_task_id.clone()
+            && let Some(task) = self.tasks.get_mut(&task_id)
+        {
+            let same_owner = owner_session_id.is_none()
+                || task.owner_session_id.is_none()
+                || task.owner_session_id == owner_session_id;
+            if same_owner {
+                if task.owner_session_id.is_none() {
+                    task.owner_session_id = owner_session_id;
+                }
+                return task_id;
+            }
+            task.status = TaskStatus::Pending;
+        }
+        let task_id = self.next_task_id();
+        let title_hint = title_hint.as_ref().trim();
+        let title = if title_hint.is_empty() {
+            "TaskSpace task".to_string()
+        } else {
+            title_hint.to_string()
+        };
+        self.tasks.insert(
+            task_id.clone(),
+            TaskState {
+                id: task_id.clone(),
+                title: title.clone(),
+                objective: title,
+                status: TaskStatus::Active,
+                owner_session_id,
+                active_map_id: None,
+                map_ids: Vec::new(),
+            },
+        );
+        self.active_task_id = Some(task_id.clone());
+        task_id
+    }
+
+    fn register_map_to_task(&mut self, task_id: &str, map_id: &str) {
+        let task = self
+            .tasks
+            .get_mut(task_id)
+            .expect("map registration must target an existing TaskSpace task");
+        task.status = TaskStatus::Active;
+        task.active_map_id = Some(map_id.to_string());
+        if !task.map_ids.iter().any(|id| id == map_id) {
+            task.map_ids.push(map_id.to_string());
+        }
     }
 
     fn ensure_main_binding_for_active_map(&mut self) {
@@ -969,6 +1057,12 @@ preview:\n\
         })
     }
 
+    fn next_task_id(&mut self) -> TaskId {
+        let id = format!("task-{}", self.next_task_seq);
+        self.next_task_seq += 1;
+        id
+    }
+
     fn next_map_id(&mut self) -> ActionMapId {
         let id = format!("map-{}", self.next_map_seq);
         self.next_map_seq += 1;
@@ -1004,9 +1098,28 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
     output.push_str("- mode: ");
     output.push_str(&snapshot.mode.to_string());
     output.push('\n');
+    output.push_str("- active task: ");
+    output.push_str(snapshot.active_task_id.as_deref().unwrap_or("none"));
+    output.push('\n');
     output.push_str("- active map: ");
     output.push_str(snapshot.active_map_id.as_deref().unwrap_or("none"));
     output.push('\n');
+    if !snapshot.tasks.is_empty() {
+        output.push_str("\nTasks:\n");
+        for task in &snapshot.tasks {
+            output.push_str("- ");
+            output.push_str(&task.id);
+            output.push_str(" [");
+            output.push_str(&task.status);
+            output.push_str("] ");
+            output.push_str(&task.title);
+            if let Some(map_id) = task.active_map_id.as_ref() {
+                output.push_str(" active_map=");
+                output.push_str(map_id);
+            }
+            output.push('\n');
+        }
+    }
     if snapshot.maps.is_empty() {
         output.push_str("\nNo task path has been created in this thread.\n");
         return output;
@@ -1061,6 +1174,8 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
                 output.push_str(&lease.id);
                 output.push_str(" node=");
                 output.push_str(&lease.node_id);
+                output.push_str(" holder=");
+                output.push_str(&lease.holder);
                 output.push_str(" agent=");
                 output.push_str(
                     &lease
@@ -1182,6 +1297,18 @@ fn node_id_sort_key(node_id: &str) -> (u8, u64, &str) {
     (1, 0, node_id)
 }
 
+fn snapshot_task(task: &TaskState) -> ActionMapSnapshotTask {
+    ActionMapSnapshotTask {
+        id: task.id.clone(),
+        title: task.title.clone(),
+        objective: task.objective.clone(),
+        status: task.status.as_str().to_string(),
+        owner_session_id: task.owner_session_id,
+        active_map_id: task.active_map_id.clone(),
+        map_ids: task.map_ids.clone(),
+    }
+}
+
 fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
     let mut nodes = map
         .nodes
@@ -1210,6 +1337,7 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
             id: lease.id.clone(),
             map_id: lease.map_id.clone(),
             node_id: lease.node_id.clone(),
+            holder: lease.holder.as_str().to_string(),
             agent_thread_id: lease.agent_thread_id,
             agent_path: lease.agent_path.clone(),
         })
@@ -1234,6 +1362,7 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
 
     ActionMapSnapshotMap {
         id: map.id.clone(),
+        task_id: map.task_id.clone(),
         title: map.title.clone(),
         status: map.status.as_str().to_string(),
         owner_session_id: map.owner_session_id,
@@ -1977,7 +2106,9 @@ mod tests {
             matches!(
                 event,
                 MapRuntimeEvent::LeaseCreated(event)
-                    if event.node_id == "define_scope" && event.lease_id == "lease-1"
+                    if event.node_id == "define_scope"
+                        && event.lease_id == "lease-1"
+                        && event.holder == "subagent"
             )
         }));
         let context = state.build_developer_context().expect("context");
@@ -2196,13 +2327,19 @@ mod tests {
 
         let snapshot = state.snapshot();
         assert_eq!(snapshot.mode, MapRuntimeMode::Experiment);
+        assert_eq!(snapshot.active_task_id.as_deref(), Some("task-1"));
         assert_eq!(
             snapshot.active_map_id.as_deref(),
             Some(assignment.map_id.as_str())
         );
+        assert_eq!(snapshot.tasks.len(), 1);
+        assert_eq!(snapshot.tasks[0].id, "task-1");
+        assert_eq!(snapshot.tasks[0].active_map_id.as_deref(), Some("map-1"));
+        assert_eq!(snapshot.tasks[0].map_ids, vec!["map-1".to_string()]);
         assert_eq!(snapshot.maps.len(), 1);
         let map = &snapshot.maps[0];
         assert_eq!(map.id, assignment.map_id);
+        assert_eq!(map.task_id.as_deref(), Some("task-1"));
         assert_eq!(map.completed_node_count, 1);
         assert_eq!(map.ready_node_count, 1);
         assert!(map.leases.is_empty());
@@ -2224,6 +2361,48 @@ mod tests {
         assert!(formatted.contains("define_scope"));
         assert!(formatted.contains("result-1 node=define_scope kind=result"));
         assert!(formatted.contains("scope is clear"));
+    }
+
+    #[test]
+    fn restart_with_different_owner_creates_distinct_task() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let first_owner = ThreadId::new();
+        let second_owner = ThreadId::new();
+
+        state
+            .create_node_for_main(
+                first_owner,
+                "Initial task".to_string(),
+                "Initial owner task.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect("initial node");
+
+        let (previous_map, next_map, _) = state.restart_active_map(second_owner, "Second task");
+
+        assert_eq!(previous_map.as_deref(), Some("map-1"));
+        assert_eq!(next_map, "map-2");
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.active_task_id.as_deref(), Some("task-2"));
+        assert_eq!(snapshot.tasks.len(), 2);
+        let first_task = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id == "task-1")
+            .expect("first task");
+        let second_task = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id == "task-2")
+            .expect("second task");
+        assert_eq!(first_task.status, "pending");
+        assert_eq!(first_task.map_ids, vec!["map-1".to_string()]);
+        assert_eq!(second_task.status, "active");
+        assert_eq!(second_task.map_ids, vec!["map-2".to_string()]);
+        assert_eq!(snapshot.maps[0].task_id.as_deref(), Some("task-1"));
+        assert_eq!(snapshot.maps[1].task_id.as_deref(), Some("task-2"));
     }
 
     #[test]
