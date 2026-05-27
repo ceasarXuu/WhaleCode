@@ -5,6 +5,8 @@
 > 工程落地请以
 > [2026-05-27-taskspace-runtime-rearchitecture-implementation-plan.md](./2026-05-27-taskspace-runtime-rearchitecture-implementation-plan.md)
 > 为准。本文保留产品语义和概念设计；2026-05-27 文档描述基于真实失败样本后的 runtime 重构实施方案。
+> 如果本文早期概念描述与实施方案冲突，以实施方案为准。尤其是 node 终态命名：实施方案统一使用
+> `Closed` 表示节点本次工作包已沉淀结果；本文旧段落中的 `completed` 应按 `Closed` 理解。
 
 ## 结论
 

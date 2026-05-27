@@ -34,6 +34,8 @@
 
 - [2026-05-27-taskspace-runtime-rearchitecture-adversarial-review.md](./2026-05-27-taskspace-runtime-rearchitecture-adversarial-review.md)
 - [2026-05-27-taskspace-runtime-rearchitecture-followup-review.md](./2026-05-27-taskspace-runtime-rearchitecture-followup-review.md)
+- [2026-05-27-taskspace-runtime-rearchitecture-implementation-detail-review.md](./2026-05-27-taskspace-runtime-rearchitecture-implementation-detail-review.md)
+- [2026-05-27-taskspace-runtime-rearchitecture-implementation-detail-followup-review.md](./2026-05-27-taskspace-runtime-rearchitecture-implementation-detail-followup-review.md)
 
 已吸收的阻塞意见：
 
@@ -45,8 +47,16 @@
 - reborn 遇到 running lease 必须拒绝并要求先处理。
 - rollout replay 必须有 repair 策略。
 - edge 必须区分 `Dependency` 和 `Related`。
+- 控制动作连续失败必须有受控恢复策略，避免 agent 无限重试。
+- `repair_required` 必须有显式清除路径，不能制造恢复死锁。
+- `reborn_pending` 必须可取消，不能把 `AskUser` 误用成取消语义。
+- `bootstrap_required` 与 `routing_required` 必须定义清楚。
+- `Closed`、idle、TaskNote、pending task result、viewer URL 失败等边界必须落到工程细节。
+- `repair_required` 与 `maintenance_barrier` 同时存在时，repair 优先。
+- Phase 0 必须直接断言成本阈值触发点，不能只复现 70+ 的历史失败。
+- pending task 的 manifest 摘要必须在压缩后保留，避免 task switch 后丢进度。
 
-二次复核结论：P0/P1 阻塞问题已经清除，可以进入工程实现。残余 P2 风险已作为阶段验收补充到本文。
+最新复核结论：文档方向成立，但第三轮审查指出的恢复路径、失败升级和边界状态已继续补入本文。进入实现前仍需按 Phase 0 先冻结真实失败样本。
 
 ## 当前实现问题
 
@@ -108,6 +118,9 @@ pub(crate) struct TaskSpaceRuntimeState {
     pub(crate) routing_required: bool,
     pub(crate) maintenance_barrier: Option<MaintenanceBarrier>,
     pub(crate) repair_required: Option<TaskSpaceRepairReason>,
+    pub(crate) last_control_error: Option<TaskSpaceControlError>,
+    pub(crate) consecutive_control_failures: u32,
+    pub(crate) last_idle_reason: Option<MainAgentIdleReason>,
     pub(crate) pending_transition_notice: Option<String>,
     pub(crate) bootstrap_required: bool,
     pub(crate) reborn_pending: Option<RebornRequest>,
@@ -137,6 +150,8 @@ pub(crate) struct TaskState {
     pub(crate) context_summary: String,
     pub(crate) source_refs: Vec<String>,
     pub(crate) open_questions: Vec<String>,
+    pub(crate) blockers: Vec<String>,
+    pub(crate) notes: Vec<TaskNote>,
     pub(crate) active_map_id: Option<TaskMapId>,
     pub(crate) maps: BTreeMap<TaskMapId, TaskMapState>,
     pub(crate) last_main_node_id: Option<NodeId>,
@@ -155,6 +170,27 @@ pub(crate) enum TaskStatus {
 ```
 
 不引入 completed/abandoned。复杂任务无法由 runtime 客观判断完成或废弃；用户未来可能随时恢复或追问。
+
+`TaskNote` 用于保留用户态度、阻塞、修复和上下文更新，不参与调度状态机：
+
+```rust
+pub(crate) struct TaskNote {
+    pub(crate) kind: TaskNoteKind,
+    pub(crate) summary: String,
+    pub(crate) created_at_ms: i64,
+}
+
+pub(crate) enum TaskNoteKind {
+    UserSaysDone,
+    UserSaysStop,
+    AgentBelievesDone,
+    ContextUpdate,
+    RepairNote,
+    RebornNote,
+}
+```
+
+`open_questions`、`blockers` 和 `notes` 必须进入 manifest 摘要和压缩快照。它们不是完成度判断，只是避免把关键阻塞信息压缩成不可追溯的自然语言摘要。
 
 ### TaskMapState
 
@@ -247,7 +283,17 @@ pub(crate) enum NodeStatus {
 | `Closed` | 该 node 的本次工作包已沉淀结果 | 否 |
 | `Blocked` | 当前路径受阻 | 否 |
 
-`Closed` 不可重新 bind。若 agent 需要继续细化同一主题，必须创建 follow-up node，并通过 `origin_node_id` 或 `Related` edge 指向旧 node。这个取舍会增加 node 数量，但能保证 closed result 不被后续行动覆盖。
+`Closed` 不可重新 bind 同一个 node。若 agent 需要继续细化同一主题，必须创建 follow-up node，并通过 `origin_node_id` 或 `Related` edge 指向旧 node。这个规则不影响 `finish_node(next_node_id)` 在同一 state lock 内绑定另一个 ready node。这个取舍会增加 node 数量，但能保证 closed result 不被后续行动覆盖。
+
+`Closed` 的固定语义：
+
+- `active_lease` 必须为空。
+- 不能再追加普通工具结果；后续补充必须进入 follow-up node。
+- 可以被新的 `Dependency` 或 `Related` edge 引用。作为 `Dependency` 上游时，`Closed` 等价于依赖已满足。
+- result summary 和 source refs 仍可被 compactor 提取到 `RebornContext`。
+- viewer 可展示 `Closed` node 的历史 result，但 prompt 注入只给摘要和可按需读取的 result id。
+
+`last_main_node_id` 只是恢复和 viewer 提示字段，不是执行权威。普通工具放行的唯一权威是 `current_main_lease_id` 指向的有效 main lease。Repair 可以把 `last_main_node_id` 作为候选线索，但只有当该 node 存在、属于 active map、状态允许重新 bind、且没有 active lease 时，才能通过显式 repair event 转成新的 binding；否则必须进入 idle 或 repair-required。
 
 ### ExecutionLease
 
@@ -306,6 +352,7 @@ pub(crate) enum MaintenanceBarrierReason {
 - 不提供“忽略屏障继续工具调用”的 bypass。
 - 屏障提示只说明成本过高和可选恢复动作，不评价工作质量。
 - 第一版只允许一个 active barrier。每次 barrier 解除后，runtime 必须重新扫描 active map 的 cost signals；如果其他 node 已经超预算，应立即设置新的 barrier。
+- barrier 期间允许单独 `create_nodes`，前提是请求显式标记为 `recovery_for_barrier=true`，且新 node 通过 `origin_node_id` 或 `Related` edge 指向触发屏障的 node。单独创建节点不会清除 barrier；只有后续成功 `bind_node` 到恢复节点、`finish_node`、`block_node`、`reborn_task` 或 `cancel/ask` 才能清除。
 
 ## TaskSpace 控制协议
 
@@ -323,6 +370,7 @@ enum TaskSpaceControlArgs {
     FinishNode(FinishNodeArgs),
     BlockNode(BlockNodeArgs),
     RebornTask(RebornTaskArgs),
+    CancelReborn(CancelRebornArgs),
 }
 ```
 
@@ -363,6 +411,24 @@ struct TaskDraft {
 - `CreateTask` 成功后创建 task、active map、初始 current main lease，并清除 `routing_required`。
 - `AskUser` 是合法停止动作；runtime 记录 open question，不要求 agent 编造 task。
 
+`bootstrap_required` 与 `routing_required` 的关系：
+
+- `bootstrap_required` 只表示当前 session 进入 TaskSpace 后还没有成功建立第一个 active task。
+- `routing_required` 表示当前 user turn 尚未完成 task 选择。
+- `bootstrap_required=true` 时，`routing_required` 必须也为 true；唯一能清除 bootstrap 的动作是 `route_task(CreateTask)` 成功。
+- 已有 active task 后，每个新 user turn 只设置 `routing_required=true`，不再设置 bootstrap。
+- `route_task(ContinueTask/SwitchTask)` 只清除 routing，不清除 bootstrap；如果 bootstrap 仍为 true，这两个动作必须被拒绝。
+- `/taskspace` 只能设置 bootstrap/routing 标记，不能主动创建默认 task 或默认 map。
+
+控制动作失败恢复策略：
+
+- 每次 `taskspace_control` schema 解析失败、结构校验失败或引用不存在对象时，写入 `last_control_error`，`consecutive_control_failures += 1`，并产生 `TaskSpaceControlFailed` 事件。
+- 成功的 `taskspace_control` 清空 `last_control_error`，并把 `consecutive_control_failures` 归零。
+- 连续失败 1 次：developer context 显示最近错误和可修复动作，仍允许下一次控制动作。
+- 连续失败 2 次：普通工具、代码修改和 spawn 继续阻断；developer context 要求 agent 优先 `AskUser` 或提交更小的控制动作。
+- 连续失败达到 3 次：runtime 不自动退出 TaskSpace；它进入 `ControlRecoveryRequired`，只允许 `route_task(AskUser)`、`route_task(CreateTask)`、`cancel_reborn` 或 repair 相关控制动作。这样遵守“TaskSpace 只进不出”的产品约束，同时避免 agent 无限重试。
+- 用户下一轮输入会重新注入 control error 摘要；如果 agent 成功完成控制动作，恢复正常。
+
 ### CreateTask / TaskMapDraft
 
 用途：第一次把用户主题任务转成 task + map + nodes。
@@ -370,8 +436,8 @@ struct TaskDraft {
 约束：
 
 - 宽任务必须提交 3-8 个 node。
-- 窄任务允许 1 个 node，但 `single_node_reason` 只作为审计字段，不作为安全防线。
-- 单节点 task 会自动进入严格单节点预算：普通工具结果数上限 3，`apply_patch` 上限 0，超过后立即设置 `MaintenanceBarrier::SingleNodeBudgetExceeded`。
+- 窄任务允许 1 个 node，但 `single_node_reason` 只作为审计字段。runtime 不相信这个 reason 的语义真实性，也不会因为 reason 写得好就放宽预算。
+- 单节点 task 的安全防线是 runtime 预算，而不是 `single_node_reason` 字段本身：普通工具结果数上限 3，`apply_patch` 上限 0，超过后立即设置 `MaintenanceBarrier::SingleNodeBudgetExceeded`。
 - `current_main_local_id` 必须指向一个无未满足依赖的 node。
 - runtime 分配正式 task/map/node/lease id。
 
@@ -474,6 +540,32 @@ struct FinishNodeArgs {
 
 running subagent 不能被 reborn 静默丢弃。它们要么先完成并写回旧 map，要么被显式 close 并释放 lease。
 
+`reborn_pending` 取消规则：
+
+- 如果用户在 `/task-reborn` 后明确表示“不重生/取消/继续原路线”，主 agent 必须调用 `taskspace_control(action=cancel_reborn)`。
+- `cancel_reborn` 只清空 `reborn_pending`，记录 `TaskNoteKind::RebornNote`，不改变 active map、node、lease。
+- 如果 `reborn_pending` 存在，普通工具仍被阻断，直到 `reborn_task` 成功、`cancel_reborn` 成功，或 agent 用 `AskUser` 明确澄清用户意图。
+- `AskUser` 不能隐式取消 reborn；它只是让 runtime 停在等待用户补充的状态。
+
+running lease 拒绝返回格式：
+
+```rust
+struct RebornBlockedByRunningLease {
+    task_id: TaskId,
+    map_id: TaskMapId,
+    running: Vec<RunningLeaseSummary>,
+}
+
+struct RunningLeaseSummary {
+    lease_id: ExecutionLeaseId,
+    node_id: NodeId,
+    node_title: String,
+    holder: LeaseHolderSummary,
+}
+```
+
+该结构作为 `TaskSpaceControlFailed` 的 metadata 写入事件，并返回给模型。agent 据此选择 `wait_agent`、`close_agent`、等待用户，或让当前 node/blocker 正常收束。
+
 ## Runtime Gate 设计
 
 ### Gate 分层
@@ -515,6 +607,18 @@ Call taskspace_control(action=route_task) first, or bind a ready node.
 
 main agent idle 是合法状态：没有 main lease 时，agent 可以直接回复用户、询问用户、或调用 `taskspace_control` 维护 task/map；但不能调用普通工具或修改代码。
 
+gate 优先级固定为：
+
+1. standard mode 直接放行。
+2. control 工具先进入 control handler。
+3. `repair_required` 优先级最高；结构损坏未修复时，不处理 barrier 或普通 binding。
+4. `ControlRecoveryRequired` 优先于 routing/binding，避免连续错误无限重试。
+5. `routing_required/bootstrap_required`。
+6. `maintenance_barrier`。
+7. active task/map/main lease/running node 校验。
+
+如果 `repair_required` 和 `maintenance_barrier` 同时存在，必须先 repair；repair 清除后再重新扫描 cost signals，必要时重新 raise barrier。
+
 ### subagent gate
 
 TaskSpace 模式下 `spawn_agent` schema 需要增加可选 `node_id`。
@@ -528,6 +632,14 @@ TaskSpace 模式下 `spawn_agent` schema 需要增加可选 `node_id`。
 - spawn 成功后 attach lease；spawn 失败释放 lease。
 
 这把语义选择权交给 agent，不让 runtime 按顺序抢 node。
+
+pending task 中的 subagent result：
+
+- task switch 不会中断旧 task 的 running subagent。
+- subagent 完成后仍写回原 task/map/node，即使该 task 已经是 pending。
+- pending task 内部允许执行 `advance_downstream`，但不会自动切回 active task。
+- runtime 必须更新 pending task 的 manifest 摘要，包括最近 result、ready node 计数、blocked/open question 计数。
+- 下一轮 agent 看到 task manifest 后，由 agent 决定是否 `SwitchTask` 回该任务；runtime 不根据 result 自动切换。
 
 ## Prompt 与 developer context
 
@@ -551,6 +663,26 @@ TaskSpace active task exists but the main agent holds no node lease.
 Call taskspace_control(action=bind_node) for a ready node, or create/split nodes if no ready node fits.
 Ordinary tools are blocked until the main agent holds a node lease.
 ```
+
+### finish 后进入 idle
+
+当 `finish_node` 成功但 `next_node_id` 绑定失败、没有 next node，或下一个 node 被并发 subagent 抢占时，developer context 必须区别于普通 “no main lease”：
+
+```text
+The previous node was finished successfully.
+The main agent is now idle because <idle_reason>.
+Do not repeat the finished work.
+Choose one next control action: bind a ready node, create/split follow-up nodes, ask the user, or stop with a concise summary.
+Ordinary tools remain blocked until a new main lease is bound.
+```
+
+`last_idle_reason` 至少覆盖：
+
+- `NoReadyNodeAfterFinish`
+- `NextNodeClaimedByAnotherLease`
+- `NextNodeNotReady`
+- `MainNodeBlocked`
+- `RepairClearedNeedsBind`
 
 ### 每轮 task routing required
 
@@ -580,6 +712,8 @@ Runtime 不判断质量，但可以判断成本信号：
 | blocked/timeout ratio | 30% | 路径可能劣化 |
 | task runtime minutes | 60 | 提醒用户或 agent 评估路径 |
 
+这些阈值是 V1 保守默认值，不代表质量评分。实现时必须把它们做成集中常量，并在真实 E2E 报告中输出触发前后的计数，用后续真实任务校准。工具结果计数只是一类粗信号，不能替代 source refs、patch 次数、失败比例、运行时长等信号。
+
 触发后 developer context 必须提示，且 gate 必须阻断普通工具：
 
 ```text
@@ -598,11 +732,21 @@ TaskSpace 必须能从不完整 rollout、旧版本状态和异常中保守恢�
 | task 的 `active_map_id` 不存在 | task 保持 pending，设置 `repair_required = MissingActiveMap` |
 | `current_main_lease_id` 不存在 | 清空 main lease，主 agent 进入 idle，普通工具 gate 阻断 |
 | lease 指向不存在 node | 释放该 lease，记录 repair event |
-| node.active_lease 指向不存在 lease | 清空 node.active_lease，node 从 running 降级为 ready |
+| node.active_lease 指向不存在 lease | 清空 node.active_lease；如果 node 原本是 running，降级为 blocked，并记录 repair note |
 | edge 引用不存在 node | 忽略该 edge，记录 repair event |
 | replay 遇到未知新事件 | 保留 raw event，不改变 state |
 
 进入 `repair_required` 后，只有 `taskspace_control` 可用。agent 必须 route、reborn、或询问用户；runtime 不自动创建 task/map/node。
+
+`repair_required` 清除路径必须显式：
+
+- replay/repair 能在结构层自动修复时，写入 `TaskSpaceRepairApplied`，清除 `repair_required`。
+- `MissingActiveTask`：允许 `route_task(CreateTask)` 创建新 task 并清除 repair；如果用户只是想继续旧任务但旧任务不可恢复，agent 必须 `AskUser`。
+- `MissingActiveMap`：允许 `reborn_task` 在同一 task 下创建新 map；成功后清除 repair。
+- `MissingMainLease`：允许 `bind_node` 到有效 ready node；成功后清除 repair。
+- `CorruptLeaseOrNodeRef`：repair 必须先释放或标记相关对象，再允许 bind/reborn。
+- repair 清除必须产生事件，不能只在内存里修改字段。
+- 如果 repair 无法恢复，TaskSpace 不自动退出；developer context 明确要求 agent 向用户说明当前 task 结构损坏，并请求是否基于已知摘要重新创建 task。
 
 ## Rollout、压缩与恢复
 
@@ -623,6 +767,9 @@ TaskSpace 必须能从不完整 rollout、旧版本状态和异常中保守恢�
 - `NodeResultRecorded`
 - `TaskRebornRequested`
 - `TaskRebornApplied`
+- `TaskRebornCancelled`
+- `TaskSpaceControlFailed`
+- `TaskNoteRecorded`
 - `CostSignalRaised`
 - `MaintenanceBarrierRaised`
 - `MaintenanceBarrierCleared`
@@ -647,6 +794,7 @@ TaskSpace 必须能从不完整 rollout、旧版本状态和异常中保守恢�
 - result summary。
 - source refs。
 - open questions/blockers。
+- task notes。
 - cost signals。
 
 不保留到 prompt：
@@ -657,6 +805,7 @@ TaskSpace 必须能从不完整 rollout、旧版本状态和异常中保守恢�
 - 已进入 historical map 的长上下文。
 
 Viewer/API 可以按需读取完整 snapshot；prompt 注入只给 active task pack。
+pending task 仍必须注入轻量 manifest 摘要，包括 task id/title/status、ready/running/blocked node 计数、最近 result 摘要和 open question/blocker 计数。这样 agent 可以判断是否切换任务，但不会把 pending task 的长上下文塞进当前 prompt。
 
 ## Viewer 与 API
 
@@ -685,6 +834,153 @@ TaskSpaceSnapshot
 
 第一阶段可以通过兼容字段填充旧 `ActionMapSnapshot`，但 viewer 内部应按 taskspace 概念渲染。
 
+viewer URL 规则：
+
+- viewer server 优先复用当前 session 已有端口。
+- 如果默认端口被占用，按固定端口范围递增探测，成功后把最终 URL 写入 session state。
+- `/taskspace` 和 `/task-show` 必须打印同一个 session-scoped URL，除非原 server 已不可用并被重建。
+- 如果本地端口启动失败，命令返回机械错误，TaskSpace runtime 仍可工作；viewer 不得阻断 task routing。
+- 如果运行在远程/SSH 环境导致 `127.0.0.1` 对用户不可达，先打印本地 URL 和“可能需要端口转发”的机械提示，不让 agent 编造解释。
+
+## 工程落地细则
+
+本节把上面的架构约束落到真实代码路径，避免实现时重新发明一套并行 runtime。
+
+### 复用原则
+
+必须复用或改造的现有能力：
+
+| 现有能力 | 保留方式 | TaskSpace 改造点 |
+| --- | --- | --- |
+| `SessionState` | 继续作为 runtime 状态持有者和并发临界区 | `action_map_runtime` 字段内部升级为 taskspace 结构，不新增独立全局状态 |
+| `ToolCallRuntime` / `tools::parallel` | 继续作为所有工具执行入口 | 在 dispatch 前调用 TaskSpace gate；`taskspace_control` 自身不走普通工具 gate |
+| `taskspace_control` handler | 继续作为 agent 维护 TaskSpace 的唯一结构化入口 | 扩展 action，不允许自然语言 JSON 伪造控制动作 |
+| `spawn_agent` v2 | 继续复用 agent registry、mailbox、wait/close | schema 增加 `node_id`，claim lease 后再创建 child thread |
+| rollout `EventMsg::MapRuntime` | 继续作为 replay 和 viewer 数据源 | 扩展事件种类到 task/map/node/lease/result 级别 |
+| `build_developer_context` | 继续作为每轮 prompt 注入入口 | 从 TaskSpace state 生成状态化协议提示，不从自然语言摘要推断 |
+| browser viewer | 继续复用当前本地 app server/viewer | snapshot 从 ActionMap 兼容层逐步升级为 TaskSpace |
+
+禁止新增：
+
+- 独立 taskspace 数据库。
+- 独立工具执行管线。
+- 绕过现有 `SessionState` 锁的 node/lease registry。
+- runtime 关键词匹配或语义检索 task。
+- 面向自然语言输入的本地固定答复。
+
+### 状态写入边界
+
+所有 TaskSpace 状态 mutation 必须只发生在这些入口：
+
+| 入口 | 允许修改 |
+| --- | --- |
+| `/taskspace` slash handler | enable 标记、transition notice、viewer URL、`routing_required/bootstrap_required` |
+| `/task-show` slash handler | 只允许启动/复用 viewer，不修改 task/map/node |
+| `/task-reborn` slash handler | 只允许设置 `reborn_pending`，不创建新 map |
+| `taskspace_control` handler | task routing、task/map/node 创建、main lease bind/finish/block、reborn map apply |
+| `prepare_main_tool_call` | 只读校验；最多产生 gate error，不创建 task/node |
+| `record_main_tool_result` | 将普通工具结果写入当前 main lease 的 node，更新 cost signal |
+| `prepare_spawn_assignment` | 原子 claim 指定 ready node，创建 subagent lease |
+| `record_child_result` / wait/close 回收 | 写入 subagent result/blocker，释放 lease，推进 node 状态 |
+| rollout replay/repair | 按事件恢复状态；repair 只能做结构一致性修复 |
+
+其中 `prepare_main_tool_call` 不得再调用任何“自动创建 task/map/node”的逻辑。它只能放行或拒绝。
+
+### Runtime guard 判定表
+
+| 场景 | `taskspace_control` | 普通工具/read/shell/apply_patch | `spawn_agent` | `wait_agent`/`close_agent` |
+| --- | --- | --- | --- | --- |
+| standard mode | 不需要 | 放行 | 按现状 | 按现状 |
+| TaskSpace enabled, no active task | 只允许 `route_task(CreateTask/AskUser)` | 拒绝 | 拒绝 | 按现有 agent 状态处理 |
+| `routing_required=true` | 只允许 `route_task` | 拒绝 | 拒绝 | 按现有 agent 状态处理 |
+| active task, no main lease | 允许 create/bind/ask/reborn | 拒绝 | 允许绑定指定 ready node，但不得代替主 agent route | 按现有 agent 状态处理 |
+| main lease running | 允许 finish/block/create_nodes | 放行并归档到 main lease node | 必须指定或唯一 ready node | 按现有 agent 状态处理并归档 |
+| maintenance barrier | 允许 finish/block、标记为恢复动作的 create_nodes、bind 到恢复节点、reborn/cancel/ask | 拒绝 | 拒绝 | 允许回收已有 subagent |
+| repair_required | 只允许 route/reborn/ask 或 repair 相关动作 | 拒绝 | 拒绝 | 允许回收已有 subagent |
+
+### 控制动作与事件映射
+
+每个结构化控制动作必须产生可 replay 的事件，不能只改变内存状态。
+
+| 控制动作 | 主要事件 | 失败时事件 |
+| --- | --- | --- |
+| `/taskspace` | `TaskSpaceEnabled` 或兼容 `ModeChanged` | 无；重复调用只输出机械状态 |
+| `route_task(ContinueTask)` | `TaskRouted` | `TaskSpaceControlFailed` |
+| `route_task(SwitchTask)` | `TaskStatusChanged(old active -> pending)`, `TaskStatusChanged(target -> active)`, `TaskRouted` | `TaskSpaceControlFailed` |
+| `route_task(CreateTask)` | `TaskCreated`, `MapCreated`, `NodeCreated*`, `LeaseCreated(main)`, `TaskRouted` | `TaskSpaceControlFailed` |
+| `create_nodes` | `NodeCreated*`, `NodeStatusChanged*` | `TaskSpaceControlFailed` |
+| `bind_node` | `LeaseCreated(main)`, `NodeStatusChanged(ready -> running)` | `TaskSpaceControlFailed` |
+| `finish_node` | `NodeResultRecorded`, `LeaseReleased`, `NodeStatusChanged(running -> closed)`, downstream `NodeStatusChanged` | `TaskSpaceControlFailed` |
+| `block_node` | `NodeResultRecorded`, `LeaseReleased`, `NodeStatusChanged(running -> blocked)` | `TaskSpaceControlFailed` |
+| `spawn_agent(node_id)` | `LeaseCreated(subagent)`, `NodeStatusChanged(ready -> running)`, `LeaseAttached` | `LeaseReleased` if child creation fails |
+| child completion | `NodeResultRecorded`, `LeaseReleased`, `NodeStatusChanged(running -> closed/blocked)` | `NodeResultRecorded(kind=blocker)` |
+| `/task-reborn` + `reborn_task` | `TaskRebornRequested`, `MapCreated`, `TaskRebornApplied`, `LeaseCreated(main)` | `TaskSpaceControlFailed` |
+| `cancel_reborn` | `TaskRebornCancelled`, `TaskNoteRecorded` | `TaskSpaceControlFailed` |
+| cost barrier | `CostSignalRaised`, `MaintenanceBarrierRaised` | 无 |
+| repair applied | `TaskSpaceRepairApplied`, optional `TaskNoteRecorded` | `TaskSpaceControlFailed` |
+
+事件 payload 必须带齐 `task_id`、`map_id`、`node_id`、`lease_id` 中能确定的坐标。自然语言 result 可以 free-form，但 replay 坐标不能 free-form。
+
+### 最小 patch 切片
+
+为了降低重构风险，实际提交应按下面的最小切片推进，每个切片都必须保持 standard mode 回归通过。
+
+1. **失败样本冻结**：新增 runtime 单测和真实 E2E 报告字段，证明单宽 node 会被识别为失败路径。
+2. **领域壳升级**：在 `ActionMapRuntimeState` 内引入 task/task map/lease 字段，但暂不改用户可见行为。
+3. **控制协议扩展**：扩展 `taskspace_control` action 和 schema，先实现 `route_task/create_task/bind_node/finish_node/block_node`。
+4. **主工具 hard gate**：移除隐式 map/node 创建，普通工具必须有 main lease。
+5. **结果归档迁移**：`record_main_tool_result` 从 `main:<call_id>` 迁移到真实 main lease。
+6. **spawn 显式绑定**：`spawn_agent` 增加 `node_id`，多 ready node 省略 id 时拒绝。
+7. **并发与回收**：补齐原子 claim、spawn 失败 release、wait/close result 归档。
+8. **replay/repair**：扩展 rollout event replay，缺失引用进入 repair-required。
+9. **viewer/API**：升级 snapshot，保留 UI 展开/缩放状态，展示 task graph。
+10. **真实 E2E**：在沙盒 repo 中跑真实 Whale 对话，报告 task/node/lease/result/subagent/viewer 指标。
+
+每个切片完成后至少提交一次，避免多个 runtime 语义混在同一提交里难以回滚。
+
+### 真实 E2E 报告格式
+
+真实路径测试不能只看模型文本回复，必须从 rollout、viewer snapshot、文件系统变化三侧交叉验证。
+
+报告建议写入 `docs/testing/`，至少包含：
+
+```text
+scenario_id:
+whale_build:
+workspace:
+prompt:
+taskspace_url:
+events:
+  task_created:
+  task_routed:
+  map_created:
+  node_created:
+  main_lease_created:
+  subagent_lease_created:
+  node_result_recorded:
+  maintenance_barrier:
+graph:
+  node_count:
+  edge_count:
+  max_results_on_single_node:
+  running_leases:
+agent_actions:
+  ordinary_tool_calls:
+  spawn_agent_calls:
+  wait_or_close_calls:
+viewer:
+  opened:
+  auto_refresh_preserved_ui_state:
+  graph_pan_zoom_available:
+assertions:
+  - broad task has at least 3 nodes
+  - every ordinary tool result has task/map/node/lease coordinate
+  - subagent result is stored on its node
+  - no node exceeds budget without barrier
+```
+
+若测试需要模拟代码库，只能模拟被测项目本身，不能 mock Whale、agent、model response、tool dispatch 或 rollout。
+
 ## 分阶段实施计划
 
 ### Phase 0：冻结当前问题和回归样本
@@ -695,6 +991,7 @@ TaskSpaceSnapshot
 
 - 新增真实 rollout 分析 fixture 或自动化测试，记录“单宽 node 吸收 70+ 工具调用”的失败路径。
 - 回归脚本必须在旧实现上能观察到失败信号，在新实现上断言该路径被 gate 或 maintenance barrier 阻断。
+- Phase 0 就定义并导出 V1 成本阈值常量；70+ 样本用于复现旧问题，新实现断言应直接针对阈值，例如超过 12 个 main tool result 后必须出现 barrier，而不是等到 70+ 才失败。
 - 更新 `docs/testing/2026-05-08-action-map-real-user-e2e.md`，把“多 node + lease + subagent”列为必须验收。
 
 验收：
@@ -702,6 +999,7 @@ TaskSpaceSnapshot
 - 有自动化失败样本，不只文档化。
 - E2E 报告必须统计 node 数、main lease、subagent lease、单 node result 数。
 - broad task 单节点吸收超过预算时，普通工具被拒绝。
+- 测试报告必须同时输出旧失败样本的实际 result 数和新阈值触发点。
 
 ### Phase 1：领域模型重构
 
@@ -744,7 +1042,8 @@ TaskSpaceSnapshot
 4. `create_node/create_nodes` 只允许用于已有 task。
 5. 创建 pending node 不要求依赖完成。
 6. `bind_node` 在已有 main lease 时拒绝，要求先 finish/block。
-7. 旧 `create_node` 首节点隐式建 map 行为标记为 deprecated，最终删除。
+7. 所有创建 edge 的路径必须显式提供 `EdgeKind`；旧代码中任何隐式 `from -> to` edge 都要在迁移时逐个改写，不能用默认值静默兼容。
+8. 旧 `create_node` 首节点隐式建 map 行为标记为 deprecated，最终删除。
 
 验收：
 
@@ -796,6 +1095,7 @@ TaskSpaceSnapshot
 3. spawn 成功 attach lease，失败 release lease。
 4. subagent assignment prompt 包含 task/map/node/lease 坐标。
 5. subagent 仍禁止维护 map，结果 free-form 写回 node。
+6. Phase 4 开始前先做一次 `SessionState` 锁路径审计，确认 claim node、创建 lease、更新 node.active_lease、创建 child thread 之间没有锁外读写窗口。
 
 验收：
 
