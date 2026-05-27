@@ -1,5 +1,6 @@
 param(
     [string]$TestFilter = "action_map",
+    [string[]]$Package = @("codex-core"),
     [string]$CodexRsRoot = "",
     [string]$TargetDir = "",
     [string]$ReportRoot = "",
@@ -88,12 +89,20 @@ $stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
 $runDir = Resolve-FullPath (Join-Path $ReportRoot "action-map-$stamp")
 $logPath = Join-Path $runDir "cargo-test.log"
 $reportPath = Join-Path $runDir "report.md"
-$commandText = "rustup run stable cargo test --lib $TestFilter --locked --jobs $Jobs"
+$packageArgs = @()
+foreach ($packageName in $Package) {
+    if (-not [string]::IsNullOrWhiteSpace($packageName)) {
+        $packageArgs += @("-p", $packageName)
+    }
+}
+$commandParts = @("rustup", "run", "stable", "cargo", "test") + $packageArgs + @("--lib", $TestFilter, "--locked", "--jobs", [string]$Jobs)
+$commandText = $commandParts -join " "
 
 if ($PlanOnly) {
     Write-Host "CodexRsRoot: $CodexRsRoot"
     Write-Host "TargetDir: $TargetDir"
     Write-Host "ReportPath: $reportPath"
+    Write-Host "Packages: $($Package -join ', ')"
     Write-Host "Command: $commandText"
     exit 0
 }
@@ -110,7 +119,7 @@ $env:CARGO_BUILD_JOBS = [string]$Jobs
 try {
     $process = Start-Process `
         -FilePath "rustup" `
-        -ArgumentList @("run", "stable", "cargo", "test", "--lib", $TestFilter, "--locked", "--jobs", [string]$Jobs) `
+        -ArgumentList (@("run", "stable", "cargo", "test") + $packageArgs + @("--lib", $TestFilter, "--locked", "--jobs", [string]$Jobs)) `
         -WorkingDirectory $CodexRsRoot `
         -RedirectStandardOutput $stdoutPath `
         -RedirectStandardError $stderrPath `
@@ -144,7 +153,7 @@ if ($null -eq $passedCount) {
 }
 $matchedBinaries = @($summaries | Where-Object { $_.Passed -gt 0 -or $_.Failed -gt 0 -or $_.Ignored -gt 0 })
 
-$overall = if ($exitCode -eq 0 -and $failedCount -eq 0) { "PASS" } else { "FAIL" }
+$overall = if ($exitCode -eq 0 -and $failedCount -eq 0 -and $passedCount -gt 0) { "PASS" } else { "FAIL" }
 
 $report = New-Object System.Collections.Generic.List[string]
 $report.Add("# Action Map Regression Report")
@@ -152,6 +161,7 @@ $report.Add("")
 $report.Add("- overall: $overall")
 $report.Add("- exit_code: $exitCode")
 $report.Add("- command: $commandText")
+$report.Add("- packages: $($Package -join ', ')")
 $report.Add("- cwd: $CodexRsRoot")
 $report.Add("- target_dir: $TargetDir")
 $report.Add("- started: $($started.ToString("o"))")
@@ -197,12 +207,15 @@ if ($crashEvents.Count -eq 0) {
 $report.Add("")
 $report.Add("## Notes")
 $report.Add("")
-$report.Add("- Lines with 0 passed; 0 failed; ... filtered out are normal for crates that do not contain tests matching the filter.")
-$report.Add("- Treat exit_code = 0 plus no failure markers as the authoritative pass signal for this filtered cargo run.")
+$report.Add("- A filtered cargo run is only accepted when at least one matching test passed.")
+$report.Add("- Lines with 0 passed; 0 failed; ... filtered out are diagnostic noise from crates without matching tests, not a pass signal.")
 
 $report | Set-Content -Encoding UTF8 $reportPath
 
 Write-Host "Report: $reportPath"
 Write-Host "Log: $logPath"
 Write-Host "Overall: $overall"
+if ($overall -ne "PASS" -and $exitCode -eq 0) {
+    exit 1
+}
 exit $exitCode

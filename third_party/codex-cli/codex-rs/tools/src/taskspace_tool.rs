@@ -124,7 +124,7 @@ Use this only when TaskSpace is enabled and you need to update task-map structur
 Supported actions:
 - `start_task`: create a new semantic task, its active task path, and the first concrete node. Use this when the current user request does not belong to an existing task in the TaskSpace task inventory.
 - `route_task`: switch the active task path to an existing task chosen by the agent from the TaskSpace task inventory. Runtime validates the id but does not perform semantic matching.
-- `create_node`: create a concrete node in the active task path. If no task path exists yet, this initializes a new empty task path first; BaseMap candidate nodes are guidance, not automatic graph nodes.
+- `create_node`: create a concrete node in the active task path. This requires an existing active task path; use `start_task` first when the current request starts a new semantic task. BaseMap candidate nodes are guidance, not automatic graph nodes.
 - `bind_node`: bind the main agent's next ordinary action to an existing ready or blocked node that is not held by a subagent.
 - `finish_node`: record the current main node's result, mark it completed, and optionally bind a next node.
 - `block_node`: record why the current main node cannot proceed and mark it blocked.

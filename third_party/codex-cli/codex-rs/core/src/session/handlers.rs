@@ -249,6 +249,8 @@ pub(super) async fn user_input_or_turn_inner(
         // new_turn_with_sub_id already emits the error event.
         return;
     };
+    sess.begin_action_map_user_turn(current_context.as_ref())
+        .await;
     sess.maybe_emit_unknown_model_warning_for_turn(current_context.as_ref())
         .await;
     let accepted_items = match sess
@@ -997,13 +999,8 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
 
 pub async fn restart_action_map(sess: &Arc<Session>, sub_id: String) {
     let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
-    let (previous_map_id, new_map_id) = sess.restart_action_map(&turn_context).await;
-    let status = match previous_map_id {
-        Some(previous_map_id) => format!(
-            "Task path reborn. Previous path {previous_map_id} is historical; new path is {new_map_id}."
-        ),
-        None => format!("Task path started. New path is {new_map_id}."),
-    };
+    sess.request_action_map_reborn(&turn_context).await;
+    let status = "Task reborn requested. Runtime did not create a task path automatically; the next agent turn must route or start a task through taskspace_control.".to_string();
     sess.notify_background_event(&turn_context, status).await;
 }
 

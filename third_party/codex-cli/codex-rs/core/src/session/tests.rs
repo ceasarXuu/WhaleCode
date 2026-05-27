@@ -94,6 +94,7 @@ use codex_protocol::protocol::CreditsSnapshot;
 use codex_protocol::protocol::GranularApprovalConfig;
 use codex_protocol::protocol::InitialHistory;
 use codex_protocol::protocol::InterAgentCommunication;
+use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::NetworkApprovalProtocol;
 use codex_protocol::protocol::RateLimitSnapshot;
 use codex_protocol::protocol::RateLimitWindow;
@@ -1370,6 +1371,156 @@ async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() 
         developer_text.contains("taskspace_control(action=route_task)"),
         "expected explicit routing instruction in steady-state context: {developer_text}"
     );
+}
+
+#[tokio::test]
+async fn real_user_input_sets_taskspace_routing_gate_and_snapshot() {
+    let (session, turn_context, rx) = make_session_and_context_with_rx().await;
+    {
+        let mut state = session.state.lock().await;
+        state
+            .action_map_runtime
+            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
+        state
+            .action_map_runtime
+            .start_task_for_main(
+                session.conversation_id,
+                "Architecture review".to_string(),
+                "Find structure risks.".to_string(),
+                "Scope review".to_string(),
+                "Collect current architecture scope.".to_string(),
+                true,
+            )
+            .expect("task starts");
+    }
+    session
+        .prepare_action_map_main_tool_call(turn_context.as_ref(), "shell")
+        .await
+        .expect("existing binding should allow work before a new user turn");
+
+    handlers::user_input_or_turn(
+        &session,
+        "taskspace-user-turn".to_string(),
+        Op::UserInput {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "continue the review".to_string(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+        },
+    )
+    .await;
+
+    let mut emitted_snapshot = None;
+    let deadline = tokio::time::Instant::now() + StdDuration::from_secs(2);
+    while tokio::time::Instant::now() < deadline {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let event = tokio::time::timeout(remaining, rx.recv())
+            .await
+            .expect("timeout waiting for TaskSpace snapshot event")
+            .expect("event");
+        if let EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) = event.msg {
+            if payload.snapshot.routing_required {
+                emitted_snapshot = Some(payload.snapshot);
+                break;
+            }
+        }
+    }
+    let emitted_snapshot =
+        emitted_snapshot.expect("real user turn should emit a persisted TaskSpace snapshot");
+    assert!(emitted_snapshot.routing_required);
+    assert!(!emitted_snapshot.bootstrap_required);
+
+    let snapshot = session.action_map_snapshot().await;
+    assert!(snapshot.routing_required);
+    assert!(!snapshot.bootstrap_required);
+    assert!(
+        session
+            .prepare_action_map_main_tool_call(turn_context.as_ref(), "shell")
+            .await
+            .expect_err("new user turn must force task routing before ordinary work")
+            .contains("TaskSpace task routing is required")
+    );
+    session.abort_all_tasks(TurnAbortReason::Interrupted).await;
+}
+
+#[tokio::test]
+async fn real_user_turn_sets_taskspace_routing_gate_and_snapshot() {
+    let (session, turn_context, rx) = make_session_and_context_with_rx().await;
+    let config = session.get_config().await;
+    {
+        let mut state = session.state.lock().await;
+        state
+            .action_map_runtime
+            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
+        state
+            .action_map_runtime
+            .start_task_for_main(
+                session.conversation_id,
+                "Architecture review".to_string(),
+                "Find structure risks.".to_string(),
+                "Scope review".to_string(),
+                "Collect current architecture scope.".to_string(),
+                true,
+            )
+            .expect("task starts");
+    }
+    session
+        .prepare_action_map_main_tool_call(turn_context.as_ref(), "shell")
+        .await
+        .expect("existing binding should allow work before a new user turn");
+
+    handlers::user_input_or_turn(
+        &session,
+        "taskspace-user-turn-op".to_string(),
+        Op::UserTurn {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "continue the review".to_string(),
+                text_elements: Vec::new(),
+            }],
+            cwd: config.cwd.to_path_buf(),
+            approval_policy: config.permissions.approval_policy.value(),
+            approvals_reviewer: Some(codex_config::types::ApprovalsReviewer::AutoReview),
+            sandbox_policy: config.permissions.sandbox_policy.get().clone(),
+            permission_profile: None,
+            model: turn_context.model_info.slug.clone(),
+            effort: config.model_reasoning_effort,
+            summary: config.model_reasoning_summary,
+            service_tier: None,
+            final_output_json_schema: None,
+            collaboration_mode: None,
+            personality: config.personality,
+        },
+    )
+    .await;
+
+    let mut emitted_snapshot = None;
+    let deadline = tokio::time::Instant::now() + StdDuration::from_secs(2);
+    while tokio::time::Instant::now() < deadline {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let event = tokio::time::timeout(remaining, rx.recv())
+            .await
+            .expect("timeout waiting for TaskSpace snapshot event")
+            .expect("event");
+        if let EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) = event.msg {
+            if payload.snapshot.routing_required {
+                emitted_snapshot = Some(payload.snapshot);
+                break;
+            }
+        }
+    }
+    let emitted_snapshot =
+        emitted_snapshot.expect("real user turn should emit a persisted TaskSpace snapshot");
+    assert!(emitted_snapshot.routing_required);
+    assert!(!emitted_snapshot.bootstrap_required);
+
+    let snapshot = session.action_map_snapshot().await;
+    assert!(snapshot.routing_required);
+    assert!(!snapshot.bootstrap_required);
+    session.abort_all_tasks(TurnAbortReason::Interrupted).await;
 }
 
 #[tokio::test]

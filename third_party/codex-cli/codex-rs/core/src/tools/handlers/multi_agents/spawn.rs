@@ -7,6 +7,7 @@ use crate::agent::next_thread_spawn_depth;
 use crate::agent::role::DEFAULT_ROLE_NAME;
 use crate::agent::role::apply_role_to_config;
 use crate::session::turn_context::TurnEnvironment;
+use codex_protocol::protocol::Op;
 
 pub(crate) struct Handler;
 
@@ -36,8 +37,7 @@ impl ToolHandler for Handler {
             .as_deref()
             .map(str::trim)
             .filter(|role| !role.is_empty());
-        let input_items = parse_collab_input(args.message, args.items)?;
-        let prompt = render_input_preview(&input_items);
+        let mut initial_operation = parse_collab_input(args.message, args.items)?;
         let session_source = turn.session_source.clone();
         let child_depth = next_thread_spawn_depth(&session_source);
         let max_depth = turn.config.agent_max_depth;
@@ -46,19 +46,6 @@ impl ToolHandler for Handler {
                 "Agent depth limit reached. Solve the task yourself.".to_string(),
             ));
         }
-        session
-            .send_event(
-                &turn,
-                CollabAgentSpawnBeginEvent {
-                    call_id: call_id.clone(),
-                    sender_thread_id: session.conversation_id,
-                    prompt: prompt.clone(),
-                    model: args.model.clone().unwrap_or_default(),
-                    reasoning_effort: args.reasoning_effort.unwrap_or_default(),
-                }
-                .into(),
-            )
-            .await;
         let mut config =
             build_agent_spawn_config(&session.get_base_instructions().await, turn.as_ref())?;
         if args.fork_context {
@@ -83,29 +70,65 @@ impl ToolHandler for Handler {
         apply_spawn_agent_runtime_overrides(&mut config, turn.as_ref())?;
         apply_spawn_agent_overrides(&mut config, child_depth);
 
-        let result = Box::pin(
-            session.services.agent_control.spawn_agent_with_metadata(
-                config,
-                input_items,
-                Some(thread_spawn_source(
-                    session.conversation_id,
-                    &turn.session_source,
-                    child_depth,
-                    role_name,
-                    /*task_name*/ None,
-                )?),
-                SpawnAgentOptions {
-                    fork_parent_spawn_call_id: args.fork_context.then(|| call_id.clone()),
-                    fork_mode: args.fork_context.then_some(SpawnAgentForkMode::FullHistory),
-                    environments: Some(
-                        turn.environments
-                            .iter()
-                            .map(TurnEnvironment::selection)
-                            .collect(),
-                    ),
-                },
-            ),
-        )
+        let action_map_assignment = session
+            .prepare_action_map_spawn_assignment(&turn, role_name.unwrap_or(DEFAULT_ROLE_NAME))
+            .await
+            .map_err(FunctionCallError::RespondToModel)?;
+        if let Some(assignment) = action_map_assignment.as_ref() {
+            initial_operation =
+                prepend_taskspace_assignment(initial_operation, &assignment.message_prefix);
+        }
+        let prompt = render_input_preview(&initial_operation);
+        session
+            .send_event(
+                &turn,
+                CollabAgentSpawnBeginEvent {
+                    call_id: call_id.clone(),
+                    sender_thread_id: session.conversation_id,
+                    prompt: prompt.clone(),
+                    model: args.model.clone().unwrap_or_default(),
+                    reasoning_effort: args.reasoning_effort.unwrap_or_default(),
+                }
+                .into(),
+            )
+            .await;
+
+        let spawn_source = match thread_spawn_source(
+            session.conversation_id,
+            &turn.session_source,
+            child_depth,
+            role_name,
+            /*task_name*/ None,
+        ) {
+            Ok(spawn_source) => spawn_source,
+            Err(err) => {
+                if let Some(assignment) = action_map_assignment.as_ref() {
+                    session
+                        .release_action_map_assignment(
+                            &turn,
+                            &assignment.lease_id,
+                            "invalid_spawn_source",
+                        )
+                        .await;
+                }
+                return Err(err);
+            }
+        };
+        let result = Box::pin(session.services.agent_control.spawn_agent_with_metadata(
+            config,
+            initial_operation,
+            Some(spawn_source),
+            SpawnAgentOptions {
+                fork_parent_spawn_call_id: args.fork_context.then(|| call_id.clone()),
+                fork_mode: args.fork_context.then_some(SpawnAgentForkMode::FullHistory),
+                environments: Some(
+                    turn.environments
+                        .iter()
+                        .map(TurnEnvironment::selection)
+                        .collect(),
+                ),
+            },
+        ))
         .await
         .map_err(collab_spawn_error);
         let (new_thread_id, new_agent_metadata, status) = match &result {
@@ -126,7 +149,7 @@ impl ToolHandler for Handler {
             }
             None => None,
         };
-        let (_new_agent_path, new_agent_nickname, new_agent_role) =
+        let (new_agent_path, new_agent_nickname, new_agent_role) =
             match (&agent_snapshot, new_agent_metadata) {
                 (Some(snapshot), _) => (
                     snapshot.session_source.get_agent_path().map(String::from),
@@ -140,6 +163,22 @@ impl ToolHandler for Handler {
                 ),
                 (None, None) => (None, None, None),
             };
+        if let Some(assignment) = action_map_assignment.as_ref() {
+            if let Some(thread_id) = new_thread_id {
+                session
+                    .attach_action_map_assignment(
+                        &turn,
+                        &assignment.lease_id,
+                        thread_id,
+                        new_agent_path.clone(),
+                    )
+                    .await;
+            } else {
+                session
+                    .release_action_map_assignment(&turn, &assignment.lease_id, "spawn_failed")
+                    .await;
+            }
+        }
         let effective_model = agent_snapshot
             .as_ref()
             .map(|snapshot| snapshot.model.clone())
@@ -179,6 +218,26 @@ impl ToolHandler for Handler {
             nickname,
         })
     }
+}
+
+fn prepend_taskspace_assignment(mut operation: Op, prefix: &str) -> Op {
+    if let Op::UserInput { items, .. } = &mut operation {
+        if let Some(UserInput::Text { text, .. }) = items
+            .iter_mut()
+            .find(|item| matches!(item, UserInput::Text { .. }))
+        {
+            text.insert_str(0, prefix);
+        } else {
+            items.insert(
+                0,
+                UserInput::Text {
+                    text: prefix.trim_end().to_string(),
+                    text_elements: Vec::new(),
+                },
+            );
+        }
+    }
+    operation
 }
 
 #[derive(Debug, Deserialize)]

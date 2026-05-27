@@ -1,6 +1,7 @@
 use anyhow::Context;
 use anyhow::Result;
 use codex_features::Feature;
+use codex_protocol::protocol::ActionMapSnapshot;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
@@ -52,9 +53,11 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
 
     let server = start_mock_server().await;
     let create_node_args = serde_json::to_string(&json!({
-        "action": "create_node",
-        "title": "调查缓存模块边界",
-        "context_summary": "创建一个用于子 agent 调查缓存模块边界的 TaskSpace 节点。",
+        "action": "start_task",
+        "task_title": "缓存模块边界调查",
+        "task_objective": "调查缓存模块边界，然后由主 agent 继续推进。",
+        "node_title": "调查缓存模块边界",
+        "node_context_summary": "创建一个用于子 agent 调查缓存模块边界的 TaskSpace 节点。",
         "bind_current": false,
     }))?;
     let spawn_args = serde_json::to_string(&json!({
@@ -122,11 +125,24 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
         matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
     })
     .await;
+    let initial_snapshot = test.codex.action_map_snapshot().await;
+    assert!(initial_snapshot.routing_required);
+    assert!(initial_snapshot.bootstrap_required);
+    assert!(
+        initial_snapshot.tasks.is_empty(),
+        "TaskSpace enable must not create a default task: {initial_snapshot:#?}"
+    );
+    assert!(
+        initial_snapshot.maps.is_empty(),
+        "TaskSpace enable must not create a default map: {initial_snapshot:#?}"
+    );
 
     test.submit_turn(USER_PROMPT).await?;
     let rollout_path = test.codex.rollout_path().context("rollout path")?;
     let rollout = wait_for_rollout_fragment(&rollout_path, "lease_released").await?;
     let timeline = map_runtime_timeline(&rollout)?;
+    assert_event_order(&timeline, "task_created", "map_created");
+    assert_event_present(&timeline, "snapshot_updated");
     assert_event_present(&timeline, "map_created");
     assert_event_present(&timeline, "node_status_changed");
     assert_event_present(&timeline, "lease_created");
@@ -142,7 +158,7 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
         "node-bound subagent lease should be released when result is recorded"
     );
 
-    write_basic_artifacts(&timeline, &rollout_path)?;
+    write_basic_artifacts(&timeline, &rollout_path, &initial_snapshot)?;
 
     Ok(())
 }
@@ -173,6 +189,17 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
         matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
     })
     .await;
+    let initial_snapshot = harness.test().codex.action_map_snapshot().await;
+    assert!(initial_snapshot.routing_required);
+    assert!(initial_snapshot.bootstrap_required);
+    assert!(
+        initial_snapshot.tasks.is_empty(),
+        "TaskSpace enable must not create a default task: {initial_snapshot:#?}"
+    );
+    assert!(
+        initial_snapshot.maps.is_empty(),
+        "TaskSpace enable must not create a default map: {initial_snapshot:#?}"
+    );
 
     harness.submit(REALISTIC_USER_PROMPT).await?;
 
@@ -228,8 +255,10 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
         .context("rollout path")?;
     let rollout = wait_for_rollout_fragment(&rollout_path, "node_result_recorded").await?;
     let timeline = map_runtime_timeline(&rollout)?;
+    assert_event_order(&timeline, "task_created", "map_created");
     for event_type in [
         "mode_changed",
+        "snapshot_updated",
         "task_created",
         "map_created",
         "node_status_changed",
@@ -260,6 +289,7 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
         harness.cwd(),
         &request_bodies,
         &validation_output,
+        &initial_snapshot,
     )?;
 
     Ok(())
@@ -290,9 +320,11 @@ def test_cache_key_normalizes_key():\n    assert cache_key(\"Users\", \"ABC\") =
 
 async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Result<()> {
     let create_node_args = serde_json::to_string(&json!({
-        "action": "create_node",
-        "title": "调查缓存 key 失败边界",
-        "context_summary": "创建一个用于子 agent 阅读缓存代码和测试的 TaskSpace 节点。",
+        "action": "start_task",
+        "task_title": "缓存 key 回归修复",
+        "task_objective": "调查缓存 key 失败边界，修复代码并验证。",
+        "node_title": "调查缓存 key 失败边界",
+        "node_context_summary": "创建一个用于子 agent 阅读缓存代码和测试的 TaskSpace 节点。",
         "bind_current": false,
     }))?;
     let spawn_args = serde_json::to_string(&json!({
@@ -521,6 +553,21 @@ fn assert_event_present(timeline: &[Value], event_type: &str) {
     );
 }
 
+fn assert_event_order(timeline: &[Value], before: &str, after: &str) {
+    let before_index = timeline
+        .iter()
+        .position(|event| event.to_string().contains(before))
+        .unwrap_or_else(|| panic!("expected event `{before}` in {timeline:#?}"));
+    let after_index = timeline
+        .iter()
+        .position(|event| event.to_string().contains(after))
+        .unwrap_or_else(|| panic!("expected event `{after}` in {timeline:#?}"));
+    assert!(
+        before_index < after_index,
+        "expected `{before}` before `{after}` in {timeline:#?}"
+    );
+}
+
 fn count_event(timeline: &[Value], event_type: &str) -> usize {
     timeline
         .iter()
@@ -552,7 +599,11 @@ fn scenario_artifacts_dir(scenario_id: &str) -> Result<PathBuf> {
     Ok(artifacts)
 }
 
-fn write_basic_artifacts(timeline: &[Value], rollout_path: &Path) -> Result<()> {
+fn write_basic_artifacts(
+    timeline: &[Value],
+    rollout_path: &Path,
+    initial_snapshot: &ActionMapSnapshot,
+) -> Result<()> {
     let artifacts = scenario_artifacts_dir("map-runtime-node-bound-subagent")?;
     fs::write(
         artifacts.join("map-timeline.json"),
@@ -561,9 +612,14 @@ fn write_basic_artifacts(timeline: &[Value], rollout_path: &Path) -> Result<()> 
     fs::write(
         artifacts.join("report.md"),
         format!(
-            "# Scenario Report\n\nscenario: map-runtime-node-bound-subagent\nrollout: {}\nevents: {}\n",
+            "# Scenario Report\n\nscenario: map-runtime-node-bound-subagent\nrollout: {}\nevents: {}\ninitial_routing_required: {}\ninitial_bootstrap_required: {}\ninitial_task_count: {}\ninitial_map_count: {}\nsnapshot_updated_events: {}\n",
             rollout_path.display(),
-            timeline.len()
+            timeline.len(),
+            initial_snapshot.routing_required,
+            initial_snapshot.bootstrap_required,
+            initial_snapshot.tasks.len(),
+            initial_snapshot.maps.len(),
+            count_event(timeline, "snapshot_updated")
         ),
     )?;
     Ok(())
@@ -575,6 +631,7 @@ fn write_realistic_artifacts(
     workspace: &Path,
     provider_requests: &[Value],
     validation_output: &str,
+    initial_snapshot: &ActionMapSnapshot,
 ) -> Result<()> {
     let artifacts = scenario_artifacts_dir("action-map-realistic-user-bugfix")?;
     fs::write(
@@ -608,11 +665,21 @@ workspace: {}\n\
 rollout: {}\n\
 provider_requests: {}\n\
 map_events: {}\n\
+initial_routing_required: {}\n\
+initial_bootstrap_required: {}\n\
+initial_task_count: {}\n\
+initial_map_count: {}\n\
+snapshot_updated_events: {}\n\
 validation: {}\n",
             workspace.display(),
             rollout_path.display(),
             provider_requests.len(),
             timeline.len(),
+            initial_snapshot.routing_required,
+            initial_snapshot.bootstrap_required,
+            initial_snapshot.tasks.len(),
+            initial_snapshot.maps.len(),
+            count_event(timeline, "snapshot_updated"),
             validation_output.trim()
         ),
     )?;

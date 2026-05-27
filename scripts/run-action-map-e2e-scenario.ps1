@@ -14,7 +14,7 @@ function Resolve-FullPath([string]$PathValue) {
     return $created.FullName
 }
 
-function Select-LatestScenarioReport([string]$CodexRsRootValue, [string]$ScenarioId) {
+function Select-LatestScenarioReport([string]$CodexRsRootValue, [string]$ScenarioId, [datetime]$StartedAt) {
     $scenarioRoot = Join-Path $CodexRsRootValue "target\scenario-runs\$ScenarioId"
     if (-not (Test-Path $scenarioRoot)) {
         return $null
@@ -26,7 +26,7 @@ function Select-LatestScenarioReport([string]$CodexRsRootValue, [string]$Scenari
         return $null
     }
     $report = Join-Path $latestRun.FullName "artifacts\report.md"
-    if (Test-Path $report) {
+    if ((Test-Path $report) -and (Get-Item $report).LastWriteTime -ge $StartedAt.AddSeconds(-2)) {
         return Get-Item $report
     }
     return $null
@@ -141,8 +141,8 @@ $passedCount = ($summaries | Measure-Object -Property Passed -Sum).Sum
 if ($null -eq $passedCount) { $passedCount = 0 }
 $failedCount = ($summaries | Measure-Object -Property Failed -Sum).Sum
 if ($null -eq $failedCount) { $failedCount = 0 }
-$overall = if ($exitCode -eq 0 -and $failedCount -eq 0) { "PASS" } else { "FAIL" }
-$scenarioReport = Select-LatestScenarioReport $CodexRsRoot "action-map-realistic-user-bugfix"
+$scenarioReport = Select-LatestScenarioReport $CodexRsRoot "action-map-realistic-user-bugfix" $started
+$overall = if ($exitCode -eq 0 -and $failedCount -eq 0 -and $passedCount -gt 0 -and $scenarioReport) { "PASS" } else { "FAIL" }
 
 $report = New-Object System.Collections.Generic.List[string]
 $report.Add("# Action Map E2E Scenario Report")
@@ -189,4 +189,7 @@ if ($scenarioReport) {
     Write-Host "ScenarioReport: $($scenarioReport.FullName)"
 }
 Write-Host "Overall: $overall"
+if ($overall -ne "PASS" -and $exitCode -eq 0) {
+    exit 1
+}
 exit $exitCode

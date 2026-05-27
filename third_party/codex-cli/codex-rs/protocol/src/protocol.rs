@@ -1793,6 +1793,12 @@ pub enum MapRuntimeMode {
 #[ts(rename_all = "camelCase")]
 pub struct ActionMapSnapshot {
     pub mode: MapRuntimeMode,
+    #[serde(default)]
+    pub routing_required: bool,
+    #[serde(default)]
+    pub bootstrap_required: bool,
+    #[serde(default)]
+    pub reborn_requested: bool,
     pub active_task_id: Option<String>,
     pub active_map_id: Option<String>,
     pub tasks: Vec<ActionMapSnapshotTask>,
@@ -5536,6 +5542,23 @@ mod tests {
         assert_eq!(value["msg"]["failed"][0]["server"], "b");
         assert_eq!(value["msg"]["failed"][0]["error"], "bad");
         assert_eq!(value["msg"]["cancelled"][0], "c");
+        Ok(())
+    }
+
+    #[test]
+    fn action_map_snapshot_deserializes_legacy_gate_fields() -> Result<()> {
+        let snapshot: ActionMapSnapshot = serde_json::from_value(json!({
+            "mode": "experiment",
+            "activeTaskId": null,
+            "activeMapId": null,
+            "tasks": [],
+            "maps": [],
+            "maintenanceBarriers": []
+        }))?;
+
+        assert!(!snapshot.routing_required);
+        assert!(!snapshot.bootstrap_required);
+        assert!(!snapshot.reborn_requested);
         Ok(())
     }
 

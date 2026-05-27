@@ -909,6 +909,16 @@ impl Session {
         Ok(())
     }
 
+    pub(crate) async fn begin_action_map_user_turn(&self, turn_context: &TurnContext) {
+        let changed = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.begin_user_turn()
+        };
+        if changed {
+            self.emit_action_map_snapshot_for_turn(turn_context).await;
+        }
+    }
+
     pub(crate) async fn record_action_map_main_tool_result(
         &self,
         turn_context: &TurnContext,
@@ -1136,19 +1146,16 @@ impl Session {
         Some(result_id)
     }
 
-    pub(crate) async fn restart_action_map(
-        &self,
-        turn_context: &TurnContext,
-    ) -> (Option<String>, String) {
-        let (previous, next, events) = {
+    pub(crate) async fn request_action_map_reborn(&self, turn_context: &TurnContext) {
+        let events = {
             let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .restart_active_map(self.conversation_id, "Reborn TaskSpace path")
+            state.action_map_runtime.request_reborn()
         };
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        (previous, next)
+        if events.is_empty() {
+            self.emit_action_map_snapshot_for_turn(turn_context).await;
+        } else {
+            self.emit_action_map_events_for_turn(turn_context, events).await;
+        }
     }
 
     pub(crate) async fn request_action_map_timeout_summaries(
@@ -1232,6 +1239,20 @@ impl Session {
             )
             .await;
         }
+    }
+
+    async fn emit_action_map_snapshot_for_turn(&self, turn_context: &TurnContext) {
+        let snapshot = {
+            let state = self.state.lock().await;
+            state.action_map_runtime.snapshot()
+        };
+        self.send_event(
+            turn_context,
+            EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
+                MapRuntimeSnapshotUpdatedEvent { snapshot },
+            )),
+        )
+        .await;
     }
 
     async fn emit_action_map_events_raw(&self, events: Vec<MapRuntimeEvent>) {

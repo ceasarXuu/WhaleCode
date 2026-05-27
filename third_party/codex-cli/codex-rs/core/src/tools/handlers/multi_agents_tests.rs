@@ -95,6 +95,27 @@ async fn enable_action_map_experiment(session: &Arc<crate::session::session::Ses
         .await;
 }
 
+async fn start_action_map_task_node(
+    session: &Arc<crate::session::session::Session>,
+    turn: &Arc<TurnContext>,
+    title: &str,
+    context_summary: &str,
+    bind_current: bool,
+) -> String {
+    let (_, _, node_id) = session
+        .start_action_map_task_for_main(
+            turn,
+            title.to_string(),
+            context_summary.to_string(),
+            title.to_string(),
+            context_summary.to_string(),
+            bind_current,
+        )
+        .await
+        .expect("TaskSpace task should start");
+    node_id
+}
+
 fn captured_op_for_thread(manager: &ThreadManager, thread_id: ThreadId) -> Option<Op> {
     manager
         .captured_ops()
@@ -707,6 +728,119 @@ async fn spawn_agent_returns_agent_id_without_task_name() {
 }
 
 #[tokio::test]
+async fn legacy_spawn_agent_rejects_before_taskspace_routing() {
+    let (mut session, turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    session.services.agent_control = manager.agent_control();
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    enable_action_map_experiment(&session).await;
+
+    let err = SpawnAgentHandler
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "inspect this repo"
+            })),
+        ))
+        .await
+        .expect_err("legacy spawn must be blocked until TaskSpace routing/start_task");
+
+    let FunctionCallError::RespondToModel(message) = err else {
+        panic!("TaskSpace gate should return a model-facing error");
+    };
+    assert!(message.contains("TaskSpace bootstrap is required"));
+    assert!(manager.captured_ops().is_empty());
+}
+
+#[tokio::test]
+async fn v2_spawn_agent_rejects_before_taskspace_routing() {
+    let (mut session, mut turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    session.services.agent_control = manager.agent_control();
+    let mut config = (*turn.config).clone();
+    config
+        .features
+        .enable(Feature::MultiAgentV2)
+        .expect("test config should allow feature update");
+    turn.config = Arc::new(config);
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    enable_action_map_experiment(&session).await;
+
+    let err = SpawnAgentHandlerV2
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "inspect this repo",
+                "task_name": "worker"
+            })),
+        ))
+        .await
+        .expect_err("v2 spawn must be blocked until TaskSpace routing/start_task");
+
+    let FunctionCallError::RespondToModel(message) = err else {
+        panic!("TaskSpace gate should return a model-facing error");
+    };
+    assert!(message.contains("TaskSpace bootstrap is required"));
+    assert!(manager.captured_ops().is_empty());
+}
+
+#[tokio::test]
+async fn legacy_spawn_agent_claims_taskspace_node_after_start_task() {
+    #[derive(Debug, Deserialize)]
+    struct SpawnAgentResult {
+        agent_id: String,
+    }
+
+    let (mut session, turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let root = manager
+        .start_thread((*turn.config).clone())
+        .await
+        .expect("root thread should start");
+    session.services.agent_control = manager.agent_control();
+    session.conversation_id = root.thread_id;
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    enable_action_map_experiment(&session).await;
+    let node_id = start_action_map_task_node(
+        &session,
+        &turn,
+        "Legacy spawn review",
+        "Legacy spawn should still receive a concrete TaskSpace node assignment.",
+        false,
+    )
+    .await;
+    assert_eq!(node_id, "node-1");
+
+    let output = SpawnAgentHandler
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "inspect legacy spawn"
+            })),
+        ))
+        .await
+        .expect("legacy spawn should claim a node after start_task");
+    let (content, _) = expect_text_output(output);
+    let result: SpawnAgentResult =
+        serde_json::from_str(&content).expect("legacy spawn result should parse");
+    let child_id = parse_agent_id(&result.agent_id);
+    let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
+    let content = inter_agent_content(&op).expect("child op should contain text");
+    assert!(content.contains("TaskSpace node assignment"));
+    assert!(content.contains("Node: node-1"));
+    assert!(content.contains("Lease: lease-1"));
+}
+
+#[tokio::test]
 async fn multi_agent_v2_spawn_requires_task_name() {
     let (mut session, mut turn) = make_session_and_context().await;
     let manager = thread_manager();
@@ -922,16 +1056,14 @@ async fn action_map_experiment_spawn_binds_first_ready_node() {
     let session = Arc::new(session);
     let turn = Arc::new(turn);
     enable_action_map_experiment(&session).await;
-    let node_id = session
-        .create_action_map_node_for_main(
-            &turn,
-            "Define scope".to_string(),
-            "Subagent should inspect this repo from a concrete TaskSpace node.".to_string(),
-            Vec::new(),
-            false,
-        )
-        .await
-        .expect("spawn node should be created");
+    let node_id = start_action_map_task_node(
+        &session,
+        &turn,
+        "Define scope",
+        "Subagent should inspect this repo from a concrete TaskSpace node.",
+        false,
+    )
+    .await;
     assert_eq!(node_id, "node-1");
 
     let output = SpawnAgentHandlerV2
@@ -998,16 +1130,14 @@ async fn action_map_experiment_spawn_uses_safe_agent_name_for_dynamic_node() {
     let session = Arc::new(session);
     let turn = Arc::new(turn);
     enable_action_map_experiment(&session).await;
-    let node_id = session
-        .create_action_map_node_for_main(
-            &turn,
-            "Dynamic review".to_string(),
-            "A dynamic node should still get a valid subagent path.".to_string(),
-            Vec::new(),
-            false,
-        )
-        .await
-        .expect("dynamic node should be created");
+    let node_id = start_action_map_task_node(
+        &session,
+        &turn,
+        "Dynamic review",
+        "A dynamic node should still get a valid subagent path.",
+        false,
+    )
+    .await;
     assert_eq!(node_id, "node-1");
 
     let output = SpawnAgentHandlerV2
@@ -1068,16 +1198,14 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
     let session = root.thread.codex.session.clone();
     let turn = session.new_default_turn().await;
     enable_action_map_experiment(&session).await;
-    let first_node_id = session
-        .create_action_map_node_for_main(
-            &turn,
-            "Define scope".to_string(),
-            "First subagent node for scope definition.".to_string(),
-            Vec::new(),
-            false,
-        )
-        .await
-        .expect("first node should be created");
+    let first_node_id = start_action_map_task_node(
+        &session,
+        &turn,
+        "Define scope",
+        "First subagent node for scope definition.",
+        false,
+    )
+    .await;
     assert_eq!(first_node_id, "node-1");
     let second_node_id = session
         .create_action_map_node_for_main(
@@ -3435,16 +3563,14 @@ async fn action_map_wait_timeout_requests_progress_summary_from_running_node_age
     let session = Arc::new(session);
     let turn = Arc::new(turn);
     enable_action_map_experiment(&session).await;
-    let node_id = session
-        .create_action_map_node_for_main(
-            &turn,
-            "Claim scope".to_string(),
-            "Subagent node used to test timeout summary requests.".to_string(),
-            Vec::new(),
-            false,
-        )
-        .await
-        .expect("timeout test node should be created");
+    let node_id = start_action_map_task_node(
+        &session,
+        &turn,
+        "Claim scope",
+        "Subagent node used to test timeout summary requests.",
+        false,
+    )
+    .await;
     assert_eq!(node_id, "node-1");
 
     let spawn_output = SpawnAgentHandlerV2
@@ -3765,16 +3891,14 @@ async fn action_map_close_agent_releases_node_lease_for_reclaim() {
     let session = Arc::new(session);
     let turn = Arc::new(turn);
     enable_action_map_experiment(&session).await;
-    let node_id = session
-        .create_action_map_node_for_main(
-            &turn,
-            "Claim scope".to_string(),
-            "Subagent node used to test close and reclaim.".to_string(),
-            Vec::new(),
-            false,
-        )
-        .await
-        .expect("close test node should be created");
+    let node_id = start_action_map_task_node(
+        &session,
+        &turn,
+        "Claim scope",
+        "Subagent node used to test close and reclaim.",
+        false,
+    )
+    .await;
     assert_eq!(node_id, "node-1");
 
     let first_output = SpawnAgentHandlerV2

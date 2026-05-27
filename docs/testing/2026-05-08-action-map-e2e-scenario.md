@@ -26,18 +26,19 @@ Date: 2026-05-08
 这个沙盒项目有一个缓存 key 相关的回归失败。请先让子 agent 调查边界，再修复代码并验证。
 ```
 
-mock 模型脚本驱动的 agent 行动：
+脚本化 provider 驱动的 agent 行动：
 
-1. 主 agent 开启 Action Map experiment 模式后接收用户任务。
-2. 主 agent 调用 `spawn_agent`。
-3. runtime 自动创建 map，认领 `define_scope` node，并创建 lease。
-4. 子 agent 请求中必须包含 `Action Map node assignment` 和 `Node: define_scope`。
-5. 子 agent 调用 `shell_command` 阅读 `src/cache.py` 和 `tests/test_cache.py`。
-6. 子 agent 返回边界调查结果，completion watcher 写入 node result。
-7. 主 agent 调用 `wait_agent` 等待子 agent 完成。
-8. 主 agent 调用 `apply_patch` 修改代码并补回归测试。
-9. 主 agent 调用 `shell_command` 执行 Python 验证。
-10. 测试读取 rollout，验证 map runtime 事件完整出现。
+1. 主 agent 开启 TaskSpace experiment 模式；初始 snapshot 必须保持 `tasks=[]`、`maps=[]`，并显示 `routing_required=true`、`bootstrap_required=true`。
+2. 主 agent 接收用户任务后，先调用 `taskspace_control(action=start_task)`，由 agent 根据用户上下文创建语义 task、map 和第一个 node。
+3. `start_task` 清除 routing gate 后，主 agent 才能继续调用普通工具或 `spawn_agent`。
+4. 主 agent 调用 `spawn_agent`，runtime 只能把子 agent 绑定到已有 ready node，不能自动创建默认 map/node。
+5. 子 agent 请求中必须包含 `TaskSpace node assignment` 和具体 `Task/Map/Node` 标识。
+6. 子 agent 调用 `shell_command` 阅读 `src/cache.py` 和 `tests/test_cache.py`。
+7. 子 agent 返回边界调查结果，completion watcher 写入 node result。
+8. 主 agent 调用 `wait_agent` 等待子 agent 完成。
+9. 主 agent 调用 `apply_patch` 修改代码并补回归测试。
+10. 主 agent 调用 `shell_command` 执行 Python 验证。
+11. 测试读取 rollout，验证 task/map/node/lease/result 事件完整出现。
 
 ## 验证入口
 
@@ -79,5 +80,16 @@ third_party/codex-cli/codex-rs/target/scenario-runs/action-map-realistic-user-bu
 - 测试通过数为 1，失败数为 0。
 - `apply_patch` 输出 `metadata.exit_code = 0`。
 - 验证命令输出包含 `cache validation passed`。
-- rollout 中包含 `mode_changed`、`map_created`、`node_status_changed`、`lease_created`、`lease_attached`、`node_result_recorded`、`lease_released`。
+- 开启 TaskSpace 后的初始 snapshot 中 `tasks=[]`、`maps=[]`，且 `routing_required=true`、`bootstrap_required=true`。
+- rollout 中包含 `mode_changed`、`snapshot_updated`、`task_created`、`map_created`、`node_status_changed`、`lease_created`、`lease_attached`、`node_result_recorded`、`lease_released`。
+- `task_created` 必须早于对应的 `map_created`，证明 map 是由 agent 的 `start_task` 路径创建，而不是由 runtime 默认模板提前创建。
 - `lease_created` 和 `lease_released` 数量一致。
+
+## 2026-05-27 TaskSpace 路径修正
+
+当前 E2E 不再接受“开启 TaskSpace 后 runtime 自动创建默认 map/node”的路径。正确顺序是：
+
+1. `/taskspace` 或 `SetMapRuntimeMode(Experiment)` 后，snapshot 必须保持 `tasks=[]`、`maps=[]`，并显示 `routing_required=true`、`bootstrap_required=true`。
+2. 真实用户请求进入后，agent 必须先调用 `taskspace_control(action=start_task)`，由 agent 根据用户上下文创建语义 task、map 和第一个 node。
+3. 只有 `start_task` 或 `route_task` 清除 routing gate 后，普通工具和 `spawn_agent` 才能继续。
+4. `map_created` 必须出现在 `task_created` 之后，不能早于 agent 的 `start_task` 控制动作。

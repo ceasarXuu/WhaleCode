@@ -321,7 +321,7 @@ function render(data){
   const next=el('div');
   if(!data.ok){next.appendChild(el('div',data.error||'failed to load snapshot','error'));root.replaceChildren(next);restoreUi();return}
   const s=data.snapshot;
-  meta.textContent=`thread ${data.threadId} | mode ${s.mode} | active ${s.activeMapId||'none'} | refreshed ${new Date(data.fetchedAtMs).toLocaleTimeString()}`;
+  meta.textContent=`thread ${data.threadId} | mode ${s.mode} | route ${s.routingRequired?'required':'ok'} | bootstrap ${s.bootstrapRequired?'required':'ok'} | reborn ${s.rebornRequested?'requested':'none'} | active ${s.activeMapId||'none'} | refreshed ${new Date(data.fetchedAtMs).toLocaleTimeString()}`;
   if(!s.maps.length){next.appendChild(el('p','No task path has been created in this thread.'));root.replaceChildren(next);restoreUi();return}
   const activeGraphKeys=new Set(s.maps.map(m=>'graph:'+m.id));
   Array.from(ui.graph.keys()).forEach(k=>{if(!activeGraphKeys.has(k))ui.graph.delete(k)});
