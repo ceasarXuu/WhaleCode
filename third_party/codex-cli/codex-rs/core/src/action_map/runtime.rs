@@ -397,6 +397,11 @@ preview:\n\
                 "TaskSpace node `{node_id}` is completed; bind an open node or create a follow-up node."
             ));
         }
+        if node.status == NodeStatus::Running || node.active_lease.is_some() {
+            return Err(format!(
+                "TaskSpace node `{node_id}` is currently held by a subagent lease; wait for release or bind a different node."
+            ));
+        }
         if let Some(barrier) = self.maintenance_barrier.as_ref()
             && barrier.node_id == node_id
         {
@@ -507,6 +512,59 @@ preview:\n\
             events.extend(self.clear_maintenance_barrier_for_recovery(&node_id));
         }
         Ok((node_id, events))
+    }
+
+    pub(crate) fn finish_main_node(
+        &mut self,
+        owner_session_id: ThreadId,
+        node_id: &str,
+        result_summary: String,
+        next_node_id: Option<String>,
+    ) -> Result<(NodeResultId, Vec<MapRuntimeEvent>), String> {
+        let result_summary = result_summary.trim();
+        if result_summary.is_empty() {
+            return Err("TaskSpace finish_node result_summary cannot be empty.".to_string());
+        }
+        let next_node_id = next_node_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|node_id| !node_id.is_empty());
+        if let Some(next_node_id) = next_node_id {
+            self.validate_next_main_binding_after_finish(node_id, next_node_id)?;
+        }
+        let (result_id, mut events) = self.record_main_node_lifecycle_result(
+            owner_session_id,
+            node_id,
+            NodeResultKind::Result,
+            result_summary.to_string(),
+            NodeStatus::Completed,
+            true,
+        )?;
+        if let Some(next_node_id) = next_node_id {
+            let bind_events = self.bind_main_node(next_node_id)?;
+            events.extend(bind_events);
+        }
+        Ok((result_id, events))
+    }
+
+    pub(crate) fn block_main_node(
+        &mut self,
+        owner_session_id: ThreadId,
+        node_id: &str,
+        blocker_summary: String,
+    ) -> Result<(NodeResultId, Vec<MapRuntimeEvent>), String> {
+        let blocker_summary = blocker_summary.trim();
+        if blocker_summary.is_empty() {
+            return Err("TaskSpace block_node blocker_summary cannot be empty.".to_string());
+        }
+        self.record_main_node_lifecycle_result(
+            owner_session_id,
+            node_id,
+            NodeResultKind::Blocker,
+            blocker_summary.to_string(),
+            NodeStatus::Blocked,
+            false,
+        )
     }
 
     pub(crate) fn prepare_spawn_assignment(
@@ -967,7 +1025,8 @@ preview:\n\
         }
         if let Some(node_id) = self.current_main_node_id.as_ref()
             && let Some(node) = map.nodes.get(node_id)
-            && node.status != NodeStatus::Completed
+            && matches!(node.status, NodeStatus::Ready | NodeStatus::Blocked)
+            && node.active_lease.is_none()
         {
             return;
         }
@@ -995,8 +1054,198 @@ preview:\n\
                     .to_string(),
             );
         };
-        if !map.nodes.contains_key(node_id) {
+        let Some(node) = map.nodes.get(node_id) else {
             return Err(format!("TaskSpace current node `{node_id}` is missing."));
+        };
+        if node.status == NodeStatus::Pending {
+            return Err(format!(
+                "TaskSpace current node `{node_id}` is still pending; complete dependencies before ordinary work."
+            ));
+        }
+        if node.status == NodeStatus::Completed {
+            return Err(format!(
+                "TaskSpace current node `{node_id}` is completed; bind an open node or create a follow-up node."
+            ));
+        }
+        if node.status == NodeStatus::Running || node.active_lease.is_some() {
+            return Err(format!(
+                "TaskSpace current node `{node_id}` is held by a subagent lease; wait for release or bind a different node."
+            ));
+        }
+        Ok(())
+    }
+
+    fn record_main_node_lifecycle_result(
+        &mut self,
+        owner_session_id: ThreadId,
+        node_id: &str,
+        kind: NodeResultKind,
+        body: String,
+        next_status: NodeStatus,
+        refresh_downstream: bool,
+    ) -> Result<(NodeResultId, Vec<MapRuntimeEvent>), String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Err("TaskSpace mode is not active.".to_string());
+        }
+        let map_id = self.active_map_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no active task path exists.".to_string()
+        })?;
+        let current_node_id = self.current_main_node_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no current node binding exists. Call taskspace_control(action=create_node, bind_current=true) or taskspace_control(action=bind_node) before finishing or blocking a node."
+                .to_string()
+        })?;
+        if current_node_id != node_id {
+            return Err(format!(
+                "TaskSpace node `{node_id}` is not the current main action node `{current_node_id}`. Bind it first with taskspace_control(action=bind_node)."
+            ));
+        }
+
+        {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            if map.status != MapStatus::Active {
+                return Err(format!(
+                    "TaskSpace active task path `{map_id}` is not active."
+                ));
+            }
+            let node = map
+                .nodes
+                .get(node_id)
+                .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
+            if node.status == NodeStatus::Pending {
+                return Err(format!(
+                    "TaskSpace node `{node_id}` is still pending; complete its dependencies before recording a main result."
+                ));
+            }
+            if node.status == NodeStatus::Completed {
+                return Err(format!(
+                    "TaskSpace node `{node_id}` is already completed; create or bind an open node."
+                ));
+            }
+            if node.active_lease.is_some() {
+                return Err(format!(
+                    "TaskSpace node `{node_id}` is held by a subagent lease; wait for release or bind a different node."
+                ));
+            }
+        }
+
+        let result_id = self.next_result_id();
+        let lease_id = format!("main:{result_id}");
+        let mut barrier_to_clear = None;
+        let mut events = Vec::new();
+        {
+            let map = self
+                .maps
+                .get_mut(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            let node = map
+                .nodes
+                .get_mut(node_id)
+                .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
+            let previous_status = node.status;
+            let result = NodeResult {
+                id: result_id.clone(),
+                assignment_id: lease_id.clone(),
+                map_id: map_id.clone(),
+                node_id: node_id.to_string(),
+                kind,
+                body,
+                source_thread_id: owner_session_id,
+                created_at_ms: now_ms(),
+            };
+            map.results.insert(result_id.clone(), result);
+            node.result_context.push(NodeResultRef {
+                id: result_id.clone(),
+                kind,
+            });
+            node.status = next_status;
+            events.push(MapRuntimeEvent::NodeResultRecorded(
+                MapRuntimeNodeResultRecordedEvent {
+                    map_id: map_id.clone(),
+                    node_id: node_id.to_string(),
+                    lease_id,
+                    result_id: result_id.clone(),
+                    kind: kind.as_str().to_string(),
+                    source_thread_id: owner_session_id,
+                },
+            ));
+            if previous_status != next_status {
+                events.push(node_status_changed_event(
+                    &map_id,
+                    node_id,
+                    &node.title,
+                    previous_status,
+                    next_status,
+                ));
+            }
+            if refresh_downstream {
+                events.extend(refresh_ready_nodes(map));
+            }
+        }
+
+        self.current_main_node_id = None;
+        if let Some(barrier) = self.maintenance_barrier.as_ref()
+            && barrier.map_id == map_id
+            && barrier.node_id == node_id
+        {
+            barrier_to_clear = Some(maintenance_barrier_cleared_event(
+                barrier,
+                "node_lifecycle_recorded",
+            ));
+        }
+        if let Some(event) = barrier_to_clear {
+            self.maintenance_barrier = None;
+            events.push(event);
+        }
+        Ok((result_id, events))
+    }
+
+    fn validate_next_main_binding_after_finish(
+        &self,
+        finishing_node_id: &str,
+        next_node_id: &str,
+    ) -> Result<(), String> {
+        if finishing_node_id == next_node_id {
+            return Err(format!(
+                "TaskSpace cannot bind next_node_id `{next_node_id}` because the current node will be completed."
+            ));
+        }
+        let map_id = self.active_map_id.as_ref().ok_or_else(|| {
+            "TaskSpace mode is active but no active task path exists.".to_string()
+        })?;
+        let map = self
+            .maps
+            .get(map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        let node = map
+            .nodes
+            .get(next_node_id)
+            .ok_or_else(|| format!("TaskSpace next node `{next_node_id}` does not exist."))?;
+        if node.status == NodeStatus::Completed {
+            return Err(format!(
+                "TaskSpace next node `{next_node_id}` is completed; bind an open node or create a follow-up node."
+            ));
+        }
+        if node.status == NodeStatus::Running || node.active_lease.is_some() {
+            return Err(format!(
+                "TaskSpace next node `{next_node_id}` is held by a subagent lease; wait for release or choose a different node."
+            ));
+        }
+        if node.status == NodeStatus::Pending
+            && !dependencies_will_be_completed_after_finish(map, finishing_node_id, next_node_id)
+        {
+            return Err(format!(
+                "TaskSpace next node `{next_node_id}` is still pending after the current node completes."
+            ));
+        }
+        if let Some(barrier) = self.maintenance_barrier.as_ref()
+            && barrier.node_id == next_node_id
+        {
+            return Err(format!(
+                "TaskSpace maintenance barrier is active for next node `{next_node_id}`; bind a different narrower recovery node or create a follow-up node."
+            ));
         }
         Ok(())
     }
@@ -1258,7 +1507,6 @@ fn seed_map(
 
 fn first_open_node_id(map: &ActionMapInstance) -> Option<MapNodeId> {
     first_node_with_status(map, NodeStatus::Ready)
-        .or_else(|| first_node_with_status(map, NodeStatus::Blocked))
 }
 
 fn first_node_with_status(map: &ActionMapInstance, status: NodeStatus) -> Option<MapNodeId> {
@@ -1435,6 +1683,27 @@ fn refresh_ready_nodes(map: &mut ActionMapInstance) -> Vec<MapRuntimeEvent> {
         }
     }
     events
+}
+
+fn dependencies_will_be_completed_after_finish(
+    map: &ActionMapInstance,
+    finishing_node_id: &str,
+    target_node_id: &str,
+) -> bool {
+    let deps = map
+        .edges
+        .iter()
+        .filter(|edge| edge.to == target_node_id)
+        .map(|edge| edge.from.as_str())
+        .collect::<Vec<_>>();
+    !deps.is_empty()
+        && deps.iter().all(|dependency_id| {
+            *dependency_id == finishing_node_id
+                || map
+                    .nodes
+                    .get(*dependency_id)
+                    .is_some_and(|node| node.status == NodeStatus::Completed)
+        })
 }
 
 fn map_created_event(map: &ActionMapInstance) -> MapRuntimeEvent {
@@ -1976,6 +2245,207 @@ mod tests {
             .expect("blocked nodes can be rebound");
 
         assert_eq!(state.current_main_node_id.as_deref(), Some("define_scope"));
+    }
+
+    #[test]
+    fn finish_main_node_records_result_and_advances_downstream() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.ensure_active_seed_map(owner, "test");
+
+        let (result_id, events) = state
+            .finish_main_node(
+                owner,
+                "define_scope",
+                "Scope is clear enough to inspect code context.".to_string(),
+                Some("inspect_code_context".to_string()),
+            )
+            .expect("node finished");
+
+        assert_eq!(result_id, "result-1");
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some("inspect_code_context")
+        );
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::NodeResultRecorded(event)
+                    if event.node_id == "define_scope"
+                        && event.kind == "result"
+                        && event.source_thread_id == owner
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::NodeStatusChanged(event)
+                    if event.node_id == "define_scope"
+                        && event.current_status == "completed"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::NodeStatusChanged(event)
+                    if event.node_id == "inspect_code_context"
+                        && event.current_status == "ready"
+            )
+        }));
+
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("define_scope").expect("node");
+        assert_eq!(node.status, NodeStatus::Completed);
+        assert_eq!(node.result_context.len(), 1);
+        let result = map.results.get(&result_id).expect("stored result");
+        assert_eq!(result.kind, NodeResultKind::Result);
+        assert_eq!(
+            result.body,
+            "Scope is clear enough to inspect code context."
+        );
+        assert_eq!(
+            map.nodes
+                .get("inspect_code_context")
+                .expect("downstream")
+                .status,
+            NodeStatus::Ready
+        );
+    }
+
+    #[test]
+    fn block_main_node_records_blocker_without_unlocking_downstream() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.ensure_active_seed_map(owner, "test");
+
+        let (result_id, events) = state
+            .block_main_node(
+                owner,
+                "define_scope",
+                "Need user decision on the optimization boundary.".to_string(),
+            )
+            .expect("node blocked");
+
+        assert_eq!(result_id, "result-1");
+        assert!(state.current_main_node_id.is_none());
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::NodeResultRecorded(event)
+                    if event.node_id == "define_scope"
+                        && event.kind == "blocker"
+                        && event.source_thread_id == owner
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::NodeStatusChanged(event)
+                    if event.node_id == "define_scope" && event.current_status == "blocked"
+            )
+        }));
+
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("define_scope").expect("node");
+        assert_eq!(node.status, NodeStatus::Blocked);
+        assert_eq!(node.result_context.len(), 1);
+        let result = map.results.get(&result_id).expect("stored result");
+        assert_eq!(result.kind, NodeResultKind::Blocker);
+        assert_eq!(
+            result.body,
+            "Need user decision on the optimization boundary."
+        );
+        assert_eq!(
+            map.nodes
+                .get("inspect_code_context")
+                .expect("downstream")
+                .status,
+            NodeStatus::Pending
+        );
+    }
+
+    #[test]
+    fn finish_main_node_rejects_invalid_next_node_without_mutating_current_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.ensure_active_seed_map(owner, "test");
+
+        let error = state
+            .finish_main_node(
+                owner,
+                "define_scope",
+                "Scope is clear.".to_string(),
+                Some("missing-node".to_string()),
+            )
+            .expect_err("invalid next node should reject before mutation");
+
+        assert!(error.contains("next node `missing-node` does not exist"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("define_scope"));
+        let map = state.active_map().expect("active map");
+        assert!(map.results.is_empty());
+        assert_eq!(
+            map.nodes.get("define_scope").expect("node").status,
+            NodeStatus::Ready
+        );
+        assert_eq!(
+            map.nodes
+                .get("inspect_code_context")
+                .expect("downstream")
+                .status,
+            NodeStatus::Pending
+        );
+    }
+
+    #[test]
+    fn block_main_node_does_not_auto_rebind_blocked_node_for_ordinary_work() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.ensure_active_seed_map(owner, "test");
+
+        state
+            .block_main_node(
+                owner,
+                "define_scope",
+                "Need user decision on scope.".to_string(),
+            )
+            .expect("node blocked");
+
+        let error = state
+            .prepare_main_tool_call(owner, "shell")
+            .expect_err("ordinary tools require explicit recovery binding");
+
+        assert!(error.contains("no current node binding"));
+        assert!(state.current_main_node_id.is_none());
+        let map = state.active_map().expect("active map");
+        assert_eq!(
+            map.nodes.get("define_scope").expect("node").status,
+            NodeStatus::Blocked
+        );
+    }
+
+    #[test]
+    fn bind_main_node_rejects_subagent_held_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.ensure_active_seed_map(owner, "test");
+        let map_id = state.active_map_id.clone().expect("active map");
+        {
+            let map = state.maps.get_mut(&map_id).expect("map");
+            let node = map.nodes.get_mut("define_scope").expect("node");
+            node.status = NodeStatus::Running;
+            node.active_lease = Some("lease-1".to_string());
+        }
+
+        let error = state
+            .bind_main_node("define_scope")
+            .expect_err("leased node cannot be rebound by main");
+
+        assert!(error.contains("held by a subagent lease"));
     }
 
     #[test]

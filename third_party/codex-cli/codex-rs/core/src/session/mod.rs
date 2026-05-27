@@ -975,6 +975,44 @@ impl Session {
         Ok(node_id)
     }
 
+    pub(crate) async fn finish_action_map_main_node(
+        &self,
+        turn_context: &TurnContext,
+        node_id: &str,
+        result_summary: String,
+        next_node_id: Option<String>,
+    ) -> Result<String, String> {
+        let (result_id, events) = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.finish_main_node(
+                self.conversation_id,
+                node_id,
+                result_summary,
+                next_node_id,
+            )
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(result_id)
+    }
+
+    pub(crate) async fn block_action_map_main_node(
+        &self,
+        turn_context: &TurnContext,
+        node_id: &str,
+        blocker_summary: String,
+    ) -> Result<String, String> {
+        let (result_id, events) = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .block_main_node(self.conversation_id, node_id, blocker_summary)
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(result_id)
+    }
+
     #[cfg(test)]
     pub(crate) async fn set_action_map_mode_for_test(
         &self,

@@ -27,6 +27,16 @@ enum TaskSpaceControlArgs {
     BindNode {
         node_id: String,
     },
+    FinishNode {
+        node_id: String,
+        result_summary: String,
+        #[serde(default)]
+        next_node_id: Option<String>,
+    },
+    BlockNode {
+        node_id: String,
+        blocker_summary: String,
+    },
 }
 
 pub struct TaskSpaceControlOutput {
@@ -112,6 +122,27 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .await
                     .map_err(FunctionCallError::RespondToModel)?;
                 format!("TaskSpace main node bound: {node_id}")
+            }
+            TaskSpaceControlArgs::FinishNode {
+                node_id,
+                result_summary,
+                next_node_id,
+            } => {
+                let result_id = session
+                    .finish_action_map_main_node(&turn, &node_id, result_summary, next_node_id)
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                format!("TaskSpace node finished: {node_id} result {result_id}")
+            }
+            TaskSpaceControlArgs::BlockNode {
+                node_id,
+                blocker_summary,
+            } => {
+                let result_id = session
+                    .block_action_map_main_node(&turn, &node_id, blocker_summary)
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                format!("TaskSpace node blocked: {node_id} result {result_id}")
             }
         };
         Ok(TaskSpaceControlOutput { message })

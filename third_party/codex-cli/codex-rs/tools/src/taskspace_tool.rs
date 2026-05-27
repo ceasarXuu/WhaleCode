@@ -9,7 +9,7 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
         (
             "action".to_string(),
             JsonSchema::string(Some(
-                "One of: create_node, bind_node. Use only for TaskSpace runtime control."
+                "One of: create_node, bind_node, finish_node, block_node. Use only for TaskSpace runtime control."
                     .to_string(),
             )),
         ),
@@ -41,7 +41,28 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
         (
             "node_id".to_string(),
             JsonSchema::string(Some(
-                "Required for bind_node. Existing node id to bind as the main action node."
+                "Required for bind_node, finish_node, and block_node. Existing node id."
+                    .to_string(),
+            )),
+        ),
+        (
+            "result_summary".to_string(),
+            JsonSchema::string(Some(
+                "Required for finish_node. Concise result summary that should stay in the node context."
+                    .to_string(),
+            )),
+        ),
+        (
+            "next_node_id".to_string(),
+            JsonSchema::string(Some(
+                "Optional for finish_node. Existing node id to bind after the result is recorded."
+                    .to_string(),
+            )),
+        ),
+        (
+            "blocker_summary".to_string(),
+            JsonSchema::string(Some(
+                "Required for block_node. Concise blocker summary that should stay in the node context."
                     .to_string(),
             )),
         ),
@@ -55,7 +76,9 @@ Use this only when TaskSpace is enabled and you need to update task-map structur
 
 Supported actions:
 - `create_node`: create a concrete node in the active task path. If no task path exists yet, this initializes a new empty task path first; BaseMap candidate nodes are guidance, not automatic graph nodes.
-- `bind_node`: bind the main agent's next ordinary action to an existing non-pending node.
+- `bind_node`: bind the main agent's next ordinary action to an existing ready or blocked node that is not held by a subagent.
+- `finish_node`: record the current main node's result, mark it completed, and optionally bind a next node.
+- `block_node`: record why the current main node cannot proceed and mark it blocked.
 
 Do not expose this tool's internal map/node terminology to the user unless debugging TaskSpace itself.
 "#
