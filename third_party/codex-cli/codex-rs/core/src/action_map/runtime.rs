@@ -16,6 +16,8 @@ use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeLeaseAttachedEvent;
 use codex_protocol::protocol::MapRuntimeLeaseCreatedEvent;
 use codex_protocol::protocol::MapRuntimeLeaseReleasedEvent;
+use codex_protocol::protocol::MapRuntimeMaintenanceBarrierClearedEvent;
+use codex_protocol::protocol::MapRuntimeMaintenanceBarrierRaisedEvent;
 use codex_protocol::protocol::MapRuntimeMapCreatedEvent;
 use codex_protocol::protocol::MapRuntimeMapStatusChangedEvent;
 use codex_protocol::protocol::MapRuntimeMode;
@@ -49,17 +51,46 @@ const SEED_NODE_IDS: &[&str] = &[
     "final_synthesis",
 ];
 
+/// A main-agent node should stay narrow enough to be reviewable. The runtime
+/// raises a maintenance barrier after this many main tool results are exceeded.
+pub(crate) const MAIN_TOOL_RESULT_BUDGET_PER_NODE: usize = 12;
+
 #[derive(Debug, Clone)]
 pub(crate) struct ActionMapRuntimeState {
     mode: MapRuntimeMode,
     pending_transition_notice: Option<String>,
     active_map_id: Option<ActionMapId>,
     current_main_node_id: Option<MapNodeId>,
+    maintenance_barrier: Option<ActionMapMaintenanceBarrier>,
     maps: HashMap<ActionMapId, ActionMapInstance>,
     next_map_seq: u64,
     next_node_seq: u64,
     next_lease_seq: u64,
     next_result_seq: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ActionMapMaintenanceBarrier {
+    map_id: ActionMapId,
+    node_id: MapNodeId,
+    reason: MaintenanceBarrierReason,
+    result_count: usize,
+    budget: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MaintenanceBarrierReason {
+    NodeToolResultBudgetExceeded,
+}
+
+impl MaintenanceBarrierReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            MaintenanceBarrierReason::NodeToolResultBudgetExceeded => {
+                "node_tool_result_budget_exceeded"
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +131,7 @@ impl Default for ActionMapRuntimeState {
             pending_transition_notice: None,
             active_map_id: None,
             current_main_node_id: None,
+            maintenance_barrier: None,
             maps: HashMap::new(),
             next_map_seq: 1,
             next_node_seq: 1,
@@ -201,6 +233,9 @@ impl ActionMapRuntimeState {
             map.status = MapStatus::Abandoned;
             events.push(map_status_changed_event(map, previous_status));
         }
+        if let Some(barrier) = self.maintenance_barrier.take() {
+            events.push(maintenance_barrier_cleared_event(&barrier, "map_restarted"));
+        }
 
         let new_id = self.next_map_id();
         let mut map = ActionMapInstance::new(
@@ -227,6 +262,7 @@ impl ActionMapRuntimeState {
         }
 
         self.ensure_main_binding_for_active_map();
+        self.validate_maintenance_barrier()?;
         self.validate_main_binding().map(|()| Vec::new())
     }
 
@@ -283,22 +319,36 @@ preview:\n\
             id: result_id.clone(),
             kind: NodeResultKind::MainToolCall,
         });
-        let events = vec![MapRuntimeEvent::NodeResultRecorded(
+        let mut events = vec![MapRuntimeEvent::NodeResultRecorded(
             MapRuntimeNodeResultRecordedEvent {
-                map_id,
-                node_id,
+                map_id: map_id.clone(),
+                node_id: node_id.clone(),
                 lease_id,
                 result_id: result_id.clone(),
                 kind: NodeResultKind::MainToolCall.as_str().to_string(),
                 source_thread_id: owner_session_id,
             },
         )];
+        let main_tool_result_count = count_node_results_of_kind(node, NodeResultKind::MainToolCall);
+        if main_tool_result_count > MAIN_TOOL_RESULT_BUDGET_PER_NODE
+            && self.maintenance_barrier.is_none()
+        {
+            let barrier = ActionMapMaintenanceBarrier {
+                map_id: map_id.clone(),
+                node_id: node_id.clone(),
+                reason: MaintenanceBarrierReason::NodeToolResultBudgetExceeded,
+                result_count: main_tool_result_count,
+                budget: MAIN_TOOL_RESULT_BUDGET_PER_NODE,
+            };
+            events.push(maintenance_barrier_raised_event(&barrier));
+            self.maintenance_barrier = Some(barrier);
+        }
         Ok(Some((result_id, events)))
     }
 
-    pub(crate) fn bind_main_node(&mut self, node_id: &str) -> Result<(), String> {
+    pub(crate) fn bind_main_node(&mut self, node_id: &str) -> Result<Vec<MapRuntimeEvent>, String> {
         if self.mode != MapRuntimeMode::Experiment {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let map_id = self.active_map_id.clone().ok_or_else(|| {
             "TaskSpace mode is active but no active task path exists.".to_string()
@@ -321,8 +371,15 @@ preview:\n\
                 "TaskSpace node `{node_id}` is completed; bind an open node or create a follow-up node."
             ));
         }
+        if let Some(barrier) = self.maintenance_barrier.as_ref()
+            && barrier.node_id == node_id
+        {
+            return Err(format!(
+                "TaskSpace maintenance barrier is active for node `{node_id}`; bind a different narrower recovery node or create a follow-up node with taskspace_control(action=create_node, bind_current=true)."
+            ));
+        }
         self.current_main_node_id = Some(node_id.to_string());
-        Ok(())
+        Ok(self.clear_maintenance_barrier_for_recovery(node_id))
     }
 
     pub(crate) fn create_node_for_main(
@@ -421,6 +478,7 @@ preview:\n\
         }
         if bind_current {
             self.current_main_node_id = Some(node_id.clone());
+            events.extend(self.clear_maintenance_barrier_for_recovery(&node_id));
         }
         Ok((node_id, events))
     }
@@ -434,6 +492,7 @@ preview:\n\
             return Ok((None, Vec::new()));
         }
 
+        self.validate_maintenance_barrier()?;
         let mut events = Vec::new();
         let Some(map_id) = self.active_map_id.clone() else {
             return Err(
@@ -677,6 +736,21 @@ preview:\n\
         context.push_str(
             "Use taskspace_control before ordinary work when the active task path needs a new node or when the main action should move to a different existing node. Runtime chooses ids and validates dependencies; do not invent task/map/node ids in natural language.\n",
         );
+        if let Some(barrier) = self.maintenance_barrier.as_ref() {
+            context.push_str("Maintenance barrier:\n- map: ");
+            context.push_str(&barrier.map_id);
+            context.push_str("\n- node: ");
+            context.push_str(&barrier.node_id);
+            context.push_str("\n- reason: ");
+            context.push_str(barrier.reason.as_str());
+            context.push_str("\n- main tool results: ");
+            context.push_str(&barrier.result_count.to_string());
+            context.push_str(" / budget ");
+            context.push_str(&barrier.budget.to_string());
+            context.push_str(
+                "\nOrdinary tools and spawn_agent are blocked. Recover by using taskspace_control to create or bind a different narrower node, or stop and ask the user to restart/reframe the task.\n",
+            );
+        }
         if let Some(map) = self.active_map() {
             context.push_str("Active task path:\n");
             context.push_str("- id: ");
@@ -837,6 +911,35 @@ preview:\n\
             return Err(format!("TaskSpace current node `{node_id}` is missing."));
         }
         Ok(())
+    }
+
+    fn validate_maintenance_barrier(&self) -> Result<(), String> {
+        let Some(barrier) = self.maintenance_barrier.as_ref() else {
+            return Ok(());
+        };
+        Err(format!(
+            "TaskSpace maintenance barrier is active for node `{}` on map `{}`: {} ({} main tool results, budget {}). Ordinary tools and spawn_agent are blocked until you use taskspace_control to create or bind a different narrower node, or stop and ask the user to restart/reframe the task.",
+            barrier.node_id,
+            barrier.map_id,
+            barrier.reason.as_str(),
+            barrier.result_count,
+            barrier.budget
+        ))
+    }
+
+    fn clear_maintenance_barrier_for_recovery(
+        &mut self,
+        recovery_node_id: &str,
+    ) -> Vec<MapRuntimeEvent> {
+        let Some(barrier) = self.maintenance_barrier.as_ref() else {
+            return Vec::new();
+        };
+        if barrier.node_id == recovery_node_id {
+            return Vec::new();
+        }
+        let event = maintenance_barrier_cleared_event(barrier, "bound_recovery_node");
+        self.maintenance_barrier = None;
+        vec![event]
     }
 
     fn next_ready_node_id(&self, map_id: &str) -> Option<MapNodeId> {
@@ -1241,6 +1344,34 @@ fn node_status_changed_event(
     })
 }
 
+fn maintenance_barrier_raised_event(barrier: &ActionMapMaintenanceBarrier) -> MapRuntimeEvent {
+    MapRuntimeEvent::MaintenanceBarrierRaised(MapRuntimeMaintenanceBarrierRaisedEvent {
+        map_id: barrier.map_id.clone(),
+        node_id: barrier.node_id.clone(),
+        reason: barrier.reason.as_str().to_string(),
+        result_count: barrier.result_count,
+        budget: barrier.budget,
+    })
+}
+
+fn maintenance_barrier_cleared_event(
+    barrier: &ActionMapMaintenanceBarrier,
+    reason: impl Into<String>,
+) -> MapRuntimeEvent {
+    MapRuntimeEvent::MaintenanceBarrierCleared(MapRuntimeMaintenanceBarrierClearedEvent {
+        map_id: barrier.map_id.clone(),
+        node_id: barrier.node_id.clone(),
+        reason: reason.into(),
+    })
+}
+
+fn count_node_results_of_kind(node: &MapNode, kind: NodeResultKind) -> usize {
+    node.result_context
+        .iter()
+        .filter(|result| result.kind == kind)
+        .count()
+}
+
 #[cfg(test)]
 fn initial_node_events(map: &ActionMapInstance) -> Vec<MapRuntimeEvent> {
     map.nodes
@@ -1435,6 +1566,178 @@ mod tests {
         assert_eq!(result.kind, NodeResultKind::MainToolCall);
         assert!(result.body.contains("tool: shell"));
         assert!(result.body.contains("preview:\nok"));
+    }
+
+    #[test]
+    fn broad_main_node_hits_maintenance_barrier_after_tool_budget() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (node_id, _) = state
+            .create_node_for_main(
+                owner,
+                "Inspect architecture".to_string(),
+                "Broad inspection node used by the regression fixture.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect("node created");
+
+        for index in 0..MAIN_TOOL_RESULT_BUDGET_PER_NODE {
+            state
+                .prepare_main_tool_call(owner, "shell")
+                .expect("below budget");
+            let (_, events) = state
+                .record_main_tool_result(
+                    owner,
+                    &format!("call-{index}"),
+                    "shell",
+                    true,
+                    "ok".to_string(),
+                )
+                .expect("record succeeds")
+                .expect("result recorded");
+            assert!(
+                !events
+                    .iter()
+                    .any(|event| { matches!(event, MapRuntimeEvent::MaintenanceBarrierRaised(_)) }),
+                "barrier should not raise before budget is exceeded"
+            );
+        }
+
+        state
+            .prepare_main_tool_call(owner, "shell")
+            .expect("the call that exceeds the budget is allowed then recorded");
+        let (_, events) = state
+            .record_main_tool_result(owner, "call-over-budget", "shell", true, "ok".to_string())
+            .expect("record succeeds")
+            .expect("result recorded");
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::MaintenanceBarrierRaised(event)
+                    if event.node_id == node_id
+                        && event.result_count == MAIN_TOOL_RESULT_BUDGET_PER_NODE + 1
+                        && event.budget == MAIN_TOOL_RESULT_BUDGET_PER_NODE
+            )
+        }));
+        let error = state
+            .prepare_main_tool_call(owner, "shell")
+            .expect_err("ordinary tools should be blocked by barrier");
+        assert!(error.contains("maintenance barrier"));
+        let spawn_error = state
+            .prepare_spawn_assignment(owner, "parallel follow-up")
+            .expect_err("spawn should be blocked by barrier");
+        assert!(spawn_error.contains("maintenance barrier"));
+        let context = state.build_developer_context().expect("context");
+        assert!(context.contains("Maintenance barrier"));
+        assert!(context.contains("node_tool_result_budget_exceeded"));
+    }
+
+    #[test]
+    fn maintenance_barrier_can_be_cleared_by_binding_recovery_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .create_node_for_main(
+                owner,
+                "Broad implementation".to_string(),
+                "A broad node that should be split after budget pressure.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect("node created");
+        for index in 0..=MAIN_TOOL_RESULT_BUDGET_PER_NODE {
+            state
+                .prepare_main_tool_call(owner, "shell")
+                .expect("main tool call should be allowed before the barrier is recorded");
+            state
+                .record_main_tool_result(
+                    owner,
+                    &format!("call-{index}"),
+                    "shell",
+                    true,
+                    "ok".to_string(),
+                )
+                .expect("record succeeds");
+        }
+        assert!(state.prepare_main_tool_call(owner, "shell").is_err());
+        let bind_error = state
+            .bind_main_node("node-1")
+            .expect_err("binding the same overgrown node should not clear the barrier");
+        assert!(bind_error.contains("different narrower recovery node"));
+
+        let (recovery_node_id, events) = state
+            .create_node_for_main(
+                owner,
+                "Focused follow-up".to_string(),
+                "Continue with a narrower recovery node.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect("recovery node created");
+
+        assert_eq!(recovery_node_id, "node-2");
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::MaintenanceBarrierCleared(event)
+                    if event.node_id == "node-1" && event.reason == "bound_recovery_node"
+            )
+        }));
+        state
+            .prepare_main_tool_call(owner, "shell")
+            .expect("recovery node should be allowed");
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+    }
+
+    #[test]
+    fn restart_clears_maintenance_barrier_with_event() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .create_node_for_main(
+                owner,
+                "Broad task".to_string(),
+                "A node that has become too broad.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect("node created");
+        for index in 0..=MAIN_TOOL_RESULT_BUDGET_PER_NODE {
+            state
+                .prepare_main_tool_call(owner, "shell")
+                .expect("main tool call should be allowed before the barrier is recorded");
+            state
+                .record_main_tool_result(
+                    owner,
+                    &format!("call-{index}"),
+                    "shell",
+                    true,
+                    "ok".to_string(),
+                )
+                .expect("record succeeds");
+        }
+        assert!(state.prepare_main_tool_call(owner, "shell").is_err());
+
+        let (_, _, events) = state.restart_active_map(owner, "Reborn map");
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::MaintenanceBarrierCleared(event)
+                    if event.node_id == "node-1" && event.reason == "map_restarted"
+            )
+        }));
+        let error = state
+            .prepare_main_tool_call(owner, "shell")
+            .expect_err("new empty map should require a concrete node, not report old barrier");
+        assert!(error.contains("taskspace_control(action=create_node"));
+        let context = state.build_developer_context().expect("context");
+        assert!(!context.contains("Maintenance barrier"));
     }
 
     #[test]

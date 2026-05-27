@@ -1955,6 +1955,26 @@ pub struct MapRuntimeTimeoutSummaryRequestedEvent {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeMaintenanceBarrierRaisedEvent {
+    pub map_id: String,
+    pub node_id: String,
+    pub reason: String,
+    pub result_count: usize,
+    pub budget: usize,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeMaintenanceBarrierClearedEvent {
+    pub map_id: String,
+    pub node_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(tag = "type")]
 pub enum MapRuntimeEvent {
@@ -1967,6 +1987,8 @@ pub enum MapRuntimeEvent {
     LeaseReleased(MapRuntimeLeaseReleasedEvent),
     NodeResultRecorded(MapRuntimeNodeResultRecordedEvent),
     TimeoutSummaryRequested(MapRuntimeTimeoutSummaryRequestedEvent),
+    MaintenanceBarrierRaised(MapRuntimeMaintenanceBarrierRaisedEvent),
+    MaintenanceBarrierCleared(MapRuntimeMaintenanceBarrierClearedEvent),
 }
 
 impl From<MapRuntimeEvent> for EventMsg {

@@ -108,7 +108,7 @@ impl ToolHandler for TaskSpaceControlHandler {
             }
             TaskSpaceControlArgs::BindNode { node_id } => {
                 session
-                    .bind_action_map_main_node(&node_id)
+                    .bind_action_map_main_node(&turn, &node_id)
                     .await
                     .map_err(FunctionCallError::RespondToModel)?;
                 format!("TaskSpace main node bound: {node_id}")

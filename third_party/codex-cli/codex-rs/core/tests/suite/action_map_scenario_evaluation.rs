@@ -31,14 +31,17 @@ use wiremock::Request;
 
 const USER_PROMPT: &str = "请用一个子 agent 调查缓存模块边界，然后继续推进。";
 const CHILD_PROMPT: &str = "调查缓存模块边界";
+const CREATE_NODE_CALL_ID: &str = "create-map-node";
 const SPAWN_CALL_ID: &str = "spawn-map-node";
 
 const REALISTIC_USER_PROMPT: &str =
     "这个沙盒项目有一个缓存 key 相关的回归失败。请先让子 agent 调查边界，再修复代码并验证。";
 const REALISTIC_CHILD_PROMPT: &str = "调查缓存 key 失败边界，阅读 src/cache.py 和测试文件。";
+const REALISTIC_CREATE_NODE_CALL_ID: &str = "create-cache-scope-node";
 const REALISTIC_SPAWN_CALL_ID: &str = "spawn-cache-scope-agent";
 const REALISTIC_CHILD_READ_CALL_ID: &str = "child-read-cache-files";
 const REALISTIC_WAIT_CALL_ID: &str = "parent-wait-cache-scope-agent";
+const REALISTIC_IMPLEMENT_NODE_CALL_ID: &str = "create-cache-fix-node";
 const REALISTIC_PATCH_CALL_ID: &str = "parent-apply-cache-fix";
 const REALISTIC_TEST_CALL_ID: &str = "parent-run-cache-validation";
 
@@ -47,6 +50,12 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
+    let create_node_args = serde_json::to_string(&json!({
+        "action": "create_node",
+        "title": "调查缓存模块边界",
+        "context_summary": "创建一个用于子 agent 调查缓存模块边界的 TaskSpace 节点。",
+        "bind_current": true,
+    }))?;
     let spawn_args = serde_json::to_string(&json!({
         "message": CHILD_PROMPT,
         "task_name": "scope",
@@ -57,8 +66,18 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
         |req: &Request| body_contains(req, USER_PROMPT),
         sse(vec![
             ev_response_created("resp-parent-1"),
-            ev_function_call(SPAWN_CALL_ID, "spawn_agent", &spawn_args),
+            ev_function_call(CREATE_NODE_CALL_ID, "taskspace_control", &create_node_args),
             ev_completed("resp-parent-1"),
+        ]),
+    )
+    .await;
+    responses::mount_sse_once_match(
+        &server,
+        |req: &Request| body_contains(req, CREATE_NODE_CALL_ID),
+        sse(vec![
+            ev_response_created("resp-parent-2"),
+            ev_function_call(SPAWN_CALL_ID, "spawn_agent", &spawn_args),
+            ev_completed("resp-parent-2"),
         ]),
     )
     .await;
@@ -79,9 +98,9 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
         &server,
         |req: &Request| body_contains(req, SPAWN_CALL_ID),
         sse(vec![
-            ev_response_created("resp-parent-2"),
-            ev_assistant_message("msg-parent-2", "已收到子 agent 完成通知。"),
-            ev_completed("resp-parent-2"),
+            ev_response_created("resp-parent-3"),
+            ev_assistant_message("msg-parent-3", "已收到子 agent 完成通知。"),
+            ev_completed("resp-parent-3"),
         ]),
     )
     .await;
@@ -197,11 +216,10 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
     assert!(
         request_bodies.iter().any(|body| {
             let text = body.to_string();
-            text.contains("TaskSpace node assignment") && text.contains("Node: define_scope")
+            text.contains("TaskSpace node assignment") && text.contains("Node: node-1")
         }),
         "child model request should include the TaskSpace node assignment"
     );
-
     let rollout_path = harness
         .test()
         .codex
@@ -222,6 +240,15 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
     }
     assert_eq!(count_event(&timeline, "lease_created"), 1);
     assert_eq!(count_event(&timeline, "lease_released"), 1);
+    assert!(
+        timeline.iter().any(|event| {
+            let text = event.to_string();
+            text.contains("node_result_recorded")
+                && text.contains("node-2")
+                && text.contains("main_tool_call")
+        }),
+        "parent patch and validation results should be recorded on the follow-up implementation node"
+    );
 
     write_realistic_artifacts(
         &timeline,
@@ -258,6 +285,12 @@ def test_cache_key_normalizes_key():\n    assert cache_key(\"Users\", \"ABC\") =
 }
 
 async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Result<()> {
+    let create_node_args = serde_json::to_string(&json!({
+        "action": "create_node",
+        "title": "调查缓存 key 失败边界",
+        "context_summary": "创建一个用于子 agent 阅读缓存代码和测试的 TaskSpace 节点。",
+        "bind_current": true,
+    }))?;
     let spawn_args = serde_json::to_string(&json!({
         "message": REALISTIC_CHILD_PROMPT,
         "task_name": "scope",
@@ -265,6 +298,21 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
     responses::mount_sse_once_match(
         harness.server(),
         |req: &Request| body_contains(req, REALISTIC_USER_PROMPT),
+        sse(vec![
+            ev_response_created("resp-parent-create-node"),
+            ev_function_call(
+                REALISTIC_CREATE_NODE_CALL_ID,
+                "taskspace_control",
+                &create_node_args,
+            ),
+            ev_completed("resp-parent-create-node"),
+        ]),
+    )
+    .await;
+
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, REALISTIC_CREATE_NODE_CALL_ID),
         sse(vec![
             ev_response_created("resp-parent-spawn"),
             ev_function_call(REALISTIC_SPAWN_CALL_ID, "spawn_agent", &spawn_args),
@@ -305,6 +353,12 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
     .await;
 
     let wait_args = serde_json::to_string(&json!({ "timeout_ms": 10_000 }))?;
+    let implementation_node_args = serde_json::to_string(&json!({
+        "action": "create_node",
+        "title": "Fix cache key normalization",
+        "context_summary": "Implement the cache key namespace normalization fix after the boundary investigation finished.",
+        "bind_current": true,
+    }))?;
     responses::mount_sse_once_match(
         harness.server(),
         |req: &Request| body_contains(req, REALISTIC_SPAWN_CALL_ID),
@@ -332,6 +386,21 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
     responses::mount_sse_once_match(
         harness.server(),
         |req: &Request| body_contains(req, REALISTIC_WAIT_CALL_ID),
+        sse(vec![
+            ev_response_created("resp-parent-create-implementation-node"),
+            ev_function_call(
+                REALISTIC_IMPLEMENT_NODE_CALL_ID,
+                "taskspace_control",
+                &implementation_node_args,
+            ),
+            ev_completed("resp-parent-create-implementation-node"),
+        ]),
+    )
+    .await;
+
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, REALISTIC_IMPLEMENT_NODE_CALL_ID),
         sse(vec![
             ev_response_created("resp-parent-patch"),
             ev_apply_patch_function_call(REALISTIC_PATCH_CALL_ID, patch),
@@ -411,6 +480,8 @@ fn is_map_runtime_event(value: &Value) -> bool {
         "lease_released",
         "node_result_recorded",
         "timeout_summary_requested",
+        "maintenance_barrier_raised",
+        "maintenance_barrier_cleared",
     ]
     .iter()
     .any(|event_type| text.contains(event_type))
