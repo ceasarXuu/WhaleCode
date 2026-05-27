@@ -1331,6 +1331,48 @@ async fn build_initial_context_consumes_action_map_transition_notice_once() {
 }
 
 #[tokio::test]
+async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() {
+    let (session, turn_context) = make_session_and_context().await;
+    {
+        let mut state = session.state.lock().await;
+        state.set_reference_context_item(Some(turn_context.to_turn_context_item()));
+        state
+            .action_map_runtime
+            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
+        state
+            .action_map_runtime
+            .start_task_for_main(
+                session.conversation_id,
+                "Architecture review".to_string(),
+                "Find structure risks.".to_string(),
+                "Scope review".to_string(),
+                "Collect current architecture scope.".to_string(),
+                false,
+            )
+            .expect("task starts");
+    }
+
+    session
+        .record_context_updates_and_set_reference_context_item(&turn_context)
+        .await;
+
+    let history = session.clone_history().await;
+    let developer_text = developer_input_texts(history.raw_items()).join("\n");
+    assert!(
+        developer_text.contains("Task inventory:"),
+        "expected TaskSpace inventory update in steady-state context: {developer_text}"
+    );
+    assert!(
+        developer_text.contains("task-1 [active] Architecture review active_map=map-1"),
+        "expected latest task entry in steady-state context: {developer_text}"
+    );
+    assert!(
+        developer_text.contains("taskspace_control(action=route_task)"),
+        "expected explicit routing instruction in steady-state context: {developer_text}"
+    );
+}
+
+#[tokio::test]
 async fn resumed_history_injects_initial_context_on_first_context_update_only() {
     let (session, turn_context) = make_session_and_context().await;
     let (rollout_items, mut expected) = sample_rollout(&session, &turn_context).await;

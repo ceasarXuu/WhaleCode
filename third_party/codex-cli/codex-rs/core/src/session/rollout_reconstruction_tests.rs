@@ -1,6 +1,7 @@
 use super::*;
 
 use super::tests::make_session_and_context;
+use crate::action_map::ActionMapRuntimeState;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::models::ContentItem;
@@ -9,6 +10,7 @@ use codex_protocol::protocol::CompactedItem;
 use codex_protocol::protocol::InitialHistory;
 use codex_protocol::protocol::InterAgentCommunication;
 use codex_protocol::protocol::MapRuntimeModeChangedEvent;
+use codex_protocol::protocol::MapRuntimeSnapshotUpdatedEvent;
 use codex_protocol::protocol::ResumedHistory;
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
@@ -79,6 +81,35 @@ async fn reconstruct_history_restores_latest_map_runtime_mode() {
         .await;
 
     assert_eq!(reconstructed.map_runtime_mode, MapRuntimeMode::Standard);
+}
+
+#[tokio::test]
+async fn reconstruct_history_restores_latest_map_runtime_snapshot() {
+    let (session, turn_context) = make_session_and_context().await;
+    let mut runtime = ActionMapRuntimeState::default();
+    runtime.set_mode(MapRuntimeMode::Experiment);
+    runtime
+        .start_task_for_main(
+            session.conversation_id,
+            "Architecture review".to_string(),
+            "Find structure risks.".to_string(),
+            "Scope review".to_string(),
+            "Collect architecture scope.".to_string(),
+            false,
+        )
+        .expect("task starts");
+    let snapshot = runtime.snapshot();
+    let rollout_items = vec![RolloutItem::EventMsg(EventMsg::MapRuntime(
+        MapRuntimeEvent::SnapshotUpdated(MapRuntimeSnapshotUpdatedEvent {
+            snapshot: snapshot.clone(),
+        }),
+    ))];
+
+    let reconstructed = session
+        .reconstruct_history_from_rollout(&turn_context, &rollout_items)
+        .await;
+
+    assert_eq!(reconstructed.map_runtime_snapshot, Some(snapshot));
 }
 
 #[tokio::test]

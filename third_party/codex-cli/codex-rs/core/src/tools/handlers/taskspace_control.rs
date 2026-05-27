@@ -16,6 +16,18 @@ pub struct TaskSpaceControlHandler;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 enum TaskSpaceControlArgs {
+    StartTask {
+        task_title: String,
+        #[serde(default)]
+        task_objective: String,
+        node_title: String,
+        node_context_summary: String,
+        #[serde(default)]
+        bind_current: bool,
+    },
+    RouteTask {
+        task_id: String,
+    },
     CreateNode {
         title: String,
         context_summary: String,
@@ -94,6 +106,39 @@ impl ToolHandler for TaskSpaceControlHandler {
         };
         let args: TaskSpaceControlArgs = parse_arguments(&arguments)?;
         let message = match args {
+            TaskSpaceControlArgs::StartTask {
+                task_title,
+                task_objective,
+                node_title,
+                node_context_summary,
+                bind_current,
+            } => {
+                let (task_id, map_id, node_id) = session
+                    .start_action_map_task_for_main(
+                        &turn,
+                        task_title,
+                        task_objective,
+                        node_title,
+                        node_context_summary,
+                        bind_current,
+                    )
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                if bind_current {
+                    format!(
+                        "TaskSpace task started and bound: task={task_id} map={map_id} node={node_id}"
+                    )
+                } else {
+                    format!("TaskSpace task started: task={task_id} map={map_id} node={node_id}")
+                }
+            }
+            TaskSpaceControlArgs::RouteTask { task_id } => {
+                session
+                    .route_action_map_task_for_main(&turn, &task_id)
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                format!("TaskSpace task routed: {task_id}")
+            }
             TaskSpaceControlArgs::CreateNode {
                 title,
                 context_summary,

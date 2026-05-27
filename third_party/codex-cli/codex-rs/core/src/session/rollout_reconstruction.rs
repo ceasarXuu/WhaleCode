@@ -9,6 +9,7 @@ pub(super) struct RolloutReconstruction {
     pub(super) previous_turn_settings: Option<PreviousTurnSettings>,
     pub(super) reference_context_item: Option<TurnContextItem>,
     pub(super) map_runtime_mode: MapRuntimeMode,
+    pub(super) map_runtime_snapshot: Option<ActionMapSnapshot>,
 }
 
 #[derive(Debug, Default)]
@@ -111,6 +112,12 @@ impl Session {
                 _ => None,
             })
             .unwrap_or_default();
+        let map_runtime_snapshot = rollout_items.iter().rev().find_map(|item| match item {
+            RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
+                event,
+            ))) => Some(event.snapshot.clone()),
+            _ => None,
+        });
         // Borrowed suffix of rollout items newer than the newest surviving replacement-history
         // checkpoint. If no such checkpoint exists, this remains the full rollout.
         let mut rollout_suffix = rollout_items;
@@ -308,6 +315,7 @@ impl Session {
             previous_turn_settings,
             reference_context_item,
             map_runtime_mode,
+            map_runtime_snapshot,
         }
     }
 }

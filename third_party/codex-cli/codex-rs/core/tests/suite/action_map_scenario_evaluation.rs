@@ -230,6 +230,7 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
     let timeline = map_runtime_timeline(&rollout)?;
     for event_type in [
         "mode_changed",
+        "task_created",
         "map_created",
         "node_status_changed",
         "lease_created",
@@ -494,6 +495,9 @@ fn is_map_runtime_event(value: &Value) -> bool {
     let text = value.to_string();
     [
         "mode_changed",
+        "task_created",
+        "task_status_changed",
+        "task_routed",
         "map_created",
         "map_status_changed",
         "node_status_changed",
@@ -504,6 +508,7 @@ fn is_map_runtime_event(value: &Value) -> bool {
         "timeout_summary_requested",
         "maintenance_barrier_raised",
         "maintenance_barrier_cleared",
+        "snapshot_updated",
     ]
     .iter()
     .any(|event_type| text.contains(event_type))

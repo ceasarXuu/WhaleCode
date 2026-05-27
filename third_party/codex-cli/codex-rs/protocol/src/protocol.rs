@@ -1797,6 +1797,7 @@ pub struct ActionMapSnapshot {
     pub active_map_id: Option<String>,
     pub tasks: Vec<ActionMapSnapshotTask>,
     pub maps: Vec<ActionMapSnapshotMap>,
+    pub maintenance_barriers: Vec<ActionMapSnapshotMaintenanceBarrier>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -1862,6 +1863,7 @@ pub struct ActionMapSnapshotLease {
     pub map_id: String,
     pub node_id: String,
     pub holder: String,
+    pub previous_node_status: String,
     pub agent_thread_id: Option<ThreadId>,
     pub agent_path: Option<String>,
 }
@@ -1883,6 +1885,17 @@ pub struct ActionMapSnapshotResult {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotMaintenanceBarrier {
+    pub map_id: String,
+    pub node_id: String,
+    pub reason: String,
+    pub result_count: usize,
+    pub budget: usize,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct MapRuntimeModeChangedEvent {
     pub previous_mode: MapRuntimeMode,
     pub current_mode: MapRuntimeMode,
@@ -1896,6 +1909,36 @@ pub struct MapRuntimeMapCreatedEvent {
     pub title: String,
     pub owner_session_id: Option<ThreadId>,
     pub created_from: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeTaskCreatedEvent {
+    pub task_id: String,
+    pub title: String,
+    pub objective: String,
+    pub owner_session_id: Option<ThreadId>,
+    pub active_map_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeTaskStatusChangedEvent {
+    pub task_id: String,
+    pub previous_status: String,
+    pub current_status: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeTaskRoutedEvent {
+    pub previous_task_id: Option<String>,
+    pub current_task_id: String,
+    pub previous_map_id: Option<String>,
+    pub current_map_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -1994,10 +2037,20 @@ pub struct MapRuntimeMaintenanceBarrierClearedEvent {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeSnapshotUpdatedEvent {
+    pub snapshot: ActionMapSnapshot,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(tag = "type")]
 pub enum MapRuntimeEvent {
     ModeChanged(MapRuntimeModeChangedEvent),
+    TaskCreated(MapRuntimeTaskCreatedEvent),
+    TaskStatusChanged(MapRuntimeTaskStatusChangedEvent),
+    TaskRouted(MapRuntimeTaskRoutedEvent),
     MapCreated(MapRuntimeMapCreatedEvent),
     MapStatusChanged(MapRuntimeMapStatusChangedEvent),
     NodeStatusChanged(MapRuntimeNodeStatusChangedEvent),
@@ -2008,6 +2061,7 @@ pub enum MapRuntimeEvent {
     TimeoutSummaryRequested(MapRuntimeTimeoutSummaryRequestedEvent),
     MaintenanceBarrierRaised(MapRuntimeMaintenanceBarrierRaisedEvent),
     MaintenanceBarrierCleared(MapRuntimeMaintenanceBarrierClearedEvent),
+    SnapshotUpdated(MapRuntimeSnapshotUpdatedEvent),
 }
 
 impl From<MapRuntimeEvent> for EventMsg {

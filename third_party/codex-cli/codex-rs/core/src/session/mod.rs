@@ -338,6 +338,7 @@ use codex_protocol::protocol::ExecApprovalRequestEvent;
 use codex_protocol::protocol::InitialHistory;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
+use codex_protocol::protocol::MapRuntimeSnapshotUpdatedEvent;
 use codex_protocol::protocol::McpServerRefreshConfig;
 use codex_protocol::protocol::ModelRerouteEvent;
 use codex_protocol::protocol::ModelRerouteReason;
@@ -982,6 +983,47 @@ impl Session {
         Ok(node_id)
     }
 
+    pub(crate) async fn start_action_map_task_for_main(
+        &self,
+        turn_context: &TurnContext,
+        task_title: String,
+        task_objective: String,
+        node_title: String,
+        node_context_summary: String,
+        bind_current: bool,
+    ) -> Result<(String, String, String), String> {
+        let (task_id, map_id, node_id, events) = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.start_task_for_main(
+                self.conversation_id,
+                task_title,
+                task_objective,
+                node_title,
+                node_context_summary,
+                bind_current,
+            )
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok((task_id, map_id, node_id))
+    }
+
+    pub(crate) async fn route_action_map_task_for_main(
+        &self,
+        turn_context: &TurnContext,
+        task_id: &str,
+    ) -> Result<(), String> {
+        let events = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .route_task_for_main(self.conversation_id, task_id)
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(())
+    }
+
     pub(crate) async fn finish_action_map_main_node(
         &self,
         turn_context: &TurnContext,
@@ -1172,17 +1214,45 @@ impl Session {
         turn_context: &TurnContext,
         events: Vec<MapRuntimeEvent>,
     ) {
+        let emit_snapshot = !events.is_empty();
         for event in events {
             self.send_event(turn_context, EventMsg::MapRuntime(event))
                 .await;
         }
+        if emit_snapshot {
+            let snapshot = {
+                let state = self.state.lock().await;
+                state.action_map_runtime.snapshot()
+            };
+            self.send_event(
+                turn_context,
+                EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
+                    MapRuntimeSnapshotUpdatedEvent { snapshot },
+                )),
+            )
+            .await;
+        }
     }
 
     async fn emit_action_map_events_raw(&self, events: Vec<MapRuntimeEvent>) {
+        let emit_snapshot = !events.is_empty();
         for event in events {
             self.send_event_raw(Event {
                 id: self.next_internal_sub_id(),
                 msg: EventMsg::MapRuntime(event),
+            })
+            .await;
+        }
+        if emit_snapshot {
+            let snapshot = {
+                let state = self.state.lock().await;
+                state.action_map_runtime.snapshot()
+            };
+            self.send_event_raw(Event {
+                id: self.next_internal_sub_id(),
+                msg: EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
+                    MapRuntimeSnapshotUpdatedEvent { snapshot },
+                )),
             })
             .await;
         }
@@ -1570,9 +1640,13 @@ impl Session {
         .await;
         {
             let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .restore_mode(reconstructed_rollout.map_runtime_mode);
+            if let Some(snapshot) = reconstructed_rollout.map_runtime_snapshot {
+                state.action_map_runtime.restore_snapshot(snapshot);
+            } else {
+                state
+                    .action_map_runtime
+                    .restore_mode(reconstructed_rollout.map_runtime_mode);
+            }
         }
         self.set_previous_turn_settings(previous_turn_settings.clone())
             .await;
@@ -3099,13 +3173,24 @@ impl Session {
             state.reference_context_item()
         };
         let should_inject_full_context = reference_context_item.is_none();
-        let context_items = if should_inject_full_context {
+        let mut context_items = if should_inject_full_context {
             self.build_initial_context(turn_context).await
         } else {
             // Steady-state path: append only context diffs to minimize token overhead.
             self.build_settings_update_items(reference_context_item.as_ref(), turn_context)
                 .await
         };
+        if !should_inject_full_context
+            && let Some(action_map_context) = {
+                let state = self.state.lock().await;
+                state.action_map_runtime.build_developer_context()
+            }
+            && let Some(item) = crate::context_manager::updates::build_developer_update_item(vec![
+                action_map_context,
+            ])
+        {
+            context_items.push(item);
+        }
         let turn_context_item = turn_context.to_turn_context_item();
         if !context_items.is_empty() {
             self.record_conversation_items(turn_context, &context_items)

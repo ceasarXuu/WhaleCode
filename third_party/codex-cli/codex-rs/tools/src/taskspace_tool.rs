@@ -3,13 +3,59 @@ use std::collections::BTreeMap;
 use crate::JsonSchema;
 use crate::ResponsesApiTool;
 use crate::ToolSpec;
+use serde_json::json;
 
 pub fn create_taskspace_control_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
             "action".to_string(),
+            JsonSchema::string_enum(
+                vec![
+                    json!("start_task"),
+                    json!("route_task"),
+                    json!("create_node"),
+                    json!("bind_node"),
+                    json!("finish_node"),
+                    json!("block_node"),
+                ],
+                Some(
+                "One of: start_task, route_task, create_node, bind_node, finish_node, block_node. Use only for TaskSpace runtime control."
+                    .to_string(),
+                ),
+            ),
+        ),
+        (
+            "task_id".to_string(),
             JsonSchema::string(Some(
-                "One of: create_node, bind_node, finish_node, block_node. Use only for TaskSpace runtime control."
+                "Required for route_task. Existing task id from the TaskSpace task inventory."
+                    .to_string(),
+            )),
+        ),
+        (
+            "task_title".to_string(),
+            JsonSchema::string(Some(
+                "Required for start_task. Human-readable title for the new semantic task."
+                    .to_string(),
+            )),
+        ),
+        (
+            "task_objective".to_string(),
+            JsonSchema::string(Some(
+                "Optional for start_task. Concise objective for the new semantic task."
+                    .to_string(),
+            )),
+        ),
+        (
+            "node_title".to_string(),
+            JsonSchema::string(Some(
+                "Required for start_task. Human-readable title for the first concrete node."
+                    .to_string(),
+            )),
+        ),
+        (
+            "node_context_summary".to_string(),
+            JsonSchema::string(Some(
+                "Required for start_task. Concise context the first node should carry."
                     .to_string(),
             )),
         ),
@@ -35,7 +81,8 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
         (
             "bind_current".to_string(),
             JsonSchema::boolean(Some(
-                "For create_node, bind the main agent to the new node immediately.".to_string(),
+                "For start_task or create_node, bind the main agent to the new node immediately."
+                    .to_string(),
             )),
         ),
         (
@@ -75,6 +122,8 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
 Use this only when TaskSpace is enabled and you need to update task-map structure before ordinary work.
 
 Supported actions:
+- `start_task`: create a new semantic task, its active task path, and the first concrete node. Use this when the current user request does not belong to an existing task in the TaskSpace task inventory.
+- `route_task`: switch the active task path to an existing task chosen by the agent from the TaskSpace task inventory. Runtime validates the id but does not perform semantic matching.
 - `create_node`: create a concrete node in the active task path. If no task path exists yet, this initializes a new empty task path first; BaseMap candidate nodes are guidance, not automatic graph nodes.
 - `bind_node`: bind the main agent's next ordinary action to an existing ready or blocked node that is not held by a subagent.
 - `finish_node`: record the current main node's result, mark it completed, and optionally bind a next node.
