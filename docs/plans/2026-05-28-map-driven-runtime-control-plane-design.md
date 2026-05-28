@@ -1,5 +1,31 @@
 # TaskSpace Map 驱动控制面设计
 
+## 第二次升级重构定位
+
+这是 TaskSpace / Action Map 的第二次升级重构方案。
+
+第一次升级已经解决了基础运行问题：
+
+- `/taskspace` 不再自动创建默认模板 map。
+- 自然用户请求进入 TaskSpace 后，agent 必须先创建或绑定 task/node。
+- 普通工具结果可以归属到当前 node。
+- 验证命令结果可以被观测并归属到验证节点。
+
+第二次升级要解决的是更高一层的问题：
+
+```text
+map 不应只是行动之后的记录结构，
+而应成为行动之前的控制结构。
+```
+
+这次重构的核心交付不是更多节点模板，也不是更强 prompt，而是一个可验证的 runtime 控制面：
+
+```text
+node kind + action class + runtime gate
+```
+
+只有当当前 node 的 contract 允许当前 action class 时，普通工具才可以执行。否则 runtime 阻断工具调用，并要求 agent 先维护 map：finish、split、bind、ask user 或 reborn。
+
 ## 目标
 
 这份文档补充 `2026-05-22-taskspace-runtime-design.md` 和 `2026-05-27-taskspace-runtime-rearchitecture-implementation-plan.md`，专门解决自然用户 E2E 暴露出的核心问题：
@@ -40,6 +66,29 @@ target/real-user-e2e/action-map-natural-user-order-pipeline/20260528-150009-462/
 | node-1 回到 `ready`，只有 node-2 completed | node 生命周期不收敛 |
 
 这说明当前 TaskSpace 的失败不是“没生效”，而是“生效层级太低”。它约束了归档位置，但没有约束行动路线。
+
+## 第二次重构成功标准
+
+这次重构完成后，自然用户 E2E 不应只是证明“agent 会创建 node”，而要证明：
+
+| 成功标准 | 说明 |
+|---|---|
+| 行动先被 map 约束 | 每个普通工具调用前，runtime 都知道当前 task/map/node/kind |
+| Edit 不会发生在 inspect node | 代码修改必须先进入 implementation kind |
+| Test 不会混入 implementation 主体 | 测试可以在 implementation 中做局部验证，但最终通过性验证必须进入 test kind |
+| 宽泛 node 会被迫拆分 | 单个 node 吸收过多工具结果或请求不匹配 action 时，runtime 要求 split/bind |
+| 前序 node 能收敛 | 从一个 node 推进到下一个 node 时，前序 node 必须 completed 或 blocked |
+| E2E 从 title 判断迁移到 kind 判断 | 测试不再依赖自然语言标题正则作为主 gate |
+
+负向验收同样重要：
+
+| 负向场景 | 预期 |
+|---|---|
+| `InspectCodeContext` 下调用 `apply_patch` | 阻断 |
+| `RegressionTest` 下调用 `apply_patch` | 阻断 |
+| 无 current main lease 时普通工具调用 | 阻断 |
+| `Custom` node 下请求 Edit/Test/Spawn | 阻断，并要求 split 到具体 kind |
+| `taskspace_control` 失败后同轮普通工具继续执行 | 阻断 |
 
 ## 当前问题
 
@@ -479,6 +528,27 @@ Call taskspace_control with one of:
 
 ## 分阶段实施
 
+### Phase 0：现状保护与失败用例固化
+
+目标：在重构前把当前失败形态变成稳定回归用例，避免后续只是让报告变绿。
+
+改动：
+
+- 保留 `run-action-map-real-user-e2e.ps1` 作为自然用户有效性门槛。
+- 增加两个负向 fixture：
+  - inspect node 中请求 edit 必须失败。
+  - test node 中请求 edit 必须失败。
+- 报告继续输出：
+  - first binding evidence
+  - action attribution
+  - pytest owner node
+  - node status timeline
+
+验收：
+
+- 当前自然用户 E2E 仍然失败，失败原因保持为 map 健康生长不足。
+- 负向 fixture 能证明 runtime gate 真正阻断工具执行，而不是只在 prompt 中建议。
+
 ### Phase 1：NodeKind 数据模型
 
 目标：摆脱 title 正则。
@@ -565,6 +635,55 @@ Call taskspace_control with one of:
   - Edit 归属 implementation
   - Test 归属 test
   - 所有前序 node completed 或明确 blocked
+
+## 最小可交付切片
+
+第二次重构可以先交付一个最小闭环，不必一次实现所有 contract。
+
+最小闭环只要求：
+
+1. `NodeKind` 支持 `InspectCodeContext`、`ImplementSolution`、`RegressionTest`、`FinalSynthesis`、`Custom`。
+2. `ActionClass` 支持 `Read`、`Edit`、`Test`、`Control`、`Unknown`。
+3. runtime 阻断：
+   - `InspectCodeContext -> Edit`
+   - `RegressionTest -> Edit`
+   - `FinalSynthesis -> Edit/Test`
+   - `Custom -> Edit/Test`
+4. 支持 `finish_current_and_bind_next`。
+5. 自然用户 E2E 至少产生：
+
+```text
+InspectCodeContext -> ImplementSolution -> RegressionTest
+```
+
+这个切片能直接验证 map 驱动力，不需要先引入复杂 subagent、多领域 map、质量评分或完整 DAG 治理。
+
+## 与第一次升级的边界
+
+第一阶段已经建立了 TaskSpace 的存在性约束：
+
+```text
+没有 task/node binding，就不能普通工具调用。
+```
+
+第二阶段建立 TaskSpace 的行动约束：
+
+```text
+有 task/node binding，但 node kind 不允许当前 action，也不能普通工具调用。
+```
+
+二者关系如下：
+
+```mermaid
+flowchart TD
+  A["TaskSpace enabled"] --> B{"是否有 active task/map/node lease"}
+  B -->|"否"| C["第一阶段 gate 阻断"]
+  B -->|"是"| D{"node kind 是否允许 action class"}
+  D -->|"否"| E["第二阶段 gate 阻断"]
+  D -->|"是"| F["执行工具并归属结果"]
+```
+
+这能保证第二次重构不会推翻第一次重构，而是在同一条工具执行路径上增加更细的结构约束。
 
 ## 风险和取舍
 
