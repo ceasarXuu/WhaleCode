@@ -24,7 +24,7 @@ map 不应只是行动之后的记录结构，
 node kind + action class + runtime gate
 ```
 
-只有当当前 node 的 contract 允许当前 action class 时，普通工具才可以执行。否则 runtime 阻断工具调用，并要求 agent 先维护 map：finish、split、bind、ask user 或 reborn。
+只有当当前 node 的 contract 允许当前 action class 时，普通工具才可以执行。否则 runtime 阻断工具调用，并要求 agent 先维护 map：finish、create/bind、block、ask user 或 reborn。
 
 ## 目标
 
@@ -76,7 +76,7 @@ target/real-user-e2e/action-map-natural-user-order-pipeline/20260528-150009-462/
 | 行动先被 map 约束 | 每个普通工具调用前，runtime 都知道当前 task/map/node/kind |
 | Edit 不会发生在 inspect node | 代码修改必须先进入 implementation kind |
 | Test 不会混入 implementation 主体 | 测试动作必须先切换到 `SmokeTest` 或 `RegressionTest` kind，避免 implementation node 顺手吞掉验证阶段 |
-| 宽泛 node 会被迫拆分 | 单个 node 吸收过多工具结果或请求不匹配 action 时，runtime 要求 split/bind |
+| 宽泛 node 会被迫收敛 | 单个 node 吸收过多工具结果或请求不匹配 action 时，runtime 要求先 finish/block，再创建或绑定具体 kind node |
 | 前序 node 能收敛 | 从一个 node 推进到下一个 node 时，前序 node 必须 completed 或 blocked |
 | E2E 从 title 判断迁移到 kind 判断 | 测试不再依赖自然语言标题正则作为主 gate |
 
@@ -87,7 +87,7 @@ target/real-user-e2e/action-map-natural-user-order-pipeline/20260528-150009-462/
 | `InspectCodeContext` 下调用 `apply_patch` | 阻断 |
 | `RegressionTest` 下调用 `apply_patch` | 阻断 |
 | 无 current main lease 时普通工具调用 | 阻断 |
-| `Custom` node 下请求 Edit/Test/Spawn | 阻断，并要求 split 到具体 kind |
+| `Custom` node 下请求 Edit/Test/Spawn | 阻断，并要求进入具体 kind |
 | `taskspace_control` 失败后同轮普通工具继续执行 | 阻断 |
 
 ## 当前问题
@@ -175,7 +175,7 @@ flowchart TD
   Classify --> Gate{"action class 是否被 node kind 允许"}
   Gate -->|允许| Execute["执行工具"]
   Execute --> Record["结果写入当前 node"]
-  Record --> Decide["agent 决定继续/finish/split/bind"]
+  Record --> Decide["agent 决定继续/finish/create/bind"]
   Decide --> Node
   Gate -->|拒绝| Block["阻断工具调用"]
   Block --> Control["要求 taskspace_control"]
@@ -188,20 +188,12 @@ flowchart TD
 
 ### NodeKind
 
-第一版不追求覆盖所有领域，只使用 BaseMap 的稳定工程节点。
+第一版不追求覆盖所有领域，只实现最小核心 kind。BaseMap metadata 仍可暴露更多候选节点示例，帮助 agent 起标题和拆任务；但第一版 runtime 强 gate 只识别下面这些 kind，其余候选先作为 prompt guidance，不进入硬约束。
 
 ```rust
 enum NodeKind {
-    DefineScope,
     InspectCodeContext,
-    ResearchExternalContext,
-    IdentifyConstraints,
-    DesignSolution,
-    DesignLogging,
-    DesignTests,
-    ReviewSolution,
     ImplementSolution,
-    ReviewCode,
     SmokeTest,
     RegressionTest,
     FinalSynthesis,
@@ -212,7 +204,7 @@ enum NodeKind {
 说明：
 
 - `Custom` 只作为无法归类时的临时承载，默认只允许 Read/Search/Control。
-- `NodeKind` 来自 BaseMap metadata，agent 创建 node 时必须选择一个 kind。
+- agent 创建 node 时必须选择一个第一版支持的 kind。
 - `title` 可以是自然语言，例如 `Fix invoice discount path`，但 kind 应是 `ImplementSolution`。
 
 ### ActionClass
@@ -234,7 +226,7 @@ enum ActionClass {
 }
 ```
 
-建议分类规则：
+分类规则：
 
 | ActionClass | 识别方式 |
 |---|---|
@@ -259,10 +251,8 @@ enum ActionClass {
 struct NodeContract {
     kind: NodeKind,
     allowed_actions: Vec<ActionClass>,
-    discouraged_actions: Vec<ActionClass>,
     max_main_tool_results_before_split_hint: u32,
     requires_summary_on_finish: bool,
-    allowed_next_kinds: Vec<NodeKind>,
 }
 ```
 
@@ -270,16 +260,12 @@ struct NodeContract {
 
 | NodeKind | 允许行动 | 禁止或强阻断 |
 |---|---|---|
-| `DefineScope` | Read, Search, Control, FinalResponse | Edit, Test, Spawn |
-| `InspectCodeContext` | Read, Search, Control, Spawn | Edit, Test |
-| `DesignSolution` | Read, Search, Review, Control, FinalResponse | Edit, Test |
-| `DesignTests` | Read, Search, Control | Edit 可选阻断，Test 阻断 |
+| `InspectCodeContext` | Read, Search, Control | Edit, Test, Spawn |
 | `ImplementSolution` | Read, Search, Edit, Control | Test 需切换到 `SmokeTest` 或 `RegressionTest` |
-| `ReviewCode` | Read, Search, Review, Control | Edit 默认阻断，除非小修复 explicitly allowed |
 | `SmokeTest` | Read, Test, Control | Edit |
 | `RegressionTest` | Read, Test, Control | Edit |
 | `FinalSynthesis` | Read, FinalResponse, Control | Edit, Test, Spawn |
-| `Custom` | Read, Search, Control | Edit/Test/Spawn 需先拆成具体 kind |
+| `Custom` | Read, Search, Control | Edit/Test/Spawn 需先进入具体 kind |
 
 这个表不是质量判断，只是行动类型约束。
 
@@ -314,7 +300,7 @@ TaskSpace blocked this tool call.
 Current node kind: InspectCodeContext
 Requested action class: Edit
 Reason: InspectCodeContext does not allow Edit.
-Call taskspace_control to finish/split/bind an ImplementSolution node before editing.
+Call taskspace_control to finish the current node and bind or create an ImplementSolution node before editing.
 ```
 
 ## 控制动作补充
@@ -344,8 +330,8 @@ Call taskspace_control to finish/split/bind an ImplementSolution node before edi
 
 runtime 校验：
 
-- `kind` 必须是 BaseMap 暴露的候选 kind 或 `Custom`。
-- `Custom` 需要 `custom_kind_reason`。
+- `kind` 必须是第一版核心 kind 或 `Custom`。
+- BaseMap 中未进入第一版 runtime 的候选节点只作为标题和任务拆分参考。
 - 宽泛 title 不影响 runtime，但宽泛 kind 会触发预算。
 
 ### start_task 初始 map 必须包含 kind
@@ -369,7 +355,7 @@ runtime 校验：
 
 当前代码已经有 `finish_node`，并支持 `next_node_id` 绑定既有节点。不要再平行新增一套重复动作。
 
-建议扩展 `finish_node`：当 `next_node_id` 缺失，但提供 `next_node_kind`、`next_node_title`、`next_node_context_summary` 时，runtime 在同一个 state lock 内完成“结束当前节点 + 创建下一个节点 + 绑定下一个节点”。
+扩展 `finish_node`：当 `next_node_id` 缺失，但提供 `next_node_kind`、`next_node_title`、`next_node_context_summary` 时，runtime 在同一个 state lock 内完成“结束当前节点 + 创建下一个节点 + 绑定下一个节点”。
 
 ```json
 {
@@ -395,32 +381,15 @@ runtime 在同一个 state lock 内完成：
 
 这样能避免“旧 node 被切回 ready”。
 
-### split_current_node
+### 拆分策略
 
-当 agent 在某个 node 中积累太多工具结果，或准备执行不被当前 node kind 允许的行动时，runtime 可以要求拆分：
+第一版不新增 `split_current_node` 动作。拆分通过现有动作组合完成：
 
-```json
-{
-  "action": "split_current_node",
-  "reason": "Need code edits, but current node is InspectCodeContext.",
-  "finish_current_summary": "Inspected README/source/tests and identified parser/pricing/test mismatches.",
-  "new_nodes": [
-    {
-      "kind": "ImplementSolution",
-      "title": "Fix parser and pricing behavior",
-      "context_summary": "..."
-    },
-    {
-      "kind": "RegressionTest",
-      "title": "Run order-pipeline regression tests",
-      "context_summary": "..."
-    }
-  ],
-  "bind_next_local_id": "implement"
-}
-```
+1. 当前 node 已经产出可沉淀上下文时，调用 `finish_node`，并携带 next node draft。
+2. 需要创建多个后续节点时，先 `finish_node` 进入最紧迫的 next node，再用 `create_node` 创建其他 ready/pending node。
+3. 当前 node 无法继续但又不能形成完成结果时，调用 `block_node`，再 `bind_node` 或 `create_node` 进入恢复节点。
 
-这比简单拒绝工具更有驱动力：runtime 不告诉 agent 任务语义，但告诉 agent “当前 node contract 不允许这个动作，你必须拆或切换”。
+这样可以避免第一版控制动作膨胀。未来如果真实 E2E 证明多节点拆分频繁且组合动作不够用，再单独设计 `split_current_node`。
 
 ## 行动示例
 
@@ -459,7 +428,7 @@ flowchart TD
   B --> C["runtime 分类 action = Edit"]
   C --> D{"InspectCodeContext 允许 Edit 吗"}
   D -->|"否"| E["拒绝工具调用"]
-  E --> F["提示必须 finish/split/bind ImplementSolution"]
+  E --> F["提示必须 finish 当前节点并 create/bind ImplementSolution"]
   F --> G["agent 调用 taskspace_control"]
 ```
 
@@ -489,7 +458,7 @@ Blocked action classes:
 - Edit
 - Test
 
-Before requesting a blocked action, call taskspace_control to finish, split, or bind a suitable node.
+Before requesting a blocked action, call taskspace_control to finish the current node, bind a suitable node, or create a suitable next node.
 ```
 
 ### Gate error 注入
@@ -508,7 +477,6 @@ Blocked action:
 Required next step:
 Call taskspace_control with one of:
 - finish_node(node_id=current, next_node_kind=ImplementSolution, ...)
-- split_current_node(...)
 - bind_node(existing ImplementSolution node)
 - ask_user if you cannot decide safely
 ```
@@ -535,15 +503,15 @@ Call taskspace_control with one of:
 
 | 路径 | 当前职责 | 本轮改造 |
 |---|---|---|
-| `third_party/codex-cli/codex-rs/core/src/action_map/map.rs` | Task/map/node/lease/result 基础模型 | 增加 `NodeKind`、`ActionClass`，给 `MapNode` 增加 `kind`，给 `NodeResult` 可选增加 `action_class` |
-| `third_party/codex-cli/codex-rs/core/src/action_map/basemap.rs` | BaseMap 候选节点 metadata | 候选节点绑定稳定 `NodeKind`，并暴露 kind、说明、推荐场景、默认 contract |
+| `third_party/codex-cli/codex-rs/core/src/action_map/map.rs` | Task/map/node/lease/result 基础模型 | 增加 `NodeKind`、`ActionClass`，给 `MapNode` 增加 `kind`，给 `NodeResult` 增加 `action_class` |
+| `third_party/codex-cli/codex-rs/core/src/action_map/basemap.rs` | BaseMap 候选节点 metadata | 继续暴露候选节点示例；第一版只给核心 kind 绑定硬 contract，其余候选先保持 prompt guidance |
 | `third_party/codex-cli/codex-rs/core/src/action_map/contracts.rs` | 当前不存在 | 新增轻量 contract 表：`NodeKind -> NodeContract`，只做静态结构约束 |
 | `third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs` | `taskspace_control` schema | 扩展 `start_task/create_node/finish_node` 字段，不新增第二套控制工具 |
 | `third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control.rs` | 解析控制动作并调用 session | 解析 kind 和 next node draft，保持所有状态变化仍进入 runtime |
 | `third_party/codex-cli/codex-rs/core/src/session/mod.rs` | Session wrapper，连接工具调度与 runtime | `prepare_action_map_main_tool_call` 从只传 `tool_name` 改成传 `ToolActionDescriptor` |
 | `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs` | 工具 dispatch 前后处理 | 在工具执行前分类 action class，并调用 runtime gate；工具执行后继续记录结果 |
 | `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs` | TaskSpace 状态机与 gate | 扩展创建节点、绑定、finish、工具 gate、developer context、事件输出 |
-| `third_party/codex-cli/codex-rs/protocol/src/protocol.rs` | TUI/viewer/event 协议 | snapshot node 增加 `kind`；result 或 event 增加 `action_class`；增加 blocked event |
+| `third_party/codex-cli/codex-rs/protocol/src/protocol.rs` | TUI/viewer/event 协议 | snapshot node 增加 `kind`；result 和 event 增加 `action_class`；增加 blocked event |
 | `scripts/run-action-map-real-user-e2e.ps1` | 自然用户 E2E | 从 title coverage 迁移到 kind/action class/生命周期 coverage |
 
 ### 数据模型
@@ -554,16 +522,8 @@ Call taskspace_control with one of:
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum NodeKind {
-    DefineScope,
     InspectCodeContext,
-    ResearchExternalContext,
-    IdentifyConstraints,
-    DesignSolution,
-    DesignLogging,
-    DesignTests,
-    ReviewSolution,
     ImplementSolution,
-    ReviewCode,
     SmokeTest,
     RegressionTest,
     FinalSynthesis,
@@ -600,7 +560,7 @@ pub(crate) enum ActionClass {
 }
 ```
 
-`NodeResult` 建议增加：
+`NodeResult` 增加：
 
 ```rust
 pub(crate) action_class: Option<ActionClass>,
@@ -696,7 +656,7 @@ pub(crate) fn prepare_main_tool_call(
 8. 判断 `descriptor.action_class` 是否允许。
 9. 不允许时返回 `ActionMapGateError`，携带可写入 event/log 的结构化信息。
 
-不要只返回字符串错误。建议新增：
+不要只返回字符串错误。新增：
 
 ```rust
 pub(crate) struct ActionMapGateError {
@@ -809,7 +769,7 @@ Before requesting a blocked action, call taskspace_control(action=finish_node, .
 pub kind: String,
 ```
 
-`ActionMapSnapshotResult` 或 `MapRuntimeNodeResultRecordedEvent` 增加 action class。推荐两边都加：
+`ActionMapSnapshotResult` 和 `MapRuntimeNodeResultRecordedEvent` 都增加 action class：
 
 - snapshot result 方便 viewer 渲染历史。
 - event 方便实时观察 gate 和归属。
@@ -966,15 +926,15 @@ viewer 第一版只需要展示：
 - 新增负向测试：test node 内 `apply_patch` 被拒绝。
 - 自然用户 E2E 中，agent 必须在修改代码前切到 implementation kind。
 
-### Phase 4：原子 finish/split/bind
+### Phase 4：原子 finish/create/bind
 
 目标：解决 node 不收敛。
 
 改动：
 
 - 扩展 `finish_node` 支持 next node draft，完成原子推进。
-- 增加 `split_current_node`。
-- `bind_node` 在已有 main lease 时继续拒绝，提示先 finish/split/block。
+- 第一版不增加 `split_current_node`，拆分由 `finish_node` next draft 和 `create_node` 组合完成。
+- `bind_node` 在已有 main lease 时继续拒绝，提示先 finish/block。
 - 当前 node 完成 summary 必须写入 result。
 
 验收：
@@ -990,7 +950,7 @@ viewer 第一版只需要展示：
 改动：
 
 - developer context 注入 current node contract。
-- gate error 注入具体 action class 和建议控制动作。
+- gate error 注入具体 action class 和可恢复控制动作。
 - E2E 从 title coverage 改为 kind coverage。
 - 保留 title coverage 作为人类可读性弱指标，不作为主 gate。
 
@@ -1009,7 +969,7 @@ viewer 第一版只需要展示：
 
 最小闭环只要求：
 
-1. `NodeKind` 支持 `InspectCodeContext`、`ImplementSolution`、`RegressionTest`、`FinalSynthesis`、`Custom`。
+1. `NodeKind` 支持 `InspectCodeContext`、`ImplementSolution`、`SmokeTest`、`RegressionTest`、`FinalSynthesis`、`Custom`。
 2. `ActionClass` 支持 `Read`、`Edit`、`Test`、`Control`、`Unknown`。
 3. runtime 阻断：
    - `InspectCodeContext -> Edit`
@@ -1067,7 +1027,7 @@ flowchart TD
 缓解：
 
 - 不要求 start_task 一次性创建完整 map。
-- 允许边执行边 split/grow。
+- 允许边执行边创建和绑定后续节点。
 - 真正强制的是“行动类型变化前必须切换 node”。
 
 ### 风险 3：Custom 被滥用
@@ -1075,7 +1035,7 @@ flowchart TD
 缓解：
 
 - Custom 默认只允许 Read/Search/Control。
-- Custom 中需要 Edit/Test/Spawn 时必须 split 到具体 kind。
+- Custom 中需要 Edit/Test/Spawn 时必须创建或绑定到具体 kind。
 
 ### 风险 4：命令分类误判
 
@@ -1096,15 +1056,19 @@ flowchart TD
 - 不创建领域专用 map 模板。
 - 不要求所有任务一次性规划完整 DAG。
 
-## 评审问题
+## 已确认产品决策
 
-需要评审确认的关键点：
+用户已确认按本文决策执行，第一版按以下边界落地：
 
-1. 是否接受 `NodeKind` 作为 runtime contract，而不是继续依赖 title？
-2. 是否接受第一版只强约束 Edit/Test/Spawn，Read/Search 保持宽松？
-3. 是否接受复用并扩展 `finish_node` 作为原子推进动作，而不是新增平行动作？
-4. 是否接受 `Custom` 默认不能执行 Edit/Test/Spawn，必须 split 到具体 kind？
-5. 自然用户 E2E 的目标是否应从 title coverage 迁移到 kind coverage？
+1. 接受 `NodeKind` 作为 runtime contract，不再依赖 title 做主 gate。
+2. 第一版只强约束 Edit/Test/Spawn，Read/Search 保持宽松。
+3. `ImplementSolution` 禁止 Test；测试必须切到 `SmokeTest` 或 `RegressionTest`。
+4. `Unknown` action 默认阻断。
+5. `Custom` 默认只允许 Read/Search/Control；需要 Edit/Test/Spawn 时必须进入具体 kind。
+6. 复用并扩展 `finish_node` 做原子推进，不新增 `finish_current_and_bind_next`。
+7. 当前 main lease 存在时禁止直接 bind 其他 node，必须先 `finish_node` 或 `block_node`。
+8. 第一版只实现核心 kind：`InspectCodeContext`、`ImplementSolution`、`SmokeTest`、`RegressionTest`、`FinalSynthesis`、`Custom`。
+9. 真实 E2E 验收迁移到 `node.kind + action_class + node lifecycle`，title coverage 只作为人类可读性指标。
 
 ## 结论
 
