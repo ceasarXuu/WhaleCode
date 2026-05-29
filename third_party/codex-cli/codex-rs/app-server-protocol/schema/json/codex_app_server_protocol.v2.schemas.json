@@ -138,6 +138,22 @@
             "null"
           ]
         },
+        "activeTaskId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bootstrapRequired": {
+          "default": false,
+          "type": "boolean"
+        },
+        "maintenanceBarriers": {
+          "items": {
+            "$ref": "#/definitions/ActionMapSnapshotMaintenanceBarrier"
+          },
+          "type": "array"
+        },
         "maps": {
           "items": {
             "$ref": "#/definitions/ActionMapSnapshotMap"
@@ -146,11 +162,27 @@
         },
         "mode": {
           "$ref": "#/definitions/MapRuntimeMode"
+        },
+        "rebornRequested": {
+          "default": false,
+          "type": "boolean"
+        },
+        "routingRequired": {
+          "default": false,
+          "type": "boolean"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/definitions/ActionMapSnapshotTask"
+          },
+          "type": "array"
         }
       },
       "required": [
+        "maintenanceBarriers",
         "maps",
-        "mode"
+        "mode",
+        "tasks"
       ],
       "type": "object"
     },
@@ -187,6 +219,9 @@
             }
           ]
         },
+        "holder": {
+          "type": "string"
+        },
         "id": {
           "type": "string"
         },
@@ -195,12 +230,48 @@
         },
         "nodeId": {
           "type": "string"
+        },
+        "previousNodeStatus": {
+          "type": "string"
         }
       },
       "required": [
+        "holder",
         "id",
         "mapId",
-        "nodeId"
+        "nodeId",
+        "previousNodeStatus"
+      ],
+      "type": "object"
+    },
+    "ActionMapSnapshotMaintenanceBarrier": {
+      "properties": {
+        "budget": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "mapId": {
+          "type": "string"
+        },
+        "nodeId": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "resultCount": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "budget",
+        "mapId",
+        "nodeId",
+        "reason",
+        "resultCount"
       ],
       "type": "object"
     },
@@ -270,6 +341,12 @@
         "status": {
           "type": "string"
         },
+        "taskId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "title": {
           "type": "string"
         }
@@ -301,6 +378,10 @@
           "type": "string"
         },
         "id": {
+          "type": "string"
+        },
+        "kind": {
+          "default": "custom",
           "type": "string"
         },
         "originNodeId": {
@@ -340,6 +421,13 @@
     },
     "ActionMapSnapshotResult": {
       "properties": {
+        "actionClass": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "assignmentId": {
           "type": "string"
         },
@@ -375,6 +463,52 @@
         "mapId",
         "nodeId",
         "sourceThreadId"
+      ],
+      "type": "object"
+    },
+    "ActionMapSnapshotTask": {
+      "properties": {
+        "activeMapId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "mapIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "objective": {
+          "type": "string"
+        },
+        "ownerSessionId": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "mapIds",
+        "objective",
+        "status",
+        "title"
       ],
       "type": "object"
     },

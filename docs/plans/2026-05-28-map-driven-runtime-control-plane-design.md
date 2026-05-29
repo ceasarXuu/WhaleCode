@@ -47,7 +47,7 @@ TaskSpace 已经能要求 agent 先绑定 task/node 再行动，
 scripts/run-action-map-real-user-e2e.ps1
 ```
 
-最近运行结果：
+重构前失败样本：
 
 ```text
 target/real-user-e2e/action-map-natural-user-order-pipeline/20260528-150009-462/artifacts/report.md
@@ -67,6 +67,31 @@ target/real-user-e2e/action-map-natural-user-order-pipeline/20260528-150009-462/
 
 这说明当前 TaskSpace 的失败不是“没生效”，而是“生效层级太低”。它约束了归档位置，但没有约束行动路线。
 
+当前实现验证结果：
+
+```text
+target/real-user-e2e/action-map-natural-user-order-pipeline/20260529-235814-968/artifacts/report.md
+target/real-user-e2e/action-map-natural-multi-agent-order-pipeline/20260530-000541-096/artifacts/report.md
+target/real-user-e2e/action-map-growth-health-order-pipeline/20260530-001511-263/artifacts/report.md
+target/test-reports/action-map-20260530-003015-948/report.md
+target/real-user-e2e/action-map-natural-multi-agent-order-pipeline/20260530-024310-236/artifacts/report.md
+target/real-user-e2e/action-map-growth-health-order-pipeline/20260530-030549-184/artifacts/report.md
+target/real-user-e2e/action-map-natural-user-order-pipeline/20260530-025355-824/artifacts/report.md
+target/test-reports/action-map-20260530-024948-734/report.md
+```
+
+关键事实：
+
+| 观察 | 结论 |
+|---|---|
+| 自然用户 E2E 通过 | 用户 prompt 不暴露 task/map/node 内部概念，agent 能自行进入 TaskSpace 路径 |
+| 自然多 agent E2E 通过 | 真实 `spawn_agent` 路径能绑定 ready node，子 agent 结果进入 node |
+| growth health E2E 通过 | map 能在复杂任务中生长出多个 node，并产生 implementation/test/final 等结构 |
+| 回归矩阵通过 | `action_map`、legacy spawn、tools spawn、tool registry 相关测试共 143 passed、0 failed |
+| 安装态 E2E 通过 | `C:\Users\77585\.whale\bin\whale.exe` 与构建产物 SHA256 一致，安装路径也通过真实用户路径 |
+
+这组结果说明第二次重构已经从“结果归档”推进到“行动前 gate”。仍要注意：runtime 只保证结构约束，不保证任务质量；复杂任务是否拆得足够好，仍由 agent 根据上下文负责。
+
 ## 第二次重构成功标准
 
 这次重构完成后，自然用户 E2E 不应只是证明“agent 会创建 node”，而要证明：
@@ -75,7 +100,7 @@ target/real-user-e2e/action-map-natural-user-order-pipeline/20260528-150009-462/
 |---|---|
 | 行动先被 map 约束 | 每个普通工具调用前，runtime 都知道当前 task/map/node/kind |
 | Edit 不会发生在 inspect node | 代码修改必须先进入 implementation kind |
-| Test 不会混入 implementation 主体 | 测试动作必须先切换到 `SmokeTest` 或 `RegressionTest` kind，避免 implementation node 顺手吞掉验证阶段 |
+| 最终验证不会混入 implementation 主体 | 验证性测试必须先切换到 `SmokeTest` 或 `RegressionTest` kind，避免 implementation node 顺手吞掉验证阶段 |
 | 宽泛 node 会被迫收敛 | 单个 node 吸收过多工具结果或请求不匹配 action 时，runtime 要求先 finish/block，再创建或绑定具体 kind node |
 | 前序 node 能收敛 | 从一个 node 推进到下一个 node 时，前序 node 必须 completed 或 blocked |
 | E2E 从 title 判断迁移到 kind 判断 | 测试不再依赖自然语言标题正则作为主 gate |
@@ -87,7 +112,7 @@ target/real-user-e2e/action-map-natural-user-order-pipeline/20260528-150009-462/
 | `InspectCodeContext` 下调用 `apply_patch` | 阻断 |
 | `RegressionTest` 下调用 `apply_patch` | 阻断 |
 | 无 current main lease 时普通工具调用 | 阻断 |
-| `Custom` node 下请求 Edit/Test/Spawn | 阻断，并要求进入具体 kind |
+| `Custom` node 下请求 Edit | 阻断，并要求进入具体 kind |
 | `taskspace_control` 失败后同轮普通工具继续执行 | 阻断 |
 
 ## 当前问题
@@ -197,14 +222,15 @@ enum NodeKind {
     SmokeTest,
     RegressionTest,
     FinalSynthesis,
+    // Backward compatibility only. Runtime must not create Custom for live nodes.
     Custom,
 }
 ```
 
 说明：
 
-- `Custom` 只作为无法归类时的临时承载，默认只允许 Read/Search/Control。
-- agent 创建 node 时必须选择一个第一版支持的 kind。
+- `Custom` 只作为旧 snapshot 兼容承载；live `taskspace_control` 不允许创建 `Custom` node。
+- agent 创建 node 时必须选择一个第一版支持的具体 kind。
 - `title` 可以是自然语言，例如 `Fix invoice discount path`，但 kind 应是 `ImplementSolution`。
 
 ### ActionClass
@@ -216,6 +242,7 @@ enum ActionClass {
     Read,
     Search,
     Edit,
+    Build,
     Test,
     Spawn,
     Wait,
@@ -234,6 +261,7 @@ enum ActionClass {
 | `Read` | `shell_command` 中的 `Get-Content`、`ls`、`rg --files`、只读查询；只读 MCP/tool |
 | `Search` | `rg`、search tool、web search |
 | `Edit` | `apply_patch`、文件写入、格式化写回、会修改文件的命令 |
+| `Build` | `cargo build/check/clippy`、`npm run build/lint/typecheck`、`tsc --noEmit`、`cargo fmt --check` 等只做编译/静态验证的命令 |
 | `Test` | `pytest`、`cargo test`、`npm test`、`go test` 等 |
 | `Spawn` | `spawn_agent` |
 | `Wait` | `wait_agent`、`close_agent` |
@@ -260,14 +288,24 @@ struct NodeContract {
 
 | NodeKind | 允许行动 | 禁止或强阻断 |
 |---|---|---|
-| `InspectCodeContext` | Read, Search, Control | Edit, Test, Spawn |
-| `ImplementSolution` | Read, Search, Edit, Control | Test 需切换到 `SmokeTest` 或 `RegressionTest` |
-| `SmokeTest` | Read, Test, Control | Edit |
-| `RegressionTest` | Read, Test, Control | Edit |
-| `FinalSynthesis` | Read, FinalResponse, Control | Edit, Test, Spawn |
-| `Custom` | Read, Search, Control | Edit/Test/Spawn 需先进入具体 kind |
+| `InspectCodeContext` | Read, Search, Build, Test, Spawn, Wait, Review, Control | Edit；诊断性测试允许，最终验证必须沉淀到 test node |
+| `ImplementSolution` | Read, Search, Edit, Build, Spawn, Wait, Review, Control | Test 需切换到 `SmokeTest` 或 `RegressionTest` |
+| `SmokeTest` | Read, Build, Test, Spawn, Wait, Review, Control | Edit |
+| `RegressionTest` | Read, Build, Test, Spawn, Wait, Review, Control | Edit |
+| `FinalSynthesis` | Read, Review, FinalResponse, Control | Edit, Test, Spawn |
+| `Custom` | Read, Search, Build, Spawn, Wait, Review, Control | Edit；live 创建直接拒绝 |
 
 这个表不是质量判断，只是行动类型约束。
+
+`Build` 是实现过程中的编译/静态反馈，不等同于最终测试。实现节点允许 `Build`，但仍禁止 `Test`，最终 pytest/cargo test/npm test 等结果必须进入 `SmokeTest` 或 `RegressionTest`。
+
+`Spawn/Wait/Review` 是协作与审查类动作，不等同于普通工作结果。`spawn_agent` 本身走 subagent assignment gate，而不是主工具结果归属 gate；assignment gate 仍必须读取当前主 node contract，若当前 node 不允许 `Spawn`（例如 `FinalSynthesis`）则直接阻断。表中保留这些 action class 是为了 developer context 和未来 namespaced 工具分类保持一致。
+
+当用户自然语言要求“并行处理独立问题”，或主 agent 在检查中识别出两个以上相互独立的证据/审查轨道时，TaskSpace developer context 必须把这类工作引导为“创建 ready node -> `spawn_agent` 绑定 node”，不能让主 agent 用并行 shell/file-change 调用替代小组作业，也不能让主 agent 自己占用一个独立调查轨道、只派一个 explorer 去做另一个轨道。并行工具调用仍然可以用于同一个 node 内部的普通读写效率，但它不是多 agent 协作。
+
+为避免该规则只停留在 prompt，runtime 增加一个轻量结构性 gate：当同一 active map 中同时存在两个以上 ready 的 `inspect_code_context` node 时，主 agent 不得把其中一个绑定给自己顺序执行；它必须用 `spawn_agent` 明确指定 node_id 进行委派。这个 gate 只看 node kind/status/lease，不做任务语义判断。
+
+第一版不支持“node-bound 子 agent 再继续 `spawn_agent`”。子 agent 的职责是完成当前 node、把结果写回父 map；如果它发现需要新的并行工作或新的子任务，应把这个发现作为 node result 返回给主 agent，由主 agent 创建/分配新 node。这样可以保持 map 生长权集中在主 agent，避免子 session 形成无法观测和无法统一调度的二级任务树。
 
 ## Runtime Gate
 
@@ -292,6 +330,21 @@ node is running
 node.kind exists
 action_class(tool_call) in node.contract.allowed_actions
 ```
+
+对子 agent 路径也使用同一个父 runtime gate，而不是让子 session 独立运行：
+
+```text
+TaskSpace enabled
+parent thread has active map
+child thread has an attached subagent lease
+lease points to a running node
+node.kind exists
+action_class(child tool call) in node.contract.allowed_actions
+```
+
+子 agent 的工具结果不写入子 session 自己的孤立 map，而是通过 parent `AgentControl` 写回父 map 的绑定 node。这样才满足“一个 node 同时只能被一个 agent 持有”和“node 上下文随 node 保留，谁来接手都能读到”的设计目标。
+
+如果子 session 无法通过 parent thread 找到父 runtime，必须 fail-closed，直接阻断工具调用或嵌套派生。这里不能退回普通模式放行，否则 TaskSpace 的核心保证会被一个丢失的 parent runtime 引用绕过。
 
 失败时返回机械错误，不能伪装成 agent 回答：
 
@@ -330,7 +383,7 @@ Call taskspace_control to finish the current node and bind or create an Implemen
 
 runtime 校验：
 
-- `kind` 必须是第一版核心 kind 或 `Custom`。
+- `kind` 必须是第一版核心具体 kind：`InspectCodeContext`、`ImplementSolution`、`SmokeTest`、`RegressionTest`、`FinalSynthesis`。
 - BaseMap 中未进入第一版 runtime 的候选节点只作为标题和任务拆分参考。
 - 宽泛 title 不影响 runtime，但宽泛 kind 会触发预算。
 
@@ -451,12 +504,18 @@ Current binding:
 Allowed action classes for this node:
 - Read
 - Search
-- Control
+- Test
 - Spawn
+- Wait
+- Review
+- Control
 
 Blocked action classes:
 - Edit
-- Test
+- FinalResponse
+- Unknown
+
+Diagnostic tests are allowed here only as evidence gathering. Final validation must be recorded on a SmokeTest or RegressionTest node.
 
 Before requesting a blocked action, call taskspace_control to finish the current node, bind a suitable node, or create a suitable next node.
 ```
@@ -488,7 +547,12 @@ Call taskspace_control with one of:
 | `taskspace_control` | 继续作为唯一结构化入口，扩展 action 和字段 |
 | `prepare_main_tool_call` | 继续作为普通工具 gate，增加 action class + node contract 校验 |
 | `record_main_tool_result` | 继续把工具结果写入当前 node |
+| `prepare_child_tool_call` | 新增但复用同一份父 runtime state，用子 agent lease 校验 child tool call |
+| `record_child_tool_result` | 子 agent 普通工具结果写回父 map 的绑定 node，作为 node result context |
+| `prepare_child_spawn` | 子 agent 持有 node lease 时阻断嵌套 `spawn_agent`，要求结果先回到主 agent |
 | `ExecutionLease` | 继续作为当前 node 执行权威 |
+| `AgentControl` | 子 session 通过 parent thread id 调回父 session 的 ActionMap runtime |
+| `SessionSource::SubAgent` | 识别子 agent 会话来源，避免子 session 绕过父 map/node gate |
 | BaseMap metadata | 从弱提示升级为 NodeKind/NodeContract 来源 |
 | viewer/export | 增加 node kind、blocked action、contract violation 展示 |
 | E2E | 从 title 正则逐步迁移到 node.kind 校验 |
@@ -508,9 +572,10 @@ Call taskspace_control with one of:
 | `third_party/codex-cli/codex-rs/core/src/action_map/contracts.rs` | 当前不存在 | 新增轻量 contract 表：`NodeKind -> NodeContract`，只做静态结构约束 |
 | `third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs` | `taskspace_control` schema | 扩展 `start_task/create_node/finish_node` 字段，不新增第二套控制工具 |
 | `third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control.rs` | 解析控制动作并调用 session | 解析 kind 和 next node draft，保持所有状态变化仍进入 runtime |
-| `third_party/codex-cli/codex-rs/core/src/session/mod.rs` | Session wrapper，连接工具调度与 runtime | `prepare_action_map_main_tool_call` 从只传 `tool_name` 改成传 `ToolActionDescriptor` |
-| `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs` | 工具 dispatch 前后处理 | 在工具执行前分类 action class，并调用 runtime gate；工具执行后继续记录结果 |
-| `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs` | TaskSpace 状态机与 gate | 扩展创建节点、绑定、finish、工具 gate、developer context、事件输出 |
+| `third_party/codex-cli/codex-rs/core/src/session/mod.rs` | Session wrapper，连接工具调度与 runtime | `prepare_action_map_main_tool_call` 从只传 `tool_name` 改成传 `ToolActionDescriptor`；新增 child tool prepare/record 事件入口 |
+| `third_party/codex-cli/codex-rs/core/src/agent/control.rs` | parent/child agent 控制面 | 暴露子 agent 工具调用的 parent runtime gate 和 result record 能力 |
+| `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs` | 工具 dispatch 前后处理 | 在工具执行前分类 action class，并调用 runtime gate；子 agent 通过 `SessionSource::SubAgent` 路由到父 runtime |
+| `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs` | TaskSpace 状态机与 gate | 扩展创建节点、绑定、finish、主/子工具 gate、developer context、事件输出 |
 | `third_party/codex-cli/codex-rs/protocol/src/protocol.rs` | TUI/viewer/event 协议 | snapshot node 增加 `kind`；result 和 event 增加 `action_class`；增加 blocked event |
 | `scripts/run-action-map-real-user-e2e.ps1` | 自然用户 E2E | 从 title coverage 迁移到 kind/action class/生命周期 coverage |
 
@@ -527,6 +592,7 @@ pub(crate) enum NodeKind {
     SmokeTest,
     RegressionTest,
     FinalSynthesis,
+    // Backward compatibility only. Live creation rejects this kind.
     Custom,
 }
 ```
@@ -539,7 +605,7 @@ pub(crate) kind: NodeKind,
 
 兼容策略：
 
-- 新建节点必须写入 kind。
+- 新建节点必须写入具体 kind，且不能是 `Custom`。
 - 旧持久化 snapshot 缺 kind 时默认 `Custom`。
 - 如果旧节点标题能明确映射到 BaseMap id，可以 best-effort 修复为对应 kind，但修复必须写日志事件，避免静默改变历史语义。
 
@@ -583,17 +649,43 @@ pub(crate) fn contract_for(kind: NodeKind) -> NodeContract {
     match kind {
         NodeKind::InspectCodeContext => NodeContract {
             kind,
-            allowed_actions: &[ActionClass::Read, ActionClass::Search, ActionClass::Control],
+            allowed_actions: &[
+                ActionClass::Read,
+                ActionClass::Search,
+                ActionClass::Build,
+                ActionClass::Test,
+                ActionClass::Spawn,
+                ActionClass::Wait,
+                ActionClass::Review,
+                ActionClass::Control,
+            ],
             max_main_tool_results_before_split_hint: 12,
         },
         NodeKind::ImplementSolution => NodeContract {
             kind,
-            allowed_actions: &[ActionClass::Read, ActionClass::Search, ActionClass::Edit, ActionClass::Control],
+            allowed_actions: &[
+                ActionClass::Read,
+                ActionClass::Search,
+                ActionClass::Edit,
+                ActionClass::Build,
+                ActionClass::Spawn,
+                ActionClass::Wait,
+                ActionClass::Review,
+                ActionClass::Control,
+            ],
             max_main_tool_results_before_split_hint: 10,
         },
         NodeKind::RegressionTest => NodeContract {
             kind,
-            allowed_actions: &[ActionClass::Read, ActionClass::Test, ActionClass::Control],
+            allowed_actions: &[
+                ActionClass::Read,
+                ActionClass::Build,
+                ActionClass::Test,
+                ActionClass::Spawn,
+                ActionClass::Wait,
+                ActionClass::Review,
+                ActionClass::Control,
+            ],
             max_main_tool_results_before_split_hint: 8,
         },
         _ => default_contract(kind),
@@ -623,9 +715,10 @@ pub(crate) struct ToolActionDescriptor {
 |---|---|
 | `taskspace_control` | `Control`，不走普通工具 gate |
 | `apply_patch` | `Edit` |
-| `spawn_agent` | `Spawn`，走 subagent assignment gate |
+| `spawn_agent` | `Spawn`，走 subagent assignment gate，且受当前主 node contract 限制 |
 | `wait_agent/close_agent/resume_agent` | `Wait` |
 | shell 中包含 `pytest`、`cargo test`、`npm test`、`pnpm test`、`go test` | `Test` |
+| shell 中包含 `cargo build/check/clippy`、`npm run build/lint/typecheck`、`tsc --noEmit` 等 | `Build` |
 | shell 中是 `Get-Content`、`Get-ChildItem`、`rg`、`git diff`、`git status`、`Select-String` | `Read` 或 `Search` |
 | shell 中出现 `Set-Content`、`Out-File`、重定向写入、`Remove-Item`、`Move-Item`、`git commit`、格式化写回 | `Edit` |
 | 无法确定 | `Unknown` |
@@ -666,6 +759,41 @@ pub(crate) struct ActionMapGateError {
 ```
 
 这样 gate 阻断本身也能进入 rollout/viewer，而不是只出现在模型错误流里。
+
+子 agent 工具调用使用同一套 gate，但入口不同：
+
+```rust
+pub(crate) fn prepare_child_tool_call(
+    &mut self,
+    child_thread_id: ThreadId,
+    descriptor: impl Into<ToolActionDescriptor>,
+) -> Result<Vec<MapRuntimeEvent>, ActionMapGateError>
+```
+
+执行顺序：
+
+1. 非 experiment 模式直接放行。
+2. 在父 map 中查找 `agent_thread_id == child_thread_id` 的 subagent lease。
+3. 校验 lease 对应 map/node 仍存在，node 仍是 `Running`，lease holder 仍是 `SubAgent`。
+4. 使用该 node 的 `NodeContract` 校验 child tool call 的 action class。
+5. 通过后写入 child tool reservation，工具结束后用同一个 `call_id` 释放 reservation 并记录 result。
+
+这个设计避免给子 session 单独创建一套 map runtime。子 agent 的上下文边界就是它持有的 node；它可以读写 node result context，但不能越过 node contract。
+
+子 agent 的 `spawn_agent` 不走普通 child tool attribution，而是在 multi-agent spawn handler 入口先检查 `SessionSource::SubAgent(ThreadSpawn)`：
+
+```rust
+pub(crate) fn prepare_child_spawn(&self, child_thread_id: ThreadId) -> Result<(), String>
+```
+
+规则：
+
+1. 非 experiment 模式直接放行。
+2. experiment 模式下，如果 child thread 在父 map 中没有 active subagent lease，阻断。
+3. 如果 child thread 已经绑定 node lease，阻断嵌套 `spawn_agent`。
+4. 被阻断的子 agent 应把“需要新的子任务/并行调查”的发现写入当前 node result，由主 agent 决定是否创建新 node 或派生新的子 agent。
+
+这个限制是有意的，不是临时缺口：第一版 TaskSpace 只维护一层 node ownership，避免 child session 私自生长出二级 map/tree，破坏 viewer、lease、result ownership 和真实 E2E 的可观测性。
 
 ### 控制工具扩展
 
@@ -743,8 +871,8 @@ stateDiagram-v2
 Current TaskSpace node contract:
 - node_id: node-2
 - node_kind: implement_solution
-- allowed_action_classes: read, search, edit, control
-- blocked_action_classes: test, spawn, final_response, unknown
+- allowed_action_classes: read, search, edit, spawn, wait, review, control
+- blocked_action_classes: test, final_response, unknown
 
 Before requesting a blocked action, call taskspace_control(action=finish_node, ...) and bind or create a suitable next node.
 ```
@@ -805,7 +933,7 @@ viewer 第一版只需要展示：
 | 是否先 start/route task | runtime event |
 | 是否创建 `inspect_code_context` | snapshot node kind |
 | Edit 是否只出现在 `implement_solution` | result.action_class + node.kind |
-| Test 是否只出现在 `smoke_test/regression_test` | result.action_class + node.kind |
+| 最终验证性 Test 是否出现在 `smoke_test/regression_test` | result.action_class + node.kind；inspect node 可保留诊断性测试 |
 | 前序 node 是否收敛 | node status timeline |
 | gate 是否真实阻断错误行动 | blocked event |
 | 用户 prompt 是否未暴露内部概念 | prompt transcript |
@@ -819,10 +947,9 @@ viewer 第一版只需要展示：
 策略：
 
 1. 读取旧 snapshot 时缺 kind 默认 `Custom`。
-2. `Custom` 只允许 Read/Search/Control。
-3. 如果 agent 要在旧 `Custom` node 中 edit/test，runtime 阻断并要求新建具体 kind node。
-4. `taskspace_control` 在一段过渡期可接受缺 kind 的 `start_task/create_node`，但会写 repair warning，并默认 `Custom`。
-5. 一旦 E2E 稳定，缺 kind 从 warning 升级为硬错误。
+2. 旧 `Custom` 只允许 Read/Search/Spawn/Wait/Review/Control。
+3. 如果 agent 要在旧 `Custom` node 中 edit，runtime 阻断并要求新建具体 kind node。
+4. `taskspace_control(start_task/create_node/finish_node next draft)` 不再接受 `Custom` live 创建，缺 kind 或 custom 均为硬错误。
 
 ### 测试矩阵
 
@@ -846,10 +973,21 @@ viewer 第一版只需要展示：
 - 普通工具执行前 gate 能阻断，不产生真实 tool side effect。
 - gate 通过后，tool result 写入当前 node，并记录 action class。
 
+子 agent gate 测试：
+
+- experiment 模式下，没有 subagent lease 的 child thread 普通工具调用必须被阻断。
+- child thread 已绑定 inspect node 时，Read 允许、Edit 阻断。
+- child tool result 必须写回父 map 的绑定 node，并记录 `source_thread_id`。
+- node release/finish/block 后，关联 child tool reservation 必须清理，避免预算泄漏。
+- node-bound 子 agent 调用 `spawn_agent` 必须被阻断，防止子 session 私自生长二级任务树。
+- child tool gate 找不到父 runtime 时必须 fail-closed，不能退回普通模式放行。
+
 真实 E2E：
 
 - 保留 `scripts/run-action-map-real-user-e2e.ps1`，输入仍是自然用户问题。
 - 新增一个复杂度更高的沙盒项目，至少包含“读项目 -> 设计修改 -> 改代码 -> 跑测试 -> 修测试失败 -> 回归 -> 总结”的自然推进。
+- 新增一个自然多 agent E2E，用户不提 task/map/node/subagent 内部协议，但任务复杂度足以让 agent 自行委派 ready node。
+- 新增 growth health E2E，用户输入仍不得暴露 task/map/node/subagent 内部协议，重点观察 map 生长、多个 node 创建、两个子 agent 绑定、node result 写回、验证节点归属。
 - 报告主 gate 从 nodes/title 改为 kind/action class/status timeline。
 - 必须能看到 map 健康生长，而不是只有归档。
 
@@ -873,7 +1011,7 @@ viewer 第一版只需要展示：
 
 验收：
 
-- 当前自然用户 E2E 仍然失败，失败原因保持为 map 健康生长不足。
+- 重构前自然用户 E2E 失败样本被固化，失败原因保持为 map 健康生长不足。
 - 负向 fixture 能证明 runtime gate 真正阻断工具执行，而不是只在 prompt 中建议。
 
 ### Phase 1：NodeKind 数据模型
@@ -960,7 +1098,7 @@ viewer 第一版只需要展示：
   - nodes >= 4
   - kind coverage 包含 InspectCodeContext、ImplementSolution、RegressionTest
   - Edit 归属 implementation
-  - Test 归属 test
+  - 最终验证性 Test 归属 test
   - 所有前序 node completed 或明确 blocked
 
 ## 最小可交付切片
@@ -969,13 +1107,14 @@ viewer 第一版只需要展示：
 
 最小闭环只要求：
 
-1. `NodeKind` 支持 `InspectCodeContext`、`ImplementSolution`、`SmokeTest`、`RegressionTest`、`FinalSynthesis`、`Custom`。
-2. `ActionClass` 支持 `Read`、`Edit`、`Test`、`Control`、`Unknown`。
+1. `NodeKind` 支持 `InspectCodeContext`、`ImplementSolution`、`SmokeTest`、`RegressionTest`、`FinalSynthesis`；`Custom` 仅用于旧 snapshot 兼容。
+2. `ActionClass` 支持 `Read`、`Search`、`Edit`、`Build`、`Test`、`Spawn`、`Wait`、`Review`、`Control`、`Unknown`。
 3. runtime 阻断：
    - `InspectCodeContext -> Edit`
    - `RegressionTest -> Edit`
-   - `FinalSynthesis -> Edit/Test`
+   - `FinalSynthesis -> Edit/Test/Spawn`
    - `Custom -> Edit/Test`
+   - `taskspace_control` live 创建 `Custom`
 4. 支持 `finish_node` 携带 next node draft，完成原子推进。
 5. 自然用户 E2E 至少产生：
 
@@ -1018,7 +1157,7 @@ flowchart TD
 
 缓解：
 
-- 第一版只强约束 Edit/Test/Spawn。
+- 第一版硬阻断主要针对 Edit、不合节点的 Test、FinalResponse 和 Unknown；Spawn 走专用 assignment gate。
 - Read/Search 放宽。
 - gate error 提供明确可恢复动作。
 
@@ -1034,8 +1173,8 @@ flowchart TD
 
 缓解：
 
-- Custom 默认只允许 Read/Search/Control。
-- Custom 中需要 Edit/Test/Spawn 时必须创建或绑定到具体 kind。
+- Custom 仅用于旧 snapshot 兼容，live 创建直接拒绝。
+- 旧 Custom 中需要 Edit 或验证性 Test 时必须创建或绑定到具体 kind。
 
 ### 风险 4：命令分类误判
 
@@ -1055,20 +1194,21 @@ flowchart TD
 - 不强制 subagent。
 - 不创建领域专用 map 模板。
 - 不要求所有任务一次性规划完整 DAG。
+- 不支持 node-bound 子 agent 嵌套派生新的 subagent；新的并行工作由主 agent 通过 map 生长来调度。
 
 ## 已确认产品决策
 
 用户已确认按本文决策执行，第一版按以下边界落地：
 
 1. 接受 `NodeKind` 作为 runtime contract，不再依赖 title 做主 gate。
-2. 第一版只强约束 Edit/Test/Spawn，Read/Search 保持宽松。
-3. `ImplementSolution` 禁止 Test；测试必须切到 `SmokeTest` 或 `RegressionTest`。
+2. 第一版硬阻断主要针对 Edit、不合节点的 Test、FinalResponse 和 Unknown；Read/Search/Build 保持宽松。
+3. `ImplementSolution` 允许 Build 作为编译/静态反馈，但禁止 Test；最终验证必须切到 `SmokeTest` 或 `RegressionTest`，inspect node 允许诊断性测试作为证据收集。
 4. `Unknown` action 默认阻断。
-5. `Custom` 默认只允许 Read/Search/Control；需要 Edit/Test/Spawn 时必须进入具体 kind。
+5. `Custom` 仅用于旧 snapshot 兼容；live `taskspace_control` 创建 `Custom` 直接拒绝。
 6. 复用并扩展 `finish_node` 做原子推进，不新增 `finish_current_and_bind_next`。
 7. 当前 main lease 存在时禁止直接 bind 其他 node，必须先 `finish_node` 或 `block_node`。
-8. 第一版只实现核心 kind：`InspectCodeContext`、`ImplementSolution`、`SmokeTest`、`RegressionTest`、`FinalSynthesis`、`Custom`。
-9. 真实 E2E 验收迁移到 `node.kind + action_class + node lifecycle`，title coverage 只作为人类可读性指标。
+8. 第一版 live 创建只实现核心 kind：`InspectCodeContext`、`ImplementSolution`、`SmokeTest`、`RegressionTest`、`FinalSynthesis`；`Custom` 仅兼容旧 snapshot。
+9. 真实 E2E 的 runtime 主 gate 迁移到 `node.kind + action_class + node lifecycle`，不再用 title 做 runtime gate；特定业务沙盒仍可以用 node title/context 做场景语义覆盖检查，用来判断 agent 是否把任务拆成了有意义的子问题。
 
 ## 结论
 

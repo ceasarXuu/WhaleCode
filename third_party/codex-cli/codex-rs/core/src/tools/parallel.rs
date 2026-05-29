@@ -9,6 +9,8 @@ use tracing::Instrument;
 use tracing::instrument;
 use tracing::trace_span;
 
+use crate::action_map::ActionClass;
+use crate::action_map::ToolActionDescriptor;
 use crate::function_tool::FunctionCallError;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
@@ -20,8 +22,11 @@ use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolCall;
 use crate::tools::router::ToolCallSource;
 use crate::tools::router::ToolRouter;
+use codex_protocol::ThreadId;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ResponseInputItem;
+use codex_protocol::protocol::SessionSource;
+use codex_protocol::protocol::SubAgentSource;
 use codex_tools::ToolSpec;
 
 #[derive(Clone)]
@@ -96,6 +101,8 @@ impl ToolCallRuntime {
         let started = Instant::now();
         let display_name = call.tool_name.display();
         let taskspace_attributed = Self::should_attribute_taskspace_tool(&call, &source);
+        let taskspace_descriptor =
+            taskspace_attributed.then(|| Self::classify_taskspace_tool_action(&call));
         let taskspace_tool_name = display_name.clone();
         let taskspace_call_id = call.call_id.clone();
 
@@ -109,24 +116,25 @@ impl ToolCallRuntime {
 
         let handle: AbortOnDropHandle<Result<AnyToolResult, FunctionCallError>> =
             AbortOnDropHandle::new(tokio::spawn(async move {
+                if let Some(descriptor) = taskspace_descriptor.as_ref() {
+                    Self::prepare_taskspace_tool_call(&session, &turn, descriptor.clone()).await?;
+                }
+
                 tokio::select! {
                     _ = cancellation_token.cancelled() => {
                         let secs = started.elapsed().as_secs_f32().max(0.1);
                         dispatch_span.record("aborted", true);
                         let response = Self::aborted_response(&call, secs);
-                        if taskspace_attributed {
-                            session
-                                .prepare_action_map_main_tool_call(&turn, &taskspace_tool_name)
-                                .await
-                                .map_err(FunctionCallError::RespondToModel)?;
-                            session
-                                .record_action_map_main_tool_result(
-                                    &turn,
-                                    &taskspace_call_id,
-                                    &taskspace_tool_name,
-                                    false,
-                                    response.result.log_preview(),
-                                )
+                        if let Some(descriptor) = taskspace_descriptor.as_ref() {
+                            Self::record_taskspace_tool_result(
+                                &session,
+                                &turn,
+                                &taskspace_call_id,
+                                &taskspace_tool_name,
+                                Some(descriptor.action_class),
+                                false,
+                                response.result.log_preview(),
+                            )
                                 .await;
                         }
                         Ok(response)
@@ -137,13 +145,6 @@ impl ToolCallRuntime {
                         } else {
                             Either::Right(lock.write().await)
                         };
-
-                        if taskspace_attributed {
-                            session
-                                .prepare_action_map_main_tool_call(&turn, &taskspace_tool_name)
-                                .await
-                                .map_err(FunctionCallError::RespondToModel)?;
-                        }
 
                         let result = router
                             .dispatch_tool_call_with_code_mode_result(
@@ -158,30 +159,32 @@ impl ToolCallRuntime {
                             .await;
                         match result {
                             Ok(result) => {
-                                if taskspace_attributed {
-                                    session
-                                        .record_action_map_main_tool_result(
-                                            &turn,
-                                            &taskspace_call_id,
-                                            &taskspace_tool_name,
-                                            result.result.success_for_logging(),
-                                            result.result.log_preview(),
-                                        )
+                                if let Some(descriptor) = taskspace_descriptor.as_ref() {
+                                    Self::record_taskspace_tool_result(
+                                        &session,
+                                        &turn,
+                                        &taskspace_call_id,
+                                        &taskspace_tool_name,
+                                        Some(descriptor.action_class),
+                                        result.result.success_for_logging(),
+                                        result.result.log_preview(),
+                                    )
                                         .await;
                                 }
                                 Ok(result)
                             }
                             Err(err) => {
-                                if taskspace_attributed {
+                                if let Some(descriptor) = taskspace_descriptor.as_ref() {
                                     let preview = action_map_tool_error_preview(&err);
-                                    session
-                                        .record_action_map_main_tool_result(
-                                            &turn,
-                                            &taskspace_call_id,
-                                            &taskspace_tool_name,
-                                            false,
-                                            preview,
-                                        )
+                                    Self::record_taskspace_tool_result(
+                                        &session,
+                                        &turn,
+                                        &taskspace_call_id,
+                                        &taskspace_tool_name,
+                                        Some(descriptor.action_class),
+                                        false,
+                                        preview,
+                                    )
                                         .await;
                                 }
                                 Err(err)
@@ -252,8 +255,73 @@ impl ToolCallRuntime {
         }
     }
 
+    async fn prepare_taskspace_tool_call(
+        session: &Arc<Session>,
+        turn: &TurnContext,
+        descriptor: ToolActionDescriptor,
+    ) -> Result<(), FunctionCallError> {
+        if let Some(parent_thread_id) = taskspace_parent_thread_id(&turn.session_source) {
+            session
+                .services
+                .agent_control
+                .prepare_action_map_child_tool_call(
+                    parent_thread_id,
+                    session.conversation_id,
+                    descriptor,
+                )
+                .await
+                .map_err(FunctionCallError::RespondToModel)?;
+        } else {
+            session
+                .prepare_action_map_main_tool_call(turn, descriptor)
+                .await
+                .map_err(FunctionCallError::RespondToModel)?;
+        }
+        Ok(())
+    }
+
+    async fn record_taskspace_tool_result(
+        session: &Arc<Session>,
+        turn: &TurnContext,
+        call_id: &str,
+        tool_name: &str,
+        action_class: Option<ActionClass>,
+        success: bool,
+        preview: String,
+    ) {
+        if let Some(parent_thread_id) = taskspace_parent_thread_id(&turn.session_source) {
+            session
+                .services
+                .agent_control
+                .record_action_map_child_tool_result(
+                    parent_thread_id,
+                    session.conversation_id,
+                    call_id,
+                    tool_name,
+                    action_class,
+                    success,
+                    preview,
+                )
+                .await;
+        } else {
+            session
+                .record_action_map_main_tool_result(
+                    turn,
+                    call_id,
+                    tool_name,
+                    action_class,
+                    success,
+                    preview,
+                )
+                .await;
+        }
+    }
+
     fn should_attribute_taskspace_tool(call: &ToolCall, source: &ToolCallSource) -> bool {
         if *source != ToolCallSource::Direct {
+            return false;
+        }
+        if matches!(call.tool_name.name.as_str(), "update_plan") {
             return false;
         }
         if call.tool_name.namespace.is_some() {
@@ -272,6 +340,311 @@ impl ToolCallRuntime {
                 | "followup_task"
         )
     }
+
+    fn classify_taskspace_tool_action(call: &ToolCall) -> ToolActionDescriptor {
+        let tool_name = call.tool_name.display();
+        let preview = call.payload.log_payload().to_string();
+        let class = classify_tool_payload(&tool_name, &call.payload);
+        ToolActionDescriptor::new(tool_name, class, preview).with_call_id(call.call_id.clone())
+    }
+}
+
+fn classify_tool_payload(tool_name: &str, payload: &ToolPayload) -> ActionClass {
+    let tool = tool_name.to_ascii_lowercase();
+    if tool.contains("apply_patch") {
+        return ActionClass::Edit;
+    }
+    if tool.contains("taskspace_control") {
+        return ActionClass::Control;
+    }
+    if tool.contains("spawn_agent") || tool.ends_with("spawn") {
+        return ActionClass::Spawn;
+    }
+    if tool.contains("wait_agent") || tool.contains("close_agent") || tool.contains("resume_agent")
+    {
+        return ActionClass::Wait;
+    }
+    if tool.contains("review") {
+        return ActionClass::Review;
+    }
+    match payload {
+        ToolPayload::ToolSearch { .. } => ActionClass::Search,
+        ToolPayload::LocalShell { params } => classify_shell_text(&params.command.join(" ")),
+        ToolPayload::Function { arguments }
+        | ToolPayload::Mcp {
+            raw_arguments: arguments,
+            ..
+        } => {
+            let command = extract_command_from_json(arguments).unwrap_or_else(|| arguments.clone());
+            if is_shell_like_tool(&tool) {
+                classify_shell_text(&command)
+            } else if tool.contains("search") || tool.contains("find") {
+                ActionClass::Search
+            } else if tool.contains("read") || tool.contains("open") || tool.contains("list") {
+                ActionClass::Read
+            } else {
+                ActionClass::Unknown
+            }
+        }
+        ToolPayload::Custom { input } => {
+            if tool.contains("apply_patch") {
+                ActionClass::Edit
+            } else {
+                classify_shell_text(input)
+            }
+        }
+    }
+}
+
+fn taskspace_parent_thread_id(session_source: &SessionSource) -> Option<ThreadId> {
+    match session_source {
+        SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+            parent_thread_id, ..
+        }) => Some(*parent_thread_id),
+        _ => None,
+    }
+}
+
+fn is_shell_like_tool(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "shell" | "container.exec" | "local_shell" | "shell_command" | "unified_exec"
+    ) || tool_name.ends_with(".shell_command")
+        || tool_name.ends_with(".shell")
+}
+
+fn extract_command_from_json(arguments: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(arguments).ok()?;
+    value
+        .get("command")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .or_else(|| {
+            value
+                .get("cmd")
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        })
+}
+
+fn classify_shell_text(command: &str) -> ActionClass {
+    let lower = command.to_ascii_lowercase();
+    let trimmed = lower.trim();
+    if trimmed.is_empty() {
+        return ActionClass::Unknown;
+    }
+    let padded = format!(" {trimmed} ");
+    let command_words = normalized_shell_words(trimmed);
+    let has_test_action = contains_any(
+        &lower,
+        &[
+            "pytest",
+            "cargo test",
+            "cargo nextest",
+            "npm test",
+            "npm run test",
+            "pnpm test",
+            "pnpm run test",
+            "yarn test",
+            "dotnet test",
+            "go test",
+            "gradle test",
+            "gradlew test",
+            "mvn test",
+            "connecteddebugandroidtest",
+            "python -m unittest",
+        ],
+    ) || has_common_test_command(&command_words)
+        || runs_python_test_file(&command_words);
+    let has_build_action = contains_any(
+        &lower,
+        &[
+            "cargo build",
+            "cargo check",
+            "cargo clippy",
+            "cargo fmt --check",
+            "npm run build",
+            "npm run lint",
+            "npm run typecheck",
+            "npm run check",
+            "pnpm run build",
+            "pnpm run lint",
+            "pnpm run typecheck",
+            "pnpm run check",
+            "pnpm build",
+            "pnpm lint",
+            "yarn build",
+            "yarn lint",
+            "yarn typecheck",
+            "yarn run typecheck",
+            "dotnet build",
+            "gradle build",
+            "gradle check",
+            "gradlew build",
+            "gradlew check",
+            "mvn package",
+            "mvn verify",
+            "rustfmt --check",
+            "tsc --noemit",
+            "tsc --no-emit",
+        ],
+    ) || has_common_build_command(trimmed, &command_words);
+    let has_edit_action = has_file_redirection(&lower)
+        || has_mutating_formatter_command(trimmed, &command_words)
+        || contains_any(
+            &lower,
+            &[
+                "apply_patch",
+                "set-content",
+                "add-content",
+                "out-file",
+                "new-item",
+                "remove-item",
+                "move-item",
+                "copy-item",
+                "rename-item",
+                "git stash",
+                "git commit",
+                "git add",
+                "git reset",
+                "git clean",
+                "git restore",
+                "git checkout",
+                "git switch",
+                "git merge",
+                "git rebase",
+                "git cherry-pick",
+                "git apply",
+                "cargo fix",
+                "prettier --write",
+                "eslint --fix",
+                "npm run format",
+                "pnpm format",
+                "yarn format",
+                "sed -i",
+                "perl -pi",
+                "python -c",
+                "python - <<",
+                "py -c",
+                "node -e",
+                "tee ",
+                " tee ",
+            ],
+        )
+        || contains_shell_token(
+            &command_words,
+            &[
+                "sc", "ac", "ni", "ri", "rm", "del", "erase", "rd", "rmdir", "mi", "mv", "cpi",
+                "cp", "ren", "mkdir", "touch",
+            ],
+        );
+    let has_search_action = contains_any(
+        &padded,
+        &[
+            "rg ",
+            " rg ",
+            "select-string",
+            "grep ",
+            " grep ",
+            "findstr",
+            "search",
+        ],
+    ) || lower.contains("rg.exe");
+    let has_read_action =
+        contains_any(
+            &lower,
+            &[
+                "get-content",
+                "get-childitem",
+                "get-location",
+                "git diff",
+                "git status",
+                "git log",
+                "git show",
+            ],
+        ) || contains_shell_token(&command_words, &["ls", "dir", "cat", "type", "pwd"]);
+    if has_edit_action {
+        return ActionClass::Edit;
+    }
+    if has_test_action {
+        return ActionClass::Test;
+    }
+    if has_build_action {
+        return ActionClass::Build;
+    }
+    if has_search_action {
+        return ActionClass::Search;
+    }
+    if has_read_action {
+        return ActionClass::Read;
+    }
+    ActionClass::Unknown
+}
+
+fn has_common_test_command(words: &str) -> bool {
+    (contains_shell_token(words, &["dotnet", "mvn", "mvnw"])
+        && contains_shell_token(words, &["test"]))
+        || (contains_shell_token(words, &["gradle", "gradlew"])
+            && contains_shell_token(words, &["test"]))
+        || (contains_shell_token(words, &["npm", "pnpm", "yarn"])
+            && contains_shell_token(words, &["test"]))
+}
+
+fn has_common_build_command(command: &str, words: &str) -> bool {
+    (contains_shell_token(words, &["gradle", "gradlew"])
+        && contains_shell_token(words, &["build", "check"]))
+        || (contains_shell_token(words, &["npm", "pnpm", "yarn"])
+            && contains_shell_token(words, &["build", "lint", "typecheck", "check"]))
+        || (command.contains("cargo fmt") && command.contains("--check"))
+        || (contains_shell_token(words, &["rustfmt"]) && command.contains("--check"))
+}
+
+fn has_mutating_formatter_command(command: &str, words: &str) -> bool {
+    (command.contains("cargo fmt") && !command.contains("--check"))
+        || (contains_shell_token(words, &["rustfmt"]) && !command.contains("--check"))
+}
+
+fn runs_python_test_file(words: &str) -> bool {
+    let tokens = words.split_whitespace().collect::<Vec<_>>();
+    tokens.windows(2).any(|pair| {
+        matches!(pair[0], "python" | "python3" | "py")
+            && pair[1]
+                .rsplit(['/', '\\'])
+                .next()
+                .is_some_and(|name| name.starts_with("test_") && name.ends_with(".py"))
+    })
+}
+
+fn has_file_redirection(command: &str) -> bool {
+    command.char_indices().any(|(index, ch)| {
+        if ch != '>' {
+            return false;
+        }
+        let after = command[index + ch.len_utf8()..].trim_start();
+        !after.is_empty() && !after.starts_with('&')
+    })
+}
+
+fn normalized_shell_words(command: &str) -> String {
+    let normalized: String = command
+        .chars()
+        .map(|ch| match ch {
+            ';' | '&' | '|' | '\n' | '\r' | '\t' | '(' | ')' | '{' | '}' | '[' | ']' | '"'
+            | '\'' | ',' => ' ',
+            _ => ch,
+        })
+        .collect();
+    format!(" {normalized} ")
+}
+
+fn contains_shell_token(words: &str, tokens: &[&str]) -> bool {
+    tokens
+        .iter()
+        .any(|token| words.contains(&format!(" {token} ")))
+}
+
+fn contains_any(haystack: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| haystack.contains(needle))
 }
 
 fn action_map_tool_error_preview(err: &FunctionCallError) -> String {
@@ -289,6 +662,8 @@ fn action_map_tool_error_preview(err: &FunctionCallError) -> String {
 #[cfg(test)]
 mod tests {
     use super::action_map_tool_error_preview;
+    use super::classify_shell_text;
+    use crate::action_map::ActionClass;
     use crate::function_tool::FunctionCallError;
 
     #[test]
@@ -299,5 +674,111 @@ mod tests {
 
         assert_eq!(preview, "Tool call failed before producing a result.");
         assert!(!preview.contains("secret"));
+    }
+
+    #[test]
+    fn shell_action_classifier_identifies_core_taskspace_classes() {
+        assert_eq!(
+            classify_shell_text("Get-Content src/lib.rs"),
+            ActionClass::Read
+        );
+        assert_eq!(classify_shell_text("ls"), ActionClass::Read);
+        assert_eq!(classify_shell_text("dir src"), ActionClass::Read);
+        assert_eq!(classify_shell_text("Get-Location"), ActionClass::Read);
+        assert_eq!(
+            classify_shell_text("cmd /c \"dir /s /b repo\\*.py\""),
+            ActionClass::Read
+        );
+        assert_eq!(
+            classify_shell_text("rg \"TaskSpace\" src"),
+            ActionClass::Search
+        );
+        assert_eq!(classify_shell_text("grep -R foo src"), ActionClass::Search);
+        assert_eq!(classify_shell_text("pytest -q"), ActionClass::Test);
+        assert_eq!(
+            classify_shell_text("python -m pytest tests/ -v 2>&1"),
+            ActionClass::Test
+        );
+        assert_eq!(
+            classify_shell_text("python test_pricing.py"),
+            ActionClass::Test
+        );
+        assert_eq!(
+            classify_shell_text("py tests\\test_pricing.py"),
+            ActionClass::Test
+        );
+        assert_eq!(
+            classify_shell_text("pytest -q > pytest.log"),
+            ActionClass::Edit
+        );
+        assert_eq!(
+            classify_shell_text("pytest -q 2> pytest.err.log"),
+            ActionClass::Edit
+        );
+        assert_eq!(
+            classify_shell_text("git stash push -- src/lib.rs; python -m pytest tests -q"),
+            ActionClass::Edit
+        );
+        assert_eq!(classify_shell_text("cargo check"), ActionClass::Build);
+        assert_eq!(
+            classify_shell_text("cargo build --release"),
+            ActionClass::Build
+        );
+        assert_eq!(classify_shell_text("cargo fmt --check"), ActionClass::Build);
+        assert_eq!(
+            classify_shell_text("rustfmt --check src/lib.rs"),
+            ActionClass::Build
+        );
+        assert_eq!(classify_shell_text("dotnet test"), ActionClass::Test);
+        assert_eq!(classify_shell_text("mvn -q test"), ActionClass::Test);
+        assert_eq!(classify_shell_text("gradlew build"), ActionClass::Build);
+        assert_eq!(classify_shell_text("npm run build"), ActionClass::Build);
+        assert_eq!(classify_shell_text("npm run typecheck"), ActionClass::Build);
+        assert_eq!(classify_shell_text("pnpm run build"), ActionClass::Build);
+        assert_eq!(
+            classify_shell_text("pnpm run typecheck"),
+            ActionClass::Build
+        );
+        assert_eq!(classify_shell_text("yarn typecheck"), ActionClass::Build);
+        assert_eq!(classify_shell_text("tsc --noEmit"), ActionClass::Build);
+        assert_eq!(
+            classify_shell_text("cargo build && cargo test"),
+            ActionClass::Test
+        );
+        assert_eq!(
+            classify_shell_text("Set-Content file.txt value"),
+            ActionClass::Edit
+        );
+        assert_eq!(
+            classify_shell_text("Set-Content file.txt value; pytest -q"),
+            ActionClass::Edit
+        );
+        assert_eq!(classify_shell_text("pytest -q>out.log"), ActionClass::Edit);
+        assert_eq!(classify_shell_text("rm file; pytest -q"), ActionClass::Edit);
+        assert_eq!(
+            classify_shell_text("del file & pytest -q"),
+            ActionClass::Edit
+        );
+        assert_eq!(
+            classify_shell_text("sc file value; pytest -q"),
+            ActionClass::Edit
+        );
+        assert_eq!(classify_shell_text("ni file; pytest -q"), ActionClass::Edit);
+        assert_eq!(classify_shell_text("mv a b; pytest -q"), ActionClass::Edit);
+        assert_eq!(
+            classify_shell_text("sed -i s/a/b/ file; pytest -q"),
+            ActionClass::Edit
+        );
+        assert_eq!(
+            classify_shell_text("python -c \"open('x','w').write('y')\"; pytest -q"),
+            ActionClass::Edit
+        );
+        assert_eq!(classify_shell_text("git stash"), ActionClass::Edit);
+        assert_eq!(classify_shell_text("cargo fmt"), ActionClass::Edit);
+        assert_eq!(classify_shell_text("rustfmt src/lib.rs"), ActionClass::Edit);
+        assert_eq!(
+            classify_shell_text("some-unknown-tool"),
+            ActionClass::Unknown
+        );
     }
 }

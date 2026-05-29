@@ -1845,6 +1845,8 @@ pub struct ActionMapSnapshotMap {
 pub struct ActionMapSnapshotNode {
     pub id: String,
     pub title: String,
+    #[serde(default = "default_action_map_node_kind")]
+    pub kind: String,
     pub status: String,
     pub context_summary: String,
     pub source_refs: Vec<String>,
@@ -1883,6 +1885,8 @@ pub struct ActionMapSnapshotResult {
     pub map_id: String,
     pub node_id: String,
     pub kind: String,
+    #[serde(default)]
+    pub action_class: Option<String>,
     pub body: String,
     pub source_thread_id: ThreadId,
     pub created_at_ms: i64,
@@ -2008,7 +2012,21 @@ pub struct MapRuntimeNodeResultRecordedEvent {
     pub lease_id: String,
     pub result_id: String,
     pub kind: String,
+    #[serde(default)]
+    pub action_class: Option<String>,
     pub source_thread_id: ThreadId,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeToolActionBlockedEvent {
+    pub map_id: String,
+    pub node_id: String,
+    pub node_kind: String,
+    pub tool_name: String,
+    pub action_class: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -2064,10 +2082,15 @@ pub enum MapRuntimeEvent {
     LeaseAttached(MapRuntimeLeaseAttachedEvent),
     LeaseReleased(MapRuntimeLeaseReleasedEvent),
     NodeResultRecorded(MapRuntimeNodeResultRecordedEvent),
+    ToolActionBlocked(MapRuntimeToolActionBlockedEvent),
     TimeoutSummaryRequested(MapRuntimeTimeoutSummaryRequestedEvent),
     MaintenanceBarrierRaised(MapRuntimeMaintenanceBarrierRaisedEvent),
     MaintenanceBarrierCleared(MapRuntimeMaintenanceBarrierClearedEvent),
     SnapshotUpdated(MapRuntimeSnapshotUpdatedEvent),
+}
+
+fn default_action_map_node_kind() -> String {
+    "custom".to_string()
 }
 
 impl From<MapRuntimeEvent> for EventMsg {

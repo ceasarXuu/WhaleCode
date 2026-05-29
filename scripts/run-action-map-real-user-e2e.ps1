@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ScenarioId = "action-map-natural-user-order-pipeline",
     [string]$RunRoot = "",
     [string]$WhaleBin = "$env:USERPROFILE\.whale\bin\whale.exe",
@@ -9,173 +9,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function New-Dir([string]$PathValue) { (New-Item -ItemType Directory -Force -Path $PathValue).FullName }
-function Write-Text([string]$PathValue, [string]$Text) { [System.IO.File]::WriteAllText($PathValue, $Text, [System.Text.UTF8Encoding]::new($false)) }
-function Count-Matches([string]$Text, [string]$Pattern) { ([regex]::Matches($Text, $Pattern)).Count }
-
-function Invoke-RealProcess {
-    param(
-        [string]$FilePath,
-        [string[]]$ArgumentList,
-        [string]$WorkingDirectory,
-        [string]$StdoutPath,
-        [string]$StderrPath,
-        [int]$TimeoutSeconds,
-        [string]$StdinPath = ""
-    )
-    $encoding = [System.Text.UTF8Encoding]::new($false)
-    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $FilePath
-    $startInfo.WorkingDirectory = $WorkingDirectory
-    $startInfo.UseShellExecute = $false
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $startInfo.StandardOutputEncoding = $encoding
-    $startInfo.StandardErrorEncoding = $encoding
-    if ($StdinPath) { $startInfo.RedirectStandardInput = $true }
-    $startInfo.Arguments = (($ArgumentList | ForEach-Object {
-        $arg = [string]$_
-        if ($arg -match '[\s"]') { '"' + ($arg -replace '"', '\"') + '"' } else { $arg }
-    }) -join " ")
-    $process = [System.Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
-    [void]$process.Start()
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
-    if ($StdinPath) {
-        $process.StandardInput.Write((Get-Content -Raw -Encoding UTF8 $StdinPath))
-        $process.StandardInput.Close()
-    }
-    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-        try { $process.Kill($true) } catch { $process.Kill() }
-        throw "Process timed out after $TimeoutSeconds seconds: $FilePath $($ArgumentList -join ' ')"
-    }
-    $stdoutTask.Wait()
-    $stderrTask.Wait()
-    $stdoutTask.Result | Set-Content -Encoding UTF8 $StdoutPath
-    $stderrTask.Result | Set-Content -Encoding UTF8 $StderrPath
-    $process.ExitCode
-}
-
-function Get-ThreadId([string]$JsonlText) {
-    foreach ($line in ($JsonlText -split "`r?`n")) {
-        if ([string]::IsNullOrWhiteSpace($line)) { continue }
-        try {
-            $event = $line | ConvertFrom-Json
-            if ($event.type -eq "thread.started" -and $event.thread_id) { return [string]$event.thread_id }
-        } catch {}
-    }
-    ""
-}
-
-function Find-LatestRollout([datetime]$StartedAt, [string]$ThreadId) {
-    $homes = @()
-    if ($env:WHALE_HOME) { $homes += $env:WHALE_HOME }
-    $homes += (Join-Path $env:USERPROFILE ".whale")
-    foreach ($candidateHome in $homes | Select-Object -Unique) {
-        if (-not (Test-Path $candidateHome)) { continue }
-        $recent = Get-ChildItem -Path $candidateHome -Recurse -Filter "rollout-*.jsonl" -ErrorAction SilentlyContinue |
-            Where-Object { $_.LastWriteTime -ge $StartedAt.AddMinutes(-2) } |
-            Sort-Object LastWriteTime -Descending
-        foreach ($candidate in $recent) {
-            if (-not $ThreadId) { return $candidate }
-            $raw = Get-Content -Raw -Encoding UTF8 $candidate.FullName -ErrorAction SilentlyContinue
-            if ($raw -match [regex]::Escape($ThreadId)) { return $candidate }
-        }
-    }
-    $null
-}
-
-function Add-ReportLine([System.Collections.Generic.List[string]]$Report, [string]$Key, $Value) {
-    $Report.Add("- ${Key}: $Value")
-}
-
-function Get-CommandStats([string]$JsonlText) {
-    $ids = [System.Collections.Generic.HashSet[string]]::new()
-    $failed = 0
-    $pytestPassed = $false
-    $pytestCount = 0
-    foreach ($line in ($JsonlText -split "`r?`n")) {
-        if ([string]::IsNullOrWhiteSpace($line)) { continue }
-        try { $evt = $line | ConvertFrom-Json } catch { continue }
-        if ($evt.type -ne "item.completed" -or $evt.item.type -ne "command_execution") { continue }
-        [void]$ids.Add([string]$evt.item.id)
-        if ($evt.item.status -eq "failed" -or $evt.item.exit_code -ne 0) { $failed++ }
-        $command = [string]$evt.item.command
-        $output = [string]$evt.item.aggregated_output
-        if ($command -match "pytest") {
-            $pytestCount++
-            if ($evt.item.exit_code -eq 0 -and $output -match "passed") { $pytestPassed = $true }
-        }
-    }
-    [pscustomobject]@{
-        Completed = $ids.Count
-        Failed = $failed
-        PytestCount = $pytestCount
-        AgentRanPassingPytest = $pytestPassed
-    }
-}
-
-function Get-SuccessfulTaskspaceOrdering([string]$RolloutText) {
-    $firstBinding = $null
-    $firstOrdinary = $null
-    foreach ($line in ($RolloutText -split "`r?`n")) {
-        if ([string]::IsNullOrWhiteSpace($line)) { continue }
-        try { $evt = $line | ConvertFrom-Json } catch { continue }
-        if (-not $firstBinding -and $evt.type -eq "event_msg") {
-            $eventKind = [string]$evt.payload.type
-            if ($eventKind -eq "lease_created") {
-                $firstBinding = [pscustomobject]@{ Timestamp = [string]$evt.timestamp; Evidence = "lease_created" }
-            }
-        }
-        if ($evt.type -eq "response_item" -and $evt.payload.type -eq "function_call") {
-            $name = [string]$evt.payload.name
-            if (-not $firstOrdinary -and $name -match "^(shell_command|apply_patch|spawn_agent)$") {
-                $firstOrdinary = [pscustomobject]@{ Timestamp = [string]$evt.timestamp; Tool = $name }
-            }
-        }
-    }
-    $ordinaryBeforeBinding = $false
-    if ($firstOrdinary -and -not $firstBinding) { $ordinaryBeforeBinding = $true }
-    elseif ($firstOrdinary -and $firstBinding) {
-        $ordinaryBeforeBinding = ([datetime]$firstOrdinary.Timestamp) -lt ([datetime]$firstBinding.Timestamp)
-    }
-    [pscustomobject]@{
-        FirstBindingTimestamp = if ($firstBinding) { $firstBinding.Timestamp } else { "" }
-        FirstBindingEvidence = if ($firstBinding) { $firstBinding.Evidence } else { "" }
-        FirstOrdinaryToolTimestamp = if ($firstOrdinary) { $firstOrdinary.Timestamp } else { "" }
-        FirstOrdinaryTool = if ($firstOrdinary) { $firstOrdinary.Tool } else { "" }
-        OrdinaryToolBeforeBinding = $ordinaryBeforeBinding
-    }
-}
-
-function Get-PytestOwnership($Obs, [string]$RolloutText, $ToolCallArgs) {
-    $empty = [pscustomobject]@{ Owned = $false; NodeId = ""; NodeTitle = ""; ResultId = ""; CallId = ""; Command = "" }
-    if (-not $Obs) { return $empty }
-    foreach ($node in @($Obs.nodes | Where-Object { $_.title -match "(?i)validat|regression|test|verify" })) {
-        foreach ($line in ($RolloutText -split "`r?`n")) {
-            if ($line -notmatch ('"nodeId"\s*:\s*"' + [regex]::Escape([string]$node.id) + '"')) { continue }
-            try { $evt = $line | ConvertFrom-Json } catch { continue }
-            foreach ($map in @($evt.payload.snapshot.maps)) { foreach ($result in @($map.results)) {
-                if ($result.nodeId -eq $node.id -and $result.kind -eq "main_tool_call" -and $result.body -match 'call_id:\s*(call_[A-Za-z0-9_]+)') {
-                    $callId = $Matches[1]
-                    $command = [string]$ToolCallArgs[$callId]
-                    if ($result.body -match 'passed' -and $command -match 'pytest') {
-                        return [pscustomobject]@{
-                            Owned = $true
-                            NodeId = [string]$node.id
-                            NodeTitle = [string]$node.title
-                            ResultId = [string]$result.id
-                            CallId = $callId
-                            Command = $command
-                        }
-                    }
-                }
-            } }
-        }
-    }
-    $empty
-}
+. (Join-Path $PSScriptRoot "action-map-real-user-e2e-lib.ps1")
 
 if (-not $RunRoot) {
     $RunRoot = Join-Path $PSScriptRoot "..\target\real-user-e2e"
@@ -196,6 +30,9 @@ $validationStderrPath = Join-Path $artifactDir "validation.stderr.log"
 $gitDiffPath = Join-Path $artifactDir "git-diff.patch"
 $reportPath = Join-Path $artifactDir "report.md"
 $scriptSha256 = (Get-FileHash -Algorithm SHA256 $PSCommandPath).Hash
+$whaleSha256 = if (Test-Path $WhaleBin) { (Get-FileHash -Algorithm SHA256 $WhaleBin).Hash } else { "" }
+$workspaceRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$repoHead = (git -C $workspaceRoot rev-parse HEAD 2>$null) -join "`n"
 
 @'
 from .invoice import invoice_total
@@ -322,6 +159,7 @@ if ($PlanOnly -or $PSBoundParameters.ContainsKey("PlanOnly")) {
 }
 
 if (-not (Test-Path $WhaleBin)) { throw "Whale binary not found: $WhaleBin" }
+$whaleVersion = (& $WhaleBin --version 2>&1) -join " "
 $helpText = & $WhaleBin exec --help 2>&1
 if (($helpText -join [Environment]::NewLine) -notmatch "--taskspace") { throw "Whale exec does not expose --taskspace." }
 
@@ -395,21 +233,61 @@ $nodeCount = if ($obs) { @($obs.nodes).Count } else { 0 }
 $agentCount = if ($obs) { @($obs.agents).Count } else { 0 }
 $completedNodes = if ($obs) { @($obs.nodes | Where-Object { $_.status -eq "completed" }).Count } else { 0 }
 $nodesWithResults = if ($obs) { @($obs.nodes | Where-Object { @($_.results).Count -gt 0 }).Count } else { 0 }
+$nodeMetrics = if ($obs) { @($obs.nodes) } else { @() }
 $titleText = if ($obs) { (@($obs.nodes | ForEach-Object { $_.title }) -join "`n").ToLowerInvariant() } else { "" }
 $hasBoundaryNode = $titleText -match "boundary|scope|repo|inspect|read"
 $hasParserNode = $titleText -match "parser|parse|sku"
 $hasPricingNode = $titleText -match "pricing|discount|invoice|shipping"
 $hasImplementationNode = $titleText -match "implement|fix|change"
 $hasValidationNode = $titleText -match "validat|regression|test|verify"
+$titleCoverageComplete = $hasBoundaryNode -and $hasParserNode -and $hasPricingNode -and $hasImplementationNode -and $hasValidationNode
+$kindText = (@($nodeMetrics | ForEach-Object { $_.kind }) -join "`n").ToLowerInvariant()
+$hasInspectKind = $kindText -match "inspect_code_context"
+$hasImplementationKind = $kindText -match "implement_solution"
+$hasTestKind = $kindText -match "smoke_test|regression_test"
 $implementationNodeHasMainTools = if ($obs) { @($obs.nodes | Where-Object { $_.title -match "(?i)implement|fix|change" -and @($_.results | Where-Object { $_.kind -eq "main_tool_call" }).Count -gt 0 }).Count -gt 0 } else { $false }
-$pytestOwnership = Get-PytestOwnership $obs $rolloutText $toolCallArgs
+$implementationKindHasEdit = @($nodeMetrics | Where-Object {
+        $_.kind -eq "implement_solution" -and @($_.results | Where-Object {
+                $_.kind -eq "main_tool_call" -and $_.actionClass -eq "edit" -and ((Get-ObjectPropertyNames $_) -notcontains "success" -or $_.success -eq $true)
+            }).Count -gt 0
+    }).Count -gt 0
+$testKindHasTest = @($nodeMetrics | Where-Object {
+        ($_.kind -eq "smoke_test" -or $_.kind -eq "regression_test") -and @($_.results | Where-Object {
+                $_.kind -eq "main_tool_call" -and $_.actionClass -eq "test" -and ((Get-ObjectPropertyNames $_) -notcontains "success" -or $_.success -eq $true)
+            }).Count -gt 0
+    }).Count -gt 0
+$editResultsOutsideImplementation = @($nodeMetrics | Where-Object { $_.kind -ne "implement_solution" } | ForEach-Object { @($_.results | Where-Object { $_.kind -eq "main_tool_call" -and $_.actionClass -eq "edit" }) }).Count
+$testResultsOutsideDiagnosticOrTestNode = @($nodeMetrics | Where-Object { $_.kind -ne "inspect_code_context" -and $_.kind -ne "smoke_test" -and $_.kind -ne "regression_test" } | ForEach-Object { @($_.results | Where-Object { $_.kind -eq "main_tool_call" -and $_.actionClass -eq "test" }) }).Count
+$unknownActionResults = @($nodeMetrics | ForEach-Object { @($_.results | Where-Object { $_.kind -eq "main_tool_call" -and ([string]::IsNullOrWhiteSpace([string]$_.actionClass) -or $_.actionClass -eq "unknown") }) }).Count
+$failedTaskspaceToolResults = Count-FailedTaskspaceToolResults $obs
+$unexpectedFailedTaskspaceToolResults = Count-UnexpectedFailedTaskspaceToolResults $obs
+$unexpectedFailedToolBudget = 0
+$failedCollabToolCalls = Count-FailedCollabToolCalls $obs
+$problematicSuccessfulToolResults = Count-ProblematicSuccessfulToolResults $obs
+$implementationOwnershipGap = Get-ImplementationOwnershipGap $obs $gitDiffText $toolCallArgs
+$blockedActionCount = 0
+foreach ($node in $nodeMetrics) {
+    if ($null -ne $node.blockedActions) {
+        $blockedActionCount += @($node.blockedActions).Count
+    }
+}
+$pytestOwnership = Get-PytestOwnership $obs $toolCallArgs
 $validationNodeHasPytestResult = $pytestOwnership.Owned
+$editResultsAfterFinalPytest = Count-EditResultsAfter $nodeMetrics $pytestOwnership.At
 $finishNodeCallCount = Count-Matches $rolloutText 'TaskSpace node finished:'
+$expectedFinishNodeCalls = [Math]::Max(1, $nodeCount - 1)
 $commandStats = Get-CommandStats $jsonlText
 $taskspaceOrdering = Get-SuccessfulTaskspaceOrdering $rolloutText
 $spawnAgentCount = if ($obs) { @($obs.toolCalls | Where-Object { $_.tool -eq "spawn_agent" -and $_.status -eq "completed" }).Count } else { 0 }
 $postHocEmptyTerminalNodes = if ($obs) { @($obs.nodes | Where-Object { $_.title -match "(?i)validat|final|synthesis" -and @($_.results).Count -eq 0 }).Count } else { 0 }
 $taskspaceControlCount = Count-Matches $rolloutText '"name":"taskspace_control"|"name"\s*:\s*"taskspace_control"'
+$realWorkItemCount = @($nodeMetrics | ForEach-Object {
+        @($_.results | Where-Object {
+                $_.kind -eq "main_tool_call" -and
+                ($_.toolName -eq "shell_command" -or $_.toolName -eq "apply_patch") -and
+                ((Get-ObjectPropertyNames $_) -notcontains "success" -or $_.success -eq $true)
+            })
+    }).Count
 
 $failures = New-Object System.Collections.Generic.List[string]
 if ($promptLeaksInternalConcepts) { $failures.Add("natural user prompt leaked TaskSpace/map/node/subagent concepts") }
@@ -424,15 +302,22 @@ if ($mapCount -lt 1) { $failures.Add("no task map was observed") }
 if ($nodeCount -lt 4) { $failures.Add("natural task did not grow to at least 4 nodes; observed $nodeCount") }
 if ($nodesWithResults -lt 3) { $failures.Add("expected results on at least 3 nodes; observed $nodesWithResults") }
 if ($completedNodes -lt 2) { $failures.Add("expected at least 2 completed nodes; observed $completedNodes") }
-if ($finishNodeCallCount -lt 1) { $failures.Add("expected at least 1 finish_node call; observed $finishNodeCallCount") }
-if (-not ($hasBoundaryNode -and $hasParserNode -and $hasPricingNode -and $hasImplementationNode -and $hasValidationNode)) {
-    $failures.Add("node titles did not cover boundary/parser/pricing/implementation/validation categories")
-}
-if (-not $implementationNodeHasMainTools) { $failures.Add("implementation node did not own main-agent tool results") }
+if ($finishNodeCallCount -lt $expectedFinishNodeCalls) { $failures.Add("expected at least $expectedFinishNodeCalls finish_node calls for $nodeCount nodes; observed $finishNodeCallCount") }
+if (-not ($hasInspectKind -and $hasImplementationKind -and $hasTestKind)) { $failures.Add("node kinds did not cover inspect/implementation/test phases") }
+if (-not $implementationKindHasEdit) { $failures.Add("implement_solution node did not own an edit action result") }
+if (-not $testKindHasTest) { $failures.Add("smoke_test/regression_test node did not own a test action result") }
+if ($editResultsOutsideImplementation -gt 0) { $failures.Add("edit action results were recorded outside implement_solution nodes: $editResultsOutsideImplementation") }
+if ($testResultsOutsideDiagnosticOrTestNode -gt 0) { $failures.Add("test action results were recorded outside inspect/smoke/regression nodes: $testResultsOutsideDiagnosticOrTestNode") }
+if ($unknownActionResults -gt 0) { $failures.Add("unknown action results were recorded: $unknownActionResults") }
+if ($unexpectedFailedTaskspaceToolResults -gt 0) { $failures.Add("unexpected failed taskspace-owned tool results: $unexpectedFailedTaskspaceToolResults") }
+if ($failedCollabToolCalls -gt 0) { $failures.Add("unexpected failed collaboration tool calls: $failedCollabToolCalls") }
+if ($implementationOwnershipGap.MissingCount -gt 0) { $failures.Add("changed paths not owned by successful implementation-node edits: $($implementationOwnershipGap.MissingPaths -join ', ')") }
 if (-not $commandStats.AgentRanPassingPytest) { $failures.Add("agent did not run a passing pytest command") }
-if (-not $validationNodeHasPytestResult) { $failures.Add("pytest passed, but was not owned by a validation/regression node") }
+if (-not $validationNodeHasPytestResult) { $failures.Add("pytest passed, but was not owned by a smoke/regression node") }
+if ($editResultsAfterFinalPytest -gt 0) { $failures.Add("edit action results occurred after the final owned pytest validation: $editResultsAfterFinalPytest") }
 if ($postHocEmptyTerminalNodes -gt 0) { $failures.Add("terminal validation/final nodes were created without results") }
-if ($commandStats.Completed -lt 4) { $failures.Add("agent did not run enough real commands; observed $($commandStats.Completed)") }
+if ($commandStats.Completed -lt 3) { $failures.Add("agent did not run enough real shell commands; observed $($commandStats.Completed)") }
+if ($realWorkItemCount -lt 5) { $failures.Add("agent did not produce enough successful real shell/patch work items; observed $realWorkItemCount") }
 $overall = if ($failures.Count -eq 0) { "PASS" } else { "FAIL" }
 
 $report = New-Object System.Collections.Generic.List[string]
@@ -442,7 +327,9 @@ foreach ($row in @(
     @("overall", $overall), @("scenario_id", $ScenarioId), @("run_dir", $runDir), @("repo_dir", $repoDir),
     @("whale_bin", $WhaleBin), @("model", $Model), @("started", $started.ToString("o")),
     @("finished", $finished.ToString("o")), @("thread_id", $threadId), @("exec_exit_code", $execExitCode),
-    @("validation_exit_code", $validationExitCode), @("script_sha256", $scriptSha256), @("rollout", $rollout.FullName)
+    @("validation_exit_code", $validationExitCode), @("script_sha256", $scriptSha256),
+    @("whale_sha256", $whaleSha256), @("whale_version", $whaleVersion), @("repo_head", $repoHead),
+    @("rollout", $(if ($rollout) { $rollout.FullName } else { "" }))
 )) { Add-ReportLine $report $row[0] $row[1] }
 $report.Add("")
 $report.Add("## Natural Prompt Guard")
@@ -456,20 +343,36 @@ foreach ($row in @(
     @("maps", $mapCount), @("nodes", $nodeCount), @("agents", $agentCount), @("spawn_agent", $spawnAgentCount),
     @("completed_nodes", $completedNodes), @("nodes_with_results", $nodesWithResults),
     @("taskspace_control", $taskspaceControlCount), @("finish_node_calls", $finishNodeCallCount),
+    @("expected_finish_node_calls", $expectedFinishNodeCalls),
     @("has_boundary_node", $hasBoundaryNode), @("has_parser_node", $hasParserNode), @("has_pricing_node", $hasPricingNode),
     @("has_implementation_node", $hasImplementationNode), @("has_validation_node", $hasValidationNode),
+    @("title_coverage_complete", $titleCoverageComplete), @("has_inspect_kind", $hasInspectKind),
+    @("has_implementation_kind", $hasImplementationKind), @("has_test_kind", $hasTestKind),
     @("implementation_node_has_main_tools", $implementationNodeHasMainTools),
+    @("implementation_kind_has_edit", $implementationKindHasEdit), @("test_kind_has_test", $testKindHasTest),
+    @("edit_results_outside_implementation", $editResultsOutsideImplementation),
+    @("test_results_outside_diagnostic_or_test_node", $testResultsOutsideDiagnosticOrTestNode),
+    @("unknown_action_results", $unknownActionResults), @("blocked_action_count", $blockedActionCount),
+    @("failed_taskspace_tool_results", $failedTaskspaceToolResults),
+    @("unexpected_failed_taskspace_tool_results", $unexpectedFailedTaskspaceToolResults),
+    @("unexpected_failed_tool_budget", $unexpectedFailedToolBudget),
+    @("failed_collab_tool_calls", $failedCollabToolCalls),
+    @("problematic_successful_tool_results", $problematicSuccessfulToolResults),
+    @("changed_paths_without_implementation_owner", $implementationOwnershipGap.MissingCount),
     @("agent_ran_passing_pytest", $commandStats.AgentRanPassingPytest),
     @("pytest_owned_by_validation_node", $validationNodeHasPytestResult),
+    @("edit_results_after_final_pytest", $editResultsAfterFinalPytest),
     @("posthoc_empty_terminal_nodes", $postHocEmptyTerminalNodes), @("hidden_oracle_exit_code", $oracleExitCode),
     @("unique_completed_command_executions", $commandStats.Completed), @("failed_command_executions", $commandStats.Failed),
+    @("successful_real_shell_or_patch_work_items", $realWorkItemCount),
     @("agent_pytest_command_count", $commandStats.PytestCount), @("git_diff_bytes", $gitDiffText.Length),
     @("first_taskspace_binding_timestamp", $taskspaceOrdering.FirstBindingTimestamp),
     @("first_taskspace_binding_evidence", $taskspaceOrdering.FirstBindingEvidence),
     @("first_ordinary_tool_timestamp", $taskspaceOrdering.FirstOrdinaryToolTimestamp),
     @("first_ordinary_tool", $taskspaceOrdering.FirstOrdinaryTool),
     @("ordinary_tool_before_taskspace_binding", $taskspaceOrdering.OrdinaryToolBeforeBinding),
-    @("pytest_owner_node_id", $pytestOwnership.NodeId), @("pytest_owner_node_title", $pytestOwnership.NodeTitle),
+    @("pytest_owner_node_id", $pytestOwnership.NodeId), @("pytest_owner_node_kind", $pytestOwnership.NodeKind),
+    @("pytest_owner_node_title", $pytestOwnership.NodeTitle),
     @("pytest_owner_result_id", $pytestOwnership.ResultId), @("pytest_owner_call_id", $pytestOwnership.CallId),
     @("pytest_owner_command", $pytestOwnership.Command)
 )) { Add-ReportLine $report $row[0] $row[1] }

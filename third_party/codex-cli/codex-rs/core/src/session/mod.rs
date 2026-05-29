@@ -10,8 +10,13 @@ use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
+use crate::action_map::ActionClass;
 use crate::action_map::ActionMapAssignment;
+use crate::action_map::ActionMapFinishNodeOutcome;
+use crate::action_map::ActionMapNextNodeDraft;
 use crate::action_map::ActionMapRuntimeState;
+use crate::action_map::NodeKind;
+use crate::action_map::ToolActionDescriptor;
 use crate::agent::AgentControl;
 use crate::agent::AgentStatus;
 use crate::agent::Mailbox;
@@ -908,17 +913,71 @@ impl Session {
     pub(crate) async fn prepare_action_map_main_tool_call(
         &self,
         turn_context: &TurnContext,
-        tool_name: &str,
+        descriptor: impl Into<ToolActionDescriptor>,
     ) -> Result<(), String> {
-        let events = {
+        let result = {
             let mut state = self.state.lock().await;
             state
                 .action_map_runtime
-                .prepare_main_tool_call(self.conversation_id, tool_name)
-        }?;
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok(())
+                .prepare_main_tool_call(self.conversation_id, descriptor)
+        };
+        match result {
+            Ok(events) => {
+                self.emit_action_map_events_for_turn(turn_context, events)
+                    .await;
+                Ok(())
+            }
+            Err(error) => {
+                let (message, events) = error.into_parts();
+                self.emit_action_map_events_for_turn(turn_context, events)
+                    .await;
+                Err(message)
+            }
+        }
+    }
+
+    pub(crate) async fn prepare_action_map_child_tool_call(
+        &self,
+        child_thread_id: ThreadId,
+        descriptor: impl Into<ToolActionDescriptor>,
+    ) -> Result<(), String> {
+        let result = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .prepare_child_tool_call(child_thread_id, descriptor)
+        };
+        match result {
+            Ok(events) => {
+                self.emit_action_map_events_raw(events).await;
+                Ok(())
+            }
+            Err(error) => {
+                let (message, events) = error.into_parts();
+                self.emit_action_map_events_raw(events).await;
+                Err(message)
+            }
+        }
+    }
+
+    pub(crate) async fn prepare_action_map_child_spawn(
+        &self,
+        child_thread_id: ThreadId,
+    ) -> Result<(), String> {
+        let result = {
+            let state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .prepare_child_spawn(child_thread_id)
+        };
+        if let Err(error) = &result {
+            debug!(
+                child_thread_id = %child_thread_id,
+                error = %error,
+                "rejected TaskSpace subagent nested spawn"
+            );
+        }
+        result
     }
 
     pub(crate) async fn begin_action_map_user_turn(&self, turn_context: &TurnContext) {
@@ -936,15 +995,17 @@ impl Session {
         turn_context: &TurnContext,
         call_id: &str,
         tool_name: &str,
+        action_class: Option<ActionClass>,
         success: bool,
         preview: String,
     ) {
         let result = {
             let mut state = self.state.lock().await;
-            state.action_map_runtime.record_main_tool_result(
+            state.action_map_runtime.record_main_tool_result_with_class(
                 self.conversation_id,
                 call_id,
                 tool_name,
+                action_class,
                 success,
                 preview,
             )
@@ -966,6 +1027,47 @@ impl Session {
         }
     }
 
+    pub(crate) async fn record_action_map_child_tool_result(
+        &self,
+        child_thread_id: ThreadId,
+        call_id: &str,
+        tool_name: &str,
+        action_class: Option<ActionClass>,
+        success: bool,
+        preview: String,
+    ) -> bool {
+        let result = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .record_child_tool_result_with_class(
+                    child_thread_id,
+                    call_id,
+                    tool_name,
+                    action_class,
+                    success,
+                    preview,
+                )
+        };
+        match result {
+            Ok(Some((_, events))) => {
+                self.emit_action_map_events_raw(events).await;
+                true
+            }
+            Ok(None) => false,
+            Err(error) => {
+                warn!(
+                    %error,
+                    child_thread_id = %child_thread_id,
+                    call_id,
+                    tool_name,
+                    "failed to record TaskSpace subagent tool result"
+                );
+                false
+            }
+        }
+    }
+
     pub(crate) async fn bind_action_map_main_node(
         &self,
         turn_context: &TurnContext,
@@ -982,6 +1084,7 @@ impl Session {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(crate) async fn create_action_map_node_for_main(
         &self,
         turn_context: &TurnContext,
@@ -990,10 +1093,31 @@ impl Session {
         dependency_node_ids: Vec<String>,
         bind_current: bool,
     ) -> Result<String, String> {
+        self.create_action_map_node_for_main_with_kind(
+            turn_context,
+            NodeKind::InspectCodeContext,
+            title,
+            context_summary,
+            dependency_node_ids,
+            bind_current,
+        )
+        .await
+    }
+
+    pub(crate) async fn create_action_map_node_for_main_with_kind(
+        &self,
+        turn_context: &TurnContext,
+        kind: NodeKind,
+        title: String,
+        context_summary: String,
+        dependency_node_ids: Vec<String>,
+        bind_current: bool,
+    ) -> Result<String, String> {
         let (node_id, events) = {
             let mut state = self.state.lock().await;
-            state.action_map_runtime.create_node_for_main(
+            state.action_map_runtime.create_node_for_main_with_kind(
                 self.conversation_id,
+                kind,
                 title,
                 context_summary,
                 dependency_node_ids,
@@ -1005,6 +1129,7 @@ impl Session {
         Ok(node_id)
     }
 
+    #[allow(dead_code)]
     pub(crate) async fn start_action_map_task_for_main(
         &self,
         turn_context: &TurnContext,
@@ -1014,10 +1139,33 @@ impl Session {
         node_context_summary: String,
         bind_current: bool,
     ) -> Result<(String, String, String), String> {
+        self.start_action_map_task_for_main_with_kind(
+            turn_context,
+            NodeKind::InspectCodeContext,
+            task_title,
+            task_objective,
+            node_title,
+            node_context_summary,
+            bind_current,
+        )
+        .await
+    }
+
+    pub(crate) async fn start_action_map_task_for_main_with_kind(
+        &self,
+        turn_context: &TurnContext,
+        node_kind: NodeKind,
+        task_title: String,
+        task_objective: String,
+        node_title: String,
+        node_context_summary: String,
+        bind_current: bool,
+    ) -> Result<(String, String, String), String> {
         let (task_id, map_id, node_id, events) = {
             let mut state = self.state.lock().await;
-            state.action_map_runtime.start_task_for_main(
+            state.action_map_runtime.start_task_for_main_with_kind(
                 self.conversation_id,
+                node_kind,
                 task_title,
                 task_objective,
                 node_title,
@@ -1046,25 +1194,45 @@ impl Session {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(crate) async fn finish_action_map_main_node(
         &self,
         turn_context: &TurnContext,
         node_id: &str,
         result_summary: String,
         next_node_id: Option<String>,
-    ) -> Result<String, String> {
-        let (result_id, events) = {
+    ) -> Result<ActionMapFinishNodeOutcome, String> {
+        self.finish_action_map_main_node_with_next(
+            turn_context,
+            node_id,
+            result_summary,
+            next_node_id,
+            None,
+        )
+        .await
+    }
+
+    pub(crate) async fn finish_action_map_main_node_with_next(
+        &self,
+        turn_context: &TurnContext,
+        node_id: &str,
+        result_summary: String,
+        next_node_id: Option<String>,
+        next_node_draft: Option<ActionMapNextNodeDraft>,
+    ) -> Result<ActionMapFinishNodeOutcome, String> {
+        let (outcome, events) = {
             let mut state = self.state.lock().await;
-            state.action_map_runtime.finish_main_node(
+            state.action_map_runtime.finish_main_node_with_next(
                 self.conversation_id,
                 node_id,
                 result_summary,
                 next_node_id,
+                next_node_draft,
             )
         }?;
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;
-        Ok(result_id)
+        Ok(outcome)
     }
 
     pub(crate) async fn block_action_map_main_node(

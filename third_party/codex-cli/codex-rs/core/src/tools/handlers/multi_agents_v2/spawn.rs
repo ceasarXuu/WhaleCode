@@ -5,10 +5,15 @@ use crate::agent::control::render_input_preview;
 use crate::agent::next_thread_spawn_depth;
 use crate::agent::role::DEFAULT_ROLE_NAME;
 use crate::agent::role::apply_role_to_config;
+use crate::session::session::Session;
 use crate::session::turn_context::TurnEnvironment;
 use codex_protocol::AgentPath;
+use codex_protocol::ThreadId;
 use codex_protocol::protocol::InterAgentCommunication;
 use codex_protocol::protocol::Op;
+use codex_protocol::protocol::SessionSource;
+use codex_protocol::protocol::SubAgentSource;
+use std::sync::Arc;
 
 pub(crate) struct Handler;
 
@@ -48,6 +53,7 @@ impl ToolHandler for Handler {
                 "Agent depth limit reached. Solve the task yourself.".to_string(),
             ));
         }
+        prepare_taskspace_nested_spawn(&session, session.conversation_id, &session_source).await?;
         let mut config =
             build_agent_spawn_config(&session.get_base_instructions().await, turn.as_ref())?;
         if matches!(fork_mode, Some(SpawnAgentForkMode::FullHistory)) {
@@ -80,10 +86,7 @@ impl ToolHandler for Handler {
             Some(assignment) => format!("{}{}", assignment.message_prefix, args.message),
             None => args.message,
         };
-        let effective_task_name = action_map_assignment
-            .as_ref()
-            .map(|assignment| safe_agent_task_name(&assignment.node_id))
-            .unwrap_or_else(|| args.task_name.clone());
+        let effective_task_name = args.task_name.clone();
         let initial_operation = match parse_collab_input(Some(message), /*items*/ None) {
             Ok(initial_operation) => initial_operation,
             Err(err) => {
@@ -289,6 +292,7 @@ struct SpawnAgentArgs {
     fork_context: Option<bool>,
 }
 
+#[cfg(test)]
 fn safe_agent_task_name(node_id: &str) -> String {
     let task_name = node_id
         .chars()
@@ -307,6 +311,26 @@ fn safe_agent_task_name(node_id: &str) -> String {
     }
 }
 
+async fn prepare_taskspace_nested_spawn(
+    session: &Arc<Session>,
+    child_thread_id: ThreadId,
+    session_source: &SessionSource,
+) -> Result<(), FunctionCallError> {
+    let SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+        parent_thread_id, ..
+    }) = session_source
+    else {
+        return Ok(());
+    };
+    session
+        .services
+        .agent_control
+        .prepare_action_map_child_spawn(*parent_thread_id, child_thread_id)
+        .await
+        .map_err(FunctionCallError::RespondToModel)?;
+    Ok(())
+}
+
 impl SpawnAgentArgs {
     fn fork_mode(&self) -> Result<Option<SpawnAgentForkMode>, FunctionCallError> {
         if self.fork_context.is_some() {
@@ -320,13 +344,18 @@ impl SpawnAgentArgs {
             .as_deref()
             .map(str::trim)
             .filter(|fork_turns| !fork_turns.is_empty());
-        if explicit_fork_turns.is_none()
-            && self
-                .agent_type
+        let has_config_override = self
+            .agent_type
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|agent_type| !agent_type.is_empty())
+            || self
+                .model
                 .as_deref()
                 .map(str::trim)
-                .is_some_and(|agent_type| !agent_type.is_empty())
-        {
+                .is_some_and(|model| !model.is_empty())
+            || self.reasoning_effort.is_some();
+        if explicit_fork_turns.is_none() && has_config_override {
             return Ok(None);
         }
 

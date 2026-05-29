@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$RolloutPath,
     [Parameter(Mandatory = $true)]
@@ -9,72 +9,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Read-JsonLines([string]$PathValue) {
-    $items = New-Object System.Collections.Generic.List[object]
-    if (-not (Test-Path $PathValue)) {
-        return $items
-    }
-
-    foreach ($line in Get-Content -LiteralPath $PathValue -Encoding UTF8) {
-        if ([string]::IsNullOrWhiteSpace($line)) {
-            continue
-        }
-        try {
-            $items.Add(($line | ConvertFrom-Json))
-        }
-        catch {
-        }
-    }
-    return $items
-}
-
-function Add-TimelineEvent {
-    param(
-        [System.Collections.Generic.List[object]]$Timeline,
-        [string]$At,
-        [string]$Kind,
-        [string]$Summary,
-        [object]$Details
-    )
-
-    $Timeline.Add([ordered]@{
-        at = $At
-        kind = $Kind
-        summary = $Summary
-        details = $Details
-    })
-}
-
-function Ensure-Node {
-    param(
-        [hashtable]$Nodes,
-        [string]$NodeId,
-        [string]$Title = ""
-    )
-
-    if ([string]::IsNullOrWhiteSpace($NodeId)) {
-        return $null
-    }
-    if (-not $Nodes.ContainsKey($NodeId)) {
-        $Nodes[$NodeId] = [ordered]@{
-            id = $NodeId
-            title = $Title
-            status = "unknown"
-            leases = New-Object System.Collections.Generic.List[object]
-            results = New-Object System.Collections.Generic.List[object]
-            agentThreads = New-Object System.Collections.Generic.List[string]
-            events = New-Object System.Collections.Generic.List[object]
-        }
-    }
-    elseif ($Title -and -not $Nodes[$NodeId].title) {
-        $Nodes[$NodeId].title = $Title
-    }
-    return $Nodes[$NodeId]
-}
-
-function Escape-Html([string]$Text) {
-    return [System.Net.WebUtility]::HtmlEncode($Text)
-}
+. (Join-Path $PSScriptRoot "action-map-observability-lib.ps1")
 
 $output = New-Item -ItemType Directory -Force -Path $OutputDir
 $rolloutItems = Read-JsonLines $RolloutPath
@@ -82,9 +17,12 @@ $jsonlItems = Read-JsonLines $JsonlPath
 
 $timeline = New-Object System.Collections.Generic.List[object]
 $maps = New-Object System.Collections.Generic.List[object]
+$mapById = @{}
 $nodes = @{}
 $agents = @{}
 $toolCalls = New-Object System.Collections.Generic.List[object]
+$toolCallById = @{}
+$collabToolNames = @("spawn_agent", "wait_agent", "close_agent", "resume_agent")
 
 foreach ($item in $rolloutItems) {
     $payload = $item.payload
@@ -95,8 +33,12 @@ foreach ($item in $rolloutItems) {
             "lease_created",
             "lease_attached",
             "node_result_recorded",
+            "tool_action_blocked",
             "lease_released",
-            "timeout_summary_requested"
+            "timeout_summary_requested",
+            "maintenance_barrier_raised",
+            "maintenance_barrier_cleared",
+            "snapshot_updated"
         )) {
         continue
     }
@@ -108,12 +50,7 @@ foreach ($item in $rolloutItems) {
             Add-TimelineEvent $timeline $at $kind "mode changed: $($payload.previousMode) -> $($payload.currentMode)" $payload
         }
         "map_created" {
-            $maps.Add([ordered]@{
-                id = [string]$payload.mapId
-                title = [string]$payload.title
-                ownerSessionId = [string]$payload.ownerSessionId
-                createdFrom = $payload.createdFrom
-            })
+            [void](Ensure-Map $maps $mapById ([string]$payload.mapId) ([string]$payload.title) ([string]$payload.ownerSessionId) $payload.createdFrom)
             Add-TimelineEvent $timeline $at $kind "map created: $($payload.mapId) $($payload.title)" $payload
         }
         "node_status_changed" {
@@ -132,11 +69,7 @@ foreach ($item in $rolloutItems) {
         "lease_created" {
             $node = Ensure-Node $nodes ([string]$payload.nodeId)
             if ($node) {
-                $node.leases.Add([ordered]@{
-                    at = $at
-                    leaseId = [string]$payload.leaseId
-                    state = "created"
-                })
+                Add-Or-Update-Lease $node $at ([string]$payload.leaseId) "created"
             }
             Add-TimelineEvent $timeline $at $kind "lease created: $($payload.leaseId) on $($payload.nodeId)" $payload
         }
@@ -144,6 +77,7 @@ foreach ($item in $rolloutItems) {
             $node = Ensure-Node $nodes ([string]$payload.nodeId)
             if ($node -and $payload.agentThreadId) {
                 $agentId = [string]$payload.agentThreadId
+                Add-Or-Update-Lease $node $at ([string]$payload.leaseId) "attached" "" $agentId
                 if (-not $node.agentThreads.Contains($agentId)) {
                     $node.agentThreads.Add($agentId)
                 }
@@ -159,21 +93,157 @@ foreach ($item in $rolloutItems) {
         "node_result_recorded" {
             $node = Ensure-Node $nodes ([string]$payload.nodeId)
             if ($node) {
-                $node.results.Add([ordered]@{
+                Add-Or-Update-NodeResult $node $at ([string]$payload.resultId) ([string]$payload.leaseId) ([string]$payload.sourceThreadId) ([string]$payload.kind) ([string]$payload.actionClass)
+            }
+            $actionClassSuffix = if ($payload.actionClass) { " action=$($payload.actionClass)" } else { "" }
+            Add-TimelineEvent $timeline $at $kind "node result recorded: $($payload.nodeId) / $($payload.resultId)$actionClassSuffix" $payload
+        }
+        "tool_action_blocked" {
+            $node = Ensure-Node $nodes ([string]$payload.nodeId) "" ([string]$payload.nodeKind)
+            if ($node) {
+                $node.blockedActions.Add([ordered]@{
                     at = $at
-                    resultId = [string]$payload.resultId
-                    leaseId = [string]$payload.leaseId
-                    sourceThreadId = [string]$payload.sourceThreadId
-                    kind = [string]$payload.kind
+                    toolName = [string]$payload.toolName
+                    actionClass = [string]$payload.actionClass
+                    reason = [string]$payload.reason
                 })
             }
-            Add-TimelineEvent $timeline $at $kind "node result recorded: $($payload.nodeId) / $($payload.resultId)" $payload
+            Add-TimelineEvent $timeline $at $kind "tool action blocked: $($payload.nodeId) $($payload.actionClass) via $($payload.toolName)" $payload
         }
         "lease_released" {
+            $node = Ensure-Node $nodes ([string]$payload.nodeId)
+            if ($node) {
+                Add-Or-Update-Lease $node $at ([string]$payload.leaseId) "released" ([string]$payload.reason)
+            }
             Add-TimelineEvent $timeline $at $kind "lease released: $($payload.leaseId), reason=$($payload.reason)" $payload
         }
         "timeout_summary_requested" {
             Add-TimelineEvent $timeline $at $kind "timeout summary requested: $($payload.agentPath)" $payload
+        }
+        "maintenance_barrier_raised" {
+            $node = Ensure-Node $nodes ([string]$payload.nodeId)
+            if ($node) {
+                Add-Or-Update-MaintenanceBarrier $node $at ([string]$payload.mapId) ([string]$payload.reason) ([int]$payload.resultCount) ([int]$payload.budget) "active"
+                $node.events.Add([ordered]@{
+                    at = $at
+                    kind = $kind
+                    reason = [string]$payload.reason
+                    resultCount = [int]$payload.resultCount
+                    budget = [int]$payload.budget
+                })
+            }
+            Add-TimelineEvent $timeline $at $kind "maintenance barrier raised: $($payload.nodeId) $($payload.resultCount)/$($payload.budget)" $payload
+        }
+        "maintenance_barrier_cleared" {
+            $node = Ensure-Node $nodes ([string]$payload.nodeId)
+            if ($node) {
+                Add-Or-Update-MaintenanceBarrier $node $at ([string]$payload.mapId) ([string]$payload.reason) -1 -1 "cleared"
+                $node.events.Add([ordered]@{
+                    at = $at
+                    kind = $kind
+                    reason = [string]$payload.reason
+                })
+            }
+            Add-TimelineEvent $timeline $at $kind "maintenance barrier cleared: $($payload.nodeId), reason=$($payload.reason)" $payload
+        }
+        "snapshot_updated" {
+            $snapshotMapCount = 0
+            $snapshotNodeCount = 0
+            foreach ($snapshotMap in @($payload.snapshot.maps)) {
+                $snapshotMapCount++
+                [void](Ensure-Map $maps $mapById ([string]$snapshotMap.id) ([string]$snapshotMap.title) ([string]$snapshotMap.ownerSessionId) $snapshotMap.createdFrom)
+                foreach ($snapshotNode in @($snapshotMap.nodes)) {
+                    $snapshotNodeCount++
+                    $node = Ensure-Node $nodes ([string]$snapshotNode.id) ([string]$snapshotNode.title) ([string]$snapshotNode.kind)
+                    if ($node) {
+                        if ($snapshotNode.status) { $node.status = [string]$snapshotNode.status }
+                    }
+                }
+                foreach ($snapshotResult in @($snapshotMap.results)) {
+                    $node = Ensure-Node $nodes ([string]$snapshotResult.nodeId)
+                    Add-Or-Update-NodeResult $node $at ([string]$snapshotResult.id) ([string]$snapshotResult.assignmentId) ([string]$snapshotResult.sourceThreadId) ([string]$snapshotResult.kind) ([string]$snapshotResult.actionClass) ([string]$snapshotResult.body)
+                }
+            }
+            foreach ($snapshotBarrier in @($payload.snapshot.maintenanceBarriers)) {
+                $node = Ensure-Node $nodes ([string]$snapshotBarrier.nodeId)
+                Add-Or-Update-MaintenanceBarrier $node $at ([string]$snapshotBarrier.mapId) ([string]$snapshotBarrier.reason) ([int]$snapshotBarrier.resultCount) ([int]$snapshotBarrier.budget) "active"
+            }
+            Add-TimelineEvent $timeline $at $kind "snapshot updated: maps=$snapshotMapCount nodes=$snapshotNodeCount" $payload
+        }
+    }
+}
+
+foreach ($item in $rolloutItems) {
+    if ($item.type -ne "response_item" -or -not $item.payload) {
+        continue
+    }
+    $payload = $item.payload
+    $at = [string]$item.timestamp
+    if ($payload.type -eq "function_call") {
+        $tool = [string]$payload.name
+        if ($collabToolNames -notcontains $tool) {
+            continue
+        }
+        $callId = [string]$payload.call_id
+        $promptPreview = ""
+        $receivers = @()
+        try {
+            $args = [string]$payload.arguments | ConvertFrom-Json
+            if ($args.message) { $promptPreview = [string]$args.message }
+            elseif ($args.prompt) { $promptPreview = [string]$args.prompt }
+            if ($args.targets) { $receivers = @($args.targets | ForEach-Object { [string]$_ }) }
+            elseif ($args.target) { $receivers = @([string]$args.target) }
+        } catch {
+            $promptPreview = [string]$payload.arguments
+        }
+        if ($promptPreview.Length -gt 600) {
+            $promptPreview = $promptPreview.Substring(0, 600)
+        }
+        [void](Add-Or-Update-ToolCall $toolCalls $toolCallById $at $callId $tool "in_progress" "" $receivers $promptPreview "")
+        Add-TimelineEvent $timeline $at "tool:$tool" "tool call: $tool (in_progress)" $payload
+    }
+    elseif ($payload.type -eq "function_call_output") {
+        $callId = [string]$payload.call_id
+        if (-not $toolCallById.ContainsKey($callId)) {
+            continue
+        }
+        $existingTool = [string]$toolCallById[$callId].tool
+        $toolOutput = [string]$payload.output
+        $receivers = @()
+        $status = "completed"
+        $structuredSuccess = $false
+        try {
+            $parsedOutput = $toolOutput | ConvertFrom-Json
+            if ($parsedOutput.agent_id) {
+                $receivers = @([string]$parsedOutput.agent_id)
+                $structuredSuccess = $true
+            }
+            elseif ($parsedOutput.task_name) {
+                $receivers = @([string]$parsedOutput.task_name)
+                $structuredSuccess = $true
+            }
+            elseif ($parsedOutput.status) {
+                $receivers = @($parsedOutput.status.PSObject.Properties.Name | ForEach-Object { [string]$_ })
+                $structuredSuccess = $true
+            }
+            if ($parsedOutput.timed_out -eq $true) {
+                $status = "timed_out"
+            }
+        } catch {
+            if ($toolOutput -match "(?i)\b(error|failed|not found|TaskSpace mode has multiple ready nodes|Call spawn_agent with|blocked this tool call)\b") {
+                $status = "failed"
+            }
+        }
+        if ($existingTool -eq "spawn_agent" -and -not $structuredSuccess) {
+            $status = "failed"
+        }
+        $preview = $toolOutput
+        if ($preview.Length -gt 600) {
+            $preview = $preview.Substring(0, 600)
+        }
+        $updated = Add-Or-Update-ToolCall $toolCalls $toolCallById $at $callId "" $status "" $receivers "" $preview
+        if ($updated) {
+            Add-TimelineEvent $timeline $at "tool:$($updated.tool)" "tool call: $($updated.tool) ($status)" $payload
         }
     }
 }
@@ -190,25 +260,49 @@ foreach ($item in $jsonlItems) {
         $receivers = @($eventItem.receiver_thread_ids | ForEach-Object { [string]$_ })
     }
     $toolCall = [ordered]@{
-        type = [string]$item.type
+        at = ""
         id = [string]$eventItem.id
         tool = $tool
         status = $status
         senderThreadId = [string]$eventItem.sender_thread_id
         receiverThreadIds = $receivers
         promptPreview = if ($eventItem.prompt) { ([string]$eventItem.prompt).Substring(0, [Math]::Min(600, ([string]$eventItem.prompt).Length)) } else { "" }
+        outputPreview = ""
     }
-    $toolCalls.Add($toolCall)
-    Add-TimelineEvent $timeline "" "tool:$tool" "tool call: $tool ($status)" $toolCall
+    if ($status -in @("completed", "in_progress") -and (Has-TimestampedToolCallWithStatus $toolCalls $tool $status)) {
+        continue
+    }
+    if ($status -eq "in_progress" -and (Has-TimestampedToolCall $toolCalls $tool)) {
+        continue
+    }
+    if (Has-TimestampedToolCallDuplicate $toolCalls $toolCall) {
+        continue
+    }
+    $isNewToolCall = -not $toolCallById.ContainsKey([string]$eventItem.id)
+    [void](Add-Or-Update-ToolCall $toolCalls $toolCallById "" ([string]$eventItem.id) $tool $status ([string]$eventItem.sender_thread_id) $receivers $toolCall.promptPreview "")
+    if ($isNewToolCall) {
+        Add-TimelineEvent $timeline "" "tool:$tool" "tool call: $tool ($status)" $toolCall
+    }
 }
 
 $nodeList = @($nodes.Values | Sort-Object id)
 $agentList = @($agents.Values | Sort-Object threadId)
+$blockedToolActionCount = 0
+foreach ($node in $nodeList) {
+    $blockedActions = $node["blockedActions"]
+    if ($null -ne $blockedActions) {
+        $blockedToolActionCount += [int]$blockedActions.Count
+    }
+}
 $summary = [ordered]@{
     maps = $maps.Count
     nodes = $nodeList.Count
     agents = $agentList.Count
     toolCalls = $toolCalls.Count
+    blockedToolActions = $blockedToolActionCount
+    activeMaintenanceBarriers = @($nodeList | ForEach-Object {
+            @($_.maintenanceBarriers | Where-Object { $_.state -eq "active" })
+        }).Count
     mapRuntimeEvents = @($timeline | Where-Object { $_.kind -notlike "tool:*" }).Count
 }
 
@@ -243,10 +337,13 @@ $md.Add("- map runtime events: $($summary.mapRuntimeEvents)")
 $md.Add("")
 $md.Add("## Nodes")
 $md.Add("")
-$md.Add("| Node | Title | Status | Agents | Results |")
-$md.Add("|---|---|---|---|---|")
+$md.Add("| Node | Kind | Title | Status | Agents | Results | Blocked Actions | Active Barriers |")
+$md.Add("|---|---|---|---|---|---|---|---|")
 foreach ($node in $nodeList) {
-    $md.Add("| $($node.id) | $($node.title) | $($node.status) | $($node.agentThreads.Count) | $($node.results.Count) |")
+    $blockedCount = 0
+    if ($null -ne $node["blockedActions"]) { $blockedCount = [int]$node["blockedActions"].Count }
+    $barrierCount = @($node.maintenanceBarriers | Where-Object { $_.state -eq "active" }).Count
+    $md.Add("| $($node.id) | $($node.kind) | $($node.title) | $($node.status) | $($node.agentThreads.Count) | $($node.results.Count) | $blockedCount | $barrierCount |")
 }
 $md.Add("")
 $md.Add("## Timeline")
@@ -326,14 +423,18 @@ document.getElementById('graph').innerHTML = data.nodes.map(n => `
   <div class="node ${esc(n.status)}">
     <div class="id">${esc(n.id)}</div>
     <div class="title">${esc(n.title)}</div>
+    <div class="meta">kind: ${esc(n.kind)}</div>
     <div class="meta">status: ${esc(n.status)}</div>
     <div class="meta">agents: ${esc((n.agentThreads || []).join(', ') || '-')}</div>
     <div class="meta">results: ${esc((n.results || []).length)}</div>
+    <div class="meta">blocked: ${esc((n.blockedActions || []).length)}</div>
+    <div class="meta">active barriers: ${esc((n.maintenanceBarriers || []).filter(b => b.state === 'active').length)}</div>
+    <div class="meta">leases: ${esc((n.leases || []).map(l => `${l.leaseId}:${l.state}`).join(', ') || '-')}</div>
   </div>`).join('');
 document.getElementById('agents').innerHTML = table(['Thread', 'Path', 'Node', 'Lease'],
   data.agents.map(a => [a.threadId, a.path, a.nodeId, a.leaseId]));
-document.getElementById('tools').innerHTML = table(['Tool', 'Status', 'Sender', 'Receivers', 'Prompt Preview'],
-  data.toolCalls.map(t => [t.tool, t.status, t.senderThreadId, (t.receiverThreadIds || []).join(', '), t.promptPreview]));
+document.getElementById('tools').innerHTML = table(['Tool', 'Status', 'Sender', 'Receivers', 'Prompt Preview', 'Output Preview'],
+  data.toolCalls.map(t => [t.tool, t.status, t.senderThreadId, (t.receiverThreadIds || []).join(', '), t.promptPreview, t.outputPreview]));
 document.getElementById('timeline').innerHTML = data.timeline.map(e => {
   const cls = e.kind.includes('result') ? 'result' : e.kind.includes('lease') ? 'lease' : e.kind.includes('node') ? 'node' : e.kind.startsWith('tool:') ? 'tool' : '';
   return `<div class="event ${cls}"><code>${esc(e.at || '-')}</code> <strong>${esc(e.kind)}</strong><br>${esc(e.summary)}</div>`;

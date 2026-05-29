@@ -74,6 +74,147 @@ impl NodeStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NodeKind {
+    InspectCodeContext,
+    ImplementSolution,
+    SmokeTest,
+    RegressionTest,
+    FinalSynthesis,
+    Custom,
+}
+
+impl NodeKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            NodeKind::InspectCodeContext => "inspect_code_context",
+            NodeKind::ImplementSolution => "implement_solution",
+            NodeKind::SmokeTest => "smoke_test",
+            NodeKind::RegressionTest => "regression_test",
+            NodeKind::FinalSynthesis => "final_synthesis",
+            NodeKind::Custom => "custom",
+        }
+    }
+
+    pub(crate) fn from_str(value: &str) -> Option<Self> {
+        let normalized = normalize_contract_name(value);
+        match normalized.as_str() {
+            "inspect_code_context" | "inspectcodecontext" => Some(NodeKind::InspectCodeContext),
+            "implement_solution" | "implementsolution" => Some(NodeKind::ImplementSolution),
+            "smoke_test" | "smoketest" => Some(NodeKind::SmokeTest),
+            "regression_test" | "regressiontest" => Some(NodeKind::RegressionTest),
+            "final_synthesis" | "finalsynthesis" => Some(NodeKind::FinalSynthesis),
+            "custom" => Some(NodeKind::Custom),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn from_node_id_or_title(id: &str, title: &str) -> Self {
+        Self::from_str(id)
+            .or_else(|| Self::from_str(title))
+            .unwrap_or(NodeKind::Custom)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActionClass {
+    Read,
+    Search,
+    Edit,
+    Build,
+    Test,
+    Spawn,
+    Wait,
+    Review,
+    FinalResponse,
+    Control,
+    Unknown,
+}
+
+impl ActionClass {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            ActionClass::Read => "read",
+            ActionClass::Search => "search",
+            ActionClass::Edit => "edit",
+            ActionClass::Build => "build",
+            ActionClass::Test => "test",
+            ActionClass::Spawn => "spawn",
+            ActionClass::Wait => "wait",
+            ActionClass::Review => "review",
+            ActionClass::FinalResponse => "final_response",
+            ActionClass::Control => "control",
+            ActionClass::Unknown => "unknown",
+        }
+    }
+
+    pub(crate) fn from_str(value: &str) -> Option<Self> {
+        let normalized = normalize_contract_name(value);
+        match normalized.as_str() {
+            "read" => Some(ActionClass::Read),
+            "search" => Some(ActionClass::Search),
+            "edit" => Some(ActionClass::Edit),
+            "build" => Some(ActionClass::Build),
+            "test" => Some(ActionClass::Test),
+            "spawn" => Some(ActionClass::Spawn),
+            "wait" => Some(ActionClass::Wait),
+            "review" => Some(ActionClass::Review),
+            "final_response" | "finalresponse" => Some(ActionClass::FinalResponse),
+            "control" => Some(ActionClass::Control),
+            "unknown" => Some(ActionClass::Unknown),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ToolActionDescriptor {
+    pub(crate) tool_name: String,
+    pub(crate) call_id: Option<String>,
+    pub(crate) action_class: ActionClass,
+    pub(crate) preview: String,
+}
+
+impl ToolActionDescriptor {
+    pub(crate) fn new(
+        tool_name: impl Into<String>,
+        action_class: ActionClass,
+        preview: impl Into<String>,
+    ) -> Self {
+        Self {
+            tool_name: tool_name.into(),
+            call_id: None,
+            action_class,
+            preview: preview.into(),
+        }
+    }
+
+    pub(crate) fn with_call_id(mut self, call_id: impl Into<String>) -> Self {
+        self.call_id = Some(call_id.into());
+        self
+    }
+}
+
+impl From<&str> for ToolActionDescriptor {
+    fn from(tool_name: &str) -> Self {
+        Self::new(tool_name, ActionClass::Read, "")
+    }
+}
+
+impl From<String> for ToolActionDescriptor {
+    fn from(tool_name: String) -> Self {
+        Self::new(tool_name, ActionClass::Read, "")
+    }
+}
+
+fn normalize_contract_name(value: &str) -> String {
+    value
+        .trim()
+        .replace('-', "_")
+        .replace(' ', "_")
+        .to_ascii_lowercase()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NodeContext {
     pub(crate) summary: String,
@@ -90,6 +231,7 @@ pub(crate) struct NodeResultRef {
 pub(crate) struct MapNode {
     pub(crate) id: MapNodeId,
     pub(crate) title: String,
+    pub(crate) kind: NodeKind,
     pub(crate) status: NodeStatus,
     pub(crate) context: NodeContext,
     pub(crate) active_lease: Option<AssignmentLeaseId>,
@@ -172,6 +314,7 @@ pub(crate) struct NodeResult {
     pub(crate) map_id: ActionMapId,
     pub(crate) node_id: MapNodeId,
     pub(crate) kind: NodeResultKind,
+    pub(crate) action_class: Option<ActionClass>,
     pub(crate) body: String,
     pub(crate) source_thread_id: ThreadId,
     pub(crate) created_at_ms: i64,

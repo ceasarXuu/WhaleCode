@@ -31,9 +31,13 @@ use codex_protocol::protocol::MapRuntimeTaskCreatedEvent;
 use codex_protocol::protocol::MapRuntimeTaskRoutedEvent;
 use codex_protocol::protocol::MapRuntimeTaskStatusChangedEvent;
 use codex_protocol::protocol::MapRuntimeTimeoutSummaryRequestedEvent;
+use codex_protocol::protocol::MapRuntimeToolActionBlockedEvent;
 
 use super::basemap::BASE_MAP;
 use super::basemap::base_map_metadata_prompt;
+use super::basemap::node_kind_selection_prompt;
+use super::contracts::contract_for;
+use super::map::ActionClass;
 use super::map::ActionMapId;
 use super::map::ActionMapInstance;
 use super::map::AssignmentLease;
@@ -44,6 +48,7 @@ use super::map::MapNode;
 use super::map::MapNodeId;
 use super::map::MapStatus;
 use super::map::NodeContext;
+use super::map::NodeKind;
 use super::map::NodeResult;
 use super::map::NodeResultId;
 use super::map::NodeResultKind;
@@ -52,6 +57,7 @@ use super::map::NodeStatus;
 use super::map::TaskId;
 use super::map::TaskState;
 use super::map::TaskStatus;
+use super::map::ToolActionDescriptor;
 
 const SEED_NODE_IDS: &[&str] = &[
     "define_scope",
@@ -62,9 +68,68 @@ const SEED_NODE_IDS: &[&str] = &[
     "final_synthesis",
 ];
 
-/// A main-agent node should stay narrow enough to be reviewable. The runtime
-/// raises a maintenance barrier after this many main tool results are exceeded.
+/// Test fixture budget for the default inspect-node contract.
+#[cfg(test)]
 pub(crate) const MAIN_TOOL_RESULT_BUDGET_PER_NODE: usize = 12;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapGateError {
+    message: String,
+    events: Vec<MapRuntimeEvent>,
+}
+
+impl ActionMapGateError {
+    fn new(message: impl Into<String>, events: Vec<MapRuntimeEvent>) -> Self {
+        Self {
+            message: message.into(),
+            events,
+        }
+    }
+
+    pub(crate) fn into_parts(self) -> (String, Vec<MapRuntimeEvent>) {
+        (self.message, self.events)
+    }
+}
+
+impl From<String> for ActionMapGateError {
+    fn from(message: String) -> Self {
+        Self::new(message, Vec::new())
+    }
+}
+
+impl From<&str> for ActionMapGateError {
+    fn from(message: &str) -> Self {
+        Self::new(message, Vec::new())
+    }
+}
+
+impl std::ops::Deref for ActionMapGateError {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.message
+    }
+}
+
+impl std::fmt::Display for ActionMapGateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.message.fmt(f)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapNextNodeDraft {
+    pub(crate) kind: NodeKind,
+    pub(crate) title: String,
+    pub(crate) context_summary: String,
+    pub(crate) dependency_node_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapFinishNodeOutcome {
+    pub(crate) result_id: NodeResultId,
+    pub(crate) next_node_id: Option<MapNodeId>,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct ActionMapRuntimeState {
@@ -78,6 +143,8 @@ pub(crate) struct ActionMapRuntimeState {
     current_main_node_id: Option<MapNodeId>,
     current_main_lease_id: Option<AssignmentLeaseId>,
     maintenance_barriers: HashMap<ActionMapId, ActionMapMaintenanceBarrier>,
+    main_tool_reservations: HashMap<String, MainToolReservation>,
+    child_tool_reservations: HashMap<String, ChildToolReservation>,
     tasks: HashMap<TaskId, TaskState>,
     maps: HashMap<ActionMapId, ActionMapInstance>,
     next_task_seq: u64,
@@ -85,6 +152,25 @@ pub(crate) struct ActionMapRuntimeState {
     next_node_seq: u64,
     next_lease_seq: u64,
     next_result_seq: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MainToolReservation {
+    map_id: ActionMapId,
+    node_id: MapNodeId,
+    lease_id: AssignmentLeaseId,
+    tool_name: String,
+    action_class: ActionClass,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ChildToolReservation {
+    child_thread_id: ThreadId,
+    map_id: ActionMapId,
+    node_id: MapNodeId,
+    lease_id: AssignmentLeaseId,
+    tool_name: String,
+    action_class: ActionClass,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,6 +241,8 @@ impl Default for ActionMapRuntimeState {
             current_main_node_id: None,
             current_main_lease_id: None,
             maintenance_barriers: HashMap::new(),
+            main_tool_reservations: HashMap::new(),
+            child_tool_reservations: HashMap::new(),
             tasks: HashMap::new(),
             maps: HashMap::new(),
             next_task_seq: 1,
@@ -255,6 +343,8 @@ impl ActionMapRuntimeState {
         self.active_map_id = snapshot.active_map_id;
         self.current_main_node_id = None;
         self.current_main_lease_id = None;
+        self.main_tool_reservations.clear();
+        self.child_tool_reservations.clear();
 
         self.tasks = snapshot
             .tasks
@@ -303,6 +393,10 @@ impl ActionMapRuntimeState {
                     .into_iter()
                     .filter_map(|result| {
                         let kind = node_result_kind_from_str(&result.kind)?;
+                        let action_class = result
+                            .action_class
+                            .as_deref()
+                            .and_then(ActionClass::from_str);
                         Some((
                             result.id.clone(),
                             NodeResult {
@@ -311,6 +405,7 @@ impl ActionMapRuntimeState {
                                 map_id: result.map_id,
                                 node_id: result.node_id,
                                 kind,
+                                action_class,
                                 body: result.body,
                                 source_thread_id: result.source_thread_id,
                                 created_at_ms: result.created_at_ms,
@@ -334,11 +429,15 @@ impl ActionMapRuntimeState {
                             })
                             .collect();
                         let id = node.id;
+                        let title = node.title;
+                        let kind = NodeKind::from_str(&node.kind)
+                            .unwrap_or_else(|| NodeKind::from_node_id_or_title(&id, &title));
                         (
                             id.clone(),
                             MapNode {
                                 id,
-                                title: node.title,
+                                title,
+                                kind,
                                 status: node_status_from_str(&node.status)
                                     .unwrap_or(NodeStatus::Pending),
                                 context: NodeContext {
@@ -514,7 +613,9 @@ impl ActionMapRuntimeState {
         let new_id = self.next_map_id();
         let map_title = title.into();
         let task_id = self.ensure_active_task_state(Some(owner_session_id), &map_title);
-        let mut release_events = self.release_current_main_lease("map_restarted");
+        let mut release_events = self
+            .release_current_main_lease("map_restarted")
+            .expect("test restart should not run while main tool calls are in flight");
         events.append(&mut release_events);
         let mut map = ActionMapInstance::new(
             new_id.clone(),
@@ -536,18 +637,106 @@ impl ActionMapRuntimeState {
     pub(crate) fn prepare_main_tool_call(
         &mut self,
         owner_session_id: ThreadId,
-        _tool_name: &str,
-    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        descriptor: impl Into<ToolActionDescriptor>,
+    ) -> Result<Vec<MapRuntimeEvent>, ActionMapGateError> {
         if self.mode != MapRuntimeMode::Experiment {
             return Ok(Vec::new());
         }
 
+        let descriptor = descriptor.into();
         self.validate_routing_complete()?;
-        self.validate_maintenance_barrier()?;
+        if descriptor.action_class != ActionClass::Control {
+            self.validate_maintenance_barrier()?;
+        }
         self.validate_main_binding(owner_session_id)?;
+        let map_id = self.active_map_id.clone().ok_or_else(|| {
+            ActionMapGateError::from("TaskSpace mode is active but no active task path exists.")
+        })?;
+        let node_id = self.current_main_node_id.clone().ok_or_else(|| {
+            ActionMapGateError::from("TaskSpace mode is active but no current node binding exists.")
+        })?;
+        let lease_id = self.current_main_lease_id.clone().ok_or_else(|| {
+            ActionMapGateError::from("TaskSpace mode is active but no current main lease exists.")
+        })?;
+        let map = self.maps.get(&map_id).ok_or_else(|| {
+            ActionMapGateError::from(format!("TaskSpace active task path `{map_id}` is missing."))
+        })?;
+        let node = map.nodes.get(&node_id).ok_or_else(|| {
+            ActionMapGateError::from(format!("TaskSpace current node `{node_id}` is missing."))
+        })?;
+        let contract = contract_for(node.kind);
+        let main_tool_result_count = count_node_results_of_kind(node, NodeResultKind::MainToolCall);
+        let reserved_tool_count = self.reserved_tool_calls_for_node(&map_id, &node_id);
+        let budget = contract.max_main_tool_results_before_split_hint;
+        if !contract.allows(descriptor.action_class) {
+            let reason = format!(
+                "{} does not allow {}",
+                node.kind.as_str(),
+                descriptor.action_class.as_str()
+            );
+            let message = format!(
+                "TaskSpace blocked this tool call. Current node `{}` kind: {}. Requested tool `{}` action class: {}. Reason: {}. Call taskspace_control(action=finish_node) to finish the current node and bind or create a suitable node before retrying.",
+                node.id,
+                node.kind.as_str(),
+                descriptor.tool_name,
+                descriptor.action_class.as_str(),
+                reason
+            );
+            return Err(ActionMapGateError::new(
+                message,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: node.kind.as_str().to_string(),
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason,
+                    },
+                )],
+            ));
+        }
+        if descriptor.action_class != ActionClass::Control
+            && main_tool_result_count + reserved_tool_count >= budget
+        {
+            let barrier = ActionMapMaintenanceBarrier {
+                map_id: map_id.clone(),
+                node_id: node_id.clone(),
+                reason: MaintenanceBarrierReason::NodeToolResultBudgetExceeded,
+                result_count: main_tool_result_count + reserved_tool_count,
+                budget,
+            };
+            let mut events = Vec::new();
+            if !self.maintenance_barriers.contains_key(&map_id) {
+                events.push(maintenance_barrier_raised_event(&barrier));
+                self.maintenance_barriers.insert(map_id.clone(), barrier);
+            }
+            return Err(ActionMapGateError::new(
+                format!(
+                    "TaskSpace blocked this tool call because current node `{}` already has {} recorded and {} in-flight tool results (budget {}). Finish this node or create a narrower follow-up node before retrying.",
+                    node_id, main_tool_result_count, reserved_tool_count, budget
+                ),
+                events,
+            ));
+        }
+        if descriptor.action_class != ActionClass::Control
+            && let Some(call_id) = descriptor.call_id.as_deref()
+        {
+            self.reserve_main_tool_call(
+                call_id,
+                MainToolReservation {
+                    map_id,
+                    node_id,
+                    lease_id,
+                    tool_name: descriptor.tool_name,
+                    action_class: descriptor.action_class,
+                },
+            );
+        }
         Ok(Vec::new())
     }
 
+    #[allow(dead_code)]
     pub(crate) fn record_main_tool_result(
         &mut self,
         owner_session_id: ThreadId,
@@ -556,28 +745,83 @@ impl ActionMapRuntimeState {
         success: bool,
         preview: String,
     ) -> Result<Option<(NodeResultId, Vec<MapRuntimeEvent>)>, String> {
+        self.record_main_tool_result_with_class(
+            owner_session_id,
+            call_id,
+            tool_name,
+            None,
+            success,
+            preview,
+        )
+    }
+
+    pub(crate) fn record_main_tool_result_with_class(
+        &mut self,
+        owner_session_id: ThreadId,
+        call_id: &str,
+        tool_name: &str,
+        action_class: Option<ActionClass>,
+        success: bool,
+        preview: String,
+    ) -> Result<Option<(NodeResultId, Vec<MapRuntimeEvent>)>, String> {
         if self.mode != MapRuntimeMode::Experiment {
             return Ok(None);
         }
 
-        self.validate_main_binding(owner_session_id)?;
-        let map_id = self.active_map_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no active task path exists.".to_string()
-        })?;
-        let node_id = self.current_main_node_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no current node binding exists.".to_string()
-        })?;
-        let lease_id = self.current_main_lease_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no current main lease exists.".to_string()
-        })?;
+        let reservation = self.release_main_tool_reservation(call_id);
+        let (map_id, node_id, lease_id, recorded_tool_name, recorded_action_class) = if let Some(
+            reservation,
+        ) =
+            reservation
+        {
+            self.validate_main_tool_reservation(owner_session_id, &reservation)?;
+            if let Some(observed_action_class) = action_class
+                && observed_action_class != reservation.action_class
+            {
+                return Err(format!(
+                    "TaskSpace tool result `{call_id}` action class changed from {} to {} while in flight.",
+                    reservation.action_class.as_str(),
+                    observed_action_class.as_str()
+                ));
+            }
+            (
+                reservation.map_id,
+                reservation.node_id,
+                reservation.lease_id,
+                reservation.tool_name,
+                Some(reservation.action_class),
+            )
+        } else {
+            self.validate_main_binding(owner_session_id)?;
+            let map_id = self.active_map_id.clone().ok_or_else(|| {
+                "TaskSpace mode is active but no active task path exists.".to_string()
+            })?;
+            let node_id = self.current_main_node_id.clone().ok_or_else(|| {
+                "TaskSpace mode is active but no current node binding exists.".to_string()
+            })?;
+            let lease_id = self.current_main_lease_id.clone().ok_or_else(|| {
+                "TaskSpace mode is active but no current main lease exists.".to_string()
+            })?;
+            (
+                map_id,
+                node_id,
+                lease_id,
+                tool_name.to_string(),
+                action_class,
+            )
+        };
         let result_id = self.next_result_id();
         let body = format!(
             "Main tool call\n\
-tool: {tool_name}\n\
+tool: {recorded_tool_name}\n\
 call_id: {call_id}\n\
+action_class: {}\n\
 success: {success}\n\
 preview:\n\
-{preview}"
+{preview}",
+            recorded_action_class
+                .map(ActionClass::as_str)
+                .unwrap_or("unspecified")
         );
         let map = self
             .maps
@@ -594,6 +838,7 @@ preview:\n\
             map_id: map_id.clone(),
             node_id: node_id.clone(),
             kind: NodeResultKind::MainToolCall,
+            action_class: recorded_action_class,
             body,
             source_thread_id: owner_session_id,
             created_at_ms: now_ms(),
@@ -610,19 +855,251 @@ preview:\n\
                 lease_id,
                 result_id: result_id.clone(),
                 kind: NodeResultKind::MainToolCall.as_str().to_string(),
+                action_class: recorded_action_class.map(|class| class.as_str().to_string()),
                 source_thread_id: owner_session_id,
             },
         )];
         let main_tool_result_count = count_node_results_of_kind(node, NodeResultKind::MainToolCall);
-        if main_tool_result_count > MAIN_TOOL_RESULT_BUDGET_PER_NODE
-            && !self.maintenance_barriers.contains_key(&map_id)
-        {
+        let budget = contract_for(node.kind).max_main_tool_results_before_split_hint;
+        if main_tool_result_count >= budget && !self.maintenance_barriers.contains_key(&map_id) {
             let barrier = ActionMapMaintenanceBarrier {
                 map_id: map_id.clone(),
                 node_id: node_id.clone(),
                 reason: MaintenanceBarrierReason::NodeToolResultBudgetExceeded,
                 result_count: main_tool_result_count,
-                budget: MAIN_TOOL_RESULT_BUDGET_PER_NODE,
+                budget,
+            };
+            events.push(maintenance_barrier_raised_event(&barrier));
+            self.maintenance_barriers.insert(map_id.clone(), barrier);
+        }
+        Ok(Some((result_id, events)))
+    }
+
+    pub(crate) fn prepare_child_tool_call(
+        &mut self,
+        child_thread_id: ThreadId,
+        descriptor: impl Into<ToolActionDescriptor>,
+    ) -> Result<Vec<MapRuntimeEvent>, ActionMapGateError> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(Vec::new());
+        }
+
+        let descriptor = descriptor.into();
+        let (map_id, lease_id, node_id) =
+            self.find_lease_by_thread(child_thread_id).ok_or_else(|| {
+                ActionMapGateError::from(
+                    "TaskSpace blocked this subagent tool call because the subagent has no active task node lease. Spawn or reassign the subagent through the parent task map before retrying.",
+                )
+            })?;
+        if descriptor.action_class != ActionClass::Control {
+            self.validate_maintenance_barrier_for_map_node(&map_id, &node_id)?;
+        }
+        let map = self.maps.get(&map_id).ok_or_else(|| {
+            ActionMapGateError::from(format!("TaskSpace child task path `{map_id}` is missing."))
+        })?;
+        if map.status != MapStatus::Active {
+            return Err(ActionMapGateError::from(format!(
+                "TaskSpace child task path `{map_id}` is not active."
+            )));
+        }
+        let node = map.nodes.get(&node_id).ok_or_else(|| {
+            ActionMapGateError::from(format!("TaskSpace child node `{node_id}` is missing."))
+        })?;
+        let lease = map.leases.get(&lease_id).ok_or_else(|| {
+            ActionMapGateError::from(format!("TaskSpace child lease `{lease_id}` is missing."))
+        })?;
+        if lease.holder != LeaseHolder::SubAgent
+            || lease.agent_thread_id != Some(child_thread_id)
+            || node.active_lease.as_deref() != Some(lease_id.as_str())
+            || node.status != NodeStatus::Running
+        {
+            return Err(ActionMapGateError::from(format!(
+                "TaskSpace child node `{node_id}` is no longer held by subagent lease `{lease_id}`."
+            )));
+        }
+
+        let contract = contract_for(node.kind);
+        let tool_result_count = count_node_results_of_kind(node, NodeResultKind::MainToolCall);
+        let reserved_tool_count = self.reserved_tool_calls_for_node(&map_id, &node_id);
+        let budget = contract.max_main_tool_results_before_split_hint;
+        if !contract.allows(descriptor.action_class) {
+            let reason = format!(
+                "{} does not allow {}",
+                node.kind.as_str(),
+                descriptor.action_class.as_str()
+            );
+            let message = format!(
+                "TaskSpace blocked this subagent tool call. Node `{}` kind: {}. Requested tool `{}` action class: {}. Reason: {}. Return a blocker/result for the current node or ask the parent agent to create and assign a suitable node before retrying.",
+                node.id,
+                node.kind.as_str(),
+                descriptor.tool_name,
+                descriptor.action_class.as_str(),
+                reason
+            );
+            return Err(ActionMapGateError::new(
+                message,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: node.kind.as_str().to_string(),
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason,
+                    },
+                )],
+            ));
+        }
+        if descriptor.action_class != ActionClass::Control
+            && tool_result_count + reserved_tool_count >= budget
+        {
+            let barrier = ActionMapMaintenanceBarrier {
+                map_id: map_id.clone(),
+                node_id: node_id.clone(),
+                reason: MaintenanceBarrierReason::NodeToolResultBudgetExceeded,
+                result_count: tool_result_count + reserved_tool_count,
+                budget,
+            };
+            let mut events = Vec::new();
+            if !self.maintenance_barriers.contains_key(&map_id) {
+                events.push(maintenance_barrier_raised_event(&barrier));
+                self.maintenance_barriers.insert(map_id.clone(), barrier);
+            }
+            return Err(ActionMapGateError::new(
+                format!(
+                    "TaskSpace blocked this subagent tool call because node `{}` already has {} recorded and {} in-flight tool results (budget {}). Return a result for this node and let the parent create a narrower follow-up node.",
+                    node_id, tool_result_count, reserved_tool_count, budget
+                ),
+                events,
+            ));
+        }
+        if descriptor.action_class != ActionClass::Control
+            && let Some(call_id) = descriptor.call_id.as_deref()
+        {
+            self.reserve_child_tool_call(
+                child_thread_id,
+                call_id,
+                ChildToolReservation {
+                    child_thread_id,
+                    map_id,
+                    node_id,
+                    lease_id,
+                    tool_name: descriptor.tool_name,
+                    action_class: descriptor.action_class,
+                },
+            );
+        }
+        Ok(Vec::new())
+    }
+
+    pub(crate) fn record_child_tool_result_with_class(
+        &mut self,
+        child_thread_id: ThreadId,
+        call_id: &str,
+        tool_name: &str,
+        action_class: Option<ActionClass>,
+        success: bool,
+        preview: String,
+    ) -> Result<Option<(NodeResultId, Vec<MapRuntimeEvent>)>, String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(None);
+        }
+
+        let reservation = self.release_child_tool_reservation(child_thread_id, call_id);
+        let (map_id, node_id, lease_id, recorded_tool_name, recorded_action_class) = if let Some(
+            reservation,
+        ) =
+            reservation
+        {
+            self.validate_child_tool_reservation(child_thread_id, &reservation)?;
+            if let Some(observed_action_class) = action_class
+                && observed_action_class != reservation.action_class
+            {
+                return Err(format!(
+                    "TaskSpace subagent tool result `{call_id}` action class changed from {} to {} while in flight.",
+                    reservation.action_class.as_str(),
+                    observed_action_class.as_str()
+                ));
+            }
+            (
+                reservation.map_id,
+                reservation.node_id,
+                reservation.lease_id,
+                reservation.tool_name,
+                Some(reservation.action_class),
+            )
+        } else {
+            let (map_id, lease_id, node_id) = match self.find_lease_by_thread(child_thread_id) {
+                Some(target) => target,
+                None => return Ok(None),
+            };
+            (
+                map_id,
+                node_id,
+                lease_id,
+                tool_name.to_string(),
+                action_class,
+            )
+        };
+        let result_id = self.next_result_id();
+        let body = format!(
+            "Subagent tool call\n\
+agent_thread_id: {child_thread_id}\n\
+tool: {recorded_tool_name}\n\
+call_id: {call_id}\n\
+action_class: {}\n\
+success: {success}\n\
+preview:\n\
+{preview}",
+            recorded_action_class
+                .map(ActionClass::as_str)
+                .unwrap_or("unspecified")
+        );
+        let map = self
+            .maps
+            .get_mut(&map_id)
+            .ok_or_else(|| format!("TaskSpace child task path `{map_id}` is missing."))?;
+        let node = map
+            .nodes
+            .get_mut(&node_id)
+            .ok_or_else(|| format!("TaskSpace child node `{node_id}` is missing."))?;
+
+        let result = NodeResult {
+            id: result_id.clone(),
+            assignment_id: lease_id.clone(),
+            map_id: map_id.clone(),
+            node_id: node_id.clone(),
+            kind: NodeResultKind::MainToolCall,
+            action_class: recorded_action_class,
+            body,
+            source_thread_id: child_thread_id,
+            created_at_ms: now_ms(),
+        };
+        map.results.insert(result_id.clone(), result);
+        node.result_context.push(NodeResultRef {
+            id: result_id.clone(),
+            kind: NodeResultKind::MainToolCall,
+        });
+        let mut events = vec![MapRuntimeEvent::NodeResultRecorded(
+            MapRuntimeNodeResultRecordedEvent {
+                map_id: map_id.clone(),
+                node_id: node_id.clone(),
+                lease_id,
+                result_id: result_id.clone(),
+                kind: NodeResultKind::MainToolCall.as_str().to_string(),
+                action_class: recorded_action_class.map(|class| class.as_str().to_string()),
+                source_thread_id: child_thread_id,
+            },
+        )];
+        let tool_result_count = count_node_results_of_kind(node, NodeResultKind::MainToolCall);
+        let budget = contract_for(node.kind).max_main_tool_results_before_split_hint;
+        if tool_result_count >= budget && !self.maintenance_barriers.contains_key(&map_id) {
+            let barrier = ActionMapMaintenanceBarrier {
+                map_id: map_id.clone(),
+                node_id: node_id.clone(),
+                reason: MaintenanceBarrierReason::NodeToolResultBudgetExceeded,
+                result_count: tool_result_count,
+                budget,
             };
             events.push(maintenance_barrier_raised_event(&barrier));
             self.maintenance_barriers.insert(map_id.clone(), barrier);
@@ -666,6 +1143,14 @@ preview:\n\
         {
             return Ok(Vec::new());
         }
+        if let Some(current_node_id) = self.current_main_node_id.as_deref()
+            && current_node_id != node_id
+            && self.current_main_lease_id.is_some()
+        {
+            return Err(format!(
+                "TaskSpace current main node `{current_node_id}` is still running. Finish it with taskspace_control(action=finish_node) or block it with taskspace_control(action=block_node) before binding `{node_id}`."
+            ));
+        }
         if node.status == NodeStatus::Pending {
             return Err(format!(
                 "TaskSpace node `{node_id}` is still pending; complete its dependencies before binding it."
@@ -681,15 +1166,61 @@ preview:\n\
                 "TaskSpace node `{node_id}` is currently held by a subagent lease; wait for release or bind a different node."
             ));
         }
-        let mut events = self.release_current_main_lease("main_rebound");
+        let parallel_inspect_node_ids = Self::ready_parallel_inspect_node_ids(map);
+        if node.kind == NodeKind::InspectCodeContext
+            && node.status == NodeStatus::Ready
+            && parallel_inspect_node_ids.len() >= 2
+        {
+            return Err(format!(
+                "TaskSpace has multiple ready inspect nodes. Do not bind one to the main agent for sequential investigation; call spawn_agent with an explicit node_id for each parallel investigation node: {}.",
+                self.format_ready_spawn_node_candidates(&map_id, &parallel_inspect_node_ids)
+            ));
+        }
+        let mut events = self.release_current_main_lease("main_rebound")?;
         events.extend(self.claim_main_node(owner_session_id, &map_id, node_id)?);
         events.extend(self.clear_maintenance_barrier_for_recovery(node_id));
         Ok(events)
     }
 
+    pub(crate) fn prepare_child_spawn(&self, child_thread_id: ThreadId) -> Result<(), String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(());
+        }
+        if self.find_lease_by_thread(child_thread_id).is_none() {
+            return Err(
+                "TaskSpace blocked this subagent spawn because the subagent has no active task node lease in the parent task map."
+                    .to_string(),
+            );
+        }
+        Err(
+            "TaskSpace blocked nested spawn_agent from a node-bound subagent. Return the current node result to the parent agent so the parent can create or assign another node."
+                .to_string(),
+        )
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn create_node_for_main(
         &mut self,
         owner_session_id: ThreadId,
+        title: String,
+        context_summary: String,
+        dependency_node_ids: Vec<String>,
+        bind_current: bool,
+    ) -> Result<(MapNodeId, Vec<MapRuntimeEvent>), String> {
+        self.create_node_for_main_with_kind(
+            owner_session_id,
+            NodeKind::InspectCodeContext,
+            title,
+            context_summary,
+            dependency_node_ids,
+            bind_current,
+        )
+    }
+
+    pub(crate) fn create_node_for_main_with_kind(
+        &mut self,
+        owner_session_id: ThreadId,
+        kind: NodeKind,
         title: String,
         context_summary: String,
         dependency_node_ids: Vec<String>,
@@ -699,6 +1230,7 @@ preview:\n\
             return Err("TaskSpace mode is not active.".to_string());
         }
         self.validate_routing_complete()?;
+        validate_live_node_kind(kind)?;
         let title = title.trim();
         let context_summary = context_summary.trim();
         if title.is_empty() {
@@ -706,6 +1238,14 @@ preview:\n\
         }
         if context_summary.is_empty() {
             return Err("TaskSpace node context summary cannot be empty.".to_string());
+        }
+        if bind_current
+            && let Some(current_node_id) = self.current_main_node_id.as_deref()
+            && self.current_main_lease_id.is_some()
+        {
+            return Err(format!(
+                "TaskSpace current main node `{current_node_id}` is still running. Finish it with taskspace_control(action=finish_node) or block it with taskspace_control(action=block_node) before creating and binding a new node."
+            ));
         }
         if self.active_map().is_none()
             && dependency_node_ids
@@ -754,6 +1294,7 @@ preview:\n\
             MapNode {
                 id: node_id.clone(),
                 title: title.to_string(),
+                kind,
                 status: if ready {
                     NodeStatus::Ready
                 } else {
@@ -789,6 +1330,7 @@ preview:\n\
         Ok((node_id, events))
     }
 
+    #[allow(dead_code)]
     pub(crate) fn start_task_for_main(
         &mut self,
         owner_session_id: ThreadId,
@@ -798,9 +1340,31 @@ preview:\n\
         node_context_summary: String,
         bind_current: bool,
     ) -> Result<(TaskId, ActionMapId, MapNodeId, Vec<MapRuntimeEvent>), String> {
+        self.start_task_for_main_with_kind(
+            owner_session_id,
+            NodeKind::InspectCodeContext,
+            task_title,
+            task_objective,
+            node_title,
+            node_context_summary,
+            bind_current,
+        )
+    }
+
+    pub(crate) fn start_task_for_main_with_kind(
+        &mut self,
+        owner_session_id: ThreadId,
+        node_kind: NodeKind,
+        task_title: String,
+        task_objective: String,
+        node_title: String,
+        node_context_summary: String,
+        bind_current: bool,
+    ) -> Result<(TaskId, ActionMapId, MapNodeId, Vec<MapRuntimeEvent>), String> {
         if self.mode != MapRuntimeMode::Experiment {
             return Err("TaskSpace mode is not active.".to_string());
         }
+        validate_live_node_kind(node_kind)?;
         let task_title = task_title.trim();
         let task_objective = task_objective.trim();
         let node_title = node_title.trim();
@@ -815,7 +1379,7 @@ preview:\n\
             return Err("TaskSpace first node context summary cannot be empty.".to_string());
         }
 
-        let mut events = self.release_current_main_lease("task_started");
+        let mut events = self.release_current_main_lease("task_started")?;
         if let Some(previous_task_id) = self.active_task_id.as_ref()
             && let Some(previous_task) = self.tasks.get_mut(previous_task_id)
         {
@@ -873,8 +1437,9 @@ preview:\n\
             .expect("new TaskSpace map must be inserted before event emission");
         events.push(map_created_event(map));
 
-        let (node_id, mut node_events) = self.create_node_for_main(
+        let (node_id, mut node_events) = self.create_node_for_main_with_kind(
             owner_session_id,
+            node_kind,
             node_title.to_string(),
             node_context_summary.to_string(),
             Vec::new(),
@@ -937,7 +1502,7 @@ preview:\n\
 
         let previous_task_id = self.active_task_id.clone();
         let previous_map_id = self.active_map_id.clone();
-        let mut events = self.release_current_main_lease("task_routed");
+        let mut events = self.release_current_main_lease("task_routed")?;
         if let Some(previous_task_id) = self.active_task_id.clone()
             && previous_task_id != task_id
             && let Some(previous_task) = self.tasks.get_mut(&previous_task_id)
@@ -982,13 +1547,31 @@ preview:\n\
         Ok(events)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn finish_main_node(
         &mut self,
         owner_session_id: ThreadId,
         node_id: &str,
         result_summary: String,
         next_node_id: Option<String>,
-    ) -> Result<(NodeResultId, Vec<MapRuntimeEvent>), String> {
+    ) -> Result<(ActionMapFinishNodeOutcome, Vec<MapRuntimeEvent>), String> {
+        self.finish_main_node_with_next(
+            owner_session_id,
+            node_id,
+            result_summary,
+            next_node_id,
+            None,
+        )
+    }
+
+    pub(crate) fn finish_main_node_with_next(
+        &mut self,
+        owner_session_id: ThreadId,
+        node_id: &str,
+        result_summary: String,
+        next_node_id: Option<String>,
+        next_node_draft: Option<ActionMapNextNodeDraft>,
+    ) -> Result<(ActionMapFinishNodeOutcome, Vec<MapRuntimeEvent>), String> {
         let result_summary = result_summary.trim();
         if result_summary.is_empty() {
             return Err("TaskSpace finish_node result_summary cannot be empty.".to_string());
@@ -997,8 +1580,24 @@ preview:\n\
             .as_deref()
             .map(str::trim)
             .filter(|node_id| !node_id.is_empty());
+        if next_node_id.is_some() && next_node_draft.is_some() {
+            return Err(
+                "TaskSpace finish_node cannot provide both next_node_id and next node draft fields."
+                    .to_string(),
+            );
+        }
         if let Some(next_node_id) = next_node_id {
             self.validate_next_main_binding_after_finish(node_id, next_node_id)?;
+        }
+        if let Some(draft) = next_node_draft.as_ref() {
+            validate_live_node_kind(draft.kind)?;
+            if draft.title.trim().is_empty() {
+                return Err("TaskSpace next_node_title cannot be empty.".to_string());
+            }
+            if draft.context_summary.trim().is_empty() {
+                return Err("TaskSpace next_node_context_summary cannot be empty.".to_string());
+            }
+            self.validate_next_node_draft_after_finish(node_id, draft)?;
         }
         let (result_id, mut events) = self.record_main_node_lifecycle_result(
             owner_session_id,
@@ -1008,11 +1607,30 @@ preview:\n\
             NodeStatus::Completed,
             true,
         )?;
+        let mut bound_next_node_id = None;
         if let Some(next_node_id) = next_node_id {
             let bind_events = self.bind_main_node(owner_session_id, next_node_id)?;
             events.extend(bind_events);
+            bound_next_node_id = Some(next_node_id.to_string());
+        } else if let Some(draft) = next_node_draft {
+            let (created_node_id, node_events) = self.create_node_for_main_with_kind(
+                owner_session_id,
+                draft.kind,
+                draft.title,
+                draft.context_summary,
+                draft.dependency_node_ids,
+                true,
+            )?;
+            events.extend(node_events);
+            bound_next_node_id = Some(created_node_id);
         }
-        Ok((result_id, events))
+        Ok((
+            ActionMapFinishNodeOutcome {
+                result_id,
+                next_node_id: bound_next_node_id,
+            },
+            events,
+        ))
     }
 
     pub(crate) fn block_main_node(
@@ -1037,7 +1655,7 @@ preview:\n\
 
     pub(crate) fn prepare_spawn_assignment(
         &mut self,
-        _owner_session_id: ThreadId,
+        owner_session_id: ThreadId,
         _requested_task_name: &str,
         requested_node_id: Option<&str>,
     ) -> Result<(Option<ActionMapAssignment>, Vec<MapRuntimeEvent>), String> {
@@ -1046,7 +1664,6 @@ preview:\n\
         }
 
         self.validate_routing_complete()?;
-        self.validate_maintenance_barrier()?;
         let mut events = Vec::new();
         let Some(map_id) = self.active_map_id.clone() else {
             return Err(
@@ -1054,7 +1671,37 @@ preview:\n\
                     .to_string(),
             );
         };
-        let node_id = self.select_spawn_node_id(&map_id, requested_node_id)?;
+        if let Some(current_node_id) = self.current_main_node_id.as_deref() {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            let node = map
+                .nodes
+                .get(current_node_id)
+                .ok_or_else(|| format!("TaskSpace current node `{current_node_id}` is missing."))?;
+            let contract = contract_for(node.kind);
+            if !contract.allows(ActionClass::Spawn) {
+                return Err(format!(
+                    "TaskSpace blocked spawn_agent. Current node `{}` kind: {}. Requested action class: spawn. Reason: {} does not allow spawn. Call taskspace_control(action=finish_node) to finish the current node and bind or create a suitable node before retrying.",
+                    node.id,
+                    node.kind.as_str(),
+                    node.kind.as_str()
+                ));
+            }
+        }
+        let requested_node_id = requested_node_id
+            .map(str::trim)
+            .filter(|node_id| !node_id.is_empty());
+        let node_id = if let Some(node_id) = requested_node_id
+            && self.can_handoff_current_main_node_to_subagent(&map_id, node_id, owner_session_id)
+        {
+            events.extend(self.release_current_main_lease("main_handoff_to_subagent")?);
+            node_id.to_string()
+        } else {
+            self.select_spawn_node_id(&map_id, requested_node_id)?
+        };
+        self.validate_maintenance_barrier_for_node(&node_id)?;
 
         let lease_id = self.next_lease_id();
         let map = self
@@ -1069,6 +1716,7 @@ preview:\n\
         node.status = NodeStatus::Running;
         node.active_lease = Some(lease_id.clone());
         let node_title = node.title.clone();
+        let node_kind = node.kind;
         map.leases.insert(
             lease_id.clone(),
             AssignmentLease {
@@ -1097,7 +1745,13 @@ preview:\n\
 
         Ok((
             Some(ActionMapAssignment {
-                message_prefix: assignment_prompt(&map_id, &node_id, &node_title, &lease_id),
+                message_prefix: assignment_prompt(
+                    &map_id,
+                    &node_id,
+                    &node_title,
+                    node_kind,
+                    &lease_id,
+                ),
                 map_id,
                 node_id,
                 node_title,
@@ -1119,6 +1773,11 @@ preview:\n\
             };
             if lease.holder != LeaseHolder::SubAgent {
                 return None;
+            }
+            if let Some(attached_thread_id) = lease.agent_thread_id {
+                if attached_thread_id != thread_id {
+                    return None;
+                }
             }
             lease.agent_thread_id = Some(thread_id);
             lease.agent_path = agent_path.clone();
@@ -1177,6 +1836,8 @@ preview:\n\
                     self.current_main_node_id = None;
                 }
             }
+            self.child_tool_reservations
+                .retain(|_, reservation| reservation.lease_id != lease.id);
             return events;
         }
         Vec::new()
@@ -1215,6 +1876,7 @@ preview:\n\
             map_id: map_id.clone(),
             node_id: node_id.clone(),
             kind,
+            action_class: None,
             body,
             source_thread_id: child_thread_id,
             created_at_ms: now_ms(),
@@ -1232,6 +1894,8 @@ preview:\n\
             NodeResultKind::MainToolCall => NodeStatus::Running,
         };
         map.leases.remove(&lease_id);
+        self.child_tool_reservations
+            .retain(|_, reservation| reservation.lease_id != lease_id);
         let mut events = vec![
             MapRuntimeEvent::NodeResultRecorded(MapRuntimeNodeResultRecordedEvent {
                 map_id: map_id.clone(),
@@ -1239,6 +1903,7 @@ preview:\n\
                 lease_id: lease_id.clone(),
                 result_id: result_id.clone(),
                 kind: kind.as_str().to_string(),
+                action_class: None,
                 source_thread_id: child_thread_id,
             }),
             MapRuntimeEvent::LeaseReleased(MapRuntimeLeaseReleasedEvent {
@@ -1302,6 +1967,17 @@ preview:\n\
         context.push_str(
             "Before ordinary work, the agent must decide whether the user's current request belongs to an existing task or needs a new task. Runtime exposes task ids and validates structure only; the agent performs semantic task routing with taskspace_control(action=route_task) or taskspace_control(action=start_task).\n",
         );
+        context.push_str(
+            "For broad multi-module tasks, create separate inspect/review nodes for independent evidence gathering and delegate ready inspect/review nodes to explorer agents when at least two independent areas can be checked in parallel. If the user asks to parallelize independent work, or if independent parser/pricing/review/etc. tracks are visible before editing, do not substitute main-agent parallel shell/file-change calls for collaboration; create the ready nodes and call spawn_agent for those nodes. Do not handle one independent investigation yourself while only one explorer handles the other; when two independent tracks exist, the main agent should coordinate and integrate while two explorer agents own the two investigation nodes. Leave those parallel inspect nodes ready for explorer agents instead of binding one to the main agent unless only one independent area exists. Inspect nodes may run diagnostic tests to gather evidence; keep implementation edits on implementation nodes and final passing validation on explicit test nodes.\n",
+        );
+        context.push_str(
+            "During inspect/review nodes, discover exact paths before reading files. Prefer rg --files, Get-ChildItem -Name, or narrow directory listings; do not read guessed filenames from truncated shell output.\n",
+        );
+        context.push_str(
+            "If a smoke_test or regression_test node reveals a failure that needs edits, record that test result on the test node, finish or block the test node, create or bind an implement_solution node for the fix, then finish that implementation node and create or bind a smoke_test/regression_test node to rerun validation. Do not enter final_synthesis while validation is missing or failing.\n",
+        );
+        context.push_str(node_kind_selection_prompt());
+        context.push('\n');
         if self.bootstrap_required {
             context.push_str(
                 "Bootstrap is required now: create the first semantic task with taskspace_control(action=start_task) before ordinary tools or subagent spawn.\n",
@@ -1371,10 +2047,23 @@ preview:\n\
             context.push_str("\n- completed nodes: ");
             context.push_str(&map.completed_node_count().to_string());
             if let Some(node_id) = self.current_main_node_id.as_ref()
-                && map.nodes.contains_key(node_id)
+                && let Some(node) = map.nodes.get(node_id)
             {
                 context.push_str("\n- current main action node: ");
                 context.push_str(node_id);
+                context.push_str(" kind=");
+                context.push_str(node.kind.as_str());
+                let contract = contract_for(node.kind);
+                context.push_str("\nCurrent node contract:\n- allowed action classes: ");
+                context.push_str(
+                    &contract
+                        .allowed_actions
+                        .iter()
+                        .map(|action| action.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+                context.push_str("\nBefore requesting a blocked action, call taskspace_control(action=finish_node) and bind or create a suitable next node. If the current node kind is implement_solution, shell test commands will be blocked; after implementation edits, finish the implementation node and create or bind a smoke_test or regression_test node before running tests.\n");
             }
             context.push_str("\nNodes:\n");
             for node_id in ordered_node_ids(map) {
@@ -1383,6 +2072,8 @@ preview:\n\
                     context.push_str(&node.id);
                     context.push_str(": ");
                     context.push_str(&node.title);
+                    context.push_str(" kind=");
+                    context.push_str(node.kind.as_str());
                     context.push_str(" [");
                     context.push_str(node.status.as_str());
                     context.push_str("]\n");
@@ -1395,7 +2086,7 @@ preview:\n\
                 context.push_str(&base_map_metadata_prompt());
             }
             context.push_str(
-                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. If more than one ready node exists, spawn_agent must include node_id for the intended node; if only one ready node exists, runtime may bind it automatically. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Node result context stays on the node; use it only when it is relevant to the next step.\n",
+                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. To delegate the current main-held node to a subagent, call spawn_agent with that node_id; runtime will hand off the lease and the main agent must create or bind another node before ordinary tools. If more than one ready node exists, spawn_agent must include node_id for the intended node; if only one ready node exists, runtime may bind it automatically. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Node result context stays on the node; use it only when it is relevant to the next step.\n",
             );
         } else {
             context.push_str(
@@ -1507,12 +2198,18 @@ preview:\n\
         }
     }
 
-    fn release_current_main_lease(&mut self, reason: &str) -> Vec<MapRuntimeEvent> {
+    fn release_current_main_lease(&mut self, reason: &str) -> Result<Vec<MapRuntimeEvent>, String> {
         let Some(lease_id) = self.current_main_lease_id.clone() else {
             self.current_main_node_id = None;
-            return Vec::new();
+            return Ok(Vec::new());
         };
-        self.release_lease(&lease_id, reason)
+        if let (Some(map_id), Some(node_id)) = (
+            self.active_map_id.as_deref(),
+            self.current_main_node_id.as_deref(),
+        ) {
+            self.validate_no_main_tool_reservations_for_node(map_id, node_id, reason)?;
+        }
+        Ok(self.release_lease(&lease_id, reason))
     }
 
     fn mark_routing_complete(&mut self) {
@@ -1725,6 +2422,14 @@ preview:\n\
                 .to_string()
         })?;
         if current_node_id != node_id {
+            if let Some(map) = self.maps.get(&map_id)
+                && let Some(node) = map.nodes.get(node_id)
+                && node.status == NodeStatus::Completed
+            {
+                return Err(format!(
+                    "TaskSpace node `{node_id}` is already completed; do not finish it again. Continue from current main node `{current_node_id}` or create and bind a follow-up node."
+                ));
+            }
             return Err(format!(
                 "TaskSpace node `{node_id}` is not the current main action node `{current_node_id}`. Bind it first with taskspace_control(action=bind_node)."
             ));
@@ -1771,6 +2476,11 @@ preview:\n\
                 ));
             }
         }
+        self.validate_no_main_tool_reservations_for_node(
+            &map_id,
+            node_id,
+            "recording a node lifecycle result",
+        )?;
 
         let result_id = self.next_result_id();
         let mut barrier_to_clear = None;
@@ -1792,6 +2502,7 @@ preview:\n\
                 map_id: map_id.clone(),
                 node_id: node_id.to_string(),
                 kind,
+                action_class: None,
                 body,
                 source_thread_id: owner_session_id,
                 created_at_ms: now_ms(),
@@ -1810,6 +2521,7 @@ preview:\n\
                     lease_id: current_lease_id.clone(),
                     result_id: result_id.clone(),
                     kind: kind.as_str().to_string(),
+                    action_class: None,
                     source_thread_id: owner_session_id,
                 },
             ));
@@ -1902,17 +2614,235 @@ preview:\n\
         Ok(())
     }
 
+    fn validate_next_node_draft_after_finish(
+        &self,
+        finishing_node_id: &str,
+        draft: &ActionMapNextNodeDraft,
+    ) -> Result<(), String> {
+        let map_id = self.active_map_id.as_ref().ok_or_else(|| {
+            "TaskSpace mode is active but no active task path exists.".to_string()
+        })?;
+        let map = self
+            .maps
+            .get(map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        for dependency in &draft.dependency_node_ids {
+            let dependency = dependency.trim();
+            if dependency.is_empty() {
+                continue;
+            }
+            let Some(node) = map.nodes.get(dependency) else {
+                return Err(format!(
+                    "TaskSpace dependency node `{dependency}` does not exist."
+                ));
+            };
+            if dependency != finishing_node_id && node.status != NodeStatus::Completed {
+                return Err(format!(
+                    "TaskSpace dependency node `{dependency}` will not be completed after finishing `{finishing_node_id}`."
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn validate_maintenance_barrier(&self) -> Result<(), String> {
         let Some(barrier) = self.active_maintenance_barrier() else {
             return Ok(());
         };
         Err(format!(
-            "TaskSpace maintenance barrier is active for node `{}` on map `{}`: {} ({} main tool results, budget {}). Ordinary tools and spawn_agent are blocked until you use taskspace_control to create or bind a different narrower node, or stop and ask the user to restart/reframe the task.",
+            "TaskSpace maintenance barrier is active for node `{}` on map `{}`: {} ({} main tool results, budget {}). Ordinary main-agent tools are blocked until you use taskspace_control to create or bind a different narrower node, or stop and ask the user to restart/reframe the task.",
             barrier.node_id,
             barrier.map_id,
             barrier.reason.as_str(),
             barrier.result_count,
             barrier.budget
+        ))
+    }
+
+    fn validate_maintenance_barrier_for_node(&self, node_id: &str) -> Result<(), String> {
+        let Some(barrier) = self.active_maintenance_barrier() else {
+            return Ok(());
+        };
+        if barrier.node_id != node_id {
+            return Ok(());
+        }
+        Err(format!(
+            "TaskSpace maintenance barrier is active for node `{}` on map `{}`: {} ({} main tool results, budget {}). Select a different ready node or create a narrower recovery node.",
+            barrier.node_id,
+            barrier.map_id,
+            barrier.reason.as_str(),
+            barrier.result_count,
+            barrier.budget
+        ))
+    }
+
+    fn validate_maintenance_barrier_for_map_node(
+        &self,
+        map_id: &str,
+        node_id: &str,
+    ) -> Result<(), ActionMapGateError> {
+        let Some(barrier) = self.maintenance_barriers.get(map_id) else {
+            return Ok(());
+        };
+        if barrier.node_id != node_id {
+            return Ok(());
+        }
+        Err(ActionMapGateError::from(format!(
+            "TaskSpace maintenance barrier is active for node `{}` on map `{}`: {} ({} tool results, budget {}). The subagent must return a result/blocker and let the parent create or bind a recovery node.",
+            barrier.node_id,
+            barrier.map_id,
+            barrier.reason.as_str(),
+            barrier.result_count,
+            barrier.budget
+        )))
+    }
+
+    fn reserved_main_tool_calls(&self, map_id: &str, node_id: &str) -> usize {
+        self.main_tool_reservations
+            .values()
+            .filter(|reservation| reservation.map_id == map_id && reservation.node_id == node_id)
+            .count()
+    }
+
+    fn reserved_child_tool_calls(&self, map_id: &str, node_id: &str) -> usize {
+        self.child_tool_reservations
+            .values()
+            .filter(|reservation| reservation.map_id == map_id && reservation.node_id == node_id)
+            .count()
+    }
+
+    fn reserved_tool_calls_for_node(&self, map_id: &str, node_id: &str) -> usize {
+        self.reserved_main_tool_calls(map_id, node_id)
+            + self.reserved_child_tool_calls(map_id, node_id)
+    }
+
+    fn reserve_main_tool_call(&mut self, call_id: &str, reservation: MainToolReservation) {
+        self.main_tool_reservations
+            .insert(call_id.to_string(), reservation);
+    }
+
+    fn release_main_tool_reservation(&mut self, call_id: &str) -> Option<MainToolReservation> {
+        self.main_tool_reservations.remove(call_id)
+    }
+
+    fn reserve_child_tool_call(
+        &mut self,
+        child_thread_id: ThreadId,
+        call_id: &str,
+        reservation: ChildToolReservation,
+    ) {
+        self.child_tool_reservations.insert(
+            child_tool_reservation_key(child_thread_id, call_id),
+            reservation,
+        );
+    }
+
+    fn release_child_tool_reservation(
+        &mut self,
+        child_thread_id: ThreadId,
+        call_id: &str,
+    ) -> Option<ChildToolReservation> {
+        self.child_tool_reservations
+            .remove(&child_tool_reservation_key(child_thread_id, call_id))
+    }
+
+    fn validate_main_tool_reservation(
+        &self,
+        owner_session_id: ThreadId,
+        reservation: &MainToolReservation,
+    ) -> Result<(), String> {
+        let map = self.maps.get(&reservation.map_id).ok_or_else(|| {
+            format!(
+                "TaskSpace tool result target map `{}` is missing.",
+                reservation.map_id
+            )
+        })?;
+        if map.status != MapStatus::Active {
+            return Err(format!(
+                "TaskSpace tool result target map `{}` is not active.",
+                reservation.map_id
+            ));
+        }
+        let node = map.nodes.get(&reservation.node_id).ok_or_else(|| {
+            format!(
+                "TaskSpace tool result target node `{}` is missing.",
+                reservation.node_id
+            )
+        })?;
+        let lease = map.leases.get(&reservation.lease_id).ok_or_else(|| {
+            format!(
+                "TaskSpace tool result target lease `{}` is missing.",
+                reservation.lease_id
+            )
+        })?;
+        if lease.holder != LeaseHolder::Main
+            || lease.node_id != reservation.node_id
+            || lease.agent_thread_id != Some(owner_session_id)
+            || node.active_lease.as_deref() != Some(reservation.lease_id.as_str())
+        {
+            return Err(format!(
+                "TaskSpace tool result target node `{}` is no longer held by its original main lease `{}`.",
+                reservation.node_id, reservation.lease_id
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_child_tool_reservation(
+        &self,
+        child_thread_id: ThreadId,
+        reservation: &ChildToolReservation,
+    ) -> Result<(), String> {
+        let map = self.maps.get(&reservation.map_id).ok_or_else(|| {
+            format!(
+                "TaskSpace subagent tool result target map `{}` is missing.",
+                reservation.map_id
+            )
+        })?;
+        if map.status != MapStatus::Active {
+            return Err(format!(
+                "TaskSpace subagent tool result target map `{}` is not active.",
+                reservation.map_id
+            ));
+        }
+        let node = map.nodes.get(&reservation.node_id).ok_or_else(|| {
+            format!(
+                "TaskSpace subagent tool result target node `{}` is missing.",
+                reservation.node_id
+            )
+        })?;
+        let lease = map.leases.get(&reservation.lease_id).ok_or_else(|| {
+            format!(
+                "TaskSpace subagent tool result target lease `{}` is missing.",
+                reservation.lease_id
+            )
+        })?;
+        if reservation.child_thread_id != child_thread_id
+            || lease.holder != LeaseHolder::SubAgent
+            || lease.node_id != reservation.node_id
+            || lease.agent_thread_id != Some(child_thread_id)
+            || node.active_lease.as_deref() != Some(reservation.lease_id.as_str())
+        {
+            return Err(format!(
+                "TaskSpace subagent tool result target node `{}` is no longer held by its original subagent lease `{}`.",
+                reservation.node_id, reservation.lease_id
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_no_main_tool_reservations_for_node(
+        &self,
+        map_id: &str,
+        node_id: &str,
+        action: &str,
+    ) -> Result<(), String> {
+        let in_flight = self.reserved_main_tool_calls(map_id, node_id);
+        if in_flight == 0 {
+            return Ok(());
+        }
+        Err(format!(
+            "TaskSpace node `{node_id}` has {in_flight} in-flight main tool call(s); wait for them to finish before {action}."
         ))
     }
 
@@ -1979,6 +2909,46 @@ preview:\n\
                 self.format_ready_spawn_node_candidates(map_id, &ready_nodes)
             )),
         }
+    }
+
+    fn can_handoff_current_main_node_to_subagent(
+        &self,
+        map_id: &str,
+        node_id: &str,
+        owner_session_id: ThreadId,
+    ) -> bool {
+        if self.current_main_node_id.as_deref() != Some(node_id) {
+            return false;
+        }
+        let Some(lease_id) = self.current_main_lease_id.as_deref() else {
+            return false;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return false;
+        };
+        let Some(node) = map.nodes.get(node_id) else {
+            return false;
+        };
+        if node.active_lease.as_deref() != Some(lease_id) || node.status != NodeStatus::Running {
+            return false;
+        }
+        let Some(lease) = map.leases.get(lease_id) else {
+            return false;
+        };
+        lease.holder == LeaseHolder::Main && lease.agent_thread_id == Some(owner_session_id)
+    }
+
+    fn ready_parallel_inspect_node_ids(map: &ActionMapInstance) -> Vec<String> {
+        ordered_node_ids(map)
+            .into_iter()
+            .filter(|node_id| {
+                map.nodes.get(node_id).is_some_and(|node| {
+                    node.kind == NodeKind::InspectCodeContext
+                        && node.status == NodeStatus::Ready
+                        && node.active_lease.is_none()
+                })
+            })
+            .collect()
     }
 
     fn validate_requested_spawn_node(&self, map_id: &str, node_id: &str) -> Result<(), String> {
@@ -2178,6 +3148,8 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
             output.push_str(&node.status);
             output.push_str("] ");
             output.push_str(&node.title);
+            output.push_str(" kind=");
+            output.push_str(&node.kind);
             if let Some(lease) = node.active_lease.as_ref() {
                 output.push_str(" lease=");
                 output.push_str(lease);
@@ -2222,6 +3194,10 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
                 output.push_str(&result.node_id);
                 output.push_str(" kind=");
                 output.push_str(&result.kind);
+                if let Some(action_class) = result.action_class.as_ref() {
+                    output.push_str(" action_class=");
+                    output.push_str(action_class);
+                }
                 output.push_str(" from=");
                 output.push_str(&result.source_thread_id.to_string());
                 output.push_str("\n  ");
@@ -2254,6 +3230,7 @@ fn seed_map(
             MapNode {
                 id: (*node_id).to_string(),
                 title: candidate.title.to_string(),
+                kind: NodeKind::from_node_id_or_title(candidate.id, candidate.title),
                 status: if index == 0 {
                     NodeStatus::Ready
                 } else {
@@ -2389,6 +3366,16 @@ fn maintenance_barrier_reason_from_str(reason: &str) -> Option<MaintenanceBarrie
     }
 }
 
+fn validate_live_node_kind(kind: NodeKind) -> Result<(), String> {
+    if kind == NodeKind::Custom {
+        return Err(
+            "TaskSpace live node creation requires a concrete node_kind. `custom` is reserved for restored legacy nodes; choose inspect_code_context, implement_solution, smoke_test, regression_test, or final_synthesis."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
 fn node_id_sort_key(node_id: &str) -> (u8, u64, &str) {
     if let Some(number) = node_id
         .strip_prefix("node-")
@@ -2430,6 +3417,7 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
         .map(|node| ActionMapSnapshotNode {
             id: node.id.clone(),
             title: node.title.clone(),
+            kind: node.kind.as_str().to_string(),
             status: node.status.as_str().to_string(),
             context_summary: node.context.summary.clone(),
             source_refs: node.context.source_refs.clone(),
@@ -2468,6 +3456,7 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
             map_id: result.map_id.clone(),
             node_id: result.node_id.clone(),
             kind: result.kind.as_str().to_string(),
+            action_class: result.action_class.map(|class| class.as_str().to_string()),
             body: result.body.clone(),
             source_thread_id: result.source_thread_id,
             created_at_ms: result.created_at_ms,
@@ -2677,15 +3666,34 @@ fn initial_node_events(map: &ActionMapInstance) -> Vec<MapRuntimeEvent> {
         .collect()
 }
 
-fn assignment_prompt(map_id: &str, node_id: &str, node_title: &str, lease_id: &str) -> String {
+fn assignment_prompt(
+    map_id: &str,
+    node_id: &str,
+    node_title: &str,
+    node_kind: NodeKind,
+    lease_id: &str,
+) -> String {
+    let allowed_actions = contract_for(node_kind)
+        .allowed_actions
+        .iter()
+        .map(|action| action.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "TaskSpace node assignment\n\
 Map: {map_id}\n\
 Node: {node_id} - {node_title}\n\
+Node kind: {}\n\
 Lease: {lease_id}\n\
+Allowed action classes: {allowed_actions}\n\
 \n\
-You must work only on this node's subtask. Use the provided node context and return a concise, free-form result for this node. If you are blocked, explain the blocker clearly. Do not maintain the map directly. Do not call taskspace_control, spawn_agent, or wait_agent unless the user task explicitly requires nested delegation.\n\n"
+        You must work only on this node's subtask. Use the provided node context and return a concise, free-form result for this node. If you are blocked, explain the blocker clearly. Runtime enforces the allowed action classes above. Inspect, test, and final nodes are read-only for repository files; do not edit files or call apply_patch unless this node kind is implement_solution. Implementation nodes allow edits but not validation test runs; after editing, return the result so the parent can create or bind a smoke_test/regression_test node. Do not maintain the map directly. Do not call taskspace_control, spawn_agent, or wait_agent; return findings to the parent agent so it can grow or route the task path.\n\n",
+        node_kind.as_str()
     )
+}
+
+fn child_tool_reservation_key(child_thread_id: ThreadId, call_id: &str) -> String {
+    format!("{child_thread_id}:{call_id}")
 }
 
 fn result_from_status(status: &AgentStatus) -> (NodeResultKind, String) {
@@ -2768,6 +3776,30 @@ mod tests {
                 bind_current,
             )
             .expect("test task starts")
+    }
+
+    fn fill_main_tool_budget(
+        state: &mut ActionMapRuntimeState,
+        owner: ThreadId,
+    ) -> Vec<MapRuntimeEvent> {
+        let mut last_events = Vec::new();
+        for index in 0..MAIN_TOOL_RESULT_BUDGET_PER_NODE {
+            state
+                .prepare_main_tool_call(owner, "shell")
+                .expect("main tool call should be allowed while budget remains");
+            let (_, events) = state
+                .record_main_tool_result(
+                    owner,
+                    &format!("call-{index}"),
+                    "shell",
+                    true,
+                    "ok".to_string(),
+                )
+                .expect("record succeeds")
+                .expect("result recorded");
+            last_events = events;
+        }
+        last_events
     }
 
     #[test]
@@ -2900,6 +3932,396 @@ mod tests {
     }
 
     #[test]
+    fn node_contract_blocks_edit_inside_inspect_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect before edit",
+            "Read context before editing.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
+            )
+            .expect("inspect nodes allow diagnostic tests as evidence");
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch"),
+            )
+            .expect_err("inspect nodes cannot edit");
+        let (message, events) = error.into_parts();
+
+        assert!(message.contains("inspect_code_context"));
+        assert!(message.contains("edit"));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ToolActionBlocked(blocked)
+                    if blocked.node_id == "node-1"
+                        && blocked.node_kind == "inspect_code_context"
+                        && blocked.action_class == "edit"
+            )
+        }));
+    }
+
+    #[test]
+    fn implement_node_allows_edit_but_blocks_test() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Implement fix".to_string(),
+                "Apply the known fix.".to_string(),
+                "Patch code".to_string(),
+                "Modify the target files.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch"),
+            )
+            .expect("implementation nodes allow edit");
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
+            )
+            .expect_err("implementation nodes do not absorb tests");
+
+        assert!(error.contains("implement_solution"));
+        assert!(error.contains("test"));
+    }
+
+    #[test]
+    fn validation_node_allows_test_but_blocks_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::RegressionTest,
+                "Run validation".to_string(),
+                "Validate the current implementation.".to_string(),
+                "Regression suite".to_string(),
+                "Run the regression suite without modifying files.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Build, "cargo build"),
+            )
+            .expect("validation nodes allow build/test/lint commands");
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch"),
+            )
+            .expect_err("validation nodes do not allow edits");
+
+        assert!(error.contains("regression_test"));
+        assert!(error.contains("edit"));
+    }
+
+    #[test]
+    fn final_synthesis_node_blocks_edit_test_and_spawn() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::FinalSynthesis,
+                "Summarize outcome".to_string(),
+                "Write the final user-facing synthesis.".to_string(),
+                "Final synthesis".to_string(),
+                "Summarize completed work without new implementation.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        let edit_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch"),
+            )
+            .expect_err("final synthesis nodes cannot edit");
+        assert!(edit_error.contains("final_synthesis"));
+        assert!(edit_error.contains("edit"));
+
+        let test_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
+            )
+            .expect_err("final synthesis nodes cannot test");
+        assert!(test_error.contains("final_synthesis"));
+        assert!(test_error.contains("test"));
+
+        let spawn_error = state
+            .prepare_spawn_assignment(owner, "new parallel work", None)
+            .expect_err("final synthesis nodes cannot spawn");
+        assert!(spawn_error.contains("final_synthesis"));
+        assert!(spawn_error.contains("spawn"));
+    }
+
+    #[test]
+    fn finish_node_can_create_and_bind_next_node_draft_atomically() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect first",
+            "Find the correct files.",
+            true,
+        );
+
+        let (outcome, events) = state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "Inspected files and found target module.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Patch target module".to_string(),
+                    context_summary: "Use the inspected evidence from node-1.".to_string(),
+                    dependency_node_ids: vec!["node-1".to_string()],
+                }),
+            )
+            .expect("finish creates and binds next node");
+
+        assert_eq!(outcome.result_id, "result-1");
+        assert_eq!(outcome.next_node_id.as_deref(), Some("node-2"));
+        let map = state.active_map().expect("active map");
+        let first = map.nodes.get("node-1").expect("first node");
+        let second = map.nodes.get("node-2").expect("second node");
+        assert_eq!(first.status, NodeStatus::Completed);
+        assert_eq!(second.kind, NodeKind::ImplementSolution);
+        assert_eq!(second.status, NodeStatus::Running);
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::LeaseCreated(created) if created.node_id == "node-2"
+            )
+        }));
+    }
+
+    #[test]
+    fn start_task_rejects_custom_live_node_without_mutating_state() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+
+        let error = state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::Custom,
+                "Architecture audit".to_string(),
+                "Audit the project architecture.".to_string(),
+                "Generic work".to_string(),
+                "This should choose a concrete runtime kind.".to_string(),
+                true,
+            )
+            .expect_err("custom is not valid for live task creation");
+
+        assert!(error.contains("concrete node_kind"));
+        assert!(state.tasks.is_empty());
+        assert!(state.maps.is_empty());
+        assert!(state.active_task_id.is_none());
+        assert!(state.active_map_id.is_none());
+    }
+
+    #[test]
+    fn create_node_rejects_custom_live_node_without_mutating_map() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect first",
+            "Find the correct files.",
+            false,
+        );
+
+        let error = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::Custom,
+                "Generic follow-up".to_string(),
+                "This should choose a concrete runtime kind.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect_err("custom is not valid for live node creation");
+
+        assert!(error.contains("concrete node_kind"));
+        let map = state.active_map().expect("active map");
+        assert_eq!(map.nodes.len(), 1);
+        assert!(!map.nodes.contains_key("node-2"));
+    }
+
+    #[test]
+    fn finish_node_rejects_custom_next_draft_without_finishing_current_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect first",
+            "Find the correct files.",
+            true,
+        );
+
+        let error = state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "Inspected files and found target module.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::Custom,
+                    title: "Generic follow-up".to_string(),
+                    context_summary: "This should choose a concrete runtime kind.".to_string(),
+                    dependency_node_ids: vec!["node-1".to_string()],
+                }),
+            )
+            .expect_err("custom next draft is rejected before lifecycle mutation");
+
+        assert!(error.contains("concrete node_kind"));
+        let map = state.active_map().expect("active map");
+        let first = map.nodes.get("node-1").expect("first node");
+        assert_eq!(first.status, NodeStatus::Running);
+        assert!(first.result_context.is_empty());
+        assert!(!map.nodes.contains_key("node-2"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+    }
+
+    #[test]
+    fn bind_main_node_rejects_switching_while_current_main_lease_is_running() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect first",
+            "Current node still running.",
+            true,
+        );
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Patch target".to_string(),
+                "Ready follow-up node.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("create follow-up");
+
+        let error = state
+            .bind_main_node(owner, "node-2")
+            .expect_err("must finish or block current node first");
+
+        assert!(error.contains("node-1"));
+        assert!(error.contains("finish_node"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+    }
+
+    #[test]
+    fn bind_main_node_rejects_sequential_claim_when_multiple_inspect_nodes_are_ready() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(&mut state, owner, "Overview", "Read project shape.", true);
+        state
+            .finish_main_node(owner, "node-1", "overview done".to_string(), None)
+            .expect("finish overview");
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Parser investigation".to_string(),
+                "Investigate parser behavior.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("create parser node");
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Pricing investigation".to_string(),
+                "Investigate pricing behavior.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("create pricing node");
+
+        let error = state
+            .bind_main_node(owner, "node-2")
+            .expect_err("parallel inspect nodes should be delegated");
+
+        assert!(error.contains("multiple ready inspect nodes"));
+        assert!(error.contains("spawn_agent"));
+        assert!(state.current_main_node_id.is_none());
+    }
+
+    #[test]
+    fn create_node_bind_current_is_atomic_when_current_main_node_is_running() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Implement first",
+            "Current node still owns the main lease.",
+            true,
+        );
+
+        let error = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::RegressionTest,
+                "Regression validation".to_string(),
+                "Run tests after implementation.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect_err("create+bind must fail before mutating the map");
+
+        assert!(error.contains("node-1"));
+        assert!(error.contains("creating and binding"));
+        let map = state.active_map().expect("active map");
+        assert_eq!(map.nodes.len(), 1);
+        assert!(!map.nodes.contains_key("node-2"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+    }
+
+    #[test]
     fn main_held_node_is_not_claimable_by_subagent() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -2926,13 +4348,13 @@ mod tests {
     }
 
     #[test]
-    fn main_rebind_releases_previous_node_to_previous_status() {
+    fn main_rebind_rejects_switching_without_finishing_previous_node() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         start_test_task(&mut state, owner, "First node", "First main node.", true);
 
-        let (second_node_id, events) = state
+        let error = state
             .create_node_for_main(
                 owner,
                 "Second node".to_string(),
@@ -2940,28 +4362,16 @@ mod tests {
                 Vec::new(),
                 true,
             )
-            .expect("second node");
+            .expect_err("current node must be finished or blocked first");
 
-        assert_eq!(second_node_id, "node-2");
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::LeaseReleased(event)
-                    if event.node_id == "node-1"
-                        && event.lease_id == "lease-1"
-                        && event.holder == "main"
-                        && event.reason == "main_rebound"
-            )
-        }));
+        assert!(error.contains("node-1"));
+        assert!(error.contains("finish_node"));
         let map = state.active_map().expect("active map");
         let first = map.nodes.get("node-1").expect("first node");
-        assert_eq!(first.status, NodeStatus::Ready);
-        assert!(first.active_lease.is_none());
-        let second = map.nodes.get("node-2").expect("second node");
-        assert_eq!(second.status, NodeStatus::Running);
-        assert_eq!(second.active_lease.as_deref(), Some("lease-2"));
+        assert_eq!(first.status, NodeStatus::Running);
+        assert_eq!(first.active_lease.as_deref(), Some("lease-1"));
         assert_eq!(map.leases.len(), 1);
-        assert_eq!(map.leases["lease-2"].holder, LeaseHolder::Main);
+        assert_eq!(map.leases["lease-1"].holder, LeaseHolder::Main);
     }
 
     #[test]
@@ -3013,42 +4423,14 @@ mod tests {
             true,
         );
 
-        for index in 0..MAIN_TOOL_RESULT_BUDGET_PER_NODE {
-            state
-                .prepare_main_tool_call(owner, "shell")
-                .expect("below budget");
-            let (_, events) = state
-                .record_main_tool_result(
-                    owner,
-                    &format!("call-{index}"),
-                    "shell",
-                    true,
-                    "ok".to_string(),
-                )
-                .expect("record succeeds")
-                .expect("result recorded");
-            assert!(
-                !events
-                    .iter()
-                    .any(|event| { matches!(event, MapRuntimeEvent::MaintenanceBarrierRaised(_)) }),
-                "barrier should not raise before budget is exceeded"
-            );
-        }
-
-        state
-            .prepare_main_tool_call(owner, "shell")
-            .expect("the call that exceeds the budget is allowed then recorded");
-        let (_, events) = state
-            .record_main_tool_result(owner, "call-over-budget", "shell", true, "ok".to_string())
-            .expect("record succeeds")
-            .expect("result recorded");
+        let events = fill_main_tool_budget(&mut state, owner);
 
         assert!(events.iter().any(|event| {
             matches!(
                 event,
                 MapRuntimeEvent::MaintenanceBarrierRaised(event)
                     if event.node_id == node_id
-                        && event.result_count == MAIN_TOOL_RESULT_BUDGET_PER_NODE + 1
+                        && event.result_count == MAIN_TOOL_RESULT_BUDGET_PER_NODE
                         && event.budget == MAIN_TOOL_RESULT_BUDGET_PER_NODE
             )
         }));
@@ -3058,15 +4440,185 @@ mod tests {
         assert!(error.contains("maintenance barrier"));
         let spawn_error = state
             .prepare_spawn_assignment(owner, "parallel follow-up", None)
-            .expect_err("spawn should be blocked by barrier");
-        assert!(spawn_error.contains("maintenance barrier"));
+            .expect_err("spawn has no non-barrier ready node to claim");
+        assert!(spawn_error.contains("no ready node"));
         let context = state.build_developer_context().expect("context");
         assert!(context.contains("Maintenance barrier"));
         assert!(context.contains("node_tool_result_budget_exceeded"));
     }
 
     #[test]
-    fn maintenance_barrier_can_be_cleared_by_binding_recovery_node() {
+    fn maintenance_barrier_allows_subagent_on_different_ready_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Broad inspection",
+            "A broad node that will hit the main tool budget.",
+            true,
+        );
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Parallel evidence review".to_string(),
+                "Ready node for a separate subagent.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("create separate ready node");
+        fill_main_tool_budget(&mut state, owner);
+        assert!(state.prepare_main_tool_call(owner, "shell").is_err());
+
+        let (assignment, events) = state
+            .prepare_spawn_assignment(owner, "parallel follow-up", Some("node-2"))
+            .expect("barrier node should not block an explicit separate ready node");
+
+        let assignment = assignment.expect("assignment");
+        assert_eq!(assignment.node_id, "node-2");
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::LeaseCreated(event) if event.node_id == "node-2"
+            )
+        }));
+    }
+
+    #[test]
+    fn main_tool_budget_counts_inflight_parallel_calls() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Parallel inspection",
+            "A node that receives many parallel read calls.",
+            true,
+        );
+
+        for index in 0..MAIN_TOOL_RESULT_BUDGET_PER_NODE {
+            state
+                .prepare_main_tool_call(
+                    owner,
+                    ToolActionDescriptor::new("shell", ActionClass::Read, "")
+                        .with_call_id(format!("call-{index}")),
+                )
+                .expect("in-flight call should reserve remaining budget");
+        }
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell", ActionClass::Read, "")
+                    .with_call_id("call-over-budget"),
+            )
+            .expect_err("parallel calls beyond budget should be blocked before dispatch");
+        let (message, events) = error.into_parts();
+        assert!(message.contains("in-flight tool results"));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::MaintenanceBarrierRaised(event)
+                    if event.node_id == "node-1"
+                        && event.result_count == MAIN_TOOL_RESULT_BUDGET_PER_NODE
+                        && event.budget == MAIN_TOOL_RESULT_BUDGET_PER_NODE
+            )
+        }));
+    }
+
+    #[test]
+    fn in_flight_main_tool_blocks_node_lifecycle_until_result_records() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect before finish",
+            "The main agent has a read call running.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell", ActionClass::Read, "")
+                    .with_call_id("read-call-1"),
+            )
+            .expect("read call should reserve the main node");
+
+        let error = state
+            .finish_main_node(owner, "node-1", "done".to_string(), None)
+            .expect_err("node cannot finish while a main tool result is in flight");
+        assert!(error.contains("in-flight main tool call"));
+
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-call-1",
+                "shell",
+                Some(ActionClass::Read),
+                true,
+                "read completed".to_string(),
+            )
+            .expect("tool result records against the reserved lease")
+            .expect("result should be recorded");
+        assert_eq!(result_id, "result-1");
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert_eq!(node.active_lease.as_deref(), Some("lease-1"));
+        assert_eq!(
+            node.result_context
+                .iter()
+                .filter(|result| result.kind == NodeResultKind::MainToolCall)
+                .count(),
+            1
+        );
+
+        state
+            .finish_main_node(owner, "node-1", "done".to_string(), None)
+            .expect("finish succeeds after the tool result is recorded");
+    }
+
+    #[test]
+    fn in_flight_main_tool_blocks_main_node_handoff_to_subagent() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Handoff candidate",
+            "The main node has an in-flight tool call.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell", ActionClass::Read, "")
+                    .with_call_id("read-call-1"),
+            )
+            .expect("read call should reserve the main node");
+
+        let error = state
+            .prepare_spawn_assignment(owner, "parallel reader", Some("node-1"))
+            .expect_err("main node handoff must wait for in-flight tool results");
+        assert!(error.contains("in-flight main tool call"));
+
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert_eq!(node.active_lease.as_deref(), Some("lease-1"));
+        assert_eq!(map.leases["lease-1"].holder, LeaseHolder::Main);
+    }
+
+    #[test]
+    fn maintenance_barrier_can_be_cleared_by_finishing_or_blocking_current_node() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -3077,27 +4629,29 @@ mod tests {
             "A broad node that should be split after budget pressure.",
             true,
         );
-        for index in 0..=MAIN_TOOL_RESULT_BUDGET_PER_NODE {
-            state
-                .prepare_main_tool_call(owner, "shell")
-                .expect("main tool call should be allowed before the barrier is recorded");
-            state
-                .record_main_tool_result(
-                    owner,
-                    &format!("call-{index}"),
-                    "shell",
-                    true,
-                    "ok".to_string(),
-                )
-                .expect("record succeeds");
-        }
+        fill_main_tool_budget(&mut state, owner);
         assert!(state.prepare_main_tool_call(owner, "shell").is_err());
         let bind_error = state
             .bind_main_node(owner, "node-1")
             .expect_err("binding the same overgrown node should not clear the barrier");
         assert!(bind_error.contains("different narrower recovery node"));
 
-        let (recovery_node_id, events) = state
+        let (_, events) = state
+            .block_main_node(
+                owner,
+                "node-1",
+                "Overgrown node needs narrower follow-up.".to_string(),
+            )
+            .expect("block overgrown node");
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::MaintenanceBarrierCleared(event)
+                    if event.node_id == "node-1" && event.reason == "node_lifecycle_recorded"
+            )
+        }));
+
+        let (recovery_node_id, _) = state
             .create_node_for_main(
                 owner,
                 "Focused follow-up".to_string(),
@@ -3108,13 +4662,6 @@ mod tests {
             .expect("recovery node created");
 
         assert_eq!(recovery_node_id, "node-2");
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::MaintenanceBarrierCleared(event)
-                    if event.node_id == "node-1" && event.reason == "bound_recovery_node"
-            )
-        }));
         state
             .prepare_main_tool_call(owner, "shell")
             .expect("recovery node should be allowed");
@@ -3152,20 +4699,7 @@ mod tests {
         state
             .bind_main_node(owner, "node-1")
             .expect("bind broad node");
-        for index in 0..=MAIN_TOOL_RESULT_BUDGET_PER_NODE {
-            state
-                .prepare_main_tool_call(owner, "shell")
-                .expect("main tool call should be allowed before barrier is recorded");
-            state
-                .record_main_tool_result(
-                    owner,
-                    &format!("call-{index}"),
-                    "shell",
-                    true,
-                    "ok".to_string(),
-                )
-                .expect("record succeeds");
-        }
+        fill_main_tool_budget(&mut state, owner);
         assert!(state.prepare_main_tool_call(owner, "shell").is_err());
 
         state
@@ -3211,20 +4745,7 @@ mod tests {
                 true,
             )
             .expect("broad task");
-        for index in 0..=MAIN_TOOL_RESULT_BUDGET_PER_NODE {
-            state
-                .prepare_main_tool_call(owner, "shell")
-                .expect("main tool call should be allowed before barrier is recorded");
-            state
-                .record_main_tool_result(
-                    owner,
-                    &format!("call-{index}"),
-                    "shell",
-                    true,
-                    "ok".to_string(),
-                )
-                .expect("record succeeds");
-        }
+        fill_main_tool_budget(&mut state, owner);
 
         state
             .start_task_for_main(
@@ -3261,20 +4782,7 @@ mod tests {
                 true,
             )
             .expect("broad task");
-        for index in 0..=MAIN_TOOL_RESULT_BUDGET_PER_NODE {
-            state
-                .prepare_main_tool_call(owner, "shell")
-                .expect("main tool call should be allowed before barrier is recorded");
-            state
-                .record_main_tool_result(
-                    owner,
-                    &format!("call-{index}"),
-                    "shell",
-                    true,
-                    "ok".to_string(),
-                )
-                .expect("record succeeds");
-        }
+        fill_main_tool_budget(&mut state, owner);
         let snapshot = state.snapshot();
         assert_eq!(snapshot.maintenance_barriers.len(), 1);
 
@@ -3286,6 +4794,13 @@ mod tests {
             .prepare_main_tool_call(owner, "shell")
             .expect_err("restored barrier should block ordinary work");
         assert!(error.contains("maintenance barrier"));
+        restored
+            .block_main_node(
+                owner,
+                "node-1",
+                "Overgrown restored node needs narrower follow-up.".to_string(),
+            )
+            .expect("block restored overgrown node");
         let (recovery_node_id, _) = restored
             .create_node_for_main(
                 owner,
@@ -3310,20 +4825,7 @@ mod tests {
             "A node that has become too broad.",
             true,
         );
-        for index in 0..=MAIN_TOOL_RESULT_BUDGET_PER_NODE {
-            state
-                .prepare_main_tool_call(owner, "shell")
-                .expect("main tool call should be allowed before the barrier is recorded");
-            state
-                .record_main_tool_result(
-                    owner,
-                    &format!("call-{index}"),
-                    "shell",
-                    true,
-                    "ok".to_string(),
-                )
-                .expect("record succeeds");
-        }
+        fill_main_tool_budget(&mut state, owner);
         assert!(state.prepare_main_tool_call(owner, "shell").is_err());
 
         let (_, _, events) = state.restart_active_map(owner, "Reborn map");
@@ -3461,7 +4963,7 @@ mod tests {
             .bind_main_node(owner, "define_scope")
             .expect("bind main node");
 
-        let (result_id, events) = state
+        let (outcome, events) = state
             .finish_main_node(
                 owner,
                 "define_scope",
@@ -3470,7 +4972,11 @@ mod tests {
             )
             .expect("node finished");
 
-        assert_eq!(result_id, "result-1");
+        assert_eq!(outcome.result_id, "result-1");
+        assert_eq!(
+            outcome.next_node_id.as_deref(),
+            Some("inspect_code_context")
+        );
         assert_eq!(
             state.current_main_node_id.as_deref(),
             Some("inspect_code_context")
@@ -3505,7 +5011,7 @@ mod tests {
         let node = map.nodes.get("define_scope").expect("node");
         assert_eq!(node.status, NodeStatus::Completed);
         assert_eq!(node.result_context.len(), 1);
-        let result = map.results.get(&result_id).expect("stored result");
+        let result = map.results.get(&outcome.result_id).expect("stored result");
         assert_eq!(result.kind, NodeResultKind::Result);
         assert_eq!(
             result.body,
@@ -3759,6 +5265,11 @@ mod tests {
         state.set_mode(MapRuntimeMode::Experiment);
         let context = state.build_developer_context().expect("experiment context");
         assert!(context.contains("TaskSpace mode is active"));
+        assert!(context.contains("Node kind selection rules"));
+        assert!(context.contains("Do not create custom nodes"));
+        assert!(context.contains("discover exact paths before reading files"));
+        assert!(context.contains("do not substitute main-agent parallel shell/file-change calls"));
+        assert!(context.contains("while two explorer agents own the two investigation nodes"));
         assert!(context.contains("BaseMap metadata version: base-map-v1"));
         assert!(context.contains("define_scope"));
     }
@@ -3775,6 +5286,7 @@ mod tests {
         let context = state.build_developer_context().expect("experiment context");
         assert!(context.contains("Active task path"));
         assert!(context.contains("Investigate runtime"));
+        assert!(context.contains("Node kind selection rules"));
         assert!(!context.contains("BaseMap metadata version"));
     }
 
@@ -3830,7 +5342,7 @@ mod tests {
         assert_eq!(node_id, "node-1");
         assert!(state.current_main_node_id.is_none());
         let context = state.build_developer_context().expect("context");
-        assert!(context.contains("- node-1: Parallel review [ready]"));
+        assert!(context.contains("- node-1: Parallel review kind=inspect_code_context [ready]"));
 
         let (assignment, _) = state
             .prepare_spawn_assignment(owner, "parallel review", None)
@@ -3910,6 +5422,51 @@ mod tests {
             map.nodes.get("node-2").expect("second node").status,
             NodeStatus::Running
         );
+    }
+
+    #[test]
+    fn spawn_assignment_can_handoff_current_main_node_to_subagent() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        start_test_task(
+            &mut state,
+            owner,
+            "Parser investigation",
+            "Main agent will delegate this node to a subagent.",
+            true,
+        );
+
+        let (assignment, events) = state
+            .prepare_spawn_assignment(owner, "delegate parser investigation", Some("node-1"))
+            .expect("main-held node handoff succeeds");
+        let assignment = assignment.expect("experiment assignment");
+
+        assert_eq!(assignment.node_id, "node-1");
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::LeaseReleased(event)
+                    if event.node_id == "node-1"
+                        && event.holder == "main"
+                        && event.reason == "main_handoff_to_subagent"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::LeaseCreated(event)
+                    if event.node_id == "node-1" && event.holder == "subagent"
+            )
+        }));
+        assert!(state.current_main_node_id.is_none());
+        assert!(state.current_main_lease_id.is_none());
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("node");
+        assert_eq!(node.status, NodeStatus::Running);
+        let lease_id = node.active_lease.as_ref().expect("subagent lease");
+        let lease = map.leases.get(lease_id).expect("lease");
+        assert_eq!(lease.holder, LeaseHolder::SubAgent);
     }
 
     #[test]
@@ -4032,6 +5589,45 @@ mod tests {
             map.results.get("result-1").expect("stored result").body,
             "finished before attach"
         );
+    }
+
+    #[test]
+    fn attach_agent_to_lease_rejects_different_thread_after_attach() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
+        let first_child = ThreadId::new();
+        let second_child = ThreadId::new();
+        let assignment = state
+            .prepare_spawn_assignment(owner, "first child", None)
+            .expect("claim")
+            .0
+            .expect("assignment");
+
+        let first_attach = state.attach_agent_to_lease(
+            &assignment.lease_id,
+            first_child,
+            Some("/root/first".to_string()),
+        );
+        let second_attach = state.attach_agent_to_lease(
+            &assignment.lease_id,
+            second_child,
+            Some("/root/second".to_string()),
+        );
+        let repeated_attach = state.attach_agent_to_lease(
+            &assignment.lease_id,
+            first_child,
+            Some("/root/first".to_string()),
+        );
+
+        assert!(first_attach.is_some());
+        assert!(second_attach.is_none());
+        assert!(repeated_attach.is_some());
+        let map = state.active_map().expect("active map");
+        let lease = map.leases.get(&assignment.lease_id).expect("lease");
+        assert_eq!(lease.agent_thread_id, Some(first_child));
+        assert_eq!(lease.agent_path.as_deref(), Some("/root/first"));
     }
 
     #[test]
@@ -4378,6 +5974,193 @@ mod tests {
         );
         assert_eq!(snapshot.maps[0].nodes[0].id, "node-1");
         assert_eq!(snapshot.maps[0].nodes[0].status, "running");
+    }
+
+    #[test]
+    fn subagent_tool_calls_are_gated_by_assigned_node_contract() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        let child = ThreadId::new();
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect pricing",
+            "Read pricing code and report findings.",
+            false,
+        );
+
+        let assignment = state
+            .prepare_spawn_assignment(owner, "inspect pricing", Some("node-1"))
+            .expect("spawn assignment")
+            .0
+            .expect("experiment assignment");
+        assert!(
+            assignment
+                .message_prefix
+                .contains("Node kind: inspect_code_context")
+        );
+        assert!(
+            assignment
+                .message_prefix
+                .contains("Allowed action classes:")
+        );
+        assert!(assignment.message_prefix.contains("Runtime enforces"));
+        state.attach_agent_to_lease(
+            &assignment.lease_id,
+            child,
+            Some("/root/explorer".to_string()),
+        );
+
+        state
+            .prepare_child_tool_call(
+                child,
+                ToolActionDescriptor::new("shell", ActionClass::Read, "Get-ChildItem")
+                    .with_call_id("child-read"),
+            )
+            .expect("read is allowed on inspect node");
+        let (result_id, _) = state
+            .record_child_tool_result_with_class(
+                child,
+                "child-read",
+                "shell",
+                Some(ActionClass::Read),
+                true,
+                "read ok".to_string(),
+            )
+            .expect("child result record succeeds")
+            .expect("child tool result recorded");
+
+        let map = state.maps.get("map-1").expect("map");
+        let node = map.nodes.get("node-1").expect("node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert_eq!(
+            node.active_lease.as_deref(),
+            Some(assignment.lease_id.as_str())
+        );
+        let result = map.results.get(&result_id).expect("result");
+        assert_eq!(result.source_thread_id, child);
+        assert_eq!(result.action_class, Some(ActionClass::Read));
+
+        let error = state
+            .prepare_child_tool_call(
+                child,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
+                    .with_call_id("child-edit"),
+            )
+            .expect_err("inspect subagent cannot edit");
+        let (message, events) = error.into_parts();
+        assert!(message.contains("does not allow edit"));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ToolActionBlocked(event)
+                    if event.node_id == "node-1"
+                        && event.node_kind == "inspect_code_context"
+                        && event.action_class == "edit"
+            )
+        }));
+    }
+
+    #[test]
+    fn subagent_without_taskspace_lease_is_blocked_in_experiment_mode() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let child = ThreadId::new();
+
+        let error = state
+            .prepare_child_tool_call(
+                child,
+                ToolActionDescriptor::new("shell", ActionClass::Read, "Get-ChildItem")
+                    .with_call_id("orphan-read"),
+            )
+            .expect_err("orphan subagent is not map-driven");
+
+        assert!(error.contains("no active task node lease"));
+    }
+
+    #[test]
+    fn node_bound_subagent_cannot_spawn_nested_agent() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        let child = ThreadId::new();
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect pricing",
+            "Read pricing code and report findings.",
+            false,
+        );
+        let assignment = state
+            .prepare_spawn_assignment(owner, "inspect pricing", Some("node-1"))
+            .expect("spawn assignment")
+            .0
+            .expect("experiment assignment");
+        state.attach_agent_to_lease(
+            &assignment.lease_id,
+            child,
+            Some("/root/explorer".to_string()),
+        );
+
+        let error = state
+            .prepare_child_spawn(child)
+            .expect_err("node-bound subagent cannot spawn nested agents");
+
+        assert!(error.contains("blocked nested spawn_agent"));
+    }
+
+    #[test]
+    fn orphan_subagent_spawn_is_blocked_in_experiment_mode() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+
+        let error = state
+            .prepare_child_spawn(ThreadId::new())
+            .expect_err("orphan subagent cannot spawn through TaskSpace");
+
+        assert!(error.contains("no active task node lease"));
+    }
+
+    #[test]
+    fn child_tool_reservations_are_cleared_when_child_result_finishes_node() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        let child = ThreadId::new();
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect pricing",
+            "Read pricing code and report findings.",
+            false,
+        );
+        let assignment = state
+            .prepare_spawn_assignment(owner, "inspect pricing", Some("node-1"))
+            .expect("spawn assignment")
+            .0
+            .expect("experiment assignment");
+        state.attach_agent_to_lease(
+            &assignment.lease_id,
+            child,
+            Some("/root/explorer".to_string()),
+        );
+
+        state
+            .prepare_child_tool_call(
+                child,
+                ToolActionDescriptor::new("shell", ActionClass::Read, "Get-ChildItem")
+                    .with_call_id("child-read"),
+            )
+            .expect("read is allowed on inspect node");
+        assert_eq!(state.child_tool_reservations.len(), 1);
+
+        state.record_child_result(
+            child,
+            &AgentStatus::Completed(Some("inspection complete".to_string())),
+        );
+
+        assert!(state.child_tool_reservations.is_empty());
     }
 
     #[test]

@@ -7,8 +7,8 @@ use serde_json::json;
 use std::collections::BTreeMap;
 
 const SPAWN_AGENT_INHERITED_MODEL_GUIDANCE: &str = "Spawned agents inherit your current model by default. Omit `model` to use that preferred default; set `model` only when an explicit override is needed.";
-const SPAWN_AGENT_MODEL_OVERRIDE_DESCRIPTION: &str = "Optional model override for the new agent. Leave unset to inherit the same model as the parent, which is the preferred default. Only set this when the user explicitly asks for a different model or the task clearly requires one.";
-const SPAWN_AGENT_NODE_ID_DESCRIPTION: &str = "Optional TaskSpace node id. When TaskSpace mode has more than one ready node, set node_id to bind the spawned agent to the intended node.";
+const SPAWN_AGENT_MODEL_OVERRIDE_DESCRIPTION: &str = "Optional model override for the new agent. Leave unset to inherit the same model as the parent, which is the preferred default. Only set this when the user explicitly asks for a different model or the task clearly requires one; if you set it without fork_turns, the new agent starts from your message instead of a full-history fork.";
+const SPAWN_AGENT_NODE_ID_DESCRIPTION: &str = "Optional TaskSpace node id. When TaskSpace mode has more than one ready node, set node_id to bind the spawned agent to the intended node. If node_id is the current main-held node, runtime hands that node off to the spawned agent and the main agent must bind or create another node before ordinary tools.";
 
 #[derive(Debug, Clone)]
 pub struct SpawnAgentToolOptions<'a> {
@@ -567,7 +567,7 @@ fn spawn_agent_common_properties_v2(agent_type_description: &str) -> BTreeMap<St
         (
             "fork_turns".to_string(),
             JsonSchema::string(Some(
-                "Optional number of turns to fork. Defaults to `all`. Use `none`, `all`, or a positive integer string such as `3` to fork only the most recent turns."
+                "Optional number of turns to fork. Defaults to `all` only when agent_type, model, and reasoning_effort are unset. Use `none`, `all`, or a positive integer string such as `3` to fork only the most recent turns."
                     .to_string(),
             )),
         ),

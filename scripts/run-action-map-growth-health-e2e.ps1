@@ -9,97 +9,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function New-Dir([string]$PathValue) {
-    (New-Item -ItemType Directory -Force -Path $PathValue).FullName
-}
-
-function Count-Matches([string]$Text, [string]$Pattern) {
-    ([regex]::Matches($Text, $Pattern)).Count
-}
-
-function Invoke-RealProcess {
-    param(
-        [string]$FilePath,
-        [string[]]$ArgumentList,
-        [string]$WorkingDirectory,
-        [string]$StdoutPath,
-        [string]$StderrPath,
-        [int]$TimeoutSeconds,
-        [string]$StdinPath = ""
-    )
-    $encoding = [System.Text.UTF8Encoding]::new($false)
-    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $FilePath
-    $startInfo.WorkingDirectory = $WorkingDirectory
-    $startInfo.UseShellExecute = $false
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $startInfo.StandardOutputEncoding = $encoding
-    $startInfo.StandardErrorEncoding = $encoding
-    if ($StdinPath) { $startInfo.RedirectStandardInput = $true }
-    $startInfo.Arguments = (($ArgumentList | ForEach-Object {
-        $arg = [string]$_
-        if ($arg -match '[\s"]') { '"' + ($arg -replace '"', '\"') + '"' } else { $arg }
-    }) -join " ")
-    $process = [System.Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
-    [void]$process.Start()
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
-    if ($StdinPath) {
-        $process.StandardInput.Write((Get-Content -Raw -Encoding UTF8 $StdinPath))
-        $process.StandardInput.Close()
-    }
-    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-        try { $process.Kill($true) } catch { $process.Kill() }
-        throw "Process timed out after $TimeoutSeconds seconds: $FilePath $($ArgumentList -join ' ')"
-    }
-    $stdoutTask.Wait()
-    $stderrTask.Wait()
-    $stdoutTask.Result | Set-Content -Encoding UTF8 $StdoutPath
-    $stderrTask.Result | Set-Content -Encoding UTF8 $StderrPath
-    $process.ExitCode
-}
-
-function Get-ThreadId([string]$JsonlText) {
-    foreach ($line in ($JsonlText -split "`r?`n")) {
-        if ([string]::IsNullOrWhiteSpace($line)) { continue }
-        try {
-            $event = $line | ConvertFrom-Json
-            if ($event.type -eq "thread.started" -and $event.thread_id) {
-                return [string]$event.thread_id
-            }
-        } catch {
-        }
-    }
-    ""
-}
-
-function Find-LatestRollout([datetime]$StartedAt, [string]$ThreadId) {
-    $homes = @()
-    if ($env:WHALE_HOME) { $homes += $env:WHALE_HOME }
-    $homes += (Join-Path $env:USERPROFILE ".whale")
-    foreach ($candidateHome in $homes | Select-Object -Unique) {
-        if (-not (Test-Path $candidateHome)) { continue }
-        $recent = Get-ChildItem -Path $candidateHome -Recurse -Filter "rollout-*.jsonl" -ErrorAction SilentlyContinue |
-            Where-Object { $_.LastWriteTime -ge $StartedAt.AddMinutes(-2) } |
-            Sort-Object LastWriteTime -Descending
-        foreach ($candidate in $recent) {
-            if (-not $ThreadId) { return $candidate }
-            $raw = Get-Content -Raw -Encoding UTF8 $candidate.FullName -ErrorAction SilentlyContinue
-            if ($raw -match [regex]::Escape($ThreadId)) { return $candidate }
-        }
-    }
-    $null
-}
-
-function Add-ReportLine([System.Collections.Generic.List[string]]$Report, [string]$Key, $Value) {
-    $Report.Add("- ${Key}: $Value")
-}
-
-function Write-Text([string]$PathValue, [string]$Text) {
-    [System.IO.File]::WriteAllText($PathValue, $Text, [System.Text.UTF8Encoding]::new($false))
-}
+. (Join-Path $PSScriptRoot "action-map-real-user-e2e-lib.ps1")
 
 if (-not $RunRoot) {
     $RunRoot = Join-Path $PSScriptRoot "..\target\real-user-e2e"
@@ -121,6 +31,7 @@ $validationStderrPath = Join-Path $artifactDir "validation.stderr.log"
 $gitDiffPath = Join-Path $artifactDir "git-diff.patch"
 $reportPath = Join-Path $artifactDir "report.md"
 $scriptSha256 = (Get-FileHash -Algorithm SHA256 $PSCommandPath).Hash
+$whaleSha256 = if (Test-Path $WhaleBin) { (Get-FileHash -Algorithm SHA256 $WhaleBin).Hash } else { "" }
 
 @'
 from .invoice import invoice_total
@@ -233,30 +144,20 @@ try {
 }
 
 $prompt = @"
-You are working in a real local code repository. Solve the order pipeline regressions through TaskSpace.
+I inherited this small order-pipeline project and need you to treat it like a real handoff. Parser behavior, pricing discounts, shipping, and invoice totals all look connected, and some tests may be wrong relative to the README.
 
-User task:
-This project has related regressions across parser, pricing, and invoice integration. Use TaskSpace as the work driver. I want to observe whether the task map grows healthily as the work proceeds.
+Please inspect the README, tests, and implementation before editing. Several checks can be investigated independently, so parallelize the independent parser and pricing/invoice investigations where that speeds up the handoff, then integrate the findings yourself and make the final changes.
 
-Hard workflow requirements:
-- Start with a concrete TaskSpace task and create a real map, not a generic plan.
-- Do not use one generic "fix everything" node. Create and maintain separate nodes for boundary/repo inspection, parser investigation, pricing/integration investigation, implementation, and regression validation.
-- Mark main-agent nodes complete with taskspace_control(action=finish_node) when their work is finished.
-- Spawn at least two real investigation subagents, each bound to a concrete node: one for parser/tests and one for pricing/integration/tests.
-- Subagents should investigate and report; the main agent decides and performs final edits.
-- If a completed node cannot be reused, create a follow-up node and explain why in the node context.
-- Read the repository files before making claims.
-- If a test expectation conflicts with README requirements, update the test to match README instead of changing code to satisfy the incorrect test.
-- Run a real failing validation before the fix and a real passing validation after the fix.
-- Create and bind the validation node before the final python -m pytest tests -q command, so the validation node owns the validation command result.
-- Make real code or test changes. Do not stop at a written plan.
+Run the current tests before editing so we know the baseline failure, then run the relevant tests again after the fix. If a test conflicts with the README, update the test to match the product rule instead of changing code to satisfy the wrong expectation.
 
 Acceptance:
 - python -m pytest tests -q should pass.
 - The implementation must satisfy README requirements.
-- The final answer must summarize the TaskSpace nodes that were created and how the map changed during the task.
+- Briefly explain how you organized the work and how the project state changed while you worked.
 "@
 Write-Text $promptPath $prompt
+$forbiddenPromptTerms = "taskspace|action map|\bmap\b|\bnode\b|subagent|spawn_agent|taskspace_control"
+$promptLeaksInternalConcepts = $prompt -match $forbiddenPromptTerms
 
 if ($PlanOnly) {
     Write-Host "RunDir: $runDir"
@@ -264,6 +165,7 @@ if ($PlanOnly) {
     Write-Host "WhaleBin: $WhaleBin"
     Write-Host "Model: $Model"
     Write-Host "PromptPath: $promptPath"
+    Write-Host "PromptLeaksInternalConcepts: $promptLeaksInternalConcepts"
     Write-Host "ReportPath: $reportPath"
     exit 0
 }
@@ -271,6 +173,7 @@ if ($PlanOnly) {
 if (-not (Test-Path $WhaleBin)) {
     throw "Whale binary not found: $WhaleBin"
 }
+$whaleVersion = (& $WhaleBin --version 2>&1) -join " "
 $helpText = & $WhaleBin exec --help 2>&1
 if (($helpText -join [Environment]::NewLine) -notmatch "--taskspace") {
     throw "Installed whale exec does not expose --taskspace."
@@ -357,36 +260,67 @@ foreach ($line in ($rolloutText -split "`r?`n")) {
 
 $mapCount = if ($obs) { @($obs.maps).Count } else { 0 }
 $nodeCount = if ($obs) { @($obs.nodes).Count } else { 0 }
+$nodeMetrics = if ($obs) { @($obs.nodes) } else { @() }
 $agentCount = if ($obs) { @($obs.agents).Count } else { 0 }
 $nodesWithResults = if ($obs) { @($obs.nodes | Where-Object { @($_.results).Count -gt 0 }).Count } else { 0 }
 $completedNodes = if ($obs) { @($obs.nodes | Where-Object { $_.status -eq "completed" }).Count } else { 0 }
 $titleText = if ($obs) { (@($obs.nodes | ForEach-Object { $_.title }) -join "`n").ToLowerInvariant() } else { "" }
+$kindText = if ($obs) { (@($obs.nodes | ForEach-Object { $_.kind }) -join "`n").ToLowerInvariant() } else { "" }
 $hasBoundaryNode = $titleText -match "boundary|scope|repo|inspection|inspect"
 $hasParserNode = $titleText -match "parser|parse|order line|sku"
 $hasPricingNode = $titleText -match "pricing|discount|invoice|shipping"
 $hasImplementationNode = $titleText -match "implement|fix|change|implementation"
 $hasValidationNode = $titleText -match "validat|regression|test|verify"
-$parserInvestigationUsed = $false; $pricingInvestigationUsed = $false; $validationNodeHasPytestResult = $false; $implementationNodeHasMainTools = $false
+$hasInspectKind = $kindText -match "inspect_code_context"
+$hasImplementationKind = $kindText -match "implement_solution"
+$hasTestKind = $kindText -match "smoke_test|regression_test"
+$unknownActionResultCount = if ($obs) { @($obs.nodes | ForEach-Object { @($_.results | Where-Object { $_.kind -eq "main_tool_call" -and $_.actionClass -eq "unknown" }) }).Count } else { 0 }
+$parserInvestigationUsed = $false; $pricingInvestigationUsed = $false; $validationNodeHasPytestResult = $false; $implementationNodeHasSuccessfulEdit = $false; $editOutsideImplementationCount = 0
 if ($obs) { foreach ($node in @($obs.nodes)) {
     $agentIds = @($node.agentThreads)
     $subagentResultCount = @($node.results | Where-Object { $agentIds -contains $_.sourceThreadId }).Count
-    $mainToolCount = @($node.results | Where-Object { $_.kind -eq "main_tool_call" }).Count
     if ($node.title -match "(?i)parser|parse|sku" -and $subagentResultCount -gt 0) { $parserInvestigationUsed = $true }
     if ($node.title -match "(?i)pricing|discount|invoice|shipping" -and $subagentResultCount -gt 0) { $pricingInvestigationUsed = $true }
+    foreach ($result in @($node.results | Where-Object { $_.kind -eq "main_tool_call" -and $_.actionClass -eq "edit" })) {
+        if ((Get-ObjectPropertyNames $result) -contains "success" -and $result.success -ne $true) { continue }
+        if ([string]$node.kind -eq "implement_solution") { $implementationNodeHasSuccessfulEdit = $true } else { $editOutsideImplementationCount++ }
+    }
     if ($node.title -match "(?i)validat|regression|test|verify") {
-        foreach ($line in ($rolloutText -split "`r?`n")) {
-            if ($line -notmatch ('"nodeId"\s*:\s*"' + [regex]::Escape([string]$node.id) + '"')) { continue }
-            try { $evt = $line | ConvertFrom-Json } catch { continue }
-            foreach ($map in @($evt.payload.snapshot.maps)) { foreach ($result in @($map.results)) {
-                if ($result.nodeId -eq $node.id -and $result.kind -eq "main_tool_call" -and $result.body -match 'call_id:\s*(call_[A-Za-z0-9_]+)') {
-                    $callId = $Matches[1]
-                    if ($result.body -match 'passed' -and $toolCallArgs[$callId] -match 'python -m pytest tests -q') { $validationNodeHasPytestResult = $true }
-                }
-            } }
+        foreach ($result in @($node.results | Where-Object { $_.kind -eq "main_tool_call" -and $_.actionClass -eq "test" })) {
+            if ((Get-ObjectPropertyNames $result) -contains "success" -and $result.success -ne $true) {
+                continue
+            }
+            $callId = [string]$result.callId
+            $command = if ($callId -and $toolCallArgs.ContainsKey($callId)) { [string]$toolCallArgs[$callId] } else { "" }
+            $combined = "$([string]$result.body)`n$command`n$([string]$result.preview)"
+            if ($combined -match "python -m pytest tests -q" -and $combined -match "(?i)\bpassed\b") {
+                $validationNodeHasPytestResult = $true
+            }
         }
     }
-    if ($node.title -match "(?i)implement|fix|change|implementation" -and $mainToolCount -gt 0) { $implementationNodeHasMainTools = $true }
 } }
+$blockedToolActionCount = if ($obs) {
+    @($obs.nodes | ForEach-Object { @($_.blockedActions) }).Count
+} else { 0 }
+$unexpectedBlockedToolActionCount = Count-UnexpectedBlockedTaskspaceToolActions $obs
+$failedTaskspaceToolResults = Count-FailedTaskspaceToolResults $obs
+$unexpectedFailedTaskspaceToolResults = Count-UnexpectedFailedTaskspaceToolResults $obs
+$failedCollabToolCalls = Count-FailedCollabToolCalls $obs
+$problematicSuccessfulToolResults = Count-ProblematicSuccessfulToolResults $obs
+$implementationOwnershipGap = Get-ImplementationOwnershipGap $obs $gitDiffText $toolCallArgs
+$pytestOwnership = Get-PytestOwnership $obs $toolCallArgs
+$validationNodeHasPytestResult = $pytestOwnership.Owned
+$editResultsAfterFinalPytest = Count-EditResultsAfter $nodeMetrics $pytestOwnership.At
+$unexpectedTaskspaceGateFailures = if ($obs) {
+    @($obs.nodes | ForEach-Object {
+            @($_.results | Where-Object {
+                    $_.kind -eq "main_tool_call" -and
+                    (Get-ObjectPropertyNames $_) -contains "success" -and
+                    $_.success -eq $false -and
+                    ([string]$_.body -match "TaskSpace (blocked|mode is active)|Call taskspace_control")
+                })
+        }).Count
+} else { 0 }
 $postHocEmptyTerminalNodes = if ($obs) { @($obs.nodes | Where-Object { $_.title -match "(?i)validat|final|synthesis" -and @($_.results).Count -eq 0 }).Count } else { 0 }
 $leaseCreatedCount = Count-Matches $rolloutText '"lease_created"|LeaseCreated'
 $leaseAttachedCount = Count-Matches $rolloutText '"lease_attached"|LeaseAttached'
@@ -397,6 +331,14 @@ $spawnAgentCount = if ($obs) { @($obs.toolCalls | Where-Object { $_.tool -eq "sp
 $taskspaceControlCount = Count-Matches $rolloutText '"name":"taskspace_control"|"name"\s*:\s*"taskspace_control"'
 $commandExecutionCount = Count-Matches $jsonlText '"type"\s*:\s*"command_execution"'
 $taskRebornShellMisuseCount = Count-Matches ($stderrText + $jsonlText) "task-reborn.*not recognized|The term '/task-reborn'|The term 'task-reborn'"
+$repoHead = ""; $repoStatus = ""
+Push-Location $repoDir
+try {
+    $repoHead = (git rev-parse HEAD) -join "`n"
+    $repoStatus = (git status --short) -join " "
+} finally {
+    Pop-Location
+}
 
 $firstCompletedAt = $null
 $laterCreatedAfterCompletion = $false
@@ -421,6 +363,7 @@ if ($obs) {
 }
 
 $failures = New-Object System.Collections.Generic.List[string]
+if ($promptLeaksInternalConcepts) { $failures.Add("natural growth-health prompt leaked TaskSpace/map/node/subagent concepts") }
 if ($execExitCode -ne 0) { $failures.Add("whale exec exit code was $execExitCode") }
 if ($validationExitCode -ne 0) { $failures.Add("post-run pytest exit code was $validationExitCode") }
 if ($oracleExitCode -ne 0) { $failures.Add("hidden oracle exit code was $oracleExitCode") }
@@ -439,13 +382,22 @@ if ($completedNodes -lt 2) { $failures.Add("expected at least 2 completed nodes;
 if ($finishNodeCallCount -lt 2) { $failures.Add("expected at least 2 finish_node calls; observed $finishNodeCallCount") }
 if ($finishNodeUnsupportedCount -gt 0) { $failures.Add("runtime rejected finish_node as unsupported") }
 if (-not $laterCreatedAfterCompletion) { $failures.Add("no follow-up node was created after an earlier node completed") }
-if (-not ($hasBoundaryNode -and $hasParserNode -and $hasPricingNode -and $hasImplementationNode -and $hasValidationNode)) {
-    $failures.Add("node titles did not cover boundary/parser/pricing/implementation/validation categories")
+if (-not ($hasInspectKind -and $hasImplementationKind -and $hasTestKind)) { $failures.Add("node kinds did not cover inspect/implementation/test structure") }
+if (-not ($hasParserNode -and $hasPricingNode -and $hasImplementationNode -and $hasValidationNode)) {
+    $failures.Add("node titles did not cover parser/pricing/implementation/validation scenario categories")
 }
 if (-not $parserInvestigationUsed) { $failures.Add("parser investigation node did not receive a subagent result") }
 if (-not $pricingInvestigationUsed) { $failures.Add("pricing/invoice investigation node did not receive a subagent result") }
-if (-not $implementationNodeHasMainTools) { $failures.Add("implementation node did not own main-agent tool results") }
+if (-not $implementationNodeHasSuccessfulEdit) { $failures.Add("implementation node did not own a successful edit action") }
+if ($editOutsideImplementationCount -gt 0) { $failures.Add("observed $editOutsideImplementationCount successful edit action(s) outside implementation nodes") }
 if (-not $validationNodeHasPytestResult) { $failures.Add("validation node did not own a passing pytest command result") }
+if ($unexpectedBlockedToolActionCount -gt 0) { $failures.Add("unexpected blocked TaskSpace tool actions: $unexpectedBlockedToolActionCount") }
+if ($unexpectedFailedTaskspaceToolResults -gt 0) { $failures.Add("unexpected failed taskspace-owned tool results: $unexpectedFailedTaskspaceToolResults") }
+if ($failedCollabToolCalls -gt 0) { $failures.Add("unexpected failed collaboration tool calls: $failedCollabToolCalls") }
+if ($implementationOwnershipGap.MissingCount -gt 0) { $failures.Add("changed paths not owned by successful implementation-node edits: $($implementationOwnershipGap.MissingPaths -join ', ')") }
+if ($editResultsAfterFinalPytest -gt 0) { $failures.Add("edit action results occurred after the final owned pytest validation: $editResultsAfterFinalPytest") }
+if ($unexpectedTaskspaceGateFailures -gt 0) { $failures.Add("unexpected TaskSpace gate/tool attribution failures: $unexpectedTaskspaceGateFailures") }
+if ($unknownActionResultCount -gt 0) { $failures.Add("observed unknown taskspace action results: $unknownActionResultCount") }
 if ($postHocEmptyTerminalNodes -gt 0) { $failures.Add("terminal validation/final nodes were created without results") }
 if ($commandExecutionCount -lt 4) { $failures.Add("agent did not run enough real commands; observed $commandExecutionCount") }
 if ($taskRebornShellMisuseCount -gt 0) { $failures.Add("agent attempted to run taskspace slash command as shell") }
@@ -458,23 +410,42 @@ foreach ($row in @(
     @("overall", $overall), @("scenario_id", $ScenarioId), @("run_dir", $runDir), @("repo_dir", $repoDir),
     @("whale_bin", $WhaleBin), @("model", $Model), @("started", $started.ToString("o")),
     @("finished", $finished.ToString("o")), @("thread_id", $threadId), @("exec_exit_code", $execExitCode),
-    @("validation_exit_code", $validationExitCode), @("script_sha256", $scriptSha256), @("rollout", $rollout.FullName)
+    @("validation_exit_code", $validationExitCode), @("script_sha256", $scriptSha256),
+    @("whale_sha256", $whaleSha256), @("whale_version", $whaleVersion), @("repo_head", $repoHead), @("repo_status", $repoStatus),
+    @("rollout", $(if ($rollout) { $rollout.FullName } else { "" }))
 )) { Add-ReportLine $report $row[0] $row[1] }
+$report.Add("")
+$report.Add("## Artifacts")
+$report.Add("")
+foreach ($row in @(@("jsonl", $jsonlPath), @("stderr", $stderrPath), @("last_message", $lastMessagePath), @("git_diff", $gitDiffPath), @("observability_json", $obsJsonPath), @("observability_md", $obsMdPath), @("observability_html", $obsHtmlPath))) { Add-ReportLine $report $row[0] $row[1] }
 $report.Add("")
 $report.Add("## Growth Health Metrics")
 $report.Add("")
 foreach ($row in @(
+    @("prompt_leaks_internal_concepts", $promptLeaksInternalConcepts),
     @("maps", $mapCount), @("nodes", $nodeCount), @("agents", $agentCount),
     @("completed_nodes", $completedNodes), @("nodes_with_results", $nodesWithResults),
     @("spawn_agent", $spawnAgentCount), @("taskspace_control", $taskspaceControlCount),
     @("finish_node_calls", $finishNodeCallCount), @("lease_created", $leaseCreatedCount),
     @("lease_attached", $leaseAttachedCount), @("lease_released", $leaseReleasedCount),
     @("later_node_created_after_completion", $laterCreatedAfterCompletion),
+    @("has_inspect_kind", $hasInspectKind), @("has_implementation_kind", $hasImplementationKind),
+    @("has_test_kind", $hasTestKind),
     @("has_boundary_node", $hasBoundaryNode), @("has_parser_node", $hasParserNode),
     @("has_pricing_node", $hasPricingNode), @("has_implementation_node", $hasImplementationNode),
     @("has_validation_node", $hasValidationNode), @("parser_investigation_used", $parserInvestigationUsed),
-    @("pricing_investigation_used", $pricingInvestigationUsed), @("implementation_node_has_main_tools", $implementationNodeHasMainTools),
+    @("pricing_investigation_used", $pricingInvestigationUsed), @("implementation_node_has_successful_edit", $implementationNodeHasSuccessfulEdit),
+    @("edit_outside_implementation", $editOutsideImplementationCount), @("blocked_tool_actions", $blockedToolActionCount),
+    @("unexpected_blocked_tool_actions", $unexpectedBlockedToolActionCount),
     @("validation_node_has_pytest_result", $validationNodeHasPytestResult),
+    @("failed_taskspace_tool_results", $failedTaskspaceToolResults),
+    @("unexpected_failed_taskspace_tool_results", $unexpectedFailedTaskspaceToolResults),
+    @("failed_collab_tool_calls", $failedCollabToolCalls),
+    @("problematic_successful_tool_results", $problematicSuccessfulToolResults),
+    @("changed_paths_without_implementation_owner", $implementationOwnershipGap.MissingCount),
+    @("edit_results_after_final_pytest", $editResultsAfterFinalPytest),
+    @("unexpected_taskspace_gate_failures", $unexpectedTaskspaceGateFailures),
+    @("unknown_action_results", $unknownActionResultCount),
     @("posthoc_empty_terminal_nodes", $postHocEmptyTerminalNodes), @("finish_node_unsupported", $finishNodeUnsupportedCount),
     @("hidden_oracle_exit_code", $oracleExitCode), @("real_command_execution", $commandExecutionCount),
     @("git_diff_bytes", $gitDiffText.Length)

@@ -84,8 +84,9 @@ pub(crate) const BASE_MAP: BaseMap = BaseMap {
 
 pub(crate) fn base_map_metadata_prompt() -> String {
     let mut prompt = format!(
-        "BaseMap metadata version: {}\nCandidate nodes:\n",
-        BASE_MAP.version
+        "BaseMap metadata version: {}\nRuntime node_kind values for hard gate: inspect_code_context, implement_solution, smoke_test, regression_test, final_synthesis. `custom` is reserved only for restored legacy nodes and must not be used for live node creation.\n{}\nCandidate nodes:\n",
+        BASE_MAP.version,
+        node_kind_selection_prompt()
     );
     for node in BASE_MAP.candidate_nodes {
         prompt.push_str("- ");
@@ -96,10 +97,18 @@ pub(crate) fn base_map_metadata_prompt() -> String {
         prompt.push_str(node.when_to_use);
         prompt.push('\n');
     }
-    prompt.push_str(
-        "Use these candidates as a task decomposition menu. Select, rename, merge, or split them into 3-8 concrete nodes for the user's actual task; do not create a generic plan/implement/summary map.",
-    );
+    prompt.push_str("Use these candidates as a task decomposition menu. For taskspace_control(start_task/create_node), choose one runtime node_kind value. BaseMap candidates outside the hard-gated values are guidance for node titles and decomposition, not separate runtime kinds. Do not create a generic plan/implement/summary map.");
     prompt
+}
+
+pub(crate) fn node_kind_selection_prompt() -> &'static str {
+    "Node kind selection rules:
+- Use inspect_code_context for reading files, searching, understanding scope, design investigation, and subagent investigation nodes.
+- Use implement_solution only when the node will modify code, tests, configuration, or docs.
+- Use smoke_test or regression_test before running test/build/lint commands; baseline failing validation and final passing validation are test nodes.
+- Use final_synthesis only for final wrap-up.
+- If validation fails and edits are needed, leave the test node with its result, switch to implement_solution for the fix, then switch back to a test node for the rerun.
+- Do not create custom nodes in live TaskSpace work. If work does not fit a kind, choose the closest concrete kind and explain the scope in the node title/context."
 }
 
 #[cfg(test)]

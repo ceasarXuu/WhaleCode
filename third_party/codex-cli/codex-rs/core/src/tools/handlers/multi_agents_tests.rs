@@ -593,7 +593,57 @@ async fn multi_agent_v2_spawn_fork_turns_all_rejects_agent_type_override() {
 }
 
 #[tokio::test]
-async fn multi_agent_v2_spawn_defaults_to_full_fork_and_rejects_child_model_overrides() {
+async fn multi_agent_v2_spawn_defaults_to_no_fork_when_model_override_is_requested() {
+    let (mut session, mut turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let root = manager
+        .start_thread((*turn.config).clone())
+        .await
+        .expect("root thread should start");
+    session.services.agent_control = manager.agent_control();
+    session.conversation_id = root.thread_id;
+    let mut config = (*turn.config).clone();
+    config
+        .features
+        .enable(Feature::MultiAgentV2)
+        .expect("test config should allow feature update");
+    turn.config = Arc::new(config);
+
+    let output = SpawnAgentHandlerV2
+        .handle(invocation(
+            Arc::new(session),
+            Arc::new(turn),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "inspect this repo",
+                "task_name": "default_model_no_fork",
+                "model": "deepseek-v4-flash"
+            })),
+        ))
+        .await
+        .expect("model override without fork_turns should spawn without a full-history fork");
+
+    let (content, _) = expect_text_output(output);
+    let result: serde_json::Value =
+        serde_json::from_str(&content).expect("spawn_agent result should be json");
+    assert_eq!(result["task_name"], "/root/default_model_no_fork");
+    let agent_id = manager
+        .captured_ops()
+        .into_iter()
+        .map(|(thread_id, _)| thread_id)
+        .find(|thread_id| *thread_id != root.thread_id)
+        .expect("spawned agent should receive an op");
+    let snapshot = manager
+        .get_thread(agent_id)
+        .await
+        .expect("spawned agent thread should exist")
+        .config_snapshot()
+        .await;
+    assert_eq!(snapshot.model, "deepseek-v4-flash");
+}
+
+#[tokio::test]
+async fn multi_agent_v2_spawn_fork_turns_all_rejects_child_model_overrides() {
     let (mut session, mut turn) = make_session_and_context().await;
     let manager = thread_manager();
     let root = manager
@@ -618,15 +668,16 @@ async fn multi_agent_v2_spawn_defaults_to_full_fork_and_rejects_child_model_over
                 "message": "inspect this repo",
                 "task_name": "fork_context_v2",
                 "model": "gpt-5-child-override",
-                "reasoning_effort": "low"
+                "reasoning_effort": "low",
+                "fork_turns": "all"
             })),
         ))
         .await
-        .expect_err("default full fork should reject child model overrides");
+        .expect_err("explicit full fork should reject child model overrides");
 
     assert_eq!(
         err,
-            FunctionCallError::RespondToModel(
+        FunctionCallError::RespondToModel(
             "Full-history forked agents inherit the parent agent type, model, and reasoning effort; omit agent_type, model, and reasoning_effort, or spawn without a full-history fork.".to_string(),
         )
     );
@@ -1232,11 +1283,7 @@ async fn action_map_experiment_spawn_binds_first_ready_node() {
     let (content, _) = expect_text_output(output);
     let result: SpawnAgentResult =
         serde_json::from_str(&content).expect("spawn result should parse");
-    assert!(
-        result.task_name.starts_with("/root/node_1"),
-        "spawn path should be node-derived, got {:?}",
-        result.task_name
-    );
+    assert_eq!(result.task_name, "/root/worker");
     assert!(result.nickname.is_some());
 
     let child_id = session
@@ -1545,7 +1592,7 @@ async fn action_map_experiment_hidden_metadata_spawn_claims_explicit_node_id() {
 }
 
 #[tokio::test]
-async fn action_map_experiment_spawn_uses_safe_agent_name_for_dynamic_node() {
+async fn action_map_experiment_spawn_keeps_requested_task_name_for_dynamic_node() {
     #[derive(Debug, Deserialize)]
     struct SpawnAgentResult {
         task_name: String,
@@ -1589,15 +1636,11 @@ async fn action_map_experiment_spawn_uses_safe_agent_name_for_dynamic_node() {
             })),
         ))
         .await
-        .expect("spawn_agent should accept sanitized dynamic node task name");
+        .expect("spawn_agent should keep caller task name while binding dynamic node");
     let (content, _) = expect_text_output(output);
     let result: SpawnAgentResult =
         serde_json::from_str(&content).expect("spawn result should parse");
-    assert!(
-        result.task_name.starts_with("/root/node_1"),
-        "dynamic node id should be sanitized for agent path, got {:?}",
-        result.task_name
-    );
+    assert_eq!(result.task_name, "/root/worker");
 
     let child_id = session
         .services
@@ -1629,6 +1672,7 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
         .features
         .enable(Feature::MultiAgentV2)
         .expect("test config should allow feature update");
+    root_config.agent_max_depth = DEFAULT_AGENT_MAX_DEPTH + 1;
     let root = manager
         .start_thread(root_config)
         .await
@@ -1719,11 +1763,7 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
                     let (content, _) = expect_text_output(output);
                     let second: SpawnAgentResult =
                         serde_json::from_str(&content).expect("second spawn parses");
-                    assert!(
-                        second.task_name.starts_with("/root/node_2"),
-                        "second spawn should bind next node, got {:?}",
-                        second.task_name
-                    );
+                    assert_eq!(second.task_name, "/root/second");
                     break;
                 }
                 Err(FunctionCallError::RespondToModel(message))
@@ -1737,6 +1777,113 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
     })
     .await
     .expect("completion watcher should advance the map");
+}
+
+#[tokio::test]
+async fn action_map_experiment_blocks_nested_spawn_from_node_bound_subagent() {
+    #[derive(Debug, Deserialize)]
+    struct SpawnAgentResult {
+        task_name: String,
+    }
+
+    let (_session, turn) = make_session_and_context().await;
+    let manager = thread_manager();
+    let mut root_config = (*turn.config).clone();
+    root_config
+        .features
+        .enable(Feature::MultiAgentV2)
+        .expect("test config should allow feature update");
+    root_config.agent_max_depth = DEFAULT_AGENT_MAX_DEPTH + 1;
+    let root = manager
+        .start_thread(root_config)
+        .await
+        .expect("root thread should start");
+    let session = root.thread.codex.session.clone();
+    let turn = session.new_default_turn().await;
+    enable_action_map_experiment(&session).await;
+    start_action_map_task_node(
+        &session,
+        &turn,
+        "Inspect parser",
+        "A node-bound subagent should inspect parser behavior.",
+        false,
+    )
+    .await;
+
+    let child_output = SpawnAgentHandlerV2
+        .handle(invocation(
+            session.clone(),
+            turn.clone(),
+            "spawn_agent",
+            function_payload(json!({
+                "message": "inspect parser",
+                "task_name": "parser"
+            })),
+        ))
+        .await
+        .expect("first child spawn should succeed");
+    let (content, _) = expect_text_output(child_output);
+    let child: SpawnAgentResult = serde_json::from_str(&content).expect("spawn parses");
+    let child_id = session
+        .services
+        .agent_control
+        .resolve_agent_reference(
+            session.conversation_id,
+            &turn.session_source,
+            &child.task_name,
+        )
+        .await
+        .expect("child resolves");
+    let child_thread = manager
+        .get_thread(child_id)
+        .await
+        .expect("child thread exists");
+    let child_session = child_thread.codex.session.clone();
+    let child_turn = child_session.new_default_turn().await;
+    let captured_before = manager.captured_ops().len();
+
+    let err = SpawnAgentHandlerV2
+        .handle(invocation(
+            child_session,
+            child_turn,
+            "spawn_agent",
+            function_payload(json!({
+                "message": "spawn a nested investigator",
+                "task_name": "nested"
+            })),
+        ))
+        .await
+        .expect_err("node-bound child must not spawn nested agents");
+
+    let FunctionCallError::RespondToModel(message) = err else {
+        panic!("nested TaskSpace spawn should return a model-facing error");
+    };
+    assert!(
+        message.contains("blocked nested spawn_agent"),
+        "unexpected nested spawn error: {message}"
+    );
+    assert_eq!(manager.captured_ops().len(), captured_before);
+}
+
+#[tokio::test]
+async fn action_map_child_tool_gate_fails_closed_when_parent_runtime_is_missing() {
+    let manager = thread_manager();
+
+    let error = manager
+        .agent_control()
+        .prepare_action_map_child_tool_call(
+            ThreadId::new(),
+            ThreadId::new(),
+            crate::action_map::ToolActionDescriptor::new(
+                "shell",
+                crate::action_map::ActionClass::Read,
+                "Get-ChildItem",
+            ),
+        )
+        .await
+        .expect_err("missing parent runtime must fail closed");
+
+    assert!(error.contains("parent task runtime"));
 }
 
 #[tokio::test]
@@ -4380,11 +4527,7 @@ async fn action_map_close_agent_releases_node_lease_for_reclaim() {
     let (second_content, _) = expect_text_output(second_output);
     let second: SpawnAgentResult =
         serde_json::from_str(&second_content).expect("second spawn should parse");
-    assert!(
-        second.task_name.starts_with("/root/node_1"),
-        "released node should be claimable again, got {:?}",
-        second.task_name
-    );
+    assert_eq!(second.task_name, "/root/second");
     let second_child_id = session
         .services
         .agent_control

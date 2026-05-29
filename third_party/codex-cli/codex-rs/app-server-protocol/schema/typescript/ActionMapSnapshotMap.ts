@@ -7,4 +7,4 @@ import type { ActionMapSnapshotNode } from "./ActionMapSnapshotNode";
 import type { ActionMapSnapshotResult } from "./ActionMapSnapshotResult";
 import type { ThreadId } from "./ThreadId";
 
-export type ActionMapSnapshotMap = { id: string, title: string, status: string, ownerSessionId: ThreadId | null, baseMapVersion: string, createdFrom: string | null, readyNodeCount: number, runningNodeCount: number, completedNodeCount: number, nodes: Array<ActionMapSnapshotNode>, edges: Array<ActionMapSnapshotEdge>, leases: Array<ActionMapSnapshotLease>, results: Array<ActionMapSnapshotResult>, };
+export type ActionMapSnapshotMap = { id: string, taskId: string | null, title: string, status: string, ownerSessionId: ThreadId | null, baseMapVersion: string, createdFrom: string | null, readyNodeCount: number, runningNodeCount: number, completedNodeCount: number, nodes: Array<ActionMapSnapshotNode>, edges: Array<ActionMapSnapshotEdge>, leases: Array<ActionMapSnapshotLease>, results: Array<ActionMapSnapshotResult>, };
