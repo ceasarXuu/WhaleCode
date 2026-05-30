@@ -10,6 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "action-map-real-user-e2e-lib.ps1")
+. (Join-Path $PSScriptRoot "action-map-graph-health-lib.ps1")
 
 if (-not $RunRoot) {
     $RunRoot = Join-Path $PSScriptRoot "..\target\real-user-e2e"
@@ -146,7 +147,7 @@ try {
 $prompt = @"
 I inherited this small order-pipeline project and need you to treat it like a real handoff. Parser behavior, pricing discounts, shipping, and invoice totals all look connected, and some tests may be wrong relative to the README.
 
-Please inspect the README, tests, and implementation before editing. Several checks can be investigated independently, so parallelize the independent parser and pricing/invoice investigations where that speeds up the handoff, then integrate the findings yourself and make the final changes.
+Please inspect the README, tests, and implementation before editing. Separate product truth from broken expectations, organize the work in whatever way best fits the project, then integrate the findings yourself and make the final changes.
 
 Run the current tests before editing so we know the baseline failure, then run the relevant tests again after the fix. If a test conflicts with the README, update the test to match the product rule instead of changing code to satisfy the wrong expectation.
 
@@ -156,7 +157,7 @@ Acceptance:
 - Briefly explain how you organized the work and how the project state changed while you worked.
 "@
 Write-Text $promptPath $prompt
-$forbiddenPromptTerms = "taskspace|action map|\bmap\b|\bnode\b|subagent|spawn_agent|taskspace_control"
+$forbiddenPromptTerms = "(?i)taskspace|action map|\bmap\b|\bnode\b|subagent|spawn_agent|taskspace_control|\bparallel(ize)?\b|\bconcurrent(ly)?\b|\bsimultaneous(ly)?\b|\bdelegate\b|\bdelegation\b|\bmultiple agents?\b|\bmulti-agent\b|\bsplit .* agents?\b|\bfan[- ]?out\b"
 $promptLeaksInternalConcepts = $prompt -match $forbiddenPromptTerms
 
 if ($PlanOnly) {
@@ -250,6 +251,7 @@ if ($rollout) {
     $obsExitCode = $LASTEXITCODE
 }
 $obs = if (Test-Path $obsJsonPath) { Get-Content -Raw -Encoding UTF8 $obsJsonPath | ConvertFrom-Json } else { $null }
+$graphHealth = Get-TaskspaceGraphHealth $obs
 $toolCallArgs = @{}
 foreach ($line in ($rolloutText -split "`r?`n")) {
     try { $evt = $line | ConvertFrom-Json } catch { continue }
@@ -275,12 +277,13 @@ $hasInspectKind = $kindText -match "inspect_code_context"
 $hasImplementationKind = $kindText -match "implement_solution"
 $hasTestKind = $kindText -match "smoke_test|regression_test"
 $unknownActionResultCount = if ($obs) { @($obs.nodes | ForEach-Object { @($_.results | Where-Object { $_.kind -eq "main_tool_call" -and $_.actionClass -eq "unknown" }) }).Count } else { 0 }
-$parserInvestigationUsed = $false; $pricingInvestigationUsed = $false; $validationNodeHasPytestResult = $false; $implementationNodeHasSuccessfulEdit = $false; $editOutsideImplementationCount = 0
+$parserInvestigationUsed = $false; $pricingInvestigationUsed = $false; $validationNodeHasPytestResult = $false; $implementationNodeHasSuccessfulEdit = $false; $editOutsideImplementationCount = 0; $subagentResultCount = 0
 if ($obs) { foreach ($node in @($obs.nodes)) {
     $agentIds = @($node.agentThreads)
-    $subagentResultCount = @($node.results | Where-Object { $agentIds -contains $_.sourceThreadId }).Count
-    if ($node.title -match "(?i)parser|parse|sku" -and $subagentResultCount -gt 0) { $parserInvestigationUsed = $true }
-    if ($node.title -match "(?i)pricing|discount|invoice|shipping" -and $subagentResultCount -gt 0) { $pricingInvestigationUsed = $true }
+    $nodeSubagentResultCount = @($node.results | Where-Object { $agentIds -contains $_.sourceThreadId }).Count
+    $subagentResultCount += $nodeSubagentResultCount
+    if ($node.title -match "(?i)parser|parse|sku" -and $nodeSubagentResultCount -gt 0) { $parserInvestigationUsed = $true }
+    if ($node.title -match "(?i)pricing|discount|invoice|shipping" -and $nodeSubagentResultCount -gt 0) { $pricingInvestigationUsed = $true }
     foreach ($result in @($node.results | Where-Object { $_.kind -eq "main_tool_call" -and $_.actionClass -eq "edit" })) {
         if ((Get-ObjectPropertyNames $result) -contains "success" -and $result.success -ne $true) { continue }
         if ([string]$node.kind -eq "implement_solution") { $implementationNodeHasSuccessfulEdit = $true } else { $editOutsideImplementationCount++ }
@@ -306,6 +309,7 @@ $unexpectedBlockedToolActionCount = Count-UnexpectedBlockedTaskspaceToolActions 
 $failedTaskspaceToolResults = Count-FailedTaskspaceToolResults $obs
 $unexpectedFailedTaskspaceToolResults = Count-UnexpectedFailedTaskspaceToolResults $obs
 $failedCollabToolCalls = Count-FailedCollabToolCalls $obs
+$unexpectedFailedCollabToolCalls = Count-UnexpectedFailedCollabToolCalls $obs
 $problematicSuccessfulToolResults = Count-ProblematicSuccessfulToolResults $obs
 $implementationOwnershipGap = Get-ImplementationOwnershipGap $obs $gitDiffText $toolCallArgs
 $pytestOwnership = Get-PytestOwnership $obs $toolCallArgs
@@ -373,10 +377,22 @@ if (-not $rollout) { $failures.Add("could not find the rollout for this thread")
 if ($rollout -and $obsExitCode -ne 0) { $failures.Add("observability export failed with exit code $obsExitCode") }
 if ($mapCount -lt 1) { $failures.Add("no map was observed") }
 if ($nodeCount -lt 4) { $failures.Add("map did not grow to at least 4 nodes; observed $nodeCount") }
+if ($graphHealth.EdgeCount -lt 2) { $failures.Add("map did not create enough dependency edges; observed $($graphHealth.EdgeCount)") }
+if ($graphHealth.OrderedEdgeCount -ne $graphHealth.EdgeCount) { $failures.Add("not every dependency edge had observable predecessor-complete and successor-work timestamps") }
+if ($graphHealth.EdgeOrderViolationCount -gt 0) { $failures.Add("map dependency execution order was violated on $($graphHealth.EdgeOrderViolationCount) edge(s)") }
+if ($graphHealth.ParallelInspectTrackCount -lt 2) { $failures.Add("expected at least 2 parallel inspect tracks with subagent ownership; observed $($graphHealth.ParallelInspectTrackCount)") }
+if (-not $graphHealth.ParallelInspectTracksIndependent) { $failures.Add("parallel inspect tracks were not represented as independent graph tracks") }
+if (-not $graphHealth.ImplementationDependsOnParallelInspectTracks) { $failures.Add("implementation node did not depend on all subagent-owned inspect tracks") }
+if (-not $graphHealth.DirectImplementationDependsOnParallelInspectTracks) { $failures.Add("implementation node did not directly depend on all subagent-owned inspect tracks") }
+if (-not $graphHealth.TestDependsOnImplementation) { $failures.Add("test/validation node did not depend on implementation node") }
+if (-not $graphHealth.DirectTestDependsOnImplementation) { $failures.Add("test/validation node did not directly depend on implementation node") }
+if ($graphHealth.OpenFinalSynthesisCount -gt 0) { $failures.Add("final synthesis node was left open: $($graphHealth.OpenFinalSynthesisCount)") }
+if ($graphHealth.OpenLeafNodeCount -gt 0) { $failures.Add("open leaf nodes remained at the end of the run: $($graphHealth.OpenLeafNodeCount)") }
 if ($agentCount -lt 2) { $failures.Add("expected at least 2 subagent leases; observed $agentCount agents") }
 if ($spawnAgentCount -lt 2) { $failures.Add("expected at least 2 spawn_agent calls; observed $spawnAgentCount") }
 if ($leaseCreatedCount -lt 2 -or $leaseAttachedCount -lt 2) { $failures.Add("expected at least 2 lease create/attach events") }
 if ($leaseReleasedCount -lt 2) { $failures.Add("expected at least 2 lease releases") }
+if ($subagentResultCount -lt 2) { $failures.Add("expected at least 2 subagent results written to nodes; observed $subagentResultCount") }
 if ($nodesWithResults -lt 3) { $failures.Add("expected results on at least 3 nodes; observed $nodesWithResults") }
 if ($completedNodes -lt 2) { $failures.Add("expected at least 2 completed nodes; observed $completedNodes") }
 if ($finishNodeCallCount -lt 2) { $failures.Add("expected at least 2 finish_node calls; observed $finishNodeCallCount") }
@@ -386,14 +402,12 @@ if (-not ($hasInspectKind -and $hasImplementationKind -and $hasTestKind)) { $fai
 if (-not ($hasParserNode -and $hasPricingNode -and $hasImplementationNode -and $hasValidationNode)) {
     $failures.Add("node titles did not cover parser/pricing/implementation/validation scenario categories")
 }
-if (-not $parserInvestigationUsed) { $failures.Add("parser investigation node did not receive a subagent result") }
-if (-not $pricingInvestigationUsed) { $failures.Add("pricing/invoice investigation node did not receive a subagent result") }
 if (-not $implementationNodeHasSuccessfulEdit) { $failures.Add("implementation node did not own a successful edit action") }
 if ($editOutsideImplementationCount -gt 0) { $failures.Add("observed $editOutsideImplementationCount successful edit action(s) outside implementation nodes") }
 if (-not $validationNodeHasPytestResult) { $failures.Add("validation node did not own a passing pytest command result") }
 if ($unexpectedBlockedToolActionCount -gt 0) { $failures.Add("unexpected blocked TaskSpace tool actions: $unexpectedBlockedToolActionCount") }
 if ($unexpectedFailedTaskspaceToolResults -gt 0) { $failures.Add("unexpected failed taskspace-owned tool results: $unexpectedFailedTaskspaceToolResults") }
-if ($failedCollabToolCalls -gt 0) { $failures.Add("unexpected failed collaboration tool calls: $failedCollabToolCalls") }
+if ($unexpectedFailedCollabToolCalls -gt 0) { $failures.Add("unexpected failed collaboration tool calls: $unexpectedFailedCollabToolCalls") }
 if ($implementationOwnershipGap.MissingCount -gt 0) { $failures.Add("changed paths not owned by successful implementation-node edits: $($implementationOwnershipGap.MissingPaths -join ', ')") }
 if ($editResultsAfterFinalPytest -gt 0) { $failures.Add("edit action results occurred after the final owned pytest validation: $editResultsAfterFinalPytest") }
 if ($unexpectedTaskspaceGateFailures -gt 0) { $failures.Add("unexpected TaskSpace gate/tool attribution failures: $unexpectedTaskspaceGateFailures") }
@@ -424,10 +438,24 @@ $report.Add("")
 foreach ($row in @(
     @("prompt_leaks_internal_concepts", $promptLeaksInternalConcepts),
     @("maps", $mapCount), @("nodes", $nodeCount), @("agents", $agentCount),
+    @("edges", $graphHealth.EdgeCount), @("ordered_edges", $graphHealth.OrderedEdgeCount),
+    @("edge_order_violations", $graphHealth.EdgeOrderViolationCount),
+    @("anchored_implementation_nodes", $graphHealth.AnchoredImplementationCount),
+    @("parser_pricing_independent", $graphHealth.ParserPricingIndependent),
+    @("implementation_depends_on_parser_and_pricing", $graphHealth.ImplementationDependsOnParserAndPricing),
+    @("parallel_inspect_tracks", $graphHealth.ParallelInspectTrackCount),
+    @("parallel_inspect_tracks_independent", $graphHealth.ParallelInspectTracksIndependent),
+    @("implementation_depends_on_parallel_inspect_tracks", $graphHealth.ImplementationDependsOnParallelInspectTracks),
+    @("direct_implementation_depends_on_parallel_inspect_tracks", $graphHealth.DirectImplementationDependsOnParallelInspectTracks),
+    @("test_depends_on_implementation", $graphHealth.TestDependsOnImplementation),
+    @("direct_test_depends_on_implementation", $graphHealth.DirectTestDependsOnImplementation),
+    @("open_leaf_nodes", $graphHealth.OpenLeafNodeCount),
+    @("open_final_synthesis_nodes", $graphHealth.OpenFinalSynthesisCount),
     @("completed_nodes", $completedNodes), @("nodes_with_results", $nodesWithResults),
     @("spawn_agent", $spawnAgentCount), @("taskspace_control", $taskspaceControlCount),
     @("finish_node_calls", $finishNodeCallCount), @("lease_created", $leaseCreatedCount),
     @("lease_attached", $leaseAttachedCount), @("lease_released", $leaseReleasedCount),
+    @("subagent_results", $subagentResultCount),
     @("later_node_created_after_completion", $laterCreatedAfterCompletion),
     @("has_inspect_kind", $hasInspectKind), @("has_implementation_kind", $hasImplementationKind),
     @("has_test_kind", $hasTestKind),
@@ -440,7 +468,7 @@ foreach ($row in @(
     @("validation_node_has_pytest_result", $validationNodeHasPytestResult),
     @("failed_taskspace_tool_results", $failedTaskspaceToolResults),
     @("unexpected_failed_taskspace_tool_results", $unexpectedFailedTaskspaceToolResults),
-    @("failed_collab_tool_calls", $failedCollabToolCalls),
+    @("failed_collab_tool_calls", $failedCollabToolCalls), @("unexpected_failed_collab_tool_calls", $unexpectedFailedCollabToolCalls),
     @("problematic_successful_tool_results", $problematicSuccessfulToolResults),
     @("changed_paths_without_implementation_owner", $implementationOwnershipGap.MissingCount),
     @("edit_results_after_final_pytest", $editResultsAfterFinalPytest),

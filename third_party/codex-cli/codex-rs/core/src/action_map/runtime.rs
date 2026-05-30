@@ -70,7 +70,7 @@ const SEED_NODE_IDS: &[&str] = &[
 
 /// Test fixture budget for the default inspect-node contract.
 #[cfg(test)]
-pub(crate) const MAIN_TOOL_RESULT_BUDGET_PER_NODE: usize = 12;
+pub(crate) const MAIN_TOOL_RESULT_BUDGET_PER_NODE: usize = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapGateError {
@@ -649,6 +649,9 @@ impl ActionMapRuntimeState {
             self.validate_maintenance_barrier()?;
         }
         self.validate_main_binding(owner_session_id)?;
+        if descriptor.action_class != ActionClass::Control {
+            self.validate_broad_inspect_delegation(owner_session_id)?;
+        }
         let map_id = self.active_map_id.clone().ok_or_else(|| {
             ActionMapGateError::from("TaskSpace mode is active but no active task path exists.")
         })?;
@@ -713,7 +716,7 @@ impl ActionMapRuntimeState {
             }
             return Err(ActionMapGateError::new(
                 format!(
-                    "TaskSpace blocked this tool call because current node `{}` already has {} recorded and {} in-flight tool results (budget {}). Finish this node or create a narrower follow-up node before retrying.",
+                    "TaskSpace blocked this tool call because current node `{}` already has {} recorded and {} in-flight tool results (budget {}). Finish this broad node or create a narrower follow-up node before retrying. If the remaining work contains independent investigation tracks, create separate ready inspect_code_context nodes and use spawn_agent for those nodes instead of continuing all investigation in the main node.",
                     node_id, main_tool_result_count, reserved_tool_count, budget
                 ),
                 events,
@@ -1267,6 +1270,31 @@ preview:\n\
             .maps
             .get_mut(&map_id)
             .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        let default_dependency_node_ids = default_dependency_node_ids_for_new_node(map);
+        let dependency_node_ids = if dependency_node_ids.is_empty() {
+            default_dependency_node_ids
+        } else if bind_current {
+            let mut merged = dependency_node_ids;
+            for dependency in default_dependency_node_ids {
+                if !merged.iter().any(|existing| existing == &dependency) {
+                    merged.push(dependency);
+                }
+            }
+            merged
+        } else {
+            dependency_node_ids
+        };
+        let dependency_node_ids = if bind_current && kind == NodeKind::ImplementSolution {
+            let mut merged = dependency_node_ids;
+            for dependency in completed_subagent_inspect_node_ids(map, owner_session_id) {
+                if !merged.iter().any(|existing| existing == &dependency) {
+                    merged.push(dependency);
+                }
+            }
+            merged
+        } else {
+            dependency_node_ids
+        };
         let mut dependencies = Vec::new();
         for dependency in dependency_node_ids {
             let dependency = dependency.trim();
@@ -1288,6 +1316,15 @@ preview:\n\
                 "TaskSpace cannot bind the main action to a new node until all dependencies are completed."
                     .to_string(),
             );
+        }
+        if bind_current && ready && kind == NodeKind::InspectCodeContext {
+            let ready_parallel_inspect_node_ids = Self::ready_parallel_inspect_node_ids(map);
+            if !ready_parallel_inspect_node_ids.is_empty() {
+                return Err(format!(
+                    "TaskSpace cannot create and bind a new inspect_code_context node because ready inspect nodes already exist: {}. Create the new inspect node with bind_current=false, or finish the current node without next_node_draft and call spawn_agent with explicit node_id for each ready inspect node.",
+                    format_node_candidates(map, &ready_parallel_inspect_node_ids)
+                ));
+            }
         }
         map.nodes.insert(
             node_id.clone(),
@@ -1613,12 +1650,17 @@ preview:\n\
             events.extend(bind_events);
             bound_next_node_id = Some(next_node_id.to_string());
         } else if let Some(draft) = next_node_draft {
+            let dependency_node_ids = if draft.dependency_node_ids.is_empty() {
+                vec![node_id.to_string()]
+            } else {
+                draft.dependency_node_ids
+            };
             let (created_node_id, node_events) = self.create_node_for_main_with_kind(
                 owner_session_id,
                 draft.kind,
                 draft.title,
                 draft.context_summary,
-                draft.dependency_node_ids,
+                dependency_node_ids,
                 true,
             )?;
             events.extend(node_events);
@@ -1651,6 +1693,49 @@ preview:\n\
             NodeStatus::Blocked,
             false,
         )
+    }
+
+    pub(crate) fn record_main_final_response(
+        &mut self,
+        owner_session_id: ThreadId,
+        message: &str,
+    ) -> Result<Option<(NodeResultId, Vec<MapRuntimeEvent>)>, String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(None);
+        }
+        let message = message.trim();
+        if message.is_empty() {
+            return Ok(None);
+        }
+        self.validate_routing_complete()?;
+        let map_id = match self.active_map_id.clone() {
+            Some(map_id) => map_id,
+            None => return Ok(None),
+        };
+        let node_id = match self.current_main_node_id.clone() {
+            Some(node_id) => node_id,
+            None => return Ok(None),
+        };
+        let map = self
+            .maps
+            .get(&map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        let node = map
+            .nodes
+            .get(&node_id)
+            .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
+        if node.kind != NodeKind::FinalSynthesis || node.status != NodeStatus::Running {
+            return Ok(None);
+        }
+        self.record_main_node_lifecycle_result(
+            owner_session_id,
+            &node_id,
+            NodeResultKind::Result,
+            message.to_string(),
+            NodeStatus::Completed,
+            true,
+        )
+        .map(Some)
     }
 
     pub(crate) fn prepare_spawn_assignment(
@@ -2087,6 +2172,9 @@ preview:\n\
             }
             context.push_str(
                 "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. To delegate the current main-held node to a subagent, call spawn_agent with that node_id; runtime will hand off the lease and the main agent must create or bind another node before ordinary tools. If more than one ready node exists, spawn_agent must include node_id for the intended node; if only one ready node exists, runtime may bind it automatically. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Node result context stays on the node; use it only when it is relevant to the next step.\n",
+            );
+            context.push_str(
+                "When the task naturally separates into independent investigation tracks, proactively create separate inspect_code_context nodes and assign subagents instead of waiting for the user to ask for parallel work. Keep dependency edges explicit: independent investigation nodes should not depend on each other, implementation nodes should depend on the investigation nodes they integrate, and validation/final nodes should depend on the implementation or validation predecessor they verify.\n",
             );
         } else {
             context.push_str(
@@ -2626,7 +2714,12 @@ preview:\n\
             .maps
             .get(map_id)
             .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-        for dependency in &draft.dependency_node_ids {
+        let dependency_node_ids = if draft.dependency_node_ids.is_empty() {
+            vec![finishing_node_id.to_string()]
+        } else {
+            draft.dependency_node_ids.clone()
+        };
+        for dependency in &dependency_node_ids {
             let dependency = dependency.trim();
             if dependency.is_empty() {
                 continue;
@@ -2642,6 +2735,15 @@ preview:\n\
                 ));
             }
         }
+        if draft.kind == NodeKind::InspectCodeContext {
+            let ready_parallel_inspect_node_ids = Self::ready_parallel_inspect_node_ids(map);
+            if !ready_parallel_inspect_node_ids.is_empty() {
+                return Err(format!(
+                    "TaskSpace cannot finish `{finishing_node_id}` and bind a new inspect_code_context node because ready inspect nodes already exist: {}. Finish the current node without next_node_draft, then call spawn_agent with explicit node_id for each ready inspect node, or create additional inspect nodes with bind_current=false.",
+                    format_node_candidates(map, &ready_parallel_inspect_node_ids)
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -2650,13 +2752,43 @@ preview:\n\
             return Ok(());
         };
         Err(format!(
-            "TaskSpace maintenance barrier is active for node `{}` on map `{}`: {} ({} main tool results, budget {}). Ordinary main-agent tools are blocked until you use taskspace_control to create or bind a different narrower node, or stop and ask the user to restart/reframe the task.",
+            "TaskSpace maintenance barrier is active for node `{}` on map `{}`: {} ({} main tool results, budget {}). Ordinary main-agent tools are blocked until you use taskspace_control to create or bind a different narrower node, or stop and ask the user to restart/reframe the task. For broad investigations, split independent tracks into ready inspect_code_context nodes and assign them with spawn_agent.",
             barrier.node_id,
             barrier.map_id,
             barrier.reason.as_str(),
             barrier.result_count,
             barrier.budget
         ))
+    }
+
+    fn validate_broad_inspect_delegation(&self, owner_session_id: ThreadId) -> Result<(), String> {
+        let Some(map) = self.active_map() else {
+            return Ok(());
+        };
+        let has_subagent_work = map
+            .leases
+            .values()
+            .any(|lease| lease.holder == LeaseHolder::SubAgent)
+            || map
+                .results
+                .values()
+                .any(|result| result.source_thread_id != owner_session_id);
+        if has_subagent_work {
+            return Ok(());
+        }
+        let has_broad_completed_inspect = map.nodes.values().any(|node| {
+            node.kind == NodeKind::InspectCodeContext
+                && node.status == NodeStatus::Completed
+                && count_node_results_of_kind(node, NodeResultKind::MainToolCall)
+                    >= contract_for(node.kind).max_main_tool_results_before_split_hint
+        });
+        if has_broad_completed_inspect {
+            return Err(
+                "TaskSpace blocked ordinary main-agent work because a broad inspect_code_context node already exhausted its main-tool budget without any subagent work. Delegate the remaining independent investigation tracks: create ready inspect_code_context nodes if needed, then call spawn_agent with explicit node_id before continuing ordinary tools."
+                    .to_string(),
+            );
+        }
+        Ok(())
     }
 
     fn validate_maintenance_barrier_for_node(&self, node_id: &str) -> Result<(), String> {
@@ -2985,18 +3117,7 @@ preview:\n\
         let Some(map) = self.maps.get(map_id) else {
             return node_ids.join(", ");
         };
-        node_ids
-            .iter()
-            .map(|node_id| {
-                let title = map
-                    .nodes
-                    .get(node_id)
-                    .map(|node| single_line_preview(&node.title, 80))
-                    .unwrap_or_default();
-                format!("{node_id} ({title})")
-            })
-            .collect::<Vec<_>>()
-            .join(", ")
+        format_node_candidates(map, node_ids)
     }
 
     fn find_lease_by_thread(
@@ -3499,6 +3620,21 @@ fn single_line_preview(text: &str, max_chars: usize) -> String {
     preview
 }
 
+fn format_node_candidates(map: &ActionMapInstance, node_ids: &[MapNodeId]) -> String {
+    node_ids
+        .iter()
+        .map(|node_id| {
+            let title = map
+                .nodes
+                .get(node_id)
+                .map(|node| single_line_preview(&node.title, 80))
+                .unwrap_or_default();
+            format!("{node_id} ({title})")
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn refresh_ready_nodes(map: &mut ActionMapInstance) -> Vec<MapRuntimeEvent> {
     if map.status != MapStatus::Active {
         return Vec::new();
@@ -3560,6 +3696,52 @@ fn dependencies_will_be_completed_after_finish(
                     .get(*dependency_id)
                     .is_some_and(|node| node.status == NodeStatus::Completed)
         })
+}
+
+fn default_dependency_node_ids_for_new_node(map: &ActionMapInstance) -> Vec<String> {
+    let nodes_with_outgoing_edges_to_completed = map
+        .edges
+        .iter()
+        .filter(|edge| {
+            map.nodes
+                .get(&edge.to)
+                .is_some_and(|node| node.status == NodeStatus::Completed)
+        })
+        .map(|edge| edge.from.as_str())
+        .collect::<HashSet<_>>();
+    let mut leaf_completed_nodes = map
+        .nodes
+        .values()
+        .filter(|node| {
+            node.status == NodeStatus::Completed
+                && !nodes_with_outgoing_edges_to_completed.contains(node.id.as_str())
+        })
+        .map(|node| node.id.clone())
+        .collect::<Vec<_>>();
+    leaf_completed_nodes.sort();
+    leaf_completed_nodes
+}
+
+fn completed_subagent_inspect_node_ids(
+    map: &ActionMapInstance,
+    owner_session_id: ThreadId,
+) -> Vec<String> {
+    let mut node_ids = map
+        .nodes
+        .values()
+        .filter(|node| {
+            node.kind == NodeKind::InspectCodeContext
+                && node.status == NodeStatus::Completed
+                && node.result_context.iter().any(|result_ref| {
+                    map.results
+                        .get(&result_ref.id)
+                        .is_some_and(|result| result.source_thread_id != owner_session_id)
+                })
+        })
+        .map(|node| node.id.clone())
+        .collect::<Vec<_>>();
+    node_ids.sort();
+    node_ids
 }
 
 fn map_created_event(map: &ActionMapInstance) -> MapRuntimeEvent {
@@ -4082,6 +4264,73 @@ mod tests {
     }
 
     #[test]
+    fn final_response_completes_running_final_synthesis_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::FinalSynthesis,
+                "Summarize outcome".to_string(),
+                "Write the final user-facing synthesis.".to_string(),
+                "Final synthesis".to_string(),
+                "Summarize completed work without new implementation.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        let (result_id, events) = state
+            .record_main_final_response(owner, "Completed the requested review.")
+            .expect("final response records")
+            .expect("final node should record a result");
+
+        assert_eq!(result_id, "result-1");
+        assert!(state.current_main_node_id.is_none());
+        assert!(state.current_main_lease_id.is_none());
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::NodeStatusChanged(changed)
+                    if changed.node_id == "node-1" && changed.current_status == "completed"
+            )
+        }));
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("final node");
+        assert_eq!(node.status, NodeStatus::Completed);
+        assert_eq!(node.active_lease, None);
+        assert_eq!(node.result_context.len(), 1);
+        let result = map.results.get(&result_id).expect("stored result");
+        assert_eq!(result.kind, NodeResultKind::Result);
+        assert_eq!(result.body, "Completed the requested review.");
+    }
+
+    #[test]
+    fn final_response_does_not_complete_non_final_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect first",
+            "Find target files.",
+            true,
+        );
+
+        let outcome = state
+            .record_main_final_response(owner, "This is a normal assistant message.")
+            .expect("non-final node should not error");
+
+        assert!(outcome.is_none());
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("inspect node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert_eq!(node.result_context.len(), 0);
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+    }
+
+    #[test]
     fn finish_node_can_create_and_bind_next_node_draft_atomically() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -4104,7 +4353,7 @@ mod tests {
                     kind: NodeKind::ImplementSolution,
                     title: "Patch target module".to_string(),
                     context_summary: "Use the inspected evidence from node-1.".to_string(),
-                    dependency_node_ids: vec!["node-1".to_string()],
+                    dependency_node_ids: Vec::new(),
                 }),
             )
             .expect("finish creates and binds next node");
@@ -4117,6 +4366,9 @@ mod tests {
         assert_eq!(first.status, NodeStatus::Completed);
         assert_eq!(second.kind, NodeKind::ImplementSolution);
         assert_eq!(second.status, NodeStatus::Running);
+        assert_eq!(map.edges.len(), 1);
+        assert_eq!(map.edges[0].from, "node-1");
+        assert_eq!(map.edges[0].to, "node-2");
         assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
         assert!(events.iter().any(|event| {
             matches!(
@@ -4290,6 +4542,78 @@ mod tests {
     }
 
     #[test]
+    fn implementation_node_directly_depends_on_completed_subagent_inspect_nodes() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(&mut state, owner, "Overview", "Read project shape.", true);
+        state
+            .finish_main_node(owner, "node-1", "overview done".to_string(), None)
+            .expect("finish overview");
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Parser investigation".to_string(),
+                "Investigate parser behavior.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("create parser node");
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Pricing investigation".to_string(),
+                "Investigate pricing behavior.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("create pricing node");
+
+        for (node_id, child) in [("node-2", ThreadId::new()), ("node-3", ThreadId::new())] {
+            let assignment = state
+                .prepare_spawn_assignment(owner, node_id, Some(node_id))
+                .expect("claim ready inspect node")
+                .0
+                .expect("assignment");
+            state.attach_agent_to_lease(
+                &assignment.lease_id,
+                child,
+                Some(format!("/root/{node_id}")),
+            );
+            state.record_child_result(
+                child,
+                &AgentStatus::Completed(Some(format!("{node_id} done"))),
+            );
+        }
+
+        let (implementation_node_id, _) = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Implement combined fix".to_string(),
+                "Integrate parser and pricing findings.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect("create implementation node");
+
+        assert_eq!(implementation_node_id, "node-4");
+        let map = state.active_map().expect("active map");
+        assert!(
+            map.edges
+                .iter()
+                .any(|edge| edge.from == "node-2" && edge.to == "node-4")
+        );
+        assert!(
+            map.edges
+                .iter()
+                .any(|edge| edge.from == "node-3" && edge.to == "node-4")
+        );
+    }
+
+    #[test]
     fn create_node_bind_current_is_atomic_when_current_main_node_is_running() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -4319,6 +4643,100 @@ mod tests {
         assert_eq!(map.nodes.len(), 1);
         assert!(!map.nodes.contains_key("node-2"));
         assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+    }
+
+    #[test]
+    fn create_node_bind_current_rejects_new_inspect_when_ready_inspect_exists_atomically() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(&mut state, owner, "Overview", "Read project shape.", true);
+        state
+            .finish_main_node(owner, "node-1", "overview done".to_string(), None)
+            .expect("finish overview");
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Parser investigation".to_string(),
+                "Investigate parser behavior.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("create ready inspect node");
+
+        let error = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Pricing investigation".to_string(),
+                "Investigate pricing behavior.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect_err("cannot bind a new inspect node while another is ready");
+
+        assert!(error.contains("ready inspect nodes already exist"));
+        let map = state.active_map().expect("active map");
+        assert_eq!(map.nodes.len(), 2);
+        assert!(!map.nodes.contains_key("node-3"));
+        assert!(state.current_main_node_id.is_none());
+    }
+
+    #[test]
+    fn finish_node_next_inspect_rejects_parallel_ready_bind_without_mutating() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(&mut state, owner, "Overview", "Read project shape.", true);
+        state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "overview done".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::InspectCodeContext,
+                    title: "Read all tests".to_string(),
+                    context_summary: "Read the existing tests.".to_string(),
+                    dependency_node_ids: Vec::new(),
+                }),
+            )
+            .expect("finish overview and bind next inspect");
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Parser investigation".to_string(),
+                "Investigate parser behavior.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("create ready inspect node");
+
+        let error = state
+            .finish_main_node_with_next(
+                owner,
+                "node-2",
+                "tests need delegated readers".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::InspectCodeContext,
+                    title: "Pricing investigation".to_string(),
+                    context_summary: "Investigate pricing behavior.".to_string(),
+                    dependency_node_ids: Vec::new(),
+                }),
+            )
+            .expect_err("finish with next inspect must reject before mutation");
+
+        assert!(error.contains("Finish the current node without next_node_draft"));
+        let map = state.active_map().expect("active map");
+        assert_eq!(map.nodes.len(), 3);
+        assert!(!map.nodes.contains_key("node-4"));
+        let node = map.nodes.get("node-2").expect("node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert!(node.result_context.is_empty());
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
     }
 
     #[test]

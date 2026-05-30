@@ -5,6 +5,7 @@ param(
     [string]$TargetDir = "",
     [string]$ReportRoot = "",
     [int]$Jobs = 2,
+    [switch]$SkipScriptTests,
     [switch]$PlanOnly
 )
 
@@ -130,6 +131,16 @@ if ($useDefaultMatrix) {
     $testRuns = @(New-CargoTestRun "custom" $Package $TestFilter)
 }
 $commandText = ($testRuns | ForEach-Object { Get-CargoCommandText $_ }) -join "; "
+$scriptTestRuns = if ($SkipScriptTests) {
+    @()
+} else {
+    @(
+        "test-action-map-graph-health.ps1",
+        "test-action-map-observability-lib.ps1",
+        "test-action-map-real-user-e2e-lib.ps1"
+    )
+}
+$scriptCommandText = ($scriptTestRuns | ForEach-Object { "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\$_" }) -join "; "
 
 if ($PlanOnly) {
     Write-Host "CodexRsRoot: $CodexRsRoot"
@@ -138,6 +149,12 @@ if ($PlanOnly) {
     Write-Host "Runs:"
     foreach ($testRun in $testRuns) {
         Write-Host "- $($testRun.Name): $(Get-CargoCommandText $testRun)"
+    }
+    if ($scriptTestRuns.Count -gt 0) {
+        Write-Host "ScriptRuns:"
+        foreach ($scriptName in $scriptTestRuns) {
+            Write-Host "- $scriptName"
+        }
     }
     exit 0
 }
@@ -211,10 +228,50 @@ finally {
 
 $finished = Get-Date
 
+$scriptResults = @()
+foreach ($scriptName in $scriptTestRuns) {
+    $safeName = $scriptName -replace "[^A-Za-z0-9_.-]", "-"
+    $stdoutPath = Join-Path $runDir "script-test-$safeName.stdout.log"
+    $stderrPath = Join-Path $runDir "script-test-$safeName.stderr.log"
+    $scriptPath = Join-Path $PSScriptRoot $scriptName
+    $scriptReportDir = Join-Path $runDir $safeName
+    $runStarted = Get-Date
+    $process = Start-Process `
+        -FilePath "powershell" `
+        -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $scriptPath, "-OutputDir", $scriptReportDir) `
+        -WorkingDirectory (Split-Path -Parent $PSScriptRoot) `
+        -RedirectStandardOutput $stdoutPath `
+        -RedirectStandardError $stderrPath `
+        -NoNewWindow `
+        -Wait `
+        -PassThru
+    $runFinished = Get-Date
+    $stdoutText = if (Test-Path $stdoutPath) { Get-Content -Raw -Encoding UTF8 $stdoutPath } else { "" }
+    $stderrText = if (Test-Path $stderrPath) { Get-Content -Raw -Encoding UTF8 $stderrPath } else { "" }
+    $scriptOverall = if ($process.ExitCode -eq 0 -and $stdoutText -match "Overall:\s+PASS") { "PASS" } else { "FAIL" }
+    $scriptResults += [pscustomobject]@{
+        Name = $scriptName
+        Command = "powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath -OutputDir $scriptReportDir"
+        ExitCode = $process.ExitCode
+        Started = $runStarted
+        Finished = $runFinished
+        StdoutPath = $stdoutPath
+        StderrPath = $stderrPath
+        ReportDir = $scriptReportDir
+        Overall = $scriptOverall
+        Output = "$stdoutText`n$stderrText"
+    }
+}
+
 $combinedLines = New-Object System.Collections.Generic.List[string]
 foreach ($run in $runResults) {
     $combinedLines.Add("===== $($run.Name): $($run.Command) =====")
     $combinedLines.AddRange([string[]]$run.Lines)
+    $combinedLines.Add("")
+}
+foreach ($run in $scriptResults) {
+    $combinedLines.Add("===== $($run.Name): $($run.Command) =====")
+    $combinedLines.AddRange([string[]]($run.Output -split "`r?`n"))
     $combinedLines.Add("")
 }
 $combinedLines | Set-Content -Encoding UTF8 $logPath
@@ -232,13 +289,17 @@ if ($null -eq $passedCount) {
 }
 $matchedBinaries = @($summaries | Where-Object { $_.Passed -gt 0 -or $_.Failed -gt 0 -or $_.Ignored -gt 0 })
 $failedRuns = @($runResults | Where-Object { $_.Overall -ne "PASS" })
+$failedScriptRuns = @($scriptResults | Where-Object { $_.Overall -ne "PASS" })
 
-$overall = if ($failedRuns.Count -eq 0 -and $failedCount -eq 0 -and $passedCount -gt 0) { "PASS" } else { "FAIL" }
+$overall = if ($failedRuns.Count -eq 0 -and $failedScriptRuns.Count -eq 0 -and $failedCount -eq 0 -and $passedCount -gt 0) { "PASS" } else { "FAIL" }
 $exitCode = if ($overall -eq "PASS") {
     0
 } else {
     $firstNonZero = @($runResults | Where-Object { $_.ExitCode -ne 0 } | Select-Object -First 1)
-    if ($firstNonZero.Count -gt 0) { $firstNonZero[0].ExitCode } else { 1 }
+    $firstScriptNonZero = @($scriptResults | Where-Object { $_.ExitCode -ne 0 } | Select-Object -First 1)
+    if ($firstNonZero.Count -gt 0) { $firstNonZero[0].ExitCode }
+    elseif ($firstScriptNonZero.Count -gt 0) { $firstScriptNonZero[0].ExitCode }
+    else { 1 }
 }
 
 $report = New-Object System.Collections.Generic.List[string]
@@ -247,7 +308,9 @@ $report.Add("")
 $report.Add("- overall: $overall")
 $report.Add("- exit_code: $exitCode")
 $report.Add("- command_matrix: $commandText")
+$report.Add("- script_matrix: $scriptCommandText")
 $report.Add("- run_count: $($runResults.Count)")
+$report.Add("- script_run_count: $($scriptResults.Count)")
 $report.Add("- cwd: $CodexRsRoot")
 $report.Add("- target_dir: $TargetDir")
 $report.Add("- started: $($started.ToString("o"))")
@@ -267,6 +330,18 @@ if ($runResults.Count -eq 0) {
     $report.Add("|---|---|---|---|---:|---:|---:|---:|---|---|")
     foreach ($run in $runResults) {
         $report.Add("| $(Escape-Markdown $run.Name) | $($run.Overall) | $(Escape-Markdown ($run.Package -join ', ')) | $(Escape-Markdown $run.TestFilter) | $($run.ExitCode) | $($run.Passed) | $($run.Failed) | $($run.MatchedBinaries) | $(Escape-Markdown $run.StdoutPath) | $(Escape-Markdown $run.StderrPath) |")
+    }
+}
+$report.Add("")
+$report.Add("## Script Test Runs")
+$report.Add("")
+if ($scriptResults.Count -eq 0) {
+    $report.Add("No script tests were executed.")
+} else {
+    $report.Add("| run | overall | exit | report dir | stdout | stderr |")
+    $report.Add("|---|---|---:|---|---|---|")
+    foreach ($run in $scriptResults) {
+        $report.Add("| $(Escape-Markdown $run.Name) | $($run.Overall) | $($run.ExitCode) | $(Escape-Markdown $run.ReportDir) | $(Escape-Markdown $run.StdoutPath) | $(Escape-Markdown $run.StderrPath) |")
     }
 }
 $report.Add("")

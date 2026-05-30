@@ -10,131 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "action-map-real-user-e2e-lib.ps1")
-
-function New-Dir([string]$PathValue) { (New-Item -ItemType Directory -Force -Path $PathValue).FullName }
-function Write-Text([string]$PathValue, [string]$Text) { [System.IO.File]::WriteAllText($PathValue, $Text, [System.Text.UTF8Encoding]::new($false)) }
-function Count-Matches([string]$Text, [string]$Pattern) { ([regex]::Matches($Text, $Pattern)).Count }
-function Get-ObjectPropertyNames($Value) {
-    if ($null -eq $Value) { return @() }
-    @($Value.PSObject.Properties.Name)
-}
-
-function Invoke-RealProcess {
-    param(
-        [string]$FilePath,
-        [string[]]$ArgumentList,
-        [string]$WorkingDirectory,
-        [string]$StdoutPath,
-        [string]$StderrPath,
-        [int]$TimeoutSeconds,
-        [string]$StdinPath = ""
-    )
-    $encoding = [System.Text.UTF8Encoding]::new($false)
-    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $FilePath
-    $startInfo.WorkingDirectory = $WorkingDirectory
-    $startInfo.UseShellExecute = $false
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $startInfo.StandardOutputEncoding = $encoding
-    $startInfo.StandardErrorEncoding = $encoding
-    if ($StdinPath) { $startInfo.RedirectStandardInput = $true }
-    $startInfo.Arguments = (($ArgumentList | ForEach-Object {
-        $arg = [string]$_
-        if ($arg -match '[\s"]') { '"' + ($arg -replace '"', '\"') + '"' } else { $arg }
-    }) -join " ")
-    $process = [System.Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
-    [void]$process.Start()
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
-    if ($StdinPath) {
-        $process.StandardInput.Write((Get-Content -Raw -Encoding UTF8 $StdinPath))
-        $process.StandardInput.Close()
-    }
-    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-        try { $process.Kill($true) } catch { $process.Kill() }
-        throw "Process timed out after $TimeoutSeconds seconds: $FilePath $($ArgumentList -join ' ')"
-    }
-    $stdoutTask.Wait()
-    $stderrTask.Wait()
-    $stdoutTask.Result | Set-Content -Encoding UTF8 $StdoutPath
-    $stderrTask.Result | Set-Content -Encoding UTF8 $StderrPath
-    $process.ExitCode
-}
-
-function Get-ThreadId([string]$JsonlText) {
-    foreach ($line in ($JsonlText -split "`r?`n")) {
-        if ([string]::IsNullOrWhiteSpace($line)) { continue }
-        try {
-            $event = $line | ConvertFrom-Json
-            if ($event.type -eq "thread.started" -and $event.thread_id) { return [string]$event.thread_id }
-        } catch {}
-    }
-    ""
-}
-
-function Find-LatestRollout([datetime]$StartedAt, [string]$ThreadId) {
-    $homes = @()
-    if ($env:WHALE_HOME) { $homes += $env:WHALE_HOME }
-    $homes += (Join-Path $env:USERPROFILE ".whale")
-    foreach ($candidateHome in $homes | Select-Object -Unique) {
-        if (-not (Test-Path $candidateHome)) { continue }
-        $recent = Get-ChildItem -Path $candidateHome -Recurse -Filter "rollout-*.jsonl" -ErrorAction SilentlyContinue |
-            Where-Object { $_.LastWriteTime -ge $StartedAt.AddMinutes(-2) } |
-            Sort-Object LastWriteTime -Descending
-        foreach ($candidate in $recent) {
-            if (-not $ThreadId) { return $candidate }
-            $raw = Get-Content -Raw -Encoding UTF8 $candidate.FullName -ErrorAction SilentlyContinue
-            if ($raw -match [regex]::Escape($ThreadId)) { return $candidate }
-        }
-    }
-    $null
-}
-
-function Get-SuccessfulTaskspaceOrdering([string]$RolloutText) {
-    $firstBinding = $null
-    $firstOrdinary = $null
-    $pending = @{}
-    foreach ($line in ($RolloutText -split "`r?`n")) {
-        if ([string]::IsNullOrWhiteSpace($line)) { continue }
-        try { $evt = $line | ConvertFrom-Json } catch { continue }
-        if (-not $firstBinding -and $evt.type -eq "event_msg" -and [string]$evt.payload.type -eq "lease_created") {
-            $firstBinding = [string]$evt.timestamp
-        }
-        if ($evt.type -eq "response_item" -and $evt.payload.type -eq "function_call") {
-            $name = [string]$evt.payload.name
-            if ($name -match "^(shell_command|apply_patch|spawn_agent)$" -and $evt.payload.call_id) {
-                $pending[[string]$evt.payload.call_id] = [pscustomobject]@{
-                    Timestamp = [string]$evt.timestamp
-                    Tool = $name
-                }
-            }
-        }
-        if (-not $firstOrdinary -and $evt.type -eq "response_item" -and $evt.payload.type -eq "function_call_output") {
-            $callId = [string]$evt.payload.call_id
-            if ($pending.ContainsKey($callId)) {
-                $output = [string]$evt.payload.output
-                if ($output -notmatch "TaskSpace (mode is active|blocked this tool call)|Call taskspace_control") {
-                    $firstOrdinary = $pending[$callId]
-                }
-            }
-        }
-    }
-    $before = $false
-    if ($firstOrdinary -and -not $firstBinding) { $before = $true }
-    elseif ($firstOrdinary -and $firstBinding) { $before = ([datetime]$firstOrdinary.Timestamp) -lt ([datetime]$firstBinding) }
-    [pscustomobject]@{
-        FirstBindingTimestamp = if ($firstBinding) { $firstBinding } else { "" }
-        FirstOrdinaryToolTimestamp = if ($firstOrdinary) { $firstOrdinary.Timestamp } else { "" }
-        FirstOrdinaryTool = if ($firstOrdinary) { $firstOrdinary.Tool } else { "" }
-        OrdinaryToolBeforeBinding = $before
-    }
-}
-
-function Add-ReportLine([System.Collections.Generic.List[string]]$Report, [string]$Key, $Value) {
-    $Report.Add("- ${Key}: $Value")
-}
+. (Join-Path $PSScriptRoot "action-map-graph-health-lib.ps1")
 
 if (-not $RunRoot) {
     $RunRoot = Join-Path $PSScriptRoot "..\target\real-user-e2e"
@@ -270,12 +146,14 @@ try {
 }
 
 $prompt = @'
-I inherited this small order-pipeline project and I need you to treat it like a real handoff. The parsing, pricing, invoice total, and summary behavior seem connected, so please inspect the README, tests, and implementation, separate product truth from broken expectations, and fix the project.
+I inherited this small order-pipeline project and need you to treat it like a real handoff. Parser behavior, pricing discounts, invoice totals, and summary output all look connected, and some tests may be wrong relative to the README.
 
-Several checks can be investigated independently before you make the final change. Please parallelize the independent parser and pricing/invoice/summary investigations where that speeds up the handoff, then integrate the findings yourself, run the relevant tests, and briefly explain the fix.
+Please inspect the README, tests, and implementation before editing. Separate product truth from broken expectations, organize the work in whatever way best fits the project, then integrate the findings yourself and make the final changes.
+
+Run the current tests before editing so we know the baseline failure, then run the relevant tests again after the fix. Briefly explain how you organized the work and what changed.
 '@
 Write-Text $promptPath $prompt
-$forbiddenPromptTerms = "taskspace|action map|\bmap\b|\bnode\b|subagent|spawn_agent|taskspace_control"
+$forbiddenPromptTerms = "(?i)taskspace|action map|\bmap\b|\bnode\b|subagent|spawn_agent|taskspace_control|\bparallel(ize)?\b|\bconcurrent(ly)?\b|\bsimultaneous(ly)?\b|\bdelegate\b|\bdelegation\b|\bmultiple agents?\b|\bmulti-agent\b|\bsplit .* agents?\b|\bfan[- ]?out\b"
 $promptLeaksInternalConcepts = $prompt -match $forbiddenPromptTerms
 
 if ($PlanOnly) {
@@ -359,6 +237,7 @@ foreach ($line in ($rolloutText -split "`r?`n")) {
 }
 
 $ordering = Get-SuccessfulTaskspaceOrdering $rolloutText
+$graphHealth = Get-TaskspaceGraphHealth $obs
 $mapCount = if ($obs) { @($obs.maps).Count } else { 0 }
 $nodeCount = if ($obs) { @($obs.nodes).Count } else { 0 }
 $agentCount = if ($obs) { @($obs.agents).Count } else { 0 }
@@ -387,6 +266,7 @@ $failedTaskspaceToolResults = Count-FailedTaskspaceToolResults $obs
 $unexpectedFailedTaskspaceToolResults = Count-UnexpectedFailedTaskspaceToolResults $obs
 $unexpectedFailedToolBudget = 0
 $failedCollabToolCalls = Count-FailedCollabToolCalls $obs
+$unexpectedFailedCollabToolCalls = Count-UnexpectedFailedCollabToolCalls $obs
 $problematicSuccessfulToolResults = Count-ProblematicSuccessfulToolResults $obs
 $implementationOwnershipGap = Get-ImplementationOwnershipGap $obs $gitDiffText $toolCallArgs
 $unexpectedTaskspaceGateFailures = if ($obs) {
@@ -438,6 +318,15 @@ if ($rollout -and $obsExitCode -ne 0) { $failures.Add("observability export fail
 if ($ordering.OrdinaryToolBeforeBinding) { $failures.Add("ordinary tool succeeded before first TaskSpace binding") }
 if ($mapCount -lt 1) { $failures.Add("no map was observed") }
 if ($nodeCount -lt 5) { $failures.Add("map did not grow to at least 5 nodes; observed $nodeCount") }
+if ($graphHealth.EdgeCount -lt 2) { $failures.Add("map did not create enough dependency edges; observed $($graphHealth.EdgeCount)") }
+if ($graphHealth.OrderedEdgeCount -ne $graphHealth.EdgeCount) { $failures.Add("not every dependency edge had observable predecessor-complete and successor-work timestamps") }
+if ($graphHealth.EdgeOrderViolationCount -gt 0) { $failures.Add("map dependency execution order was violated on $($graphHealth.EdgeOrderViolationCount) edge(s)") }
+if ($graphHealth.ParallelInspectTrackCount -lt 2) { $failures.Add("expected at least 2 parallel inspect tracks with subagent ownership; observed $($graphHealth.ParallelInspectTrackCount)") }
+if (-not $graphHealth.ParallelInspectTracksIndependent) { $failures.Add("parallel inspect tracks were not represented as independent graph tracks") }
+if (-not $graphHealth.DirectImplementationDependsOnParallelInspectTracks) { $failures.Add("implementation node did not directly depend on all subagent-owned inspect tracks") }
+if (-not $graphHealth.DirectTestDependsOnImplementation) { $failures.Add("test node did not directly depend on implementation node") }
+if ($graphHealth.OpenFinalSynthesisCount -gt 0) { $failures.Add("final synthesis node was left open: $($graphHealth.OpenFinalSynthesisCount)") }
+if ($graphHealth.OpenLeafNodeCount -gt 0) { $failures.Add("open leaf nodes remained at the end of the run: $($graphHealth.OpenLeafNodeCount)") }
 if ($agentCount -lt 2) { $failures.Add("expected at least 2 subagent leases; observed $agentCount agents") }
 if ($spawnAgentCount -lt 2) { $failures.Add("expected at least 2 successful spawn_agent calls; observed $spawnAgentCount") }
 if ($subagentResultCount -lt 2) { $failures.Add("expected at least 2 subagent results written to nodes") }
@@ -448,7 +337,7 @@ if ($editOutsideImplementationCount -gt 0) { $failures.Add("observed $editOutsid
 if (-not $testNodeHasPassingPytest) { $failures.Add("test node did not own a passing pytest result") }
 if ($unexpectedBlockedToolActionCount -gt 0) { $failures.Add("unexpected blocked TaskSpace tool actions: $unexpectedBlockedToolActionCount") }
 if ($unexpectedFailedTaskspaceToolResults -gt 0) { $failures.Add("unexpected failed taskspace-owned tool results: $unexpectedFailedTaskspaceToolResults") }
-if ($failedCollabToolCalls -gt 0) { $failures.Add("unexpected failed collaboration tool calls: $failedCollabToolCalls") }
+if ($unexpectedFailedCollabToolCalls -gt 0) { $failures.Add("unexpected failed collaboration tool calls: $unexpectedFailedCollabToolCalls") }
 if ($implementationOwnershipGap.MissingCount -gt 0) { $failures.Add("changed paths not owned by successful implementation-node edits: $($implementationOwnershipGap.MissingPaths -join ', ')") }
 if ($unexpectedTaskspaceGateFailures -gt 0) { $failures.Add("unexpected TaskSpace gate/tool attribution failures: $unexpectedTaskspaceGateFailures") }
 if ($commandExecutionCount -lt 4) { $failures.Add("agent did not run enough real commands; observed $commandExecutionCount") }
@@ -472,6 +361,17 @@ $report.Add("## Metrics")
 $report.Add("")
 foreach ($row in @(
     @("prompt_leaks_internal_concepts", $promptLeaksInternalConcepts), @("maps", $mapCount), @("nodes", $nodeCount),
+    @("edges", $graphHealth.EdgeCount), @("ordered_edges", $graphHealth.OrderedEdgeCount),
+    @("edge_order_violations", $graphHealth.EdgeOrderViolationCount),
+    @("anchored_implementation_nodes", $graphHealth.AnchoredImplementationCount),
+    @("parallel_inspect_tracks", $graphHealth.ParallelInspectTrackCount),
+    @("parallel_inspect_tracks_independent", $graphHealth.ParallelInspectTracksIndependent),
+    @("implementation_depends_on_parallel_inspect_tracks", $graphHealth.ImplementationDependsOnParallelInspectTracks),
+    @("direct_implementation_depends_on_parallel_inspect_tracks", $graphHealth.DirectImplementationDependsOnParallelInspectTracks),
+    @("test_depends_on_implementation", $graphHealth.TestDependsOnImplementation),
+    @("direct_test_depends_on_implementation", $graphHealth.DirectTestDependsOnImplementation),
+    @("open_leaf_nodes", $graphHealth.OpenLeafNodeCount),
+    @("open_final_synthesis_nodes", $graphHealth.OpenFinalSynthesisCount),
     @("agents", $agentCount), @("spawn_agent_calls", $spawnAgentCount), @("subagent_results", $subagentResultCount),
     @("nodes_with_results", $nodesWithResults), @("completed_nodes", $completedNodes),
     @("blocked_tool_actions", $blockedToolActionCount),
@@ -481,7 +381,7 @@ foreach ($row in @(
     @("failed_taskspace_tool_results", $failedTaskspaceToolResults),
     @("unexpected_failed_taskspace_tool_results", $unexpectedFailedTaskspaceToolResults),
     @("unexpected_failed_tool_budget", $unexpectedFailedToolBudget),
-    @("failed_collab_tool_calls", $failedCollabToolCalls),
+    @("failed_collab_tool_calls", $failedCollabToolCalls), @("unexpected_failed_collab_tool_calls", $unexpectedFailedCollabToolCalls),
     @("problematic_successful_tool_results", $problematicSuccessfulToolResults),
     @("changed_paths_without_implementation_owner", $implementationOwnershipGap.MissingCount),
     @("unexpected_taskspace_gate_failures", $unexpectedTaskspaceGateFailures),

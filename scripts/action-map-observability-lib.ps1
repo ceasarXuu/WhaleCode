@@ -165,7 +165,18 @@ function Add-Or-Update-NodeResult {
     $existing = @($Node.results | Where-Object { $_.resultId -eq $ResultId } | Select-Object -First 1)
     if ($existing.Count -gt 0) {
         $result = $existing[0]
-        if ($At) { $result.at = $At }
+        if ($At) {
+            if ([string]::IsNullOrWhiteSpace([string]$result.at)) {
+                $result.at = $At
+            }
+            else {
+                try {
+                    if ([datetime]::Parse($At) -lt [datetime]::Parse([string]$result.at)) { $result.at = $At }
+                }
+                catch {
+                }
+            }
+        }
         if ($LeaseId) { $result.leaseId = $LeaseId }
         if ($SourceThreadId) { $result.sourceThreadId = $SourceThreadId }
         if ($Kind) { $result.kind = $Kind }

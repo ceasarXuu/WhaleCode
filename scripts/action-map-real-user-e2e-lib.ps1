@@ -354,6 +354,22 @@ function Count-FailedCollabToolCalls($Obs) {
     @($Obs.toolCalls | Where-Object { $_.status -eq "failed" }).Count
 }
 
+function Test-ExpectedFailedCollabToolCall($ToolCall) {
+    if (-not $ToolCall -or [string]$ToolCall.status -ne "failed") { return $false }
+    $text = "$([string]$ToolCall.promptPreview)`n$([string]$ToolCall.outputPreview)"
+    $isRecoveredStaleSpawn =
+        [string]$ToolCall.tool -eq "spawn_agent" -and
+        $text -match "is completed; create or choose an open ready node"
+    $isRecoveredStaleSpawn
+}
+
+function Count-UnexpectedFailedCollabToolCalls($Obs) {
+    if (-not $Obs) { return 0 }
+    @($Obs.toolCalls | Where-Object {
+            $_.status -eq "failed" -and -not (Test-ExpectedFailedCollabToolCall $_)
+        }).Count
+}
+
 function Count-EditResultsAfter([object[]]$Nodes, [string]$Timestamp) {
     if ([string]::IsNullOrWhiteSpace($Timestamp)) { return 0 }
     $cutoff = [datetime]$Timestamp

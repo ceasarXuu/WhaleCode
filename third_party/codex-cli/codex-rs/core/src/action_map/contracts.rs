@@ -58,7 +58,7 @@ pub(crate) fn contract_for(kind: NodeKind) -> NodeContract {
         NodeKind::InspectCodeContext => NodeContract {
             kind,
             allowed_actions: INSPECT_ACTIONS,
-            max_main_tool_results_before_split_hint: 12,
+            max_main_tool_results_before_split_hint: 6,
         },
         NodeKind::ImplementSolution => NodeContract {
             kind,

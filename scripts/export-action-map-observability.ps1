@@ -20,6 +20,8 @@ $maps = New-Object System.Collections.Generic.List[object]
 $mapById = @{}
 $nodes = @{}
 $agents = @{}
+$edges = New-Object System.Collections.Generic.List[object]
+$edgeKeys = @{}
 $toolCalls = New-Object System.Collections.Generic.List[object]
 $toolCallById = @{}
 $collabToolNames = @("spawn_agent", "wait_agent", "close_agent", "resume_agent")
@@ -152,6 +154,20 @@ foreach ($item in $rolloutItems) {
             foreach ($snapshotMap in @($payload.snapshot.maps)) {
                 $snapshotMapCount++
                 [void](Ensure-Map $maps $mapById ([string]$snapshotMap.id) ([string]$snapshotMap.title) ([string]$snapshotMap.ownerSessionId) $snapshotMap.createdFrom)
+                foreach ($snapshotEdge in @($snapshotMap.edges)) {
+                    $from = [string]$snapshotEdge.from
+                    $to = [string]$snapshotEdge.to
+                    $mapId = [string]$snapshotMap.id
+                    $edgeKey = "$mapId|$from|$to"
+                    if ($from -and $to -and -not $edgeKeys.ContainsKey($edgeKey)) {
+                        $edgeKeys[$edgeKey] = $true
+                        $edges.Add([ordered]@{
+                            mapId = $mapId
+                            from = $from
+                            to = $to
+                        })
+                    }
+                }
                 foreach ($snapshotNode in @($snapshotMap.nodes)) {
                     $snapshotNodeCount++
                     $node = Ensure-Node $nodes ([string]$snapshotNode.id) ([string]$snapshotNode.title) ([string]$snapshotNode.kind)
@@ -297,6 +313,7 @@ foreach ($node in $nodeList) {
 $summary = [ordered]@{
     maps = $maps.Count
     nodes = $nodeList.Count
+    edges = $edges.Count
     agents = $agentList.Count
     toolCalls = $toolCalls.Count
     blockedToolActions = $blockedToolActionCount
@@ -315,6 +332,7 @@ $reduced = [ordered]@{
     summary = $summary
     maps = @($maps.ToArray())
     nodes = $nodeList
+    edges = @($edges.ToArray())
     agents = $agentList
     toolCalls = @($toolCalls.ToArray())
     timeline = @($timeline.ToArray())
@@ -331,6 +349,7 @@ $md.Add("# Action Map Observability")
 $md.Add("")
 $md.Add("- maps: $($summary.maps)")
 $md.Add("- nodes: $($summary.nodes)")
+$md.Add("- edges: $($summary.edges)")
 $md.Add("- agents: $($summary.agents)")
 $md.Add("- collab tool calls: $($summary.toolCalls)")
 $md.Add("- map runtime events: $($summary.mapRuntimeEvents)")
@@ -344,6 +363,14 @@ foreach ($node in $nodeList) {
     if ($null -ne $node["blockedActions"]) { $blockedCount = [int]$node["blockedActions"].Count }
     $barrierCount = @($node.maintenanceBarriers | Where-Object { $_.state -eq "active" }).Count
     $md.Add("| $($node.id) | $($node.kind) | $($node.title) | $($node.status) | $($node.agentThreads.Count) | $($node.results.Count) | $blockedCount | $barrierCount |")
+}
+$md.Add("")
+$md.Add("## Edges")
+$md.Add("")
+$md.Add("| From | To |")
+$md.Add("|---|---|")
+foreach ($edge in $edges) {
+    $md.Add("| $($edge.from) | $($edge.to) |")
 }
 $md.Add("")
 $md.Add("## Timeline")
@@ -395,9 +422,13 @@ code { background: #eef1f5; padding: 2px 4px; border-radius: 4px; }
 </header>
 <main>
   <div class="stats" id="stats"></div>
-  <section>
+<section>
     <h2>Map / Node Graph</h2>
     <div class="graph" id="graph"></div>
+  </section>
+  <section>
+    <h2>Edges</h2>
+    <div id="edges"></div>
   </section>
   <section>
     <h2>Agents</h2>
@@ -431,6 +462,7 @@ document.getElementById('graph').innerHTML = data.nodes.map(n => `
     <div class="meta">active barriers: ${esc((n.maintenanceBarriers || []).filter(b => b.state === 'active').length)}</div>
     <div class="meta">leases: ${esc((n.leases || []).map(l => `${l.leaseId}:${l.state}`).join(', ') || '-')}</div>
   </div>`).join('');
+document.getElementById('edges').innerHTML = table(['From', 'To'], data.edges.map(e => [e.from, e.to]));
 document.getElementById('agents').innerHTML = table(['Thread', 'Path', 'Node', 'Lease'],
   data.agents.map(a => [a.threadId, a.path, a.nodeId, a.leaseId]));
 document.getElementById('tools').innerHTML = table(['Tool', 'Status', 'Sender', 'Receivers', 'Prompt Preview', 'Output Preview'],

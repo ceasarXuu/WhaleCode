@@ -1252,6 +1252,29 @@ impl Session {
         Ok(result_id)
     }
 
+    pub(crate) async fn record_action_map_main_final_response(
+        &self,
+        turn_context: &TurnContext,
+        message: &str,
+    ) {
+        let result = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .record_main_final_response(self.conversation_id, message)
+        };
+        match result {
+            Ok(Some((_, events))) => {
+                self.emit_action_map_events_for_turn(turn_context, events)
+                    .await;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                warn!(%error, "failed to record TaskSpace final response");
+            }
+        }
+    }
+
     #[cfg(test)]
     pub(crate) async fn set_action_map_mode_for_test(
         &self,
