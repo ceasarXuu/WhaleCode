@@ -358,6 +358,688 @@ taskspace:
 - 如果 standard 和 taskspace 都失败，不能算 TaskSpace 负收益；应归入任务难度或模型能力失败，再看失败形态是否不同。
 - 如果 TaskSpace 成功但成本超过 L1 阈值，低复杂度场景仍判成本劣化。
 
+## 工程实施架构
+
+Benchmark 不应是多个互相独立的临时脚本，而应收敛为一套可扩展 harness。
+
+建议目录：
+
+```text
+scripts/
+  taskspace-benchmark/
+    run-taskspace-benchmark.ps1
+    run-scenario-pair.ps1
+    collect-run-artifacts.ps1
+    compare-paired-runs.ps1
+    export-benchmark-summary.ps1
+    lib/
+      scenario-manifest.ps1
+      oracle-runner.ps1
+      metrics-extractor.ps1
+      variable-control.ps1
+      failure-classifier.ps1
+
+benchmarks/
+  taskspace/
+    scenarios/
+      single-file-fast-fix/
+        scenario.json
+        prompt.txt
+        fixture/
+        public/
+        private-oracle/
+      order-pipeline-growth/
+        scenario.json
+        prompt.txt
+        fixture/
+        oracle/
+    corpora/
+      historical-failures/
+      terminal-bench-adapter/
+
+target/
+  taskspace-benchmark/
+    <scenario-id>/
+      <run-id>/
+        standard/
+        taskspace/
+        pair-report.md
+      aggregate-report.md
+```
+
+现有 `scripts/run-action-map-*.ps1` 可以继续作为 E1 回归脚本，但 E2/E3 应逐步迁移到统一 harness，避免每个场景重复实现 prompt guard、artifact 收集、oracle、指标抽取和失败归因。
+
+### Scenario Manifest
+
+每个场景必须有 `scenario.json`，作为测试契约。
+
+示例：
+
+```json
+{
+  "id": "order-pipeline-growth",
+  "level": "L2",
+  "evidence_target": "E2",
+  "description": "README/tests/implementation conflict with multi-file behavior.",
+  "prompt_file": "prompt.txt",
+  "fixture_dir": "fixture",
+  "mode_delta_contract": {
+    "allowed_deltas": [
+      "taskspace_flag",
+      "taskspace_runtime_system_behavior",
+      "taskspace_structural_tools",
+      "taskspace_observability_export"
+    ],
+    "forbidden_agent_visible_deltas": [
+      "different_prompt",
+      "different_fixture",
+      "different_model_params",
+      "different_permissions",
+      "different_output_budget",
+      "different_agent_readable_path_label",
+      "hidden_oracle_visibility"
+    ]
+  },
+  "turns": [
+    {
+      "id": "turn-1",
+      "prompt_file": "prompt.txt",
+      "expect_task": "primary"
+    }
+  ],
+  "compaction_trigger": null,
+  "resume_assertions": [],
+  "external_benchmark": null,
+  "resource_policy": {
+    "network": "disabled",
+    "timeout_seconds": 1200
+  },
+  "human_review_required": false,
+  "oracle": {
+    "type": "python",
+    "entry": "private-oracle/hidden_oracle.py",
+    "public_validation": ["python", "-m", "pytest", "tests", "-q"]
+  },
+  "expected": {
+    "allowed_modified_paths": [
+      "src/order_pipeline/parser.py",
+      "src/order_pipeline/pricing.py",
+      "tests/test_invoice.py"
+    ],
+    "forbidden_modified_paths": [
+      "README.md",
+      "pyproject.toml"
+    ],
+    "required_commands": [
+      "python -m pytest tests -q"
+    ],
+    "required_key_files_read": [
+      "README.md",
+      "tests/test_parser.py",
+      "tests/test_pricing.py",
+      "tests/test_invoice.py"
+    ]
+  },
+  "thresholds": {
+    "repeats": 3,
+    "timeout_seconds": 1200,
+    "l1_cost_ratio_limit": 1.5,
+    "max_unexpected_tool_failures": 0
+  },
+  "taskspace_expectations": {
+    "min_nodes": 4,
+    "min_edges": 3,
+    "requires_edge_reason": true,
+    "requires_result_consumption": true,
+    "requires_validation_node": true
+  }
+}
+```
+
+原则：
+
+- prompt 是用户输入，不写内部流程指令。
+- manifest 是测试契约，可以包含 TaskSpace 期望。
+- fixture 是初始代码库，不在运行中动态生成核心业务文件，除非场景本身测试脚手架生成能力。
+- private oracle 隐藏在测试 harness 中，不暴露给 agent。
+- L1/L2/L3 单轮场景可以只有一个 `turns[]`。
+- L4 必须使用 `turns[]`、`compaction_trigger` 和 `resume_assertions`。
+- E3 外部 benchmark 必须填写 `external_benchmark`、`resource_policy` 和 `human_review_required`。
+
+### Run ID 与 Artifact
+
+每次 paired run 生成一个稳定 `run_id`：
+
+```text
+<scenario-id>-<yyyyMMdd-HHmmss>-<short-random>
+```
+
+目录：
+
+```text
+target/taskspace-benchmark/<scenario>/<run_id>/
+  manifest.resolved.json
+  prompt.txt
+  logical-mode-map.json
+  left/
+    repo/
+    artifacts/
+      whale-exec.jsonl
+      whale-exec.stderr.log
+      last-message.md
+      git-diff.patch
+      public-validation.stdout.log
+      public-validation.stderr.log
+      hidden-oracle.stdout.log
+      hidden-oracle.stderr.log
+      metrics.json
+  right/
+    repo/
+    artifacts/
+      whale-exec.jsonl
+      whale-exec.stderr.log
+      last-message.md
+      git-diff.patch
+      public-validation.stdout.log
+      public-validation.stderr.log
+      hidden-oracle.stdout.log
+      hidden-oracle.stderr.log
+      observability/
+        action-map-observability.json
+        action-map-observability.md
+        action-map-observability.html
+      metrics.json
+  reviewer-only/
+    private-oracle/
+    original-external-metadata/
+  pair-report.md
+```
+
+`manifest.resolved.json` 必须写入实际 whale path、sha256、model、provider config 摘要、环境变量白名单、fixture checksum、prompt checksum，保证后续能追溯同一对照是否真的同源。
+
+`left` 与 `right` 是 agent 可见路径中的唯一 mode 区分。它们不能叫 `standard`、`taskspace`、`control`、`treatment` 等会泄漏实验条件的名字。
+
+`logical-mode-map.json` 只给 harness 和 reviewer 使用：
+
+```json
+{
+  "left": "standard",
+  "right": "taskspace",
+  "run_order": ["left", "right"]
+}
+```
+
+## Paired Run 协议
+
+E2/E3 的基本单元不是一次 run，而是一对 run：
+
+```text
+same fixture
+same prompt
+same model
+same model parameters
+same whale binary
+same cwd shape
+same env policy
+same permissions
+same timeout
+different mode only:
+  standard logical mode: whale exec ...
+  taskspace logical mode: whale exec --taskspace ...
+```
+
+执行步骤：
+
+1. 解析 `scenario.json`。
+2. 复制 fixture 两份：`left/repo` 与 `right/repo`。
+3. 分别初始化 git，确保初始 commit、文件内容和 checksum 一致。
+4. 写入相同 `prompt.txt`。
+5. 运行 prompt guard，确认用户输入不含内部协作概念。
+6. 按本次 repeat 的 logical-mode-map 运行 left/right。
+7. 另一侧使用相同命令参数，除 logical mode treatment 外不得改变。
+8. 对两边分别执行 public validation。
+9. 对两边分别执行 hidden oracle。
+10. 收集 JSONL、stderr、last message、git diff、命令记录、退出码。
+11. taskspace 额外导出 observability。
+12. 抽取 metrics。
+13. 生成 pair-report。
+14. 聚合多次 repeats。
+
+运行顺序控制：
+
+- 默认 logical mapping 为 left=standard、right=taskspace，但每个 scenario 的 repeats 中应交替 mapping 和运行顺序：
+  - odd repeat: left=standard, right=taskspace, run left -> right
+  - even repeat: left=taskspace, right=standard, run left -> right
+- 这样可以降低 provider 状态、缓存、机器负载、网络波动造成的顺序偏差。
+- 如果某一侧发生 harness failure，可以重跑该 pair；如果是 agent failure，不自动重跑并覆盖结果。
+
+### Mode Delta Contract
+
+paired run 的 treatment delta 只能是：
+
+- 是否传入 `--taskspace`。
+- TaskSpace runtime 因该 flag 注入的系统行为。
+- TaskSpace 结构化工具可用性。
+- TaskSpace observability 导出。
+
+禁止差异：
+
+- 用户 prompt 不同。
+- fixture 不同。
+- 模型名称、temperature、top_p、max output、reasoning effort、service tier、tool set、system prompt baseline 版本不同，除非差异是 `--taskspace` treatment 的必然产物并记录。
+- permission/sandbox 不同。
+- timeout 不同。
+- agent 可见路径名泄漏实验条件。
+- hidden oracle 或 reviewer-only artifact 对 agent 可见。
+
+`manifest.resolved.json` 必须逐项记录：
+
+```json
+{
+  "model": {
+    "name": "deepseek-v4-flash",
+    "temperature": "provider-default-or-explicit",
+    "top_p": "provider-default-or-explicit",
+    "max_output_tokens": "provider-default-or-explicit",
+    "reasoning_effort": "provider-default-or-explicit",
+    "service_tier": "provider-default-or-explicit"
+  },
+  "tool_policy": {
+    "tool_set_hash": "...",
+    "permissions": "...",
+    "sandbox": "..."
+  },
+  "prompt_sha256": "...",
+  "fixture_sha256": "...",
+  "cwd_policy": "neutral-left-right",
+  "allowed_mode_delta": "taskspace_flag"
+}
+```
+
+任何字段不一致且不在 allowed delta 内，pair 标记为 `invalid_pair`，不得进入 E2/E3 utility aggregate。
+
+## 变量控制
+
+### 必须固定的变量
+
+| 变量 | 控制方式 |
+|---|---|
+| 初始代码库 | 同一 fixture checksum，复制为两份工作区 |
+| 用户 prompt | 同一 `prompt.txt` checksum |
+| 模型 | manifest 固定 model，例如 `deepseek-v4-flash` |
+| 模型参数 | name、temperature、top_p、max output、reasoning effort、service tier 逐项记录和比较 |
+| Whale binary | 记录 path、version、sha256 |
+| 权限模式 | 两边使用相同 permission/sandbox 配置 |
+| 工作目录形态 | 两边 repo 相同相对路径结构，agent 可见路径使用 `left/right` 中性名 |
+| 环境变量 | 使用白名单传入，记录摘要 |
+| timeout | manifest 固定 |
+| public validation | 同一命令 |
+| hidden oracle | 同一 oracle |
+| 外部网络 | 默认禁用或同策略；需要网络的场景单独标记 |
+
+### 不可完全固定的变量
+
+| 变量 | 处理方式 |
+|---|---|
+| 模型采样随机性 | repeats + paired aggregate |
+| provider 延迟/缓存 | 交替运行顺序，记录 wall time 但不单独作为质量指标 |
+| 本机负载 | 记录 started/finished、可选记录 CPU/内存摘要 |
+| tool 输出中的时间戳 | oracle 不依赖时间戳；diff 可归一化 |
+| 文件系统顺序 | scenario 中避免依赖目录枚举自然顺序 |
+
+### 禁止的变量污染
+
+- taskspace prompt 比 standard prompt 多提示。
+- taskspace 场景暴露内部 node/subagent/map 词。
+- standard 用不同模型或不同权限。
+- taskspace 允许读 hidden oracle。
+- agent 可见路径包含 `standard` 或 `taskspace`。
+- hidden oracle、reviewer-only metadata、external benchmark answer key 被复制进 agent repo。
+- 运行后修改 fixture 再跑另一侧。
+- 对失败的一侧手动补跑并覆盖原始 artifact。
+- 只展示 taskspace 成功样本，不展示 paired standard 结果。
+
+## Oracle 设计
+
+Oracle 分三层：
+
+### Public Validation
+
+agent 被允许看到或主动运行的验证，例如：
+
+```text
+python -m pytest tests -q
+cargo test -p ...
+npm test
+```
+
+用途：
+
+- 验证 agent 是否按用户要求完成显性测试。
+- 检查测试命令是否归属 validation node。
+
+局限：
+
+- public tests 可能有错误预期。
+- public tests 可能覆盖不足。
+
+### Hidden Oracle
+
+agent 不可见的业务验收，用于检查真实目标。
+
+类型：
+
+- 隐藏测试脚本。
+- 静态 diff oracle。
+- 行为 probe。
+- 文件修改 allowlist/denylist。
+- 关键事实覆盖检查。
+
+Hidden oracle 不应包含 TaskSpace 内部结构期望，只检查业务正确性和安全边界。
+
+Hidden oracle filesystem contract：
+
+```text
+benchmarks/taskspace/scenarios/<scenario>/private-oracle/
+  hidden_oracle.py
+
+target/taskspace-benchmark/<scenario>/<run_id>/reviewer-only/private-oracle/
+  hidden_oracle.py
+
+target/taskspace-benchmark/<scenario>/<run_id>/left/repo/
+target/taskspace-benchmark/<scenario>/<run_id>/right/repo/
+```
+
+规则：
+
+- agent cwd 只能是 `left/repo` 或 `right/repo`。
+- private oracle 不复制进 agent repo。
+- public validation 可以存在于 fixture 内，hidden oracle 不可以。
+- harness 在 agent 结束后，从 repo 外执行 hidden oracle。
+- `reviewer-only/private-oracle` 只能给报告审查使用，不进入 agent 可读路径。
+- 如果 sandbox 暂时无法硬隔离父目录，harness 必须至少做路径 denylist 检查，并在 report 中标记 oracle isolation 等级。
+- `hidden_oracle.py` 不再写入 agent artifacts；只写 stdout/stderr、exit code、oracle sha256。
+
+### TaskSpace Structural Oracle
+
+只用于 taskspace 路径，检查机制健康：
+
+- task/map/node 是否创建。
+- 普通工具是否在 binding 后执行。
+- edge 是否存在、顺序是否正确。
+- implementation 是否依赖上游调查。
+- validation 是否依赖 implementation。
+- subagent result 是否写回 node。
+- key edge 是否有 reason。
+- implementation 是否消费上游 result。
+- open leaf/final 是否闭合。
+
+Structural oracle 不判断业务语义对错。业务对错由 public validation 和 hidden oracle 判断。
+
+## 指标抽取
+
+每侧生成 `metrics.json`。
+
+通用字段：
+
+```json
+{
+  "scenario_id": "order-pipeline-growth",
+  "mode": "standard",
+  "evidence_level": "E2",
+  "exec_exit_code": 0,
+  "public_validation_exit_code": 0,
+  "hidden_oracle_exit_code": 0,
+  "wall_time_ms": 73000,
+  "tool_call_count": 22,
+  "command_count": 4,
+  "changed_paths": [],
+  "allowed_modified_paths_ok": true,
+  "forbidden_modified_paths_touched": [],
+  "evidence": {
+    "required_key_files_read": {
+      "README.md": ["whale-exec.jsonl:event-123"]
+    },
+    "required_commands": {
+      "python -m pytest tests -q": ["whale-exec.jsonl:event-456"]
+    },
+    "forbidden_modified_paths": {},
+    "business_success": ["hidden-oracle.stdout.log"]
+  },
+  "business_success": true,
+  "harness_failure": false,
+  "agent_failure": false
+}
+```
+
+TaskSpace 额外字段：
+
+```json
+{
+  "taskspace_enabled": true,
+  "maps": 1,
+  "nodes": 10,
+  "edges": 17,
+  "edge_order_violations": 0,
+  "key_edge_reason_coverage": 0.9,
+  "result_consumption_coverage": 0.8,
+  "source_overlap_smells": 1,
+  "spawn_agent_calls": 4,
+  "subagent_results": 21,
+  "open_leaf_nodes": 0,
+  "open_final_synthesis_nodes": 0,
+  "ordinary_before_binding": false,
+  "edit_outside_implementation": 0,
+  "unexpected_gate_failures": 0,
+  "taskspace_evidence": {
+    "key_edge_reasons": ["action-map-observability.json:edges[0]"],
+    "result_consumption": ["action-map-observability.json:events[42]"],
+    "source_overlap_smells": ["pair-report.md#source-overlap"]
+  }
+}
+```
+
+注意：
+
+- token 字段能采集则采集，不能采集时写 `unknown`，不要估算。
+- cost ratio 只在两边字段同源时计算。
+- graph health 只用于 taskspace，不用来评价 standard。
+
+## Pair Report
+
+`pair-report.md` 面向工程审查，不是营销材料。
+
+结构：
+
+```text
+# TaskSpace Benchmark Pair Report
+
+## Scenario
+- id
+- level
+- evidence target
+- prompt checksum
+- fixture checksum
+- whale sha256
+- model
+
+## Outcome
+- standard business success
+- taskspace business success
+- public validation
+- hidden oracle
+- cost ratio
+- failure classification
+
+## Variable Control
+- same prompt: yes/no
+- same fixture: yes/no
+- same model: yes/no
+- same permissions: yes/no
+- run order
+
+## TaskSpace Structural Health
+- maps/nodes/edges
+- edge order
+- key edge reason coverage
+- result consumption coverage
+- source overlap smells
+- open leaf/final
+
+## Diff Comparison
+- standard changed paths
+- taskspace changed paths
+- forbidden paths
+- behavioral diff notes
+
+## Failure Analysis
+- harness failure
+- runtime failure
+- decomposition failure
+- business failure
+- cost regression
+- observability failure
+
+## Artifacts
+- standard paths
+- taskspace paths
+```
+
+如果变量控制失败，例如 prompt checksum 不一致，pair report 必须标红为 invalid pair，不得进入 E2/E3 聚合。
+
+## 聚合与统计
+
+`aggregate-report.md` 按 scenario 汇总多次 repeats。
+
+进入 utility aggregate 的 pair 必须满足：
+
+- `invalid_pair = false`
+- `harness_failure = false`
+- `prompt/fixture/model/permission/cwd` variable checks 全部通过
+- hidden oracle isolation 等级满足场景要求
+
+不进入 utility aggregate 但仍保留记录：
+
+- invalid pair
+- harness failure
+- oracle isolation failure
+- variable-control self-test failure
+
+核心表：
+
+| 指标 | standard | taskspace | delta |
+|---|---:|---:|---:|
+| business success rate | | | |
+| public validation pass rate | | | |
+| hidden oracle pass rate | | | |
+| forbidden edit rate | | | |
+| median wall time | | | |
+| median tool calls | | | |
+| taskspace graph health pass rate | n/a | | |
+
+判读原则：
+
+- 样本数少时只做趋势判断，不做强统计显著性声明。
+- L1 重点看成本劣化和成功率不下降。
+- L2/L3 重点看 hidden oracle、漏项、误改和结构健康。
+- E3 必须保留人工复核摘要，尤其是“失败是否可归因于任务难度而非 TaskSpace”。
+- aggregate 必须同时展示 `all pairs`、`valid utility pairs`、`excluded pairs`，防止隐藏基础设施失败。
+
+## Flake 与重跑规则
+
+只允许重跑 harness failure：
+
+- fixture 复制失败。
+- oracle 脚本自身崩溃。
+- whale binary 不存在。
+- 环境依赖缺失。
+- artifact 写入失败。
+
+不允许自动重跑并覆盖的 agent failure：
+
+- agent 没完成任务。
+- agent 改错文件。
+- agent 没跑测试。
+- taskspace 图退化。
+- provider 返回有效错误。
+- 超时但已有 agent 行动轨迹。
+
+重跑必须生成新 run id，并在 aggregate 中保留原失败记录。
+
+重跑 lineage：
+
+```json
+{
+  "run_id": "order-pipeline-growth-20260531-010000-a1b2",
+  "rerun_of": "order-pipeline-growth-20260531-005500-z9y8",
+  "rerun_reason": "harness_failure: oracle dependency missing",
+  "included_in_utility_aggregate": true
+}
+```
+
+原始 harness failure 的 `included_in_utility_aggregate` 为 false，但必须进入 `excluded pairs` 表。
+
+## 外部 Benchmark 适配
+
+Terminal-Bench/SWE-bench 类任务只做薄封装：
+
+```text
+external task prompt
+  -> standard runner
+  -> taskspace runner
+  -> original benchmark validator
+  -> Whale extra observability
+```
+
+禁止：
+
+- 改写原始任务为 TaskSpace 友好 prompt。
+- 给 taskspace 额外提示内部方法论。
+- 删除对 TaskSpace 不利的样本。
+
+允许：
+
+- 记录 TaskSpace observability。
+- 增加 Whale-specific artifact 收集。
+- 对任务做安全隔离和资源限制。
+
+外部 benchmark 接入前应先跑小样本 dry run，确认：
+
+- sandbox 能运行。
+- validator 可重复。
+- artifact 不含隐私数据。
+- standard/taskspace 使用同一 prompt 和初始状态。
+
+E3 manifest 必须补充：
+
+```json
+{
+  "external_benchmark": {
+    "name": "terminal-bench",
+    "sample_id": "sample-001",
+    "original_prompt_sha256": "...",
+    "original_validator_sha256": "...",
+    "adapter_version": "whale-taskspace-adapter-v1"
+  },
+  "validator": {
+    "type": "external",
+    "command": ["..."],
+    "container": "optional-container-id"
+  },
+  "resource_policy": {
+    "network": "disabled|enabled-with-allowlist",
+    "cpu_limit": "optional",
+    "memory_limit": "optional",
+    "timeout_seconds": 1800
+  },
+  "privacy_scrub": {
+    "enabled": true,
+    "rules_sha256": "..."
+  },
+  "human_review_required": true
+}
+```
+
 ## Benchmark 场景库
 
 第一阶段自建场景：
@@ -525,6 +1207,46 @@ turn 6: 用户继续 task A。
 - 回到 task A 时 current binding 指向 task A 的有效 node。
 - 压缩后 task manifest 仍保留 task id、active map、open node、关键 completed result summary。
 - 不要求恢复旧完整上下文，不要求重放历史节点。
+
+L4 manifest 扩展：
+
+```json
+{
+  "turns": [
+    { "id": "turn-1", "prompt_file": "turns/001-task-a.md", "expect_task": "task-a" },
+    { "id": "turn-2", "prompt_file": "turns/002-task-a-constraint.md", "expect_task": "task-a" },
+    { "id": "turn-3", "prompt_file": "turns/003-task-b-interruption.md", "expect_task": "task-b" },
+    { "id": "turn-4", "prompt_file": "turns/004-return-task-a.md", "expect_task": "task-a" }
+  ],
+  "compaction_trigger": {
+    "type": "force_context_compaction_after_turn",
+    "turn_id": "turn-4"
+  },
+  "resume_assertions": [
+    "task-a-active-map-still-visible",
+    "task-b-results-not-in-task-a",
+    "current-binding-valid"
+  ]
+}
+```
+
+L4 runner 不能只使用一次 `whale exec`。它需要支持同一 session/thread 的多 turn 发送、观测导出和压缩触发。若当前 CLI 暂不支持强制压缩，L4 场景先标记为 harness gap，不能伪造压缩通过。
+
+## Harness 自测
+
+统一 harness 需要自己的自测，避免 benchmark 基础设施悄悄失真。
+
+必备自测：
+
+| 自测 | 做法 | 期望 |
+|---|---|---|
+| variable-control self-test | 故意让 prompt、fixture、model param、permission、cwd policy 任一不一致 | pair 标记 invalid，不进入 utility aggregate |
+| hidden-oracle-isolation test | 构造 agent 尝试读取 private oracle 的场景 | 读取失败或 report 标记 isolation failure |
+| l4-manifest test | 使用多 turn manifest、插话、resume assertions | runner 能按 turn 执行并导出 task identity 证据 |
+| flake-lineage test | 模拟 harness failure 后重跑 | 新 run id、原失败保留、aggregate denominator 正确 |
+| external-dry-run test | 原始 prompt/validator 原样跑 | standard/taskspace 初始 checksum 一致 |
+
+没有通过 harness 自测时，不允许把任何结果标为 E2/E3。
 
 ## 当前非目标
 

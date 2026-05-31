@@ -253,3 +253,248 @@ none for blocking closure.
 ## Final Conclusion
 
 The two design documents may proceed. Round 1 blocking findings were accepted and fixed; Round 2 fresh closure review found no blocking issues. Remaining risks are implementation-level clarifications around threshold tuning and smell-vs-gate classification, now documented in the BaseMap methodology.
+
+## Round 3: Benchmark Engineering Detail Review
+
+### Review Input
+
+#### Objective
+
+审查新增的 E2E benchmark 工程实施细节是否足够具体、可落地，并能控制变量保证 standard/taskspace 对照有效。
+
+#### Review Target
+
+测试工程设计、paired run 协议、变量控制、oracle、指标抽取、报告、聚合、flake 重跑规则。
+
+#### Target Locations
+
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`
+
+#### Change Introduction
+
+在 benchmark 文档中补充工程实施细节：
+
+- 统一 harness 目录结构。
+- scenario manifest 契约。
+- run artifact 目录。
+- paired standard/taskspace run 协议。
+- 变量控制和污染禁止项。
+- public validation、hidden oracle、TaskSpace structural oracle。
+- metrics.json 字段。
+- pair report 和 aggregate report。
+- flake 与重跑规则。
+- 外部 benchmark 薄适配原则。
+
+#### Risk Focus
+
+- paired 对照是否真的只改变 mode，不改变其他变量。
+- scenario manifest 是否足够支撑 L1/L2/L3/L4 和 E2/E3。
+- oracle 分层是否会泄漏内部结构或污染用户 prompt。
+- metrics/report 是否能支撑失败归因。
+- flake 重跑规则是否避免刷成功样本。
+- 是否引入过度复杂、难以第一阶段落地的 harness。
+
+#### Verification Status
+
+- 文档已修改。
+- 未实施代码；本轮审查工程方案可落地性。
+
+#### Reviewer Instructions
+
+- Fresh internal subagent session.
+- No inherited main-agent context.
+- Read target file directly.
+- Do not modify files.
+- Cite evidence paths and line numbers when possible.
+- 只把仍会导致对照无效、收益判断失真或工程无法落地的问题列为 blocking。
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| Benchmark Harness Reviewer | 新增内容主要是测试工程和变量控制，需要独立攻击 paired 对照有效性 | paired validity、oracle、artifact、flake policy |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| Benchmark Harness Reviewer | multi_agent_v1.spawn_agent | pending | pending | no | Round 3 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
+
+### Reviewer Outputs
+
+#### Benchmark Harness Reviewer
+
+##### Summary
+
+文档整体方向是可落地的，尤其是 paired run、变量控制、oracle 分层、artifact、pair report、flake 规则都有明确骨架。主要问题集中在三处：paired 对照的“只改变 mode”还没有被工程化成可验证的不变量；hidden oracle 的隔离规则还停留在声明层；Scenario Manifest 目前只覆盖单轮场景，尚不足以承载 L4 和 E3 外部 benchmark。
+
+##### Blocking Findings
+
+- Paired 对照仍可能改变 agent 可见变量，导致“only mode differs”不成立。路径名 `standard/repo` 与 `taskspace/repo` 可能通过 cwd、日志、命令输出被 agent 看见；模型配置也缺少 temperature/top_p/max output/reasoning budget/tool set/system prompt 版本等逐项固定或 delta 声明。
+- Hidden oracle 隔离没有工程边界，可能污染 prompt 或被 agent 读取。scenario 结构包含 `oracle/`，manifest 指向 `oracle/hidden_oracle.py`，旧报告格式还会产出 `hidden_oracle.py`。
+- Scenario Manifest 不能完整支撑 L4 和 E3。当前 manifest 是单 prompt、单 fixture、单 validation、单 oracle；L4 需要 turns、压缩、resume assertions；E3 外部 benchmark 需要 original sample id、validator/container/resource/network policy、privacy scrub、human review metadata。
+
+##### Non-blocking Risks
+
+- Flake 规则方向正确，但 aggregate denominator 还不清楚。
+- Metrics 有 boolean/count 字段，但缺少每个指标的 evidence pointer。
+- Harness 目录设计不算过度复杂，但第一阶段应明确 MVP 边界。
+
+##### Required Fixes
+
+- 增加 `mode_delta_contract`。
+- 将 run workspace 改成 agent 不可区分的中性路径，例如 `left/repo` 与 `right/repo`。
+- `manifest.resolved.json` 必须记录并比较完整 provider/model params。
+- 定义 hidden oracle filesystem contract。
+- 扩展 manifest schema：支持 `turns[]`、`compaction_trigger`、`resume_assertions`、`external_benchmark`、`validator`、`resource_policy`、`human_review_required`。
+
+##### Missing Tests / Harness Gaps
+
+- `variable-control self-test`
+- `hidden-oracle-isolation test`
+- L4 manifest fixture
+- flake lineage fixture
+- external benchmark dry-run fixture
+
+##### Evidence
+
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`：paired run、变量控制、manifest、oracle、metrics、aggregation、external adapter、L4 harness 草案。
+
+### Main Agent Response
+
+| Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|
+| Benchmark Harness Reviewer | Paired 对照可能改变 agent 可见变量 | blocking | accept | `standard/taskspace` 路径名和不完整模型参数会破坏 only-mode-diff | 改为 `left/right` 中性路径，新增 `logical-mode-map.json`；新增 mode delta contract；要求记录完整 model params、tool policy、cwd policy，非 allowed delta 一律 invalid pair | Round 4 closure |
+| Benchmark Harness Reviewer | Hidden oracle 隔离没有工程边界 | blocking | accept | oracle 进入 agent 可见目录会污染 business_success | 改为 `private-oracle` 和 `reviewer-only/private-oracle`；明确 agent cwd 只能是 left/right repo；hidden oracle 不复制进 repo/artifacts，只记录 stdout/stderr/exit/sha256 | Round 4 closure |
+| Benchmark Harness Reviewer | Manifest 不支撑 L4/E3 | blocking | accept | 单 prompt manifest 不能表达多 turn、压缩、外部 benchmark 元数据 | 扩展 manifest：`turns[]`、`compaction_trigger`、`resume_assertions`、`external_benchmark`、`validator`、`resource_policy`、`privacy_scrub`、`human_review_required` | Round 4 closure |
+| Benchmark Harness Reviewer | aggregate denominator 不清楚 | non-blocking | accept | 重跑/排除规则会影响收益统计 | 新增 utility aggregate 纳入条件、excluded pairs、rerun lineage | Round 4 closure |
+| Benchmark Harness Reviewer | metrics 缺 evidence pointer | non-blocking | accept | boolean 指标不可追溯 | 新增 `evidence` 和 `taskspace_evidence` 字段示例 | Round 4 closure |
+| Benchmark Harness Reviewer | harness MVP 边界 | non-blocking | accept | 一次性全做可能拖慢落地 | 新增 harness self-test，并保留现有 E1 脚本迁移路径；MVP 仍以 paired run + artifact + report 闭环为中心 | Round 4 closure |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: pending
+- Blocking re-review passed: pending
+- Blocking re-review round links:
+  - Round 4 pending
+- Blocking re-review launch records:
+  - pending
+- Rejected findings backed by evidence: n/a
+- Deferred findings documented: n/a
+- Allowed to proceed: no
+
+## Round 4: Benchmark Engineering Closure Review
+
+### Review Input
+
+#### Objective
+
+验证 Round 3 accepted blocking fixes 是否闭合：paired only-mode-diff、hidden oracle isolation、L4/E3 manifest 支撑。
+
+#### Review Target
+
+测试工程设计、paired run 协议、变量控制、oracle、manifest、aggregation。
+
+#### Target Locations
+
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`
+- `vs_review/2026-05-31-taskspace-benchmark-methodology-review.md`
+
+#### Change Introduction
+
+根据 Round 3 审查：
+
+- 新增 `mode_delta_contract`。
+- run workspace 改为 agent 不可区分的 `left/repo` 与 `right/repo`，logical mode 写入 reviewer-only mapping。
+- `manifest.resolved.json` 要求记录完整 model params、tool policy、prompt/fixture checksum、cwd policy。
+- 新增 hidden oracle filesystem contract，private oracle 不进入 agent repo。
+- 扩展 manifest schema 支持 L4 turns/compaction/resume assertions，以及 E3 external benchmark/resource/privacy/human review。
+- 新增 utility aggregate 纳入条件、rerun lineage、evidence pointer、harness self-tests。
+
+#### Risk Focus
+
+- paired 对照是否现在能工程化验证 only-mode-diff。
+- hidden oracle 是否不会被 agent 读取。
+- manifest 是否能覆盖 L4 和 E3。
+- 是否还有 blocking 级变量污染或收益统计失真。
+
+#### Verification Status
+
+- 文档已修改。
+- 未做代码实现；本轮审查 closure。
+
+#### Reviewer Instructions
+
+- Fresh internal subagent session.
+- No inherited main-agent context.
+- Read target files directly.
+- Do not modify files.
+- Cite evidence paths and line numbers when possible.
+- 只把仍会导致对照无效、收益判断失真或工程无法落地的问题列为 blocking。
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| Benchmark Closure Reviewer | Round 3 accepted blocking fixes require fresh closure review | paired validity、oracle isolation、manifest coverage |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| Benchmark Closure Reviewer | multi_agent_v1.spawn_agent | pending | pending | no | Round 4 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
+
+### Reviewer Outputs
+
+#### Benchmark Closure Reviewer
+
+##### Summary
+
+上一轮 3 个 blocking fixes 已经在 TaskSpace benchmark 文档中闭合。当前没有仍会导致 paired 对照无效、收益判断失真或工程无法落地的 blocking 问题。
+
+##### Blocking Findings
+
+none
+
+##### Non-blocking Risks
+
+- `vs_review` 的 Round 4 记录仍停在 pending 状态，Reviewer Outputs、Main Agent Response、Closure Status 都未落盘更新。这是审查记录完整性问题，不是 benchmark 方法论本身的 blocking。
+- hidden oracle 允许在 sandbox 暂时无法硬隔离时退化为 denylist + isolation level 记录；文档已要求 isolation failure 不进入 aggregate，但实现时必须把这个检查做成硬门禁，否则会回归成 oracle 泄漏风险。
+
+##### Required Fixes
+
+none for blocking closure.
+
+##### Evidence
+
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`：`mode_delta_contract` 已新增，并明确 allowed deltas 只限 `taskspace_flag`、runtime behavior、structural tools、observability export；同时禁止 prompt、fixture、model params、permissions、output budget、agent-readable path label、hidden oracle visibility 差异。
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`：run workspace 已改为 `left/repo` 与 `right/repo`，并通过 `logical-mode-map.json` 记录真实模式；`left/right` 是 agent 可见路径中唯一 mode 区分。
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`：`manifest.resolved.json` 已要求记录 model params、tool policy、permissions/sandbox、prompt/fixture checksum、cwd policy；任一非 allowed delta 不一致会标记 `invalid_pair`。
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`：hidden oracle 已放到 `private-oracle` / `reviewer-only/private-oracle`，agent cwd 只能是 `left/repo` 或 `right/repo`，private oracle 不复制进 agent repo。
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`：manifest 已支持 L4 的 `turns[]`、`compaction_trigger`、`resume_assertions`，并说明当前 CLI 不支持强制压缩时必须标为 harness gap。
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`：E3 manifest 已补充 `external_benchmark`、`validator`、`resource_policy`、`privacy_scrub`、`human_review_required`。
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`：utility aggregate、rerun lineage、evidence pointers、harness self-tests 已覆盖收益统计防失真。
+
+### Main Agent Response
+
+| Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|
+| Benchmark Closure Reviewer | Round 3 三个 blocking 已闭合 | blocking closure | accept | Reviewer 明确 blocking findings 为 none | 保持已修正文档 | n/a |
+| Benchmark Closure Reviewer | Round 4 报告 pending | non-blocking | accept | 审查轨迹需要完整落盘 | 已补齐 Round 4 outputs、main response、closure status | n/a |
+| Benchmark Closure Reviewer | hidden oracle isolation 降级实现必须硬门禁 | non-blocking | accept | 如果 denylist 降级未被标成 isolation failure，会重新污染收益统计 | 在后续实现约束中按文档执行：oracle isolation failure 不进入 utility aggregate；harness self-test 必须覆盖 hidden-oracle-isolation | implementation follow-up |
+
+### Closure Status
+
+- Blocking findings found: no
+- Accepted blocking findings fixed: n/a
+- Blocking re-review completed: yes
+- Blocking re-review passed: yes
+- Blocking re-review round links:
+  - Round 4
+- Blocking re-review launch records:
+- Benchmark Closure Reviewer: `019e7d11-4376-71b3-ae9d-be801867667e`
+- Rejected findings backed by evidence: n/a
+- Deferred findings documented: n/a
+- Allowed to proceed: yes
