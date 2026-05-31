@@ -1,11 +1,15 @@
-﻿# WhaleCode TODO
+﻿# WhaleCode 待办事项
 
-## Planned work
+记录时间：2026-06-01
 
-1. Add an adversarial review mechanism.
-2. Add token-saving strategies.
-3. Rename the project to nawocode.
-4. Track and integrate Codex upstream updates.
-5. Add COE debug capability.
-6. Add skills self-evolution.
-7. Add a visualization dashboard.
+## 当前任务状态
+
+| 序号 | 事项 | 状态 | 记录时间 |
+| --- | --- | --- | --- |
+| 1 | 加入对抗性审查机制 | 计划中 | 2026-06-01 |
+| 2 | 加入 token 节省方案 | 计划中 | 2026-06-01 |
+| 3 | 项目改名为 nawocode | 计划中 | 2026-06-01 |
+| 4 | 跟进 Codex 更新 | 计划中 | 2026-06-01 |
+| 5 | 加入 COE debug 能力 | 计划中 | 2026-06-01 |
+| 6 | 加入 skills 自进化 | 计划中 | 2026-06-01 |
+| 7 | 加入可视化面板 | 计划中 | 2026-06-01 |
