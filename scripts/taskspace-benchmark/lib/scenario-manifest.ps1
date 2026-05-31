@@ -38,10 +38,12 @@ function Read-TaskspaceScenarioManifest {
     }
     $promptPath = Join-Path $scenarioRoot ([string]$manifest.prompt_file)
     $fixturePath = Join-Path $scenarioRoot ([string]$manifest.fixture_dir)
-    $oraclePath = Join-Path $scenarioRoot ([string]$manifest.oracle.hidden_script)
     if (-not (Test-Path -LiteralPath $promptPath)) { throw "Scenario prompt not found: $promptPath" }
     if (-not (Test-Path -LiteralPath $fixturePath)) { throw "Scenario fixture not found: $fixturePath" }
-    if (-not (Test-Path -LiteralPath $oraclePath)) { throw "Scenario hidden oracle not found: $oraclePath" }
+    $hiddenStrategy = [string]$manifest.oracle.hidden_strategy
+    if ([string]::IsNullOrWhiteSpace($hiddenStrategy)) {
+        throw "Scenario manifest missing required field: oracle.hidden_strategy"
+    }
     [pscustomobject]@{
         Id = [string]$manifest.id
         Level = [string]$manifest.level
@@ -50,7 +52,7 @@ function Read-TaskspaceScenarioManifest {
         ScenarioRoot = (Resolve-Path -LiteralPath $scenarioRoot).Path
         PromptPath = (Resolve-Path -LiteralPath $promptPath).Path
         FixtureDir = (Resolve-Path -LiteralPath $fixturePath).Path
-        HiddenOraclePath = (Resolve-Path -LiteralPath $oraclePath).Path
+        HiddenOracleStrategy = $hiddenStrategy
         PublicValidation = $manifest.oracle.public_validation
         Expected = $manifest.expected
         Thresholds = $manifest.thresholds

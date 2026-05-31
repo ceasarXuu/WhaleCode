@@ -9,7 +9,7 @@ function New-TaskspaceBenchmarkRun {
 
 function Get-NeutralTaskspaceBenchmarkRunRoot {
     param([Parameter(Mandatory = $true)][string]$RepoRoot)
-    Join-Path $RepoRoot "target\paired-bench-runs"
+    Join-Path ([System.IO.Path]::GetTempPath()) "whale-paired-bench-runs"
 }
 
 function Get-TaskspaceModeMapping {
@@ -46,7 +46,8 @@ function New-TaskspacePairWorkspace {
     )
     $repeatDir = New-Dir (Join-Path $RunDir ("pair-{0:000}" -f $Repeat))
     $reviewerOracleDir = New-Dir (Join-Path $repeatDir "reviewer-only\private-oracle")
-    Copy-Item -LiteralPath $Manifest.HiddenOraclePath -Destination (Join-Path $reviewerOracleDir "oracle.py") -Force
+    $canaryText = "TASKSPACE_BENCH_PRIVATE_CANARY_$([guid]::NewGuid().ToString("N"))"
+    $canaryPath = Join-Path $reviewerOracleDir "canary.txt"
     $mapping = Get-TaskspaceModeMapping $Repeat
     $sides = @{}
     foreach ($side in @("left", "right")) {
@@ -69,10 +70,63 @@ function New-TaskspacePairWorkspace {
         PairDir = $repeatDir
         ReviewerOracleDir = $reviewerOracleDir
         HiddenOraclePath = Join-Path $reviewerOracleDir "oracle.py"
+        HiddenOracleStrategy = $Manifest.HiddenOracleStrategy
+        CanaryPath = $canaryPath
+        CanaryText = $canaryText
         LogicalModeMapPath = $mapPath
         Left = $sides["left"]
         Right = $sides["right"]
     }
+}
+
+function Materialize-TaskspacePrivateOracle {
+    param(
+        [Parameter(Mandatory = $true)]$Pair,
+        [Parameter(Mandatory = $true)]$Manifest
+    )
+    Write-TaskspaceGeneratedHiddenOracle $Pair.HiddenOraclePath $Manifest.HiddenOracleStrategy
+    Write-Text $Pair.CanaryPath $Pair.CanaryText
+}
+
+function Write-TaskspaceGeneratedHiddenOracle {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Strategy
+    )
+    if ($Strategy -ne "tax-calc-v1") {
+        throw "Unsupported hidden oracle strategy: $Strategy"
+    }
+    Write-Text $Path @'
+import pathlib
+import random
+import sys
+
+repo = pathlib.Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(repo / "src"))
+
+from tax_calc import calculate_tax, calculate_total
+
+rates = {"CA": 0.0725, "NY": 0.08875, "TX": 0.0625}
+rng = random.Random(20260531)
+for region, rate in rates.items():
+    for subtotal in [0.01, 10, 19.99, 123.45, rng.uniform(1, 250)]:
+        expected_tax = round(subtotal * rate, 2)
+        assert calculate_tax(subtotal, region) == expected_tax
+        assert calculate_total(subtotal, region) == round(subtotal + expected_tax, 2)
+try:
+    calculate_tax(-1, "CA")
+except ValueError as exc:
+    assert "subtotal" in str(exc).lower()
+else:
+    raise AssertionError("negative subtotal should fail")
+try:
+    calculate_tax(1, "WA")
+except ValueError as exc:
+    assert "unsupported" in str(exc).lower()
+else:
+    raise AssertionError("unknown region should fail")
+print("hidden oracle passed")
+'@
 }
 
 function Test-TaskspaceNeutralCwd {
@@ -90,11 +144,24 @@ function New-TaskspaceWhaleArgv {
         [Parameter(Mandatory = $true)][string]$LogicalMode,
         [Parameter(Mandatory = $true)][string]$Model,
         [Parameter(Mandatory = $true)][string]$RepoDir,
-        [Parameter(Mandatory = $true)][string]$LastMessagePath
+        [Parameter(Mandatory = $true)][string]$LastMessagePath,
+        [string]$SandboxMode = "bypass",
+        [string[]]$ConfigOverrides = @()
     )
     $args = @("exec", "--json")
     if ($LogicalMode -eq "taskspace") { $args += "--taskspace" }
-    $args += @("-m", $Model, "-C", $RepoDir, "--dangerously-bypass-approvals-and-sandbox", "--output-last-message", $LastMessagePath, "-")
+    foreach ($override in @($ConfigOverrides)) { $args += @("-c", $override) }
+    $args += @("-m", $Model, "-C", $RepoDir)
+    if ($SandboxMode -eq "full-auto") {
+        $args += "--full-auto"
+    } elseif ($SandboxMode -eq "workspace-write") {
+        $args += @("--sandbox", "workspace-write")
+    } elseif ($SandboxMode -eq "bypass") {
+        $args += "--dangerously-bypass-approvals-and-sandbox"
+    } else {
+        throw "Unsupported sandbox mode: $SandboxMode"
+    }
+    $args += @("--output-last-message", $LastMessagePath, "-")
     @($args)
 }
 

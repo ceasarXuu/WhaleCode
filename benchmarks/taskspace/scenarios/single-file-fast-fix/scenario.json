@@ -16,7 +16,7 @@
       "command": "python",
       "args": ["-m", "pytest", "tests", "-q"]
     },
-    "hidden_script": "private-oracle/oracle.py"
+    "hidden_strategy": "tax-calc-v1"
   },
   "expected": {
     "standard_success": true,

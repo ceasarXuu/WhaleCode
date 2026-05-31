@@ -57,11 +57,11 @@ Assert-True ($rightPrivateHits.Count -eq 0) "private oracle leaked into right re
 
 $leakFile = Join-Path $pairOne.Left.ArtifactDir "leak.txt"
 Write-Text $leakFile $pairOne.HiddenOraclePath
-$leak = Test-TaskspaceOracleLeak $pairOne.Left.RepoDir $pairOne.Left.ArtifactDir $pairOne.HiddenOraclePath $manifest.HiddenOraclePath
+$leak = Test-TaskspaceOracleLeak $pairOne.Left.RepoDir $pairOne.Left.ArtifactDir $pairOne.HiddenOraclePath
 Assert-True ($leak.leaked) "oracle path leak test did not detect leaked path"
 $repoLeakFile = Join-Path $pairOne.Left.RepoDir "oracle-path-leak.txt"
 Write-Text $repoLeakFile $pairOne.HiddenOraclePath
-$repoLeak = Test-TaskspaceOracleLeak $pairOne.Left.RepoDir $pairOne.Left.ArtifactDir $pairOne.HiddenOraclePath $manifest.HiddenOraclePath
+$repoLeak = Test-TaskspaceOracleLeak $pairOne.Left.RepoDir $pairOne.Left.ArtifactDir $pairOne.HiddenOraclePath
 Assert-True ($repoLeak.leaked) "oracle path leak test did not detect repo-visible leaked path"
 
 $standardArgv = New-TaskspaceWhaleArgv "standard" "model-x" "C:\neutral\left\repo" "C:\neutral\left\last.md"
@@ -73,12 +73,17 @@ Assert-True (($normalizedStandard -join "`n") -eq ($normalizedTaskspace -join "`
 $promptGuardOk = Invoke-TaskspacePromptGuard "Please fix the failing tax calculation test."
 $evidenceRepeatOne = Get-TaskspaceEvidenceGate 1 $promptGuardOk "soft_denylist" "provider-default-or-unknown"
 Assert-True ($evidenceRepeatOne.reported_evidence_level -ne "E2") "Repeats 1 + soft_denylist was promoted to E2"
-Assert-True (@($evidenceRepeatOne.evidence_gate_failures) -contains "provider_params_unknown") "provider-param observability gap was not recorded"
+Assert-True (@($evidenceRepeatOne.evidence_gate_failures) -contains "provider_params_incomplete") "provider-param observability gap was not recorded"
 $softAccepted = Get-TaskspaceEvidenceGate 3 $promptGuardOk "soft_denylist" "known" $false $true $true
 Assert-True ($softAccepted.reported_evidence_level -ne "E2") "accepted soft isolation was promoted to E2"
 Assert-True (@($softAccepted.evidence_gate_failures) -contains "accepted_soft_isolation_non_e2") "accepted soft isolation failure was not recorded"
 $invalidPairEvidence = Get-TaskspaceEvidenceGate 3 $promptGuardOk "hard_sandbox" "known" $true $true
 Assert-True ($invalidPairEvidence.reported_evidence_level -eq "E1") "invalid pair was not downgraded to E1"
+$partialProvider = [pscustomobject]@{ complete = $false; missing = @("model_reasoning_effort") }
+$partialProviderEvidence = Get-TaskspaceEvidenceGate 3 $promptGuardOk "hard_sandbox" $partialProvider
+Assert-True ($partialProviderEvidence.reported_evidence_level -ne "E2") "partial provider config was promoted to E2"
+$deferredStrictEvidence = Get-TaskspaceEvidenceGate 3 $promptGuardOk "hard_deferred_materialization" "known" $false $true $false $true "hard_sandbox_only"
+Assert-True (@($deferredStrictEvidence.evidence_gate_failures) -contains "oracle_isolation_deferred_not_allowed") "deferred oracle isolation was not distinct in strict policy"
 
 $metrics = [pscustomobject]@{
     mode = "left"; logical_mode = "standard"; business_success = $true; exec_exit_code = 0
@@ -99,6 +104,14 @@ $summaryPath = Join-Path $runDir "summary.md"
 Write-TaskspaceRunSummary -Path $summaryPath -Reports @([pscustomobject]@{ pair_dir = $pairOne.PairDir; pair_report = $reportPath; evidence = [pscustomobject]@{ reported_evidence_level = "E2"; included_in_utility_aggregate = $true } })
 $summaryText = Get-Content -Raw -Encoding UTF8 -LiteralPath $summaryPath
 Assert-True ($summaryText -match "included_in_utility_aggregate: True") "run summary did not reflect evidence gate aggregate inclusion"
+$aggregatePath = Join-Path $runDir "aggregate.md"
+Write-TaskspaceAggregateReport -Path $aggregatePath -Reports @(
+    [pscustomobject]@{ repeat = 1; pair_report = "one.md"; evidence = [pscustomobject]@{ reported_evidence_level = "E2"; included_in_utility_aggregate = $true; evidence_gate_failures = @() } },
+    [pscustomobject]@{ repeat = 2; pair_report = "two.md"; evidence = [pscustomobject]@{ reported_evidence_level = "E1"; included_in_utility_aggregate = $false; evidence_gate_failures = @("oracle_isolation_failed") } }
+)
+$aggregateText = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregatePath
+Assert-True ($aggregateText -match "valid_utility_pairs: 1") "aggregate did not count only E2 utility pairs"
+Assert-True ($aggregateText -match "excluded_pairs: 1") "aggregate did not exclude non-E2 pair"
 
 if ($failures.Count -gt 0) {
     Write-Host "TaskSpace benchmark harness self-test: FAIL"

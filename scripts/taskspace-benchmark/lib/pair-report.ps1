@@ -3,10 +3,12 @@ function Get-TaskspaceEvidenceGate {
         [int]$Repeats,
         [Parameter(Mandatory = $true)]$PromptGuard,
         [Parameter(Mandatory = $true)][string]$OracleIsolationLevel,
-        [string]$ProviderParamStatus = "provider-default-or-unknown",
+        $ProviderParamStatus = "provider-default-or-unknown",
         [bool]$InvalidPair = $false,
         [bool]$BusinessSuccess = $true,
-        [bool]$AcceptedSoftIsolation = $false
+        [bool]$AcceptedSoftIsolation = $false,
+        [bool]$AggregateEligible = $true,
+        [string]$OracleIsolationPolicy = "deferred_materialization_allowed"
     )
     $failures = New-Object System.Collections.Generic.List[string]
     if ($InvalidPair) { $failures.Add("invalid_pair") }
@@ -14,15 +16,26 @@ function Get-TaskspaceEvidenceGate {
     if ($Repeats -lt 3) { $failures.Add("repeats_lt_3") }
     if ($PromptGuard.invalid_prompt) { $failures.Add("invalid_prompt") }
     if ($PromptGuard.manual_review_required) { $failures.Add("manual_review_required") }
-    if ($ProviderParamStatus -match "unknown") { $failures.Add("provider_params_unknown") }
+    $providerComplete = $false
+    if ($ProviderParamStatus -is [string]) {
+        $providerComplete = $ProviderParamStatus -notmatch "unknown"
+    } else {
+        $providerComplete = [bool]$ProviderParamStatus.complete
+    }
+    if (-not $providerComplete) { $failures.Add("provider_params_incomplete") }
     if ($OracleIsolationLevel -eq "soft_denylist") { $failures.Add("oracle_isolation_soft_denylist") }
     if ($OracleIsolationLevel -eq "failed") { $failures.Add("oracle_isolation_failed") }
+    if ($OracleIsolationLevel -eq "hard_deferred_materialization" -and $OracleIsolationPolicy -ne "deferred_materialization_allowed") {
+        $failures.Add("oracle_isolation_deferred_not_allowed")
+    }
     if ($AcceptedSoftIsolation) { $failures.Add("accepted_soft_isolation_non_e2") }
+    if (-not $AggregateEligible) { $failures.Add("aggregate_not_enabled") }
     $level = if ($failures.Count -eq 0) { "E2" } elseif (-not $PromptGuard.invalid_prompt -and -not $InvalidPair -and $BusinessSuccess -and $OracleIsolationLevel -ne "failed") { "E2-candidate" } else { "E1" }
     [pscustomobject]@{
         reported_evidence_level = $level
         evidence_gate_failures = @($failures.ToArray())
         included_in_utility_aggregate = ($level -eq "E2")
+        oracle_isolation_policy = $OracleIsolationPolicy
     }
 }
 
@@ -61,7 +74,8 @@ function Write-TaskspacePairReport {
         [Parameter(Mandatory = $true)]$EvidenceGate,
         [Parameter(Mandatory = $true)]$LeftMetrics,
         [Parameter(Mandatory = $true)]$RightMetrics,
-        [Parameter(Mandatory = $true)]$Pair
+        [Parameter(Mandatory = $true)]$Pair,
+        $IsolationProbe = $null
     )
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("# TaskSpace Benchmark Pair Report")
@@ -71,6 +85,7 @@ function Write-TaskspacePairReport {
         @("level", $Manifest.Level),
         @("requested_evidence_target", $Manifest.EvidenceTarget),
         @("reported_evidence_level", $EvidenceGate.reported_evidence_level),
+        @("oracle_isolation_policy", $EvidenceGate.oracle_isolation_policy),
         @("valid_pair", (-not $VariableControl.invalid_pair)),
         @("included_in_utility_aggregate", $EvidenceGate.included_in_utility_aggregate),
         @("left_logical_mode", $Pair.Left.LogicalMode),
@@ -88,6 +103,15 @@ function Write-TaskspacePairReport {
     $lines.Add("- manual_review_required: $($PromptGuard.manual_review_required)")
     $lines.Add("- hard_hits: $(@($PromptGuard.hard_hits) -join ', ')")
     $lines.Add("- context_hits: $(@($PromptGuard.context_hits) -join ', ')")
+    if ($IsolationProbe) {
+        $lines.Add("")
+        $lines.Add("## Oracle Isolation Probe")
+        $lines.Add("- oracle_isolation_level: $($IsolationProbe.oracle_isolation_level)")
+        $lines.Add("- canary_leaked: $($IsolationProbe.canary_leaked)")
+        $lines.Add("- canary_materialized_during_probe: $($IsolationProbe.canary_materialized_during_probe)")
+        $lines.Add("- path_mentioned: $($IsolationProbe.path_mentioned)")
+        $lines.Add("- jsonl: $($IsolationProbe.jsonl_path)")
+    }
     $taskspaceMetrics = @($LeftMetrics, $RightMetrics) | Where-Object { $_.logical_mode -eq "taskspace" } | Select-Object -First 1
     if ($taskspaceMetrics) {
         $lines.Add("")
@@ -137,6 +161,35 @@ function Write-TaskspaceRunSummary {
         $lines += "  - reported_evidence_level: $($report.evidence.reported_evidence_level)"
         $lines += "  - included_in_utility_aggregate: $($report.evidence.included_in_utility_aggregate)"
         $lines += "  - pair_report: $($report.pair_report)"
+    }
+    $lines | Set-Content -LiteralPath $Path -Encoding UTF8
+}
+
+function Write-TaskspaceAggregateReport {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Reports
+    )
+    $all = @($Reports)
+    $valid = @($all | Where-Object { $_.evidence.included_in_utility_aggregate })
+    $lines = @(
+        "# TaskSpace Benchmark Aggregate Report",
+        "",
+        "- all_pairs: $($all.Count)",
+        "- valid_utility_pairs: $($valid.Count)",
+        "- excluded_pairs: $($all.Count - $valid.Count)"
+    )
+    foreach ($report in $all) {
+        $lines += ""
+        $lines += "## Pair $($report.repeat)"
+        $lines += "- pair_report: $($report.pair_report)"
+        $lines += "- reported_evidence_level: $($report.evidence.reported_evidence_level)"
+        $lines += "- included_in_utility_aggregate: $($report.evidence.included_in_utility_aggregate)"
+        if (@($report.evidence.evidence_gate_failures).Count -eq 0) {
+            $lines += "- evidence_gate_failures: none"
+        } else {
+            $lines += "- evidence_gate_failures: $(@($report.evidence.evidence_gate_failures) -join ', ')"
+        }
     }
     $lines | Set-Content -LiteralPath $Path -Encoding UTF8
 }
