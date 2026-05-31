@@ -1,0 +1,31 @@
+{
+  "id": "multi-file-order-pipeline",
+  "level": "L2",
+  "evidence_target": "E2",
+  "prompt_file": "prompt.txt",
+  "fixture_dir": "fixture",
+  "narrative_contract": {
+    "user_knows_internal_concepts": false,
+    "allowed_context_terms": []
+  },
+  "mode_delta_contract": {
+    "only_allowed_delta": ["--taskspace", "taskspace runtime behavior"]
+  },
+  "oracle": {
+    "public_validation": {
+      "command": "python",
+      "args": ["-m", "pytest", "tests", "-q"]
+    },
+    "hidden_strategy": "order-pipeline-v1"
+  },
+  "expected": {
+    "standard_success": true,
+    "taskspace_success": true,
+    "max_taskspace_nodes": 12,
+    "max_taskspace_spawn_agent_calls": 4
+  },
+  "thresholds": {
+    "taskspace_wall_time_ratio_warn": 2.0,
+    "taskspace_tool_call_ratio_warn": 2.0
+  }
+}

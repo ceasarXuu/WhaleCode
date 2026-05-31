@@ -14,6 +14,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\oracle-runner.ps1")
 . (Join-Path $PSScriptRoot "lib\metrics-extractor.ps1")
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
+. (Join-Path $PSScriptRoot "lib\matrix-report.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\paired-bench-selftest" }
 $failures = New-Object System.Collections.Generic.List[string]
@@ -112,6 +113,21 @@ Write-TaskspaceAggregateReport -Path $aggregatePath -Reports @(
 $aggregateText = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregatePath
 Assert-True ($aggregateText -match "valid_utility_pairs: 1") "aggregate did not count only E2 utility pairs"
 Assert-True ($aggregateText -match "excluded_pairs: 1") "aggregate did not exclude non-E2 pair"
+$matrixData = Get-TaskspaceMatrixReportData @(
+    [pscustomobject]@{
+        scenario = "synthetic"; level = "L1"; exit_code = 0; valid_pairs = 3
+        excluded_pairs = 0; non_e2_reports = 0; warning_pairs = 1
+    }
+) @("L1") 3
+Assert-True ($matrixData.e2_evidence_readiness) "matrix evidence readiness rejected a valid synthetic E2 row"
+Assert-True (-not $matrixData.e2_clean_readiness) "matrix clean readiness ignored warning pairs"
+$matrixClean = Get-TaskspaceMatrixReportData @(
+    [pscustomobject]@{
+        scenario = "synthetic"; level = "L1"; exit_code = 0; valid_pairs = 3
+        excluded_pairs = 0; non_e2_reports = 0; warning_pairs = 0
+    }
+) @("L1", "L2") 3
+Assert-True (-not $matrixClean.e2_evidence_readiness) "matrix evidence readiness ignored missing required levels"
 
 if ($failures.Count -gt 0) {
     Write-Host "TaskSpace benchmark harness self-test: FAIL"

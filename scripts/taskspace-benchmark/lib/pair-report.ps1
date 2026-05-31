@@ -125,6 +125,36 @@ function Write-TaskspacePairReport {
         }
         if ($warnings.Count -eq 0) { $lines.Add("- none") } else { foreach ($warning in $warnings) { $lines.Add("- $warning") } }
     }
+    $standardMetrics = @($LeftMetrics, $RightMetrics) | Where-Object { $_.logical_mode -eq "standard" } | Select-Object -First 1
+    if ($standardMetrics -and $taskspaceMetrics) {
+        $toolRatio = if ([int]$standardMetrics.tool_call_count -gt 0) {
+            [math]::Round(([double]$taskspaceMetrics.tool_call_count / [double]$standardMetrics.tool_call_count), 2)
+        } else { 0 }
+        $timeRatio = if ([int64]$standardMetrics.wall_time_ms -gt 0) {
+            [math]::Round(([double]$taskspaceMetrics.wall_time_ms / [double]$standardMetrics.wall_time_ms), 2)
+        } else { 0 }
+        $toolWarn = $Manifest.Thresholds.taskspace_tool_call_ratio_warn -and $toolRatio -gt [double]$Manifest.Thresholds.taskspace_tool_call_ratio_warn
+        $timeWarn = $Manifest.Thresholds.taskspace_wall_time_ratio_warn -and $timeRatio -gt [double]$Manifest.Thresholds.taskspace_wall_time_ratio_warn
+        $outcome = if ($taskspaceMetrics.business_success -and -not $standardMetrics.business_success) {
+            "taskspace_better"
+        } elseif ($standardMetrics.business_success -and -not $taskspaceMetrics.business_success) {
+            "taskspace_worse"
+        } elseif ($standardMetrics.business_success -and $taskspaceMetrics.business_success -and -not ($toolWarn -or $timeWarn)) {
+            "both_success_cost_within_budget"
+        } elseif ($standardMetrics.business_success -and $taskspaceMetrics.business_success) {
+            "both_success_taskspace_cost_higher"
+        } else {
+            "both_failed_or_inconclusive"
+        }
+        $lines.Add("")
+        $lines.Add("## Utility Assessment")
+        $lines.Add("- outcome: $outcome")
+        $lines.Add("- taskspace_tool_call_ratio: $toolRatio")
+        $lines.Add("- taskspace_wall_time_ratio: $timeRatio")
+        $lines.Add("- taskspace_tool_call_ratio_warn: $toolWarn")
+        $lines.Add("- taskspace_wall_time_ratio_warn: $timeWarn")
+        $lines.Add("- note: evidence level proves paired comparability; utility outcome is reported separately to avoid overstating benefit.")
+    }
     foreach ($sideMetrics in @($LeftMetrics, $RightMetrics)) {
         $lines.Add("")
         $lines.Add("## $($sideMetrics.mode) / $($sideMetrics.logical_mode)")

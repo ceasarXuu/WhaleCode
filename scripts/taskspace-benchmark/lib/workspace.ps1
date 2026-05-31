@@ -93,10 +93,8 @@ function Write-TaskspaceGeneratedHiddenOracle {
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$Strategy
     )
-    if ($Strategy -ne "tax-calc-v1") {
-        throw "Unsupported hidden oracle strategy: $Strategy"
-    }
-    Write-Text $Path @'
+    if ($Strategy -eq "tax-calc-v1") {
+        Write-Text $Path @'
 import pathlib
 import random
 import sys
@@ -127,6 +125,88 @@ else:
     raise AssertionError("unknown region should fail")
 print("hidden oracle passed")
 '@
+        return
+    }
+
+    if ($Strategy -eq "order-pipeline-v1") {
+        Write-Text $Path @'
+import pathlib
+import sys
+
+repo = pathlib.Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(repo / "src"))
+
+from order_pipeline.invoice import invoice_total
+from order_pipeline.parser import parse_order_line
+from order_pipeline.pricing import add_shipping, apply_discount
+
+assert parse_order_line(" SKU-1 , 2 , 19.50 ") == {
+    "sku": "sku-1",
+    "quantity": 2,
+    "unit_price": 19.5,
+}
+for bad_line in ["sku-1,0,19.50", "sku-1,-2,19.50"]:
+    try:
+        parse_order_line(bad_line)
+    except ValueError as exc:
+        assert "quantity" in str(exc).lower()
+    else:
+        raise AssertionError("non-positive quantity should fail")
+assert apply_discount(100, "Premium") == 90
+assert apply_discount(200, "VIP") == 170
+assert apply_discount(75, "standard") == 75
+assert add_shipping(49.99) == 54.99
+assert add_shipping(50) == 50
+assert invoice_total([" SKU-1 , 2 , 20.00 ", "sku-2,1,10.00"], "Premium") == 50.0
+assert invoice_total(["sku-1,3,25.00"], "vip") == 63.75
+print("hidden oracle passed")
+'@
+        return
+    }
+
+    if ($Strategy -eq "subscription-billing-v1") {
+        Write-Text $Path @'
+import pathlib
+import sys
+
+repo = pathlib.Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(repo / "src"))
+
+from billing_service.billing import invoice_total
+from billing_service.plans import plan_subtotal
+from billing_service.usage import parse_usage_row
+
+parsed = parse_usage_row(" acct-7 , Pro , 3 , Annual ")
+assert parsed == {
+    "account": "acct-7",
+    "plan": "pro",
+    "seats": 3,
+    "billing_period": "annual",
+}
+for bad in ["acct,basic,0,monthly", "acct,basic,-1,monthly"]:
+    try:
+        parse_usage_row(bad)
+    except ValueError as exc:
+        assert "seats" in str(exc).lower()
+    else:
+        raise AssertionError("non-positive seats should fail")
+try:
+    plan_subtotal("unknown", 1, "monthly")
+except ValueError as exc:
+    assert "plan" in str(exc).lower()
+else:
+    raise AssertionError("unknown plan should fail")
+assert plan_subtotal("basic", 2, "monthly") == 20
+assert plan_subtotal("pro", 3, "annual") == 870
+assert plan_subtotal("enterprise", 1, "annual") == 990
+assert invoice_total("acct-1,pro,3,annual", "US") == 930.9
+assert invoice_total("acct-2,basic,2,monthly", "EU") == 24.0
+print("hidden oracle passed")
+'@
+        return
+    }
+
+    throw "Unsupported hidden oracle strategy: $Strategy"
 }
 
 function Test-TaskspaceNeutralCwd {

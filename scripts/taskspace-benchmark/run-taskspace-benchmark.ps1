@@ -11,6 +11,7 @@ param(
     [ValidateSet("deferred_materialization_allowed", "hard_sandbox_only")]
     [string]$OracleIsolationPolicy = "deferred_materialization_allowed",
     [switch]$EnableAggregate,
+    [switch]$AllowNonE2Result,
     [switch]$PlanOnly
 )
 
@@ -181,5 +182,8 @@ Write-Host "RunDir: $runDir"
 Write-Host "RunSummary: $runSummaryPath"
 foreach ($report in $pairReports) { Write-Host "PairReport: $($report.pair_report)" }
 
-$failedPairs = @($pairReports | Where-Object { $_.evidence.reported_evidence_level -eq "E1" })
-if ($failedPairs.Count -gt 0) { exit 1 }
+$failedPairs = @($pairReports | Where-Object {
+        $_.evidence.reported_evidence_level -eq "E1" -or
+        (([string]$manifest.EvidenceTarget -eq "E2") -and $_.evidence.reported_evidence_level -ne "E2")
+    })
+if ($failedPairs.Count -gt 0 -and -not $AllowNonE2Result) { exit 1 }
