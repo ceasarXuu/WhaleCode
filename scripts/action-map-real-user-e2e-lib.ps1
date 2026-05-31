@@ -36,7 +36,8 @@ function Invoke-RealProcess {
     $stdoutTask = $process.StandardOutput.ReadToEndAsync()
     $stderrTask = $process.StandardError.ReadToEndAsync()
     if ($StdinPath) {
-        $process.StandardInput.Write((Get-Content -Raw -Encoding UTF8 $StdinPath))
+        $stdinBytes = [System.IO.File]::ReadAllBytes($StdinPath)
+        $process.StandardInput.BaseStream.Write($stdinBytes, 0, $stdinBytes.Length)
         $process.StandardInput.Close()
     }
     if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
