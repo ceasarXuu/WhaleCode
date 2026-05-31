@@ -70,7 +70,7 @@ const SEED_NODE_IDS: &[&str] = &[
 
 /// Test fixture budget for the default inspect-node contract.
 #[cfg(test)]
-pub(crate) const MAIN_TOOL_RESULT_BUDGET_PER_NODE: usize = 6;
+pub(crate) const MAIN_TOOL_RESULT_BUDGET_PER_NODE: usize = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapGateError {
@@ -1636,6 +1636,7 @@ preview:\n\
             }
             self.validate_next_node_draft_after_finish(node_id, draft)?;
         }
+        self.validate_completion_evidence(node_id)?;
         let (result_id, mut events) = self.record_main_node_lifecycle_result(
             owner_session_id,
             node_id,
@@ -1695,6 +1696,41 @@ preview:\n\
         )
     }
 
+    fn validate_completion_evidence(&self, node_id: &str) -> Result<(), String> {
+        let map_id = self.active_map_id.as_ref().ok_or_else(|| {
+            "TaskSpace mode is active but no active task path exists.".to_string()
+        })?;
+        let map = self
+            .maps
+            .get(map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        let node = map
+            .nodes
+            .get(node_id)
+            .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
+        match node.kind {
+            NodeKind::ImplementSolution => {
+                if !node_has_successful_action(map, node, ActionClass::Edit) {
+                    return Err(format!(
+                        "TaskSpace implement_solution node `{node_id}` cannot be completed without a recorded successful edit action. Execute the edit in this node, or block the node if the edit cannot be made."
+                    ));
+                }
+            }
+            NodeKind::SmokeTest | NodeKind::RegressionTest => {
+                if !node_has_successful_action(map, node, ActionClass::Test)
+                    && !node_has_successful_action(map, node, ActionClass::Build)
+                {
+                    return Err(format!(
+                        "TaskSpace {} node `{node_id}` cannot be completed without a recorded successful test or build action. Run validation in this node, or block it if validation fails and create a follow-up implementation node.",
+                        node.kind.as_str()
+                    ));
+                }
+            }
+            NodeKind::InspectCodeContext | NodeKind::FinalSynthesis | NodeKind::Custom => {}
+        }
+        Ok(())
+    }
+
     pub(crate) fn record_main_final_response(
         &mut self,
         owner_session_id: ThreadId,
@@ -1740,7 +1776,7 @@ preview:\n\
 
     pub(crate) fn prepare_spawn_assignment(
         &mut self,
-        owner_session_id: ThreadId,
+        _owner_session_id: ThreadId,
         _requested_task_name: &str,
         requested_node_id: Option<&str>,
     ) -> Result<(Option<ActionMapAssignment>, Vec<MapRuntimeEvent>), String> {
@@ -1778,14 +1814,7 @@ preview:\n\
         let requested_node_id = requested_node_id
             .map(str::trim)
             .filter(|node_id| !node_id.is_empty());
-        let node_id = if let Some(node_id) = requested_node_id
-            && self.can_handoff_current_main_node_to_subagent(&map_id, node_id, owner_session_id)
-        {
-            events.extend(self.release_current_main_lease("main_handoff_to_subagent")?);
-            node_id.to_string()
-        } else {
-            self.select_spawn_node_id(&map_id, requested_node_id)?
-        };
+        let node_id = self.select_spawn_node_id(&map_id, requested_node_id)?;
         self.validate_maintenance_barrier_for_node(&node_id)?;
 
         let lease_id = self.next_lease_id();
@@ -2053,7 +2082,19 @@ preview:\n\
             "Before ordinary work, the agent must decide whether the user's current request belongs to an existing task or needs a new task. Runtime exposes task ids and validates structure only; the agent performs semantic task routing with taskspace_control(action=route_task) or taskspace_control(action=start_task).\n",
         );
         context.push_str(
-            "For broad multi-module tasks, create separate inspect/review nodes for independent evidence gathering and delegate ready inspect/review nodes to explorer agents when at least two independent areas can be checked in parallel. If the user asks to parallelize independent work, or if independent parser/pricing/review/etc. tracks are visible before editing, do not substitute main-agent parallel shell/file-change calls for collaboration; create the ready nodes and call spawn_agent for those nodes. Do not handle one independent investigation yourself while only one explorer handles the other; when two independent tracks exist, the main agent should coordinate and integrate while two explorer agents own the two investigation nodes. Leave those parallel inspect nodes ready for explorer agents instead of binding one to the main agent unless only one independent area exists. Inspect nodes may run diagnostic tests to gather evidence; keep implementation edits on implementation nodes and final passing validation on explicit test nodes.\n",
+            "Use the minimum sufficient task map. For a simple single-file or single-failure task, prefer one main-agent chain: inspect_code_context -> implement_solution -> smoke_test/regression_test -> final_synthesis. Do not create extra ready inspect nodes or call spawn_agent for simple work unless new evidence shows independent tracks that would materially reduce risk or context load.\n",
+        );
+        context.push_str(
+            "Finish nodes with matching tool evidence, not only a written claim: implement_solution needs a successful edit action before finish_node; smoke_test/regression_test needs a successful test or build action before finish_node. If the needed action is impossible or fails, block the node or create a correctly typed follow-up node.\n",
+        );
+        context.push_str(
+            "Pre-fix diagnostic tests that are expected to fail belong inside inspect_code_context as evidence gathering. Create smoke_test/regression_test nodes for post-implementation validation, not for a separate baseline-failure node on simple bug fixes.\n",
+        );
+        context.push_str(
+            "spawn_agent can only claim ready nodes; do not bind a node to the main agent and then hand it off.\n",
+        );
+        context.push_str(
+            "For broad multi-module tasks, create separate inspect/review nodes for independent evidence gathering and delegate ready inspect/review nodes to explorer agents only when at least two independent areas can be checked in parallel and the coordination cost is justified. If the user asks to parallelize independent work, or if independent parser/pricing/review/etc. tracks are visible before editing, do not substitute main-agent parallel shell/file-change calls for collaboration; create the ready nodes and call spawn_agent for those nodes. Do not handle one independent investigation yourself while only one explorer handles the other; when two independent tracks exist, the main agent should coordinate and integrate while two explorer agents own the two investigation nodes. Leave those parallel inspect nodes ready for explorer agents instead of binding one to the main agent unless only one independent area exists. Inspect nodes may run diagnostic tests to gather evidence; keep implementation edits on implementation nodes and final passing validation on explicit test nodes.\n",
         );
         context.push_str(
             "During inspect/review nodes, discover exact paths before reading files. Prefer rg --files, Get-ChildItem -Name, or narrow directory listings; do not read guessed filenames from truncated shell output.\n",
@@ -2171,10 +2212,10 @@ preview:\n\
                 context.push_str(&base_map_metadata_prompt());
             }
             context.push_str(
-                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. To delegate the current main-held node to a subagent, call spawn_agent with that node_id; runtime will hand off the lease and the main agent must create or bind another node before ordinary tools. If more than one ready node exists, spawn_agent must include node_id for the intended node; if only one ready node exists, runtime may bind it automatically. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Node result context stays on the node; use it only when it is relevant to the next step.\n",
+                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. spawn_agent can only claim ready nodes; do not bind a node to the main agent and then hand it off. If a subagent should own work, create that node with bind_current=false or finish/block the current main node first. If more than one ready node exists, spawn_agent must include node_id for the intended node; if only one ready node exists, runtime may bind it automatically. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Node result context stays on the node; use it only when it is relevant to the next step. Do not spawn an agent merely because TaskSpace is active or because a node exists; spawn only when the node represents a bounded, independent track whose result the main agent will integrate.\n",
             );
             context.push_str(
-                "When the task naturally separates into independent investigation tracks, proactively create separate inspect_code_context nodes and assign subagents instead of waiting for the user to ask for parallel work. Keep dependency edges explicit: independent investigation nodes should not depend on each other, implementation nodes should depend on the investigation nodes they integrate, and validation/final nodes should depend on the implementation or validation predecessor they verify.\n",
+                "When the task naturally separates into independent investigation tracks, proactively create separate inspect_code_context nodes and assign subagents instead of waiting for the user to ask for parallel work. Before doing so, verify that the tracks are actually independent and that each track has a distinct evidence surface. Keep dependency edges explicit: independent investigation nodes should not depend on each other, implementation nodes should depend on the investigation nodes they integrate, and validation/final nodes should depend on the implementation or validation predecessor they verify.\n",
             );
         } else {
             context.push_str(
@@ -3043,33 +3084,6 @@ preview:\n\
         }
     }
 
-    fn can_handoff_current_main_node_to_subagent(
-        &self,
-        map_id: &str,
-        node_id: &str,
-        owner_session_id: ThreadId,
-    ) -> bool {
-        if self.current_main_node_id.as_deref() != Some(node_id) {
-            return false;
-        }
-        let Some(lease_id) = self.current_main_lease_id.as_deref() else {
-            return false;
-        };
-        let Some(map) = self.maps.get(map_id) else {
-            return false;
-        };
-        let Some(node) = map.nodes.get(node_id) else {
-            return false;
-        };
-        if node.active_lease.as_deref() != Some(lease_id) || node.status != NodeStatus::Running {
-            return false;
-        }
-        let Some(lease) = map.leases.get(lease_id) else {
-            return false;
-        };
-        lease.holder == LeaseHolder::Main && lease.agent_thread_id == Some(owner_session_id)
-    }
-
     fn ready_parallel_inspect_node_ids(map: &ActionMapInstance) -> Vec<String> {
         ordered_node_ids(map)
             .into_iter()
@@ -3829,6 +3843,21 @@ fn count_node_results_of_kind(node: &MapNode, kind: NodeResultKind) -> usize {
         .iter()
         .filter(|result| result.kind == kind)
         .count()
+}
+
+fn node_has_successful_action(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    action_class: ActionClass,
+) -> bool {
+    node.result_context.iter().any(|result_ref| {
+        let Some(result) = map.results.get(&result_ref.id) else {
+            return false;
+        };
+        result.kind == NodeResultKind::MainToolCall
+            && result.action_class == Some(action_class)
+            && result.body.contains("success: true")
+    })
 }
 
 #[cfg(test)]
@@ -5003,14 +5032,14 @@ mod tests {
     }
 
     #[test]
-    fn in_flight_main_tool_blocks_main_node_handoff_to_subagent() {
+    fn requested_main_node_spawn_rejects_running_main_node() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         start_test_task(
             &mut state,
             owner,
-            "Handoff candidate",
+            "Running main node",
             "The main node has an in-flight tool call.",
             true,
         );
@@ -5025,8 +5054,8 @@ mod tests {
 
         let error = state
             .prepare_spawn_assignment(owner, "parallel reader", Some("node-1"))
-            .expect_err("main node handoff must wait for in-flight tool results");
-        assert!(error.contains("in-flight main tool call"));
+            .expect_err("main-held nodes are not handed off to subagents");
+        assert!(error.contains("already held by an active lease"));
 
         let map = state.active_map().expect("active map");
         let node = map.nodes.get("node-1").expect("node");
@@ -5453,6 +5482,115 @@ mod tests {
     }
 
     #[test]
+    fn finish_implement_node_requires_successful_edit_evidence() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Fix rounding".to_string(),
+                "Fix the tax rounding bug.".to_string(),
+                "Apply code fix".to_string(),
+                "Change calculate_tax rounding.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        let error = state
+            .finish_main_node(
+                owner,
+                &node_id,
+                "Fixed rounding.".to_string(),
+                None,
+            )
+            .expect_err("implementation requires edit evidence");
+
+        assert!(error.contains("cannot be completed without a recorded successful edit action"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some(node_id.as_str()));
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "changed round(..., 1) to round(..., 2)".to_string(),
+            )
+            .expect("edit result records");
+        state
+            .finish_main_node(
+                owner,
+                &node_id,
+                "Fixed rounding.".to_string(),
+                None,
+            )
+            .expect("implementation can finish after edit evidence");
+    }
+
+    #[test]
+    fn finish_smoke_node_requires_successful_validation_evidence() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::SmokeTest,
+                "Validate fix".to_string(),
+                "Run the validation suite.".to_string(),
+                "Run smoke tests".to_string(),
+                "Run pytest.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "pytest failed".to_string(),
+            )
+            .expect("failed test result records");
+
+        let error = state
+            .finish_main_node(
+                owner,
+                &node_id,
+                "Tests passed.".to_string(),
+                None,
+            )
+            .expect_err("smoke test requires successful validation");
+
+        assert!(error.contains("cannot be completed without a recorded successful test or build action"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some(node_id.as_str()));
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-pass",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("successful test result records");
+        state
+            .finish_main_node(
+                owner,
+                &node_id,
+                "Tests passed.".to_string(),
+                None,
+            )
+            .expect("smoke test can finish after successful validation");
+    }
+
+    #[test]
     fn block_main_node_records_blocker_without_unlocking_downstream() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -5685,6 +5823,11 @@ mod tests {
         assert!(context.contains("TaskSpace mode is active"));
         assert!(context.contains("Node kind selection rules"));
         assert!(context.contains("Do not create custom nodes"));
+        assert!(context.contains("Use the minimum sufficient task map"));
+        assert!(context.contains("Do not create extra ready inspect nodes or call spawn_agent for simple work"));
+        assert!(context.contains("Finish nodes with matching tool evidence"));
+        assert!(context.contains("Pre-fix diagnostic tests"));
+        assert!(context.contains("spawn_agent can only claim ready nodes"));
         assert!(context.contains("discover exact paths before reading files"));
         assert!(context.contains("do not substitute main-agent parallel shell/file-change calls"));
         assert!(context.contains("while two explorer agents own the two investigation nodes"));
@@ -5843,7 +5986,7 @@ mod tests {
     }
 
     #[test]
-    fn spawn_assignment_can_handoff_current_main_node_to_subagent() {
+    fn spawn_assignment_rejects_handoff_of_current_main_node() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
@@ -5851,40 +5994,23 @@ mod tests {
             &mut state,
             owner,
             "Parser investigation",
-            "Main agent will delegate this node to a subagent.",
+            "Main agent already owns this node.",
             true,
         );
 
-        let (assignment, events) = state
+        let error = state
             .prepare_spawn_assignment(owner, "delegate parser investigation", Some("node-1"))
-            .expect("main-held node handoff succeeds");
-        let assignment = assignment.expect("experiment assignment");
+            .expect_err("main-held node handoff is rejected");
 
-        assert_eq!(assignment.node_id, "node-1");
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::LeaseReleased(event)
-                    if event.node_id == "node-1"
-                        && event.holder == "main"
-                        && event.reason == "main_handoff_to_subagent"
-            )
-        }));
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::LeaseCreated(event)
-                    if event.node_id == "node-1" && event.holder == "subagent"
-            )
-        }));
-        assert!(state.current_main_node_id.is_none());
-        assert!(state.current_main_lease_id.is_none());
+        assert!(error.contains("already held by an active lease"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+        assert_eq!(state.current_main_lease_id.as_deref(), Some("lease-1"));
         let map = state.active_map().expect("active map");
         let node = map.nodes.get("node-1").expect("node");
         assert_eq!(node.status, NodeStatus::Running);
-        let lease_id = node.active_lease.as_ref().expect("subagent lease");
+        let lease_id = node.active_lease.as_ref().expect("main lease");
         let lease = map.leases.get(lease_id).expect("lease");
-        assert_eq!(lease.holder, LeaseHolder::SubAgent);
+        assert_eq!(lease.holder, LeaseHolder::Main);
     }
 
     #[test]

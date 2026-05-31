@@ -97,7 +97,7 @@ pub(crate) fn base_map_metadata_prompt() -> String {
         prompt.push_str(node.when_to_use);
         prompt.push('\n');
     }
-    prompt.push_str("Use these candidates as a task decomposition menu. For taskspace_control(start_task/create_node), choose one runtime node_kind value. BaseMap candidates outside the hard-gated values are guidance for node titles and decomposition, not separate runtime kinds. Do not create a generic plan/implement/summary map.");
+    prompt.push_str("Use these candidates as a task decomposition menu, not as a checklist. Start with the minimum sufficient map for the user's task. Simple single-file or single-failure work should usually stay on a narrow main-agent chain instead of expanding many candidate nodes. For taskspace_control(start_task/create_node), choose one runtime node_kind value. BaseMap candidates outside the hard-gated values are guidance for node titles and decomposition, not separate runtime kinds. Do not create a generic plan/implement/summary map.");
     prompt
 }
 
@@ -105,9 +105,11 @@ pub(crate) fn node_kind_selection_prompt() -> &'static str {
     "Node kind selection rules:
 - Use inspect_code_context for reading files, searching, understanding scope, design investigation, and subagent investigation nodes.
 - Use implement_solution only when the node will modify code, tests, configuration, or docs.
-- Use smoke_test or regression_test before running test/build/lint commands; baseline failing validation and final passing validation are test nodes.
+- Use smoke_test or regression_test before post-implementation test/build/lint commands.
+- Keep expected failing pre-fix diagnostic test runs inside inspect_code_context; do not create a separate smoke_test node just to prove the current bug fails.
 - Use final_synthesis only for final wrap-up.
 - If validation fails and edits are needed, leave the test node with its result, switch to implement_solution for the fix, then switch back to a test node for the rerun.
+- Prefer the minimum sufficient node chain; create multiple ready inspect_code_context nodes only for independent evidence tracks with distinct source surfaces.
 - Do not create custom nodes in live TaskSpace work. If work does not fit a kind, choose the closest concrete kind and explain the scope in the node title/context."
 }
 
