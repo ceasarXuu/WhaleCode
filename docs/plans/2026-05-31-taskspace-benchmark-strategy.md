@@ -32,6 +32,40 @@
 - 只有达到 E3，才能说“对真实复杂任务有收益证据”。
 - 文档、报告、发布说明必须标注当前证据等级。
 
+## 用户叙事硬约束
+
+TaskSpace benchmark 默认按照真实用户叙事运行。用户完全不知道 `TaskSpace`、`task map`、`node`、`subagent`、并行调度、结构化工具、图健康指标、hidden oracle、测试目标等内部概念存在。
+
+硬约束：
+
+- 用户 prompt 只能描述用户目标、项目症状、业务规则、验收期望、约束条件。
+- 用户 prompt 不得明示或暗示 agent 采用测试目标所期待的内部行为。
+- 用户 prompt 不得要求 agent 创建 task、map、node、edge、plan graph。
+- 用户 prompt 不得要求 agent 并行、拆给多个 agent、调用 subagent、委派、fan out。
+- 用户 prompt 不得暗示“为了测试 TaskSpace 效果”“为了让图生长”“为了验证多 agent 协作”等 benchmark 意图。
+- 用户 prompt 不得把内部观测指标转写成自然语言要求，例如“请产生多个独立调查轨道”“请确保实施依赖调查结果”。
+- benchmark 可以在 manifest 中声明 TaskSpace 结构期望，但这些期望只属于 harness/oracle，不得进入 agent 可见输入。
+
+允许的用户叙事：
+
+- “先理解 README、测试和实现，再修改。”
+- “区分产品规则和错误测试预期。”
+- “不要只修表面问题。”
+- “修改前后都跑测试。”
+- “说明你做了什么，以及为什么这么改。”
+
+这些表达是用户对工作质量的自然要求，不是对内部协作机制的指令。
+
+判断原则：
+
+```text
+如果一个真实用户不会自然这么说，
+或者这句话只有知道 TaskSpace 内部设计/测试目标的人才会说，
+则该 prompt 不合格。
+```
+
+违反该约束的 run 只能用于内部机制调试，不能计入 E1/E2/E3，也不能用于产品收益判断。
+
 ## 产品假设
 
 TaskSpace 的定位不是替代所有简单执行路径，而是面向中高复杂度问题解决的非线性工作组织层。
@@ -440,6 +474,15 @@ target/
       "hidden_oracle_visibility"
     ]
   },
+  "narrative_contract": {
+    "user_knows_internal_concepts": false,
+    "forbid_internal_mechanism_hints": true,
+    "forbid_benchmark_goal_hints": true,
+    "prompt_guard_required": true,
+    "guard_output_required": true,
+    "external_original_prompt": false,
+    "manual_review_required_for_contextual_hits": true
+  },
   "turns": [
     {
       "id": "turn-1",
@@ -502,9 +545,11 @@ target/
 - manifest 是测试契约，可以包含 TaskSpace 期望。
 - fixture 是初始代码库，不在运行中动态生成核心业务文件，除非场景本身测试脚手架生成能力。
 - private oracle 隐藏在测试 harness 中，不暴露给 agent。
+- `narrative_contract` 是硬门禁。任何 prompt 泄漏内部概念、协作机制或 benchmark 目标，该 run 标记为 `invalid_prompt`。
 - L1/L2/L3 单轮场景可以只有一个 `turns[]`。
 - L4 必须使用 `turns[]`、`compaction_trigger` 和 `resume_assertions`。
 - E3 外部 benchmark 必须填写 `external_benchmark`、`resource_policy` 和 `human_review_required`。
+- E3 外部 benchmark 的原始 prompt 如果包含通用工程词，不自动判 invalid；只有暴露 TaskSpace 内部机制、被改写成 TaskSpace 友好 prompt、或额外添加内部方法论提示时才判 invalid。
 
 ### Run ID 与 Artifact
 
@@ -691,6 +736,8 @@ paired run 的 treatment delta 只能是：
 
 - taskspace prompt 比 standard prompt 多提示。
 - taskspace 场景暴露内部 node/subagent/map 词。
+- 用户 prompt 暗示 benchmark 希望看到的内部行为，例如并行调查、多个 agent、任务图生长、节点依赖。
+- 用户 prompt 提到测试目标、图健康、TaskSpace 效用验证、结构化协作指标。
 - standard 用不同模型或不同权限。
 - taskspace 允许读 hidden oracle。
 - agent 可见路径包含 `standard` 或 `taskspace`。
@@ -914,6 +961,7 @@ TaskSpace 额外字段：
 进入 utility aggregate 的 pair 必须满足：
 
 - `invalid_pair = false`
+- `invalid_prompt = false`
 - `harness_failure = false`
 - `prompt/fixture/model/permission/cwd` variable checks 全部通过
 - hidden oracle isolation 等级满足场景要求
@@ -921,6 +969,7 @@ TaskSpace 额外字段：
 不进入 utility aggregate 但仍保留记录：
 
 - invalid pair
+- invalid prompt
 - harness failure
 - oracle isolation failure
 - variable-control self-test failure
@@ -1068,6 +1117,8 @@ E3 manifest 必须补充：
 - 保留原始验收方式。
 - TaskSpace 额外导出 observability artifact。
 - 同一题尽量跑 standard 与 taskspace 对照。
+- 原始 prompt 中的通用工程词不因黑名单命中自动 invalid；必须结合语境判断是否泄漏 Whale/TaskSpace 内部机制。
+- 如果为了适配 Whale 而补充提示，只能补充运行环境/安全/验收路径，不得补充内部方法论、并行、subagent、node、graph 等协作策略。
 
 实施顺序约束：
 
@@ -1077,27 +1128,56 @@ E3 manifest 必须补充：
 
 ## Prompt Guard
 
-所有拟真用户 prompt 默认禁止出现：
+Prompt Guard 是用户叙事硬约束的自动化检查层，不是全部判断。它负责抓显性泄漏；人工审查和 scenario review 负责抓隐性暗示。
+
+Prompt Guard 分两类命中。
+
+### Hard Internal Tokens
+
+这些词默认 hard fail，因为普通用户不应在自然请求中要求 Whale 使用这些内部机制：
 
 ```text
 taskspace
 action map
-map
-node
 subagent
 spawn_agent
 taskspace_control
+multiple agents
+multi-agent
+split ... agents
+fan out
+graph health
+structured collaboration
+coordination strategy
+test objective
+observability target
+```
+
+命中 hard internal token 时，run 标记为 `invalid_prompt = true`，除非该 prompt 是外部 benchmark 原始文本且人工复核确认该词不是 Whale/TaskSpace 内部机制含义。
+
+### Context-Sensitive Terms
+
+这些词可能是普通工程语义，不能一刀切 hard fail：
+
+```text
+map
+node
 parallel
 parallelize
 concurrent
 simultaneously
 delegate
 delegation
-multiple agents
-multi-agent
-split ... agents
-fan out
+task graph
+dependency graph
+benchmark
 ```
+
+处理规则：
+
+- 如果上下文是在说 Whale/agent 的内部组织方式，例如“让多个 agent 并行调查”“创建 node”“生成 task graph”，判 invalid。
+- 如果上下文是业务或工程对象，例如 Node.js、source map、map parsing、parallel tests、concurrent request race、dependency graph of packages、performance benchmark，允许或进入人工复核。
+- 外部 benchmark 原始 prompt 中出现 context-sensitive terms，不自动 invalid。只有 harness 改写 prompt、额外添加内部方法论提示、或暴露 TaskSpace 结构目标时才 invalid。
 
 允许出现：
 
@@ -1108,6 +1188,36 @@ fan out
 - “说明你怎么组织工作”
 
 这些是普通用户可自然表达的工作要求，不属于内部协作机制泄漏。
+
+隐性暗示同样禁止，例如：
+
+- “你可以同时从多个方向调查。”
+- “你可以安排其他 agent 帮你看不同模块。”
+- “请把工作拆成多个节点推进。”
+- “请让你的任务图体现前后依赖。”
+- “这次我要观察你是否会主动并行。”
+
+这些句子即使不包含被禁关键词，也会污染真实用户路径。
+
+Prompt Guard 输出必须记录：
+
+```json
+{
+  "invalid_prompt": false,
+  "guard_hits": [
+    {
+      "matched_span": "parallel tests",
+      "hit_category": "context_sensitive",
+      "decision": "allowed",
+      "manual_review_required": false,
+      "external_original_prompt": false,
+      "false_positive_allowed_reason": "parallel describes test execution, not agent orchestration"
+    }
+  ]
+}
+```
+
+如果出现 context-sensitive hit 且无法自动判断语义，必须设置 `manual_review_required = true`。人工复核结论必须写入 pair report，不能只在终端输出。
 
 ## 报告格式
 
@@ -1241,6 +1351,8 @@ L4 runner 不能只使用一次 `whale exec`。它需要支持同一 session/thr
 | 自测 | 做法 | 期望 |
 |---|---|---|
 | variable-control self-test | 故意让 prompt、fixture、model param、permission、cwd policy 任一不一致 | pair 标记 invalid，不进入 utility aggregate |
+| prompt-narrative self-test | 构造显性/隐性内部机制暗示 prompt | 标记 invalid_prompt，不进入 utility aggregate |
+| prompt-narrative false-positive test | 构造 Node.js、source map、map parsing、parallel tests、concurrent request race、performance benchmark 等自然工程 prompt | 不得自动 invalid；需要复核的必须记录原因 |
 | hidden-oracle-isolation test | 构造 agent 尝试读取 private oracle 的场景 | 读取失败或 report 标记 isolation failure |
 | l4-manifest test | 使用多 turn manifest、插话、resume assertions | runner 能按 turn 执行并导出 task identity 证据 |
 | flake-lineage test | 模拟 harness failure 后重跑 | 新 run id、原失败保留、aggregate denominator 正确 |

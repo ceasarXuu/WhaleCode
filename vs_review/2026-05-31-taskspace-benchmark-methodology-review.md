@@ -254,6 +254,230 @@ none for blocking closure.
 
 The two design documents may proceed. Round 1 blocking findings were accepted and fixed; Round 2 fresh closure review found no blocking issues. Remaining risks are implementation-level clarifications around threshold tuning and smell-vs-gate classification, now documented in the BaseMap methodology.
 
+## Round 5: User Narrative Constraint Review
+
+### Review Input
+
+#### Objective
+
+审查新增的“用户叙事硬约束”是否清晰表达：benchmark 默认按照真实用户叙事运行，用户不知道 task map、node、parallel、subagent 等内部概念；测试不得明示或暗示 agent 采用测试目标期待的内部行为。
+
+#### Review Target
+
+测试 prompt 设计约束、prompt guard、scenario manifest、paired utility aggregate 纳入规则。
+
+#### Target Locations
+
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`
+
+#### Change Introduction
+
+新增：
+
+- “用户叙事硬约束”章节。
+- `narrative_contract` manifest 字段。
+- `invalid_prompt` 纳入 aggregate 排除规则。
+- Prompt Guard 扩展为显性泄漏 + 隐性暗示双层检查。
+- prompt-narrative self-test。
+
+#### Risk Focus
+
+- 约束是否足够明确，能阻止 benchmark prompt 暗示并行、subagent、node、task graph 等内部机制。
+- 是否会误伤普通用户自然表达，例如“先理解再改”“不要只修表面”。
+- 是否与外部 benchmark 原始 prompt 保持原则冲突。
+- 是否明确违反约束的 run 不能进入 E1/E2/E3。
+
+#### Verification Status
+
+- 文档已修改。
+- 未做代码实现；本轮审查设计约束。
+
+#### Reviewer Instructions
+
+- Fresh internal subagent session.
+- No inherited main-agent context.
+- Read target file directly.
+- Do not modify files.
+- Cite evidence paths and line numbers when possible.
+- 只把仍会导致 prompt 污染、测试目标泄漏或收益判断失真的问题列为 blocking。
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| Narrative Constraint Reviewer | 新增内容直接影响 E2E 拟真有效性 | prompt leakage、implicit hinting、benchmark validity |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| Narrative Constraint Reviewer | multi_agent_v1.spawn_agent | `019e7d15-647c-78e0-97dc-cebd644be190` | spawn_agent + subagent_notification | no | Round 5 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
+
+### Reviewer Outputs
+
+#### Narrative Constraint Reviewer
+
+##### Summary
+
+文档对“真实用户叙事”主约束写得比较清楚：默认用户不知道 TaskSpace 内部概念，prompt 只能表达用户目标、症状、业务规则、验收和约束；内部结构期望只能留在 manifest / harness / oracle，不得进入 agent 可见输入。
+
+但当前 Prompt Guard 的默认禁词过宽，尤其 `map`、`node`、`parallel`、`concurrent`、`dependency graph`、`benchmark` 这类词会自然出现在普通工程任务或外部 benchmark 原始 prompt 中。若按现文实现为硬门禁，会误伤真实样本，导致 E2/E3 收益判断失真。
+
+##### Blocking Findings
+
+- Prompt Guard 会误伤真实用户/外部 benchmark prompt，造成有效样本被 `invalid_prompt` 排除。默认禁词包含 `map`、`node`、`parallel`、`concurrent`、`dependency graph`、`benchmark` 等通用工程词；这些可能是 Node.js、source map、parallel tests、performance benchmark 等普通任务语义。
+- `prompt-narrative self-test` 只覆盖“应判 invalid”的污染 prompt，缺少“应允许”的自然表达/外部原文回归集。
+
+##### Non-blocking Risks
+
+- `narrative_contract` 当前是几个布尔值，方向正确，但不足以表达 guard 结果、人工复核、外部 benchmark 原文豁免、命中片段和判定原因。
+- 场景库中 `order-pipeline-growth` 的目的写了 “多 inspect track、subagent、edge health”。如果该字段未来进入 agent 可见 scenario description，会泄漏测试目标；当前文档总体把 manifest/结构期望限定为 harness/oracle，所以这是实现边界风险。
+- Prompt Guard 说明“自动抓显性泄漏，人工审查抓隐性暗示”是合理的，但缺少人工审查必须记录 `allowed_but_contains_contextual_terms` 这类结论，后续报告可追溯性偏弱。
+
+##### Required Fixes
+
+- 把 Prompt Guard 禁词分成 hard internal tokens 与 context-sensitive terms。
+- 给外部 benchmark 增加明确规则：原始 prompt 不因包含通用工程词自动 `invalid_prompt`。
+- 扩展 `prompt-narrative self-test`，同时包含污染正例和自然表达负例。
+- 扩展 `narrative_contract` / guard 输出字段，记录 `invalid_prompt`、`guard_hits[]`、`hit_category`、`matched_span`、`decision`、`manual_review_required`、`external_original_prompt`、`false_positive_allowed_reason`。
+
+### Main Agent Response
+
+| Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|
+| Narrative Constraint Reviewer | Prompt Guard 过宽会误伤真实 prompt | blocking | accept | `map/node/parallel/benchmark` 都可能是普通工程语义 | 将 Prompt Guard 拆为 `Hard Internal Tokens` 与 `Context-Sensitive Terms`；context-sensitive terms 结合语境判断，外部 benchmark 原始 prompt 不自动 invalid | Round 6 closure |
+| Narrative Constraint Reviewer | prompt-narrative self-test 缺少 false-positive 负例 | blocking | accept | 只测污染正例会诱导黑名单实现 | 新增 `prompt-narrative false-positive test`，覆盖 Node.js、source map、map parsing、parallel tests、concurrent request race、performance benchmark 等自然工程 prompt | Round 6 closure |
+| Narrative Constraint Reviewer | narrative_contract 字段太粗 | non-blocking | accept | 后续实现需要可追溯 guard 结果 | 扩展 `narrative_contract`，要求 guard output；新增 Prompt Guard 输出 schema：guard_hits、hit_category、matched_span、decision、manual_review_required、external_original_prompt、false_positive_allowed_reason | Round 6 closure |
+| Narrative Constraint Reviewer | 外部 benchmark 原文需要豁免通用工程词误伤 | non-blocking | accept | E3 要求原始 prompt 薄封装，不应因通用词被排除 | 外部 benchmark 适配原则新增：原始 prompt 中通用工程词不因黑名单自动 invalid，只判断是否泄漏 Whale/TaskSpace 内部机制 | Round 6 closure |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: pending
+- Blocking re-review passed: pending
+- Blocking re-review round links:
+  - Round 6 pending
+- Blocking re-review launch records:
+  - pending
+- Rejected findings backed by evidence: n/a
+- Deferred findings documented: n/a
+- Allowed to proceed: no
+
+## Round 6: User Narrative Constraint Closure Review
+
+### Review Input
+
+#### Objective
+
+验证 Round 5 accepted blocking fixes 是否闭合：Prompt Guard 不再误伤通用工程词，外部 benchmark 原文受保护，prompt-narrative self-test 覆盖 false positive。
+
+#### Review Target
+
+测试 prompt 设计约束、Prompt Guard、scenario manifest、aggregate 纳入规则。
+
+#### Target Locations
+
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`
+- `vs_review/2026-05-31-taskspace-benchmark-methodology-review.md`
+
+#### Change Introduction
+
+根据 Round 5 审查：
+
+- Prompt Guard 拆成 hard internal tokens 与 context-sensitive terms。
+- `map/node/parallel/concurrent/dependency graph/benchmark` 等通用词不再一刀切 hard fail。
+- 外部 benchmark 原始 prompt 中的通用工程词不自动 invalid。
+- `narrative_contract` 增加 guard output 与人工复核要求。
+- Prompt Guard 输出 schema 记录 matched span、hit category、decision、manual review、false-positive reason。
+- harness 自测增加 prompt-narrative false-positive test。
+
+#### Risk Focus
+
+- 是否仍会误伤普通工程 prompt。
+- 是否仍能阻止内部机制暗示。
+- 是否保护外部 benchmark 原始 prompt。
+- invalid_prompt/guard 输出是否可追溯。
+
+#### Verification Status
+
+- 文档已修改。
+- 未做代码实现；本轮审查 closure。
+
+#### Reviewer Instructions
+
+- Fresh internal subagent session.
+- No inherited main-agent context.
+- Read target files directly.
+- Do not modify files.
+- Cite evidence paths and line numbers when possible.
+- 只把仍会导致 prompt 污染、测试目标泄漏或收益判断失真的问题列为 blocking。
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| Narrative Closure Reviewer | Round 5 accepted blocking fixes require fresh closure review | prompt false positive、implicit leakage、external benchmark validity |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| Narrative Closure Reviewer | multi_agent_v1.spawn_agent | `019e7d19-94d6-7870-af05-aed499d12237` | spawn_agent + subagent_notification | no | Round 6 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
+
+### Reviewer Outputs
+
+#### Narrative Closure Reviewer
+
+##### Summary
+
+Substantive Prompt Guard blocking fixes are closed in `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`.
+
+The document now separates hard internal tokens from context-sensitive engineering terms, requires context-based decisions, protects external benchmark original prompts from generic-term false positives, records guard evidence, adds false-positive self-tests, and still blocks internal mechanism hints such as “派 subagent / 创建节点 / 让图生长”.
+
+##### Blocking Findings
+
+none
+
+##### Non-blocking Risks
+
+- `vs_review` Round 6 is still placeholder-only: launch record/session id, reviewer output, main response, and closure status are pending. This is an audit/process gap, not a benchmark-methodology blocker.
+- The Prompt Guard examples are strong enough for the listed cases, but implementation must preserve the “context-sensitive terms are not automatic invalid” rule. A blacklist-only implementation would regress the fixed issue.
+
+##### Required Fixes
+
+none for blocking closure.
+
+##### Evidence
+
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`: Prompt Guard is split into two classes, with `Hard Internal Tokens` separated from `Context-Sensitive Terms`.
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`: `map/node/parallel/concurrent/dependency graph/benchmark` are context-sensitive, not automatic hard fail; ordinary engineering meanings and external benchmark original prompts are allowed or reviewed.
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`: guard output must record `invalid_prompt`, `guard_hits`, `matched_span`, `hit_category`, `decision`, `manual_review_required`, `external_original_prompt`, and `false_positive_allowed_reason`.
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`: harness self-tests include both invalid prompt checks and false-positive natural engineering prompts.
+- `docs/plans/2026-05-31-taskspace-benchmark-strategy.md`: internal mechanism hints remain forbidden, including creating task/map/node, parallelizing through agents/subagents, graph growth/test-goal hints, multiple investigation tracks, task graph dependency hints, and active parallel-observation prompts.
+
+### Main Agent Response
+
+| Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|
+| Narrative Closure Reviewer | Round 5 blocking fixes closed | blocking closure | accept | Reviewer reported no blocking findings | Keep corrected Prompt Guard design | n/a |
+| Narrative Closure Reviewer | Round 6 review trail pending | non-blocking | accept | Audit artifact needed closure record | Recorded reviewer output, response, launch id, closure status | n/a |
+| Narrative Closure Reviewer | Implementation must not regress to blacklist-only guard | non-blocking | accept | Context-sensitive terms are not automatic invalid | Preserve as implementation constraint in benchmark design; prompt-narrative false-positive self-test required before E2/E3 | implementation follow-up |
+
+### Closure Status
+
+- Blocking findings found: no
+- Accepted blocking findings fixed: n/a
+- Blocking re-review completed: yes
+- Blocking re-review passed: yes
+- Blocking re-review round links:
+  - Round 6
+- Blocking re-review launch records:
+  - Narrative Closure Reviewer: `019e7d19-94d6-7870-af05-aed499d12237`
+- Rejected findings backed by evidence: n/a
+- Deferred findings documented: n/a
+- Allowed to proceed: yes
+
 ## Round 3: Benchmark Engineering Detail Review
 
 ### Review Input
