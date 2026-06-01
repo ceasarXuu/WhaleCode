@@ -44,6 +44,10 @@ function Read-TaskspaceScenarioManifest {
     if ([string]::IsNullOrWhiteSpace($hiddenStrategy)) {
         throw "Scenario manifest missing required field: oracle.hidden_strategy"
     }
+    $humanReviewRequired = $false
+    if ($manifest.PSObject.Properties.Name -contains "human_review_required") {
+        $humanReviewRequired = [bool]$manifest.human_review_required
+    }
     [pscustomobject]@{
         Id = [string]$manifest.id
         Level = [string]$manifest.level
@@ -56,6 +60,10 @@ function Read-TaskspaceScenarioManifest {
         PublicValidation = $manifest.oracle.public_validation
         Expected = $manifest.expected
         Thresholds = $manifest.thresholds
+        SampleOrigin = $manifest.sample_origin
+        ExternalBenchmark = $manifest.external_benchmark
+        HumanReviewRequired = $humanReviewRequired
+        E3 = $manifest.e3
     }
 }
 

@@ -107,6 +107,10 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         sandbox_mode = $SandboxMode
         oracle_isolation_policy = $OracleIsolationPolicy
         logical_mode_map = @{ left = $pair.Left.LogicalMode; right = $pair.Right.LogicalMode }
+        sample_origin = $manifest.SampleOrigin
+        external_benchmark = $manifest.ExternalBenchmark
+        human_review_required = $manifest.HumanReviewRequired
+        e3 = $manifest.E3
     }
     Write-TaskspaceJson $manifestResolved (Join-Path $pair.PairDir "manifest.resolved.json")
 
@@ -167,7 +171,11 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         "hard_sandbox"
     }
     $businessSuccess = [bool]($metricsBySide["left"].business_success -and $metricsBySide["right"].business_success)
-    $evidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy
+    $e3MinimumRepeats = 5
+    if ($null -ne $manifest.E3 -and $manifest.E3.PSObject.Properties.Name -contains "minimum_repeats") {
+        $e3MinimumRepeats = [Math]::Max(5, [int]$manifest.E3.minimum_repeats)
+    }
+    $evidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $false $e3MinimumRepeats "" $false
     $pairReportPath = Join-Path $pair.PairDir "pair-report.md"
     Write-TaskspacePairReport $pairReportPath $manifest $promptGuard $variableControl $evidence $metricsBySide["left"] $metricsBySide["right"] $pair $probe
     $pairReports.Add([pscustomobject]@{ repeat = $repeat; pair_dir = $pair.PairDir; pair_report = $pairReportPath; evidence = $evidence })

@@ -85,6 +85,49 @@ $partialProviderEvidence = Get-TaskspaceEvidenceGate 3 $promptGuardOk "hard_sand
 Assert-True ($partialProviderEvidence.reported_evidence_level -ne "E2") "partial provider config was promoted to E2"
 $deferredStrictEvidence = Get-TaskspaceEvidenceGate 3 $promptGuardOk "hard_deferred_materialization" "known" $false $true $false $true "hard_sandbox_only"
 Assert-True (@($deferredStrictEvidence.evidence_gate_failures) -contains "oracle_isolation_deferred_not_allowed") "deferred oracle isolation was not distinct in strict policy"
+$e3Origin = [pscustomobject]@{
+    type = "historical_whale_failure"
+    source = "sanitized_user_session"
+    source_date = "2026-06-02"
+    sanitized = $true
+    privacy_review_completed = $true
+    sanitization_summary = "Removed local user paths and private project identifiers."
+    privacy_risk_summary = "No secrets or private business data remain."
+    original_prompt_sha256 = "abc123"
+}
+$e3Config = [pscustomobject]@{ claim_scope = "historical Whale runtime failure sample"; minimum_repeats = 5 }
+$e3Candidate = Get-TaskspaceEvidenceGate 3 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $e3Origin $null $e3Config $true $false 5 "" $false
+Assert-True ($e3Candidate.reported_evidence_level -eq "E3-candidate") "incomplete E3 evidence was not downgraded to E3-candidate"
+Assert-True (@($e3Candidate.e3_gate_failures) -contains "e3_repeats_lt_5") "E3 repeats gate failure was not recorded"
+Assert-True (@($e3Candidate.e3_gate_failures) -contains "e3_human_review_not_completed") "E3 human review gate failure was not recorded"
+$e3WeakOrigin = [pscustomobject]@{ type = "historical_whale_failure"; source = "sanitized_user_session" }
+$e3Weak = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $e3WeakOrigin $null $e3Config $true $true 5 "include_taskspace_better" $false
+Assert-True (@($e3Weak.e3_gate_failures) -contains "e3_original_prompt_sha_missing") "E3 prompt checksum gate failure was not recorded"
+Assert-True (@($e3Weak.e3_gate_failures) -contains "e3_historical_sample_not_sanitized") "E3 sanitized gate failure was not recorded"
+Assert-True (@($e3Weak.e3_gate_failures) -contains "e3_privacy_review_not_completed") "E3 privacy review gate failure was not recorded"
+Assert-True (@($e3Weak.e3_gate_failures) -contains "e3_sanitization_summary_missing") "E3 sanitization summary gate failure was not recorded"
+Assert-True (@($e3Weak.e3_gate_failures) -contains "e3_privacy_risk_summary_missing") "E3 privacy risk summary gate failure was not recorded"
+$e3InvalidOrigin = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $null $null $e3Config $true $true 5 "include_taskspace_better" $false
+Assert-True (@($e3InvalidOrigin.e3_gate_failures) -contains "e3_sample_origin_missing_or_invalid") "E3 sample origin gate failure was not recorded"
+$e3MissingScope = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $e3Origin $null $null $true $true 5 "include_taskspace_better" $false
+Assert-True (@($e3MissingScope.e3_gate_failures) -contains "e3_claim_scope_missing") "E3 claim scope gate failure was not recorded"
+$e3LowRepeat = Get-TaskspaceEvidenceGate 4 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $e3Origin $null ([pscustomobject]@{ claim_scope = "scope"; minimum_repeats = 3 }) $true $true 3 "include_taskspace_better" $false
+Assert-True (@($e3LowRepeat.e3_gate_failures) -contains "e3_repeats_lt_5") "E3 minimum repeats was allowed below 5"
+$e3BadReviewDecision = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $e3Origin $null $e3Config $true $true 5 "" $false
+Assert-True (@($e3BadReviewDecision.e3_gate_failures) -contains "e3_human_review_decision_missing_or_invalid") "E3 review decision gate failure was not recorded"
+$externalOrigin = [pscustomobject]@{
+    type = "external_benchmark"
+    source = "terminal-bench"
+    sample_id = "sample-001"
+    original_prompt_sha256 = "abc123"
+    original_validator_sha256 = "def456"
+}
+$externalBenchmark = [pscustomobject]@{ name = "terminal-bench"; adapter_version = "whale-taskspace-e3-adapter-v1" }
+$e3ExternalReady = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOrigin $externalBenchmark $e3Config $true $true 5 "include_no_clear_delta" $false
+Assert-True ($e3ExternalReady.reported_evidence_level -eq "E3") "complete external E3 evidence did not promote to E3"
+$e3Ready = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $e3Origin $null $e3Config $true $true 5 "include_taskspace_better" $false
+Assert-True ($e3Ready.reported_evidence_level -eq "E3") "complete E3 evidence did not promote to E3"
+Assert-True ($e3Ready.included_in_e3_aggregate) "complete E3 evidence was not included in E3 aggregate"
 
 $metrics = [pscustomobject]@{
     mode = "left"; logical_mode = "standard"; business_success = $true; exec_exit_code = 0
@@ -105,6 +148,7 @@ $summaryPath = Join-Path $runDir "summary.md"
 Write-TaskspaceRunSummary -Path $summaryPath -Reports @([pscustomobject]@{ pair_dir = $pairOne.PairDir; pair_report = $reportPath; evidence = [pscustomobject]@{ reported_evidence_level = "E2"; included_in_utility_aggregate = $true } })
 $summaryText = Get-Content -Raw -Encoding UTF8 -LiteralPath $summaryPath
 Assert-True ($summaryText -match "included_in_utility_aggregate: True") "run summary did not reflect evidence gate aggregate inclusion"
+Assert-True ($summaryText -notmatch "included_in_e3_aggregate") "E2 run summary emitted E3 aggregate noise"
 $aggregatePath = Join-Path $runDir "aggregate.md"
 Write-TaskspaceAggregateReport -Path $aggregatePath -Reports @(
     [pscustomobject]@{ repeat = 1; pair_report = "one.md"; evidence = [pscustomobject]@{ reported_evidence_level = "E2"; included_in_utility_aggregate = $true; evidence_gate_failures = @() } },
@@ -113,6 +157,26 @@ Write-TaskspaceAggregateReport -Path $aggregatePath -Reports @(
 $aggregateText = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregatePath
 Assert-True ($aggregateText -match "valid_utility_pairs: 1") "aggregate did not count only E2 utility pairs"
 Assert-True ($aggregateText -match "excluded_pairs: 1") "aggregate did not exclude non-E2 pair"
+Assert-True ($aggregateText -notmatch "valid_e3_pairs") "E2 aggregate emitted E3 aggregate noise"
+$e3AggregatePath = Join-Path $runDir "aggregate-e3.md"
+Write-TaskspaceAggregateReport -Path $e3AggregatePath -Reports @(
+    [pscustomobject]@{ repeat = 1; pair_report = "e3-one.md"; evidence = $e3Ready },
+    [pscustomobject]@{ repeat = 2; pair_report = "e3-two.md"; evidence = $e3Candidate }
+)
+$e3AggregateText = Get-Content -Raw -Encoding UTF8 -LiteralPath $e3AggregatePath
+Assert-True ($e3AggregateText -match "valid_e3_pairs: 1") "E3 aggregate did not count complete E3 pairs"
+Assert-True ($e3AggregateText -match "e3_human_review_not_completed") "E3 aggregate did not preserve E3 gate failures"
+Assert-True ($e3AggregateText -match "e3_human_review_completed_pairs: 1") "E3 aggregate did not count human review completion"
+Assert-True ($e3AggregateText -match "include_taskspace_better=1") "E3 aggregate did not summarize human review decisions"
+$e3ReportManifest = $manifest.PSObject.Copy()
+$e3ReportManifest.EvidenceTarget = "E3"
+$e3ReportManifest.SampleOrigin = $e3Origin
+$e3ReportManifest.HumanReviewRequired = $true
+$e3ReportManifest.E3 = [pscustomobject]@{ claim_scope = "scope"; minimum_repeats = 3 }
+$e3ReportPath = Join-Path $runDir "e3-report.md"
+Write-TaskspacePairReport $e3ReportPath $e3ReportManifest $promptGuardOk $varControl $e3LowRepeat $metrics $rightMetrics $pairOne
+$e3ReportText = Get-Content -Raw -Encoding UTF8 -LiteralPath $e3ReportPath
+Assert-True ($e3ReportText -match "e3_minimum_repeats: 5") "E3 pair report did not show effective clamped minimum repeats"
 $matrixData = Get-TaskspaceMatrixReportData @(
     [pscustomobject]@{
         scenario = "synthetic"; level = "L1"; exit_code = 0; valid_pairs = 3
