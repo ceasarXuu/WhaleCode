@@ -1,4 +1,6 @@
-# TaskSpace E3 Human Review
+# TaskSpace E3 Artifact Audit Review
+
+This review can be completed by Codex, an independent reviewer agent, or a human engineer. The reviewer must inspect the recorded artifacts rather than rely on the executing agent's self-report.
 
 scenario:
 pair:

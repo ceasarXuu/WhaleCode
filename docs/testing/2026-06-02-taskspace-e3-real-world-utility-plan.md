@@ -13,7 +13,7 @@ E3 不能继续用自建构造题证明。E3 的核心是：
   -> standard/taskspace paired 对照
   -> 原始验收方式或等价 hidden oracle
   -> 多次运行
-  -> 人工复核
+  -> artifact audit review
   -> 统计收益与失败形态
 ```
 
@@ -37,14 +37,38 @@ E3 设计参考三类成熟 benchmark 思路：
 
 - Terminal-Bench：强调 agent 在真实终端环境中完成端到端任务，并用验证脚本判定结果。官方站点将任务组织为 instruction、environment、verification 的组合，适合作为 Whale terminal-agent 对照入口。参考：https://www.tbench.ai/
 - SWE-bench：从真实 GitHub issue 与对应修复 PR 构造软件工程任务，强调 repository-level issue resolution，而不是代码补全。参考论文：https://arxiv.org/abs/2310.06770
-- OpenAI 对 SWE-bench Verified 的复盘：指出真实 benchmark 仍会存在测试充分性、问题质量、样本污染等局限，说明 E3 必须保留人工复核与失败分类，不能只看 pass rate。参考：https://openai.com/index/why-we-no-longer-evaluate-swe-bench-verified/
+- OpenAI 对 SWE-bench Verified 的复盘：指出真实 benchmark 仍会存在测试充分性、问题质量、样本污染等局限，说明 E3 必须保留独立 artifact audit 与失败分类，不能只看 pass rate。参考：https://openai.com/index/why-we-no-longer-evaluate-swe-bench-verified/
 
 这些参考共同约束 Whale E3：
 
 - 保留原始用户任务叙事，不改写成 TaskSpace 友好 prompt。
 - 保留外部或历史样本的原始验收方式。
 - paired 对照只允许 `--taskspace` 作为 treatment delta。
-- 自动 oracle 之外必须有人工复核，尤其复核失败是否来自任务质量、validator 不足、模型能力，还是 TaskSpace 机制。
+- 自动 oracle 之外必须有 artifact audit review，尤其复核失败是否来自任务质量、validator 不足、模型能力，还是 TaskSpace 机制。
+
+## Artifact Audit Review
+
+E3 需要的不是用户亲自逐条复核，而是独立、可追溯的 artifact audit。
+
+可接受的复核者：
+
+- 当前 Codex 主审查者，在任务完成后基于完整 artifact 进行复核。
+- 独立 reviewer agent / subagent，在不继承执行上下文的情况下读取 artifact 进行复核。
+- 人类工程师，在需要产品判断或争议裁决时介入。
+
+复核依据必须来自详实记录，而不是执行 agent 的口头自证：
+
+- 用户原始 prompt / 脱敏 prompt。
+- `whale exec` JSONL transcript。
+- assistant message、tool call、tool result、错误输出。
+- token / walltime / tool call 指标。
+- git diff、changed paths、forbidden edit 检查。
+- public validation 与 hidden/external oracle 输出。
+- TaskSpace observability JSON/Markdown/HTML。
+- node/result/edge/lease 等任务图记录。
+- reviewer 的结构化 audit report。
+
+因此文档和 manifest 中保留的 `human_review_required` 字段，语义上应理解为“必须存在独立 artifact audit review”。第一版沿用该字段名只是为了避免同时重命名 runner、报告和历史 artifact。
 
 ## E3 与 E2 的边界
 
@@ -53,7 +77,7 @@ E3 设计参考三类成熟 benchmark 思路：
 | 样本来源 | 自建构造场景 | 历史真实失败样本或外部 benchmark |
 | prompt | 自写自然用户叙事 | 原始用户叙事或外部 benchmark 原始 instruction |
 | oracle | 自建 hidden oracle | 原始 validator 优先，必要时补等价 hidden oracle |
-| 复核 | 可选 | 必须 |
+| audit review | 可选 | 必须，且必须基于完整 artifact |
 | repeats | >= 3 | 初始 >= 5 |
 | 允许结论 | 构造任务上有 paired utility 证据 | 某类真实复杂任务上有产品收益证据 |
 
@@ -76,7 +100,7 @@ E3 不以“任务更难”定义，而以“样本来源更真实”定义。�
 
 - 能重建初始 repo 或最小脱敏 fixture。
 - 有原始用户 prompt 或忠实脱敏后的 prompt。
-- 有明确验收：测试、日志断言、错误不再出现、人工复核标准。
+- 有明确验收：测试、日志断言、错误不再出现、artifact audit 标准。
 - 不包含隐私数据、密钥、私人业务信息。
 
 不纳入：
@@ -188,10 +212,10 @@ E3 额外门槛：
 - 若 prompt 脱敏，必须记录脱敏说明与风险
 - historical 样本必须 `sanitized = true`、`privacy_review_completed = true`，并记录 `sanitization_summary` 与 `privacy_risk_summary`
 - external 样本必须记录 `sample_id`、`original_validator_sha256`、benchmark name 与 adapter version
-- `human_review_required = true`
-- 每个 pair 必须有人工复核记录，且复核 decision 必须是可进入 aggregate 的 include 类结论
+- `human_review_required = true`，语义为必须存在独立 artifact audit review
+- 每个 pair 必须有 audit review 记录，且 review decision 必须是可进入 aggregate 的 include 类结论
 - `e3.claim_scope` 必须非空
-- aggregate 必须显示人工复核完成数、decision 分布与复核分歧数量；样本量足够后再派生 pass rate
+- aggregate 必须显示 artifact audit 完成数、decision 分布与复核分歧数量；样本量足够后再派生 pass rate
 - 报告必须标注 claim scope，禁止泛化
 
 降级规则：
@@ -200,24 +224,24 @@ E3 额外门槛：
 |---|---|
 | repeats < 5 | E2-candidate 或 E3-candidate，不进入 E3 aggregate |
 | 只有自建 fixture | E2，不得标 E3 |
-| 没有人工复核 | E3-candidate |
+| 没有 artifact audit review | E3-candidate |
 | 缺少原始 prompt checksum、claim scope、脱敏说明、隐私复核或外部 validator metadata | E3-candidate |
 | human review 没有有效 include decision | E3-candidate |
 | 原始 prompt 被 TaskSpace 友好化 | invalid_prompt |
 | validator 不稳定且无法解释 | excluded_pair |
 | 样本含隐私且未脱敏 | excluded_pair |
 
-当前 runner 的真实执行路径尚未接入人工复核 artifact，因此即使 E3 manifest 存在，实际 run 也只能产出 `E3-candidate`。只有后续实现人工复核读取、复核结论聚合，并满足上述全部字段后，runner 才允许报告 `E3`。
+当前 runner 的真实执行路径尚未接入 artifact audit report，因此即使 E3 manifest 存在，实际 run 也只能产出 `E3-candidate`。只有后续实现 audit report 读取、复核结论聚合，并满足上述全部字段后，runner 才允许报告 `E3`。
 
 实现约束：
 
 - `e3.minimum_repeats` 可以提高门槛，但不能把 E3 最低重复次数降到 5 以下。
 - `E3-candidate` 不进入 E2 utility aggregate，也不进入 E3 aggregate。
-- E3 aggregate 必须显示人工复核完成数、decision 分布和复核分歧数量；pass rate 只能由这些计数派生，不作为第一版硬输出字段。
+- E3 aggregate 必须显示 artifact audit 完成数、decision 分布和复核分歧数量；pass rate 只能由这些计数派生，不作为第一版硬输出字段。
 
-## 人工复核模板
+## Audit Review 模板
 
-E3 人工复核不做主观“好不好”评分，而是回答结构化问题。
+E3 audit review 不做主观“好不好”评分，而是回答结构化问题。复核可以由我执行，也可以由独立 reviewer agent 执行；只要复核基于完整 artifact 并写入结构化报告，就满足 E3 的复核形态。
 
 每个 pair 复核：
 
@@ -280,7 +304,7 @@ E3 不能只看 pass/fail。
 
 - 本文档。
 - E3 manifest 字段定义。
-- 人工复核模板。
+- artifact audit review 模板。
 - E3 报告降级规则。
 
 验收：
@@ -319,7 +343,7 @@ benchmarks/taskspace/corpora/historical-failures/
 
 - `scenario-manifest.ps1` 读取 `sample_origin`、`external_benchmark`、`human_review_required`、`e3`。
 - `pair-report.ps1` 输出 E3 字段与 claim scope。
-- 现有 `pair-report.ps1` 内的 aggregate writer 增加 E3 人工复核聚合；后续再清理旧的 `aggregate-report.ps1` 占位实现，避免重复入口。
+- 现有 `pair-report.ps1` 内的 aggregate writer 增加 E3 artifact audit 聚合；后续再清理旧的 `aggregate-report.ps1` 占位实现，避免重复入口。
 - 新增 `docs/testing/templates/taskspace-e3-human-review.md`。
 - 可选新增 `run-taskspace-e3-corpus.ps1`，只作为现有 runner 的批量入口。
 
@@ -350,7 +374,7 @@ benchmarks/taskspace/corpora/historical-failures/
 - 每个样本 repeats >= 5。
 - `deepseek-v4-flash` 先跑。
 - 重点样本再补 `deepseek-v4-pro`。
-- 每个 pair 有人工复核。
+- 每个 pair 有 artifact audit review。
 - aggregate 给出 claim scope，不做泛化。
 
 ## 风险
@@ -360,13 +384,13 @@ benchmarks/taskspace/corpora/historical-failures/
 | 历史样本难以复现 | 只纳入可重建初始状态的样本 |
 | 脱敏破坏真实度 | 记录脱敏说明，必要时降级为 E2-like constructed |
 | 外部 benchmark 环境成本过高 | 先做 historical corpus，不阻塞 |
-| 人工复核主观性强 | 使用固定模板和枚举结论 |
+| artifact audit 主观性强 | 使用固定模板、枚举结论和完整 artifact 引用 |
 | TaskSpace 失败但 standard 也失败 | 记录失败形态，不直接判 TaskSpace 负收益 |
 | 成本增加被误读 | 成本与成功率、误改率、可观察性一起报告 |
 
 ## 下一步
 
-1. 新增人工复核模板。
+1. 新增 artifact audit review 模板。
 2. 扩展 manifest parser 对 E3 字段做非破坏性读取。
 3. 扩展 pair/aggregate report 输出 E3 字段，但不影响 E2。
 4. 建立 `historical-failures` corpus 目录和首个样本骨架。

@@ -8,7 +8,8 @@ Rules:
 - A sample must include a reproducible initial state or a faithful sanitized fixture.
 - A sample must preserve the original user narrative as much as possible.
 - A sample must not mention TaskSpace internals unless the real user prompt did so naturally.
-- A sample must include validation and a human review note before it can enter E3 aggregate.
+- A sample must include validation and an artifact audit review note before it can enter E3 aggregate.
+- The audit review can be completed by Codex, an independent reviewer agent, or a human engineer, as long as it cites the recorded artifacts.
 - Private data, secrets, personal paths, and unrelated user artifacts must be removed.
 
 Expected sample layout:
