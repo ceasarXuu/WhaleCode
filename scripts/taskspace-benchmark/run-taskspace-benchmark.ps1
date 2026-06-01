@@ -187,7 +187,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $evidence | Add-Member -NotePropertyName audit_review_source_path -NotePropertyValue $auditReview.source_path -Force
     $evidence | Add-Member -NotePropertyName audit_review_failures -NotePropertyValue @($auditReview.failures) -Force
     Write-TaskspacePairReport $pairReportPath $manifest $promptGuard $variableControl $evidence $metricsBySide["left"] $metricsBySide["right"] $pair $probe
-    $pairReports.Add([pscustomobject]@{ repeat = $repeat; pair_dir = $pair.PairDir; pair_report = $pairReportPath; evidence = $evidence })
+    $pairReports.Add([pscustomobject]@{ repeat = $repeat; pair_dir = $pair.PairDir; pair_report = $pairReportPath; evidence_target = $manifest.EvidenceTarget; evidence = $evidence })
 }
 
 $runSummaryPath = Join-Path $runDir "run-summary.md"
@@ -199,8 +199,5 @@ Write-Host "RunDir: $runDir"
 Write-Host "RunSummary: $runSummaryPath"
 foreach ($report in $pairReports) { Write-Host "PairReport: $($report.pair_report)" }
 
-$failedPairs = @($pairReports | Where-Object {
-        $_.evidence.reported_evidence_level -eq "E1" -or
-        (([string]$manifest.EvidenceTarget -eq "E2") -and $_.evidence.reported_evidence_level -ne "E2")
-    })
+$failedPairs = @(Get-TaskspaceFailedReports $pairReports ([string]$manifest.EvidenceTarget))
 if ($failedPairs.Count -gt 0 -and -not $AllowNonE2Result) { exit 1 }

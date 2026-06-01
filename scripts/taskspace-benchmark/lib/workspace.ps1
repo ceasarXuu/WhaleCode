@@ -45,7 +45,7 @@ function New-TaskspacePairWorkspace {
         [Parameter(Mandatory = $true)][int]$Repeat
     )
     $repeatDir = New-Dir (Join-Path $RunDir ("pair-{0:000}" -f $Repeat))
-    $reviewerOracleDir = New-Dir (Join-Path $repeatDir "reviewer-only\private-oracle")
+    $reviewerOracleDir = Join-Path $repeatDir "reviewer-only\private-oracle"
     $canaryText = "TASKSPACE_BENCH_PRIVATE_CANARY_$([guid]::NewGuid().ToString("N"))"
     $canaryPath = Join-Path $reviewerOracleDir "canary.txt"
     $mapping = Get-TaskspaceModeMapping $Repeat
@@ -84,6 +84,7 @@ function Materialize-TaskspacePrivateOracle {
         [Parameter(Mandatory = $true)]$Pair,
         [Parameter(Mandatory = $true)]$Manifest
     )
+    New-Dir $Pair.ReviewerOracleDir | Out-Null
     Write-TaskspaceGeneratedHiddenOracle $Pair.HiddenOraclePath $Manifest.HiddenOracleStrategy
     Write-Text $Pair.CanaryPath $Pair.CanaryText
 }

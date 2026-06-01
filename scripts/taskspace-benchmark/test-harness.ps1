@@ -53,6 +53,7 @@ $pairOne = New-TaskspacePairWorkspace $manifest $runDir 1
 $pairTwo = New-TaskspacePairWorkspace $manifest $runDir 2
 Assert-True ($pairOne.Left.LogicalMode -eq "standard" -and $pairOne.Right.LogicalMode -eq "taskspace") "repeat 1 mode mapping did not use left=standard/right=taskspace"
 Assert-True ($pairTwo.Left.LogicalMode -eq "taskspace" -and $pairTwo.Right.LogicalMode -eq "standard") "repeat 2 mode mapping did not alternate"
+Assert-True (-not (Test-Path -LiteralPath $pairOne.ReviewerOracleDir)) "reviewer-only oracle directory was materialized before agent execution"
 Assert-True (Test-TaskspaceNeutralCwd $pairOne.Left.RepoDir) "left cwd contains treatment label"
 Assert-True (Test-TaskspaceNeutralCwd $pairOne.Right.RepoDir) "right cwd contains treatment label"
 Assert-True (-not (Test-TaskspaceNeutralCwd "D:\work\taskspace-benchmark\pair-001\left\repo")) "taskspace-benchmark path was treated as neutral"
@@ -69,6 +70,21 @@ $repoLeakFile = Join-Path $pairOne.Left.RepoDir "oracle-path-leak.txt"
 Write-Text $repoLeakFile $pairOne.HiddenOraclePath
 $repoLeak = Test-TaskspaceOracleLeak $pairOne.Left.RepoDir $pairOne.Left.ArtifactDir $pairOne.HiddenOraclePath
 Assert-True ($repoLeak.leaked) "oracle path leak test did not detect repo-visible leaked path"
+$untrackedPath = Join-Path $pairOne.Left.RepoDir "new-output.txt"
+Write-Text $untrackedPath "new file"
+$nestedUntrackedPath = Join-Path $pairOne.Left.RepoDir "app\hello.txt"
+New-Item -ItemType Directory -Path (Split-Path -Parent $nestedUntrackedPath) -Force | Out-Null
+Write-Text $nestedUntrackedPath "Hello, world!"
+$changedWithUntracked = @(Get-TaskspaceChangedPaths $pairOne.Left.RepoDir "")
+Assert-True ($changedWithUntracked -contains "new-output.txt") "changed path detection missed untracked files"
+Assert-True ($changedWithUntracked -contains "app/hello.txt") "changed path detection collapsed nested untracked files"
+Assert-True (-not ($changedWithUntracked -contains "app/")) "changed path detection reported untracked directory instead of files"
+$changedInventory = @(Get-TaskspaceChangedFileInventory $pairOne.Left.RepoDir "")
+$helloInventory = @($changedInventory | Where-Object { $_.path -eq "app/hello.txt" })
+Assert-True ($helloInventory.Count -eq 1 -and -not [string]::IsNullOrWhiteSpace([string]$helloInventory[0].sha256)) "changed file inventory did not include sha256 for nested untracked file"
+$emptyDiffPath = Join-Path $pairOne.Left.ArtifactDir "empty-diff.patch"
+Get-TaskspaceDiffText $pairOne.Left.RepoDir $emptyDiffPath | Out-Null
+Assert-True (Test-Path -LiteralPath $emptyDiffPath) "empty git diff artifact was not written"
 
 $standardArgv = New-TaskspaceWhaleArgv "standard" "model-x" "C:\neutral\left\repo" "C:\neutral\left\last.md"
 $taskspaceArgv = New-TaskspaceWhaleArgv "taskspace" "model-x" "C:\neutral\right\repo" "C:\neutral\right\last.md"
@@ -134,9 +150,35 @@ $externalOrigin = [pscustomobject]@{
     original_prompt_sha256 = "abc123"
     original_validator_sha256 = "def456"
 }
-$externalBenchmark = [pscustomobject]@{ name = "terminal-bench"; adapter_version = "whale-taskspace-e3-adapter-v1" }
+$validExternalFidelity = [pscustomobject]@{
+    official_runner_or_equivalent = $true
+    docker_runtime = $true
+    container_workdir = "/app"
+    validator_runtime = "official_or_equivalent_docker"
+    agent_cannot_read_validator_source = $true
+    e3_eligible = $true
+    downgrade_reason = ""
+}
+$externalBenchmark = [pscustomobject]@{ name = "terminal-bench"; adapter_version = "whale-taskspace-e3-adapter-v1"; validator_fidelity = $validExternalFidelity }
 $e3ExternalReady = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOrigin $externalBenchmark $e3Config $true $true 5 "include_no_clear_delta" $false
 Assert-True ($e3ExternalReady.reported_evidence_level -eq "E3") "complete external E3 evidence did not promote to E3"
+$invalidExternalBenchmark = [pscustomobject]@{
+    name = "terminal-bench"
+    adapter_version = "whale-taskspace-e3-adapter-v1"
+    validator_fidelity = [pscustomobject]@{
+        official_runner_or_equivalent = $false
+        docker_runtime = $false
+        container_workdir = ""
+        validator_runtime = "windows_git_bash_non_docker"
+        agent_cannot_read_validator_source = $false
+        e3_eligible = $false
+        downgrade_reason = "engineering smoke only"
+    }
+}
+$e3ExternalUnfaithful = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOrigin $invalidExternalBenchmark $e3Config $true $true 5 "include_no_clear_delta" $false
+Assert-True ($e3ExternalUnfaithful.reported_evidence_level -ne "E3") "unfaithful external validator was promoted to E3"
+Assert-True (@($e3ExternalUnfaithful.e3_gate_failures) -contains "e3_external_validator_fidelity_unproven") "external validator fidelity gate failure was not recorded"
+Assert-True (@($e3ExternalUnfaithful.e3_gate_failures) -contains "e3_external_validator_source_not_isolated") "external validator source isolation gate failure was not recorded"
 $externalOriginMissingRevision = $externalOrigin.PSObject.Copy()
 $externalOriginMissingRevision.source_version = ""
 $e3ExternalMissingRevision = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOriginMissingRevision $externalBenchmark $e3Config $true $true 5 "include_no_clear_delta" $false
@@ -235,14 +277,78 @@ Assert-True (-not (Test-Path -LiteralPath (Join-Path $cleanDest "solution.py")))
 Assert-Throws { Copy-TaskspaceExternalFixture $hiddenFixture (Join-Path $runDir "hidden-clean-fixture") | Out-Null } "external fixture materialization accepted hidden files"
 $terminalBenchNoEnv = Join-Path $runDir "terminal-bench-no-env"
 New-Item -ItemType Directory -Path $terminalBenchNoEnv | Out-Null
-"Fix the tool." | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "instruction.md") -Encoding UTF8
-"echo ok" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "verify.sh") -Encoding UTF8
-Assert-Throws { & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $terminalBenchNoEnv -OutputRoot (Join-Path $runDir "external-out") -SampleId "no-env" -SourceVersion "pinned" | Out-Null } "terminal-bench adapter accepted a task root without environment directory"
+@'
+instruction: |-
+  Create a file called hello.txt.
+category: file-operations
+'@ | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "task.yaml") -Encoding UTF8
+"FROM scratch" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "Dockerfile") -Encoding UTF8
+"do not leak" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "solution.sh") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "run-tests.sh") -Encoding UTF8
+$adapterOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $terminalBenchNoEnv -OutputRoot (Join-Path $runDir "external-out") -SampleId "no-env" -SourceVersion "pinned"
+$adapterScenarioDir = [string]($adapterOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+Assert-True (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "prompt.txt")) "terminal-bench adapter did not extract task.yaml instruction"
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\solution.sh"))) "terminal-bench adapter leaked solution.sh from official task root"
+$adapterScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $adapterScenarioDir "scenario.json") | ConvertFrom-Json
+Assert-True (-not [bool]$adapterScenario.external_benchmark.validator_fidelity.e3_eligible) "terminal-bench local wrapper was marked E3 eligible"
+Assert-True ([string]$adapterScenario.external_benchmark.adapter_metadata.instruction_extraction_mode -eq "literal") "terminal-bench literal instruction mode was not recorded"
+$terminalBenchInline = Join-Path $runDir "terminal-bench-inline"
+New-Item -ItemType Directory -Path $terminalBenchInline | Out-Null
+@'
+instruction: "Fix the inline instruction case."
+category: software-engineering
+'@ | Set-Content -LiteralPath (Join-Path $terminalBenchInline "task.yaml") -Encoding UTF8
+"FROM scratch" | Set-Content -LiteralPath (Join-Path $terminalBenchInline "Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $terminalBenchInline "run-tests.sh") -Encoding UTF8
+$inlineOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $terminalBenchInline -OutputRoot (Join-Path $runDir "external-inline-out") -SampleId "inline" -SourceVersion "pinned"
+$inlineScenarioDir = [string]($inlineOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$inlinePrompt = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $inlineScenarioDir "prompt.txt")
+Assert-True ($inlinePrompt -match "Fix the inline instruction case") "terminal-bench adapter did not extract inline task.yaml instruction"
+$terminalBenchFolded = Join-Path $runDir "terminal-bench-folded"
+New-Item -ItemType Directory -Path $terminalBenchFolded | Out-Null
+@'
+instruction: >
+  Read one line
+  then write the file.
+category: file-operations
+'@ | Set-Content -LiteralPath (Join-Path $terminalBenchFolded "task.yaml") -Encoding UTF8
+"FROM scratch" | Set-Content -LiteralPath (Join-Path $terminalBenchFolded "Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $terminalBenchFolded "run-tests.sh") -Encoding UTF8
+$foldedOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $terminalBenchFolded -OutputRoot (Join-Path $runDir "external-folded-out") -SampleId "folded" -SourceVersion "pinned"
+$foldedScenarioDir = [string]($foldedOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$foldedPrompt = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $foldedScenarioDir "prompt.txt")
+Assert-True ($foldedPrompt -match "Read one line then write the file") "terminal-bench adapter did not fold task.yaml instruction"
+$externalWrapperStub = Join-Path $runDir "external-wrapper-stub.ps1"
+@'
+param(
+    [string]$ScenarioPath,
+    [int]$Repeats,
+    [string]$WhaleBin,
+    [string]$Model,
+    [string]$RunRoot,
+    [switch]$AllowNonE2Result,
+    [switch]$PlanOnly
+)
+if ($PlanOnly) { exit 0 }
+if ($AllowNonE2Result) { Write-Host "stub diagnostic allowed"; exit 0 }
+Write-Host "stub target unsatisfied"
+exit 1
+'@ | Set-Content -LiteralPath $externalWrapperStub -Encoding UTF8
+$externalWrapperRunRoot = Join-Path $runDir "external-wrapper-runs"
+$wrapperDefaultOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1") -Benchmark terminal-bench -TaskDir $terminalBenchNoEnv -SourceVersion "pinned" -RunRoot $externalWrapperRunRoot -RunnerPath $externalWrapperStub 2>&1
+$wrapperDefaultExit = $LASTEXITCODE
+Assert-True ($wrapperDefaultExit -ne 0) "external benchmark wrapper hid unsatisfied E3 target by default"
+$wrapperDiagnosticOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1") -Benchmark terminal-bench -TaskDir $terminalBenchNoEnv -SourceVersion "pinned" -RunRoot $externalWrapperRunRoot -RunnerPath $externalWrapperStub -AllowDiagnosticNonTargetResult 2>&1
+$wrapperDiagnosticExit = $LASTEXITCODE
+Assert-True ($wrapperDiagnosticExit -eq 0) "external benchmark wrapper did not allow explicit diagnostic non-target result"
+Assert-True (($wrapperDiagnosticOutput -join "`n") -match "DiagnosticNonTargetResultAllowed: True") "external benchmark wrapper did not print diagnostic opt-in marker"
 
 $metrics = [pscustomobject]@{
     mode = "left"; logical_mode = "standard"; business_success = $true; exec_exit_code = 0
     public_validation_exit_code = 0; hidden_oracle_exit_code = 0; oracle_isolation_level = "hard_sandbox"
     wall_time_ms = 1; tool_call_count = 1; changed_paths = @("src/tax_calc.py")
+    changed_file_inventory = @([pscustomobject]@{ path = "src/tax_calc.py"; status = "M "; source = "git_status"; sha256 = "abc123"; size_bytes = 12 })
+    validator_environment_mismatch = $false
     maps = 0; nodes = 0; edges = 0; edge_order_violations = 0; spawn_agent_calls = 0
     subagent_results = 0; open_leaf_nodes = 0; ordinary_before_binding = $false
 }
@@ -270,6 +376,21 @@ Write-TaskspaceRunSummary -Path $summaryPath -Reports @([pscustomobject]@{ pair_
 $summaryText = Get-Content -Raw -Encoding UTF8 -LiteralPath $summaryPath
 Assert-True ($summaryText -match "included_in_utility_aggregate: True") "run summary did not reflect evidence gate aggregate inclusion"
 Assert-True ($summaryText -notmatch "included_in_e3_aggregate") "E2 run summary emitted E3 aggregate noise"
+$e3CandidateSummaryPath = Join-Path $runDir "summary-e3-candidate.md"
+Write-TaskspaceRunSummary -Path $e3CandidateSummaryPath -Reports @([pscustomobject]@{ pair_dir = $pairOne.PairDir; pair_report = $reportPath; evidence_target = "E3"; evidence = $e3ExternalUnfaithful })
+$e3CandidateSummaryText = Get-Content -Raw -Encoding UTF8 -LiteralPath $e3CandidateSummaryPath
+Assert-True ($e3CandidateSummaryText -match "included_in_e3_aggregate: False") "E3 candidate summary did not show E3 aggregate exclusion"
+$e3FailedSummaryPath = Join-Path $runDir "summary-e3-failed.md"
+Write-TaskspaceRunSummary -Path $e3FailedSummaryPath -Reports @([pscustomobject]@{ pair_dir = $pairOne.PairDir; pair_report = $reportPath; evidence_target = "E3"; evidence = [pscustomobject]@{ reported_evidence_level = "E1"; included_in_utility_aggregate = $false; included_in_e3_aggregate = $false } })
+$e3FailedSummaryText = Get-Content -Raw -Encoding UTF8 -LiteralPath $e3FailedSummaryPath
+Assert-True ($e3FailedSummaryText -match "included_in_e3_aggregate: False") "E3 failed summary did not show E3 aggregate exclusion"
+Assert-True (-not (Test-TaskspaceEvidenceSatisfiesTarget "E3" "E3-candidate")) "E3-candidate satisfied E3 target"
+Assert-True (Test-TaskspaceEvidenceSatisfiesTarget "E3" "E3") "E3 did not satisfy E3 target"
+Assert-True (-not (Test-TaskspaceEvidenceSatisfiesTarget "E2" "E2-candidate")) "E2-candidate satisfied E2 target"
+$singleFailedReportList = New-Object System.Collections.Generic.List[object]
+$singleFailedReportList.Add([pscustomobject]@{ evidence = [pscustomobject]@{ reported_evidence_level = "E1" } })
+$singleFailedReports = @(Get-TaskspaceFailedReports $singleFailedReportList "E3")
+Assert-True ($singleFailedReports.Count -eq 1) "single failed E3 report did not remain countable after array normalization"
 $aggregatePath = Join-Path $runDir "aggregate.md"
 Write-TaskspaceAggregateReport -Path $aggregatePath -Reports @(
     [pscustomobject]@{ repeat = 1; pair_report = "one.md"; evidence = [pscustomobject]@{ reported_evidence_level = "E2"; included_in_utility_aggregate = $true; evidence_gate_failures = @() } },

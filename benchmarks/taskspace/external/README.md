@@ -21,6 +21,15 @@ E3 results are not valid until an external sample has:
 - pinned source metadata
 - original instruction checksum
 - validator checksum
+- validator fidelity metadata proving an official or equivalent runner
+- proof that validator source, hidden tests, and solutions are not readable by the agent
+- file-level changed-path inventory with SHA256 values
 - paired standard/taskspace artifacts
 - external validator output
 - artifact audit review
+
+Current Terminal-Bench adapter status:
+
+- The PowerShell/Git Bash wrapper is an engineering smoke path only.
+- It is not the official Terminal-Bench Docker runner and must not be counted as E3 utility evidence.
+- Any result from this wrapper must keep `validator_fidelity.e3_eligible = false` until Docker or an equivalent isolated `/app` runtime is implemented and audited.

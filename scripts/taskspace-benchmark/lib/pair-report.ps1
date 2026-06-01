@@ -73,6 +73,10 @@ function Get-TaskspaceEvidenceGate {
             $validatorSha = if ($null -ne $SampleOrigin -and $SampleOrigin.PSObject.Properties.Name -contains "original_validator_sha256") { [string]$SampleOrigin.original_validator_sha256 } else { "" }
             $benchmarkName = if ($null -ne $ExternalBenchmark -and $ExternalBenchmark.PSObject.Properties.Name -contains "name") { [string]$ExternalBenchmark.name } else { "" }
             $adapterVersion = if ($null -ne $ExternalBenchmark -and $ExternalBenchmark.PSObject.Properties.Name -contains "adapter_version") { [string]$ExternalBenchmark.adapter_version } else { "" }
+            $validatorFidelity = if ($null -ne $ExternalBenchmark -and $ExternalBenchmark.PSObject.Properties.Name -contains "validator_fidelity") { $ExternalBenchmark.validator_fidelity } else { $null }
+            $officialEquivalent = ($null -ne $validatorFidelity -and $validatorFidelity.PSObject.Properties.Name -contains "official_runner_or_equivalent" -and [bool]$validatorFidelity.official_runner_or_equivalent)
+            $sourceIsolated = ($null -ne $validatorFidelity -and $validatorFidelity.PSObject.Properties.Name -contains "agent_cannot_read_validator_source" -and [bool]$validatorFidelity.agent_cannot_read_validator_source)
+            $fidelityEligible = ($null -ne $validatorFidelity -and $validatorFidelity.PSObject.Properties.Name -contains "e3_eligible" -and [bool]$validatorFidelity.e3_eligible)
             if ([string]::IsNullOrWhiteSpace($sampleId)) { $e3Failures.Add("e3_external_sample_id_missing") }
             if ([string]::IsNullOrWhiteSpace($sourceVersion)) { $e3Failures.Add("e3_external_source_version_missing") }
             if ([string]::IsNullOrWhiteSpace($sourceUrl)) { $e3Failures.Add("e3_external_source_url_missing") }
@@ -81,6 +85,9 @@ function Get-TaskspaceEvidenceGate {
             if ([string]::IsNullOrWhiteSpace($validatorSha)) { $e3Failures.Add("e3_external_validator_sha_missing") }
             if ([string]::IsNullOrWhiteSpace($benchmarkName)) { $e3Failures.Add("e3_external_benchmark_name_missing") }
             if ([string]::IsNullOrWhiteSpace($adapterVersion)) { $e3Failures.Add("e3_external_adapter_version_missing") }
+            if (-not $officialEquivalent) { $e3Failures.Add("e3_external_validator_fidelity_unproven") }
+            if (-not $sourceIsolated) { $e3Failures.Add("e3_external_validator_source_not_isolated") }
+            if (-not $fidelityEligible) { $e3Failures.Add("e3_external_validator_not_e3_eligible") }
         }
         if (-not $HumanReviewRequired) { $e3Failures.Add("e3_human_review_not_required") }
         if (-not $HumanReviewCompleted) { $e3Failures.Add("e3_human_review_not_completed") }
@@ -126,6 +133,25 @@ function Get-TaskspaceEvidenceGate {
         human_review_disagreement = $HumanReviewDisagreement
         oracle_isolation_policy = $OracleIsolationPolicy
     }
+}
+
+function Test-TaskspaceEvidenceSatisfiesTarget {
+    param(
+        [Parameter(Mandatory = $true)][string]$EvidenceTarget,
+        [Parameter(Mandatory = $true)][string]$ReportedEvidenceLevel
+    )
+    $target = $EvidenceTarget.ToUpperInvariant()
+    if ($target -eq "E3") { return $ReportedEvidenceLevel -eq "E3" }
+    if ($target -eq "E2") { return $ReportedEvidenceLevel -eq "E2" }
+    return $ReportedEvidenceLevel -ne "E1"
+}
+
+function Get-TaskspaceFailedReports {
+    param(
+        [Parameter(Mandatory = $true)]$Reports,
+        [Parameter(Mandatory = $true)][string]$EvidenceTarget
+    )
+    @($Reports | Where-Object { -not (Test-TaskspaceEvidenceSatisfiesTarget $EvidenceTarget ([string]$_.evidence.reported_evidence_level)) })
 }
 
 function Compare-TaskspacePairVariables {
@@ -195,6 +221,14 @@ function Write-TaskspacePairReport {
         $lines.Add("- human_review_disagreement: $($EvidenceGate.human_review_disagreement)")
         $lines.Add("- e3_minimum_repeats: $($EvidenceGate.e3_minimum_repeats)")
         $lines.Add("- claim_scope: $claimScope")
+        if ($null -ne $Manifest.ExternalBenchmark -and $Manifest.ExternalBenchmark.PSObject.Properties.Name -contains "validator_fidelity") {
+            $fidelity = $Manifest.ExternalBenchmark.validator_fidelity
+            $lines.Add("- validator_runtime: $($fidelity.validator_runtime)")
+            $lines.Add("- official_runner_or_equivalent: $($fidelity.official_runner_or_equivalent)")
+            $lines.Add("- agent_cannot_read_validator_source: $($fidelity.agent_cannot_read_validator_source)")
+            $lines.Add("- validator_e3_eligible: $($fidelity.e3_eligible)")
+            $lines.Add("- validator_downgrade_reason: $($fidelity.downgrade_reason)")
+        }
         if (@($EvidenceGate.e3_gate_failures).Count -eq 0) { $lines.Add("- failures: none") } else { foreach ($failure in $EvidenceGate.e3_gate_failures) { $lines.Add("- $failure") } }
         if ($EvidenceGate.PSObject.Properties.Name -contains "audit_review_source_path") {
             $lines.Add("- audit_review_source_path: $($EvidenceGate.audit_review_source_path)")
@@ -261,7 +295,12 @@ function Write-TaskspacePairReport {
         $lines.Add("- taskspace_wall_time_ratio: $timeRatio")
         $lines.Add("- taskspace_tool_call_ratio_warn: $toolWarn")
         $lines.Add("- taskspace_wall_time_ratio_warn: $timeWarn")
-        $lines.Add("- note: evidence level proves paired comparability; utility outcome is reported separately to avoid overstating benefit.")
+        $utilityNote = if ($EvidenceGate.included_in_utility_aggregate -or $EvidenceGate.included_in_e3_aggregate) {
+            "included evidence passed the configured comparability gate; utility outcome is reported separately to avoid overstating benefit."
+        } else {
+            "excluded evidence is diagnostic only; it does not prove paired comparability or TaskSpace utility."
+        }
+        $lines.Add("- note: $utilityNote")
     }
     foreach ($sideMetrics in @($LeftMetrics, $RightMetrics)) {
         $lines.Add("")
@@ -275,6 +314,8 @@ function Write-TaskspacePairReport {
             @("wall_time_ms", $sideMetrics.wall_time_ms),
             @("tool_call_count", $sideMetrics.tool_call_count),
             @("changed_paths", (@($sideMetrics.changed_paths) -join ", ")),
+            @("changed_file_inventory", (@($sideMetrics.changed_file_inventory | ForEach-Object { "$($_.path)[$($_.status)] sha256=$($_.sha256) size=$($_.size_bytes)" }) -join "; ")),
+            @("validator_environment_mismatch", $sideMetrics.validator_environment_mismatch),
             @("maps", $sideMetrics.maps),
             @("nodes", $sideMetrics.nodes),
             @("edges", $sideMetrics.edges),
@@ -298,7 +339,8 @@ function Write-TaskspaceRunSummary {
         $lines += "- pair: $($report.pair_dir)"
         $lines += "  - reported_evidence_level: $($report.evidence.reported_evidence_level)"
         $lines += "  - included_in_utility_aggregate: $($report.evidence.included_in_utility_aggregate)"
-        if ([string]$report.evidence.reported_evidence_level -like "E3*") {
+        $reportTarget = if ($report.PSObject.Properties.Name -contains "evidence_target") { [string]$report.evidence_target } else { "" }
+        if ($reportTarget -eq "E3" -or [string]$report.evidence.reported_evidence_level -like "E3*") {
             $lines += "  - included_in_e3_aggregate: $($report.evidence.included_in_e3_aggregate)"
         }
         $lines += "  - pair_report: $($report.pair_report)"

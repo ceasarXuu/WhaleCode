@@ -504,6 +504,426 @@ Second-round blocking findings are closed. `audit-review.json` is now bound to c
 - Blocked reason: n/a
 - Allowed to proceed: yes
 
+## Round 4: Real Terminal-Bench Trial Follow-up Review
+
+### Review Input
+
+#### Objective
+Execute both requested trial paths: the engineering smoke path and a real external benchmark single-sample path, then prevent the harness from overstating or hiding what happened.
+
+#### Review Target
+Post-trial implementation changes for official Terminal-Bench task materialization and benchmark metrics extraction.
+
+#### Target Locations
+- `scripts/taskspace-benchmark/adapters/terminal-bench-adapter.ps1`
+- `scripts/taskspace-benchmark/lib/metrics-extractor.ps1`
+- `scripts/taskspace-benchmark/test-harness.ps1`
+- `C:\Users\77585\AppData\Local\Temp\whale-real-external-paired-runs-fixed\runs\terminal_bench__hello-world\20260602-052844-175\pair-001\pair-report.md`
+
+#### Change Introduction
+The Terminal-Bench adapter now accepts official `task.yaml` samples without an `environment/` directory by extracting the instruction block, materializing only allowlisted public fixture files, and keeping validator sources separate. Metrics extraction now includes untracked workspace files so real agent-created files are not omitted from `changed_paths`.
+
+#### Risk Focus
+- Official benchmark task materialization could leak `solution.sh` or hidden material into the agent fixture.
+- YAML instruction extraction could be too narrow or silently misread real Terminal-Bench prompts.
+- Metrics could still hide untracked file writes or create misleading path granularity.
+- The real run could be reported as TaskSpace utility evidence despite failing because the current Windows non-Docker validator is not a faithful Terminal-Bench environment.
+
+#### Assumptions To Attack
+- A generated official Terminal-Bench fixture is safe enough when no `environment/` directory exists.
+- `task.yaml` block extraction handles the official prompt format used by Terminal-Bench samples.
+- `changed_paths` now reflects actual agent work, including untracked files.
+- The report gates correctly downgrade this trial to engineering evidence rather than E3 utility evidence.
+
+#### Adversarial Lenses
+- implementation
+- testing
+- data leakage
+- evidence validity
+- release operations
+
+#### Verification Status
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1` passed after the changes.
+- Real official Terminal-Bench `hello-world` PlanOnly passed at source revision `1a6ffa9674b571da0ed040c470cb40c4d85f9b9b`.
+- Real paired Whale run completed for standard and taskspace; both business validations failed under the current Windows non-Docker validator path, and pair report classified it below E3.
+
+#### Reviewer Instructions
+- Fresh internal subagent session.
+- No inherited main-agent context.
+- Read target files directly.
+- Do not modify files.
+- Cite evidence paths and line numbers when possible.
+- Treat a false positive E3 claim, answer leakage, or hidden changed-path loss as blocking.
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| normal | 12 minutes | 8 minutes if alive | 2 | cannot pass if review is unavailable |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| Implementation adversary | Validate adapter parsing, fixture materialization, and metric behavior | correctness, leakage, path reporting |
+| Test validity adversary | Challenge whether smoke and real trial evidence can be trusted | self-deceptive tests, false E3 claim |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| Implementation adversary | `multi_agent_v1.spawn_agent` explorer | `019e851b-49f9-7a51-be38-351e7ede7830` | spawn_agent result | fork_context=false | Round 4 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless inspected directly | yes |
+| Test validity adversary | `multi_agent_v1.spawn_agent` explorer | `019e851b-9358-7531-9f36-902be30b96fb` | spawn_agent result | fork_context=false | Round 4 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless inspected directly | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| implementation-adversary | Implementation adversary | 1 | `019e851b-49f9-7a51-be38-351e7ede7830` | 12 minutes | completed | reviewer completed | completed |
+| test-validity-adversary | Test validity adversary | 1 | `019e851b-9358-7531-9f36-902be30b96fb` | 12 minutes | completed | reviewer completed | completed |
+
+### Reviewer Outputs
+
+#### implementation-adversary
+
+##### Summary
+The real `hello-world` trial was not misreported as E3, but the implementation still had three blocking risks: untracked directory paths were collapsed, validator source was materialized before agent execution without read-isolation proof, and `task.yaml` extraction did not support official inline instructions.
+
+##### Blocking Findings
+- `changed_paths` still hid concrete untracked files because `git status` collapsed `app/` instead of reporting `app/hello.txt`.
+- Validator/source separation only kept files out of the fixture; it did not prove the agent could not read materialized validator source or original benchmark source.
+- `task.yaml` parsing only handled block instructions and failed on official inline instruction samples such as `fix-ocaml-gc`.
+
+##### Non-blocking Risks
+- Windows non-Docker validator failures were only visible as generic business failure.
+- Fixture `task.yaml` exposes public metadata such as author/canary fields; this is acceptable only if documented as public benchmark metadata.
+- Leak scanning is filename-based and does not inspect sensitive references inside public metadata.
+
+##### Required Fixes
+- Expand untracked directories to file-level changed inventory.
+- Add validator fidelity gate and keep local wrappers out of E3.
+- Support inline/literal/folded `task.yaml` instruction extraction.
+- Classify local Windows/Git Bash validator mismatch explicitly.
+
+##### Missing Tests
+- Nested untracked file path and SHA256 inventory.
+- Inline and folded `task.yaml` instruction extraction.
+- Non-official validator cannot enter E3.
+- Hidden oracle materialization must not expose reviewer-only directories before agent execution.
+
+##### Missing Logs / Observability
+- Instruction extraction mode.
+- Fixture allowlist and local wrapper status.
+- Validator runtime and Docker availability.
+- File-level changed inventory.
+
+##### Evidence
+- `scripts/taskspace-benchmark/lib/metrics-extractor.ps1`
+- `scripts/taskspace-benchmark/adapters/terminal-bench-adapter.ps1`
+- `C:\Users\77585\AppData\Local\Temp\whale-real-external-paired-runs-fixed\runs\terminal_bench__hello-world\20260602-052844-175\pair-001\pair-report.md`
+
+#### test-validity-adversary
+
+##### Summary
+The failed pair was excluded from E3 aggregate, but the evidence package still had two blocking self-deception paths: file-level changes were hidden by collapsed untracked directories, and Windows/Git Bash validation could be mistaken for faithful Terminal-Bench execution.
+
+##### Blocking Findings
+- `changed_paths` could hide real file-level edits under an untracked directory.
+- Terminal-Bench PowerShell/Git Bash validation lacked a hard fidelity gate, so a future lucky pass could be over-promoted.
+
+##### Non-blocking Risks
+- Utility Assessment wording was too strong for excluded E1 evidence.
+- Runner exit semantics let E3-candidate return success unless explicitly checked against the requested target.
+- PlanOnly only proves adapter materialization, not benchmark fidelity.
+
+##### Required Fixes
+- Add file-level changed inventory with SHA256.
+- Add validator fidelity metadata and E3 gate failures for non-official wrappers.
+- Tighten target-specific runner exit semantics.
+- Make pair report wording conditional on aggregate inclusion.
+
+##### Missing Tests
+- Nested untracked files.
+- Non-Docker Terminal-Bench cannot become E3 even if validation passes.
+- E3-candidate does not satisfy E3 target.
+- Run summary displays E3 aggregate exclusion for E3-target failed pairs.
+
+##### Missing Logs / Observability
+- Validator runtime summary.
+- Changed file inventory.
+- Top-level E3 aggregate exclusion.
+- Official runner not used marker.
+
+##### Evidence
+- `scripts/taskspace-benchmark/test-harness.ps1`
+- `scripts/taskspace-benchmark/lib/pair-report.ps1`
+- `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1`
+- `C:\Users\77585\AppData\Local\Temp\whale-real-external-paired-runs-fixed\runs\terminal_bench__hello-world\20260602-052844-175\pair-001\pair-report.md`
+
+### Main Agent Response
+
+| Reviewer | Finding | Broken Assumption / Failure Scenario | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|---|
+| implementation-adversary | Collapsed untracked directory paths | `app/` hides whether agent wrote `app/hello.txt` or unrelated files | blocking | accept | Real report showed `changed_paths: app/` | Added `Get-TaskspaceChangedFileInventory`, `--untracked-files=all`, file SHA256/size/status, and nested file tests | Round 5 closure |
+| implementation-adversary | Validator source not proven unreadable | Keeping tests outside fixture does not prove agent cannot read materialized validator/source paths | blocking | accept | Validator source is materialized under scenario before execution | Added `validator_fidelity` metadata and E3 gate failures for non-isolated source; documented local wrapper as engineering smoke only | Round 5 closure; future Docker/isolation runner |
+| implementation-adversary | YAML extraction too narrow | Inline official `instruction:` samples fail | blocking | accept | Official `fix-ocaml-gc` uses inline instruction | Added inline/literal/folded extraction and extraction-mode metadata; added tests | Round 5 closure |
+| implementation-adversary | Hidden oracle directory visible before agent run | Agent can enumerate parent and see `reviewer-only` | blocking | accept | Real run produced `oracle_isolation_level: failed` after parent directory listing | Deferred reviewer-only directory creation until `Materialize-TaskspacePrivateOracle`; added regression test | Round 5 closure |
+| test-validity-adversary | Non-official validator could be over-promoted | Lucky local wrapper pass could enter E3 | blocking | accept | Gate did not require fidelity | E3 external gate now requires official/equivalent runner, validator-source isolation, and `e3_eligible` | Round 5 closure |
+| test-validity-adversary | E3-candidate exit semantics too loose | CLI success could be read as E3 pass | blocking | accept | Runner only failed E1 or non-E2 for E2 target | Added target-specific `Test-TaskspaceEvidenceSatisfiesTarget` and `Get-TaskspaceFailedReports` | Round 5 closure |
+| test-validity-adversary | Report wording overstated excluded evidence | E1 pair said evidence proves paired comparability | non-blocking | accept | Wording was unconditional | Pair report note now says excluded evidence is diagnostic only | n/a |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: no
+- Blocking re-review passed: no
+- Blocking re-review round links:
+  - Round 5 pending
+- Blocking re-review launch records:
+  - pending
+- Rejected findings backed by evidence: n/a
+- Deferred findings documented: yes
+- Blocked reason: Round 5 closure review pending
+- Allowed to proceed: no
+
+## Round 5: Post-fix Closure Review
+
+### Review Input
+
+#### Objective
+Verify closure of the accepted Round 4 blocking findings after implementation and real reruns.
+
+#### Review Target
+Post-fix E3 external benchmark trial harness, reports, and Terminal-Bench real trial artifacts.
+
+#### Target Locations
+- `scripts/taskspace-benchmark/lib/metrics-extractor.ps1`
+- `scripts/taskspace-benchmark/lib/pair-report.ps1`
+- `scripts/taskspace-benchmark/lib/workspace.ps1`
+- `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1`
+- `scripts/taskspace-benchmark/adapters/external-benchmark-common.ps1`
+- `scripts/taskspace-benchmark/adapters/terminal-bench-adapter.ps1`
+- `scripts/taskspace-benchmark/test-harness.ps1`
+- `benchmarks/taskspace/external/README.md`
+- `docs/testing/2026-06-02-taskspace-e3-external-benchmark-implementation-plan.md`
+- `C:\Users\77585\AppData\Local\Temp\whale-real-external-paired-runs-final\runs\terminal_bench__hello-world\20260602-055319-966\pair-001\pair-report.md`
+
+#### Change Introduction
+The harness now records file-level changed inventory with SHA256, marks local external benchmark wrappers as non-E3 validator fidelity, supports Terminal-Bench inline/literal/folded `task.yaml` instructions, defers hidden oracle directory creation until after agent execution, and makes E3-candidate fail the requested E3 target unless explicitly allowed.
+
+#### Risk Focus
+- Accepted blocking findings could be incompletely fixed.
+- New validator fidelity gates could still allow local wrappers into E3.
+- Hidden oracle materialization could still expose reviewer-only paths before agent execution.
+- Final real run artifacts could contradict the claimed fix.
+
+#### Verification Status
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1` passed.
+- Official Terminal-Bench `hello-world` PlanOnly passed at source revision `1a6ffa9674b571da0ed040c470cb40c4d85f9b9b`.
+- Final real paired Whale run completed at `C:\Users\77585\AppData\Local\Temp\whale-real-external-paired-runs-final\runs\terminal_bench__hello-world\20260602-055319-966`.
+- Final pair report shows `reported_evidence_level: E1`, `included_in_e3_aggregate: False`, file-level `changed_file_inventory`, `validator_runtime: windows_git_bash_non_docker`, and `oracle_isolation_level: hard_sandbox` for both sides.
+
+#### Reviewer Instructions
+- Fresh internal subagent session.
+- No inherited main-agent context.
+- Read target files and final artifacts directly.
+- Do not modify files.
+- Cite evidence paths and line numbers when possible.
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| normal | 12 minutes | 8 minutes if alive | 2 | cannot pass if review is unavailable |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| Closure adversary | Verify all accepted blocking fixes and final evidence boundary | implementation, testing, evidence validity |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| Closure adversary | `multi_agent_v1.spawn_agent` explorer | `019e8531-ddfd-7de1-961b-b1c056692606` | spawn_agent result | fork_context=false | Round 5 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless inspected directly | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| closure-adversary | Closure adversary | 1 | `019e8531-ddfd-7de1-961b-b1c056692606` | 12 minutes | completed | reviewer completed | completed |
+
+### Reviewer Outputs
+
+#### closure-adversary
+
+##### Summary
+Most Round 4 implementation findings are closed, but two blocking closure issues remain: the external benchmark wrapper still defaulted to allowing non-target results, and this review report itself still showed Round 5 pending.
+
+##### Blocking Findings
+- `run-taskspace-external-benchmark.ps1` still passed `-AllowNonE2Result` by default, so E1/E3-candidate could be hidden behind a successful wrapper exit.
+- The review artifact still had Round 5 pending records and did not yet prove closure.
+
+##### Non-blocking Risks
+- `task.yaml` extraction is a hand-written subset parser, not a full YAML parser.
+- Deleted files do not have SHA256 in changed inventory; deletion semantics should be defined if needed.
+- Probe-level and side-level oracle isolation should remain visually distinct in future aggregate reporting.
+
+##### Required Fixes
+- Remove default `-AllowNonE2Result` from the external wrapper and make diagnostic non-target success explicit opt-in.
+- Print an explicit diagnostic marker when non-target success is allowed.
+- Update this review report with closure output and final status.
+
+##### Missing Tests
+- Wrapper-level exit semantics test for default E3 target failure.
+- Wrapper-level test for explicit diagnostic opt-in.
+
+##### Missing Logs / Observability
+- Explicit wrapper output that diagnostic non-target result was allowed.
+- Summary-level E3 gate failures would be useful, though pair report already contains them.
+
+##### Evidence
+- `scripts/taskspace-benchmark/run-taskspace-external-benchmark.ps1`
+- `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1`
+- `C:\Users\77585\AppData\Local\Temp\whale-real-external-paired-runs-final\runs\terminal_bench__hello-world\20260602-055319-966\pair-001\pair-report.md`
+
+### Main Agent Response
+
+| Reviewer | Finding | Broken Assumption / Failure Scenario | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|---|
+| closure-adversary | External wrapper default allowed non-target result | E3 target failure could still return 0 at wrapper level | blocking | accept | Real wrapper run initially returned `ChildExitCode: 0` despite E1 pair report | Removed default `-AllowNonE2Result`; added explicit `-AllowDiagnosticNonTargetResult`; real default wrapper now returns `ChildExitCode: 1` | Round 6 closure |
+| closure-adversary | Review artifact pending | Report did not record closure reviewer output/status | blocking | accept | Round 5 launch records still said pending | Added Round 5 reviewer output and response | Round 6 closure |
+| closure-adversary | Hand-written YAML parser edge cases | Complex YAML could still fail | non-blocking | defer | Current supported surface covers observed official inline/literal/folded samples and tests; full parser can be added if broader sample set exposes need | Documented as residual parser risk | Future adapter hardening |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: no
+- Blocking re-review passed: no
+- Blocking re-review round links:
+  - Round 6 pending
+- Blocking re-review launch records:
+  - pending
+- Rejected findings backed by evidence: n/a
+- Deferred findings documented: yes
+- Blocked reason: Round 6 closure review pending
+- Allowed to proceed: no
+
+## Round 6: Final Wrapper Closure Review
+
+### Review Input
+
+#### Objective
+Verify that Round 5 blocking findings are closed after wrapper exit semantics were fixed and the review artifact was updated.
+
+#### Review Target
+External benchmark wrapper exit behavior and final review record.
+
+#### Target Locations
+- `scripts/taskspace-benchmark/run-taskspace-external-benchmark.ps1`
+- `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1`
+- `scripts/taskspace-benchmark/test-harness.ps1`
+- `vs_review/2026-06-02-taskspace-e3-external-benchmark-review.md`
+- `C:\Users\77585\AppData\Local\Temp\whale-real-external-paired-runs-default-exit-fixed\runs\terminal_bench__hello-world\20260602-060801-190\run-summary.md`
+- `C:\Users\77585\AppData\Local\Temp\whale-real-external-paired-runs-default-exit-fixed\runs\terminal_bench__hello-world\20260602-060801-190\pair-001\pair-report.md`
+- `C:\Users\77585\AppData\Local\Temp\whale-real-external-paired-runs-diagnostic-optin\runs\terminal_bench__hello-world\20260602-061240-448\run-summary.md`
+- `C:\Users\77585\AppData\Local\Temp\whale-real-external-paired-runs-diagnostic-optin\runs\terminal_bench__hello-world\20260602-061240-448\pair-001\pair-report.md`
+
+#### Change Introduction
+The external wrapper no longer passes `-AllowNonE2Result` by default. Non-target diagnostic success now requires explicit `-AllowDiagnosticNonTargetResult` and prints a marker. Core runner failed-pair counting now array-normalizes single failed reports.
+
+#### Verification Status
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1` passed.
+- `git diff --check` passed.
+- Real Terminal-Bench wrapper default path returned `ChildExitCode: 1` for an E1 result under E3 target.
+- Real Terminal-Bench wrapper diagnostic opt-in returned `ChildExitCode: 0` and printed `DiagnosticNonTargetResultAllowed: True`.
+
+#### Reviewer Instructions
+- Fresh internal subagent session.
+- No inherited main-agent context.
+- Read target files and artifacts directly.
+- Do not modify files.
+- Treat any remaining default-success path for E3 target failure as blocking.
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| normal | 12 minutes | 8 minutes if alive | 2 | cannot pass if review is unavailable |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| Final wrapper closure adversary | Verify default wrapper failure and explicit diagnostic opt-in | exit semantics, evidence validity, review closure |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| Final wrapper closure adversary | `multi_agent_v1.spawn_agent` explorer | `019e8542-d3f7-7813-92c2-aee15f36d443` | spawn_agent result | fork_context=false | Round 6 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless inspected directly | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| final-wrapper-closure-adversary | Final wrapper closure adversary | 1 | `019e8542-d3f7-7813-92c2-aee15f36d443` | 12 minutes | completed | reviewer completed | completed |
+
+### Reviewer Outputs
+
+#### final-wrapper-closure-adversary
+
+##### Summary
+Passed. Round 5 blocking findings are closed: the external wrapper no longer passes `-AllowNonE2Result` by default, diagnostic non-target success requires explicit `-AllowDiagnosticNonTargetResult`, and the review record now contains Round 5 output and fix actions.
+
+##### Blocking Findings
+- none
+
+##### Non-blocking Risks
+- Wrapper `ChildExitCode` and diagnostic marker are currently captured in review evidence and console output, not a durable wrapper log artifact under the run root.
+- Core runner still exposes `-AllowNonE2Result` for direct diagnostic calls; this is acceptable because the external wrapper default path no longer uses it.
+
+##### Required Fixes
+- none
+
+##### Missing Tests
+- none in requested scope
+
+##### Missing Logs / Observability
+- Future improvement: persist wrapper-level stdout, child exit code, and diagnostic opt-in marker as a run-root artifact.
+
+##### Evidence
+- `scripts/taskspace-benchmark/run-taskspace-external-benchmark.ps1` no longer defaults to `-AllowNonE2Result`.
+- `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1` array-normalizes failed reports before exit-code evaluation.
+- `scripts/taskspace-benchmark/test-harness.ps1` covers wrapper default failure, diagnostic opt-in, and single failed report countability.
+- `C:\Users\77585\AppData\Local\Temp\whale-real-external-paired-runs-default-exit-fixed\runs\terminal_bench__hello-world\20260602-060801-190\run-summary.md` shows E1 and `included_in_e3_aggregate: False`.
+- `C:\Users\77585\AppData\Local\Temp\whale-real-external-paired-runs-diagnostic-optin\runs\terminal_bench__hello-world\20260602-061240-448\run-summary.md` shows diagnostic run remained E1 and excluded from E3 aggregate.
+
+### Main Agent Response
+
+| Reviewer | Finding | Broken Assumption / Failure Scenario | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|---|
+| final-wrapper-closure-adversary | none | n/a | n/a | accept | No blocking findings remained | No code changes required | n/a |
+| final-wrapper-closure-adversary | Wrapper stdout not persisted as artifact | Console output is less durable than run-root artifact | non-blocking | defer | Current tests and review evidence prove behavior; durable wrapper log can be added in a later observability pass | Documented residual observability improvement | Future wrapper logging pass |
+
+### Closure Status
+
+- Blocking findings found: no
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: yes
+- Blocking re-review passed: yes
+- Blocking re-review round links:
+  - Round 6
+- Blocking re-review launch records:
+  - Final wrapper closure adversary `019e8542-d3f7-7813-92c2-aee15f36d443`
+- Rejected findings backed by evidence: n/a
+- Deferred findings documented: yes
+- Blocked reason: n/a
+- Allowed to proceed: yes
+
 ## Final Conclusion
 
-Passed after three review rounds. E3 external benchmark intake is ready as an engineering scaffold and smoke-verified runner path. It is not yet product evidence of TaskSpace utility until real external benchmark samples are executed with paired runs and completed artifact audits.
+Passed after six review rounds. Both requested trial paths were executed. The engineering smoke path passes, and the real Terminal-Bench `hello-world` path now produces honest diagnostic evidence: file-level changes are recorded, local non-Docker wrapper results are blocked from E3, and E3 target failure is not hidden by wrapper exit code unless explicitly run as a diagnostic non-target result.

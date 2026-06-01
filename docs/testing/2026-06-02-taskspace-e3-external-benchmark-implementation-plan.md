@@ -2,6 +2,19 @@
 
 日期：2026-06-02
 
+## 2026-06-02 真实试跑后的证据边界修正
+
+`Terminal-Bench` 当前 PowerShell/Git Bash adapter 只允许作为 engineering smoke path 使用。它可以验证 source pin、task.yaml instruction 抽取、fixture materialization、Whale paired runner、pair report 这些链路是否能跑通，但它不是官方 Terminal-Bench Docker runner，也没有证明 validator source / hidden tests / solution 在 agent 执行期间不可读。
+
+因此该路径生成的 manifest 必须满足：
+
+- `external_benchmark.validator_fidelity.official_runner_or_equivalent = false`
+- `external_benchmark.validator_fidelity.agent_cannot_read_validator_source = false`
+- `external_benchmark.validator_fidelity.e3_eligible = false`
+- E3 gate 必须输出 `e3_external_validator_fidelity_unproven`、`e3_external_validator_source_not_isolated` 或等价失败原因。
+
+只有后续实现 Docker 或等价隔离运行环境，并证明 agent 只能访问初始 workspace、不能访问 validator source / hidden tests / solution，Terminal-Bench 才能进入 E3 aggregate。真实试跑还要求 metrics 记录文件级 `changed_file_inventory`，包括 path、status、size 和 SHA256；只记录 `app/` 这类未跟踪目录不满足审计要求。
+
 ## 目标
 
 E3 的核心不是继续扩大自建场景，而是把 TaskSpace 放进外部、成熟、可验证的软件工程 benchmark 中做 paired utility 对照。

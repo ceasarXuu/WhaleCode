@@ -6,11 +6,111 @@ function Get-TaskspaceDiffText {
     Push-Location $RepoDir
     try {
         $diff = git diff -- .
-        $diff | Set-Content -LiteralPath $DiffPath -Encoding UTF8
+        Set-Content -LiteralPath $DiffPath -Encoding UTF8 -Value $diff
         return ($diff -join "`n")
     } finally {
         Pop-Location
     }
+}
+
+function Get-TaskspaceChangedPaths {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoDir,
+        [string]$DiffText = ""
+    )
+    @((Get-TaskspaceChangedFileInventory $RepoDir $DiffText) | ForEach-Object { $_.path })
+}
+
+function Add-TaskspaceChangedPath {
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$Rows,
+        [Parameter(Mandatory = $true)][string]$RepoDir,
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Status,
+        [Parameter(Mandatory = $true)][string]$Source
+    )
+    $normalized = $Path.Trim().Trim('"').Replace("\", "/")
+    if ([string]::IsNullOrWhiteSpace($normalized)) { return }
+    $absolute = Join-Path $RepoDir ($normalized.Replace("/", [System.IO.Path]::DirectorySeparatorChar))
+    if (Test-Path -LiteralPath $absolute -PathType Container) {
+        $repoRoot = (Resolve-Path -LiteralPath $RepoDir).Path
+        foreach ($file in @(Get-ChildItem -LiteralPath $absolute -Recurse -Force -File -ErrorAction SilentlyContinue)) {
+            $relative = $file.FullName.Substring($repoRoot.Length).TrimStart("\", "/").Replace("\", "/")
+            if ($relative -like ".git/*") { continue }
+            Add-TaskspaceChangedPath $Rows $RepoDir $relative $Status $Source
+        }
+        return
+    }
+    $sha = ""
+    $size = $null
+    if (Test-Path -LiteralPath $absolute -PathType Leaf) {
+        $fileInfo = Get-Item -LiteralPath $absolute
+        $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $absolute).Hash.ToLowerInvariant()
+        $size = [int64]$fileInfo.Length
+    }
+    if ($Rows.ContainsKey($normalized)) {
+        $existing = $Rows[$normalized]
+        $sources = @([string]$existing.source -split "," | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        if ($sources -notcontains $Source) { $sources += $Source }
+        $existing.source = ($sources -join ",")
+        if ($sha) { $existing.sha256 = $sha }
+        if ($null -ne $size) { $existing.size_bytes = $size }
+        if ($Status -ne "diff") { $existing.status = $Status }
+        return
+    }
+    $Rows[$normalized] = [pscustomobject]@{
+        path = $normalized
+        status = $Status
+        source = $Source
+        sha256 = $sha
+        size_bytes = $size
+    }
+}
+
+function Get-TaskspaceChangedFileInventory {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoDir,
+        [string]$DiffText = ""
+    )
+    $rows = @{}
+    foreach ($path in @(Get-ChangedPathsFromDiff $DiffText)) {
+        Add-TaskspaceChangedPath $rows $RepoDir $path "diff" "git_diff"
+    }
+    Push-Location $RepoDir
+    try {
+        foreach ($line in @(git status --porcelain=v1 --untracked-files=all -- .)) {
+            if ([string]::IsNullOrWhiteSpace($line) -or $line.Length -lt 4) { continue }
+            $status = $line.Substring(0, 2)
+            $path = $line.Substring(3).Trim()
+            if ($path.Contains(" -> ")) { $path = ($path -split ' -> ')[-1].Trim() }
+            Add-TaskspaceChangedPath $rows $RepoDir $path $status "git_status"
+        }
+    } finally {
+        Pop-Location
+    }
+    @($rows.Values | Sort-Object path)
+}
+
+function Test-TaskspaceValidatorEnvironmentMismatch {
+    param([Parameter(Mandatory = $true)]$Validation)
+    $combined = ""
+    foreach ($path in @($Validation.stdout_path, $Validation.stderr_path)) {
+        if ($path -and (Test-Path -LiteralPath $path)) {
+            $combined += "`n" + (Get-Content -Raw -Encoding UTF8 -LiteralPath $path)
+        }
+    }
+    $patterns = @(
+        "validator_runtime=windows_git_bash_non_docker",
+        "platform win32",
+        "apt-get: command not found",
+        "\.tbench-testing/bin/activate",
+        "\\app\\",
+        "/app/"
+    )
+    foreach ($pattern in $patterns) {
+        if ($combined -match $pattern) { return $true }
+    }
+    return $false
 }
 
 function Export-TaskspaceObservabilityIfAvailable {
@@ -50,6 +150,7 @@ function Get-TaskspaceBenchmarkMetrics {
     $commandStats = Get-CommandStats $jsonlText
     $diffPath = Join-Path $Side.ArtifactDir "git-diff.patch"
     $diffText = Get-TaskspaceDiffText $Side.RepoDir $diffPath
+    $changedInventory = @(Get-TaskspaceChangedFileInventory $Side.RepoDir $diffText)
     $obs = if ($ObservabilityResult) { $ObservabilityResult.observability } else { $null }
     $graphHealth = Get-TaskspaceGraphHealth $obs
     $subagentThreadIds = @()
@@ -67,7 +168,9 @@ function Get-TaskspaceBenchmarkMetrics {
         wall_time_ms = $Exec.wall_time_ms
         tool_call_count = $commandStats.Completed
         failed_tool_call_count = $commandStats.Failed
-        changed_paths = @(Get-ChangedPathsFromDiff $diffText)
+        changed_file_inventory = @($changedInventory)
+        changed_paths = @($changedInventory | ForEach-Object { $_.path })
+        validator_environment_mismatch = (Test-TaskspaceValidatorEnvironmentMismatch $Validation)
         business_success = ($Exec.exit_code -eq 0 -and $Validation.exit_code -eq 0 -and $Oracle.exit_code -eq 0)
         invalid_prompt = $false
         invalid_pair = $false

@@ -9,6 +9,8 @@ param(
     [string]$RunRoot = "",
     [string]$WhaleBin = "$env:USERPROFILE\.whale\bin\whale.exe",
     [string]$Model = "deepseek-v4-flash",
+    [string]$RunnerPath = "",
+    [switch]$AllowDiagnosticNonTargetResult,
     [switch]$PlanOnly
 )
 
@@ -24,7 +26,14 @@ $adapter = switch ($Benchmark) {
 $materialized = & $adapter -TaskDir $TaskDir -OutputRoot $scenarioRoot -SampleId $SampleId -SourceVersion $SourceVersion
 $scenarioDir = [string]($materialized | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
 if ([string]::IsNullOrWhiteSpace($scenarioDir)) { throw "Adapter did not return a scenario_dir." }
-$runner = Join-Path $repoRoot "scripts\taskspace-benchmark\run-taskspace-benchmark.ps1"
-$args = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $runner, "-ScenarioPath", $scenarioDir, "-Repeats", $Repeats, "-WhaleBin", $WhaleBin, "-Model", $Model, "-RunRoot", (Join-Path $RunRoot "runs"), "-AllowNonE2Result")
+$runner = if ([string]::IsNullOrWhiteSpace($RunnerPath)) { Join-Path $repoRoot "scripts\taskspace-benchmark\run-taskspace-benchmark.ps1" } else { $RunnerPath }
+$args = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $runner, "-ScenarioPath", $scenarioDir, "-Repeats", $Repeats, "-WhaleBin", $WhaleBin, "-Model", $Model, "-RunRoot", (Join-Path $RunRoot "runs"))
+if ($AllowDiagnosticNonTargetResult) { $args += "-AllowNonE2Result" }
 if ($PlanOnly) { $args += "-PlanOnly" }
 & powershell @args
+$exitCode = $LASTEXITCODE
+if ($AllowDiagnosticNonTargetResult -and -not $PlanOnly) {
+    Write-Host "DiagnosticNonTargetResultAllowed: True"
+    Write-Host "Requested target may be unsatisfied; inspect RunSummary and PairReport."
+}
+exit $exitCode

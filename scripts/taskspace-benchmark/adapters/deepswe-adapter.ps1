@@ -39,4 +39,17 @@ $validatorLines = @(
 $validatorLines | Set-Content -LiteralPath $validator -Encoding UTF8
 $scenarioId = "deepswe__$($SampleId -replace '[^A-Za-z0-9_.-]', '_')"
 $scenarioDir = Join-Path $OutputRoot $scenarioId
-New-TaskspaceExternalScenario $scenarioDir $scenarioId "deepswe" "whale-taskspace-e3-deepswe-v1" $instruction $fixtureSource $validator $validatorSource $originalValidatorSha $SampleId $SourceVersion "https://github.com/datacurve-ai/deep-swe" "external-benchmark-license-see-source" "pointer_only_no_solution_or_hidden_tests" "DeepSWE long-horizon software engineering task subset"
+$validatorFidelity = [ordered]@{
+    official_runner_or_equivalent = $false
+    docker_runtime = $false
+    container_workdir = ""
+    validator_runtime = "local_git_bash_wrapper"
+    agent_cannot_read_validator_source = $false
+    e3_eligible = $false
+    downgrade_reason = "DeepSWE adapter currently uses a local wrapper and materialized validator source; official or equivalent isolation has not been proven."
+}
+$adapterMetadata = [ordered]@{
+    solution_visible_to_agent = $false
+    engineering_smoke_only = $true
+}
+New-TaskspaceExternalScenario $scenarioDir $scenarioId "deepswe" "whale-taskspace-e3-deepswe-v1" $instruction $fixtureSource $validator $validatorSource $originalValidatorSha $SampleId $SourceVersion "https://github.com/datacurve-ai/deep-swe" "external-benchmark-license-see-source" "pointer_only_no_solution_or_hidden_tests" "DeepSWE long-horizon software engineering task subset" $validatorFidelity $adapterMetadata

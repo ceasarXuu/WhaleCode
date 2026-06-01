@@ -80,7 +80,9 @@ function New-TaskspaceExternalScenario {
         [Parameter(Mandatory = $true)][string]$SourceUrl,
         [Parameter(Mandatory = $true)][string]$License,
         [Parameter(Mandatory = $true)][string]$DataPolicy,
-        [string]$ClaimScope = ""
+        [string]$ClaimScope = "",
+        $ValidatorFidelity = $null,
+        $AdapterMetadata = $null
     )
     foreach ($required in @($SourceVersion, $SourceUrl, $License, $DataPolicy, $OriginalValidatorSha256)) {
         if ([string]::IsNullOrWhiteSpace($required)) {
@@ -99,6 +101,18 @@ function New-TaskspaceExternalScenario {
     Copy-Item -LiteralPath $ValidatorScriptPath -Destination $validatorDest -Force
     $promptSha = Get-TaskspaceExternalFileSha256 $promptPath
     $wrapperSha = Get-TaskspaceExternalFileSha256 $validatorDest
+    if ($null -eq $ValidatorFidelity) {
+        $ValidatorFidelity = [ordered]@{
+            official_runner_or_equivalent = $false
+            docker_runtime = $false
+            container_workdir = ""
+            validator_runtime = "unverified"
+            agent_cannot_read_validator_source = $false
+            e3_eligible = $false
+            downgrade_reason = "validator fidelity has not been proven"
+        }
+    }
+    if ($null -eq $AdapterMetadata) { $AdapterMetadata = [ordered]@{} }
     $scenario = [ordered]@{
         id = $ScenarioId
         level = "L3"
@@ -142,6 +156,8 @@ function New-TaskspaceExternalScenario {
             original_validator_sha256 = $OriginalValidatorSha256
             generated_wrapper_sha256 = $wrapperSha
             validator_command = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $validatorDest)
+            validator_fidelity = $ValidatorFidelity
+            adapter_metadata = $AdapterMetadata
         }
         human_review_required = $true
         e3 = [ordered]@{
