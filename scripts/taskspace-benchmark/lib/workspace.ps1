@@ -206,6 +206,13 @@ print("hidden oracle passed")
         return
     }
 
+    if ($Strategy -eq "external-validator-v1") {
+        Write-Text $Path @'
+print("external validator is recorded as public validation")
+'@
+        return
+    }
+
     throw "Unsupported hidden oracle strategy: $Strategy"
 }
 

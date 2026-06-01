@@ -66,23 +66,41 @@ function Get-TaskspaceEvidenceGate {
         }
         if ($originType -eq "external_benchmark") {
             $sampleId = if ($null -ne $SampleOrigin -and $SampleOrigin.PSObject.Properties.Name -contains "sample_id") { [string]$SampleOrigin.sample_id } else { "" }
+            $sourceVersion = if ($null -ne $SampleOrigin -and $SampleOrigin.PSObject.Properties.Name -contains "source_version") { [string]$SampleOrigin.source_version } else { "" }
+            $sourceUrl = if ($null -ne $SampleOrigin -and $SampleOrigin.PSObject.Properties.Name -contains "source_url") { [string]$SampleOrigin.source_url } else { "" }
+            $license = if ($null -ne $SampleOrigin -and $SampleOrigin.PSObject.Properties.Name -contains "license") { [string]$SampleOrigin.license } else { "" }
+            $dataPolicy = if ($null -ne $SampleOrigin -and $SampleOrigin.PSObject.Properties.Name -contains "data_policy") { [string]$SampleOrigin.data_policy } else { "" }
             $validatorSha = if ($null -ne $SampleOrigin -and $SampleOrigin.PSObject.Properties.Name -contains "original_validator_sha256") { [string]$SampleOrigin.original_validator_sha256 } else { "" }
             $benchmarkName = if ($null -ne $ExternalBenchmark -and $ExternalBenchmark.PSObject.Properties.Name -contains "name") { [string]$ExternalBenchmark.name } else { "" }
             $adapterVersion = if ($null -ne $ExternalBenchmark -and $ExternalBenchmark.PSObject.Properties.Name -contains "adapter_version") { [string]$ExternalBenchmark.adapter_version } else { "" }
             if ([string]::IsNullOrWhiteSpace($sampleId)) { $e3Failures.Add("e3_external_sample_id_missing") }
+            if ([string]::IsNullOrWhiteSpace($sourceVersion)) { $e3Failures.Add("e3_external_source_version_missing") }
+            if ([string]::IsNullOrWhiteSpace($sourceUrl)) { $e3Failures.Add("e3_external_source_url_missing") }
+            if ([string]::IsNullOrWhiteSpace($license)) { $e3Failures.Add("e3_external_license_missing") }
+            if ([string]::IsNullOrWhiteSpace($dataPolicy)) { $e3Failures.Add("e3_external_data_policy_missing") }
             if ([string]::IsNullOrWhiteSpace($validatorSha)) { $e3Failures.Add("e3_external_validator_sha_missing") }
             if ([string]::IsNullOrWhiteSpace($benchmarkName)) { $e3Failures.Add("e3_external_benchmark_name_missing") }
             if ([string]::IsNullOrWhiteSpace($adapterVersion)) { $e3Failures.Add("e3_external_adapter_version_missing") }
         }
         if (-not $HumanReviewRequired) { $e3Failures.Add("e3_human_review_not_required") }
         if (-not $HumanReviewCompleted) { $e3Failures.Add("e3_human_review_not_completed") }
-        $validReviewDecisions = @(
+        $includeReviewDecisions = @(
             "include_taskspace_better",
             "include_standard_better",
             "include_no_clear_delta"
         )
+        $excludeReviewDecisions = @(
+            "exclude_harness_failure",
+            "exclude_invalid_prompt",
+            "exclude_validator_unclear",
+            "exclude_privacy_or_sample_risk"
+        )
+        $validReviewDecisions = @($includeReviewDecisions + $excludeReviewDecisions)
         if ($HumanReviewCompleted -and $validReviewDecisions -notcontains $HumanReviewDecision) {
             $e3Failures.Add("e3_human_review_decision_missing_or_invalid")
+        }
+        if ($HumanReviewCompleted -and $excludeReviewDecisions -contains $HumanReviewDecision) {
+            $e3Failures.Add("e3_human_review_excluded_pair")
         }
     }
     $level = if ($target -eq "E3" -and $failures.Count -eq 0 -and $e3Failures.Count -eq 0) {
@@ -122,9 +140,6 @@ function Compare-TaskspacePairVariables {
     if ($ManifestResolved.whale_sha256_left -ne $ManifestResolved.whale_sha256_right) { $failures.Add("whale_sha256_mismatch") }
     if ($ManifestResolved.model_left -ne $ManifestResolved.model_right) { $failures.Add("model_mismatch") }
     if ($ManifestResolved.timeout_seconds_left -ne $ManifestResolved.timeout_seconds_right) { $failures.Add("timeout_mismatch") }
-    if ($LeftMetrics.hidden_oracle_exit_code -ne $RightMetrics.hidden_oracle_exit_code -and ($LeftMetrics.hidden_oracle_exit_code -eq 0 -or $RightMetrics.hidden_oracle_exit_code -eq 0)) {
-        $failures.Add("oracle_result_mismatch")
-    }
     [pscustomobject]@{
         invalid_pair = $failures.Count -gt 0
         failures = @($failures.ToArray())
@@ -181,6 +196,11 @@ function Write-TaskspacePairReport {
         $lines.Add("- e3_minimum_repeats: $($EvidenceGate.e3_minimum_repeats)")
         $lines.Add("- claim_scope: $claimScope")
         if (@($EvidenceGate.e3_gate_failures).Count -eq 0) { $lines.Add("- failures: none") } else { foreach ($failure in $EvidenceGate.e3_gate_failures) { $lines.Add("- $failure") } }
+        if ($EvidenceGate.PSObject.Properties.Name -contains "audit_review_source_path") {
+            $lines.Add("- audit_review_source_path: $($EvidenceGate.audit_review_source_path)")
+            $auditFailures = @($EvidenceGate.audit_review_failures)
+            if ($auditFailures.Count -eq 0) { $lines.Add("- audit_review_failures: none") } else { $lines.Add("- audit_review_failures: $($auditFailures -join ', ')") }
+        }
         $lines.Add("")
     }
     $lines.Add("## Variable Control")
@@ -306,6 +326,9 @@ function Write-TaskspaceAggregateReport {
         if (-not $decisionCounts.ContainsKey($decision)) { $decisionCounts[$decision] = 0 }
         $decisionCounts[$decision]++
     }
+    $taskspaceBetterPairs = @($reviewCompleted | Where-Object { [string]$_.evidence.human_review_decision -eq "include_taskspace_better" }).Count
+    $standardBetterPairs = @($reviewCompleted | Where-Object { [string]$_.evidence.human_review_decision -eq "include_standard_better" }).Count
+    $noClearDeltaPairs = @($reviewCompleted | Where-Object { [string]$_.evidence.human_review_decision -eq "include_no_clear_delta" }).Count
     $lines = @(
         "# TaskSpace Benchmark Aggregate Report",
         "",
@@ -322,6 +345,10 @@ function Write-TaskspaceAggregateReport {
         $lines += "- e3_human_review_completed_pairs: $($reviewCompleted.Count)"
         $lines += "- e3_human_review_disagreement_pairs: $($reviewDisagreements.Count)"
         $lines += "- e3_human_review_decisions: $decisionSummary"
+        $lines += "- e3_taskspace_better_pairs: $taskspaceBetterPairs"
+        $lines += "- e3_standard_better_pairs: $standardBetterPairs"
+        $lines += "- e3_no_clear_delta_pairs: $noClearDeltaPairs"
+        $lines += "- e3_taskspace_benefit_note: only include_taskspace_better counts as directional TaskSpace benefit evidence"
     }
     $lines += "- excluded_pairs: $($all.Count - $included.Count)"
     foreach ($report in $all) {

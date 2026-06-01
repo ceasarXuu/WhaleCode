@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "benchmarks": [
+    {
+      "id": "deepswe",
+      "priority": "P0",
+      "status": "adapter_spike",
+      "official_url": "https://deepswe.datacurve.ai/",
+      "source_url": "https://github.com/datacurve-ai/deep-swe",
+      "adapter_version": "whale-taskspace-e3-deepswe-v1",
+      "data_policy": "pointer_only_no_solution_or_hidden_tests",
+      "first_phase_scope": "single-sample materialization and paired smoke"
+    },
+    {
+      "id": "terminal-bench",
+      "priority": "P0",
+      "status": "adapter_spike",
+      "official_url": "https://www.tbench.ai/",
+      "source_url": "https://github.com/laude-institute/terminal-bench",
+      "adapter_version": "whale-taskspace-e3-terminal-bench-v1",
+      "data_policy": "pointer_only_no_solution_or_hidden_tests",
+      "first_phase_scope": "coding file debugging data-processing subset"
+    },
+    {
+      "id": "swebench-multilingual",
+      "priority": "P1",
+      "status": "feasibility_intake",
+      "official_url": "https://www.swebench.com/multilingual",
+      "source_url": "https://github.com/SWE-bench/SWE-bench",
+      "adapter_version": "whale-taskspace-e3-swebench-multilingual-v1",
+      "data_policy": "pointer_only_no_solution_or_hidden_tests",
+      "first_phase_scope": "materialization and validator feasibility only"
+    },
+    {
+      "id": "swe-rebench",
+      "priority": "P1",
+      "status": "source_intake",
+      "official_url": "https://swe-rebench.com/about",
+      "source_url": "https://swe-rebench.com/about",
+      "adapter_version": "not_started",
+      "data_policy": "pointer_only",
+      "first_phase_scope": "track source freshness and contamination controls"
+    }
+  ]
+}

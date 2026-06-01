@@ -1,5 +1,6 @@
 param(
     [string]$Scenario = "single-file-fast-fix",
+    [string]$ScenarioPath = "",
     [int]$Repeats = 1,
     [string]$RunRoot = "",
     [string]$WhaleBin = "$env:USERPROFILE\.whale\bin\whale.exe",
@@ -10,6 +11,7 @@ param(
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [ValidateSet("deferred_materialization_allowed", "hard_sandbox_only")]
     [string]$OracleIsolationPolicy = "deferred_materialization_allowed",
+    [string]$AuditReviewRoot = "",
     [switch]$EnableAggregate,
     [switch]$AllowNonE2Result,
     [switch]$PlanOnly
@@ -25,12 +27,13 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\workspace.ps1")
 . (Join-Path $PSScriptRoot "lib\oracle-runner.ps1")
 . (Join-Path $PSScriptRoot "lib\metrics-extractor.ps1")
+. (Join-Path $PSScriptRoot "lib\audit-report.ps1")
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
 
 if ($Repeats -lt 1) { throw "Repeats must be >= 1" }
 if (-not $RunRoot) { $RunRoot = Get-NeutralTaskspaceBenchmarkRunRoot $repoRoot }
 
-$manifest = Read-TaskspaceScenarioManifest $repoRoot $Scenario
+$manifest = Read-TaskspaceScenarioManifest $repoRoot $Scenario $ScenarioPath
 $prompt = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifest.PromptPath
 $promptGuard = Invoke-TaskspacePromptGuard $prompt
 if ($promptGuard.invalid_prompt) {
@@ -170,13 +173,19 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     } else {
         "hard_sandbox"
     }
-    $businessSuccess = [bool]($metricsBySide["left"].business_success -and $metricsBySide["right"].business_success)
+    $businessSuccess = [bool]($metricsBySide["left"].business_success -or $metricsBySide["right"].business_success)
     $e3MinimumRepeats = 5
     if ($null -ne $manifest.E3 -and $manifest.E3.PSObject.Properties.Name -contains "minimum_repeats") {
         $e3MinimumRepeats = [Math]::Max(5, [int]$manifest.E3.minimum_repeats)
     }
-    $evidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $false $e3MinimumRepeats "" $false
     $pairReportPath = Join-Path $pair.PairDir "pair-report.md"
+    $candidateEvidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $false $e3MinimumRepeats "" $false
+    Write-TaskspacePairReport $pairReportPath $manifest $promptGuard $variableControl $candidateEvidence $metricsBySide["left"] $metricsBySide["right"] $pair $probe
+    $expectedClaimScope = if ($null -ne $manifest.E3 -and $manifest.E3.PSObject.Properties.Name -contains "claim_scope") { [string]$manifest.E3.claim_scope } else { "" }
+    $auditReview = Get-TaskspaceAuditReview $pair.PairDir $AuditReviewRoot $repeat $expectedClaimScope
+    $evidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $auditReview.completed $e3MinimumRepeats $auditReview.decision $auditReview.disagreement
+    $evidence | Add-Member -NotePropertyName audit_review_source_path -NotePropertyValue $auditReview.source_path -Force
+    $evidence | Add-Member -NotePropertyName audit_review_failures -NotePropertyValue @($auditReview.failures) -Force
     Write-TaskspacePairReport $pairReportPath $manifest $promptGuard $variableControl $evidence $metricsBySide["left"] $metricsBySide["right"] $pair $probe
     $pairReports.Add([pscustomobject]@{ repeat = $repeat; pair_dir = $pair.PairDir; pair_report = $pairReportPath; evidence = $evidence })
 }

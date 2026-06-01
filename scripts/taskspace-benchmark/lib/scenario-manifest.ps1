@@ -22,9 +22,20 @@ function Assert-TaskspaceManifestField {
 function Read-TaskspaceScenarioManifest {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
-        [Parameter(Mandatory = $true)][string]$Scenario
+        [string]$Scenario = "",
+        [string]$ScenarioPath = ""
     )
-    $scenarioRoot = Get-TaskspaceScenarioRoot $RepoRoot $Scenario
+    if ([string]::IsNullOrWhiteSpace($Scenario) -and [string]::IsNullOrWhiteSpace($ScenarioPath)) {
+        throw "Scenario or ScenarioPath must be provided."
+    }
+    $scenarioRoot = if ([string]::IsNullOrWhiteSpace($ScenarioPath)) {
+        Get-TaskspaceScenarioRoot $RepoRoot $Scenario
+    } else {
+        if (-not (Test-Path -LiteralPath $ScenarioPath)) {
+            throw "ScenarioPath not found: $ScenarioPath"
+        }
+        (Resolve-Path -LiteralPath $ScenarioPath).Path
+    }
     $manifestPath = Join-Path $scenarioRoot "scenario.json"
     if (-not (Test-Path -LiteralPath $manifestPath)) {
         throw "Scenario manifest not found: $manifestPath"
@@ -33,7 +44,7 @@ function Read-TaskspaceScenarioManifest {
     foreach ($field in @("id", "level", "evidence_target", "prompt_file", "fixture_dir", "narrative_contract", "mode_delta_contract", "oracle", "expected", "thresholds")) {
         Assert-TaskspaceManifestField $manifest $field
     }
-    if ([string]$manifest.id -ne $Scenario) {
+    if ([string]::IsNullOrWhiteSpace($ScenarioPath) -and [string]$manifest.id -ne $Scenario) {
         throw "Scenario id '$($manifest.id)' does not match requested scenario '$Scenario'"
     }
     $promptPath = Join-Path $scenarioRoot ([string]$manifest.prompt_file)

@@ -13,8 +13,10 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\workspace.ps1")
 . (Join-Path $PSScriptRoot "lib\oracle-runner.ps1")
 . (Join-Path $PSScriptRoot "lib\metrics-extractor.ps1")
+. (Join-Path $PSScriptRoot "lib\audit-report.ps1")
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
 . (Join-Path $PSScriptRoot "lib\matrix-report.ps1")
+. (Join-Path $PSScriptRoot "adapters\external-benchmark-common.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\paired-bench-selftest" }
 $failures = New-Object System.Collections.Generic.List[string]
@@ -31,6 +33,9 @@ function Assert-Throws([scriptblock]$Body, [string]$Message) {
 }
 
 $manifest = Read-TaskspaceScenarioManifest $repoRoot $Scenario
+$manifestByPath = Read-TaskspaceScenarioManifest $repoRoot "" $manifest.ScenarioRoot
+Assert-True ($manifestByPath.Id -eq $manifest.Id) "ScenarioPath manifest read did not preserve id"
+Assert-True ($manifestByPath.ScenarioRoot -eq $manifest.ScenarioRoot) "ScenarioPath manifest read resolved a different root"
 Assert-Throws { Assert-TaskspaceManifestField ([pscustomobject]@{ id = "x" }) "prompt_file" } "manifest validation did not reject missing field"
 
 $hardGuard = Invoke-TaskspacePromptGuard -PromptText "Enable taskspace and split the work across multiple agents."
@@ -115,9 +120,16 @@ $e3LowRepeat = Get-TaskspaceEvidenceGate 4 $promptGuardOk "hard_sandbox" "known"
 Assert-True (@($e3LowRepeat.e3_gate_failures) -contains "e3_repeats_lt_5") "E3 minimum repeats was allowed below 5"
 $e3BadReviewDecision = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $e3Origin $null $e3Config $true $true 5 "" $false
 Assert-True (@($e3BadReviewDecision.e3_gate_failures) -contains "e3_human_review_decision_missing_or_invalid") "E3 review decision gate failure was not recorded"
+$e3ExcludedReviewDecision = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $e3Origin $null $e3Config $true $true 5 "exclude_validator_unclear" $false
+Assert-True (@($e3ExcludedReviewDecision.e3_gate_failures) -contains "e3_human_review_excluded_pair") "E3 excluded review decision was not recorded"
+Assert-True (-not $e3ExcludedReviewDecision.included_in_e3_aggregate) "E3 excluded review decision entered aggregate"
 $externalOrigin = [pscustomobject]@{
     type = "external_benchmark"
     source = "terminal-bench"
+    source_version = "pinned-revision"
+    source_url = "https://example.invalid/terminal-bench"
+    license = "external-license"
+    data_policy = "pointer_only_no_solution_or_hidden_tests"
     sample_id = "sample-001"
     original_prompt_sha256 = "abc123"
     original_validator_sha256 = "def456"
@@ -125,9 +137,107 @@ $externalOrigin = [pscustomobject]@{
 $externalBenchmark = [pscustomobject]@{ name = "terminal-bench"; adapter_version = "whale-taskspace-e3-adapter-v1" }
 $e3ExternalReady = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOrigin $externalBenchmark $e3Config $true $true 5 "include_no_clear_delta" $false
 Assert-True ($e3ExternalReady.reported_evidence_level -eq "E3") "complete external E3 evidence did not promote to E3"
+$externalOriginMissingRevision = $externalOrigin.PSObject.Copy()
+$externalOriginMissingRevision.source_version = ""
+$e3ExternalMissingRevision = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOriginMissingRevision $externalBenchmark $e3Config $true $true 5 "include_no_clear_delta" $false
+Assert-True (@($e3ExternalMissingRevision.e3_gate_failures) -contains "e3_external_source_version_missing") "external E3 source revision gate failure was not recorded"
 $e3Ready = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $e3Origin $null $e3Config $true $true 5 "include_taskspace_better" $false
 Assert-True ($e3Ready.reported_evidence_level -eq "E3") "complete E3 evidence did not promote to E3"
 Assert-True ($e3Ready.included_in_e3_aggregate) "complete E3 evidence was not included in E3 aggregate"
+
+$auditPairDir = Join-Path $runDir "audit-pair"
+New-Item -ItemType Directory -Path $auditPairDir | Out-Null
+$requiredAuditArtifacts = @(
+        "manifest.resolved.json",
+        "pair-report.md",
+        "left/artifacts/metrics.json",
+        "right/artifacts/metrics.json",
+        "left/artifacts/whale-exec.jsonl",
+        "right/artifacts/whale-exec.jsonl",
+        "left/artifacts/validation.stdout.log",
+        "right/artifacts/validation.stdout.log",
+        "left/artifacts/git-diff.patch",
+        "right/artifacts/git-diff.patch",
+        "right/artifacts/observability/action-map-observability.json"
+    )
+foreach ($relative in $requiredAuditArtifacts) {
+    $path = Join-Path $auditPairDir $relative
+    New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+    "artifact" | Set-Content -LiteralPath $path -Encoding UTF8
+}
+$auditHashes = [ordered]@{}
+foreach ($relative in $requiredAuditArtifacts) {
+    $auditHashes[$relative] = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $auditPairDir $relative)).Hash.ToLowerInvariant()
+}
+$auditJsonPath = Join-Path $auditPairDir "audit-review.json"
+@{
+    reviewer = "codex"
+    date = "2026-06-02"
+    artifact_basis = $requiredAuditArtifacts
+    artifact_hashes = $auditHashes
+    decision = "include_no_clear_delta"
+    claim_scope = "self-test audit"
+    disagreement = $false
+} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $auditJsonPath -Encoding UTF8
+$audit = Get-TaskspaceAuditReview $auditPairDir "" 0 "self-test audit"
+Assert-True ($audit.completed) "complete audit review sidecar was not accepted"
+Assert-True ($audit.decision -eq "include_no_clear_delta") "audit decision was not parsed"
+"changed artifact" | Set-Content -LiteralPath (Join-Path $auditPairDir "pair-report.md") -Encoding UTF8
+$staleHashAudit = Get-TaskspaceAuditReview $auditPairDir "" 0 "self-test audit"
+Assert-True (-not $staleHashAudit.completed) "stale audit with outdated artifact hash was accepted"
+Assert-True (@($staleHashAudit.failures | Where-Object { $_ -eq "audit_artifact_hash_mismatch:pair-report.md" }).Count -eq 1) "stale audit artifact hash mismatch was not reported"
+"artifact" | Set-Content -LiteralPath (Join-Path $auditPairDir "pair-report.md") -Encoding UTF8
+$badAuditJsonPath = Join-Path $auditPairDir "audit-review.json"
+@{
+    reviewer = "codex"
+    date = "2026-06-02"
+    artifact_basis = @("pair-report.md")
+    decision = "include_taskspace_better"
+    claim_scope = "self-test audit"
+} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $badAuditJsonPath -Encoding UTF8
+$badAudit = Get-TaskspaceAuditReview $auditPairDir "" 0 "self-test audit"
+Assert-True (-not $badAudit.completed) "hollow audit with only pair-report was accepted"
+Assert-True (@($badAudit.failures | Where-Object { $_ -like "audit_required_artifact_missing:*" }).Count -gt 0) "audit required artifact failures were not reported"
+@{
+    reviewer = "codex"
+    date = "2026-06-02"
+    artifact_basis = @($auditJsonPath)
+    decision = "include_taskspace_better"
+    claim_scope = "self-test audit"
+} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $badAuditJsonPath -Encoding UTF8
+$staleAudit = Get-TaskspaceAuditReview $auditPairDir "" 0 "self-test audit"
+Assert-True (-not $staleAudit.completed) "audit with absolute artifact path was accepted"
+Assert-True (@($staleAudit.failures | Where-Object { $_ -like "audit_artifact_path_not_pair_relative:*" }).Count -eq 1) "audit absolute artifact path was not rejected"
+$auditRoot = Join-Path $runDir "generic-audit-root"
+New-Item -ItemType Directory -Path $auditRoot | Out-Null
+Copy-Item -LiteralPath $badAuditJsonPath -Destination (Join-Path $auditRoot "audit-review.json") -Force
+$auditNoLocalPairDir = Join-Path $runDir "audit-no-local-pair"
+New-Item -ItemType Directory -Path $auditNoLocalPairDir | Out-Null
+$ignoredGenericAudit = Get-TaskspaceAuditReview $auditNoLocalPairDir $auditRoot 1 "self-test audit"
+Assert-True (-not $ignoredGenericAudit.completed) "generic AuditReviewRoot\\audit-review.json was accepted"
+Assert-True (@($ignoredGenericAudit.failures) -contains "audit_review_missing") "generic AuditReviewRoot audit fallback was not ignored"
+
+$leakyFixture = Join-Path $runDir "leaky-fixture"
+New-Item -ItemType Directory -Path $leakyFixture | Out-Null
+"secret" | Set-Content -LiteralPath (Join-Path $leakyFixture "solution.py") -Encoding UTF8
+"secret" | Set-Content -LiteralPath (Join-Path $leakyFixture "answer.txt") -Encoding UTF8
+"secret" | Set-Content -LiteralPath (Join-Path $leakyFixture "gold.patch") -Encoding UTF8
+New-Item -ItemType Directory -Path (Join-Path $leakyFixture "nested\private-tests") -Force | Out-Null
+"secret" | Set-Content -LiteralPath (Join-Path $leakyFixture "nested\private-tests\case.txt") -Encoding UTF8
+$hiddenFixture = Join-Path $runDir "hidden-fixture"
+New-Item -ItemType Directory -Path $hiddenFixture | Out-Null
+"secret" | Set-Content -LiteralPath (Join-Path $hiddenFixture "hidden-test") -Encoding UTF8
+New-Item -ItemType Directory -Path (Join-Path $hiddenFixture "private") | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $hiddenFixture "hidden") | Out-Null
+$cleanDest = Join-Path $runDir "clean-fixture"
+Assert-Throws { Copy-TaskspaceExternalFixture $leakyFixture $cleanDest | Out-Null } "external fixture materialization accepted solution/private files"
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $cleanDest "solution.py"))) "external fixture copied files before failing leak scan"
+Assert-Throws { Copy-TaskspaceExternalFixture $hiddenFixture (Join-Path $runDir "hidden-clean-fixture") | Out-Null } "external fixture materialization accepted hidden files"
+$terminalBenchNoEnv = Join-Path $runDir "terminal-bench-no-env"
+New-Item -ItemType Directory -Path $terminalBenchNoEnv | Out-Null
+"Fix the tool." | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "instruction.md") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "verify.sh") -Encoding UTF8
+Assert-Throws { & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $terminalBenchNoEnv -OutputRoot (Join-Path $runDir "external-out") -SampleId "no-env" -SourceVersion "pinned" | Out-Null } "terminal-bench adapter accepted a task root without environment directory"
 
 $metrics = [pscustomobject]@{
     mode = "left"; logical_mode = "standard"; business_success = $true; exec_exit_code = 0
@@ -138,6 +248,17 @@ $metrics = [pscustomobject]@{
 }
 $rightMetrics = $metrics.PSObject.Copy()
 $rightMetrics.mode = "right"; $rightMetrics.logical_mode = "taskspace"
+$mismatchedOutcomeLeft = $metrics.PSObject.Copy()
+$mismatchedOutcomeRight = $rightMetrics.PSObject.Copy()
+$mismatchedOutcomeRight.hidden_oracle_exit_code = 1
+$mismatchedOutcomeControl = Compare-TaskspacePairVariables ([pscustomobject]@{
+    prompt_sha256_left = "same"; prompt_sha256_right = "same"
+    fixture_sha256_left = "same"; fixture_sha256_right = "same"
+    whale_sha256_left = "same"; whale_sha256_right = "same"
+    model_left = "same"; model_right = "same"
+    timeout_seconds_left = 1; timeout_seconds_right = 1
+}) $mismatchedOutcomeLeft $mismatchedOutcomeRight
+Assert-True (-not $mismatchedOutcomeControl.invalid_pair) "different validator outcomes were incorrectly treated as variable-control failures"
 $reportPath = Join-Path $runDir "manual-review-report.md"
 $varControl = [pscustomobject]@{ invalid_pair = $false; failures = @() }
 $manualEvidence = Get-TaskspaceEvidenceGate 3 $manualGuard "hard_sandbox" "known"
@@ -168,6 +289,9 @@ Assert-True ($e3AggregateText -match "valid_e3_pairs: 1") "E3 aggregate did not 
 Assert-True ($e3AggregateText -match "e3_human_review_not_completed") "E3 aggregate did not preserve E3 gate failures"
 Assert-True ($e3AggregateText -match "e3_human_review_completed_pairs: 1") "E3 aggregate did not count human review completion"
 Assert-True ($e3AggregateText -match "include_taskspace_better=1") "E3 aggregate did not summarize human review decisions"
+Assert-True ($e3AggregateText -match "e3_taskspace_better_pairs: 1") "E3 aggregate did not count directional TaskSpace benefit"
+Assert-True ($e3AggregateText -match "e3_standard_better_pairs: 0") "E3 aggregate did not separate standard-better pairs"
+Assert-True ($e3AggregateText -match "only include_taskspace_better counts") "E3 aggregate did not include directional benefit warning"
 $e3ReportManifest = $manifest.PSObject.Copy()
 $e3ReportManifest.EvidenceTarget = "E3"
 $e3ReportManifest.SampleOrigin = $e3Origin
