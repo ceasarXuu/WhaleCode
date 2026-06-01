@@ -19,12 +19,17 @@ function Get-TaskspaceMatrixReportData {
     $warningGaps = @($rowArray | Where-Object { [int]$_.warning_pairs -gt 0 } | ForEach-Object {
             "$($_.scenario): warning_pairs_$($_.warning_pairs)"
         })
+    $utilityCostGaps = @($rowArray | Where-Object { $_.PSObject.Properties.Name -contains "utility_warning_pairs" -and [int]$_.utility_warning_pairs -gt 0 } | ForEach-Object {
+            "$($_.scenario): utility_warning_pairs_$($_.utility_warning_pairs)"
+        })
     [pscustomobject]@{
         rows = $rowArray
         levels = $levels
         evidence_blocking = @($evidenceBlocking.ToArray())
         warning_gaps = @($warningGaps)
+        utility_cost_gaps = @($utilityCostGaps)
         e2_evidence_readiness = ($evidenceBlocking.Count -eq 0)
         e2_clean_readiness = ($evidenceBlocking.Count -eq 0 -and @($warningGaps).Count -eq 0)
+        e2_utility_clean_readiness = ($evidenceBlocking.Count -eq 0 -and @($warningGaps).Count -eq 0 -and @($utilityCostGaps).Count -eq 0)
     }
 }

@@ -1887,6 +1887,8 @@ pub struct ActionMapSnapshotResult {
     pub kind: String,
     #[serde(default)]
     pub action_class: Option<String>,
+    #[serde(default)]
+    pub tool_success: Option<bool>,
     pub body: String,
     pub source_thread_id: ThreadId,
     pub created_at_ms: i64,

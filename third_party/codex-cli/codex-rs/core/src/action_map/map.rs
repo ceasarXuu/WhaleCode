@@ -315,6 +315,7 @@ pub(crate) struct NodeResult {
     pub(crate) node_id: MapNodeId,
     pub(crate) kind: NodeResultKind,
     pub(crate) action_class: Option<ActionClass>,
+    pub(crate) tool_success: Option<bool>,
     pub(crate) body: String,
     pub(crate) source_thread_id: ThreadId,
     pub(crate) created_at_ms: i64,

@@ -21,6 +21,14 @@ Keep the E2 evidence gate unchanged while improving TaskSpace behavior so:
 - Reports continue to separate evidence readiness from clean utility readiness.
 - If clean readiness remains false, the report must make the reason visible.
 
+Terminology is intentionally split:
+
+- `e2_evidence_readiness` means paired runs are comparable and meet the E2 evidence gate.
+- `e2_clean_readiness` means E2 mechanism warnings are clean: no non-E2 reports, no scenario warning pairs, and all required levels are covered.
+- `e2_utility_clean_readiness` means the mechanism is clean and no pair exceeded the configured TaskSpace cost warning thresholds.
+
+E2 is a constructed-regression mechanism target, not an E3 utility-superiority proof. A report may therefore show `e2_clean_readiness: True` while `e2_utility_clean_readiness: False`; that is an honest E2 mechanism pass with visible cost drag, not a utility claim.
+
 ## Engineering Design
 
 ### Runtime Prompt Policy
@@ -97,6 +105,47 @@ The runtime and BaseMap prompts now state this explicitly so the common L1 path 
 inspect_code_context -> implement_solution -> smoke_test/regression_test -> final_synthesis
 ```
 
+### Product Contract Alignment
+
+The full matrix exposed one L2 failure where TaskSpace passed the public tests but failed the hidden oracle. The scenario intentionally had a product-rule conflict:
+
+- README said Premium customers receive 10 percent off.
+- An existing public invoice test expected the old fixed `$10` behavior.
+
+The failed TaskSpace run trusted the existing public test and preserved the stale implementation. The standard paired run updated the invoice test and implementation to match README, which matched the hidden oracle.
+
+TaskSpace methodology now explicitly requires inspect nodes to reconcile README/spec docs, tests, and implementation before editing. If explicit product rules conflict with existing tests, the agent should treat those tests as potentially stale, update code and tests together, and record the rationale. This is a general coding rule, not a benchmark-specific answer key.
+
+### Completion Evidence Hardening
+
+Adversarial review found two real closure gaps after the first clean matrix run:
+
+- Subagent final messages could complete typed implementation/validation nodes without matching edit/test/build evidence.
+- Tool success was inferred from result text, so a failed tool preview containing `success: true` could fake completion evidence.
+
+The runtime now stores tool success as structured result metadata and applies the same typed completion evidence rule to subagent-owned nodes. If a subagent reports completion without the required evidence, the node is recorded as blocked instead of completed. This keeps the node context available for main-agent recovery while preserving the existing node status and result mechanisms.
+
+The structured success flag is also included in the task snapshot so context restore does not degrade completion evidence after compaction or session recovery.
+
+### Low-complexity Main-agent Continuation
+
+The hardened full matrix exposed a remaining L1 cost warning: after a broad inspect node reached the tool-result budget, the runtime continued to block main-agent edits even after the agent had finished inspect and bound a concrete implementation node. That forced a subagent for a one-line fix.
+
+The broad-inspect delegation guard now applies only while the current main node is still an inspect_code_context node. Once the map has moved to an explicit implement_solution, smoke_test, regression_test, or final_synthesis node, the main agent can continue normally under that node's own contract and evidence gate. This preserves the anti-sprawl guard for ongoing broad investigation without making simple fixes pay unnecessary coordination cost.
+
+### Single-track Inspect Delegation Guard
+
+The next L1 rerun showed a different low-complexity failure: the agent sometimes created an additional inspect node and spawned an explorer only to read one known test file. That is not parallel investigation; it is single-track outsourcing and adds coordination cost without reducing context pressure.
+
+Runtime now treats `inspect_code_context` subagent spawn as a parallel investigation mechanism:
+
+- If the main agent is already holding a running inspect track, one extra ready inspect node is not enough for `spawn_agent`; the main agent must either finish its current inspect node or create at least two ready independent inspect nodes and act as coordinator. The exception is maintenance-barrier recovery: when the current inspect node is barriered for broadness, assigning a different ready inspect node remains a valid recovery path.
+- If a completed narrow inspect node already exists, a single serial follow-up inspect node is not assigned to an explorer; the main agent should finish that known-file or known-path follow-up itself.
+- If at least two independent inspect tracks exist, the first explorer can claim one ready inspect node and the second explorer can still claim the remaining ready node while the first lease is active.
+- Non-inspect ready nodes keep the existing ready-node-only assignment behavior.
+
+The TaskSpace prompt and BaseMap metadata also make the simple-read rule explicit: path correction, re-reading, and one known-file follow-up reads stay inside the current inspect node. The runtime still does not guess semantic task complexity; it prevents mechanically bad serial outsourcing patterns while preserving initial ready-node assignment and real parallel inspect groups.
+
 ## Tests
 
 Required focused tests:
@@ -104,6 +153,7 @@ Required focused tests:
 - Rust unit test that TaskSpace developer context contains the minimal-sufficient-map rule.
 - Rust unit tests that reject completing implementation/test nodes without matching successful tool evidence.
 - Rust unit test that rejects handing off the current main-held node to a subagent.
+- Rust unit tests that reject serial single-track inspect spawn after a completed narrow inspect and while the main agent already holds a running inspect node, while still allowing a two-track inspect group to assign both explorers.
 - Benchmark harness self-tests for all three scenarios.
 - Full E2 matrix after reinstalling the local Whale binary.
 
@@ -121,5 +171,6 @@ Clean E2 optimization succeeds if:
 - benchmark harness self-tests pass,
 - full E2 matrix reports `e2_evidence_readiness: True`,
 - full E2 matrix reports `e2_clean_readiness: True`.
+- full E2 matrix reports utility cost gaps separately; `e2_utility_clean_readiness` may remain false without invalidating the E2 mechanism pass.
 
 If the final item is false, the implementation still counts as progress, but the conclusion must say clean E2 was not reached and identify the remaining warning source.

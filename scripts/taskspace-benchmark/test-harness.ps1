@@ -116,15 +116,25 @@ Assert-True ($aggregateText -match "excluded_pairs: 1") "aggregate did not exclu
 $matrixData = Get-TaskspaceMatrixReportData @(
     [pscustomobject]@{
         scenario = "synthetic"; level = "L1"; exit_code = 0; valid_pairs = 3
-        excluded_pairs = 0; non_e2_reports = 0; warning_pairs = 1
+        excluded_pairs = 0; non_e2_reports = 0; warning_pairs = 1; utility_warning_pairs = 0
     }
 ) @("L1") 3
 Assert-True ($matrixData.e2_evidence_readiness) "matrix evidence readiness rejected a valid synthetic E2 row"
 Assert-True (-not $matrixData.e2_clean_readiness) "matrix clean readiness ignored warning pairs"
+Assert-True (-not $matrixData.e2_utility_clean_readiness) "matrix utility clean readiness ignored mechanism warning pairs"
+$matrixUtility = Get-TaskspaceMatrixReportData @(
+    [pscustomobject]@{
+        scenario = "synthetic"; level = "L1"; exit_code = 0; valid_pairs = 3
+        excluded_pairs = 0; non_e2_reports = 0; warning_pairs = 0; utility_warning_pairs = 1
+    }
+) @("L1") 3
+Assert-True ($matrixUtility.e2_clean_readiness) "matrix mechanism clean readiness should ignore utility-only cost warnings"
+Assert-True (-not $matrixUtility.e2_utility_clean_readiness) "matrix utility clean readiness ignored utility warning pairs"
+Assert-True (@($matrixUtility.utility_cost_gaps).Count -eq 1) "matrix utility cost gaps did not record utility warnings"
 $matrixClean = Get-TaskspaceMatrixReportData @(
     [pscustomobject]@{
         scenario = "synthetic"; level = "L1"; exit_code = 0; valid_pairs = 3
-        excluded_pairs = 0; non_e2_reports = 0; warning_pairs = 0
+        excluded_pairs = 0; non_e2_reports = 0; warning_pairs = 0; utility_warning_pairs = 0
     }
 ) @("L1", "L2") 3
 Assert-True (-not $matrixClean.e2_evidence_readiness) "matrix evidence readiness ignored missing required levels"

@@ -63,6 +63,7 @@ foreach ($scenario in $Scenarios) {
     } else { @() }
     $outcomes = @{}
     $warningPairs = 0
+    $utilityWarningPairs = 0
     foreach ($pairReport in $pairReports) {
         $pairText = Get-Content -Raw -Encoding UTF8 -LiteralPath $pairReport.FullName
         $outcome = ([regex]::Match($pairText, "outcome:\s+(.+)")).Groups[1].Value.Trim()
@@ -70,6 +71,7 @@ foreach ($scenario in $Scenarios) {
         if (-not $outcomes.ContainsKey($outcome)) { $outcomes[$outcome] = 0 }
         $outcomes[$outcome]++
         if ($pairText -notmatch "## Scenario Warnings\s+(\r?\n)- none") { $warningPairs++ }
+        if ($pairText -match "taskspace_tool_call_ratio_warn:\s+True" -or $pairText -match "taskspace_wall_time_ratio_warn:\s+True") { $utilityWarningPairs++ }
     }
     $outcomeSummary = if ($outcomes.Count -eq 0) {
         ""
@@ -87,6 +89,7 @@ foreach ($scenario in $Scenarios) {
             non_e2_reports = $nonE2
             utility_outcomes = $outcomeSummary
             warning_pairs = $warningPairs
+            utility_warning_pairs = $utilityWarningPairs
             stdout = $stdout
             stderr = $stderr
         })
@@ -100,6 +103,8 @@ $report.Add("# TaskSpace E2 Matrix Report")
 $report.Add("")
 $report.Add("- e2_evidence_readiness: $($data.e2_evidence_readiness)")
 $report.Add("- e2_clean_readiness: $($data.e2_clean_readiness)")
+$report.Add("- e2_utility_clean_readiness: $($data.e2_utility_clean_readiness)")
+$report.Add("- e2_clean_readiness_scope: mechanism warnings only; utility cost warnings are reported separately")
 $report.Add("- scenario_count: $($rows.Count)")
 $report.Add("- levels: $($data.levels -join ', ')")
 $report.Add("- required_levels: $($RequiredLevels -join ', ')")
@@ -110,14 +115,17 @@ $report.Add("")
 $report.Add("## Evidence Blocking Gaps")
 if (@($data.evidence_blocking).Count -eq 0) { $report.Add("- none") } else { foreach ($gap in @($data.evidence_blocking)) { $report.Add("- $gap") } }
 $report.Add("")
-$report.Add("## Utility / Warning Gaps")
+$report.Add("## Mechanism Warning Gaps")
 if (@($data.warning_gaps).Count -eq 0) { $report.Add("- none") } else { foreach ($gap in @($data.warning_gaps)) { $report.Add("- $gap") } }
 $report.Add("")
+$report.Add("## Utility Cost Gaps")
+if (@($data.utility_cost_gaps).Count -eq 0) { $report.Add("- none") } else { foreach ($gap in @($data.utility_cost_gaps)) { $report.Add("- $gap") } }
+$report.Add("")
 $report.Add("## Scenarios")
-$report.Add("| scenario | level | exit | valid pairs | excluded | non-E2 | warning pairs | utility outcomes | aggregate |")
-$report.Add("|---|---|---:|---:|---:|---:|---:|---|---|")
+$report.Add("| scenario | level | exit | valid pairs | excluded | non-E2 | warning pairs | utility warning pairs | utility outcomes | aggregate |")
+$report.Add("|---|---|---:|---:|---:|---:|---:|---:|---|---|")
 foreach ($row in $rowArray) {
-    $report.Add("| $($row.scenario) | $($row.level) | $($row.exit_code) | $($row.valid_pairs) | $($row.excluded_pairs) | $($row.non_e2_reports) | $($row.warning_pairs) | $($row.utility_outcomes) | $($row.aggregate) |")
+    $report.Add("| $($row.scenario) | $($row.level) | $($row.exit_code) | $($row.valid_pairs) | $($row.excluded_pairs) | $($row.non_e2_reports) | $($row.warning_pairs) | $($row.utility_warning_pairs) | $($row.utility_outcomes) | $($row.aggregate) |")
 }
 $reportPath = Join-Path $RunRoot "e2-matrix-report.md"
 $report | Set-Content -LiteralPath $reportPath -Encoding UTF8

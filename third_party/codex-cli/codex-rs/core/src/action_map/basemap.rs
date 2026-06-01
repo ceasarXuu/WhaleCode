@@ -104,12 +104,14 @@ pub(crate) fn base_map_metadata_prompt() -> String {
 pub(crate) fn node_kind_selection_prompt() -> &'static str {
     "Node kind selection rules:
 - Use inspect_code_context for reading files, searching, understanding scope, design investigation, and subagent investigation nodes.
+- In inspect_code_context, reconcile README/spec docs, tests, and implementation before editing; explicit product docs can make an existing test expectation stale.
 - Use implement_solution only when the node will modify code, tests, configuration, or docs.
 - Use smoke_test or regression_test before post-implementation test/build/lint commands.
 - Keep expected failing pre-fix diagnostic test runs inside inspect_code_context; do not create a separate smoke_test node just to prove the current bug fails.
 - Use final_synthesis only for final wrap-up.
 - If validation fails and edits are needed, leave the test node with its result, switch to implement_solution for the fix, then switch back to a test node for the rerun.
 - Prefer the minimum sufficient node chain; create multiple ready inspect_code_context nodes only for independent evidence tracks with distinct source surfaces.
+- Keep path correction, known-file reads, and single-evidence follow-up reads inside the current inspect_code_context node; do not create another inspect node or spawn an explorer just to read one known file.
 - Do not create custom nodes in live TaskSpace work. If work does not fit a kind, choose the closest concrete kind and explain the scope in the node title/context."
 }
 

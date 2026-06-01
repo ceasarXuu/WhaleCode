@@ -52,6 +52,12 @@ function Get-TaskspaceBenchmarkMetrics {
     $diffText = Get-TaskspaceDiffText $Side.RepoDir $diffPath
     $obs = if ($ObservabilityResult) { $ObservabilityResult.observability } else { $null }
     $graphHealth = Get-TaskspaceGraphHealth $obs
+    $subagentThreadIds = @()
+    if ($obs) {
+        $subagentThreadIds = @($obs.nodes | ForEach-Object {
+                @($_.leases | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.agentThreadId) } | ForEach-Object { [string]$_.agentThreadId })
+            } | Sort-Object -Unique)
+    }
     [pscustomobject]@{
         mode = $Side.Name
         logical_mode = $Side.LogicalMode
@@ -80,7 +86,7 @@ function Get-TaskspaceBenchmarkMetrics {
         edges = if ($obs) { @($obs.edges).Count } else { 0 }
         edge_order_violations = $graphHealth.EdgeOrderViolationCount
         spawn_agent_calls = if ($obs) { @($obs.toolCalls | Where-Object { $_.tool -eq "spawn_agent" -and $_.status -eq "completed" }).Count } else { 0 }
-        subagent_results = if ($obs) { @($obs.nodes | ForEach-Object { @($_.results | Where-Object { $_.sourceThreadId }) }).Count } else { 0 }
+        subagent_results = if ($obs) { @($obs.nodes | ForEach-Object { @($_.results | Where-Object { $subagentThreadIds -contains [string]$_.sourceThreadId }) }).Count } else { 0 }
         open_leaf_nodes = $graphHealth.OpenLeafNodeCount
         ordinary_before_binding = if ($Side.LogicalMode -eq "taskspace" -and $ObservabilityResult) {
             $rolloutPath = [string]$ObservabilityResult.rollout_path
