@@ -125,12 +125,19 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $lastMessagePath = Join-Path $side.ArtifactDir "last-message.md"
         $stdinPath = Join-Path $side.ArtifactDir "user-prompt.txt"
         Write-Text $stdinPath $prompt
-        $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $side.RepoDir $lastMessagePath $SandboxMode $ConfigOverride
-        $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
-        Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace") }) (Join-Path $side.ArtifactDir "whale-argv.json")
-        $started = Get-Date
-        $exitCode = Invoke-RealProcess $WhaleBin $args $side.RepoDir $jsonlPath $stderrPath $TimeoutSeconds $stdinPath
-        $finished = Get-Date
+        $mount = $null
+        try {
+            $mount = Mount-TaskspaceExecutionAlias $side
+            $executionRepoDir = [string]$mount.execution_repo_dir
+            $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $lastMessagePath $SandboxMode $ConfigOverride
+            $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
+            Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace"); execution_alias = $mount }) (Join-Path $side.ArtifactDir "whale-argv.json")
+            $started = Get-Date
+            $exitCode = Invoke-RealProcess $WhaleBin $args $executionRepoDir $jsonlPath $stderrPath $TimeoutSeconds $stdinPath
+            $finished = Get-Date
+        } finally {
+            Dismount-TaskspaceExecutionAlias $mount
+        }
         $threadId = Get-ThreadId (Get-Content -Raw -Encoding UTF8 -LiteralPath $jsonlPath)
         $obs = $null
         if ($side.LogicalMode -eq "taskspace") {

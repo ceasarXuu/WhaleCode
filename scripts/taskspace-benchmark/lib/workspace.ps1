@@ -49,9 +49,21 @@ function New-TaskspacePairWorkspace {
     $canaryText = "TASKSPACE_BENCH_PRIVATE_CANARY_$([guid]::NewGuid().ToString("N"))"
     $canaryPath = Join-Path $reviewerOracleDir "canary.txt"
     $mapping = Get-TaskspaceModeMapping $Repeat
+    $needsTerminalBenchAppAlias = (
+        $null -ne $Manifest.ExternalBenchmark -and
+        $Manifest.ExternalBenchmark.PSObject.Properties.Name -contains "validator_fidelity" -and
+        [string]$Manifest.ExternalBenchmark.validator_fidelity.validator_runtime -eq "terminal_bench_docker_app"
+    )
     $sides = @{}
     foreach ($side in @("left", "right")) {
-        $repoDir = New-Dir (Join-Path $repeatDir "$side\repo")
+        $sideRoot = New-Dir (Join-Path $repeatDir $side)
+        $aliasRoot = ""
+        $repoDir = if ($needsTerminalBenchAppAlias) {
+            $aliasRoot = New-Dir (Join-Path $sideRoot "terminal-bench-drive")
+            New-Dir (Join-Path $aliasRoot "app")
+        } else {
+            New-Dir (Join-Path $sideRoot "repo")
+        }
         $artifactDir = New-Dir (Join-Path $repeatDir "$side\artifacts")
         Copy-Item -Path (Join-Path $Manifest.FixtureDir "*") -Destination $repoDir -Recurse -Force
         Initialize-TaskspaceRepoBaseline $repoDir
@@ -59,6 +71,7 @@ function New-TaskspacePairWorkspace {
             Name = $side
             LogicalMode = [string]$mapping[$side]
             RepoDir = $repoDir
+            ExecutionAliasRoot = $aliasRoot
             ArtifactDir = $artifactDir
         }
     }
@@ -77,6 +90,37 @@ function New-TaskspacePairWorkspace {
         Left = $sides["left"]
         Right = $sides["right"]
     }
+}
+
+function Get-TaskspaceFreeSubstDrive {
+    $used = @(Get-PSDrive -PSProvider FileSystem | ForEach-Object { [string]$_.Name })
+    foreach ($letter in @("W", "V", "U", "T", "S", "R", "Q", "P", "O", "N", "M", "L", "K", "J")) {
+        if ($used -notcontains $letter -and -not (Test-Path "$letter`:\")) { return "$letter`:" }
+    }
+    throw "No free drive letter available for Terminal-Bench /app execution alias."
+}
+
+function Mount-TaskspaceExecutionAlias {
+    param([Parameter(Mandatory = $true)]$Side)
+    $aliasRoot = if ($Side.PSObject.Properties.Name -contains "ExecutionAliasRoot") { [string]$Side.ExecutionAliasRoot } else { "" }
+    if ([string]::IsNullOrWhiteSpace($aliasRoot)) {
+        return [pscustomobject]@{ mounted = $false; drive = ""; execution_repo_dir = $Side.RepoDir }
+    }
+    $drive = Get-TaskspaceFreeSubstDrive
+    & subst $drive $aliasRoot
+    if ($LASTEXITCODE -ne 0) { throw "Failed to mount execution alias drive $drive -> $aliasRoot" }
+    [pscustomobject]@{
+        mounted = $true
+        drive = $drive
+        alias_root = $aliasRoot
+        execution_repo_dir = (Join-Path "$drive\" "app")
+    }
+}
+
+function Dismount-TaskspaceExecutionAlias {
+    param($Mount)
+    if ($null -eq $Mount -or -not [bool]$Mount.mounted) { return }
+    & subst ([string]$Mount.drive) /D
 }
 
 function Materialize-TaskspacePrivateOracle {

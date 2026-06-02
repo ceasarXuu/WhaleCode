@@ -30,6 +30,6 @@ E3 results are not valid until an external sample has:
 
 Current Terminal-Bench adapter status:
 
-- The PowerShell/Git Bash wrapper is an engineering smoke path only.
-- It is not the official Terminal-Bench Docker runner and must not be counted as E3 utility evidence.
-- Any result from this wrapper must keep `validator_fidelity.e3_eligible = false` until Docker or an equivalent isolated `/app` runtime is implemented and audited.
+- The adapter now validates through a real Docker `/app` post-hoc runtime: the agent workspace is mounted at `/app`, and `run-tests.sh` plus `tests/` are mounted read-only at `/tbench-validator`.
+- The runner also creates a Windows `/app` execution alias for Terminal-Bench samples so `/app/foo` maps to the side repo root during Whale execution.
+- This is not yet marked as official Terminal-Bench harness-equivalent E3 evidence. E3 promotion remains disabled until official runner equivalence, validator-source isolation, repeated runs, and audit/human review are proven from runtime artifacts.

@@ -290,7 +290,10 @@ $adapterScenarioDir = [string]($adapterOutput | Select-Object -Last 1 | ForEach-
 Assert-True (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "prompt.txt")) "terminal-bench adapter did not extract task.yaml instruction"
 Assert-True (-not (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\solution.sh"))) "terminal-bench adapter leaked solution.sh from official task root"
 $adapterScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $adapterScenarioDir "scenario.json") | ConvertFrom-Json
-Assert-True (-not [bool]$adapterScenario.external_benchmark.validator_fidelity.e3_eligible) "terminal-bench local wrapper was marked E3 eligible"
+Assert-True (-not [bool]$adapterScenario.external_benchmark.validator_fidelity.e3_eligible) "terminal-bench post-hoc Docker validator was over-promoted to E3 eligible"
+Assert-True ([string]$adapterScenario.external_benchmark.validator_fidelity.validator_runtime -eq "terminal_bench_docker_app") "terminal-bench validator runtime was not Docker /app"
+Assert-True (-not [bool]$adapterScenario.external_benchmark.validator_fidelity.agent_cannot_read_validator_source) "terminal-bench validator source isolation was over-claimed"
+Assert-True ([bool]$adapterScenario.external_benchmark.validator_fidelity.docker_runtime) "terminal-bench Docker runtime capability was not recorded"
 Assert-True ([string]$adapterScenario.external_benchmark.adapter_metadata.instruction_extraction_mode -eq "literal") "terminal-bench literal instruction mode was not recorded"
 $terminalBenchInline = Join-Path $runDir "terminal-bench-inline"
 New-Item -ItemType Directory -Path $terminalBenchInline | Out-Null
@@ -318,6 +321,16 @@ $foldedOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1"
 $foldedScenarioDir = [string]($foldedOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
 $foldedPrompt = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $foldedScenarioDir "prompt.txt")
 Assert-True ($foldedPrompt -match "Read one line then write the file") "terminal-bench adapter did not fold task.yaml instruction"
+$aliasRoot = Join-Path $runDir "terminal-bench-alias-root"
+New-Item -ItemType Directory -Path (Join-Path $aliasRoot "app") -Force | Out-Null
+$aliasSide = [pscustomobject]@{ RepoDir = (Join-Path $aliasRoot "app"); ExecutionAliasRoot = $aliasRoot }
+$aliasMount = Mount-TaskspaceExecutionAlias $aliasSide
+try {
+    powershell -NoProfile -Command "Set-Location '$($aliasMount.execution_repo_dir)'; New-Item -ItemType File -Force -Path /app/subst-smoke.txt | Out-Null"
+} finally {
+    Dismount-TaskspaceExecutionAlias $aliasMount
+}
+Assert-True (Test-Path -LiteralPath (Join-Path $aliasRoot "app\subst-smoke.txt")) "Terminal-Bench /app execution alias did not map to repo root"
 $externalWrapperStub = Join-Path $runDir "external-wrapper-stub.ps1"
 @'
 param(

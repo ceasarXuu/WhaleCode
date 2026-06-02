@@ -99,13 +99,21 @@ function Test-TaskspaceValidatorEnvironmentMismatch {
             $combined += "`n" + (Get-Content -Raw -Encoding UTF8 -LiteralPath $path)
         }
     }
+    if ($combined -match "validator_runtime=terminal_bench_docker_app" -and $combined -match "container_workdir=/app") {
+        return $false
+    }
+    if ($combined -match "validator_runtime_probe=terminal_bench_docker_wrapper") {
+        return $true
+    }
     $patterns = @(
         "validator_runtime=windows_git_bash_non_docker",
         "platform win32",
         "apt-get: command not found",
         "\.tbench-testing/bin/activate",
         "\\app\\",
-        "/app/"
+        "invalid reference format",
+        "failed to build",
+        "docker command is required"
     )
     foreach ($pattern in $patterns) {
         if ($combined -match $pattern) { return $true }

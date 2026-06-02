@@ -927,3 +927,160 @@ Passed. Round 5 blocking findings are closed: the external wrapper no longer pas
 ## Final Conclusion
 
 Passed after six review rounds. Both requested trial paths were executed. The engineering smoke path passes, and the real Terminal-Bench `hello-world` path now produces honest diagnostic evidence: file-level changes are recorded, local non-Docker wrapper results are blocked from E3, and E3 target failure is not hidden by wrapper exit code unless explicitly run as a diagnostic non-target result.
+
+## Round 7: Docker `/app` Validator Rerun
+
+### Review Input
+
+Objective: rerun a real Terminal-Bench sample after installing Docker, replacing the previous Windows Git Bash diagnostic validator with a Docker `/app` post-hoc validator while preserving honest evidence boundaries.
+
+Review target:
+
+- `scripts/taskspace-benchmark/adapters/terminal-bench-adapter.ps1`
+- `scripts/taskspace-benchmark/lib/workspace.ps1`
+- `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1`
+- `scripts/taskspace-benchmark/lib/metrics-extractor.ps1`
+- `scripts/taskspace-benchmark/test-harness.ps1`
+- `benchmarks/taskspace/external/README.md`
+- Latest real run artifact: `C:\Users\77585\AppData\Local\Temp\whale-real-external-docker-rerun3\runs\terminal_bench__hello-world\20260602-161348-874\pair-001\pair-report.md`
+
+Risk focus:
+
+- Whether the validator actually runs in Docker with the agent workspace mounted at `/app`.
+- Whether the Windows execution path makes `/app/foo` land at repo root instead of `repo/app/foo`.
+- Whether validator fidelity is over-claimed as official Terminal-Bench equivalence.
+- Whether validator source isolation is over-claimed.
+- Whether Docker path conversion, image tags, proxy/network handling, and cleanup are robust enough for the current evidence claim.
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| Docker fidelity adversary | Challenge E3 promotion and validator/source isolation claims | evidence validity, official equivalence, leakage |
+| Windows/WSL boundary adversary | Attack path conversion, Docker backend, tags, proxy, cleanup | operational correctness |
+| Closure reviewer | Verify accepted blocking findings were closed after fixes | closure evidence |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| Docker fidelity adversary | `multi_agent_v1.spawn_agent` explorer | `019e8743-cae1-7f21-8632-11e82d0cfa71` | spawn_agent result and subagent_notification | fork_context=false | Round 7 Docker fidelity packet | main-agent history, reasoning, drafts, persuasion brief | yes |
+| Windows/WSL boundary adversary | `multi_agent_v1.spawn_agent` explorer | `019e8744-197c-7871-9a1e-7291910af8c7` | spawn_agent result and subagent_notification | fork_context=false | Round 7 Windows/WSL packet | main-agent history, reasoning, drafts, persuasion brief | yes |
+| Closure reviewer | `multi_agent_v1.spawn_agent` explorer | `019e8767-5765-7541-ad58-360674dc957f` | spawn_agent result and subagent_notification | fork_context=false | Round 7 closure packet | main-agent history, reasoning, drafts, persuasion brief | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| docker-fidelity-adversary | Docker fidelity adversary | 1 | `019e8743-cae1-7f21-8632-11e82d0cfa71` | 5 minutes | completed | reviewer completed | completed |
+| windows-wsl-boundary-adversary | Windows/WSL boundary adversary | 1 | `019e8744-197c-7871-9a1e-7291910af8c7` | async notification | completed | reviewer completed | completed |
+| closure-reviewer | Closure reviewer | 1 | `019e8767-5765-7541-ad58-360674dc957f` | 10 minutes | completed | reviewer completed | completed |
+
+### Reviewer Outputs
+
+#### docker-fidelity-adversary
+
+##### Summary
+
+The generated validator does run `docker build` and `docker run -v repo:/app -w /app`, but the original implementation over-claimed E3 fidelity from static manifest metadata. It did not prove official Terminal-Bench harness equivalence or validator-source isolation.
+
+##### Blocking Findings
+
+- Static E3 fidelity was over-declared: `official_runner_or_equivalent`, `agent_cannot_read_validator_source`, and `e3_eligible` were set true before runtime proof existed. Impact: future repeats/audit could promote an unproven validator into E3.
+- Validator source/tests isolation was not proven. Impact: if the agent can reach the run root, it may read tests or validator source.
+- Self-test did not execute the generated Docker validator. Impact: metadata-only happy path could pass while Docker was broken.
+- `validator_environment_mismatch` trusted a pre-build marker. Impact: build/run failures could be hidden as non-mismatch.
+
+##### Required Fixes
+
+- Downgrade Terminal-Bench fidelity until official equivalence and source isolation are proven from runtime artifacts.
+- Ensure Docker runtime marker is emitted from inside the container and includes `/app` workdir evidence.
+- Add an execution alias so `/app/foo` maps to repo root during Whale execution.
+
+#### windows-wsl-boundary-adversary
+
+##### Summary
+
+The original Docker validator did not model Windows/WSL/native Docker backends and used a full path as image tag. It also treated a post-hoc `docker build/run` wrapper as official runner equivalent.
+
+##### Blocking Findings
+
+- Native Docker fallback would receive WSL `/mnt/<drive>` paths. Trigger: no `whale-docker` WSL distro or explicit native Docker. Impact: validator fails on other machines.
+- The wrapper is not official Terminal-Bench harness equivalent. Trigger: compose/multi-container/network/agent-in-container tasks. Impact: E3 evidence can be overstated.
+- Docker image tag was generated from full repo path and could exceed tag grammar/length. Impact: validation fails before test execution.
+- Wrapper marker was printed before Docker build/run and could suppress mismatch reporting. Impact: false observability.
+
+##### Required Fixes
+
+- Bind path conversion to selected Docker backend.
+- Use short hash-based image/container names.
+- Keep official-equivalence and E3 eligibility false for this path.
+- Move the real runtime marker into the container.
+
+#### closure-reviewer
+
+##### Summary
+
+Scoped closure passed. Latest `rerun3` artifact proves Docker validator ran in container `/app`; over-claimed E3/official/source-isolation metadata was withdrawn; `/app` Windows alias routed agent writes to side repo root; current result remains outside E3 aggregate.
+
+##### Blocking Findings
+
+- none
+
+##### Non-blocking Risks
+
+- Future E3 promotion still trusts validator fidelity metadata if another adapter sets all booleans true. A future proof-bound fidelity contract should require structured runtime artifacts or audit schema, not booleans alone.
+- Docker/network/proxy handling is explainable from code and logs, but artifacts only log `proxy_env_count`; they do not yet list redacted proxy names or explicit network args.
+
+##### Missing Tests
+
+- Focused unit coverage for full Docker marker vs wrapper-only marker in `Test-TaskspaceValidatorEnvironmentMismatch`.
+- Automated Docker cleanup assertion after validation.
+- Regression asserting `/app/hello.txt` does not land under `repo/app/hello.txt`.
+
+### Main Agent Response
+
+| Reviewer | Finding | Broken Assumption / Failure Scenario | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|---|
+| docker-fidelity-adversary | Static E3 fidelity over-declared | Manifest booleans were treated as proof | blocking | accept | Reviewers showed E3 gate trusts metadata | Set `official_runner_or_equivalent=false`, `agent_cannot_read_validator_source=false`, `e3_eligible=false`; README now says post-hoc Docker validator is not official-equivalent | Future fidelity-proof contract |
+| docker-fidelity-adversary | Validator source isolation unproven | Agent might reach run root/tests | blocking | accept | Isolation was not proven by current harness | Kept source-isolation false and E3 disabled | Design source-isolation proof before E3 |
+| docker-fidelity-adversary | Self-test did not execute Docker validator | Metadata-only pass could hide broken Docker | blocking | accept | Smoke initially caught Docker tag/path/stdout failures | Added and executed manual real Docker smoke; self-test now covers metadata downgrade and `/app` alias | Add automated Docker integration later |
+| docker-fidelity-adversary | Mismatch marker trusted pre-build marker | Build/run failure could look non-mismatch | blocking | accept | Smoke reproduced wrapper-only marker | Runtime marker now emitted inside container entry script; mismatch requires `validator_runtime=terminal_bench_docker_app` and `container_workdir=/app` | Add focused unit tests |
+| windows-wsl-boundary-adversary | Backend/path conversion not modeled | Native Docker could receive WSL paths | blocking | accept | Reviewer identified WSL/native split | Added `Get-DockerBackend`; WSL paths only for WSL backend, native keeps resolved Windows path | Native Docker integration still untested |
+| windows-wsl-boundary-adversary | Full repo path image tag invalid | Long run roots break Docker tag grammar | blocking | accept | Real run failed with invalid tag | Changed image/container names to short SHA-derived suffix | none |
+| windows-wsl-boundary-adversary | Not official Terminal-Bench harness equivalent | Compose/multi-container samples can diverge | blocking | accept | The wrapper is post-hoc validation only | E3 fidelity remains false; report labels result E2-candidate diagnostic only | Official runner integration remains future work |
+| closure-reviewer | No scoped blocking findings | n/a | n/a | accept | Closure reviewer found blocking findings closed | No further code changes required | Track non-blocking proof contract and logs |
+| closure-reviewer | Future adapter could over-set fidelity booleans | Booleans alone could reintroduce E3 over-promotion | non-blocking | defer | Out of current rerun scope; current adapter is safe | Documented as future E3 proof-contract work | Future E3 gate hardening |
+| closure-reviewer | Logs could be more structured | Network/proxy cleanup details are partly textual | non-blocking | defer | Current artifacts prove current rerun; deeper observability can be added later | Keep current log markers; documented residual improvement | Future observability pass |
+
+### Validation Evidence
+
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1`: PASS.
+- `git diff --check`: PASS.
+- Docker validator smoke against Terminal-Bench `hello-world`: PASS with `validator_runtime=terminal_bench_docker_app`, `container_workdir=/app`, and pytest `2 passed`.
+- Real paired run:
+  - Run summary: `C:\Users\77585\AppData\Local\Temp\whale-real-external-docker-rerun3\runs\terminal_bench__hello-world\20260602-161348-874\run-summary.md`
+  - Pair report: `C:\Users\77585\AppData\Local\Temp\whale-real-external-docker-rerun3\runs\terminal_bench__hello-world\20260602-161348-874\pair-001\pair-report.md`
+  - `reported_evidence_level: E2-candidate`
+  - `included_in_e3_aggregate: False`
+  - standard side: `business_success: True`, `public_validation_exit_code: 0`, changed `hello.txt`
+  - taskspace side: `business_success: True`, `public_validation_exit_code: 0`, changed `hello.txt`
+  - taskspace graph: `maps: 1`, `nodes: 1`, `edges: 0`
+  - validator mismatch: false on both sides
+- Docker cleanup check: no residual containers or images with label `whale.taskspace.terminal_bench=true`.
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: yes
+- Blocking re-review passed: yes
+- Blocking re-review launch record: Closure reviewer `019e8767-5765-7541-ad58-360674dc957f`
+- Rejected findings backed by evidence: n/a
+- Deferred findings documented: yes
+- Blocked reason: n/a
+- Allowed to proceed: yes
+
+### Round 7 Conclusion
+
+Passed for the scoped objective. The real Terminal-Bench `hello-world` sample now runs through real Whale standard/taskspace execution and a real Docker `/app` post-hoc validator. Both sides pass the benchmark validator, but the result is intentionally not E3 because official Terminal-Bench harness equivalence and validator-source isolation remain unproven.
