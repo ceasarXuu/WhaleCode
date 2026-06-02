@@ -27,9 +27,13 @@ E3 results are not valid until an external sample has:
 - paired standard/taskspace artifacts
 - external validator output
 - artifact audit review
+- runtime proof artifacts generated from the run, not only manifest assertions
 
 Current Terminal-Bench adapter status:
 
 - The adapter now validates through a real Docker `/app` post-hoc runtime: the agent workspace is mounted at `/app`, and `run-tests.sh` plus `tests/` are mounted read-only at `/tbench-validator`.
 - The runner also creates a Windows `/app` execution alias for Terminal-Bench samples so `/app/foo` maps to the side repo root during Whale execution.
-- This is not yet marked as official Terminal-Bench harness-equivalent E3 evidence. E3 promotion remains disabled until official runner equivalence, validator-source isolation, repeated runs, and audit/human review are proven from runtime artifacts.
+- Each external pair now emits `external-runtime-proof.json`, `external-isolation-proof.json`, and `external-e3-proof.json`.
+- The isolation proof records validator source hash and whether the source is outside the agent repo. It does not promote `agent_cannot_read_validator_source` unless the adapter also has a stronger explicit isolation claim.
+- `scripts/taskspace-benchmark/run-taskspace-e3-external.ps1` is the strict E3 entrypoint. It enforces `Repeats >= 5` and aggregate generation.
+- This is not yet marked as official Terminal-Bench harness-equivalent E3 evidence. E3 promotion remains disabled until official runner equivalence, repeated runs, and audit review are proven from runtime artifacts.

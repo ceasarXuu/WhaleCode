@@ -17,7 +17,9 @@ function Get-TaskspaceEvidenceGate {
         [bool]$HumanReviewCompleted = $false,
         [int]$E3MinimumRepeats = 5,
         [string]$HumanReviewDecision = "",
-        [bool]$HumanReviewDisagreement = $false
+        [bool]$HumanReviewDisagreement = $false,
+        $ExternalProof = $null,
+        $SideOutcomes = $null
     )
     $failures = New-Object System.Collections.Generic.List[string]
     $e3Failures = New-Object System.Collections.Generic.List[string]
@@ -73,7 +75,7 @@ function Get-TaskspaceEvidenceGate {
             $validatorSha = if ($null -ne $SampleOrigin -and $SampleOrigin.PSObject.Properties.Name -contains "original_validator_sha256") { [string]$SampleOrigin.original_validator_sha256 } else { "" }
             $benchmarkName = if ($null -ne $ExternalBenchmark -and $ExternalBenchmark.PSObject.Properties.Name -contains "name") { [string]$ExternalBenchmark.name } else { "" }
             $adapterVersion = if ($null -ne $ExternalBenchmark -and $ExternalBenchmark.PSObject.Properties.Name -contains "adapter_version") { [string]$ExternalBenchmark.adapter_version } else { "" }
-            $validatorFidelity = if ($null -ne $ExternalBenchmark -and $ExternalBenchmark.PSObject.Properties.Name -contains "validator_fidelity") { $ExternalBenchmark.validator_fidelity } else { $null }
+            $validatorFidelity = if ($null -ne $ExternalProof -and $ExternalProof.PSObject.Properties.Name -contains "validator_fidelity") { $ExternalProof.validator_fidelity } else { $null }
             $officialEquivalent = ($null -ne $validatorFidelity -and $validatorFidelity.PSObject.Properties.Name -contains "official_runner_or_equivalent" -and [bool]$validatorFidelity.official_runner_or_equivalent)
             $sourceIsolated = ($null -ne $validatorFidelity -and $validatorFidelity.PSObject.Properties.Name -contains "agent_cannot_read_validator_source" -and [bool]$validatorFidelity.agent_cannot_read_validator_source)
             $fidelityEligible = ($null -ne $validatorFidelity -and $validatorFidelity.PSObject.Properties.Name -contains "e3_eligible" -and [bool]$validatorFidelity.e3_eligible)
@@ -85,12 +87,24 @@ function Get-TaskspaceEvidenceGate {
             if ([string]::IsNullOrWhiteSpace($validatorSha)) { $e3Failures.Add("e3_external_validator_sha_missing") }
             if ([string]::IsNullOrWhiteSpace($benchmarkName)) { $e3Failures.Add("e3_external_benchmark_name_missing") }
             if ([string]::IsNullOrWhiteSpace($adapterVersion)) { $e3Failures.Add("e3_external_adapter_version_missing") }
+            if ($null -eq $ExternalProof) { $e3Failures.Add("e3_external_runtime_proof_missing") }
             if (-not $officialEquivalent) { $e3Failures.Add("e3_external_validator_fidelity_unproven") }
             if (-not $sourceIsolated) { $e3Failures.Add("e3_external_validator_source_not_isolated") }
             if (-not $fidelityEligible) { $e3Failures.Add("e3_external_validator_not_e3_eligible") }
         }
         if (-not $HumanReviewRequired) { $e3Failures.Add("e3_human_review_not_required") }
         if (-not $HumanReviewCompleted) { $e3Failures.Add("e3_human_review_not_completed") }
+        $standardSuccess = $false
+        $taskspaceSuccess = $false
+        $sideOutcomesPresent = ($null -ne $SideOutcomes -and
+            $SideOutcomes.PSObject.Properties.Name -contains "standard_success" -and
+            $SideOutcomes.PSObject.Properties.Name -contains "taskspace_success")
+        if ($sideOutcomesPresent) {
+            $standardSuccess = ($SideOutcomes.PSObject.Properties.Name -contains "standard_success" -and [bool]$SideOutcomes.standard_success)
+            $taskspaceSuccess = ($SideOutcomes.PSObject.Properties.Name -contains "taskspace_success" -and [bool]$SideOutcomes.taskspace_success)
+        } else {
+            $e3Failures.Add("e3_side_outcomes_missing")
+        }
         $includeReviewDecisions = @(
             "include_taskspace_better",
             "include_standard_better",
@@ -108,6 +122,17 @@ function Get-TaskspaceEvidenceGate {
         }
         if ($HumanReviewCompleted -and $excludeReviewDecisions -contains $HumanReviewDecision) {
             $e3Failures.Add("e3_human_review_excluded_pair")
+        }
+        if ($HumanReviewCompleted -and $validReviewDecisions -contains $HumanReviewDecision -and $sideOutcomesPresent) {
+            if ($HumanReviewDecision -eq "include_taskspace_better" -and -not $taskspaceSuccess) {
+                $e3Failures.Add("e3_human_review_decision_inconsistent_with_outcome")
+            }
+            if ($HumanReviewDecision -eq "include_standard_better" -and -not $standardSuccess) {
+                $e3Failures.Add("e3_human_review_decision_inconsistent_with_outcome")
+            }
+            if ($HumanReviewDecision -eq "include_no_clear_delta" -and -not ($standardSuccess -and $taskspaceSuccess)) {
+                $e3Failures.Add("e3_human_review_decision_inconsistent_with_outcome")
+            }
         }
     }
     $level = if ($target -eq "E3" -and $failures.Count -eq 0 -and $e3Failures.Count -eq 0) {
@@ -223,17 +248,25 @@ function Write-TaskspacePairReport {
         $lines.Add("- claim_scope: $claimScope")
         if ($null -ne $Manifest.ExternalBenchmark -and $Manifest.ExternalBenchmark.PSObject.Properties.Name -contains "validator_fidelity") {
             $fidelity = $Manifest.ExternalBenchmark.validator_fidelity
-            $lines.Add("- validator_runtime: $($fidelity.validator_runtime)")
-            $lines.Add("- official_runner_or_equivalent: $($fidelity.official_runner_or_equivalent)")
-            $lines.Add("- agent_cannot_read_validator_source: $($fidelity.agent_cannot_read_validator_source)")
-            $lines.Add("- validator_e3_eligible: $($fidelity.e3_eligible)")
-            $lines.Add("- validator_downgrade_reason: $($fidelity.downgrade_reason)")
+            $lines.Add("- declared_validator_runtime: $($fidelity.validator_runtime)")
+            $lines.Add("- declared_official_runner_or_equivalent: $($fidelity.official_runner_or_equivalent)")
+            $lines.Add("- declared_agent_cannot_read_validator_source: $($fidelity.agent_cannot_read_validator_source)")
+            $lines.Add("- declared_validator_e3_eligible: $($fidelity.e3_eligible)")
+            $lines.Add("- declared_validator_downgrade_reason: $($fidelity.downgrade_reason)")
         }
         if (@($EvidenceGate.e3_gate_failures).Count -eq 0) { $lines.Add("- failures: none") } else { foreach ($failure in $EvidenceGate.e3_gate_failures) { $lines.Add("- $failure") } }
         if ($EvidenceGate.PSObject.Properties.Name -contains "audit_review_source_path") {
             $lines.Add("- audit_review_source_path: $($EvidenceGate.audit_review_source_path)")
             $auditFailures = @($EvidenceGate.audit_review_failures)
             if ($auditFailures.Count -eq 0) { $lines.Add("- audit_review_failures: none") } else { $lines.Add("- audit_review_failures: $($auditFailures -join ', ')") }
+        }
+        if ($EvidenceGate.PSObject.Properties.Name -contains "external_runtime_proof_path") {
+            $lines.Add("- external_runtime_proof_path: $($EvidenceGate.external_runtime_proof_path)")
+            $lines.Add("- external_isolation_proof_path: $($EvidenceGate.external_isolation_proof_path)")
+            $lines.Add("- external_combined_proof_path: $($EvidenceGate.external_combined_proof_path)")
+            $lines.Add("- proof_official_runner_or_equivalent: $($EvidenceGate.external_proof_official_runner_or_equivalent)")
+            $lines.Add("- proof_agent_cannot_read_validator_source: $($EvidenceGate.external_proof_agent_cannot_read_validator_source)")
+            $lines.Add("- proof_validator_e3_eligible: $($EvidenceGate.external_proof_validator_e3_eligible)")
         }
         $lines.Add("")
     }

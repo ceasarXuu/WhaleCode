@@ -79,6 +79,14 @@ $taskYaml = Join-Path $taskRoot "task.yaml"
 if (@($instructionCandidates).Count -eq 0 -and -not (Test-Path -LiteralPath $taskYaml)) { throw "Terminal-Bench instruction file not found in: $taskRoot" }
 $fixtureSource = Join-Path $taskRoot "environment"
 if ([string]::IsNullOrWhiteSpace($SourceVersion)) { throw "Terminal-Bench SourceVersion must pin the external source revision." }
+if ($SourceVersion -match '^[0-9a-fA-F]{40}$' -and (Get-Command git -ErrorAction SilentlyContinue)) {
+    $sourceHead = (& git -C $taskRoot rev-parse HEAD 2>$null)
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($sourceHead)) {
+        if ($sourceHead.Trim().ToLowerInvariant() -ne $SourceVersion.ToLowerInvariant()) {
+            throw "Terminal-Bench SourceVersion mismatch: expected $SourceVersion but task checkout is $($sourceHead.Trim())."
+        }
+    }
+}
 $validatorCandidates = @("verify.sh", "test.sh", "run-tests.sh") |
     ForEach-Object { Join-Path $taskRoot $_ } |
     Where-Object { Test-Path -LiteralPath $_ }
@@ -181,31 +189,42 @@ $validatorLines = @(
     '$image = "whale-taskspace-terminal-bench:$repoHash"',
     '$containerName = "whale-tbench-$repoHash"',
     '$entryScript = Join-Path $scenarioRoot "terminal-bench-validator-entry.sh"',
+    '$proofNonce = [guid]::NewGuid().ToString("N")',
     '$entryContent = @''',
     'set -euo pipefail',
     'export TEST_DIR=/tbench-validator/tests',
     'cd /app',
+    'echo validator_proof_nonce=$WHALE_TBENCH_PROOF_NONCE',
     'echo validator_runtime=terminal_bench_docker_app',
     'echo container_workdir=$(pwd)',
     'echo test_dir=$TEST_DIR',
+    'echo validator_mount=/tbench-validator',
     'test "$(pwd)" = "/app"',
     'test -d "$TEST_DIR"',
     'test -f /tbench-validator/verify.sh',
+    'if touch /tbench-validator/.whale-write-test 2>/tmp/whale-validator-ro.err; then echo validator_mount_readonly=false; rm -f /tbench-validator/.whale-write-test; exit 81; else echo validator_mount_readonly=true; fi',
     'bash /tbench-validator/verify.sh',
     '''@',
     '$entryContent = $entryContent -replace "`r`n", "`n"',
     '[System.IO.File]::WriteAllText($entryScript, $entryContent, [System.Text.Encoding]::ASCII)',
+    '$wrapperSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $PSCommandPath).Hash.ToLowerInvariant()',
+    '$entrySha = (Get-FileHash -Algorithm SHA256 -LiteralPath $entryScript).Hash.ToLowerInvariant()',
     '$backend = Get-DockerBackend',
     '$fixtureDockerPath = ConvertTo-DockerPath $fixtureDir $backend',
     '$repoDockerPath = ConvertTo-DockerPath $repoDir $backend',
     '$validatorDockerPath = ConvertTo-DockerPath $validatorSource $backend',
     '$entryDockerPath = ConvertTo-DockerPath $entryScript $backend',
     'Write-Host "validator_runtime_probe=terminal_bench_docker_wrapper"',
+    'Write-Host "validator_proof_nonce=$proofNonce"',
+    'Write-Host "validator_wrapper_sha256=$wrapperSha"',
+    'Write-Host "validator_entry_sha256=$entrySha"',
     'Write-Host "docker_backend=$backend"',
     'Write-Host "docker_image=$image"',
     'Write-Host "docker_container=$containerName"',
     'Write-Host "repo_mount=$repoDockerPath"',
     'Write-Host "validator_mount=/tbench-validator"',
+    'Invoke-Docker -Arguments @("version", "--format", "{{.Server.Version}}")',
+    'Write-Host "docker_version_exit=$($script:LastDockerExitCode)"',
     '$networkArgs = if ($backend -eq "wsl") { @("--network", "host") } else { @("--add-host", "host.docker.internal:host-gateway") }',
     '$proxyArgs = @()',
     'foreach ($proxyName in @("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")) {',
@@ -232,14 +251,19 @@ $validatorLines = @(
     '        "-v", "${entryDockerPath}:/tbench-entry.sh:ro",',
     '        "-w", "/app",',
     '        "-e", "TEST_DIR=/tbench-validator/tests",',
+    '        "-e", "WHALE_TBENCH_PROOF_NONCE=$proofNonce",',
     '        $image, "bash", "/tbench-entry.sh"',
     '    )',
     '    $runArgs = @($runArgs[0..6]) + $networkArgs + @($runArgs[7..($runArgs.Count - 1)])',
     '    Invoke-Docker -Arguments $runArgs',
     '    $exitCode = $script:LastDockerExitCode',
+    '    Invoke-Docker -Arguments @("inspect", $containerName)',
+    '    Write-Host "docker_inspect_available=$($script:LastDockerExitCode -eq 0)"',
     '} finally {',
     '    Invoke-Docker -Arguments @("rm", "-f", $containerName)',
+    '    Write-Host "validator_cleanup_container_exit=$($script:LastDockerExitCode)"',
     '    Invoke-Docker -Arguments @("rmi", "-f", $image)',
+    '    Write-Host "validator_cleanup_image_exit=$($script:LastDockerExitCode)"',
     '}',
     'exit $exitCode'
 )

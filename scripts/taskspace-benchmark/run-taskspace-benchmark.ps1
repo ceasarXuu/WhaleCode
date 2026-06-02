@@ -28,6 +28,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\oracle-runner.ps1")
 . (Join-Path $PSScriptRoot "lib\metrics-extractor.ps1")
 . (Join-Path $PSScriptRoot "lib\audit-report.ps1")
+. (Join-Path $PSScriptRoot "lib\e3-proof.ps1")
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
 
 if ($Repeats -lt 1) { throw "Repeats must be >= 1" }
@@ -169,6 +170,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $metricsBySide[$side.Name] = $metrics
     }
     $variableControl = Compare-TaskspacePairVariables $manifestResolved $metricsBySide["left"] $metricsBySide["right"]
+    $externalProof = New-TaskspaceExternalEvidenceProof $pair $manifest $metricsBySide
     $oracleLevels = @($metricsBySide["left"].oracle_isolation_level, $metricsBySide["right"].oracle_isolation_level)
     $oracleLevels += $probe.oracle_isolation_level
     $pairOracleLevel = if ($oracleLevels -contains "failed") {
@@ -181,19 +183,36 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         "hard_sandbox"
     }
     $businessSuccess = [bool]($metricsBySide["left"].business_success -or $metricsBySide["right"].business_success)
+    $standardMetrics = @($metricsBySide["left"], $metricsBySide["right"]) | Where-Object { $_.logical_mode -eq "standard" } | Select-Object -First 1
+    $taskspaceMetrics = @($metricsBySide["left"], $metricsBySide["right"]) | Where-Object { $_.logical_mode -eq "taskspace" } | Select-Object -First 1
+    $sideOutcomes = [pscustomobject]@{
+        standard_success = ($standardMetrics -and [bool]$standardMetrics.business_success)
+        taskspace_success = ($taskspaceMetrics -and [bool]$taskspaceMetrics.business_success)
+    }
     $e3MinimumRepeats = 5
     if ($null -ne $manifest.E3 -and $manifest.E3.PSObject.Properties.Name -contains "minimum_repeats") {
         $e3MinimumRepeats = [Math]::Max(5, [int]$manifest.E3.minimum_repeats)
     }
     $pairReportPath = Join-Path $pair.PairDir "pair-report.md"
-    $candidateEvidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $false $e3MinimumRepeats "" $false
+    $candidateEvidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $false $e3MinimumRepeats "" $false $externalProof $sideOutcomes
     Write-TaskspacePairReport $pairReportPath $manifest $promptGuard $variableControl $candidateEvidence $metricsBySide["left"] $metricsBySide["right"] $pair $probe
     $expectedClaimScope = if ($null -ne $manifest.E3 -and $manifest.E3.PSObject.Properties.Name -contains "claim_scope") { [string]$manifest.E3.claim_scope } else { "" }
     $auditReview = Get-TaskspaceAuditReview $pair.PairDir $AuditReviewRoot $repeat $expectedClaimScope
-    $evidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $auditReview.completed $e3MinimumRepeats $auditReview.decision $auditReview.disagreement
+    $evidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $auditReview.completed $e3MinimumRepeats $auditReview.decision $auditReview.disagreement $externalProof $sideOutcomes
     $evidence | Add-Member -NotePropertyName audit_review_source_path -NotePropertyValue $auditReview.source_path -Force
     $evidence | Add-Member -NotePropertyName audit_review_failures -NotePropertyValue @($auditReview.failures) -Force
+    if ($externalProof) {
+        $evidence | Add-Member -NotePropertyName external_runtime_proof_path -NotePropertyValue $externalProof.runtime_proof_path -Force
+        $evidence | Add-Member -NotePropertyName external_isolation_proof_path -NotePropertyValue $externalProof.isolation_proof_path -Force
+        $evidence | Add-Member -NotePropertyName external_combined_proof_path -NotePropertyValue $externalProof.combined_proof_path -Force
+        $evidence | Add-Member -NotePropertyName external_proof_official_runner_or_equivalent -NotePropertyValue $externalProof.validator_fidelity.official_runner_or_equivalent -Force
+        $evidence | Add-Member -NotePropertyName external_proof_agent_cannot_read_validator_source -NotePropertyValue $externalProof.validator_fidelity.agent_cannot_read_validator_source -Force
+        $evidence | Add-Member -NotePropertyName external_proof_validator_e3_eligible -NotePropertyValue $externalProof.validator_fidelity.e3_eligible -Force
+    }
     Write-TaskspacePairReport $pairReportPath $manifest $promptGuard $variableControl $evidence $metricsBySide["left"] $metricsBySide["right"] $pair $probe
+    if ([string]$manifest.EvidenceTarget -eq "E3") {
+        Write-TaskspaceAuditReviewTemplate $pair.PairDir $expectedClaimScope | Out-Null
+    }
     $pairReports.Add([pscustomobject]@{ repeat = $repeat; pair_dir = $pair.PairDir; pair_report = $pairReportPath; evidence_target = $manifest.EvidenceTarget; evidence = $evidence })
 }
 

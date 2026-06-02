@@ -39,7 +39,8 @@ function Get-TaskspaceAuditArtifactSha256 {
 }
 
 function Get-TaskspaceRequiredAuditArtifacts {
-    @(
+    param([string]$PairDir = "")
+    $required = @(
         "manifest.resolved.json",
         "pair-report.md",
         "left/artifacts/metrics.json",
@@ -51,6 +52,77 @@ function Get-TaskspaceRequiredAuditArtifacts {
         "left/artifacts/git-diff.patch",
         "right/artifacts/git-diff.patch"
     )
+    $externalPair = $false
+    if (-not [string]::IsNullOrWhiteSpace($PairDir)) {
+        $manifestPath = Join-Path $PairDir "manifest.resolved.json"
+        if (Test-Path -LiteralPath $manifestPath) {
+            try {
+                $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json
+                $externalPair = ($manifest.PSObject.Properties.Name -contains "external_benchmark" -and $null -ne $manifest.external_benchmark)
+            } catch {}
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PairDir)) {
+        foreach ($proof in @("external-runtime-proof.json", "external-isolation-proof.json", "external-e3-proof.json")) {
+            if ($externalPair -or (Test-Path -LiteralPath (Join-Path $PairDir $proof))) { $required += $proof }
+        }
+    }
+    $required
+}
+
+function Write-TaskspaceAuditReviewTemplate {
+    param(
+        [Parameter(Mandatory = $true)][string]$PairDir,
+        [string]$ClaimScope = ""
+    )
+    $required = @(Get-TaskspaceRequiredAuditArtifacts $PairDir)
+    $hashes = [ordered]@{}
+    foreach ($relative in $required) {
+        $path = Join-Path $PairDir $relative
+        if (Test-Path -LiteralPath $path) {
+            $hashes[$relative] = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
+        }
+    }
+    $json = [ordered]@{
+        reviewer = ""
+        date = (Get-Date -Format "yyyy-MM-dd")
+        artifact_basis = @($required)
+        artifact_hashes = $hashes
+        decision = ""
+        claim_scope = $ClaimScope
+        disagreement = $false
+        attestations = [ordered]@{
+            runtime_proof_reviewed = $false
+            isolation_proof_reviewed = $false
+            source_pin_reviewed = $false
+            hash_freshness_reviewed = $false
+            side_outcomes_reviewed = $false
+        }
+        decision_rationale = ""
+        notes = ""
+    }
+    $jsonPath = Join-Path $PairDir "audit-review.suggested.json"
+    ($json | ConvertTo-Json -Depth 10) | Set-Content -LiteralPath $jsonPath -Encoding UTF8
+    $mdPath = Join-Path $PairDir "audit-review.template.md"
+    $lines = @(
+        "# TaskSpace E3 Artifact Audit Review",
+        "",
+        "- claim_scope: $ClaimScope",
+        "- suggested_json: audit-review.suggested.json",
+        "",
+        "Inspect the pair artifacts before copying the suggested JSON to audit-review.json.",
+        "",
+        "Allowed decisions:",
+        "- include_taskspace_better",
+        "- include_standard_better",
+        "- include_no_clear_delta",
+        "- exclude_harness_failure",
+        "- exclude_invalid_prompt",
+        "- exclude_validator_unclear",
+        "- exclude_privacy_or_sample_risk"
+    )
+    $lines | Set-Content -LiteralPath $mdPath -Encoding UTF8
+    [pscustomobject]@{ markdown_path = $mdPath; json_path = $jsonPath }
 }
 
 function Get-TaskspaceAuditReview {
@@ -93,6 +165,7 @@ function Get-TaskspaceAuditReview {
     $claimScope = if ($review.PSObject.Properties.Name -contains "claim_scope") { [string]$review.claim_scope } else { "" }
     $disagreement = ($review.PSObject.Properties.Name -contains "disagreement" -and [bool]$review.disagreement)
     $artifactBasis = if ($review.PSObject.Properties.Name -contains "artifact_basis") { @($review.artifact_basis) } else { @() }
+    $decisionRationale = if ($review.PSObject.Properties.Name -contains "decision_rationale") { [string]$review.decision_rationale } else { "" }
     $artifactHashes = @{}
     if ($review.PSObject.Properties.Name -contains "artifact_hashes") {
         foreach ($property in $review.artifact_hashes.PSObject.Properties) {
@@ -131,11 +204,21 @@ function Get-TaskspaceAuditReview {
             }
         }
     }
-    foreach ($required in Get-TaskspaceRequiredAuditArtifacts) {
+    foreach ($required in Get-TaskspaceRequiredAuditArtifacts $PairDir) {
         if (-not $artifactSet.ContainsKey($required)) { $failures.Add("audit_required_artifact_missing:$required") }
     }
     $hasTaskspaceObservability = @($artifactSet.Keys | Where-Object { $_ -like "*/artifacts/observability/action-map-observability.json" }).Count -gt 0
     if (-not $hasTaskspaceObservability) { $failures.Add("audit_taskspace_observability_missing") }
+    $isExternalPair = $artifactSet.ContainsKey("external-e3-proof.json")
+    if ($isExternalPair) {
+        if ([string]::IsNullOrWhiteSpace($decisionRationale)) { $failures.Add("audit_decision_rationale_missing") }
+        $attestations = if ($review.PSObject.Properties.Name -contains "attestations") { $review.attestations } else { $null }
+        foreach ($name in @("runtime_proof_reviewed", "isolation_proof_reviewed", "source_pin_reviewed", "hash_freshness_reviewed", "side_outcomes_reviewed")) {
+            if ($null -eq $attestations -or -not ($attestations.PSObject.Properties.Name -contains $name) -or -not [bool]$attestations.$name) {
+                $failures.Add("audit_attestation_missing_or_false:$name")
+            }
+        }
+    }
     [pscustomobject]@{
         completed = ($failures.Count -eq 0)
         decision = $decision

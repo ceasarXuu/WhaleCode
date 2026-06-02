@@ -14,6 +14,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\oracle-runner.ps1")
 . (Join-Path $PSScriptRoot "lib\metrics-extractor.ps1")
 . (Join-Path $PSScriptRoot "lib\audit-report.ps1")
+. (Join-Path $PSScriptRoot "lib\e3-proof.ps1")
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
 . (Join-Path $PSScriptRoot "lib\matrix-report.ps1")
 . (Join-Path $PSScriptRoot "adapters\external-benchmark-common.ps1")
@@ -160,8 +161,12 @@ $validExternalFidelity = [pscustomobject]@{
     downgrade_reason = ""
 }
 $externalBenchmark = [pscustomobject]@{ name = "terminal-bench"; adapter_version = "whale-taskspace-e3-adapter-v1"; validator_fidelity = $validExternalFidelity }
-$e3ExternalReady = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOrigin $externalBenchmark $e3Config $true $true 5 "include_no_clear_delta" $false
+$validExternalProof = [pscustomobject]@{ validator_fidelity = $validExternalFidelity; runtime_proof_path = "runtime.json"; isolation_proof_path = "isolation.json"; combined_proof_path = "combined.json" }
+$completeSideOutcomes = [pscustomobject]@{ standard_success = $true; taskspace_success = $true }
+$e3ExternalReady = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOrigin $externalBenchmark $e3Config $true $true 5 "include_no_clear_delta" $false $validExternalProof $completeSideOutcomes
 Assert-True ($e3ExternalReady.reported_evidence_level -eq "E3") "complete external E3 evidence did not promote to E3"
+$e3ExternalMissingOutcomes = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOrigin $externalBenchmark $e3Config $true $true 5 "include_no_clear_delta" $false $validExternalProof
+Assert-True (@($e3ExternalMissingOutcomes.e3_gate_failures) -contains "e3_side_outcomes_missing") "external E3 without side outcomes was not fail-closed"
 $invalidExternalBenchmark = [pscustomobject]@{
     name = "terminal-bench"
     adapter_version = "whale-taskspace-e3-adapter-v1"
@@ -175,15 +180,15 @@ $invalidExternalBenchmark = [pscustomobject]@{
         downgrade_reason = "engineering smoke only"
     }
 }
-$e3ExternalUnfaithful = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOrigin $invalidExternalBenchmark $e3Config $true $true 5 "include_no_clear_delta" $false
+$e3ExternalUnfaithful = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOrigin $invalidExternalBenchmark $e3Config $true $true 5 "include_no_clear_delta" $false $null $completeSideOutcomes
 Assert-True ($e3ExternalUnfaithful.reported_evidence_level -ne "E3") "unfaithful external validator was promoted to E3"
 Assert-True (@($e3ExternalUnfaithful.e3_gate_failures) -contains "e3_external_validator_fidelity_unproven") "external validator fidelity gate failure was not recorded"
 Assert-True (@($e3ExternalUnfaithful.e3_gate_failures) -contains "e3_external_validator_source_not_isolated") "external validator source isolation gate failure was not recorded"
 $externalOriginMissingRevision = $externalOrigin.PSObject.Copy()
 $externalOriginMissingRevision.source_version = ""
-$e3ExternalMissingRevision = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOriginMissingRevision $externalBenchmark $e3Config $true $true 5 "include_no_clear_delta" $false
+$e3ExternalMissingRevision = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOriginMissingRevision $externalBenchmark $e3Config $true $true 5 "include_no_clear_delta" $false $validExternalProof $completeSideOutcomes
 Assert-True (@($e3ExternalMissingRevision.e3_gate_failures) -contains "e3_external_source_version_missing") "external E3 source revision gate failure was not recorded"
-$e3Ready = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $e3Origin $null $e3Config $true $true 5 "include_taskspace_better" $false
+$e3Ready = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $e3Origin $null $e3Config $true $true 5 "include_taskspace_better" $false $null ([pscustomobject]@{ standard_success = $false; taskspace_success = $true })
 Assert-True ($e3Ready.reported_evidence_level -eq "E3") "complete E3 evidence did not promote to E3"
 Assert-True ($e3Ready.included_in_e3_aggregate) "complete E3 evidence was not included in E3 aggregate"
 
@@ -339,6 +344,11 @@ param(
     [string]$WhaleBin,
     [string]$Model,
     [string]$RunRoot,
+    [int]$TimeoutSeconds,
+    [string]$SandboxMode,
+    [string[]]$ConfigOverride,
+    [string]$AuditReviewRoot,
+    [switch]$EnableAggregate,
     [switch]$AllowNonE2Result,
     [switch]$PlanOnly
 )
