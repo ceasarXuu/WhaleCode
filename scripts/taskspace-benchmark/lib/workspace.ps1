@@ -52,7 +52,7 @@ function New-TaskspacePairWorkspace {
     $needsTerminalBenchAppAlias = (
         $null -ne $Manifest.ExternalBenchmark -and
         $Manifest.ExternalBenchmark.PSObject.Properties.Name -contains "validator_fidelity" -and
-        [string]$Manifest.ExternalBenchmark.validator_fidelity.validator_runtime -eq "terminal_bench_docker_app"
+        [string]$Manifest.ExternalBenchmark.validator_fidelity.validator_runtime -in @("terminal_bench_docker_app", "terminal_bench_equivalent_docker_app")
     )
     $sides = @{}
     foreach ($side in @("left", "right")) {

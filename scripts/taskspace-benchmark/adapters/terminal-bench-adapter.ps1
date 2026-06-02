@@ -70,6 +70,106 @@ function Read-TerminalBenchInstruction {
     throw "Terminal-Bench task.yaml instruction field not found: $TaskYaml"
 }
 
+function Invoke-TerminalBenchGitQuiet {
+    param(
+        [Parameter(Mandatory = $true)][string]$GitRoot,
+        [Parameter(Mandatory = $true)][string[]]$Arguments
+    )
+    $oldPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "SilentlyContinue"
+        $output = & git -C $GitRoot @Arguments 2>$null
+        if ($LASTEXITCODE -ne 0) { return "" }
+        return (($output | ForEach-Object { [string]$_ }) -join "`n").Trim()
+    } finally {
+        $ErrorActionPreference = $oldPreference
+    }
+}
+
+function Get-TerminalBenchOfficialEquivalence {
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskRoot,
+        [Parameter(Mandatory = $true)][string]$SourceVersion
+    )
+    $required = @(
+        "terminal_bench\harness\harness.py",
+        "terminal_bench\terminal\docker_compose_manager.py",
+        "terminal_bench\handlers\trial_handler.py",
+        "terminal_bench\parsers\pytest_parser.py"
+    )
+    $gitRoot = ""
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        $root = & git -C $TaskRoot rev-parse --show-toplevel 2>$null
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($root)) { $gitRoot = $root.Trim() }
+    }
+    $sourceFiles = New-Object System.Collections.Generic.List[object]
+    $allPresent = -not [string]::IsNullOrWhiteSpace($gitRoot)
+    $allPinned = $allPresent
+    if ($allPresent) {
+        foreach ($relative in $required) {
+            $path = Join-Path $gitRoot $relative
+            $relativeUnix = $relative.Replace("\", "/")
+            $pinnedBlob = ""
+            $currentBlob = ""
+            if (Get-Command git -ErrorAction SilentlyContinue) {
+                $pinnedBlob = Invoke-TerminalBenchGitQuiet $gitRoot @("rev-parse", "$SourceVersion`:$relativeUnix")
+            }
+            if (-not (Test-Path -LiteralPath $path)) {
+                $allPresent = $false
+            } else {
+                $currentBlob = Invoke-TerminalBenchGitQuiet $gitRoot @("hash-object", $path)
+                $resolved = (Resolve-Path -LiteralPath $path).Path
+                $matchesPinned = (-not [string]::IsNullOrWhiteSpace($pinnedBlob) -and $pinnedBlob -eq $currentBlob)
+                if (-not $matchesPinned) { $allPinned = $false }
+                $sourceFiles.Add([pscustomobject]@{
+                    path = $resolved
+                    relative_path = $relativeUnix
+                    current_sha256 = Get-TaskspaceExternalFileSha256 $resolved
+                    pinned_blob_id = $pinnedBlob
+                    current_blob_id = $currentBlob
+                    matches_pinned_revision = $matchesPinned
+                })
+            }
+        }
+    }
+    $revisionPinned = $SourceVersion -match '^[0-9a-fA-F]{40}$'
+    $taskRelative = ""
+    $taskDirty = $true
+    if ($allPresent) {
+        $taskRelative = (Resolve-Path -LiteralPath $TaskRoot).Path.Substring((Resolve-Path -LiteralPath $gitRoot).Path.Length).TrimStart("\", "/").Replace("\", "/")
+        $status = & git -C $gitRoot status --porcelain -- $taskRelative 2>$null
+        $taskDirty = @($status | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count -gt 0
+    }
+    [ordered]@{
+        protocol = "terminal_bench_post_agent_tests_v1"
+        source_root = $gitRoot
+        source_revision = $SourceVersion
+        source_revision_pinned = $revisionPinned
+        source_files_present = $allPresent
+        source_files_match_pinned_revision = $allPinned
+        task_relative_path = $taskRelative
+        task_worktree_dirty = $taskDirty
+        source_files = @($sourceFiles.ToArray())
+        proven = ($revisionPinned -and $allPresent -and $allPinned -and -not $taskDirty)
+    }
+}
+
+function Get-TerminalBenchSensitiveFiles {
+    param([Parameter(Mandatory = $true)][string]$TaskRoot)
+    $files = New-Object System.Collections.Generic.List[string]
+    foreach ($name in @("run-tests.sh", "verify.sh", "test.sh", "solution.sh", "solution.yaml")) {
+        $path = Join-Path $TaskRoot $name
+        if (Test-Path -LiteralPath $path) { $files.Add((Resolve-Path -LiteralPath $path).Path) }
+    }
+    $tests = Join-Path $TaskRoot "tests"
+    if (Test-Path -LiteralPath $tests) {
+        foreach ($file in Get-ChildItem -LiteralPath $tests -Recurse -File -Force) {
+            $files.Add($file.FullName)
+        }
+    }
+    @($files.ToArray() | Sort-Object -Unique)
+}
+
 $taskRoot = (Resolve-Path -LiteralPath $TaskDir).Path
 if ([string]::IsNullOrWhiteSpace($SampleId)) { $SampleId = Split-Path -Leaf $taskRoot }
 $instructionCandidates = @("instruction.md", "prompt.md", "task.md", "README.md") |
@@ -87,7 +187,7 @@ if ($SourceVersion -match '^[0-9a-fA-F]{40}$' -and (Get-Command git -ErrorAction
         }
     }
 }
-$validatorCandidates = @("verify.sh", "test.sh", "run-tests.sh") |
+$validatorCandidates = @("run-tests.sh", "verify.sh", "test.sh") |
     ForEach-Object { Join-Path $taskRoot $_ } |
     Where-Object { Test-Path -LiteralPath $_ }
 if (@($validatorCandidates).Count -eq 0) { throw "Terminal-Bench validator script not found in: $taskRoot" }
@@ -105,6 +205,16 @@ $promptSource = if (@($instructionCandidates).Count -gt 0) {
     Set-Content -LiteralPath $generatedPrompt -Encoding UTF8 -Value $promptInfo.text
     $generatedPrompt
 }
+$originalPromptSource = $promptSource
+$adaptedPrompt = Join-Path $generatedDir "terminal-bench-$($SampleId -replace '[^A-Za-z0-9_.-]', '_')-adapted-instruction.md"
+$originalPromptText = Get-Content -Raw -Encoding UTF8 -LiteralPath $originalPromptSource
+$runnerNote = @"
+
+Local runner environment note:
+Treat the current working directory as the task's /app directory. If the instruction names /app/<path>, create or update <path> in the current working directory rather than creating a nested app/ directory or C:\app.
+"@
+Set-Content -LiteralPath $adaptedPrompt -Encoding UTF8 -Value ($originalPromptText.TrimEnd() + $runnerNote)
+$promptSource = $adaptedPrompt
 $fixtureMode = "environment"
 $fixtureSource = if (Test-Path -LiteralPath $fixtureSource) {
     $fixtureSource
@@ -118,9 +228,11 @@ $fixtureSource = if (Test-Path -LiteralPath $fixtureSource) {
     $generatedFixture
 }
 $validatorSourceDir = New-TaskspaceExternalDir (Join-Path $generatedDir "terminal-bench-$($SampleId -replace '[^A-Za-z0-9_.-]', '_')-validator-source")
-Copy-Item -LiteralPath $validatorSource -Destination (Join-Path $validatorSourceDir "verify.sh") -Force
+Copy-Item -LiteralPath $validatorSource -Destination (Join-Path $validatorSourceDir "run-tests.sh") -Force
 if (Test-Path -LiteralPath (Join-Path $taskRoot "tests")) {
-    Copy-Item -LiteralPath (Join-Path $taskRoot "tests") -Destination (Join-Path $validatorSourceDir "tests") -Recurse -Force
+    foreach ($item in Get-ChildItem -LiteralPath (Join-Path $taskRoot "tests") -Force) {
+        Copy-Item -LiteralPath $item.FullName -Destination $validatorSourceDir -Recurse -Force
+    }
 }
 $originalValidatorSha = Get-TaskspaceExternalTreeSha256 $validatorSourceDir
 $validator = Join-Path $generatedDir "terminal-bench-$($SampleId -replace '[^A-Za-z0-9_.-]', '_')-validator.ps1"
@@ -175,14 +287,27 @@ $validatorLines = @(
     '    & docker @Arguments',
     '    $script:LastDockerExitCode = $LASTEXITCODE',
     '}',
+    'function Invoke-DockerOutput {',
+    '    param([Parameter(Mandatory = $true)][string[]]$Arguments)',
+    '    $backend = Get-DockerBackend',
+    '    $distro = if ($env:TASKSPACE_DOCKER_WSL_DISTRO) { $env:TASKSPACE_DOCKER_WSL_DISTRO } else { "whale-docker" }',
+    '    if ($backend -eq "wsl") {',
+    '        $output = & wsl -d $distro -- docker @Arguments',
+    '        $script:LastDockerExitCode = $LASTEXITCODE',
+    '        return @($output)',
+    '    }',
+    '    $output = & docker @Arguments',
+    '    $script:LastDockerExitCode = $LASTEXITCODE',
+    '    @($output)',
+    '}',
     '$scenarioRoot = $PSScriptRoot',
     '$repoDir = (Resolve-Path -LiteralPath (Get-Location)).Path',
+    '$proofDir = if ($env:TASKSPACE_VALIDATION_ARTIFACT_DIR) { $env:TASKSPACE_VALIDATION_ARTIFACT_DIR } else { Join-Path $repoDir ".taskspace-validator-proof" }',
+    'New-Item -ItemType Directory -Path $proofDir -Force | Out-Null',
     '$fixtureDir = Join-Path $scenarioRoot "fixture"',
     '$validatorSource = Join-Path $scenarioRoot "external-validator-source"',
-    '$testScript = Join-Path $validatorSource "verify.sh"',
-    '$testDir = Join-Path $validatorSource "tests"',
+    '$testScript = Join-Path $validatorSource "run-tests.sh"',
     'if (-not (Test-Path -LiteralPath $testScript)) { throw "Terminal-Bench run-tests script not found: $testScript" }',
-    'if (-not (Test-Path -LiteralPath $testDir)) { throw "Terminal-Bench tests directory not found: $testDir" }',
     '$sha = [System.Security.Cryptography.SHA256]::Create()',
     '$repoHashBytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($repoDir))',
     '$repoHash = (([System.BitConverter]::ToString($repoHashBytes)) -replace "-", "").ToLowerInvariant().Substring(0, 16)',
@@ -192,18 +317,19 @@ $validatorLines = @(
     '$proofNonce = [guid]::NewGuid().ToString("N")',
     '$entryContent = @''',
     'set -euo pipefail',
-    'export TEST_DIR=/tbench-validator/tests',
+    'export TEST_DIR=/tests',
     'cd /app',
     'echo validator_proof_nonce=$WHALE_TBENCH_PROOF_NONCE',
-    'echo validator_runtime=terminal_bench_docker_app',
+    'echo validator_runtime=terminal_bench_equivalent_docker_app',
     'echo container_workdir=$(pwd)',
     'echo test_dir=$TEST_DIR',
-    'echo validator_mount=/tbench-validator',
+    'echo validator_mount=/tests',
+    'echo validator_command=bash /tests/run-tests.sh',
     'test "$(pwd)" = "/app"',
     'test -d "$TEST_DIR"',
-    'test -f /tbench-validator/verify.sh',
-    'if touch /tbench-validator/.whale-write-test 2>/tmp/whale-validator-ro.err; then echo validator_mount_readonly=false; rm -f /tbench-validator/.whale-write-test; exit 81; else echo validator_mount_readonly=true; fi',
-    'bash /tbench-validator/verify.sh',
+    'test -f /tests/run-tests.sh',
+    'if touch /tests/.whale-write-test 2>/tmp/whale-validator-ro.err; then echo validator_mount_readonly=false; rm -f /tests/.whale-write-test; exit 81; else echo validator_mount_readonly=true; fi',
+    'bash /tests/run-tests.sh',
     '''@',
     '$entryContent = $entryContent -replace "`r`n", "`n"',
     '[System.IO.File]::WriteAllText($entryScript, $entryContent, [System.Text.Encoding]::ASCII)',
@@ -214,7 +340,7 @@ $validatorLines = @(
     '$repoDockerPath = ConvertTo-DockerPath $repoDir $backend',
     '$validatorDockerPath = ConvertTo-DockerPath $validatorSource $backend',
     '$entryDockerPath = ConvertTo-DockerPath $entryScript $backend',
-    'Write-Host "validator_runtime_probe=terminal_bench_docker_wrapper"',
+    'Write-Host "validator_runtime_probe=terminal_bench_equivalent_wrapper"',
     'Write-Host "validator_proof_nonce=$proofNonce"',
     'Write-Host "validator_wrapper_sha256=$wrapperSha"',
     'Write-Host "validator_entry_sha256=$entrySha"',
@@ -222,7 +348,25 @@ $validatorLines = @(
     'Write-Host "docker_image=$image"',
     'Write-Host "docker_container=$containerName"',
     'Write-Host "repo_mount=$repoDockerPath"',
-    'Write-Host "validator_mount=/tbench-validator"',
+    'Write-Host "validator_mount=/tests"',
+    '$runtimeManifestPath = Join-Path $proofDir "terminal-bench-runtime-manifest.json"',
+    '$inspectPath = Join-Path $proofDir "terminal-bench-docker-inspect.json"',
+    '@{',
+    '    proof_nonce = $proofNonce',
+    '    wrapper_path = $PSCommandPath',
+    '    wrapper_sha256 = $wrapperSha',
+    '    entry_script_path = $entryScript',
+    '    entry_sha256 = $entrySha',
+    '    docker_backend = $backend',
+    '    image = $image',
+    '    container_name = $containerName',
+    '    repo_mount = $repoDockerPath',
+    '    validator_mount = $validatorDockerPath',
+    '    validator_container_path = "/tests"',
+    '    entry_mount = $entryDockerPath',
+    '    validator_command = "bash /tests/run-tests.sh"',
+    '} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $runtimeManifestPath -Encoding UTF8',
+    'Write-Host "validator_runtime_manifest_path=$runtimeManifestPath"',
     'Invoke-Docker -Arguments @("version", "--format", "{{.Server.Version}}")',
     'Write-Host "docker_version_exit=$($script:LastDockerExitCode)"',
     '$networkArgs = if ($backend -eq "wsl") { @("--network", "host") } else { @("--add-host", "host.docker.internal:host-gateway") }',
@@ -247,17 +391,19 @@ $validatorLines = @(
     '        "--label", "whale.taskspace.repo_hash=$repoHash"',
     '    ) + $proxyArgs + @(',
     '        "-v", "${repoDockerPath}:/app",',
-    '        "-v", "${validatorDockerPath}:/tbench-validator:ro",',
+    '        "-v", "${validatorDockerPath}:/tests:ro",',
     '        "-v", "${entryDockerPath}:/tbench-entry.sh:ro",',
     '        "-w", "/app",',
-    '        "-e", "TEST_DIR=/tbench-validator/tests",',
+    '        "-e", "TEST_DIR=/tests",',
     '        "-e", "WHALE_TBENCH_PROOF_NONCE=$proofNonce",',
     '        $image, "bash", "/tbench-entry.sh"',
     '    )',
     '    $runArgs = @($runArgs[0..6]) + $networkArgs + @($runArgs[7..($runArgs.Count - 1)])',
     '    Invoke-Docker -Arguments $runArgs',
     '    $exitCode = $script:LastDockerExitCode',
-    '    Invoke-Docker -Arguments @("inspect", $containerName)',
+    '    $inspectOutput = Invoke-DockerOutput -Arguments @("inspect", $containerName)',
+    '    $inspectOutput | Set-Content -LiteralPath $inspectPath -Encoding UTF8',
+    '    Write-Host "docker_inspect_path=$inspectPath"',
     '    Write-Host "docker_inspect_available=$($script:LastDockerExitCode -eq 0)"',
     '} finally {',
     '    Invoke-Docker -Arguments @("rm", "-f", $containerName)',
@@ -270,25 +416,32 @@ $validatorLines = @(
 $validatorLines | Set-Content -LiteralPath $validator -Encoding UTF8
 $scenarioId = "terminal_bench__$($SampleId -replace '[^A-Za-z0-9_.-]', '_')"
 $scenarioDir = Join-Path $OutputRoot $scenarioId
+$officialEquivalence = Get-TerminalBenchOfficialEquivalence $taskRoot $SourceVersion
+$officialProven = [bool]$officialEquivalence["proven"]
+$sensitiveFiles = @(Get-TerminalBenchSensitiveFiles $taskRoot)
 $validatorFidelity = [ordered]@{
-    official_runner_or_equivalent = $false
+    official_runner_or_equivalent = $officialProven
     docker_runtime = $true
     container_workdir = "/app"
-    validator_runtime = "terminal_bench_docker_app"
-    agent_cannot_read_validator_source = $false
-    e3_eligible = $false
-    downgrade_reason = "Docker /app post-hoc validation is real, but official Terminal-Bench harness equivalence and validator-source isolation are not fully proven."
+    validator_runtime = "terminal_bench_equivalent_docker_app"
+    agent_cannot_read_validator_source = $true
+    e3_eligible = $officialProven
+    downgrade_reason = if ($officialProven) { "" } else { "Terminal-Bench official protocol source hashes were not available from a pinned checkout." }
 }
 $adapterMetadata = [ordered]@{
     instruction_extraction_mode = $instructionMode
     instruction_line = $instructionLine
     fixture_mode = $fixtureMode
     generated_fixture_allowlist = @("Dockerfile", "docker-compose.yaml", "task.yaml")
+    prompt_adaptation = "current_working_directory_is_terminal_bench_app"
+    original_instruction_sha256 = (Get-TaskspaceExternalFileSha256 $originalPromptSource)
     solution_visible_to_agent = $false
     engineering_smoke_only = $false
-    validator_mount = "/tbench-validator:ro"
+    validator_mount = "/tests:ro"
     repo_mount = "/app"
     agent_execution_app_alias = $true
-    e3_downgraded_until_runtime_fidelity_proven = $true
+    official_equivalence = $officialEquivalence
+    sensitive_source_files = $sensitiveFiles
+    e3_downgraded_until_runtime_fidelity_proven = -not $officialProven
 }
 New-TaskspaceExternalScenario $scenarioDir $scenarioId "terminal-bench" "whale-taskspace-e3-terminal-bench-v1" $promptSource $fixtureSource $validator $validatorSourceDir $originalValidatorSha $SampleId $SourceVersion "https://github.com/laude-institute/terminal-bench" "external-benchmark-license-see-source" "pointer_only_no_solution_or_hidden_tests" "Terminal-Bench coding/file/debug/data-processing subset" $validatorFidelity $adapterMetadata

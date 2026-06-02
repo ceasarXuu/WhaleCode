@@ -4,10 +4,24 @@ function Invoke-TaskspaceValidationCommand {
         [Parameter(Mandatory = $true)][object]$Validation,
         [Parameter(Mandatory = $true)][string]$StdoutPath,
         [Parameter(Mandatory = $true)][string]$StderrPath,
-        [int]$TimeoutSeconds = 120
+        [int]$TimeoutSeconds = 120,
+        [string]$ProofDir = ""
     )
     $args = @($Validation.args | ForEach-Object { [string]$_ })
-    Invoke-RealProcess ([string]$Validation.command) $args $RepoDir $StdoutPath $StderrPath $TimeoutSeconds
+    $oldProofDir = $env:TASKSPACE_VALIDATION_ARTIFACT_DIR
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($ProofDir)) {
+            New-Dir $ProofDir | Out-Null
+            $env:TASKSPACE_VALIDATION_ARTIFACT_DIR = (Resolve-Path -LiteralPath $ProofDir).Path
+        }
+        Invoke-RealProcess ([string]$Validation.command) $args $RepoDir $StdoutPath $StderrPath $TimeoutSeconds
+    } finally {
+        if ($null -eq $oldProofDir) {
+            Remove-Item Env:\TASKSPACE_VALIDATION_ARTIFACT_DIR -ErrorAction SilentlyContinue
+        } else {
+            $env:TASKSPACE_VALIDATION_ARTIFACT_DIR = $oldProofDir
+        }
+    }
 }
 
 function Test-TaskspaceOracleLeak {

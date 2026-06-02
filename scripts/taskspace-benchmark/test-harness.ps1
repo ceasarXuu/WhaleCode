@@ -296,8 +296,8 @@ Assert-True (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "prompt.txt")
 Assert-True (-not (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\solution.sh"))) "terminal-bench adapter leaked solution.sh from official task root"
 $adapterScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $adapterScenarioDir "scenario.json") | ConvertFrom-Json
 Assert-True (-not [bool]$adapterScenario.external_benchmark.validator_fidelity.e3_eligible) "terminal-bench post-hoc Docker validator was over-promoted to E3 eligible"
-Assert-True ([string]$adapterScenario.external_benchmark.validator_fidelity.validator_runtime -eq "terminal_bench_docker_app") "terminal-bench validator runtime was not Docker /app"
-Assert-True (-not [bool]$adapterScenario.external_benchmark.validator_fidelity.agent_cannot_read_validator_source) "terminal-bench validator source isolation was over-claimed"
+Assert-True ([string]$adapterScenario.external_benchmark.validator_fidelity.validator_runtime -eq "terminal_bench_equivalent_docker_app") "terminal-bench validator runtime was not equivalent Docker /app"
+Assert-True ([bool]$adapterScenario.external_benchmark.validator_fidelity.agent_cannot_read_validator_source) "terminal-bench validator source guard declaration was not recorded"
 Assert-True ([bool]$adapterScenario.external_benchmark.validator_fidelity.docker_runtime) "terminal-bench Docker runtime capability was not recorded"
 Assert-True ([string]$adapterScenario.external_benchmark.adapter_metadata.instruction_extraction_mode -eq "literal") "terminal-bench literal instruction mode was not recorded"
 $terminalBenchInline = Join-Path $runDir "terminal-bench-inline"

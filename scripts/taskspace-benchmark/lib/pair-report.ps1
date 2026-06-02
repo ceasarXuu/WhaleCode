@@ -94,6 +94,7 @@ function Get-TaskspaceEvidenceGate {
         }
         if (-not $HumanReviewRequired) { $e3Failures.Add("e3_human_review_not_required") }
         if (-not $HumanReviewCompleted) { $e3Failures.Add("e3_human_review_not_completed") }
+        if ($HumanReviewDisagreement) { $e3Failures.Add("e3_human_review_disagreement") }
         $standardSuccess = $false
         $taskspaceSuccess = $false
         $sideOutcomesPresent = ($null -ne $SideOutcomes -and
@@ -124,10 +125,10 @@ function Get-TaskspaceEvidenceGate {
             $e3Failures.Add("e3_human_review_excluded_pair")
         }
         if ($HumanReviewCompleted -and $validReviewDecisions -contains $HumanReviewDecision -and $sideOutcomesPresent) {
-            if ($HumanReviewDecision -eq "include_taskspace_better" -and -not $taskspaceSuccess) {
+            if ($HumanReviewDecision -eq "include_taskspace_better" -and -not ($taskspaceSuccess -and -not $standardSuccess)) {
                 $e3Failures.Add("e3_human_review_decision_inconsistent_with_outcome")
             }
-            if ($HumanReviewDecision -eq "include_standard_better" -and -not $standardSuccess) {
+            if ($HumanReviewDecision -eq "include_standard_better" -and -not ($standardSuccess -and -not $taskspaceSuccess)) {
                 $e3Failures.Add("e3_human_review_decision_inconsistent_with_outcome")
             }
             if ($HumanReviewDecision -eq "include_no_clear_delta" -and -not ($standardSuccess -and $taskspaceSuccess)) {
@@ -255,18 +256,27 @@ function Write-TaskspacePairReport {
             $lines.Add("- declared_validator_downgrade_reason: $($fidelity.downgrade_reason)")
         }
         if (@($EvidenceGate.e3_gate_failures).Count -eq 0) { $lines.Add("- failures: none") } else { foreach ($failure in $EvidenceGate.e3_gate_failures) { $lines.Add("- $failure") } }
-        if ($EvidenceGate.PSObject.Properties.Name -contains "audit_review_source_path") {
-            $lines.Add("- audit_review_source_path: $($EvidenceGate.audit_review_source_path)")
-            $auditFailures = @($EvidenceGate.audit_review_failures)
-            if ($auditFailures.Count -eq 0) { $lines.Add("- audit_review_failures: none") } else { $lines.Add("- audit_review_failures: $($auditFailures -join ', ')") }
-        }
         if ($EvidenceGate.PSObject.Properties.Name -contains "external_runtime_proof_path") {
             $lines.Add("- external_runtime_proof_path: $($EvidenceGate.external_runtime_proof_path)")
+            if ($EvidenceGate.PSObject.Properties.Name -contains "external_runner_equivalence_proof_path") {
+                $lines.Add("- external_runner_equivalence_proof_path: $($EvidenceGate.external_runner_equivalence_proof_path)")
+            }
             $lines.Add("- external_isolation_proof_path: $($EvidenceGate.external_isolation_proof_path)")
             $lines.Add("- external_combined_proof_path: $($EvidenceGate.external_combined_proof_path)")
             $lines.Add("- proof_official_runner_or_equivalent: $($EvidenceGate.external_proof_official_runner_or_equivalent)")
             $lines.Add("- proof_agent_cannot_read_validator_source: $($EvidenceGate.external_proof_agent_cannot_read_validator_source)")
             $lines.Add("- proof_validator_e3_eligible: $($EvidenceGate.external_proof_validator_e3_eligible)")
+        }
+        if ($EvidenceGate.PSObject.Properties.Name -contains "audit_review_source_path") {
+            $lines.Add("- audit_review_source_path: $($EvidenceGate.audit_review_source_path)")
+        }
+        if ($EvidenceGate.PSObject.Properties.Name -contains "audit_review_failures") {
+            $auditFailures = @($EvidenceGate.audit_review_failures)
+            if ($auditFailures.Count -eq 0) {
+                $lines.Add("- audit_review_failures: none")
+            } else {
+                $lines.Add("- audit_review_failures: $($auditFailures -join ', ')")
+            }
         }
         $lines.Add("")
     }
@@ -393,17 +403,18 @@ function Write-TaskspaceAggregateReport {
     $hasE3Rows = @($all | Where-Object { [string]$_.evidence.reported_evidence_level -like "E3*" }).Count -gt 0
     $e3Rows = @($all | Where-Object { [string]$_.evidence.reported_evidence_level -like "E3*" })
     $reviewCompleted = @($e3Rows | Where-Object { $_.evidence.human_review_completed })
+    $validE3Reviewed = @($validE3 | Where-Object { $_.evidence.human_review_completed })
     $reviewDisagreements = @($e3Rows | Where-Object { $_.evidence.human_review_disagreement })
     $decisionCounts = @{}
-    foreach ($row in $reviewCompleted) {
+    foreach ($row in $validE3Reviewed) {
         $decision = [string]$row.evidence.human_review_decision
         if ([string]::IsNullOrWhiteSpace($decision)) { $decision = "missing" }
         if (-not $decisionCounts.ContainsKey($decision)) { $decisionCounts[$decision] = 0 }
         $decisionCounts[$decision]++
     }
-    $taskspaceBetterPairs = @($reviewCompleted | Where-Object { [string]$_.evidence.human_review_decision -eq "include_taskspace_better" }).Count
-    $standardBetterPairs = @($reviewCompleted | Where-Object { [string]$_.evidence.human_review_decision -eq "include_standard_better" }).Count
-    $noClearDeltaPairs = @($reviewCompleted | Where-Object { [string]$_.evidence.human_review_decision -eq "include_no_clear_delta" }).Count
+    $taskspaceBetterPairs = @($validE3Reviewed | Where-Object { [string]$_.evidence.human_review_decision -eq "include_taskspace_better" }).Count
+    $standardBetterPairs = @($validE3Reviewed | Where-Object { [string]$_.evidence.human_review_decision -eq "include_standard_better" }).Count
+    $noClearDeltaPairs = @($validE3Reviewed | Where-Object { [string]$_.evidence.human_review_decision -eq "include_no_clear_delta" }).Count
     $lines = @(
         "# TaskSpace Benchmark Aggregate Report",
         "",

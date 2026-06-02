@@ -14,8 +14,6 @@ param(
     [string]$SandboxMode = "full-auto",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [string]$AuditReviewRoot = "",
-    [string]$RunnerPath = "",
-    [switch]$AllowCandidateResult,
     [switch]$PlanOnly
 )
 
@@ -41,8 +39,6 @@ $args = @(
 if (-not [string]::IsNullOrWhiteSpace($SampleId)) { $args += @("-SampleId", $SampleId) }
 foreach ($override in @($ConfigOverride)) { $args += @("-ConfigOverride", $override) }
 if (-not [string]::IsNullOrWhiteSpace($AuditReviewRoot)) { $args += @("-AuditReviewRoot", $AuditReviewRoot) }
-if (-not [string]::IsNullOrWhiteSpace($RunnerPath)) { $args += @("-RunnerPath", $RunnerPath) }
-if ($AllowCandidateResult) { $args += "-AllowDiagnosticNonTargetResult" }
 if ($PlanOnly) { $args += "-PlanOnly" }
 
 Write-Host "E3ExternalMode: True"

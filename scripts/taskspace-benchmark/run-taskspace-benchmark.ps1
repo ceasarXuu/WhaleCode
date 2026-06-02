@@ -30,6 +30,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\audit-report.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-proof.ps1")
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
+. (Join-Path $PSScriptRoot "lib\source-guard.ps1")
 
 if ($Repeats -lt 1) { throw "Repeats must be >= 1" }
 if (-not $RunRoot) { $RunRoot = Get-NeutralTaskspaceBenchmarkRunRoot $repoRoot }
@@ -120,38 +121,44 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
 
     $execBySide = @{}
     $obsBySide = @{}
-    foreach ($side in @($pair.Left, $pair.Right)) {
-        $jsonlPath = Join-Path $side.ArtifactDir "whale-exec.jsonl"
-        $stderrPath = Join-Path $side.ArtifactDir "whale-exec.stderr.log"
-        $lastMessagePath = Join-Path $side.ArtifactDir "last-message.md"
-        $stdinPath = Join-Path $side.ArtifactDir "user-prompt.txt"
-        Write-Text $stdinPath $prompt
-        $mount = $null
-        try {
-            $mount = Mount-TaskspaceExecutionAlias $side
-            $executionRepoDir = [string]$mount.execution_repo_dir
-            $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $lastMessagePath $SandboxMode $ConfigOverride
-            $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
-            Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace"); execution_alias = $mount }) (Join-Path $side.ArtifactDir "whale-argv.json")
-            $started = Get-Date
-            $exitCode = Invoke-RealProcess $WhaleBin $args $executionRepoDir $jsonlPath $stderrPath $TimeoutSeconds $stdinPath
-            $finished = Get-Date
-        } finally {
-            Dismount-TaskspaceExecutionAlias $mount
+    $sourceGuard = $null
+    try {
+        $sourceGuard = Protect-TaskspaceExternalSensitiveSource $manifest $pair.PairDir
+        foreach ($side in @($pair.Left, $pair.Right)) {
+            $jsonlPath = Join-Path $side.ArtifactDir "whale-exec.jsonl"
+            $stderrPath = Join-Path $side.ArtifactDir "whale-exec.stderr.log"
+            $lastMessagePath = Join-Path $side.ArtifactDir "last-message.md"
+            $stdinPath = Join-Path $side.ArtifactDir "user-prompt.txt"
+            Write-Text $stdinPath $prompt
+            $mount = $null
+            try {
+                $mount = Mount-TaskspaceExecutionAlias $side
+                $executionRepoDir = [string]$mount.execution_repo_dir
+                $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $lastMessagePath $SandboxMode $ConfigOverride
+                $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
+                Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace"); execution_alias = $mount }) (Join-Path $side.ArtifactDir "whale-argv.json")
+                $started = Get-Date
+                $exitCode = Invoke-RealProcess $WhaleBin $args $executionRepoDir $jsonlPath $stderrPath $TimeoutSeconds $stdinPath
+                $finished = Get-Date
+            } finally {
+                Dismount-TaskspaceExecutionAlias $mount
+            }
+            $threadId = Get-ThreadId (Get-Content -Raw -Encoding UTF8 -LiteralPath $jsonlPath)
+            $obs = $null
+            if ($side.LogicalMode -eq "taskspace") {
+                $obs = Export-TaskspaceObservabilityIfAvailable $repoRoot $side.RepoDir $side.ArtifactDir $jsonlPath $started $threadId
+            }
+            $execBySide[$side.Name] = [pscustomobject]@{
+                exit_code = $exitCode
+                wall_time_ms = [int64](($finished - $started).TotalMilliseconds)
+                jsonl_path = $jsonlPath
+                stderr_path = $stderrPath
+                last_message_path = $lastMessagePath
+            }
+            $obsBySide[$side.Name] = $obs
         }
-        $threadId = Get-ThreadId (Get-Content -Raw -Encoding UTF8 -LiteralPath $jsonlPath)
-        $obs = $null
-        if ($side.LogicalMode -eq "taskspace") {
-            $obs = Export-TaskspaceObservabilityIfAvailable $repoRoot $side.RepoDir $side.ArtifactDir $jsonlPath $started $threadId
-        }
-        $execBySide[$side.Name] = [pscustomobject]@{
-            exit_code = $exitCode
-            wall_time_ms = [int64](($finished - $started).TotalMilliseconds)
-            jsonl_path = $jsonlPath
-            stderr_path = $stderrPath
-            last_message_path = $lastMessagePath
-        }
-        $obsBySide[$side.Name] = $obs
+    } finally {
+        $sourceGuard = Unprotect-TaskspaceExternalSensitiveSource $sourceGuard
     }
     $probe = Invoke-TaskspaceOracleIsolationProbe $WhaleBin $pair.Left.RepoDir $pair.PairDir $pair.CanaryPath $pair.CanaryText $Model $SandboxMode $ConfigOverride 180
     Materialize-TaskspacePrivateOracle $pair $manifest
@@ -160,7 +167,8 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     foreach ($side in @($pair.Left, $pair.Right)) {
         $validationStdout = Join-Path $side.ArtifactDir "validation.stdout.log"
         $validationStderr = Join-Path $side.ArtifactDir "validation.stderr.log"
-        $validationExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $validationStdout $validationStderr 120
+        $validationProofDir = Join-Path $side.ArtifactDir "external-validator-runtime"
+        $validationExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $validationStdout $validationStderr 120 $validationProofDir
         $oracle = Invoke-TaskspaceHiddenOracle $side.RepoDir $side.ArtifactDir $pair.HiddenOraclePath "" -BypassSandbox:($SandboxMode -eq "bypass")
         $exec = $execBySide[$side.Name]
         $validation = [pscustomobject]@{ exit_code = $validationExit; stdout_path = $validationStdout; stderr_path = $validationStderr }
@@ -170,7 +178,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $metricsBySide[$side.Name] = $metrics
     }
     $variableControl = Compare-TaskspacePairVariables $manifestResolved $metricsBySide["left"] $metricsBySide["right"]
-    $externalProof = New-TaskspaceExternalEvidenceProof $pair $manifest $metricsBySide
+    $externalProof = New-TaskspaceExternalEvidenceProof $pair $manifest $metricsBySide $sourceGuard
     $oracleLevels = @($metricsBySide["left"].oracle_isolation_level, $metricsBySide["right"].oracle_isolation_level)
     $oracleLevels += $probe.oracle_isolation_level
     $pairOracleLevel = if ($oracleLevels -contains "failed") {
@@ -203,6 +211,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $evidence | Add-Member -NotePropertyName audit_review_failures -NotePropertyValue @($auditReview.failures) -Force
     if ($externalProof) {
         $evidence | Add-Member -NotePropertyName external_runtime_proof_path -NotePropertyValue $externalProof.runtime_proof_path -Force
+        $evidence | Add-Member -NotePropertyName external_runner_equivalence_proof_path -NotePropertyValue $externalProof.runner_equivalence_proof_path -Force
         $evidence | Add-Member -NotePropertyName external_isolation_proof_path -NotePropertyValue $externalProof.isolation_proof_path -Force
         $evidence | Add-Member -NotePropertyName external_combined_proof_path -NotePropertyValue $externalProof.combined_proof_path -Force
         $evidence | Add-Member -NotePropertyName external_proof_official_runner_or_equivalent -NotePropertyValue $externalProof.validator_fidelity.official_runner_or_equivalent -Force

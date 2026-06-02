@@ -14,7 +14,7 @@
     {
       "id": "terminal-bench",
       "priority": "P0",
-      "status": "adapter_spike",
+      "status": "e3_equivalent_adapter",
       "official_url": "https://www.tbench.ai/",
       "source_url": "https://github.com/laude-institute/terminal-bench",
       "adapter_version": "whale-taskspace-e3-terminal-bench-v1",

@@ -42,7 +42,6 @@ function Get-TaskspaceRequiredAuditArtifacts {
     param([string]$PairDir = "")
     $required = @(
         "manifest.resolved.json",
-        "pair-report.md",
         "left/artifacts/metrics.json",
         "right/artifacts/metrics.json",
         "left/artifacts/whale-exec.jsonl",
@@ -63,7 +62,10 @@ function Get-TaskspaceRequiredAuditArtifacts {
         }
     }
     if (-not [string]::IsNullOrWhiteSpace($PairDir)) {
-        foreach ($proof in @("external-runtime-proof.json", "external-isolation-proof.json", "external-e3-proof.json")) {
+        foreach ($observability in @("left/artifacts/observability/action-map-observability.json", "right/artifacts/observability/action-map-observability.json")) {
+            if (Test-Path -LiteralPath (Join-Path $PairDir $observability)) { $required += $observability }
+        }
+        foreach ($proof in @("external-runtime-proof.json", "external-runner-equivalence-proof.json", "external-source-guard-proof.json", "external-isolation-proof.json", "external-e3-proof.json")) {
             if ($externalPair -or (Test-Path -LiteralPath (Join-Path $PairDir $proof))) { $required += $proof }
         }
     }
@@ -93,7 +95,9 @@ function Write-TaskspaceAuditReviewTemplate {
         disagreement = $false
         attestations = [ordered]@{
             runtime_proof_reviewed = $false
+            runner_equivalence_reviewed = $false
             isolation_proof_reviewed = $false
+            source_guard_reviewed = $false
             source_pin_reviewed = $false
             hash_freshness_reviewed = $false
             side_outcomes_reviewed = $false
@@ -111,6 +115,7 @@ function Write-TaskspaceAuditReviewTemplate {
         "- suggested_json: audit-review.suggested.json",
         "",
         "Inspect the pair artifacts before copying the suggested JSON to audit-review.json.",
+        "The final pair-report.md is generated from these audited artifacts and is not part of the audit hash basis.",
         "",
         "Allowed decisions:",
         "- include_taskspace_better",
@@ -123,6 +128,16 @@ function Write-TaskspaceAuditReviewTemplate {
     )
     $lines | Set-Content -LiteralPath $mdPath -Encoding UTF8
     [pscustomobject]@{ markdown_path = $mdPath; json_path = $jsonPath }
+}
+
+function Get-TaskspaceAuditDecisionFromSideOutcomes {
+    param([Parameter(Mandatory = $true)]$SideOutcomes)
+    $standardSuccess = [bool]$SideOutcomes.standard_success
+    $taskspaceSuccess = [bool]$SideOutcomes.taskspace_success
+    if ($taskspaceSuccess -and -not $standardSuccess) { return "include_taskspace_better" }
+    if ($standardSuccess -and -not $taskspaceSuccess) { return "include_standard_better" }
+    if ($standardSuccess -and $taskspaceSuccess) { return "include_no_clear_delta" }
+    "exclude_harness_failure"
 }
 
 function Get-TaskspaceAuditReview {
@@ -207,13 +222,11 @@ function Get-TaskspaceAuditReview {
     foreach ($required in Get-TaskspaceRequiredAuditArtifacts $PairDir) {
         if (-not $artifactSet.ContainsKey($required)) { $failures.Add("audit_required_artifact_missing:$required") }
     }
-    $hasTaskspaceObservability = @($artifactSet.Keys | Where-Object { $_ -like "*/artifacts/observability/action-map-observability.json" }).Count -gt 0
-    if (-not $hasTaskspaceObservability) { $failures.Add("audit_taskspace_observability_missing") }
     $isExternalPair = $artifactSet.ContainsKey("external-e3-proof.json")
     if ($isExternalPair) {
         if ([string]::IsNullOrWhiteSpace($decisionRationale)) { $failures.Add("audit_decision_rationale_missing") }
         $attestations = if ($review.PSObject.Properties.Name -contains "attestations") { $review.attestations } else { $null }
-        foreach ($name in @("runtime_proof_reviewed", "isolation_proof_reviewed", "source_pin_reviewed", "hash_freshness_reviewed", "side_outcomes_reviewed")) {
+        foreach ($name in @("runtime_proof_reviewed", "runner_equivalence_reviewed", "isolation_proof_reviewed", "source_guard_reviewed", "source_pin_reviewed", "hash_freshness_reviewed", "side_outcomes_reviewed")) {
             if ($null -eq $attestations -or -not ($attestations.PSObject.Properties.Name -contains $name) -or -not [bool]$attestations.$name) {
                 $failures.Add("audit_attestation_missing_or_false:$name")
             }
