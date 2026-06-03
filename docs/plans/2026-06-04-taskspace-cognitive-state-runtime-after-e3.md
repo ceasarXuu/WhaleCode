@@ -13,6 +13,11 @@
 
 因此下一阶段不能继续把重点放在“更多 gate”或“更复杂状态机”上，也不能停留在“Planner 化”这种浅层理解上。TaskSpace 要从行动记录系统升级为长任务可靠性层，即能够管理问题状态、错误前提、输出契约和结果采信的 problem-solving runtime。
 
+> 2026-06-04 工程化落地口径：
+> 首轮 MVP 以 [TaskSpace 问题状态管理工程化落地方案](./2026-06-04-taskspace-cognitive-state-engineering-plan.md) 为准。
+> MVP 只做 output contract、data provenance、result claims/evidence/validity、snapshot/viewer/audit hard gates。
+> promotion、collapse、maintenance hard barrier 属于 v1.1 或后续成本层级能力；MVP 只把 `promotion_trigger`、`promotion_latency`、`collapse_rate` 作为 report-only 指标，并要求报告显式写 `promotion_not_in_mvp=true`。
+
 新的核心定位：
 
 ```text
@@ -67,7 +72,7 @@ TaskSpace 的资产不是“多了 map/node”，
 
 ```text
 用户视角：TaskSpace 可以保持开启。
-内部执行：默认 direct/light kernel，发现局部性破裂或风险信号后 promote 到完整问题状态模型。
+内部执行：MVP 默认 direct/light checkpoint view + sentinel/audit；v1.1 再根据局部性破裂或风险信号 promote 到完整问题状态模型。
 ```
 
 这不是让用户频繁切换模式，而是 TaskSpace 内部的成本控制和可靠性升级策略。
@@ -415,7 +420,7 @@ validity_reason
 
 ```text
 用户视角：TaskSpace enabled。
-内部执行：direct envelope -> light kernel -> promoted cognitive map -> recovery -> collapsed direct。
+内部执行：MVP 为 direct envelope -> light checkpoint view -> cognitive audit gates；v1.1 再扩展到 promoted cognitive map -> recovery -> collapsed direct。
 ```
 
 这不是要求用户理解和切换模式，而是 runtime 内部用低成本 trace 和 sentinel 识别局部性破裂，并在必要时提升为完整问题状态模型。
@@ -458,7 +463,7 @@ task routing、map 生成、node 选择、结果采信都由主 agent 执行。
 
 - 能明确指出哪些能力已经存在，哪些只是 prompt，哪些完全没有工程承载。
 
-### Phase P1：Direct Trace、Light Kernel 与风险哨兵
+### Phase P1：Direct Trace、Light Checkpoint View 与风险哨兵
 
 目标：不引入前置复杂度评估器，用低成本运行时信号识别 direct path 是否已经失去局部性。
 
@@ -477,14 +482,19 @@ Direct mode 不需要完整 map/node/subagent，但需要记录轻量 counters�
 }
 ```
 
-Light Kernel 只保留可升级的骨架：
+> 2026-06-04 工程化方案收敛说明：
+> 这里的 `Light Kernel` 不再是权威状态容器，实际实现时应称为 `Light Checkpoint View`。
+> 它只能由 append-only trace 派生，用于展示和 promotion 输入，不得独立持有 objective、facts、open_questions 这类权威问题状态。
+> 权威问题状态只能存在于 `TaskState.cognitive_state`。
+
+Light Checkpoint View 只保留可从 trace 派生、可升级的骨架：
 
 ```json
 {
-  "objective": "...",
-  "success_criteria": "...",
-  "observed_facts": [],
-  "open_questions": [],
+  "objective_hint": "...",
+  "success_criteria_hint": "...",
+  "observed_fact_refs": [],
+  "open_question_refs": [],
   "risk_flags": [],
   "tool_trace_refs": []
 }
@@ -563,6 +573,10 @@ Result 级新增或强化字段：
 
 ### Phase P4：Promote to TaskSpace
 
+> v1.1 scope：
+> 本节不是首轮 MVP hard gate。MVP 只记录 `promotion_trigger` / `promotion_latency` 为 report-only，并要求报告显式写 `promotion_not_in_mvp=true`。
+> 开始实现本节前，必须先有 promotion replay test，证明 direct trace refs 能被继承到 promotion payload 和初始 `TaskState.cognitive_state`。
+
 目标：TaskSpace 不依赖前置复杂度评估器，而是在 direct path 暴露局部性破裂或风险后，把已有执行轨迹提升为问题状态模型。
 
 promotion payload 至少包含：
@@ -601,12 +615,12 @@ promotion payload 至少包含：
   - 执行最终 synthesis 前的少量验证。
   - 简单任务的单节点直接执行。
 - 中高复杂任务中，搜索、代码阅读、实现、测试优先通过 node 委派给 subagent。
-- 如果主 agent 在同一 node 内连续进行大量普通工具调用，runtime 应触发问题状态管理 maintenance barrier，要求它先总结 node、更新 map、或委派子任务。
+- 如果主 agent 在同一 node 内连续进行大量普通工具调用，v1.1 可以触发问题状态管理 maintenance barrier，要求它先总结 node、更新 map、或委派子任务。MVP 只记录这类信号，不把 barrier 作为 hard gate。
 
 注意：
 
 - 不做绝对禁止，否则会破坏小任务效率和异常恢复。
-- barrier 的提示不能继续鼓励“创建更细 node”，而应鼓励“采信、质疑、合并、废弃、停止探索，或把 node 改写成能产生新事实/新决策/新 contract 的状态转换任务”。
+- v1.1 barrier 的提示不能继续鼓励“创建更细 node”，而应鼓励“采信、质疑、合并、废弃、停止探索，或把 node 改写成能产生新事实/新决策/新 contract 的状态转换任务”。
 
 ### Phase P6：事实来源与输出契约
 
@@ -638,6 +652,9 @@ runtime 不判断“事实来源是否真的正确”，但可以要求相关字
 第一版不需要质量评分，也不需要复杂信任模型。
 
 ### Phase P8：Collapse to Direct
+
+> v1.1 scope：
+> 本节不是首轮 MVP。MVP 不能用 collapse 成功率声明 TaskSpace 已闭环，只能把 `collapse_rate` 作为 report-only 指标。
 
 目标：TaskSpace 内部进入完整问题状态模型后，不应在不确定性收敛后继续支付重型 planning 成本。
 
@@ -704,7 +721,7 @@ E3 audit 需要新增判断项：
 | `promotion_latency` | 第几个 tool/event 后升级 |
 | `collapse_rate` | 不确定性收敛后是否降级 |
 
-这些指标可以先作为 audit 字段，不立即变成硬门槛。
+这些指标可以先作为 audit 字段，不立即变成硬门槛。`promotion_trigger`、`promotion_latency`、`collapse_rate` 在 MVP 中必须保持 report-only。
 
 ## 设计取舍
 
@@ -736,31 +753,33 @@ runtime 只提供 inventory 和结构协议。
 
 复杂度不是稳定输入属性，而是执行过程中逐渐暴露的状态。小 bug 可能暴露架构链路，大请求也可能是局部改动。
 
-第一版不做 `complexity_score`，改用 direct trace、sentinel 和 locality break 信号触发 promotion。
+第一版不做 `complexity_score`。MVP 只记录 direct trace、sentinel 和 locality break 信号；用这些信号触发 promotion 属于 v1.1。
 
 ### 不把 TaskSpace 理解成重型 planning always-on
 
-用户视角可以保持 TaskSpace enabled，但内部应允许 direct/light/cognitive-map/recovery/collapsed-direct 的成本层级变化。
+用户视角可以保持 TaskSpace enabled，但内部成本层级要分阶段实现：MVP 是 direct/light checkpoint view + cognitive audit gates；v1.1 才进入 promoted cognitive map / recovery / collapsed-direct。
 
 ## 下一步工程入口
 
+详细工程化落地方案见：
+[TaskSpace 问题状态管理工程化落地方案](./2026-06-04-taskspace-cognitive-state-engineering-plan.md)。
+
 优先改造路径：
 
-1. 复用现有 tool/event/rollout，先补 direct trace counters 和 light kernel。
+1. 复用现有 tool/event/rollout，先补 direct trace counters 和 light checkpoint view。
 2. 实现 Output Contract Sentinel、Data Provenance Sentinel、Failed Hypothesis Sentinel。
-3. 扩展 `taskspace_control` schema，让 task/node/result 携带 facts、assumptions、obligations、decisions、open_questions、state_delta_intent。
+3. MVP 只扩展 `taskspace_control` 所需的 output contract、fact source、result claims/evidence/validity 字段；完整 facts/assumptions/obligations/decisions/open_questions 和 `state_delta_intent` 进入 v1.1。
 4. 把 node result 从 summary 升级为 claims + evidence + validity。
 5. 更新 TaskSpace developer context，把主 agent 明确定位为问题状态与模型管理者。
-6. 更新 runtime maintenance barrier 文案，避免鼓励过细 node，改为要求采信、质疑、合并、废弃、停止或重构状态转换。
-7. 更新 viewer snapshot 和网页展示，展示 cognitive state 和 result evidence package。
+6. v1.1 再更新 runtime maintenance barrier 文案，避免鼓励过细 node，改为要求采信、质疑、合并、废弃、停止或重构状态转换；MVP 只记录相关信号。
+7. MVP 更新 viewer snapshot 和网页展示，展示 output contracts、fact sources、result evidence package、validity 和 sentinel records；完整 cognitive state 面板进入 v1.1。
 8. 更新 E3 audit 模板和 benchmark report 生成。
 9. 重新以 `jsonl-aggregator` 和 `heterogeneous-dates` 做小样本回归，观察是否阻止错误前提扩散和输出契约遗漏。
 
 第一阶段成功标准：
 
-- 中高复杂任务中，主 agent 不再把 map 当行动日志，而是维护问题状态。
-- node 标题和上下文能表达高内聚状态转换任务。
+- 主 agent 不再只把 map 当行动日志，至少能显式维护 output contract、fact source、result claims/evidence/validity。
 - subagent result 能沉淀为 claims + evidence，并被主 agent 显式采信或质疑。
-- 输出契约、事实来源、假设和开放问题进入 task/map 可观察状态。
+- 输出契约、事实来源和 result validity 进入 task/map 可观察状态；完整假设、决策、开放问题治理进入 v1.1。
 - `jsonl-aggregator` 不再围绕错误前提无限生长。
 - `hello-world` / `heterogeneous-dates` 不再因编码契约遗漏失败。

@@ -1,0 +1,904 @@
+# TaskSpace 问题状态管理工程化落地方案
+
+日期：2026-06-04
+
+## 目标
+
+本方案把 [TaskSpace E3 负收益后问题状态与模型管理重构基线](./2026-06-04-taskspace-cognitive-state-runtime-after-e3.md) 落到工程实施路径。
+
+核心目标不是继续扩展 map/node 形式，而是把 TaskSpace 从“行动绑定和观测图”升级为“问题状态管理 runtime”：
+
+```text
+主 agent 管理问题状态
+subagent 生产证据包
+runtime 管结构协议、trace、sentinel、lease、snapshot；promotion/collapse 属于 v1.1
+viewer/audit 在 MVP 观察契约、provenance 和结果采信；v1.1 再扩展到完整事实、假设、决策和开放问题
+```
+
+第一阶段必须直接回应 E3 暴露的三类失败：
+
+| 失败 | 机制缺口 | 工程响应 |
+|---|---|---|
+| `hello-world` BOM / `heterogeneous-dates` UTF-16 | 输出契约缺失 | Output Contract Sentinel + `output_contracts` |
+| `jsonl-aggregator` 自造数据自证 | provenance 缺失、假设污染 facts | Data Provenance Sentinel + facts/assumptions 分层 |
+| map/node 过度生长 | node 没有状态转换目标，result 只是 summary | `state_delta_intent` + claims/evidence/validity |
+
+## 当前真实代码落点
+
+本方案以现有机制改造为主，不新造平行 runtime。
+
+| 能力 | 当前位置 | 当前状态 | 改造方向 |
+|---|---|---|---|
+| 数据模型 | `third_party/codex-cli/codex-rs/core/src/action_map/map.rs` | `TaskState` 只有 title/objective/status/map_ids；`MapNode` 只有 title/kind/status/context/result refs；`NodeResult` 只有 body summary | 扩展 task cognitive state、node state delta、result evidence package |
+| runtime gate / lease / result | `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs` | 强制 active task/map/node/lease；按 `NodeKind` 校验 action class；维护 barrier；记录 tool result 和 lifecycle result | 加 direct trace、sentinel、result validity guard、问题状态更新；promotion/barrier hard gate 延后到 v1.1 |
+| action class contract | `third_party/codex-cli/codex-rs/core/src/action_map/contracts.rs` | 当前 action-class gate 的实际规则来源 | cognitive state 不能绕开现有 action-class contract，新增 state delta 只做问题状态目标 |
+| 控制工具 schema | `third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs` | `taskspace_control` 支持 `start_task/route_task/create_node/bind_node/finish_node/block_node`；字段主要是 title/context/result summary | 扩展字段，保持向后兼容；首轮引入 `mark_result_validity` 等 MVP action，`promote_taskspace` 延后到 v1.1 |
+| 控制 handler | `third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control.rs` | 解析自由文本字段并调用 session/runtime | 解析新字段，传入 runtime；旧调用路径继续可用 |
+| prompt / BaseMap | `third_party/codex-cli/codex-rs/core/src/action_map/basemap.rs` | candidate node + decomposition methodology，仍主要是 prompt | 改为问题状态管理纪律和 evidence package 输出协议 |
+| protocol/snapshot source | `third_party/codex-cli/codex-rs/protocol/src/protocol.rs`、`third_party/codex-cli/codex-rs/app-server-protocol/src/protocol/common.rs` 与 generated TS/JSON schema | `ActionMapSnapshot*` 展示 task/map/node/result/lease；当前 generated schema 可能已存在 `tool_success` 漂移 | 先修复 schema freshness，再增量添加 cognitive state、result evidence、sentinel/promotion 状态 |
+| viewer | `third_party/codex-cli/codex-rs/app-server/src/codex_message_processor.rs` 与 Web viewer | `/task-show` 读取 `thread_taskspace_read` snapshot | MVP 展示 output contracts、fact sources、claims/evidence/validity；v1.1 再展示完整 facts/assumptions/obligations/decisions/open_questions |
+| E2/E3 | `scripts/run-action-map-*.ps1`、`benchmarks/taskspace` | 已有 graph health、natural-user、external benchmark、audit 基础 | 增加认知收益指标、sentinel 触发证据、wrong-premise containment 检查 |
+
+## 设计原则
+
+1. 复用现有 ActionMap/TaskSpace runtime，不新增第二套 runtime。
+2. runtime 不做语义选择，不判断事实真假，不做质量分。
+3. runtime 负责结构协议、trace、sentinel、lease、snapshot、audit 可见性；promotion/collapse 是 v1.1 成本层级能力。
+4. 主 agent 负责语义路由、问题状态更新、结果采信、任务决策。
+5. 第一阶段优先修复 E3 失败闭环，不追求完整知识图谱。
+6. 用户视角可以是 TaskSpace enabled，但内部不是重型 planning always-on。
+7. 所有新增能力必须进入测试和观测，不只进入 prompt。
+
+## 对抗审查后的工程收敛
+
+三路对抗审查指出原方案仍有五类 blocking 风险：
+
+- `direct_trace` / `LightKernelState` 可能和 `TaskState.cognitive_state` 形成第二套权威状态。
+- sentinel 如果靠解析 shell 命令、preview 或自然语言 result，会把 runtime 变成隐藏语义判断器。
+- result validity 如果没有 result/evidence 引用模型，就无法执行“questioned/invalid 不得作为下游依据”。
+- protocol/generated TS/JSON schema 已可能漂移，新增字段前必须先修复 schema freshness。
+- 首轮字段和 action 太大，容易变成机械填字段。
+
+本方案因此收敛为一个更窄的 MVP：
+
+```text
+Phase A: protocol/schema freshness
+Phase B: append-only trace event，不作为权威状态
+Phase C: output contract + data provenance + result evidence package
+Phase D: viewer/audit/benchmark 能回答 why accepted/questioned/invalid
+```
+
+首轮不实现完整 facts/assumptions/decisions/open_questions 图谱，不做完整 promote/collapse 状态机，不把所有字段一次性塞进 `taskspace_control`。首轮只做 E3 失败闭环所需的最小问题状态：输出契约、数据 provenance、result claims/evidence/validity。
+
+### 单一权威状态原则
+
+`direct_trace` 只能是 append-only observation log，不能持有 objective、success criteria、facts 或 open questions 这类权威问题状态。
+
+权威状态只允许存在于：
+
+```text
+TaskState.cognitive_state
+```
+
+promotion 的含义是：
+
+```text
+direct_trace events -> agent 生成 promotion payload -> materialize into TaskState.cognitive_state
+```
+
+collapse 的含义是：
+
+```text
+TaskState.cognitive_state 保留审计摘要；后续执行成本层级降低，但权威状态不迁回 trace。
+```
+
+### Sentinel 输入契约
+
+runtime 不解析 shell 字符串、不解析 tool preview、不从自然语言 result 推断语义。
+
+sentinel 只能读取结构化事件：
+
+```rust
+pub(crate) struct TaskSpaceTraceEvent {
+    pub(crate) id: String,
+    pub(crate) kind: TraceEventKind,
+    pub(crate) action_class: Option<ActionClass>,
+    pub(crate) task_id: Option<TaskId>,
+    pub(crate) map_id: Option<ActionMapId>,
+    pub(crate) node_id: Option<MapNodeId>,
+    pub(crate) result_id: Option<NodeResultId>,
+    pub(crate) call_id: Option<String>,
+    pub(crate) tags: Vec<TraceEventTag>,
+    pub(crate) artifact_refs: Vec<String>,
+    pub(crate) created_at_ms: i64,
+}
+```
+
+`TraceEventTag` 第一版只允许来自两类来源：
+
+- tool/session 层能机械识别的结构化事实，例如 tool kind、action class、tool success、validator exit、known file write API。
+- agent 通过 `taskspace_control` 显式记录的事实，例如 `record_output_contract`、`record_fact_source`、`mark_result_validity`。
+
+如果事件来自普通 shell 且无法结构化识别，runtime 只能标记 `UnclassifiedShellAction`，不得靠字符串猜测它是否“写最终输出”或“生成测试数据”。
+
+### Evidence 引用原则
+
+第一版先引入 `EvidenceRef`，不急于给所有 edge 增加复杂 result dependency。
+
+```rust
+pub(crate) struct EvidenceRef {
+    pub(crate) result_id: Option<NodeResultId>,
+    pub(crate) claim_id: Option<String>,
+    pub(crate) trace_event_id: Option<String>,
+    pub(crate) artifact_ref: Option<String>,
+    pub(crate) validator_ref: Option<String>,
+}
+```
+
+runtime 首轮 hard gate 只做可机械判断的约束：
+
+- `Accepted` result 必须有 `claims` 和 `evidence_refs`。
+- `TaskCognitiveState.facts` 只能引用 `Accepted` result 或明确 `ObservedFromEnvironment` / `ProvidedByUser` fact source。
+- `GeneratedForTestOnly` 和 `Unknown` provenance 不得写入 active facts。
+- `Questioned` / `Invalid` result 不得作为 `update_cognitive_state` 的 evidence source。
+- `Questioned` / `Invalid` result 不得进入 final artifact 的依赖链；如果最终产物只能追溯到这类 result，本轮 audit 必须 hard fail。
+
+“implementation node 是否唯一依赖 questioned result”首轮只对 final artifact dependency 做 hard gate：只要该 questioned/invalid result 被声明为最终产物依据，就必须失败；普通中间实现节点的依赖关系先保留为 audit 指标，等 result dependency 模型稳定后再扩大到所有下游节点。
+
+### Versioned Snapshot Schema
+
+新增字段前必须先补上 schema freshness gate：
+
+- Rust protocol source。
+- generated JSON schema。
+- generated TypeScript schema。
+- viewer/app-server consuming type。
+
+必须能检测当前这类漂移：Rust snapshot result 有 `tool_success`，但 generated TS/JSON schema 缺 `toolSuccess`。
+
+新增 cognitive snapshot 必须带版本号：
+
+```rust
+pub(crate) struct ActionMapSnapshot {
+    pub(crate) cognitive_schema_version: Option<String>,
+    ...
+}
+```
+
+第一版版本：`taskspace-cognitive-v1`。
+
+## 目标数据模型
+
+### TaskCognitiveState
+
+新增到 `TaskState` 或作为 `TaskState.cognitive_state`：
+
+```rust
+pub(crate) struct TaskCognitiveState {
+    pub(crate) success_criteria: Vec<String>,
+    pub(crate) fact_sources: Vec<FactSource>,
+    pub(crate) output_contracts: Vec<OutputContract>,
+    pub(crate) facts: Vec<CognitiveClaim>,
+    pub(crate) assumptions: Vec<CognitiveClaim>,
+    pub(crate) decisions: Vec<DecisionRecord>,
+    pub(crate) open_questions: Vec<OpenQuestion>,
+    pub(crate) risk_notes: Vec<String>,
+}
+```
+
+第一版字段都可以是自然语言，不引入复杂 schema。关键是显式分层，不能把 assumption 直接写入 fact。
+
+### FactSource
+
+```rust
+pub(crate) struct FactSource {
+    pub(crate) id: String,
+    pub(crate) provenance: DataProvenance,
+    pub(crate) description: String,
+    pub(crate) evidence_refs: Vec<EvidenceRef>,
+}
+
+pub(crate) enum DataProvenance {
+    ObservedFromEnvironment,
+    ProvidedByUser,
+    GeneratedForTestOnly,
+    Inferred,
+    Unknown,
+}
+```
+
+硬规则：
+
+```text
+GeneratedForTestOnly 不得作为 final output 的事实依据。
+Unknown 不得直接进入 accepted facts。
+```
+
+### OutputContract
+
+```rust
+pub(crate) struct OutputContract {
+    pub(crate) id: String,
+    pub(crate) kind: OutputContractKind,
+    pub(crate) description: String,
+    pub(crate) evidence_refs: Vec<EvidenceRef>,
+}
+
+pub(crate) enum OutputContractKind {
+    Artifact,
+    Format,
+    Encoding,
+    Schema,
+    Validator,
+    NonGoal,
+}
+```
+
+第一版不需要把 encoding/schema 完全解析为强类型。只要能在 task/node/result/viewer/audit 中明确出现，就能防止当前 E3 的主要失败。
+
+### NodeStateDelta
+
+扩展 `MapNode.context` 或新增字段：
+
+```rust
+pub(crate) struct NodeStateDelta {
+    pub(crate) intent: StateDeltaIntent,
+    pub(crate) scope: String,
+    pub(crate) excluded_scope: String,
+    pub(crate) expected_result: String,
+    pub(crate) evidence_required: Vec<String>,
+    pub(crate) acceptance_hint: String,
+    pub(crate) why_now: String,
+    pub(crate) stop_condition: String,
+}
+
+pub(crate) enum StateDeltaIntent {
+    EstablishFact,
+    TestAssumption,
+    SatisfyObligation,
+    ProduceArtifact,
+    ValidateArtifact,
+    ResolveOpenQuestion,
+    CompareOptions,
+    ContainRisk,
+    SynthesizeDecision,
+}
+```
+
+这不替代现有 `NodeKind`。`NodeKind` 继续用于 action class gate；`StateDeltaIntent` 用于认知目标和 audit。
+
+### NodeResultEvidencePackage
+
+扩展 `NodeResult`，保留 `body` 作为兼容 summary：
+
+```rust
+pub(crate) struct NodeResultEvidencePackage {
+    pub(crate) claims: Vec<CognitiveClaim>,
+    pub(crate) evidence_refs: Vec<EvidenceRef>,
+    pub(crate) changed_artifacts: Vec<String>,
+    pub(crate) validation: Vec<ValidationRecord>,
+    pub(crate) remaining_uncertainty: Vec<String>,
+    pub(crate) recommended_state_updates: Vec<RecommendedStateUpdate>,
+    pub(crate) validity: ResultValidity,
+    pub(crate) validity_reason: String,
+}
+```
+
+```rust
+pub(crate) enum ResultValidity {
+    PendingReview,
+    Accepted,
+    Questioned,
+    Superseded,
+    Invalid,
+}
+```
+
+硬规则：
+
+- 新的 node lifecycle result 默认 `PendingReview`。
+- `Accepted` 必须包含 claims 和 evidence refs。
+- `Questioned` result 不得作为 `update_cognitive_state` 的 evidence source；如果它进入 final artifact dependency，第一版必须 hard fail；普通中间 implementation 唯一依赖规则第一版只做 audit，不做 hard gate。
+- `Invalid` result 保留历史，但不得进入 active facts。
+- `Superseded` 必须指向替代 result 或 node。
+
+## 首轮 MVP 闭环
+
+首轮实现只覆盖三个闭环：
+
+| 闭环 | 必须实现 | 暂不实现 |
+|---|---|---|
+| Output contract | 记录 output contract、写入 snapshot、viewer/audit 可见、E3 能检出是否存在 | 自动理解所有 shell 写文件语义 |
+| Data provenance | 记录 fact source provenance、禁止 generated/unknown 写入 active facts、audit 可追踪 | 自动判断所有数据来源真假 |
+| Result evidence | result 带 claims/evidence_refs/validity，accepted 必须有证据，validity transition 有事件 | 完整 result dependency graph 和自动质量评分 |
+
+首轮完成后，只能声明：
+
+```text
+TaskSpace cognitive-state MVP 能阻止 E3 中已观察到的同形失败。
+```
+
+不能声明：
+
+```text
+TaskSpace 已证明在外部 benchmark 上有总体产品收益。
+```
+
+## MVP Pass / Fail 契约
+
+第一版必须把“机制生效”定义成可复盘的 gate，而不是人工读报告后的主观判断。每次 E2/E3 运行必须生成 run-level gate records。
+
+MVP hard fail gate：
+
+| Gate | 失败条件 | 说明 |
+|---|---|---|
+| `schema_freshness_pass` | `false` | Rust protocol、JSON schema、TS schema、viewer consuming type 任一不一致即失败。 |
+| `required_output_contract_missing` | `> 0` | 需要最终产物或 validator 的任务没有记录 output contract。 |
+| `source_provenance_missing` | `> 0` | final facts / final artifact dependency 缺少事实来源。 |
+| `accepted_result_missing_evidence` | `> 0` | `Accepted` result 没有 claims 或 evidence refs。 |
+| `generated_or_unknown_provenance_in_active_fact` | `> 0` | `GeneratedForTestOnly` / `Unknown` 进入 active facts。 |
+| `self_generated_data_leakage` | `> 0` | 自造测试数据污染最终判断或最终产物依据。 |
+| `questioned_or_invalid_result_in_cognitive_state_update` | `> 0` | `Questioned` / `Invalid` result 被写入权威 cognitive state。 |
+| `questioned_or_invalid_final_artifact_dependency` | `> 0` | 最终产物依赖链包含 `Questioned` / `Invalid` result。 |
+| `sentinel_warning_uncleared_for_final_artifact` | `> 0` | 与最终产物有关的 sentinel warning 到 run 结束仍未被清除、接受风险或改写契约。 |
+| `audit_why_chain_missing` | `> 0` | 任一最终产物无法追溯到 result / claim / evidence / validator / fact source。 |
+
+MVP warning 或 report-only 指标：
+
+| 指标 | 第一版处理 |
+|---|---|
+| `sentinel_warning_triggered` | 记录并展示，不直接失败；只有未清除且影响最终产物时失败。 |
+| `promotion_trigger` | report-only，MVP 报告必须显式写 `promotion_not_in_mvp=true`。 |
+| `promotion_latency` | report-only，MVP 不用它判断成功失败。 |
+| `collapse_rate` | report-only，MVP 不实现 collapse 判定。 |
+| `state_delta_intent_present` | report-only，用于观察 map 质量，不做 MVP hard gate。 |
+| `new_fact_per_node` | report-only，避免把 node 机械逼成产出事实。 |
+| `main_direct_tool_ratio` | report-only，用于观察主 agent 是否退回线性执行。 |
+
+promotion/collapse 不属于首轮 MVP 实现范围。它们不是“已修复”的能力，而是显式延期到 v1.1：MVP 报告必须带 `promotion_not_in_mvp=true`，Phase 8 开始前必须先补 promotion replay test，证明 trace refs 能被继承到 promotion payload 和初始 cognitive state。
+
+## 分阶段实施
+
+### Phase 0：实现边界冻结、schema freshness 与回归基线
+
+目标：锁定当前行为，防止重构过程中不知道哪里坏了。
+
+改动：
+
+- 新增 `docs/plans/2026-06-04-taskspace-cognitive-state-engineering-plan.md`。
+- 新增或更新 `/vs_review/` 评审报告。
+- 明确当前代码落点和旧 schema 边界。
+- 修复并固化 protocol generated schema freshness 检查。
+- 把 `tool_success` 这类现有 Rust/TS/JSON schema 漂移作为第一条验证样本。
+
+验证：
+
+- 文档链接检查。
+- `git grep` 确认旧 Planner 文档路径无残留。
+- schema generation/freshness check 能发现 Rust protocol 与 generated TS/JSON 不一致。
+- 不跑代码功能测试，因为本阶段只写设计文档和审查报告。
+
+退出条件：
+
+- 工程方案通过对抗性审查，且无未处理 blocking finding。
+
+### Phase 1：Append-only Direct Trace
+
+目标：在 TaskSpace enabled 情况下先低成本记录 direct path，但 trace 不是权威问题状态。
+
+涉及文件：
+
+- `core/src/action_map/runtime.rs`
+- `core/src/session/handlers.rs`
+- 可能涉及 rollout reconstruction / snapshot 恢复路径
+
+实现：
+
+1. 在 runtime state 增加 append-only `taskspace_trace_events`。
+2. 在 `prepare_main_tool_call` / `record_main_tool_result` 记录结构化 trace event：
+   - tool call count
+   - action class
+   - tool success
+   - known structured file/artifact refs when available
+   - validator/test failure when available from structured execution result
+   - explicit tags produced by `taskspace_control`
+3. snapshot 暴露 trace summary 和 trace event refs，而不是把所有 raw tool 输出塞进 viewer。
+
+注意：
+
+- 不修改标准模式。
+- 不改变现有 `taskspace_control` 行为。
+- trace 只做观测和 promotion 输入，不阻塞普通执行。
+- trace 不持有 objective/facts/open questions；这些只属于 `TaskState.cognitive_state`。
+- 无法结构化识别的 shell 行为只能标记为 `UnclassifiedShellAction`。
+
+测试：
+
+- 单元测试：standard mode 不记录 TaskSpace trace。
+- 单元测试：experiment mode 下 read/edit/test action trace event 正确。
+- 单元测试：shell preview 不被字符串解析成 output/data/provenance 语义。
+- 回归测试：现有 `run-action-map-regression.ps1` 通过。
+- E2 smoke：`single-file-fast-fix` 不应因为 trace 失败。
+
+### Phase 2：MVP Sentinel Warning
+
+目标：对 E3 暴露的真实风险做低成本 warning。第一版只读取结构化 trace event 和显式 taskspace_control 记录，不做字符串解析。
+
+涉及文件：
+
+- `runtime.rs`
+- tool action classifier 相关代码
+- `taskspace_control` tool description
+- E2/E3 audit scripts
+
+#### Output Contract Sentinel
+
+触发：
+
+- `TaskState.cognitive_state.output_contracts` 缺失，且出现结构化 `OutputArtifactRequired` 或 `ValidatorContractKnown` trace tag。
+- agent 显式声明要产出最终 artifact，但未记录 output contract。
+
+行为：
+
+- 若当前 task 没有相关 `output_contracts`，先记录 `output_contract_required` sentinel warning。
+- hard barrier 延后到 warning 路径稳定后再启用。
+- warning 不要求 agent 建更细 node，而要求显式记录 output contract。
+- 允许主 agent 通过 `taskspace_control` 写入 contract 后继续。
+
+#### Data Provenance Sentinel
+
+触发：
+
+- 出现结构化 `DataGeneratedForTest`、`InputSourceUnknown` 或 `DataTransformed` trace tag。
+- agent 显式记录 fact source provenance 为 `GeneratedForTestOnly` 或 `Unknown`。
+
+行为：
+
+- generated data 必须标记 `GeneratedForTestOnly`。
+- `GeneratedForTestOnly` 不得进入 active facts。
+- 若 final artifact 依赖 unknown/generated provenance，先记录 `provenance_risk` sentinel warning。
+- hard barrier 延后到 v1.1。
+
+#### Failed Hypothesis Sentinel
+
+触发：
+
+- 出现结构化 `ValidationFailedAfterPatch`、`ValidatorMismatch`、`RepeatedFailedAction` trace tag。
+
+行为：
+
+- 要求记录 failed hypothesis、evidence、next open question。
+- 如果 agent 连续尝试同类 patch/test 而不更新假设，先记录 `failed_hypothesis_loop` warning。
+- hard barrier 延后到 v1.1。
+
+测试：
+
+- 新增 unit tests 覆盖三类 warning。
+- 证明 warning 来自结构化 event tag，不来自命令字符串解析。
+- `hello-world` fixture 验证写文件前能出现 output contract。
+- `jsonl-aggregator` 变体验证 generated data 不得进入 accepted facts。
+
+### Phase 3：MVP 数据模型与 Snapshot
+
+目标：把最小问题状态和证据包进入数据模型、snapshot 和 generated schema。
+
+涉及文件：
+
+- `core/src/action_map/map.rs`
+- `core/src/action_map/runtime.rs`
+- `core/src/action_map/contracts.rs`
+- `tools/src/taskspace_tool.rs`
+- `core/src/tools/handlers/taskspace_control.rs`
+- `app-server-protocol/src/protocol/common.rs`
+- generated schema JSON/TS
+
+实现顺序：
+
+1. 先修复 schema generation/freshness。
+2. 数据模型只增加 MVP 字段：
+   - `TaskCognitiveState.output_contracts`
+   - `TaskCognitiveState.fact_sources`
+   - `TaskCognitiveState.facts`
+   - `NodeResultEvidencePackage.claims`
+   - `NodeResultEvidencePackage.evidence_refs`
+   - `NodeResultEvidencePackage.validity`
+   - `NodeResultEvidencePackage.validity_reason`
+   - `TaskSpaceTraceEvent`
+   - `SentinelRecord`
+3. snapshot 暴露 MVP 字段并带 `cognitive_schema_version = taskspace-cognitive-v1`。
+4. handler 解析 MVP 字段，旧字段继续进入 summary。
+5. restore snapshot 保持兼容：缺字段时使用默认空值。
+6. full facts/assumptions/decisions/open_questions、完整 `NodeStateDelta` 延后到 v1.1。
+
+测试：
+
+- snapshot restore 兼容旧 snapshot。
+- taskspace_control 新旧参数都能工作。
+- invalid `validity` / `state_delta_intent` 返回明确错误。
+- `Accepted` result 缺 claims/evidence_refs 时被拒绝或降级为 `PendingReview`。
+- Rust protocol、JSON schema、TS schema freshness test 通过。
+
+### Phase 4：MVP 控制动作
+
+目标：主 agent 可以显式记录 output contract、fact source、result validity 和最小 cognitive state，而不是把所有内容塞进 result summary。
+
+首轮控制动作：
+
+- `record_output_contract`
+- `record_fact_source`
+- `record_fact`
+- `mark_result_validity`
+
+延后控制动作：
+
+- `promote_taskspace`
+- `update_cognitive_state` 完整版
+- `record_decision`
+- `record_open_question`
+
+取舍：
+
+- 第一版可以继续复用 `taskspace_control`，但只新增 MVP action，避免一次塞入大量 optional fields。
+- 如果 MVP action 已让 schema 过大，再拆出 `taskspace_state` 工具，而不是继续扩 `taskspace_control`。
+
+runtime 校验：
+
+- `record_fact_source` 必须带 provenance。
+- `mark_result_validity=accepted` 必须引用 claims/evidence。
+- `record_fact` 不能把 `GeneratedForTestOnly` 或 `Unknown` provenance 写入 active facts。
+- `mark_result_validity` 必须产生 `result_validity_changed` event。
+
+测试：
+
+- action parser tests。
+- runtime state update tests。
+- invalid transition tests。
+
+### Phase 5：Prompt / Developer Context 改造
+
+目标：让模型知道 MVP 新协议，并避免继续把 TaskSpace 当行动日志。
+
+涉及文件：
+
+- `core/src/action_map/basemap.rs`
+- session developer context 相关代码
+- tool description
+
+更新内容：
+
+- 主 agent 是问题状态与模型管理者，不是线性 worker。
+- 首轮必须显式记录 output contract 和 fact source provenance。
+- subagent result 必须产出 claims/evidence refs/uncertainty。
+- `Accepted` 必须有 claims/evidence refs。
+- generated/test-only data 不得作为 final fact。
+- direct trace 是内部审计日志，不暴露给用户。
+- 不得对用户提 task/map/node/subagent 等内部概念。
+
+测试：
+
+- prompt snapshot tests。
+- 自然用户 E2E prompt leak 检查继续保持。
+
+### Phase 6：Viewer 与 Snapshot 展示
+
+目标：用户和审计者能看懂 TaskSpace 是否真的管理问题状态。
+
+涉及文件：
+
+- app-server protocol
+- app-server `thread_taskspace_read`
+- Web viewer
+- `scripts/export-action-map-observability.ps1`
+
+展示内容：
+
+- Task objective / success criteria。
+- MVP cognitive side panel：
+  - facts。
+  - fact sources + provenance。
+  - output contracts。
+  - result validity。
+  - sentinel records。
+- v1.1 再展示 assumptions / obligations / decisions / open_questions 的完整模型。
+- output contracts。
+- fact sources + provenance。
+- result claims/evidence/validity。
+- sentinel / promotion / barrier 状态。
+
+UI 约束：
+
+- 继续保持极简、极客风格。
+- graph 仍展示 node/edge，但右侧/详情面板展示 cognitive state。
+- 自动刷新不能破坏展开/选择状态。
+
+测试：
+
+- snapshot JSON schema test。
+- viewer smoke test。
+- Playwright 级 E2E：展开节点、选中文本、等待自动刷新后，断言展开和选择状态仍保留。
+
+### Phase 7：Benchmark / Audit 升级
+
+目标：观察认知收益，而不是只看 map 是否存在。
+
+脚本指标：
+
+- `output_contract_present`
+- `source_provenance_present`
+- `claims_evidence_present`
+- `unreviewed_result_dependency_count`
+- `self_generated_data_leakage`
+- `new_fact_per_node`
+- `assumption_to_fact_conversion_rate`
+- `state_delta_intent_present`
+- `promotion_trigger`
+- `promotion_latency`
+- `collapse_rate`
+- `wrong_premise_containment`
+
+首轮 hard gate 只启用 MVP 指标：
+
+- `output_contract_present`
+- `source_provenance_present`
+- `claims_evidence_present`
+- `accepted_result_has_evidence`
+- `self_generated_data_leakage`
+- `questioned_or_invalid_result_in_cognitive_state_update`
+- `questioned_or_invalid_final_artifact_dependency`
+- `sentinel_warning_uncleared_for_final_artifact`
+- `result_validity_transition_present`
+- `audit_why_chain_missing`
+
+`sentinel_warning_triggered`、promotion/collapse、state_delta_intent、new_fact_per_node 等指标先进入报告，不作为 hard gate；MVP 报告必须显式写 `promotion_not_in_mvp=true`。
+
+样本：
+
+- `hello-world`：输出编码契约。
+- `heterogeneous-dates`：输出编码与 validator 读取契约。
+- `jsonl-aggregator`：data provenance 和 wrong-premise containment。
+- `multi-file-order-pipeline`：node state delta 和 result reuse。
+
+验收：
+
+- E2 clean 不回退。
+- E3 小样本中 `jsonl-aggregator` 不再出现 self-generated data leakage。
+- `hello-world` / `heterogeneous-dates` 不再因 BOM/UTF-16 失败。
+- TaskSpace 不一定立即优于 standard，但必须能证明认知控制机制生效。
+
+新增审计 fixture：
+
+- `questioned-result-final-artifact`：构造一个被 `Questioned` result 支撑的最终产物，审计必须触发 `questioned_or_invalid_final_artifact_dependency` hard fail。
+- `invalid-result-state-update`：构造 `Invalid` result 被写入 cognitive state 的路径，审计必须触发 `questioned_or_invalid_result_in_cognitive_state_update` hard fail。
+- `result-validity-dependency-matrix`：参数化覆盖 `Questioned` / `Invalid` × `cognitive_state_update` / `final_artifact_dependency` 四种组合，四种都必须触发对应 hard fail。
+- `uncleared-sentinel-final-artifact`：构造 output/provenance warning 影响最终产物且未清除，审计必须触发 `sentinel_warning_uncleared_for_final_artifact` hard fail。
+- `audit-why-chain-complete`：给定一个最终产物，审计器必须能输出 artifact hash -> output contract -> result -> claim -> evidence -> validator/fact source 的完整链。
+- `promotion-report-only`：MVP 报告必须包含 `promotion_not_in_mvp=true`，并且 `promotion_trigger/promotion_latency` 只能是 report-only 字段。
+- `mvp-scope-regression`：报告或文档生成器如果把 promotion/collapse/barrier 计入 MVP pass 条件，测试必须失败。
+
+## Runtime Event 与 Audit Join Key
+
+新增能力必须有结构化事件，不允许只写进 result body。
+
+首轮新增事件：
+
+```text
+taskspace_trace_event_recorded
+sentinel_warning_raised
+sentinel_warning_cleared
+fact_source_recorded
+output_contract_recorded
+node_result_evidence_recorded
+result_validity_changed
+cognitive_state_updated
+```
+
+v1.1 事件：
+
+```text
+sentinel_barrier_raised
+sentinel_barrier_cleared
+taskspace_promoted
+taskspace_collapsed
+promotion_aborted
+```
+
+事件公共字段：
+
+```text
+event_id
+trace_id
+task_id
+map_id
+node_id
+result_id
+call_id
+source_thread_id
+actor
+created_at_ms
+schema_version
+```
+
+事件特有字段：
+
+| 事件 | 必须字段 |
+|---|---|
+| `taskspace_trace_event_recorded` | `trace_event_id`, `kind`, `action_class`, `tags`, `artifact_refs` |
+| `sentinel_warning_raised` | `sentinel_id`, `sentinel_type`, `sentinel_status`, `severity`, `trigger_event_ids`, `clearance_action` |
+| `sentinel_warning_cleared` | `sentinel_id`, `sentinel_status`, `clear_action`, `cleared_by`, `cleared_at_ms`, `clear_event_ids` |
+| `output_contract_recorded` | `output_contract_id`, `kind`, `path_or_artifact`, `format`, `encoding`, `validator_refs` |
+| `fact_source_recorded` | `fact_source_id`, `provenance`, `evidence_refs`, `confidence` |
+| `result_validity_changed` | `result_validity_event_id`, `result_id`, `previous_validity`, `new_validity`, `validity_reason`, `reviewer`, `evidence_refs` |
+| `node_result_evidence_recorded` | `claim_ids`, `evidence_refs`, `artifact_refs`, `validator_refs` |
+| `cognitive_state_updated` | `state_update_id`, `update_kind`, `source_result_ids`, `source_claim_ids`, `source_evidence_refs` |
+| `sentinel_barrier_raised` v1.1 | `barrier_id`, `sentinel_id`, `sentinel_status`, `trigger_event_ids`, `barrier_reason`, `clearance_action` |
+| `sentinel_barrier_cleared` v1.1 | `barrier_id`, `sentinel_id`, `sentinel_status`, `clear_action`, `cleared_by`, `cleared_at_ms`, `clear_event_ids` |
+| `taskspace_promoted` v1.1 | `promotion_id`, `trigger_event_ids`, `inherited_trace_refs`, `promotion_payload_ref`, `initial_cognitive_state_ref` |
+| `taskspace_collapsed` v1.1 | `promotion_id`, `collapse_reason`, `clear_event_ids`, `collapsed_at_ms`, `retained_cognitive_state_ref` |
+| `promotion_aborted` v1.1 | `promotion_id`, `trigger_event_ids`, `abort_reason`, `aborted_by`, `aborted_at_ms` |
+
+v1.1 事件字段现在先定义 schema 口径，首轮 MVP 不要求实现，也不允许在 MVP 报告中把 promotion/barrier 视为已闭环。
+
+### Audit Artifact Schema
+
+E2/E3 和手动回归必须输出可机械 join 的 audit artifact。第一版不要求审计器理解语义正确性，但必须能解释某个最终产物为什么被接受、质疑或污染。
+
+```rust
+pub(crate) struct CognitiveAuditRecord {
+    pub(crate) audit_schema_version: String,
+    pub(crate) run_id: String,
+    pub(crate) pair_id: Option<String>,
+    pub(crate) task_id: TaskId,
+    pub(crate) map_id: ActionMapId,
+    pub(crate) node_id: Option<MapNodeId>,
+    pub(crate) final_artifact_id: Option<String>,
+    pub(crate) final_artifact_path: Option<String>,
+    pub(crate) artifact_hash: Option<String>,
+    pub(crate) result_id: Option<NodeResultId>,
+    pub(crate) result_validity_event_id: Option<String>,
+    pub(crate) claim_ids: Vec<String>,
+    pub(crate) evidence_refs: Vec<EvidenceRef>,
+    pub(crate) fact_source_ids: Vec<String>,
+    pub(crate) output_contract_ids: Vec<String>,
+    pub(crate) validator_refs: Vec<String>,
+    pub(crate) sentinel_ids: Vec<String>,
+    pub(crate) promotion_id: Option<String>,
+    pub(crate) promotion_not_in_mvp: bool,
+    pub(crate) dependency_edges: Vec<FinalArtifactDependencyEdge>,
+    pub(crate) gate_records: Vec<RunGateRecord>,
+}
+
+pub(crate) struct FinalArtifactDependencyEdge {
+    pub(crate) from_kind: AuditDependencyKind,
+    pub(crate) from_id: String,
+    pub(crate) to_kind: AuditDependencyKind,
+    pub(crate) to_id: String,
+    pub(crate) validity_at_use: Option<ResultValidity>,
+}
+
+pub(crate) enum AuditDependencyKind {
+    FinalArtifact,
+    OutputContract,
+    NodeResult,
+    Claim,
+    Evidence,
+    FactSource,
+    Validator,
+    Sentinel,
+    TraceEvent,
+}
+
+pub(crate) struct RunGateRecord {
+    pub(crate) gate_name: String,
+    pub(crate) expected: String,
+    pub(crate) observed: String,
+    pub(crate) source_artifact: String,
+    pub(crate) fixture_id: String,
+    pub(crate) pass: bool,
+}
+```
+
+审计硬要求：
+
+- `audit_schema_version` 必须显式存在。
+- 最终产物存在文件时必须写 `artifact_hash`；没有文件产物时必须写明 `final_artifact_id` 和来源。
+- 每个 final artifact dependency edge 必须能回溯到 result、claim、evidence、fact source、output contract 或 validator。
+- `Questioned` / `Invalid` result 出现在 final artifact dependency edge 时，`questioned_or_invalid_final_artifact_dependency` gate 必须失败。
+- sentinel warning 如果影响 final artifact 且没有 `sentinel_warning_cleared`，`sentinel_warning_uncleared_for_final_artifact` gate 必须失败。
+- `sentinel_warning_cleared.clear_action` 第一版只允许三种枚举值：`FixApplied`、`RiskAcceptedByMainAgent`、`ContractRevised`。不要用自由文本表达风险接受或契约修正。
+- MVP 报告必须写 `promotion_not_in_mvp=true`；如果字段缺失，审计失败。
+
+E3 audit artifact 必须能用这些 join key 回答：
+
+```text
+某个 final artifact 依赖哪些 accepted claims？
+这些 claims 的 evidence 是什么？
+这些 evidence 来自哪个 result / trace event / validator？
+是否存在 GeneratedForTestOnly 或 Unknown provenance 泄漏？
+为什么某个 result 被 accepted/questioned/invalid？
+哪个 sentinel 触发过，怎么清除？
+```
+
+## 兼容和迁移策略
+
+### Snapshot 兼容
+
+- 新字段全部提供 default。
+- restore 老 snapshot 时缺字段不失败。
+- viewer 对缺字段显示为空状态。
+- 新增字段前必须先通过 generated schema freshness test。
+- snapshot 带 `cognitive_schema_version`，缺失时视为 legacy snapshot。
+
+### Tool schema 兼容
+
+- 旧 `start_task/create_node/finish_node` 调用继续可用。
+- 首轮只新增 MVP action，不一次性添加完整 cognitive 字段。
+- 新 action 先 optional + prompt 要求使用；对应 E2/E3 稳定后再升级为 warning 或 barrier。
+- 如果 `taskspace_control` schema 过大，优先拆 `taskspace_state` 工具，而不是继续扩充同一工具。
+
+### Runtime 兼容
+
+- standard mode 完全不受影响。
+- experiment mode 先观测，再逐步引入 barrier。
+- Sentinel 第一版只记录 warning，再升级为 hard barrier。
+- runtime 只消费结构化 trace event tag，不解析 shell 字符串和 preview。
+
+## 风险与对策
+
+| 风险 | 对策 |
+|---|---|
+| schema 过大导致模型负担上升 | 字段自然语言化，分阶段 optional，引入 compact prompt |
+| runtime 过度 gate 导致任务无法继续 | sentinel 先 warning 后 hard barrier；所有 barrier 必须有明确清除动作 |
+| 主 agent 机械填字段 | E2/E3 audit 观察 `claims_evidence_present` 和 `new_fact_per_node` |
+| viewer 复杂度上升 | graph 只展示结构，cognitive state 放详情/侧栏 |
+| generated data 规则误伤 legitimate fixture generation | `GeneratedForTestOnly` 允许用于自测，但禁止作为 final fact |
+| result validity 被模型滥标 accepted | accepted 必须有 claims/evidence；下游依赖未审查 result 进入 audit |
+| migration 破坏旧 rollout replay | restore default + replay repair tests |
+| direct trace 变成第二套状态源 | trace 只 append-only；promotion 后唯一权威状态是 `TaskState.cognitive_state` |
+| sentinel 变成隐藏语义判断器 | 只消费结构化 event tag；不解析命令字符串 |
+| schema/generated 类型漂移 | schema freshness 作为 Phase 0 blocker |
+| MVP 继续膨胀 | 首轮只做 output/provenance/result-evidence 三闭环 |
+
+## 推荐实施顺序
+
+```text
+Phase 0: 文档和审查
+Phase 0.5: protocol/generated schema freshness
+Phase 1: append-only structured trace event
+Phase 2: MVP sentinel warning
+Phase 3: MVP data model + versioned snapshot
+Phase 4: MVP control actions + validity guard
+Phase 5: prompt/context for MVP protocol
+Phase 6: viewer cognitive side panel
+Phase 7: benchmark/audit MVP hard gates
+Phase 8: sentinel hard barrier only after warning path is clean
+```
+
+不要先做完整 heavy planning mode。先把 E3 暴露的输出契约、数据来源、结果采信和错误假设 containment 做实。
+
+## 测试矩阵
+
+| 层级 | 测试 |
+|---|---|
+| Unit | data model default/restore、enum parse、validity transition、sentinel trigger |
+| Integration | `taskspace_control` 新旧 schema、runtime gate、snapshot export/import、schema freshness |
+| CLI smoke | `whale exec --taskspace` 自然 prompt、`task-show` viewer URL |
+| Negative | 缺 output contract、GeneratedForTestOnly 写入 facts、Accepted 缺 evidence、Invalid result 进 facts、Questioned/Invalid result 进入 final artifact dependency |
+| Audit fixture | uncleared sentinel 影响最终产物、why-chain 缺 artifact_hash、promotion_not_in_mvp 字段缺失、run gate expected/observed 缺失 |
+| Replay | `hello-world` BOM、`heterogeneous-dates` UTF-16、`jsonl-aggregator` 自造数据 |
+| E2 | existing action-map regression、natural-user、growth-health、natural-multi-agent |
+| E3 small | `hello-world`、`heterogeneous-dates`、`jsonl-aggregator`、`multi-file-order-pipeline` |
+| Browser | Playwright 验证 viewer auto-refresh 不破坏展开/选择，graph 可拖拽缩放 |
+| v1.1 lifecycle | sentinel barrier raised/cleared、promotion promoted/collapsed/aborted，全部可按 ID 查询；Phase 8 开始前必须先有 promotion replay |
+
+## 第一轮完成定义
+
+第一轮不是证明 TaskSpace 全面优于 standard，而是证明问题状态管理机制闭环可用：
+
+- Direct trace 能记录 promotion 所需事实。
+- Output contract 能阻止编码契约遗漏。
+- Data provenance 能阻止自造数据污染 final facts。
+- Result 能以 claims/evidence/validity 形式沉淀。
+- Viewer 和 audit 能通过 join key 解释 result 为什么 accepted/questioned/invalid，并能追溯 final artifact 的 artifact hash、output contract、result、claim、evidence、validator 和 fact source。
+- Schema freshness 防止 Rust/TS/JSON schema 漂移。
+- E3 关键负例不再以同样形态失败。
+- MVP 报告明确写 `promotion_not_in_mvp=true`；promotion/collapse 不作为首轮成功声明。
