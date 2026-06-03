@@ -70,6 +70,38 @@ Phase D: viewer/audit/benchmark 能回答 why accepted/questioned/invalid
 
 首轮不实现完整 facts/assumptions/decisions/open_questions 图谱，不做完整 promote/collapse 状态机，不把所有字段一次性塞进 `taskspace_control`。首轮只做 E3 失败闭环所需的最小问题状态：输出契约、数据 provenance、result claims/evidence/validity。
 
+## 最小化预实验后的计划修正
+
+预实验见：
+
+- 测试提交：`5a9049a9d test: add taskspace cognitive preflight checks`
+- 审查记录：`vs_review/2026-06-04-taskspace-cognitive-preflight-tests-review.md`
+
+这轮预实验的价值不是证明 cognitive runtime 已经可用，而是在正式开工前确认现有基建和方案边界。结论如下：
+
+| 暴露点 | 现象 | 对工程计划的修正 |
+|---|---|---|
+| contract-sketch 测试容易制造假信心 | 自包含 helper 能验证规则自洽，但不能证明生产 runtime、tool schema、snapshot、viewer 已支持这些规则 | 所有这类测试必须命名为 `contract_sketch` / `audit_contract`，只能作为设计契约检查；不得计入生产覆盖率和 E3 收益证据 |
+| 当前 `ActionMapSnapshotResult` 有可复用 join key | 真实结果 snapshot 已能提供 `assignmentId/mapId/nodeId/toolSuccess` 等可审计连接点 | 正式实现优先复用现有 result/snapshot join key，不新增平行 result index；新增字段必须挂到现有 snapshot/result 链路 |
+| 当前 `taskspace_control` 还没有 cognitive MVP 协议 | 真实 tool schema 仍只暴露 `start_task/route_task/create_node/bind_node/finish_node/block_node` | Phase 0.5 必须先做 tool schema gap test；Phase 4 新增 action/field 后必须同时补正反向 schema 测试 |
+| future cognitive snapshot restore 尚无法验证 | cognitive 字段尚未存在，预实验只能确认当前 join key 和 schema gap | Phase 3 不允许只加字段；必须同步提供 legacy snapshot restore、default、`cognitive_schema_version`、viewer 缺字段空态测试 |
+| output contract 是真实缺口 | 审查要求补上“缺 output contract 必须失败”的负例 | Output contract 从“建议记录”升级为 MVP hard gate：没有 output contract 的 final artifact audit 必须失败 |
+| 审计必须可机械 join | 仅把信息写进 result body 无法让 audit 判断 accepted/questioned/invalid 的来源 | 每个新增事件、contract、fact source、claim、validity transition 都必须有稳定 ID，并能 join 到 task/map/node/result/final artifact |
+
+由此，正式实现前新增一个“Phase 0.1：预实验契约落账”：
+
+```text
+Phase 0.1: 将 contract-sketch 测试、真实 schema gap 测试、真实 snapshot join-key 测试固定为开工护栏
+```
+
+Phase 0.1 的通过标准：
+
+- `cognitive_preflight_contract_sketch_audit_*` 只能描述 MVP hard gate，不得引用生产未实现字段来伪造通过。
+- `ActionMapSnapshotResult` 序列化测试必须覆盖 `assignmentId/mapId/nodeId/toolSuccess`，并防止 snake_case 泄漏到 JSON。
+- `taskspace_control` 当前协议测试必须明确 cognitive MVP 字段缺失；正式加字段后，这个测试要改成“新字段存在且旧 action 兼容”。
+- 审查报告必须明确区分“预实验通过”和“生产 runtime 未实现”，禁止把预实验结果写成 E2/E3 utility 结论。
+- `git diff --check` 和相关 targeted cargo tests 必须进入实现前后的固定回归命令。
+
 ### 单一权威状态原则
 
 `direct_trace` 只能是 append-only observation log，不能持有 objective、success criteria、facts 或 open questions 这类权威问题状态。
@@ -155,6 +187,12 @@ runtime 首轮 hard gate 只做可机械判断的约束：
 - viewer/app-server consuming type。
 
 必须能检测当前这类漂移：Rust snapshot result 有 `tool_success`，但 generated TS/JSON schema 缺 `toolSuccess`。
+
+预实验已经确认真实 `ActionMapSnapshotResult` 可以作为 audit join key 来源，因此新增 cognitive 字段时必须沿着现有 snapshot/result 链路扩展，不允许另建只给 audit 使用的影子结果结构。新增字段后，至少要有三类测试同时通过：
+
+- 当前 snapshot result 仍能序列化出 `assignmentId/mapId/nodeId/toolSuccess`。
+- legacy snapshot 缺 cognitive 字段时 restore 不失败，并给出空 cognitive state/default。
+- 新 snapshot 带 `cognitive_schema_version`，viewer/app-server 能读取但不会因未知字段或缺字段崩溃。
 
 新增 cognitive snapshot 必须带版本号：
 
@@ -834,6 +872,8 @@ E3 audit artifact 必须能用这些 join key 回答：
 - 首轮只新增 MVP action，不一次性添加完整 cognitive 字段。
 - 新 action 先 optional + prompt 要求使用；对应 E2/E3 稳定后再升级为 warning 或 barrier。
 - 如果 `taskspace_control` schema 过大，优先拆 `taskspace_state` 工具，而不是继续扩充同一工具。
+- 预实验已经确认当前 `taskspace_control` 只暴露 `start_task/route_task/create_node/bind_node/finish_node/block_node`。正式加 cognitive MVP action 时，必须保留旧 action 的行为，并把“当前缺字段”测试改写为“新增字段存在、旧字段兼容、promotion/collapse 仍不进入 MVP action”的测试。
+- `record_output_contract`、`record_fact_source`、`mark_result_validity` 等新 action 的 schema 必须有最小必填字段和明确 ID：缺 `output_contract_id`、`fact_source_id`、`result_id`、`validity`、`evidence_refs` 时不能静默退化成 result body 文本。
 
 ### Runtime 兼容
 
@@ -857,11 +897,15 @@ E3 audit artifact 必须能用这些 join key 回答：
 | sentinel 变成隐藏语义判断器 | 只消费结构化 event tag；不解析命令字符串 |
 | schema/generated 类型漂移 | schema freshness 作为 Phase 0 blocker |
 | MVP 继续膨胀 | 首轮只做 output/provenance/result-evidence 三闭环 |
+| contract-sketch 测试被误当成生产覆盖 | 测试名和报告必须显式标注 `contract_sketch`；E2/E3 结论只采信生产路径测试、真实 CLI/E2E 和 audit artifact |
+| tool schema gap 被 prompt 掩盖 | 先用真实 `taskspace_control` schema 测试固定当前 action 集；正式实现后用正反向 schema 测试证明新 action/field 可用 |
+| snapshot 字段新增破坏旧会话 | cognitive 字段必须 default；legacy restore、未知版本、viewer 空态测试是 Phase 3 blocker |
 
 ## 推荐实施顺序
 
 ```text
 Phase 0: 文档和审查
+Phase 0.1: preflight contract-sketch + real schema gap guard
 Phase 0.5: protocol/generated schema freshness
 Phase 1: append-only structured trace event
 Phase 2: MVP sentinel warning
@@ -879,6 +923,7 @@ Phase 8: sentinel hard barrier only after warning path is clean
 
 | 层级 | 测试 |
 |---|---|
+| Preflight guard | `cognitive_preflight_contract_sketch_audit_*` 只检查契约草图；真实 `ActionMapSnapshotResult` JSON join key；真实 `taskspace_control` 当前 schema gap |
 | Unit | data model default/restore、enum parse、validity transition、sentinel trigger |
 | Integration | `taskspace_control` 新旧 schema、runtime gate、snapshot export/import、schema freshness |
 | CLI smoke | `whale exec --taskspace` 自然 prompt、`task-show` viewer URL |
@@ -889,6 +934,18 @@ Phase 8: sentinel hard barrier only after warning path is clean
 | E3 small | `hello-world`、`heterogeneous-dates`、`jsonl-aggregator`、`multi-file-order-pipeline` |
 | Browser | Playwright 验证 viewer auto-refresh 不破坏展开/选择，graph 可拖拽缩放 |
 | v1.1 lifecycle | sentinel barrier raised/cleared、promotion promoted/collapsed/aborted，全部可按 ID 查询；Phase 8 开始前必须先有 promotion replay |
+
+预实验已经覆盖的只是 `Preflight guard` 中的第一批检查。它们不能替代 Unit/Integration/Audit fixture：正式字段、正式 action、正式 snapshot 和正式 viewer 出现后，必须把 contract-sketch 规则迁移为生产路径测试。
+
+正式实现阶段必须补齐的测试债务：
+
+- cognitive state 真实 schema 的序列化 / 反序列化正例。
+- legacy snapshot 缺 cognitive 字段时的 restore/default/viewer 空态测试。
+- `cognitive_schema_version` 存在、缺失、未知版本的兼容测试。
+- `taskspace_control` cognitive MVP action/field 的正向 schema 测试与旧 action 兼容测试。
+- output contract / fact provenance / result validity / sentinel clearing / final artifact dependency 的 runtime transition 测试。
+- audit artifact why-chain 测试：final artifact -> output contract -> result -> claim -> evidence -> validator/fact source 必须可机械 join。
+- viewer / replay 测试：cognitive state 不仅存储在内部，还能被 `/task-show` 和 E2/E3 artifact 观察到。
 
 ## 第一轮完成定义
 
@@ -902,3 +959,4 @@ Phase 8: sentinel hard barrier only after warning path is clean
 - Schema freshness 防止 Rust/TS/JSON schema 漂移。
 - E3 关键负例不再以同样形态失败。
 - MVP 报告明确写 `promotion_not_in_mvp=true`；promotion/collapse 不作为首轮成功声明。
+- 预实验中的 contract-sketch 测试仍保留为 guard，但所有 MVP hard gate 都必须至少有一条生产路径测试证明，不允许只靠 test-only helper 证明。
