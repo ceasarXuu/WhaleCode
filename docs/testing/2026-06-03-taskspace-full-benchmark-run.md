@@ -15,6 +15,11 @@
 - 内置 E2 matrix：机制层通过，`e2_evidence_readiness = True`，`e2_clean_readiness = True`；但 `e2_utility_clean_readiness = False`，主要因为 L2 场景有 2 个 pair 出现 TaskSpace 成本偏高。
 - TaskSpace 路径确实创建了 map/node，说明运行约束和观测链路在工作；但在这些偏短、偏文件处理的任务中，map/node 生长没有转化成更高成功率，反而在 `jsonl-aggregator` 上出现明显过度生长和成本放大。
 
+E3 负收益后的系统性复盘与下一阶段重构基线见：
+[TaskSpace E3 负收益后 Planner 化重构基线](../plans/2026-06-04-taskspace-planner-rearchitecture-after-e3.md)。
+
+该复盘把当前问题重新定义为：TaskSpace 已经完成“agent 必须绑定 task/map/node 行动”，但尚未完成“主 agent 以长期 planner 身份，通过持久 task map 组织问题解决”。因此后续优化重点不再是继续堆叠 gate，而是把 map 从行动台账升级为任务模型，把主 agent 从一线执行者升级为长期 Planner / Commander / Orchestrator。
+
 ## 环境
 
 - repo：`D:\whalecode-alpha`

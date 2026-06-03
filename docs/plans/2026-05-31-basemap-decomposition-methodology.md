@@ -2,6 +2,15 @@
 
 日期：2026-05-31
 
+## 2026-06-04 修订状态
+
+本文件保留为第一版 BaseMap 拆解方法论背景材料，但 E3 外部 benchmark 后已经证明：仅把方法论放进 prompt / developer context 不足以稳定改变 agent 行为。
+
+最新设计基线见：
+[TaskSpace E3 负收益后 Planner 化重构基线](./2026-06-04-taskspace-planner-rearchitecture-after-e3.md)。
+
+后续实现应以“主 agent Planner 化”和“task/map/node 结构承载方法论”为准。本文件中的 prompt 注入仍可复用，但不能再被视为充分方案。
+
 ## 背景
 
 TaskSpace 的收益不来自“有一张 map”，而来自主 agent 能把复杂任务拆成有边界、有依赖、可调度、可检查的工作图。
