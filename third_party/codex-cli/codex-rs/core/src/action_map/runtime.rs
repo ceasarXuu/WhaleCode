@@ -4058,6 +4058,153 @@ Continue with the standard Codex multi-agent behavior."
 mod tests {
     use super::*;
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum PreflightResultValidity {
+        Accepted,
+        Questioned,
+        Invalid,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum PreflightFactProvenance {
+        ObservedFromEnvironment,
+        ProvidedByUser,
+        GeneratedForTestOnly,
+        Unknown,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum PreflightClearAction {
+        FixApplied,
+        RiskAcceptedByMainAgent,
+        ContractRevised,
+    }
+
+    #[derive(Debug, Clone)]
+    struct PreflightResultEvidence {
+        result_id: &'static str,
+        validity: PreflightResultValidity,
+        has_claims: bool,
+        has_evidence_refs: bool,
+    }
+
+    #[derive(Debug, Clone)]
+    struct PreflightFactSource {
+        id: &'static str,
+        provenance: PreflightFactProvenance,
+        enters_active_fact: bool,
+    }
+
+    #[derive(Debug, Clone)]
+    struct PreflightFinalArtifactDependency {
+        artifact_id: &'static str,
+        result_id: &'static str,
+    }
+
+    #[derive(Debug, Clone)]
+    struct PreflightSentinelRecord {
+        sentinel_id: &'static str,
+        affects_final_artifact: bool,
+        clear_action: Option<PreflightClearAction>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct PreflightCognitiveAuditRecord {
+        promotion_not_in_mvp: bool,
+        output_contract_present: bool,
+        result_evidence: Vec<PreflightResultEvidence>,
+        fact_sources: Vec<PreflightFactSource>,
+        cognitive_state_result_refs: Vec<&'static str>,
+        final_artifact_dependencies: Vec<PreflightFinalArtifactDependency>,
+        sentinel_records: Vec<PreflightSentinelRecord>,
+    }
+
+    impl PreflightCognitiveAuditRecord {
+        fn validate_mvp_hard_gates(&self) -> Vec<&'static str> {
+            let mut failures = Vec::new();
+
+            if !self.promotion_not_in_mvp {
+                failures.push("promotion_not_in_mvp_missing");
+            }
+
+            if !self.output_contract_present {
+                failures.push("required_output_contract_missing");
+            }
+
+            for result in &self.result_evidence {
+                if result.validity == PreflightResultValidity::Accepted
+                    && (!result.has_claims || !result.has_evidence_refs)
+                {
+                    failures.push("accepted_result_missing_evidence");
+                }
+            }
+
+            for fact_source in &self.fact_sources {
+                assert!(
+                    !fact_source.id.trim().is_empty(),
+                    "preflight fact source id should be a join key"
+                );
+                if fact_source.enters_active_fact
+                    && matches!(
+                        fact_source.provenance,
+                        PreflightFactProvenance::GeneratedForTestOnly
+                            | PreflightFactProvenance::Unknown
+                    )
+                {
+                    failures.push("generated_or_unknown_provenance_in_active_fact");
+                }
+            }
+
+            for result_id in &self.cognitive_state_result_refs {
+                if self.result_has_invalid_or_questioned_validity(result_id) {
+                    failures.push("questioned_or_invalid_result_in_cognitive_state_update");
+                }
+            }
+
+            for dependency in &self.final_artifact_dependencies {
+                assert!(
+                    !dependency.artifact_id.trim().is_empty(),
+                    "preflight final artifact id should be a join key"
+                );
+                if self.result_has_invalid_or_questioned_validity(dependency.result_id) {
+                    failures.push("questioned_or_invalid_final_artifact_dependency");
+                }
+            }
+
+            for sentinel in &self.sentinel_records {
+                assert!(
+                    !sentinel.sentinel_id.trim().is_empty(),
+                    "preflight sentinel id should be a join key"
+                );
+                if let Some(clear_action) = sentinel.clear_action {
+                    match clear_action {
+                        PreflightClearAction::FixApplied
+                        | PreflightClearAction::RiskAcceptedByMainAgent
+                        | PreflightClearAction::ContractRevised => {}
+                    }
+                }
+                if sentinel.affects_final_artifact && sentinel.clear_action.is_none() {
+                    failures.push("sentinel_warning_uncleared_for_final_artifact");
+                }
+            }
+
+            failures
+        }
+
+        fn result_has_invalid_or_questioned_validity(&self, result_id: &str) -> bool {
+            self.result_evidence
+                .iter()
+                .find(|result| result.result_id == result_id)
+                .map(|result| {
+                    matches!(
+                        result.validity,
+                        PreflightResultValidity::Questioned | PreflightResultValidity::Invalid
+                    )
+                })
+                .unwrap_or(false)
+        }
+    }
+
     fn seed_test_map(state: &mut ActionMapRuntimeState, owner: ThreadId) {
         state.ensure_active_seed_map(owner, "test");
         state.mark_routing_complete();
@@ -4233,6 +4380,299 @@ mod tests {
         assert_eq!(result.assignment_id, "lease-1");
         assert!(result.body.contains("tool: shell"));
         assert!(result.body.contains("preview:\nok"));
+    }
+
+    #[test]
+    fn cognitive_preflight_contract_sketch_audit_accepts_clean_mvp_record() {
+        let record = PreflightCognitiveAuditRecord {
+            promotion_not_in_mvp: true,
+            output_contract_present: true,
+            result_evidence: vec![PreflightResultEvidence {
+                result_id: "result-accepted",
+                validity: PreflightResultValidity::Accepted,
+                has_claims: true,
+                has_evidence_refs: true,
+            }],
+            fact_sources: vec![
+                PreflightFactSource {
+                    id: "source-env",
+                    provenance: PreflightFactProvenance::ObservedFromEnvironment,
+                    enters_active_fact: true,
+                },
+                PreflightFactSource {
+                    id: "source-user",
+                    provenance: PreflightFactProvenance::ProvidedByUser,
+                    enters_active_fact: true,
+                },
+            ],
+            cognitive_state_result_refs: vec!["result-accepted"],
+            final_artifact_dependencies: vec![PreflightFinalArtifactDependency {
+                artifact_id: "artifact-report",
+                result_id: "result-accepted",
+            }],
+            sentinel_records: vec![
+                PreflightSentinelRecord {
+                    sentinel_id: "sentinel-output-contract",
+                    affects_final_artifact: true,
+                    clear_action: Some(PreflightClearAction::ContractRevised),
+                },
+                PreflightSentinelRecord {
+                    sentinel_id: "sentinel-fix-applied",
+                    affects_final_artifact: true,
+                    clear_action: Some(PreflightClearAction::FixApplied),
+                },
+                PreflightSentinelRecord {
+                    sentinel_id: "sentinel-risk-accepted",
+                    affects_final_artifact: true,
+                    clear_action: Some(PreflightClearAction::RiskAcceptedByMainAgent),
+                },
+            ],
+        };
+
+        assert_eq!(record.validate_mvp_hard_gates(), Vec::<&'static str>::new());
+    }
+
+    #[test]
+    fn cognitive_preflight_contract_sketch_audit_rejects_missing_promotion_scope_marker() {
+        let record = PreflightCognitiveAuditRecord {
+            promotion_not_in_mvp: false,
+            output_contract_present: true,
+            result_evidence: Vec::new(),
+            fact_sources: Vec::new(),
+            cognitive_state_result_refs: Vec::new(),
+            final_artifact_dependencies: Vec::new(),
+            sentinel_records: Vec::new(),
+        };
+
+        assert_eq!(
+            record.validate_mvp_hard_gates(),
+            vec!["promotion_not_in_mvp_missing"]
+        );
+    }
+
+    #[test]
+    fn cognitive_preflight_contract_sketch_audit_rejects_missing_output_contract() {
+        let record = PreflightCognitiveAuditRecord {
+            promotion_not_in_mvp: true,
+            output_contract_present: false,
+            result_evidence: Vec::new(),
+            fact_sources: Vec::new(),
+            cognitive_state_result_refs: Vec::new(),
+            final_artifact_dependencies: Vec::new(),
+            sentinel_records: Vec::new(),
+        };
+
+        assert_eq!(
+            record.validate_mvp_hard_gates(),
+            vec!["required_output_contract_missing"]
+        );
+    }
+
+    #[test]
+    fn cognitive_preflight_contract_sketch_audit_rejects_accepted_result_without_claims_or_evidence() {
+        let record = PreflightCognitiveAuditRecord {
+            promotion_not_in_mvp: true,
+            output_contract_present: true,
+            result_evidence: vec![PreflightResultEvidence {
+                result_id: "result-accepted",
+                validity: PreflightResultValidity::Accepted,
+                has_claims: true,
+                has_evidence_refs: false,
+            }],
+            fact_sources: Vec::new(),
+            cognitive_state_result_refs: Vec::new(),
+            final_artifact_dependencies: Vec::new(),
+            sentinel_records: Vec::new(),
+        };
+
+        assert_eq!(
+            record.validate_mvp_hard_gates(),
+            vec!["accepted_result_missing_evidence"]
+        );
+    }
+
+    #[test]
+    fn cognitive_preflight_contract_sketch_audit_rejects_generated_or_unknown_active_facts() {
+        let record = PreflightCognitiveAuditRecord {
+            promotion_not_in_mvp: true,
+            output_contract_present: true,
+            result_evidence: Vec::new(),
+            fact_sources: vec![
+                PreflightFactSource {
+                    id: "generated-fixture",
+                    provenance: PreflightFactProvenance::GeneratedForTestOnly,
+                    enters_active_fact: true,
+                },
+                PreflightFactSource {
+                    id: "unknown-input",
+                    provenance: PreflightFactProvenance::Unknown,
+                    enters_active_fact: true,
+                },
+            ],
+            cognitive_state_result_refs: Vec::new(),
+            final_artifact_dependencies: Vec::new(),
+            sentinel_records: Vec::new(),
+        };
+
+        assert_eq!(
+            record.validate_mvp_hard_gates(),
+            vec![
+                "generated_or_unknown_provenance_in_active_fact",
+                "generated_or_unknown_provenance_in_active_fact"
+            ]
+        );
+    }
+
+    #[test]
+    fn cognitive_preflight_contract_sketch_audit_rejects_questioned_or_invalid_result_dependencies() {
+        for (validity, expected_gate) in [
+            (
+                PreflightResultValidity::Questioned,
+                "questioned_or_invalid_result_in_cognitive_state_update",
+            ),
+            (
+                PreflightResultValidity::Invalid,
+                "questioned_or_invalid_result_in_cognitive_state_update",
+            ),
+        ] {
+            let record = PreflightCognitiveAuditRecord {
+                promotion_not_in_mvp: true,
+                output_contract_present: true,
+                result_evidence: vec![PreflightResultEvidence {
+                    result_id: "result-risky",
+                    validity,
+                    has_claims: true,
+                    has_evidence_refs: true,
+                }],
+                fact_sources: Vec::new(),
+                cognitive_state_result_refs: vec!["result-risky"],
+                final_artifact_dependencies: Vec::new(),
+                sentinel_records: Vec::new(),
+            };
+
+            assert_eq!(record.validate_mvp_hard_gates(), vec![expected_gate]);
+        }
+
+        for validity in [
+            PreflightResultValidity::Questioned,
+            PreflightResultValidity::Invalid,
+        ] {
+            let record = PreflightCognitiveAuditRecord {
+                promotion_not_in_mvp: true,
+                output_contract_present: true,
+                result_evidence: vec![PreflightResultEvidence {
+                    result_id: "result-risky",
+                    validity,
+                    has_claims: true,
+                    has_evidence_refs: true,
+                }],
+                fact_sources: Vec::new(),
+                cognitive_state_result_refs: Vec::new(),
+                final_artifact_dependencies: vec![PreflightFinalArtifactDependency {
+                    artifact_id: "artifact-report",
+                    result_id: "result-risky",
+                }],
+                sentinel_records: Vec::new(),
+            };
+
+            assert_eq!(
+                record.validate_mvp_hard_gates(),
+                vec!["questioned_or_invalid_final_artifact_dependency"]
+            );
+        }
+    }
+
+    #[test]
+    fn cognitive_preflight_contract_sketch_audit_rejects_uncleared_sentinel_on_final_artifact() {
+        let record = PreflightCognitiveAuditRecord {
+            promotion_not_in_mvp: true,
+            output_contract_present: true,
+            result_evidence: Vec::new(),
+            fact_sources: Vec::new(),
+            cognitive_state_result_refs: Vec::new(),
+            final_artifact_dependencies: Vec::new(),
+            sentinel_records: vec![PreflightSentinelRecord {
+                sentinel_id: "sentinel-provenance",
+                affects_final_artifact: true,
+                clear_action: None,
+            }],
+        };
+
+        assert_eq!(
+            record.validate_mvp_hard_gates(),
+            vec!["sentinel_warning_uncleared_for_final_artifact"]
+        );
+    }
+
+    #[test]
+    fn cognitive_preflight_runtime_snapshot_results_have_join_keys_for_audit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_task_id, map_id, node_id, _) = start_test_task(
+            &mut state,
+            owner,
+            "Inspect artifact contract",
+            "Confirm output contract and evidence surface.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
+            )
+            .expect("diagnostic test is allowed in inspect node");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("structured test result records");
+
+        let snapshot = state.snapshot();
+        let map = snapshot
+            .maps
+            .iter()
+            .find(|map| map.id == map_id)
+            .expect("snapshot map");
+        let result = map
+            .results
+            .iter()
+            .find(|result| result.id == "result-1")
+            .expect("snapshot result");
+
+        assert_eq!(result.map_id, map_id);
+        assert_eq!(result.node_id, node_id);
+        assert_eq!(result.kind, "main_tool_call");
+        assert_eq!(result.action_class.as_deref(), Some("test"));
+        assert_eq!(result.tool_success, Some(true));
+        assert_eq!(result.source_thread_id, owner);
+    }
+
+    #[test]
+    fn cognitive_preflight_runtime_developer_context_keeps_promotion_and_collapse_out_of_mvp() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Review taskspace MVP",
+            "Check the preflight developer context.",
+            true,
+        );
+
+        let context = state.build_developer_context().expect("developer context");
+
+        assert!(context.contains("TaskSpace mode is active"));
+        assert!(!context.contains("promote_taskspace"));
+        assert!(!context.contains("promotion_not_in_mvp"));
+        assert!(!context.contains("collapsed-direct"));
     }
 
     #[test]

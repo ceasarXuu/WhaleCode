@@ -5588,6 +5588,36 @@ mod tests {
     }
 
     #[test]
+    fn action_map_snapshot_result_serializes_audit_join_keys_and_tool_success() -> Result<()> {
+        let result = ActionMapSnapshotResult {
+            id: "result-1".to_string(),
+            assignment_id: "lease-1".to_string(),
+            map_id: "map-1".to_string(),
+            node_id: "node-1".to_string(),
+            kind: "main_tool_call".to_string(),
+            action_class: Some("test".to_string()),
+            tool_success: Some(true),
+            body: "pytest passed".to_string(),
+            source_thread_id: ThreadId::new(),
+            created_at_ms: 1234,
+        };
+
+        let value = serde_json::to_value(&result)?;
+
+        assert_eq!(value["id"], "result-1");
+        assert_eq!(value["assignmentId"], "lease-1");
+        assert_eq!(value["mapId"], "map-1");
+        assert_eq!(value["nodeId"], "node-1");
+        assert_eq!(value["kind"], "main_tool_call");
+        assert_eq!(value["actionClass"], "test");
+        assert_eq!(value["toolSuccess"], true);
+        assert!(value.get("tool_success").is_none());
+        assert!(value.get("map_id").is_none());
+        assert!(value.get("node_id").is_none());
+        Ok(())
+    }
+
+    #[test]
     fn token_usage_info_new_or_append_updates_context_window_when_provided() {
         let initial = Some(TokenUsageInfo {
             total_token_usage: TokenUsage::default(),

@@ -211,3 +211,63 @@ Do not expose this tool's internal map/node terminology to the user unless debug
         output_schema: None,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn taskspace_control_preflight_exposes_only_current_runtime_actions() {
+        let value = serde_json::to_value(create_taskspace_control_tool())
+            .expect("taskspace tool serializes");
+        let action_enum = value["parameters"]["properties"]["action"]["enum"]
+            .as_array()
+            .expect("action enum");
+        let actions = action_enum
+            .iter()
+            .map(|value| value.as_str().expect("string enum"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            actions,
+            vec![
+                "start_task",
+                "route_task",
+                "create_node",
+                "bind_node",
+                "finish_node",
+                "block_node",
+            ]
+        );
+        assert!(!actions.contains(&"record_output_contract"));
+        assert!(!actions.contains(&"record_fact_source"));
+        assert!(!actions.contains(&"mark_result_validity"));
+        assert!(!actions.contains(&"promote_taskspace"));
+    }
+
+    #[test]
+    fn taskspace_control_preflight_has_no_mvp_cognitive_fields_yet() {
+        let value = serde_json::to_value(create_taskspace_control_tool())
+            .expect("taskspace tool serializes");
+        let properties = value["parameters"]["properties"]
+            .as_object()
+            .expect("properties object");
+
+        for absent_field in [
+            "output_contracts",
+            "output_contract_id",
+            "fact_source_id",
+            "provenance",
+            "claims",
+            "evidence_refs",
+            "validity",
+            "validity_reason",
+            "promotion_not_in_mvp",
+        ] {
+            assert!(
+                !properties.contains_key(absent_field),
+                "{absent_field} should remain absent until formal MVP implementation"
+            );
+        }
+    }
+}
