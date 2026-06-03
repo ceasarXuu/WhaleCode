@@ -7,9 +7,9 @@
 本文件保留为第一版 BaseMap 拆解方法论背景材料，但 E3 外部 benchmark 后已经证明：仅把方法论放进 prompt / developer context 不足以稳定改变 agent 行为。
 
 最新设计基线见：
-[TaskSpace E3 负收益后 Planner 化重构基线](./2026-06-04-taskspace-planner-rearchitecture-after-e3.md)。
+[TaskSpace E3 负收益后问题状态与模型管理重构基线](./2026-06-04-taskspace-cognitive-state-runtime-after-e3.md)。
 
-后续实现应以“主 agent Planner 化”和“task/map/node 结构承载方法论”为准。本文件中的 prompt 注入仍可复用，但不能再被视为充分方案。
+后续实现应以“主 agent 作为问题状态与模型管理者”和“task/map/node/result 结构承载方法论”为准。本文件中的 prompt 注入仍可复用，但不能再被视为充分方案。
 
 ## 背景
 

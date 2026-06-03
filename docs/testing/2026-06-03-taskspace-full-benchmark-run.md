@@ -16,9 +16,9 @@
 - TaskSpace 路径确实创建了 map/node，说明运行约束和观测链路在工作；但在这些偏短、偏文件处理的任务中，map/node 生长没有转化成更高成功率，反而在 `jsonl-aggregator` 上出现明显过度生长和成本放大。
 
 E3 负收益后的系统性复盘与下一阶段重构基线见：
-[TaskSpace E3 负收益后 Planner 化重构基线](../plans/2026-06-04-taskspace-planner-rearchitecture-after-e3.md)。
+[TaskSpace E3 负收益后问题状态与模型管理重构基线](../plans/2026-06-04-taskspace-cognitive-state-runtime-after-e3.md)。
 
-该复盘把当前问题重新定义为：TaskSpace 已经完成“agent 必须绑定 task/map/node 行动”，但尚未完成“主 agent 以长期 planner 身份，通过持久 task map 组织问题解决”。因此后续优化重点不再是继续堆叠 gate，而是把 map 从行动台账升级为任务模型，把主 agent 从一线执行者升级为长期 Planner / Commander / Orchestrator。
+该复盘把当前问题重新定义为：TaskSpace 已经完成“agent 必须绑定 task/map/node 行动”，但尚未完成“主 agent 以问题状态与模型管理者身份，维护事实、假设、证据、契约、决策和不确定性”。因此后续优化重点不再是继续堆叠 gate，而是把 map 从行动台账升级为问题状态模型，把主 agent 从一线执行者升级为认知控制器和验收责任人。
 
 ## 环境
 
