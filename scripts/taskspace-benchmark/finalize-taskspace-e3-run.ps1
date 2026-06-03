@@ -61,6 +61,7 @@ foreach ($pairDirItem in $pairDirs) {
     $sideOutcomes = [pscustomobject]@{
         standard_success = ($standardMetrics -and [bool]$standardMetrics.business_success)
         taskspace_success = ($taskspaceMetrics -and [bool]$taskspaceMetrics.business_success)
+        exec_timeouts = @(@($leftMetrics, $rightMetrics) | Where-Object { $_.PSObject.Properties.Name -contains "exec_timed_out" -and [bool]$_.exec_timed_out } | ForEach-Object { "$($_.mode)/$($_.logical_mode)" })
     }
     $claimScope = if ($manifestResolved.e3.PSObject.Properties.Name -contains "claim_scope") { [string]$manifestResolved.e3.claim_scope } else { "" }
     $auditReview = Get-TaskspaceAuditReview $pairDir "" $repeat $claimScope

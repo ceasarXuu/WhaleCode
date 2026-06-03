@@ -97,15 +97,18 @@ function Get-TaskspaceEvidenceGate {
         if ($HumanReviewDisagreement) { $e3Failures.Add("e3_human_review_disagreement") }
         $standardSuccess = $false
         $taskspaceSuccess = $false
+        $execTimeouts = @()
         $sideOutcomesPresent = ($null -ne $SideOutcomes -and
             $SideOutcomes.PSObject.Properties.Name -contains "standard_success" -and
             $SideOutcomes.PSObject.Properties.Name -contains "taskspace_success")
         if ($sideOutcomesPresent) {
             $standardSuccess = ($SideOutcomes.PSObject.Properties.Name -contains "standard_success" -and [bool]$SideOutcomes.standard_success)
             $taskspaceSuccess = ($SideOutcomes.PSObject.Properties.Name -contains "taskspace_success" -and [bool]$SideOutcomes.taskspace_success)
+            if ($SideOutcomes.PSObject.Properties.Name -contains "exec_timeouts") { $execTimeouts = @($SideOutcomes.exec_timeouts) }
         } else {
             $e3Failures.Add("e3_side_outcomes_missing")
         }
+        if ($execTimeouts.Count -gt 0) { $e3Failures.Add("e3_exec_timeout") }
         $includeReviewDecisions = @(
             "include_taskspace_better",
             "include_standard_better",
@@ -351,6 +354,7 @@ function Write-TaskspacePairReport {
         foreach ($row in @(
             @("business_success", $sideMetrics.business_success),
             @("exec_exit_code", $sideMetrics.exec_exit_code),
+            @("exec_timed_out", $sideMetrics.exec_timed_out),
             @("public_validation_exit_code", $sideMetrics.public_validation_exit_code),
             @("hidden_oracle_exit_code", $sideMetrics.hidden_oracle_exit_code),
             @("oracle_isolation_level", $sideMetrics.oracle_isolation_level),

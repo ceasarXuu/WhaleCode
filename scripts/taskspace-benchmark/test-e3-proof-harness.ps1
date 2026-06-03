@@ -41,14 +41,19 @@ function New-ProofLog([string]$Path, [bool]$WithWrapper = $true, [bool]$WithInsp
         entry_script_path = $entryPath
         entry_sha256 = $entrySha
         validator_command = "bash /tests/run-tests.sh"
+        uv_cache_mount = "/tmp/uv-cache"
+        uv_installer_sha256 = ("a" * 64)
+        uv_archive_sha256 = ("b" * 64)
     } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $runtimeManifestPath -Encoding UTF8
     if ($WithInspect) {
+        $uvCacheSource = if ($script:ForceBadUvCacheSource) { "/tmp/other-cache" } else { "/tmp/uv-cache" }
         @(
             @{
                 Mounts = @(
                     @{ Destination = "/tests"; RW = $false },
                     @{ Destination = "/app"; RW = $true },
-                    @{ Destination = "/tbench-entry.sh"; RW = $false }
+                    @{ Destination = "/tbench-entry.sh"; RW = $false },
+                    @{ Destination = "/tbench-uv-cache"; RW = $false; Source = $uvCacheSource }
                 )
                 Config = @{ WorkingDir = "/app" }
             }
@@ -186,7 +191,21 @@ $metricsBySide = @{
 $manifest.SampleOrigin.generated_wrapper_sha256 = $script:TestWrapperSha
 $proof = New-TaskspaceExternalEvidenceProof $pair $manifest $metricsBySide $sourceGuard
 Assert-True ($proof.validator_fidelity.runtime_proven) "runtime proof did not accept complete structured markers"
+$runtimeProof = Get-Content -Raw -Encoding UTF8 -LiteralPath $proof.runtime_proof_path | ConvertFrom-Json
+Assert-True (@($runtimeProof.sides | Where-Object { -not $_.uv_cache_proven }).Count -eq 0) "runtime proof did not prove uv cache mount and hashes"
 Assert-True (-not $proof.validator_fidelity.agent_cannot_read_validator_source) "declared false source isolation was promoted from placement proof alone"
+
+$script:ForceBadUvCacheSource = $true
+$badUvPairDir = New-Dir (Join-Path $runDir "pair-bad-uv-cache")
+$badUvPair = [pscustomobject]@{
+    PairDir = $badUvPairDir
+    left = [pscustomobject]@{ RepoDir = New-Dir (Join-Path $badUvPairDir "left\repo"); ArtifactDir = New-Dir (Join-Path $badUvPairDir "left\artifacts") }
+    right = [pscustomobject]@{ RepoDir = New-Dir (Join-Path $badUvPairDir "right\repo"); ArtifactDir = New-Dir (Join-Path $badUvPairDir "right\artifacts") }
+}
+$badUvMetrics = @{ left = (New-Metrics $badUvPair.left.ArtifactDir $true); right = (New-Metrics $badUvPair.right.ArtifactDir $true) }
+$badUvProof = New-TaskspaceExternalEvidenceProof $badUvPair $manifest $badUvMetrics $sourceGuard
+Assert-True (-not $badUvProof.validator_fidelity.runtime_proven) "uv cache inspect source mismatch was accepted"
+$script:ForceBadUvCacheSource = $false
 
 $manifestIsolated = $manifest.PSObject.Copy()
 $manifestIsolated.ExternalBenchmark = $manifest.ExternalBenchmark.PSObject.Copy()

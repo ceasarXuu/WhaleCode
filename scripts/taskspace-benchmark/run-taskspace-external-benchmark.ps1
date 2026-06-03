@@ -10,6 +10,7 @@ param(
     [string]$WhaleBin = "$env:USERPROFILE\.whale\bin\whale.exe",
     [string]$Model = "deepseek-v4-flash",
     [int]$TimeoutSeconds = 900,
+    [int]$ValidationTimeoutSeconds = 420,
     [ValidateSet("bypass", "full-auto", "workspace-write")]
     [string]$SandboxMode = "full-auto",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
@@ -41,6 +42,7 @@ $args = @(
     "-Model", $Model,
     "-RunRoot", (Join-Path $RunRoot "runs"),
     "-TimeoutSeconds", $TimeoutSeconds,
+    "-ValidationTimeoutSeconds", $ValidationTimeoutSeconds,
     "-SandboxMode", $SandboxMode
 )
 foreach ($override in @($ConfigOverride)) { $args += @("-ConfigOverride", $override) }

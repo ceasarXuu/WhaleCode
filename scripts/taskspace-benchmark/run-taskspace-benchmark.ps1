@@ -6,6 +6,7 @@ param(
     [string]$WhaleBin = "$env:USERPROFILE\.whale\bin\whale.exe",
     [string]$Model = "deepseek-v4-flash",
     [int]$TimeoutSeconds = 900,
+    [int]$ValidationTimeoutSeconds = 420,
     [ValidateSet("bypass", "full-auto", "workspace-write")]
     [string]$SandboxMode = "full-auto",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
@@ -107,6 +108,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         model_right = $Model
         timeout_seconds_left = $TimeoutSeconds
         timeout_seconds_right = $TimeoutSeconds
+        validation_timeout_seconds = $ValidationTimeoutSeconds
         provider_param_status = $providerParamStatus
         config_overrides = @($ConfigOverride)
         sandbox_mode = $SandboxMode
@@ -138,12 +140,22 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
                 Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace"); execution_alias = $mount }) (Join-Path $side.ArtifactDir "whale-argv.json")
                 $started = Get-Date
-                $exitCode = Invoke-RealProcess $WhaleBin $args $executionRepoDir $jsonlPath $stderrPath $TimeoutSeconds $stdinPath
+                $timedOut = $false
+                try {
+                    $exitCode = Invoke-RealProcess $WhaleBin $args $executionRepoDir $jsonlPath $stderrPath $TimeoutSeconds $stdinPath
+                } catch {
+                    if ([string]$_.Exception.Message -notmatch "^Process timed out after ") { throw }
+                    $exitCode = 124
+                    $timedOut = $true
+                    if (-not (Test-Path -LiteralPath $jsonlPath)) { Write-Text $jsonlPath "" }
+                    $timeoutText = "Process timed out after $TimeoutSeconds seconds: $WhaleBin $($args -join ' ')`n$($_.Exception.Message)"
+                    Write-Text $stderrPath $timeoutText
+                }
                 $finished = Get-Date
             } finally {
                 Dismount-TaskspaceExecutionAlias $mount
             }
-            $threadId = Get-ThreadId (Get-Content -Raw -Encoding UTF8 -LiteralPath $jsonlPath)
+            $threadId = if (Test-Path -LiteralPath $jsonlPath) { Get-ThreadId (Get-Content -Raw -Encoding UTF8 -LiteralPath $jsonlPath) } else { "" }
             $obs = $null
             if ($side.LogicalMode -eq "taskspace") {
                 $obs = Export-TaskspaceObservabilityIfAvailable $repoRoot $side.RepoDir $side.ArtifactDir $jsonlPath $started $threadId
@@ -151,6 +163,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             $execBySide[$side.Name] = [pscustomobject]@{
                 exit_code = $exitCode
                 wall_time_ms = [int64](($finished - $started).TotalMilliseconds)
+                timed_out = $timedOut
                 jsonl_path = $jsonlPath
                 stderr_path = $stderrPath
                 last_message_path = $lastMessagePath
@@ -168,7 +181,8 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $validationStdout = Join-Path $side.ArtifactDir "validation.stdout.log"
         $validationStderr = Join-Path $side.ArtifactDir "validation.stderr.log"
         $validationProofDir = Join-Path $side.ArtifactDir "external-validator-runtime"
-        $validationExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $validationStdout $validationStderr 120 $validationProofDir
+        $effectiveValidationTimeout = [Math]::Max(30, $ValidationTimeoutSeconds)
+        $validationExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $validationStdout $validationStderr $effectiveValidationTimeout $validationProofDir
         $oracle = Invoke-TaskspaceHiddenOracle $side.RepoDir $side.ArtifactDir $pair.HiddenOraclePath "" -BypassSandbox:($SandboxMode -eq "bypass")
         $exec = $execBySide[$side.Name]
         $validation = [pscustomobject]@{ exit_code = $validationExit; stdout_path = $validationStdout; stderr_path = $validationStderr }
@@ -196,6 +210,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $sideOutcomes = [pscustomobject]@{
         standard_success = ($standardMetrics -and [bool]$standardMetrics.business_success)
         taskspace_success = ($taskspaceMetrics -and [bool]$taskspaceMetrics.business_success)
+        exec_timeouts = @($metricsBySide.Values | Where-Object { $_.PSObject.Properties.Name -contains "exec_timed_out" -and [bool]$_.exec_timed_out } | ForEach-Object { "$($_.mode)/$($_.logical_mode)" })
     }
     $e3MinimumRepeats = 5
     if ($null -ne $manifest.E3 -and $manifest.E3.PSObject.Properties.Name -contains "minimum_repeats") {

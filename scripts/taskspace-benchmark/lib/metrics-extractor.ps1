@@ -171,6 +171,7 @@ function Get-TaskspaceBenchmarkMetrics {
         mode = $Side.Name
         logical_mode = $Side.LogicalMode
         exec_exit_code = $Exec.exit_code
+        exec_timed_out = ($Exec.PSObject.Properties.Name -contains "timed_out" -and [bool]$Exec.timed_out)
         public_validation_exit_code = $Validation.exit_code
         hidden_oracle_exit_code = $Oracle.exit_code
         wall_time_ms = $Exec.wall_time_ms

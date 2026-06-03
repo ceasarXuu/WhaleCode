@@ -2,9 +2,7 @@ param(
     [string]$Scenario = "single-file-fast-fix",
     [string]$RunRoot = ""
 )
-
 $ErrorActionPreference = "Stop"
-
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $repoRoot "scripts\action-map-real-user-e2e-lib.ps1")
 . (Join-Path $repoRoot "scripts\action-map-graph-health-lib.ps1")
@@ -21,11 +19,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\paired-bench-selftest" }
 $failures = New-Object System.Collections.Generic.List[string]
-
-function Assert-True([bool]$Condition, [string]$Message) {
-    if (-not $Condition) { $script:failures.Add($Message) }
-}
-
+function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { $script:failures.Add($Message) } }
 function Assert-Throws([scriptblock]$Body, [string]$Message) {
     try {
         & $Body
@@ -167,6 +161,8 @@ $e3ExternalReady = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "kn
 Assert-True ($e3ExternalReady.reported_evidence_level -eq "E3") "complete external E3 evidence did not promote to E3"
 $e3ExternalMissingOutcomes = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOrigin $externalBenchmark $e3Config $true $true 5 "include_no_clear_delta" $false $validExternalProof
 Assert-True (@($e3ExternalMissingOutcomes.e3_gate_failures) -contains "e3_side_outcomes_missing") "external E3 without side outcomes was not fail-closed"
+$e3ExternalTimeout = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $externalOrigin $externalBenchmark $e3Config $true $true 5 "include_taskspace_better" $false $validExternalProof ([pscustomobject]@{ standard_success = $false; taskspace_success = $true; exec_timeouts = @("left/taskspace") })
+Assert-True (@($e3ExternalTimeout.e3_gate_failures) -contains "e3_exec_timeout") "external E3 timeout side was promoted to E3"
 $invalidExternalBenchmark = [pscustomobject]@{
     name = "terminal-bench"
     adapter_version = "whale-taskspace-e3-adapter-v1"
@@ -196,7 +192,6 @@ $auditPairDir = Join-Path $runDir "audit-pair"
 New-Item -ItemType Directory -Path $auditPairDir | Out-Null
 $requiredAuditArtifacts = @(
         "manifest.resolved.json",
-        "pair-report.md",
         "left/artifacts/metrics.json",
         "right/artifacts/metrics.json",
         "left/artifacts/whale-exec.jsonl",
@@ -229,16 +224,16 @@ $auditJsonPath = Join-Path $auditPairDir "audit-review.json"
 $audit = Get-TaskspaceAuditReview $auditPairDir "" 0 "self-test audit"
 Assert-True ($audit.completed) "complete audit review sidecar was not accepted"
 Assert-True ($audit.decision -eq "include_no_clear_delta") "audit decision was not parsed"
-"changed artifact" | Set-Content -LiteralPath (Join-Path $auditPairDir "pair-report.md") -Encoding UTF8
+"changed artifact" | Set-Content -LiteralPath (Join-Path $auditPairDir "left/artifacts/metrics.json") -Encoding UTF8
 $staleHashAudit = Get-TaskspaceAuditReview $auditPairDir "" 0 "self-test audit"
 Assert-True (-not $staleHashAudit.completed) "stale audit with outdated artifact hash was accepted"
-Assert-True (@($staleHashAudit.failures | Where-Object { $_ -eq "audit_artifact_hash_mismatch:pair-report.md" }).Count -eq 1) "stale audit artifact hash mismatch was not reported"
-"artifact" | Set-Content -LiteralPath (Join-Path $auditPairDir "pair-report.md") -Encoding UTF8
+Assert-True (@($staleHashAudit.failures | Where-Object { $_ -eq "audit_artifact_hash_mismatch:left/artifacts/metrics.json" }).Count -eq 1) "stale audit artifact hash mismatch was not reported"
+"artifact" | Set-Content -LiteralPath (Join-Path $auditPairDir "left/artifacts/metrics.json") -Encoding UTF8
 $badAuditJsonPath = Join-Path $auditPairDir "audit-review.json"
 @{
     reviewer = "codex"
     date = "2026-06-02"
-    artifact_basis = @("pair-report.md")
+    artifact_basis = @("left/artifacts/metrics.json")
     decision = "include_taskspace_better"
     claim_scope = "self-test audit"
 } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $badAuditJsonPath -Encoding UTF8
@@ -263,7 +258,6 @@ New-Item -ItemType Directory -Path $auditNoLocalPairDir | Out-Null
 $ignoredGenericAudit = Get-TaskspaceAuditReview $auditNoLocalPairDir $auditRoot 1 "self-test audit"
 Assert-True (-not $ignoredGenericAudit.completed) "generic AuditReviewRoot\\audit-review.json was accepted"
 Assert-True (@($ignoredGenericAudit.failures) -contains "audit_review_missing") "generic AuditReviewRoot audit fallback was not ignored"
-
 $leakyFixture = Join-Path $runDir "leaky-fixture"
 New-Item -ItemType Directory -Path $leakyFixture | Out-Null
 "secret" | Set-Content -LiteralPath (Join-Path $leakyFixture "solution.py") -Encoding UTF8
@@ -290,16 +284,38 @@ category: file-operations
 "FROM scratch" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "Dockerfile") -Encoding UTF8
 "do not leak" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "solution.sh") -Encoding UTF8
 "echo ok" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "run-tests.sh") -Encoding UTF8
+New-Item -ItemType Directory -Path (Join-Path $terminalBenchNoEnv "task-deps\nested") -Force | Out-Null
+"public" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "task-deps\input.csv") -Encoding UTF8
+"private test" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "task-deps\nested\run-tests.sh") -Encoding UTF8
+New-Item -ItemType Directory -Path (Join-Path $terminalBenchNoEnv "task-deps\tests") -Force | Out-Null
+"private" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "task-deps\tests\case.py") -Encoding UTF8
 $adapterOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $terminalBenchNoEnv -OutputRoot (Join-Path $runDir "external-out") -SampleId "no-env" -SourceVersion "pinned"
 $adapterScenarioDir = [string]($adapterOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
 Assert-True (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "prompt.txt")) "terminal-bench adapter did not extract task.yaml instruction"
 Assert-True (-not (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\solution.sh"))) "terminal-bench adapter leaked solution.sh from official task root"
+Assert-True (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\task-deps\input.csv")) "terminal-bench adapter dropped public task-deps fixture"
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\task-deps\nested\run-tests.sh"))) "terminal-bench adapter leaked nested validator script"
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\task-deps\tests\case.py"))) "terminal-bench adapter leaked nested tests directory"
 $adapterScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $adapterScenarioDir "scenario.json") | ConvertFrom-Json
 Assert-True (-not [bool]$adapterScenario.external_benchmark.validator_fidelity.e3_eligible) "terminal-bench post-hoc Docker validator was over-promoted to E3 eligible"
 Assert-True ([string]$adapterScenario.external_benchmark.validator_fidelity.validator_runtime -eq "terminal_bench_equivalent_docker_app") "terminal-bench validator runtime was not equivalent Docker /app"
 Assert-True ([bool]$adapterScenario.external_benchmark.validator_fidelity.agent_cannot_read_validator_source) "terminal-bench validator source guard declaration was not recorded"
 Assert-True ([bool]$adapterScenario.external_benchmark.validator_fidelity.docker_runtime) "terminal-bench Docker runtime capability was not recorded"
 Assert-True ([string]$adapterScenario.external_benchmark.adapter_metadata.instruction_extraction_mode -eq "literal") "terminal-bench literal instruction mode was not recorded"
+Assert-True (@($adapterScenario.external_benchmark.adapter_metadata.generated_fixture_allowlist) -contains "task-deps/input.csv") "terminal-bench recursive fixture allowlist missed public file"
+Assert-True ((Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $adapterScenarioDir "external-validator.ps1")) -match "proxy_env_skipped_loopback") "terminal-bench validator did not guard WSL loopback proxy injection"
+$terminalBenchEnv = Join-Path $runDir "terminal-bench-env"
+New-Item -ItemType Directory -Path (Join-Path $terminalBenchEnv "environment") -Force | Out-Null
+@'
+instruction: "Create hello.txt."
+category: file-operations
+'@ | Set-Content -LiteralPath (Join-Path $terminalBenchEnv "task.yaml") -Encoding UTF8
+"FROM scratch" | Set-Content -LiteralPath (Join-Path $terminalBenchEnv "environment\Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $terminalBenchEnv "run-tests.sh") -Encoding UTF8
+$envOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $terminalBenchEnv -OutputRoot (Join-Path $runDir "external-env-out") -SampleId "env" -SourceVersion "pinned"
+$envScenarioDir = [string]($envOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$envScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $envScenarioDir "scenario.json") | ConvertFrom-Json
+Assert-True (@($envScenario.external_benchmark.adapter_metadata.generated_fixture_allowlist) -contains "environment") "terminal-bench environment fixture metadata was not stable"
 $terminalBenchInline = Join-Path $runDir "terminal-bench-inline"
 New-Item -ItemType Directory -Path $terminalBenchInline | Out-Null
 @'
@@ -345,6 +361,7 @@ param(
     [string]$Model,
     [string]$RunRoot,
     [int]$TimeoutSeconds,
+    [int]$ValidationTimeoutSeconds,
     [string]$SandboxMode,
     [string[]]$ConfigOverride,
     [string]$AuditReviewRoot,
@@ -352,6 +369,7 @@ param(
     [switch]$AllowNonE2Result,
     [switch]$PlanOnly
 )
+Write-Host "validation_timeout=$ValidationTimeoutSeconds"
 if ($PlanOnly) { exit 0 }
 if ($AllowNonE2Result) { Write-Host "stub diagnostic allowed"; exit 0 }
 Write-Host "stub target unsatisfied"
@@ -361,13 +379,14 @@ $externalWrapperRunRoot = Join-Path $runDir "external-wrapper-runs"
 $wrapperDefaultOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1") -Benchmark terminal-bench -TaskDir $terminalBenchNoEnv -SourceVersion "pinned" -RunRoot $externalWrapperRunRoot -RunnerPath $externalWrapperStub 2>&1
 $wrapperDefaultExit = $LASTEXITCODE
 Assert-True ($wrapperDefaultExit -ne 0) "external benchmark wrapper hid unsatisfied E3 target by default"
-$wrapperDiagnosticOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1") -Benchmark terminal-bench -TaskDir $terminalBenchNoEnv -SourceVersion "pinned" -RunRoot $externalWrapperRunRoot -RunnerPath $externalWrapperStub -AllowDiagnosticNonTargetResult 2>&1
+$wrapperDiagnosticOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1") -Benchmark terminal-bench -TaskDir $terminalBenchNoEnv -SourceVersion "pinned" -RunRoot $externalWrapperRunRoot -RunnerPath $externalWrapperStub -ValidationTimeoutSeconds 77 -AllowDiagnosticNonTargetResult 2>&1
 $wrapperDiagnosticExit = $LASTEXITCODE
 Assert-True ($wrapperDiagnosticExit -eq 0) "external benchmark wrapper did not allow explicit diagnostic non-target result"
 Assert-True (($wrapperDiagnosticOutput -join "`n") -match "DiagnosticNonTargetResultAllowed: True") "external benchmark wrapper did not print diagnostic opt-in marker"
-
+Assert-True (($wrapperDiagnosticOutput -join "`n") -match "validation_timeout=77") "external benchmark wrapper did not pass validation timeout separately"
 $metrics = [pscustomobject]@{
     mode = "left"; logical_mode = "standard"; business_success = $true; exec_exit_code = 0
+    exec_timed_out = $false
     public_validation_exit_code = 0; hidden_oracle_exit_code = 0; oracle_isolation_level = "hard_sandbox"
     wall_time_ms = 1; tool_call_count = 1; changed_paths = @("src/tax_calc.py")
     changed_file_inventory = @([pscustomobject]@{ path = "src/tax_calc.py"; status = "M "; source = "git_status"; sha256 = "abc123"; size_bytes = 12 })
@@ -470,7 +489,6 @@ $matrixClean = Get-TaskspaceMatrixReportData @(
     }
 ) @("L1", "L2") 3
 Assert-True (-not $matrixClean.e2_evidence_readiness) "matrix evidence readiness ignored missing required levels"
-
 if ($failures.Count -gt 0) {
     Write-Host "TaskSpace benchmark harness self-test: FAIL"
     foreach ($failure in $failures) { Write-Host "- $failure" }

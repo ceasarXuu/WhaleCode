@@ -14,7 +14,14 @@ function Invoke-TaskspaceValidationCommand {
             New-Dir $ProofDir | Out-Null
             $env:TASKSPACE_VALIDATION_ARTIFACT_DIR = (Resolve-Path -LiteralPath $ProofDir).Path
         }
-        Invoke-RealProcess ([string]$Validation.command) $args $RepoDir $StdoutPath $StderrPath $TimeoutSeconds
+        try {
+            Invoke-RealProcess ([string]$Validation.command) $args $RepoDir $StdoutPath $StderrPath $TimeoutSeconds
+        } catch {
+            if ([string]$_.Exception.Message -notmatch "^Process timed out after ") { throw }
+            if (-not (Test-Path -LiteralPath $StdoutPath)) { Write-Text $StdoutPath "" }
+            Write-Text $StderrPath "Validation timed out after $TimeoutSeconds seconds.`n$($_.Exception.Message)"
+            124
+        }
     } finally {
         if ($null -eq $oldProofDir) {
             Remove-Item Env:\TASKSPACE_VALIDATION_ARTIFACT_DIR -ErrorAction SilentlyContinue
@@ -46,6 +53,7 @@ function Test-TaskspaceOracleLeak {
         } catch {
             continue
         }
+        if ($null -eq $text) { continue }
         foreach ($target in $targets) {
             if (-not [string]::IsNullOrWhiteSpace($target) -and $text.Contains($target)) {
                 $textHits.Add($file.FullName)

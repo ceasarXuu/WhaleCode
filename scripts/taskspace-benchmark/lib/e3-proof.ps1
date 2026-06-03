@@ -84,8 +84,12 @@ function New-TaskspaceExternalEvidenceProof {
         $runtimeManifest = Read-TaskspaceJsonIfPresent $runtimeManifestPath
         $inspect = Read-TaskspaceJsonIfPresent $inspectPath
         $artifactRoot = if ($side.ArtifactDir -and (Test-Path -LiteralPath $side.ArtifactDir)) { (Resolve-Path -LiteralPath $side.ArtifactDir).Path } else { "" }
-        $runtimeManifestUnderArtifact = (-not [string]::IsNullOrWhiteSpace($artifactRoot) -and (Test-TaskspacePathUnderRoot $runtimeManifestPath $artifactRoot))
-        $inspectUnderArtifact = (-not [string]::IsNullOrWhiteSpace($artifactRoot) -and (Test-TaskspacePathUnderRoot $inspectPath $artifactRoot))
+        $runtimeManifestUnderArtifact = (-not [string]::IsNullOrWhiteSpace($artifactRoot) -and
+            -not [string]::IsNullOrWhiteSpace($runtimeManifestPath) -and
+            (Test-TaskspacePathUnderRoot $runtimeManifestPath $artifactRoot))
+        $inspectUnderArtifact = (-not [string]::IsNullOrWhiteSpace($artifactRoot) -and
+            -not [string]::IsNullOrWhiteSpace($inspectPath) -and
+            (Test-TaskspacePathUnderRoot $inspectPath $artifactRoot))
         $manifestWrapperSha = if ($runtimeManifest -and $runtimeManifest.PSObject.Properties.Name -contains "wrapper_sha256") { [string]$runtimeManifest.wrapper_sha256 } else { "" }
         $manifestWrapperPath = if ($runtimeManifest -and $runtimeManifest.PSObject.Properties.Name -contains "wrapper_path") { [string]$runtimeManifest.wrapper_path } else { "" }
         $actualWrapperSha = Get-TaskspaceSha256IfPresent $manifestWrapperPath
@@ -97,8 +101,17 @@ function New-TaskspaceExternalEvidenceProof {
         $testsMount = @($mounts | Where-Object { [string]$_.Destination -eq "/tests" } | Select-Object -First 1)
         $appMount = @($mounts | Where-Object { [string]$_.Destination -eq "/app" } | Select-Object -First 1)
         $entryMount = @($mounts | Where-Object { [string]$_.Destination -eq "/tbench-entry.sh" } | Select-Object -First 1)
+        $uvCacheMount = @($mounts | Where-Object { [string]$_.Destination -eq "/tbench-uv-cache" } | Select-Object -First 1)
         $workdir = if ($container -and $container.PSObject.Properties.Name -contains "Config" -and $container.Config.PSObject.Properties.Name -contains "WorkingDir") { [string]$container.Config.WorkingDir } else { "" }
         $runtimeCommand = if ($runtimeManifest -and $runtimeManifest.PSObject.Properties.Name -contains "validator_command") { [string]$runtimeManifest.validator_command } else { "" }
+        $uvInstallerSha = if ($runtimeManifest -and $runtimeManifest.PSObject.Properties.Name -contains "uv_installer_sha256") { [string]$runtimeManifest.uv_installer_sha256 } else { "" }
+        $uvArchiveSha = if ($runtimeManifest -and $runtimeManifest.PSObject.Properties.Name -contains "uv_archive_sha256") { [string]$runtimeManifest.uv_archive_sha256 } else { "" }
+        $uvCacheDeclared = ($runtimeManifest -and $runtimeManifest.PSObject.Properties.Name -contains "uv_cache_mount")
+        $uvCacheSourceMatches = (-not $uvCacheDeclared -or ($uvCacheMount.Count -gt 0 -and
+                [string]$uvCacheMount[0].Source -eq [string]$runtimeManifest.uv_cache_mount))
+        $uvCacheProven = (-not $uvCacheDeclared -or ($uvCacheMount.Count -gt 0 -and -not [bool]$uvCacheMount[0].RW -and
+                $uvCacheSourceMatches -and
+                $uvInstallerSha -match '^[0-9a-f]{64}$' -and $uvArchiveSha -match '^[0-9a-f]{64}$'))
         $proofNonce = Get-TaskspaceProofMarkerValue $combinedLog "validator_proof_nonce"
         $wrapperSha = Get-TaskspaceProofMarkerValue $combinedLog "validator_wrapper_sha256"
         $entrySha = Get-TaskspaceProofMarkerValue $combinedLog "validator_entry_sha256"
@@ -125,6 +138,12 @@ function New-TaskspaceExternalEvidenceProof {
             runtime_manifest_under_artifact = $runtimeManifestUnderArtifact
             docker_inspect_path = $inspectPath
             docker_inspect_under_artifact = $inspectUnderArtifact
+            uv_cache_mount_seen = ($uvCacheMount.Count -gt 0)
+            uv_cache_mount_readonly = ($uvCacheMount.Count -gt 0 -and -not [bool]$uvCacheMount[0].RW)
+            uv_cache_source_matches_manifest = $uvCacheSourceMatches
+            uv_installer_sha256 = $uvInstallerSha
+            uv_archive_sha256 = $uvArchiveSha
+            uv_cache_proven = $uvCacheProven
             runtime_manifest_proven = ($runtimeManifestUnderArtifact -and $runtimeManifest -and
                 $runtimeCommand -eq "bash /tests/run-tests.sh" -and
                 $runtimeManifest.proof_nonce -eq $proofNonce -and
@@ -132,7 +151,8 @@ function New-TaskspaceExternalEvidenceProof {
                 $manifestWrapperSha -eq $expectedWrapperSha -and
                 $actualWrapperSha -eq $wrapperSha -and
                 $manifestEntrySha -eq $entrySha -and
-                $actualEntrySha -eq $entrySha)
+                $actualEntrySha -eq $entrySha -and
+                $uvCacheProven)
             docker_inspect_mounts_proven = ($inspectUnderArtifact -and $container -and
                 $testsMount.Count -gt 0 -and -not [bool]$testsMount[0].RW -and
                 $appMount.Count -gt 0 -and

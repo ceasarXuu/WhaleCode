@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "external-benchmark-common.ps1")
+. (Join-Path $PSScriptRoot "terminal-bench-uv-cache.ps1")
 
 function ConvertFrom-TerminalBenchYamlScalar {
     param([Parameter(Mandatory = $true)][string]$Scalar)
@@ -170,6 +171,17 @@ function Get-TerminalBenchSensitiveFiles {
     @($files.ToArray() | Sort-Object -Unique)
 }
 
+function Test-TerminalBenchPublicFixtureRelativePath {
+    param([Parameter(Mandatory = $true)][string]$RelativePath)
+    $segments = @($RelativePath.Replace("\", "/") -split "/" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    foreach ($segment in $segments) {
+        $lower = $segment.ToLowerInvariant()
+        if ($lower -in @("tests", "run-tests.sh", "verify.sh", "test.sh", "solution.sh", "solution.yaml")) { return $false }
+        if (Test-TaskspaceExternalLeakyName $lower) { return $false }
+    }
+    return $true
+}
+
 $taskRoot = (Resolve-Path -LiteralPath $TaskDir).Path
 if ([string]::IsNullOrWhiteSpace($SampleId)) { $SampleId = Split-Path -Leaf $taskRoot }
 $instructionCandidates = @("instruction.md", "prompt.md", "task.md", "README.md") |
@@ -193,6 +205,9 @@ $validatorCandidates = @("run-tests.sh", "verify.sh", "test.sh") |
 if (@($validatorCandidates).Count -eq 0) { throw "Terminal-Bench validator script not found in: $taskRoot" }
 $validatorSource = @($validatorCandidates)[0]
 $generatedDir = New-TaskspaceExternalDir (Join-Path $OutputRoot "_adapter-generated")
+$uvCache = New-TerminalBenchUvCache $OutputRoot
+if (-not [bool]$uvCache.enabled) { throw "Terminal-Bench uv dependency cache could not be materialized; refusing to generate a partial external validator scenario." }
+$uvCacheLiteral = "'" + $uvCache.root.Replace("'", "''") + "'"
 $instructionMode = "file"
 $instructionLine = 0
 $promptSource = if (@($instructionCandidates).Count -gt 0) {
@@ -216,15 +231,23 @@ Treat the current working directory as the task's /app directory. If the instruc
 Set-Content -LiteralPath $adaptedPrompt -Encoding UTF8 -Value ($originalPromptText.TrimEnd() + $runnerNote)
 $promptSource = $adaptedPrompt
 $fixtureMode = "environment"
+$generatedFixtureAllowlist = @()
 $fixtureSource = if (Test-Path -LiteralPath $fixtureSource) {
+    $generatedFixtureAllowlist = @("environment")
     $fixtureSource
 } else {
     $fixtureMode = "generated_public_allowlist"
     $generatedFixture = New-TaskspaceExternalDir (Join-Path $generatedDir "terminal-bench-$($SampleId -replace '[^A-Za-z0-9_.-]', '_')-fixture")
-    foreach ($name in @("Dockerfile", "docker-compose.yaml", "task.yaml")) {
-        $source = Join-Path $taskRoot $name
-        if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination $generatedFixture -Force }
+    $copiedFiles = New-Object System.Collections.Generic.List[string]
+    foreach ($file in Get-ChildItem -LiteralPath $taskRoot -Recurse -File -Force) {
+        $relative = $file.FullName.Substring($taskRoot.Length).TrimStart("\", "/").Replace("\", "/")
+        if (-not (Test-TerminalBenchPublicFixtureRelativePath $relative)) { continue }
+        $dest = Join-Path $generatedFixture ($relative.Replace("/", [System.IO.Path]::DirectorySeparatorChar))
+        New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
+        Copy-Item -LiteralPath $file.FullName -Destination $dest -Force
+        $copiedFiles.Add($relative)
     }
+    $generatedFixtureAllowlist = @($copiedFiles.ToArray())
     $generatedFixture
 }
 $validatorSourceDir = New-TaskspaceExternalDir (Join-Path $generatedDir "terminal-bench-$($SampleId -replace '[^A-Za-z0-9_.-]', '_')-validator-source")
@@ -318,6 +341,7 @@ $validatorLines = @(
     '$entryContent = @''',
     'set -euo pipefail',
     'export TEST_DIR=/tests',
+    'export PATH=/tbench-uv-cache/bin:$PATH',
     'cd /app',
     'echo validator_proof_nonce=$WHALE_TBENCH_PROOF_NONCE',
     'echo validator_runtime=terminal_bench_equivalent_docker_app',
@@ -340,6 +364,10 @@ $validatorLines = @(
     '$repoDockerPath = ConvertTo-DockerPath $repoDir $backend',
     '$validatorDockerPath = ConvertTo-DockerPath $validatorSource $backend',
     '$entryDockerPath = ConvertTo-DockerPath $entryScript $backend',
+    "`$uvCacheDir = $uvCacheLiteral",
+    '$uvCacheDockerPath = ConvertTo-DockerPath $uvCacheDir $backend',
+    '$uvInstallPath = Join-Path $uvCacheDir "install.sh"',
+    '$uvArchivePath = Join-Path $uvCacheDir "uv-x86_64-unknown-linux-gnu.tar.gz"',
     'Write-Host "validator_runtime_probe=terminal_bench_equivalent_wrapper"',
     'Write-Host "validator_proof_nonce=$proofNonce"',
     'Write-Host "validator_wrapper_sha256=$wrapperSha"',
@@ -364,6 +392,10 @@ $validatorLines = @(
     '    validator_mount = $validatorDockerPath',
     '    validator_container_path = "/tests"',
     '    entry_mount = $entryDockerPath',
+    '    uv_cache_mount = $uvCacheDockerPath',
+    '    uv_cache_container_path = "/tbench-uv-cache"',
+    '    uv_installer_sha256 = if (Test-Path -LiteralPath $uvInstallPath) { (Get-FileHash -Algorithm SHA256 -LiteralPath $uvInstallPath).Hash.ToLowerInvariant() } else { "" }',
+    '    uv_archive_sha256 = if (Test-Path -LiteralPath $uvArchivePath) { (Get-FileHash -Algorithm SHA256 -LiteralPath $uvArchivePath).Hash.ToLowerInvariant() } else { "" }',
     '    validator_command = "bash /tests/run-tests.sh"',
     '} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $runtimeManifestPath -Encoding UTF8',
     'Write-Host "validator_runtime_manifest_path=$runtimeManifestPath"',
@@ -374,6 +406,10 @@ $validatorLines = @(
     'foreach ($proxyName in @("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")) {',
     '    $proxyValue = [Environment]::GetEnvironmentVariable($proxyName)',
     '    if ([string]::IsNullOrWhiteSpace($proxyValue)) { continue }',
+    '    if ($backend -eq "wsl" -and $proxyValue -match "://(127\.0\.0\.1|localhost):") {',
+    '        Write-Host "proxy_env_skipped_loopback=$proxyName"',
+    '        continue',
+    '    }',
     '    if ($backend -ne "wsl") {',
     '        $proxyValue = $proxyValue -replace "://127\.0\.0\.1:", "://host.docker.internal:"',
     '        $proxyValue = $proxyValue -replace "://localhost:", "://host.docker.internal:"',
@@ -393,6 +429,7 @@ $validatorLines = @(
     '        "-v", "${repoDockerPath}:/app",',
     '        "-v", "${validatorDockerPath}:/tests:ro",',
     '        "-v", "${entryDockerPath}:/tbench-entry.sh:ro",',
+    '        "-v", "${uvCacheDockerPath}:/tbench-uv-cache:ro",',
     '        "-w", "/app",',
     '        "-e", "TEST_DIR=/tests",',
     '        "-e", "WHALE_TBENCH_PROOF_NONCE=$proofNonce",',
@@ -432,7 +469,8 @@ $adapterMetadata = [ordered]@{
     instruction_extraction_mode = $instructionMode
     instruction_line = $instructionLine
     fixture_mode = $fixtureMode
-    generated_fixture_allowlist = @("Dockerfile", "docker-compose.yaml", "task.yaml")
+    generated_fixture_allowlist = @($generatedFixtureAllowlist)
+    validator_dependency_cache = $uvCache
     prompt_adaptation = "current_working_directory_is_terminal_bench_app"
     original_instruction_sha256 = (Get-TaskspaceExternalFileSha256 $originalPromptSource)
     solution_visible_to_agent = $false
