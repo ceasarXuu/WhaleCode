@@ -4,6 +4,8 @@
 import type { ActionMapSnapshotMaintenanceBarrier } from "./ActionMapSnapshotMaintenanceBarrier";
 import type { ActionMapSnapshotMap } from "./ActionMapSnapshotMap";
 import type { ActionMapSnapshotTask } from "./ActionMapSnapshotTask";
+import type { ActionMapSnapshotTraceEventRef } from "./ActionMapSnapshotTraceEventRef";
+import type { ActionMapSnapshotTraceSummary } from "./ActionMapSnapshotTraceSummary";
 import type { MapRuntimeMode } from "./MapRuntimeMode";
 
-export type ActionMapSnapshot = { mode: MapRuntimeMode, routingRequired: boolean, bootstrapRequired: boolean, rebornRequested: boolean, activeTaskId: string | null, activeMapId: string | null, tasks: Array<ActionMapSnapshotTask>, maps: Array<ActionMapSnapshotMap>, maintenanceBarriers: Array<ActionMapSnapshotMaintenanceBarrier>, };
+export type ActionMapSnapshot = { mode: MapRuntimeMode, routingRequired: boolean, bootstrapRequired: boolean, rebornRequested: boolean, activeTaskId: string | null, activeMapId: string | null, tasks: Array<ActionMapSnapshotTask>, maps: Array<ActionMapSnapshotMap>, maintenanceBarriers: Array<ActionMapSnapshotMaintenanceBarrier>, traceSummary: ActionMapSnapshotTraceSummary, traceEvents: Array<ActionMapSnapshotTraceEventRef>, };

@@ -9,6 +9,7 @@ pub(crate) type AssignmentLeaseId = String;
 pub(crate) type MapNodeId = String;
 pub(crate) type NodeResultId = String;
 pub(crate) type TaskId = String;
+pub(crate) type TaskSpaceTraceEventId = String;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TaskStatus {
@@ -318,6 +319,22 @@ pub(crate) struct NodeResult {
     pub(crate) tool_success: Option<bool>,
     pub(crate) body: String,
     pub(crate) source_thread_id: ThreadId,
+    pub(crate) created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskSpaceTraceEvent {
+    pub(crate) id: TaskSpaceTraceEventId,
+    pub(crate) kind: String,
+    pub(crate) task_id: Option<TaskId>,
+    pub(crate) map_id: ActionMapId,
+    pub(crate) node_id: MapNodeId,
+    pub(crate) result_id: Option<NodeResultId>,
+    pub(crate) call_id: Option<String>,
+    pub(crate) action_class: Option<ActionClass>,
+    pub(crate) tool_success: Option<bool>,
+    pub(crate) tags: Vec<String>,
+    pub(crate) artifact_refs: Vec<String>,
     pub(crate) created_at_ms: i64,
 }
 

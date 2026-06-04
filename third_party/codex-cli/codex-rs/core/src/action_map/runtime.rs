@@ -13,6 +13,8 @@ use codex_protocol::protocol::ActionMapSnapshotMap;
 use codex_protocol::protocol::ActionMapSnapshotNode;
 use codex_protocol::protocol::ActionMapSnapshotResult;
 use codex_protocol::protocol::ActionMapSnapshotTask;
+use codex_protocol::protocol::ActionMapSnapshotTraceEventRef;
+use codex_protocol::protocol::ActionMapSnapshotTraceSummary;
 use codex_protocol::protocol::AgentStatus;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeLeaseAttachedEvent;
@@ -32,6 +34,7 @@ use codex_protocol::protocol::MapRuntimeTaskRoutedEvent;
 use codex_protocol::protocol::MapRuntimeTaskStatusChangedEvent;
 use codex_protocol::protocol::MapRuntimeTimeoutSummaryRequestedEvent;
 use codex_protocol::protocol::MapRuntimeToolActionBlockedEvent;
+use codex_protocol::protocol::MapRuntimeTraceEventRecordedEvent;
 
 use super::basemap::BASE_MAP;
 use super::basemap::base_map_metadata_prompt;
@@ -55,6 +58,7 @@ use super::map::NodeResultKind;
 use super::map::NodeResultRef;
 use super::map::NodeStatus;
 use super::map::TaskId;
+use super::map::TaskSpaceTraceEvent;
 use super::map::TaskState;
 use super::map::TaskStatus;
 use super::map::ToolActionDescriptor;
@@ -147,11 +151,13 @@ pub(crate) struct ActionMapRuntimeState {
     child_tool_reservations: HashMap<String, ChildToolReservation>,
     tasks: HashMap<TaskId, TaskState>,
     maps: HashMap<ActionMapId, ActionMapInstance>,
+    taskspace_trace_events: Vec<TaskSpaceTraceEvent>,
     next_task_seq: u64,
     next_map_seq: u64,
     next_node_seq: u64,
     next_lease_seq: u64,
     next_result_seq: u64,
+    next_trace_event_seq: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -171,6 +177,19 @@ struct ChildToolReservation {
     lease_id: AssignmentLeaseId,
     tool_name: String,
     action_class: ActionClass,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MainToolTraceDraft {
+    task_id: Option<TaskId>,
+    map_id: ActionMapId,
+    node_id: MapNodeId,
+    result_id: NodeResultId,
+    call_id: String,
+    tool_name: String,
+    action_class: Option<ActionClass>,
+    tool_success: bool,
+    created_at_ms: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -245,11 +264,13 @@ impl Default for ActionMapRuntimeState {
             child_tool_reservations: HashMap::new(),
             tasks: HashMap::new(),
             maps: HashMap::new(),
+            taskspace_trace_events: Vec::new(),
             next_task_seq: 1,
             next_map_seq: 1,
             next_node_seq: 1,
             next_lease_seq: 1,
             next_result_seq: 1,
+            next_trace_event_seq: 1,
         }
     }
 }
@@ -345,6 +366,27 @@ impl ActionMapRuntimeState {
         self.current_main_lease_id = None;
         self.main_tool_reservations.clear();
         self.child_tool_reservations.clear();
+        self.taskspace_trace_events = snapshot
+            .trace_events
+            .into_iter()
+            .map(|event| TaskSpaceTraceEvent {
+                id: event.id,
+                kind: event.kind,
+                task_id: event.task_id,
+                map_id: event.map_id,
+                node_id: event.node_id,
+                result_id: event.result_id,
+                call_id: event.call_id,
+                action_class: event
+                    .action_class
+                    .as_deref()
+                    .and_then(ActionClass::from_str),
+                tool_success: event.tool_success,
+                tags: sanitize_trace_tags(event.tags),
+                artifact_refs: event.artifact_refs,
+                created_at_ms: event.created_at_ms,
+            })
+            .collect();
 
         self.tasks = snapshot
             .tasks
@@ -518,6 +560,10 @@ impl ActionMapRuntimeState {
             self.maps.values().flat_map(|map| map.results.keys()),
             "result-",
         );
+        self.next_trace_event_seq = next_numeric_seq(
+            self.taskspace_trace_events.iter().map(|event| &event.id),
+            "trace-",
+        );
         if self.mode != MapRuntimeMode::Experiment {
             self.routing_required = false;
             self.bootstrap_required = false;
@@ -577,6 +623,11 @@ impl ActionMapRuntimeState {
             .map(snapshot_maintenance_barrier)
             .collect::<Vec<_>>();
         maintenance_barriers.sort_by(|left, right| left.map_id.cmp(&right.map_id));
+        let trace_events = self
+            .taskspace_trace_events
+            .iter()
+            .map(snapshot_trace_event_ref)
+            .collect::<Vec<_>>();
         ActionMapSnapshot {
             mode: self.mode,
             routing_required: self.routing_required,
@@ -587,6 +638,8 @@ impl ActionMapRuntimeState {
             tasks,
             maps,
             maintenance_barriers,
+            trace_summary: trace_summary(&trace_events),
+            trace_events,
         }
     }
 
@@ -815,6 +868,7 @@ impl ActionMapRuntimeState {
             )
         };
         let result_id = self.next_result_id();
+        let created_at_ms = now_ms();
         let body = format!(
             "Main tool call\n\
 tool: {recorded_tool_name}\n\
@@ -827,31 +881,62 @@ preview:\n\
                 .map(ActionClass::as_str)
                 .unwrap_or("unspecified")
         );
-        let map = self
-            .maps
-            .get_mut(&map_id)
-            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-        let node = map
-            .nodes
-            .get_mut(&node_id)
-            .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
+        let (task_id, raised_barrier) = {
+            let map = self
+                .maps
+                .get_mut(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            let task_id = map.task_id.clone();
+            let node = map
+                .nodes
+                .get_mut(&node_id)
+                .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
 
-        let result = NodeResult {
-            id: result_id.clone(),
-            assignment_id: lease_id.clone(),
+            let result = NodeResult {
+                id: result_id.clone(),
+                assignment_id: lease_id.clone(),
+                map_id: map_id.clone(),
+                node_id: node_id.clone(),
+                kind: NodeResultKind::MainToolCall,
+                action_class: recorded_action_class,
+                tool_success: Some(success),
+                body,
+                source_thread_id: owner_session_id,
+                created_at_ms,
+            };
+            map.results.insert(result_id.clone(), result);
+            node.result_context.push(NodeResultRef {
+                id: result_id.clone(),
+                kind: NodeResultKind::MainToolCall,
+            });
+            let main_tool_result_count =
+                count_node_results_of_kind(node, NodeResultKind::MainToolCall);
+            let budget = contract_for(node.kind).max_main_tool_results_before_split_hint;
+            let raised_barrier = if main_tool_result_count >= budget
+                && !self.maintenance_barriers.contains_key(&map_id)
+            {
+                Some(ActionMapMaintenanceBarrier {
+                    map_id: map_id.clone(),
+                    node_id: node_id.clone(),
+                    reason: MaintenanceBarrierReason::NodeToolResultBudgetExceeded,
+                    result_count: main_tool_result_count,
+                    budget,
+                })
+            } else {
+                None
+            };
+            (task_id, raised_barrier)
+        };
+        let trace_event = self.append_main_tool_trace_event(MainToolTraceDraft {
+            task_id,
             map_id: map_id.clone(),
             node_id: node_id.clone(),
-            kind: NodeResultKind::MainToolCall,
+            result_id: result_id.clone(),
+            call_id: call_id.to_string(),
+            tool_name: recorded_tool_name,
             action_class: recorded_action_class,
-            tool_success: Some(success),
-            body,
-            source_thread_id: owner_session_id,
-            created_at_ms: now_ms(),
-        };
-        map.results.insert(result_id.clone(), result);
-        node.result_context.push(NodeResultRef {
-            id: result_id.clone(),
-            kind: NodeResultKind::MainToolCall,
+            tool_success: success,
+            created_at_ms,
         });
         let mut events = vec![MapRuntimeEvent::NodeResultRecorded(
             MapRuntimeNodeResultRecordedEvent {
@@ -864,16 +949,8 @@ preview:\n\
                 source_thread_id: owner_session_id,
             },
         )];
-        let main_tool_result_count = count_node_results_of_kind(node, NodeResultKind::MainToolCall);
-        let budget = contract_for(node.kind).max_main_tool_results_before_split_hint;
-        if main_tool_result_count >= budget && !self.maintenance_barriers.contains_key(&map_id) {
-            let barrier = ActionMapMaintenanceBarrier {
-                map_id: map_id.clone(),
-                node_id: node_id.clone(),
-                reason: MaintenanceBarrierReason::NodeToolResultBudgetExceeded,
-                result_count: main_tool_result_count,
-                budget,
-            };
+        events.push(trace_event);
+        if let Some(barrier) = raised_barrier {
             events.push(maintenance_barrier_raised_event(&barrier));
             self.maintenance_barriers.insert(map_id.clone(), barrier);
         }
@@ -3239,6 +3316,40 @@ preview:\n\
         })
     }
 
+    fn append_main_tool_trace_event(&mut self, draft: MainToolTraceDraft) -> MapRuntimeEvent {
+        let id = self.next_trace_event_id();
+        let tags = trace_tags_for(draft.action_class, draft.tool_success, &draft.tool_name);
+        let event = TaskSpaceTraceEvent {
+            id: id.clone(),
+            kind: "main_tool_result".to_string(),
+            task_id: draft.task_id,
+            map_id: draft.map_id,
+            node_id: draft.node_id,
+            result_id: Some(draft.result_id),
+            call_id: Some(draft.call_id),
+            action_class: draft.action_class,
+            tool_success: Some(draft.tool_success),
+            tags,
+            artifact_refs: Vec::new(),
+            created_at_ms: draft.created_at_ms,
+        };
+        self.taskspace_trace_events.push(event.clone());
+        MapRuntimeEvent::TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent {
+            trace_event_id: id,
+            kind: event.kind,
+            task_id: event.task_id,
+            map_id: event.map_id,
+            node_id: event.node_id,
+            result_id: event.result_id,
+            call_id: event.call_id,
+            action_class: event.action_class.map(|class| class.as_str().to_string()),
+            tool_success: event.tool_success,
+            tags: event.tags,
+            artifact_refs: event.artifact_refs,
+            created_at_ms: event.created_at_ms,
+        })
+    }
+
     fn next_task_id(&mut self) -> TaskId {
         let id = format!("task-{}", self.next_task_seq);
         self.next_task_seq += 1;
@@ -3270,6 +3381,12 @@ preview:\n\
     fn next_result_id(&mut self) -> NodeResultId {
         let id = format!("result-{}", self.next_result_seq);
         self.next_result_seq += 1;
+        id
+    }
+
+    fn next_trace_event_id(&mut self) -> String {
+        let id = format!("trace-{}", self.next_trace_event_seq);
+        self.next_trace_event_seq += 1;
         id
     }
 }
@@ -3306,6 +3423,22 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
     output.push('\n');
     output.push_str("- active map: ");
     output.push_str(snapshot.active_map_id.as_deref().unwrap_or("none"));
+    output.push('\n');
+    output.push_str("- trace events: total=");
+    output.push_str(&snapshot.trace_summary.total_event_count.to_string());
+    output.push_str(", tools=");
+    output.push_str(&snapshot.trace_summary.tool_call_count.to_string());
+    output.push_str(", failed_tools=");
+    output.push_str(&snapshot.trace_summary.failed_tool_call_count.to_string());
+    output.push_str(", validator_failures=");
+    output.push_str(&snapshot.trace_summary.validator_failure_count.to_string());
+    output.push_str(", unclassified_shell=");
+    output.push_str(
+        &snapshot
+            .trace_summary
+            .unclassified_shell_action_count
+            .to_string(),
+    );
     output.push('\n');
     if !snapshot.tasks.is_empty() {
         output.push_str("\nTasks:\n");
@@ -3635,6 +3768,102 @@ fn snapshot_maintenance_barrier(
         result_count: barrier.result_count,
         budget: barrier.budget,
     }
+}
+
+fn snapshot_trace_event_ref(event: &TaskSpaceTraceEvent) -> ActionMapSnapshotTraceEventRef {
+    ActionMapSnapshotTraceEventRef {
+        id: event.id.clone(),
+        kind: event.kind.clone(),
+        task_id: event.task_id.clone(),
+        map_id: event.map_id.clone(),
+        node_id: event.node_id.clone(),
+        result_id: event.result_id.clone(),
+        call_id: event.call_id.clone(),
+        action_class: event.action_class.map(|class| class.as_str().to_string()),
+        tool_success: event.tool_success,
+        tags: event.tags.clone(),
+        artifact_refs: event.artifact_refs.clone(),
+        created_at_ms: event.created_at_ms,
+    }
+}
+
+fn trace_summary(events: &[ActionMapSnapshotTraceEventRef]) -> ActionMapSnapshotTraceSummary {
+    ActionMapSnapshotTraceSummary {
+        total_event_count: events.len(),
+        tool_call_count: events
+            .iter()
+            .filter(|event| event.kind == "main_tool_result")
+            .count(),
+        failed_tool_call_count: events
+            .iter()
+            .filter(|event| event.tool_success == Some(false))
+            .count(),
+        validator_failure_count: events
+            .iter()
+            .filter(|event| event.tags.iter().any(|tag| tag == "validator_failure"))
+            .count(),
+        unclassified_shell_action_count: events
+            .iter()
+            .filter(|event| {
+                event
+                    .tags
+                    .iter()
+                    .any(|tag| tag == "unclassified_shell_action")
+            })
+            .count(),
+    }
+}
+
+fn trace_tags_for(
+    action_class: Option<ActionClass>,
+    success: bool,
+    tool_name: &str,
+) -> Vec<String> {
+    let mut tags = Vec::new();
+    tags.push(if success {
+        "tool_success".to_string()
+    } else {
+        "tool_failure".to_string()
+    });
+    match action_class {
+        Some(ActionClass::Build | ActionClass::Test) if success => {
+            tags.push("validator_success".to_string());
+        }
+        Some(ActionClass::Build | ActionClass::Test) => {
+            tags.push("validator_failure".to_string());
+        }
+        Some(ActionClass::Unknown) | None if looks_like_shell_tool(tool_name) => {
+            tags.push("unclassified_shell_action".to_string());
+        }
+        Some(ActionClass::Unknown) | None => {
+            tags.push("unclassified_tool_action".to_string());
+        }
+        _ => {}
+    }
+    tags
+}
+
+fn sanitize_trace_tags(tags: Vec<String>) -> Vec<String> {
+    tags.into_iter()
+        .filter(|tag| is_known_trace_tag(tag))
+        .collect()
+}
+
+fn is_known_trace_tag(tag: &str) -> bool {
+    matches!(
+        tag,
+        "tool_success"
+            | "tool_failure"
+            | "validator_success"
+            | "validator_failure"
+            | "unclassified_shell_action"
+            | "unclassified_tool_action"
+    )
+}
+
+fn looks_like_shell_tool(tool_name: &str) -> bool {
+    let normalized = tool_name.to_ascii_lowercase();
+    normalized.contains("shell") || normalized.contains("command")
 }
 
 fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
@@ -4469,7 +4698,8 @@ mod tests {
     }
 
     #[test]
-    fn cognitive_preflight_contract_sketch_audit_rejects_accepted_result_without_claims_or_evidence() {
+    fn cognitive_preflight_contract_sketch_audit_rejects_accepted_result_without_claims_or_evidence()
+     {
         let record = PreflightCognitiveAuditRecord {
             promotion_not_in_mvp: true,
             output_contract_present: true,
@@ -4524,7 +4754,8 @@ mod tests {
     }
 
     #[test]
-    fn cognitive_preflight_contract_sketch_audit_rejects_questioned_or_invalid_result_dependencies() {
+    fn cognitive_preflight_contract_sketch_audit_rejects_questioned_or_invalid_result_dependencies()
+    {
         for (validity, expected_gate) in [
             (
                 PreflightResultValidity::Questioned,
@@ -4652,6 +4883,479 @@ mod tests {
         assert_eq!(result.action_class.as_deref(), Some("test"));
         assert_eq!(result.tool_success, Some(true));
         assert_eq!(result.source_thread_id, owner);
+    }
+
+    #[test]
+    fn standard_mode_does_not_record_taskspace_trace() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+
+        let outcome = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-ignored",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "pytest failed".to_string(),
+            )
+            .expect("standard mode ignores taskspace tool result recording");
+
+        let snapshot = state.snapshot();
+        assert!(outcome.is_none());
+        assert_eq!(snapshot.trace_summary.total_event_count, 0);
+        assert_eq!(snapshot.trace_summary.tool_call_count, 0);
+        assert!(snapshot.trace_events.is_empty());
+    }
+
+    #[test]
+    fn experiment_main_tool_result_records_structured_trace_event() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (task_id, map_id, node_id, _) = start_test_task(
+            &mut state,
+            owner,
+            "Run diagnostics",
+            "Collect failing test evidence.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest")
+                    .with_call_id("call-test"),
+            )
+            .expect("diagnostic test is allowed");
+        let (result_id, result_events) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "pytest failed".to_string(),
+            )
+            .expect("structured test result records")
+            .expect("result is recorded");
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.trace_summary.total_event_count, 1);
+        assert_eq!(snapshot.trace_summary.tool_call_count, 1);
+        assert_eq!(snapshot.trace_summary.failed_tool_call_count, 1);
+        assert_eq!(snapshot.trace_summary.validator_failure_count, 1);
+        assert!(matches!(
+            &result_events[0],
+            MapRuntimeEvent::NodeResultRecorded(event)
+                if event.result_id == result_id && event.action_class.as_deref() == Some("test")
+        ));
+        assert!(matches!(
+            &result_events[1],
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                if event.trace_event_id == "trace-1"
+                    && event.result_id.as_deref() == Some(result_id.as_str())
+                    && event.action_class.as_deref() == Some("test")
+                    && event.tool_success == Some(false)
+                    && !event.tags.iter().any(|tag| tag.contains("pytest"))
+        ));
+        let trace = snapshot
+            .trace_events
+            .first()
+            .expect("trace event is exposed");
+        assert_eq!(trace.id, "trace-1");
+        assert_eq!(trace.kind, "main_tool_result");
+        assert_eq!(trace.task_id.as_deref(), Some(task_id.as_str()));
+        assert_eq!(trace.map_id, map_id);
+        assert_eq!(trace.node_id, node_id);
+        assert_eq!(trace.result_id.as_deref(), Some(result_id.as_str()));
+        assert_eq!(trace.call_id.as_deref(), Some("call-test"));
+        assert_eq!(trace.action_class.as_deref(), Some("test"));
+        assert_eq!(trace.tool_success, Some(false));
+        assert!(trace.tags.iter().any(|tag| tag == "tool_failure"));
+        assert!(trace.tags.iter().any(|tag| tag == "validator_failure"));
+        assert!(trace.artifact_refs.is_empty());
+    }
+
+    #[test]
+    fn experiment_trace_records_read_edit_and_test_actions() {
+        let cases = [
+            (
+                NodeKind::InspectCodeContext,
+                "shell_command",
+                ActionClass::Read,
+                true,
+                vec!["tool_success"],
+                vec!["validator_success", "validator_failure"],
+            ),
+            (
+                NodeKind::ImplementSolution,
+                "apply_patch",
+                ActionClass::Edit,
+                true,
+                vec!["tool_success"],
+                vec!["validator_success", "validator_failure"],
+            ),
+            (
+                NodeKind::SmokeTest,
+                "shell_command",
+                ActionClass::Test,
+                false,
+                vec!["tool_failure", "validator_failure"],
+                vec!["validator_success"],
+            ),
+        ];
+
+        for (index, (node_kind, tool_name, action_class, success, expected_tags, forbidden_tags)) in
+            cases.into_iter().enumerate()
+        {
+            let mut state = ActionMapRuntimeState::default();
+            let owner = ThreadId::new();
+            state.set_mode(MapRuntimeMode::Experiment);
+            state
+                .start_task_for_main_with_kind(
+                    owner,
+                    node_kind,
+                    format!("Trace action {index}"),
+                    "Record action trace.".to_string(),
+                    format!("Node {index}"),
+                    "Current action node.".to_string(),
+                    true,
+                )
+                .expect("task starts");
+
+            state
+                .prepare_main_tool_call(
+                    owner,
+                    ToolActionDescriptor::new(tool_name, action_class, action_class.as_str())
+                        .with_call_id(format!("call-{index}")),
+                )
+                .expect("tool is allowed by node contract");
+            let (result_id, events) = state
+                .record_main_tool_result_with_class(
+                    owner,
+                    &format!("call-{index}"),
+                    tool_name,
+                    Some(action_class),
+                    success,
+                    format!("{} preview", action_class.as_str()),
+                )
+                .expect("tool result records")
+                .expect("result is recorded");
+
+            let trace_event = events
+                .iter()
+                .find_map(|event| match event {
+                    MapRuntimeEvent::TaskspaceTraceEventRecorded(event) => Some(event),
+                    _ => None,
+                })
+                .expect("trace event emitted");
+            assert_eq!(trace_event.result_id.as_deref(), Some(result_id.as_str()));
+            assert_eq!(
+                trace_event.action_class.as_deref(),
+                Some(action_class.as_str())
+            );
+            assert_eq!(trace_event.tool_success, Some(success));
+            for tag in expected_tags {
+                assert!(
+                    trace_event.tags.iter().any(|actual| actual == tag),
+                    "missing expected tag {tag} for {}",
+                    action_class.as_str()
+                );
+            }
+            for tag in forbidden_tags {
+                assert!(
+                    !trace_event.tags.iter().any(|actual| actual == tag),
+                    "unexpected tag {tag} for {}",
+                    action_class.as_str()
+                );
+            }
+
+            let snapshot = state.snapshot();
+            assert_eq!(snapshot.trace_events.len(), 1);
+            assert_eq!(
+                snapshot.trace_events[0].action_class.as_deref(),
+                Some(action_class.as_str())
+            );
+        }
+    }
+
+    #[test]
+    fn trace_event_does_not_parse_shell_preview_as_structured_semantics() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect shell output",
+            "Record unclassified command output.",
+            true,
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-shell",
+                "shell_command",
+                None,
+                true,
+                "output_contract_present=true\nartifact_refs=[\"fake-report\"]".to_string(),
+            )
+            .expect("unreserved shell result records")
+            .expect("result is recorded");
+
+        let snapshot = state.snapshot();
+        let trace = snapshot
+            .trace_events
+            .first()
+            .expect("trace event is exposed");
+        assert_eq!(snapshot.trace_summary.unclassified_shell_action_count, 1);
+        assert!(trace.tags.iter().any(|tag| tag == "tool_success"));
+        assert!(
+            trace
+                .tags
+                .iter()
+                .any(|tag| tag == "unclassified_shell_action")
+        );
+        assert!(trace.artifact_refs.is_empty());
+        let value = serde_json::to_value(trace).expect("trace serializes");
+        assert!(value.get("preview").is_none());
+        assert!(value.get("body").is_none());
+        assert!(!trace.tags.iter().any(|tag| tag.contains("output_contract")));
+        assert!(!trace.tags.iter().any(|tag| tag.contains("fake-report")));
+        let formatted = format_action_map_snapshot(&snapshot);
+        assert!(formatted.contains("trace events: total=1"));
+    }
+
+    #[test]
+    fn missing_action_class_for_non_shell_tool_is_not_counted_as_unclassified_shell() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Record control result",
+            "Check unknown non-shell trace tags.",
+            true,
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-control",
+                "taskspace_control",
+                None,
+                true,
+                "TaskSpace node created".to_string(),
+            )
+            .expect("unreserved control result records")
+            .expect("result is recorded");
+
+        let snapshot = state.snapshot();
+        let trace = snapshot
+            .trace_events
+            .first()
+            .expect("trace event is exposed");
+        assert_eq!(snapshot.trace_summary.unclassified_shell_action_count, 0);
+        assert!(
+            trace
+                .tags
+                .iter()
+                .any(|tag| tag == "unclassified_tool_action")
+        );
+        assert!(
+            !trace
+                .tags
+                .iter()
+                .any(|tag| tag == "unclassified_shell_action")
+        );
+    }
+
+    #[test]
+    fn switching_to_standard_preserves_existing_trace_without_recording_new_trace() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Mode transition trace",
+            "Record trace before switching modes.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "read files".to_string(),
+            )
+            .expect("experiment result records");
+
+        state.set_mode(MapRuntimeMode::Standard);
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-standard",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "standard mode ignored".to_string(),
+            )
+            .expect("standard mode does not error");
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.mode, MapRuntimeMode::Standard);
+        assert_eq!(snapshot.trace_summary.total_event_count, 1);
+        assert_eq!(snapshot.trace_events[0].id, "trace-1");
+        assert_eq!(
+            snapshot.trace_events[0].call_id.as_deref(),
+            Some("call-read")
+        );
+    }
+
+    #[test]
+    fn trace_event_is_emitted_before_barrier_event_when_budget_is_exhausted() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Barrier order",
+            "Fill the main tool budget.",
+            true,
+        );
+
+        let events = fill_main_tool_budget(&mut state, owner);
+
+        assert!(matches!(
+            &events[0],
+            MapRuntimeEvent::NodeResultRecorded(event)
+                if event.result_id == format!("result-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}")
+        ));
+        assert!(matches!(
+            &events[1],
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                if event.trace_event_id == format!("trace-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}")
+        ));
+        assert!(matches!(
+            &events[2],
+            MapRuntimeEvent::MaintenanceBarrierRaised(event)
+                if event.result_count == MAIN_TOOL_RESULT_BUDGET_PER_NODE
+        ));
+    }
+
+    #[test]
+    fn restore_snapshot_preserves_trace_and_next_trace_sequence() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Restore trace",
+            "Check trace sequence after restore.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "read files".to_string(),
+            )
+            .expect("first result records");
+
+        let snapshot = state.snapshot();
+        let mut restored = ActionMapRuntimeState::default();
+        restored.restore_snapshot(snapshot);
+        restored
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("second result records after restore");
+
+        let restored_snapshot = restored.snapshot();
+        let trace_ids = restored_snapshot
+            .trace_events
+            .iter()
+            .map(|event| event.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(trace_ids, vec!["trace-1", "trace-2"]);
+        assert_eq!(restored_snapshot.trace_summary.total_event_count, 2);
+        assert_eq!(restored_snapshot.trace_summary.validator_failure_count, 0);
+    }
+
+    #[test]
+    fn restore_snapshot_sanitizes_unknown_trace_tags_before_summary_counts() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Sanitize trace tags",
+            "Record trace before restore.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "pytest failed".to_string(),
+            )
+            .expect("test result records");
+        let mut snapshot = state.snapshot();
+        let trace = snapshot
+            .trace_events
+            .first_mut()
+            .expect("trace event exists");
+        trace.tags.push("forged_future_semantic_tag".to_string());
+        trace.tags.push("output_contract_present".to_string());
+
+        let mut restored = ActionMapRuntimeState::default();
+        restored.restore_snapshot(snapshot);
+        let restored_snapshot = restored.snapshot();
+        let restored_trace = restored_snapshot
+            .trace_events
+            .first()
+            .expect("restored trace event");
+
+        assert!(restored_trace.tags.iter().any(|tag| tag == "tool_failure"));
+        assert!(
+            restored_trace
+                .tags
+                .iter()
+                .any(|tag| tag == "validator_failure")
+        );
+        assert!(
+            !restored_trace
+                .tags
+                .iter()
+                .any(|tag| tag == "forged_future_semantic_tag")
+        );
+        assert!(
+            !restored_trace
+                .tags
+                .iter()
+                .any(|tag| tag == "output_contract_present")
+        );
+        assert_eq!(restored_snapshot.trace_summary.validator_failure_count, 1);
     }
 
     #[test]
@@ -7286,6 +7990,7 @@ mod tests {
         let formatted = format_action_map_snapshot(&snapshot);
         assert!(formatted.contains("TaskSpace"));
         assert!(formatted.contains("mode: experiment"));
+        assert!(formatted.contains("trace events: total=0"));
         assert!(formatted.contains("define_scope"));
         assert!(formatted.contains("result-1 node=define_scope kind=result"));
         assert!(formatted.contains("scope is clear"));

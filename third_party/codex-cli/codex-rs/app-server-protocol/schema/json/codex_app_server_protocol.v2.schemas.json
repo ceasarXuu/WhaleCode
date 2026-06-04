@@ -176,6 +176,27 @@
             "$ref": "#/definitions/ActionMapSnapshotTask"
           },
           "type": "array"
+        },
+        "traceEvents": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/ActionMapSnapshotTraceEventRef"
+          },
+          "type": "array"
+        },
+        "traceSummary": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ActionMapSnapshotTraceSummary"
+            }
+          ],
+          "default": {
+            "failedToolCallCount": 0,
+            "toolCallCount": 0,
+            "totalEventCount": 0,
+            "unclassifiedShellActionCount": 0,
+            "validatorFailureCount": 0
+          }
         }
       },
       "required": [
@@ -516,6 +537,115 @@
         "objective",
         "status",
         "title"
+      ],
+      "type": "object"
+    },
+    "ActionMapSnapshotTraceEventRef": {
+      "properties": {
+        "actionClass": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "artifactRefs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "callId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "createdAtMs": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "mapId": {
+          "type": "string"
+        },
+        "nodeId": {
+          "type": "string"
+        },
+        "resultId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "taskId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "toolSuccess": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "artifactRefs",
+        "createdAtMs",
+        "id",
+        "kind",
+        "mapId",
+        "nodeId",
+        "tags"
+      ],
+      "type": "object"
+    },
+    "ActionMapSnapshotTraceSummary": {
+      "properties": {
+        "failedToolCallCount": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "toolCallCount": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "totalEventCount": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "unclassifiedShellActionCount": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "validatorFailureCount": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "failedToolCallCount",
+        "toolCallCount",
+        "totalEventCount",
+        "unclassifiedShellActionCount",
+        "validatorFailureCount"
       ],
       "type": "object"
     },

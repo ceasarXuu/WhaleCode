@@ -122,6 +122,8 @@ $useDefaultMatrix = -not $PSBoundParameters.ContainsKey("Package") -and -not $PS
 if ($useDefaultMatrix) {
     $testRuns = @(
         New-CargoTestRun "core-action-map" @("codex-core") "action_map"
+        New-CargoTestRun "core-taskspace-trace" @("codex-core") "taskspace_trace"
+        New-CargoTestRun "core-session-standard-trace" @("codex-core") "session_standard_mode_main_tool_result_does_not_record_trace"
         New-CargoTestRun "core-legacy-spawn-agent" @("codex-core") "legacy_spawn_agent"
         New-CargoTestRun "tools-spawn-agent" @("codex-tools") "spawn_agent"
         New-CargoTestRun "tools-multi-agent-task-names" @("codex-tools") "multi_agent_v2_uses_task_names"

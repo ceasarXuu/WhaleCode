@@ -1804,6 +1804,10 @@ pub struct ActionMapSnapshot {
     pub tasks: Vec<ActionMapSnapshotTask>,
     pub maps: Vec<ActionMapSnapshotMap>,
     pub maintenance_barriers: Vec<ActionMapSnapshotMaintenanceBarrier>,
+    #[serde(default)]
+    pub trace_summary: ActionMapSnapshotTraceSummary,
+    #[serde(default)]
+    pub trace_events: Vec<ActionMapSnapshotTraceEventRef>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -1903,6 +1907,35 @@ pub struct ActionMapSnapshotMaintenanceBarrier {
     pub reason: String,
     pub result_count: usize,
     pub budget: usize,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotTraceSummary {
+    pub total_event_count: usize,
+    pub tool_call_count: usize,
+    pub failed_tool_call_count: usize,
+    pub validator_failure_count: usize,
+    pub unclassified_shell_action_count: usize,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotTraceEventRef {
+    pub id: String,
+    pub kind: String,
+    pub task_id: Option<String>,
+    pub map_id: String,
+    pub node_id: String,
+    pub result_id: Option<String>,
+    pub call_id: Option<String>,
+    pub action_class: Option<String>,
+    pub tool_success: Option<bool>,
+    pub tags: Vec<String>,
+    pub artifact_refs: Vec<String>,
+    pub created_at_ms: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -2022,6 +2055,24 @@ pub struct MapRuntimeNodeResultRecordedEvent {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
+pub struct MapRuntimeTraceEventRecordedEvent {
+    pub trace_event_id: String,
+    pub kind: String,
+    pub task_id: Option<String>,
+    pub map_id: String,
+    pub node_id: String,
+    pub result_id: Option<String>,
+    pub call_id: Option<String>,
+    pub action_class: Option<String>,
+    pub tool_success: Option<bool>,
+    pub tags: Vec<String>,
+    pub artifact_refs: Vec<String>,
+    pub created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct MapRuntimeToolActionBlockedEvent {
     pub map_id: String,
     pub node_id: String,
@@ -2084,6 +2135,7 @@ pub enum MapRuntimeEvent {
     LeaseAttached(MapRuntimeLeaseAttachedEvent),
     LeaseReleased(MapRuntimeLeaseReleasedEvent),
     NodeResultRecorded(MapRuntimeNodeResultRecordedEvent),
+    TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent),
     ToolActionBlocked(MapRuntimeToolActionBlockedEvent),
     TimeoutSummaryRequested(MapRuntimeTimeoutSummaryRequestedEvent),
     MaintenanceBarrierRaised(MapRuntimeMaintenanceBarrierRaisedEvent),
@@ -5584,6 +5636,8 @@ mod tests {
         assert!(!snapshot.routing_required);
         assert!(!snapshot.bootstrap_required);
         assert!(!snapshot.reborn_requested);
+        assert_eq!(snapshot.trace_summary.total_event_count, 0);
+        assert!(snapshot.trace_events.is_empty());
         Ok(())
     }
 
@@ -5614,6 +5668,36 @@ mod tests {
         assert!(value.get("tool_success").is_none());
         assert!(value.get("map_id").is_none());
         assert!(value.get("node_id").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn map_runtime_trace_event_recorded_serializes_refs_without_raw_output() -> Result<()> {
+        let event =
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent {
+                trace_event_id: "trace-1".to_string(),
+                kind: "main_tool_result".to_string(),
+                task_id: Some("task-1".to_string()),
+                map_id: "map-1".to_string(),
+                node_id: "node-1".to_string(),
+                result_id: Some("result-1".to_string()),
+                call_id: Some("call-1".to_string()),
+                action_class: Some("test".to_string()),
+                tool_success: Some(false),
+                tags: vec!["tool_failure".to_string(), "validator_failure".to_string()],
+                artifact_refs: Vec::new(),
+                created_at_ms: 1234,
+            });
+
+        let value = serde_json::to_value(&event)?;
+
+        assert_eq!(value["type"], "taskspace_trace_event_recorded");
+        assert_eq!(value["traceEventId"], "trace-1");
+        assert_eq!(value["resultId"], "result-1");
+        assert_eq!(value["actionClass"], "test");
+        assert_eq!(value["toolSuccess"], false);
+        assert!(value.get("preview").is_none());
+        assert!(value.get("body").is_none());
         Ok(())
     }
 

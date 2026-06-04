@@ -83,6 +83,112 @@ fn action_map_snapshot_result_schema_exposes_tool_success() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
+    let schema_root = schema_root()?;
+
+    let typescript_tree = read_tree(&schema_root, "typescript")?;
+    let action_map_snapshot_ts = fixture_utf8(
+        &typescript_tree,
+        Path::new("ActionMapSnapshot.ts"),
+        "typescript",
+    )?;
+    assert!(
+        action_map_snapshot_ts.contains("traceSummary: ActionMapSnapshotTraceSummary"),
+        "ActionMapSnapshot TypeScript fixture must expose traceSummary"
+    );
+    assert!(
+        action_map_snapshot_ts.contains("traceEvents: Array<ActionMapSnapshotTraceEventRef>"),
+        "ActionMapSnapshot TypeScript fixture must expose traceEvents"
+    );
+    let trace_ref_ts = fixture_utf8(
+        &typescript_tree,
+        Path::new("ActionMapSnapshotTraceEventRef.ts"),
+        "typescript",
+    )?;
+    assert!(trace_ref_ts.contains("resultId: string | null"));
+    assert!(trace_ref_ts.contains("toolSuccess: boolean | null"));
+    assert!(!trace_ref_ts.contains("preview"));
+    assert!(!trace_ref_ts.contains("body"));
+
+    let json_tree = read_tree(&schema_root, "json")?;
+    for bundle_path in [
+        "codex_app_server_protocol.schemas.json",
+        "codex_app_server_protocol.v2.schemas.json",
+    ] {
+        let json = fixture_utf8(&json_tree, Path::new(bundle_path), "json")?;
+        let value: Value = serde_json::from_str(json)
+            .with_context(|| format!("parse {bundle_path} schema fixture"))?;
+        let snapshot_schema = action_map_snapshot_schema(&value)
+            .with_context(|| format!("locate ActionMapSnapshot in {bundle_path}"))?;
+        let snapshot_properties = snapshot_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .context("ActionMapSnapshot properties")?;
+        anyhow::ensure!(
+            snapshot_properties.contains_key("traceSummary"),
+            "{bundle_path} must expose traceSummary"
+        );
+        anyhow::ensure!(
+            snapshot_properties.contains_key("traceEvents"),
+            "{bundle_path} must expose traceEvents"
+        );
+        assert_eq!(
+            snapshot_properties
+                .get("traceEvents")
+                .and_then(|property| property.get("default")),
+            Some(&serde_json::json!([])),
+            "{bundle_path} must default traceEvents to an empty array"
+        );
+        assert_eq!(
+            snapshot_properties
+                .get("traceSummary")
+                .and_then(|property| property.get("default")),
+            Some(&serde_json::json!({
+                "failedToolCallCount": 0,
+                "toolCallCount": 0,
+                "totalEventCount": 0,
+                "unclassifiedShellActionCount": 0,
+                "validatorFailureCount": 0,
+            })),
+            "{bundle_path} must default traceSummary to empty counts"
+        );
+        let required = snapshot_schema
+            .get("required")
+            .and_then(Value::as_array)
+            .context("ActionMapSnapshot required fields")?;
+        anyhow::ensure!(
+            !required.iter().any(|field| field == "traceSummary"),
+            "{bundle_path} must not require traceSummary for legacy snapshots"
+        );
+        anyhow::ensure!(
+            !required.iter().any(|field| field == "traceEvents"),
+            "{bundle_path} must not require traceEvents for legacy snapshots"
+        );
+
+        let trace_ref_schema = action_map_trace_event_ref_schema(&value)
+            .with_context(|| format!("locate ActionMapSnapshotTraceEventRef in {bundle_path}"))?;
+        let trace_ref_properties = trace_ref_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .context("ActionMapSnapshotTraceEventRef properties")?;
+        anyhow::ensure!(
+            trace_ref_properties.contains_key("toolSuccess"),
+            "{bundle_path} must expose trace ref toolSuccess"
+        );
+        anyhow::ensure!(
+            !trace_ref_properties.contains_key("preview"),
+            "{bundle_path} must not expose raw preview on trace refs"
+        );
+        anyhow::ensure!(
+            !trace_ref_properties.contains_key("body"),
+            "{bundle_path} must not expose raw body on trace refs"
+        );
+    }
+
+    Ok(())
+}
+
 fn assert_schema_fixtures_match_generated(
     label: &'static str,
     generate: impl FnOnce(&Path) -> Result<()>,
@@ -176,6 +282,18 @@ fn action_map_result_schema(value: &Value) -> Option<&Value> {
     value
         .pointer("/definitions/v2/ActionMapSnapshotResult")
         .or_else(|| value.pointer("/definitions/ActionMapSnapshotResult"))
+}
+
+fn action_map_snapshot_schema(value: &Value) -> Option<&Value> {
+    value
+        .pointer("/definitions/v2/ActionMapSnapshot")
+        .or_else(|| value.pointer("/definitions/ActionMapSnapshot"))
+}
+
+fn action_map_trace_event_ref_schema(value: &Value) -> Option<&Value> {
+    value
+        .pointer("/definitions/v2/ActionMapSnapshotTraceEventRef")
+        .or_else(|| value.pointer("/definitions/ActionMapSnapshotTraceEventRef"))
 }
 
 fn schema_root() -> Result<PathBuf> {

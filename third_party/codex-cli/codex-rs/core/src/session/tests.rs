@@ -1447,6 +1447,115 @@ async fn real_user_input_sets_taskspace_routing_gate_and_snapshot() {
 }
 
 #[tokio::test]
+async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
+    let (session, turn_context, rx) = make_session_and_context_with_rx().await;
+    {
+        let mut state = session.state.lock().await;
+        state
+            .action_map_runtime
+            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
+        state
+            .action_map_runtime
+            .start_task_for_main_with_kind(
+                session.conversation_id,
+                NodeKind::SmokeTest,
+                "Trace session path".to_string(),
+                "Record trace through the session event path.".to_string(),
+                "Run validation".to_string(),
+                "Run a validation command.".to_string(),
+                true,
+            )
+            .expect("task starts");
+    }
+
+    session
+        .prepare_action_map_main_tool_call(
+            turn_context.as_ref(),
+            ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest")
+                .with_call_id("call-session-test"),
+        )
+        .await
+        .expect("session prepare allows test action");
+    session
+        .record_action_map_main_tool_result(
+            turn_context.as_ref(),
+            "call-session-test",
+            "shell_command",
+            Some(ActionClass::Test),
+            false,
+            "pytest failed".to_string(),
+        )
+        .await;
+
+    let mut trace_event_seen = false;
+    let mut snapshot_seen = false;
+    let deadline = tokio::time::Instant::now() + StdDuration::from_secs(2);
+    while tokio::time::Instant::now() < deadline && (!trace_event_seen || !snapshot_seen) {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let event = tokio::time::timeout(remaining, rx.recv())
+            .await
+            .expect("timeout waiting for TaskSpace trace events")
+            .expect("event");
+        match event.msg {
+            EventMsg::MapRuntime(MapRuntimeEvent::TaskspaceTraceEventRecorded(event)) => {
+                assert_eq!(event.trace_event_id, "trace-1");
+                assert_eq!(event.kind, "main_tool_result");
+                assert_eq!(event.result_id.as_deref(), Some("result-1"));
+                assert_eq!(event.call_id.as_deref(), Some("call-session-test"));
+                assert_eq!(event.action_class.as_deref(), Some("test"));
+                assert_eq!(event.tool_success, Some(false));
+                assert!(event.tags.iter().any(|tag| tag == "validator_failure"));
+                trace_event_seen = true;
+            }
+            EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) => {
+                if payload.snapshot.trace_summary.total_event_count == 1 {
+                    assert_eq!(payload.snapshot.trace_events.len(), 1);
+                    assert_eq!(
+                        payload.snapshot.trace_events[0].result_id.as_deref(),
+                        Some("result-1")
+                    );
+                    snapshot_seen = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    assert!(
+        trace_event_seen,
+        "expected TaskSpace trace event from session path"
+    );
+    assert!(
+        snapshot_seen,
+        "expected snapshot with trace event from session path"
+    );
+}
+
+#[tokio::test]
+async fn session_standard_mode_main_tool_result_does_not_record_trace() {
+    let (session, turn_context) = make_session_and_context().await;
+
+    session
+        .record_action_map_main_tool_result(
+            &turn_context,
+            "call-standard",
+            "shell_command",
+            Some(ActionClass::Test),
+            false,
+            "pytest failed".to_string(),
+        )
+        .await;
+
+    let snapshot = session.action_map_snapshot().await;
+    assert_eq!(
+        snapshot.mode,
+        codex_protocol::protocol::MapRuntimeMode::Standard
+    );
+    assert_eq!(snapshot.trace_summary.total_event_count, 0);
+    assert!(snapshot.trace_events.is_empty());
+}
+
+#[tokio::test]
 async fn real_user_turn_sets_taskspace_routing_gate_and_snapshot() {
     let (session, turn_context, rx) = make_session_and_context_with_rx().await;
     let config = session.get_config().await;

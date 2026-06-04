@@ -127,7 +127,7 @@ TaskState.cognitive_state 保留审计摘要；后续执行成本层级降低，
 
 ### Sentinel 输入契约
 
-runtime 不解析 shell 字符串、不解析 tool preview、不从自然语言 result 推断语义。
+runtime 不解析 shell preview/body、不从自然语言 result 推断语义。现有 tool/session 层可以继续用 `classify_shell_text` 把命令分类为 `ActionClass::Read/Edit/Test/Build` 等机械执行类别；TaskSpace runtime 只能消费这个已经结构化的 `action_class` 和 `tool_success`，不得再从原始命令、preview 或 result body 推断输出契约、数据来源、事实真假或最终产物语义。
 
 sentinel 只能读取结构化事件：
 
@@ -153,6 +153,8 @@ pub(crate) struct TaskSpaceTraceEvent {
 - agent 通过 `taskspace_control` 显式记录的事实，例如 `record_output_contract`、`record_fact_source`、`mark_result_validity`。
 
 如果事件来自普通 shell 且无法结构化识别，runtime 只能标记 `UnclassifiedShellAction`，不得靠字符串猜测它是否“写最终输出”或“生成测试数据”。
+
+Phase 2 sentinel 可以把 `ActionClass::Test` + `tool_success=false` 当作 validator failure warning 输入；但不能因为命令文本里出现 `python`、`cat`、`echo`、`pytest` 等词，就推断文件编码、数据 provenance、final artifact 或业务事实。
 
 ### Evidence 引用原则
 
@@ -456,8 +458,20 @@ promotion/collapse 不属于首轮 MVP 实现范围。它们不是“已修复�
 - 单元测试：standard mode 不记录 TaskSpace trace。
 - 单元测试：experiment mode 下 read/edit/test action trace event 正确。
 - 单元测试：shell preview 不被字符串解析成 output/data/provenance 语义。
-- 回归测试：现有 `run-action-map-regression.ps1` 通过。
+- 回归测试：现有 `run-action-map-regression.ps1` 通过，并默认包含 TaskSpace trace session-path tests。
 - E2 smoke：`single-file-fast-fix` 不应因为 trace 失败。
+
+实施记录（2026-06-04 Phase 1）：
+
+- 已实现 `taskspace_trace_events` append-only runtime 状态。
+- 已在 `record_main_tool_result_with_class` 的成功落库路径记录 `main_tool_result` trace event；标准模式不记录。
+- snapshot 已暴露 `trace_summary` 与 `trace_events` 引用，不暴露 raw preview/body。
+- runtime 已发出 `taskspace_trace_event_recorded` 事件；事件顺序为先记录 `node_result_recorded`，再记录 trace event，随后才可能触发 maintenance barrier。
+- restore snapshot 会恢复 trace refs 并续接 `trace-*` 序号；未知 tag 会被过滤到允许集合，避免旧/坏 snapshot 注入未来 sentinel 语义。
+- session 生产路径已覆盖：`prepare_action_map_main_tool_call` + `record_action_map_main_tool_result` 会触发 live trace event；standard mode 同路径不记录 trace。
+- 当前 `taskspace_control` 没有显式 tag 输入面；Phase 1 只记录工具结果可机械判定的 tags（tool success/failure、validator success/failure、unclassified shell action）。`taskspace_control` 显式 tag 属于 Phase 2 sentinel/tag 输入设计，不通过字符串解析补齐。
+- 回归证据：`scripts/run-action-map-regression.ps1` 通过，报告 `target/test-reports/action-map-20260604-184129-465/report.md`；默认矩阵已包含 `core-taskspace-trace` 与 `core-session-standard-trace`，避免 session-path tests 只存在于手工 targeted 命令。
+- 真实安装版 smoke：`single-file-fast-fix` paired run 通过，报告 `C:\Users\77585\AppData\Local\Temp\whale-paired-bench-runs\single-file-fast-fix\20260604-183001-885\pair-001\pair-report.md`；TaskSpace 侧 1 map / 4 nodes / 3 edges / 0 edge order violations，rollout 中可见 `taskspace_trace_event_recorded` 与 `traceSummary.totalEventCount=8`。
 
 ### Phase 2：MVP Sentinel Warning
 
