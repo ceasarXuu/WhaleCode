@@ -1252,6 +1252,104 @@ impl Session {
         Ok(result_id)
     }
 
+    pub(crate) async fn record_action_map_output_contract(
+        &self,
+        turn_context: &TurnContext,
+        output_contract_id: &str,
+        kind: &str,
+        description: String,
+        evidence_refs: Vec<crate::action_map::ActionMapEvidenceRefInput>,
+    ) -> Result<(), String> {
+        let events = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.record_output_contract_for_main(
+                self.conversation_id,
+                output_contract_id,
+                kind,
+                description,
+                evidence_refs,
+            )
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(())
+    }
+
+    pub(crate) async fn record_action_map_fact_source(
+        &self,
+        turn_context: &TurnContext,
+        fact_source_id: &str,
+        provenance: &str,
+        description: String,
+        evidence_refs: Vec<crate::action_map::ActionMapEvidenceRefInput>,
+    ) -> Result<(), String> {
+        let events = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.record_fact_source_for_main(
+                self.conversation_id,
+                fact_source_id,
+                provenance,
+                description,
+                evidence_refs,
+            )
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(())
+    }
+
+    pub(crate) async fn record_action_map_fact(
+        &self,
+        turn_context: &TurnContext,
+        claim_id: &str,
+        statement: String,
+        evidence_refs: Vec<crate::action_map::ActionMapEvidenceRefInput>,
+    ) -> Result<(), String> {
+        let events = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.record_fact_for_main(
+                self.conversation_id,
+                claim_id,
+                statement,
+                evidence_refs,
+            )
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(())
+    }
+
+    pub(crate) async fn mark_action_map_result_validity(
+        &self,
+        turn_context: &TurnContext,
+        result_id: &str,
+        validity: &str,
+        validity_reason: String,
+        claims: Vec<crate::action_map::ActionMapCognitiveClaimInput>,
+        evidence_refs: Vec<crate::action_map::ActionMapEvidenceRefInput>,
+        changed_artifacts: Vec<String>,
+        validator_refs: Vec<String>,
+        remaining_uncertainty: Vec<String>,
+    ) -> Result<(), String> {
+        let events = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.mark_result_validity_for_main(
+                self.conversation_id,
+                result_id,
+                validity,
+                validity_reason,
+                claims,
+                evidence_refs,
+                changed_artifacts,
+                validator_refs,
+                remaining_uncertainty,
+            )
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(())
+    }
+
     pub(crate) async fn record_action_map_main_final_response(
         &self,
         turn_context: &TurnContext,

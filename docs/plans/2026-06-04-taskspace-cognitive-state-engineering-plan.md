@@ -164,6 +164,7 @@ Phase 2 sentinel 可以把 `ActionClass::Test` + `tool_success=false` 当作 val
 pub(crate) struct EvidenceRef {
     pub(crate) result_id: Option<NodeResultId>,
     pub(crate) claim_id: Option<String>,
+    pub(crate) fact_source_id: Option<String>,
     pub(crate) trace_event_id: Option<String>,
     pub(crate) artifact_ref: Option<String>,
     pub(crate) validator_ref: Option<String>,
@@ -547,7 +548,7 @@ promotion/collapse 不属于首轮 MVP 实现范围。它们不是“已修复�
 - legacy snapshot 缺 cognitive 字段时默认空状态；未知 `cognitive_schema_version` 的 payload 不被旧 runtime 采信，restore 后降级为空 cognitive state / `unreviewed` result evidence。
 - protocol 入口已对 cognitive/evidence 容器做宽容反序列化：缺字段、`cognitiveState: {}`、`evidencePackage: {}`、`null`、非对象容器、局部缺字段、未知未来版本中的未来形状或错型字段，都不能在 JSON 读取阶段打断 snapshot restore；runtime 只在 `cognitive_schema_version == taskspace-cognitive-v1` 时采信当前结构。
 - protocol/generated JSON/TypeScript schema 已暴露 cognitive state、evidence refs、output contracts、fact sources、result evidence package，并有 schema fixture freshness 测试。
-- 尚未实现 `taskspace_control` 的 `record_output_contract`、`record_fact_source`、`mark_result_validity`，也尚未实现 viewer cognitive side panel、audit hard gate、sentinel clear action；这些进入 Phase 4/6/7。
+- Phase 4A 已实现 `taskspace_control` 的 `record_output_contract`、`record_fact_source`、`record_fact`、`mark_result_validity` 生产路径；尚未实现 viewer cognitive side panel、final artifact audit hard gate、sentinel clear action；这些继续进入 Phase 5/6/7。
 
 ### Phase 3：MVP 数据模型与 Snapshot
 
@@ -624,6 +625,19 @@ runtime 校验：
 - action parser tests。
 - runtime state update tests。
 - invalid transition tests。
+
+实施记录（2026-06-04 Phase 4A）：
+
+- 已继续复用现有 `taskspace_control`，未新增第二套 state 工具；新增 action 只限 MVP 范围：`record_output_contract`、`record_fact_source`、`record_fact`、`mark_result_validity`。
+- session 层只新增薄 wrapper，最终仍调用 `ActionMapRuntime` 并复用同一套 `emit_action_map_events_for_turn` 事件流。
+- runtime 只做机械可判定约束：必须处于 TaskSpace experiment mode；必须有当前 session 持有的 active task/map；ID、描述、理由不能为空；新增 record 类 action 必须带 evidence refs；空 evidence ref 被拒绝。
+- evidence ref 现在可引用 `result_id`、`claim_id`、`fact_source_id`、`trace_event_id`、`artifact_ref`、`validator_ref`。其中 `result_id` 必须能 join 到 active map 的真实 result，`fact_source_id` 必须能 join 到 active task 的 fact source，`trace_event_id` 必须能 join 到已记录 trace。
+- `mark_result_validity=accepted` 必须同时提供 top-level evidence refs 和 claims，每个 claim 也必须有 evidence refs；接受结果时写入 `NodeResult.evidence_package`，不再只依赖自然语言 result body。
+- `record_fact` 只能引用已 accepted result，或引用 provenance 为 `observed_from_environment` / `provided_by_user` 的 fact source；`generated_for_test_only`、`inferred`、`unknown` provenance 以及 `unreviewed/questioned/invalid` result 都不得被提升为 active facts。
+- 新增 runtime event 只暴露最小引用：`cognitive_state_updated` 带 `task_id/map_id/update_kind/record_id`；`result_validity_changed` 带 `task_id/map_id/node_id/result_id/validity`。事件不携带完整 description、claims、evidence refs、validity reason，权威状态仍在 snapshot 的 `TaskState.cognitive_state` 和 `NodeResult.evidence_package`。
+- protocol snapshot 与 app-server generated schema 已同步 `EvidenceRef.factSourceId`；`MapRuntimeEvent` 当前不属于 app-server generated TypeScript schema 导出面，由 protocol 单测守住 minimal-ref 事件序列化。
+- 延后项：viewer cognitive side panel、final artifact audit hard gate、sentinel clear action、prompt/developer context 注入、promotion/collapse 仍不属于 Phase 4A 完成范围。
+- 验证结果：`scripts/run-action-map-regression.ps1` 通过，报告 `target/test-reports/action-map-20260604-223439-306/report.md` 显示 10 个 cargo run、3 个脚本 run 全部 PASS，199 passed、0 failed、0 relevant crash events。
 
 ### Phase 5：Prompt / Developer Context 改造
 
@@ -747,22 +761,28 @@ UI 约束：
 
 新增能力必须有结构化事件，不允许只写进 result body。
 
-首轮新增事件：
+Phase 4A 已实现事件：
 
 ```text
 taskspace_trace_event_recorded
 sentinel_warning_raised
-sentinel_warning_cleared
-fact_source_recorded
-output_contract_recorded
-node_result_evidence_recorded
 result_validity_changed
 cognitive_state_updated
 ```
 
-v1.1 事件：
+Phase 4A 事件只做 minimal ref notification：
+
+- `cognitive_state_updated` 只携带 `task_id`、`map_id`、`update_kind`、`record_id`。
+- `result_validity_changed` 只携带 `task_id`、`map_id`、`node_id`、`result_id`、`validity`。
+- `validity_reason`、claims、evidence refs、description 等语义内容只存在于 `NodeResult.evidence_package` 或 `TaskState.cognitive_state`，不复制到 event 中，避免 event 成为第二套权威状态。
+
+Phase 6/7 或 v1.1 事件：
 
 ```text
+sentinel_warning_cleared
+fact_source_recorded
+output_contract_recorded
+node_result_evidence_recorded
 sentinel_barrier_raised
 sentinel_barrier_cleared
 taskspace_promoted
@@ -792,12 +812,12 @@ schema_version
 |---|---|
 | `taskspace_trace_event_recorded` | `trace_event_id`, `kind`, `action_class`, `tags`, `artifact_refs` |
 | `sentinel_warning_raised` | `sentinel_id`, `sentinel_type`, `sentinel_status`, `severity`, `trigger_event_ids`, `clearance_action` |
-| `sentinel_warning_cleared` | `sentinel_id`, `sentinel_status`, `clear_action`, `cleared_by`, `cleared_at_ms`, `clear_event_ids` |
-| `output_contract_recorded` | `output_contract_id`, `kind`, `path_or_artifact`, `format`, `encoding`, `validator_refs` |
-| `fact_source_recorded` | `fact_source_id`, `provenance`, `evidence_refs`, `confidence` |
-| `result_validity_changed` | `result_validity_event_id`, `result_id`, `previous_validity`, `new_validity`, `validity_reason`, `reviewer`, `evidence_refs` |
-| `node_result_evidence_recorded` | `claim_ids`, `evidence_refs`, `artifact_refs`, `validator_refs` |
-| `cognitive_state_updated` | `state_update_id`, `update_kind`, `source_result_ids`, `source_claim_ids`, `source_evidence_refs` |
+| `result_validity_changed` | `task_id`, `map_id`, `node_id`, `result_id`, `validity` |
+| `cognitive_state_updated` | `task_id`, `map_id`, `update_kind`, `record_id` |
+| `sentinel_warning_cleared` Phase 6/7 | `sentinel_id`, `sentinel_status`, `clear_action`, `cleared_by`, `cleared_at_ms`, `clear_event_ids` |
+| `output_contract_recorded` Phase 6/7 | `output_contract_id`, `kind`, `path_or_artifact`, `format`, `encoding`, `validator_refs` |
+| `fact_source_recorded` Phase 6/7 | `fact_source_id`, `provenance`, `evidence_refs`, `confidence` |
+| `node_result_evidence_recorded` Phase 6/7 | `claim_ids`, `evidence_refs`, `artifact_refs`, `validator_refs` |
 | `sentinel_barrier_raised` v1.1 | `barrier_id`, `sentinel_id`, `sentinel_status`, `trigger_event_ids`, `barrier_reason`, `clearance_action` |
 | `sentinel_barrier_cleared` v1.1 | `barrier_id`, `sentinel_id`, `sentinel_status`, `clear_action`, `cleared_by`, `cleared_at_ms`, `clear_event_ids` |
 | `taskspace_promoted` v1.1 | `promotion_id`, `trigger_event_ids`, `inherited_trace_refs`, `promotion_payload_ref`, `initial_cognitive_state_ref` |

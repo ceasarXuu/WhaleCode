@@ -330,6 +330,12 @@
             "null"
           ]
         },
+        "factSourceId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "resultId": {
           "type": [
             "string",

@@ -1865,6 +1865,7 @@ pub struct ActionMapSnapshotCognitiveState {
 pub struct ActionMapSnapshotEvidenceRef {
     pub result_id: Option<String>,
     pub claim_id: Option<String>,
+    pub fact_source_id: Option<String>,
     pub trace_event_id: Option<String>,
     pub artifact_ref: Option<String>,
     pub validator_ref: Option<String>,
@@ -2247,6 +2248,27 @@ pub struct MapRuntimeSentinelWarningRaisedEvent {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
+pub struct MapRuntimeCognitiveStateUpdatedEvent {
+    pub task_id: String,
+    pub map_id: Option<String>,
+    pub update_kind: String,
+    pub record_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeResultValidityChangedEvent {
+    pub task_id: Option<String>,
+    pub map_id: String,
+    pub node_id: String,
+    pub result_id: String,
+    pub validity: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct MapRuntimeToolActionBlockedEvent {
     pub map_id: String,
     pub node_id: String,
@@ -2311,6 +2333,8 @@ pub enum MapRuntimeEvent {
     NodeResultRecorded(MapRuntimeNodeResultRecordedEvent),
     TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent),
     SentinelWarningRaised(MapRuntimeSentinelWarningRaisedEvent),
+    CognitiveStateUpdated(MapRuntimeCognitiveStateUpdatedEvent),
+    ResultValidityChanged(MapRuntimeResultValidityChangedEvent),
     ToolActionBlocked(MapRuntimeToolActionBlockedEvent),
     TimeoutSummaryRequested(MapRuntimeTimeoutSummaryRequestedEvent),
     MaintenanceBarrierRaised(MapRuntimeMaintenanceBarrierRaisedEvent),
@@ -6161,6 +6185,7 @@ mod tests {
                         provenance: "observed_from_environment".to_string(),
                         description: "pytest output".to_string(),
                         evidence_refs: vec![ActionMapSnapshotEvidenceRef {
+                            fact_source_id: Some("source-1".to_string()),
                             trace_event_id: Some("trace-1".to_string()),
                             ..Default::default()
                         }],
@@ -6236,6 +6261,10 @@ mod tests {
             "observed_from_environment"
         );
         assert_eq!(
+            value["tasks"][0]["cognitiveState"]["factSources"][0]["evidenceRefs"][0]["factSourceId"],
+            "source-1"
+        );
+        assert_eq!(
             value["maps"][0]["results"][0]["evidencePackage"]["validity"],
             "accepted"
         );
@@ -6273,6 +6302,40 @@ mod tests {
         assert_eq!(value["toolSuccess"], false);
         assert!(value.get("preview").is_none());
         assert!(value.get("body").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn map_runtime_cognitive_events_serialize_minimal_refs() -> Result<()> {
+        let cognitive =
+            MapRuntimeEvent::CognitiveStateUpdated(MapRuntimeCognitiveStateUpdatedEvent {
+                task_id: "task-1".to_string(),
+                map_id: Some("map-1".to_string()),
+                update_kind: "output_contract".to_string(),
+                record_id: "contract-1".to_string(),
+            });
+        let cognitive_value = serde_json::to_value(&cognitive)?;
+        assert_eq!(cognitive_value["type"], "cognitive_state_updated");
+        assert_eq!(cognitive_value["taskId"], "task-1");
+        assert_eq!(cognitive_value["recordId"], "contract-1");
+        assert!(cognitive_value.get("description").is_none());
+        assert!(cognitive_value.get("evidenceRefs").is_none());
+
+        let validity =
+            MapRuntimeEvent::ResultValidityChanged(MapRuntimeResultValidityChangedEvent {
+                task_id: Some("task-1".to_string()),
+                map_id: "map-1".to_string(),
+                node_id: "node-1".to_string(),
+                result_id: "result-1".to_string(),
+                validity: "accepted".to_string(),
+            });
+        let validity_value = serde_json::to_value(&validity)?;
+        assert_eq!(validity_value["type"], "result_validity_changed");
+        assert_eq!(validity_value["resultId"], "result-1");
+        assert_eq!(validity_value["validity"], "accepted");
+        assert!(validity_value.get("validityReason").is_none());
+        assert!(validity_value.get("claims").is_none());
+        assert!(validity_value.get("evidenceRefs").is_none());
         Ok(())
     }
 

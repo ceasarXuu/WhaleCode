@@ -1,6 +1,8 @@
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
+use crate::action_map::ActionMapCognitiveClaimInput;
+use crate::action_map::ActionMapEvidenceRefInput;
 use crate::action_map::ActionMapNextNodeDraft;
 use crate::action_map::NodeKind;
 use crate::function_tool::FunctionCallError;
@@ -62,6 +64,65 @@ enum TaskSpaceControlArgs {
         node_id: String,
         blocker_summary: String,
     },
+    RecordOutputContract {
+        output_contract_id: String,
+        kind: String,
+        description: String,
+        #[serde(default)]
+        evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
+    },
+    RecordFactSource {
+        fact_source_id: String,
+        provenance: String,
+        description: String,
+        #[serde(default)]
+        evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
+    },
+    RecordFact {
+        claim_id: String,
+        statement: String,
+        #[serde(default)]
+        evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
+    },
+    MarkResultValidity {
+        result_id: String,
+        validity: String,
+        validity_reason: String,
+        #[serde(default)]
+        claims: Vec<TaskSpaceCognitiveClaimArgs>,
+        #[serde(default)]
+        evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
+        #[serde(default)]
+        changed_artifacts: Vec<String>,
+        #[serde(default)]
+        validator_refs: Vec<String>,
+        #[serde(default)]
+        remaining_uncertainty: Vec<String>,
+    },
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct TaskSpaceEvidenceRefArgs {
+    #[serde(default)]
+    result_id: Option<String>,
+    #[serde(default)]
+    claim_id: Option<String>,
+    #[serde(default)]
+    fact_source_id: Option<String>,
+    #[serde(default)]
+    trace_event_id: Option<String>,
+    #[serde(default)]
+    artifact_ref: Option<String>,
+    #[serde(default)]
+    validator_ref: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskSpaceCognitiveClaimArgs {
+    claim_id: String,
+    statement: String,
+    #[serde(default)]
+    evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
 }
 
 pub struct TaskSpaceControlOutput {
@@ -234,6 +295,84 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .map_err(FunctionCallError::RespondToModel)?;
                 format!("TaskSpace node blocked: {node_id} result {result_id}")
             }
+            TaskSpaceControlArgs::RecordOutputContract {
+                output_contract_id,
+                kind,
+                description,
+                evidence_refs,
+            } => {
+                session
+                    .record_action_map_output_contract(
+                        &turn,
+                        &output_contract_id,
+                        &kind,
+                        description,
+                        convert_evidence_refs(evidence_refs),
+                    )
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                format!("TaskSpace output contract recorded: {output_contract_id}")
+            }
+            TaskSpaceControlArgs::RecordFactSource {
+                fact_source_id,
+                provenance,
+                description,
+                evidence_refs,
+            } => {
+                session
+                    .record_action_map_fact_source(
+                        &turn,
+                        &fact_source_id,
+                        &provenance,
+                        description,
+                        convert_evidence_refs(evidence_refs),
+                    )
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                format!("TaskSpace fact source recorded: {fact_source_id}")
+            }
+            TaskSpaceControlArgs::RecordFact {
+                claim_id,
+                statement,
+                evidence_refs,
+            } => {
+                session
+                    .record_action_map_fact(
+                        &turn,
+                        &claim_id,
+                        statement,
+                        convert_evidence_refs(evidence_refs),
+                    )
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                format!("TaskSpace fact recorded: {claim_id}")
+            }
+            TaskSpaceControlArgs::MarkResultValidity {
+                result_id,
+                validity,
+                validity_reason,
+                claims,
+                evidence_refs,
+                changed_artifacts,
+                validator_refs,
+                remaining_uncertainty,
+            } => {
+                session
+                    .mark_action_map_result_validity(
+                        &turn,
+                        &result_id,
+                        &validity,
+                        validity_reason,
+                        convert_claims(claims),
+                        convert_evidence_refs(evidence_refs),
+                        changed_artifacts,
+                        validator_refs,
+                        remaining_uncertainty,
+                    )
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                format!("TaskSpace result validity recorded: {result_id} validity={validity}")
+            }
         };
         Ok(TaskSpaceControlOutput { message })
     }
@@ -282,4 +421,29 @@ fn build_next_node_draft(
         context_summary,
         dependency_node_ids: next_dependency_node_ids,
     }))
+}
+
+fn convert_evidence_refs(inputs: Vec<TaskSpaceEvidenceRefArgs>) -> Vec<ActionMapEvidenceRefInput> {
+    inputs
+        .into_iter()
+        .map(|input| ActionMapEvidenceRefInput {
+            result_id: input.result_id,
+            claim_id: input.claim_id,
+            fact_source_id: input.fact_source_id,
+            trace_event_id: input.trace_event_id,
+            artifact_ref: input.artifact_ref,
+            validator_ref: input.validator_ref,
+        })
+        .collect()
+}
+
+fn convert_claims(inputs: Vec<TaskSpaceCognitiveClaimArgs>) -> Vec<ActionMapCognitiveClaimInput> {
+    inputs
+        .into_iter()
+        .map(|input| ActionMapCognitiveClaimInput {
+            id: input.claim_id,
+            statement: input.statement,
+            evidence_refs: convert_evidence_refs(input.evidence_refs),
+        })
+        .collect()
 }

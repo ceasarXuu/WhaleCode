@@ -15,6 +15,73 @@ fn node_kind_values() -> Vec<serde_json::Value> {
     ]
 }
 
+fn evidence_ref_schema() -> JsonSchema {
+    JsonSchema::object(
+        BTreeMap::from([
+            (
+                "result_id".to_string(),
+                JsonSchema::string(Some("Existing node result id.".to_string())),
+            ),
+            (
+                "claim_id".to_string(),
+                JsonSchema::string(Some("Existing or related claim id.".to_string())),
+            ),
+            (
+                "fact_source_id".to_string(),
+                JsonSchema::string(Some("Existing fact source id.".to_string())),
+            ),
+            (
+                "trace_event_id".to_string(),
+                JsonSchema::string(Some("Existing TaskSpace trace event id.".to_string())),
+            ),
+            (
+                "artifact_ref".to_string(),
+                JsonSchema::string(Some("Artifact path, id, or stable reference.".to_string())),
+            ),
+            (
+                "validator_ref".to_string(),
+                JsonSchema::string(Some(
+                    "Validator, test, build, or check reference.".to_string(),
+                )),
+            ),
+        ]),
+        None,
+        Some(false.into()),
+    )
+}
+
+fn evidence_refs_schema(description: &str) -> JsonSchema {
+    JsonSchema::array(evidence_ref_schema(), Some(description.to_string()))
+}
+
+fn claims_schema() -> JsonSchema {
+    JsonSchema::array(
+        JsonSchema::object(
+            BTreeMap::from([
+                (
+                    "claim_id".to_string(),
+                    JsonSchema::string(Some("Stable claim id.".to_string())),
+                ),
+                (
+                    "statement".to_string(),
+                    JsonSchema::string(Some("Concise claim statement.".to_string())),
+                ),
+                (
+                    "evidence_refs".to_string(),
+                    evidence_refs_schema("Evidence refs supporting this claim."),
+                ),
+            ]),
+            Some(vec![
+                "claim_id".to_string(),
+                "statement".to_string(),
+                "evidence_refs".to_string(),
+            ]),
+            Some(false.into()),
+        ),
+        Some("Claims carried by a result evidence package.".to_string()),
+    )
+}
+
 pub fn create_taskspace_control_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
@@ -27,9 +94,13 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
                     json!("bind_node"),
                     json!("finish_node"),
                     json!("block_node"),
+                    json!("record_output_contract"),
+                    json!("record_fact_source"),
+                    json!("record_fact"),
+                    json!("mark_result_validity"),
                 ],
                 Some(
-                "One of: start_task, route_task, create_node, bind_node, finish_node, block_node. Use only for TaskSpace runtime control."
+                "One of: start_task, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, mark_result_validity. Use only for TaskSpace runtime control."
                     .to_string(),
                 ),
             ),
@@ -174,6 +245,100 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
                     .to_string(),
             )),
         ),
+        (
+            "output_contract_id".to_string(),
+            JsonSchema::string(Some(
+                "Required for record_output_contract. Stable output contract id.".to_string(),
+            )),
+        ),
+        (
+            "fact_source_id".to_string(),
+            JsonSchema::string(Some(
+                "Required for record_fact_source and evidence refs that cite a fact source."
+                    .to_string(),
+            )),
+        ),
+        (
+            "provenance".to_string(),
+            JsonSchema::string_enum(
+                vec![
+                    json!("observed_from_environment"),
+                    json!("provided_by_user"),
+                    json!("generated_for_test_only"),
+                    json!("inferred"),
+                    json!("unknown"),
+                ],
+                Some("Required for record_fact_source.".to_string()),
+            ),
+        ),
+        (
+            "description".to_string(),
+            JsonSchema::string(Some(
+                "Required for record_output_contract and record_fact_source.".to_string(),
+            )),
+        ),
+        (
+            "claim_id".to_string(),
+            JsonSchema::string(Some("Required for record_fact.".to_string())),
+        ),
+        (
+            "statement".to_string(),
+            JsonSchema::string(Some("Required for record_fact.".to_string())),
+        ),
+        (
+            "result_id".to_string(),
+            JsonSchema::string(Some("Required for mark_result_validity.".to_string())),
+        ),
+        (
+            "validity".to_string(),
+            JsonSchema::string_enum(
+                vec![
+                    json!("unreviewed"),
+                    json!("accepted"),
+                    json!("questioned"),
+                    json!("invalid"),
+                ],
+                Some("Required for mark_result_validity.".to_string()),
+            ),
+        ),
+        (
+            "validity_reason".to_string(),
+            JsonSchema::string(Some(
+                "Required for mark_result_validity. Concise reason for the validity state."
+                    .to_string(),
+            )),
+        ),
+        (
+            "claims".to_string(),
+            claims_schema(),
+        ),
+        (
+            "evidence_refs".to_string(),
+            evidence_refs_schema(
+                "Required for record_output_contract, record_fact_source, record_fact, and mark_result_validity.",
+            ),
+        ),
+        (
+            "changed_artifacts".to_string(),
+            JsonSchema::array(
+                JsonSchema::string(Some("Artifact path, id, or stable reference.".to_string())),
+                Some("Optional for mark_result_validity.".to_string()),
+            ),
+        ),
+        (
+            "validator_refs".to_string(),
+            JsonSchema::array(
+                JsonSchema::string(Some("Validator, test, build, or check reference.".to_string())),
+                Some("Optional for mark_result_validity.".to_string()),
+            ),
+        ),
+        (
+            "remaining_uncertainty".to_string(),
+            JsonSchema::array(
+                JsonSchema::string(Some("Remaining uncertainty or caveat.".to_string())),
+                Some("Optional for mark_result_validity.".to_string()),
+            ),
+        ),
     ]);
 
     ToolSpec::Function(ResponsesApiTool {
@@ -189,6 +354,10 @@ Supported actions:
 - `bind_node`: bind the main agent's next ordinary action to an existing ready or blocked node that is not held by a subagent.
 - `finish_node`: record the current main node's result, mark it completed, and optionally bind an existing next node with `next_node_id` or create and bind a new next node with `next_node_kind`, `next_node_title`, and `next_node_context_summary`.
 - `block_node`: record why the current main node cannot proceed and mark it blocked.
+- `record_output_contract`: record a task-level output contract with stable `output_contract_id`, `kind`, `description`, and `evidence_refs`.
+- `record_fact_source`: record a task-level data source with stable `fact_source_id`, `provenance`, `description`, and `evidence_refs`.
+- `record_fact`: record an active task fact with stable `claim_id`, `statement`, and `evidence_refs`. Runtime only accepts facts supported by an accepted result or observed/provided fact source.
+- `mark_result_validity`: update an existing node result's evidence package. `accepted` requires claims and evidence refs.
 
 Node kind selection:
 - Use `inspect_code_context` for read-only investigation and subagent investigation nodes.
@@ -217,7 +386,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn taskspace_control_preflight_exposes_only_current_runtime_actions() {
+    fn taskspace_control_exposes_mvp_cognitive_actions_without_promotion() {
         let value = serde_json::to_value(create_taskspace_control_tool())
             .expect("taskspace tool serializes");
         let action_enum = value["parameters"]["properties"]["action"]["enum"]
@@ -237,37 +406,45 @@ mod tests {
                 "bind_node",
                 "finish_node",
                 "block_node",
+                "record_output_contract",
+                "record_fact_source",
+                "record_fact",
+                "mark_result_validity",
             ]
         );
-        assert!(!actions.contains(&"record_output_contract"));
-        assert!(!actions.contains(&"record_fact_source"));
-        assert!(!actions.contains(&"mark_result_validity"));
         assert!(!actions.contains(&"promote_taskspace"));
     }
 
     #[test]
-    fn taskspace_control_preflight_has_no_mvp_cognitive_fields_yet() {
+    fn taskspace_control_exposes_mvp_cognitive_fields() {
         let value = serde_json::to_value(create_taskspace_control_tool())
             .expect("taskspace tool serializes");
         let properties = value["parameters"]["properties"]
             .as_object()
             .expect("properties object");
 
-        for absent_field in [
-            "output_contracts",
+        for present_field in [
             "output_contract_id",
             "fact_source_id",
             "provenance",
+            "claim_id",
+            "statement",
             "claims",
             "evidence_refs",
+            "result_id",
             "validity",
             "validity_reason",
-            "promotion_not_in_mvp",
         ] {
             assert!(
-                !properties.contains_key(absent_field),
-                "{absent_field} should remain absent until formal MVP implementation"
+                properties.contains_key(present_field),
+                "{present_field} should be exposed by the MVP cognitive control schema"
             );
         }
+        assert!(!properties.contains_key("promotion_not_in_mvp"));
+        assert!(!properties.contains_key("promote_taskspace"));
+        assert_eq!(
+            properties["evidence_refs"]["items"]["properties"]["fact_source_id"]["type"],
+            "string"
+        );
     }
 }

@@ -14,6 +14,7 @@ pub(crate) struct TaskCognitiveState {
 pub(crate) struct EvidenceRef {
     pub(crate) result_id: Option<String>,
     pub(crate) claim_id: Option<String>,
+    pub(crate) fact_source_id: Option<String>,
     pub(crate) trace_event_id: Option<String>,
     pub(crate) artifact_ref: Option<String>,
     pub(crate) validator_ref: Option<String>,

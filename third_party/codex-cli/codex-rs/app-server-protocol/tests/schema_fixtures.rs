@@ -181,6 +181,13 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
     assert!(result_evidence_ts.contains("claims: Array<ActionMapSnapshotCognitiveClaim>"));
     assert!(result_evidence_ts.contains("evidenceRefs: Array<ActionMapSnapshotEvidenceRef>"));
     assert!(result_evidence_ts.contains("validity: string"));
+    let evidence_ref_ts = fixture_utf8(
+        &typescript_tree,
+        Path::new("ActionMapSnapshotEvidenceRef.ts"),
+        "typescript",
+    )?;
+    assert!(evidence_ref_ts.contains("factSourceId: string | null"));
+    assert!(!evidence_ref_ts.contains("fact_source_id"));
 
     let json_tree = read_tree(&schema_root, "json")?;
     for bundle_path in [
@@ -385,6 +392,32 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
                 .any(|field| field == "claims" || field == "evidenceRefs" || field == "validity"),
             "{bundle_path} must not require evidence package fields for partial/future payloads"
         );
+
+        let evidence_ref_schema = action_map_evidence_ref_schema(&value)
+            .with_context(|| format!("locate ActionMapSnapshotEvidenceRef in {bundle_path}"))?;
+        let evidence_ref_properties = evidence_ref_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .context("ActionMapSnapshotEvidenceRef properties")?;
+        anyhow::ensure!(
+            evidence_ref_properties.contains_key("factSourceId"),
+            "{bundle_path} must expose evidence ref factSourceId"
+        );
+        anyhow::ensure!(
+            !evidence_ref_properties.contains_key("fact_source_id"),
+            "{bundle_path} must not expose snake_case fact_source_id"
+        );
+        let evidence_ref_required = evidence_ref_schema
+            .get("required")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        anyhow::ensure!(
+            !evidence_ref_required
+                .iter()
+                .any(|field| field == "factSourceId"),
+            "{bundle_path} must not require factSourceId for legacy evidence refs"
+        );
     }
 
     Ok(())
@@ -489,6 +522,12 @@ fn action_map_result_evidence_package_schema(value: &Value) -> Option<&Value> {
     value
         .pointer("/definitions/v2/ActionMapSnapshotResultEvidencePackage")
         .or_else(|| value.pointer("/definitions/ActionMapSnapshotResultEvidencePackage"))
+}
+
+fn action_map_evidence_ref_schema(value: &Value) -> Option<&Value> {
+    value
+        .pointer("/definitions/v2/ActionMapSnapshotEvidenceRef")
+        .or_else(|| value.pointer("/definitions/ActionMapSnapshotEvidenceRef"))
 }
 
 fn action_map_snapshot_schema(value: &Value) -> Option<&Value> {

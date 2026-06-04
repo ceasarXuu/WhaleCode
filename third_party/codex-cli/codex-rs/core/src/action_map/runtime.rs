@@ -24,6 +24,7 @@ use codex_protocol::protocol::ActionMapSnapshotTask;
 use codex_protocol::protocol::ActionMapSnapshotTraceEventRef;
 use codex_protocol::protocol::ActionMapSnapshotTraceSummary;
 use codex_protocol::protocol::AgentStatus;
+use codex_protocol::protocol::MapRuntimeCognitiveStateUpdatedEvent;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeLeaseAttachedEvent;
 use codex_protocol::protocol::MapRuntimeLeaseCreatedEvent;
@@ -37,6 +38,7 @@ use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::MapRuntimeModeChangedEvent;
 use codex_protocol::protocol::MapRuntimeNodeResultRecordedEvent;
 use codex_protocol::protocol::MapRuntimeNodeStatusChangedEvent;
+use codex_protocol::protocol::MapRuntimeResultValidityChangedEvent;
 use codex_protocol::protocol::MapRuntimeSentinelWarningRaisedEvent;
 use codex_protocol::protocol::MapRuntimeTaskCreatedEvent;
 use codex_protocol::protocol::MapRuntimeTaskRoutedEvent;
@@ -157,6 +159,23 @@ pub(crate) struct ActionMapNextNodeDraft {
 pub(crate) struct ActionMapFinishNodeOutcome {
     pub(crate) result_id: NodeResultId,
     pub(crate) next_node_id: Option<MapNodeId>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ActionMapEvidenceRefInput {
+    pub(crate) result_id: Option<String>,
+    pub(crate) claim_id: Option<String>,
+    pub(crate) fact_source_id: Option<String>,
+    pub(crate) trace_event_id: Option<String>,
+    pub(crate) artifact_ref: Option<String>,
+    pub(crate) validator_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapCognitiveClaimInput {
+    pub(crate) id: String,
+    pub(crate) statement: String,
+    pub(crate) evidence_refs: Vec<ActionMapEvidenceRefInput>,
 }
 
 #[derive(Debug, Clone)]
@@ -1852,6 +1871,201 @@ preview:\n\
         )
     }
 
+    pub(crate) fn record_output_contract_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        output_contract_id: &str,
+        kind: &str,
+        description: String,
+        evidence_refs: Vec<ActionMapEvidenceRefInput>,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        let id = require_nonempty("output_contract_id", output_contract_id)?;
+        let kind = OutputContractKind::from_str(kind).ok_or_else(|| {
+            "TaskSpace record_output_contract kind must be one of: artifact, format, encoding, schema, validator, non_goal."
+                .to_string()
+        })?;
+        let description = require_nonempty_owned("description", description)?;
+        let evidence_refs = self.normalize_evidence_refs(&task_id, Some(&map_id), evidence_refs)?;
+        if evidence_refs.is_empty() {
+            return Err(
+                "TaskSpace record_output_contract evidence_refs cannot be empty.".to_string(),
+            );
+        }
+
+        let task = self
+            .tasks
+            .get_mut(&task_id)
+            .expect("active task was validated before output contract update");
+        let record = OutputContract {
+            id: id.clone(),
+            kind,
+            description,
+            evidence_refs,
+        };
+        upsert_output_contract(&mut task.cognitive_state.output_contracts, record);
+        Ok(vec![MapRuntimeEvent::CognitiveStateUpdated(
+            MapRuntimeCognitiveStateUpdatedEvent {
+                task_id,
+                map_id: Some(map_id),
+                update_kind: "output_contract".to_string(),
+                record_id: id,
+            },
+        )])
+    }
+
+    pub(crate) fn record_fact_source_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        fact_source_id: &str,
+        provenance: &str,
+        description: String,
+        evidence_refs: Vec<ActionMapEvidenceRefInput>,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        let id = require_nonempty("fact_source_id", fact_source_id)?;
+        let provenance = DataProvenance::from_str(provenance).ok_or_else(|| {
+            "TaskSpace record_fact_source provenance must be one of: observed_from_environment, provided_by_user, generated_for_test_only, inferred, unknown."
+                .to_string()
+        })?;
+        let description = require_nonempty_owned("description", description)?;
+        let evidence_refs = self.normalize_evidence_refs(&task_id, Some(&map_id), evidence_refs)?;
+        if evidence_refs.is_empty() {
+            return Err("TaskSpace record_fact_source evidence_refs cannot be empty.".to_string());
+        }
+
+        let task = self
+            .tasks
+            .get_mut(&task_id)
+            .expect("active task was validated before fact source update");
+        let record = FactSource {
+            id: id.clone(),
+            provenance,
+            description,
+            evidence_refs,
+        };
+        upsert_fact_source(&mut task.cognitive_state.fact_sources, record);
+        Ok(vec![MapRuntimeEvent::CognitiveStateUpdated(
+            MapRuntimeCognitiveStateUpdatedEvent {
+                task_id,
+                map_id: Some(map_id),
+                update_kind: "fact_source".to_string(),
+                record_id: id,
+            },
+        )])
+    }
+
+    pub(crate) fn record_fact_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        claim_id: &str,
+        statement: String,
+        evidence_refs: Vec<ActionMapEvidenceRefInput>,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        let id = require_nonempty("claim_id", claim_id)?;
+        let statement = require_nonempty_owned("statement", statement)?;
+        let evidence_refs = self.normalize_evidence_refs(&task_id, Some(&map_id), evidence_refs)?;
+        self.validate_active_fact_evidence_refs(&task_id, Some(&map_id), &evidence_refs)?;
+
+        let task = self
+            .tasks
+            .get_mut(&task_id)
+            .expect("active task was validated before fact update");
+        let record = CognitiveClaim {
+            id: id.clone(),
+            statement,
+            evidence_refs,
+        };
+        upsert_cognitive_claim(&mut task.cognitive_state.facts, record);
+        Ok(vec![MapRuntimeEvent::CognitiveStateUpdated(
+            MapRuntimeCognitiveStateUpdatedEvent {
+                task_id,
+                map_id: Some(map_id),
+                update_kind: "fact".to_string(),
+                record_id: id,
+            },
+        )])
+    }
+
+    pub(crate) fn mark_result_validity_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        result_id: &str,
+        validity: &str,
+        validity_reason: String,
+        claims: Vec<ActionMapCognitiveClaimInput>,
+        evidence_refs: Vec<ActionMapEvidenceRefInput>,
+        changed_artifacts: Vec<String>,
+        validator_refs: Vec<String>,
+        remaining_uncertainty: Vec<String>,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        let result_id = require_nonempty("result_id", result_id)?;
+        let validity = ResultValidity::from_str(validity).ok_or_else(|| {
+            "TaskSpace mark_result_validity validity must be one of: unreviewed, accepted, questioned, invalid."
+                .to_string()
+        })?;
+        let validity_reason = require_nonempty_owned("validity_reason", validity_reason)?;
+        if !self
+            .maps
+            .get(&map_id)
+            .is_some_and(|map| map.results.contains_key(&result_id))
+        {
+            return Err(format!(
+                "TaskSpace result `{result_id}` does not exist on active task path `{map_id}`."
+            ));
+        }
+        let evidence_refs =
+            self.normalize_evidence_refs_for_result(&map_id, &result_id, evidence_refs)?;
+        if evidence_refs.is_empty() {
+            return Err(
+                "TaskSpace mark_result_validity evidence_refs cannot be empty.".to_string(),
+            );
+        }
+        let claims = self.normalize_claim_inputs_for_result(&map_id, &result_id, claims)?;
+        if validity == ResultValidity::Accepted && claims.is_empty() {
+            return Err(
+                "TaskSpace mark_result_validity accepted result requires claims.".to_string(),
+            );
+        }
+        if validity != ResultValidity::Accepted
+            && let Some(fact_id) = self.active_fact_citing_result(&task_id, &result_id)
+        {
+            return Err(format!(
+                "TaskSpace result `{result_id}` cannot be marked {} while active fact `{fact_id}` cites it. Remove or replace the fact before downgrading the result.",
+                validity.as_str()
+            ));
+        }
+
+        let map = self
+            .maps
+            .get_mut(&map_id)
+            .expect("active map was validated before result validity update");
+        let task_id = map.task_id.clone();
+        let result = map.results.get_mut(&result_id).ok_or_else(|| {
+            format!("TaskSpace result `{result_id}` does not exist on active task path `{map_id}`.")
+        })?;
+        result.evidence_package = NodeResultEvidencePackage {
+            claims,
+            evidence_refs,
+            changed_artifacts: normalize_string_vec(changed_artifacts),
+            validator_refs: normalize_string_vec(validator_refs),
+            remaining_uncertainty: normalize_string_vec(remaining_uncertainty),
+            validity,
+            validity_reason: validity_reason.clone(),
+        };
+        Ok(vec![MapRuntimeEvent::ResultValidityChanged(
+            MapRuntimeResultValidityChangedEvent {
+                task_id,
+                map_id,
+                node_id: result.node_id.clone(),
+                result_id,
+                validity: validity.as_str().to_string(),
+            },
+        )])
+    }
+
     fn validate_completion_evidence(&self, node_id: &str) -> Result<(), String> {
         let map_id = self.active_map_id.as_ref().ok_or_else(|| {
             "TaskSpace mode is active but no active task path exists.".to_string()
@@ -1889,6 +2103,280 @@ preview:\n\
             NodeKind::InspectCodeContext | NodeKind::FinalSynthesis | NodeKind::Custom => {}
         }
         Ok(())
+    }
+
+    fn active_task_context_for_cognitive_update(
+        &self,
+        owner_session_id: ThreadId,
+    ) -> Result<(TaskId, ActionMapId), String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Err("TaskSpace mode is not active.".to_string());
+        }
+        let task_id = self.active_task_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no active task exists. Use taskspace_control(action=start_task) or taskspace_control(action=route_task) before recording cognitive state."
+                .to_string()
+        })?;
+        let task = self
+            .tasks
+            .get(&task_id)
+            .ok_or_else(|| format!("TaskSpace task `{task_id}` does not exist."))?;
+        if let Some(owner) = task.owner_session_id
+            && owner != owner_session_id
+        {
+            return Err(format!(
+                "TaskSpace task `{task_id}` is owned by another session and cannot be updated here."
+            ));
+        }
+        let map_id = self.active_map_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no active task path exists. Use taskspace_control(action=start_task) or taskspace_control(action=route_task) before recording cognitive state."
+                .to_string()
+        })?;
+        if task.active_map_id.as_deref() != Some(map_id.as_str())
+            || !task
+                .map_ids
+                .iter()
+                .any(|known_map_id| known_map_id == &map_id)
+        {
+            return Err(format!(
+                "TaskSpace active task `{task_id}` is not bound to active task path `{map_id}`."
+            ));
+        }
+        let map = self
+            .maps
+            .get(&map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        if map.task_id.as_deref() != Some(task_id.as_str()) {
+            return Err(format!(
+                "TaskSpace active task path `{map_id}` does not belong to active task `{task_id}`."
+            ));
+        }
+        Ok((task_id, map_id))
+    }
+
+    fn normalize_evidence_refs(
+        &self,
+        task_id: &str,
+        map_id: Option<&str>,
+        inputs: Vec<ActionMapEvidenceRefInput>,
+    ) -> Result<Vec<EvidenceRef>, String> {
+        inputs
+            .into_iter()
+            .map(|input| self.normalize_evidence_ref(task_id, map_id, input))
+            .collect()
+    }
+
+    fn normalize_evidence_refs_for_result(
+        &self,
+        map_id: &str,
+        current_result_id: &str,
+        inputs: Vec<ActionMapEvidenceRefInput>,
+    ) -> Result<Vec<EvidenceRef>, String> {
+        let task_id = self
+            .maps
+            .get(map_id)
+            .and_then(|map| map.task_id.as_deref())
+            .unwrap_or("");
+        inputs
+            .into_iter()
+            .map(|mut input| {
+                let result_id = normalize_optional_string(input.result_id.take());
+                if result_id.as_deref() == Some(current_result_id) {
+                    input.result_id = result_id;
+                    self.normalize_evidence_ref(task_id, Some(map_id), input)
+                } else {
+                    input.result_id = result_id;
+                    self.normalize_evidence_ref(task_id, Some(map_id), input)
+                }
+            })
+            .collect()
+    }
+
+    fn normalize_claim_inputs_for_result(
+        &self,
+        map_id: &str,
+        _current_result_id: &str,
+        inputs: Vec<ActionMapCognitiveClaimInput>,
+    ) -> Result<Vec<CognitiveClaim>, String> {
+        let task_id = self
+            .maps
+            .get(map_id)
+            .and_then(|map| map.task_id.as_deref())
+            .unwrap_or("");
+        inputs
+            .into_iter()
+            .map(|input| {
+                let id = require_nonempty_owned("claim_id", input.id)?;
+                let statement = require_nonempty_owned("claim statement", input.statement)?;
+                let evidence_refs =
+                    self.normalize_evidence_refs(task_id, Some(map_id), input.evidence_refs)?;
+                if evidence_refs.is_empty() {
+                    return Err(
+                        "TaskSpace mark_result_validity claim evidence_refs cannot be empty."
+                            .to_string(),
+                    );
+                }
+                Ok(CognitiveClaim {
+                    id,
+                    statement,
+                    evidence_refs,
+                })
+            })
+            .collect()
+    }
+
+    fn normalize_evidence_ref(
+        &self,
+        task_id: &str,
+        map_id: Option<&str>,
+        input: ActionMapEvidenceRefInput,
+    ) -> Result<EvidenceRef, String> {
+        let evidence_ref = EvidenceRef {
+            result_id: normalize_optional_string(input.result_id),
+            claim_id: normalize_optional_string(input.claim_id),
+            fact_source_id: normalize_optional_string(input.fact_source_id),
+            trace_event_id: normalize_optional_string(input.trace_event_id),
+            artifact_ref: normalize_optional_string(input.artifact_ref),
+            validator_ref: normalize_optional_string(input.validator_ref),
+        };
+        if evidence_ref.result_id.is_none()
+            && evidence_ref.claim_id.is_none()
+            && evidence_ref.fact_source_id.is_none()
+            && evidence_ref.trace_event_id.is_none()
+            && evidence_ref.artifact_ref.is_none()
+            && evidence_ref.validator_ref.is_none()
+        {
+            return Err(
+                "TaskSpace evidence_refs entries must include at least one reference field."
+                    .to_string(),
+            );
+        }
+        if let Some(result_id) = evidence_ref.result_id.as_deref() {
+            let map_id = map_id.ok_or_else(|| {
+                "TaskSpace evidence_refs result_id requires an active task path.".to_string()
+            })?;
+            let map = self
+                .maps
+                .get(map_id)
+                .ok_or_else(|| format!("TaskSpace task path `{map_id}` is missing."))?;
+            if !map.results.contains_key(result_id) {
+                return Err(format!(
+                    "TaskSpace evidence_refs result_id `{result_id}` does not exist on active task path `{map_id}`."
+                ));
+            }
+        }
+        if let Some(fact_source_id) = evidence_ref.fact_source_id.as_deref() {
+            let task = self
+                .tasks
+                .get(task_id)
+                .ok_or_else(|| format!("TaskSpace task `{task_id}` does not exist."))?;
+            if !task
+                .cognitive_state
+                .fact_sources
+                .iter()
+                .any(|source| source.id == fact_source_id)
+            {
+                return Err(format!(
+                    "TaskSpace evidence_refs fact_source_id `{fact_source_id}` does not exist on active task `{task_id}`."
+                ));
+            }
+        }
+        if let Some(trace_event_id) = evidence_ref.trace_event_id.as_deref()
+            && !self
+                .taskspace_trace_events
+                .iter()
+                .any(|event| event.id == trace_event_id)
+        {
+            return Err(format!(
+                "TaskSpace evidence_refs trace_event_id `{trace_event_id}` does not exist."
+            ));
+        }
+        Ok(evidence_ref)
+    }
+
+    fn validate_active_fact_evidence_refs(
+        &self,
+        task_id: &str,
+        map_id: Option<&str>,
+        evidence_refs: &[EvidenceRef],
+    ) -> Result<(), String> {
+        if evidence_refs.is_empty() {
+            return Err("TaskSpace record_fact evidence_refs cannot be empty.".to_string());
+        }
+        let mut has_allowed_anchor = false;
+        for evidence_ref in evidence_refs {
+            if let Some(result_id) = evidence_ref.result_id.as_deref() {
+                let map_id = map_id.ok_or_else(|| {
+                    "TaskSpace record_fact result evidence requires an active task path."
+                        .to_string()
+                })?;
+                let result = self
+                    .maps
+                    .get(map_id)
+                    .and_then(|map| map.results.get(result_id))
+                    .ok_or_else(|| {
+                        format!(
+                            "TaskSpace record_fact result_id `{result_id}` does not exist on active task path `{map_id}`."
+                        )
+                    })?;
+                if result.evidence_package.validity != ResultValidity::Accepted {
+                    return Err(format!(
+                        "TaskSpace record_fact cannot use result `{result_id}` because its validity is {}.",
+                        result.evidence_package.validity.as_str()
+                    ));
+                }
+                has_allowed_anchor = true;
+            }
+            if let Some(fact_source_id) = evidence_ref.fact_source_id.as_deref() {
+                let task = self
+                    .tasks
+                    .get(task_id)
+                    .ok_or_else(|| format!("TaskSpace task `{task_id}` does not exist."))?;
+                let source = task
+                    .cognitive_state
+                    .fact_sources
+                    .iter()
+                    .find(|source| source.id == fact_source_id)
+                    .ok_or_else(|| {
+                        format!(
+                            "TaskSpace record_fact fact_source_id `{fact_source_id}` does not exist on active task `{task_id}`."
+                        )
+                    })?;
+                match source.provenance {
+                    DataProvenance::ObservedFromEnvironment | DataProvenance::ProvidedByUser => {
+                        has_allowed_anchor = true;
+                    }
+                    DataProvenance::GeneratedForTestOnly
+                    | DataProvenance::Inferred
+                    | DataProvenance::Unknown => {
+                        return Err(format!(
+                            "TaskSpace record_fact cannot use fact_source `{fact_source_id}` with provenance {} as an active fact source.",
+                            source.provenance.as_str()
+                        ));
+                    }
+                }
+            }
+        }
+        if !has_allowed_anchor {
+            return Err(
+                "TaskSpace record_fact requires evidence from an accepted result or an observed/provided fact source."
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    fn active_fact_citing_result(&self, task_id: &str, result_id: &str) -> Option<String> {
+        self.tasks.get(task_id).and_then(|task| {
+            task.cognitive_state
+                .facts
+                .iter()
+                .find(|fact| {
+                    fact.evidence_refs
+                        .iter()
+                        .any(|evidence_ref| evidence_ref.result_id.as_deref() == Some(result_id))
+                })
+                .map(|fact| fact.id.clone())
+        })
     }
 
     pub(crate) fn record_main_final_response(
@@ -3875,6 +4363,56 @@ fn node_id_sort_key(node_id: &str) -> (u8, u64, &str) {
     (1, 0, node_id)
 }
 
+fn require_nonempty(field: &str, value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(format!("TaskSpace {field} cannot be empty."));
+    }
+    Ok(value.to_string())
+}
+
+fn require_nonempty_owned(field: &str, value: String) -> Result<String, String> {
+    require_nonempty(field, &value)
+}
+
+fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn normalize_string_vec(values: Vec<String>) -> Vec<String> {
+    values
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect()
+}
+
+fn upsert_output_contract(records: &mut Vec<OutputContract>, record: OutputContract) {
+    if let Some(existing) = records.iter_mut().find(|existing| existing.id == record.id) {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
+fn upsert_fact_source(records: &mut Vec<FactSource>, record: FactSource) {
+    if let Some(existing) = records.iter_mut().find(|existing| existing.id == record.id) {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
+fn upsert_cognitive_claim(records: &mut Vec<CognitiveClaim>, record: CognitiveClaim) {
+    if let Some(existing) = records.iter_mut().find(|existing| existing.id == record.id) {
+        *existing = record;
+    } else {
+        records.push(record);
+    }
+}
+
 fn snapshot_cognitive_state(state: &TaskCognitiveState) -> ActionMapSnapshotCognitiveState {
     ActionMapSnapshotCognitiveState {
         success_criteria: state.success_criteria.clone(),
@@ -4007,6 +4545,7 @@ fn snapshot_evidence_ref(evidence_ref: &EvidenceRef) -> ActionMapSnapshotEvidenc
     ActionMapSnapshotEvidenceRef {
         result_id: evidence_ref.result_id.clone(),
         claim_id: evidence_ref.claim_id.clone(),
+        fact_source_id: evidence_ref.fact_source_id.clone(),
         trace_event_id: evidence_ref.trace_event_id.clone(),
         artifact_ref: evidence_ref.artifact_ref.clone(),
         validator_ref: evidence_ref.validator_ref.clone(),
@@ -4017,6 +4556,7 @@ fn evidence_ref_from_snapshot(snapshot: ActionMapSnapshotEvidenceRef) -> Evidenc
     EvidenceRef {
         result_id: snapshot.result_id,
         claim_id: snapshot.claim_id,
+        fact_source_id: snapshot.fact_source_id,
         trace_event_id: snapshot.trace_event_id,
         artifact_ref: snapshot.artifact_ref,
         validator_ref: snapshot.validator_ref,
@@ -5973,6 +6513,394 @@ mod tests {
         let mut restored = ActionMapRuntimeState::default();
         restored.restore_snapshot(snapshot.clone());
         assert_eq!(restored.snapshot(), snapshot);
+    }
+
+    #[test]
+    fn cognitive_control_actions_update_task_state_and_result_package() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_task_id, _map_id, _node_id, _) = start_test_task(
+            &mut state,
+            owner,
+            "Record cognitive controls",
+            "Exercise MVP cognitive control actions.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("result records")
+            .expect("result is recorded");
+
+        let fact_source_events = state
+            .record_fact_source_for_main(
+                owner,
+                "source-user",
+                "provided_by_user",
+                "User supplied the expected output contract.".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    trace_event_id: Some("trace-1".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("fact source records");
+        assert!(matches!(
+            fact_source_events[0],
+            MapRuntimeEvent::CognitiveStateUpdated(_)
+        ));
+        state
+            .record_output_contract_for_main(
+                owner,
+                "contract-utf8",
+                "encoding",
+                "Final artifact must be UTF-8.".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    fact_source_id: Some("source-user".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("output contract records");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &result_id,
+                "accepted",
+                "validator passed".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-validator-passed".to_string(),
+                    statement: "Validator passed.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        trace_event_id: Some("trace-1".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    ..Default::default()
+                }],
+                vec!["out.txt".to_string()],
+                vec!["pytest".to_string()],
+                Vec::new(),
+            )
+            .expect("result validity records");
+        state
+            .record_fact_for_main(
+                owner,
+                "fact-final-encoding",
+                "The expected final artifact encoding is UTF-8.".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    fact_source_id: Some("source-user".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("fact records");
+
+        let snapshot = state.snapshot();
+        let task = &snapshot.tasks[0];
+        assert_eq!(task.cognitive_state.fact_sources[0].id, "source-user");
+        assert_eq!(task.cognitive_state.output_contracts[0].id, "contract-utf8");
+        assert_eq!(task.cognitive_state.facts[0].id, "fact-final-encoding");
+        assert_eq!(
+            task.cognitive_state.facts[0].evidence_refs[0]
+                .fact_source_id
+                .as_deref(),
+            Some("source-user")
+        );
+        let result = &snapshot.maps[0].results[0];
+        assert_eq!(result.evidence_package.validity, "accepted");
+        assert_eq!(
+            result.evidence_package.claims[0].id,
+            "claim-validator-passed"
+        );
+        assert_eq!(result.evidence_package.changed_artifacts, vec!["out.txt"]);
+    }
+
+    #[test]
+    fn cognitive_control_actions_require_active_task_path() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Require active map",
+            "Cognitive records must stay bound to a task path.",
+            true,
+        );
+        state.active_map_id = None;
+
+        let fact_source_error = state
+            .record_fact_source_for_main(
+                owner,
+                "source-user",
+                "provided_by_user",
+                "User supplied context.".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    trace_event_id: Some("trace-1".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect_err("cognitive record requires an active map");
+        assert!(fact_source_error.contains("no active task path exists"));
+
+        let output_contract_error = state
+            .record_output_contract_for_main(
+                owner,
+                "contract-utf8",
+                "encoding",
+                "Final artifact must be UTF-8.".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("out.txt".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect_err("output contract requires an active map");
+        assert!(output_contract_error.contains("no active task path exists"));
+
+        let fact_error = state
+            .record_fact_for_main(
+                owner,
+                "fact-1",
+                "A fact cannot be recorded without an active path.".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("out.txt".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect_err("fact requires an active map");
+        assert!(fact_error.contains("no active task path exists"));
+
+        let validity_error = state
+            .mark_result_validity_for_main(
+                owner,
+                "result-missing",
+                "accepted",
+                "validator passed".to_string(),
+                Vec::new(),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("out.txt".to_string()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect_err("validity update requires an active map");
+        assert!(validity_error.contains("no active task path exists"));
+    }
+
+    #[test]
+    fn mark_result_validity_accepted_requires_claims_and_evidence() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Validate accepted result",
+            "Accepted result must have evidence.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("result records")
+            .expect("result is recorded");
+
+        let missing_claims = state
+            .mark_result_validity_for_main(
+                owner,
+                &result_id,
+                "accepted",
+                "validator passed".to_string(),
+                Vec::new(),
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect_err("accepted validity must require claims");
+        assert!(missing_claims.contains("accepted result requires claims"));
+
+        let missing_evidence = state
+            .mark_result_validity_for_main(
+                owner,
+                &result_id,
+                "accepted",
+                "validator passed".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-1".to_string(),
+                    statement: "Validator passed.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        trace_event_id: Some("trace-1".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect_err("accepted validity must require top-level evidence");
+        assert!(missing_evidence.contains("evidence_refs cannot be empty"));
+    }
+
+    #[test]
+    fn mark_result_validity_rejects_downgrade_while_active_fact_cites_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Validate fact result dependency",
+            "Facts must not outlive rejected evidence.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("result records")
+            .expect("result is recorded");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &result_id,
+                "accepted",
+                "validator passed".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-validator-passed".to_string(),
+                    statement: "Validator passed.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        trace_event_id: Some("trace-1".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                vec!["pytest".to_string()],
+                Vec::new(),
+            )
+            .expect("result accepted");
+        state
+            .record_fact_for_main(
+                owner,
+                "fact-validator-passed",
+                "The validator passed.".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    ..Default::default()
+                }],
+            )
+            .expect("accepted result can support active fact");
+
+        for validity in ["invalid", "questioned", "unreviewed"] {
+            let error = state
+                .mark_result_validity_for_main(
+                    owner,
+                    &result_id,
+                    validity,
+                    "later review rejected the result".to_string(),
+                    Vec::new(),
+                    vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.clone()),
+                        ..Default::default()
+                    }],
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                )
+                .expect_err("active fact must block result downgrade");
+            assert!(error.contains("active fact `fact-validator-passed` cites it"));
+        }
+    }
+
+    #[test]
+    fn record_fact_rejects_untrusted_provenance_and_unaccepted_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Validate fact provenance",
+            "Facts must come from trusted anchors.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("result records")
+            .expect("result is recorded");
+        state
+            .record_fact_source_for_main(
+                owner,
+                "source-generated",
+                "generated_for_test_only",
+                "Synthetic fixture data.".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    trace_event_id: Some("trace-1".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("generated fact source records");
+
+        let generated_error = state
+            .record_fact_for_main(
+                owner,
+                "fact-generated",
+                "Generated data is real.".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    fact_source_id: Some("source-generated".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect_err("generated source must not become active fact");
+        assert!(generated_error.contains("generated_for_test_only"));
+
+        let unreviewed_error = state
+            .record_fact_for_main(
+                owner,
+                "fact-unreviewed",
+                "Unreviewed result is accepted fact.".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id),
+                    ..Default::default()
+                }],
+            )
+            .expect_err("unreviewed result must not become active fact");
+        assert!(unreviewed_error.contains("validity is unreviewed"));
     }
 
     #[test]
