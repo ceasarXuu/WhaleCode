@@ -12,6 +12,11 @@ function Join-ReportValues($Value) {
     return (@(Get-ObjectArray $Value) | ForEach-Object { [string]$_ }) -join ", "
 }
 
+function Format-MarkdownCell($Value) {
+    $text = [string]$Value
+    return $text.Replace("|", "\|").Replace("`r`n", "<br>").Replace("`n", "<br>").Replace("`r", "<br>")
+}
+
 function Add-MarkdownRows {
     param(
         [System.Collections.Generic.List[string]]$Markdown,
@@ -62,6 +67,7 @@ function Write-ActionMapObservabilityReport {
     $md.Add("")
     $md.Add("- rollout path: " + $Reduced.source.rolloutPath)
     $md.Add("- jsonl path: " + $Reduced.source.jsonlPath)
+    $md.Add("- artifact root: " + $Reduced.source.artifactRoot)
     $md.Add("- rollout parse errors: $($Reduced.source.rolloutReadStats.parseErrorCount)")
     $md.Add("- jsonl parse errors: $($Reduced.source.jsonlReadStats.parseErrorCount)")
     $md.Add("")
@@ -77,7 +83,9 @@ function Write-ActionMapObservabilityReport {
     $md.Add("- fact sources: $($summary.factSources)")
     $md.Add("- accepted results: $($summary.acceptedResults)")
     $md.Add("- questioned/invalid results: $($summary.questionedOrInvalidResults)")
+    $md.Add("- final artifacts: $($summary.finalArtifacts)")
     $md.Add("- cognitive structural gate: $($summary.cognitiveStructuralGatePassed)")
+    $md.Add("- cognitive hard gate: $($summary.cognitiveAuditHardGatePassed)")
     $md.Add("- full MVP hard gate implemented: $($cognitiveAudit.fullMvpHardGateImplemented)")
     $md.Add("")
     $md.Add("## Cognitive Audit")
@@ -86,10 +94,10 @@ function Write-ActionMapObservabilityReport {
     $md.Add("- audit scope: $($cognitiveAudit.auditScope)")
     $md.Add("- promotion_not_in_mvp: $($cognitiveAudit.promotionNotInMvp)")
     if (@($cognitiveAudit.hardGateFailures).Count -eq 0) {
-        $md.Add("- structural gate failures: none")
+        $md.Add("- hard gate failures: none")
     }
     else {
-        $md.Add("- structural gate failures: $(@($cognitiveAudit.hardGateFailures) -join ', ')")
+        $md.Add("- hard gate failures: $(@($cognitiveAudit.hardGateFailures) -join ', ')")
     }
     $md.Add("- unsupported MVP gates: $(@($cognitiveAudit.unsupportedMvpGateIds) -join ', ')")
     $md.Add("")
@@ -131,6 +139,16 @@ function Write-ActionMapObservabilityReport {
         $md.Add("| $($node.id) | $($node.kind) | $($node.title) | $($node.status) | $($node.agentThreads.Count) | $($node.results.Count) | $acceptedCount | $questionedInvalidCount | $blockedCount | $barrierCount |")
     }
     $md.Add("")
+    $md.Add("## Final Artifacts")
+    $md.Add("")
+    $md.Add("| Artifact | Task | Path | Hash | Results | Contracts | Claims | Evidence Refs | Validators | Fact Sources | Sentinels |")
+    $md.Add("|---|---|---|---|---|---|---|---|---|---|---|")
+    foreach ($artifact in @(Get-ObjectArray $Reduced.finalArtifacts)) {
+        $hash = [string]$artifact.artifactHash
+        if ($hash.Length -gt 16) { $hash = $hash.Substring(0, 16) }
+        $md.Add("| $(Format-MarkdownCell $artifact.finalArtifactId) | $(Format-MarkdownCell $artifact.taskId) | $(Format-MarkdownCell $artifact.finalArtifactPath) | $hash | $(Format-MarkdownCell (Join-ReportValues $artifact.resultIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.outputContractIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.claimIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.evidenceRefIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.validatorRefs)) | $(Format-MarkdownCell (Join-ReportValues $artifact.factSourceIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.sentinelIds)) |")
+    }
+    $md.Add("")
     $md.Add("## Result Evidence")
     $md.Add("")
     $md.Add("| Result | Node | Validity | Claims | Evidence Refs | Validators | Reason |")
@@ -168,8 +186,8 @@ function Write-ActionMapObservabilityReport {
     $md.Add("")
     $md.Add("## Known Missing / Future Work")
     $md.Add("")
-    $md.Add("- This report currently validates `mvp-structural-subset`, not the full MVP final-artifact why-chain.")
-    $md.Add("- Unsupported gates are listed in `cognitiveAudit.unsupportedMvpGateIds` and must not be counted as implemented.")
+    $md.Add("- This report validates the MVP final-artifact why-chain by mechanically joining output contracts, results, claims, evidence refs, validators/fact sources, sentinel warnings, and artifact hashes.")
+    $md.Add('- Final artifacts are currently derived from artifact output contracts and result `changedArtifacts` / `artifactRef` fields; a dedicated final-artifact runtime event remains future work.')
     $md.Add("- Browser interaction coverage for `/task-show` remains separate from this static export report.")
     $md | Set-Content -LiteralPath $markdownPath -Encoding UTF8
 
@@ -246,6 +264,10 @@ code { background: #eef1f5; padding: 2px 4px; border-radius: 4px; }
     <div id="sentinels"></div>
   </section>
   <section>
+    <h2>Final Artifacts</h2>
+    <div id="finalArtifacts"></div>
+  </section>
+  <section>
     <h2>Result Evidence</h2>
     <div id="resultEvidence"></div>
   </section>
@@ -258,7 +280,7 @@ code { background: #eef1f5; padding: 2px 4px; border-radius: 4px; }
 <script>
 const data = JSON.parse(document.getElementById('trace-data').textContent);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-document.getElementById('source').innerHTML = `<code>${esc(data.source.rolloutPath)}</code>`;
+document.getElementById('source').innerHTML = `<code>${esc(data.source.rolloutPath)}</code><br><span>artifact root: ${esc(data.source.artifactRoot || '')}</span>`;
 document.getElementById('stats').innerHTML = Object.entries(data.summary)
   .map(([k, v]) => `<div class="stat"><strong>${esc(v)}</strong>${esc(k)}</div>`).join('');
 const audit = data.cognitiveAudit || {};
@@ -266,7 +288,7 @@ document.getElementById('audit').innerHTML = `
   <p class="gate ${audit.structuralGatePassed ? 'pass' : 'fail'}">structural gate: ${audit.structuralGatePassed ? 'PASS' : 'FAIL'}</p>
   <p>schema: <code>${esc(audit.auditSchemaVersion || '')}</code> | scope: <code>${esc(audit.auditScope || '')}</code> | full MVP hard gate implemented: ${esc(audit.fullMvpHardGateImplemented)}</p>
   <p>promotion_not_in_mvp: ${esc(audit.promotionNotInMvp)}</p>
-  <p>structural failures: ${esc((audit.hardGateFailures || []).join(', ') || 'none')}</p>
+  <p>hard gate failures: ${esc((audit.hardGateFailures || []).join(', ') || 'none')}</p>
   <p>unsupported MVP gates: ${esc((audit.unsupportedMvpGateIds || []).join(', ') || 'none')}</p>
   ${table(['Gate','Pass','Expected','Observed','Subject IDs'], (audit.gateRecords || []).map(g => [g.gateId, g.pass, g.expected, g.observed, (g.subjectIds || []).join(', ')]))}
   ${table(['Metric','Value'], Object.entries(audit.metrics || {}))}
@@ -302,6 +324,8 @@ const resultRows = [];
 }));
 document.getElementById('resultEvidence').innerHTML = table(['Result','Node','Validity','Claims','Evidence Refs','Validators','Reason'], resultRows);
 document.getElementById('sentinels').innerHTML = table(['Sentinel','Type','Severity','Status','Task','Map','Node','Result','Trace Events','Reason','Clearance'], (data.sentinelWarnings || []).map(w => [w.id, w.sentinelType, w.severity, w.status, w.taskId, w.mapId, w.nodeId, w.resultId, (w.traceEventIds || []).join(', '), w.reason, w.clearanceAction]));
+document.getElementById('finalArtifacts').innerHTML = table(['Artifact','Task','Path','Hash','Results','Contracts','Claims','Evidence','Validators','Sources','Sentinels'],
+  (data.finalArtifacts || []).map(a => [a.finalArtifactId, a.taskId, a.finalArtifactPath, String(a.artifactHash || '').slice(0, 16), (a.resultIds || []).join(', '), (a.outputContractIds || []).join(', '), (a.claimIds || []).join(', '), (a.evidenceRefIds || []).join(', '), (a.validatorRefs || []).join(', '), (a.factSourceIds || []).join(', '), (a.sentinelIds || []).join(', ')]));
 document.getElementById('timeline').innerHTML = data.timeline.map(e => {
   const cls = e.kind.includes('result') ? 'result' : e.kind.includes('lease') ? 'lease' : e.kind.includes('node') ? 'node' : e.kind.startsWith('tool:') ? 'tool' : '';
   return `<div class="event ${cls}"><code>${esc(e.at || '-')}</code> <strong>${esc(e.kind)}</strong><br>${esc(e.summary)}</div>`;

@@ -60,7 +60,8 @@ function Ensure-Map {
         [string]$MapId,
         [string]$Title = "",
         [string]$OwnerSessionId = "",
-        [object]$CreatedFrom = $null
+        [object]$CreatedFrom = $null,
+        [string]$TaskId = ""
     )
 
     if ([string]::IsNullOrWhiteSpace($MapId)) {
@@ -69,6 +70,7 @@ function Ensure-Map {
     if (-not $MapById.ContainsKey($MapId)) {
         $map = [ordered]@{
             id = $MapId
+            taskId = $TaskId
             title = $Title
             ownerSessionId = $OwnerSessionId
             createdFrom = $CreatedFrom
@@ -79,6 +81,7 @@ function Ensure-Map {
     else {
         $map = $MapById[$MapId]
         if ($Title) { $map.title = $Title }
+        if ($TaskId) { $map.taskId = $TaskId }
         if ($OwnerSessionId) { $map.ownerSessionId = $OwnerSessionId }
         if ($CreatedFrom) { $map.createdFrom = $CreatedFrom }
     }
@@ -178,7 +181,9 @@ function Add-Or-Update-NodeResult {
         [string]$Kind,
         [string]$ActionClass = "",
         [string]$Body = "",
-        [object]$EvidencePackage = $null
+        [object]$EvidencePackage = $null,
+        [string]$MapId = "",
+        [string]$TaskId = ""
     )
 
     if (-not $Node -or [string]::IsNullOrWhiteSpace($ResultId)) {
@@ -204,6 +209,8 @@ function Add-Or-Update-NodeResult {
         if ($SourceThreadId) { $result.sourceThreadId = $SourceThreadId }
         if ($Kind) { $result.kind = $Kind }
         if ($ActionClass) { $result.actionClass = $ActionClass }
+        if ($MapId) { $result.mapId = $MapId }
+        if ($TaskId) { $result.taskId = $TaskId }
         if ($Body) {
             $result.body = $Body
             Update-ResultDerivedFields $result $Body
@@ -218,6 +225,8 @@ function Add-Or-Update-NodeResult {
     $result = [ordered]@{
         at = $At
         resultId = $ResultId
+        mapId = $MapId
+        taskId = $TaskId
         leaseId = $LeaseId
         sourceThreadId = $SourceThreadId
         kind = $Kind

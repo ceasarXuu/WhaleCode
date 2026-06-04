@@ -68,14 +68,18 @@ function Add-AuditGateRecord {
     })
 }
 
+. (Join-Path $PSScriptRoot "action-map-final-artifact-audit-lib.ps1")
+
 function Get-CognitiveAuditSummary {
     param(
         [object]$Tasks,
         [object]$Nodes,
         [object]$SentinelWarnings,
-        [object]$Timeline
+        [object]$Timeline,
+        [string]$ArtifactRoot = ""
     )
 
+    $taskCount = @(Get-ObjectArray $Tasks).Count
     $results = New-Object System.Collections.Generic.List[object]
     $resultById = @{}
     foreach ($node in @(Get-ObjectArray $Nodes)) {
@@ -124,6 +128,7 @@ function Get-CognitiveAuditSummary {
     $activeFactMissingEvidenceRefs = New-Object System.Collections.Generic.List[string]
     $activeFactMissingJoinableSource = New-Object System.Collections.Generic.List[string]
     $activeFactInvalidSource = New-Object System.Collections.Generic.List[string]
+    $activeFactInvalidResult = New-Object System.Collections.Generic.List[string]
     $activeFactCount = 0
     foreach ($task in @(Get-ObjectArray $Tasks)) {
         $taskId = [string](Get-ObjectField $task "id")
@@ -148,25 +153,59 @@ function Get-CognitiveAuditSummary {
                 $activeFactMissingJoinableSource.Add($factSubject)
                 continue
             }
-            $hasJoinableSource = $false
+            $hasAllowedAnchor = $false
             foreach ($ref in $refs) {
                 $sourceId = [string](Get-ObjectField $ref "factSourceId")
-                if (-not $sourceId -or -not $taskSourceById.ContainsKey($sourceId)) {
+                if ($sourceId) {
+                    if (-not $taskSourceById.ContainsKey($sourceId)) {
+                        $activeFactMissingJoinableSource.Add("$factSubject->$sourceId")
+                        continue
+                    }
+                    $provenance = [string](Get-ObjectField $taskSourceById[$sourceId] "provenance")
+                    if ($provenance -in @("generated_for_test_only", "inferred", "unknown")) {
+                        $badFactSourceRefs++
+                        $activeFactInvalidSource.Add("$factSubject->$sourceId")
+                    }
+                    else {
+                        $hasAllowedAnchor = $true
+                    }
+                    continue
+                }
+                $resultId = [string](Get-ObjectField $ref "resultId")
+                if ($resultId) {
+                    if (-not $resultById.ContainsKey($resultId)) {
+                        $activeFactMissingJoinableSource.Add("$factSubject->$resultId")
+                        continue
+                    }
+                    $result = $resultById[$resultId]
+                    $resultTaskId = [string](Get-ObjectField $result "taskId")
+                    if (-not $resultTaskId -and $taskCount -eq 1) {
+                        $resultTaskId = $taskId
+                    }
+                    if ($resultTaskId -ne $taskId) {
+                        $activeFactInvalidResult.Add("$factSubject->$resultId:task_mismatch")
+                        continue
+                    }
+                    $resultValidity = [string](Get-ObjectField $result "validity")
+                    if ($resultValidity -eq "accepted") {
+                        $hasAllowedAnchor = $true
+                    }
+                    elseif ($resultValidity -in @("questioned", "invalid")) {
+                        $activeFactInvalidResult.Add("$factSubject->$resultId")
+                    }
+                    else {
+                        $activeFactMissingJoinableSource.Add("$factSubject->$resultId")
+                    }
+                    continue
+                }
+                if (-not $sourceId -and -not $resultId) {
                     if ($sourceId) {
                         $activeFactMissingJoinableSource.Add("$factSubject->$sourceId")
                     }
                     continue
                 }
-                $provenance = [string](Get-ObjectField $taskSourceById[$sourceId] "provenance")
-                if ($provenance -in @("generated_for_test_only", "inferred", "unknown")) {
-                    $badFactSourceRefs++
-                    $activeFactInvalidSource.Add("$factSubject->$sourceId")
-                }
-                else {
-                    $hasJoinableSource = $true
-                }
             }
-            if (-not $hasJoinableSource) {
+            if (-not $hasAllowedAnchor) {
                 $activeFactMissingJoinableSource.Add($factSubject)
             }
         }
@@ -192,27 +231,28 @@ function Get-CognitiveAuditSummary {
     Add-AuditGateRecord $gateRecords "accepted_result_missing_evidence" ($acceptedMissingEvidence.Count -eq 0) "accepted results include claims and evidence" "acceptedMissingEvidence=$($acceptedMissingEvidence.Count)" @($acceptedMissingEvidence | ForEach-Object { [string](Get-ObjectField $_ "resultId") })
     Add-AuditGateRecord $gateRecords "active_fact_source_missing" ($activeFactMissingEvidenceRefs.Count -eq 0 -and $activeFactMissingJoinableSource.Count -eq 0) "each active fact has a joinable factSourceId evidence ref" "missingEvidenceRefs=$($activeFactMissingEvidenceRefs.Count), missingJoinableSource=$($activeFactMissingJoinableSource.Count)" @($activeFactMissingJoinableSource.ToArray())
     Add-AuditGateRecord $gateRecords "self_generated_data_leakage" ($badFactSourceRefs -eq 0) "active facts do not rely on generated/inferred/unknown sources" "invalidSourceRefs=$badFactSourceRefs" @($activeFactInvalidSource.ToArray())
+    Add-AuditGateRecord $gateRecords "questioned_or_invalid_result_in_cognitive_state_update" ($activeFactInvalidResult.Count -eq 0) "active facts do not rely on questioned/invalid/cross-task results" "invalidResultRefs=$($activeFactInvalidResult.Count)" @($activeFactInvalidResult.ToArray())
     Add-AuditGateRecord $gateRecords "result_validity_transition_missing" ($results.Count -eq 0 -or $validityTransitions -gt 0) "when results exist, at least one result validity transition is recorded" "results=$($results.Count), validityTransitions=$validityTransitions"
     Add-AuditGateRecord $gateRecords "orphan_result_validity_transition" ($orphanValidityTransitions.Count -eq 0) "validity transition result ids join to snapshot results" "orphanTransitions=$($orphanValidityTransitions.Count)" @($orphanValidityTransitions.ToArray())
 
+    $structuralFailures = @($gateRecords.ToArray() | Where-Object { $_.pass -ne $true } | ForEach-Object { [string]$_.gateId })
+    $finalArtifactAudit = Get-FinalArtifactAuditSummary $Tasks $Nodes $SentinelWarnings $resultById $ArtifactRoot
+    foreach ($gate in @(Get-ObjectArray $finalArtifactAudit.gateRecords)) {
+        $gateRecords.Add($gate)
+    }
     $failures = @($gateRecords.ToArray() | Where-Object { $_.pass -ne $true } | ForEach-Object { [string]$_.gateId })
 
     return [ordered]@{
         auditSchemaVersion = "taskspace-cognitive-audit-v1"
-        auditScope = "mvp-structural-subset"
-        fullMvpHardGateImplemented = $false
+        auditScope = "mvp-final-artifact-why-chain"
+        fullMvpHardGateImplemented = $true
         promotionNotInMvp = $true
-        structuralGatePassed = ($failures.Count -eq 0)
+        structuralGatePassed = ($structuralFailures.Count -eq 0)
         hardGatePassed = ($failures.Count -eq 0)
         hardGateFailures = @($failures)
         gateRecords = @($gateRecords.ToArray())
-        unsupportedMvpGateIds = @(
-            "questioned_or_invalid_result_in_cognitive_state_update",
-            "questioned_or_invalid_final_artifact_dependency",
-            "sentinel_warning_uncleared_for_final_artifact",
-            "audit_why_chain_missing",
-            "final_artifact_hash_missing"
-        )
+        unsupportedMvpGateIds = @()
+        finalArtifacts = @($finalArtifactAudit.finalArtifacts)
         metrics = [ordered]@{
             outputContractCount = $outputContracts
             factSourceCount = $factSources
@@ -225,10 +265,17 @@ function Get-CognitiveAuditSummary {
             activeFactMissingEvidenceRefCount = $activeFactMissingEvidenceRefs.Count
             activeFactMissingJoinableSourceCount = $activeFactMissingJoinableSource.Count
             invalidFactSourceReferenceCount = $badFactSourceRefs
+            invalidResultFactReferenceCount = $activeFactInvalidResult.Count
             orphanResultValidityTransitionCount = $orphanValidityTransitions.Count
             resultValidityTransitionCount = $validityTransitions
             cognitiveStateUpdateCount = $cognitiveUpdates
             activeSentinelWarningCount = $activeSentinelWarnings
+            finalArtifactCount = [int]$finalArtifactAudit.metrics.finalArtifactCount
+            finalArtifactMissingHashCount = [int]$finalArtifactAudit.metrics.finalArtifactMissingHashCount
+            finalArtifactMissingWhyChainCount = [int]$finalArtifactAudit.metrics.finalArtifactMissingWhyChainCount
+            nonAcceptedFinalArtifactDependencyCount = [int]$finalArtifactAudit.metrics.nonAcceptedFinalArtifactDependencyCount
+            questionedOrInvalidFinalArtifactDependencyCount = [int]$finalArtifactAudit.metrics.questionedOrInvalidFinalArtifactDependencyCount
+            unclearedFinalArtifactSentinelCount = [int]$finalArtifactAudit.metrics.unclearedFinalArtifactSentinelCount
         }
         reportOnly = [ordered]@{
             promotionTrigger = $false

@@ -788,6 +788,34 @@ UI 约束：
 - 使用旧 E3 benchmark artifact 导出时，审计会因为缺 output contract / fact source / claims evidence / validity transition 而失败；这不是回归，而是证明旧数据只有 map 结构、没有认知状态记录，不能被计入 cognitive MVP clean evidence。
 - 已有 PowerShell 库测试覆盖 evidence package 派生字段、positive cognitive audit、self-generated data leakage、unsourced active fact、unknown fact source、黑盒导出 fixture、HTML trace-data JSON parse；尚未实现 final artifact dependency why-chain、artifact hash、questioned/invalid result 进入 final artifact dependency、sentinel clear lifecycle、完整 E2/E3 生产路径重跑。
 
+实施记录（2026-06-05 Phase 7B）：
+
+- `scripts/action-map-final-artifact-audit-lib.ps1` 已新增 final artifact why-chain 审计，不新增 parallel runtime，只复用 snapshot 中的 `outputContracts`、`NodeResultEvidencePackage.claims/evidenceRefs/changedArtifacts/validatorRefs`、`sentinelWarnings` 和现有 result/task/map join key。
+- `scripts/action-map-observability-lib.ps1` 的 reduced model 补充 `taskId/mapId` 到 map/result，解决 final artifact dependency 无法稳定归属 task 的问题。
+- `scripts/export-action-map-observability.ps1` 新增可选 `-ArtifactRoot`，E2/E3 相关导出入口已传入该 root。当 result `changedArtifacts` 或 evidence `artifactRef` 指向文件时，审计只允许解析 artifact root 内的文件并输出 SHA-256；绝对路径或相对路径逃逸 root 时不得 hash，必须触发 `final_artifact_hash_missing`。
+- `cognitiveAudit.auditScope` 已升级为 `mvp-final-artifact-why-chain`，`fullMvpHardGateImplemented=true`，`unsupportedMvpGateIds=[]`。这只表示 MVP 审计 gate 已进入生产导出路径，不表示 TaskSpace 已有 E3 utility 正收益。
+- 新增 hard gates：
+  - `questioned_or_invalid_result_in_cognitive_state_update`
+  - `non_accepted_final_artifact_dependency`
+  - `questioned_or_invalid_final_artifact_dependency`
+  - `sentinel_warning_uncleared_for_final_artifact`
+  - `audit_why_chain_missing`
+  - `final_artifact_hash_missing`
+- `active fact` 的 evidence anchor 规则已纠正为：可以引用同 task 的可信 `factSourceId`，也可以引用同 task 的 `accepted resultId`；跨 task result、`questioned/invalid resultId`、`unreviewed resultId` 都不得进入权威 cognitive state。
+- final artifact dependency 只接受 `accepted` result；`unreviewed` 会触发 `non_accepted_final_artifact_dependency`，`questioned/invalid` 同时触发更窄的 `questioned_or_invalid_final_artifact_dependency`。
+- output contract 与 final artifact 的 join 不再用“同 task 任意 artifact 满足任意 contract”的宽松规则；必须通过显式 `artifactRef/path` 或 contract evidence refs 中的 `resultId` 与产物来源 result 机械 join。无法 join 的 contract 进入 `audit_why_chain_missing`。
+- final artifact identity 使用 task-scoped key，避免两个 task 产出相同相对路径时被错误合并。
+- `scripts/test-action-map-observability-lib.ps1` 已覆盖完整 why-chain 正例、invalid result 同时污染 active fact/final artifact dependency、unreviewed result 依赖、orphan artifact contract、缺 artifact hash、ArtifactRoot containment、未清除 sentinel 影响 final artifact、跨 task accepted result source、同路径多 task 产物不合并、黑盒 export/report/HTML parse。
+- 使用旧 E3 artifact 重跑导出时，新的 hard gate 仍会失败，但失败原因是旧运行缺 cognitive 记录：`required_output_contract_missing`、`required_fact_source_missing`、`result_claims_evidence_missing`、`result_validity_transition_missing`；这符合预期。
+- 尚未进入本阶段的内容：dedicated final-artifact runtime event、sentinel clear action 枚举生产事件、promotion/collapse、浏览器端 final artifact 交互图、完整 E2/E3 benchmark 重跑。
+
+Phase 7B closure review 后续加固项：
+
+- 当 output contract 同时声明 `artifactRef/path` 和 `resultId`，但二者指向不一致时，当前 MVP 仍以显式 artifact path 作为充分 join；后续可以增加一致性 gate，但不在本轮改变语义。
+- Windows symlink / reparse-point 指向 ArtifactRoot 外文件的 containment 负例尚未加入自动化测试；本轮只验证普通绝对路径和相对路径逃逸。
+- Markdown report 已对 final artifact 表做转义，gate/result/sentinel 等表格仍可继续统一套用 Markdown cell escaping，避免审计文本包含 `|` 或换行时影响人工阅读。
+- wrapper 已接入 `ArtifactRoot`，但真实 E2/E3 wrapper 级 smoke rerun 与完整 utility benchmark 仍属于后续评估，不作为本轮 Phase 7B 关闭条件。
+
 ## Runtime Event 与 Audit Join Key
 
 新增能力必须有结构化事件，不允许只写进 result body。

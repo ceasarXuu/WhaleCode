@@ -4,7 +4,8 @@
     [Parameter(Mandatory = $true)]
     [string]$JsonlPath,
     [Parameter(Mandatory = $true)]
-    [string]$OutputDir
+    [string]$OutputDir,
+    [string]$ArtifactRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -87,7 +88,7 @@ foreach ($item in $rolloutItems) {
             Add-TimelineEvent $timeline $at $kind "task routed: $($payload.previousTaskId) -> $($payload.currentTaskId)" $payload
         }
         "map_created" {
-            [void](Ensure-Map $maps $mapById ([string]$payload.mapId) ([string]$payload.title) ([string]$payload.ownerSessionId) $payload.createdFrom)
+            [void](Ensure-Map $maps $mapById ([string]$payload.mapId) ([string]$payload.title) ([string]$payload.ownerSessionId) $payload.createdFrom ([string]$payload.taskId))
             Add-TimelineEvent $timeline $at $kind "map created: $($payload.mapId) $($payload.title)" $payload
         }
         "node_status_changed" {
@@ -130,7 +131,12 @@ foreach ($item in $rolloutItems) {
         "node_result_recorded" {
             $node = Ensure-Node $nodes ([string]$payload.nodeId)
             if ($node) {
-                Add-Or-Update-NodeResult $node $at ([string]$payload.resultId) ([string]$payload.leaseId) ([string]$payload.sourceThreadId) ([string]$payload.kind) ([string]$payload.actionClass)
+                $mapTaskId = ""
+                $mapIdForResult = [string]$payload.mapId
+                if ($mapIdForResult -and $mapById.ContainsKey($mapIdForResult)) {
+                    $mapTaskId = [string]$mapById[$mapIdForResult].taskId
+                }
+                Add-Or-Update-NodeResult $node $at ([string]$payload.resultId) ([string]$payload.leaseId) ([string]$payload.sourceThreadId) ([string]$payload.kind) ([string]$payload.actionClass) "" $null $mapIdForResult $mapTaskId
             }
             $actionClassSuffix = if ($payload.actionClass) { " action=$($payload.actionClass)" } else { "" }
             Add-TimelineEvent $timeline $at $kind "node result recorded: $($payload.nodeId) / $($payload.resultId)$actionClassSuffix" $payload
@@ -233,7 +239,7 @@ foreach ($item in $rolloutItems) {
             }
             foreach ($snapshotMap in @($payload.snapshot.maps)) {
                 $snapshotMapCount++
-                [void](Ensure-Map $maps $mapById ([string]$snapshotMap.id) ([string]$snapshotMap.title) ([string]$snapshotMap.ownerSessionId) $snapshotMap.createdFrom)
+                [void](Ensure-Map $maps $mapById ([string]$snapshotMap.id) ([string]$snapshotMap.title) ([string]$snapshotMap.ownerSessionId) $snapshotMap.createdFrom ([string]$snapshotMap.taskId))
                 foreach ($snapshotEdge in @($snapshotMap.edges)) {
                     $from = [string]$snapshotEdge.from
                     $to = [string]$snapshotEdge.to
@@ -257,7 +263,7 @@ foreach ($item in $rolloutItems) {
                 }
                 foreach ($snapshotResult in @($snapshotMap.results)) {
                     $node = Ensure-Node $nodes ([string]$snapshotResult.nodeId)
-                    Add-Or-Update-NodeResult $node $at ([string]$snapshotResult.id) ([string]$snapshotResult.assignmentId) ([string]$snapshotResult.sourceThreadId) ([string]$snapshotResult.kind) ([string]$snapshotResult.actionClass) ([string]$snapshotResult.body) $snapshotResult.evidencePackage
+                    Add-Or-Update-NodeResult $node $at ([string]$snapshotResult.id) ([string]$snapshotResult.assignmentId) ([string]$snapshotResult.sourceThreadId) ([string]$snapshotResult.kind) ([string]$snapshotResult.actionClass) ([string]$snapshotResult.body) $snapshotResult.evidencePackage ([string]$snapshotMap.id) ([string]$snapshotMap.taskId)
                 }
             }
             foreach ($snapshotBarrier in @($payload.snapshot.maintenanceBarriers)) {
@@ -413,7 +419,7 @@ foreach ($node in $nodeList) {
         $blockedToolActionCount += [int]$blockedActions.Count
     }
 }
-$cognitiveAudit = Get-CognitiveAuditSummary $taskList $nodeList @($sentinelWarnings.ToArray()) @($timeline.ToArray())
+$cognitiveAudit = Get-CognitiveAuditSummary $taskList $nodeList @($sentinelWarnings.ToArray()) @($timeline.ToArray()) $ArtifactRoot
 $summary = [ordered]@{
     tasks = $taskList.Count
     maps = $maps.Count
@@ -433,6 +439,7 @@ $summary = [ordered]@{
     cognitiveStructuralGatePassed = [bool]$cognitiveAudit.structuralGatePassed
     cognitiveAuditHardGatePassed = [bool]$cognitiveAudit.hardGatePassed
     inputParseErrors = ([int]$rolloutReadStats.parseErrorCount + [int]$jsonlReadStats.parseErrorCount)
+    finalArtifacts = [int]$cognitiveAudit.metrics.finalArtifactCount
 }
 
 $reduced = [ordered]@{
@@ -442,6 +449,7 @@ $reduced = [ordered]@{
         jsonlPath = (Resolve-Path -LiteralPath $JsonlPath).Path
         rolloutReadStats = $rolloutReadStats
         jsonlReadStats = $jsonlReadStats
+        artifactRoot = $ArtifactRoot
     }
     summary = $summary
     tasks = $taskList
@@ -450,6 +458,7 @@ $reduced = [ordered]@{
     edges = @($edges.ToArray())
     sentinelWarnings = @($sentinelWarnings.ToArray())
     cognitiveAudit = $cognitiveAudit
+    finalArtifacts = @($cognitiveAudit.finalArtifacts)
     agents = $agentList
     toolCalls = @($toolCalls.ToArray())
     timeline = @($timeline.ToArray())

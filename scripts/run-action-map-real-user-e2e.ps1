@@ -216,7 +216,7 @@ $obsHtmlPath = Join-Path $artifactDir "action-map-observability.html"
 $obsExitCode = 0
 if ($rollout) {
     $exportScript = Join-Path $PSScriptRoot "export-action-map-observability.ps1"
-    & $exportScript -RolloutPath $rolloutCopy -JsonlPath $jsonlPath -OutputDir $artifactDir | Out-Host
+    & $exportScript -RolloutPath $rolloutCopy -JsonlPath $jsonlPath -OutputDir $artifactDir -ArtifactRoot $repoDir | Out-Host
     $obsExitCode = $LASTEXITCODE
 }
 $obs = if (Test-Path $obsJsonPath) { Get-Content -Raw -Encoding UTF8 $obsJsonPath | ConvertFrom-Json } else { $null }

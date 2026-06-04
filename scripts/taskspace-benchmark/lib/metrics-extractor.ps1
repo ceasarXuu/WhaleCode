@@ -140,7 +140,7 @@ function Export-TaskspaceObservabilityIfAvailable {
     $stdoutPath = Join-Path $ArtifactDir "observability.stdout.log"
     $stderrPath = Join-Path $ArtifactDir "observability.stderr.log"
     $exportScript = Join-Path $RepoRoot "scripts\export-action-map-observability.ps1"
-    $exitCode = Invoke-RealProcess "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $exportScript, "-RolloutPath", $rolloutCopy, "-JsonlPath", $JsonlPath, "-OutputDir", $obsDir) $RepoDir $stdoutPath $stderrPath 180
+    $exitCode = Invoke-RealProcess "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $exportScript, "-RolloutPath", $rolloutCopy, "-JsonlPath", $JsonlPath, "-OutputDir", $obsDir, "-ArtifactRoot", $RepoDir) $RepoDir $stdoutPath $stderrPath 180
     $jsonPath = Join-Path $obsDir "action-map-observability.json"
     $obs = if (Test-Path -LiteralPath $jsonPath) { Get-Content -Raw -Encoding UTF8 -LiteralPath $jsonPath | ConvertFrom-Json } else { $null }
     [pscustomobject]@{ exit_code = $exitCode; rollout_path = $rolloutCopy; observability_json = $jsonPath; observability = $obs }
