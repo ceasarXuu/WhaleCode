@@ -664,6 +664,20 @@ runtime 校验：
 - prompt snapshot tests。
 - 自然用户 E2E prompt leak 检查继续保持。
 
+实施记录（2026-06-04 Phase 5A）：
+
+- 已在 `core/src/action_map/basemap.rs` 增加共享 `TaskSpace cognitive protocol (MVP)`，并复用到 BaseMap metadata。协议明确主 agent 是“问题状态与模型管理者”，不是线性 worker；它需要维护 task map、分配 bounded nodes、整合 evidence，并在行动前更新任务模型。
+- 已在 `ActionMapRuntimeState::build_developer_context()` 的活动 task path 上注入同一协议；当没有 active map 时，通过 BaseMap metadata 暴露协议，避免新增并行 prompt 注入通道。
+- 已在 developer context 中压缩展示当前 active task 的 `output_contracts`、`fact_sources`、`facts`，以及 active map 中已经写入 evidence package 的 result。展示内容只来自 `TaskState.cognitive_state` 与 `NodeResult.evidence_package`，不从 event body 或自然语言 result 中重新解析，保持唯一权威状态来源。
+- result evidence package 在 developer context 中只展示摘要计数、validity、claims preview、summary 和 uncertainty preview；未写入 evidence package 的 result 会被提示为不可直接当作 accepted fact 使用。
+- 已在 `taskspace_control` tool description 中补充认知状态使用纪律：用户要求先记录 output contract；用户/环境/validator 事实先记录 fact source；`generated_for_test_only`、`inferred`、`unknown` 不能锚定 active facts 或最终用户结论；subagent/node result 必须经 `mark_result_validity` 才能进入任务模型。
+- 已把 subagent assignment 从“free-form result”调整为“result package”：要求返回 claims、evidence refs 或具体文件/命令/validator、changed artifacts、remaining uncertainty、blockers，并明确父 agent 才负责 review 和 `mark_result_validity`。
+- 已收紧 `mark_result_validity` 的 evidence scope：给当前 result 标记 validity 时，`result_id` evidence 必须指向当前 result；`trace_event_id` 必须属于当前 task/map 且引用当前 result，防止复制旧 result/trace 把无关结果标成 accepted。
+- 已更新 `format_action_map_snapshot()` 的 Results 区域，展示 `validity`、claims/evidence/validator counts；未 accepted result 显示 `trust=not_accepted_fact`，避免 `/task-show` 文本快照把 unreviewed result body 呈现成普通事实。
+- 已在 snapshot restore 后校验 active task/map binding 的一致性：`active_task_id`、`active_map_id`、`task.active_map_id`、`task.map_ids`、`map.task_id` 任何不一致都会清除 active binding 并强制下一轮 routing，避免把错态 cognitive state 暴露给模型。
+- 本阶段不新增 user-turn/message evidence ref schema、不新增 final artifact hard gate，也不实现 viewer cognitive side panel。`provided_by_user` 的可 join 消息证据和最终回答前的 cognitive audit gate 进入 Phase 6/7 设计，不在 Phase 5A 偷偷用自由文本 `artifact_ref` 替代。
+- 新增/更新测试覆盖 BaseMap prompt、TaskSpace developer context、tool schema description、已有 cognitive records 在 developer context 中的可见性、cross-result evidence contamination、restore mismatch repair、snapshot result trust marker、subagent assignment result package；继续断言 `promote_taskspace`、`promotion_not_in_mvp`、`collapsed-direct` 不进入 MVP 提示面。
+
 ### Phase 6：Viewer 与 Snapshot 展示
 
 目标：用户和审计者能看懂 TaskSpace 是否真的管理问题状态。

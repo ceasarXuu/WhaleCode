@@ -49,6 +49,7 @@ use codex_protocol::protocol::MapRuntimeTraceEventRecordedEvent;
 
 use super::basemap::BASE_MAP;
 use super::basemap::base_map_metadata_prompt;
+use super::basemap::cognitive_state_protocol_prompt;
 use super::basemap::node_kind_selection_prompt;
 use super::cognitive::COGNITIVE_SCHEMA_VERSION;
 use super::cognitive::CognitiveClaim;
@@ -617,6 +618,15 @@ impl ActionMapRuntimeState {
             })
             .collect();
 
+        if self.mode == MapRuntimeMode::Experiment && !self.restored_active_binding_is_coherent() {
+            self.active_task_id = None;
+            self.active_map_id = None;
+            self.current_main_node_id = None;
+            self.current_main_lease_id = None;
+            self.routing_required = true;
+            self.bootstrap_required = self.tasks.is_empty();
+        }
+
         if let Some(active_map_id) = self.active_map_id.as_ref()
             && let Some(map) = self.maps.get(active_map_id)
             && let Some(lease) = map
@@ -656,6 +666,31 @@ impl ActionMapRuntimeState {
             self.bootstrap_required = self.bootstrap_required || self.tasks.is_empty();
             self.routing_required =
                 self.routing_required || self.bootstrap_required || self.active_task_id.is_none();
+        }
+    }
+
+    fn restored_active_binding_is_coherent(&self) -> bool {
+        match (
+            self.active_task_id.as_deref(),
+            self.active_map_id.as_deref(),
+        ) {
+            (None, None) => true,
+            (Some(task_id), Some(map_id)) => {
+                let Some(task) = self.tasks.get(task_id) else {
+                    return false;
+                };
+                let Some(map) = self.maps.get(map_id) else {
+                    return false;
+                };
+                map.task_id.as_deref() == Some(task_id)
+                    && task.active_map_id.as_deref() == Some(map_id)
+                    && task.map_ids.iter().any(|candidate| candidate == map_id)
+            }
+            (Some(task_id), None) => self
+                .tasks
+                .get(task_id)
+                .is_some_and(|task| task.active_map_id.is_none()),
+            (None, Some(_)) => false,
         }
     }
 
@@ -2178,15 +2213,13 @@ preview:\n\
             .unwrap_or("");
         inputs
             .into_iter()
-            .map(|mut input| {
-                let result_id = normalize_optional_string(input.result_id.take());
-                if result_id.as_deref() == Some(current_result_id) {
-                    input.result_id = result_id;
-                    self.normalize_evidence_ref(task_id, Some(map_id), input)
-                } else {
-                    input.result_id = result_id;
-                    self.normalize_evidence_ref(task_id, Some(map_id), input)
-                }
+            .map(|input| {
+                self.normalize_evidence_ref_for_result_scope(
+                    task_id,
+                    map_id,
+                    current_result_id,
+                    input,
+                )
             })
             .collect()
     }
@@ -2194,7 +2227,7 @@ preview:\n\
     fn normalize_claim_inputs_for_result(
         &self,
         map_id: &str,
-        _current_result_id: &str,
+        current_result_id: &str,
         inputs: Vec<ActionMapCognitiveClaimInput>,
     ) -> Result<Vec<CognitiveClaim>, String> {
         let task_id = self
@@ -2207,8 +2240,18 @@ preview:\n\
             .map(|input| {
                 let id = require_nonempty_owned("claim_id", input.id)?;
                 let statement = require_nonempty_owned("claim statement", input.statement)?;
-                let evidence_refs =
-                    self.normalize_evidence_refs(task_id, Some(map_id), input.evidence_refs)?;
+                let evidence_refs = input
+                    .evidence_refs
+                    .into_iter()
+                    .map(|evidence_ref| {
+                        self.normalize_evidence_ref_for_result_scope(
+                            task_id,
+                            map_id,
+                            current_result_id,
+                            evidence_ref,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
                 if evidence_refs.is_empty() {
                     return Err(
                         "TaskSpace mark_result_validity claim evidence_refs cannot be empty."
@@ -2222,6 +2265,51 @@ preview:\n\
                 })
             })
             .collect()
+    }
+
+    fn normalize_evidence_ref_for_result_scope(
+        &self,
+        task_id: &str,
+        map_id: &str,
+        current_result_id: &str,
+        input: ActionMapEvidenceRefInput,
+    ) -> Result<EvidenceRef, String> {
+        let evidence_ref = self.normalize_evidence_ref(task_id, Some(map_id), input)?;
+        if let Some(result_id) = evidence_ref.result_id.as_deref()
+            && result_id != current_result_id
+        {
+            return Err(format!(
+                "TaskSpace mark_result_validity evidence_refs result_id `{result_id}` must match current result `{current_result_id}`."
+            ));
+        }
+        if let Some(trace_event_id) = evidence_ref.trace_event_id.as_deref() {
+            let trace_event = self
+                .taskspace_trace_events
+                .iter()
+                .find(|event| event.id == trace_event_id)
+                .ok_or_else(|| {
+                    format!(
+                        "TaskSpace evidence_refs trace_event_id `{trace_event_id}` does not exist."
+                    )
+                })?;
+            if trace_event.map_id != map_id {
+                return Err(format!(
+                    "TaskSpace mark_result_validity trace_event_id `{trace_event_id}` belongs to task path `{}`, not active task path `{map_id}`.",
+                    trace_event.map_id
+                ));
+            }
+            if trace_event.task_id.as_deref() != Some(task_id) {
+                return Err(format!(
+                    "TaskSpace mark_result_validity trace_event_id `{trace_event_id}` does not belong to active task `{task_id}`."
+                ));
+            }
+            if trace_event.result_id.as_deref() != Some(current_result_id) {
+                return Err(format!(
+                    "TaskSpace mark_result_validity trace_event_id `{trace_event_id}` must reference current result `{current_result_id}`."
+                ));
+            }
+        }
+        Ok(evidence_ref)
     }
 
     fn normalize_evidence_ref(
@@ -2826,6 +2914,10 @@ preview:\n\
             );
         }
         if let Some(map) = self.active_map() {
+            if !map.nodes.is_empty() {
+                context.push_str(cognitive_state_protocol_prompt());
+                context.push('\n');
+            }
             context.push_str("Active task path:\n");
             context.push_str("- id: ");
             context.push_str(&map.id);
@@ -2837,6 +2929,14 @@ preview:\n\
             context.push_str(&map.running_node_count().to_string());
             context.push_str("\n- completed nodes: ");
             context.push_str(&map.completed_node_count().to_string());
+            if let Some(task) = map
+                .task_id
+                .as_ref()
+                .or(self.active_task_id.as_ref())
+                .and_then(|task_id| self.tasks.get(task_id))
+            {
+                append_task_cognitive_context(&mut context, task, map);
+            }
             if let Some(node_id) = self.current_main_node_id.as_ref()
                 && let Some(node) = map.nodes.get(node_id)
             {
@@ -4175,6 +4275,17 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
                     output.push_str(" action_class=");
                     output.push_str(action_class);
                 }
+                output.push_str(" validity=");
+                output.push_str(&result.evidence_package.validity);
+                output.push_str(" claims=");
+                output.push_str(&result.evidence_package.claims.len().to_string());
+                output.push_str(" evidence_refs=");
+                output.push_str(&result.evidence_package.evidence_refs.len().to_string());
+                output.push_str(" validators=");
+                output.push_str(&result.evidence_package.validator_refs.len().to_string());
+                if result.evidence_package.validity != "accepted" {
+                    output.push_str(" trust=not_accepted_fact");
+                }
                 output.push_str(" from=");
                 output.push_str(&result.source_thread_id.to_string());
                 output.push_str("\n  ");
@@ -4185,6 +4296,160 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
     }
 
     output
+}
+
+fn append_task_cognitive_context(context: &mut String, task: &TaskState, map: &ActionMapInstance) {
+    let cognitive = &task.cognitive_state;
+    context.push_str("\nTask cognitive state (MVP):\n");
+    if cognitive.output_contracts.is_empty()
+        && cognitive.fact_sources.is_empty()
+        && cognitive.facts.is_empty()
+    {
+        context.push_str(
+            "- no records yet; before relying on user requirements, external data, validator output, or node results, record output contracts, fact sources, facts, or result validity through taskspace_control.\n",
+        );
+    }
+    if !cognitive.output_contracts.is_empty() {
+        context.push_str("- output contracts:\n");
+        for contract in cognitive.output_contracts.iter().take(6) {
+            context.push_str("  - ");
+            context.push_str(&contract.id);
+            context.push_str(" kind=");
+            context.push_str(contract.kind.as_str());
+            context.push_str(" evidence_refs=");
+            context.push_str(&contract.evidence_refs.len().to_string());
+            context.push_str(": ");
+            context.push_str(&single_line_preview(&contract.description, 160));
+            context.push('\n');
+        }
+        append_omitted_count(
+            context,
+            cognitive.output_contracts.len(),
+            6,
+            "output contracts",
+        );
+    }
+    if !cognitive.fact_sources.is_empty() {
+        context.push_str("- fact sources:\n");
+        for source in cognitive.fact_sources.iter().take(6) {
+            context.push_str("  - ");
+            context.push_str(&source.id);
+            context.push_str(" provenance=");
+            context.push_str(source.provenance.as_str());
+            context.push_str(" evidence_refs=");
+            context.push_str(&source.evidence_refs.len().to_string());
+            context.push_str(": ");
+            context.push_str(&single_line_preview(&source.description, 160));
+            context.push('\n');
+        }
+        append_omitted_count(context, cognitive.fact_sources.len(), 6, "fact sources");
+    }
+    if !cognitive.facts.is_empty() {
+        context.push_str("- active facts:\n");
+        append_claim_preview_list(context, &cognitive.facts, 6);
+    }
+    append_result_evidence_context(context, map);
+}
+
+fn append_result_evidence_context(context: &mut String, map: &ActionMapInstance) {
+    let result_ids = ordered_result_ids(map);
+    let evidence_result_ids = result_ids
+        .into_iter()
+        .filter(|result_id| {
+            map.results
+                .get(result_id)
+                .is_some_and(result_has_evidence_package)
+        })
+        .collect::<Vec<_>>();
+    if evidence_result_ids.is_empty() {
+        context.push_str(
+            "- result evidence packages: none recorded; do not treat node or subagent summaries as accepted facts until mark_result_validity records claims and evidence refs.\n",
+        );
+        return;
+    }
+
+    context.push_str("- result evidence packages:\n");
+    for result_id in evidence_result_ids.iter().take(8) {
+        let Some(result) = map.results.get(result_id) else {
+            continue;
+        };
+        let evidence = &result.evidence_package;
+        context.push_str("  - ");
+        context.push_str(&result.id);
+        context.push_str(" node=");
+        context.push_str(&result.node_id);
+        context.push_str(" validity=");
+        context.push_str(evidence.validity.as_str());
+        context.push_str(" claims=");
+        context.push_str(&evidence.claims.len().to_string());
+        context.push_str(" evidence_refs=");
+        context.push_str(&evidence.evidence_refs.len().to_string());
+        context.push_str(" changed_artifacts=");
+        context.push_str(&evidence.changed_artifacts.len().to_string());
+        context.push_str(" validators=");
+        context.push_str(&evidence.validator_refs.len().to_string());
+        context.push_str(" uncertainty=");
+        context.push_str(&evidence.remaining_uncertainty.len().to_string());
+        context.push_str("\n    summary: ");
+        context.push_str(&single_line_preview(&result.body, 180));
+        context.push('\n');
+        if !evidence.claims.is_empty() {
+            context.push_str("    claims:\n");
+            append_claim_preview_list(context, &evidence.claims, 3);
+        }
+        if !evidence.remaining_uncertainty.is_empty() {
+            context.push_str("    uncertainty: ");
+            context.push_str(
+                &evidence
+                    .remaining_uncertainty
+                    .iter()
+                    .take(3)
+                    .map(|item| single_line_preview(item, 80))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            );
+            context.push('\n');
+        }
+    }
+    append_omitted_count(
+        context,
+        evidence_result_ids.len(),
+        8,
+        "result evidence packages",
+    );
+}
+
+fn append_claim_preview_list(context: &mut String, claims: &[CognitiveClaim], limit: usize) {
+    for claim in claims.iter().take(limit) {
+        context.push_str("  - ");
+        context.push_str(&claim.id);
+        context.push_str(" evidence_refs=");
+        context.push_str(&claim.evidence_refs.len().to_string());
+        context.push_str(": ");
+        context.push_str(&single_line_preview(&claim.statement, 160));
+        context.push('\n');
+    }
+    append_omitted_count(context, claims.len(), limit, "claims");
+}
+
+fn append_omitted_count(context: &mut String, len: usize, limit: usize, label: &str) {
+    if len > limit {
+        context.push_str("  - ... ");
+        context.push_str(&(len - limit).to_string());
+        context.push(' ');
+        context.push_str(label);
+        context.push_str(" omitted\n");
+    }
+}
+
+fn result_has_evidence_package(result: &NodeResult) -> bool {
+    let evidence = &result.evidence_package;
+    evidence.validity != ResultValidity::Unreviewed
+        || !evidence.claims.is_empty()
+        || !evidence.evidence_refs.is_empty()
+        || !evidence.changed_artifacts.is_empty()
+        || !evidence.validator_refs.is_empty()
+        || !evidence.remaining_uncertainty.is_empty()
 }
 
 #[cfg(test)]
@@ -4262,6 +4527,12 @@ fn ordered_node_ids(map: &ActionMapInstance) -> Vec<MapNodeId> {
     dynamic.sort_by(|left, right| node_id_sort_key(left).cmp(&node_id_sort_key(right)));
     ordered.extend(dynamic);
     ordered
+}
+
+fn ordered_result_ids(map: &ActionMapInstance) -> Vec<NodeResultId> {
+    let mut result_ids = map.results.keys().cloned().collect::<Vec<_>>();
+    result_ids.sort_by(|left, right| result_id_sort_key(left).cmp(&result_id_sort_key(right)));
+    result_ids
 }
 
 fn ordered_task_ids(tasks: &HashMap<TaskId, TaskState>) -> Vec<TaskId> {
@@ -4361,6 +4632,16 @@ fn node_id_sort_key(node_id: &str) -> (u8, u64, &str) {
         return (0, number, node_id);
     }
     (1, 0, node_id)
+}
+
+fn result_id_sort_key(result_id: &str) -> (u8, u64, &str) {
+    if let Some(number) = result_id
+        .strip_prefix("result-")
+        .and_then(|suffix| suffix.parse::<u64>().ok())
+    {
+        return (0, number, result_id);
+    }
+    (1, 0, result_id)
 }
 
 fn require_nonempty(field: &str, value: &str) -> Result<String, String> {
@@ -5143,7 +5424,7 @@ Node kind: {}\n\
 Lease: {lease_id}\n\
 Allowed action classes: {allowed_actions}\n\
 \n\
-        You must work only on this node's subtask. Use the provided node context and return a concise, free-form result for this node. If you are blocked, explain the blocker clearly. Runtime enforces the allowed action classes above. Inspect, test, and final nodes are read-only for repository files; do not edit files or call apply_patch unless this node kind is implement_solution. Implementation nodes allow edits but not validation test runs; after editing, return the result so the parent can create or bind a smoke_test/regression_test node. Do not maintain the map directly. Do not call taskspace_control, spawn_agent, or wait_agent; return findings to the parent agent so it can grow or route the task path.\n\n",
+        You must work only on this node's subtask. Use the provided node context and return a concise result package for this node. Include the claims you believe are supported, the evidence refs or concrete files/commands/validators behind them, changed artifacts if any, remaining uncertainty, and blockers if any. If evidence is weak or missing, say so instead of presenting the claim as final. Runtime enforces the allowed action classes above. Inspect, test, and final nodes are read-only for repository files; do not edit files or call apply_patch unless this node kind is implement_solution. Implementation nodes allow edits but not validation test runs; after editing, return the result so the parent can create or bind a smoke_test/regression_test node. Do not maintain the map directly. Do not call taskspace_control, spawn_agent, or wait_agent; return findings to the parent agent so it can review the result, mark result validity, and grow or route the task path.\n\n",
         node_kind.as_str()
     )
 }
@@ -6620,6 +6901,128 @@ mod tests {
             "claim-validator-passed"
         );
         assert_eq!(result.evidence_package.changed_artifacts, vec!["out.txt"]);
+
+        let context = state.build_developer_context().expect("developer context");
+        assert!(context.contains("Task cognitive state (MVP):"));
+        assert!(context.contains("output contracts:"));
+        assert!(context.contains("contract-utf8 kind=encoding"));
+        assert!(context.contains("fact sources:"));
+        assert!(context.contains("source-user provenance=provided_by_user"));
+        assert!(context.contains("active facts:"));
+        assert!(context.contains("fact-final-encoding"));
+        assert!(context.contains("result evidence packages:"));
+        assert!(context.contains("validity=accepted claims=1 evidence_refs=1"));
+        assert!(context.contains("claim-validator-passed"));
+    }
+
+    #[test]
+    fn mark_result_validity_rejects_cross_result_evidence_refs() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Reject cross-result evidence",
+            "Result validity must be scoped to the result under review.",
+            true,
+        );
+        let (first_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-read-1",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "first read".to_string(),
+            )
+            .expect("first result records")
+            .expect("first result id");
+        let (second_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-read-2",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "second read".to_string(),
+            )
+            .expect("second result records")
+            .expect("second result id");
+
+        let result_ref_error = state
+            .mark_result_validity_for_main(
+                owner,
+                &second_result_id,
+                "accepted",
+                "wrong result evidence".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-wrong-result".to_string(),
+                    statement: "Second result is valid.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(first_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(first_result_id),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect_err("cannot accept a result using another result's evidence");
+        assert!(result_ref_error.contains("must match current result"));
+
+        let trace_ref_error = state
+            .mark_result_validity_for_main(
+                owner,
+                &second_result_id,
+                "accepted",
+                "wrong trace evidence".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-wrong-trace".to_string(),
+                    statement: "Second result is valid.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        trace_event_id: Some("trace-1".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    trace_event_id: Some("trace-1".to_string()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect_err("cannot accept a result using another result's trace");
+        assert!(trace_ref_error.contains("must reference current result"));
+
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &second_result_id,
+                "accepted",
+                "correct trace evidence".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-current-trace".to_string(),
+                    statement: "Second result is valid.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        trace_event_id: Some("trace-2".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    trace_event_id: Some("trace-2".to_string()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("current result trace is accepted");
     }
 
     #[test]
@@ -6998,6 +7401,8 @@ mod tests {
         let context = state.build_developer_context().expect("developer context");
 
         assert!(context.contains("TaskSpace mode is active"));
+        assert!(context.contains("TaskSpace cognitive protocol (MVP)"));
+        assert!(context.contains("problem-state and model manager"));
         assert!(!context.contains("promote_taskspace"));
         assert!(!context.contains("promotion_not_in_mvp"));
         assert!(!context.contains("collapsed-direct"));
@@ -9009,6 +9414,8 @@ mod tests {
         let context = state.build_developer_context().expect("experiment context");
         assert!(context.contains("TaskSpace mode is active"));
         assert!(context.contains("Node kind selection rules"));
+        assert!(context.contains("TaskSpace cognitive protocol (MVP)"));
+        assert!(context.contains("problem-state and model manager"));
         assert!(context.contains("Do not create custom nodes"));
         assert!(context.contains("Use the minimum sufficient task map"));
         assert!(context.contains(
@@ -9040,6 +9447,9 @@ mod tests {
         let context = state.build_developer_context().expect("experiment context");
         assert!(context.contains("Active task path"));
         assert!(context.contains("Investigate runtime"));
+        assert!(context.contains("Task cognitive state (MVP):"));
+        assert!(context.contains("no records yet"));
+        assert!(context.contains("result evidence packages: none recorded"));
         assert!(context.contains("Node kind selection rules"));
         assert!(!context.contains("BaseMap metadata version"));
     }
@@ -9603,6 +10013,7 @@ mod tests {
         assert_eq!(map.results[0].node_id, "define_scope");
         assert_eq!(map.results[0].kind, "result");
         assert_eq!(map.results[0].body, "scope is clear");
+        assert_eq!(map.results[0].evidence_package.validity, "unreviewed");
         let completed_node = map
             .nodes
             .iter()
@@ -9617,6 +10028,8 @@ mod tests {
         assert!(formatted.contains("trace events: total=0"));
         assert!(formatted.contains("define_scope"));
         assert!(formatted.contains("result-1 node=define_scope kind=result"));
+        assert!(formatted.contains("validity=unreviewed"));
+        assert!(formatted.contains("trust=not_accepted_fact"));
         assert!(formatted.contains("scope is clear"));
     }
 
@@ -9744,6 +10157,12 @@ mod tests {
                 .contains("Allowed action classes:")
         );
         assert!(assignment.message_prefix.contains("Runtime enforces"));
+        assert!(assignment.message_prefix.contains("result package"));
+        assert!(assignment.message_prefix.contains("claims"));
+        assert!(assignment.message_prefix.contains("evidence refs"));
+        assert!(assignment.message_prefix.contains("remaining uncertainty"));
+        assert!(assignment.message_prefix.contains("mark result validity"));
+        assert!(!assignment.message_prefix.contains("free-form result"));
         state.attach_agent_to_lease(
             &assignment.lease_id,
             child,
@@ -10063,6 +10482,48 @@ mod tests {
             .prepare_main_tool_call(owner, "shell")
             .expect_err("restored routing gate should block ordinary work");
         assert!(error.contains("TaskSpace task routing is required"));
+    }
+
+    #[test]
+    fn restore_snapshot_clears_incoherent_active_task_map_binding() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        state
+            .start_task_for_main(
+                owner,
+                "Original task".to_string(),
+                "Original objective.".to_string(),
+                "Current node".to_string(),
+                "Continue existing work.".to_string(),
+                true,
+            )
+            .expect("task");
+
+        let mut snapshot = state.snapshot();
+        let mut conflicting_task = snapshot.tasks[0].clone();
+        conflicting_task.id = "task-2".to_string();
+        conflicting_task.title = "Conflicting task".to_string();
+        conflicting_task.objective = "This task should not own map-1.".to_string();
+        conflicting_task.active_map_id = Some("map-1".to_string());
+        conflicting_task.map_ids = vec!["map-1".to_string()];
+        snapshot.tasks.push(conflicting_task);
+        snapshot.active_task_id = Some("task-2".to_string());
+        snapshot.active_map_id = Some("map-1".to_string());
+
+        let mut restored = ActionMapRuntimeState::default();
+        restored.restore_snapshot(snapshot);
+        let restored_snapshot = restored.snapshot();
+
+        assert_eq!(restored_snapshot.active_task_id, None);
+        assert_eq!(restored_snapshot.active_map_id, None);
+        assert!(restored_snapshot.routing_required);
+        assert!(!restored_snapshot.bootstrap_required);
+        let context = restored.build_developer_context().expect("context");
+        assert!(context.contains("Task routing is required"));
+        assert!(context.contains("No active task path exists"));
+        assert!(!context.contains("Active task path:"));
+        assert!(!context.contains("Task cognitive state (MVP):"));
     }
 
     #[test]

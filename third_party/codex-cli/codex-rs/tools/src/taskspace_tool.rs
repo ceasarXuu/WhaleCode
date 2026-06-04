@@ -347,6 +347,8 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
 
 Use this only when TaskSpace is enabled and you need to update task-map structure before ordinary work.
 
+The main agent is the TaskSpace problem-state and model manager. Use this tool to keep the task's current model explicit: route or create the semantic task, keep work bound to concrete nodes, record output contracts, record fact sources, record active facts, and mark result validity before relying on node or subagent output.
+
 Supported actions:
 - `start_task`: create a new semantic task, its active task path, and the first concrete node. Use this when the current user request does not belong to an existing task in the TaskSpace task inventory. Must include `node_kind`.
 - `route_task`: switch the active task path to an existing task chosen by the agent from the TaskSpace task inventory. Runtime validates the id but does not perform semantic matching.
@@ -357,7 +359,14 @@ Supported actions:
 - `record_output_contract`: record a task-level output contract with stable `output_contract_id`, `kind`, `description`, and `evidence_refs`.
 - `record_fact_source`: record a task-level data source with stable `fact_source_id`, `provenance`, `description`, and `evidence_refs`.
 - `record_fact`: record an active task fact with stable `claim_id`, `statement`, and `evidence_refs`. Runtime only accepts facts supported by an accepted result or observed/provided fact source.
-- `mark_result_validity`: update an existing node result's evidence package. `accepted` requires claims and evidence refs.
+- `mark_result_validity`: update an existing node result's evidence package. `accepted` requires claims and evidence refs. Use unreviewed/questioned/invalid when a result is missing evidence, conflicts with other evidence, or should not anchor the task model.
+
+Cognitive-state rules:
+- Record user-stated acceptance criteria, output format, schema, validator, artifact, and non-goal requirements as output contracts before relying on them.
+- Record user-provided facts, observed environment facts, and validator/test outputs as fact sources before turning them into active facts.
+- `generated_for_test_only`, `inferred`, and `unknown` provenance may guide investigation but must not anchor active facts or final user claims unless rechecked against observed or user-provided evidence.
+- Treat subagent and node results as evidence packages, not final truth. Capture claims, evidence refs, changed artifacts, validator refs, and remaining uncertainty through `mark_result_validity` before using a result to update active facts.
+- Direct trace events are internal audit records. Do not expose TaskSpace, task, map, node, lease, or subagent protocol terms to the user unless the user is explicitly debugging TaskSpace.
 
 Node kind selection:
 - Use `inspect_code_context` for read-only investigation and subagent investigation nodes.
@@ -446,5 +455,11 @@ mod tests {
             properties["evidence_refs"]["items"]["properties"]["fact_source_id"]["type"],
             "string"
         );
+        let description = value["description"]
+            .as_str()
+            .expect("tool description is exposed");
+        assert!(description.contains("problem-state and model manager"));
+        assert!(description.contains("Treat subagent and node results as evidence packages"));
+        assert!(description.contains("generated_for_test_only"));
     }
 }

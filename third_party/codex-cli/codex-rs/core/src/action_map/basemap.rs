@@ -98,6 +98,8 @@ pub(crate) fn base_map_metadata_prompt() -> String {
         prompt.push('\n');
     }
     prompt.push_str("Use these candidates as a task decomposition menu, not as a checklist. Start with the minimum sufficient map for the user's task. Simple single-file or single-failure work should usually stay on a narrow main-agent chain instead of expanding many candidate nodes. For taskspace_control(start_task/create_node), choose one runtime node_kind value. BaseMap candidates outside the hard-gated values are guidance for node titles and decomposition, not separate runtime kinds. Do not create a generic plan/implement/summary map.");
+    prompt.push('\n');
+    prompt.push_str(cognitive_state_protocol_prompt());
     prompt
 }
 
@@ -113,6 +115,16 @@ pub(crate) fn node_kind_selection_prompt() -> &'static str {
 - Prefer the minimum sufficient node chain; create multiple ready inspect_code_context nodes only for independent evidence tracks with distinct source surfaces.
 - Keep path correction, known-file reads, and single-evidence follow-up reads inside the current inspect_code_context node; do not create another inspect node or spawn an explorer just to read one known file.
 - Do not create custom nodes in live TaskSpace work. If work does not fit a kind, choose the closest concrete kind and explain the scope in the node title/context."
+}
+
+pub(crate) fn cognitive_state_protocol_prompt() -> &'static str {
+    "TaskSpace cognitive protocol (MVP):
+- The main agent is the task's problem-state and model manager, not a linear worker. Maintain the task map, assign bounded nodes, integrate evidence, and update the task's current model before acting.
+- At task start or when requirements change, record user-stated acceptance criteria, required artifact/format/schema/validator/non-goals as output contracts with evidence_refs before relying on them.
+- Record fact sources for user-provided facts, observed environment facts, and test/validator outputs. Keep generated_for_test_only, inferred, and unknown provenance out of active task facts and final user claims unless they are explicitly rechecked against observed/provided evidence.
+- Treat subagent and node results as evidence packages, not final truth. Before using a result to update the task model, mark_result_validity with claims, evidence_refs, changed_artifacts, validator_refs, and remaining_uncertainty. Accepted results require claims and evidence refs.
+- Active facts must cite accepted results or observed/provided fact sources. Questioned, invalid, unreviewed, generated, inferred, or unknown material may guide investigation but cannot anchor the final answer.
+- Direct trace events are an internal audit log for observability and replay. Do not expose task/map/node/subagent terminology to the user unless the user is explicitly debugging TaskSpace."
 }
 
 #[cfg(test)]
@@ -135,5 +147,11 @@ mod tests {
                 .iter()
                 .any(|node| node.id == "smoke_test")
         );
+        let prompt = base_map_metadata_prompt();
+        assert!(prompt.contains("TaskSpace cognitive protocol (MVP)"));
+        assert!(prompt.contains("problem-state and model manager"));
+        assert!(prompt.contains("generated_for_test_only"));
+        assert!(!prompt.contains("promote_taskspace"));
+        assert!(!prompt.contains("promotion_not_in_mvp"));
     }
 }
