@@ -3,6 +3,7 @@ use anyhow::Result;
 use codex_app_server_protocol::generate_json_with_experimental;
 use codex_app_server_protocol::generate_typescript_schema_fixture_subtree_for_tests;
 use codex_app_server_protocol::read_schema_fixture_subtree;
+use serde_json::Value;
 use similar::TextDiff;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -25,6 +26,61 @@ fn json_schema_fixtures_match_generated() -> Result<()> {
     assert_schema_fixtures_match_generated("json", |output_dir| {
         generate_json_with_experimental(output_dir, /*experimental_api*/ false)
     })
+}
+
+#[test]
+fn action_map_snapshot_result_schema_exposes_tool_success() -> Result<()> {
+    let schema_root = schema_root()?;
+
+    let typescript_tree = read_tree(&schema_root, "typescript")?;
+    let action_map_result_ts = fixture_utf8(
+        &typescript_tree,
+        Path::new("ActionMapSnapshotResult.ts"),
+        "typescript",
+    )?;
+    assert!(
+        action_map_result_ts.contains("toolSuccess: boolean | null"),
+        "ActionMapSnapshotResult TypeScript fixture must expose toolSuccess"
+    );
+    assert!(
+        !action_map_result_ts.contains("tool_success"),
+        "ActionMapSnapshotResult TypeScript fixture must use camelCase"
+    );
+
+    let json_tree = read_tree(&schema_root, "json")?;
+    for bundle_path in [
+        "codex_app_server_protocol.schemas.json",
+        "codex_app_server_protocol.v2.schemas.json",
+    ] {
+        let json = fixture_utf8(&json_tree, Path::new(bundle_path), "json")?;
+        let value: Value = serde_json::from_str(json)
+            .with_context(|| format!("parse {bundle_path} schema fixture"))?;
+        let result_schema = action_map_result_schema(&value)
+            .with_context(|| format!("locate ActionMapSnapshotResult in {bundle_path}"))?;
+        let properties = result_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .context("ActionMapSnapshotResult properties")?;
+
+        anyhow::ensure!(
+            properties.contains_key("toolSuccess"),
+            "{bundle_path} must expose toolSuccess"
+        );
+        anyhow::ensure!(
+            !properties.contains_key("tool_success"),
+            "{bundle_path} must not expose snake_case tool_success"
+        );
+        assert_eq!(
+            properties.get("toolSuccess"),
+            Some(&serde_json::json!({
+                "default": null,
+                "type": ["boolean", "null"],
+            })),
+            "{bundle_path} must keep toolSuccess nullable boolean schema"
+        );
+    }
+
+    Ok(())
 }
 
 fn assert_schema_fixtures_match_generated(
@@ -102,6 +158,24 @@ Run `just write-app-server-schema` to overwrite with your changes.\n\n{diff}",
     }
 
     Ok(())
+}
+
+fn fixture_utf8<'a>(
+    tree: &'a BTreeMap<PathBuf, Vec<u8>>,
+    path: &Path,
+    label: &str,
+) -> Result<&'a str> {
+    let bytes = tree
+        .get(path)
+        .ok_or_else(|| anyhow::anyhow!("missing {label} fixture: {}", path.display()))?;
+    std::str::from_utf8(bytes)
+        .with_context(|| format!("read UTF-8 {label} fixture {}", path.display()))
+}
+
+fn action_map_result_schema(value: &Value) -> Option<&Value> {
+    value
+        .pointer("/definitions/v2/ActionMapSnapshotResult")
+        .or_else(|| value.pointer("/definitions/ActionMapSnapshotResult"))
 }
 
 fn schema_root() -> Result<PathBuf> {

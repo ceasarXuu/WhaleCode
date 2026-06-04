@@ -452,6 +452,13 @@
         },
         "sourceThreadId": {
           "$ref": "#/definitions/ThreadId"
+        },
+        "toolSuccess": {
+          "default": null,
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
