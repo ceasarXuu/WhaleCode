@@ -21,7 +21,7 @@ viewer/audit 在 MVP 观察契约、provenance 和结果采信；v1.1 再扩展�
 |---|---|---|
 | `hello-world` BOM / `heterogeneous-dates` UTF-16 | 输出契约缺失 | Output Contract Sentinel + `output_contracts` |
 | `jsonl-aggregator` 自造数据自证 | provenance 缺失、假设污染 facts | Data Provenance Sentinel + facts/assumptions 分层 |
-| map/node 过度生长 | node 没有状态转换目标，result 只是 summary | `state_delta_intent` + claims/evidence/validity |
+| map/node 过度生长 | node 没有状态转换目标，result 只是 summary | `state_delta_intent` 先作为 report-only 观察指标，MVP 主要依赖 claims/evidence/validity 收敛 result |
 
 ## 当前真实代码落点
 
@@ -35,8 +35,8 @@ viewer/audit 在 MVP 观察契约、provenance 和结果采信；v1.1 再扩展�
 | 控制工具 schema | `third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs` | `taskspace_control` 支持 `start_task/route_task/create_node/bind_node/finish_node/block_node`；字段主要是 title/context/result summary | 扩展字段，保持向后兼容；首轮引入 `mark_result_validity` 等 MVP action，`promote_taskspace` 延后到 v1.1 |
 | 控制 handler | `third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control.rs` | 解析自由文本字段并调用 session/runtime | 解析新字段，传入 runtime；旧调用路径继续可用 |
 | prompt / BaseMap | `third_party/codex-cli/codex-rs/core/src/action_map/basemap.rs` | candidate node + decomposition methodology，仍主要是 prompt | 改为问题状态管理纪律和 evidence package 输出协议 |
-| protocol/snapshot source | `third_party/codex-cli/codex-rs/protocol/src/protocol.rs`、`third_party/codex-cli/codex-rs/app-server-protocol/src/protocol/common.rs` 与 generated TS/JSON schema | `ActionMapSnapshot*` 展示 task/map/node/result/lease；当前 generated schema 可能已存在 `tool_success` 漂移 | 先修复 schema freshness，再增量添加 cognitive state、result evidence、sentinel/promotion 状态 |
-| viewer | `third_party/codex-cli/codex-rs/app-server/src/codex_message_processor.rs` 与 Web viewer | `/task-show` 读取 `thread_taskspace_read` snapshot | MVP 展示 output contracts、fact sources、claims/evidence/validity；v1.1 再展示完整 facts/assumptions/obligations/decisions/open_questions |
+| protocol/snapshot source | `third_party/codex-cli/codex-rs/protocol/src/protocol.rs`、`third_party/codex-cli/codex-rs/app-server-protocol/src/protocol/common.rs` 与 generated TS/JSON schema | `ActionMapSnapshot*` 展示 task/map/node/result/lease；当前 generated schema 可能已存在 `tool_success` 漂移 | 先修复 schema freshness，再增量添加 cognitive state、result evidence、sentinel warning 状态和 `promotion_not_in_mvp` report marker |
+| viewer | `third_party/codex-cli/codex-rs/app-server/src/codex_message_processor.rs` 与 Web viewer | `/task-show` 读取 `thread_taskspace_read` snapshot | MVP 展示 output contracts、fact sources、claims/evidence/validity、sentinel warning；v1.1 再展示完整 facts/assumptions/obligations/decisions/open_questions 与 promotion/collapse/barrier 生命周期 |
 | E2/E3 | `scripts/run-action-map-*.ps1`、`benchmarks/taskspace` | 已有 graph health、natural-user、external benchmark、audit 基础 | 增加认知收益指标、sentinel 触发证据、wrong-premise containment 检查 |
 
 ## 设计原则
@@ -83,15 +83,15 @@ Phase D: viewer/audit/benchmark 能回答 why accepted/questioned/invalid
 |---|---|---|
 | contract-sketch 测试容易制造假信心 | 自包含 helper 能验证规则自洽，但不能证明生产 runtime、tool schema、snapshot、viewer 已支持这些规则 | 所有这类测试必须命名为 `contract_sketch` / `audit_contract`，只能作为设计契约检查；不得计入生产覆盖率和 E3 收益证据 |
 | 当前 `ActionMapSnapshotResult` 有可复用 join key | 真实结果 snapshot 已能提供 `assignmentId/mapId/nodeId/toolSuccess` 等可审计连接点 | 正式实现优先复用现有 result/snapshot join key，不新增平行 result index；新增字段必须挂到现有 snapshot/result 链路 |
-| 当前 `taskspace_control` 还没有 cognitive MVP 协议 | 真实 tool schema 仍只暴露 `start_task/route_task/create_node/bind_node/finish_node/block_node` | Phase 0.5 必须先做 tool schema gap test；Phase 4 新增 action/field 后必须同时补正反向 schema 测试 |
-| future cognitive snapshot restore 尚无法验证 | cognitive 字段尚未存在，预实验只能确认当前 join key 和 schema gap | Phase 3 不允许只加字段；必须同步提供 legacy snapshot restore、default、`cognitive_schema_version`、viewer 缺字段空态测试 |
+| 当前 `taskspace_control` 还没有 cognitive MVP 协议 | 真实 tool schema 仍只暴露 `start_task/route_task/create_node/bind_node/finish_node/block_node` | Phase 0.1 固定当前 tool schema gap；Phase 4 新增 action/field 后必须同时补正反向 schema 测试 |
+| future cognitive snapshot restore 尚无法验证 | cognitive 字段尚未存在，预实验只能确认当前 join key 和 tool schema gap | Phase 3 不允许只加字段；必须同步提供 legacy snapshot restore、default、`cognitive_schema_version`、viewer 缺字段空态测试 |
 | output contract 是真实缺口 | 审查要求补上“缺 output contract 必须失败”的负例 | Output contract 从“建议记录”升级为 MVP hard gate：没有 output contract 的 final artifact audit 必须失败 |
 | 审计必须可机械 join | 仅把信息写进 result body 无法让 audit 判断 accepted/questioned/invalid 的来源 | 每个新增事件、contract、fact source、claim、validity transition 都必须有稳定 ID，并能 join 到 task/map/node/result/final artifact |
 
 由此，正式实现前新增一个“Phase 0.1：预实验契约落账”：
 
 ```text
-Phase 0.1: 将 contract-sketch 测试、真实 schema gap 测试、真实 snapshot join-key 测试固定为开工护栏
+Phase 0.1: 将 contract-sketch 测试、真实 taskspace_control tool schema gap 测试、真实 snapshot join-key 测试固定为开工护栏
 ```
 
 Phase 0.1 的通过标准：
@@ -99,6 +99,7 @@ Phase 0.1 的通过标准：
 - `cognitive_preflight_contract_sketch_audit_*` 只能描述 MVP hard gate，不得引用生产未实现字段来伪造通过。
 - `ActionMapSnapshotResult` 序列化测试必须覆盖 `assignmentId/mapId/nodeId/toolSuccess`，并防止 snake_case 泄漏到 JSON。
 - `taskspace_control` 当前协议测试必须明确 cognitive MVP 字段缺失；正式加字段后，这个测试要改成“新字段存在且旧 action 兼容”。
+- Phase 0.5 只负责 generated JSON/TypeScript/Rust schema freshness，不再混入 tool schema gap 归属。
 - 审查报告必须明确区分“预实验通过”和“生产 runtime 未实现”，禁止把预实验结果写成 E2/E3 utility 结论。
 - `git diff --check` 和相关 targeted cargo tests 必须进入实现前后的固定回归命令。
 
@@ -552,7 +553,7 @@ promotion/collapse 不属于首轮 MVP 实现范围。它们不是“已修复�
 
 - snapshot restore 兼容旧 snapshot。
 - taskspace_control 新旧参数都能工作。
-- invalid `validity` / `state_delta_intent` 返回明确错误。
+- invalid `validity` 返回明确错误；`state_delta_intent` 仅作为 report-only / v1.1 测试债务，不进入 MVP parser/schema/action hard requirement。
 - `Accepted` result 缺 claims/evidence_refs 时被拒绝或降级为 `PendingReview`。
 - Rust protocol、JSON schema、TS schema freshness test 通过。
 
@@ -631,17 +632,14 @@ runtime 校验：
 展示内容：
 
 - Task objective / success criteria。
-- MVP cognitive side panel：
-  - facts。
-  - fact sources + provenance。
+- MVP cognitive side panel（只展示 MVP 字段，不是完整 cognitive graph 面板）：
   - output contracts。
-  - result validity。
-  - sentinel records。
-- v1.1 再展示 assumptions / obligations / decisions / open_questions 的完整模型。
-- output contracts。
-- fact sources + provenance。
-- result claims/evidence/validity。
-- sentinel / promotion / barrier 状态。
+  - fact sources + provenance。
+  - result claims/evidence/validity。
+  - sentinel warning records。
+  - `promotion_not_in_mvp` 等 report-only 标记。
+- promotion/collapse/barrier 不展示为 MVP 已闭环能力。
+- 完整 facts/assumptions/decisions/open_questions 的可编辑/可审计面板不属于 MVP，延后到 v1.1。
 
 UI 约束：
 
@@ -905,7 +903,7 @@ E3 audit artifact 必须能用这些 join key 回答：
 
 ```text
 Phase 0: 文档和审查
-Phase 0.1: preflight contract-sketch + real schema gap guard
+Phase 0.1: preflight contract-sketch + real taskspace_control gap guard
 Phase 0.5: protocol/generated schema freshness
 Phase 1: append-only structured trace event
 Phase 2: MVP sentinel warning
@@ -914,7 +912,7 @@ Phase 4: MVP control actions + validity guard
 Phase 5: prompt/context for MVP protocol
 Phase 6: viewer cognitive side panel
 Phase 7: benchmark/audit MVP hard gates
-Phase 8: sentinel hard barrier only after warning path is clean
+Phase 8 (v1.1 / non-MVP): sentinel hard barrier only after warning path is clean
 ```
 
 不要先做完整 heavy planning mode。先把 E3 暴露的输出契约、数据来源、结果采信和错误假设 containment 做实。
@@ -923,7 +921,7 @@ Phase 8: sentinel hard barrier only after warning path is clean
 
 | 层级 | 测试 |
 |---|---|
-| Preflight guard | `cognitive_preflight_contract_sketch_audit_*` 只检查契约草图；真实 `ActionMapSnapshotResult` JSON join key；真实 `taskspace_control` 当前 schema gap |
+| Preflight guard | `cognitive_preflight_contract_sketch_audit_*` 只检查契约草图；真实 `ActionMapSnapshotResult` JSON join key；真实 `taskspace_control` 当前 tool schema gap |
 | Unit | data model default/restore、enum parse、validity transition、sentinel trigger |
 | Integration | `taskspace_control` 新旧 schema、runtime gate、snapshot export/import、schema freshness |
 | CLI smoke | `whale exec --taskspace` 自然 prompt、`task-show` viewer URL |
@@ -951,7 +949,7 @@ Phase 8: sentinel hard barrier only after warning path is clean
 
 第一轮不是证明 TaskSpace 全面优于 standard，而是证明问题状态管理机制闭环可用：
 
-- Direct trace 能记录 promotion 所需事实。
+- Direct trace 能记录 audit 和未来 promotion 可复用的结构化事实；MVP 不触发 promotion/collapse。
 - Output contract 能阻止编码契约遗漏。
 - Data provenance 能阻止自造数据污染 final facts。
 - Result 能以 claims/evidence/validity 形式沉淀。

@@ -658,3 +658,147 @@ After Round 3, the docs were revised to:
 - Rejected findings backed by evidence: none
 - Deferred findings documented: yes, promotion/collapse/barrier are v1.1 with MVP report-only metrics
 - Allowed to proceed: yes
+
+## Round 5: Preflight Fold-In Second Check
+
+### Review Input
+
+#### Objective
+
+二次检查 TaskSpace cognitive-state 工程计划在吸收 preflight 验证结论后是否自洽，是否仍有阻塞性设计或文档问题。
+
+#### Review Target
+
+Preflight 结论回填后的工程计划一致性审查。
+
+#### Target Locations
+
+- `docs/plans/2026-06-04-taskspace-cognitive-state-engineering-plan.md`
+- `vs_review/2026-06-04-taskspace-cognitive-preflight-tests-review.md`
+- `docs/plans/2026-06-04-taskspace-cognitive-state-runtime-after-e3.md`
+
+#### Risk Focus
+
+- 新增的“最小化预实验后的计划修正”和原计划 Phase、测试矩阵、完成定义是否一致。
+- contract-sketch / preflight guard 是否仍可能被误当成生产覆盖或 E3 utility 证据。
+- promotion/collapse/barrier 是否被混入 MVP 完成定义或 viewer/audit hard gate。
+- schema freshness、tool schema gap、snapshot restore、viewer 空态这些预实验暴露问题是否已经被写成明确 blocker。
+- 是否还有 runtime 做语义判断、新造平行 runtime、仅靠 prompt 解决的残留表述。
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| preflight-fold-in-consistency-reviewer | Rechecks plan consistency after folding preflight findings into the engineering plan. | phase ownership, MVP boundary, test self-deception |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| preflight-fold-in-consistency-reviewer | `multi_agent_v1.spawn_agent` (`explorer`) | `019e91a1-12d8-7d11-92ff-d94ec8d94236` / Godel | spawn_agent tool result | no | Round 5 Review Input | main-agent history, hidden reasoning, drafts, conclusions, full diff persuasion | yes |
+
+### Reviewer Outputs
+
+#### preflight-fold-in-consistency-reviewer
+
+结论：NOT CLOSED。
+
+阻塞问题：
+
+- Phase 0.1 / 0.5 归属不自洽：文档一处把 `taskspace_control` tool schema gap test 写到 Phase 0.5，另一处又把真实 schema gap 和 snapshot join-key 归到 Phase 0.1。建议 Phase 0.1 = preflight contract-sketch + real `taskspace_control` gap + snapshot join-key；Phase 0.5 = generated schema freshness。
+- `state_delta_intent` 漏入 MVP 实现面：计划其他位置已说它是 report-only / v1.1，但 Phase 3 测试仍要求 invalid `state_delta_intent` 返回明确错误，容易诱导 MVP parser/schema/action 实现。
+
+非阻塞风险：
+
+- Phase 8 标题最好显式标 `v1.1 / non-MVP`，避免排期误读。
+- Viewer 段应说明 MVP viewer 只展示 output contracts、fact sources、result evidence、validity、sentinel records；完整 facts/assumptions/decisions/open_questions 面板不属于 MVP。
+
+### Main Agent Response
+
+| Reviewer | Finding | Severity | Decision | Action Taken | Follow-up |
+|---|---|---|---|---|---|
+| preflight-fold-in-consistency-reviewer | Phase 0.1 / 0.5 ownership conflict | blocking | accept | 将 tool schema gap 明确归到 Phase 0.1；Phase 0.5 只负责 generated JSON/TypeScript/Rust schema freshness。 | Round 6 closure |
+| preflight-fold-in-consistency-reviewer | `state_delta_intent` leaked into MVP parser/schema tests | blocking | accept | 将 Phase 3 测试改为只校验 invalid `validity`；`state_delta_intent` 标为 report-only / v1.1 测试债务，不进入 MVP parser/schema/action hard requirement。 | Round 6 closure |
+| preflight-fold-in-consistency-reviewer | Phase 8 title may be misread as MVP | minor | accept | 将 Phase 8 标题改为 `Phase 8 (v1.1 / non-MVP)`。 | Round 6 closure can spot-check |
+| preflight-fold-in-consistency-reviewer | Viewer section should not imply full cognitive graph in MVP | minor | accept | 将 viewer 段改为“只展示 MVP 字段，不是完整 cognitive graph 面板”，并明确完整 facts/assumptions/decisions/open_questions 延后到 v1.1。 | Round 6 closure can spot-check |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: yes
+- Blocking re-review passed: yes
+- Blocking re-review round links:
+  - Round 6
+- Blocking re-review launch records:
+  - `019e91a4-fbfc-77b0-8233-7144433c3e09` / Euclid
+- Rejected findings backed by evidence: none
+- Deferred findings documented: none
+- Allowed to proceed: yes
+
+## Round 6: Preflight Fold-In Closure Review
+
+### Review Input
+
+#### Objective
+
+检查 Round 5 的两个 accepted blocking findings 是否已经闭合。只聚焦 closure，不重新展开大范围设计审查。
+
+#### Review Target
+
+Round 5 closure after doc fixes.
+
+#### Target Locations
+
+- `docs/plans/2026-06-04-taskspace-cognitive-state-engineering-plan.md`
+- `vs_review/2026-06-04-taskspace-cognitive-state-engineering-plan-review.md`
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| preflight-fold-in-closure-reviewer | Closure check for Round 5 accepted blockers. | phase ownership, MVP scope leakage |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| preflight-fold-in-closure-reviewer | `multi_agent_v1.spawn_agent` (`explorer`) | `019e91a4-fbfc-77b0-8233-7144433c3e09` / Euclid | spawn_agent tool result | no | Round 6 Closure Input | main-agent history, hidden reasoning, drafts, conclusions, full diff persuasion | yes |
+
+### Reviewer Outputs
+
+#### preflight-fold-in-closure-reviewer
+
+结论：CLOSED。
+
+闭合确认：
+
+- Phase 0.1 / 0.5 归属已自洽：Phase 0.1 明确包含 contract-sketch、真实 `taskspace_control` gap、snapshot join-key；Phase 0.5 只负责 generated JSON/TypeScript/Rust schema freshness。
+- `state_delta_intent` 不再是 MVP parser/schema/action hard requirement；Phase 3 只要求 invalid `validity` 错误，并把 `state_delta_intent` 标为 report-only / v1.1 测试债务。
+- Phase 8 已标为 `v1.1 / non-MVP`。
+- Viewer 段明确 MVP 只展示 MVP 字段，不是完整 cognitive graph 面板，完整面板延后到 v1.1。
+
+剩余非阻塞风险：
+
+- Viewer 展示列表有少量重复字段表述；主 agent 后续已整理成唯一 MVP 字段清单。
+
+### Main Agent Response
+
+| Reviewer | Finding | Severity | Decision | Action Taken | Follow-up |
+|---|---|---|---|---|---|
+| preflight-fold-in-closure-reviewer | Round 5 blockers closed | blocking closure | accept | 记录 CLOSED。 | 无 |
+| preflight-fold-in-closure-reviewer | Viewer list has minor duplicate wording | minor | accept | 整理为唯一 MVP 字段清单：output contracts、fact sources/provenance、result claims/evidence/validity、sentinel warning records、`promotion_not_in_mvp` report marker。 | 无 |
+
+### Closure Status
+
+- Blocking findings found: no
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: yes
+- Blocking re-review passed: yes
+- Blocking re-review round links:
+  - Round 6
+- Blocking re-review launch records:
+  - `019e91a4-fbfc-77b0-8233-7144433c3e09` / Euclid
+- Rejected findings backed by evidence: none
+- Deferred findings documented: none
+- Allowed to proceed: yes
