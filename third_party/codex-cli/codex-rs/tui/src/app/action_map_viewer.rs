@@ -212,6 +212,13 @@ h2{font-size:15px;margin:24px 0 8px;border-bottom:1px solid #777;padding-bottom:
 h3{font-size:13px;margin:16px 0 6px}
 .meta{color:#777;margin-bottom:16px}
 .pill{display:inline-block;border:1px solid #777;padding:1px 6px;margin-right:6px}
+.map-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,380px);gap:12px;align-items:start}
+.panel{border:1px solid #777;padding:8px;margin:8px 0 14px;background:rgba(127,127,127,.03)}
+.panel h3{margin-top:0}
+.kv{margin:4px 0}
+.muted{color:#777}
+.badge{display:inline-block;border:1px solid #777;padding:1px 5px;margin:2px 4px 2px 0}
+.validity-accepted{border-color:#2d8a4d}.validity-questioned{border-color:#b7791f}.validity-invalid{border-color:#b00020}.validity-unreviewed{border-color:#777}
 table{width:100%;border-collapse:collapse;margin:8px 0 16px}
 th,td{border:1px solid #777;padding:5px 7px;text-align:left;vertical-align:top}
 th{font-weight:700}
@@ -231,6 +238,7 @@ summary{cursor:pointer}
 .node-meta{color:#777;margin-top:5px}
 .edge{fill:none;stroke:#777;stroke-width:1.2}
 .error{color:#c00}
+@media(max-width:900px){.map-layout{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -245,6 +253,16 @@ function el(tag, text, cls){const n=document.createElement(tag);if(cls)n.classNa
 function row(values){const tr=el('tr');values.forEach(v=>tr.appendChild(el('td',v??'')));return tr}
 function table(headers, rows){const t=el('table');const h=el('tr');headers.forEach(x=>h.appendChild(el('th',x)));t.appendChild(h);rows.forEach(r=>t.appendChild(row(r)));return t}
 function list(value){return Array.isArray(value)&&value.length?value.join(', '):''}
+function arr(value){return Array.isArray(value)?value:[]}
+function evidenceText(ref){
+  const parts=[];
+  if(!ref)return '';
+  [['result','resultId'],['claim','claimId'],['source','factSourceId'],['trace','traceEventId'],['artifact','artifactRef'],['validator','validatorRef']]
+    .forEach(([label,key])=>{if(ref[key])parts.push(label+':'+ref[key])});
+  return parts.join(' ');
+}
+function evidenceList(refs){return arr(refs).map(evidenceText).filter(Boolean).join(' | ')}
+function badge(text, cls){const b=el('span',text,'badge '+(cls||''));return b}
 function saveUi(){document.querySelectorAll('details[data-key]').forEach(d=>d.open?ui.open.add(d.dataset.key):ui.open.delete(d.dataset.key));ui.scrollY=window.scrollY}
 function restoreUi(){document.querySelectorAll('details[data-key]').forEach(d=>{d.open=ui.open.has(d.dataset.key)});requestAnimationFrame(()=>window.scrollTo(0,ui.scrollY))}
 document.addEventListener('toggle',e=>{const k=e.target&&e.target.dataset&&e.target.dataset.key;if(k){e.target.open?ui.open.add(k):ui.open.delete(k)}},true);
@@ -310,6 +328,75 @@ function renderGraph(m){
   g.addEventListener('pointerup',endDrag);g.addEventListener('pointercancel',endDrag);
   return g;
 }
+function renderCognitivePanel(task, m, s){
+  const p=el('div');p.className='panel cognitive-panel';
+  p.appendChild(el('h3','cognitive state'));
+  if(!task){
+    p.appendChild(el('div','No task record is linked to this map.','muted'));
+    return p;
+  }
+  const c=task.cognitiveState||{};
+  p.appendChild(el('div',`${task.id} | ${task.status||''}`,'kv'));
+  p.appendChild(el('div',task.objective||task.title||'','kv'));
+  const counts=el('div');
+  counts.appendChild(badge('contracts '+arr(c.outputContracts).length));
+  counts.appendChild(badge('sources '+arr(c.factSources).length));
+  counts.appendChild(badge('facts '+arr(c.facts).length));
+  counts.appendChild(badge('assumptions '+arr(c.assumptions).length));
+  p.appendChild(counts);
+  if(arr(c.successCriteria).length){
+    p.appendChild(detail('criteria:'+task.id,'success criteria',table(['criterion'],arr(c.successCriteria).map(x=>[x]))));
+  }
+  if(arr(c.outputContracts).length){
+    p.appendChild(detail('contracts:'+task.id,'output contracts',table(['id','kind','description','evidence'],arr(c.outputContracts).map(x=>[x.id,x.kind,x.description,evidenceList(x.evidenceRefs)]))));
+  }
+  if(arr(c.factSources).length){
+    p.appendChild(detail('sources:'+task.id,'fact sources',table(['id','provenance','description','evidence'],arr(c.factSources).map(x=>[x.id,x.provenance,x.description,evidenceList(x.evidenceRefs)]))));
+  }
+  if(arr(c.facts).length){
+    p.appendChild(detail('facts:'+task.id,'active facts',table(['id','statement','evidence'],arr(c.facts).map(x=>[x.id,x.statement,evidenceList(x.evidenceRefs)]))));
+  }
+  if(arr(c.assumptions).length){
+    p.appendChild(detail('assumptions:'+task.id,'assumptions',table(['id','statement','evidence'],arr(c.assumptions).map(x=>[x.id,x.statement,evidenceList(x.evidenceRefs)]))));
+  }
+  if(arr(c.riskNotes).length){
+    p.appendChild(detail('risk:'+task.id,'risk notes',table(['note'],arr(c.riskNotes).map(x=>[x]))));
+  }
+  const resultRows=arr(m.results).map(r=>{
+    const ep=r.evidencePackage||{};
+    return [r.id,r.nodeId,ep.validity||'unreviewed',arr(ep.claims).length,arr(ep.evidenceRefs).length,list(ep.validatorRefs),ep.validityReason||''];
+  });
+  if(resultRows.length){
+    p.appendChild(detail('result-validity:'+m.id,'result validity',table(['result','node','validity','claims','evidence','validators','reason'],resultRows)));
+  }
+  const warnings=arr(s.sentinelWarnings).filter(w=>w.mapId===m.id||w.taskId===task.id);
+  if(warnings.length){
+    p.appendChild(detail('sentinel:'+m.id,'sentinel warnings',table(['id','type','severity','status','node','result','trace events','reason','clearance'],warnings.map(w=>[w.id||w.sentinelId,w.sentinelType,w.severity,w.status,w.nodeId,w.resultId,list(w.traceEventIds),w.reason,w.clearanceAction]))));
+  }
+  if(!arr(c.outputContracts).length&&!arr(c.factSources).length&&!arr(c.facts).length&&!resultRows.length&&!warnings.length){
+    p.appendChild(el('div','No cognitive records yet.','muted'));
+  }
+  return p;
+}
+function renderResultDetail(r){
+  const box=el('div');
+  const ep=r.evidencePackage||{};
+  const status=ep.validity||'unreviewed';
+  const line=el('div');
+  line.appendChild(badge('validity '+status,'validity-'+status));
+  line.appendChild(badge('claims '+arr(ep.claims).length));
+  line.appendChild(badge('evidence '+arr(ep.evidenceRefs).length));
+  line.appendChild(badge('validators '+arr(ep.validatorRefs).length));
+  box.appendChild(line);
+  if(ep.validityReason)box.appendChild(el('div','reason: '+ep.validityReason,'kv'));
+  if(arr(ep.claims).length)box.appendChild(table(['claim','statement','evidence'],arr(ep.claims).map(c=>[c.id,c.statement,evidenceList(c.evidenceRefs)])));
+  if(arr(ep.evidenceRefs).length)box.appendChild(table(['evidence refs'],arr(ep.evidenceRefs).map(e=>[evidenceText(e)])));
+  if(arr(ep.changedArtifacts).length)box.appendChild(table(['changed artifacts'],arr(ep.changedArtifacts).map(x=>[x])));
+  if(arr(ep.validatorRefs).length)box.appendChild(table(['validators'],arr(ep.validatorRefs).map(x=>[x])));
+  if(arr(ep.remainingUncertainty).length)box.appendChild(table(['remaining uncertainty'],arr(ep.remainingUncertainty).map(x=>[x])));
+  if(r.body)box.appendChild(el('pre',r.body));
+  return box;
+}
 function renderIfChanged(data, force){
   const payload=JSON.stringify(data);
   if(!force&&payload===ui.lastPayload)return;
@@ -323,6 +410,7 @@ function render(data){
   const s=data.snapshot;
   meta.textContent=`thread ${data.threadId} | mode ${s.mode} | route ${s.routingRequired?'required':'ok'} | bootstrap ${s.bootstrapRequired?'required':'ok'} | reborn ${s.rebornRequested?'requested':'none'} | active ${s.activeMapId||'none'} | refreshed ${new Date(data.fetchedAtMs).toLocaleTimeString()}`;
   if(!s.maps.length){next.appendChild(el('p','No task path has been created in this thread.'));root.replaceChildren(next);restoreUi();return}
+  const tasksById=new Map(arr(s.tasks).map(t=>[t.id,t]));
   const activeGraphKeys=new Set(s.maps.map(m=>'graph:'+m.id));
   Array.from(ui.graph.keys()).forEach(k=>{if(!activeGraphKeys.has(k))ui.graph.delete(k)});
   s.maps.forEach(m=>{
@@ -330,14 +418,20 @@ function render(data){
     const line=el('div');
     ['status '+m.status,'ready '+m.readyNodeCount,'running '+m.runningNodeCount,'completed '+m.completedNodeCount,'owner '+(m.ownerSessionId||'none'),'base '+m.baseMapVersion].forEach(x=>line.appendChild(el('span',x,'pill')));
     next.appendChild(line);
-    next.appendChild(el('h3','graph'));
-    next.appendChild(renderGraph(m));
+    const layout=el('div');layout.className='map-layout';
+    const graphPane=el('div');graphPane.appendChild(el('h3','graph'));graphPane.appendChild(renderGraph(m));layout.appendChild(graphPane);
+    layout.appendChild(renderCognitivePanel(m.taskId?tasksById.get(m.taskId):null,m,s));
+    next.appendChild(layout);
     next.appendChild(detail('nodes:'+m.id,'nodes',table(['id','status','title','context','source refs','lease','results'],m.nodes.map(n=>[n.id,n.status,n.title,n.contextSummary,list(n.sourceRefs),n.activeLease||'',list(n.resultIds)]))));
     if(m.edges.length){next.appendChild(detail('edges:'+m.id,'edges',table(['from','to'],m.edges.map(e=>[e.from,e.to]))))}
     if(m.leases.length){next.appendChild(detail('leases:'+m.id,'leases',table(['id','node','agent thread','agent path'],m.leases.map(l=>[l.id,l.nodeId,l.agentThreadId||'',l.agentPath||'']))))}
     if(m.results.length){
       next.appendChild(el('h3','results'));
-      m.results.forEach(r=>next.appendChild(detail('result:'+r.id,`${r.id} | node ${r.nodeId} | ${r.kind} | ${new Date(r.createdAtMs).toLocaleTimeString()}`,el('pre',r.body))));
+      m.results.forEach(r=>{
+        const ep=r.evidencePackage||{};
+        const validity=ep.validity||'unreviewed';
+        next.appendChild(detail('result:'+r.id,`${r.id} | node ${r.nodeId} | ${validity} | ${r.kind} | ${new Date(r.createdAtMs).toLocaleTimeString()}`,renderResultDetail(r)));
+      });
     }
   });
   root.replaceChildren(next);
@@ -382,5 +476,11 @@ mod tests {
         );
         assert!(ACTION_MAP_VIEWER_HTML.contains("details[data-key]"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("restoreUi()"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("cognitive state"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("output contracts"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("fact sources"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("result validity"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("evidencePackage"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("sentinel warnings"));
     }
 }

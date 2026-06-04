@@ -713,6 +713,14 @@ UI 约束：
 - viewer smoke test。
 - Playwright 级 E2E：展开节点、选中文本、等待自动刷新后，断言展开和选择状态仍保留。
 
+实施记录（2026-06-04 Phase 6A）：
+
+- `/task-show` 本地 web viewer 已在现有 `thread/taskspace/read` 和 `snapshot.json` 轮询机制上扩展 cognitive side panel，没有新增第二套 viewer server。
+- 展示面板读取 snapshot 中的 `task.cognitiveState`、`map.results[].evidencePackage`、`sentinelWarnings`，展示 task objective/status、success criteria、output contracts、fact sources、facts/assumptions、result validity、claims/evidence/validator 计数、sentinel warning。
+- graph 仍由 map/node/edge 驱动，认知信息只放在右侧详情面板；结果详情展示 body 之前先展示 validity、claims、evidence refs、changed artifacts、validator refs、remaining uncertainty。
+- 自动刷新继续保留当前 task/node/result 的展开与选择状态；本阶段已有 Rust viewer HTML smoke test 覆盖 cognitive 面板关键字符串，但尚未补 Playwright 级浏览器交互测试。
+- 当前 viewer 只做只读可观察性，不允许在页面中编辑 cognitive state，不承担 runtime gate。
+
 ### Phase 7：Benchmark / Audit 升级
 
 目标：观察认知收益，而不是只看 map 是否存在。
@@ -770,6 +778,15 @@ UI 约束：
 - `audit-why-chain-complete`：给定一个最终产物，审计器必须能输出 artifact hash -> output contract -> result -> claim -> evidence -> validator/fact source 的完整链。
 - `promotion-report-only`：MVP 报告必须包含 `promotion_not_in_mvp=true`，并且 `promotion_trigger/promotion_latency` 只能是 report-only 字段。
 - `mvp-scope-regression`：报告或文档生成器如果把 promotion/collapse/barrier 计入 MVP pass 条件，测试必须失败。
+
+实施记录（2026-06-04 Phase 7A）：
+
+- `scripts/export-action-map-observability.ps1` 已扩展到读取 task、cognitive state、sentinel warning、result evidence package，并输出到 reduced JSON / Markdown / HTML。
+- 审计逻辑拆入 `scripts/action-map-cognitive-audit-lib.ps1`，报告渲染拆入 `scripts/action-map-observability-report-lib.ps1`；主导出脚本只保留事件归集和 reduced model 生成，避免形成难维护的大脚本。
+- 当前审计是 `mvp-structural-subset` gate，不做语义质量判断，也不代表完整 MVP final artifact why-chain 已完成：只检查 output contract 是否存在、fact source 是否存在、result 是否带 claims/evidence、accepted result 是否缺 evidence、active fact 是否引用可 join 且可信的 fact source、result validity transition 是否出现。
+- 报告显式输出 `auditSchemaVersion=taskspace-cognitive-audit-v1`、`auditScope=mvp-structural-subset`、`fullMvpHardGateImplemented=false`、`promotionNotInMvp=true`、逐 gate records、unsupported MVP gate ids 和 metrics，避免把 promotion/collapse/final-artifact why-chain 误报为 MVP 完成能力。
+- 使用旧 E3 benchmark artifact 导出时，审计会因为缺 output contract / fact source / claims evidence / validity transition 而失败；这不是回归，而是证明旧数据只有 map 结构、没有认知状态记录，不能被计入 cognitive MVP clean evidence。
+- 已有 PowerShell 库测试覆盖 evidence package 派生字段、positive cognitive audit、self-generated data leakage、unsourced active fact、unknown fact source、黑盒导出 fixture、HTML trace-data JSON parse；尚未实现 final artifact dependency why-chain、artifact hash、questioned/invalid result 进入 final artifact dependency、sentinel clear lifecycle、完整 E2/E3 生产路径重跑。
 
 ## Runtime Event 与 Audit Join Key
 

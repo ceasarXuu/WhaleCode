@@ -10,18 +10,26 @@
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "action-map-observability-lib.ps1")
+. (Join-Path $PSScriptRoot "action-map-observability-report-lib.ps1")
+. (Join-Path $PSScriptRoot "action-map-jsonl-lib.ps1")
 
 $output = New-Item -ItemType Directory -Force -Path $OutputDir
-$rolloutItems = Read-JsonLines $RolloutPath
-$jsonlItems = Read-JsonLines $JsonlPath
+$rolloutReadStats = New-JsonLineReadStats $RolloutPath
+$jsonlReadStats = New-JsonLineReadStats $JsonlPath
+$rolloutItems = Read-JsonLines $RolloutPath $rolloutReadStats
+$jsonlItems = Read-JsonLines $JsonlPath $jsonlReadStats
 
 $timeline = New-Object System.Collections.Generic.List[object]
+$tasks = New-Object System.Collections.Generic.List[object]
+$taskById = @{}
 $maps = New-Object System.Collections.Generic.List[object]
 $mapById = @{}
 $nodes = @{}
 $agents = @{}
 $edges = New-Object System.Collections.Generic.List[object]
 $edgeKeys = @{}
+$sentinelWarnings = New-Object System.Collections.Generic.List[object]
+$sentinelById = @{}
 $toolCalls = New-Object System.Collections.Generic.List[object]
 $toolCallById = @{}
 $collabToolNames = @("spawn_agent", "wait_agent", "close_agent", "resume_agent")
@@ -30,11 +38,18 @@ foreach ($item in $rolloutItems) {
     $payload = $item.payload
     if (-not $payload -or $payload.type -notin @(
             "mode_changed",
+            "task_created",
+            "task_status_changed",
+            "task_routed",
             "map_created",
             "node_status_changed",
             "lease_created",
             "lease_attached",
             "node_result_recorded",
+            "taskspace_trace_event_recorded",
+            "sentinel_warning_raised",
+            "cognitive_state_updated",
+            "result_validity_changed",
             "tool_action_blocked",
             "lease_released",
             "timeout_summary_requested",
@@ -50,6 +65,26 @@ foreach ($item in $rolloutItems) {
     switch ($kind) {
         "mode_changed" {
             Add-TimelineEvent $timeline $at $kind "mode changed: $($payload.previousMode) -> $($payload.currentMode)" $payload
+        }
+        "task_created" {
+            [void](Ensure-Task $tasks $taskById ([string]$payload.taskId) ([string]$payload.title) ([string]$payload.objective) "active" ([string]$payload.ownerSessionId) ([string]$payload.activeMapId))
+            Add-TimelineEvent $timeline $at $kind "task created: $($payload.taskId) $($payload.title)" $payload
+        }
+        "task_status_changed" {
+            $task = Ensure-Task $tasks $taskById ([string]$payload.taskId)
+            if ($task) {
+                $task.status = [string]$payload.currentStatus
+                $task.events.Add([ordered]@{
+                    at = $at
+                    kind = $kind
+                    from = [string]$payload.previousStatus
+                    to = [string]$payload.currentStatus
+                })
+            }
+            Add-TimelineEvent $timeline $at $kind "task status: $($payload.taskId) $($payload.previousStatus) -> $($payload.currentStatus)" $payload
+        }
+        "task_routed" {
+            Add-TimelineEvent $timeline $at $kind "task routed: $($payload.previousTaskId) -> $($payload.currentTaskId)" $payload
         }
         "map_created" {
             [void](Ensure-Map $maps $mapById ([string]$payload.mapId) ([string]$payload.title) ([string]$payload.ownerSessionId) $payload.createdFrom)
@@ -99,6 +134,48 @@ foreach ($item in $rolloutItems) {
             }
             $actionClassSuffix = if ($payload.actionClass) { " action=$($payload.actionClass)" } else { "" }
             Add-TimelineEvent $timeline $at $kind "node result recorded: $($payload.nodeId) / $($payload.resultId)$actionClassSuffix" $payload
+        }
+        "taskspace_trace_event_recorded" {
+            Add-TimelineEvent $timeline $at $kind "trace event: $($payload.traceEventId) result=$($payload.resultId) tags=$(@($payload.tags) -join ',')" $payload
+        }
+        "sentinel_warning_raised" {
+            $sentinelId = [string]$payload.sentinelId
+            $warning = [ordered]@{
+                at = $at
+                id = $sentinelId
+                sentinelType = [string]$payload.sentinelType
+                status = [string]$payload.status
+                severity = [string]$payload.severity
+                taskId = [string]$payload.taskId
+                mapId = [string]$payload.mapId
+                nodeId = [string]$payload.nodeId
+                resultId = [string]$payload.resultId
+                traceEventIds = @(Get-ObjectArray $payload.traceEventIds)
+                reason = [string]$payload.reason
+                clearanceAction = [string]$payload.clearanceAction
+                createdAtMs = [string]$payload.createdAtMs
+            }
+            if ($sentinelId -and -not $sentinelById.ContainsKey($sentinelId)) {
+                $sentinelById[$sentinelId] = $warning
+                $sentinelWarnings.Add($warning)
+            }
+            Add-TimelineEvent $timeline $at $kind "sentinel warning: $($payload.sentinelType) on $($payload.nodeId)" $payload
+        }
+        "cognitive_state_updated" {
+            $task = Ensure-Task $tasks $taskById ([string]$payload.taskId)
+            if ($task) {
+                $task.events.Add([ordered]@{
+                    at = $at
+                    kind = $kind
+                    mapId = [string]$payload.mapId
+                    updateKind = [string]$payload.updateKind
+                    recordId = [string]$payload.recordId
+                })
+            }
+            Add-TimelineEvent $timeline $at $kind "cognitive state updated: $($payload.updateKind) $($payload.recordId)" $payload
+        }
+        "result_validity_changed" {
+            Add-TimelineEvent $timeline $at $kind "result validity: $($payload.resultId) -> $($payload.validity)" $payload
         }
         "tool_action_blocked" {
             $node = Ensure-Node $nodes ([string]$payload.nodeId) "" ([string]$payload.nodeKind)
@@ -151,6 +228,9 @@ foreach ($item in $rolloutItems) {
         "snapshot_updated" {
             $snapshotMapCount = 0
             $snapshotNodeCount = 0
+            foreach ($snapshotTask in @($payload.snapshot.tasks)) {
+                [void](Ensure-Task $tasks $taskById ([string]$snapshotTask.id) ([string]$snapshotTask.title) ([string]$snapshotTask.objective) ([string]$snapshotTask.status) ([string]$snapshotTask.ownerSessionId) ([string]$snapshotTask.activeMapId) $snapshotTask.mapIds $snapshotTask.cognitiveState)
+            }
             foreach ($snapshotMap in @($payload.snapshot.maps)) {
                 $snapshotMapCount++
                 [void](Ensure-Map $maps $mapById ([string]$snapshotMap.id) ([string]$snapshotMap.title) ([string]$snapshotMap.ownerSessionId) $snapshotMap.createdFrom)
@@ -177,12 +257,34 @@ foreach ($item in $rolloutItems) {
                 }
                 foreach ($snapshotResult in @($snapshotMap.results)) {
                     $node = Ensure-Node $nodes ([string]$snapshotResult.nodeId)
-                    Add-Or-Update-NodeResult $node $at ([string]$snapshotResult.id) ([string]$snapshotResult.assignmentId) ([string]$snapshotResult.sourceThreadId) ([string]$snapshotResult.kind) ([string]$snapshotResult.actionClass) ([string]$snapshotResult.body)
+                    Add-Or-Update-NodeResult $node $at ([string]$snapshotResult.id) ([string]$snapshotResult.assignmentId) ([string]$snapshotResult.sourceThreadId) ([string]$snapshotResult.kind) ([string]$snapshotResult.actionClass) ([string]$snapshotResult.body) $snapshotResult.evidencePackage
                 }
             }
             foreach ($snapshotBarrier in @($payload.snapshot.maintenanceBarriers)) {
                 $node = Ensure-Node $nodes ([string]$snapshotBarrier.nodeId)
                 Add-Or-Update-MaintenanceBarrier $node $at ([string]$snapshotBarrier.mapId) ([string]$snapshotBarrier.reason) ([int]$snapshotBarrier.resultCount) ([int]$snapshotBarrier.budget) "active"
+            }
+            foreach ($snapshotWarning in @($payload.snapshot.sentinelWarnings)) {
+                $sentinelId = [string]$snapshotWarning.id
+                if ($sentinelId -and -not $sentinelById.ContainsKey($sentinelId)) {
+                    $warning = [ordered]@{
+                        at = $at
+                        id = $sentinelId
+                        sentinelType = [string]$snapshotWarning.sentinelType
+                        status = [string]$snapshotWarning.status
+                        severity = [string]$snapshotWarning.severity
+                        taskId = [string]$snapshotWarning.taskId
+                        mapId = [string]$snapshotWarning.mapId
+                        nodeId = [string]$snapshotWarning.nodeId
+                        resultId = [string]$snapshotWarning.resultId
+                        traceEventIds = @(Get-ObjectArray $snapshotWarning.traceEventIds)
+                        reason = [string]$snapshotWarning.reason
+                        clearanceAction = [string]$snapshotWarning.clearanceAction
+                        createdAtMs = [string]$snapshotWarning.createdAtMs
+                    }
+                    $sentinelById[$sentinelId] = $warning
+                    $sentinelWarnings.Add($warning)
+                }
             }
             Add-TimelineEvent $timeline $at $kind "snapshot updated: maps=$snapshotMapCount nodes=$snapshotNodeCount" $payload
         }
@@ -302,6 +404,7 @@ foreach ($item in $jsonlItems) {
 }
 
 $nodeList = @($nodes.Values | Sort-Object id)
+$taskList = @($tasks.ToArray() | Sort-Object id)
 $agentList = @($agents.Values | Sort-Object threadId)
 $blockedToolActionCount = 0
 foreach ($node in $nodeList) {
@@ -310,7 +413,9 @@ foreach ($node in $nodeList) {
         $blockedToolActionCount += [int]$blockedActions.Count
     }
 }
+$cognitiveAudit = Get-CognitiveAuditSummary $taskList $nodeList @($sentinelWarnings.ToArray()) @($timeline.ToArray())
 $summary = [ordered]@{
+    tasks = $taskList.Count
     maps = $maps.Count
     nodes = $nodeList.Count
     edges = $edges.Count
@@ -321,6 +426,13 @@ $summary = [ordered]@{
             @($_.maintenanceBarriers | Where-Object { $_.state -eq "active" })
         }).Count
     mapRuntimeEvents = @($timeline | Where-Object { $_.kind -notlike "tool:*" }).Count
+    outputContracts = [int]$cognitiveAudit.metrics.outputContractCount
+    factSources = [int]$cognitiveAudit.metrics.factSourceCount
+    acceptedResults = [int]$cognitiveAudit.metrics.acceptedResultCount
+    questionedOrInvalidResults = [int]$cognitiveAudit.metrics.questionedOrInvalidResultCount
+    cognitiveStructuralGatePassed = [bool]$cognitiveAudit.structuralGatePassed
+    cognitiveAuditHardGatePassed = [bool]$cognitiveAudit.hardGatePassed
+    inputParseErrors = ([int]$rolloutReadStats.parseErrorCount + [int]$jsonlReadStats.parseErrorCount)
 }
 
 $reduced = [ordered]@{
@@ -328,159 +440,23 @@ $reduced = [ordered]@{
     source = [ordered]@{
         rolloutPath = (Resolve-Path -LiteralPath $RolloutPath).Path
         jsonlPath = (Resolve-Path -LiteralPath $JsonlPath).Path
+        rolloutReadStats = $rolloutReadStats
+        jsonlReadStats = $jsonlReadStats
     }
     summary = $summary
+    tasks = $taskList
     maps = @($maps.ToArray())
     nodes = $nodeList
     edges = @($edges.ToArray())
+    sentinelWarnings = @($sentinelWarnings.ToArray())
+    cognitiveAudit = $cognitiveAudit
     agents = $agentList
     toolCalls = @($toolCalls.ToArray())
     timeline = @($timeline.ToArray())
 }
 
-$jsonPath = Join-Path $output.FullName "action-map-observability.json"
-$markdownPath = Join-Path $output.FullName "action-map-observability.md"
-$htmlPath = Join-Path $output.FullName "action-map-observability.html"
-$json = $reduced | ConvertTo-Json -Depth 30
-$json | Set-Content -LiteralPath $jsonPath -Encoding UTF8
+$reportPaths = Write-ActionMapObservabilityReport -Reduced $reduced -OutputDir $output.FullName
 
-$md = New-Object System.Collections.Generic.List[string]
-$md.Add("# Action Map Observability")
-$md.Add("")
-$md.Add("- maps: $($summary.maps)")
-$md.Add("- nodes: $($summary.nodes)")
-$md.Add("- edges: $($summary.edges)")
-$md.Add("- agents: $($summary.agents)")
-$md.Add("- collab tool calls: $($summary.toolCalls)")
-$md.Add("- map runtime events: $($summary.mapRuntimeEvents)")
-$md.Add("")
-$md.Add("## Nodes")
-$md.Add("")
-$md.Add("| Node | Kind | Title | Status | Agents | Results | Blocked Actions | Active Barriers |")
-$md.Add("|---|---|---|---|---|---|---|---|")
-foreach ($node in $nodeList) {
-    $blockedCount = 0
-    if ($null -ne $node["blockedActions"]) { $blockedCount = [int]$node["blockedActions"].Count }
-    $barrierCount = @($node.maintenanceBarriers | Where-Object { $_.state -eq "active" }).Count
-    $md.Add("| $($node.id) | $($node.kind) | $($node.title) | $($node.status) | $($node.agentThreads.Count) | $($node.results.Count) | $blockedCount | $barrierCount |")
-}
-$md.Add("")
-$md.Add("## Edges")
-$md.Add("")
-$md.Add("| From | To |")
-$md.Add("|---|---|")
-foreach ($edge in $edges) {
-    $md.Add("| $($edge.from) | $($edge.to) |")
-}
-$md.Add("")
-$md.Add("## Timeline")
-$md.Add("")
-foreach ($event in $reduced.timeline) {
-    $md.Add(("- `{0}` **{1}** {2}" -f $event["at"], $event["kind"], $event["summary"]))
-}
-$md | Set-Content -LiteralPath $markdownPath -Encoding UTF8
-
-$encodedJson = Escape-Html $json
-$htmlTemplate = @'
-<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Action Map Observability</title>
-<style>
-body { margin: 0; font-family: Segoe UI, Arial, sans-serif; color: #1f2937; background: #f6f7f9; }
-header { padding: 24px 32px; background: #111827; color: white; }
-main { padding: 24px 32px; display: grid; gap: 20px; }
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.stat, section { background: white; border: 1px solid #d8dde6; border-radius: 8px; padding: 16px; }
-.stat strong { display: block; font-size: 28px; }
-.graph { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
-.node { min-width: 190px; border: 1px solid #c7cedb; border-radius: 8px; padding: 12px; background: #fbfcfe; }
-.node.completed { border-color: #2f855a; background: #eefaf3; }
-.node.running { border-color: #b7791f; background: #fff8e8; }
-.node.ready { border-color: #2b6cb0; background: #eef6ff; }
-.node .id { font-weight: 700; }
-.node .title { color: #4b5563; margin-top: 4px; }
-.node .meta { margin-top: 8px; font-size: 12px; color: #6b7280; }
-table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
-th { background: #f3f4f6; }
-.timeline { display: grid; gap: 8px; }
-.event { border-left: 4px solid #6b7280; padding: 8px 12px; background: #fafafa; }
-.event.result { border-color: #2f855a; }
-.event.lease { border-color: #805ad5; }
-.event.node { border-color: #2b6cb0; }
-.event.tool { border-color: #dd6b20; }
-code { background: #eef1f5; padding: 2px 4px; border-radius: 4px; }
-</style>
-</head>
-<body>
-<header>
-  <h1>Action Map Observability</h1>
-  <div id="source"></div>
-</header>
-<main>
-  <div class="stats" id="stats"></div>
-<section>
-    <h2>Map / Node Graph</h2>
-    <div class="graph" id="graph"></div>
-  </section>
-  <section>
-    <h2>Edges</h2>
-    <div id="edges"></div>
-  </section>
-  <section>
-    <h2>Agents</h2>
-    <div id="agents"></div>
-  </section>
-  <section>
-    <h2>Collaboration Tool Calls</h2>
-    <div id="tools"></div>
-  </section>
-  <section>
-    <h2>Timeline</h2>
-    <div class="timeline" id="timeline"></div>
-  </section>
-</main>
-<script type="application/json" id="trace-data">__TRACE_DATA__</script>
-<script>
-const data = JSON.parse(document.getElementById('trace-data').textContent);
-const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-document.getElementById('source').innerHTML = `<code>${esc(data.source.rolloutPath)}</code>`;
-document.getElementById('stats').innerHTML = Object.entries(data.summary)
-  .map(([k, v]) => `<div class="stat"><strong>${esc(v)}</strong>${esc(k)}</div>`).join('');
-document.getElementById('graph').innerHTML = data.nodes.map(n => `
-  <div class="node ${esc(n.status)}">
-    <div class="id">${esc(n.id)}</div>
-    <div class="title">${esc(n.title)}</div>
-    <div class="meta">kind: ${esc(n.kind)}</div>
-    <div class="meta">status: ${esc(n.status)}</div>
-    <div class="meta">agents: ${esc((n.agentThreads || []).join(', ') || '-')}</div>
-    <div class="meta">results: ${esc((n.results || []).length)}</div>
-    <div class="meta">blocked: ${esc((n.blockedActions || []).length)}</div>
-    <div class="meta">active barriers: ${esc((n.maintenanceBarriers || []).filter(b => b.state === 'active').length)}</div>
-    <div class="meta">leases: ${esc((n.leases || []).map(l => `${l.leaseId}:${l.state}`).join(', ') || '-')}</div>
-  </div>`).join('');
-document.getElementById('edges').innerHTML = table(['From', 'To'], data.edges.map(e => [e.from, e.to]));
-document.getElementById('agents').innerHTML = table(['Thread', 'Path', 'Node', 'Lease'],
-  data.agents.map(a => [a.threadId, a.path, a.nodeId, a.leaseId]));
-document.getElementById('tools').innerHTML = table(['Tool', 'Status', 'Sender', 'Receivers', 'Prompt Preview', 'Output Preview'],
-  data.toolCalls.map(t => [t.tool, t.status, t.senderThreadId, (t.receiverThreadIds || []).join(', '), t.promptPreview, t.outputPreview]));
-document.getElementById('timeline').innerHTML = data.timeline.map(e => {
-  const cls = e.kind.includes('result') ? 'result' : e.kind.includes('lease') ? 'lease' : e.kind.includes('node') ? 'node' : e.kind.startsWith('tool:') ? 'tool' : '';
-  return `<div class="event ${cls}"><code>${esc(e.at || '-')}</code> <strong>${esc(e.kind)}</strong><br>${esc(e.summary)}</div>`;
-}).join('');
-function table(headers, rows) {
-  return `<table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
-}
-</script>
-</body>
-</html>
-'@
-$html = $htmlTemplate.Replace("__TRACE_DATA__", $encodedJson)
-$html | Set-Content -LiteralPath $htmlPath -Encoding UTF8
-
-Write-Host "ObservabilityJson: $jsonPath"
-Write-Host "ObservabilityMarkdown: $markdownPath"
-Write-Host "ObservabilityHtml: $htmlPath"
+Write-Host "ObservabilityJson: $($reportPaths.Json)"
+Write-Host "ObservabilityMarkdown: $($reportPaths.Markdown)"
+Write-Host "ObservabilityHtml: $($reportPaths.Html)"

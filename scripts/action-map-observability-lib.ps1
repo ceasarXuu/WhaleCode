@@ -1,22 +1,6 @@
 ﻿
-function Read-JsonLines([string]$PathValue) {
-    $items = New-Object System.Collections.Generic.List[object]
-    if (-not (Test-Path $PathValue)) {
-        return $items
-    }
-
-    foreach ($line in Get-Content -LiteralPath $PathValue -Encoding UTF8) {
-        if ([string]::IsNullOrWhiteSpace($line)) {
-            continue
-        }
-        try {
-            $items.Add(($line | ConvertFrom-Json))
-        }
-        catch {
-        }
-    }
-    return $items
-}
+. (Join-Path $PSScriptRoot "action-map-object-lib.ps1")
+. (Join-Path $PSScriptRoot "action-map-cognitive-audit-lib.ps1")
 
 function Add-TimelineEvent {
     param(
@@ -101,11 +85,49 @@ function Ensure-Map {
     return $map
 }
 
-function Get-ObjectPropertyNames($Value) {
-    if ($null -eq $Value) {
-        return @()
+function Ensure-Task {
+    param(
+        [System.Collections.Generic.List[object]]$Tasks,
+        [hashtable]$TaskById,
+        [string]$TaskId,
+        [string]$Title = "",
+        [string]$Objective = "",
+        [string]$Status = "",
+        [string]$OwnerSessionId = "",
+        [string]$ActiveMapId = "",
+        [object]$MapIds = @(),
+        [object]$CognitiveState = $null
+    )
+
+    if ([string]::IsNullOrWhiteSpace($TaskId)) {
+        return $null
     }
-    return @($Value.PSObject.Properties.Name)
+    if (-not $TaskById.ContainsKey($TaskId)) {
+        $task = [ordered]@{
+            id = $TaskId
+            title = $Title
+            objective = $Objective
+            status = $Status
+            ownerSessionId = $OwnerSessionId
+            activeMapId = $ActiveMapId
+            mapIds = @(Get-ObjectArray $MapIds)
+            cognitiveState = Convert-CognitiveState $CognitiveState
+            events = New-Object System.Collections.Generic.List[object]
+        }
+        $TaskById[$TaskId] = $task
+        $Tasks.Add($task)
+    }
+    else {
+        $task = $TaskById[$TaskId]
+        if ($Title) { $task.title = $Title }
+        if ($Objective) { $task.objective = $Objective }
+        if ($Status) { $task.status = $Status }
+        if ($OwnerSessionId) { $task.ownerSessionId = $OwnerSessionId }
+        if ($ActiveMapId) { $task.activeMapId = $ActiveMapId }
+        if ($null -ne $MapIds) { $task.mapIds = @(Get-ObjectArray $MapIds) }
+        if ($null -ne $CognitiveState) { $task.cognitiveState = Convert-CognitiveState $CognitiveState }
+    }
+    return $task
 }
 
 function Parse-ResultBody([string]$Body) {
@@ -155,7 +177,8 @@ function Add-Or-Update-NodeResult {
         [string]$SourceThreadId,
         [string]$Kind,
         [string]$ActionClass = "",
-        [string]$Body = ""
+        [string]$Body = "",
+        [object]$EvidencePackage = $null
     )
 
     if (-not $Node -or [string]::IsNullOrWhiteSpace($ResultId)) {
@@ -185,6 +208,10 @@ function Add-Or-Update-NodeResult {
             $result.body = $Body
             Update-ResultDerivedFields $result $Body
         }
+        if ($null -ne $EvidencePackage) {
+            $result.evidencePackage = Convert-EvidencePackage $EvidencePackage
+        }
+        Update-ResultEvidenceDerivedFields $result
         return
     }
 
@@ -200,8 +227,14 @@ function Add-Or-Update-NodeResult {
         callId = ""
         success = $null
         preview = ""
+        evidencePackage = Convert-EvidencePackage $EvidencePackage
+        validity = "unreviewed"
+        claimCount = 0
+        evidenceRefCount = 0
+        validatorRefCount = 0
     }
     Update-ResultDerivedFields $result $Body
+    Update-ResultEvidenceDerivedFields $result
     $Node.results.Add($result)
 }
 
@@ -384,8 +417,3 @@ function Has-TimestampedToolCall {
     }
     return $false
 }
-
-function Escape-Html([string]$Text) {
-    return [System.Net.WebUtility]::HtmlEncode($Text)
-}
-
