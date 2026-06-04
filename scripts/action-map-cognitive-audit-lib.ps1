@@ -273,6 +273,7 @@ function Get-CognitiveAuditSummary {
             finalArtifactCount = [int]$finalArtifactAudit.metrics.finalArtifactCount
             finalArtifactMissingHashCount = [int]$finalArtifactAudit.metrics.finalArtifactMissingHashCount
             finalArtifactMissingWhyChainCount = [int]$finalArtifactAudit.metrics.finalArtifactMissingWhyChainCount
+            outputContractResultMismatchCount = [int]$finalArtifactAudit.metrics.outputContractResultMismatchCount
             nonAcceptedFinalArtifactDependencyCount = [int]$finalArtifactAudit.metrics.nonAcceptedFinalArtifactDependencyCount
             questionedOrInvalidFinalArtifactDependencyCount = [int]$finalArtifactAudit.metrics.questionedOrInvalidFinalArtifactDependencyCount
             unclearedFinalArtifactSentinelCount = [int]$finalArtifactAudit.metrics.unclearedFinalArtifactSentinelCount

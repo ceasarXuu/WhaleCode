@@ -50,7 +50,7 @@ try {
         validatorRefs = @("pytest")
         remainingUncertainty = @()
         validity = "accepted"
-        validityReason = "validator passed"
+        validityReason = "validator | passed`nclean"
     }
     Add-Or-Update-NodeResult $node "2026-05-30T00:04:00Z" "result-3" "lease-3" "thread-1" "result" "test" "validated" $evidencePackage
     Assert-Equal ([string]$node.results[2].validity) "accepted" "accepted result validity should be derived from evidence package"
@@ -89,6 +89,20 @@ try {
         throw "final artifact should include a SHA-256 artifact hash."
     }
     $results.Add("cognitive-audit-complete-chain: PASS")
+
+    Add-Or-Update-NodeResult $node "2026-05-30T00:06:05Z" "result-extra" "lease-extra" "thread-1" "result" "test" "same artifact extra result" $evidencePackage
+    foreach ($contractCase in @(
+            [pscustomobject]@{ name = "path-only"; contract = [pscustomobject]@{ id = "contract-path-only"; kind = "artifact"; artifactRef = "src/app.py"; evidenceRefs = @() } },
+            [pscustomobject]@{ name = "path-and-result"; contract = [pscustomobject]@{ id = "contract-path-result"; kind = "artifact"; artifactRef = "src/app.py"; evidenceRefs = @([pscustomobject]@{ resultId = "result-3" }) } }
+        )) {
+        $caseTasks = New-Object System.Collections.Generic.List[object]
+        $caseTaskById = @{}
+        $caseState = [pscustomobject]@{ outputContracts = @($contractCase.contract); factSources = $cognitiveState.factSources; facts = $cognitiveState.facts; assumptions = @(); riskNotes = @(); successCriteria = @("validator passes") }
+        [void](Ensure-Task $caseTasks $caseTaskById "task-$($contractCase.name)" "Contract $($contractCase.name)" "Accept valid contract join" "active" "thread-1" "map-1" @("map-1") $caseState)
+        $caseAudit = Get-CognitiveAuditSummary @($caseTasks.ToArray()) @($nodes.Values) @() @($timeline.ToArray()) $artifactRoot
+        Assert-Equal ([bool]$caseAudit.hardGatePassed) $true "valid $($contractCase.name) artifact contract should pass audit"
+    }
+    $results.Add("cognitive-audit-contract-positive-joins: PASS")
 
     $invalidNodes = @{}
     $invalidNode = Ensure-Node $invalidNodes "node-invalid" "Invalid result" "implement_patch"
@@ -175,6 +189,23 @@ try {
     }
     $results.Add("cognitive-audit-orphan-artifact-contract: PASS")
 
+    $mismatchNodes = @{}
+    $mismatchNode = Ensure-Node $mismatchNodes "node-mismatch" "Mismatched contract" "implement_patch"
+    $mismatchEvidence = [pscustomobject]@{ claims = @([pscustomobject]@{ id = "claim-mismatch"; statement = "validator passed"; evidenceRefs = @([pscustomobject]@{ resultId = "result-path"; validatorRef = "pytest" }) }); evidenceRefs = @([pscustomobject]@{ resultId = "result-path"; validatorRef = "pytest" }); changedArtifacts = @("src/app.py"); validatorRefs = @("pytest"); remainingUncertainty = @(); validity = "accepted"; validityReason = "validator passed" }
+    Add-Or-Update-NodeResult $mismatchNode "2026-05-30T00:06:47Z" "result-path" "lease-path" "thread-1" "result" "implement" "output" $mismatchEvidence "map-1" "task-mismatch"
+    $mismatchTasks = New-Object System.Collections.Generic.List[object]
+    $mismatchTaskById = @{}
+    [void](Ensure-Task $mismatchTasks $mismatchTaskById "task-mismatch" "Mismatched contract" "Reject contract result mismatch" "active" "thread-1" "map-1" @("map-1") ([pscustomobject]@{
+                outputContracts = @([pscustomobject]@{ id = "contract-mismatch"; kind = "artifact"; artifactRef = "src/app.py"; evidenceRefs = @([pscustomobject]@{ resultId = "result-other"; artifactRef = "src/app.py" }) })
+                factSources = @([pscustomobject]@{ id = "source-mismatch"; provenance = "observed_from_environment"; description = "validator"; evidenceRefs = @([pscustomobject]@{ validatorRef = "pytest" }) })
+                facts = @([pscustomobject]@{ id = "fact-mismatch"; statement = "tests passed"; evidenceRefs = @([pscustomobject]@{ factSourceId = "source-mismatch" }) })
+                assumptions = @(); riskNotes = @(); successCriteria = @()
+            }))
+    $mismatchAudit = Get-CognitiveAuditSummary @($mismatchTasks.ToArray()) @($mismatchNodes.Values) @() @($timeline.ToArray()) $artifactRoot
+    Assert-Equal ([bool]$mismatchAudit.hardGatePassed) $false "contract artifact path and resultId mismatch should fail audit"
+    Assert-Contains $mismatchAudit.hardGateFailures "output_contract_result_mismatch" "contract result mismatch should be reported"
+    $results.Add("cognitive-audit-contract-result-mismatch: PASS")
+
     $missingHashAudit = Get-CognitiveAuditSummary @($tasks.ToArray()) @($nodes.Values) @() @($timeline.ToArray()) (Join-Path $OutputDir "missing-artifact-root")
     Assert-Equal ([bool]$missingHashAudit.hardGatePassed) $false "missing artifact hash should fail final artifact audit"
     Assert-Contains $missingHashAudit.hardGateFailures "final_artifact_hash_missing" "missing artifact hash should be reported"
@@ -206,6 +237,17 @@ try {
     Assert-Equal ([bool]$outsideAudit.hardGatePassed) $false "artifact outside ArtifactRoot should not be hashed"
     Assert-Contains $outsideAudit.hardGateFailures "final_artifact_hash_missing" "outside artifact root should be reported as missing hash"
     $results.Add("cognitive-audit-artifact-root-containment: PASS")
+
+    $traversalEvidence = [pscustomobject]@{ claims = @([pscustomobject]@{ id = "claim-traversal"; statement = "outside output"; evidenceRefs = @([pscustomobject]@{ resultId = "result-traversal"; validatorRef = "pytest" }) }); evidenceRefs = @([pscustomobject]@{ resultId = "result-traversal"; validatorRef = "pytest" }); changedArtifacts = @("..\outside-root.txt"); validatorRefs = @("pytest"); remainingUncertainty = @(); validity = "accepted"; validityReason = "validator passed" }
+    $traversalNodes = @{}
+    Add-Or-Update-NodeResult (Ensure-Node $traversalNodes "node-traversal" "Traversal artifact" "implement_patch") "2026-05-30T00:06:51Z" "result-traversal" "lease-traversal" "thread-1" "result" "implement" "outside output" $traversalEvidence "map-1" "task-traversal"
+    $traversalTasks = New-Object System.Collections.Generic.List[object]
+    $traversalTaskById = @{}
+    [void](Ensure-Task $traversalTasks $traversalTaskById "task-traversal" "Traversal artifact" "Reject traversal artifact root" "active" "thread-1" "map-1" @("map-1") ([pscustomobject]@{ outputContracts = @([pscustomobject]@{ id = "contract-traversal"; kind = "artifact"; evidenceRefs = @([pscustomobject]@{ resultId = "result-traversal" }) }); factSources = @([pscustomobject]@{ id = "source-traversal"; provenance = "observed_from_environment"; description = "validator"; evidenceRefs = @([pscustomobject]@{ validatorRef = "pytest" }) }); facts = @([pscustomobject]@{ id = "fact-traversal"; statement = "validator exists"; evidenceRefs = @([pscustomobject]@{ factSourceId = "source-traversal" }) }); assumptions = @(); riskNotes = @(); successCriteria = @() }))
+    $traversalAudit = Get-CognitiveAuditSummary @($traversalTasks.ToArray()) @($traversalNodes.Values) @() @($timeline.ToArray()) $artifactRoot
+    Assert-Equal ([bool]$traversalAudit.hardGatePassed) $false "artifact path traversal outside ArtifactRoot should not be hashed"
+    Assert-Contains $traversalAudit.hardGateFailures "final_artifact_hash_missing" "path traversal outside root should be reported as missing hash"
+    $results.Add("cognitive-audit-artifact-root-traversal-containment: PASS")
 
     $unclearedWarning = [pscustomobject]@{ id = "sentinel-open"; status = "active"; resultId = "result-3"; nodeId = "node-1" }
     $unclearedAudit = Get-CognitiveAuditSummary @($tasks.ToArray()) @($nodes.Values) @($unclearedWarning) @($timeline.ToArray()) $artifactRoot
@@ -345,8 +387,8 @@ try {
             snapshot = [ordered]@{
                 tasks = @([ordered]@{
                         id = "task-1"
-                        title = "Fix app"
-                        objective = "Repair failing validator"
+                        title = "Fix | app"
+                        objective = "Repair failing validator`nwith evidence"
                         status = "active"
                         ownerSessionId = "thread-1"
                         activeMapId = "map-1"
@@ -356,11 +398,11 @@ try {
                 maps = @([ordered]@{
                         id = "map-1"
                         taskId = "task-1"
-                        title = "Fix app"
+                        title = "Fix | app"
                         ownerSessionId = "thread-1"
                         createdFrom = $null
                         edges = @()
-                        nodes = @([ordered]@{ id = "node-1"; title = "Read source"; kind = "inspect_code_context"; status = "completed" })
+                        nodes = @([ordered]@{ id = "node-1"; title = "Read | source"; kind = "inspect_code_context"; status = "completed" })
                         results = @([ordered]@{
                                 id = "result-3"
                                 nodeId = "node-1"
@@ -383,7 +425,7 @@ try {
                         nodeId = "node-1"
                         resultId = "result-3"
                         traceEventIds = @("trace-1")
-                        reason = "fixture warning"
+                        reason = "fixture | warning`ncleared"
                         clearanceAction = "FixApplied"
                         createdAtMs = "1"
                     })
@@ -424,6 +466,11 @@ try {
         )) {
         if ($markdown -notmatch [regex]::Escape($needle)) {
             throw "Markdown report did not contain '$needle'."
+        }
+    }
+    foreach ($escaped in @("Fix \| app", "Repair failing validator<br>with evidence", "Read \| source", "fixture \| warning<br>cleared", "validator \| passed<br>clean")) {
+        if ($markdown -notmatch [regex]::Escape($escaped)) {
+            throw "Markdown report did not escape table content '$escaped'."
         }
     }
     foreach ($ch in $markdown.ToCharArray()) {

@@ -89,6 +89,7 @@ function Ensure-FinalArtifactRecord {
             nodeIds = New-Object System.Collections.Generic.List[string]
             resultIds = New-Object System.Collections.Generic.List[string]
             outputContractIds = New-Object System.Collections.Generic.List[string]
+            contractResultRefRecords = New-Object System.Collections.Generic.List[object]
             claimIds = New-Object System.Collections.Generic.List[string]
             evidenceRefIds = New-Object System.Collections.Generic.List[string]
             factSourceIds = New-Object System.Collections.Generic.List[string]
@@ -237,13 +238,34 @@ function Add-LinkedContractsToArtifact {
     param([object]$Artifact, [object]$Task, [string]$ResultId, [string]$ArtifactRef)
     foreach ($contract in @(Get-ObjectArray (Get-ObjectField (Get-ObjectField $Task "cognitiveState") "outputContracts"))) {
         if ([string](Get-ObjectField $contract "kind") -eq "non_goal") { continue }
+        $contractId = [string](Get-ObjectField $contract "id")
         $artifactRefs = @(Get-OutputContractArtifactRefs $contract)
         $resultRefs = @(Get-ResultIdsFromEvidenceRefs (Get-ObjectField $contract "evidenceRefs"))
         if ($artifactRefs.Count -gt 0 -and $artifactRefs -notcontains $ArtifactRef) { continue }
+        if ($artifactRefs.Count -gt 0 -and $resultRefs.Count -gt 0 -and $resultRefs -notcontains $ResultId) {
+            Add-ContractResultRefRecord $Artifact $contractId $resultRefs
+            continue
+        }
         if ($artifactRefs.Count -eq 0 -and $resultRefs -notcontains $ResultId) { continue }
-        Add-UniqueAuditValue $Artifact.outputContractIds ([string](Get-ObjectField $contract "id"))
-        Add-FinalArtifactEdge $Artifact "OutputContract" ([string](Get-ObjectField $contract "id")) "FinalArtifact" $Artifact.finalArtifactId
+        if ($artifactRefs.Count -gt 0 -and $resultRefs.Count -gt 0) { Add-ContractResultRefRecord $Artifact $contractId $resultRefs }
+        Add-UniqueAuditValue $Artifact.outputContractIds $contractId
+        Add-FinalArtifactEdge $Artifact "OutputContract" $contractId "FinalArtifact" $Artifact.finalArtifactId
     }
+}
+
+function Add-ContractResultRefRecord {
+    param([object]$Artifact, [string]$ContractId, [object]$ResultRefs)
+    if ([string]::IsNullOrWhiteSpace($ContractId)) { return }
+    $records = Get-ObjectField $Artifact "contractResultRefRecords"
+    if ($null -eq $records) {
+        $records = New-Object System.Collections.Generic.List[object]
+        if ($Artifact -is [System.Collections.IDictionary]) { $Artifact["contractResultRefRecords"] = $records }
+        else { $Artifact | Add-Member -NotePropertyName "contractResultRefRecords" -NotePropertyValue $records -Force }
+    }
+    foreach ($existing in @(Get-ObjectArray $records)) {
+        if ([string](Get-ObjectField $existing "contractId") -eq $ContractId) { return }
+    }
+    $records.Add([ordered]@{ contractId = $ContractId; resultIds = @($ResultRefs) })
 }
 
 function Add-ResultEvidenceToArtifact {
@@ -272,12 +294,21 @@ function New-FinalArtifactAuditResult {
     $missingHash = New-Object System.Collections.Generic.List[string]
     $badResultDependencies = New-Object System.Collections.Generic.List[string]
     $nonAcceptedDependencies = New-Object System.Collections.Generic.List[string]
+    $contractResultMismatches = New-Object System.Collections.Generic.List[string]
     $unclearedSentinels = New-Object System.Collections.Generic.List[string]
     foreach ($subject in $ContractWithoutArtifact) { Add-UniqueAuditValue $missingWhyChain $subject }
     foreach ($artifact in @($Artifacts.ToArray())) {
         if ([string]::IsNullOrWhiteSpace([string]$artifact.artifactHash)) { Add-UniqueAuditValue $missingHash ([string]$artifact.finalArtifactId) }
         if ($artifact.outputContractIds.Count -eq 0 -or $artifact.resultIds.Count -eq 0 -or $artifact.claimIds.Count -eq 0 -or $artifact.evidenceRefIds.Count -eq 0 -or ($artifact.validatorRefs.Count + $artifact.factSourceIds.Count) -eq 0) {
             Add-UniqueAuditValue $missingWhyChain ([string]$artifact.finalArtifactId)
+        }
+        foreach ($record in @(Get-ObjectArray (Get-ObjectField $artifact "contractResultRefRecords"))) {
+            $expectedResultIds = @(Get-ObjectArray (Get-ObjectField $record "resultIds") | ForEach-Object { [string]$_ })
+            $artifactResultIds = @(Get-ObjectArray (Get-ObjectField $artifact "resultIds") | ForEach-Object { [string]$_ })
+            $matched = @($expectedResultIds | Where-Object { $artifactResultIds -contains $_ }).Count -gt 0
+            if (-not $matched) {
+                Add-UniqueAuditValue $contractResultMismatches "$($artifact.finalArtifactId)->$([string](Get-ObjectField $record 'contractId'))"
+            }
         }
         foreach ($resultId in @($artifact.resultIds)) {
             if ($ResultById.ContainsKey($resultId)) {
@@ -294,6 +325,7 @@ function New-FinalArtifactAuditResult {
     $gateRecords = New-Object System.Collections.Generic.List[object]
     Add-AuditGateRecord $gateRecords "audit_why_chain_missing" ($missingWhyChain.Count -eq 0) "final artifacts have output contract, result, claim, evidence, and validator/fact source joins" "missingWhyChain=$($missingWhyChain.Count)" @($missingWhyChain.ToArray())
     Add-AuditGateRecord $gateRecords "final_artifact_hash_missing" ($missingHash.Count -eq 0) "each final artifact path resolves to a SHA-256 hash" "missingHash=$($missingHash.Count)" @($missingHash.ToArray())
+    Add-AuditGateRecord $gateRecords "output_contract_result_mismatch" ($contractResultMismatches.Count -eq 0) "artifact output contracts with explicit result refs match the final artifact result" "mismatches=$($contractResultMismatches.Count)" @($contractResultMismatches.ToArray())
     Add-AuditGateRecord $gateRecords "non_accepted_final_artifact_dependency" ($nonAcceptedDependencies.Count -eq 0) "final artifact dependencies use accepted results only" "nonAcceptedDependencies=$($nonAcceptedDependencies.Count)" @($nonAcceptedDependencies.ToArray())
     Add-AuditGateRecord $gateRecords "questioned_or_invalid_final_artifact_dependency" ($badResultDependencies.Count -eq 0) "final artifact dependencies do not use questioned/invalid results" "badDependencies=$($badResultDependencies.Count)" @($badResultDependencies.ToArray())
     Add-AuditGateRecord $gateRecords "sentinel_warning_uncleared_for_final_artifact" ($unclearedSentinels.Count -eq 0) "sentinel warnings affecting final artifacts are cleared" "unclearedSentinels=$($unclearedSentinels.Count)" @($unclearedSentinels.ToArray())
@@ -307,6 +339,7 @@ function New-FinalArtifactAuditResult {
             finalArtifactCount = $Artifacts.Count
             finalArtifactMissingHashCount = $missingHash.Count
             finalArtifactMissingWhyChainCount = $missingWhyChain.Count
+            outputContractResultMismatchCount = $contractResultMismatches.Count
             nonAcceptedFinalArtifactDependencyCount = $nonAcceptedDependencies.Count
             questionedOrInvalidFinalArtifactDependencyCount = $badResultDependencies.Count
             unclearedFinalArtifactSentinelCount = $unclearedSentinels.Count

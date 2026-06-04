@@ -17,6 +17,10 @@ function Format-MarkdownCell($Value) {
     return $text.Replace("|", "\|").Replace("`r`n", "<br>").Replace("`n", "<br>").Replace("`r", "<br>")
 }
 
+function Join-MarkdownValues($Value) {
+    return Format-MarkdownCell (Join-ReportValues $Value)
+}
+
 function Add-MarkdownRows {
     param(
         [System.Collections.Generic.List[string]]$Markdown,
@@ -106,7 +110,7 @@ function Write-ActionMapObservabilityReport {
     $md.Add("| Gate | Pass | Expected | Observed | Subject IDs |")
     $md.Add("|---|---|---|---|---|")
     foreach ($gate in @(Get-ObjectArray $cognitiveAudit.gateRecords)) {
-        $md.Add("| $($gate.gateId) | $($gate.pass) | $($gate.expected) | $($gate.observed) | $(Join-ReportValues $gate.subjectIds) |")
+        $md.Add("| $(Format-MarkdownCell $gate.gateId) | $(Format-MarkdownCell $gate.pass) | $(Format-MarkdownCell $gate.expected) | $(Format-MarkdownCell $gate.observed) | $(Join-MarkdownValues $gate.subjectIds) |")
     }
     $md.Add("")
     $md.Add("### Metrics")
@@ -114,7 +118,7 @@ function Write-ActionMapObservabilityReport {
     $md.Add("| Metric | Value |")
     $md.Add("|---|---|")
     foreach ($metric in @(Get-ReportPropertyPairs $cognitiveAudit.metrics)) {
-        $md.Add("| $($metric.Name) | $($metric.Value) |")
+        $md.Add("| $(Format-MarkdownCell $metric.Name) | $(Format-MarkdownCell $metric.Value) |")
     }
     $md.Add("")
     $md.Add("## Tasks")
@@ -123,7 +127,7 @@ function Write-ActionMapObservabilityReport {
     $md.Add("|---|---|---|---|---|---|---|")
     foreach ($task in $Reduced.tasks) {
         $cognitive = $task.cognitiveState
-        $md.Add("| $($task.id) | $($task.status) | $($task.title) | $($task.objective) | $(@($cognitive.outputContracts).Count) | $(@($cognitive.factSources).Count) | $(@($cognitive.facts).Count) |")
+        $md.Add("| $(Format-MarkdownCell $task.id) | $(Format-MarkdownCell $task.status) | $(Format-MarkdownCell $task.title) | $(Format-MarkdownCell $task.objective) | $(@($cognitive.outputContracts).Count) | $(@($cognitive.factSources).Count) | $(@($cognitive.facts).Count) |")
     }
     $md.Add("")
     $md.Add("## Nodes")
@@ -136,7 +140,7 @@ function Write-ActionMapObservabilityReport {
         $barrierCount = @($node.maintenanceBarriers | Where-Object { $_.state -eq "active" }).Count
         $acceptedCount = @($node.results | Where-Object { [string]$_.validity -eq "accepted" }).Count
         $questionedInvalidCount = @($node.results | Where-Object { [string]$_.validity -in @("questioned", "invalid") }).Count
-        $md.Add("| $($node.id) | $($node.kind) | $($node.title) | $($node.status) | $($node.agentThreads.Count) | $($node.results.Count) | $acceptedCount | $questionedInvalidCount | $blockedCount | $barrierCount |")
+        $md.Add("| $(Format-MarkdownCell $node.id) | $(Format-MarkdownCell $node.kind) | $(Format-MarkdownCell $node.title) | $(Format-MarkdownCell $node.status) | $($node.agentThreads.Count) | $($node.results.Count) | $acceptedCount | $questionedInvalidCount | $blockedCount | $barrierCount |")
     }
     $md.Add("")
     $md.Add("## Final Artifacts")
@@ -146,7 +150,7 @@ function Write-ActionMapObservabilityReport {
     foreach ($artifact in @(Get-ObjectArray $Reduced.finalArtifacts)) {
         $hash = [string]$artifact.artifactHash
         if ($hash.Length -gt 16) { $hash = $hash.Substring(0, 16) }
-        $md.Add("| $(Format-MarkdownCell $artifact.finalArtifactId) | $(Format-MarkdownCell $artifact.taskId) | $(Format-MarkdownCell $artifact.finalArtifactPath) | $hash | $(Format-MarkdownCell (Join-ReportValues $artifact.resultIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.outputContractIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.claimIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.evidenceRefIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.validatorRefs)) | $(Format-MarkdownCell (Join-ReportValues $artifact.factSourceIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.sentinelIds)) |")
+        $md.Add("| $(Format-MarkdownCell $artifact.finalArtifactId) | $(Format-MarkdownCell $artifact.taskId) | $(Format-MarkdownCell $artifact.finalArtifactPath) | $(Format-MarkdownCell $hash) | $(Format-MarkdownCell (Join-ReportValues $artifact.resultIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.outputContractIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.claimIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.evidenceRefIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.validatorRefs)) | $(Format-MarkdownCell (Join-ReportValues $artifact.factSourceIds)) | $(Format-MarkdownCell (Join-ReportValues $artifact.sentinelIds)) |")
     }
     $md.Add("")
     $md.Add("## Result Evidence")
@@ -158,7 +162,7 @@ function Write-ActionMapObservabilityReport {
             $ep = Get-ObjectField $result "evidencePackage"
             $claimIds = @(Get-ObjectArray (Get-ObjectField $ep "claims") | ForEach-Object { [string](Get-ObjectField $_ "id") })
             $evidenceRefs = @(Get-ObjectArray (Get-ObjectField $ep "evidenceRefs") | ForEach-Object { ($_ | ConvertTo-Json -Compress -Depth 10) })
-            $md.Add("| $($result.resultId) | $($node.id) | $($result.validity) | $($claimIds -join ', ') | $($evidenceRefs -join '<br>') | $(Join-ReportValues (Get-ObjectField $ep 'validatorRefs')) | $((Get-ObjectField $ep 'validityReason')) |")
+            $md.Add("| $(Format-MarkdownCell $result.resultId) | $(Format-MarkdownCell $node.id) | $(Format-MarkdownCell $result.validity) | $(Format-MarkdownCell ($claimIds -join ', ')) | $(Format-MarkdownCell ($evidenceRefs -join '<br>')) | $(Join-MarkdownValues (Get-ObjectField $ep 'validatorRefs')) | $(Format-MarkdownCell (Get-ObjectField $ep 'validityReason')) |")
         }
     }
     $md.Add("")
@@ -167,7 +171,7 @@ function Write-ActionMapObservabilityReport {
     $md.Add("| Sentinel | Type | Severity | Status | Task | Map | Node | Result | Trace Events | Reason | Clearance |")
     $md.Add("|---|---|---|---|---|---|---|---|---|---|---|")
     foreach ($warning in @(Get-ObjectArray $Reduced.sentinelWarnings)) {
-        $md.Add("| $($warning.id) | $($warning.sentinelType) | $($warning.severity) | $($warning.status) | $($warning.taskId) | $($warning.mapId) | $($warning.nodeId) | $($warning.resultId) | $(Join-ReportValues $warning.traceEventIds) | $($warning.reason) | $($warning.clearanceAction) |")
+        $md.Add("| $(Format-MarkdownCell $warning.id) | $(Format-MarkdownCell $warning.sentinelType) | $(Format-MarkdownCell $warning.severity) | $(Format-MarkdownCell $warning.status) | $(Format-MarkdownCell $warning.taskId) | $(Format-MarkdownCell $warning.mapId) | $(Format-MarkdownCell $warning.nodeId) | $(Format-MarkdownCell $warning.resultId) | $(Join-MarkdownValues $warning.traceEventIds) | $(Format-MarkdownCell $warning.reason) | $(Format-MarkdownCell $warning.clearanceAction) |")
     }
     $md.Add("")
     $md.Add("## Edges")
@@ -175,7 +179,7 @@ function Write-ActionMapObservabilityReport {
     $md.Add("| From | To |")
     $md.Add("|---|---|")
     foreach ($edge in $Reduced.edges) {
-        $md.Add("| $($edge.from) | $($edge.to) |")
+        $md.Add("| $(Format-MarkdownCell $edge.from) | $(Format-MarkdownCell $edge.to) |")
     }
     $md.Add("")
     $md.Add("## Timeline")

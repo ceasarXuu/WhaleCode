@@ -128,3 +128,84 @@ Validation after closure fixes:
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-action-map-regression.ps1`: PASS, report `target/test-reports/action-map-20260605-031003-895/report.md`.
 
 Closure status: PASS. No unresolved blocking findings.
+
+## Round 3 Phase 7B Hardening Review
+
+Reviewer launch records:
+
+| Reviewer | Role | Agent ID | Fresh Session | Forked Main Context | Read-only |
+|---|---|---|---|---|---|
+| Feynman | Hardening reviewer | `019e9417-2f06-7b43-bda7-7bd9e47e71c5` | yes | no | yes |
+| Kuhn | Final closure reviewer | `019e941d-bea2-7a83-afa2-db0513b29eec` | yes | no | yes |
+
+Review target:
+
+- Add `output_contract_result_mismatch` for contracts that declare both artifact path and result refs.
+- Escape all Markdown table cells that can contain audit/user/tool text.
+- Add ArtifactRoot traversal containment coverage.
+- Keep the claim scoped to audit hardening, not E3 utility proof.
+
+Reviewer outputs:
+
+- Feynman blocking findings: None.
+- Kuhn blocking findings: None.
+- Both reviewers confirmed docs do not claim E3 utility positive result.
+
+Accepted non-blocking findings and actions:
+
+1. Final artifact hash cell should also use Markdown cell escaping.
+   - Response: accept. Hash cell now uses `Format-MarkdownCell` for consistency, even though SHA-256 hashes are structurally safe.
+2. Add positive tests for path-only contract and path+matching-result contract.
+   - Response: accept. `scripts/test-action-map-observability-lib.ps1` now covers both positive joins.
+3. Same task / same artifact / multiple result histories could false-fail the new mismatch gate.
+   - Response: accept. The gate now records expected contract result refs and fails only when the expected refs have no intersection with actual artifact result ids.
+4. Markdown result evidence / validity reason escaping was not directly tested.
+   - Response: accept. The black-box report fixture now includes `|` and newline in result validity reason and asserts escaped Markdown output.
+5. Top-level `contract.resultId/resultIds` are not read.
+   - Response: reject for this MVP. The current schema and audit contract use `contract.evidenceRefs[].resultId`; adding top-level alternatives would widen the schema without a production producer.
+
+Deferred non-blocking findings:
+
+- Windows symlink / reparse-point ArtifactRoot escape remains untested and is tracked in the engineering plan as future hardening.
+- Wrapper-level E2/E3 smoke rerun and full utility benchmark remain out of this Phase 7B closure.
+
+Validation after Round 3:
+
+- `git diff --check`: PASS.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-action-map-observability-lib.ps1`: PASS.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-action-map-regression.ps1`: PASS, report `target/test-reports/action-map-20260605-033056-561/report.md`.
+
+Round 3 closure status: PASS. No unresolved blocking findings.
+
+## Round 4 Final False-Fail Closure Review
+
+Reviewer launch record:
+
+| Reviewer | Role | Agent ID | Fresh Session | Forked Main Context | Read-only |
+|---|---|---|---|---|---|
+| Ptolemy | Final false-fail closure reviewer | `019e9425-6ab5-7343-ba04-5a28816b4a65` | yes | no | yes |
+
+Review target:
+
+- Verify that `output_contract_result_mismatch` no longer false-fails same task / same artifact / multiple result histories.
+- Verify tests, docs, and review record reflect the intersection semantics.
+
+Reviewer output summary:
+
+- Blocking findings: None.
+- Closure conclusion: the audit records expected contract result refs and fails only when those refs have no intersection with the artifact actual result ids. The positive test covers `result-extra` plus a path+matching-result contract, and the mismatch negative test remains present.
+
+Non-blocking findings:
+
+1. A path+result contract whose declared path has no actual result artifact fails via `audit_why_chain_missing`, not specifically `output_contract_result_mismatch`.
+   - Response: accept as current semantics. `output_contract_result_mismatch` covers existing artifact/result path joins with inconsistent result refs; missing artifact production remains a why-chain failure.
+2. Review records include fresh agent ids and read-only status but not a separate trace-source field.
+   - Response: accept as process limitation. The available subagent runtime returned agent ids and final outputs; no additional trace-source handle was exposed in this workflow.
+
+Validation after Round 4:
+
+- `git diff --check`: PASS.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-action-map-observability-lib.ps1`: PASS.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-action-map-regression.ps1`: PASS, report `target/test-reports/action-map-20260605-033918-512/report.md`.
+
+Round 4 closure status: PASS. No unresolved blocking findings.
