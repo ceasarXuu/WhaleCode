@@ -8,6 +8,8 @@ export type { ActionMapSnapshotMaintenanceBarrier } from "./ActionMapSnapshotMai
 export type { ActionMapSnapshotMap } from "./ActionMapSnapshotMap";
 export type { ActionMapSnapshotNode } from "./ActionMapSnapshotNode";
 export type { ActionMapSnapshotResult } from "./ActionMapSnapshotResult";
+export type { ActionMapSnapshotSentinelSummary } from "./ActionMapSnapshotSentinelSummary";
+export type { ActionMapSnapshotSentinelWarningRef } from "./ActionMapSnapshotSentinelWarningRef";
 export type { ActionMapSnapshotTask } from "./ActionMapSnapshotTask";
 export type { ActionMapSnapshotTraceEventRef } from "./ActionMapSnapshotTraceEventRef";
 export type { ActionMapSnapshotTraceSummary } from "./ActionMapSnapshotTraceSummary";

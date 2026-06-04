@@ -5386,6 +5386,26 @@
             "default": false,
             "type": "boolean"
           },
+          "sentinelSummary": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/v2/ActionMapSnapshotSentinelSummary"
+              }
+            ],
+            "default": {
+              "activeWarningCount": 0,
+              "totalWarningCount": 0,
+              "unclassifiedShellWarningCount": 0,
+              "validatorFailureWarningCount": 0
+            }
+          },
+          "sentinelWarnings": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotSentinelWarningRef"
+            },
+            "type": "array"
+          },
           "tasks": {
             "items": {
               "$ref": "#/definitions/v2/ActionMapSnapshotTask"
@@ -5706,6 +5726,107 @@
           "mapId",
           "nodeId",
           "sourceThreadId"
+        ],
+        "type": "object"
+      },
+      "ActionMapSnapshotSentinelSummary": {
+        "properties": {
+          "activeWarningCount": {
+            "format": "uint",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "totalWarningCount": {
+            "format": "uint",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "unclassifiedShellWarningCount": {
+            "format": "uint",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "validatorFailureWarningCount": {
+            "format": "uint",
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "activeWarningCount",
+          "totalWarningCount",
+          "unclassifiedShellWarningCount",
+          "validatorFailureWarningCount"
+        ],
+        "type": "object"
+      },
+      "ActionMapSnapshotSentinelWarningRef": {
+        "properties": {
+          "clearanceAction": {
+            "type": "string"
+          },
+          "clearedAtMs": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "createdAtMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "mapId": {
+            "type": "string"
+          },
+          "nodeId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "resultId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sentinelType": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "traceEventIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "clearanceAction",
+          "createdAtMs",
+          "id",
+          "mapId",
+          "nodeId",
+          "reason",
+          "sentinelType",
+          "severity",
+          "status",
+          "traceEventIds"
         ],
         "type": "object"
       },

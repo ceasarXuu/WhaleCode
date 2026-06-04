@@ -531,6 +531,15 @@ promotion/collapse 不属于首轮 MVP 实现范围。它们不是“已修复�
 - `hello-world` fixture 验证写文件前能出现 output contract。
 - `jsonl-aggregator` 变体验证 generated data 不得进入 accepted facts。
 
+实施记录（2026-06-04 Phase 2A）：
+
+- 已实现 trace-driven sentinel warning 子集：`validator_failure` 与 `unclassified_shell_action`。
+- warning 由 `TaskSpaceTraceEvent.tags` 触发，runtime 不读取 shell preview/body、不读取自然语言 result，也不从原始命令文本推断 output contract、provenance、final artifact 或业务事实。
+- warning 当前只做观测：写入 snapshot `sentinel_summary` / `sentinel_warnings`，并发出 `sentinel_warning_raised` runtime event；不阻塞工具调用，不改变 node 状态，不创建 maintenance barrier。
+- session 生产路径已覆盖：validator failure 的 main tool result 会在同一事件流中发出 `taskspace_trace_event_recorded` 和 `sentinel_warning_raised`，snapshot 同步带 warning。
+- protocol/generated schema 已暴露 `ActionMapSnapshotSentinelSummary` 与 `ActionMapSnapshotSentinelWarningRef`，legacy snapshot 缺字段时默认为空。
+- 尚未实现 output contract sentinel、data provenance sentinel、clear action、hard barrier、E2/E3 audit hard gate；这些需要 Phase 3/4 的 cognitive state/result evidence 数据模型和 control actions 之后才能闭环。
+
 ### Phase 3：MVP 数据模型与 Snapshot
 
 目标：把最小问题状态和证据包进入数据模型、snapshot 和 generated schema。

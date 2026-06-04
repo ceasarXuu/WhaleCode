@@ -101,6 +101,15 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
         action_map_snapshot_ts.contains("traceEvents: Array<ActionMapSnapshotTraceEventRef>"),
         "ActionMapSnapshot TypeScript fixture must expose traceEvents"
     );
+    assert!(
+        action_map_snapshot_ts.contains("sentinelSummary: ActionMapSnapshotSentinelSummary"),
+        "ActionMapSnapshot TypeScript fixture must expose sentinelSummary"
+    );
+    assert!(
+        action_map_snapshot_ts
+            .contains("sentinelWarnings: Array<ActionMapSnapshotSentinelWarningRef>"),
+        "ActionMapSnapshot TypeScript fixture must expose sentinelWarnings"
+    );
     let trace_ref_ts = fixture_utf8(
         &typescript_tree,
         Path::new("ActionMapSnapshotTraceEventRef.ts"),
@@ -110,6 +119,15 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
     assert!(trace_ref_ts.contains("toolSuccess: boolean | null"));
     assert!(!trace_ref_ts.contains("preview"));
     assert!(!trace_ref_ts.contains("body"));
+    let sentinel_ref_ts = fixture_utf8(
+        &typescript_tree,
+        Path::new("ActionMapSnapshotSentinelWarningRef.ts"),
+        "typescript",
+    )?;
+    assert!(sentinel_ref_ts.contains("sentinelType: string"));
+    assert!(sentinel_ref_ts.contains("traceEventIds: Array<string>"));
+    assert!(!sentinel_ref_ts.contains("preview"));
+    assert!(!sentinel_ref_ts.contains("body"));
 
     let json_tree = read_tree(&schema_root, "json")?;
     for bundle_path in [
@@ -133,6 +151,14 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
             snapshot_properties.contains_key("traceEvents"),
             "{bundle_path} must expose traceEvents"
         );
+        anyhow::ensure!(
+            snapshot_properties.contains_key("sentinelSummary"),
+            "{bundle_path} must expose sentinelSummary"
+        );
+        anyhow::ensure!(
+            snapshot_properties.contains_key("sentinelWarnings"),
+            "{bundle_path} must expose sentinelWarnings"
+        );
         assert_eq!(
             snapshot_properties
                 .get("traceEvents")
@@ -153,6 +179,25 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
             })),
             "{bundle_path} must default traceSummary to empty counts"
         );
+        assert_eq!(
+            snapshot_properties
+                .get("sentinelWarnings")
+                .and_then(|property| property.get("default")),
+            Some(&serde_json::json!([])),
+            "{bundle_path} must default sentinelWarnings to an empty array"
+        );
+        assert_eq!(
+            snapshot_properties
+                .get("sentinelSummary")
+                .and_then(|property| property.get("default")),
+            Some(&serde_json::json!({
+                "activeWarningCount": 0,
+                "totalWarningCount": 0,
+                "unclassifiedShellWarningCount": 0,
+                "validatorFailureWarningCount": 0,
+            })),
+            "{bundle_path} must default sentinelSummary to empty counts"
+        );
         let required = snapshot_schema
             .get("required")
             .and_then(Value::as_array)
@@ -164,6 +209,14 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
         anyhow::ensure!(
             !required.iter().any(|field| field == "traceEvents"),
             "{bundle_path} must not require traceEvents for legacy snapshots"
+        );
+        anyhow::ensure!(
+            !required.iter().any(|field| field == "sentinelSummary"),
+            "{bundle_path} must not require sentinelSummary for legacy snapshots"
+        );
+        anyhow::ensure!(
+            !required.iter().any(|field| field == "sentinelWarnings"),
+            "{bundle_path} must not require sentinelWarnings for legacy snapshots"
         );
 
         let trace_ref_schema = action_map_trace_event_ref_schema(&value)
@@ -183,6 +236,27 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
         anyhow::ensure!(
             !trace_ref_properties.contains_key("body"),
             "{bundle_path} must not expose raw body on trace refs"
+        );
+
+        let sentinel_ref_schema =
+            action_map_sentinel_warning_ref_schema(&value).with_context(|| {
+                format!("locate ActionMapSnapshotSentinelWarningRef in {bundle_path}")
+            })?;
+        let sentinel_ref_properties = sentinel_ref_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .context("ActionMapSnapshotSentinelWarningRef properties")?;
+        anyhow::ensure!(
+            sentinel_ref_properties.contains_key("traceEventIds"),
+            "{bundle_path} must expose sentinel traceEventIds"
+        );
+        anyhow::ensure!(
+            !sentinel_ref_properties.contains_key("preview"),
+            "{bundle_path} must not expose raw preview on sentinel warning refs"
+        );
+        anyhow::ensure!(
+            !sentinel_ref_properties.contains_key("body"),
+            "{bundle_path} must not expose raw body on sentinel warning refs"
         );
     }
 
@@ -294,6 +368,12 @@ fn action_map_trace_event_ref_schema(value: &Value) -> Option<&Value> {
     value
         .pointer("/definitions/v2/ActionMapSnapshotTraceEventRef")
         .or_else(|| value.pointer("/definitions/ActionMapSnapshotTraceEventRef"))
+}
+
+fn action_map_sentinel_warning_ref_schema(value: &Value) -> Option<&Value> {
+    value
+        .pointer("/definitions/v2/ActionMapSnapshotSentinelWarningRef")
+        .or_else(|| value.pointer("/definitions/ActionMapSnapshotSentinelWarningRef"))
 }
 
 fn schema_root() -> Result<PathBuf> {

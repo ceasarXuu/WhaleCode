@@ -2,6 +2,7 @@ mod basemap;
 mod contracts;
 mod map;
 mod runtime;
+mod sentinel;
 
 pub(crate) use map::ActionClass;
 pub(crate) use map::NodeKind;

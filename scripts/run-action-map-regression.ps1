@@ -91,11 +91,17 @@ $runDir = Resolve-FullPath (Join-Path $ReportRoot "action-map-$stamp")
 $logPath = Join-Path $runDir "cargo-test.log"
 $reportPath = Join-Path $runDir "report.md"
 
-function New-CargoTestRun([string]$Name, [string[]]$Packages, [string]$Filter) {
+function New-CargoTestRun(
+    [string]$Name,
+    [string[]]$Packages,
+    [string]$Filter,
+    [string]$TestTarget = ""
+) {
     [pscustomobject]@{
         Name = $Name
         Package = [string[]]$Packages
         TestFilter = $Filter
+        TestTarget = $TestTarget
     }
 }
 
@@ -111,7 +117,16 @@ function Get-PackageArgs([string[]]$Packages) {
 
 function Get-CargoArgumentList($Run) {
     $packageArgs = Get-PackageArgs $Run.Package
-    return @("run", "stable", "cargo", "test") + $packageArgs + @("--lib", $Run.TestFilter, "--locked", "--jobs", [string]$Jobs)
+    $args = @("run", "stable", "cargo", "test") + $packageArgs
+    if ([string]::IsNullOrWhiteSpace($Run.TestTarget)) {
+        $args += "--lib"
+    } else {
+        $args += @("--test", $Run.TestTarget)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Run.TestFilter)) {
+        $args += $Run.TestFilter
+    }
+    return $args + @("--locked", "--jobs", [string]$Jobs)
 }
 
 function Get-CargoCommandText($Run) {
@@ -124,6 +139,9 @@ if ($useDefaultMatrix) {
         New-CargoTestRun "core-action-map" @("codex-core") "action_map"
         New-CargoTestRun "core-taskspace-trace" @("codex-core") "taskspace_trace"
         New-CargoTestRun "core-session-standard-trace" @("codex-core") "session_standard_mode_main_tool_result_does_not_record_trace"
+        New-CargoTestRun "protocol-action-map-snapshot" @("codex-protocol") "action_map_snapshot"
+        New-CargoTestRun "protocol-sentinel-warning" @("codex-protocol") "sentinel_warning_raised"
+        New-CargoTestRun "app-server-schema-fixtures" @("codex-app-server-protocol") "" "schema_fixtures"
         New-CargoTestRun "core-legacy-spawn-agent" @("codex-core") "legacy_spawn_agent"
         New-CargoTestRun "tools-spawn-agent" @("codex-tools") "spawn_agent"
         New-CargoTestRun "tools-multi-agent-task-names" @("codex-tools") "multi_agent_v2_uses_task_names"

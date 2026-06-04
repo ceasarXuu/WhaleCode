@@ -12,6 +12,8 @@ use codex_protocol::protocol::ActionMapSnapshotMaintenanceBarrier;
 use codex_protocol::protocol::ActionMapSnapshotMap;
 use codex_protocol::protocol::ActionMapSnapshotNode;
 use codex_protocol::protocol::ActionMapSnapshotResult;
+use codex_protocol::protocol::ActionMapSnapshotSentinelSummary;
+use codex_protocol::protocol::ActionMapSnapshotSentinelWarningRef;
 use codex_protocol::protocol::ActionMapSnapshotTask;
 use codex_protocol::protocol::ActionMapSnapshotTraceEventRef;
 use codex_protocol::protocol::ActionMapSnapshotTraceSummary;
@@ -29,6 +31,7 @@ use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::MapRuntimeModeChangedEvent;
 use codex_protocol::protocol::MapRuntimeNodeResultRecordedEvent;
 use codex_protocol::protocol::MapRuntimeNodeStatusChangedEvent;
+use codex_protocol::protocol::MapRuntimeSentinelWarningRaisedEvent;
 use codex_protocol::protocol::MapRuntimeTaskCreatedEvent;
 use codex_protocol::protocol::MapRuntimeTaskRoutedEvent;
 use codex_protocol::protocol::MapRuntimeTaskStatusChangedEvent;
@@ -62,6 +65,11 @@ use super::map::TaskSpaceTraceEvent;
 use super::map::TaskState;
 use super::map::TaskStatus;
 use super::map::ToolActionDescriptor;
+use super::sentinel::TaskSpaceSentinelSeverity;
+use super::sentinel::TaskSpaceSentinelWarning;
+use super::sentinel::TaskSpaceSentinelWarningStatus;
+use super::sentinel::TaskSpaceSentinelWarningType;
+use super::sentinel::warning_drafts_for_trace_event;
 
 const SEED_NODE_IDS: &[&str] = &[
     "define_scope",
@@ -152,12 +160,14 @@ pub(crate) struct ActionMapRuntimeState {
     tasks: HashMap<TaskId, TaskState>,
     maps: HashMap<ActionMapId, ActionMapInstance>,
     taskspace_trace_events: Vec<TaskSpaceTraceEvent>,
+    sentinel_warnings: Vec<TaskSpaceSentinelWarning>,
     next_task_seq: u64,
     next_map_seq: u64,
     next_node_seq: u64,
     next_lease_seq: u64,
     next_result_seq: u64,
     next_trace_event_seq: u64,
+    next_sentinel_warning_seq: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -265,12 +275,14 @@ impl Default for ActionMapRuntimeState {
             tasks: HashMap::new(),
             maps: HashMap::new(),
             taskspace_trace_events: Vec::new(),
+            sentinel_warnings: Vec::new(),
             next_task_seq: 1,
             next_map_seq: 1,
             next_node_seq: 1,
             next_lease_seq: 1,
             next_result_seq: 1,
             next_trace_event_seq: 1,
+            next_sentinel_warning_seq: 1,
         }
     }
 }
@@ -385,6 +397,27 @@ impl ActionMapRuntimeState {
                 tags: sanitize_trace_tags(event.tags),
                 artifact_refs: event.artifact_refs,
                 created_at_ms: event.created_at_ms,
+            })
+            .collect();
+        self.sentinel_warnings = snapshot
+            .sentinel_warnings
+            .into_iter()
+            .filter_map(|warning| {
+                Some(TaskSpaceSentinelWarning {
+                    id: warning.id,
+                    warning_type: TaskSpaceSentinelWarningType::from_str(&warning.sentinel_type)?,
+                    status: TaskSpaceSentinelWarningStatus::from_str(&warning.status)?,
+                    severity: TaskSpaceSentinelSeverity::from_str(&warning.severity)?,
+                    task_id: warning.task_id,
+                    map_id: warning.map_id,
+                    node_id: warning.node_id,
+                    result_id: warning.result_id,
+                    trace_event_ids: warning.trace_event_ids,
+                    reason: warning.reason,
+                    clearance_action: warning.clearance_action,
+                    created_at_ms: warning.created_at_ms,
+                    cleared_at_ms: warning.cleared_at_ms,
+                })
             })
             .collect();
 
@@ -564,6 +597,10 @@ impl ActionMapRuntimeState {
             self.taskspace_trace_events.iter().map(|event| &event.id),
             "trace-",
         );
+        self.next_sentinel_warning_seq = next_numeric_seq(
+            self.sentinel_warnings.iter().map(|warning| &warning.id),
+            "sentinel-",
+        );
         if self.mode != MapRuntimeMode::Experiment {
             self.routing_required = false;
             self.bootstrap_required = false;
@@ -628,6 +665,11 @@ impl ActionMapRuntimeState {
             .iter()
             .map(snapshot_trace_event_ref)
             .collect::<Vec<_>>();
+        let sentinel_warnings = self
+            .sentinel_warnings
+            .iter()
+            .map(snapshot_sentinel_warning_ref)
+            .collect::<Vec<_>>();
         ActionMapSnapshot {
             mode: self.mode,
             routing_required: self.routing_required,
@@ -640,6 +682,8 @@ impl ActionMapRuntimeState {
             maintenance_barriers,
             trace_summary: trace_summary(&trace_events),
             trace_events,
+            sentinel_summary: sentinel_summary(&sentinel_warnings),
+            sentinel_warnings,
         }
     }
 
@@ -927,7 +971,7 @@ preview:\n\
             };
             (task_id, raised_barrier)
         };
-        let trace_event = self.append_main_tool_trace_event(MainToolTraceDraft {
+        let trace_events = self.append_main_tool_trace_events(MainToolTraceDraft {
             task_id,
             map_id: map_id.clone(),
             node_id: node_id.clone(),
@@ -949,7 +993,7 @@ preview:\n\
                 source_thread_id: owner_session_id,
             },
         )];
-        events.push(trace_event);
+        events.extend(trace_events);
         if let Some(barrier) = raised_barrier {
             events.push(maintenance_barrier_raised_event(&barrier));
             self.maintenance_barriers.insert(map_id.clone(), barrier);
@@ -3316,7 +3360,7 @@ preview:\n\
         })
     }
 
-    fn append_main_tool_trace_event(&mut self, draft: MainToolTraceDraft) -> MapRuntimeEvent {
+    fn append_main_tool_trace_events(&mut self, draft: MainToolTraceDraft) -> Vec<MapRuntimeEvent> {
         let id = self.next_trace_event_id();
         let tags = trace_tags_for(draft.action_class, draft.tool_success, &draft.tool_name);
         let event = TaskSpaceTraceEvent {
@@ -3334,20 +3378,51 @@ preview:\n\
             created_at_ms: draft.created_at_ms,
         };
         self.taskspace_trace_events.push(event.clone());
-        MapRuntimeEvent::TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent {
-            trace_event_id: id,
-            kind: event.kind,
-            task_id: event.task_id,
-            map_id: event.map_id,
-            node_id: event.node_id,
-            result_id: event.result_id,
-            call_id: event.call_id,
-            action_class: event.action_class.map(|class| class.as_str().to_string()),
-            tool_success: event.tool_success,
-            tags: event.tags,
-            artifact_refs: event.artifact_refs,
-            created_at_ms: event.created_at_ms,
-        })
+        let mut events = vec![MapRuntimeEvent::TaskspaceTraceEventRecorded(
+            MapRuntimeTraceEventRecordedEvent {
+                trace_event_id: id,
+                kind: event.kind.clone(),
+                task_id: event.task_id.clone(),
+                map_id: event.map_id.clone(),
+                node_id: event.node_id.clone(),
+                result_id: event.result_id.clone(),
+                call_id: event.call_id.clone(),
+                action_class: event.action_class.map(|class| class.as_str().to_string()),
+                tool_success: event.tool_success,
+                tags: event.tags.clone(),
+                artifact_refs: event.artifact_refs.clone(),
+                created_at_ms: event.created_at_ms,
+            },
+        )];
+        for draft in warning_drafts_for_trace_event(&event) {
+            let sentinel_id = self.next_sentinel_warning_id();
+            let warning = TaskSpaceSentinelWarning {
+                id: sentinel_id.clone(),
+                warning_type: draft.warning_type,
+                status: TaskSpaceSentinelWarningStatus::Active,
+                severity: draft.severity,
+                task_id: event.task_id.clone(),
+                map_id: event.map_id.clone(),
+                node_id: event.node_id.clone(),
+                result_id: event.result_id.clone(),
+                trace_event_ids: vec![event.id.clone()],
+                reason: draft.reason.to_string(),
+                clearance_action: draft.clearance_action.to_string(),
+                created_at_ms: event.created_at_ms,
+                cleared_at_ms: None,
+            };
+            self.sentinel_warnings.push(warning.clone());
+            events.push(MapRuntimeEvent::SentinelWarningRaised(
+                sentinel_warning_raised_event(&warning),
+            ));
+        }
+        events
+    }
+
+    fn next_sentinel_warning_id(&mut self) -> String {
+        let id = format!("sentinel-{}", self.next_sentinel_warning_seq);
+        self.next_sentinel_warning_seq += 1;
+        id
     }
 
     fn next_task_id(&mut self) -> TaskId {
@@ -3437,6 +3512,25 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
         &snapshot
             .trace_summary
             .unclassified_shell_action_count
+            .to_string(),
+    );
+    output.push('\n');
+    output.push_str("- sentinel warnings: total=");
+    output.push_str(&snapshot.sentinel_summary.total_warning_count.to_string());
+    output.push_str(", active=");
+    output.push_str(&snapshot.sentinel_summary.active_warning_count.to_string());
+    output.push_str(", validator_failures=");
+    output.push_str(
+        &snapshot
+            .sentinel_summary
+            .validator_failure_warning_count
+            .to_string(),
+    );
+    output.push_str(", unclassified_shell=");
+    output.push_str(
+        &snapshot
+            .sentinel_summary
+            .unclassified_shell_warning_count
             .to_string(),
     );
     output.push('\n');
@@ -3787,6 +3881,26 @@ fn snapshot_trace_event_ref(event: &TaskSpaceTraceEvent) -> ActionMapSnapshotTra
     }
 }
 
+fn snapshot_sentinel_warning_ref(
+    warning: &TaskSpaceSentinelWarning,
+) -> ActionMapSnapshotSentinelWarningRef {
+    ActionMapSnapshotSentinelWarningRef {
+        id: warning.id.clone(),
+        sentinel_type: warning.warning_type.as_str().to_string(),
+        status: warning.status.as_str().to_string(),
+        severity: warning.severity.as_str().to_string(),
+        task_id: warning.task_id.clone(),
+        map_id: warning.map_id.clone(),
+        node_id: warning.node_id.clone(),
+        result_id: warning.result_id.clone(),
+        trace_event_ids: warning.trace_event_ids.clone(),
+        reason: warning.reason.clone(),
+        clearance_action: warning.clearance_action.clone(),
+        created_at_ms: warning.created_at_ms,
+        cleared_at_ms: warning.cleared_at_ms,
+    }
+}
+
 fn trace_summary(events: &[ActionMapSnapshotTraceEventRef]) -> ActionMapSnapshotTraceSummary {
     ActionMapSnapshotTraceSummary {
         total_event_count: events.len(),
@@ -3811,6 +3925,45 @@ fn trace_summary(events: &[ActionMapSnapshotTraceEventRef]) -> ActionMapSnapshot
                     .any(|tag| tag == "unclassified_shell_action")
             })
             .count(),
+    }
+}
+
+fn sentinel_summary(
+    warnings: &[ActionMapSnapshotSentinelWarningRef],
+) -> ActionMapSnapshotSentinelSummary {
+    ActionMapSnapshotSentinelSummary {
+        total_warning_count: warnings.len(),
+        active_warning_count: warnings
+            .iter()
+            .filter(|warning| warning.status == "active")
+            .count(),
+        validator_failure_warning_count: warnings
+            .iter()
+            .filter(|warning| warning.sentinel_type == "validator_failure")
+            .count(),
+        unclassified_shell_warning_count: warnings
+            .iter()
+            .filter(|warning| warning.sentinel_type == "unclassified_shell_action")
+            .count(),
+    }
+}
+
+fn sentinel_warning_raised_event(
+    warning: &TaskSpaceSentinelWarning,
+) -> MapRuntimeSentinelWarningRaisedEvent {
+    MapRuntimeSentinelWarningRaisedEvent {
+        sentinel_id: warning.id.clone(),
+        sentinel_type: warning.warning_type.as_str().to_string(),
+        status: warning.status.as_str().to_string(),
+        severity: warning.severity.as_str().to_string(),
+        task_id: warning.task_id.clone(),
+        map_id: warning.map_id.clone(),
+        node_id: warning.node_id.clone(),
+        result_id: warning.result_id.clone(),
+        trace_event_ids: warning.trace_event_ids.clone(),
+        reason: warning.reason.clone(),
+        clearance_action: warning.clearance_action.clone(),
+        created_at_ms: warning.created_at_ms,
     }
 }
 
@@ -4905,7 +5058,9 @@ mod tests {
         assert!(outcome.is_none());
         assert_eq!(snapshot.trace_summary.total_event_count, 0);
         assert_eq!(snapshot.trace_summary.tool_call_count, 0);
+        assert_eq!(snapshot.sentinel_summary.total_warning_count, 0);
         assert!(snapshot.trace_events.is_empty());
+        assert!(snapshot.sentinel_warnings.is_empty());
     }
 
     #[test]
@@ -4945,6 +5100,9 @@ mod tests {
         assert_eq!(snapshot.trace_summary.tool_call_count, 1);
         assert_eq!(snapshot.trace_summary.failed_tool_call_count, 1);
         assert_eq!(snapshot.trace_summary.validator_failure_count, 1);
+        assert_eq!(snapshot.sentinel_summary.total_warning_count, 1);
+        assert_eq!(snapshot.sentinel_summary.active_warning_count, 1);
+        assert_eq!(snapshot.sentinel_summary.validator_failure_warning_count, 1);
         assert!(matches!(
             &result_events[0],
             MapRuntimeEvent::NodeResultRecorded(event)
@@ -4958,6 +5116,16 @@ mod tests {
                     && event.action_class.as_deref() == Some("test")
                     && event.tool_success == Some(false)
                     && !event.tags.iter().any(|tag| tag.contains("pytest"))
+        ));
+        assert!(matches!(
+            &result_events[2],
+            MapRuntimeEvent::SentinelWarningRaised(event)
+                if event.sentinel_id == "sentinel-1"
+                    && event.sentinel_type == "validator_failure"
+                    && event.status == "active"
+                    && event.result_id.as_deref() == Some(result_id.as_str())
+                    && event.trace_event_ids == vec!["trace-1".to_string()]
+                    && !event.reason.contains("pytest")
         ));
         let trace = snapshot
             .trace_events
@@ -4975,6 +5143,22 @@ mod tests {
         assert!(trace.tags.iter().any(|tag| tag == "tool_failure"));
         assert!(trace.tags.iter().any(|tag| tag == "validator_failure"));
         assert!(trace.artifact_refs.is_empty());
+        let warning = snapshot
+            .sentinel_warnings
+            .first()
+            .expect("sentinel warning is exposed");
+        assert_eq!(warning.id, "sentinel-1");
+        assert_eq!(warning.sentinel_type, "validator_failure");
+        assert_eq!(warning.status, "active");
+        assert_eq!(warning.severity, "warning");
+        assert_eq!(warning.task_id.as_deref(), Some(task_id.as_str()));
+        assert_eq!(warning.map_id, map_id);
+        assert_eq!(warning.node_id, node_id);
+        assert_eq!(warning.result_id.as_deref(), Some(result_id.as_str()));
+        assert_eq!(warning.trace_event_ids, vec!["trace-1".to_string()]);
+        let value = serde_json::to_value(warning).expect("warning serializes");
+        assert!(value.get("preview").is_none());
+        assert!(value.get("body").is_none());
     }
 
     #[test]
@@ -5111,6 +5295,11 @@ mod tests {
             .first()
             .expect("trace event is exposed");
         assert_eq!(snapshot.trace_summary.unclassified_shell_action_count, 1);
+        assert_eq!(snapshot.sentinel_summary.total_warning_count, 1);
+        assert_eq!(
+            snapshot.sentinel_summary.unclassified_shell_warning_count,
+            1
+        );
         assert!(trace.tags.iter().any(|tag| tag == "tool_success"));
         assert!(
             trace
@@ -5124,8 +5313,16 @@ mod tests {
         assert!(value.get("body").is_none());
         assert!(!trace.tags.iter().any(|tag| tag.contains("output_contract")));
         assert!(!trace.tags.iter().any(|tag| tag.contains("fake-report")));
+        let warning = snapshot
+            .sentinel_warnings
+            .first()
+            .expect("unclassified shell warning is exposed");
+        assert_eq!(warning.sentinel_type, "unclassified_shell_action");
+        assert_eq!(warning.trace_event_ids, vec!["trace-1".to_string()]);
+        assert!(!warning.reason.contains("fake-report"));
         let formatted = format_action_map_snapshot(&snapshot);
         assert!(formatted.contains("trace events: total=1"));
+        assert!(formatted.contains("sentinel warnings: total=1"));
     }
 
     #[test]
@@ -5159,6 +5356,8 @@ mod tests {
             .first()
             .expect("trace event is exposed");
         assert_eq!(snapshot.trace_summary.unclassified_shell_action_count, 0);
+        assert_eq!(snapshot.sentinel_summary.total_warning_count, 0);
+        assert!(snapshot.sentinel_warnings.is_empty());
         assert!(
             trace
                 .tags
@@ -5245,6 +5444,11 @@ mod tests {
         ));
         assert!(matches!(
             &events[2],
+            MapRuntimeEvent::SentinelWarningRaised(event)
+                if event.sentinel_id == format!("sentinel-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}")
+        ));
+        assert!(matches!(
+            &events[3],
             MapRuntimeEvent::MaintenanceBarrierRaised(event)
                 if event.result_count == MAIN_TOOL_RESULT_BUDGET_PER_NODE
         ));
@@ -5296,6 +5500,7 @@ mod tests {
         assert_eq!(trace_ids, vec!["trace-1", "trace-2"]);
         assert_eq!(restored_snapshot.trace_summary.total_event_count, 2);
         assert_eq!(restored_snapshot.trace_summary.validator_failure_count, 0);
+        assert_eq!(restored_snapshot.sentinel_summary.total_warning_count, 0);
     }
 
     #[test]
@@ -5356,6 +5561,86 @@ mod tests {
                 .any(|tag| tag == "output_contract_present")
         );
         assert_eq!(restored_snapshot.trace_summary.validator_failure_count, 1);
+    }
+
+    #[test]
+    fn restore_snapshot_drops_unknown_sentinel_warning_enums() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Restore sentinel warnings",
+            "Record warning before restore.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "pytest failed".to_string(),
+            )
+            .expect("test result records");
+        let mut snapshot = state.snapshot();
+        let base_warning = snapshot
+            .sentinel_warnings
+            .first()
+            .expect("base warning exists")
+            .clone();
+
+        let mut unknown_type = base_warning.clone();
+        unknown_type.id = "sentinel-99".to_string();
+        unknown_type.sentinel_type = "future_semantic_warning".to_string();
+        let mut unknown_status = base_warning.clone();
+        unknown_status.id = "sentinel-100".to_string();
+        unknown_status.status = "acknowledged_by_agent".to_string();
+        let mut unknown_severity = base_warning;
+        unknown_severity.id = "sentinel-101".to_string();
+        unknown_severity.severity = "critical_gate".to_string();
+        snapshot
+            .sentinel_warnings
+            .extend([unknown_type, unknown_status, unknown_severity]);
+
+        let mut restored = ActionMapRuntimeState::default();
+        restored.restore_snapshot(snapshot);
+        let restored_snapshot = restored.snapshot();
+        assert_eq!(restored_snapshot.sentinel_warnings.len(), 1);
+        assert_eq!(restored_snapshot.sentinel_warnings[0].id, "sentinel-1");
+        assert_eq!(
+            restored_snapshot
+                .sentinel_summary
+                .validator_failure_warning_count,
+            1
+        );
+
+        restored
+            .record_main_tool_result_with_class(
+                owner,
+                "call-unclassified",
+                "shell_command",
+                None,
+                true,
+                "read files".to_string(),
+            )
+            .expect("result records after restore");
+        let restored_snapshot = restored.snapshot();
+        let warning_ids = restored_snapshot
+            .sentinel_warnings
+            .iter()
+            .map(|warning| warning.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(warning_ids, vec!["sentinel-1", "sentinel-2"]);
+        assert_eq!(restored_snapshot.sentinel_summary.total_warning_count, 2);
+        assert_eq!(
+            restored_snapshot
+                .sentinel_summary
+                .unclassified_shell_warning_count,
+            1
+        );
     }
 
     #[test]

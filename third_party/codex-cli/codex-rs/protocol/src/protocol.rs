@@ -1808,6 +1808,10 @@ pub struct ActionMapSnapshot {
     pub trace_summary: ActionMapSnapshotTraceSummary,
     #[serde(default)]
     pub trace_events: Vec<ActionMapSnapshotTraceEventRef>,
+    #[serde(default)]
+    pub sentinel_summary: ActionMapSnapshotSentinelSummary,
+    #[serde(default)]
+    pub sentinel_warnings: Vec<ActionMapSnapshotSentinelWarningRef>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -1936,6 +1940,35 @@ pub struct ActionMapSnapshotTraceEventRef {
     pub tags: Vec<String>,
     pub artifact_refs: Vec<String>,
     pub created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotSentinelSummary {
+    pub total_warning_count: usize,
+    pub active_warning_count: usize,
+    pub validator_failure_warning_count: usize,
+    pub unclassified_shell_warning_count: usize,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotSentinelWarningRef {
+    pub id: String,
+    pub sentinel_type: String,
+    pub status: String,
+    pub severity: String,
+    pub task_id: Option<String>,
+    pub map_id: String,
+    pub node_id: String,
+    pub result_id: Option<String>,
+    pub trace_event_ids: Vec<String>,
+    pub reason: String,
+    pub clearance_action: String,
+    pub created_at_ms: i64,
+    pub cleared_at_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -2073,6 +2106,24 @@ pub struct MapRuntimeTraceEventRecordedEvent {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
+pub struct MapRuntimeSentinelWarningRaisedEvent {
+    pub sentinel_id: String,
+    pub sentinel_type: String,
+    pub status: String,
+    pub severity: String,
+    pub task_id: Option<String>,
+    pub map_id: String,
+    pub node_id: String,
+    pub result_id: Option<String>,
+    pub trace_event_ids: Vec<String>,
+    pub reason: String,
+    pub clearance_action: String,
+    pub created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct MapRuntimeToolActionBlockedEvent {
     pub map_id: String,
     pub node_id: String,
@@ -2136,6 +2187,7 @@ pub enum MapRuntimeEvent {
     LeaseReleased(MapRuntimeLeaseReleasedEvent),
     NodeResultRecorded(MapRuntimeNodeResultRecordedEvent),
     TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent),
+    SentinelWarningRaised(MapRuntimeSentinelWarningRaisedEvent),
     ToolActionBlocked(MapRuntimeToolActionBlockedEvent),
     TimeoutSummaryRequested(MapRuntimeTimeoutSummaryRequestedEvent),
     MaintenanceBarrierRaised(MapRuntimeMaintenanceBarrierRaisedEvent),
@@ -5638,6 +5690,8 @@ mod tests {
         assert!(!snapshot.reborn_requested);
         assert_eq!(snapshot.trace_summary.total_event_count, 0);
         assert!(snapshot.trace_events.is_empty());
+        assert_eq!(snapshot.sentinel_summary.total_warning_count, 0);
+        assert!(snapshot.sentinel_warnings.is_empty());
         Ok(())
     }
 
@@ -5696,6 +5750,37 @@ mod tests {
         assert_eq!(value["resultId"], "result-1");
         assert_eq!(value["actionClass"], "test");
         assert_eq!(value["toolSuccess"], false);
+        assert!(value.get("preview").is_none());
+        assert!(value.get("body").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn map_runtime_sentinel_warning_raised_serializes_refs_without_raw_output() -> Result<()> {
+        let event = MapRuntimeEvent::SentinelWarningRaised(MapRuntimeSentinelWarningRaisedEvent {
+            sentinel_id: "sentinel-1".to_string(),
+            sentinel_type: "validator_failure".to_string(),
+            status: "active".to_string(),
+            severity: "warning".to_string(),
+            task_id: Some("task-1".to_string()),
+            map_id: "map-1".to_string(),
+            node_id: "node-1".to_string(),
+            result_id: Some("result-1".to_string()),
+            trace_event_ids: vec!["trace-1".to_string()],
+            reason: "Validator-class action failed".to_string(),
+            clearance_action: "Run a successful validator".to_string(),
+            created_at_ms: 1234,
+        });
+
+        let value = serde_json::to_value(&event)?;
+
+        assert_eq!(value["type"], "sentinel_warning_raised");
+        assert_eq!(value["sentinelId"], "sentinel-1");
+        assert_eq!(value["sentinelType"], "validator_failure");
+        assert_eq!(value["status"], "active");
+        assert_eq!(value["severity"], "warning");
+        assert_eq!(value["resultId"], "result-1");
+        assert_eq!(value["traceEventIds"], json!(["trace-1"]));
         assert!(value.get("preview").is_none());
         assert!(value.get("body").is_none());
         Ok(())

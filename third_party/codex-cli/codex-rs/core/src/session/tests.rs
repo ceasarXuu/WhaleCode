@@ -1488,16 +1488,26 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
         .await;
 
     let mut trace_event_seen = false;
+    let mut sentinel_event_seen = false;
     let mut snapshot_seen = false;
+    let mut map_runtime_order = Vec::new();
     let deadline = tokio::time::Instant::now() + StdDuration::from_secs(2);
-    while tokio::time::Instant::now() < deadline && (!trace_event_seen || !snapshot_seen) {
+    while tokio::time::Instant::now() < deadline
+        && (!trace_event_seen || !sentinel_event_seen || !snapshot_seen)
+    {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         let event = tokio::time::timeout(remaining, rx.recv())
             .await
             .expect("timeout waiting for TaskSpace trace events")
             .expect("event");
         match event.msg {
+            EventMsg::MapRuntime(MapRuntimeEvent::NodeResultRecorded(event)) => {
+                if event.result_id == "result-1" {
+                    map_runtime_order.push("node_result_recorded");
+                }
+            }
             EventMsg::MapRuntime(MapRuntimeEvent::TaskspaceTraceEventRecorded(event)) => {
+                map_runtime_order.push("taskspace_trace_event_recorded");
                 assert_eq!(event.trace_event_id, "trace-1");
                 assert_eq!(event.kind, "main_tool_result");
                 assert_eq!(event.result_id.as_deref(), Some("result-1"));
@@ -1507,9 +1517,25 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
                 assert!(event.tags.iter().any(|tag| tag == "validator_failure"));
                 trace_event_seen = true;
             }
+            EventMsg::MapRuntime(MapRuntimeEvent::SentinelWarningRaised(event)) => {
+                map_runtime_order.push("sentinel_warning_raised");
+                assert_eq!(event.sentinel_id, "sentinel-1");
+                assert_eq!(event.sentinel_type, "validator_failure");
+                assert_eq!(event.status, "active");
+                assert_eq!(event.result_id.as_deref(), Some("result-1"));
+                assert_eq!(event.trace_event_ids, vec!["trace-1".to_string()]);
+                sentinel_event_seen = true;
+            }
             EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) => {
                 if payload.snapshot.trace_summary.total_event_count == 1 {
                     assert_eq!(payload.snapshot.trace_events.len(), 1);
+                    assert_eq!(payload.snapshot.sentinel_summary.total_warning_count, 1);
+                    assert_eq!(payload.snapshot.sentinel_warnings.len(), 1);
+                    let warning = &payload.snapshot.sentinel_warnings[0];
+                    assert_eq!(warning.sentinel_type, "validator_failure");
+                    assert_eq!(warning.status, "active");
+                    assert_eq!(warning.result_id.as_deref(), Some("result-1"));
+                    assert_eq!(warning.trace_event_ids, vec!["trace-1".to_string()]);
                     assert_eq!(
                         payload.snapshot.trace_events[0].result_id.as_deref(),
                         Some("result-1")
@@ -1526,8 +1552,20 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
         "expected TaskSpace trace event from session path"
     );
     assert!(
+        sentinel_event_seen,
+        "expected TaskSpace sentinel warning event from session path"
+    );
+    assert!(
         snapshot_seen,
         "expected snapshot with trace event from session path"
+    );
+    assert_eq!(
+        map_runtime_order,
+        vec![
+            "node_result_recorded",
+            "taskspace_trace_event_recorded",
+            "sentinel_warning_raised"
+        ]
     );
 }
 
@@ -1553,6 +1591,8 @@ async fn session_standard_mode_main_tool_result_does_not_record_trace() {
     );
     assert_eq!(snapshot.trace_summary.total_event_count, 0);
     assert!(snapshot.trace_events.is_empty());
+    assert_eq!(snapshot.sentinel_summary.total_warning_count, 0);
+    assert!(snapshot.sentinel_warnings.is_empty());
 }
 
 #[tokio::test]
