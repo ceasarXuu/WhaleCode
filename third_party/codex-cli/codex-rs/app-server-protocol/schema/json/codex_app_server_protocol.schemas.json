@@ -5363,6 +5363,13 @@
             "default": false,
             "type": "boolean"
           },
+          "cognitiveSchemaVersion": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "maintenanceBarriers": {
             "items": {
               "$ref": "#/definitions/v2/ActionMapSnapshotMaintenanceBarrier"
@@ -5442,6 +5449,73 @@
         ],
         "type": "object"
       },
+      "ActionMapSnapshotCognitiveClaim": {
+        "properties": {
+          "evidenceRefs": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
+            },
+            "type": "array"
+          },
+          "id": {
+            "default": "",
+            "type": "string"
+          },
+          "statement": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ActionMapSnapshotCognitiveState": {
+        "properties": {
+          "assumptions": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotCognitiveClaim"
+            },
+            "type": "array"
+          },
+          "factSources": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotFactSource"
+            },
+            "type": "array"
+          },
+          "facts": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotCognitiveClaim"
+            },
+            "type": "array"
+          },
+          "outputContracts": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotOutputContract"
+            },
+            "type": "array"
+          },
+          "riskNotes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "successCriteria": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "ActionMapSnapshotEdge": {
         "properties": {
           "from": {
@@ -5455,6 +5529,65 @@
           "from",
           "to"
         ],
+        "type": "object"
+      },
+      "ActionMapSnapshotEvidenceRef": {
+        "properties": {
+          "artifactRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "claimId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resultId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "traceEventId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "validatorRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ActionMapSnapshotFactSource": {
+        "properties": {
+          "description": {
+            "default": "",
+            "type": "string"
+          },
+          "evidenceRefs": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
+            },
+            "type": "array"
+          },
+          "id": {
+            "default": "",
+            "type": "string"
+          },
+          "provenance": {
+            "default": "",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "ActionMapSnapshotLease": {
@@ -5675,6 +5808,30 @@
         ],
         "type": "object"
       },
+      "ActionMapSnapshotOutputContract": {
+        "properties": {
+          "description": {
+            "default": "",
+            "type": "string"
+          },
+          "evidenceRefs": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
+            },
+            "type": "array"
+          },
+          "id": {
+            "default": "",
+            "type": "string"
+          },
+          "kind": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ActionMapSnapshotResult": {
         "properties": {
           "actionClass": {
@@ -5693,6 +5850,22 @@
           "createdAtMs": {
             "format": "int64",
             "type": "integer"
+          },
+          "evidencePackage": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/v2/ActionMapSnapshotResultEvidencePackage"
+              }
+            ],
+            "default": {
+              "changedArtifacts": [],
+              "claims": [],
+              "evidenceRefs": [],
+              "remainingUncertainty": [],
+              "validatorRefs": [],
+              "validity": "unreviewed",
+              "validityReason": ""
+            }
           },
           "id": {
             "type": "string"
@@ -5727,6 +5900,54 @@
           "nodeId",
           "sourceThreadId"
         ],
+        "type": "object"
+      },
+      "ActionMapSnapshotResultEvidencePackage": {
+        "properties": {
+          "changedArtifacts": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "claims": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotCognitiveClaim"
+            },
+            "type": "array"
+          },
+          "evidenceRefs": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
+            },
+            "type": "array"
+          },
+          "remainingUncertainty": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "validatorRefs": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "validity": {
+            "default": "unreviewed",
+            "type": "string"
+          },
+          "validityReason": {
+            "default": "",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "ActionMapSnapshotSentinelSummary": {
@@ -5837,6 +6058,21 @@
               "string",
               "null"
             ]
+          },
+          "cognitiveState": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/v2/ActionMapSnapshotCognitiveState"
+              }
+            ],
+            "default": {
+              "assumptions": [],
+              "factSources": [],
+              "facts": [],
+              "outputContracts": [],
+              "riskNotes": [],
+              "successCriteria": []
+            }
           },
           "id": {
             "type": "string"

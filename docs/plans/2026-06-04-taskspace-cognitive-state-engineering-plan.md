@@ -540,6 +540,15 @@ promotion/collapse 不属于首轮 MVP 实现范围。它们不是“已修复�
 - protocol/generated schema 已暴露 `ActionMapSnapshotSentinelSummary` 与 `ActionMapSnapshotSentinelWarningRef`，legacy snapshot 缺字段时默认为空。
 - 尚未实现 output contract sentinel、data provenance sentinel、clear action、hard barrier、E2/E3 audit hard gate；这些需要 Phase 3/4 的 cognitive state/result evidence 数据模型和 control actions 之后才能闭环。
 
+实施记录（2026-06-04 Phase 3A）：
+
+- 已实现最小 cognitive 数据模型：`TaskState.cognitive_state` 承载 `success_criteria`、`fact_sources`、`output_contracts`、`facts`、`assumptions`、`risk_notes`；`NodeResult.evidence_package` 承载 `claims`、`evidence_refs`、`changed_artifacts`、`validator_refs`、`remaining_uncertainty`、`validity`、`validity_reason`。
+- snapshot 已带 `cognitive_schema_version = taskspace-cognitive-v1`，并沿现有 task/result 链路输出 `cognitiveState` 与 `evidencePackage`，没有新增影子 result index。
+- legacy snapshot 缺 cognitive 字段时默认空状态；未知 `cognitive_schema_version` 的 payload 不被旧 runtime 采信，restore 后降级为空 cognitive state / `unreviewed` result evidence。
+- protocol 入口已对 cognitive/evidence 容器做宽容反序列化：缺字段、`cognitiveState: {}`、`evidencePackage: {}`、`null`、非对象容器、局部缺字段、未知未来版本中的未来形状或错型字段，都不能在 JSON 读取阶段打断 snapshot restore；runtime 只在 `cognitive_schema_version == taskspace-cognitive-v1` 时采信当前结构。
+- protocol/generated JSON/TypeScript schema 已暴露 cognitive state、evidence refs、output contracts、fact sources、result evidence package，并有 schema fixture freshness 测试。
+- 尚未实现 `taskspace_control` 的 `record_output_contract`、`record_fact_source`、`mark_result_validity`，也尚未实现 viewer cognitive side panel、audit hard gate、sentinel clear action；这些进入 Phase 4/6/7。
+
 ### Phase 3：MVP 数据模型与 Snapshot
 
 目标：把最小问题状态和证据包进入数据模型、snapshot 和 generated schema。
@@ -883,6 +892,7 @@ E3 audit artifact 必须能用这些 join key 回答：
 
 - 新字段全部提供 default。
 - restore 老 snapshot 时缺字段不失败。
+- cognitive/evidence 字段必须先宽容通过协议反序列化，再由 runtime 按 `cognitive_schema_version` 判断是否采信；未知版本的 cognitive payload 是破坏性降级为空状态，不得被当作当前事实读取。
 - viewer 对缺字段显示为空状态。
 - 新增字段前必须先通过 generated schema freshness test。
 - snapshot 带 `cognitive_schema_version`，缺失时视为 legacy snapshot。

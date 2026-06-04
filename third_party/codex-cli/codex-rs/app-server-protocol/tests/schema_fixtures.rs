@@ -43,6 +43,10 @@ fn action_map_snapshot_result_schema_exposes_tool_success() -> Result<()> {
         "ActionMapSnapshotResult TypeScript fixture must expose toolSuccess"
     );
     assert!(
+        action_map_result_ts.contains("evidencePackage: ActionMapSnapshotResultEvidencePackage"),
+        "ActionMapSnapshotResult TypeScript fixture must expose evidencePackage"
+    );
+    assert!(
         !action_map_result_ts.contains("tool_success"),
         "ActionMapSnapshotResult TypeScript fixture must use camelCase"
     );
@@ -67,6 +71,10 @@ fn action_map_snapshot_result_schema_exposes_tool_success() -> Result<()> {
             "{bundle_path} must expose toolSuccess"
         );
         anyhow::ensure!(
+            properties.contains_key("evidencePackage"),
+            "{bundle_path} must expose result evidencePackage"
+        );
+        anyhow::ensure!(
             !properties.contains_key("tool_success"),
             "{bundle_path} must not expose snake_case tool_success"
         );
@@ -77,6 +85,22 @@ fn action_map_snapshot_result_schema_exposes_tool_success() -> Result<()> {
                 "type": ["boolean", "null"],
             })),
             "{bundle_path} must keep toolSuccess nullable boolean schema"
+        );
+        assert_eq!(
+            properties
+                .get("evidencePackage")
+                .and_then(|property| property.get("default"))
+                .and_then(|default| default.get("validity")),
+            Some(&serde_json::json!("unreviewed")),
+            "{bundle_path} must default result evidencePackage validity to unreviewed"
+        );
+        let required = result_schema
+            .get("required")
+            .and_then(Value::as_array)
+            .context("ActionMapSnapshotResult required fields")?;
+        anyhow::ensure!(
+            !required.iter().any(|field| field == "evidencePackage"),
+            "{bundle_path} must not require evidencePackage for legacy result snapshots"
         );
     }
 
@@ -96,6 +120,10 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
     assert!(
         action_map_snapshot_ts.contains("traceSummary: ActionMapSnapshotTraceSummary"),
         "ActionMapSnapshot TypeScript fixture must expose traceSummary"
+    );
+    assert!(
+        action_map_snapshot_ts.contains("cognitiveSchemaVersion?: string | null"),
+        "ActionMapSnapshot TypeScript fixture must expose cognitiveSchemaVersion"
     );
     assert!(
         action_map_snapshot_ts.contains("traceEvents: Array<ActionMapSnapshotTraceEventRef>"),
@@ -128,6 +156,31 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
     assert!(sentinel_ref_ts.contains("traceEventIds: Array<string>"));
     assert!(!sentinel_ref_ts.contains("preview"));
     assert!(!sentinel_ref_ts.contains("body"));
+    let task_ts = fixture_utf8(
+        &typescript_tree,
+        Path::new("ActionMapSnapshotTask.ts"),
+        "typescript",
+    )?;
+    assert!(
+        task_ts.contains("cognitiveState: ActionMapSnapshotCognitiveState"),
+        "ActionMapSnapshotTask TypeScript fixture must expose cognitiveState"
+    );
+    let cognitive_state_ts = fixture_utf8(
+        &typescript_tree,
+        Path::new("ActionMapSnapshotCognitiveState.ts"),
+        "typescript",
+    )?;
+    assert!(cognitive_state_ts.contains("outputContracts: Array<ActionMapSnapshotOutputContract>"));
+    assert!(cognitive_state_ts.contains("factSources: Array<ActionMapSnapshotFactSource>"));
+    assert!(cognitive_state_ts.contains("facts: Array<ActionMapSnapshotCognitiveClaim>"));
+    let result_evidence_ts = fixture_utf8(
+        &typescript_tree,
+        Path::new("ActionMapSnapshotResultEvidencePackage.ts"),
+        "typescript",
+    )?;
+    assert!(result_evidence_ts.contains("claims: Array<ActionMapSnapshotCognitiveClaim>"));
+    assert!(result_evidence_ts.contains("evidenceRefs: Array<ActionMapSnapshotEvidenceRef>"));
+    assert!(result_evidence_ts.contains("validity: string"));
 
     let json_tree = read_tree(&schema_root, "json")?;
     for bundle_path in [
@@ -148,6 +201,10 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
             "{bundle_path} must expose traceSummary"
         );
         anyhow::ensure!(
+            snapshot_properties.contains_key("cognitiveSchemaVersion"),
+            "{bundle_path} must expose cognitiveSchemaVersion"
+        );
+        anyhow::ensure!(
             snapshot_properties.contains_key("traceEvents"),
             "{bundle_path} must expose traceEvents"
         );
@@ -158,6 +215,13 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
         anyhow::ensure!(
             snapshot_properties.contains_key("sentinelWarnings"),
             "{bundle_path} must expose sentinelWarnings"
+        );
+        assert_eq!(
+            snapshot_properties
+                .get("cognitiveSchemaVersion")
+                .and_then(|property| property.get("default")),
+            Some(&serde_json::json!(null)),
+            "{bundle_path} must default cognitiveSchemaVersion to null for legacy snapshots"
         );
         assert_eq!(
             snapshot_properties
@@ -202,6 +266,12 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
             .get("required")
             .and_then(Value::as_array)
             .context("ActionMapSnapshot required fields")?;
+        anyhow::ensure!(
+            !required
+                .iter()
+                .any(|field| field == "cognitiveSchemaVersion"),
+            "{bundle_path} must not require cognitiveSchemaVersion for legacy snapshots"
+        );
         anyhow::ensure!(
             !required.iter().any(|field| field == "traceSummary"),
             "{bundle_path} must not require traceSummary for legacy snapshots"
@@ -257,6 +327,63 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
         anyhow::ensure!(
             !sentinel_ref_properties.contains_key("body"),
             "{bundle_path} must not expose raw body on sentinel warning refs"
+        );
+        let task_schema = action_map_task_schema(&value)
+            .with_context(|| format!("locate ActionMapSnapshotTask in {bundle_path}"))?;
+        let task_properties = task_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .context("ActionMapSnapshotTask properties")?;
+        anyhow::ensure!(
+            task_properties.contains_key("cognitiveState"),
+            "{bundle_path} must expose task cognitiveState"
+        );
+        let task_required = task_schema
+            .get("required")
+            .and_then(Value::as_array)
+            .context("ActionMapSnapshotTask required fields")?;
+        anyhow::ensure!(
+            !task_required.iter().any(|field| field == "cognitiveState"),
+            "{bundle_path} must not require cognitiveState for legacy task snapshots"
+        );
+        assert_eq!(
+            task_properties
+                .get("cognitiveState")
+                .and_then(|property| property.get("default"))
+                .and_then(|default| default.get("outputContracts")),
+            Some(&serde_json::json!([])),
+            "{bundle_path} must default task outputContracts to empty"
+        );
+        let evidence_package_schema = action_map_result_evidence_package_schema(&value)
+            .with_context(|| {
+                format!("locate ActionMapSnapshotResultEvidencePackage in {bundle_path}")
+            })?;
+        let evidence_package_properties = evidence_package_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .context("ActionMapSnapshotResultEvidencePackage properties")?;
+        anyhow::ensure!(
+            evidence_package_properties.contains_key("claims"),
+            "{bundle_path} must expose evidence package claims"
+        );
+        anyhow::ensure!(
+            evidence_package_properties.contains_key("evidenceRefs"),
+            "{bundle_path} must expose evidence package evidenceRefs"
+        );
+        anyhow::ensure!(
+            evidence_package_properties.contains_key("validity"),
+            "{bundle_path} must expose evidence package validity"
+        );
+        let evidence_package_required = evidence_package_schema
+            .get("required")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        anyhow::ensure!(
+            !evidence_package_required
+                .iter()
+                .any(|field| field == "claims" || field == "evidenceRefs" || field == "validity"),
+            "{bundle_path} must not require evidence package fields for partial/future payloads"
         );
     }
 
@@ -358,10 +485,22 @@ fn action_map_result_schema(value: &Value) -> Option<&Value> {
         .or_else(|| value.pointer("/definitions/ActionMapSnapshotResult"))
 }
 
+fn action_map_result_evidence_package_schema(value: &Value) -> Option<&Value> {
+    value
+        .pointer("/definitions/v2/ActionMapSnapshotResultEvidencePackage")
+        .or_else(|| value.pointer("/definitions/ActionMapSnapshotResultEvidencePackage"))
+}
+
 fn action_map_snapshot_schema(value: &Value) -> Option<&Value> {
     value
         .pointer("/definitions/v2/ActionMapSnapshot")
         .or_else(|| value.pointer("/definitions/ActionMapSnapshot"))
+}
+
+fn action_map_task_schema(value: &Value) -> Option<&Value> {
+    value
+        .pointer("/definitions/v2/ActionMapSnapshotTask")
+        .or_else(|| value.pointer("/definitions/ActionMapSnapshotTask"))
 }
 
 fn action_map_trace_event_ref_schema(value: &Value) -> Option<&Value> {

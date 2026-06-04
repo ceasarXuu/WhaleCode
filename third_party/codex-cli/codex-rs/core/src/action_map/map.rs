@@ -4,6 +4,9 @@ use std::collections::HashMap;
 
 use codex_protocol::ThreadId;
 
+use super::cognitive::NodeResultEvidencePackage;
+use super::cognitive::TaskCognitiveState;
+
 pub(crate) type ActionMapId = String;
 pub(crate) type AssignmentLeaseId = String;
 pub(crate) type MapNodeId = String;
@@ -35,6 +38,7 @@ pub(crate) struct TaskState {
     pub(crate) owner_session_id: Option<ThreadId>,
     pub(crate) active_map_id: Option<ActionMapId>,
     pub(crate) map_ids: Vec<ActionMapId>,
+    pub(crate) cognitive_state: TaskCognitiveState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -318,6 +322,7 @@ pub(crate) struct NodeResult {
     pub(crate) action_class: Option<ActionClass>,
     pub(crate) tool_success: Option<bool>,
     pub(crate) body: String,
+    pub(crate) evidence_package: NodeResultEvidencePackage,
     pub(crate) source_thread_id: ThreadId,
     pub(crate) created_at_ms: i64,
 }

@@ -61,6 +61,15 @@ use strum_macros::Display;
 use tracing::error;
 use ts_rs::TS;
 
+fn deserialize_default_on_error<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
+    let value = Value::deserialize(deserializer)?;
+    Ok(T::deserialize(value).unwrap_or_default())
+}
+
 pub use crate::approvals::ApplyPatchApprovalRequestEvent;
 pub use crate::approvals::ElicitationAction;
 pub use crate::approvals::ExecApprovalRequestEvent;
@@ -1794,6 +1803,9 @@ pub enum MapRuntimeMode {
 pub struct ActionMapSnapshot {
     pub mode: MapRuntimeMode,
     #[serde(default)]
+    #[ts(optional = nullable)]
+    pub cognitive_schema_version: Option<String>,
+    #[serde(default)]
     pub routing_required: bool,
     #[serde(default)]
     pub bootstrap_required: bool,
@@ -1825,6 +1837,77 @@ pub struct ActionMapSnapshotTask {
     pub owner_session_id: Option<ThreadId>,
     pub active_map_id: Option<String>,
     pub map_ids: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_default_on_error")]
+    pub cognitive_state: ActionMapSnapshotCognitiveState,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotCognitiveState {
+    #[serde(default)]
+    pub success_criteria: Vec<String>,
+    #[serde(default)]
+    pub fact_sources: Vec<ActionMapSnapshotFactSource>,
+    #[serde(default)]
+    pub output_contracts: Vec<ActionMapSnapshotOutputContract>,
+    #[serde(default)]
+    pub facts: Vec<ActionMapSnapshotCognitiveClaim>,
+    #[serde(default)]
+    pub assumptions: Vec<ActionMapSnapshotCognitiveClaim>,
+    #[serde(default)]
+    pub risk_notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotEvidenceRef {
+    pub result_id: Option<String>,
+    pub claim_id: Option<String>,
+    pub trace_event_id: Option<String>,
+    pub artifact_ref: Option<String>,
+    pub validator_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotFactSource {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub provenance: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub evidence_refs: Vec<ActionMapSnapshotEvidenceRef>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotOutputContract {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub evidence_refs: Vec<ActionMapSnapshotEvidenceRef>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotCognitiveClaim {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub statement: String,
+    #[serde(default)]
+    pub evidence_refs: Vec<ActionMapSnapshotEvidenceRef>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -1898,8 +1981,48 @@ pub struct ActionMapSnapshotResult {
     #[serde(default)]
     pub tool_success: Option<bool>,
     pub body: String,
+    #[serde(default, deserialize_with = "deserialize_default_on_error")]
+    pub evidence_package: ActionMapSnapshotResultEvidencePackage,
     pub source_thread_id: ThreadId,
     pub created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotResultEvidencePackage {
+    #[serde(default)]
+    pub claims: Vec<ActionMapSnapshotCognitiveClaim>,
+    #[serde(default)]
+    pub evidence_refs: Vec<ActionMapSnapshotEvidenceRef>,
+    #[serde(default)]
+    pub changed_artifacts: Vec<String>,
+    #[serde(default)]
+    pub validator_refs: Vec<String>,
+    #[serde(default)]
+    pub remaining_uncertainty: Vec<String>,
+    #[serde(default = "default_action_map_result_validity")]
+    pub validity: String,
+    #[serde(default)]
+    pub validity_reason: String,
+}
+
+fn default_action_map_result_validity() -> String {
+    "unreviewed".to_string()
+}
+
+impl Default for ActionMapSnapshotResultEvidencePackage {
+    fn default() -> Self {
+        Self {
+            claims: Vec::new(),
+            evidence_refs: Vec::new(),
+            changed_artifacts: Vec::new(),
+            validator_refs: Vec::new(),
+            remaining_uncertainty: Vec::new(),
+            validity: "unreviewed".to_string(),
+            validity_reason: String::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -5685,6 +5808,7 @@ mod tests {
             "maintenanceBarriers": []
         }))?;
 
+        assert_eq!(snapshot.cognitive_schema_version, None);
         assert!(!snapshot.routing_required);
         assert!(!snapshot.bootstrap_required);
         assert!(!snapshot.reborn_requested);
@@ -5692,6 +5816,283 @@ mod tests {
         assert!(snapshot.trace_events.is_empty());
         assert_eq!(snapshot.sentinel_summary.total_warning_count, 0);
         assert!(snapshot.sentinel_warnings.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn action_map_snapshot_deserializes_legacy_cognitive_defaults() -> Result<()> {
+        let snapshot: ActionMapSnapshot = serde_json::from_value(json!({
+            "mode": "experiment",
+            "activeTaskId": "task-1",
+            "activeMapId": "map-1",
+            "tasks": [{
+                "id": "task-1",
+                "title": "Legacy task",
+                "objective": "Legacy objective",
+                "status": "active",
+                "ownerSessionId": null,
+                "activeMapId": "map-1",
+                "mapIds": ["map-1"]
+            }],
+            "maps": [{
+                "id": "map-1",
+                "taskId": "task-1",
+                "title": "Legacy map",
+                "status": "active",
+                "ownerSessionId": null,
+                "baseMapVersion": "base",
+                "createdFrom": null,
+                "readyNodeCount": 0,
+                "runningNodeCount": 0,
+                "completedNodeCount": 0,
+                "nodes": [],
+                "edges": [],
+                "leases": [],
+                "results": [{
+                    "id": "result-1",
+                    "assignmentId": "lease-1",
+                    "mapId": "map-1",
+                    "nodeId": "node-1",
+                    "kind": "result",
+                    "body": "legacy result",
+                    "sourceThreadId": ThreadId::new(),
+                    "createdAtMs": 1234
+                }]
+            }],
+            "maintenanceBarriers": []
+        }))?;
+
+        assert_eq!(snapshot.cognitive_schema_version, None);
+        assert!(
+            snapshot.tasks[0]
+                .cognitive_state
+                .output_contracts
+                .is_empty()
+        );
+        assert!(snapshot.tasks[0].cognitive_state.fact_sources.is_empty());
+        assert_eq!(
+            snapshot.maps[0].results[0].evidence_package.validity,
+            "unreviewed"
+        );
+        assert!(
+            snapshot.maps[0].results[0]
+                .evidence_package
+                .claims
+                .is_empty()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn action_map_snapshot_deserializes_partial_cognitive_payloads() -> Result<()> {
+        let snapshot: ActionMapSnapshot = serde_json::from_value(json!({
+            "mode": "experiment",
+            "cognitiveSchemaVersion": "taskspace-cognitive-v1",
+            "activeTaskId": "task-1",
+            "activeMapId": "map-1",
+            "tasks": [{
+                "id": "task-1",
+                "title": "Partial task",
+                "objective": "Read partial cognitive state",
+                "status": "active",
+                "ownerSessionId": null,
+                "activeMapId": "map-1",
+                "mapIds": ["map-1"],
+                "cognitiveState": {}
+            }],
+            "maps": [{
+                "id": "map-1",
+                "taskId": "task-1",
+                "title": "Partial map",
+                "status": "active",
+                "ownerSessionId": null,
+                "baseMapVersion": "base",
+                "createdFrom": null,
+                "readyNodeCount": 0,
+                "runningNodeCount": 0,
+                "completedNodeCount": 0,
+                "nodes": [],
+                "edges": [],
+                "leases": [],
+                "results": [{
+                    "id": "result-1",
+                    "assignmentId": "lease-1",
+                    "mapId": "map-1",
+                    "nodeId": "node-1",
+                    "kind": "result",
+                    "body": "partial result",
+                    "evidencePackage": {},
+                    "sourceThreadId": ThreadId::new(),
+                    "createdAtMs": 1234
+                }]
+            }],
+            "maintenanceBarriers": []
+        }))?;
+
+        assert_eq!(
+            snapshot.cognitive_schema_version.as_deref(),
+            Some("taskspace-cognitive-v1")
+        );
+        assert!(
+            snapshot.tasks[0]
+                .cognitive_state
+                .success_criteria
+                .is_empty()
+        );
+        assert!(
+            snapshot.tasks[0]
+                .cognitive_state
+                .output_contracts
+                .is_empty()
+        );
+        assert_eq!(
+            snapshot.maps[0].results[0].evidence_package.validity,
+            "unreviewed"
+        );
+        assert!(
+            snapshot.maps[0].results[0]
+                .evidence_package
+                .evidence_refs
+                .is_empty()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn action_map_snapshot_deserializes_unknown_cognitive_version_with_future_payloads()
+    -> Result<()> {
+        let snapshot: ActionMapSnapshot = serde_json::from_value(json!({
+            "mode": "experiment",
+            "cognitiveSchemaVersion": "taskspace-cognitive-v999",
+            "activeTaskId": "task-1",
+            "activeMapId": "map-1",
+            "tasks": [{
+                "id": "task-1",
+                "title": "Future task",
+                "objective": "Future schema payload must not break snapshot ingest",
+                "status": "active",
+                "ownerSessionId": null,
+                "activeMapId": "map-1",
+                "mapIds": ["map-1"],
+                "cognitiveState": {
+                    "successCriteria": {"future": true},
+                    "futureFacts": [{"claim": "new shape"}]
+                }
+            }],
+            "maps": [{
+                "id": "map-1",
+                "taskId": "task-1",
+                "title": "Future map",
+                "status": "active",
+                "ownerSessionId": null,
+                "baseMapVersion": "base",
+                "createdFrom": null,
+                "readyNodeCount": 0,
+                "runningNodeCount": 0,
+                "completedNodeCount": 0,
+                "nodes": [],
+                "edges": [],
+                "leases": [],
+                "results": [{
+                    "id": "result-1",
+                    "assignmentId": "lease-1",
+                    "mapId": "map-1",
+                    "nodeId": "node-1",
+                    "kind": "result",
+                    "body": "future result",
+                    "evidencePackage": {
+                        "claims": {"future": "shape"},
+                        "validity": {"state": "accepted"},
+                        "futureEvidence": [{"kind": "new"}]
+                    },
+                    "sourceThreadId": ThreadId::new(),
+                    "createdAtMs": 1234
+                }]
+            }],
+            "maintenanceBarriers": []
+        }))?;
+
+        assert_eq!(
+            snapshot.cognitive_schema_version.as_deref(),
+            Some("taskspace-cognitive-v999")
+        );
+        assert!(
+            snapshot.tasks[0]
+                .cognitive_state
+                .success_criteria
+                .is_empty()
+        );
+        assert!(snapshot.tasks[0].cognitive_state.fact_sources.is_empty());
+        assert_eq!(
+            snapshot.maps[0].results[0].evidence_package.validity,
+            "unreviewed"
+        );
+        assert!(
+            snapshot.maps[0].results[0]
+                .evidence_package
+                .claims
+                .is_empty()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn action_map_snapshot_deserializes_null_or_non_object_cognitive_containers() -> Result<()> {
+        let snapshot: ActionMapSnapshot = serde_json::from_value(json!({
+            "mode": "experiment",
+            "cognitiveSchemaVersion": "taskspace-cognitive-v999",
+            "activeTaskId": "task-1",
+            "activeMapId": "map-1",
+            "tasks": [{
+                "id": "task-1",
+                "title": "Malformed cognitive task",
+                "objective": "Malformed cognitive containers must default",
+                "status": "active",
+                "ownerSessionId": null,
+                "activeMapId": "map-1",
+                "mapIds": ["map-1"],
+                "cognitiveState": null
+            }],
+            "maps": [{
+                "id": "map-1",
+                "taskId": "task-1",
+                "title": "Malformed cognitive map",
+                "status": "active",
+                "ownerSessionId": null,
+                "baseMapVersion": "base",
+                "createdFrom": null,
+                "readyNodeCount": 0,
+                "runningNodeCount": 0,
+                "completedNodeCount": 0,
+                "nodes": [],
+                "edges": [],
+                "leases": [],
+                "results": [{
+                    "id": "result-1",
+                    "assignmentId": "lease-1",
+                    "mapId": "map-1",
+                    "nodeId": "node-1",
+                    "kind": "result",
+                    "body": "malformed result",
+                    "evidencePackage": 17,
+                    "sourceThreadId": ThreadId::new(),
+                    "createdAtMs": 1234
+                }]
+            }],
+            "maintenanceBarriers": []
+        }))?;
+
+        assert!(snapshot.tasks[0].cognitive_state.risk_notes.is_empty());
+        assert_eq!(
+            snapshot.maps[0].results[0].evidence_package.validity,
+            "unreviewed"
+        );
+        assert!(
+            snapshot.maps[0].results[0]
+                .evidence_package
+                .changed_artifacts
+                .is_empty()
+        );
         Ok(())
     }
 
@@ -5706,6 +6107,7 @@ mod tests {
             action_class: Some("test".to_string()),
             tool_success: Some(true),
             body: "pytest passed".to_string(),
+            evidence_package: ActionMapSnapshotResultEvidencePackage::default(),
             source_thread_id: ThreadId::new(),
             created_at_ms: 1234,
         };
@@ -5722,6 +6124,125 @@ mod tests {
         assert!(value.get("tool_success").is_none());
         assert!(value.get("map_id").is_none());
         assert!(value.get("node_id").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn action_map_snapshot_serializes_cognitive_state_and_result_evidence() -> Result<()> {
+        let snapshot = ActionMapSnapshot {
+            mode: MapRuntimeMode::Experiment,
+            cognitive_schema_version: Some("taskspace-cognitive-v1".to_string()),
+            routing_required: false,
+            bootstrap_required: false,
+            reborn_requested: false,
+            active_task_id: Some("task-1".to_string()),
+            active_map_id: Some("map-1".to_string()),
+            tasks: vec![ActionMapSnapshotTask {
+                id: "task-1".to_string(),
+                title: "Audit task".to_string(),
+                objective: "Build an artifact with traceable evidence".to_string(),
+                status: "active".to_string(),
+                owner_session_id: None,
+                active_map_id: Some("map-1".to_string()),
+                map_ids: vec!["map-1".to_string()],
+                cognitive_state: ActionMapSnapshotCognitiveState {
+                    success_criteria: vec!["write utf-8 artifact".to_string()],
+                    output_contracts: vec![ActionMapSnapshotOutputContract {
+                        id: "contract-1".to_string(),
+                        kind: "encoding".to_string(),
+                        description: "final artifact is utf-8".to_string(),
+                        evidence_refs: vec![ActionMapSnapshotEvidenceRef {
+                            result_id: Some("result-1".to_string()),
+                            ..Default::default()
+                        }],
+                    }],
+                    fact_sources: vec![ActionMapSnapshotFactSource {
+                        id: "source-1".to_string(),
+                        provenance: "observed_from_environment".to_string(),
+                        description: "pytest output".to_string(),
+                        evidence_refs: vec![ActionMapSnapshotEvidenceRef {
+                            trace_event_id: Some("trace-1".to_string()),
+                            ..Default::default()
+                        }],
+                    }],
+                    facts: Vec::new(),
+                    assumptions: Vec::new(),
+                    risk_notes: Vec::new(),
+                },
+            }],
+            maps: vec![ActionMapSnapshotMap {
+                id: "map-1".to_string(),
+                task_id: Some("task-1".to_string()),
+                title: "Audit map".to_string(),
+                status: "active".to_string(),
+                owner_session_id: None,
+                base_map_version: "base".to_string(),
+                created_from: None,
+                ready_node_count: 0,
+                running_node_count: 0,
+                completed_node_count: 0,
+                nodes: Vec::new(),
+                edges: Vec::new(),
+                leases: Vec::new(),
+                results: vec![ActionMapSnapshotResult {
+                    id: "result-1".to_string(),
+                    assignment_id: "lease-1".to_string(),
+                    map_id: "map-1".to_string(),
+                    node_id: "node-1".to_string(),
+                    kind: "result".to_string(),
+                    action_class: None,
+                    tool_success: None,
+                    body: "wrote artifact".to_string(),
+                    evidence_package: ActionMapSnapshotResultEvidencePackage {
+                        claims: vec![ActionMapSnapshotCognitiveClaim {
+                            id: "claim-1".to_string(),
+                            statement: "artifact is utf-8".to_string(),
+                            evidence_refs: vec![ActionMapSnapshotEvidenceRef {
+                                result_id: Some("result-1".to_string()),
+                                trace_event_id: Some("trace-1".to_string()),
+                                ..Default::default()
+                            }],
+                        }],
+                        evidence_refs: vec![ActionMapSnapshotEvidenceRef {
+                            validator_ref: Some("pytest".to_string()),
+                            ..Default::default()
+                        }],
+                        changed_artifacts: vec!["out.txt".to_string()],
+                        validator_refs: vec!["pytest".to_string()],
+                        remaining_uncertainty: Vec::new(),
+                        validity: "accepted".to_string(),
+                        validity_reason: "validator passed".to_string(),
+                    },
+                    source_thread_id: ThreadId::new(),
+                    created_at_ms: 1234,
+                }],
+            }],
+            maintenance_barriers: Vec::new(),
+            trace_summary: ActionMapSnapshotTraceSummary::default(),
+            trace_events: Vec::new(),
+            sentinel_summary: ActionMapSnapshotSentinelSummary::default(),
+            sentinel_warnings: Vec::new(),
+        };
+
+        let value = serde_json::to_value(snapshot)?;
+
+        assert_eq!(value["cognitiveSchemaVersion"], "taskspace-cognitive-v1");
+        assert_eq!(
+            value["tasks"][0]["cognitiveState"]["outputContracts"][0]["id"],
+            "contract-1"
+        );
+        assert_eq!(
+            value["tasks"][0]["cognitiveState"]["factSources"][0]["provenance"],
+            "observed_from_environment"
+        );
+        assert_eq!(
+            value["maps"][0]["results"][0]["evidencePackage"]["validity"],
+            "accepted"
+        );
+        assert_eq!(
+            value["maps"][0]["results"][0]["evidencePackage"]["claims"][0]["id"],
+            "claim-1"
+        );
         Ok(())
     }
 

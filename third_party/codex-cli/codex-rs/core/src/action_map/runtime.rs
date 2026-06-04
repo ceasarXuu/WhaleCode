@@ -6,12 +6,18 @@ use std::time::UNIX_EPOCH;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::ActionMapSnapshot;
+use codex_protocol::protocol::ActionMapSnapshotCognitiveClaim;
+use codex_protocol::protocol::ActionMapSnapshotCognitiveState;
 use codex_protocol::protocol::ActionMapSnapshotEdge;
+use codex_protocol::protocol::ActionMapSnapshotEvidenceRef;
+use codex_protocol::protocol::ActionMapSnapshotFactSource;
 use codex_protocol::protocol::ActionMapSnapshotLease;
 use codex_protocol::protocol::ActionMapSnapshotMaintenanceBarrier;
 use codex_protocol::protocol::ActionMapSnapshotMap;
 use codex_protocol::protocol::ActionMapSnapshotNode;
+use codex_protocol::protocol::ActionMapSnapshotOutputContract;
 use codex_protocol::protocol::ActionMapSnapshotResult;
+use codex_protocol::protocol::ActionMapSnapshotResultEvidencePackage;
 use codex_protocol::protocol::ActionMapSnapshotSentinelSummary;
 use codex_protocol::protocol::ActionMapSnapshotSentinelWarningRef;
 use codex_protocol::protocol::ActionMapSnapshotTask;
@@ -42,6 +48,16 @@ use codex_protocol::protocol::MapRuntimeTraceEventRecordedEvent;
 use super::basemap::BASE_MAP;
 use super::basemap::base_map_metadata_prompt;
 use super::basemap::node_kind_selection_prompt;
+use super::cognitive::COGNITIVE_SCHEMA_VERSION;
+use super::cognitive::CognitiveClaim;
+use super::cognitive::DataProvenance;
+use super::cognitive::EvidenceRef;
+use super::cognitive::FactSource;
+use super::cognitive::NodeResultEvidencePackage;
+use super::cognitive::OutputContract;
+use super::cognitive::OutputContractKind;
+use super::cognitive::ResultValidity;
+use super::cognitive::TaskCognitiveState;
 use super::contracts::contract_for;
 use super::map::ActionClass;
 use super::map::ActionMapId;
@@ -367,6 +383,8 @@ impl ActionMapRuntimeState {
     }
 
     pub(crate) fn restore_snapshot(&mut self, snapshot: ActionMapSnapshot) {
+        let cognitive_snapshot_supported =
+            snapshot.cognitive_schema_version.as_deref() == Some(COGNITIVE_SCHEMA_VERSION);
         self.mode = snapshot.mode;
         self.pending_transition_notice = None;
         self.routing_required = snapshot.routing_required;
@@ -436,6 +454,11 @@ impl ActionMapRuntimeState {
                         owner_session_id: task.owner_session_id,
                         active_map_id: task.active_map_id,
                         map_ids: task.map_ids,
+                        cognitive_state: if cognitive_snapshot_supported {
+                            cognitive_state_from_snapshot(task.cognitive_state)
+                        } else {
+                            TaskCognitiveState::default()
+                        },
                     },
                 )
             })
@@ -483,6 +506,11 @@ impl ActionMapRuntimeState {
                                 action_class,
                                 tool_success: result.tool_success,
                                 body: result.body,
+                                evidence_package: if cognitive_snapshot_supported {
+                                    evidence_package_from_snapshot(result.evidence_package)
+                                } else {
+                                    NodeResultEvidencePackage::default()
+                                },
                                 source_thread_id: result.source_thread_id,
                                 created_at_ms: result.created_at_ms,
                             },
@@ -672,6 +700,7 @@ impl ActionMapRuntimeState {
             .collect::<Vec<_>>();
         ActionMapSnapshot {
             mode: self.mode,
+            cognitive_schema_version: Some(COGNITIVE_SCHEMA_VERSION.to_string()),
             routing_required: self.routing_required,
             bootstrap_required: self.bootstrap_required,
             reborn_requested: self.reborn_requested,
@@ -945,6 +974,7 @@ preview:\n\
                 action_class: recorded_action_class,
                 tool_success: Some(success),
                 body,
+                evidence_package: NodeResultEvidencePackage::default(),
                 source_thread_id: owner_session_id,
                 created_at_ms,
             };
@@ -1199,6 +1229,7 @@ preview:\n\
             action_class: recorded_action_class,
             tool_success: Some(success),
             body,
+            evidence_package: NodeResultEvidencePackage::default(),
             source_thread_id: child_thread_id,
             created_at_ms: now_ms(),
         };
@@ -1571,6 +1602,7 @@ preview:\n\
                 owner_session_id: Some(owner_session_id),
                 active_map_id: None,
                 map_ids: Vec::new(),
+                cognitive_state: TaskCognitiveState::default(),
             },
         );
         let mut map = ActionMapInstance::new(
@@ -2130,6 +2162,7 @@ preview:\n\
             action_class: None,
             tool_success: None,
             body,
+            evidence_package: NodeResultEvidencePackage::default(),
             source_thread_id: child_thread_id,
             created_at_ms: now_ms(),
         };
@@ -2453,6 +2486,7 @@ preview:\n\
                 owner_session_id,
                 active_map_id: None,
                 map_ids: Vec::new(),
+                cognitive_state: TaskCognitiveState::default(),
             },
         );
         self.active_task_id = Some(task_id.clone());
@@ -2778,6 +2812,7 @@ preview:\n\
                 action_class: None,
                 tool_success: None,
                 body,
+                evidence_package: NodeResultEvidencePackage::default(),
                 source_thread_id: owner_session_id,
                 created_at_ms: now_ms(),
             };
@@ -3840,6 +3875,199 @@ fn node_id_sort_key(node_id: &str) -> (u8, u64, &str) {
     (1, 0, node_id)
 }
 
+fn snapshot_cognitive_state(state: &TaskCognitiveState) -> ActionMapSnapshotCognitiveState {
+    ActionMapSnapshotCognitiveState {
+        success_criteria: state.success_criteria.clone(),
+        fact_sources: state
+            .fact_sources
+            .iter()
+            .map(snapshot_fact_source)
+            .collect(),
+        output_contracts: state
+            .output_contracts
+            .iter()
+            .map(snapshot_output_contract)
+            .collect(),
+        facts: state.facts.iter().map(snapshot_cognitive_claim).collect(),
+        assumptions: state
+            .assumptions
+            .iter()
+            .map(snapshot_cognitive_claim)
+            .collect(),
+        risk_notes: state.risk_notes.clone(),
+    }
+}
+
+fn cognitive_state_from_snapshot(snapshot: ActionMapSnapshotCognitiveState) -> TaskCognitiveState {
+    TaskCognitiveState {
+        success_criteria: snapshot.success_criteria,
+        fact_sources: snapshot
+            .fact_sources
+            .into_iter()
+            .filter_map(fact_source_from_snapshot)
+            .collect(),
+        output_contracts: snapshot
+            .output_contracts
+            .into_iter()
+            .filter_map(output_contract_from_snapshot)
+            .collect(),
+        facts: snapshot
+            .facts
+            .into_iter()
+            .map(cognitive_claim_from_snapshot)
+            .collect(),
+        assumptions: snapshot
+            .assumptions
+            .into_iter()
+            .map(cognitive_claim_from_snapshot)
+            .collect(),
+        risk_notes: snapshot.risk_notes,
+    }
+}
+
+fn snapshot_fact_source(source: &FactSource) -> ActionMapSnapshotFactSource {
+    ActionMapSnapshotFactSource {
+        id: source.id.clone(),
+        provenance: source.provenance.as_str().to_string(),
+        description: source.description.clone(),
+        evidence_refs: source
+            .evidence_refs
+            .iter()
+            .map(snapshot_evidence_ref)
+            .collect(),
+    }
+}
+
+fn fact_source_from_snapshot(snapshot: ActionMapSnapshotFactSource) -> Option<FactSource> {
+    Some(FactSource {
+        id: snapshot.id,
+        provenance: DataProvenance::from_str(&snapshot.provenance)?,
+        description: snapshot.description,
+        evidence_refs: snapshot
+            .evidence_refs
+            .into_iter()
+            .map(evidence_ref_from_snapshot)
+            .collect(),
+    })
+}
+
+fn snapshot_output_contract(contract: &OutputContract) -> ActionMapSnapshotOutputContract {
+    ActionMapSnapshotOutputContract {
+        id: contract.id.clone(),
+        kind: contract.kind.as_str().to_string(),
+        description: contract.description.clone(),
+        evidence_refs: contract
+            .evidence_refs
+            .iter()
+            .map(snapshot_evidence_ref)
+            .collect(),
+    }
+}
+
+fn output_contract_from_snapshot(
+    snapshot: ActionMapSnapshotOutputContract,
+) -> Option<OutputContract> {
+    Some(OutputContract {
+        id: snapshot.id,
+        kind: OutputContractKind::from_str(&snapshot.kind)?,
+        description: snapshot.description,
+        evidence_refs: snapshot
+            .evidence_refs
+            .into_iter()
+            .map(evidence_ref_from_snapshot)
+            .collect(),
+    })
+}
+
+fn snapshot_cognitive_claim(claim: &CognitiveClaim) -> ActionMapSnapshotCognitiveClaim {
+    ActionMapSnapshotCognitiveClaim {
+        id: claim.id.clone(),
+        statement: claim.statement.clone(),
+        evidence_refs: claim
+            .evidence_refs
+            .iter()
+            .map(snapshot_evidence_ref)
+            .collect(),
+    }
+}
+
+fn cognitive_claim_from_snapshot(snapshot: ActionMapSnapshotCognitiveClaim) -> CognitiveClaim {
+    CognitiveClaim {
+        id: snapshot.id,
+        statement: snapshot.statement,
+        evidence_refs: snapshot
+            .evidence_refs
+            .into_iter()
+            .map(evidence_ref_from_snapshot)
+            .collect(),
+    }
+}
+
+fn snapshot_evidence_ref(evidence_ref: &EvidenceRef) -> ActionMapSnapshotEvidenceRef {
+    ActionMapSnapshotEvidenceRef {
+        result_id: evidence_ref.result_id.clone(),
+        claim_id: evidence_ref.claim_id.clone(),
+        trace_event_id: evidence_ref.trace_event_id.clone(),
+        artifact_ref: evidence_ref.artifact_ref.clone(),
+        validator_ref: evidence_ref.validator_ref.clone(),
+    }
+}
+
+fn evidence_ref_from_snapshot(snapshot: ActionMapSnapshotEvidenceRef) -> EvidenceRef {
+    EvidenceRef {
+        result_id: snapshot.result_id,
+        claim_id: snapshot.claim_id,
+        trace_event_id: snapshot.trace_event_id,
+        artifact_ref: snapshot.artifact_ref,
+        validator_ref: snapshot.validator_ref,
+    }
+}
+
+fn snapshot_evidence_package(
+    package: &NodeResultEvidencePackage,
+) -> ActionMapSnapshotResultEvidencePackage {
+    ActionMapSnapshotResultEvidencePackage {
+        claims: package
+            .claims
+            .iter()
+            .map(snapshot_cognitive_claim)
+            .collect(),
+        evidence_refs: package
+            .evidence_refs
+            .iter()
+            .map(snapshot_evidence_ref)
+            .collect(),
+        changed_artifacts: package.changed_artifacts.clone(),
+        validator_refs: package.validator_refs.clone(),
+        remaining_uncertainty: package.remaining_uncertainty.clone(),
+        validity: package.validity.as_str().to_string(),
+        validity_reason: package.validity_reason.clone(),
+    }
+}
+
+fn evidence_package_from_snapshot(
+    snapshot: ActionMapSnapshotResultEvidencePackage,
+) -> NodeResultEvidencePackage {
+    NodeResultEvidencePackage {
+        claims: snapshot
+            .claims
+            .into_iter()
+            .map(cognitive_claim_from_snapshot)
+            .collect(),
+        evidence_refs: snapshot
+            .evidence_refs
+            .into_iter()
+            .map(evidence_ref_from_snapshot)
+            .collect(),
+        changed_artifacts: snapshot.changed_artifacts,
+        validator_refs: snapshot.validator_refs,
+        remaining_uncertainty: snapshot.remaining_uncertainty,
+        validity: ResultValidity::from_str(&snapshot.validity)
+            .unwrap_or(ResultValidity::Unreviewed),
+        validity_reason: snapshot.validity_reason,
+    }
+}
+
 fn snapshot_task(task: &TaskState) -> ActionMapSnapshotTask {
     ActionMapSnapshotTask {
         id: task.id.clone(),
@@ -3849,6 +4077,7 @@ fn snapshot_task(task: &TaskState) -> ActionMapSnapshotTask {
         owner_session_id: task.owner_session_id,
         active_map_id: task.active_map_id.clone(),
         map_ids: task.map_ids.clone(),
+        cognitive_state: snapshot_cognitive_state(&task.cognitive_state),
     }
 }
 
@@ -4068,6 +4297,7 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
             action_class: result.action_class.map(|class| class.as_str().to_string()),
             tool_success: result.tool_success,
             body: result.body.clone(),
+            evidence_package: snapshot_evidence_package(&result.evidence_package),
             source_thread_id: result.source_thread_id,
             created_at_ms: result.created_at_ms,
         })
@@ -5640,6 +5870,187 @@ mod tests {
                 .sentinel_summary
                 .unclassified_shell_warning_count,
             1
+        );
+    }
+
+    #[test]
+    fn snapshot_exposes_versioned_cognitive_state_and_result_evidence_package() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (task_id, map_id, _node_id, _) = start_test_task(
+            &mut state,
+            owner,
+            "Track output contract",
+            "Record output contract and evidence package.",
+            true,
+        );
+        let (_, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("result records")
+            .expect("result is recorded");
+        {
+            let task = state.tasks.get_mut(&task_id).expect("task exists");
+            task.cognitive_state
+                .success_criteria
+                .push("final artifact is utf-8".to_string());
+            task.cognitive_state.output_contracts.push(OutputContract {
+                id: "contract-1".to_string(),
+                kind: OutputContractKind::Encoding,
+                description: "Final artifact must be UTF-8.".to_string(),
+                evidence_refs: vec![EvidenceRef {
+                    result_id: Some("result-1".to_string()),
+                    ..Default::default()
+                }],
+            });
+            task.cognitive_state.fact_sources.push(FactSource {
+                id: "source-1".to_string(),
+                provenance: DataProvenance::ObservedFromEnvironment,
+                description: "pytest output from validation node".to_string(),
+                evidence_refs: vec![EvidenceRef {
+                    trace_event_id: Some("trace-1".to_string()),
+                    ..Default::default()
+                }],
+            });
+        }
+        {
+            let result = state
+                .maps
+                .get_mut(&map_id)
+                .and_then(|map| map.results.get_mut("result-1"))
+                .expect("result exists");
+            result.evidence_package = NodeResultEvidencePackage {
+                claims: vec![CognitiveClaim {
+                    id: "claim-1".to_string(),
+                    statement: "validator passed".to_string(),
+                    evidence_refs: vec![EvidenceRef {
+                        result_id: Some("result-1".to_string()),
+                        trace_event_id: Some("trace-1".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                evidence_refs: vec![EvidenceRef {
+                    validator_ref: Some("pytest".to_string()),
+                    ..Default::default()
+                }],
+                changed_artifacts: vec!["out.txt".to_string()],
+                validator_refs: vec!["pytest".to_string()],
+                remaining_uncertainty: Vec::new(),
+                validity: ResultValidity::Accepted,
+                validity_reason: "pytest passed".to_string(),
+            };
+        }
+
+        let snapshot = state.snapshot();
+        assert_eq!(
+            snapshot.cognitive_schema_version.as_deref(),
+            Some(COGNITIVE_SCHEMA_VERSION)
+        );
+        assert_eq!(
+            snapshot.tasks[0].cognitive_state.output_contracts[0].id,
+            "contract-1"
+        );
+        assert_eq!(
+            snapshot.tasks[0].cognitive_state.fact_sources[0].provenance,
+            "observed_from_environment"
+        );
+        assert_eq!(
+            snapshot.maps[0].results[0].evidence_package.validity,
+            "accepted"
+        );
+        assert_eq!(
+            snapshot.maps[0].results[0].evidence_package.claims[0].id,
+            "claim-1"
+        );
+
+        let mut restored = ActionMapRuntimeState::default();
+        restored.restore_snapshot(snapshot.clone());
+        assert_eq!(restored.snapshot(), snapshot);
+    }
+
+    #[test]
+    fn restore_snapshot_ignores_unknown_cognitive_schema_payload() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (task_id, map_id, _node_id, _) = start_test_task(
+            &mut state,
+            owner,
+            "Future cognitive schema",
+            "Unknown cognitive schema must not be treated as current truth.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("result records");
+        state
+            .tasks
+            .get_mut(&task_id)
+            .expect("task exists")
+            .cognitive_state
+            .output_contracts
+            .push(OutputContract {
+                id: "future-contract".to_string(),
+                kind: OutputContractKind::Encoding,
+                description: "future schema field".to_string(),
+                evidence_refs: Vec::new(),
+            });
+        state
+            .maps
+            .get_mut(&map_id)
+            .and_then(|map| map.results.get_mut("result-1"))
+            .expect("result exists")
+            .evidence_package
+            .validity = ResultValidity::Accepted;
+
+        let mut snapshot_value =
+            serde_json::to_value(state.snapshot()).expect("snapshot serializes");
+        snapshot_value["cognitiveSchemaVersion"] = serde_json::json!("taskspace-cognitive-v999");
+        snapshot_value["tasks"][0]["cognitiveState"] = serde_json::json!({
+            "successCriteria": {"future": true},
+            "futureFacts": [{"claim": "future shape"}]
+        });
+        snapshot_value["maps"][0]["results"][0]["evidencePackage"] = serde_json::json!({
+            "claims": {"future": "shape"},
+            "validity": {"state": "accepted"},
+            "futureEvidence": [{"kind": "new"}]
+        });
+        let snapshot: ActionMapSnapshot =
+            serde_json::from_value(snapshot_value).expect("future cognitive payload is tolerated");
+
+        let mut restored = ActionMapRuntimeState::default();
+        restored.restore_snapshot(snapshot);
+        let restored_snapshot = restored.snapshot();
+
+        assert_eq!(
+            restored_snapshot.cognitive_schema_version.as_deref(),
+            Some(COGNITIVE_SCHEMA_VERSION)
+        );
+        assert!(
+            restored_snapshot.tasks[0]
+                .cognitive_state
+                .output_contracts
+                .is_empty()
+        );
+        assert_eq!(
+            restored_snapshot.maps[0].results[0]
+                .evidence_package
+                .validity,
+            "unreviewed"
         );
     }
 
