@@ -115,6 +115,30 @@ async fn start_action_map_task_node(
         )
         .await
         .expect("TaskSpace task should start");
+    let evidence_refs = vec![crate::action_map::ActionMapEvidenceRefInput {
+        artifact_ref: Some("test-fixture:user-request".to_string()),
+        ..Default::default()
+    }];
+    session
+        .record_action_map_output_contract(
+            turn,
+            "contract-test",
+            "artifact",
+            "Test fixture acceptance contract.".to_string(),
+            evidence_refs.clone(),
+        )
+        .await
+        .expect("TaskSpace output contract should record");
+    session
+        .record_action_map_fact_source(
+            turn,
+            "source-test",
+            "provided_by_user",
+            "Test fixture source facts.".to_string(),
+            evidence_refs,
+        )
+        .await
+        .expect("TaskSpace fact source should record");
     node_id
 }
 
@@ -1744,6 +1768,46 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
             }),
         )
         .await;
+
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let snapshot = session.action_map_snapshot().await;
+            let result_exists = snapshot
+                .maps
+                .iter()
+                .any(|map| map.results.iter().any(|result| result.id == "result-1"));
+            if result_exists {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("completion watcher should record the first node result");
+    session
+        .mark_action_map_result_validity(
+            &turn,
+            "result-1",
+            "accepted",
+            "Test fixture accepted the first subagent result.".to_string(),
+            vec![crate::action_map::ActionMapCognitiveClaimInput {
+                id: "claim-result-1".to_string(),
+                statement: "First subagent result is ready for downstream work.".to_string(),
+                evidence_refs: vec![crate::action_map::ActionMapEvidenceRefInput {
+                    result_id: Some("result-1".to_string()),
+                    ..Default::default()
+                }],
+            }],
+            vec![crate::action_map::ActionMapEvidenceRefInput {
+                result_id: Some("result-1".to_string()),
+                ..Default::default()
+            }],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
+        .expect("first node result should be accepted before downstream spawn");
 
     timeout(Duration::from_secs(5), async {
         loop {

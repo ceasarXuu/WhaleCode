@@ -1354,7 +1354,7 @@ impl Session {
         &self,
         turn_context: &TurnContext,
         message: &str,
-    ) {
+    ) -> Result<bool, String> {
         let result = {
             let mut state = self.state.lock().await;
             state
@@ -1365,12 +1365,35 @@ impl Session {
             Ok(Some((_, events))) => {
                 self.emit_action_map_events_for_turn(turn_context, events)
                     .await;
+                Ok(true)
             }
-            Ok(None) => {}
+            Ok(None) => Ok(false),
             Err(error) => {
                 warn!(%error, "failed to record TaskSpace final response");
+                self.record_action_map_final_response_gate_failure(turn_context, &error)
+                    .await;
+                Err(error)
             }
         }
+    }
+
+    async fn record_action_map_final_response_gate_failure(
+        &self,
+        turn_context: &TurnContext,
+        error: &str,
+    ) {
+        let item = ResponseItem::Message {
+            id: None,
+            role: "developer".to_string(),
+            content: vec![ContentItem::InputText {
+                text: format!(
+                    "TaskSpace final answer gate rejected the previous assistant response: {error}\nContinue the same turn. Do not treat the previous response as final. Use taskspace_control or the required tools to clear the gate, then provide a corrected final answer only after the gate is satisfied."
+                ),
+            }],
+            end_turn: None,
+            phase: None,
+        };
+        self.record_into_history(&[item], turn_context).await;
     }
 
     #[cfg(test)]

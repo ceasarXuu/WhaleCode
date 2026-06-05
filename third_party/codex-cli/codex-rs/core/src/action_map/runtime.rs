@@ -99,6 +99,34 @@ const SEED_NODE_IDS: &[&str] = &[
     "final_synthesis",
 ];
 
+const FINAL_ANSWER_INTERNAL_ORCHESTRATION_TERMS: &[&str] = &[
+    "taskspace",
+    "action map",
+    "task map",
+    "taskspace_control",
+    "spawn_agent",
+    "final_synthesis",
+    "subagent",
+    "subagents",
+    "multiple agents",
+    "multi-agent",
+    "multi agent",
+    "delegated",
+    "delegation",
+    "delegate",
+    "delegating",
+    "explorer",
+    "explorers",
+    "evidence track",
+    "evidence tracks",
+    "fan-out",
+    "fan out",
+    "spawn",
+    "lease",
+];
+
+const FINAL_ANSWER_INTERNAL_ORCHESTRATION_ID_PREFIXES: &[&str] = &["map-", "node-", "task-"];
+
 /// Test fixture budget for the default inspect-node contract.
 #[cfg(test)]
 pub(crate) const MAIN_TOOL_RESULT_BUDGET_PER_NODE: usize = 10;
@@ -828,9 +856,11 @@ impl ActionMapRuntimeState {
         self.validate_routing_complete()?;
         if descriptor.action_class != ActionClass::Control {
             self.validate_maintenance_barrier()?;
+            self.validate_cognitive_preflight()?;
         }
         self.validate_main_binding(owner_session_id)?;
         if descriptor.action_class != ActionClass::Control {
+            self.validate_lifecycle_result_reviewed()?;
             self.validate_broad_inspect_delegation(owner_session_id)?;
         }
         let map_id = self.active_map_id.clone().ok_or_else(|| {
@@ -1624,6 +1654,7 @@ preview:\n\
         if node_context_summary.is_empty() {
             return Err("TaskSpace first node context summary cannot be empty.".to_string());
         }
+        self.validate_no_unresolved_broad_delegation_debt(owner_session_id, "start a new task")?;
 
         let mut events = self.release_current_main_lease("task_started")?;
         if let Some(previous_task_id) = self.active_task_id.as_ref()
@@ -1746,6 +1777,10 @@ preview:\n\
                 },
             )]);
         }
+        self.validate_no_unresolved_broad_delegation_debt(
+            owner_session_id,
+            "route to another task",
+        )?;
 
         let previous_task_id = self.active_task_id.clone();
         let previous_map_id = self.active_map_id.clone();
@@ -1846,7 +1881,16 @@ preview:\n\
             }
             self.validate_next_node_draft_after_finish(node_id, draft)?;
         }
+        self.validate_broad_inspect_finish_transition(
+            owner_session_id,
+            node_id,
+            next_node_id,
+            next_node_draft.as_ref(),
+        )?;
         self.validate_completion_evidence(node_id)?;
+        if self.active_node_kind(node_id)? == NodeKind::FinalSynthesis {
+            self.validate_final_response_ready(owner_session_id, result_summary, false)?;
+        }
         let (result_id, mut events) = self.record_main_node_lifecycle_result(
             owner_session_id,
             node_id,
@@ -2072,6 +2116,18 @@ preview:\n\
                 validity.as_str()
             ));
         }
+        let changed_artifacts = normalize_string_vec(changed_artifacts);
+        let validator_refs = normalize_string_vec(validator_refs);
+        if validity == ResultValidity::Accepted {
+            self.validate_accepted_result_evidence_by_node_kind(
+                &map_id,
+                &result_id,
+                &claims,
+                &evidence_refs,
+                &changed_artifacts,
+                &validator_refs,
+            )?;
+        }
 
         let map = self
             .maps
@@ -2084,8 +2140,8 @@ preview:\n\
         result.evidence_package = NodeResultEvidencePackage {
             claims,
             evidence_refs,
-            changed_artifacts: normalize_string_vec(changed_artifacts),
-            validator_refs: normalize_string_vec(validator_refs),
+            changed_artifacts,
+            validator_refs,
             remaining_uncertainty: normalize_string_vec(remaining_uncertainty),
             validity,
             validity_reason: validity_reason.clone(),
@@ -2467,6 +2523,41 @@ preview:\n\
         })
     }
 
+    fn validate_accepted_result_evidence_by_node_kind(
+        &self,
+        map_id: &str,
+        result_id: &str,
+        claims: &[CognitiveClaim],
+        evidence_refs: &[EvidenceRef],
+        changed_artifacts: &[String],
+        validator_refs: &[String],
+    ) -> Result<(), String> {
+        let Some(map) = self.maps.get(map_id) else {
+            return Ok(());
+        };
+        let Some(result) = map.results.get(result_id) else {
+            return Ok(());
+        };
+        let Some(node) = map.nodes.get(&result.node_id) else {
+            return Ok(());
+        };
+        match node.kind {
+            NodeKind::ImplementSolution if changed_artifacts.is_empty() => {
+                Err("TaskSpace accepted implement_solution result requires changed_artifacts for the modified files or output artifacts.".to_string())
+            }
+            NodeKind::SmokeTest | NodeKind::RegressionTest
+                if validator_refs.is_empty()
+                    && !evidence_refs_have_validator(evidence_refs)
+                    && !claims
+                        .iter()
+                        .any(|claim| evidence_refs_have_validator(&claim.evidence_refs)) =>
+            {
+                Err("TaskSpace accepted test result requires validator_refs or evidence_refs with validator_ref.".to_string())
+            }
+            _ => Ok(()),
+        }
+    }
+
     pub(crate) fn record_main_final_response(
         &mut self,
         owner_session_id: ThreadId,
@@ -2484,21 +2575,36 @@ preview:\n\
             Some(map_id) => map_id,
             None => return Ok(None),
         };
-        let node_id = match self.current_main_node_id.clone() {
-            Some(node_id) => node_id,
-            None => return Ok(None),
-        };
         let map = self
             .maps
             .get(&map_id)
             .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-        let node = map
-            .nodes
-            .get(&node_id)
-            .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
+        let has_completed_final_synthesis = map.nodes.values().any(|node| {
+            node.kind == NodeKind::FinalSynthesis && node.status == NodeStatus::Completed
+        });
+        let node_id = match self.current_main_node_id.clone() {
+            Some(node_id) => node_id,
+            None => {
+                if has_completed_final_synthesis {
+                    self.validate_final_response_ready(owner_session_id, message, true)?;
+                }
+                return Ok(None);
+            }
+        };
+        let node = map.nodes.get(&node_id);
+        let Some(node) = node else {
+            if has_completed_final_synthesis {
+                self.validate_final_response_ready(owner_session_id, message, true)?;
+            }
+            return Ok(None);
+        };
         if node.kind != NodeKind::FinalSynthesis || node.status != NodeStatus::Running {
+            if has_completed_final_synthesis {
+                self.validate_final_response_ready(owner_session_id, message, true)?;
+            }
             return Ok(None);
         }
+        self.validate_final_response_ready(owner_session_id, message, false)?;
         self.record_main_node_lifecycle_result(
             owner_session_id,
             &node_id,
@@ -2508,6 +2614,73 @@ preview:\n\
             true,
         )
         .map(Some)
+    }
+
+    fn validate_final_response_ready(
+        &self,
+        owner_session_id: ThreadId,
+        message: &str,
+        ignore_completed_final_synthesis_result: bool,
+    ) -> Result<(), String> {
+        self.validate_cognitive_preflight()?;
+        self.validate_lifecycle_result_reviewed_for_final_response(
+            ignore_completed_final_synthesis_result,
+        )?;
+        self.validate_no_unresolved_broad_delegation_debt(
+            owner_session_id,
+            "finish final_synthesis",
+        )?;
+        self.validate_final_synthesis_has_validation_after_edit()?;
+        self.validate_final_answer_no_internal_orchestration_terms(message)?;
+        Ok(())
+    }
+
+    fn active_node_kind(&self, node_id: &str) -> Result<NodeKind, String> {
+        let map_id = self.active_map_id.as_ref().ok_or_else(|| {
+            "TaskSpace mode is active but no active task path exists.".to_string()
+        })?;
+        let map = self
+            .maps
+            .get(map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        map.nodes
+            .get(node_id)
+            .map(|node| node.kind)
+            .ok_or_else(|| format!("TaskSpace node `{node_id}` is missing."))
+    }
+
+    fn validate_final_answer_no_internal_orchestration_terms(
+        &self,
+        message: &str,
+    ) -> Result<(), String> {
+        let normalized = message.to_lowercase();
+        for prefix in FINAL_ANSWER_INTERNAL_ORCHESTRATION_ID_PREFIXES {
+            if contains_internal_numeric_id(&normalized, prefix) {
+                return Err(format!(
+                    "TaskSpace final answer gate rejected hidden orchestration identifier `{prefix}*`. Rewrite the final answer using user-visible phases, files, tests, and outcomes only."
+                ));
+            }
+        }
+        if contains_split_agent_phrase(&normalized) {
+            return Err(
+                "TaskSpace final answer gate rejected hidden orchestration phrase `split agents`. Rewrite the final answer using user-visible phases, files, tests, and outcomes only."
+                    .to_string(),
+            );
+        }
+        if contains_scheduled_agent_phrase(&normalized) {
+            return Err(
+                "TaskSpace final answer gate rejected hidden orchestration phrase `parallel agents`. Rewrite the final answer using user-visible phases, files, tests, and outcomes only."
+                    .to_string(),
+            );
+        }
+        for term in FINAL_ANSWER_INTERNAL_ORCHESTRATION_TERMS {
+            if contains_bounded_term(&normalized, term) {
+                return Err(format!(
+                    "TaskSpace final answer gate rejected hidden orchestration term `{term}`. Rewrite the final answer using user-visible phases, files, tests, and outcomes only."
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn prepare_spawn_assignment(
@@ -2521,6 +2694,8 @@ preview:\n\
         }
 
         self.validate_routing_complete()?;
+        self.validate_cognitive_preflight()?;
+        self.validate_lifecycle_result_reviewed()?;
         let mut events = Vec::new();
         let Some(map_id) = self.active_map_id.clone() else {
             return Err(
@@ -2832,6 +3007,9 @@ preview:\n\
             "Use the minimum sufficient task map. For a simple single-file or single-failure task, prefer one main-agent chain: inspect_code_context -> implement_solution -> smoke_test/regression_test -> final_synthesis. Do not create extra ready inspect nodes or call spawn_agent for simple work unless new evidence shows independent tracks that would materially reduce risk or context load.\n",
         );
         context.push_str(
+            "Complexity trigger for collaboration: if the user request already names or implies two or more distinct functional surfaces, modules, file groups, validators, or evidence classes, do not spend the initial main inspect node reading every surface. Use the main inspect node to identify the track boundaries, then finish it, create separate ready inspect_code_context nodes for at least two independent tracks, and call spawn_agent for each ready track. The main agent should then integrate accepted node results and create implementation/validation nodes from that model.\n",
+        );
+        context.push_str(
             "For simple tasks, path correction and reading a small known set of files stay inside the current inspect node. Do not create another inspect node or call spawn_agent merely to read one known file, re-read a file, fix a guessed path, or serialize one evidence item.\n",
         );
         context.push_str(
@@ -2847,13 +3025,16 @@ preview:\n\
             "spawn_agent can only claim ready nodes; do not bind a node to the main agent and then hand it off.\n",
         );
         context.push_str(
-            "For broad multi-module tasks, create separate inspect/review nodes for independent evidence gathering and delegate ready inspect/review nodes to explorer agents only when at least two independent areas can be checked in parallel and the coordination cost is justified. If the user asks to parallelize independent work, or if independent parser/pricing/review/etc. tracks are visible before editing, do not substitute main-agent parallel shell/file-change calls for collaboration; create the ready nodes and call spawn_agent for those nodes. Do not handle one independent investigation yourself while only one explorer handles the other; when two independent tracks exist, the main agent should coordinate and integrate while two explorer agents own the two investigation nodes. Leave those parallel inspect nodes ready for explorer agents instead of binding one to the main agent unless only one independent area exists. Inspect nodes may run diagnostic tests to gather evidence; keep implementation edits on implementation nodes and final passing validation on explicit test nodes.\n",
+            "For broad multi-module tasks, create separate inspect/review nodes for independent evidence gathering and delegate ready inspect/review nodes to explorer agents when at least two independent areas are visible. This is a manager-mode requirement, not a user preference: when independent parser/pricing/review/etc. tracks are visible before editing, do not substitute main-agent parallel shell/file-change calls for collaboration; create the ready nodes and call spawn_agent for those nodes. Do not handle one independent investigation yourself while only one explorer handles the other; when two independent tracks exist, the main agent should coordinate and integrate while two explorer agents own the two investigation nodes. Leave those parallel inspect nodes ready for explorer agents instead of binding one to the main agent unless only one independent area exists. Inspect nodes may run diagnostic tests to gather evidence; keep implementation edits on implementation nodes and final passing validation on explicit test nodes.\n",
         );
         context.push_str(
             "During inspect/review nodes, discover exact paths before reading files. Prefer rg --files, Get-ChildItem -Name, or narrow directory listings; do not read guessed filenames from truncated shell output.\n",
         );
         context.push_str(
             "If a smoke_test or regression_test node reveals a failure that needs edits, record that test result on the test node, finish or block the test node, create or bind an implement_solution node for the fix, then finish that implementation node and create or bind a smoke_test/regression_test node to rerun validation. Do not enter final_synthesis while validation is missing or failing.\n",
+        );
+        context.push_str(
+            "final_synthesis is answer-only after accepted validation: do not edit, test, build, spawn agents, or call ordinary tools from final_synthesis. If more work is needed, create or bind the correct non-final node first. The final answer must describe user-visible phases, files, tests, and outcomes without internal TaskSpace terms such as task, map, node, subagent, spawn, lease, final_synthesis, or taskspace_control unless the user explicitly asks to debug TaskSpace. If the user asks how work was organized, describe visible phases, files, tests, and outcomes only; never mention hidden execution roles or words such as subagent, explorer, agent, delegated, parallel, evidence track, fan-out, or spawn. Collapse hidden orchestration into ordinary phrases such as investigation, implementation, and validation.\n",
         );
         context.push_str(node_kind_selection_prompt());
         context.push('\n');
@@ -2980,7 +3161,7 @@ preview:\n\
                 "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. spawn_agent can only claim ready nodes; do not bind a node to the main agent and then hand it off. If a subagent should own work, create that node with bind_current=false or finish/block the current main node first. If more than one ready node exists, spawn_agent must include node_id for the intended node; if only one ready node exists, runtime may bind it automatically. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Node result context stays on the node; use it only when it is relevant to the next step. Do not spawn an agent merely because TaskSpace is active or because a node exists; spawn only when the node represents a bounded, independent track whose result the main agent will integrate. For inspect_code_context nodes, explorer spawn is for a parallel investigation group, not single-track outsourcing; create at least two ready independent inspect nodes before assigning explorer subagents.\n",
             );
             context.push_str(
-                "When the task naturally separates into independent investigation tracks, proactively create separate inspect_code_context nodes and assign subagents instead of waiting for the user to ask for parallel work. Before doing so, verify that the tracks are actually independent and that each track has a distinct evidence surface. Keep dependency edges explicit: independent investigation nodes should not depend on each other, implementation nodes should depend on the investigation nodes they integrate, and validation/final nodes should depend on the implementation or validation predecessor they verify.\n",
+                "When the task naturally separates into independent investigation tracks, proactively create separate inspect_code_context nodes and assign subagents instead of waiting for the user to ask for parallel work. If the current request names multiple areas such as parser/pricing/invoice/tests/config, this trigger is already satisfied; create at least two ready inspect nodes with distinct evidence surfaces before implementation. Keep dependency edges explicit: independent investigation nodes should not depend on each other, implementation nodes should depend on the investigation nodes they integrate, and validation/final nodes should depend on the implementation or validation predecessor they verify.\n",
             );
         } else {
             context.push_str(
@@ -3296,6 +3477,73 @@ preview:\n\
         Ok(())
     }
 
+    fn validate_cognitive_preflight(&self) -> Result<(), String> {
+        let Some(task_id) = self.active_task_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(task) = self.tasks.get(task_id) else {
+            return Ok(());
+        };
+        let mut missing = Vec::new();
+        if task.cognitive_state.output_contracts.is_empty() {
+            missing.push("record_output_contract");
+        }
+        if task.cognitive_state.fact_sources.is_empty() {
+            missing.push("record_fact_source");
+        }
+        if missing.is_empty() {
+            return Ok(());
+        }
+        Err(format!(
+            "TaskSpace cognitive preflight is required before ordinary work or subagent spawn on task `{task_id}`. Missing: {}. Call taskspace_control(action=record_output_contract) for the user-visible acceptance contract and taskspace_control(action=record_fact_source) for user-provided or observed source facts. Use non-empty evidence_refs such as artifact_ref for the current user request, README/test/source paths, or validator_ref for observed checks.",
+            missing.join(", ")
+        ))
+    }
+
+    fn validate_lifecycle_result_reviewed(&self) -> Result<(), String> {
+        self.validate_lifecycle_result_reviewed_for_final_response(false)
+    }
+
+    fn validate_lifecycle_result_reviewed_for_final_response(
+        &self,
+        ignore_completed_final_synthesis_result: bool,
+    ) -> Result<(), String> {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return Ok(());
+        };
+        if let Some(result) = map
+            .results
+            .values()
+            .filter(|result| {
+                if ignore_completed_final_synthesis_result
+                    && map.nodes.get(&result.node_id).is_some_and(|node| {
+                        node.kind == NodeKind::FinalSynthesis
+                            && node.status == NodeStatus::Completed
+                    })
+                {
+                    return false;
+                }
+                matches!(
+                    result.kind,
+                    NodeResultKind::Result
+                        | NodeResultKind::Blocker
+                        | NodeResultKind::MapUpdateRequest
+                        | NodeResultKind::TimeoutSummary
+                ) && result.evidence_package.validity == ResultValidity::Unreviewed
+            })
+            .min_by_key(|result| result.created_at_ms)
+        {
+            return Err(format!(
+                "TaskSpace result `{}` on node `{}` is still unreviewed. Before ordinary work or subagent spawn, call taskspace_control(action=mark_result_validity) with claims, evidence_refs, changed_artifacts, validator_refs, and remaining_uncertainty so the main agent explicitly accepts, questions, or rejects the node result before relying on it.",
+                result.id, result.node_id
+            ));
+        }
+        Ok(())
+    }
+
     fn record_main_node_lifecycle_result(
         &mut self,
         owner_session_id: ThreadId,
@@ -3545,13 +3793,73 @@ preview:\n\
             }
         }
         if draft.kind == NodeKind::InspectCodeContext {
-            let ready_parallel_inspect_node_ids = Self::ready_parallel_inspect_node_ids(map);
+            let mut ready_parallel_inspect_node_ids = Self::ready_parallel_inspect_node_ids(map);
+            for node_id in pending_inspect_nodes_ready_after_finishing(map, finishing_node_id) {
+                if !ready_parallel_inspect_node_ids
+                    .iter()
+                    .any(|existing| existing == &node_id)
+                {
+                    ready_parallel_inspect_node_ids.push(node_id);
+                }
+            }
+            ready_parallel_inspect_node_ids.sort();
             if !ready_parallel_inspect_node_ids.is_empty() {
                 return Err(format!(
                     "TaskSpace cannot finish `{finishing_node_id}` and bind a new inspect_code_context node because ready inspect nodes already exist: {}. Finish the current node without next_node_draft, then call spawn_agent with explicit node_id for each ready inspect node, or create additional inspect nodes with bind_current=false.",
                     format_node_candidates(map, &ready_parallel_inspect_node_ids)
                 ));
             }
+        }
+        Ok(())
+    }
+
+    fn validate_broad_inspect_finish_transition(
+        &self,
+        owner_session_id: ThreadId,
+        finishing_node_id: &str,
+        next_node_id: Option<&str>,
+        next_node_draft: Option<&ActionMapNextNodeDraft>,
+    ) -> Result<(), String> {
+        let Some(map_id) = self.active_map_id.as_ref() else {
+            return Ok(());
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return Ok(());
+        };
+        let Some(finishing_node) = map.nodes.get(finishing_node_id) else {
+            return Ok(());
+        };
+        if finishing_node.kind != NodeKind::InspectCodeContext {
+            return Ok(());
+        }
+        let exhausted_budget =
+            count_node_results_of_kind(finishing_node, NodeResultKind::MainToolCall)
+                >= contract_for(finishing_node.kind).max_main_tool_results_before_split_hint;
+        let barrier_active = self
+            .maintenance_barriers
+            .get(map_id)
+            .is_some_and(|barrier| barrier.node_id == finishing_node_id);
+        if !exhausted_budget && !barrier_active {
+            return Ok(());
+        }
+        let related_subagent_inspects = related_completed_accepted_subagent_inspect_node_ids(
+            map,
+            owner_session_id,
+            &[finishing_node_id.to_string()],
+        );
+        if related_subagent_inspects.len() >= 2 {
+            return Ok(());
+        }
+        let next_kind = if let Some(next_node_id) = next_node_id {
+            map.nodes.get(next_node_id).map(|node| node.kind)
+        } else {
+            next_node_draft.map(|draft| draft.kind)
+        };
+        if matches!(next_kind, Some(NodeKind::ImplementSolution)) {
+            return Err(
+                "TaskSpace cannot finish a broad inspect_code_context node that exhausted its main-tool budget directly into implement_solution without subagent investigation. Finish the current node without next_node_draft, create at least two ready inspect_code_context nodes for independent evidence tracks, then call spawn_agent with explicit node_id for each track before implementation."
+                    .to_string(),
+            );
         }
         Ok(())
     }
@@ -3574,36 +3882,65 @@ preview:\n\
         let Some(map) = self.active_map() else {
             return Ok(());
         };
-        if let Some(current_node_id) = self.current_main_node_id.as_deref()
-            && let Some(current_node) = map.nodes.get(current_node_id)
-            && current_node.kind != NodeKind::InspectCodeContext
+        let broad_completed_inspects = broad_completed_inspect_node_ids(map, owner_session_id);
+        if !broad_completed_inspects.is_empty()
+            && related_completed_accepted_subagent_inspect_node_ids(
+                map,
+                owner_session_id,
+                &broad_completed_inspects,
+            )
+            .len()
+                < 2
         {
-            return Ok(());
-        }
-        let has_subagent_work = map
-            .leases
-            .values()
-            .any(|lease| lease.holder == LeaseHolder::SubAgent)
-            || map
-                .results
-                .values()
-                .any(|result| result.source_thread_id != owner_session_id);
-        if has_subagent_work {
-            return Ok(());
-        }
-        let has_broad_completed_inspect = map.nodes.values().any(|node| {
-            node.kind == NodeKind::InspectCodeContext
-                && node.status == NodeStatus::Completed
-                && count_node_results_of_kind(node, NodeResultKind::MainToolCall)
-                    >= contract_for(node.kind).max_main_tool_results_before_split_hint
-        });
-        if has_broad_completed_inspect {
             return Err(
-                "TaskSpace blocked ordinary main-agent work because a broad inspect_code_context node already exhausted its main-tool budget without any subagent work. Delegate the remaining independent investigation tracks: create ready inspect_code_context nodes if needed, then call spawn_agent with explicit node_id before continuing ordinary tools."
+                "TaskSpace blocked ordinary main-agent work because a broad inspect_code_context node exhausted its main-tool budget without two accepted subagent inspect results on dependent investigation tracks. Delegate the remaining independent investigation tracks: create ready inspect_code_context nodes if needed, call spawn_agent with explicit node_id for each track, then mark the subagent results accepted before continuing ordinary tools."
                     .to_string(),
             );
         }
         Ok(())
+    }
+
+    fn validate_no_unresolved_broad_delegation_debt(
+        &self,
+        owner_session_id: ThreadId,
+        action_label: &str,
+    ) -> Result<(), String> {
+        let Some(map) = self.active_map() else {
+            return Ok(());
+        };
+        let broad_completed_inspects = broad_completed_inspect_node_ids(map, owner_session_id);
+        if broad_completed_inspects.is_empty() {
+            return Ok(());
+        }
+        if related_completed_accepted_subagent_inspect_node_ids(
+            map,
+            owner_session_id,
+            &broad_completed_inspects,
+        )
+        .len()
+            >= 2
+        {
+            return Ok(());
+        }
+        Err(format!(
+            "TaskSpace cannot {action_label} while the active task has unresolved broad inspect delegation debt. Continue on the current task: create ready inspect_code_context nodes for the independent evidence tracks, call spawn_agent with explicit node_id for each track, mark those results accepted, then continue."
+        ))
+    }
+
+    fn validate_final_synthesis_has_validation_after_edit(&self) -> Result<(), String> {
+        let Some(map) = self.active_map() else {
+            return Ok(());
+        };
+        if !map_has_successful_edit(map) {
+            return Ok(());
+        }
+        if map_has_accepted_validation_result(map) {
+            return Ok(());
+        }
+        Err(
+            "TaskSpace cannot finish final_synthesis after repository edits without an accepted smoke_test or regression_test result. Create or bind a validation node, run a successful test/build action there, finish the node, and mark the validation result accepted before final answer."
+                .to_string(),
+        )
     }
 
     fn validate_maintenance_barrier_for_node(&self, node_id: &str) -> Result<(), String> {
@@ -4670,6 +5007,117 @@ fn normalize_string_vec(values: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+fn contains_bounded_term(haystack: &str, term: &str) -> bool {
+    let mut search_from = 0;
+    while let Some(relative) = haystack[search_from..].find(term) {
+        let start = search_from + relative;
+        let end = start + term.len();
+        if is_internal_term_boundary(char_before(haystack, start))
+            && is_internal_term_boundary(char_after(haystack, end))
+        {
+            return true;
+        }
+        search_from = end;
+    }
+    false
+}
+
+fn contains_internal_numeric_id(haystack: &str, prefix: &str) -> bool {
+    let mut search_from = 0;
+    while let Some(relative) = haystack[search_from..].find(prefix) {
+        let start = search_from + relative;
+        let digit_start = start + prefix.len();
+        let digit_count = haystack[digit_start..]
+            .bytes()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
+        if digit_count > 0
+            && is_internal_term_boundary(char_before(haystack, start))
+            && is_internal_term_boundary(char_after(haystack, digit_start + digit_count))
+        {
+            return true;
+        }
+        search_from = digit_start;
+    }
+    false
+}
+
+fn contains_split_agent_phrase(haystack: &str) -> bool {
+    let mut search_from = 0;
+    while let Some(relative) = haystack[search_from..].find("split") {
+        let start = search_from + relative;
+        let end = start + "split".len();
+        if is_internal_term_boundary(char_before(haystack, start))
+            && is_internal_term_boundary(char_after(haystack, end))
+        {
+            let following = &haystack[end..haystack.len().min(end + 120)];
+            if contains_bounded_term(following, "agent")
+                || contains_bounded_term(following, "agents")
+            {
+                return true;
+            }
+        }
+        search_from = end;
+    }
+    false
+}
+
+fn contains_scheduled_agent_phrase(haystack: &str) -> bool {
+    const SCHEDULING_TERMS: &[&str] = &[
+        "parallel",
+        "parallelize",
+        "parallelized",
+        "parallelizing",
+        "concurrent",
+        "concurrently",
+        "simultaneous",
+        "simultaneously",
+    ];
+    const AGENT_TERMS: &[&str] = &[
+        "agent",
+        "agents",
+        "subagent",
+        "subagents",
+        "explorer",
+        "explorers",
+        "evidence track",
+        "evidence tracks",
+    ];
+
+    for scheduling_term in SCHEDULING_TERMS {
+        let mut search_from = 0;
+        while let Some(relative) = haystack[search_from..].find(scheduling_term) {
+            let start = search_from + relative;
+            let end = start + scheduling_term.len();
+            if is_internal_term_boundary(char_before(haystack, start))
+                && is_internal_term_boundary(char_after(haystack, end))
+            {
+                let following = &haystack[end..haystack.len().min(end + 120)];
+                if AGENT_TERMS
+                    .iter()
+                    .any(|agent_term| contains_bounded_term(following, agent_term))
+                {
+                    return true;
+                }
+            }
+            search_from = end;
+        }
+    }
+    false
+}
+
+fn char_before(value: &str, byte_index: usize) -> Option<char> {
+    value.get(..byte_index)?.chars().next_back()
+}
+
+fn char_after(value: &str, byte_index: usize) -> Option<char> {
+    value.get(byte_index..)?.chars().next()
+}
+
+fn is_internal_term_boundary(value: Option<char>) -> bool {
+    value.is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '_')
+}
+
 fn upsert_output_contract(records: &mut Vec<OutputContract>, record: OutputContract) {
     if let Some(existing) = records.iter_mut().find(|existing| existing.id == record.id) {
         *existing = record;
@@ -4842,6 +5290,12 @@ fn evidence_ref_from_snapshot(snapshot: ActionMapSnapshotEvidenceRef) -> Evidenc
         artifact_ref: snapshot.artifact_ref,
         validator_ref: snapshot.validator_ref,
     }
+}
+
+fn evidence_refs_have_validator(evidence_refs: &[EvidenceRef]) -> bool {
+    evidence_refs
+        .iter()
+        .any(|evidence_ref| evidence_ref.validator_ref.is_some())
 }
 
 fn snapshot_evidence_package(
@@ -5262,6 +5716,24 @@ fn default_dependency_node_ids_for_new_node(map: &ActionMapInstance) -> Vec<Stri
     leaf_completed_nodes
 }
 
+fn pending_inspect_nodes_ready_after_finishing(
+    map: &ActionMapInstance,
+    finishing_node_id: &str,
+) -> Vec<String> {
+    let mut node_ids = map
+        .nodes
+        .values()
+        .filter(|node| {
+            node.kind == NodeKind::InspectCodeContext
+                && node.status == NodeStatus::Pending
+                && dependencies_will_be_completed_after_finish(map, finishing_node_id, &node.id)
+        })
+        .map(|node| node.id.clone())
+        .collect::<Vec<_>>();
+    node_ids.sort();
+    node_ids
+}
+
 fn completed_subagent_inspect_node_ids(
     map: &ActionMapInstance,
     owner_session_id: ThreadId,
@@ -5273,15 +5745,126 @@ fn completed_subagent_inspect_node_ids(
             node.kind == NodeKind::InspectCodeContext
                 && node.status == NodeStatus::Completed
                 && node.result_context.iter().any(|result_ref| {
-                    map.results
-                        .get(&result_ref.id)
-                        .is_some_and(|result| result.source_thread_id != owner_session_id)
+                    map.results.get(&result_ref.id).is_some_and(|result| {
+                        result.source_thread_id != owner_session_id
+                            && result.evidence_package.validity == ResultValidity::Accepted
+                    })
                 })
         })
         .map(|node| node.id.clone())
         .collect::<Vec<_>>();
     node_ids.sort();
     node_ids
+}
+
+fn broad_completed_inspect_node_ids(
+    map: &ActionMapInstance,
+    owner_session_id: ThreadId,
+) -> Vec<String> {
+    let mut node_ids = map
+        .nodes
+        .values()
+        .filter(|node| {
+            node.kind == NodeKind::InspectCodeContext
+                && node.status == NodeStatus::Completed
+                && (count_node_results_of_kind(node, NodeResultKind::MainToolCall)
+                    >= contract_for(node.kind).max_main_tool_results_before_split_hint
+                    || completed_main_inspect_has_broad_accepted_result(
+                        map,
+                        &node.id,
+                        owner_session_id,
+                    ))
+        })
+        .map(|node| node.id.clone())
+        .collect::<Vec<_>>();
+    node_ids.sort();
+    node_ids
+}
+
+fn completed_main_inspect_has_broad_accepted_result(
+    map: &ActionMapInstance,
+    node_id: &str,
+    owner_session_id: ThreadId,
+) -> bool {
+    map.nodes.get(node_id).is_some_and(|node| {
+        node.result_context.iter().any(|result_ref| {
+            map.results.get(&result_ref.id).is_some_and(|result| {
+                result.kind != NodeResultKind::MainToolCall
+                    && result.source_thread_id == owner_session_id
+                    && result.evidence_package.validity == ResultValidity::Accepted
+                    && accepted_result_has_broad_structural_evidence(result)
+            })
+        })
+    })
+}
+
+fn accepted_result_has_broad_structural_evidence(result: &NodeResult) -> bool {
+    if result.evidence_package.claims.len() >= 3 {
+        return true;
+    }
+    let mut artifact_refs = HashSet::new();
+    for evidence_ref in &result.evidence_package.evidence_refs {
+        if let Some(artifact_ref) = evidence_ref.artifact_ref.as_deref() {
+            let artifact_ref = artifact_ref.trim();
+            if !artifact_ref.is_empty() {
+                artifact_refs.insert(artifact_ref.to_ascii_lowercase());
+            }
+        }
+    }
+    for claim in &result.evidence_package.claims {
+        for evidence_ref in &claim.evidence_refs {
+            if let Some(artifact_ref) = evidence_ref.artifact_ref.as_deref() {
+                let artifact_ref = artifact_ref.trim();
+                if !artifact_ref.is_empty() {
+                    artifact_refs.insert(artifact_ref.to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    artifact_refs.len() >= 4
+}
+
+fn related_completed_accepted_subagent_inspect_node_ids(
+    map: &ActionMapInstance,
+    owner_session_id: ThreadId,
+    ancestor_node_ids: &[String],
+) -> Vec<String> {
+    let mut node_ids = completed_subagent_inspect_node_ids(map, owner_session_id)
+        .into_iter()
+        .filter(|node_id| node_depends_on_any(map, node_id, ancestor_node_ids))
+        .collect::<Vec<_>>();
+    node_ids.sort();
+    node_ids
+}
+
+fn node_depends_on_any(
+    map: &ActionMapInstance,
+    node_id: &str,
+    ancestor_node_ids: &[String],
+) -> bool {
+    let ancestors = ancestor_node_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let mut stack = map
+        .edges
+        .iter()
+        .filter(|edge| edge.to == node_id)
+        .map(|edge| edge.from.as_str())
+        .collect::<Vec<_>>();
+    let mut seen = HashSet::new();
+    while let Some(current) = stack.pop() {
+        if !seen.insert(current) {
+            continue;
+        }
+        if ancestors.contains(current) {
+            return true;
+        }
+        for edge in map.edges.iter().filter(|edge| edge.to == current) {
+            stack.push(edge.from.as_str());
+        }
+    }
+    false
 }
 
 fn map_created_event(map: &ActionMapInstance) -> MapRuntimeEvent {
@@ -5386,6 +5969,23 @@ fn node_has_successful_action(
     })
 }
 
+fn map_has_successful_edit(map: &ActionMapInstance) -> bool {
+    map.nodes
+        .values()
+        .any(|node| node_has_successful_action(map, node, ActionClass::Edit))
+}
+
+fn map_has_accepted_validation_result(map: &ActionMapInstance) -> bool {
+    map.nodes.values().any(|node| {
+        matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+            && node.result_context.iter().any(|result_ref| {
+                map.results.get(&result_ref.id).is_some_and(|result| {
+                    result.evidence_package.validity == ResultValidity::Accepted
+                })
+            })
+    })
+}
+
 #[cfg(test)]
 fn initial_node_events(map: &ActionMapInstance) -> Vec<MapRuntimeEvent> {
     map.nodes
@@ -5471,6 +6071,9 @@ fn transition_notice(previous_mode: MapRuntimeMode, current_mode: MapRuntimeMode
             "TaskSpace mode is now active.\n\
 Previous standard-mode conversation remains background context only.\n\
 Before taking multi-agent action, create or bind a task path and a ready node.\n\
+Before ordinary work or subagent spawn, record the active task's output contract and fact source through taskspace_control.\n\
+After a node-level result is recorded, mark its validity before relying on it or continuing ordinary work.\n\
+Accepted implementation results should include changed_artifacts for modified files.\n\
 Future subagent work must be task/node driven."
                 .to_string()
         }
@@ -5641,6 +6244,7 @@ mod tests {
     fn seed_test_map(state: &mut ActionMapRuntimeState, owner: ThreadId) {
         state.ensure_active_seed_map(owner, "test");
         state.mark_routing_complete();
+        seed_test_cognitive_preflight(state, owner);
     }
 
     fn start_test_task(
@@ -5650,7 +6254,7 @@ mod tests {
         context: &str,
         bind_current: bool,
     ) -> (TaskId, ActionMapId, MapNodeId, Vec<MapRuntimeEvent>) {
-        state
+        let outcome = state
             .start_task_for_main(
                 owner,
                 title.to_string(),
@@ -5659,13 +6263,145 @@ mod tests {
                 context.to_string(),
                 bind_current,
             )
-            .expect("test task starts")
+            .expect("test task starts");
+        seed_test_cognitive_preflight(state, owner);
+        outcome
+    }
+
+    fn start_test_task_with_kind(
+        state: &mut ActionMapRuntimeState,
+        owner: ThreadId,
+        kind: NodeKind,
+        title: &str,
+        context: &str,
+        node_title: &str,
+        node_context: &str,
+        bind_current: bool,
+    ) -> (TaskId, ActionMapId, MapNodeId, Vec<MapRuntimeEvent>) {
+        let outcome = state
+            .start_task_for_main_with_kind(
+                owner,
+                kind,
+                title.to_string(),
+                context.to_string(),
+                node_title.to_string(),
+                node_context.to_string(),
+                bind_current,
+            )
+            .expect("test task starts");
+        seed_test_cognitive_preflight(state, owner);
+        outcome
+    }
+
+    fn seed_test_cognitive_preflight(state: &mut ActionMapRuntimeState, owner: ThreadId) {
+        let Some(task_id) = state.active_task_id.as_deref() else {
+            return;
+        };
+        if state.tasks.get(task_id).is_some_and(|task| {
+            !task.cognitive_state.output_contracts.is_empty()
+                && !task.cognitive_state.fact_sources.is_empty()
+        }) {
+            return;
+        }
+        let evidence_refs = vec![ActionMapEvidenceRefInput {
+            artifact_ref: Some("test-fixture:user-request".to_string()),
+            ..Default::default()
+        }];
+        state
+            .record_output_contract_for_main(
+                owner,
+                "contract-test",
+                "artifact",
+                "Test fixture acceptance contract.".to_string(),
+                evidence_refs.clone(),
+            )
+            .expect("test output contract records");
+        state
+            .record_fact_source_for_main(
+                owner,
+                "source-test",
+                "provided_by_user",
+                "Test fixture source facts.".to_string(),
+                evidence_refs,
+            )
+            .expect("test fact source records");
+    }
+
+    fn accept_test_result(state: &mut ActionMapRuntimeState, owner: ThreadId, result_id: &str) {
+        let node_kind = state
+            .active_map()
+            .and_then(|map| {
+                let result = map.results.get(result_id)?;
+                map.nodes.get(&result.node_id).map(|node| node.kind)
+            })
+            .expect("result node kind");
+        let changed_artifacts = if node_kind == NodeKind::ImplementSolution {
+            vec!["out.txt".to_string()]
+        } else {
+            Vec::new()
+        };
+        let validator_refs = if matches!(node_kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+        {
+            vec!["test-validator".to_string()]
+        } else {
+            Vec::new()
+        };
+        state
+            .mark_result_validity_for_main(
+                owner,
+                result_id,
+                "accepted",
+                "Test fixture accepted this node result.".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: format!("claim-{result_id}"),
+                    statement: "Test fixture result can be used by follow-up work.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.to_string()),
+                    ..Default::default()
+                }],
+                changed_artifacts,
+                validator_refs,
+                Vec::new(),
+            )
+            .expect("test result validity records");
+    }
+
+    fn question_test_result(state: &mut ActionMapRuntimeState, owner: ThreadId, result_id: &str) {
+        state
+            .mark_result_validity_for_main(
+                owner,
+                result_id,
+                "questioned",
+                "Test fixture questioned this node result.".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: format!("claim-{result_id}"),
+                    statement: "Test fixture result has unresolved uncertainty.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.to_string()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                vec!["Needs another check before use.".to_string()],
+            )
+            .expect("test questioned result validity records");
     }
 
     fn fill_main_tool_budget(
         state: &mut ActionMapRuntimeState,
         owner: ThreadId,
     ) -> Vec<MapRuntimeEvent> {
+        seed_test_cognitive_preflight(state, owner);
         let mut last_events = Vec::new();
         for index in 0..MAIN_TOOL_RESULT_BUDGET_PER_NODE {
             state
@@ -6258,6 +6994,7 @@ mod tests {
                     true,
                 )
                 .expect("task starts");
+            seed_test_cognitive_preflight(&mut state, owner);
 
             state
                 .prepare_main_tool_call(
@@ -6775,11 +7512,23 @@ mod tests {
             Some(COGNITIVE_SCHEMA_VERSION)
         );
         assert_eq!(
-            snapshot.tasks[0].cognitive_state.output_contracts[0].id,
+            snapshot.tasks[0]
+                .cognitive_state
+                .output_contracts
+                .iter()
+                .find(|contract| contract.id == "contract-1")
+                .expect("custom contract is present")
+                .id,
             "contract-1"
         );
         assert_eq!(
-            snapshot.tasks[0].cognitive_state.fact_sources[0].provenance,
+            snapshot.tasks[0]
+                .cognitive_state
+                .fact_sources
+                .iter()
+                .find(|source| source.id == "source-1")
+                .expect("custom fact source is present")
+                .provenance,
             "observed_from_environment"
         );
         assert_eq!(
@@ -6885,8 +7634,18 @@ mod tests {
 
         let snapshot = state.snapshot();
         let task = &snapshot.tasks[0];
-        assert_eq!(task.cognitive_state.fact_sources[0].id, "source-user");
-        assert_eq!(task.cognitive_state.output_contracts[0].id, "contract-utf8");
+        assert!(
+            task.cognitive_state
+                .fact_sources
+                .iter()
+                .any(|source| source.id == "source-user")
+        );
+        assert!(
+            task.cognitive_state
+                .output_contracts
+                .iter()
+                .any(|contract| contract.id == "contract-utf8")
+        );
         assert_eq!(task.cognitive_state.facts[0].id, "fact-final-encoding");
         assert_eq!(
             task.cognitive_state.facts[0].evidence_refs[0]
@@ -7023,6 +7782,110 @@ mod tests {
                 Vec::new(),
             )
             .expect("current result trace is accepted");
+    }
+
+    #[test]
+    fn accepted_implementation_result_requires_changed_artifacts() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Fix code",
+            "Modify output artifacts.",
+            "Implement fix",
+            "Patch a file.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "M out.txt".to_string(),
+            )
+            .expect("edit result")
+            .expect("result id");
+        let error = state
+            .mark_result_validity_for_main(
+                owner,
+                &result_id,
+                "accepted",
+                "accepted edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit".to_string(),
+                    statement: "Edit changed output.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect_err("accepted implementation needs changed artifacts");
+        assert!(error.contains("changed_artifacts"));
+    }
+
+    #[test]
+    fn accepted_test_result_requires_validator_evidence() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run validator.",
+            "Smoke test",
+            "Run tests.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "tests passed".to_string(),
+            )
+            .expect("test result")
+            .expect("result id");
+        let error = state
+            .mark_result_validity_for_main(
+                owner,
+                &result_id,
+                "accepted",
+                "accepted test".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-test".to_string(),
+                    statement: "Tests passed.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect_err("accepted test needs validator evidence");
+        assert!(error.contains("validator"));
     }
 
     #[test]
@@ -7464,6 +8327,7 @@ mod tests {
                 true,
             )
             .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
 
         state
             .prepare_main_tool_call(
@@ -7498,6 +8362,7 @@ mod tests {
                 true,
             )
             .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
 
         state
             .prepare_main_tool_call(
@@ -7532,6 +8397,7 @@ mod tests {
                 true,
             )
             .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
 
         let edit_error = state
             .prepare_main_tool_call(
@@ -7574,6 +8440,7 @@ mod tests {
                 true,
             )
             .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
 
         let (result_id, events) = state
             .record_main_final_response(owner, "Completed the requested review.")
@@ -7598,6 +8465,442 @@ mod tests {
         let result = map.results.get(&result_id).expect("stored result");
         assert_eq!(result.kind, NodeResultKind::Result);
         assert_eq!(result.body, "Completed the requested review.");
+    }
+
+    #[test]
+    fn completed_final_synthesis_still_gates_final_response_terms() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::FinalSynthesis,
+                "Summarize outcome".to_string(),
+                "Write the final user-facing synthesis.".to_string(),
+                "Final synthesis".to_string(),
+                "Summarize completed work without new implementation.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
+
+        let (finish, _events) = state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "Completed the requested review.".to_string(),
+                None,
+                None,
+            )
+            .expect("final synthesis can finish through tool path");
+        assert_eq!(finish.result_id, "result-1");
+        assert!(state.current_main_node_id.is_none());
+
+        let error = state
+            .record_main_final_response(owner, "I delegated two investigations.")
+            .expect_err("completed final node must still gate final assistant text");
+        assert!(error.contains("hidden orchestration term `delegated`"));
+
+        let clean = state
+            .record_main_final_response(owner, "Completed the requested review.")
+            .expect("clean final text should pass completed final gate");
+        assert!(clean.is_none());
+
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("final node");
+        assert_eq!(node.status, NodeStatus::Completed);
+        assert_eq!(node.result_context.len(), 1);
+        assert_eq!(map.results.len(), 1);
+    }
+
+    #[test]
+    fn completed_final_synthesis_rechecks_unreviewed_results_before_final_response() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::FinalSynthesis,
+                "Summarize outcome".to_string(),
+                "Write the final user-facing synthesis.".to_string(),
+                "Final synthesis".to_string(),
+                "Summarize completed work without new implementation.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
+        state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "Completed the requested review.".to_string(),
+                None,
+                None,
+            )
+            .expect("final synthesis can finish through tool path");
+
+        let (follow_up_node_id, _) = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Follow-up inspection".to_string(),
+                "Record one extra finding after the final node.".to_string(),
+                Vec::new(),
+                true,
+            )
+            .expect("follow-up node can be created after final completion");
+        let (follow_up, _) = state
+            .finish_main_node(
+                owner,
+                &follow_up_node_id,
+                "Follow-up finding.".to_string(),
+                None,
+            )
+            .expect("follow-up node finishes");
+
+        let error = state
+            .record_main_final_response(owner, "Completed the requested review.")
+            .expect_err("completed final gate must still reject unreviewed non-final results");
+        assert!(error.contains(&follow_up.result_id));
+        assert!(error.contains("still unreviewed"));
+    }
+
+    #[test]
+    fn completed_final_synthesis_rechecks_validation_after_edit_before_final_response() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Patch bug",
+            "Apply the required code edit.",
+            "Patch code",
+            "Modify the target file.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
+                    .with_call_id("call-edit"),
+            )
+            .expect("edit allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "call-edit",
+                "apply_patch",
+                true,
+                "M src/lib.rs".to_string(),
+            )
+            .expect("record edit succeeds")
+            .expect("edit result recorded");
+        let (implementation, _) = state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "Patched target file.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Smoke test".to_string(),
+                    context_summary: "Run a smoke test after the edit.".to_string(),
+                    dependency_node_ids: vec!["node-1".to_string()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        accept_test_result(&mut state, owner, &implementation.result_id);
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "python -m pytest")
+                    .with_call_id("call-test"),
+            )
+            .expect("test allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "call-test",
+                "shell_command",
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("record test succeeds")
+            .expect("test result recorded");
+        let (validation, _) = state
+            .finish_main_node_with_next(
+                owner,
+                "node-2",
+                "Smoke test passed.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::FinalSynthesis,
+                    title: "Final summary".to_string(),
+                    context_summary: "Summarize the completed patch.".to_string(),
+                    dependency_node_ids: vec!["node-1".to_string(), "node-2".to_string()],
+                }),
+            )
+            .expect("finish validation into final synthesis");
+        accept_test_result(&mut state, owner, &validation.result_id);
+        state
+            .finish_main_node_with_next(
+                owner,
+                "node-3",
+                "Completed the requested fix.".to_string(),
+                None,
+                None,
+            )
+            .expect("final synthesis can finish after accepted validation");
+        question_test_result(&mut state, owner, &validation.result_id);
+
+        let error = state
+            .record_main_final_response(owner, "Completed the requested fix.")
+            .expect_err("completed final gate must recheck accepted validation state");
+        assert!(error.contains("accepted smoke_test or regression_test result"));
+    }
+
+    #[test]
+    fn final_answer_hidden_term_gate_rejects_ids_and_variants() {
+        let state = ActionMapRuntimeState::default();
+        for (message, expected) in [
+            ("See node-1 for the implementation details.", "node-*"),
+            ("The map-2 path is complete.", "map-*"),
+            ("Task-3 contains the final check.", "task-*"),
+            ("This task map is now stable.", "task map"),
+            ("I am delegating the investigation.", "delegating"),
+            ("The multi agent work is complete.", "multi agent"),
+            ("I split the work across agents.", "split agents"),
+            (
+                "I used parallel agents for the investigation.",
+                "parallel agents",
+            ),
+            ("The fan out found the issue.", "fan out"),
+        ] {
+            let error = state
+                .validate_final_answer_no_internal_orchestration_terms(message)
+                .expect_err("internal orchestration term should be rejected");
+            assert!(
+                error.contains(expected),
+                "expected `{expected}` in error `{error}` for message `{message}`"
+            );
+        }
+
+        state
+            .validate_final_answer_no_internal_orchestration_terms(
+                "I used the README to map every function to its tests.",
+            )
+            .expect("ordinary use of map should not be rejected");
+        state
+            .validate_final_answer_no_internal_orchestration_terms(
+                "I fixed concurrent request handling and parallel test execution.",
+            )
+            .expect("ordinary concurrency terminology should not be rejected");
+    }
+
+    #[test]
+    fn final_response_rejects_internal_orchestration_terms() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::FinalSynthesis,
+                "Summarize outcome".to_string(),
+                "Write the final user-facing synthesis.".to_string(),
+                "Final synthesis".to_string(),
+                "Summarize completed work without new implementation.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
+
+        let error = state
+            .record_main_final_response(
+                owner,
+                "I delegated parser validation and pricing logic to explorers.",
+            )
+            .expect_err("hidden orchestration terms should be rejected");
+
+        assert!(error.contains("hidden orchestration term `delegated`"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("final node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert!(map.results.is_empty());
+    }
+
+    #[test]
+    fn finish_final_synthesis_rejects_internal_orchestration_terms() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::FinalSynthesis,
+                "Summarize outcome".to_string(),
+                "Write the final user-facing synthesis.".to_string(),
+                "Final synthesis".to_string(),
+                "Summarize completed work without new implementation.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
+
+        let error = state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "See node-1 for the final synthesis.".to_string(),
+                None,
+                None,
+            )
+            .expect_err("finish_node should reject hidden orchestration terms");
+
+        assert!(error.contains("hidden orchestration identifier `node-*`"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("final node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert!(map.results.is_empty());
+    }
+
+    #[test]
+    fn final_response_rejects_unreviewed_prior_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect first",
+            "Create an unreviewed lifecycle result before final response.",
+            true,
+        );
+        let (outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "Inspection finished.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::FinalSynthesis,
+                    title: "Final summary".to_string(),
+                    context_summary: "Summarize the completed work.".to_string(),
+                    dependency_node_ids: vec!["node-1".to_string()],
+                }),
+            )
+            .expect("finish into final");
+        assert_eq!(outcome.result_id, "result-1");
+
+        let error = state
+            .record_main_final_response(owner, "Done.")
+            .expect_err("final response must not bypass result review");
+        assert!(error.contains("still unreviewed"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+    }
+
+    #[test]
+    fn final_response_rejects_unresolved_broad_delegation_debt() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Broad inspection",
+            "Inspect several connected surfaces.",
+            true,
+        );
+        fill_main_tool_budget(&mut state, owner);
+        let (outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "Broad inspection found multiple tracks.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::FinalSynthesis,
+                    title: "Final summary".to_string(),
+                    context_summary: "Summarize the broad inspection.".to_string(),
+                    dependency_node_ids: vec!["node-1".to_string()],
+                }),
+            )
+            .expect("finish into final synthesis is possible before final answer");
+        accept_test_result(&mut state, owner, &outcome.result_id);
+
+        let error = state
+            .record_main_final_response(owner, "Done.")
+            .expect_err("final response must not bypass broad delegation debt");
+
+        assert!(error.contains("unresolved broad inspect delegation debt"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+        let map = state.active_map().expect("active map");
+        assert_eq!(
+            map.nodes.get("node-2").expect("final node").status,
+            NodeStatus::Running
+        );
+    }
+
+    #[test]
+    fn final_response_rejects_missing_validation_after_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Patch bug",
+            "Apply the required code edit.",
+            "Patch code",
+            "Modify the target file.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
+                    .with_call_id("call-edit"),
+            )
+            .expect("edit allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "call-edit",
+                "apply_patch",
+                true,
+                "M src/lib.rs".to_string(),
+            )
+            .expect("record edit succeeds")
+            .expect("edit result recorded");
+        let (outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "Patched target file.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::FinalSynthesis,
+                    title: "Final summary".to_string(),
+                    context_summary: "Summarize the patch.".to_string(),
+                    dependency_node_ids: vec!["node-1".to_string()],
+                }),
+            )
+            .expect("finish implementation into final synthesis");
+        accept_test_result(&mut state, owner, &outcome.result_id);
+
+        let error = state
+            .record_main_final_response(owner, "Done.")
+            .expect_err("final response must require accepted validation after edits");
+
+        assert!(error.contains("accepted smoke_test or regression_test result"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
     }
 
     #[test]
@@ -7803,9 +9106,10 @@ mod tests {
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         start_test_task(&mut state, owner, "Overview", "Read project shape.", true);
-        state
+        let (outcome, _) = state
             .finish_main_node(owner, "node-1", "overview done".to_string(), None)
             .expect("finish overview");
+        accept_test_result(&mut state, owner, &outcome.result_id);
         state
             .create_node_for_main_with_kind(
                 owner,
@@ -7842,9 +9146,10 @@ mod tests {
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         start_test_task(&mut state, owner, "Overview", "Read project shape.", true);
-        state
+        let (outcome, _) = state
             .finish_main_node(owner, "node-1", "overview done".to_string(), None)
             .expect("finish overview");
+        accept_test_result(&mut state, owner, &outcome.result_id);
         state
             .create_node_for_main_with_kind(
                 owner,
@@ -7877,10 +9182,13 @@ mod tests {
                 child,
                 Some(format!("/root/{node_id}")),
             );
-            state.record_child_result(
-                child,
-                &AgentStatus::Completed(Some(format!("{node_id} done"))),
-            );
+            let (result_id, _) = state
+                .record_child_result(
+                    child,
+                    &AgentStatus::Completed(Some(format!("{node_id} done"))),
+                )
+                .expect("child result records");
+            accept_test_result(&mut state, owner, &result_id);
         }
 
         let (implementation_node_id, _) = state
@@ -7924,9 +9232,10 @@ mod tests {
             .record_main_tool_result(owner, "read-1", "shell", true, "read ok".to_string())
             .expect("record main result")
             .expect("result recorded");
-        state
+        let (outcome, _) = state
             .finish_main_node(owner, "node-1", "scope done".to_string(), None)
             .expect("finish narrow inspect");
+        accept_test_result(&mut state, owner, &outcome.result_id);
         state
             .create_node_for_main_with_kind(
                 owner,
@@ -7989,9 +9298,10 @@ mod tests {
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         start_test_task(&mut state, owner, "Overview", "Read project shape.", true);
-        state
+        let (outcome, _) = state
             .finish_main_node(owner, "node-1", "overview done".to_string(), None)
             .expect("finish overview");
+        accept_test_result(&mut state, owner, &outcome.result_id);
         state
             .create_node_for_main_with_kind(
                 owner,
@@ -8071,9 +9381,10 @@ mod tests {
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         start_test_task(&mut state, owner, "Overview", "Read project shape.", true);
-        state
+        let (outcome, _) = state
             .finish_main_node(owner, "node-1", "overview done".to_string(), None)
             .expect("finish overview");
+        accept_test_result(&mut state, owner, &outcome.result_id);
         state
             .create_node_for_main_with_kind(
                 owner,
@@ -8157,6 +9468,48 @@ mod tests {
         assert_eq!(node.status, NodeStatus::Running);
         assert!(node.result_context.is_empty());
         assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+    }
+
+    #[test]
+    fn finish_node_next_inspect_rejects_pending_inspect_that_would_become_ready() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(&mut state, owner, "Overview", "Read project shape.", true);
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Parser investigation".to_string(),
+                "Investigate parser after overview completes.".to_string(),
+                vec!["node-1".to_string()],
+                false,
+            )
+            .expect("create pending inspect node");
+
+        let error = state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "overview done".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::InspectCodeContext,
+                    title: "Pricing investigation".to_string(),
+                    context_summary: "Investigate pricing behavior.".to_string(),
+                    dependency_node_ids: Vec::new(),
+                }),
+            )
+            .expect_err("pending inspect must be prevalidated before mutation");
+
+        assert!(error.contains("Finish the current node without next_node_draft"));
+        let map = state.active_map().expect("active map");
+        assert_eq!(map.nodes.len(), 2);
+        assert!(!map.nodes.contains_key("node-3"));
+        let node = map.nodes.get("node-1").expect("node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert!(node.result_context.is_empty());
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
     }
 
     #[test]
@@ -8474,13 +9827,14 @@ mod tests {
             .expect_err("binding the same overgrown node should not clear the barrier");
         assert!(bind_error.contains("different narrower recovery node"));
 
-        let (_, events) = state
+        let (result_id, events) = state
             .block_main_node(
                 owner,
                 "node-1",
                 "Overgrown node needs narrower follow-up.".to_string(),
             )
             .expect("block overgrown node");
+        accept_test_result(&mut state, owner, &result_id);
         assert!(events.iter().any(|event| {
             matches!(
                 event,
@@ -8507,7 +9861,7 @@ mod tests {
     }
 
     #[test]
-    fn broad_completed_inspect_does_not_force_subagent_for_bound_implementation_node() {
+    fn broad_completed_inspect_blocks_direct_implementation_without_subagent_work() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -8519,7 +9873,7 @@ mod tests {
             true,
         );
         fill_main_tool_budget(&mut state, owner);
-        let (_, events) = state
+        let error = state
             .finish_main_node_with_next(
                 owner,
                 "node-1",
@@ -8532,7 +9886,19 @@ mod tests {
                     dependency_node_ids: vec!["node-1".to_string()],
                 }),
             )
-            .expect("broad inspect can finish into implementation");
+            .expect_err("broad inspect must be delegated before implementation");
+        assert!(error.contains("directly into implement_solution"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+
+        let (outcome, events) = state
+            .finish_main_node(
+                owner,
+                "node-1",
+                "Identified broad tracks.".to_string(),
+                None,
+            )
+            .expect("broad inspect can finish without binding implementation");
+        accept_test_result(&mut state, owner, &outcome.result_id);
         assert!(events.iter().any(|event| {
             matches!(
                 event,
@@ -8540,14 +9906,178 @@ mod tests {
                     if event.node_id == "node-1"
             )
         }));
-        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+        assert!(state.current_main_node_id.is_none());
+    }
+
+    #[test]
+    fn broad_accepted_inspect_result_blocks_direct_implementation_without_subagents() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Pipeline audit",
+            "Inspect connected parser, pricing, and invoice behavior.",
+            true,
+        );
+        let (outcome, _) = state
+            .finish_main_node(
+                owner,
+                "node-1",
+                "Found parser, pricing, and invoice mismatches.".to_string(),
+                None,
+            )
+            .expect("finish broad inspect");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &outcome.result_id,
+                "accepted",
+                "Broad inspection found three independent surfaces.".to_string(),
+                vec![
+                    ActionMapCognitiveClaimInput {
+                        id: "claim-parser".to_string(),
+                        statement: "Parser has normalization issues.".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("src/order_pipeline/parser.py".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                    ActionMapCognitiveClaimInput {
+                        id: "claim-pricing".to_string(),
+                        statement: "Pricing has discount issues.".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("src/order_pipeline/pricing.py".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                    ActionMapCognitiveClaimInput {
+                        id: "claim-invoice".to_string(),
+                        statement: "Invoice tests conflict with documented shipping rules."
+                            .to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("tests/test_invoice.py".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                ],
+                vec![
+                    ActionMapEvidenceRefInput {
+                        artifact_ref: Some("README.md".to_string()),
+                        ..Default::default()
+                    },
+                    ActionMapEvidenceRefInput {
+                        artifact_ref: Some("src/order_pipeline/parser.py".to_string()),
+                        ..Default::default()
+                    },
+                    ActionMapEvidenceRefInput {
+                        artifact_ref: Some("src/order_pipeline/pricing.py".to_string()),
+                        ..Default::default()
+                    },
+                    ActionMapEvidenceRefInput {
+                        artifact_ref: Some("tests/test_invoice.py".to_string()),
+                        ..Default::default()
+                    },
+                ],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("broad result accepted");
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Implement pipeline fix".to_string(),
+                "Fix parser, pricing, and invoice mismatches.".to_string(),
+                vec!["node-1".to_string()],
+                true,
+            )
+            .expect("implementation node can be created for recovery");
+
+        let error = state
+            .prepare_main_tool_call(owner, "apply_patch")
+            .expect_err("broad accepted inspection must require subagent tracks");
+        assert!(error.contains("without two accepted subagent inspect results"));
+    }
+
+    #[test]
+    fn questioned_subagent_inspect_does_not_unlock_broad_direct_implementation() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Broad inspection",
+            "Broad node that will exhaust the tool budget.",
+            true,
+        );
+        fill_main_tool_budget(&mut state, owner);
+        let (outcome, _) = state
+            .finish_main_node(
+                owner,
+                "node-1",
+                "Broad inspect found several independent tracks.".to_string(),
+                None,
+            )
+            .expect("finish broad inspect");
+        accept_test_result(&mut state, owner, &outcome.result_id);
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Parser investigation".to_string(),
+                "Investigate parser behavior after the broad overview.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("parser inspect node");
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Pricing investigation".to_string(),
+                "Investigate pricing behavior after the broad overview.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("pricing inspect node");
+        for (node_id, child) in [("node-2", ThreadId::new()), ("node-3", ThreadId::new())] {
+            let assignment = state
+                .prepare_spawn_assignment(owner, node_id, Some(node_id))
+                .expect("spawn parallel inspect")
+                .0
+                .expect("assignment");
+            state.attach_agent_to_lease(&assignment.lease_id, child, None);
+            let (child_result_id, _) = state
+                .record_child_result(
+                    child,
+                    &AgentStatus::Completed(Some(format!("{node_id} inspect result"))),
+                )
+                .expect("child result");
+            if node_id == "node-2" {
+                accept_test_result(&mut state, owner, &child_result_id);
+            } else {
+                question_test_result(&mut state, owner, &child_result_id);
+            }
+        }
 
         state
-            .prepare_main_tool_call(
+            .create_node_for_main_with_kind(
                 owner,
-                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "single-line edit"),
+                NodeKind::ImplementSolution,
+                "Implement fix".to_string(),
+                "Apply fix from broad inspect.".to_string(),
+                vec!["node-1".to_string()],
+                true,
             )
-            .expect("clear implementation node should stay on main agent");
+            .expect("implementation node can be created for recovery");
+        let error = state
+            .prepare_main_tool_call(owner, "apply_patch")
+            .expect_err("questioned subagent work must not unlock implementation");
+        assert!(error.contains("without two accepted subagent inspect results"));
     }
 
     #[test]
@@ -8565,6 +10095,7 @@ mod tests {
                 false,
             )
             .expect("first task");
+        seed_test_cognitive_preflight(&mut state, owner);
         state
             .start_task_for_main(
                 owner,
@@ -8575,6 +10106,7 @@ mod tests {
                 false,
             )
             .expect("second task");
+        seed_test_cognitive_preflight(&mut state, owner);
         state
             .route_task_for_main(owner, "task-1")
             .expect("route to first task");
@@ -8627,6 +10159,7 @@ mod tests {
                 true,
             )
             .expect("broad task");
+        seed_test_cognitive_preflight(&mut state, owner);
         fill_main_tool_budget(&mut state, owner);
 
         state
@@ -8639,6 +10172,7 @@ mod tests {
                 false,
             )
             .expect("separate task");
+        seed_test_cognitive_preflight(&mut state, owner);
         state
             .route_task_for_main(owner, "task-1")
             .expect("route back to broad task");
@@ -8664,6 +10198,7 @@ mod tests {
                 true,
             )
             .expect("broad task");
+        seed_test_cognitive_preflight(&mut state, owner);
         fill_main_tool_budget(&mut state, owner);
         let snapshot = state.snapshot();
         assert_eq!(snapshot.maintenance_barriers.len(), 1);
@@ -8921,17 +10456,16 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        let (_, _, node_id, _) = state
-            .start_task_for_main_with_kind(
-                owner,
-                NodeKind::ImplementSolution,
-                "Fix rounding".to_string(),
-                "Fix the tax rounding bug.".to_string(),
-                "Apply code fix".to_string(),
-                "Change calculate_tax rounding.".to_string(),
-                true,
-            )
-            .expect("task starts");
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Fix rounding",
+            "Fix the tax rounding bug.",
+            "Apply code fix",
+            "Change calculate_tax rounding.",
+            true,
+        );
 
         let error = state
             .finish_main_node(owner, &node_id, "Fixed rounding.".to_string(), None)
@@ -8963,17 +10497,16 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        let (_, _, node_id, _) = state
-            .start_task_for_main_with_kind(
-                owner,
-                NodeKind::SmokeTest,
-                "Validate fix".to_string(),
-                "Run the validation suite.".to_string(),
-                "Run smoke tests".to_string(),
-                "Run pytest.".to_string(),
-                true,
-            )
-            .expect("task starts");
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
 
         state
             .record_main_tool_result_with_class(
@@ -9019,17 +10552,16 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        let (_, _, node_id, _) = state
-            .start_task_for_main_with_kind(
-                owner,
-                NodeKind::ImplementSolution,
-                "Fix rounding".to_string(),
-                "Fix the tax rounding bug.".to_string(),
-                "Apply code fix".to_string(),
-                "Change calculate_tax rounding.".to_string(),
-                true,
-            )
-            .expect("task starts");
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Fix rounding",
+            "Fix the tax rounding bug.",
+            "Apply code fix",
+            "Change calculate_tax rounding.",
+            true,
+        );
         state
             .record_main_tool_result_with_class(
                 owner,
@@ -9055,17 +10587,16 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        let (_, _, node_id, _) = state
-            .start_task_for_main_with_kind(
-                owner,
-                NodeKind::SmokeTest,
-                "Validate fix".to_string(),
-                "Run the validation suite.".to_string(),
-                "Run smoke tests".to_string(),
-                "Run pytest.".to_string(),
-                true,
-            )
-            .expect("task starts");
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
 
         state
             .record_main_tool_result_with_class(
@@ -9094,17 +10625,16 @@ mod tests {
         let owner = ThreadId::new();
         let child = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        let (_, _, node_id, _) = state
-            .start_task_for_main_with_kind(
-                owner,
-                NodeKind::ImplementSolution,
-                "Fix rounding".to_string(),
-                "Fix the tax rounding bug.".to_string(),
-                "Apply code fix".to_string(),
-                "Change calculate_tax rounding.".to_string(),
-                false,
-            )
-            .expect("task starts");
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Fix rounding",
+            "Fix the tax rounding bug.",
+            "Apply code fix",
+            "Change calculate_tax rounding.",
+            false,
+        );
         let (assignment, _) = state
             .prepare_spawn_assignment(owner, "worker", Some(&node_id))
             .expect("spawn assignment");
@@ -9136,17 +10666,16 @@ mod tests {
         let owner = ThreadId::new();
         let child = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        let (_, _, node_id, _) = state
-            .start_task_for_main_with_kind(
-                owner,
-                NodeKind::SmokeTest,
-                "Validate fix".to_string(),
-                "Run the validation suite.".to_string(),
-                "Run smoke tests".to_string(),
-                "Run pytest.".to_string(),
-                false,
-            )
-            .expect("task starts");
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            false,
+        );
         let (assignment, _) = state
             .prepare_spawn_assignment(owner, "verifier", Some(&node_id))
             .expect("spawn assignment");
@@ -10414,6 +11943,97 @@ mod tests {
     }
 
     #[test]
+    fn start_task_rejects_broad_delegation_debt_bypass_without_mutation() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        start_test_task(
+            &mut state,
+            owner,
+            "Broad inspection",
+            "Inspect several connected surfaces.",
+            true,
+        );
+        fill_main_tool_budget(&mut state, owner);
+        let (outcome, _) = state
+            .finish_main_node(
+                owner,
+                "node-1",
+                "Broad inspection found multiple tracks.".to_string(),
+                None,
+            )
+            .expect("finish broad inspect");
+        accept_test_result(&mut state, owner, &outcome.result_id);
+
+        let error = state
+            .start_task_for_main(
+                owner,
+                "Bypass task".to_string(),
+                "Try to continue same work elsewhere.".to_string(),
+                "Implementation".to_string(),
+                "Apply fixes without delegation.".to_string(),
+                true,
+            )
+            .expect_err("broad delegation debt should block start_task bypass");
+
+        assert!(error.contains("unresolved broad inspect delegation debt"));
+        assert_eq!(state.tasks.len(), 1);
+        assert_eq!(state.maps.len(), 1);
+        assert_eq!(state.active_task_id.as_deref(), Some("task-1"));
+        assert_eq!(state.active_map_id.as_deref(), Some("map-1"));
+    }
+
+    #[test]
+    fn route_task_rejects_broad_delegation_debt_bypass_without_mutation() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        start_test_task(
+            &mut state,
+            owner,
+            "Broad inspection",
+            "Inspect several connected surfaces.",
+            true,
+        );
+        state
+            .start_task_for_main(
+                owner,
+                "Other task".to_string(),
+                "Already existing separate task.".to_string(),
+                "Other node".to_string(),
+                "Other node context.".to_string(),
+                false,
+            )
+            .expect("second task can start before broad debt exists");
+        seed_test_cognitive_preflight(&mut state, owner);
+        state
+            .route_task_for_main(owner, "task-1")
+            .expect("route back to first task");
+        state
+            .bind_main_node(owner, "node-1")
+            .expect("bind first task node");
+        fill_main_tool_budget(&mut state, owner);
+        let (outcome, _) = state
+            .finish_main_node(
+                owner,
+                "node-1",
+                "Broad inspection found multiple tracks.".to_string(),
+                None,
+            )
+            .expect("finish broad inspect");
+        accept_test_result(&mut state, owner, &outcome.result_id);
+
+        let error = state
+            .route_task_for_main(owner, "task-2")
+            .expect_err("broad delegation debt should block route_task bypass");
+
+        assert!(error.contains("unresolved broad inspect delegation debt"));
+        assert_eq!(state.active_task_id.as_deref(), Some("task-1"));
+        assert_eq!(state.active_map_id.as_deref(), Some("map-1"));
+        assert_eq!(state.current_main_node_id, None);
+    }
+
+    #[test]
     fn user_turn_requires_routing_before_work_and_spawn() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -10428,6 +12048,7 @@ mod tests {
                 true,
             )
             .expect("task");
+        seed_test_cognitive_preflight(&mut state, owner);
 
         state.begin_user_turn();
         let work_error = state
@@ -10542,6 +12163,7 @@ mod tests {
                 false,
             )
             .expect("first task");
+        seed_test_cognitive_preflight(&mut state, owner);
         state
             .start_task_for_main(
                 owner,
@@ -10552,6 +12174,7 @@ mod tests {
                 true,
             )
             .expect("second task");
+        seed_test_cognitive_preflight(&mut state, owner);
 
         let events = state
             .route_task_for_main(owner, "task-1")
@@ -10836,10 +12459,13 @@ mod tests {
                 }
                 _ => {}
             }
-            state.record_child_result(
-                child,
-                &AgentStatus::Completed(Some(format!("{expected_node} done"))),
-            );
+            let (result_id, _) = state
+                .record_child_result(
+                    child,
+                    &AgentStatus::Completed(Some(format!("{expected_node} done"))),
+                )
+                .expect("child result records");
+            accept_test_result(&mut state, owner, &result_id);
         }
 
         let map_id = map_id.expect("map id");

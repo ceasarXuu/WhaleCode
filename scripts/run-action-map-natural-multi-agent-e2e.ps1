@@ -33,7 +33,7 @@ $oracleStdoutPath = Join-Path $artifactDir "hidden-oracle.stdout.log"
 $oracleStderrPath = Join-Path $artifactDir "hidden-oracle.stderr.log"
 $gitDiffPath = Join-Path $artifactDir "git-diff.patch"
 $reportPath = Join-Path $artifactDir "report.md"
-$scriptSha256 = (Get-FileHash -Algorithm SHA256 $PSCommandPath).Hash
+$scriptSha256 = (Get-FileHash -Algorithm SHA256 $PSCommandPath).Hash; $libSha256 = (Get-FileHash -Algorithm SHA256 (Join-Path $PSScriptRoot "action-map-real-user-e2e-lib.ps1")).Hash
 $whaleSha256 = if (Test-Path $WhaleBin) { (Get-FileHash -Algorithm SHA256 $WhaleBin).Hash } else { "" }
 
 Write-Text (Join-Path $srcDir "__init__.py") @'
@@ -153,8 +153,10 @@ Please inspect the README, tests, and implementation before editing. Separate pr
 Run the current tests before editing so we know the baseline failure, then run the relevant tests again after the fix. Briefly explain how you organized the work and what changed.
 '@
 Write-Text $promptPath $prompt
-$forbiddenPromptTerms = "(?i)taskspace|action map|\bmap\b|\bnode\b|subagent|spawn_agent|taskspace_control|\bparallel(ize)?\b|\bconcurrent(ly)?\b|\bsimultaneous(ly)?\b|\bdelegate\b|\bdelegation\b|\bmultiple agents?\b|\bmulti-agent\b|\bsplit .* agents?\b|\bfan[- ]?out\b"
-$promptLeaksInternalConcepts = $prompt -match $forbiddenPromptTerms
+$forbiddenPromptTerms = Get-InternalOrchestrationLeakPattern
+$forbiddenFinalTerms = $forbiddenPromptTerms
+$promptLeakExcerpt = Get-RegexFirstMatchExcerpt $prompt $forbiddenPromptTerms
+$promptLeaksInternalConcepts = -not [string]::IsNullOrWhiteSpace($promptLeakExcerpt)
 
 if ($PlanOnly) {
     Write-Host "RunDir: $runDir"
@@ -211,6 +213,9 @@ try {
 $jsonlText = Get-Content -Raw -Encoding UTF8 $jsonlPath
 $stderrText = Get-Content -Raw -Encoding UTF8 $stderrPath
 $validationStdout = Get-Content -Raw -Encoding UTF8 $validationStdoutPath
+$lastMessage = if (Test-Path $lastMessagePath) { Get-Content -Raw -Encoding UTF8 $lastMessagePath } else { "" }
+$finalOutputLeakExcerpt = Get-RegexFirstMatchExcerpt $lastMessage $forbiddenFinalTerms
+$finalOutputLeaksInternalConcepts = -not [string]::IsNullOrWhiteSpace($finalOutputLeakExcerpt)
 $threadId = Get-ThreadId $jsonlText
 $rollout = Find-LatestRollout $started $threadId
 $obsExitCode = -1
@@ -238,6 +243,13 @@ foreach ($line in ($rolloutText -split "`r?`n")) {
 
 $ordering = Get-SuccessfulTaskspaceOrdering $rolloutText
 $graphHealth = Get-TaskspaceGraphHealth $obs
+$cognitiveAudit = if ($obs) { $obs.cognitiveAudit } else { $null }
+$cognitiveHardGatePassed = if ($cognitiveAudit) { [bool]$cognitiveAudit.hardGatePassed } else { $false }
+$cognitiveHardGateFailures = if ($cognitiveAudit) { @($cognitiveAudit.hardGateFailures) } else { @() }
+$outputContractCount = if ($obs) { [int]$obs.summary.outputContracts } else { 0 }
+$factSourceCount = if ($obs) { [int]$obs.summary.factSources } else { 0 }
+$acceptedResultCount = if ($obs) { [int]$obs.summary.acceptedResults } else { 0 }
+$finalArtifactCount = if ($obs) { [int]$obs.summary.finalArtifacts } else { 0 }
 $mapCount = if ($obs) { @($obs.maps).Count } else { 0 }
 $nodeCount = if ($obs) { @($obs.nodes).Count } else { 0 }
 $agentCount = if ($obs) { @($obs.agents).Count } else { 0 }
@@ -307,7 +319,8 @@ try {
 }
 
 $failures = New-Object System.Collections.Generic.List[string]
-if ($promptLeaksInternalConcepts) { $failures.Add("natural user prompt leaked internal TaskSpace terms") }
+if ($promptLeaksInternalConcepts) { $failures.Add("natural user prompt leaked internal orchestration concepts: $promptLeakExcerpt") }
+if ($finalOutputLeaksInternalConcepts) { $failures.Add("final user output leaked internal orchestration concepts: $finalOutputLeakExcerpt") }
 if ($execExitCode -ne 0) { $failures.Add("whale exec exit code was $execExitCode") }
 if ($validationExitCode -ne 0) { $failures.Add("post-run pytest exit code was $validationExitCode") }
 if ($oracleExitCode -ne 0) { $failures.Add("hidden oracle exit code was $oracleExitCode") }
@@ -315,6 +328,7 @@ if ($validationStdout -notmatch "passed") { $failures.Add("pytest output did not
 if ([string]::IsNullOrWhiteSpace($gitDiffText)) { $failures.Add("repository diff is empty after the real agent run") }
 if (-not $rollout) { $failures.Add("could not find the rollout for this thread") }
 if ($rollout -and $obsExitCode -ne 0) { $failures.Add("observability export failed with exit code $obsExitCode") }
+if ($rollout -and $obsExitCode -eq 0 -and -not $cognitiveHardGatePassed) { $failures.Add("cognitive hard gate failed: $($cognitiveHardGateFailures -join ', ')") }
 if ($ordering.OrdinaryToolBeforeBinding) { $failures.Add("ordinary tool succeeded before first TaskSpace binding") }
 if ($mapCount -lt 1) { $failures.Add("no map was observed") }
 if ($nodeCount -lt 5) { $failures.Add("map did not grow to at least 5 nodes; observed $nodeCount") }
@@ -350,7 +364,7 @@ foreach ($row in @(
     @("overall", $overall), @("scenario_id", $ScenarioId), @("run_dir", $runDir), @("repo_dir", $repoDir),
     @("whale_bin", $WhaleBin), @("model", $Model), @("started", $started.ToString("o")),
     @("finished", $finished.ToString("o")), @("thread_id", $threadId), @("exec_exit_code", $execExitCode),
-    @("validation_exit_code", $validationExitCode), @("oracle_exit_code", $oracleExitCode), @("script_sha256", $scriptSha256),
+    @("validation_exit_code", $validationExitCode), @("oracle_exit_code", $oracleExitCode), @("script_sha256", $scriptSha256), @("e2e_lib_sha256", $libSha256),
     @("whale_sha256", $whaleSha256), @("whale_version", $whaleVersion), @("repo_head", $repoHead), @("repo_status", $repoStatus),
     @("rollout", $(if ($rollout) { $rollout.FullName } else { "" }))
 )) { Add-ReportLine $report $row[0] $row[1] }
@@ -360,7 +374,12 @@ $report.Add("")
 $report.Add("## Metrics")
 $report.Add("")
 foreach ($row in @(
-    @("prompt_leaks_internal_concepts", $promptLeaksInternalConcepts), @("maps", $mapCount), @("nodes", $nodeCount),
+    @("prompt_leaks_internal_concepts", $promptLeaksInternalConcepts), @("final_output_leaks_internal_concepts", $finalOutputLeaksInternalConcepts),
+    @("prompt_leak_excerpt", $promptLeakExcerpt), @("final_output_leak_excerpt", $finalOutputLeakExcerpt), @("forbidden_terms", $forbiddenFinalTerms), @("maps", $mapCount), @("nodes", $nodeCount),
+    @("output_contracts", $outputContractCount), @("fact_sources", $factSourceCount),
+    @("accepted_results", $acceptedResultCount), @("cognitive_hard_gate_passed", $cognitiveHardGatePassed),
+    @("cognitive_hard_gate_failures", $($cognitiveHardGateFailures -join ", ")),
+    @("final_artifacts", $finalArtifactCount),
     @("edges", $graphHealth.EdgeCount), @("ordered_edges", $graphHealth.OrderedEdgeCount),
     @("edge_order_violations", $graphHealth.EdgeOrderViolationCount),
     @("anchored_implementation_nodes", $graphHealth.AnchoredImplementationCount),

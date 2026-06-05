@@ -169,7 +169,7 @@ try {
     $orphanState = [pscustomobject]@{
         outputContracts = @(
             [pscustomobject]@{ id = "contract-good"; kind = "artifact"; description = "write app.py"; evidenceRefs = @([pscustomobject]@{ resultId = "result-good" }) },
-            [pscustomobject]@{ id = "contract-orphan"; kind = "artifact"; description = "write missing.txt"; evidenceRefs = @() }
+            [pscustomobject]@{ id = "contract-orphan"; kind = "artifact"; description = "write missing.txt"; artifactRef = "missing.txt"; evidenceRefs = @() }
         )
         factSources = @([pscustomobject]@{ id = "source-orphan"; provenance = "observed_from_environment"; description = "validator output"; evidenceRefs = @([pscustomobject]@{ validatorRef = "pytest" }) })
         facts = @([pscustomobject]@{ id = "fact-orphan"; statement = "tests passed"; evidenceRefs = @([pscustomobject]@{ factSourceId = "source-orphan" }) })
@@ -184,7 +184,7 @@ try {
     Assert-Equal ([bool]$orphanAudit.hardGatePassed) $false "orphan artifact contract should fail why-chain audit"
     Assert-Contains $orphanAudit.hardGateFailures "audit_why_chain_missing" "orphan artifact contract should be reported"
     $orphanGate = @($orphanAudit.gateRecords | Where-Object { $_.gateId -eq "audit_why_chain_missing" } | Select-Object -First 1)
-    if (@($orphanGate.subjectIds) -notcontains "task-orphan/contract-orphan") {
+    if (@($orphanGate.subjectIds) -notcontains "task:task-orphan|artifact:missing.txt") {
         throw "orphan artifact contract should include task/contract subject id."
     }
     $results.Add("cognitive-audit-orphan-artifact-contract: PASS")

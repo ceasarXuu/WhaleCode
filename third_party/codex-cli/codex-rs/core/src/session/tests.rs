@@ -1374,6 +1374,126 @@ async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() 
 }
 
 #[tokio::test]
+async fn action_map_final_gate_failure_records_developer_followup() {
+    let (session, turn_context) = make_session_and_context().await;
+    {
+        let mut state = session.state.lock().await;
+        state
+            .action_map_runtime
+            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
+        state
+            .action_map_runtime
+            .start_task_for_main_with_kind(
+                session.conversation_id,
+                NodeKind::ImplementSolution,
+                "Patch bug".to_string(),
+                "Apply a code edit.".to_string(),
+                "Patch code".to_string(),
+                "Modify the target file.".to_string(),
+                true,
+            )
+            .expect("task starts");
+    }
+    let source_evidence_refs = vec![crate::action_map::ActionMapEvidenceRefInput {
+        artifact_ref: Some("test-fixture:user-request".to_string()),
+        ..Default::default()
+    }];
+    session
+        .record_action_map_output_contract(
+            &turn_context,
+            "contract-test",
+            "artifact",
+            "Test fixture acceptance contract.".to_string(),
+            source_evidence_refs.clone(),
+        )
+        .await
+        .expect("output contract records");
+    session
+        .record_action_map_fact_source(
+            &turn_context,
+            "source-test",
+            "provided_by_user",
+            "Test fixture source facts.".to_string(),
+            source_evidence_refs,
+        )
+        .await
+        .expect("fact source records");
+    session
+        .prepare_action_map_main_tool_call(
+            &turn_context,
+            ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
+                .with_call_id("call-edit"),
+        )
+        .await
+        .expect("edit is allowed");
+    session
+        .record_action_map_main_tool_result(
+            &turn_context,
+            "call-edit",
+            "apply_patch",
+            Some(ActionClass::Edit),
+            true,
+            "M src/lib.rs".to_string(),
+        )
+        .await;
+    let result_id = {
+        let mut state = session.state.lock().await;
+        let (outcome, _) = state
+            .action_map_runtime
+            .finish_main_node_with_next(
+                session.conversation_id,
+                "node-1",
+                "Patched target file.".to_string(),
+                None,
+                Some(crate::action_map::ActionMapNextNodeDraft {
+                    kind: NodeKind::FinalSynthesis,
+                    title: "Final summary".to_string(),
+                    context_summary: "Summarize the patch.".to_string(),
+                    dependency_node_ids: vec!["node-1".to_string()],
+                }),
+            )
+            .expect("finish into final synthesis");
+        outcome.result_id
+    };
+    session
+        .mark_action_map_result_validity(
+            &turn_context,
+            &result_id,
+            "accepted",
+            "Implementation result accepted.".to_string(),
+            vec![crate::action_map::ActionMapCognitiveClaimInput {
+                id: "claim-impl".to_string(),
+                statement: "The implementation edited the target file.".to_string(),
+                evidence_refs: vec![crate::action_map::ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    ..Default::default()
+                }],
+            }],
+            vec![crate::action_map::ActionMapEvidenceRefInput {
+                result_id: Some(result_id.clone()),
+                ..Default::default()
+            }],
+            vec!["src/lib.rs".to_string()],
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
+        .expect("implementation result validity records");
+
+    let error = session
+        .record_action_map_main_final_response(&turn_context, "Done.")
+        .await
+        .expect_err("final response gate failure must propagate to turn");
+
+    assert!(error.contains("accepted smoke_test or regression_test result"));
+    let history = session.clone_history().await;
+    let developer_text = developer_input_texts(history.raw_items()).join("\n");
+    assert!(developer_text.contains("TaskSpace final answer gate rejected"));
+    assert!(developer_text.contains("Do not treat the previous response as final"));
+    assert!(developer_text.contains("accepted smoke_test or regression_test result"));
+}
+
+#[tokio::test]
 async fn real_user_input_sets_taskspace_routing_gate_and_snapshot() {
     let (session, turn_context, rx) = make_session_and_context_with_rx().await;
     {
@@ -1467,6 +1587,30 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
             )
             .expect("task starts");
     }
+    let evidence_refs = vec![crate::action_map::ActionMapEvidenceRefInput {
+        artifact_ref: Some("test-fixture:user-request".to_string()),
+        ..Default::default()
+    }];
+    session
+        .record_action_map_output_contract(
+            turn_context.as_ref(),
+            "contract-test",
+            "artifact",
+            "Test fixture acceptance contract.".to_string(),
+            evidence_refs.clone(),
+        )
+        .await
+        .expect("output contract records");
+    session
+        .record_action_map_fact_source(
+            turn_context.as_ref(),
+            "source-test",
+            "provided_by_user",
+            "Test fixture source facts.".to_string(),
+            evidence_refs,
+        )
+        .await
+        .expect("fact source records");
 
     session
         .prepare_action_map_main_tool_call(

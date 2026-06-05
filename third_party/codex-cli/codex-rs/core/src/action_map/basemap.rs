@@ -110,9 +110,10 @@ pub(crate) fn node_kind_selection_prompt() -> &'static str {
 - Use implement_solution only when the node will modify code, tests, configuration, or docs.
 - Use smoke_test or regression_test before post-implementation test/build/lint commands.
 - Keep expected failing pre-fix diagnostic test runs inside inspect_code_context; do not create a separate smoke_test node just to prove the current bug fails.
-- Use final_synthesis only for final wrap-up.
+- Use final_synthesis only for answer-only final wrap-up after accepted validation; do not edit, test, build, spawn agents, or call ordinary tools from final_synthesis. The user-facing final answer must describe work phases and outcomes without internal TaskSpace terms such as task, map, node, subagent, spawn, lease, final_synthesis, or taskspace_control unless the user explicitly asks to debug TaskSpace. If the user asks how work was organized, describe visible phases, files, tests, and outcomes only; never mention hidden execution roles or words such as subagent, explorer, agent, delegated, parallel, evidence track, fan-out, or spawn.
 - If validation fails and edits are needed, leave the test node with its result, switch to implement_solution for the fix, then switch back to a test node for the rerun.
 - Prefer the minimum sufficient node chain; create multiple ready inspect_code_context nodes only for independent evidence tracks with distinct source surfaces.
+- If the user request names or implies two or more distinct functional surfaces, files, modules, or evidence classes before editing, treat them as independent investigation tracks until evidence proves otherwise. Create separate ready inspect_code_context nodes for those tracks and assign explorer subagents; the main agent should coordinate and integrate instead of reading every track itself.
 - Keep path correction, known-file reads, and single-evidence follow-up reads inside the current inspect_code_context node; do not create another inspect node or spawn an explorer just to read one known file.
 - Do not create custom nodes in live TaskSpace work. If work does not fit a kind, choose the closest concrete kind and explain the scope in the node title/context."
 }
@@ -120,11 +121,13 @@ pub(crate) fn node_kind_selection_prompt() -> &'static str {
 pub(crate) fn cognitive_state_protocol_prompt() -> &'static str {
     "TaskSpace cognitive protocol (MVP):
 - The main agent is the task's problem-state and model manager, not a linear worker. Maintain the task map, assign bounded nodes, integrate evidence, and update the task's current model before acting.
-- At task start or when requirements change, record user-stated acceptance criteria, required artifact/format/schema/validator/non-goals as output contracts with evidence_refs before relying on them.
+- Ordinary work and subagent spawn require cognitive preflight: after start_task/route_task and before the first non-control action, record at least one output contract and one fact source with non-empty evidence_refs.
+- At task start or when requirements change, record user-stated acceptance criteria, required artifact/format/schema/validator/non-goals as output contracts with evidence_refs before relying on them. Use artifact_ref for the current user request, README/spec/test/source paths, or validator_ref for observed checks when no result_id exists yet.
 - Record fact sources for user-provided facts, observed environment facts, and test/validator outputs. Keep generated_for_test_only, inferred, and unknown provenance out of active task facts and final user claims unless they are explicitly rechecked against observed/provided evidence.
-- Treat subagent and node results as evidence packages, not final truth. Before using a result to update the task model, mark_result_validity with claims, evidence_refs, changed_artifacts, validator_refs, and remaining_uncertainty. Accepted results require claims and evidence refs.
+- Treat subagent and node results as evidence packages, not final truth. After finish_node/block_node or subagent completion, call mark_result_validity before any further ordinary work, spawn, or final answer. Accepted implementation results must include claims, evidence refs, and changed_artifacts for modified files.
 - Active facts must cite accepted results or observed/provided fact sources. Questioned, invalid, unreviewed, generated, inferred, or unknown material may guide investigation but cannot anchor the final answer.
-- Direct trace events are an internal audit log for observability and replay. Do not expose task/map/node/subagent terminology to the user unless the user is explicitly debugging TaskSpace."
+- Direct trace events are an internal audit log for observability and replay. Do not expose task/map/node/subagent terminology to the user unless the user is explicitly debugging TaskSpace.
+- Final answers are user-facing product output. Collapse hidden orchestration into ordinary phrases such as investigation, implementation, and validation; do not mention subagent, explorer, agent, delegated, parallel, evidence track, fan-out, spawn, lease, taskspace_control, task, map, or node."
 }
 
 #[cfg(test)]

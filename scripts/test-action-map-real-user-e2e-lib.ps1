@@ -18,6 +18,22 @@ function Assert-Equal($Actual, $Expected, [string]$Message) {
 $results = New-Object System.Collections.Generic.List[string]
 
 try {
+    $leakPattern = Get-InternalOrchestrationLeakPattern
+    foreach ($leakyText in @(
+            "I delegated two independent evidence tracks to parallel explorers.",
+            "I used fan-out to split the work across agents.",
+            "The subagent result was accepted.",
+            "The action map moved node-1 into final_synthesis."
+        )) {
+        if ([string]::IsNullOrWhiteSpace((Get-RegexFirstMatchExcerpt $leakyText $leakPattern))) {
+            throw "Expected orchestration leak to be detected in: $leakyText"
+        }
+    }
+    Assert-Equal (Get-RegexFirstMatchExcerpt "I fixed the parser and ran tests." $leakPattern) "" "ordinary final summary should not leak"
+    Assert-Equal (Get-RegexFirstMatchExcerpt "I used the README to map every function and test expectation." $leakPattern) "" "ordinary map verb should not leak"
+    Assert-Equal (Get-RegexFirstMatchExcerpt "I fixed concurrent request handling and parallel test execution support." $leakPattern) "" "ordinary concurrency terms should not leak"
+    $results.Add("orchestration-leak-filter: PASS")
+
     $obs = [pscustomobject]@{
         toolCalls = @(
             [pscustomobject]@{
@@ -30,12 +46,24 @@ try {
                 tool = "spawn_agent"
                 status = "failed"
                 promptPreview = "Inspect tests"
+                outputPreview = 'TaskSpace node `node-3` is already held by an active lease; wait for release or choose another ready node.'
+            },
+            [pscustomobject]@{
+                tool = "spawn_agent"
+                status = "failed"
+                promptPreview = "Inspect follow-up"
+                outputPreview = "TaskSpace blocked spawn_agent for inspect node `node-6` because a completed narrow inspect node already exists and only one follow-up inspect track is available."
+            },
+            [pscustomobject]@{
+                tool = "spawn_agent"
+                status = "failed"
+                promptPreview = "Inspect tests"
                 outputPreview = "transport error"
             }
         )
     }
-    Assert-Equal (Count-FailedCollabToolCalls $obs) 2 "all failed collab calls should still be counted"
-    Assert-Equal (Count-UnexpectedFailedCollabToolCalls $obs) 1 "recovered stale spawn should not count as unexpected"
+    Assert-Equal (Count-FailedCollabToolCalls $obs) 4 "all failed collab calls should still be counted"
+    Assert-Equal (Count-UnexpectedFailedCollabToolCalls $obs) 1 "recovered runtime gates should not count as unexpected"
     $results.Add("unexpected-failed-collab-filter: PASS")
 
     $report = @("# Action Map Real User E2E Lib Self-Test", "", "- overall: PASS") + ($results | ForEach-Object { "- $_" })

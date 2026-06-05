@@ -6,12 +6,9 @@ param(
     [int]$TimeoutSeconds = 1200,
     [switch]$PlanOnly
 )
-
 $ErrorActionPreference = "Stop"
-
 . (Join-Path $PSScriptRoot "action-map-real-user-e2e-lib.ps1")
 . (Join-Path $PSScriptRoot "action-map-graph-health-lib.ps1")
-
 if (-not $RunRoot) {
     $RunRoot = Join-Path $PSScriptRoot "..\target\real-user-e2e"
 }
@@ -22,7 +19,6 @@ $repoDir = New-Dir (Join-Path $runDir "repo")
 $artifactDir = New-Dir (Join-Path $runDir "artifacts")
 $srcDir = New-Dir (Join-Path $repoDir "src\order_pipeline")
 $testDir = New-Dir (Join-Path $repoDir "tests")
-
 $promptPath = Join-Path $artifactDir "user-prompt.txt"
 $jsonlPath = Join-Path $artifactDir "whale-exec.jsonl"
 $stderrPath = Join-Path $artifactDir "whale-exec.stderr.log"
@@ -31,9 +27,8 @@ $validationStdoutPath = Join-Path $artifactDir "validation.stdout.log"
 $validationStderrPath = Join-Path $artifactDir "validation.stderr.log"
 $gitDiffPath = Join-Path $artifactDir "git-diff.patch"
 $reportPath = Join-Path $artifactDir "report.md"
-$scriptSha256 = (Get-FileHash -Algorithm SHA256 $PSCommandPath).Hash
+$scriptSha256 = (Get-FileHash -Algorithm SHA256 $PSCommandPath).Hash; $libSha256 = (Get-FileHash -Algorithm SHA256 (Join-Path $PSScriptRoot "action-map-real-user-e2e-lib.ps1")).Hash
 $whaleSha256 = if (Test-Path $WhaleBin) { (Get-FileHash -Algorithm SHA256 $WhaleBin).Hash } else { "" }
-
 @'
 from .invoice import invoice_total
 from .parser import parse_order_line
@@ -157,9 +152,9 @@ Acceptance:
 - Briefly explain how you organized the work and how the project state changed while you worked.
 "@
 Write-Text $promptPath $prompt
-$forbiddenPromptTerms = "(?i)taskspace|action map|\bmap\b|\bnode\b|subagent|spawn_agent|taskspace_control|\bparallel(ize)?\b|\bconcurrent(ly)?\b|\bsimultaneous(ly)?\b|\bdelegate\b|\bdelegation\b|\bmultiple agents?\b|\bmulti-agent\b|\bsplit .* agents?\b|\bfan[- ]?out\b"
-$promptLeaksInternalConcepts = $prompt -match $forbiddenPromptTerms
-
+$forbiddenPromptTerms = Get-InternalOrchestrationLeakPattern; $forbiddenFinalTerms = $forbiddenPromptTerms
+$promptLeakExcerpt = Get-RegexFirstMatchExcerpt $prompt $forbiddenPromptTerms
+$promptLeaksInternalConcepts = -not [string]::IsNullOrWhiteSpace($promptLeakExcerpt)
 if ($PlanOnly) {
     Write-Host "RunDir: $runDir"
     Write-Host "RepoDir: $repoDir"
@@ -170,7 +165,6 @@ if ($PlanOnly) {
     Write-Host "ReportPath: $reportPath"
     exit 0
 }
-
 if (-not (Test-Path $WhaleBin)) {
     throw "Whale binary not found: $WhaleBin"
 }
@@ -223,6 +217,8 @@ $jsonlText = if (Test-Path $jsonlPath) { Get-Content -Raw -Encoding UTF8 $jsonlP
 $stderrText = if (Test-Path $stderrPath) { Get-Content -Raw -Encoding UTF8 $stderrPath } else { "" }
 $validationStdout = if (Test-Path $validationStdoutPath) { Get-Content -Raw -Encoding UTF8 $validationStdoutPath } else { "" }
 $lastMessage = if (Test-Path $lastMessagePath) { Get-Content -Raw -Encoding UTF8 $lastMessagePath } else { "" }
+$finalOutputLeakExcerpt = Get-RegexFirstMatchExcerpt $lastMessage $forbiddenFinalTerms
+$finalOutputLeaksInternalConcepts = -not [string]::IsNullOrWhiteSpace($finalOutputLeakExcerpt)
 $threadId = Get-ThreadId $jsonlText
 $rollout = Find-LatestRollout $started $threadId
 $rolloutCopy = ""
@@ -252,6 +248,11 @@ if ($rollout) {
 }
 $obs = if (Test-Path $obsJsonPath) { Get-Content -Raw -Encoding UTF8 $obsJsonPath | ConvertFrom-Json } else { $null }
 $graphHealth = Get-TaskspaceGraphHealth $obs
+$cognitiveAudit = if ($obs) { $obs.cognitiveAudit } else { $null }
+$cognitiveHardGatePassed = if ($cognitiveAudit) { [bool]$cognitiveAudit.hardGatePassed } else { $false }
+$cognitiveHardGateFailures = if ($cognitiveAudit) { @($cognitiveAudit.hardGateFailures) } else { @() }
+$outputContractCount = if ($obs) { [int]$obs.summary.outputContracts } else { 0 }; $factSourceCount = if ($obs) { [int]$obs.summary.factSources } else { 0 }; $acceptedResultCount = if ($obs) { [int]$obs.summary.acceptedResults } else { 0 }
+$questionedOrInvalidResultCount = if ($obs) { [int]$obs.summary.questionedOrInvalidResults } else { 0 }; $finalArtifactCount = if ($obs) { [int]$obs.summary.finalArtifacts } else { 0 }
 $toolCallArgs = @{}
 foreach ($line in ($rolloutText -split "`r?`n")) {
     try { $evt = $line | ConvertFrom-Json } catch { continue }
@@ -367,7 +368,8 @@ if ($obs) {
 }
 
 $failures = New-Object System.Collections.Generic.List[string]
-if ($promptLeaksInternalConcepts) { $failures.Add("natural growth-health prompt leaked TaskSpace/map/node/subagent concepts") }
+if ($promptLeaksInternalConcepts) { $failures.Add("natural growth-health prompt leaked internal orchestration concepts: $promptLeakExcerpt") }
+if ($finalOutputLeaksInternalConcepts) { $failures.Add("final user output leaked internal orchestration concepts: $finalOutputLeakExcerpt") }
 if ($execExitCode -ne 0) { $failures.Add("whale exec exit code was $execExitCode") }
 if ($validationExitCode -ne 0) { $failures.Add("post-run pytest exit code was $validationExitCode") }
 if ($oracleExitCode -ne 0) { $failures.Add("hidden oracle exit code was $oracleExitCode") }
@@ -375,6 +377,9 @@ if ($validationStdout -notmatch "passed") { $failures.Add("pytest output did not
 if ([string]::IsNullOrWhiteSpace($gitDiffText)) { $failures.Add("repository diff is empty after the real agent run") }
 if (-not $rollout) { $failures.Add("could not find the rollout for this thread") }
 if ($rollout -and $obsExitCode -ne 0) { $failures.Add("observability export failed with exit code $obsExitCode") }
+if ($rollout -and $obsExitCode -eq 0 -and -not $cognitiveHardGatePassed) {
+    $failures.Add("cognitive hard gate failed: $($cognitiveHardGateFailures -join ', ')")
+}
 if ($mapCount -lt 1) { $failures.Add("no map was observed") }
 if ($nodeCount -lt 4) { $failures.Add("map did not grow to at least 4 nodes; observed $nodeCount") }
 if ($graphHealth.EdgeCount -lt 2) { $failures.Add("map did not create enough dependency edges; observed $($graphHealth.EdgeCount)") }
@@ -399,9 +404,7 @@ if ($finishNodeCallCount -lt 2) { $failures.Add("expected at least 2 finish_node
 if ($finishNodeUnsupportedCount -gt 0) { $failures.Add("runtime rejected finish_node as unsupported") }
 if (-not $laterCreatedAfterCompletion) { $failures.Add("no follow-up node was created after an earlier node completed") }
 if (-not ($hasInspectKind -and $hasImplementationKind -and $hasTestKind)) { $failures.Add("node kinds did not cover inspect/implementation/test structure") }
-if (-not ($hasParserNode -and $hasPricingNode -and $hasImplementationNode -and $hasValidationNode)) {
-    $failures.Add("node titles did not cover parser/pricing/implementation/validation scenario categories")
-}
+if (-not ($hasParserNode -and $hasPricingNode -and $hasImplementationNode -and $hasValidationNode)) { $failures.Add("node titles did not cover parser/pricing/implementation/validation scenario categories") }
 if (-not $implementationNodeHasSuccessfulEdit) { $failures.Add("implementation node did not own a successful edit action") }
 if ($editOutsideImplementationCount -gt 0) { $failures.Add("observed $editOutsideImplementationCount successful edit action(s) outside implementation nodes") }
 if (-not $validationNodeHasPytestResult) { $failures.Add("validation node did not own a passing pytest command result") }
@@ -419,25 +422,25 @@ $overall = if ($failures.Count -eq 0) { "PASS" } else { "FAIL" }
 
 $report = New-Object System.Collections.Generic.List[string]
 $report.Add("# Action Map Growth Health E2E Report")
-$report.Add("")
+$report.Add(""); $report.Add("## Run")
 foreach ($row in @(
     @("overall", $overall), @("scenario_id", $ScenarioId), @("run_dir", $runDir), @("repo_dir", $repoDir),
     @("whale_bin", $WhaleBin), @("model", $Model), @("started", $started.ToString("o")),
     @("finished", $finished.ToString("o")), @("thread_id", $threadId), @("exec_exit_code", $execExitCode),
-    @("validation_exit_code", $validationExitCode), @("script_sha256", $scriptSha256),
+    @("validation_exit_code", $validationExitCode), @("script_sha256", $scriptSha256), @("e2e_lib_sha256", $libSha256),
     @("whale_sha256", $whaleSha256), @("whale_version", $whaleVersion), @("repo_head", $repoHead), @("repo_status", $repoStatus),
     @("rollout", $(if ($rollout) { $rollout.FullName } else { "" }))
 )) { Add-ReportLine $report $row[0] $row[1] }
-$report.Add("")
-$report.Add("## Artifacts")
-$report.Add("")
+$report.Add(""); $report.Add("## Artifacts"); $report.Add("")
 foreach ($row in @(@("jsonl", $jsonlPath), @("stderr", $stderrPath), @("last_message", $lastMessagePath), @("git_diff", $gitDiffPath), @("observability_json", $obsJsonPath), @("observability_md", $obsMdPath), @("observability_html", $obsHtmlPath))) { Add-ReportLine $report $row[0] $row[1] }
-$report.Add("")
-$report.Add("## Growth Health Metrics")
-$report.Add("")
+$report.Add(""); $report.Add("## Growth Health Metrics"); $report.Add("")
 foreach ($row in @(
-    @("prompt_leaks_internal_concepts", $promptLeaksInternalConcepts),
+    @("prompt_leaks_internal_concepts", $promptLeaksInternalConcepts), @("final_output_leaks_internal_concepts", $finalOutputLeaksInternalConcepts), @("forbidden_terms", $forbiddenFinalTerms),
+    @("prompt_leak_excerpt", $promptLeakExcerpt), @("final_output_leak_excerpt", $finalOutputLeakExcerpt),
     @("maps", $mapCount), @("nodes", $nodeCount), @("agents", $agentCount),
+    @("output_contracts", $outputContractCount), @("fact_sources", $factSourceCount),
+    @("accepted_results", $acceptedResultCount), @("questioned_or_invalid_results", $questionedOrInvalidResultCount), @("cognitive_hard_gate_passed", $cognitiveHardGatePassed),
+    @("cognitive_hard_gate_failures", $($cognitiveHardGateFailures -join ", ")), @("final_artifacts", $finalArtifactCount),
     @("edges", $graphHealth.EdgeCount), @("ordered_edges", $graphHealth.OrderedEdgeCount),
     @("edge_order_violations", $graphHealth.EdgeOrderViolationCount),
     @("anchored_implementation_nodes", $graphHealth.AnchoredImplementationCount),
@@ -478,16 +481,13 @@ foreach ($row in @(
     @("hidden_oracle_exit_code", $oracleExitCode), @("real_command_execution", $commandExecutionCount),
     @("git_diff_bytes", $gitDiffText.Length)
 )) { Add-ReportLine $report $row[0] $row[1] }
-$report.Add("")
-$report.Add("## Failures")
-$report.Add("")
+$report.Add(""); $report.Add("## Failures"); $report.Add("")
 if ($failures.Count -eq 0) { $report.Add("None.") } else { foreach ($failure in $failures) { $report.Add("- $failure") } }
 $report | Set-Content -Encoding UTF8 $reportPath
 
 Write-Host "Report: $reportPath"
 Write-Host "Observability: $obsMdPath"
-Write-Host "JSONL: $jsonlPath"
-Write-Host "LastMessage: $lastMessagePath"
+Write-Host "JSONL: $jsonlPath"; Write-Host "LastMessage: $lastMessagePath"
 Write-Host "Overall: $overall"
 if ($overall -ne "PASS") { exit 1 }
 exit 0

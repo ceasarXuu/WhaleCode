@@ -2154,9 +2154,15 @@ async fn try_run_sampling_request(
                 if let Some(false) = end_turn {
                     needs_follow_up = true;
                 }
-                if !needs_follow_up && let Some(message) = last_agent_message.as_deref() {
-                    sess.record_action_map_main_final_response(&turn_context, message)
-                        .await;
+                if !needs_follow_up
+                    && let Some(message) = last_agent_message.as_deref()
+                    && sess
+                        .record_action_map_main_final_response(&turn_context, message)
+                        .await
+                        .is_err()
+                {
+                    needs_follow_up = true;
+                    last_agent_message = None;
                 }
                 break Ok(SamplingRequestResult {
                     needs_follow_up,

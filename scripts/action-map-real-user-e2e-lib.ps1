@@ -1,6 +1,17 @@
 ﻿function New-Dir([string]$PathValue) { (New-Item -ItemType Directory -Force -Path $PathValue).FullName }
 function Write-Text([string]$PathValue, [string]$Text) { [System.IO.File]::WriteAllText($PathValue, $Text, [System.Text.UTF8Encoding]::new($false)) }
 function Count-Matches([string]$Text, [string]$Pattern) { ([regex]::Matches($Text, $Pattern)).Count }
+function Get-InternalOrchestrationLeakPattern {
+    "(?i)taskspace|action map|task map|\bmap-\d+\b|\bnode-\d+\b|\btask-\d+\b|subagents?|spawn_agent|taskspace_control|final_synthesis|\b(?:parallel(?:ize|ized|izing)?|concurrent(?:ly)?|simultaneous(?:ly)?)\s+(?:agents?|subagents?|explorers?|evidence tracks?)\b|\bdelegat(?:e|ed|ing|ion)\b|\bmultiple agents?\b|\bmulti[- ]agent\b|\bsplit\s+.*\bagents?\b|\bfan[- ]?out\b|\bexplorers?\b|\bevidence tracks?\b"
+}
+function Get-RegexFirstMatchExcerpt([string]$Text, [string]$Pattern) {
+    if ([string]::IsNullOrWhiteSpace($Text)) { return "" }
+    $match = [regex]::Match($Text, $Pattern)
+    if (-not $match.Success) { return "" }
+    $start = [Math]::Max(0, $match.Index - 60)
+    $length = [Math]::Min($Text.Length - $start, $match.Length + 120)
+    (($Text.Substring($start, $length)) -replace "\s+", " ").Trim()
+}
 function Get-ObjectPropertyNames($Value) {
     if ($null -eq $Value) { return @() }
     return @($Value.PSObject.Properties.Name)
@@ -361,7 +372,16 @@ function Test-ExpectedFailedCollabToolCall($ToolCall) {
     $isRecoveredStaleSpawn =
         [string]$ToolCall.tool -eq "spawn_agent" -and
         $text -match "is completed; create or choose an open ready node"
-    $isRecoveredStaleSpawn
+    $isRecoveredLifecycleGate =
+        [string]$ToolCall.tool -eq "spawn_agent" -and
+        $text -match "still unreviewed.*mark_result_validity"
+    $isRecoveredActiveLeaseGate =
+        [string]$ToolCall.tool -eq "spawn_agent" -and
+        $text -match "already held by an active lease"
+    $isRecoveredNarrowInspectGate =
+        [string]$ToolCall.tool -eq "spawn_agent" -and
+        $text -match "completed narrow inspect node already exists"
+    $isRecoveredStaleSpawn -or $isRecoveredLifecycleGate -or $isRecoveredActiveLeaseGate -or $isRecoveredNarrowInspectGate
 }
 
 function Count-UnexpectedFailedCollabToolCalls($Obs) {

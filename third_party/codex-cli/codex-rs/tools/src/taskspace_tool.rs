@@ -321,8 +321,8 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
         (
             "changed_artifacts".to_string(),
             JsonSchema::array(
-                JsonSchema::string(Some("Artifact path, id, or stable reference.".to_string())),
-                Some("Optional for mark_result_validity.".to_string()),
+                JsonSchema::string(Some("Modified artifact path or stable output artifact reference.".to_string())),
+                Some("For accepted implementation results, list every modified file or final output artifact here. evidence_refs alone are treated as supporting/source evidence, not as final changed artifacts.".to_string()),
             ),
         ),
         (
@@ -345,9 +345,11 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
         name: "taskspace_control".to_string(),
         description: r#"Internal TaskSpace control tool.
 
-Use this only when TaskSpace is enabled and you need to update task-map structure before ordinary work.
+Use this only when TaskSpace is enabled and you need to update task-map structure or cognitive state before ordinary work.
 
 The main agent is the TaskSpace problem-state and model manager. Use this tool to keep the task's current model explicit: route or create the semantic task, keep work bound to concrete nodes, record output contracts, record fact sources, record active facts, and mark result validity before relying on node or subagent output.
+
+Runtime preflight blocks ordinary tools and spawn_agent until the active task has at least one output contract and one fact source. After finish_node, block_node, or subagent completion records a node-level result, runtime blocks further ordinary tools and spawn_agent until mark_result_validity records whether that result is accepted, questioned, or invalid.
 
 Supported actions:
 - `start_task`: create a new semantic task, its active task path, and the first concrete node. Use this when the current user request does not belong to an existing task in the TaskSpace task inventory. Must include `node_kind`.
@@ -362,10 +364,10 @@ Supported actions:
 - `mark_result_validity`: update an existing node result's evidence package. `accepted` requires claims and evidence refs. Use unreviewed/questioned/invalid when a result is missing evidence, conflicts with other evidence, or should not anchor the task model.
 
 Cognitive-state rules:
-- Record user-stated acceptance criteria, output format, schema, validator, artifact, and non-goal requirements as output contracts before relying on them.
-- Record user-provided facts, observed environment facts, and validator/test outputs as fact sources before turning them into active facts.
+- After start_task or route_task, record user-stated acceptance criteria, output format, schema, validator, artifact, and non-goal requirements as output contracts before ordinary work. Use non-empty evidence_refs; artifact_ref may cite the current user request, README/spec/test/source path, or expected artifact.
+- Record user-provided facts, observed environment facts, and validator/test outputs as fact sources before turning them into active facts. Use non-empty evidence_refs; artifact_ref or validator_ref is acceptable before any node result exists.
 - `generated_for_test_only`, `inferred`, and `unknown` provenance may guide investigation but must not anchor active facts or final user claims unless rechecked against observed or user-provided evidence.
-- Treat subagent and node results as evidence packages, not final truth. Capture claims, evidence refs, changed artifacts, validator refs, and remaining uncertainty through `mark_result_validity` before using a result to update active facts.
+- Treat subagent and node results as evidence packages, not final truth. After a node-level result is recorded, capture claims, evidence refs, changed artifacts, validator refs, and remaining uncertainty through `mark_result_validity` before using it, spawning follow-up work, running ordinary tools, or answering the user. For accepted implementation results, put modified files in `changed_artifacts`; `evidence_refs` alone mean supporting/source evidence.
 - Direct trace events are internal audit records. Do not expose TaskSpace, task, map, node, lease, or subagent protocol terms to the user unless the user is explicitly debugging TaskSpace.
 
 Node kind selection:
@@ -373,7 +375,7 @@ Node kind selection:
 - Use `implement_solution` for code, test, configuration, or documentation edits.
 - Use `smoke_test` or `regression_test` before running test/build/lint commands.
 - If validation fails and edits are needed, record the test result, switch to `implement_solution` for the fix, then switch back to a test node for the rerun.
-- Use `final_synthesis` only for final wrap-up.
+- Use `final_synthesis` only for answer-only final wrap-up after accepted validation; do not edit, test, build, spawn agents, or call ordinary tools from final_synthesis. Final user-facing text must not expose internal TaskSpace orchestration terms such as task, map, node, subagent, spawn, lease, final_synthesis, or taskspace_control unless the user explicitly asks to inspect TaskSpace internals. If the user asks how work was organized, describe visible phases, files, tests, and outcomes only; never mention hidden execution roles or words such as subagent, explorer, agent, delegated, parallel, evidence track, fan-out, or spawn.
 - `custom` is reserved for restored legacy nodes and is not valid for live node creation.
 
 Do not expose this tool's internal map/node terminology to the user unless debugging TaskSpace itself.
