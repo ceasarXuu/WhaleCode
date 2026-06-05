@@ -22,7 +22,26 @@ The TUI `/task-show` browser viewer has its own installed-binary E2E:
 .\scripts\run-tui-taskspace-viewer-e2e.ps1
 ```
 
-That path launches the installed `whale.exe`, sends `/taskspace`, `/task-reborn`, `/task-show`, makes a real user turn, then fetches the live `snapshot.json` URL exposed by the localhost viewer.
+That path launches the installed `whale.exe`, sends `/taskspace`, `/task-reborn`, a normal coding request, and `/task-show`, then fetches the live `snapshot.json` URL exposed by the localhost viewer. The user prompt never contains the complete completion marker, so prompt echo cannot satisfy the assistant-completion check.
+
+The viewer E2E also launches a real headless Chrome/Edge instance through `playwright-core` and verifies the page behavior users care about:
+
+- expanded node/details state survives auto-refresh.
+- selecting thread/meta text is not interrupted by auto-refresh.
+- the graph can be dragged and zoomed, and its transform survives refresh.
+- browser `/snapshot.json` responses are counted and saved with status, timestamp, hash, and map/node/edge/result counts.
+- the browser probe waits for an active TaskSpace snapshot with at least one node and one result before validating UI behavior.
+- every browser snapshot response must be HTTP 200, and the browser refresh window must contain active node/result stats.
+
+For a single combined local report, include the viewer path in the regression wrapper:
+
+```powershell
+.\scripts\run-action-map-regression.ps1 -IncludeTuiViewerE2E
+```
+
+The default regression wrapper intentionally does not run this long path, because it depends on the installed Whale binary, a real model session, and a local Chrome/Edge executable.
+
+When `-IncludeTuiViewerE2E` is used, the unified report lifts the important viewer metrics into its own `TUI Viewer E2E` section: refresh count, refresh timestamps, details/selection preservation, graph zoom/pan preservation, snapshot map/node/edge/result counts, marker checks, and console/network error counts.
 
 The script creates a temporary git repository under:
 
@@ -76,7 +95,7 @@ The report is marked PASS only when all of these are true:
 - The run contains no `failed to record rollout items` runtime errors.
 - The Action Map observability HTML is generated.
 - The command/API read path is covered by `/task-show` slash dispatch tests, live viewer endpoint tests, core snapshot formatting tests, and app-server protocol/schema checks.
-- The TUI viewer path is covered by launching the installed `whale.exe`, opening `/task-show`, and reading the auto-refresh viewer endpoint.
+- The TUI viewer path is covered by launching the installed `whale.exe`, opening `/task-show`, reading the auto-refresh viewer endpoint, observing a node/result-bearing snapshot, and running real browser interactions for expand/selection/graph pan-zoom preservation.
 
 ## Latest Verified Run
 
@@ -133,3 +152,5 @@ Fix: the Action Map dispatcher now exposes and schedules dynamic nodes, while `s
 Follow-up review on 2026-05-25 tightened the same path: non-final completion watcher exits now notify the parent before recording the blocker result, main binding skips nodes already running under a subagent lease, canceled main tool calls use the same TaskSpace prepare semantics as normal tool calls, and failed main tool attribution stores a generic failure preview instead of the raw internal error string. The installed-binary E2E run `019e5d54-e63f-75c2-a661-99c32ba09c70` passed with dynamic node creation, `/root/node_1` binding, `dynamic-subagent-ok`, `node_result_recorded`, `lease_released`, and successful `close_agent` cleanup.
 
 The same review follow-up was completed with explicit regression coverage for non-final subagent notifications, non-final node result release, ready-before-blocked main binding, and sanitized error previews. The installed-binary E2E run `019e5d9c-87fa-7913-92f6-21dc1bb07fac` passed with dynamic node creation, `/root/node_1` binding, `dynamic-subagent-ok`, `node_result_recorded`, and `lease_released`.
+
+The 2026-06-05 viewer E2E hardening closed a separate observability gap: `/task-show` was no longer accepted as a static HTML smoke. The final combined run `target/test-reports/action-map-20260605-132009-632/report.md` passed with 218 cargo tests, 4 script tests, and 0 relevant crash events. Its viewer sub-report recorded `browser_refresh_count=4`, `browser_snapshot_status_ok=true`, `browser_snapshot_active_ok=true`, details/selection preservation, graph zoom/pan preservation, `snapshot_map_count=1`, `snapshot_node_count=1`, `snapshot_result_count=3`, `console_error_count=0`, and no network failures. `browser-summary.json` saved all browser snapshot responses and showed result count growth during refresh; favicon 404 is counted separately as `favicon_console_error_count=1`.

@@ -6,6 +6,8 @@ param(
     [string]$ReportRoot = "",
     [int]$Jobs = 2,
     [switch]$SkipScriptTests,
+    [switch]$IncludeTuiViewerE2E,
+    [int]$TuiViewerTimeoutSeconds = 180,
     [switch]$PlanOnly
 )
 
@@ -21,6 +23,20 @@ function Escape-Markdown([string]$Value) {
         return ""
     }
     return $Value.Replace("|", "\|")
+}
+
+function Read-KeyValueReport([string]$PathValue) {
+    $values = @{}
+    if (-not (Test-Path $PathValue)) {
+        return $values
+    }
+
+    foreach ($line in Get-Content -Encoding UTF8 $PathValue) {
+        if ($line -match "^- (?<key>[A-Za-z0-9_]+): (?<value>.*)$") {
+            $values[$Matches.key] = $Matches.value.Trim()
+        }
+    }
+    return $values
 }
 
 function New-TestSummary($Lines) {
@@ -67,7 +83,7 @@ function Select-RelevantCrashEvents([datetime]$StartTime, [datetime]$EndTime) {
     } -ErrorAction SilentlyContinue
 
     return $events | Where-Object {
-        $_.Message -match "rustc\.exe|cargo\.exe|rustup\.exe|Astropath\.exe|codex-command-runner|PowerShell"
+        $_.Message -match "rustc\.exe|cargo\.exe|rustup\.exe|whale\.exe|node\.exe|chrome\.exe|msedge\.exe|codex-command-runner|PowerShell"
     } | Select-Object -First 20 TimeCreated, ProviderName, Id, Message
 }
 
@@ -154,13 +170,23 @@ $commandText = ($testRuns | ForEach-Object { Get-CargoCommandText $_ }) -join ";
 $scriptTestRuns = if ($SkipScriptTests) {
     @()
 } else {
-    @(
+    $scriptRuns = @(
         "test-action-map-graph-health.ps1",
         "test-action-map-observability-lib.ps1",
         "test-action-map-real-user-e2e-lib.ps1"
     )
+    if ($IncludeTuiViewerE2E) {
+        $scriptRuns += "run-tui-taskspace-viewer-e2e.ps1"
+    }
+    $scriptRuns
 }
-$scriptCommandText = ($scriptTestRuns | ForEach-Object { "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\$_" }) -join "; "
+$scriptCommandText = ($scriptTestRuns | ForEach-Object {
+    if ($_ -eq "run-tui-taskspace-viewer-e2e.ps1") {
+        "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\$_ -TimeoutSeconds $TuiViewerTimeoutSeconds"
+    } else {
+        "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\$_"
+    }
+}) -join "; "
 
 if ($PlanOnly) {
     Write-Host "CodexRsRoot: $CodexRsRoot"
@@ -246,8 +272,6 @@ finally {
     $env:CARGO_BUILD_JOBS = $oldBuildJobs
 }
 
-$finished = Get-Date
-
 $scriptResults = @()
 foreach ($scriptName in $scriptTestRuns) {
     $safeName = $scriptName -replace "[^A-Za-z0-9_.-]", "-"
@@ -255,10 +279,14 @@ foreach ($scriptName in $scriptTestRuns) {
     $stderrPath = Join-Path $runDir "script-test-$safeName.stderr.log"
     $scriptPath = Join-Path $PSScriptRoot $scriptName
     $scriptReportDir = Join-Path $runDir $safeName
+    $scriptArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $scriptPath, "-OutputDir", $scriptReportDir)
+    if ($scriptName -eq "run-tui-taskspace-viewer-e2e.ps1") {
+        $scriptArgs += @("-TimeoutSeconds", [string]$TuiViewerTimeoutSeconds)
+    }
     $runStarted = Get-Date
     $process = Start-Process `
         -FilePath "powershell" `
-        -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $scriptPath, "-OutputDir", $scriptReportDir) `
+        -ArgumentList $scriptArgs `
         -WorkingDirectory (Split-Path -Parent $PSScriptRoot) `
         -RedirectStandardOutput $stdoutPath `
         -RedirectStandardError $stderrPath `
@@ -269,9 +297,11 @@ foreach ($scriptName in $scriptTestRuns) {
     $stdoutText = if (Test-Path $stdoutPath) { Get-Content -Raw -Encoding UTF8 $stdoutPath } else { "" }
     $stderrText = if (Test-Path $stderrPath) { Get-Content -Raw -Encoding UTF8 $stderrPath } else { "" }
     $scriptOverall = if ($process.ExitCode -eq 0 -and $stdoutText -match "Overall:\s+PASS") { "PASS" } else { "FAIL" }
+    $viewerReportPath = Join-Path $scriptReportDir "artifacts\report.md"
+    $viewerMetrics = if ($scriptName -eq "run-tui-taskspace-viewer-e2e.ps1") { Read-KeyValueReport $viewerReportPath } else { @{} }
     $scriptResults += [pscustomobject]@{
         Name = $scriptName
-        Command = "powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath -OutputDir $scriptReportDir"
+        Command = "powershell $($scriptArgs -join ' ')"
         ExitCode = $process.ExitCode
         Started = $runStarted
         Finished = $runFinished
@@ -279,9 +309,13 @@ foreach ($scriptName in $scriptTestRuns) {
         StderrPath = $stderrPath
         ReportDir = $scriptReportDir
         Overall = $scriptOverall
+        ViewerReportPath = $viewerReportPath
+        ViewerMetrics = $viewerMetrics
         Output = "$stdoutText`n$stderrText"
     }
 }
+
+$finished = Get-Date
 
 $combinedLines = New-Object System.Collections.Generic.List[string]
 foreach ($run in $runResults) {
@@ -329,6 +363,8 @@ $report.Add("- overall: $overall")
 $report.Add("- exit_code: $exitCode")
 $report.Add("- command_matrix: $commandText")
 $report.Add("- script_matrix: $scriptCommandText")
+$report.Add("- include_tui_viewer_e2e: $([bool]$IncludeTuiViewerE2E)")
+$report.Add("- tui_viewer_timeout_seconds: $TuiViewerTimeoutSeconds")
 $report.Add("- run_count: $($runResults.Count)")
 $report.Add("- script_run_count: $($scriptResults.Count)")
 $report.Add("- cwd: $CodexRsRoot")
@@ -362,6 +398,50 @@ if ($scriptResults.Count -eq 0) {
     $report.Add("|---|---|---:|---|---|---|")
     foreach ($run in $scriptResults) {
         $report.Add("| $(Escape-Markdown $run.Name) | $($run.Overall) | $($run.ExitCode) | $(Escape-Markdown $run.ReportDir) | $(Escape-Markdown $run.StdoutPath) | $(Escape-Markdown $run.StderrPath) |")
+    }
+}
+$report.Add("")
+$report.Add("## TUI Viewer E2E")
+$report.Add("")
+$viewerRun = @($scriptResults | Where-Object { $_.Name -eq "run-tui-taskspace-viewer-e2e.ps1" } | Select-Object -First 1)
+if ($viewerRun.Count -eq 0) {
+    if ($IncludeTuiViewerE2E) {
+        $report.Add("TUI viewer E2E was requested but no run was recorded.")
+    } else {
+        $report.Add("TUI viewer E2E was not requested. Pass -IncludeTuiViewerE2E to run the real browser path.")
+    }
+} else {
+    $report.Add("- report: $($viewerRun[0].ViewerReportPath)")
+    foreach ($key in @(
+        "browser_interaction_ok",
+        "browser_refresh_count",
+        "browser_snapshot_first_ms",
+        "browser_snapshot_last_ms",
+        "browser_snapshot_status_ok",
+        "browser_snapshot_active_ok",
+        "detail_state_ok",
+        "selection_state_ok",
+        "graph_zoom_ok",
+        "graph_pan_ok",
+        "graph_transform_ok",
+        "refresh_during_detail_ok",
+        "refresh_during_graph_ok",
+        "refresh_during_selection_ok",
+        "snapshot_map_count",
+        "snapshot_node_count",
+        "snapshot_edge_count",
+        "snapshot_result_count",
+        "assistant_marker_observed",
+        "user_prompt_contains_marker",
+        "console_error_count",
+        "favicon_console_error_count",
+        "network_failure_count",
+        "snapshot_dir"
+    )) {
+        $value = $viewerRun[0].ViewerMetrics[$key]
+        if ($null -ne $value) {
+            $report.Add("- ${key}: $value")
+        }
     }
 }
 $report.Add("")

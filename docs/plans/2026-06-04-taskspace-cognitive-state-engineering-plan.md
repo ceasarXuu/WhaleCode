@@ -718,8 +718,17 @@ UI 约束：
 - `/task-show` 本地 web viewer 已在现有 `thread/taskspace/read` 和 `snapshot.json` 轮询机制上扩展 cognitive side panel，没有新增第二套 viewer server。
 - 展示面板读取 snapshot 中的 `task.cognitiveState`、`map.results[].evidencePackage`、`sentinelWarnings`，展示 task objective/status、success criteria、output contracts、fact sources、facts/assumptions、result validity、claims/evidence/validator 计数、sentinel warning。
 - graph 仍由 map/node/edge 驱动，认知信息只放在右侧详情面板；结果详情展示 body 之前先展示 validity、claims、evidence refs、changed artifacts、validator refs、remaining uncertainty。
-- 自动刷新继续保留当前 task/node/result 的展开与选择状态；本阶段已有 Rust viewer HTML smoke test 覆盖 cognitive 面板关键字符串，但尚未补 Playwright 级浏览器交互测试。
+- 自动刷新继续保留当前 task/node/result 的展开与选择状态；已有 Rust viewer HTML smoke test 覆盖 cognitive 面板关键字符串。
 - 当前 viewer 只做只读可观察性，不允许在页面中编辑 cognitive state，不承担 runtime gate。
+
+实施记录（2026-06-05 Phase 6B）：
+
+- `scripts/run-tui-taskspace-viewer-e2e.ps1` 已升级为真实浏览器交互 E2E：启动安装版 `whale.exe`，真实输入 `/taskspace`、`/task-reborn`、一个自然 coding request、`/task-show`，再打开 localhost viewer；用户 prompt 不出现完整 marker，避免把 prompt echo 误判成 assistant 完成。
+- 浏览器层复用现有 viewer server 与 `snapshot.json` 轮询，不新增第二套 viewer/app server；脚本按需在 `target/pty-tools` 安装 `playwright-core`，并使用本机 Chrome/Edge executable path，不下载独立浏览器。
+- E2E 现在验证三类过去真实暴露的问题：展开的 `details[data-key]` 在自动刷新后仍保持展开；选中 thread/meta 文本时自动刷新不会打断 selection；graph 经过缩放与拖拽后，`graph-world` transform 在刷新后保持。浏览器 probe 只在 active snapshot 已有 node/result 后启动，避免只验证空页面。
+- 浏览器 probe 记录每次 `/snapshot.json` 响应的 status、时间戳、hash 与 map/node/edge/result 计数，并保存 `browser-snapshot-*.json`、`node-initial-empty-snapshot.json`、`node-active-snapshot.json` 和 `browser-summary.json`。这让刷新是否发生、刷新发生时 UI 状态是否保持、viewer 是否读到 task/map/result 生长可以被复核。
+- `scripts/run-action-map-regression.ps1` 新增 `-IncludeTuiViewerE2E` 开关，可以把真实 TUI viewer E2E 纳入同一回归报告；默认回归仍不跑该长链路，避免把常规 unit/script 回归绑定到真实模型和本机浏览器。wrapper 同时汇总 viewer 的刷新次数、图交互、selection/details 保持、snapshot 计数和 console/network 计数，崩溃事件窗口覆盖到脚本测试结束。
+- 验证证据：`scripts/run-action-map-regression.ps1 -IncludeTuiViewerE2E` 通过，报告 `target/test-reports/action-map-20260605-132009-632/report.md`；结果显示 10 个 cargo run、4 个脚本 run 全部 PASS，`total_passed_tests=218`、`total_failed_tests=0`、`relevant_crash_events=0`。viewer 子报告 `target/test-reports/action-map-20260605-132009-632/run-tui-taskspace-viewer-e2e.ps1/artifacts/report.md` 显示 `browser_interaction_ok=true`、`browser_refresh_count=4`、`browser_snapshot_status_ok=true`、`browser_snapshot_active_ok=true`、`refresh_during_detail_ok=true`、`refresh_during_graph_ok=true`、`refresh_during_selection_ok=true`、`snapshot_map_count=1`、`snapshot_node_count=1`、`snapshot_result_count=3`、`assistant_marker_observed=true`、`user_prompt_contains_marker=false`；`browser-summary.json` 显示浏览器刷新响应全部 200，刷新窗口内 resultCount 从 1 增长到 2，`consoleErrors=[]`、`networkFailures=[]`，favicon 404 单独计数为 `faviconConsoleErrorCount=1`。
 
 ### Phase 7：Benchmark / Audit 升级
 
@@ -815,7 +824,8 @@ UI 约束：
 Phase 7B closure review 后续加固项：
 
 - Windows symlink / reparse-point 指向 ArtifactRoot 外文件的 containment 负例尚未加入自动化测试；本轮已验证普通绝对路径和相对路径逃逸。
-- wrapper 已接入 `ArtifactRoot`，但真实 E2/E3 wrapper 级 smoke rerun 与完整 utility benchmark 仍属于后续评估，不作为本轮 Phase 7B 关闭条件。
+- wrapper 已接入 `ArtifactRoot`，但完整 utility benchmark 仍属于后续评估，不作为本轮 Phase 7B 关闭条件。
+- `/task-show` viewer 的真实 TUI/browser 级路径已在 Phase 6B 补齐；它证明可观察页面的 live refresh 与 graph 交互可用，但不替代 E3 utility benchmark。
 
 ## Runtime Event 与 Audit Join Key
 
