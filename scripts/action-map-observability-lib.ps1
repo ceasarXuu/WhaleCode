@@ -1,5 +1,6 @@
 ﻿
 . (Join-Path $PSScriptRoot "action-map-object-lib.ps1")
+. (Join-Path $PSScriptRoot "action-map-sentinel-lib.ps1")
 . (Join-Path $PSScriptRoot "action-map-cognitive-audit-lib.ps1")
 
 function Add-TimelineEvent {

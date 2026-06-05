@@ -173,6 +173,7 @@ $scriptTestRuns = if ($SkipScriptTests) {
     $scriptRuns = @(
         "test-action-map-graph-health.ps1",
         "test-action-map-observability-lib.ps1",
+        "test-action-map-sentinel-clearance.ps1",
         "test-action-map-reparse-containment.ps1",
         "test-action-map-real-user-e2e-lib.ps1"
     )

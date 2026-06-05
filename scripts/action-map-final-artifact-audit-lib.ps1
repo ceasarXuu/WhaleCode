@@ -1,4 +1,5 @@
 . (Join-Path $PSScriptRoot "action-map-object-lib.ps1")
+. (Join-Path $PSScriptRoot "action-map-sentinel-lib.ps1")
 
 function Add-UniqueAuditValue {
     param([object]$List, [string]$Value)
@@ -254,7 +255,8 @@ function Get-FinalArtifactAuditSummary {
         [object]$Nodes,
         [object]$SentinelWarnings,
         [hashtable]$ResultById,
-        [string]$ArtifactRoot = ""
+        [string]$ArtifactRoot = "",
+        [object]$Timeline = @()
     )
     $tasksArray = @(Get-ObjectArray $Tasks)
     $taskById = @{}
@@ -295,7 +297,7 @@ function Get-FinalArtifactAuditSummary {
             Add-UniqueAuditValue $unsatisfiedContracts "$taskId/$contractId"
         }
     }
-    return New-FinalArtifactAuditResult $artifacts $unsatisfiedContracts $ResultById $SentinelWarnings
+    return New-FinalArtifactAuditResult $artifacts $unsatisfiedContracts $ResultById $SentinelWarnings (Get-TimelineSentinelClearances $Timeline)
 }
 
 function Add-ResultArtifactsToAudit {
@@ -387,7 +389,7 @@ function Add-ResultEvidenceToArtifact {
 }
 
 function New-FinalArtifactAuditResult {
-    param($Artifacts, $ContractWithoutArtifact, [hashtable]$ResultById, $SentinelWarnings)
+    param($Artifacts, $ContractWithoutArtifact, [hashtable]$ResultById, $SentinelWarnings, [hashtable]$TimelineClearanceById)
     $missingWhyChain = New-Object System.Collections.Generic.List[string]
     $missingHash = New-Object System.Collections.Generic.List[string]
     $badResultDependencies = New-Object System.Collections.Generic.List[string]
@@ -417,7 +419,7 @@ function New-FinalArtifactAuditResult {
             else {
                 Add-UniqueAuditValue $nonAcceptedDependencies "$($artifact.finalArtifactId)->${resultId}:missing"
             }
-            Add-UnclearedSentinelSubjects $artifact $resultId $SentinelWarnings $unclearedSentinels
+            Add-FinalArtifactSentinelSubjects $artifact $resultId $SentinelWarnings $TimelineClearanceById $unclearedSentinels
         }
     }
     $gateRecords = New-Object System.Collections.Generic.List[object]
@@ -445,13 +447,14 @@ function New-FinalArtifactAuditResult {
     }
 }
 
-function Add-UnclearedSentinelSubjects {
-    param([object]$Artifact, [string]$ResultId, $SentinelWarnings, [object]$UnclearedSentinels)
+function Add-FinalArtifactSentinelSubjects {
+    param([object]$Artifact, [string]$ResultId, $SentinelWarnings, [hashtable]$TimelineClearanceById, [object]$UnclearedSentinels)
     foreach ($warning in @(Get-ObjectArray $SentinelWarnings)) {
-        if ([string](Get-ObjectField $warning "status") -eq "cleared") { continue }
         if ([string](Get-ObjectField $warning "resultId") -eq $ResultId -or @($Artifact.nodeIds) -contains [string](Get-ObjectField $warning "nodeId")) {
             Add-UniqueAuditValue $Artifact.sentinelIds ([string](Get-ObjectField $warning "id"))
-            Add-UniqueAuditValue $UnclearedSentinels "$($Artifact.finalArtifactId)->$([string](Get-ObjectField $warning 'id'))"
+            if (-not (Test-SentinelWarningCleared $warning $TimelineClearanceById)) {
+                Add-UniqueAuditValue $UnclearedSentinels "$($Artifact.finalArtifactId)->$([string](Get-ObjectField $warning 'id'))"
+            }
         }
     }
 }

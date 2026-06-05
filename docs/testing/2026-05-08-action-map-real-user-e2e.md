@@ -43,7 +43,7 @@ The default regression wrapper intentionally does not run this long path, becaus
 
 When `-IncludeTuiViewerE2E` is used, the unified report lifts the important viewer metrics into its own `TUI Viewer E2E` section: refresh count, refresh timestamps, details/selection preservation, graph zoom/pan preservation, snapshot map/node/edge/result counts, marker checks, and console/network error counts.
 
-The default regression wrapper does run the audit hard-gate script set, including `test-action-map-reparse-containment.ps1`. That test creates a Windows junction inside `ArtifactRoot` that points outside the root and verifies the final-artifact audit does not hash or accept the escaped target.
+The default regression wrapper does run the audit hard-gate script set, including `test-action-map-reparse-containment.ps1` and `test-action-map-sentinel-clearance.ps1`. The reparse test creates a Windows junction inside `ArtifactRoot` that points outside the root and verifies the final-artifact audit does not hash or accept the escaped target. The sentinel clearance test verifies that final-artifact warnings only clear through the allowed `FixApplied`, `RiskAcceptedByMainAgent`, or `ContractRevised` actions, and that invalid action, wrong id, wrong context, or clear-before-warning events still fail the hard gate.
 
 The script creates a temporary git repository under:
 

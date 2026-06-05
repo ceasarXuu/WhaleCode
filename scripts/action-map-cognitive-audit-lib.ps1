@@ -236,7 +236,7 @@ function Get-CognitiveAuditSummary {
     Add-AuditGateRecord $gateRecords "orphan_result_validity_transition" ($orphanValidityTransitions.Count -eq 0) "validity transition result ids join to snapshot results" "orphanTransitions=$($orphanValidityTransitions.Count)" @($orphanValidityTransitions.ToArray())
 
     $structuralFailures = @($gateRecords.ToArray() | Where-Object { $_.pass -ne $true } | ForEach-Object { [string]$_.gateId })
-    $finalArtifactAudit = Get-FinalArtifactAuditSummary $Tasks $Nodes $SentinelWarnings $resultById $ArtifactRoot
+    $finalArtifactAudit = Get-FinalArtifactAuditSummary $Tasks $Nodes $SentinelWarnings $resultById $ArtifactRoot $Timeline
     foreach ($gate in @(Get-ObjectArray $finalArtifactAudit.gateRecords)) {
         $gateRecords.Add($gate)
     }

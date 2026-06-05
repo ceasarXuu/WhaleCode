@@ -539,7 +539,7 @@ promotion/collapse 不属于首轮 MVP 实现范围。它们不是“已修复�
 - warning 当前只做观测：写入 snapshot `sentinel_summary` / `sentinel_warnings`，并发出 `sentinel_warning_raised` runtime event；不阻塞工具调用，不改变 node 状态，不创建 maintenance barrier。
 - session 生产路径已覆盖：validator failure 的 main tool result 会在同一事件流中发出 `taskspace_trace_event_recorded` 和 `sentinel_warning_raised`，snapshot 同步带 warning。
 - protocol/generated schema 已暴露 `ActionMapSnapshotSentinelSummary` 与 `ActionMapSnapshotSentinelWarningRef`，legacy snapshot 缺字段时默认为空。
-- 尚未实现 output contract sentinel、data provenance sentinel、clear action、hard barrier、E2/E3 audit hard gate；这些需要 Phase 3/4 的 cognitive state/result evidence 数据模型和 control actions 之后才能闭环。
+- 当时尚未实现 output contract sentinel、data provenance sentinel、clear action、hard barrier、E2/E3 audit hard gate；这些需要 Phase 3/4 的 cognitive state/result evidence 数据模型和 control actions 之后才能闭环。后续 Phase 7 已补齐 MVP final-artifact audit hard gate，Phase 7D 补齐 `sentinel_warning_cleared` 事件进入报告/audit 的闭环；runtime 主动清除命令和 hard barrier 仍不在 MVP 内。
 
 实施记录（2026-06-04 Phase 3A）：
 
@@ -636,7 +636,7 @@ runtime 校验：
 - `record_fact` 只能引用已 accepted result，或引用 provenance 为 `observed_from_environment` / `provided_by_user` 的 fact source；`generated_for_test_only`、`inferred`、`unknown` provenance 以及 `unreviewed/questioned/invalid` result 都不得被提升为 active facts。
 - 新增 runtime event 只暴露最小引用：`cognitive_state_updated` 带 `task_id/map_id/update_kind/record_id`；`result_validity_changed` 带 `task_id/map_id/node_id/result_id/validity`。事件不携带完整 description、claims、evidence refs、validity reason，权威状态仍在 snapshot 的 `TaskState.cognitive_state` 和 `NodeResult.evidence_package`。
 - protocol snapshot 与 app-server generated schema 已同步 `EvidenceRef.factSourceId`；`MapRuntimeEvent` 当前不属于 app-server generated TypeScript schema 导出面，由 protocol 单测守住 minimal-ref 事件序列化。
-- 延后项：viewer cognitive side panel、final artifact audit hard gate、sentinel clear action、prompt/developer context 注入、promotion/collapse 仍不属于 Phase 4A 完成范围。
+- Phase 4A 当时延后项：viewer cognitive side panel、final artifact audit hard gate、sentinel clear action、prompt/developer context 注入、promotion/collapse 仍不属于 Phase 4A 完成范围。后续 Phase 7 已补齐 MVP final artifact audit hard gate 与 sentinel clear event 的报告/audit 消费；viewer side panel、runtime 主动 clear command、promotion/collapse 仍为后续。
 - 验证结果：`scripts/run-action-map-regression.ps1` 通过，报告 `target/test-reports/action-map-20260604-223439-306/report.md` 显示 10 个 cargo run、3 个脚本 run 全部 PASS，199 passed、0 failed、0 relevant crash events。
 
 ### Phase 5：Prompt / Developer Context 改造
@@ -819,7 +819,7 @@ UI 约束：
 - `scripts/test-action-map-observability-lib.ps1` 已覆盖完整 why-chain 正例、invalid result 同时污染 active fact/final artifact dependency、unreviewed result 依赖、orphan artifact contract、contract path/result mismatch、缺 artifact hash、ArtifactRoot absolute/traversal containment、未清除 sentinel 影响 final artifact、跨 task accepted result source、同路径多 task 产物不合并、黑盒 export/report/HTML parse。
 - Markdown report 已统一转义表格单元格中的 `|` 和换行，避免审计文本破坏人工报告表格；JSON/HTML 仍作为结构化 source of truth。
 - 使用旧 E3 artifact 重跑导出时，新的 hard gate 仍会失败，但失败原因是旧运行缺 cognitive 记录：`required_output_contract_missing`、`required_fact_source_missing`、`result_claims_evidence_missing`、`result_validity_transition_missing`；这符合预期。
-- 尚未进入本阶段的内容：dedicated final-artifact runtime event、sentinel clear action 枚举生产事件、promotion/collapse、浏览器端 final artifact 交互图、完整 E2/E3 benchmark 重跑。
+- 尚未进入本阶段的内容：dedicated final-artifact runtime event、runtime 主动 clear command、sentinel hard barrier、promotion/collapse、浏览器端 final artifact 交互图、完整 E2/E3 benchmark 重跑。
 
 Phase 7B closure review 后续加固项：
 
@@ -833,6 +833,16 @@ Phase 7B closure review 后续加固项：
 - ArtifactRoot 自身如果因过深/循环/空 target 等原因无法解析真实路径，resolver 现在 fail closed，直接拒绝 artifact path，不允许绝对外部 artifact 走无 containment 的 hash 路径。
 - `scripts/test-action-map-reparse-containment.ps1` 已接入 `scripts/run-action-map-regression.ps1` 默认 script matrix，避免该安全边界只停留在手工测试；非 Windows host 会输出 `Overall: SKIP`，wrapper 会记录 `skipped_script_runs`，不会把未覆盖误报为 PASS。
 - 验证证据：`scripts/test-action-map-reparse-containment.ps1` 通过，覆盖 junction escape 与 unresolved root fail-closed 两个负例；`scripts/run-action-map-regression.ps1` 通过，报告 `target/test-reports/action-map-20260605-134247-920/report.md` 显示 10 个 cargo run、4 个脚本 run 全部 PASS，`skipped_script_runs=0`、`total_passed_tests=218`、`total_failed_tests=0`、`relevant_crash_events=0`。额外完整长链路 `scripts/run-action-map-regression.ps1 -IncludeTuiViewerE2E` 也通过，报告 `target/test-reports/action-map-20260605-134926-545/report.md` 显示 10 个 cargo run、5 个脚本 run 全部 PASS，`skipped_script_runs=0`，且 viewer E2E 的 `browser_interaction_ok=true`。
+
+实施记录（2026-06-05 Phase 7D）：
+
+- `export-action-map-observability.ps1` 已把 `sentinel_warning_cleared` 纳入 runtime event 白名单，并通过 `Add-Or-Update-SentinelWarning` 复用 raised/snapshot/cleared 的 warning 聚合逻辑。clear event 只更新 `status=cleared`、`clearanceAction`、`clearedAtMs`，不覆盖原始 `traceEventIds`，避免破坏 warning 触发证据链。
+- `Get-FinalArtifactAuditSummary` 现在接收 timeline，并从 `sentinel_warning_cleared` details 中读取 `sentinelId`、clear action 与 task/map/node/result 上下文。影响 final artifact 的 warning 只有在 snapshot 自身 `status=cleared` 且 `clearanceAction` 合法，或 timeline 存在同 id、合法 action、上下文匹配、时间不早于 warning 的 clear event 时，才被视为已清除。
+- 为保持脚本 API 兼容，`Get-FinalArtifactAuditSummary` 的 `$Timeline` 参数位于 `$ArtifactRoot` 之后；旧的 5 参位置调用仍把第 5 个参数解释为 `ArtifactRoot`。
+- MVP 只允许三种 clear action：`FixApplied`、`RiskAcceptedByMainAgent`、`ContractRevised`。非法 action、自由文本 action、清错 sentinel id 都不会清除 `sentinel_warning_uncleared_for_final_artifact` gate。
+- `scripts/test-action-map-sentinel-clearance.ps1` 已接入 `scripts/run-action-map-regression.ps1` 默认 script matrix。它覆盖 active warning 失败、三种合法 clear event 通过、非法 action 失败、错 sentinel id 失败、同 id 错上下文失败、clear event 早于 warning 失败、snapshot cleared + 合法 action 通过、旧 5 参 direct audit 兼容，以及 exporter 黑盒消费 clear event / 错上下文 / 早到 clear 的正反例。
+- 验证证据：`scripts/test-action-map-sentinel-clearance.ps1` 通过；`scripts/test-action-map-observability-lib.ps1` 通过；`scripts/run-action-map-regression.ps1` 通过，报告 `target/test-reports/action-map-20260605-153412-167/report.md` 显示 10 个 cargo run、5 个脚本 run 全部 PASS，`total_passed_tests=218`、`total_failed_tests=0`、`skipped_script_runs=0`、`relevant_crash_events=0`。
+- 边界：本阶段没有实现 runtime 主动 clear command，也没有实现 sentinel hard barrier。它只是让生产报告/audit 链路在事件存在时能做正确 hard gate，避免 `sentinel_warning_cleared` 停留在文档概念。
 
 ## Runtime Event 与 Audit Join Key
 
@@ -866,6 +876,8 @@ taskspace_promoted
 taskspace_collapsed
 promotion_aborted
 ```
+
+Phase 7D 已实现 `sentinel_warning_cleared` 在 observability export 与 final-artifact audit 中的消费；Rust runtime 仍未提供用户/agent 可调用的主动清除 action，后续要做时必须复用同一事件 schema。
 
 事件公共字段：
 
@@ -968,8 +980,8 @@ pub(crate) struct RunGateRecord {
 - 最终产物存在文件时必须写 `artifact_hash`；没有文件产物时必须写明 `final_artifact_id` 和来源。
 - 每个 final artifact dependency edge 必须能回溯到 result、claim、evidence、fact source、output contract 或 validator。
 - `Questioned` / `Invalid` result 出现在 final artifact dependency edge 时，`questioned_or_invalid_final_artifact_dependency` gate 必须失败。
-- sentinel warning 如果影响 final artifact 且没有 `sentinel_warning_cleared`，`sentinel_warning_uncleared_for_final_artifact` gate 必须失败。
-- `sentinel_warning_cleared.clear_action` 第一版只允许三种枚举值：`FixApplied`、`RiskAcceptedByMainAgent`、`ContractRevised`。不要用自由文本表达风险接受或契约修正。
+- sentinel warning 如果影响 final artifact 且没有有效清除记录，`sentinel_warning_uncleared_for_final_artifact` gate 必须失败。有效清除记录只能来自 snapshot `status=cleared` + 合法 `clearanceAction`，或 timeline 中同 id、合法 clear action、task/map/node/result 上下文至少一项匹配且无冲突、时间不早于 warning 的 `sentinel_warning_cleared`。
+- `sentinel_warning_cleared.clear_action` 第一版只允许三种枚举值：`FixApplied`、`RiskAcceptedByMainAgent`、`ContractRevised`。不要用自由文本表达风险接受或契约修正，非法 action 等价于未清除。
 - MVP 报告必须写 `promotion_not_in_mvp=true`；如果字段缺失，审计失败。
 
 E3 audit artifact 必须能用这些 join key 回答：
@@ -1056,7 +1068,7 @@ Phase 8 (v1.1 / non-MVP): sentinel hard barrier only after warning path is clean
 | Integration | `taskspace_control` 新旧 schema、runtime gate、snapshot export/import、schema freshness |
 | CLI smoke | `whale exec --taskspace` 自然 prompt、`task-show` viewer URL |
 | Negative | 缺 output contract、GeneratedForTestOnly 写入 facts、Accepted 缺 evidence、Invalid result 进 facts、Questioned/Invalid result 进入 final artifact dependency |
-| Audit fixture | uncleared sentinel 影响最终产物、why-chain 缺 artifact_hash、promotion_not_in_mvp 字段缺失、run gate expected/observed 缺失 |
+| Audit fixture | uncleared sentinel 影响最终产物、合法/非法 sentinel clear action、why-chain 缺 artifact_hash、promotion_not_in_mvp 字段缺失、run gate expected/observed 缺失 |
 | Replay | `hello-world` BOM、`heterogeneous-dates` UTF-16、`jsonl-aggregator` 自造数据 |
 | E2 | existing action-map regression、natural-user、growth-health、natural-multi-agent |
 | E3 small | `hello-world`、`heterogeneous-dates`、`jsonl-aggregator`、`multi-file-order-pipeline` |
