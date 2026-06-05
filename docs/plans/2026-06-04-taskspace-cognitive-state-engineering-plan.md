@@ -823,9 +823,16 @@ UI 约束：
 
 Phase 7B closure review 后续加固项：
 
-- Windows symlink / reparse-point 指向 ArtifactRoot 外文件的 containment 负例尚未加入自动化测试；本轮已验证普通绝对路径和相对路径逃逸。
+- Windows reparse-point 指向 ArtifactRoot 外文件的 containment 负例已加入自动化测试：`scripts/test-action-map-reparse-containment.ps1` 使用非管理员可创建的 junction 指向 root 外文件，要求 audit 不接受 resolved path、不计算 artifact hash，并触发 `final_artifact_hash_missing`。
 - wrapper 已接入 `ArtifactRoot`，但完整 utility benchmark 仍属于后续评估，不作为本轮 Phase 7B 关闭条件。
 - `/task-show` viewer 的真实 TUI/browser 级路径已在 Phase 6B 补齐；它证明可观察页面的 live refresh 与 graph 交互可用，但不替代 E3 utility benchmark。
+
+实施记录（2026-06-05 Phase 7C）：
+
+- `Resolve-FinalArtifactPath` 现在通过 `Resolve-ReparseAwarePath` 逐段识别 Windows reparse point，将 junction/symlink 的剩余路径拼到真实 target 后再做 ArtifactRoot containment 判断。指向 root 外的 reparse path 不会被 hash，也不会被视为合法 final artifact。
+- ArtifactRoot 自身如果因过深/循环/空 target 等原因无法解析真实路径，resolver 现在 fail closed，直接拒绝 artifact path，不允许绝对外部 artifact 走无 containment 的 hash 路径。
+- `scripts/test-action-map-reparse-containment.ps1` 已接入 `scripts/run-action-map-regression.ps1` 默认 script matrix，避免该安全边界只停留在手工测试；非 Windows host 会输出 `Overall: SKIP`，wrapper 会记录 `skipped_script_runs`，不会把未覆盖误报为 PASS。
+- 验证证据：`scripts/test-action-map-reparse-containment.ps1` 通过，覆盖 junction escape 与 unresolved root fail-closed 两个负例；`scripts/run-action-map-regression.ps1` 通过，报告 `target/test-reports/action-map-20260605-134247-920/report.md` 显示 10 个 cargo run、4 个脚本 run 全部 PASS，`skipped_script_runs=0`、`total_passed_tests=218`、`total_failed_tests=0`、`relevant_crash_events=0`。额外完整长链路 `scripts/run-action-map-regression.ps1 -IncludeTuiViewerE2E` 也通过，报告 `target/test-reports/action-map-20260605-134926-545/report.md` 显示 10 个 cargo run、5 个脚本 run 全部 PASS，`skipped_script_runs=0`，且 viewer E2E 的 `browser_interaction_ok=true`。
 
 ## Runtime Event 与 Audit Join Key
 

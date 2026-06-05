@@ -43,6 +43,8 @@ The default regression wrapper intentionally does not run this long path, becaus
 
 When `-IncludeTuiViewerE2E` is used, the unified report lifts the important viewer metrics into its own `TUI Viewer E2E` section: refresh count, refresh timestamps, details/selection preservation, graph zoom/pan preservation, snapshot map/node/edge/result counts, marker checks, and console/network error counts.
 
+The default regression wrapper does run the audit hard-gate script set, including `test-action-map-reparse-containment.ps1`. That test creates a Windows junction inside `ArtifactRoot` that points outside the root and verifies the final-artifact audit does not hash or accept the escaped target.
+
 The script creates a temporary git repository under:
 
 ```text
@@ -154,3 +156,5 @@ Follow-up review on 2026-05-25 tightened the same path: non-final completion wat
 The same review follow-up was completed with explicit regression coverage for non-final subagent notifications, non-final node result release, ready-before-blocked main binding, and sanitized error previews. The installed-binary E2E run `019e5d9c-87fa-7913-92f6-21dc1bb07fac` passed with dynamic node creation, `/root/node_1` binding, `dynamic-subagent-ok`, `node_result_recorded`, and `lease_released`.
 
 The 2026-06-05 viewer E2E hardening closed a separate observability gap: `/task-show` was no longer accepted as a static HTML smoke. The final combined run `target/test-reports/action-map-20260605-132009-632/report.md` passed with 218 cargo tests, 4 script tests, and 0 relevant crash events. Its viewer sub-report recorded `browser_refresh_count=4`, `browser_snapshot_status_ok=true`, `browser_snapshot_active_ok=true`, details/selection preservation, graph zoom/pan preservation, `snapshot_map_count=1`, `snapshot_node_count=1`, `snapshot_result_count=3`, `console_error_count=0`, and no network failures. `browser-summary.json` saved all browser snapshot responses and showed result count growth during refresh; favicon 404 is counted separately as `favicon_console_error_count=1`.
+
+The same day, ArtifactRoot containment was hardened for Windows reparse points. `target/test-reports/action-map-20260605-134247-920/report.md` passed with the default script matrix including `test-action-map-reparse-containment.ps1`, which verifies a junction escape and an unresolved deep reparse root are both reported as `final_artifact_hash_missing` instead of being accepted as in-root final artifacts. The wrapper records `skipped_script_runs`; on this Windows run it was `0`. A follow-up full run with `-IncludeTuiViewerE2E` also passed at `target/test-reports/action-map-20260605-134926-545/report.md`.

@@ -173,6 +173,7 @@ $scriptTestRuns = if ($SkipScriptTests) {
     $scriptRuns = @(
         "test-action-map-graph-health.ps1",
         "test-action-map-observability-lib.ps1",
+        "test-action-map-reparse-containment.ps1",
         "test-action-map-real-user-e2e-lib.ps1"
     )
     if ($IncludeTuiViewerE2E) {
@@ -296,7 +297,7 @@ foreach ($scriptName in $scriptTestRuns) {
     $runFinished = Get-Date
     $stdoutText = if (Test-Path $stdoutPath) { Get-Content -Raw -Encoding UTF8 $stdoutPath } else { "" }
     $stderrText = if (Test-Path $stderrPath) { Get-Content -Raw -Encoding UTF8 $stderrPath } else { "" }
-    $scriptOverall = if ($process.ExitCode -eq 0 -and $stdoutText -match "Overall:\s+PASS") { "PASS" } else { "FAIL" }
+    $scriptOverall = if ($process.ExitCode -eq 0 -and $stdoutText -match "Overall:\s+PASS") { "PASS" } elseif ($process.ExitCode -eq 0 -and $stdoutText -match "Overall:\s+SKIP") { "SKIP" } else { "FAIL" }
     $viewerReportPath = Join-Path $scriptReportDir "artifacts\report.md"
     $viewerMetrics = if ($scriptName -eq "run-tui-taskspace-viewer-e2e.ps1") { Read-KeyValueReport $viewerReportPath } else { @{} }
     $scriptResults += [pscustomobject]@{
@@ -343,7 +344,8 @@ if ($null -eq $passedCount) {
 }
 $matchedBinaries = @($summaries | Where-Object { $_.Passed -gt 0 -or $_.Failed -gt 0 -or $_.Ignored -gt 0 })
 $failedRuns = @($runResults | Where-Object { $_.Overall -ne "PASS" })
-$failedScriptRuns = @($scriptResults | Where-Object { $_.Overall -ne "PASS" })
+$failedScriptRuns = @($scriptResults | Where-Object { $_.Overall -eq "FAIL" })
+$skippedScriptRuns = @($scriptResults | Where-Object { $_.Overall -eq "SKIP" })
 
 $overall = if ($failedRuns.Count -eq 0 -and $failedScriptRuns.Count -eq 0 -and $failedCount -eq 0 -and $passedCount -gt 0) { "PASS" } else { "FAIL" }
 $exitCode = if ($overall -eq "PASS") {
@@ -367,6 +369,7 @@ $report.Add("- include_tui_viewer_e2e: $([bool]$IncludeTuiViewerE2E)")
 $report.Add("- tui_viewer_timeout_seconds: $TuiViewerTimeoutSeconds")
 $report.Add("- run_count: $($runResults.Count)")
 $report.Add("- script_run_count: $($scriptResults.Count)")
+$report.Add("- skipped_script_runs: $($skippedScriptRuns.Count)")
 $report.Add("- cwd: $CodexRsRoot")
 $report.Add("- target_dir: $TargetDir")
 $report.Add("- started: $($started.ToString("o"))")

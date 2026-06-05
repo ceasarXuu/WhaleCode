@@ -7,6 +7,39 @@ function Add-UniqueAuditValue {
     }
 }
 
+function Resolve-ReparseAwarePath {
+    param([string]$PathValue, [int]$Depth = 0)
+    if ([string]::IsNullOrWhiteSpace($PathValue) -or $Depth -gt 16) { return "" }
+    if (-not (Test-Path -LiteralPath $PathValue)) { return "" }
+
+    $resolved = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $PathValue).Path)
+    $root = [System.IO.Path]::GetPathRoot($resolved)
+    $relative = $resolved.Substring($root.Length)
+    $segments = @($relative -split '[\\/]' | Where-Object { $_ })
+    if ($segments.Count -eq 0) { return $resolved }
+    $current = $root
+    for ($index = 0; $index -lt $segments.Count; $index++) {
+        $current = Join-Path $current $segments[$index]
+        if (-not (Test-Path -LiteralPath $current)) { return "" }
+        $item = Get-Item -LiteralPath $current -Force
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) { continue }
+        $target = @($item.Target | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -First 1)
+        if ($target.Count -eq 0) { return "" }
+        $targetPath = [string]$target[0]
+        if (-not [System.IO.Path]::IsPathRooted($targetPath)) {
+            $targetPath = Join-Path (Split-Path -Parent $current) $targetPath
+        }
+        $remaining = @()
+        if ($index + 1 -lt $segments.Count) {
+            $remaining = $segments[($index + 1)..($segments.Count - 1)]
+        }
+        $rebuilt = $targetPath
+        foreach ($part in $remaining) { $rebuilt = Join-Path $rebuilt $part }
+        return Resolve-ReparseAwarePath $rebuilt ($Depth + 1)
+    }
+    return $resolved
+}
+
 function Resolve-FinalArtifactPath {
     param([string]$ArtifactRef, [string]$ArtifactRoot)
     if ([string]::IsNullOrWhiteSpace($ArtifactRef)) { return "" }
@@ -14,7 +47,8 @@ function Resolve-FinalArtifactPath {
     $rootFull = ""
     if (-not [string]::IsNullOrWhiteSpace($ArtifactRoot)) {
         if (-not (Test-Path -LiteralPath $ArtifactRoot -PathType Container)) { return "" }
-        $rootFull = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $ArtifactRoot).Path).TrimEnd("\", "/")
+        $rootFull = (Resolve-ReparseAwarePath $ArtifactRoot).TrimEnd("\", "/")
+        if ([string]::IsNullOrWhiteSpace($rootFull)) { return "" }
         if ([System.IO.Path]::IsPathRooted($ArtifactRef)) { $candidates.Add($ArtifactRef) }
         else { $candidates.Add((Join-Path $ArtifactRoot $ArtifactRef)) }
     }
@@ -23,7 +57,8 @@ function Resolve-FinalArtifactPath {
     }
     foreach ($candidate in $candidates) {
         if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-            $resolved = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $candidate).Path)
+            $resolved = Resolve-ReparseAwarePath $candidate
+            if ([string]::IsNullOrWhiteSpace($resolved)) { return "" }
             if ($rootFull) {
                 $prefix = $rootFull + [System.IO.Path]::DirectorySeparatorChar
                 if (-not $resolved.Equals($rootFull, [System.StringComparison]::OrdinalIgnoreCase) -and -not $resolved.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
