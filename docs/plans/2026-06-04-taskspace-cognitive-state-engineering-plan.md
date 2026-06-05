@@ -636,7 +636,7 @@ runtime 校验：
 - `record_fact` 只能引用已 accepted result，或引用 provenance 为 `observed_from_environment` / `provided_by_user` 的 fact source；`generated_for_test_only`、`inferred`、`unknown` provenance 以及 `unreviewed/questioned/invalid` result 都不得被提升为 active facts。
 - 新增 runtime event 只暴露最小引用：`cognitive_state_updated` 带 `task_id/map_id/update_kind/record_id`；`result_validity_changed` 带 `task_id/map_id/node_id/result_id/validity`。事件不携带完整 description、claims、evidence refs、validity reason，权威状态仍在 snapshot 的 `TaskState.cognitive_state` 和 `NodeResult.evidence_package`。
 - protocol snapshot 与 app-server generated schema 已同步 `EvidenceRef.factSourceId`；`MapRuntimeEvent` 当前不属于 app-server generated TypeScript schema 导出面，由 protocol 单测守住 minimal-ref 事件序列化。
-- Phase 4A 当时延后项：viewer cognitive side panel、final artifact audit hard gate、sentinel clear action、prompt/developer context 注入、promotion/collapse 仍不属于 Phase 4A 完成范围。后续 Phase 7 已补齐 MVP final artifact audit hard gate 与 sentinel clear event 的报告/audit 消费；viewer side panel、runtime 主动 clear command、promotion/collapse 仍为后续。
+- Phase 4A 当时延后项：viewer cognitive side panel、final artifact audit hard gate、sentinel clear action、prompt/developer context 注入、promotion/collapse 仍不属于 Phase 4A 完成范围。后续 Phase 6 已补齐 viewer cognitive side panel，Phase 7 已补齐 MVP final artifact audit hard gate 与 sentinel clear event 的报告/audit 消费；runtime 主动 clear command、sentinel hard barrier、promotion/collapse 仍为后续。
 - 验证结果：`scripts/run-action-map-regression.ps1` 通过，报告 `target/test-reports/action-map-20260604-223439-306/report.md` 显示 10 个 cargo run、3 个脚本 run 全部 PASS，199 passed、0 failed、0 relevant crash events。
 
 ### Phase 5：Prompt / Developer Context 改造
@@ -675,7 +675,7 @@ runtime 校验：
 - 已收紧 `mark_result_validity` 的 evidence scope：给当前 result 标记 validity 时，`result_id` evidence 必须指向当前 result；`trace_event_id` 必须属于当前 task/map 且引用当前 result，防止复制旧 result/trace 把无关结果标成 accepted。
 - 已更新 `format_action_map_snapshot()` 的 Results 区域，展示 `validity`、claims/evidence/validator counts；未 accepted result 显示 `trust=not_accepted_fact`，避免 `/task-show` 文本快照把 unreviewed result body 呈现成普通事实。
 - 已在 snapshot restore 后校验 active task/map binding 的一致性：`active_task_id`、`active_map_id`、`task.active_map_id`、`task.map_ids`、`map.task_id` 任何不一致都会清除 active binding 并强制下一轮 routing，避免把错态 cognitive state 暴露给模型。
-- 本阶段不新增 user-turn/message evidence ref schema、不新增 final artifact hard gate，也不实现 viewer cognitive side panel。`provided_by_user` 的可 join 消息证据和最终回答前的 cognitive audit gate 进入 Phase 6/7 设计，不在 Phase 5A 偷偷用自由文本 `artifact_ref` 替代。
+- 本阶段不新增 user-turn/message evidence ref schema、不新增 final artifact hard gate，也不实现 viewer cognitive side panel。后续 Phase 6/7 已分别补齐 viewer cognitive side panel 与最终产物 cognitive audit gate；`provided_by_user` 的可 join 消息证据仍不在 Phase 5A 偷偷用自由文本 `artifact_ref` 替代。
 - 新增/更新测试覆盖 BaseMap prompt、TaskSpace developer context、tool schema description、已有 cognitive records 在 developer context 中的可见性、cross-result evidence contamination、restore mismatch repair、snapshot result trust marker、subagent assignment result package；继续断言 `promote_taskspace`、`promotion_not_in_mvp`、`collapsed-direct` 不进入 MVP 提示面。
 
 ### Phase 6：Viewer 与 Snapshot 展示
@@ -843,6 +843,22 @@ Phase 7B closure review 后续加固项：
 - `scripts/test-action-map-sentinel-clearance.ps1` 已接入 `scripts/run-action-map-regression.ps1` 默认 script matrix。它覆盖 active warning 失败、三种合法 clear event 通过、非法 action 失败、错 sentinel id 失败、同 id 错上下文失败、clear event 早于 warning 失败、snapshot cleared + 合法 action 通过、旧 5 参 direct audit 兼容，以及 exporter 黑盒消费 clear event / 错上下文 / 早到 clear 的正反例。
 - 验证证据：`scripts/test-action-map-sentinel-clearance.ps1` 通过；`scripts/test-action-map-observability-lib.ps1` 通过；`scripts/run-action-map-regression.ps1` 通过，报告 `target/test-reports/action-map-20260605-153412-167/report.md` 显示 10 个 cargo run、5 个脚本 run 全部 PASS，`total_passed_tests=218`、`total_failed_tests=0`、`skipped_script_runs=0`、`relevant_crash_events=0`。
 - 边界：本阶段没有实现 runtime 主动 clear command，也没有实现 sentinel hard barrier。它只是让生产报告/audit 链路在事件存在时能做正确 hard gate，避免 `sentinel_warning_cleared` 停留在文档概念。
+
+实施记录（2026-06-05 Phase 7E 完成审计）：
+
+- 结论：问题状态管理首轮 MVP 已闭环。这里的“完成”只指机制闭环：agent 有结构化问题状态协议，runtime 能记录和约束 output contract、fact source、fact、result validity，viewer/audit 能解释 result 与 final artifact 的证据链，回归脚本能覆盖关键负例。不表示 TaskSpace 已经证明 E3 utility 正收益，也不表示 v1.1 的 promotion/collapse/sentinel hard barrier 已实现。
+- 完整回归：`scripts/run-action-map-regression.ps1 -IncludeTuiViewerE2E` 通过，报告 `target/test-reports/action-map-20260605-154108-379/report.md` 显示 10 个 cargo run、6 个脚本 run 全部 PASS，`total_passed_tests=218`、`total_failed_tests=0`、`skipped_script_runs=0`、`relevant_crash_events=0`。
+- Viewer 真实路径：同一报告中的 TUI viewer E2E 显示 `browser_interaction_ok=true`、`browser_snapshot_status_ok=true`、`browser_snapshot_active_ok=true`、`detail_state_ok=true`、`selection_state_ok=true`、`graph_zoom_ok=true`、`graph_pan_ok=true`、`refresh_during_detail_ok=true`、`refresh_during_graph_ok=true`、`refresh_during_selection_ok=true`、`snapshot_result_count=3`、`console_error_count=0`、`network_failure_count=0`。这证明 `/task-show` 的 live snapshot、自动刷新、选中态、详情展开、图拖拽/缩放路径可用。
+- Direct trace：`taskspace_trace_event_recorded`、`sentinel_warning_raised`、`cognitive_state_updated`、`result_validity_changed`、`sentinel_warning_cleared` 都有稳定 join key；event 只承载最小 ID/状态，不复制 claims、reason、description，避免 direct trace 成为第二套权威状态。
+- Output contract：`record_output_contract` 已进入 `taskspace_control` 生产 action，runtime 要求非空 ID/description/evidence refs；final artifact audit 会用 artifact path 或 result evidence refs 做机械 join，错配进入 `output_contract_result_mismatch`，缺链进入 `audit_why_chain_missing`。
+- Data provenance：`record_fact_source` 与 `record_fact` 已进入生产 action；`record_fact` 只能引用同 task 的 accepted result，或 provenance 为 `observed_from_environment` / `provided_by_user` 的 fact source。`generated_for_test_only`、`inferred`、`unknown`、unreviewed/questioned/invalid result 都不能进入 active facts。
+- Result evidence：`mark_result_validity` 已进入生产 action；`accepted` 必须有 top-level evidence refs 和 claims，每个 claim 也必须有 evidence refs；cross-result evidence、跨 task trace/result、无 evidence 的 accepted 都被 runtime 拒绝。
+- Viewer/audit why-chain：snapshot、text snapshot、TUI viewer、observability export 都能展示 cognitive state 与 result evidence package。final artifact audit 能追溯 artifact hash -> output contract -> result -> claim -> evidence -> validator/fact source，并对 non-accepted/questioned/invalid final artifact dependency 触发 hard gate。
+- Schema freshness：protocol snapshot、app-server generated schema、TypeScript/JSON fixture 的 action map cognitive/evidence 字段已经纳入 schema fixture 测试；`codex-app-server-protocol --test schema_fixtures` 在完整回归中通过。
+- Sentinel clearing：observability export 与 final-artifact audit 已消费 `sentinel_warning_cleared`；只有 `FixApplied`、`RiskAcceptedByMainAgent`、`ContractRevised` 三种 action 可以清除影响 final artifact 的 warning。非法 action、错 id、错上下文、clear 早于 warning 都保持 hard fail。
+- 安全边界：ArtifactRoot containment 包含 Windows reparse point 负例；junction/symlink 指向 root 外不会被 hash，不会被接受为合法 final artifact，并触发 `final_artifact_hash_missing`。
+- 与 E3 负收益的关系：本轮解决的是 E3 暴露出的“map 没有真正管理问题状态、result 被当普通摘要、最终产物缺证据链、warning 无闭环”这些机制缺陷。是否能在成对 benchmark 中获得成功率/成本净收益，仍需新的 E3 utility benchmark 复测。
+- 明确未完成项：runtime 主动 clear command、sentinel hard barrier、promotion/collapse、完整 facts/assumptions/decisions/open_questions 可编辑面板、dedicated final-artifact runtime event、浏览器端 final artifact 交互图、完整 E3 utility 正收益证明，全部不属于首轮 MVP 完成声明。
 
 ## Runtime Event 与 Audit Join Key
 
