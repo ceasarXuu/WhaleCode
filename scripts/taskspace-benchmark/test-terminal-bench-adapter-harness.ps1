@@ -29,6 +29,112 @@ Assert-True (@($remoteScenario.external_benchmark.adapter_metadata.remote_assets
 Assert-True (-not [bool]$remoteScenario.external_benchmark.validator_fidelity.e3_eligible) "remote asset scenario was E3 eligible without proof"
 Assert-True ([bool]$remoteScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "remote asset downgrade metadata was not recorded"
 
+$coveredTask = Join-Path $runDir "covered-uv-and-comment"
+New-Item -ItemType Directory -Path $coveredTask | Out-Null
+@'
+instruction: "Create hello.txt."
+category: data-processing
+'@ | Set-Content -LiteralPath (Join-Path $coveredTask "task.yaml") -Encoding UTF8
+@'
+FROM scratch
+# https://github.com/laude-institute/terminal-bench/packages
+'@ | Set-Content -LiteralPath (Join-Path $coveredTask "Dockerfile") -Encoding UTF8
+@'
+#!/bin/sh
+curl -LsSf https://astral.sh/uv/0.7.13/install.sh | sh
+echo ok
+'@ | Set-Content -LiteralPath (Join-Path $coveredTask "run-tests.sh") -Encoding UTF8
+$coveredOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $coveredTask -OutputRoot (Join-Path $runDir "covered-out") -SampleId "covered" -SourceVersion "pinned"
+$coveredScenarioDir = [string]($coveredOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$coveredScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $coveredScenarioDir "scenario.json") | ConvertFrom-Json
+$coveredAssets = @($coveredScenario.external_benchmark.adapter_metadata.remote_assets)
+Assert-True ($coveredAssets.Count -eq 1) "uv-covered scenario should record only the uv runtime URL, not comment URLs"
+Assert-True ([string]$coveredAssets[0].asset_kind -eq "validator_dependency_cache") "uv-covered runtime dependency did not record validator dependency kind"
+Assert-True (-not [bool]$coveredAssets[0].required_for_e3) "uv-covered runtime dependency should not be required as a task remote asset"
+Assert-True ([string]$coveredAssets[0].injection_method -eq "covered_by_terminal_bench_uv_cache") "uv-covered runtime dependency did not record cache coverage"
+Assert-True ((Test-Path -LiteralPath ([string]$coveredAssets[0].cache_path) -PathType Leaf)) "uv-covered runtime dependency did not point to a concrete cache file"
+Assert-True ([int64]$coveredAssets[0].size_bytes -gt 0) "uv-covered runtime dependency did not record concrete cache size"
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$coveredAssets[0].actual_sha256)) "uv-covered runtime dependency did not record actual sha"
+Assert-True ([string]$coveredAssets[0].actual_sha256 -eq [string]$coveredAssets[0].expected_sha256) "uv-covered runtime dependency sha proof mismatch"
+Assert-True ([bool]$coveredAssets[0].equivalence_proven) "uv-covered runtime dependency was not proof-marked"
+$coveredFileSize = [int64](Get-Item -LiteralPath ([string]$coveredAssets[0].cache_path)).Length
+Assert-True ([int64]$coveredAssets[0].size_bytes -eq $coveredFileSize) "uv-covered runtime dependency size did not match concrete cache file"
+Assert-True (-not [bool]$coveredScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "uv-covered/comment-only scenario should not be downgraded by remote asset proof"
+
+$dockerUvTask = Join-Path $runDir "docker-uv"
+New-Item -ItemType Directory -Path $dockerUvTask | Out-Null
+@'
+instruction: "Create hello.txt."
+category: data-processing
+'@ | Set-Content -LiteralPath (Join-Path $dockerUvTask "task.yaml") -Encoding UTF8
+@'
+FROM scratch
+RUN curl -LsSf https://astral.sh/uv/0.7.13/install.sh | sh
+'@ | Set-Content -LiteralPath (Join-Path $dockerUvTask "Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $dockerUvTask "run-tests.sh") -Encoding UTF8
+$dockerUvOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $dockerUvTask -OutputRoot (Join-Path $runDir "docker-uv-out") -SampleId "docker-uv" -SourceVersion "pinned"
+$dockerUvScenarioDir = [string]($dockerUvOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$dockerUvScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $dockerUvScenarioDir "scenario.json") | ConvertFrom-Json
+$dockerUvAssets = @($dockerUvScenario.external_benchmark.adapter_metadata.remote_assets)
+Assert-True ([string]$dockerUvAssets[0].asset_kind -eq "unknown_runtime_network_dependency") "Dockerfile uv curl-pipe should be classified as build/runtime network dependency"
+Assert-True ([bool]$dockerUvAssets[0].required_for_e3) "Dockerfile uv URL should not be globally covered by validator uv cache"
+Assert-True ([bool]$dockerUvScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "Dockerfile uv URL should downgrade until separately proven"
+
+$registryTask = Join-Path $runDir "registry-url"
+New-Item -ItemType Directory -Path $registryTask | Out-Null
+@'
+instruction: "Create hello.txt."
+category: data-processing
+'@ | Set-Content -LiteralPath (Join-Path $registryTask "task.yaml") -Encoding UTF8
+@'
+FROM scratch
+ARG PACKAGE_INDEX=https://github.com/laude-institute/terminal-bench/packages
+'@ | Set-Content -LiteralPath (Join-Path $registryTask "Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $registryTask "run-tests.sh") -Encoding UTF8
+$registryOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $registryTask -OutputRoot (Join-Path $runDir "registry-out") -SampleId "registry" -SourceVersion "pinned"
+$registryScenarioDir = [string]($registryOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$registryScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $registryScenarioDir "scenario.json") | ConvertFrom-Json
+$registryAssets = @($registryScenario.external_benchmark.adapter_metadata.remote_assets)
+Assert-True ([string]$registryAssets[0].asset_kind -eq "registry_or_source_endpoint") "Dockerfile ARG registry URL was not classified as endpoint metadata"
+Assert-True (-not [bool]$registryAssets[0].required_for_e3) "Dockerfile ARG registry URL should not be treated as file remote asset"
+Assert-True (-not [bool]$registryScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "Dockerfile ARG registry URL should not downgrade remote asset proof"
+
+$argFileTask = Join-Path $runDir "arg-file-url"
+New-Item -ItemType Directory -Path $argFileTask | Out-Null
+@'
+instruction: "Create hello.txt."
+category: data-processing
+'@ | Set-Content -LiteralPath (Join-Path $argFileTask "task.yaml") -Encoding UTF8
+@'
+FROM scratch
+ARG ASSET_URL=https://example.invalid/asset.tar.gz
+RUN curl -L -o /app/asset.tar.gz "$ASSET_URL"
+'@ | Set-Content -LiteralPath (Join-Path $argFileTask "Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $argFileTask "run-tests.sh") -Encoding UTF8
+$argFileOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $argFileTask -OutputRoot (Join-Path $runDir "arg-file-out") -SampleId "arg-file" -SourceVersion "pinned"
+$argFileScenarioDir = [string]($argFileOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$argFileScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $argFileScenarioDir "scenario.json") | ConvertFrom-Json
+$argFileAssets = @($argFileScenario.external_benchmark.adapter_metadata.remote_assets)
+Assert-True ([string]$argFileAssets[0].asset_kind -eq "unknown_runtime_network_dependency") "Dockerfile ARG file URL should fail closed"
+Assert-True ([bool]$argFileAssets[0].required_for_e3) "Dockerfile ARG file URL should require E3 proof"
+Assert-True ([bool]$argFileScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "Dockerfile ARG file URL should downgrade remote asset proof"
+
+$unknownPipeTask = Join-Path $runDir "unknown-curl-pipe"
+New-Item -ItemType Directory -Path $unknownPipeTask | Out-Null
+@'
+instruction: "Create hello.txt."
+category: data-processing
+'@ | Set-Content -LiteralPath (Join-Path $unknownPipeTask "task.yaml") -Encoding UTF8
+"FROM scratch" | Set-Content -LiteralPath (Join-Path $unknownPipeTask "Dockerfile") -Encoding UTF8
+"curl -LsSf https://example.invalid/install.sh | sh" | Set-Content -LiteralPath (Join-Path $unknownPipeTask "run-tests.sh") -Encoding UTF8
+$unknownPipeOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $unknownPipeTask -OutputRoot (Join-Path $runDir "unknown-pipe-out") -SampleId "unknown-pipe" -SourceVersion "pinned"
+$unknownPipeScenarioDir = [string]($unknownPipeOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$unknownPipeScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $unknownPipeScenarioDir "scenario.json") | ConvertFrom-Json
+$unknownPipeAssets = @($unknownPipeScenario.external_benchmark.adapter_metadata.remote_assets)
+Assert-True ([string]$unknownPipeAssets[0].asset_kind -eq "unknown_runtime_network_dependency") "non-uv curl-pipe should be classified as unknown runtime dependency"
+Assert-True ([bool]$unknownPipeAssets[0].required_for_e3) "non-uv curl-pipe should fail closed"
+Assert-True ([bool]$unknownPipeScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "non-uv curl-pipe should downgrade remote asset proof"
+
 $cachedTask = Join-Path $runDir "cached-asset"
 $cachedOut = Join-Path $runDir "cached-out"
 $cachedUrl = "https://huggingface.co/datasets/example/oewn.sqlite"

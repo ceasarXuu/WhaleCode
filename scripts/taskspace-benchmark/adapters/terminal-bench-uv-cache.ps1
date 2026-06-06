@@ -67,8 +67,12 @@ exec /usr/bin/apt-get "$@"
         root = $cache
         installer_url = $installerUrl
         archive_url = $archiveUrl
+        installer_path = $installer
+        archive_path = $archive
         apt_get_curl_short_circuit = $true
         installer_sha256 = if (Test-Path $installer) { (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant() } else { "" }
         archive_sha256 = if (Test-Path $archive) { (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant() } else { "" }
+        installer_size_bytes = if (Test-Path $installer) { [int64](Get-Item -LiteralPath $installer).Length } else { 0 }
+        archive_size_bytes = if (Test-Path $archive) { [int64](Get-Item -LiteralPath $archive).Length } else { 0 }
     }
 }

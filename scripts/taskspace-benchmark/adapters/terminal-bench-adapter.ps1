@@ -125,7 +125,7 @@ $validatorSource = @($validatorCandidates)[0]
 $generatedDir = New-TaskspaceExternalDir (Join-Path $OutputRoot "_adapter-generated")
 $uvCache = New-TerminalBenchUvCache $OutputRoot
 if (-not [bool]$uvCache.enabled) { throw "Terminal-Bench uv dependency cache could not be materialized; refusing to generate a partial external validator scenario." }
-$remoteAssets = @(Get-TerminalBenchRemoteAssets $taskRoot $SampleId $OutputRoot $SourceVersion)
+$remoteAssets = @(Get-TerminalBenchRemoteAssets $taskRoot $SampleId $OutputRoot $SourceVersion $uvCache)
 $remoteAssetsE3Eligible = ($remoteAssets.Count -eq 0)
 $uvCacheLiteral = "'" + $uvCache.root.Replace("'", "''") + "'"
 $instructionMode = "file"
