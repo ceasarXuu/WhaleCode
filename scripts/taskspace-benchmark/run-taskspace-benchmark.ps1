@@ -15,6 +15,9 @@ param(
     [string]$AuditReviewRoot = "",
     [switch]$EnableAggregate,
     [switch]$AllowNonE2Result,
+    [switch]$ResumeLatest,
+    [string]$RunId = "",
+    [switch]$ForceRerun,
     [switch]$PlanOnly
 )
 
@@ -31,22 +34,59 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\audit-report.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-proof.ps1")
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
+. (Join-Path $PSScriptRoot "lib\report-summary.ps1")
 . (Join-Path $PSScriptRoot "lib\source-guard.ps1")
+. (Join-Path $PSScriptRoot "lib\run-state.ps1")
 
 if ($Repeats -lt 1) { throw "Repeats must be >= 1" }
 if (-not $RunRoot) { $RunRoot = Get-NeutralTaskspaceBenchmarkRunRoot $repoRoot }
 
 $manifest = Read-TaskspaceScenarioManifest $repoRoot $Scenario $ScenarioPath
 $prompt = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifest.PromptPath
-$promptGuard = Invoke-TaskspacePromptGuard $prompt
+$promptGuardConfig = $manifest.PromptGuard
+$allowedContextTerms = @()
+$sourceSpans = @()
+if ($null -ne $promptGuardConfig) {
+    if ($promptGuardConfig.PSObject.Properties.Name -contains "allowed_domain_terms") {
+        $allowedContextTerms = @($promptGuardConfig.allowed_domain_terms | ForEach-Object { [string]$_ })
+    }
+    if ($promptGuardConfig.PSObject.Properties.Name -contains "allowed_domain_regex") {
+        $allowedContextTerms += @($promptGuardConfig.allowed_domain_regex | ForEach-Object { [string]$_ })
+    }
+    if ($promptGuardConfig.PSObject.Properties.Name -contains "source_spans") {
+        $sourceSpans = @($promptGuardConfig.source_spans)
+    }
+}
+$promptGuard = Invoke-TaskspacePromptGuard -PromptText $prompt -AllowedContextTerms $allowedContextTerms -SourceSpans $sourceSpans
 if ($promptGuard.invalid_prompt) {
     throw "Scenario prompt leaks internal TaskSpace concepts: $(@($promptGuard.hard_hits) -join ', ')"
 }
 
-$runDir = New-TaskspaceBenchmarkRun $RunRoot $manifest.Id
+$commandLine = if ($MyInvocation.Line) { [string]$MyInvocation.Line } else { [Environment]::CommandLine }
+$runDir = ""
+if (-not [string]::IsNullOrWhiteSpace($RunId)) {
+    $runDir = Join-Path (Join-Path $RunRoot $manifest.Id) $RunId
+} elseif ($ResumeLatest) {
+    $runDir = Find-TaskspaceLatestRunDir $RunRoot $manifest.Id
+}
+$resuming = (-not [string]::IsNullOrWhiteSpace($runDir) -and (Test-Path -LiteralPath $runDir) -and -not $ForceRerun)
+if (-not $resuming) {
+    $runDir = New-TaskspaceBenchmarkRun $RunRoot $manifest.Id
+    Initialize-TaskspaceBenchmarkRunState $runDir $manifest.Id $Repeats $manifest.EvidenceTarget $commandLine | Out-Null
+    Set-TaskspaceSampleStatus $runDir $manifest.Id "preflight" 0 0 "" "" "" "" $commandLine | Out-Null
+} else {
+    $existingStatus = Read-TaskspaceRunStatus $runDir
+    $stale = Test-TaskspaceRunLockStale $existingStatus
+    Write-TaskspaceRunEvent $runDir "resume_requested" @{ stale_lock = $stale; command_line = $commandLine }
+    if (-not $stale -and $existingStatus.phase -notin @("completed", "ineligible")) {
+        throw "Run appears active and is not stale: $runDir"
+    }
+    if ($stale) { Write-TaskspaceRunEvent $runDir "stale_lock_reclaimed" @{ previous_lock_owner = [string]$existingStatus.lock_owner } }
+}
 $promptCopy = Join-Path $runDir "prompt.txt"
 Write-Text $promptCopy $prompt
 Write-TaskspaceJson $promptGuard (Join-Path $runDir "prompt-guard.json")
+Write-TaskspaceRunEvent $runDir "prompt_guard_completed" @{ invalid_prompt = [bool]$promptGuard.invalid_prompt; manual_review_required = [bool]$promptGuard.manual_review_required }
 $whaleVersion = if (Test-Path -LiteralPath $WhaleBin) { (& $WhaleBin --version 2>&1) -join " " } else { "" }
 $whaleSha = if (Test-Path -LiteralPath $WhaleBin) { Get-TaskspaceFileSha256 $WhaleBin } else { "" }
 $fixtureSha = Get-TaskspaceDirectorySha256 $manifest.FixtureDir
@@ -78,6 +118,31 @@ if ($PlanOnly) {
     Write-Host "PromptManualReview: $($promptGuard.manual_review_required)"
     exit 0
 }
+$remoteAssets = @()
+if ($null -ne $manifest.ExternalBenchmark -and
+    $manifest.ExternalBenchmark.PSObject.Properties.Name -contains "adapter_metadata" -and
+    $null -ne $manifest.ExternalBenchmark.adapter_metadata -and
+    $manifest.ExternalBenchmark.adapter_metadata.PSObject.Properties.Name -contains "remote_assets") {
+    $remoteAssets = @($manifest.ExternalBenchmark.adapter_metadata.remote_assets)
+}
+$remoteAssetIneligible = @($remoteAssets | Where-Object { $_.required_for_e3 -and -not [bool]$_.equivalence_proven })
+if ($remoteAssets.Count -gt 0) {
+    $assetPreflightPath = Join-Path $runDir "preflight.remote-assets.json"
+    Write-TaskspaceJson ([pscustomobject]@{
+            remote_assets = @($remoteAssets)
+            ineligible_assets = @($remoteAssetIneligible)
+            e3_eligible = ($remoteAssetIneligible.Count -eq 0)
+        }) $assetPreflightPath
+    Write-TaskspaceRunEvent $runDir "remote_asset_preflight_completed" @{ remote_asset_count = $remoteAssets.Count; ineligible_asset_count = $remoteAssetIneligible.Count; path = $assetPreflightPath }
+    if ($remoteAssetIneligible.Count -gt 0) {
+        Set-TaskspaceSampleStatus $runDir $manifest.Id "ineligible" 0 0 "environment_remote_asset_unavailable" "remote_asset_equivalence_unproven" "" $assetPreflightPath $commandLine | Out-Null
+        Set-TaskspaceBenchmarkRunPhase $runDir "ineligible" 0 0 $false | Out-Null
+        Write-Host "RunDir: $runDir"
+        Write-Host "SampleStatus: $(Join-Path $runDir 'sample-status.json')"
+        Write-Host "RemoteAssetPreflight: $assetPreflightPath"
+        exit 2
+    }
+}
 if (-not (Test-Path -LiteralPath $WhaleBin)) { throw "Whale binary not found: $WhaleBin" }
 $helpText = & $WhaleBin exec --help 2>&1
 if (($helpText -join [Environment]::NewLine) -notmatch "--taskspace") {
@@ -86,6 +151,29 @@ if (($helpText -join [Environment]::NewLine) -notmatch "--taskspace") {
 
 $pairReports = New-Object System.Collections.Generic.List[object]
 for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
+    $existingPairDir = Join-Path $runDir ("pair-{0:000}" -f $repeat)
+    $existingPairReport = Join-Path $existingPairDir "pair-report.md"
+    if ($resuming -and -not $ForceRerun -and (Test-Path -LiteralPath $existingPairReport)) {
+        Write-TaskspaceRunEvent $runDir "pair_skipped_completed" @{ repeat = $repeat; pair_report = $existingPairReport }
+        $pairReports.Add([pscustomobject]@{
+                repeat = $repeat
+                pair_dir = $existingPairDir
+                pair_report = $existingPairReport
+                evidence_target = $manifest.EvidenceTarget
+                evidence = [pscustomobject]@{
+                    reported_evidence_level = "resumed_existing"
+                    included_in_utility_aggregate = $false
+                    included_in_e3_aggregate = $false
+                    evidence_gate_failures = @("resumed_existing_pair_not_reclassified")
+                    e3_gate_failures = @()
+                }
+            })
+        Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $existingPairReport $commandLine | Out-Null
+        continue
+    }
+    Set-TaskspaceBenchmarkRunPhase $runDir "execute" ($repeat - 1) ($repeat - 1) | Out-Null
+    Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" ($repeat - 1) ($repeat - 1) "" "" "" "" $commandLine | Out-Null
+    Write-TaskspaceRunEvent $runDir "pair_started" @{ repeat = $repeat }
     $pair = New-TaskspacePairWorkspace $manifest $runDir $repeat
     foreach ($side in @($pair.Left, $pair.Right)) {
         if (-not (Test-TaskspaceNeutralCwd $side.RepoDir)) {
@@ -205,6 +293,8 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         "hard_sandbox"
     }
     $businessSuccess = [bool]($metricsBySide["left"].business_success -or $metricsBySide["right"].business_success)
+    $metricsTaints = @($metricsBySide.Values | ForEach-Object { @($_.metrics_taints) } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Sort-Object -Unique)
+    $environmentFailures = @($metricsBySide.Values | ForEach-Object { @($_.validator_environment_failures) } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Sort-Object -Unique)
     $standardMetrics = @($metricsBySide["left"], $metricsBySide["right"]) | Where-Object { $_.logical_mode -eq "standard" } | Select-Object -First 1
     $taskspaceMetrics = @($metricsBySide["left"], $metricsBySide["right"]) | Where-Object { $_.logical_mode -eq "taskspace" } | Select-Object -First 1
     $sideOutcomes = [pscustomobject]@{
@@ -217,11 +307,11 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $e3MinimumRepeats = [Math]::Max(5, [int]$manifest.E3.minimum_repeats)
     }
     $pairReportPath = Join-Path $pair.PairDir "pair-report.md"
-    $candidateEvidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $false $e3MinimumRepeats "" $false $externalProof $sideOutcomes
+    $candidateEvidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $false $e3MinimumRepeats "" $false $externalProof $sideOutcomes $metricsTaints $environmentFailures
     Write-TaskspacePairReport $pairReportPath $manifest $promptGuard $variableControl $candidateEvidence $metricsBySide["left"] $metricsBySide["right"] $pair $probe
     $expectedClaimScope = if ($null -ne $manifest.E3 -and $manifest.E3.PSObject.Properties.Name -contains "claim_scope") { [string]$manifest.E3.claim_scope } else { "" }
     $auditReview = Get-TaskspaceAuditReview $pair.PairDir $AuditReviewRoot $repeat $expectedClaimScope
-    $evidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $auditReview.completed $e3MinimumRepeats $auditReview.decision $auditReview.disagreement $externalProof $sideOutcomes
+    $evidence = Get-TaskspaceEvidenceGate $Repeats $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $EnableAggregate $OracleIsolationPolicy $manifest.EvidenceTarget $manifest.SampleOrigin $manifest.ExternalBenchmark $manifest.E3 $manifest.HumanReviewRequired $auditReview.completed $e3MinimumRepeats $auditReview.decision $auditReview.disagreement $externalProof $sideOutcomes $metricsTaints $environmentFailures
     $evidence | Add-Member -NotePropertyName audit_review_source_path -NotePropertyValue $auditReview.source_path -Force
     $evidence | Add-Member -NotePropertyName audit_review_failures -NotePropertyValue @($auditReview.failures) -Force
     if ($externalProof) {
@@ -236,15 +326,26 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     Write-TaskspacePairReport $pairReportPath $manifest $promptGuard $variableControl $evidence $metricsBySide["left"] $metricsBySide["right"] $pair $probe
     if ([string]$manifest.EvidenceTarget -eq "E3") {
         Write-TaskspaceAuditReviewTemplate $pair.PairDir $expectedClaimScope | Out-Null
+        Write-TaskspaceRunEvent $runDir "audit_draft_written" @{ repeat = $repeat; pair_dir = $pair.PairDir }
     }
     $pairReports.Add([pscustomobject]@{ repeat = $repeat; pair_dir = $pair.PairDir; pair_report = $pairReportPath; evidence_target = $manifest.EvidenceTarget; evidence = $evidence })
+    Write-TaskspaceRunEvent $runDir "pair_completed" @{ repeat = $repeat; pair_report = $pairReportPath; reported_evidence_level = [string]$evidence.reported_evidence_level }
+    Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $pairReportPath $commandLine | Out-Null
 }
 
 $runSummaryPath = Join-Path $runDir "run-summary.md"
 Write-TaskspaceRunSummary -Path $runSummaryPath -Reports @($pairReports.ToArray())
 if ($EnableAggregate) {
-    Write-TaskspaceAggregateReport -Path (Join-Path $runDir "aggregate-report.md") -Reports @($pairReports.ToArray())
+    $aggregatePath = Join-Path $runDir "aggregate-report.md"
+    Write-TaskspaceAggregateReport -Path $aggregatePath -Reports @($pairReports.ToArray())
+    $auditPending = @($pairReports.ToArray() | Where-Object { @($_.evidence.e3_gate_failures) -contains "e3_human_review_not_completed" }).Count -gt 0
+    $finalPhase = if ($auditPending) { "audit_required" } else { "finalize" }
+    Set-TaskspaceSampleStatus $runDir $manifest.Id $finalPhase $Repeats $Repeats "" "" $aggregatePath $runSummaryPath $commandLine | Out-Null
+} else {
+    Set-TaskspaceSampleStatus $runDir $manifest.Id "completed" $Repeats $Repeats "" "" "" $runSummaryPath $commandLine | Out-Null
 }
+$runFinalReady = $EnableAggregate.IsPresent -and -not ($manifest.EvidenceTarget -eq "E3" -and @($pairReports.ToArray() | Where-Object { @($_.evidence.e3_gate_failures) -contains "e3_human_review_not_completed" }).Count -gt 0)
+Set-TaskspaceBenchmarkRunPhase $runDir "completed" $Repeats $Repeats $runFinalReady | Out-Null
 Write-Host "RunDir: $runDir"
 Write-Host "RunSummary: $runSummaryPath"
 foreach ($report in $pairReports) { Write-Host "PairReport: $($report.pair_report)" }

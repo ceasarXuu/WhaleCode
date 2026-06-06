@@ -233,6 +233,10 @@ function New-TaskspaceExternalEvidenceProof {
         ($official.PSObject.Properties.Name -contains "source_files_match_pinned_revision" -and [bool]$official.source_files_match_pinned_revision) -and
         ($official.PSObject.Properties.Name -contains "task_worktree_dirty" -and -not [bool]$official.task_worktree_dirty) -and
         @($runtimeRows | Where-Object { -not $_.official_test_command_seen }).Count -eq 0)
+    $remoteAssets = if ($null -ne $adapterMetadata -and $adapterMetadata.PSObject.Properties.Name -contains "remote_assets") {
+        @($adapterMetadata.remote_assets)
+    } else { @() }
+    $remoteAssetsOk = @($remoteAssets | Where-Object { $_.required_for_e3 -and -not [bool]$_.equivalence_proven }).Count -eq 0
     $runnerProof = [pscustomobject]@{
         benchmark = [string]$external.name
         adapter_version = [string]$external.adapter_version
@@ -243,6 +247,8 @@ function New-TaskspaceExternalEvidenceProof {
         official_source_files_match_pinned_revision = if ($null -ne $official -and $official.PSObject.Properties.Name -contains "source_files_match_pinned_revision") { [bool]$official.source_files_match_pinned_revision } else { $false }
         task_worktree_dirty = if ($null -ne $official -and $official.PSObject.Properties.Name -contains "task_worktree_dirty") { [bool]$official.task_worktree_dirty } else { $true }
         official_protocol_source_proven = $officialProtocolOk
+        remote_assets_equivalence_proven = $remoteAssetsOk
+        remote_assets = @($remoteAssets)
         runtime_command_matches_official_protocol = @($runtimeRows | Where-Object { -not $_.official_test_command_seen }).Count -eq 0
         source_hashes = @($sourceHashRows.ToArray())
     }
@@ -330,7 +336,7 @@ function New-TaskspaceExternalEvidenceProof {
     }
     Write-TaskspaceJson $isolationProof $isolationPath
 
-    $officialEquivalent = $runtimeOk -and $mountOk -and $officialProtocolOk -and (Get-TaskspaceBoolField $declared "official_runner_or_equivalent")
+    $officialEquivalent = $runtimeOk -and $mountOk -and $officialProtocolOk -and $remoteAssetsOk -and (Get-TaskspaceBoolField $declared "official_runner_or_equivalent")
     $sourceIsolated = $isolationOk -and $guardOk -and (Get-TaskspaceBoolField $declared "agent_cannot_read_validator_source")
     $eligible = $officialEquivalent -and $sourceIsolated -and (Get-TaskspaceBoolField $declared "e3_eligible")
     $combinedProof = [pscustomobject]@{

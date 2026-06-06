@@ -82,7 +82,8 @@ function New-TaskspaceExternalScenario {
         [Parameter(Mandatory = $true)][string]$DataPolicy,
         [string]$ClaimScope = "",
         $ValidatorFidelity = $null,
-        $AdapterMetadata = $null
+        $AdapterMetadata = $null,
+        $PromptGuard = $null
     )
     foreach ($required in @($SourceVersion, $SourceUrl, $License, $DataPolicy, $OriginalValidatorSha256)) {
         if ([string]::IsNullOrWhiteSpace($required)) {
@@ -159,6 +160,7 @@ function New-TaskspaceExternalScenario {
             validator_fidelity = $ValidatorFidelity
             adapter_metadata = $AdapterMetadata
         }
+        prompt_guard = $PromptGuard
         human_review_required = $true
         e3 = [ordered]@{
             minimum_repeats = 5

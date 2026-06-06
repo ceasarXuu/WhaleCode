@@ -1,7 +1,7 @@
 # Problem P-001: TaskSpace P0 benchmark run cannot produce clean E3 evidence
 - Status: open
 - Created: 2026-06-07 05:18
-- Updated: 2026-06-07 05:52
+- Updated: 2026-06-07 06:20
 - Objective: explain why the Terminal-Bench P0 run stopped as partial, and define evidence-backed repair criteria before another P0/E3 run is trusted.
 - Symptoms:
   - `recover-accuracy-log` exited before agent execution with `Scenario prompt leaks internal TaskSpace concepts: multi-agent`.
@@ -53,7 +53,9 @@
   - H-004
   - H-005
 - Resolution basis:
-  - not satisfied
+  - repair implemented; full P0 rerun not yet executed
+  - fix-validation evidence: E-010, E-011, E-012, E-013, E-014
+  - closure-hardening evidence: E-015, E-016
 - Close reason:
   - not closed
 
@@ -456,3 +458,170 @@
   ```
 - Interpretation: the harness needs operational state and structured error evidence before another P0 run can be trusted.
 - Time: 2026-06-07 05:52
+
+## Evidence E-010: harness self-test passed after prompt, metrics, run-state, and adapter changes
+- Related hypotheses:
+  - H-001
+  - H-003
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: command `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\taskspace-benchmark\test-harness.ps1`
+- Prediction or plan link:
+  - Prompt provenance, locked-file metrics handling, run-state events, and Terminal-Bench remote asset metadata should be covered by automated harness assertions.
+- Matched signal:
+  - `TaskSpace benchmark harness self-test: PASS`
+- Correlation keys:
+  - run root `D:\whalecode-alpha\target\paired-bench-selftest\single-file-fast-fix\20260607-054052-421`
+- Raw content:
+  ```text
+  TaskSpace benchmark harness self-test: PASS
+  ```
+- Interpretation: the focused harness regression confirms the repaired code paths at unit/script level.
+- Time: 2026-06-07 05:55
+
+## Evidence E-011: remote asset preflight stops before Whale execution
+- Related hypotheses:
+  - H-002
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: command `run-taskspace-benchmark.ps1 -ScenarioPath <remote asset fixture> -WhaleBin Z:\missing\whale.exe`
+- Prediction or plan link:
+  - A Terminal-Bench sample with unproven remote assets should be classified before agent execution and before checking the Whale binary.
+- Matched signal:
+  - exit code `2`, `phase=ineligible`, `ineligible_reason=environment_remote_asset_unavailable`
+- Correlation keys:
+  - run root `D:\whalecode-alpha\target\remote-preflight-smoke\terminal_bench__remote\20260607-054138-404`
+- Raw content:
+  ```text
+  SampleStatus: ...\sample-status.json
+  RemoteAssetPreflight: ...\preflight.remote-assets.json
+  "phase": "ineligible"
+  "ineligible_reason": "environment_remote_asset_unavailable"
+  "environment_failure_reason": "remote_asset_equivalence_unproven"
+  ```
+- Interpretation: `query-optimize`-style remote asset failures can now be excluded as environment-ineligible before agent work starts.
+- Time: 2026-06-07 05:55
+
+## Evidence E-012: oracle runner, uv cache, and E3 proof harnesses still pass
+- Related hypotheses:
+  - H-002
+  - H-004
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: commands `test-oracle-runner-harness.ps1`, `test-terminal-bench-uv-cache-harness.ps1`, `test-e3-proof-harness.ps1`
+- Prediction or plan link:
+  - Existing oracle, cache, and E3 proof checks should remain compatible with the repair.
+- Matched signal:
+  - all three scripts reported `PASS`
+- Correlation keys:
+  - `oracle-runner-selftest`
+  - `terminal-bench-uv-cache-selftest`
+  - `e3-proof-selftest`
+- Raw content:
+  ```text
+  TaskSpace oracle-runner self-test: PASS
+  Terminal-Bench uv cache self-test: PASS
+  TaskSpace E3 proof harness self-test: PASS
+  ```
+- Interpretation: the repair did not break adjacent proof/cache/oracle harnesses.
+- Time: 2026-06-07 05:55
+
+## Evidence E-013: normal PlanOnly smoke still succeeds
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: command `run-taskspace-benchmark.ps1 -Scenario single-file-fast-fix -PlanOnly`
+- Prediction or plan link:
+  - Samples without remote asset blockers should still pass prompt guard and plan-only setup.
+- Matched signal:
+  - `PromptInvalid: False`, `PromptManualReview: False`
+- Correlation keys:
+  - run root `D:\whalecode-alpha\target\planonly-smoke\single-file-fast-fix\20260607-054247-588`
+- Raw content:
+  ```text
+  RunDir: ...\target\planonly-smoke\single-file-fast-fix\20260607-054247-588
+  PromptInvalid: False
+  PromptManualReview: False
+  ```
+- Interpretation: the preflight/run-state additions do not block ordinary non-remote benchmark setup.
+- Time: 2026-06-07 05:55
+
+## Evidence E-014: real one-pair benchmark smoke writes complete run state
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: command `run-taskspace-benchmark.ps1 -Scenario single-file-fast-fix -Repeats 1 -AllowNonE2Result`
+- Prediction or plan link:
+  - A real agent-execution pair should complete with run/sample status, event timeline, metrics warnings/taints fields, and pair report.
+- Matched signal:
+  - script exit code `0`, run phase `completed`, completed pairs `1`, pair report `E2-candidate`
+- Correlation keys:
+  - run root `D:\whalecode-alpha\target\repair-real-smoke\single-file-fast-fix\20260607-054431-059`
+- Raw content:
+  ```text
+  RunSummary: ...\run-summary.md
+  PairReport: ...\pair-001\pair-report.md
+  "phase": "completed"
+  "attempted_pairs": 1
+  "completed_pairs": 1
+  reported_evidence_level: E2-candidate
+  metrics_warnings:
+  metrics_taints:
+  ```
+- Interpretation: the repaired state and metrics plumbing works through an actual Whale execution path. The evidence level is intentionally not E2 because this smoke used one repeat.
+- Time: 2026-06-07 05:55
+
+## Evidence E-015: closure hardening tests passed after reviewer blocking findings
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: commands `test-harness.ps1`, `test-e3-proof-harness.ps1`, remote preflight smoke, real one-pair smoke after closure hardening.
+- Prediction or plan link:
+  - Accepted blocking review findings should be reflected in tests for prompt control rejection, remote asset cache/injection, run-state metadata, Docker result parsing, and adapter file-size split.
+- Matched signal:
+  - harness and E3 proof self-tests passed; remote preflight exited through expected ineligible path; real one-pair smoke completed.
+- Correlation keys:
+  - `target\paired-bench-selftest\single-file-fast-fix\20260607-060148-038`
+  - `target\e3-proof-selftest\20260607-060147-638`
+  - `target\remote-preflight-smoke-3\terminal_bench__remote\20260607-060227-713`
+  - `target\repair-real-smoke-3\single-file-fast-fix\20260607-060227-749`
+- Raw content:
+  ```text
+  TaskSpace benchmark harness self-test: PASS
+  TaskSpace E3 proof harness self-test: PASS
+  RemoteAssetPreflight: ...\preflight.remote-assets.json
+  PairReport: ...\pair-001\pair-report.md
+  ```
+- Interpretation: closure-hardening changes are validated at script level and through one real Whale pair. Full P0 is still not rerun in this step.
+- Time: 2026-06-07 06:05
+
+## Evidence E-016: resume smoke reuses existing run and skips completed pair
+- Related hypotheses:
+  - H-004
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: command sequence `run-taskspace-benchmark.ps1 ...` followed by `run-taskspace-benchmark.ps1 ... -ResumeLatest`
+- Prediction or plan link:
+  - A resumed run should consume existing status/artifacts and skip an already completed pair instead of rerunning it.
+- Matched signal:
+  - same `RunDir` printed twice; `events.jsonl` contains `resume_requested` and `pair_skipped_completed`.
+- Correlation keys:
+  - run root `D:\whalecode-alpha\target\resume-real-smoke\single-file-fast-fix\20260607-061536-791`
+- Raw content:
+  ```text
+  RunDir: ...\20260607-061536-791
+  RunDir: ...\20260607-061536-791
+  event=resume_requested
+  event=pair_skipped_completed
+  ```
+- Interpretation: the runner now has a real resume entrypoint for completed pair reuse. This is not a full phase-by-phase resume matrix, but it closes the previous "metadata only" blocker for completed run recovery.
+- Time: 2026-06-07 06:20

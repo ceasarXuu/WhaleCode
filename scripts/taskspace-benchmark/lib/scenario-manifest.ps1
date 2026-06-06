@@ -73,6 +73,7 @@ function Read-TaskspaceScenarioManifest {
         Thresholds = $manifest.thresholds
         SampleOrigin = $manifest.sample_origin
         ExternalBenchmark = $manifest.external_benchmark
+        PromptGuard = $manifest.prompt_guard
         HumanReviewRequired = $humanReviewRequired
         E3 = $manifest.e3
     }

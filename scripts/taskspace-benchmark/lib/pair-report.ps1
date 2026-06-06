@@ -19,7 +19,9 @@ function Get-TaskspaceEvidenceGate {
         [string]$HumanReviewDecision = "",
         [bool]$HumanReviewDisagreement = $false,
         $ExternalProof = $null,
-        $SideOutcomes = $null
+        $SideOutcomes = $null,
+        [string[]]$MetricsTaints = @(),
+        [string[]]$EnvironmentFailures = @()
     )
     $failures = New-Object System.Collections.Generic.List[string]
     $e3Failures = New-Object System.Collections.Generic.List[string]
@@ -44,6 +46,20 @@ function Get-TaskspaceEvidenceGate {
     if ($AcceptedSoftIsolation) { $failures.Add("accepted_soft_isolation_non_e2") }
     if (-not $AggregateEligible) { $failures.Add("aggregate_not_enabled") }
     $target = ([string]$EvidenceTarget).ToUpperInvariant()
+    foreach ($taint in @($MetricsTaints | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })) {
+        if ($target -eq "E3") {
+            $e3Failures.Add([string]$taint)
+        } else {
+            $failures.Add([string]$taint)
+        }
+    }
+    foreach ($environmentFailure in @($EnvironmentFailures | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })) {
+        if ($target -eq "E3") {
+            $e3Failures.Add([string]$environmentFailure)
+        } else {
+            $failures.Add([string]$environmentFailure)
+        }
+    }
     if ($target -eq "E3") {
         if ($Repeats -lt $effectiveE3MinimumRepeats) { $e3Failures.Add("e3_repeats_lt_$effectiveE3MinimumRepeats") }
         $originType = if ($null -ne $SampleOrigin -and $SampleOrigin.PSObject.Properties.Name -contains "type") { [string]$SampleOrigin.type } else { "" }
@@ -362,6 +378,10 @@ function Write-TaskspacePairReport {
             @("tool_call_count", $sideMetrics.tool_call_count),
             @("changed_paths", (@($sideMetrics.changed_paths) -join ", ")),
             @("changed_file_inventory", (@($sideMetrics.changed_file_inventory | ForEach-Object { "$($_.path)[$($_.status)] sha256=$($_.sha256) size=$($_.size_bytes)" }) -join "; ")),
+            @("metrics_warnings", (@($sideMetrics.metrics_warnings) -join ", ")),
+            @("metrics_taints", (@($sideMetrics.metrics_taints) -join ", ")),
+            @("validator_environment_failures", (@($sideMetrics.validator_environment_failures) -join ", ")),
+            @("docker_build_result_path", $sideMetrics.docker_build_result_path),
             @("validator_environment_mismatch", $sideMetrics.validator_environment_mismatch),
             @("maps", $sideMetrics.maps),
             @("nodes", $sideMetrics.nodes),
@@ -372,99 +392,6 @@ function Write-TaskspacePairReport {
             @("open_leaf_nodes", $sideMetrics.open_leaf_nodes),
             @("ordinary_before_binding", $sideMetrics.ordinary_before_binding)
         )) { $lines.Add("- $($row[0]): $($row[1])") }
-    }
-    $lines | Set-Content -LiteralPath $Path -Encoding UTF8
-}
-
-function Write-TaskspaceRunSummary {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)]$Reports
-    )
-    $lines = @("# TaskSpace Benchmark Run Summary", "")
-    foreach ($report in @($Reports)) {
-        $lines += "- pair: $($report.pair_dir)"
-        $lines += "  - reported_evidence_level: $($report.evidence.reported_evidence_level)"
-        $lines += "  - included_in_utility_aggregate: $($report.evidence.included_in_utility_aggregate)"
-        $reportTarget = if ($report.PSObject.Properties.Name -contains "evidence_target") { [string]$report.evidence_target } else { "" }
-        if ($reportTarget -eq "E3" -or [string]$report.evidence.reported_evidence_level -like "E3*") {
-            $lines += "  - included_in_e3_aggregate: $($report.evidence.included_in_e3_aggregate)"
-        }
-        $lines += "  - pair_report: $($report.pair_report)"
-    }
-    $lines | Set-Content -LiteralPath $Path -Encoding UTF8
-}
-
-function Write-TaskspaceAggregateReport {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)]$Reports
-    )
-    $all = @($Reports)
-    $valid = @($all | Where-Object { $_.evidence.included_in_utility_aggregate })
-    $validE3 = @($all | Where-Object { $_.evidence.included_in_e3_aggregate })
-    $included = @($all | Where-Object { $_.evidence.included_in_utility_aggregate -or $_.evidence.included_in_e3_aggregate })
-    $hasE3Rows = @($all | Where-Object { [string]$_.evidence.reported_evidence_level -like "E3*" }).Count -gt 0
-    $e3Rows = @($all | Where-Object { [string]$_.evidence.reported_evidence_level -like "E3*" })
-    $reviewCompleted = @($e3Rows | Where-Object { $_.evidence.human_review_completed })
-    $validE3Reviewed = @($validE3 | Where-Object { $_.evidence.human_review_completed })
-    $reviewDisagreements = @($e3Rows | Where-Object { $_.evidence.human_review_disagreement })
-    $decisionCounts = @{}
-    foreach ($row in $validE3Reviewed) {
-        $decision = [string]$row.evidence.human_review_decision
-        if ([string]::IsNullOrWhiteSpace($decision)) { $decision = "missing" }
-        if (-not $decisionCounts.ContainsKey($decision)) { $decisionCounts[$decision] = 0 }
-        $decisionCounts[$decision]++
-    }
-    $taskspaceBetterPairs = @($validE3Reviewed | Where-Object { [string]$_.evidence.human_review_decision -eq "include_taskspace_better" }).Count
-    $standardBetterPairs = @($validE3Reviewed | Where-Object { [string]$_.evidence.human_review_decision -eq "include_standard_better" }).Count
-    $noClearDeltaPairs = @($validE3Reviewed | Where-Object { [string]$_.evidence.human_review_decision -eq "include_no_clear_delta" }).Count
-    $lines = @(
-        "# TaskSpace Benchmark Aggregate Report",
-        "",
-        "- all_pairs: $($all.Count)",
-        "- valid_utility_pairs: $($valid.Count)"
-    )
-    if ($hasE3Rows) {
-        $decisionSummary = if ($decisionCounts.Count -eq 0) {
-            ""
-        } else {
-            @($decisionCounts.Keys | Sort-Object | ForEach-Object { "$_=$($decisionCounts[$_])" }) -join "; "
-        }
-        $lines += "- valid_e3_pairs: $($validE3.Count)"
-        $lines += "- e3_human_review_completed_pairs: $($reviewCompleted.Count)"
-        $lines += "- e3_human_review_disagreement_pairs: $($reviewDisagreements.Count)"
-        $lines += "- e3_human_review_decisions: $decisionSummary"
-        $lines += "- e3_taskspace_better_pairs: $taskspaceBetterPairs"
-        $lines += "- e3_standard_better_pairs: $standardBetterPairs"
-        $lines += "- e3_no_clear_delta_pairs: $noClearDeltaPairs"
-        $lines += "- e3_taskspace_benefit_note: only include_taskspace_better counts as directional TaskSpace benefit evidence"
-    }
-    $lines += "- excluded_pairs: $($all.Count - $included.Count)"
-    foreach ($report in $all) {
-        $lines += ""
-        $lines += "## Pair $($report.repeat)"
-        $lines += "- pair_report: $($report.pair_report)"
-        $lines += "- reported_evidence_level: $($report.evidence.reported_evidence_level)"
-        $lines += "- included_in_utility_aggregate: $($report.evidence.included_in_utility_aggregate)"
-        if ([string]$report.evidence.reported_evidence_level -like "E3*") {
-            $lines += "- included_in_e3_aggregate: $($report.evidence.included_in_e3_aggregate)"
-            $lines += "- human_review_completed: $($report.evidence.human_review_completed)"
-            $lines += "- human_review_decision: $($report.evidence.human_review_decision)"
-            $lines += "- human_review_disagreement: $($report.evidence.human_review_disagreement)"
-        }
-        if (@($report.evidence.evidence_gate_failures).Count -eq 0) {
-            $lines += "- evidence_gate_failures: none"
-        } else {
-            $lines += "- evidence_gate_failures: $(@($report.evidence.evidence_gate_failures) -join ', ')"
-        }
-        if ([string]$report.evidence.reported_evidence_level -like "E3*") {
-            if (@($report.evidence.e3_gate_failures).Count -eq 0) {
-                $lines += "- e3_gate_failures: none"
-            } else {
-                $lines += "- e3_gate_failures: $(@($report.evidence.e3_gate_failures) -join ', ')"
-            }
-        }
     }
     $lines | Set-Content -LiteralPath $Path -Encoding UTF8
 }

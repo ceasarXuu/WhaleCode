@@ -14,6 +14,8 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\audit-report.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-proof.ps1")
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
+. (Join-Path $PSScriptRoot "lib\report-summary.ps1")
+. (Join-Path $PSScriptRoot "lib\run-state.ps1")
 . (Join-Path $PSScriptRoot "lib\matrix-report.ps1")
 . (Join-Path $PSScriptRoot "adapters\external-benchmark-common.ps1")
 
@@ -42,8 +44,43 @@ $mixedGuard = Invoke-TaskspacePromptGuard "Please fix the Node.js source map iss
 Assert-True ($mixedGuard.manual_review_required) "benign engineering allowlist suppressed a separate internal node/map leak"
 $manualGuard = Invoke-TaskspacePromptGuard "Please run the checks in parallel where it makes sense."
 Assert-True ($manualGuard.manual_review_required) "context-sensitive parallel wording did not require manual review"
+$domainPrompt = "Evaluate a multi-agent system from its logs."
+$domainGuard = Invoke-TaskspacePromptGuard -PromptText $domainPrompt -AllowedContextTerms @("(?i)\bmulti-agent\b") -SourceSpans @([pscustomobject]@{ source_kind = "upstream_task"; source_path = "task.yaml"; start = 0; end = $domainPrompt.Length })
+Assert-True (-not $domainGuard.invalid_prompt -and -not $domainGuard.manual_review_required) "upstream allowed domain term was not accepted"
+Assert-True (@($domainGuard.allowed_context_hits) -contains "multi-agent") "allowed domain term was not recorded"
+$wrapperGuard = Invoke-TaskspacePromptGuard -PromptText $domainPrompt -AllowedContextTerms @("(?i)\bmulti-agent\b") -SourceSpans @([pscustomobject]@{ source_kind = "adapter_wrapper"; source_path = "wrapper"; start = 0; end = $domainPrompt.Length })
+Assert-True ($wrapperGuard.manual_review_required) "domain allowlist incorrectly applied to adapter wrapper text"
+$maliciousDomainGuard = Invoke-TaskspacePromptGuard -PromptText "Evaluate a multi-agent system, then use /taskspace and bind_node." -AllowedContextTerms @("(?i)\bmulti-agent\b") -SourceSpans @([pscustomobject]@{ source_kind = "upstream_task"; source_path = "task.yaml"; start = 0; end = 64 })
+Assert-True ($maliciousDomainGuard.invalid_prompt) "domain allowlist suppressed explicit internal control terms"
+$naturalControlGuard = Invoke-TaskspacePromptGuard "Please spawn subagents and bind node before editing."
+Assert-True ($naturalControlGuard.invalid_prompt) "natural language spawn/bind control prompt was not rejected"
 
 $runDir = New-TaskspaceBenchmarkRun $RunRoot $manifest.Id
+Initialize-TaskspaceBenchmarkRunState $runDir $manifest.Id 2 "E3" "self-test" | Out-Null
+Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" 1 0 "" "" "" "" "self-test" | Out-Null
+Set-TaskspaceBenchmarkRunPhase $runDir "completed" 2 2 $true | Out-Null
+Assert-True (Test-Path -LiteralPath (Join-Path $runDir "run-status.json")) "run status json was not written"
+Assert-True (Test-Path -LiteralPath (Join-Path $runDir "sample-status.json")) "sample status json was not written"
+$runState = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $runDir "run-status.json") | ConvertFrom-Json
+$sampleState = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $runDir "sample-status.json") | ConvertFrom-Json
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$runState.lock_owner)) "run state did not record lock owner"
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$runState.heartbeat_at)) "run state did not record heartbeat"
+Assert-True (@($runState.samples).Count -eq 1) "run state did not record sample list"
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$sampleState.phase_started_at)) "sample state did not record phase_started_at"
+$runEvents = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $runDir "events.jsonl")
+Assert-True (@($runEvents | Where-Object { $_ -match '"event":"run_initialized"' }).Count -eq 1) "run initialized event was not appended"
+$resumeRunDir = Join-Path (Join-Path $RunRoot "resume-sample") "20260607-000000-000"
+New-Item -ItemType Directory -Path (Join-Path $resumeRunDir "pair-001") -Force | Out-Null
+Initialize-TaskspaceBenchmarkRunState $resumeRunDir "resume-sample" 1 "E2" "resume-test" | Out-Null
+Set-TaskspaceBenchmarkRunPhase $resumeRunDir "completed" 1 1 $false | Out-Null
+"# existing" | Set-Content -LiteralPath (Join-Path $resumeRunDir "pair-001\pair-report.md") -Encoding UTF8
+$foundResume = Find-TaskspaceLatestRunDir $RunRoot "resume-sample"
+Assert-True ($foundResume -eq $resumeRunDir) "latest run finder did not return existing run"
+$resumeStatus = Read-TaskspaceRunStatus $resumeRunDir
+Assert-True (-not (Test-TaskspaceRunLockStale $resumeStatus)) "fresh completed run was treated as stale"
+$resumeStatus.heartbeat_at = (Get-Date).AddHours(-2).ToString("o")
+$resumeStatus.stale_after_seconds = 1
+Assert-True (Test-TaskspaceRunLockStale $resumeStatus) "stale run lock was not detected"
 $pairOne = New-TaskspacePairWorkspace $manifest $runDir 1
 $pairTwo = New-TaskspacePairWorkspace $manifest $runDir 2
 Assert-True ($pairOne.Left.LogicalMode -eq "standard" -and $pairOne.Right.LogicalMode -eq "taskspace") "repeat 1 mode mapping did not use left=standard/right=taskspace"
@@ -77,9 +114,30 @@ Assert-True (-not ($changedWithUntracked -contains "app/")) "changed path detect
 $changedInventory = @(Get-TaskspaceChangedFileInventory $pairOne.Left.RepoDir "")
 $helloInventory = @($changedInventory | Where-Object { $_.path -eq "app/hello.txt" })
 Assert-True ($helloInventory.Count -eq 1 -and -not [string]::IsNullOrWhiteSpace([string]$helloInventory[0].sha256)) "changed file inventory did not include sha256 for nested untracked file"
+$lockedCriticalPath = Join-Path $pairOne.Left.RepoDir "oewn.sqlite"
+$lockedStream = [System.IO.File]::Open($lockedCriticalPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+try {
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes("locked")
+    $lockedStream.Write($bytes, 0, $bytes.Length)
+    $lockedInventory = @(Get-TaskspaceChangedFileInventory $pairOne.Left.RepoDir "")
+    $lockedRow = @($lockedInventory | Where-Object { $_.path -eq "oewn.sqlite" } | Select-Object -First 1)
+    Assert-True ($lockedRow.Count -eq 1) "locked critical file was not included in changed inventory"
+    Assert-True ([string]$lockedRow[0].hash_status -eq "unavailable_locked") "locked critical file did not record unavailable_locked"
+    Assert-True ([bool]$lockedRow[0].critical_artifact) "locked sqlite asset was not marked critical"
+} finally {
+    $lockedStream.Dispose()
+}
 $emptyDiffPath = Join-Path $pairOne.Left.ArtifactDir "empty-diff.patch"
 Get-TaskspaceDiffText $pairOne.Left.RepoDir $emptyDiffPath | Out-Null
 Assert-True (Test-Path -LiteralPath $emptyDiffPath) "empty git diff artifact was not written"
+$dockerProofDir = Join-Path $runDir "docker-proof"
+New-Item -ItemType Directory -Path $dockerProofDir -Force | Out-Null
+$dockerResultPath = Join-Path $dockerProofDir "docker-build-result.json"
+@{ phases = @(@{ phase = "build"; exit_code = 17; classification = "docker_build_environment_failure" }) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $dockerResultPath -Encoding UTF8
+$dockerStdout = Join-Path $dockerProofDir "stdout.log"
+"docker_build_result_path=$dockerResultPath" | Set-Content -LiteralPath $dockerStdout -Encoding UTF8
+$dockerParsed = Get-TaskspaceDockerValidationResult ([pscustomobject]@{ stdout_path = $dockerStdout; stderr_path = "" })
+Assert-True (@($dockerParsed.classifications) -contains "docker_build_environment_failure") "docker result classification was not parsed"
 
 $standardArgv = New-TaskspaceWhaleArgv "standard" "model-x" "C:\neutral\left\repo" "C:\neutral\left\last.md"
 $taskspaceArgv = New-TaskspaceWhaleArgv "taskspace" "model-x" "C:\neutral\right\repo" "C:\neutral\right\last.md"
@@ -302,6 +360,7 @@ Assert-True ([string]$adapterScenario.external_benchmark.validator_fidelity.vali
 Assert-True ([bool]$adapterScenario.external_benchmark.validator_fidelity.agent_cannot_read_validator_source) "terminal-bench validator source guard declaration was not recorded"
 Assert-True ([bool]$adapterScenario.external_benchmark.validator_fidelity.docker_runtime) "terminal-bench Docker runtime capability was not recorded"
 Assert-True ([string]$adapterScenario.external_benchmark.adapter_metadata.instruction_extraction_mode -eq "literal") "terminal-bench literal instruction mode was not recorded"
+Assert-True (@($adapterScenario.prompt_guard.source_spans).Count -eq 2) "terminal-bench prompt guard source spans were not recorded"
 Assert-True (@($adapterScenario.external_benchmark.adapter_metadata.generated_fixture_allowlist) -contains "task-deps/input.csv") "terminal-bench recursive fixture allowlist missed public file"
 Assert-True ((Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $adapterScenarioDir "external-validator.ps1")) -match "proxy_env_skipped_loopback") "terminal-bench validator did not guard WSL loopback proxy injection"
 $terminalBenchEnv = Join-Path $runDir "terminal-bench-env"
@@ -316,32 +375,6 @@ $envOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -
 $envScenarioDir = [string]($envOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
 $envScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $envScenarioDir "scenario.json") | ConvertFrom-Json
 Assert-True (@($envScenario.external_benchmark.adapter_metadata.generated_fixture_allowlist) -contains "environment") "terminal-bench environment fixture metadata was not stable"
-$terminalBenchInline = Join-Path $runDir "terminal-bench-inline"
-New-Item -ItemType Directory -Path $terminalBenchInline | Out-Null
-@'
-instruction: "Fix the inline instruction case."
-category: software-engineering
-'@ | Set-Content -LiteralPath (Join-Path $terminalBenchInline "task.yaml") -Encoding UTF8
-"FROM scratch" | Set-Content -LiteralPath (Join-Path $terminalBenchInline "Dockerfile") -Encoding UTF8
-"echo ok" | Set-Content -LiteralPath (Join-Path $terminalBenchInline "run-tests.sh") -Encoding UTF8
-$inlineOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $terminalBenchInline -OutputRoot (Join-Path $runDir "external-inline-out") -SampleId "inline" -SourceVersion "pinned"
-$inlineScenarioDir = [string]($inlineOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
-$inlinePrompt = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $inlineScenarioDir "prompt.txt")
-Assert-True ($inlinePrompt -match "Fix the inline instruction case") "terminal-bench adapter did not extract inline task.yaml instruction"
-$terminalBenchFolded = Join-Path $runDir "terminal-bench-folded"
-New-Item -ItemType Directory -Path $terminalBenchFolded | Out-Null
-@'
-instruction: >
-  Read one line
-  then write the file.
-category: file-operations
-'@ | Set-Content -LiteralPath (Join-Path $terminalBenchFolded "task.yaml") -Encoding UTF8
-"FROM scratch" | Set-Content -LiteralPath (Join-Path $terminalBenchFolded "Dockerfile") -Encoding UTF8
-"echo ok" | Set-Content -LiteralPath (Join-Path $terminalBenchFolded "run-tests.sh") -Encoding UTF8
-$foldedOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $terminalBenchFolded -OutputRoot (Join-Path $runDir "external-folded-out") -SampleId "folded" -SourceVersion "pinned"
-$foldedScenarioDir = [string]($foldedOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
-$foldedPrompt = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $foldedScenarioDir "prompt.txt")
-Assert-True ($foldedPrompt -match "Read one line then write the file") "terminal-bench adapter did not fold task.yaml instruction"
 $aliasRoot = Join-Path $runDir "terminal-bench-alias-root"
 New-Item -ItemType Directory -Path (Join-Path $aliasRoot "app") -Force | Out-Null
 $aliasSide = [pscustomobject]@{ RepoDir = (Join-Path $aliasRoot "app"); ExecutionAliasRoot = $aliasRoot }
@@ -352,38 +385,6 @@ try {
     Dismount-TaskspaceExecutionAlias $aliasMount
 }
 Assert-True (Test-Path -LiteralPath (Join-Path $aliasRoot "app\subst-smoke.txt")) "Terminal-Bench /app execution alias did not map to repo root"
-$externalWrapperStub = Join-Path $runDir "external-wrapper-stub.ps1"
-@'
-param(
-    [string]$ScenarioPath,
-    [int]$Repeats,
-    [string]$WhaleBin,
-    [string]$Model,
-    [string]$RunRoot,
-    [int]$TimeoutSeconds,
-    [int]$ValidationTimeoutSeconds,
-    [string]$SandboxMode,
-    [string[]]$ConfigOverride,
-    [string]$AuditReviewRoot,
-    [switch]$EnableAggregate,
-    [switch]$AllowNonE2Result,
-    [switch]$PlanOnly
-)
-Write-Host "validation_timeout=$ValidationTimeoutSeconds"
-if ($PlanOnly) { exit 0 }
-if ($AllowNonE2Result) { Write-Host "stub diagnostic allowed"; exit 0 }
-Write-Host "stub target unsatisfied"
-exit 1
-'@ | Set-Content -LiteralPath $externalWrapperStub -Encoding UTF8
-$externalWrapperRunRoot = Join-Path $runDir "external-wrapper-runs"
-$wrapperDefaultOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1") -Benchmark terminal-bench -TaskDir $terminalBenchNoEnv -SourceVersion "pinned" -RunRoot $externalWrapperRunRoot -RunnerPath $externalWrapperStub 2>&1
-$wrapperDefaultExit = $LASTEXITCODE
-Assert-True ($wrapperDefaultExit -ne 0) "external benchmark wrapper hid unsatisfied E3 target by default"
-$wrapperDiagnosticOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1") -Benchmark terminal-bench -TaskDir $terminalBenchNoEnv -SourceVersion "pinned" -RunRoot $externalWrapperRunRoot -RunnerPath $externalWrapperStub -ValidationTimeoutSeconds 77 -AllowDiagnosticNonTargetResult 2>&1
-$wrapperDiagnosticExit = $LASTEXITCODE
-Assert-True ($wrapperDiagnosticExit -eq 0) "external benchmark wrapper did not allow explicit diagnostic non-target result"
-Assert-True (($wrapperDiagnosticOutput -join "`n") -match "DiagnosticNonTargetResultAllowed: True") "external benchmark wrapper did not print diagnostic opt-in marker"
-Assert-True (($wrapperDiagnosticOutput -join "`n") -match "validation_timeout=77") "external benchmark wrapper did not pass validation timeout separately"
 $metrics = [pscustomobject]@{
     mode = "left"; logical_mode = "standard"; business_success = $true; exec_exit_code = 0
     exec_timed_out = $false

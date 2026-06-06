@@ -43,10 +43,42 @@ function Add-TaskspaceChangedPath {
     }
     $sha = ""
     $size = $null
+    $hashStatus = "missing"
+    $hashError = ""
+    $hashErrorId = ""
+    $hashRetries = 0
     if (Test-Path -LiteralPath $absolute -PathType Leaf) {
         $fileInfo = Get-Item -LiteralPath $absolute
-        $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $absolute).Hash.ToLowerInvariant()
         $size = [int64]$fileInfo.Length
+        for ($attempt = 0; $attempt -lt 3; $attempt++) {
+            try {
+                if ($attempt -gt 0) {
+                    $hashRetries++
+                    Start-Sleep -Milliseconds 100
+                    $fileInfo = Get-Item -LiteralPath $absolute -ErrorAction Stop
+                    $size = [int64]$fileInfo.Length
+                }
+                $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $absolute -ErrorAction Stop).Hash.ToLowerInvariant()
+                $hashStatus = "hashed"
+                $hashError = ""
+                $hashErrorId = ""
+                break
+            } catch {
+                $hashStatus = "read_error"
+                $hashError = [string]$_.Exception.Message
+                $hashErrorId = [string]$_.FullyQualifiedErrorId
+                if ($hashError -match "being used by another process|cannot access the file|in use") {
+                    $hashStatus = "unavailable_locked"
+                }
+            }
+        }
+    }
+    $critical = $false
+    foreach ($pattern in @("(?i)(^|/)run-tests\.sh$", "(?i)(^|/)tests/", "(?i)oewn\.sqlite$", "(?i)(^|/)external-validator-source/")) {
+        if ($normalized -match $pattern) {
+            $critical = $true
+            break
+        }
     }
     if ($Rows.ContainsKey($normalized)) {
         $existing = $Rows[$normalized]
@@ -56,6 +88,11 @@ function Add-TaskspaceChangedPath {
         if ($sha) { $existing.sha256 = $sha }
         if ($null -ne $size) { $existing.size_bytes = $size }
         if ($Status -ne "diff") { $existing.status = $Status }
+        if ($hashStatus -ne "missing") { $existing.hash_status = $hashStatus }
+        if ($hashError) { $existing.hash_error = $hashError }
+        if ($hashErrorId) { $existing.hash_error_id = $hashErrorId }
+        $existing.hash_retries = [int]$hashRetries
+        $existing.critical_artifact = ([bool]$existing.critical_artifact -or $critical)
         return
     }
     $Rows[$normalized] = [pscustomobject]@{
@@ -64,6 +101,11 @@ function Add-TaskspaceChangedPath {
         source = $Source
         sha256 = $sha
         size_bytes = $size
+        hash_status = $hashStatus
+        hash_error = $hashError
+        hash_error_id = $hashErrorId
+        hash_retries = [int]$hashRetries
+        critical_artifact = $critical
     }
 }
 
@@ -121,6 +163,31 @@ function Test-TaskspaceValidatorEnvironmentMismatch {
     return $false
 }
 
+function Get-TaskspaceDockerValidationResult {
+    param([Parameter(Mandatory = $true)]$Validation)
+    $combined = ""
+    foreach ($path in @($Validation.stdout_path, $Validation.stderr_path)) {
+        if ($path -and (Test-Path -LiteralPath $path)) {
+            $combined += "`n" + (Get-Content -Raw -Encoding UTF8 -LiteralPath $path)
+        }
+    }
+    $resultPath = ""
+    $match = [regex]::Match($combined, "(?m)^docker_build_result_path=(.+)$")
+    if ($match.Success) { $resultPath = $match.Groups[1].Value.Trim() }
+    $json = if ($resultPath -and (Test-Path -LiteralPath $resultPath)) {
+        try { Get-Content -Raw -Encoding UTF8 -LiteralPath $resultPath | ConvertFrom-Json } catch { $null }
+    } else { $null }
+    $classifications = @()
+    if ($json -and $json.PSObject.Properties.Name -contains "phases") {
+        $classifications = @($json.phases | Where-Object { [string]$_.classification -ne "ok" } | ForEach-Object { [string]$_.classification } | Sort-Object -Unique)
+    }
+    [pscustomobject]@{
+        path = $resultPath
+        json = $json
+        classifications = @($classifications)
+    }
+}
+
 function Export-TaskspaceObservabilityIfAvailable {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -159,7 +226,16 @@ function Get-TaskspaceBenchmarkMetrics {
     $diffPath = Join-Path $Side.ArtifactDir "git-diff.patch"
     $diffText = Get-TaskspaceDiffText $Side.RepoDir $diffPath
     $changedInventory = @(Get-TaskspaceChangedFileInventory $Side.RepoDir $diffText)
+    $metricsWarnings = @($changedInventory | Where-Object { [string]$_.hash_status -notin @("hashed", "missing") } | ForEach-Object {
+            "metrics_hash_$($_.hash_status):$($_.path)"
+        })
+    $metricsTaints = @($changedInventory | Where-Object {
+            [bool]$_.critical_artifact -and [string]$_.hash_status -notin @("hashed", "missing")
+        } | ForEach-Object {
+            "metrics_critical_artifact_unhashed:$($_.path)"
+        })
     $obs = if ($ObservabilityResult) { $ObservabilityResult.observability } else { $null }
+    $dockerResult = Get-TaskspaceDockerValidationResult $Validation
     $graphHealth = Get-TaskspaceGraphHealth $obs
     $subagentThreadIds = @()
     if ($obs) {
@@ -179,6 +255,10 @@ function Get-TaskspaceBenchmarkMetrics {
         failed_tool_call_count = $commandStats.Failed
         changed_file_inventory = @($changedInventory)
         changed_paths = @($changedInventory | ForEach-Object { $_.path })
+        metrics_warnings = @($metricsWarnings)
+        metrics_taints = @($metricsTaints)
+        docker_build_result_path = $dockerResult.path
+        validator_environment_failures = @($dockerResult.classifications)
         validator_environment_mismatch = (Test-TaskspaceValidatorEnvironmentMismatch $Validation)
         business_success = ($Exec.exit_code -eq 0 -and $Validation.exit_code -eq 0 -and $Oracle.exit_code -eq 0)
         invalid_prompt = $false
