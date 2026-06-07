@@ -2,6 +2,9 @@
 
 本文记录同日第二轮 P0/E3 真实样本执行。此轮继续使用 Terminal-Bench P0 candidate 范围，用于观察稳定性、可重复性和 harness 剩余噪声。
 
+- TaskSpace version: `0.0.2`
+- Version registry: [taskspace-version-registry.md](./taskspace-version-registry.md)
+
 ## 执行范围
 
 - run root: `D:\whalecode-alpha\target\benchp0-20260607-163444`

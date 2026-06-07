@@ -2,6 +2,9 @@
 
 本文记录修复 Terminal-Bench remote asset preflight 后的一轮 P0/E3 真实样本执行。此轮用于确认工程环境和样本适配性，不作为 clean E3 utility 结论。
 
+- TaskSpace version: `0.0.1`
+- Version registry: [taskspace-version-registry.md](./taskspace-version-registry.md)
+
 ## 执行范围
 
 - run root: `D:\whalecode-alpha\target\benchp0-20260607-070527`
