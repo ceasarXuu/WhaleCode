@@ -58,6 +58,6 @@
 
 ## 当前结论
 
-`0.0.1` 到 `0.0.2` 说明：底层 E3 执行链路和 remote asset fail-closed 是可复现的；但 TaskSpace 的效用没有提升，反而在 `multi-source-data-merger` 和 `processing-pipeline` 上出现更明显负收益。工程基建里真正已稳定的是资产预检和 prompt guard 修正；尚未解决的是 Docker cleanup、网络依赖噪声、clean E3 gate 和 map 收敛能力。
+`0.0.1` 到 `0.0.2` 说明：底层 E3 执行链路和 remote asset fail-closed 是可复现的；但 TaskSpace 的效用没有提升，反而在 `multi-source-data-merger` 和 `processing-pipeline` 上出现更明显负收益。`0.0.3` 只修复了 Docker cleanup blocker，并通过真实 timeout smoke 证明父级 cleanup 与证据链可收敛；它尚未证明 TaskSpace utility 改善。仍未解决的是网络依赖噪声、clean E3 gate 和 map 收敛能力。
 
-后续版本应从 `0.0.3` 开始，每次工程机制改动都必须绑定一轮同范围 E3 复跑，并在本文件中记录是否真正改善了上一版本暴露的问题。
+后续版本应从 `0.0.4` 开始，每次工程机制改动都必须绑定一轮同范围 E3 复跑，并在本文件中记录是否真正改善了上一版本暴露的问题。
