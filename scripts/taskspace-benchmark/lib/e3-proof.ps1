@@ -81,8 +81,10 @@ function New-TaskspaceExternalEvidenceProof {
         $combinedLog = (Get-TaskspaceFileTextIfPresent $metrics.validation_stdout_path) + "`n" + (Get-TaskspaceFileTextIfPresent $metrics.validation_stderr_path)
         $runtimeManifestPath = Get-TaskspaceProofMarkerValue $combinedLog "validator_runtime_manifest_path"
         $inspectPath = Get-TaskspaceProofMarkerValue $combinedLog "docker_inspect_path"
+        $cleanupResultPath = Get-TaskspaceProofMarkerValue $combinedLog "validation_cleanup_result_path"
         $runtimeManifest = Read-TaskspaceJsonIfPresent $runtimeManifestPath
         $inspect = Read-TaskspaceJsonIfPresent $inspectPath
+        $cleanupResult = Read-TaskspaceJsonIfPresent $cleanupResultPath
         $artifactRoot = if ($side.ArtifactDir -and (Test-Path -LiteralPath $side.ArtifactDir)) { (Resolve-Path -LiteralPath $side.ArtifactDir).Path } else { "" }
         $runtimeManifestUnderArtifact = (-not [string]::IsNullOrWhiteSpace($artifactRoot) -and
             -not [string]::IsNullOrWhiteSpace($runtimeManifestPath) -and
@@ -90,6 +92,9 @@ function New-TaskspaceExternalEvidenceProof {
         $inspectUnderArtifact = (-not [string]::IsNullOrWhiteSpace($artifactRoot) -and
             -not [string]::IsNullOrWhiteSpace($inspectPath) -and
             (Test-TaskspacePathUnderRoot $inspectPath $artifactRoot))
+        $cleanupResultUnderArtifact = (-not [string]::IsNullOrWhiteSpace($artifactRoot) -and
+            -not [string]::IsNullOrWhiteSpace($cleanupResultPath) -and
+            (Test-TaskspacePathUnderRoot $cleanupResultPath $artifactRoot))
         $manifestWrapperSha = if ($runtimeManifest -and $runtimeManifest.PSObject.Properties.Name -contains "wrapper_sha256") { [string]$runtimeManifest.wrapper_sha256 } else { "" }
         $manifestWrapperPath = if ($runtimeManifest -and $runtimeManifest.PSObject.Properties.Name -contains "wrapper_path") { [string]$runtimeManifest.wrapper_path } else { "" }
         $actualWrapperSha = Get-TaskspaceSha256IfPresent $manifestWrapperPath
@@ -138,6 +143,10 @@ function New-TaskspaceExternalEvidenceProof {
             runtime_manifest_under_artifact = $runtimeManifestUnderArtifact
             docker_inspect_path = $inspectPath
             docker_inspect_under_artifact = $inspectUnderArtifact
+            validation_cleanup_result_path = $cleanupResultPath
+            validation_cleanup_result_under_artifact = $cleanupResultUnderArtifact
+            validation_cleanup_classification = if ($cleanupResult -and $cleanupResult.PSObject.Properties.Name -contains "classification") { [string]$cleanupResult.classification } else { "" }
+            validation_cleanup_identity_matched = if ($cleanupResult -and $cleanupResult.PSObject.Properties.Name -contains "identity_matched") { [bool]$cleanupResult.identity_matched } else { $false }
             uv_cache_mount_seen = ($uvCacheMount.Count -gt 0)
             uv_cache_mount_readonly = ($uvCacheMount.Count -gt 0 -and -not [bool]$uvCacheMount[0].RW)
             uv_cache_source_matches_manifest = $uvCacheSourceMatches
@@ -165,7 +174,8 @@ function New-TaskspaceExternalEvidenceProof {
     $runtimeOk = @($runtimeRows | Where-Object {
             -not ($_.docker_wrapper_seen -and $_.docker_app_runtime_seen -and $_.container_workdir_app -and $_.docker_inspect_seen -and
                 $_.proof_nonce -match '^[0-9a-f]{32}$' -and $_.wrapper_sha -match '^[0-9a-f]{64}$' -and $_.entry_sha -match '^[0-9a-f]{64}$' -and
-                $_.runtime_manifest_proven -and $_.docker_inspect_mounts_proven)
+                $_.runtime_manifest_proven -and $_.docker_inspect_mounts_proven -and
+                $_.validation_cleanup_result_under_artifact -and $_.validation_cleanup_classification -eq "ok")
         }).Count -eq 0
     $mountOk = @($runtimeRows | Where-Object { -not ($_.test_dir_seen -and $_.validator_mount_seen -and $_.validator_mount_readonly -and $_.docker_inspect_mounts_proven) }).Count -eq 0
     $runtimeProof = [pscustomobject]@{

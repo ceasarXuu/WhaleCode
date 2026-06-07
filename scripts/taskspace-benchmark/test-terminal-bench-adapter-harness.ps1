@@ -174,6 +174,9 @@ category: software-engineering
 $inlineOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $inlineTask -OutputRoot (Join-Path $runDir "inline-out") -SampleId "inline" -SourceVersion "pinned"
 $inlineScenarioDir = [string]($inlineOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
 Assert-True ((Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $inlineScenarioDir "prompt.txt")) -match "Fix the inline instruction case") "inline instruction was not extracted"
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile((Join-Path $inlineScenarioDir "external-validator.ps1"), [ref]$null, [ref]$parseErrors) | Out-Null
+Assert-True (@($parseErrors).Count -eq 0) "generated Terminal-Bench validator PowerShell did not parse"
 
 $foldedTask = Join-Path $runDir "folded"
 New-Item -ItemType Directory -Path $foldedTask | Out-Null

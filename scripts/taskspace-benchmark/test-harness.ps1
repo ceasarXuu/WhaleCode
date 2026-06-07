@@ -138,6 +138,15 @@ $dockerStdout = Join-Path $dockerProofDir "stdout.log"
 "docker_build_result_path=$dockerResultPath" | Set-Content -LiteralPath $dockerStdout -Encoding UTF8
 $dockerParsed = Get-TaskspaceDockerValidationResult ([pscustomobject]@{ stdout_path = $dockerStdout; stderr_path = "" })
 Assert-True (@($dockerParsed.classifications) -contains "docker_build_environment_failure") "docker result classification was not parsed"
+$cleanupFailurePath = Join-Path $dockerProofDir "validation-cleanup-result.json"
+@{ classification = "docker_cleanup_container_failure"; container_name = "whale-tbench-0123456789abcdef" } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $cleanupFailurePath -Encoding UTF8
+$cleanupStdout = Join-Path $dockerProofDir "cleanup-stdout.log"
+"validation_cleanup_result_path=$cleanupFailurePath" | Set-Content -LiteralPath $cleanupStdout -Encoding UTF8
+$cleanupParsed = Get-TaskspaceDockerValidationResult ([pscustomobject]@{ stdout_path = $cleanupStdout; stderr_path = "" })
+Assert-True (@($cleanupParsed.classifications) -contains "docker_cleanup_container_failure") "validation cleanup failure classification was not parsed"
+Assert-True ([string]$cleanupParsed.cleanup_path -eq $cleanupFailurePath) "validation cleanup result path was not preserved"
+$timeoutParsed = Get-TaskspaceDockerValidationResult ([pscustomobject]@{ exit_code = 124; stdout_path = ""; stderr_path = "" })
+Assert-True (@($timeoutParsed.classifications) -contains "public_validation_timeout") "public validation timeout classification was not parsed"
 
 $standardArgv = New-TaskspaceWhaleArgv "standard" "model-x" "C:\neutral\left\repo" "C:\neutral\left\last.md"
 $taskspaceArgv = New-TaskspaceWhaleArgv "taskspace" "model-x" "C:\neutral\right\repo" "C:\neutral\right\last.md"
@@ -465,6 +474,59 @@ $e3ReportPath = Join-Path $runDir "e3-report.md"
 Write-TaskspacePairReport $e3ReportPath $e3ReportManifest $promptGuardOk $varControl $e3LowRepeat $metrics $rightMetrics $pairOne
 $e3ReportText = Get-Content -Raw -Encoding UTF8 -LiteralPath $e3ReportPath
 Assert-True ($e3ReportText -match "e3_minimum_repeats: 5") "E3 pair report did not show effective clamped minimum repeats"
+$timeoutE3 = Get-TaskspaceEvidenceGate 5 $promptGuardOk "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E3" $e3Manifest.SampleOrigin $e3Manifest.ExternalBenchmark $e3Manifest.E3 $true $true 5 "include_taskspace_better" $false $externalProof ([pscustomobject]@{ standard_success = $false; taskspace_success = $true; exec_timeouts = @() }) @() @("public_validation_timeout")
+Assert-True (-not [bool]$timeoutE3.included_in_e3_aggregate) "public validation timeout was allowed into E3 aggregate"
+Assert-True (@($timeoutE3.e3_gate_failures) -contains "public_validation_timeout") "public validation timeout did not reach E3 gate failures"
+
+$finalizeRun = New-Dir (Join-Path $runDir "finalize-preserves-env-failures")
+Write-TaskspaceJson $promptGuardOk (Join-Path $finalizeRun "prompt-guard.json")
+$finalizePair = New-Dir (Join-Path $finalizeRun "pair-001")
+$finalizeManifest = [pscustomobject]@{
+    scenario = "finalize-preserves-env-failures"
+    repeat = 1
+    prompt_sha256_left = "same"; prompt_sha256_right = "same"
+    fixture_sha256_left = "same"; fixture_sha256_right = "same"
+    whale_sha256_left = "same"; whale_sha256_right = "same"
+    model_left = "same"; model_right = "same"
+    timeout_seconds_left = 1; timeout_seconds_right = 1
+    provider_param_status = "known"
+    oracle_isolation_policy = "deferred_materialization_allowed"
+    sample_origin = $e3Origin
+    external_benchmark = $null
+    e3 = $e3Config
+    human_review_required = $true
+}
+Write-TaskspaceJson $finalizeManifest (Join-Path $finalizePair "manifest.resolved.json")
+foreach ($side in @("left", "right")) {
+    New-Dir (Join-Path $finalizePair "$side\repo") | Out-Null
+    New-Dir (Join-Path $finalizePair "$side\artifacts") | Out-Null
+    Write-Text (Join-Path $finalizePair "$side\artifacts\validation.stdout.log") ""
+    Write-Text (Join-Path $finalizePair "$side\artifacts\validation.stderr.log") ""
+    Write-Text (Join-Path $finalizePair "$side\artifacts\git-diff.patch") ""
+}
+$finalizeLeftMetrics = [pscustomobject]@{
+    mode = "left"; logical_mode = "standard"; business_success = $false
+    exec_exit_code = 0; exec_timed_out = $false; public_validation_exit_code = 124; hidden_oracle_exit_code = 0
+    oracle_isolation_level = "hard_sandbox"; wall_time_ms = 1; tool_call_count = 1
+    changed_paths = @(); changed_file_inventory = @(); metrics_warnings = @(); metrics_taints = @("metrics_critical_artifact_unhashed:tests/x.py")
+    validator_environment_failures = @("public_validation_timeout", "docker_cleanup_container_failure")
+    docker_build_result_path = ""; validator_environment_mismatch = $false
+    maps = 0; nodes = 0; edges = 0; edge_order_violations = 0; spawn_agent_calls = 0; subagent_results = 0; open_leaf_nodes = 0; ordinary_before_binding = $false
+}
+$finalizeRightMetrics = $finalizeLeftMetrics.PSObject.Copy()
+$finalizeRightMetrics.mode = "right"; $finalizeRightMetrics.logical_mode = "taskspace"; $finalizeRightMetrics.business_success = $true; $finalizeRightMetrics.public_validation_exit_code = 0
+$finalizeRightMetrics.validator_environment_failures = @()
+$finalizeRightMetrics.metrics_taints = @()
+Write-TaskspaceJson $finalizeLeftMetrics (Join-Path $finalizePair "left\artifacts\metrics.json")
+Write-TaskspaceJson $finalizeRightMetrics (Join-Path $finalizePair "right\artifacts\metrics.json")
+$finalizeOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "finalize-taskspace-e3-run.ps1") -RunDir $finalizeRun 2>&1
+Assert-True ($LASTEXITCODE -ne 0) "finalize with public validation timeout unexpectedly passed E3"
+$finalizedReport = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $finalizePair "pair-report.md")
+Assert-True ($finalizedReport -match "public_validation_timeout") "finalize dropped public validation timeout failure"
+Assert-True ($finalizedReport -match "docker_cleanup_container_failure") "finalize dropped cleanup environment failure"
+Assert-True ($finalizedReport -match "metrics_critical_artifact_unhashed:tests/x.py") "finalize dropped metrics taint failure"
+Assert-True ($finalizedReport -match "included_in_e3_aggregate: False") "finalize allowed timeout pair into E3 aggregate"
+
 $matrixData = Get-TaskspaceMatrixReportData @(
     [pscustomobject]@{
         scenario = "synthetic"; level = "L1"; exit_code = 0; valid_pairs = 3

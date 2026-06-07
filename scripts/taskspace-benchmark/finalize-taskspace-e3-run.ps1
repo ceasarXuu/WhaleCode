@@ -9,6 +9,8 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $repoRoot "scripts\action-map-graph-health-lib.ps1")
 . (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\audit-report.ps1")
 . (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\pair-report.ps1")
+. (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\report-summary.ps1")
+. (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\aggregate-report.ps1")
 
 function Read-JsonFile {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -55,6 +57,8 @@ foreach ($pairDirItem in $pairDirs) {
         "hard_sandbox"
     }
     $businessSuccess = [bool]($leftMetrics.business_success -or $rightMetrics.business_success)
+    $metricsTaints = @(@($leftMetrics, $rightMetrics) | ForEach-Object { @($_.metrics_taints) } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Sort-Object -Unique)
+    $environmentFailures = @(@($leftMetrics, $rightMetrics) | ForEach-Object { @($_.validator_environment_failures) } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Sort-Object -Unique)
     $variableControl = Compare-TaskspacePairVariables $manifestResolved $leftMetrics $rightMetrics
     $standardMetrics = @($leftMetrics, $rightMetrics) | Where-Object { $_.logical_mode -eq "standard" } | Select-Object -First 1
     $taskspaceMetrics = @($leftMetrics, $rightMetrics) | Where-Object { $_.logical_mode -eq "taskspace" } | Select-Object -First 1
@@ -65,7 +69,7 @@ foreach ($pairDirItem in $pairDirs) {
     }
     $claimScope = if ($manifestResolved.e3.PSObject.Properties.Name -contains "claim_scope") { [string]$manifestResolved.e3.claim_scope } else { "" }
     $auditReview = Get-TaskspaceAuditReview $pairDir "" $repeat $claimScope
-    $evidence = Get-TaskspaceEvidenceGate $pairDirs.Count $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $true ([string]$manifestResolved.oracle_isolation_policy) "E3" $manifestResolved.sample_origin $manifestResolved.external_benchmark $manifestResolved.e3 ([bool]$manifestResolved.human_review_required) $auditReview.completed $e3MinimumRepeats $auditReview.decision $auditReview.disagreement $externalProof $sideOutcomes
+    $evidence = Get-TaskspaceEvidenceGate $pairDirs.Count $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $true ([string]$manifestResolved.oracle_isolation_policy) "E3" $manifestResolved.sample_origin $manifestResolved.external_benchmark $manifestResolved.e3 ([bool]$manifestResolved.human_review_required) $auditReview.completed $e3MinimumRepeats $auditReview.decision $auditReview.disagreement $externalProof $sideOutcomes $metricsTaints $environmentFailures
     $evidence | Add-Member -NotePropertyName audit_review_source_path -NotePropertyValue $auditReview.source_path -Force
     $evidence | Add-Member -NotePropertyName audit_review_failures -NotePropertyValue @($auditReview.failures) -Force
     if ($externalProof) {
@@ -99,7 +103,7 @@ foreach ($pairDirItem in $pairDirs) {
     $postWriteAudit = Get-TaskspaceAuditReview $pairDir "" $repeat $claimScope
     if (-not $postWriteAudit.completed) {
         Write-Host "AuditReviewPostWriteFailure: pair-$('{0:000}' -f $repeat) $(@($postWriteAudit.failures) -join ', ')"
-        $evidence = Get-TaskspaceEvidenceGate $pairDirs.Count $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $true ([string]$manifestResolved.oracle_isolation_policy) "E3" $manifestResolved.sample_origin $manifestResolved.external_benchmark $manifestResolved.e3 ([bool]$manifestResolved.human_review_required) $false $e3MinimumRepeats $auditReview.decision $auditReview.disagreement $externalProof $sideOutcomes
+        $evidence = Get-TaskspaceEvidenceGate $pairDirs.Count $promptGuard $pairOracleLevel $manifestResolved.provider_param_status $variableControl.invalid_pair $businessSuccess $false $true ([string]$manifestResolved.oracle_isolation_policy) "E3" $manifestResolved.sample_origin $manifestResolved.external_benchmark $manifestResolved.e3 ([bool]$manifestResolved.human_review_required) $false $e3MinimumRepeats $auditReview.decision $auditReview.disagreement $externalProof $sideOutcomes $metricsTaints $environmentFailures
         $evidence | Add-Member -NotePropertyName audit_review_source_path -NotePropertyValue $postWriteAudit.source_path -Force
         $evidence | Add-Member -NotePropertyName audit_review_failures -NotePropertyValue @($postWriteAudit.failures) -Force
         Write-TaskspacePairReport $pairReportPath $manifestForReport $promptGuard $variableControl $evidence $leftMetrics $rightMetrics $pair

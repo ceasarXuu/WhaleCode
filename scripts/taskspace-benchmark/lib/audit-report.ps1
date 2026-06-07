@@ -52,12 +52,14 @@ function Get-TaskspaceRequiredAuditArtifacts {
         "right/artifacts/git-diff.patch"
     )
     $externalPair = $false
+    $externalBenchmarkName = ""
     if (-not [string]::IsNullOrWhiteSpace($PairDir)) {
         $manifestPath = Join-Path $PairDir "manifest.resolved.json"
         if (Test-Path -LiteralPath $manifestPath) {
             try {
                 $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json
                 $externalPair = ($manifest.PSObject.Properties.Name -contains "external_benchmark" -and $null -ne $manifest.external_benchmark)
+                $externalBenchmarkName = if ($externalPair -and $manifest.external_benchmark.PSObject.Properties.Name -contains "name") { [string]$manifest.external_benchmark.name } else { "" }
             } catch {}
         }
     }
@@ -67,6 +69,12 @@ function Get-TaskspaceRequiredAuditArtifacts {
         }
         foreach ($proof in @("external-runtime-proof.json", "external-runner-equivalence-proof.json", "external-source-guard-proof.json", "external-isolation-proof.json", "external-e3-proof.json")) {
             if ($externalPair -or (Test-Path -LiteralPath (Join-Path $PairDir $proof))) { $required += $proof }
+        }
+        if ($externalBenchmarkName -eq "terminal-bench") {
+            foreach ($side in @("left", "right")) {
+                $required += "$side/artifacts/external-validator-runtime/terminal-bench-runtime-manifest.json"
+                $required += "$side/artifacts/external-validator-runtime/validation-cleanup-result.json"
+            }
         }
     }
     $required

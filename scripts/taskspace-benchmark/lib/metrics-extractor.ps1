@@ -181,10 +181,24 @@ function Get-TaskspaceDockerValidationResult {
     if ($json -and $json.PSObject.Properties.Name -contains "phases") {
         $classifications = @($json.phases | Where-Object { [string]$_.classification -ne "ok" } | ForEach-Object { [string]$_.classification } | Sort-Object -Unique)
     }
+    if ($Validation.PSObject.Properties.Name -contains "exit_code" -and [int]$Validation.exit_code -eq 124) {
+        $classifications += "public_validation_timeout"
+    }
+    $cleanupPath = ""
+    $cleanupMatch = [regex]::Match($combined, "validation_cleanup_result_path=([^\r\n]+)")
+    if ($cleanupMatch.Success) { $cleanupPath = $cleanupMatch.Groups[1].Value.Trim() }
+    $cleanupJson = if ($cleanupPath -and (Test-Path -LiteralPath $cleanupPath)) {
+        try { Get-Content -Raw -Encoding UTF8 -LiteralPath $cleanupPath | ConvertFrom-Json } catch { $null }
+    } else { $null }
+    if ($cleanupJson -and $cleanupJson.PSObject.Properties.Name -contains "classification" -and [string]$cleanupJson.classification -ne "ok") {
+        $classifications += [string]$cleanupJson.classification
+    }
     [pscustomobject]@{
         path = $resultPath
         json = $json
-        classifications = @($classifications)
+        cleanup_path = $cleanupPath
+        cleanup_json = $cleanupJson
+        classifications = @($classifications | Sort-Object -Unique)
     }
 }
 
@@ -258,6 +272,7 @@ function Get-TaskspaceBenchmarkMetrics {
         metrics_warnings = @($metricsWarnings)
         metrics_taints = @($metricsTaints)
         docker_build_result_path = $dockerResult.path
+        validation_cleanup_result_path = $dockerResult.cleanup_path
         validator_environment_failures = @($dockerResult.classifications)
         validator_environment_mismatch = (Test-TaskspaceValidatorEnvironmentMismatch $Validation)
         business_success = ($Exec.exit_code -eq 0 -and $Validation.exit_code -eq 0 -and $Oracle.exit_code -eq 0)

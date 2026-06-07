@@ -20,6 +20,7 @@
 |---|---|---|---|---|
 | `0.0.1` | `D:\whalecode-alpha\target\benchp0-20260607-070527` | Remote asset preflight 修复后的 P0 基线版本 | Terminal-Bench P0 candidate 4 samples x 5 repeats；实际 15 pairs，`query-optimize` 0 pairs | 工程路径可跑，fail-closed 生效；诊断性结果 TaskSpace better 3、Standard better 4、both success 4、both failed 4；未达到 clean E3。 |
 | `0.0.2` | `D:\whalecode-alpha\target\benchp0-20260607-163444` | 同基建下第二次 P0 复跑版本，用于检查稳定性和复现性 | Terminal-Bench P0 candidate 4 samples x 5 repeats；实际 15 pairs，`query-optimize` 0 pairs | 仍未达到 clean E3；诊断性结果 TaskSpace better 2、Standard better 5、both success 2、both failed 6；新增暴露 validator 容器残留阻塞 driver。 |
+| `0.0.3` | `D:\whalecode-alpha\target\bench003smoke2-20260608-044924` | E3 harness cleanup 可控性修复版本 | Terminal-Bench `hello-world` 1 pair diagnostic smoke | 修复 validator timeout 后 Docker 容器残留 blocker：真实 Docker timeout 下左右容器均 `identity_matched=true`、cleanup `ok`，run 后无 `whale.taskspace.terminal_bench=true` 残留容器；metrics/proof 均能读取 cleanup artifact。该版本只证明 harness 可控性，不证明 TaskSpace utility。 |
 
 ## 0.0.1 到 0.0.2 对比
 

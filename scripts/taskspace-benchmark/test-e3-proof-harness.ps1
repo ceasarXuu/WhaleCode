@@ -34,6 +34,7 @@ function New-ProofLog([string]$Path, [bool]$WithWrapper = $true, [bool]$WithInsp
     $script:TestWrapperSha = $wrapperSha
     $runtimeManifestPath = Join-Path $runtimeDir "terminal-bench-runtime-manifest.json"
     $inspectPath = Join-Path $runtimeDir "terminal-bench-docker-inspect.json"
+    $cleanupResultPath = Join-Path $runtimeDir "validation-cleanup-result.json"
     @{
         proof_nonce = "0123456789abcdef0123456789abcdef"
         wrapper_path = $wrapperPath
@@ -59,12 +60,14 @@ function New-ProofLog([string]$Path, [bool]$WithWrapper = $true, [bool]$WithInsp
             }
         ) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $inspectPath -Encoding UTF8
     }
+    @{ classification = "ok"; identity_matched = $true } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $cleanupResultPath -Encoding UTF8
     $lines = @(
         "validator_proof_nonce=0123456789abcdef0123456789abcdef",
         "validator_wrapper_sha256=$wrapperSha",
         "validator_entry_sha256=$entrySha",
         "validator_runtime_manifest_path=$runtimeManifestPath",
         "docker_inspect_path=$inspectPath",
+        "validation_cleanup_result_path=$cleanupResultPath",
         "validator_runtime=terminal_bench_equivalent_docker_app",
         "container_workdir=/app",
         "docker_inspect_available=True",
@@ -322,6 +325,10 @@ foreach ($relative in @(Get-TaskspaceRequiredAuditArtifacts $pairDir)) {
 }
 New-TestFile (Join-Path $auditPair "manifest.resolved.json") (@{ external_benchmark = @{ name = "terminal-bench" } } | ConvertTo-Json -Depth 5)
 New-TestFile (Join-Path $auditPair "right\artifacts\observability\action-map-observability.json") "{}"
+foreach ($side in @("left", "right")) {
+    New-TestFile (Join-Path $auditPair "$side\artifacts\external-validator-runtime\terminal-bench-runtime-manifest.json") (@{ proof_nonce = "0123456789abcdef0123456789abcdef" } | ConvertTo-Json -Depth 5)
+    New-TestFile (Join-Path $auditPair "$side\artifacts\external-validator-runtime\validation-cleanup-result.json") (@{ classification = "ok"; identity_matched = $true } | ConvertTo-Json -Depth 5)
+}
 $basis = @(Get-TaskspaceRequiredAuditArtifacts $auditPair)
 Assert-True (-not ($basis -contains "pair-report.md")) "audit required artifact basis includes generated pair-report.md"
 $hashes = [ordered]@{}
