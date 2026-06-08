@@ -20,7 +20,7 @@
 |---|---|---|---|---|
 | `0.0.1` | `D:\whalecode-alpha\target\benchp0-20260607-070527` | Remote asset preflight 修复后的 P0 基线版本 | Terminal-Bench P0 candidate 4 samples x 5 repeats；实际 15 pairs，`query-optimize` 0 pairs | 工程路径可跑，fail-closed 生效；诊断性结果 TaskSpace better 3、Standard better 4、both success 4、both failed 4；未达到 clean E3。 |
 | `0.0.2` | `D:\whalecode-alpha\target\benchp0-20260607-163444` | 同基建下第二次 P0 复跑版本，用于检查稳定性和复现性 | Terminal-Bench P0 candidate 4 samples x 5 repeats；实际 15 pairs，`query-optimize` 0 pairs | 仍未达到 clean E3；诊断性结果 TaskSpace better 2、Standard better 5、both success 2、both failed 6；新增暴露 validator 容器残留阻塞 driver。 |
-| `0.0.3` | `D:\whalecode-alpha\target\bench003smoke2-20260608-044924` | E3 harness cleanup 可控性修复版本 | Terminal-Bench `hello-world` 1 pair diagnostic smoke | 修复 validator timeout 后 Docker 容器残留 blocker：真实 Docker timeout 下左右容器均 `identity_matched=true`、cleanup `ok`，run 后无 `whale.taskspace.terminal_bench=true` 残留容器；metrics/proof 均能读取 cleanup artifact。该版本只证明 harness 可控性，不证明 TaskSpace utility。 |
+| `0.0.3` | `D:\whalecode-alpha\target\bench003smoke2-20260608-044924`；`D:\whalecode-alpha\target\bench004-20260608-202551` | E3 harness cleanup 可控性修复版本，并补跑同范围 P0 utility 诊断 | Terminal-Bench `hello-world` 1 pair diagnostic smoke；Terminal-Bench P0 candidate 4 samples x 5 repeats，实际 15 pairs，`query-optimize` 0 pairs | 修复 validator timeout 后 Docker 容器残留 blocker：smoke 和 P0 run 后均无 `whale.taskspace.terminal_bench=true` 残留容器，cleanup artifact 均为 `ok`。但 utility 未改善：P0 诊断性结果为 TaskSpace better 0、Standard better 3、both success 5、both failed 7；clean E3 仍为 0 utility pairs。 |
 
 ## 0.0.1 到 0.0.2 对比
 
@@ -58,6 +58,6 @@
 
 ## 当前结论
 
-`0.0.1` 到 `0.0.2` 说明：底层 E3 执行链路和 remote asset fail-closed 是可复现的；但 TaskSpace 的效用没有提升，反而在 `multi-source-data-merger` 和 `processing-pipeline` 上出现更明显负收益。`0.0.3` 只修复了 Docker cleanup blocker，并通过真实 timeout smoke 证明父级 cleanup 与证据链可收敛；它尚未证明 TaskSpace utility 改善。仍未解决的是网络依赖噪声、clean E3 gate 和 map 收敛能力。
+`0.0.1` 到 `0.0.2` 说明：底层 E3 执行链路和 remote asset fail-closed 是可复现的；但 TaskSpace 的效用没有提升，反而在 `multi-source-data-merger` 和 `processing-pipeline` 上出现更明显负收益。`0.0.3` 修复了 Docker cleanup blocker，并通过真实 timeout smoke 与同范围 P0 E3 复跑证明父级 cleanup 与证据链可收敛；但它没有证明 TaskSpace utility 改善，P0 诊断结果仍是负向。仍未解决的是 clean E3 audit gate、map 收敛能力、以及部分样本的 validator/network 噪声。
 
 后续版本应从 `0.0.4` 开始，每次工程机制改动都必须绑定一轮同范围 E3 复跑，并在本文件中记录是否真正改善了上一版本暴露的问题。
