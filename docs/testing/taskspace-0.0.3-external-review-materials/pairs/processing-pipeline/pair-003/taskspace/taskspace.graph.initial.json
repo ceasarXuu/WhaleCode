@@ -1,0 +1,86 @@
+{
+  "mode": "experiment",
+  "cognitiveSchemaVersion": "taskspace-cognitive-v1",
+  "routingRequired": false,
+  "bootstrapRequired": false,
+  "rebornRequested": false,
+  "activeTaskId": "task-1",
+  "activeMapId": "map-1",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Fix data processing pipeline",
+      "objective": "Identify and fix all issues with the pipeline scripts and dependencies to make run_pipeline.sh execute successfully",
+      "status": "active",
+      "ownerSessionId": "019ea757-49a3-7be2-8dbc-dc2d04d073df",
+      "activeMapId": "map-1",
+      "mapIds": [
+        "map-1"
+      ],
+      "cognitiveState": {
+        "successCriteria": [],
+        "factSources": [],
+        "outputContracts": [],
+        "facts": [],
+        "assumptions": [],
+        "riskNotes": []
+      }
+    }
+  ],
+  "maps": [
+    {
+      "id": "map-1",
+      "taskId": "task-1",
+      "title": "Fix data processing pipeline",
+      "status": "active",
+      "ownerSessionId": "019ea757-49a3-7be2-8dbc-dc2d04d073df",
+      "baseMapVersion": "base-map-v1",
+      "createdFrom": null,
+      "readyNodeCount": 0,
+      "runningNodeCount": 1,
+      "completedNodeCount": 0,
+      "nodes": [
+        {
+          "id": "node-1",
+          "title": "Investigate pipeline scripts",
+          "kind": "inspect_code_context",
+          "status": "running",
+          "contextSummary": "Inspect the current workspace, find run_pipeline.sh and its referenced scripts, identify all issues preventing successful execution",
+          "sourceRefs": [],
+          "activeLease": "lease-1",
+          "resultIds": [],
+          "originNodeId": null
+        }
+      ],
+      "edges": [],
+      "leases": [
+        {
+          "id": "lease-1",
+          "mapId": "map-1",
+          "nodeId": "node-1",
+          "holder": "main",
+          "previousNodeStatus": "ready",
+          "agentThreadId": "019ea757-49a3-7be2-8dbc-dc2d04d073df",
+          "agentPath": null
+        }
+      ],
+      "results": []
+    }
+  ],
+  "maintenanceBarriers": [],
+  "traceSummary": {
+    "totalEventCount": 0,
+    "toolCallCount": 0,
+    "failedToolCallCount": 0,
+    "validatorFailureCount": 0,
+    "unclassifiedShellActionCount": 0
+  },
+  "traceEvents": [],
+  "sentinelSummary": {
+    "totalWarningCount": 0,
+    "activeWarningCount": 0,
+    "validatorFailureWarningCount": 0,
+    "unclassifiedShellWarningCount": 0
+  },
+  "sentinelWarnings": []
+}

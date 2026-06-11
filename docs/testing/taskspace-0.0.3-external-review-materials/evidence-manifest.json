@@ -1,0 +1,9 @@
+{
+  "package_generated_at": "2026-06-11T20:47:10",
+  "source_run_root": "D:\\whalecode-alpha\\target\\bench004-20260608-202551",
+  "output_root": "D:\\whalecode-alpha\\docs\\testing\\taskspace-0.0.3-external-review-materials",
+  "notes": [
+    "Large raw sandbox directories are referenced, not copied.",
+    "Compact TaskSpace traces and graph snapshots are included."
+  ]
+}

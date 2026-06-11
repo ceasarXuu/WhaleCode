@@ -1,0 +1,22 @@
+﻿{
+    "schema_version":  1,
+    "sample_id":  "terminal_bench__query-optimize",
+    "phase":  "ineligible",
+    "phase_started_at":  "2026-06-09T01:24:31.8544992+08:00",
+    "phase_updated_at":  "2026-06-09T01:24:31.8544992+08:00",
+    "phase_transition_log_path":  "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__query-optimize\\20260609-012431-317\\events.jsonl",
+    "pair_cursor":  1,
+    "attempted_pairs":  0,
+    "completed_pairs":  0,
+    "ineligible_reason":  "environment_remote_asset_unavailable",
+    "environment_failure_reason":  "remote_asset_equivalence_unproven",
+    "aggregate_report_path":  "",
+    "last_successful_artifact":  "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__query-optimize\\20260609-012431-317\\preflight.remote-assets.json",
+    "lock_owner":  "ROG306:2104",
+    "heartbeat_at":  "2026-06-09T01:24:31.8554974+08:00",
+    "stale_after_seconds":  1800,
+    "resume_decision":  "new_or_updated_by_current_process",
+    "audit_status":  "not_started",
+    "finalize_idempotency_token":  "",
+    "resume_command":  "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -File D:\\whalecode-alpha\\scripts\\taskspace-benchmark\\run-taskspace-benchmark.ps1 -ScenarioPath D:\\whalecode-alpha\\target\\bench004-20260608-202551\\materialized-scenarios\\terminal_bench__query-optimize -Repeats 5 -WhaleBin C:\\Users\\77585\\.whale\\bin\\whale.exe -Model deepseek-v4-flash -RunRoot D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs -TimeoutSeconds 900 -ValidationTimeoutSeconds 420 -SandboxMode full-auto -ConfigOverride model_reasoning_effort=\"max\" -EnableAggregate -AllowNonE2Result"
+}

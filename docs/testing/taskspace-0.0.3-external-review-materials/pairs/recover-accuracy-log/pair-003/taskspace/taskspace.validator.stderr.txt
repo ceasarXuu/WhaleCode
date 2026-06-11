@@ -1,0 +1,4 @@
+Validation timed out after 420 seconds.
+Process timed out after 420 seconds: powershell -NoProfile -ExecutionPolicy Bypass -File D:\whalecode-alpha\target\bench004-20260608-202551\materialized-scenarios\terminal_bench__recover-accuracy-log\external-validator.ps1
+
+validation_cleanup_result_path=D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__recover-accuracy-log\20260608-235934-100\pair-003\right\artifacts\external-validator-runtime\validation-cleanup-result.json

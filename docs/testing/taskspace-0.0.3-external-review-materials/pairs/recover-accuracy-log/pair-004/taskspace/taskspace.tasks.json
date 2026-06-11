@@ -1,0 +1,172 @@
+[
+  {
+    "id": "task-1",
+    "title": "Recover accuracy logs from raw generator/judge logs",
+    "objective": "Sort raw generator.log and judge.log by timestamp, split into 3 per-run files per role (6 files total), compute per-run accuracy excluding errors, and save results.json",
+    "status": "active",
+    "ownerSessionId": "019ea82d-26f1-7491-aacf-a1b0c0894ebc",
+    "activeMapId": "map-1",
+    "mapIds": [
+      "map-1"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "fs-generator-log",
+          "provenance": "observed_from_environment",
+          "description": "raw_logs/generator.log - 30 generator events with timestamp, question_id, prediction fields",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "raw_logs/generator.log",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "fs-judge-log",
+          "provenance": "observed_from_environment",
+          "description": "raw_logs/judge.log - 30 judge events with timestamp, question_id, target fields",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "raw_logs/judge.log",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "oc-per-run-jsonl",
+          "kind": "artifact",
+          "description": "6 per-run JSONL files (3 generator, 3 judge) each with exactly 10 lines sorted by timestamp ascending, compact JSON with no extra whitespace, key order: timestamp, question_id, prediction/target",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "user request in conversation: task description with exact schemas",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "oc-results-json",
+          "kind": "artifact",
+          "description": "results.json with runs array containing run_index, correct, total, accuracy (null if total=0), double precision, rounded half-up to 2 decimals",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "user request in conversation: results.json schema example",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "fact-generator-30",
+          "statement": "generator.log contains 30 events with timestamp, question_id, prediction fields; each of 10 question_ids has exactly 3 events",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "raw_logs/generator.log in task_deps",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "fs-generator-log",
+              "traceEventId": null,
+              "artifactRef": null,
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "fact-judge-30",
+          "statement": "judge.log contains 30 events with timestamp, question_id, target fields; each of 10 question_ids has exactly 3 events",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "raw_logs/judge.log in task_deps",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "fs-judge-log",
+              "traceEventId": null,
+              "artifactRef": null,
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T17:00:03.779Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "oc-per-run-jsonl"
+      },
+      {
+        "at": "2026-06-08T17:00:03.782Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "oc-results-json"
+      },
+      {
+        "at": "2026-06-08T17:00:03.783Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-generator-log"
+      },
+      {
+        "at": "2026-06-08T17:00:03.784Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-judge-log"
+      },
+      {
+        "at": "2026-06-08T17:00:33.987Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact",
+        "recordId": "fact-generator-30"
+      },
+      {
+        "at": "2026-06-08T17:00:33.988Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact",
+        "recordId": "fact-judge-30"
+      }
+    ]
+  }
+]

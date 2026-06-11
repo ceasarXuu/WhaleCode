@@ -1,0 +1,115 @@
+[
+  {
+    "id": "task-1",
+    "title": "Recover accuracy logs from raw generator/judge logs",
+    "objective": "Read two raw log files (generator.log, judge.log), sort events by timestamp per question_id, assign to 3 runs, save 6 per-run JSONL files and compute per-run accuracy in results.json",
+    "status": "active",
+    "ownerSessionId": "019ea801-69d9-7503-b686-4cb67971ce48",
+    "activeMapId": "map-1",
+    "mapIds": [
+      "map-1"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "fs-1-raw-logs",
+          "provenance": "provided_by_user",
+          "description": "Two raw log files: /app/raw_logs/generator.log and /app/raw_logs/judge.log (30 events each)",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:/app/raw_logs/generator.log",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:/app/raw_logs/judge.log",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "User request: recover-accuracy-log task description",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "oc-1-output-files",
+          "kind": "artifact",
+          "description": "Seven output files: 6 per-run JSONL files and 1 results.json, with exact formatting specifications",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "User request: recover-accuracy-log task description",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:/app",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "oc-2-format",
+          "kind": "format",
+          "description": "JSONL files must be compact JSON with no spaces after : or ,, key order timestamp/question_id/prediction or target, one object per line terminated by \\n. Results.json must follow exact schema.",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "task.yaml output schema examples",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T16:12:14.924Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-1-raw-logs"
+      },
+      {
+        "at": "2026-06-08T16:12:26.429Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "oc-1-output-files"
+      },
+      {
+        "at": "2026-06-08T16:13:36.632Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "oc-2-format"
+      }
+    ]
+  }
+]

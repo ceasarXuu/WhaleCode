@@ -1,0 +1,60 @@
+﻿#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.77kB 0.0s done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for ghcr.io/laude-institute/t-bench/python-3-13:20250620
+#2 DONE 1.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B 0.0s done
+#3 DONE 0.0s
+
+#4 [1/4] FROM ghcr.io/laude-institute/t-bench/python-3-13:20250620@sha256:236734f0cafcce942ca09316d57236c2273a2b5411e116454a22cf6d718d95f5
+#4 resolve ghcr.io/laude-institute/t-bench/python-3-13:20250620@sha256:236734f0cafcce942ca09316d57236c2273a2b5411e116454a22cf6d718d95f5 0.0s done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 113B 0.0s done
+#5 DONE 0.1s
+
+#6 [2/4] WORKDIR /app
+#6 CACHED
+
+#7 [3/4] COPY task_deps/ /app/raw_logs/
+#7 CACHED
+
+#8 [4/4] RUN mkdir -p /app/recovered_logs/
+#8 CACHED
+
+#9 exporting to image
+#9 exporting layers done
+#9 exporting manifest sha256:e00561fb69d6295153f38b1b2c2e6e083862cf21b2e030550bd472e2e547bfa4 done
+#9 exporting config sha256:9813e83f16f231a290af6fa8de9cc02a78b849e74994d5fddc4d04b196a16abe done
+#9 exporting attestation manifest sha256:a595a9e9c4ff8dde43dde26bfda79b27f74185427ac5661483c35af59239d0be 0.0s done
+#9 exporting manifest list sha256:f8a92bbcc7014ff6e34ba02dcda53ae573b5dd2f08b2df2e33dc2f480cbcc654 0.0s done
+#9 naming to docker.io/library/whale-taskspace-terminal-bench:99ef306fe6909e7d-87678aad done
+#9 unpacking to docker.io/library/whale-taskspace-terminal-bench:99ef306fe6909e7d-87678aad 0.0s done
+#9 DONE 0.1s
+debconf: delaying package configuration, since apt-utils is not installed
+downloading uv 0.7.13 x86_64-unknown-linux-gnu
+Using CPython 3.13.1 interpreter at: /usr/local/bin/python
+Creating virtual environment at: .tbench-testing
+Using Python 3.13.1 environment at: .tbench-testing
+Resolved 5 packages in 13.62s
+Downloading pygments (1.2MiB)
+ Downloading pygments
+Prepared 5 packages in 2.31s
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 5 packages in 2.02s
+ + iniconfig==2.3.0
+ + packaging==26.2
+ + pluggy==1.6.0
+ + pygments==2.20.0
+ + pytest==8.4.1
+
+
+validation_cleanup_result_path=D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__recover-accuracy-log\20260608-235934-100\pair-005\right\artifacts\external-validator-runtime\validation-cleanup-result.json

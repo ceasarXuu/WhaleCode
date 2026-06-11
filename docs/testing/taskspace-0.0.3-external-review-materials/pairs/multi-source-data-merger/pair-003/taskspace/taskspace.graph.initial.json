@@ -1,0 +1,86 @@
+{
+  "mode": "experiment",
+  "cognitiveSchemaVersion": "taskspace-cognitive-v1",
+  "routingRequired": false,
+  "bootstrapRequired": false,
+  "rebornRequested": false,
+  "activeTaskId": "task-1",
+  "activeMapId": "map-1",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Merge user data from three sources",
+      "objective": "Read, map, merge, and resolve conflicts across three user data sources (JSON/CSV/Parquet) with source priority, outputting merged Parquet and conflict JSON.",
+      "status": "active",
+      "ownerSessionId": "019ea7bd-3981-71f3-ae1c-9505e4400dc9",
+      "activeMapId": "map-1",
+      "mapIds": [
+        "map-1"
+      ],
+      "cognitiveState": {
+        "successCriteria": [],
+        "factSources": [],
+        "outputContracts": [],
+        "facts": [],
+        "assumptions": [],
+        "riskNotes": []
+      }
+    }
+  ],
+  "maps": [
+    {
+      "id": "map-1",
+      "taskId": "task-1",
+      "title": "Merge user data from three sources",
+      "status": "active",
+      "ownerSessionId": "019ea7bd-3981-71f3-ae1c-9505e4400dc9",
+      "baseMapVersion": "base-map-v1",
+      "createdFrom": null,
+      "readyNodeCount": 0,
+      "runningNodeCount": 1,
+      "completedNodeCount": 0,
+      "nodes": [
+        {
+          "id": "node-1",
+          "title": "Inspect input data sources",
+          "kind": "inspect_code_context",
+          "status": "running",
+          "contextSummary": "Read and understand the three input files in /data/ to design the merge script.",
+          "sourceRefs": [],
+          "activeLease": "lease-1",
+          "resultIds": [],
+          "originNodeId": null
+        }
+      ],
+      "edges": [],
+      "leases": [
+        {
+          "id": "lease-1",
+          "mapId": "map-1",
+          "nodeId": "node-1",
+          "holder": "main",
+          "previousNodeStatus": "ready",
+          "agentThreadId": "019ea7bd-3981-71f3-ae1c-9505e4400dc9",
+          "agentPath": null
+        }
+      ],
+      "results": []
+    }
+  ],
+  "maintenanceBarriers": [],
+  "traceSummary": {
+    "totalEventCount": 0,
+    "toolCallCount": 0,
+    "failedToolCallCount": 0,
+    "validatorFailureCount": 0,
+    "unclassifiedShellActionCount": 0
+  },
+  "traceEvents": [],
+  "sentinelSummary": {
+    "totalWarningCount": 0,
+    "activeWarningCount": 0,
+    "validatorFailureWarningCount": 0,
+    "unclassifiedShellWarningCount": 0
+  },
+  "sentinelWarnings": []
+}

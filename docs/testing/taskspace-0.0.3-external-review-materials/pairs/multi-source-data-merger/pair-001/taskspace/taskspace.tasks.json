@@ -1,0 +1,157 @@
+[
+  {
+    "id": "task-1",
+    "title": "Merge user data from three sources",
+    "objective": "Read, parse, merge, and deduplicate user data from three sources (source_a JSON, source_b CSV, source_c Parquet), resolve conflicts by source priority, and output merged_users.parquet + conflicts.json.",
+    "status": "active",
+    "ownerSessionId": "019ea78f-259b-7603-8f1d-7a7532e1cdfd",
+    "activeMapId": "map-1",
+    "mapIds": [
+      "map-1"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "fs-source-a",
+          "provenance": "provided_by_user",
+          "description": "/data/source_a/users.json - Primary source (highest priority)",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:/app/data/source_a/users.json",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "fs-source-b",
+          "provenance": "provided_by_user",
+          "description": "/data/source_b/users.csv - Secondary source",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:/app/data/source_b/users.csv",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "fs-source-c",
+          "provenance": "provided_by_user",
+          "description": "/data/source_c/users.parquet - Tertiary source",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:/app/data/source_c/users.parquet",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "fs-source-c-parquet",
+          "provenance": "observed_from_environment",
+          "description": "/data/source_c/users.parquet - Tertiary source, need to read with Python/parquet library",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:/app/data/source_c/users.parquet",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "oc-merge-output",
+          "kind": "artifact",
+          "description": "Merged users Parquet file at /app/merged_users.parquet and conflict report at /app/conflicts.json",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "user-request-2026-06-08",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "oc-merge-schema",
+          "kind": "schema",
+          "description": "Merged dataset columns: user_id (int), name (str), email (str), created_date (YYYY-MM-DD str), status (str, optional). Conflict report has total_conflicts and conflicts list with user_id, field, values dict, selected value.",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "user-request-2026-06-08",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T14:07:29.333Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "oc-merge-output"
+      },
+      {
+        "at": "2026-06-08T14:07:29.337Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "oc-merge-schema"
+      },
+      {
+        "at": "2026-06-08T14:07:29.339Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-source-a"
+      },
+      {
+        "at": "2026-06-08T14:07:29.340Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-source-b"
+      },
+      {
+        "at": "2026-06-08T14:07:29.342Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-source-c"
+      },
+      {
+        "at": "2026-06-08T14:07:44.621Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-source-c-parquet"
+      }
+    ]
+  }
+]

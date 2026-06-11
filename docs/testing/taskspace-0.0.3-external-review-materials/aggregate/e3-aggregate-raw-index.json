@@ -1,0 +1,20 @@
+{
+  "run_root": "D:\\whalecode-alpha\\target\\bench004-20260608-202551",
+  "version_registry": "D:\\whalecode-alpha\\docs\\testing\\taskspace-version-registry.md",
+  "run_report": "D:\\whalecode-alpha\\docs\\testing\\2026-06-09-taskspace-0.0.3-p0-e3-run.md",
+  "pair_count_executed": 15,
+  "sample_reports": {
+    "processing-pipeline": {
+      "aggregate_report": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\aggregate-report.md",
+      "run_summary": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\run-summary.md"
+    },
+    "multi-source-data-merger": {
+      "aggregate_report": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\aggregate-report.md",
+      "run_summary": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\run-summary.md"
+    },
+    "recover-accuracy-log": {
+      "aggregate_report": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\aggregate-report.md",
+      "run_summary": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\run-summary.md"
+    }
+  }
+}

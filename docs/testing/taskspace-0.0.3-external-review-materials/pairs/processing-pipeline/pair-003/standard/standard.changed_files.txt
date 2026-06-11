@@ -1,0 +1,8 @@
+collect_data.sh
+generate_report.sh
+output/final_report.txt
+output/processed_data.txt
+output/raw_data.txt
+process_data.sh
+run_pipeline.sh
+test_pipeline.py

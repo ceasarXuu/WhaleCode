@@ -1,0 +1,267 @@
+[
+  {
+    "id": "task-1",
+    "title": "Fix data processing pipeline",
+    "objective": "Identify and fix all issues with the pipeline scripts and dependencies to make run_pipeline.sh execute successfully.",
+    "status": "active",
+    "ownerSessionId": "019ea77b-a0cb-7763-bada-0110ef719af6",
+    "activeMapId": "map-1",
+    "mapIds": [
+      "map-1"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "user-request",
+          "provenance": "provided_by_user",
+          "description": "User reports run_pipeline.sh is failing in the current directory W:\\app",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "Current user request",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "environment: cwd=W:\\app",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "env-directory",
+          "provenance": "observed_from_environment",
+          "description": "Current working directory is W:\\app, acting as the /app root",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "environment_context cwd=W:\\app",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "dockerfile-issues",
+          "provenance": "observed_from_environment",
+          "description": "Dockerfile reveals deliberate faults introduced into scripts: permission issues, DOS line endings, invalid shebang, /data/output permissions",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\Dockerfile",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\generate_report.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\process_data.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\collect_data.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\run_pipeline.sh",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "pipeline-working",
+          "kind": "validator",
+          "description": "The pipeline run_pipeline.sh must execute successfully end-to-end, processing data through all stages.",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "Current user request: fix failing pipeline",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\run_pipeline.sh",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "issue-1",
+          "statement": "run_pipeline.sh lacks execute permission (chmod -x in Dockerfile)",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "dockerfile-issues",
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\Dockerfile",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "issue-2",
+          "statement": "collect_data.sh has 311 permission (execute-only, no read) which prevents shebang interpreter from reading it",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "dockerfile-issues",
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\Dockerfile",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "issue-3",
+          "statement": "process_data.sh lacks execute permission and has DOS line endings (converted via unix2dos)",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "dockerfile-issues",
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\Dockerfile",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "issue-4",
+          "statement": "generate_report.sh has invalid shebang (#!/bin/nonexistent) which does not exist on the system",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "dockerfile-issues",
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\Dockerfile",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "issue-5",
+          "statement": "/data/output directory has no permissions (chmod 000), preventing any read/write access",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "dockerfile-issues",
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\Dockerfile",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T13:46:09.284Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "user-request"
+      },
+      {
+        "at": "2026-06-08T13:46:09.285Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "env-directory"
+      },
+      {
+        "at": "2026-06-08T13:46:11.914Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "pipeline-working"
+      },
+      {
+        "at": "2026-06-08T13:46:43.141Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "dockerfile-issues"
+      },
+      {
+        "at": "2026-06-08T13:46:53.647Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact",
+        "recordId": "issue-1"
+      },
+      {
+        "at": "2026-06-08T13:46:53.650Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact",
+        "recordId": "issue-2"
+      },
+      {
+        "at": "2026-06-08T13:46:53.652Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact",
+        "recordId": "issue-3"
+      },
+      {
+        "at": "2026-06-08T13:46:53.653Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact",
+        "recordId": "issue-4"
+      },
+      {
+        "at": "2026-06-08T13:46:53.655Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact",
+        "recordId": "issue-5"
+      }
+    ]
+  }
+]

@@ -1,0 +1,266 @@
+[
+  {
+    "id": "task-2",
+    "title": "Run pipeline verification",
+    "objective": "Verify the fixed pipeline executes successfully",
+    "status": "active",
+    "ownerSessionId": "019ea757-49a3-7be2-8dbc-dc2d04d073df",
+    "activeMapId": "map-2",
+    "mapIds": [
+      "map-2"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "fs-task2-start",
+          "provenance": "observed_from_environment",
+          "description": "Task-2 on clean map-2 with no budget issues. All scripts have been fixed on disk at W:\\app.",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\run_pipeline.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\collect_data.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\process_data.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\generate_report.sh",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "pipeline-test",
+          "kind": "validator",
+          "description": "run_pipeline.sh must execute successfully with all three steps completing and output files created",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "user request: fix pipeline scripts",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T13:13:46.104Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-2",
+        "updateKind": "output_contract",
+        "recordId": "pipeline-test"
+      },
+      {
+        "at": "2026-06-08T13:13:46.109Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-2",
+        "updateKind": "fact_source",
+        "recordId": "fs-task2-start"
+      }
+    ]
+  },
+  {
+    "id": "task-1",
+    "title": "Fix data processing pipeline",
+    "objective": "Identify and fix all issues with the pipeline scripts and dependencies to make run_pipeline.sh execute successfully",
+    "status": "pending",
+    "ownerSessionId": "019ea757-49a3-7be2-8dbc-dc2d04d073df",
+    "activeMapId": "map-1",
+    "mapIds": [
+      "map-1"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "fs-env-workspace",
+          "provenance": "observed_from_environment",
+          "description": "Current working directory is W:\\app; scripts are expected at W:\\app; the main script is run_pipeline.sh",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "shell: Get-ChildItem W:\\app",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "fs-inspect-scripts",
+          "provenance": "observed_from_environment",
+          "description": "Inspected all pipeline script files: run_pipeline.sh orchestrates collect_data.sh → process_data.sh → generate_report.sh",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\run_pipeline.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\collect_data.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\process_data.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\generate_report.sh",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "pipeline-success",
+          "kind": "validator",
+          "description": "run_pipeline.sh must execute successfully, all referenced scripts must be fixed, and the pipeline must complete without errors",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "user request: fix pipeline scripts and dependencies",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "found-issues",
+          "statement": "Script issues identified: 1) generate_report.sh shebang is '#!/bin/nonexistent' instead of '#!/bin/bash'; 2) All scripts use absolute path /data/output which may not exist/writable locally; 3) Scripts may lack execute permissions; 4) collect_data.sh has restrictive permissions; 5) process_data.sh may have DOS line endings",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "fs-inspect-scripts",
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\generate_report.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "fs-inspect-scripts",
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\collect_data.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "fs-inspect-scripts",
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\process_data.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "fs-inspect-scripts",
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\run_pipeline.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "fs-inspect-scripts",
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\Dockerfile",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T13:06:24.423Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-env-workspace"
+      },
+      {
+        "at": "2026-06-08T13:06:26.405Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "pipeline-success"
+      },
+      {
+        "at": "2026-06-08T13:07:00.303Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-inspect-scripts"
+      },
+      {
+        "at": "2026-06-08T13:07:10.084Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact",
+        "recordId": "found-issues"
+      },
+      {
+        "at": "2026-06-08T13:13:42.346Z",
+        "kind": "task_status_changed",
+        "from": "active",
+        "to": "pending"
+      }
+    ]
+  }
+]

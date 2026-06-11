@@ -23,6 +23,22 @@
 
 但如果要进一步做精确根因分析、0.0.4 PRD、issue 级设计或代码改造方案，最好补充下面这些材料。
 
+## 实际材料包
+
+已按本文清单从 TaskSpace 0.0.3 E3 run root 生成实际审查材料包：
+
+- [TaskSpace 0.0.3 External Review Evidence Package](../testing/taskspace-0.0.3-external-review-materials/README.md)
+- Pair 总索引：[e3-pair-index.csv](../testing/taskspace-0.0.3-external-review-materials/e3-pair-index.csv)
+- Pair JSONL 索引：[e3-pair-index.jsonl](../testing/taskspace-0.0.3-external-review-materials/e3-pair-index.jsonl)
+- 代码证据入口：[code-evidence](../testing/taskspace-0.0.3-external-review-materials/code-evidence/)
+- 聚合报告入口：[aggregate/e3-aggregate-raw-index.json](../testing/taskspace-0.0.3-external-review-materials/aggregate/e3-aggregate-raw-index.json)
+- 重点样本包：[focus-packages](../testing/taskspace-0.0.3-external-review-materials/focus-packages/)
+- Viewer 快照：[viewer-snapshots](../testing/taskspace-0.0.3-external-review-materials/viewer-snapshots/)
+
+说明：
+- 材料包包含真实 pair 对照、TaskSpace trace、graph snapshot、validator 输出、diff、changed files、timeout 摘要、tool schema、prompt injection、runtime gate 摘录和设计决策信息。
+- 为避免把整个 sandbox、依赖目录和重复 graph 快照塞入文档目录，超大原始文件通过 `*.raw-artifact-paths.json` 或 `*.raw-path.txt` 指向 `target/bench004-20260608-202551` 下的原始 artifact；材料包内保留 compact trace、最终 graph、timeout graph 和关键派生证据。
+
 ## 材料优先级
 
 | 优先级 | 需要的信息 | 为什么重要 | 预期用途 |

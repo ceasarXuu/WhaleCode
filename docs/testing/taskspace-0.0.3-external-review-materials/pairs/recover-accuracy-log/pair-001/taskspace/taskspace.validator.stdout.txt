@@ -1,0 +1,81 @@
+﻿validator_runtime_probe=terminal_bench_equivalent_wrapper
+validator_proof_nonce=32f436553579492cb222b2928a9d9ab1
+validator_wrapper_sha256=2e1df0c6f9e4d769e2625f312c313cbf66806dbf18b3429f6670b112a959ac4e
+validator_entry_sha256=0a25324cfea370c32d91f89c8f07ba5348a3f50047269f8275abdd2579e3b8bf
+docker_backend=wsl
+docker_image=whale-taskspace-terminal-bench:534835496b5cb17e-32f43655
+docker_container=whale-tbench-534835496b5cb17e-32f43655
+repo_mount=/mnt/d/whalecode-alpha/target/bench004-20260608-202551/runs/terminal_bench__recover-accuracy-log/20260608-235934-100/pair-001/right/terminal-bench-drive/app
+validator_mount=/tests
+validator_runtime_manifest_path=D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__recover-accuracy-log\20260608-235934-100\pair-001\right\artifacts\external-validator-runtime\terminal-bench-runtime-manifest.json
+29.1.3
+docker_version_exit=0
+proxy_env_skipped_loopback=HTTP_PROXY
+proxy_env_skipped_loopback=HTTPS_PROXY
+proxy_env_skipped_loopback=http_proxy
+proxy_env_skipped_loopback=https_proxy
+proxy_env_count=0
+docker_build_result_path=D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__recover-accuracy-log\20260608-235934-100\pair-001\right\artifacts\external-validator-runtime\docker-build-result.json
+validator_proof_nonce=32f436553579492cb222b2928a9d9ab1
+validator_runtime=terminal_bench_equivalent_docker_app
+container_workdir=/app
+test_dir=/tests
+validator_mount=/tests
+validator_command=bash /tests/run-tests.sh
+validator_mount_readonly=true
+Ign:1 http://deb.debian.org/debian bookworm InRelease
+Ign:2 http://deb.debian.org/debian bookworm-updates InRelease
+Ign:3 http://deb.debian.org/debian-security bookworm-security InRelease
+Ign:1 http://deb.debian.org/debian bookworm InRelease
+Ign:2 http://deb.debian.org/debian bookworm-updates InRelease
+Ign:3 http://deb.debian.org/debian-security bookworm-security InRelease
+Ign:1 http://deb.debian.org/debian bookworm InRelease
+Ign:2 http://deb.debian.org/debian bookworm-updates InRelease
+Ign:3 http://deb.debian.org/debian-security bookworm-security InRelease
+Err:1 http://deb.debian.org/debian bookworm InRelease
+  Cannot initiate the connection to debian.map.fastlydns.net:80 (2a04:4e42:68::644). - connect (101: Network is unreachable) Could not connect to debian.map.fastlydns.net:80 (199.232.162.132), connection timed out Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Err:2 http://deb.debian.org/debian bookworm-updates InRelease
+  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Err:3 http://deb.debian.org/debian-security bookworm-security InRelease
+  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+
+To add $HOME/.local/bin to your PATH, either restart your shell or run:
+
+    source $HOME/.local/bin/env (sh, bash, zsh)
+    source $HOME/.local/bin/env.fish (fish)
+============================= test session starts ==============================
+platform linux -- Python 3.13.1, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tests
+collected 3 items
+
+../tests/test_outputs.py ...                                             [100%]
+
+=============================== warnings summary ===============================
+.tbench-testing/lib/python3.13/site-packages/_pytest/cacheprovider.py:475
+  /app/.tbench-testing/lib/python3.13/site-packages/_pytest/cacheprovider.py:475: PytestCacheWarning: could not create cache path /tests/.pytest_cache/v/cache/nodeids: [Errno 30] Read-only file system: '/tests/pytest-cache-files-da5p2_m1'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED ../tests/test_outputs.py::test_output_files_exist
+PASSED ../tests/test_outputs.py::test_results_matches_golden
+PASSED ../tests/test_outputs.py::test_run_files_match_golden
+========================= 3 passed, 1 warning in 0.10s =========================
+docker_inspect_path=D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__recover-accuracy-log\20260608-235934-100\pair-001\right\artifacts\external-validator-runtime\terminal-bench-docker-inspect.json
+docker_inspect_available=True
+whale-tbench-534835496b5cb17e-32f43655
+validator_cleanup_container_exit=0
+Untagged: whale-taskspace-terminal-bench:534835496b5cb17e-32f43655
+Deleted: sha256:7f13ba58135b029b85e86ddf7377e5b10e5421e94a41ef53f2f84d666f22d2c3
+validator_cleanup_image_exit=0
+

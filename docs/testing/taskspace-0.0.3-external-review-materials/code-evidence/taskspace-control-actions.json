@@ -1,0 +1,14 @@
+{
+  "actions": [
+    "RouteTask",
+    "CreateNode",
+    "BindNode",
+    "FinishNode",
+    "BlockNode",
+    "RecordOutputContract",
+    "RecordFactSource",
+    "RecordFact",
+    "MarkResultValidity"
+  ],
+  "source": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control.rs"
+}

@@ -1,0 +1,22 @@
+﻿{
+    "schema_version":  1,
+    "reason":  "post_validation",
+    "proof_dir":  "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-004\\left\\artifacts\\external-validator-runtime",
+    "runtime_manifest_path":  "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-004\\left\\artifacts\\external-validator-runtime\\terminal-bench-runtime-manifest.json",
+    "container_name":  "whale-tbench-4757c6386f1fcc66-176f2c0d",
+    "container_id":  "",
+    "image":  "whale-taskspace-terminal-bench:4757c6386f1fcc66-176f2c0d",
+    "docker_backend":  "wsl",
+    "wsl_distro":  "whale-docker",
+    "repo_hash":  "4757c6386f1fcc66",
+    "proof_nonce":  "176f2c0d7add48c4a45c5a43c4f84bcc",
+    "proof_dir_hash":  "188f210419ffc3d5",
+    "identity_matched":  false,
+    "cleanup_attempted":  false,
+    "classification":  "ok",
+    "container_inspect_exit_code":  1,
+    "container_rm_exit_code":  null,
+    "image_inspect_exit_code":  1,
+    "image_rm_exit_code":  null,
+    "timestamp":  "2026-06-08T21:38:26.7095964+08:00"
+}

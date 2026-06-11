@@ -1,0 +1,107 @@
+[
+  {
+    "id": "task-1",
+    "title": "Recover accuracy logs and compute per-run accuracy",
+    "objective": "Sort generator.log and judge.log by timestamp, assign events to 3 runs, save 6 per-run JSONL files, and compute accuracy results.json",
+    "status": "active",
+    "ownerSessionId": "019ea81c-5b53-7492-a4bb-31223956fa43",
+    "activeMapId": "map-1",
+    "mapIds": [
+      "map-1"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "fs-1",
+          "provenance": "provided_by_user",
+          "description": "Input log files at /app/raw_logs/generator.log and /app/raw_logs/judge.log (30 events each) with timestamp, question_id, prediction/target fields",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\raw_logs\\generator.log",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\raw_logs\\judge.log",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "fs-gen-explorer",
+          "provenance": "observed_from_environment",
+          "description": "Generator log explorer result confirming per-run assignments and error markers",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:/app/task_deps/generator.log",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": "claim-6",
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": null,
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "oc-1",
+          "kind": "artifact",
+          "description": "Produce 7 output files: 6 per-run JSONL files and results.json in /app/recovered_logs/ following strict formatting rules (compact JSON, sorted by timestamp, exactly 10 lines each)",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "User task description - recover-accuracy-log",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T16:41:41.319Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-1"
+      },
+      {
+        "at": "2026-06-08T16:41:43.998Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "oc-1"
+      },
+      {
+        "at": "2026-06-08T16:48:36.603Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-gen-explorer"
+      }
+    ]
+  }
+]

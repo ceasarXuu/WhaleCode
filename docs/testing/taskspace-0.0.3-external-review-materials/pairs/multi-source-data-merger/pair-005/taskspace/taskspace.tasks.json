@@ -1,0 +1,150 @@
+[
+  {
+    "id": "task-1",
+    "title": "Merge user data from three sources",
+    "objective": "Read, map, merge, and resolve conflicts across three user data sources (JSON, CSV, Parquet) and produce merged Parquet and conflict JSON reports.",
+    "status": "active",
+    "ownerSessionId": "019ea7e3-5c57-7c41-a74c-788df937e788",
+    "activeMapId": "map-1",
+    "mapIds": [
+      "map-1"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "fs-1",
+          "provenance": "observed_from_environment",
+          "description": "Input data files location: /data/source_a/users.json, /data/source_b/users.csv, /data/source_c/users.parquet",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "user request",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "fs-2",
+          "provenance": "observed_from_environment",
+          "description": "Script output from running merge_users.py showing merged dataset with 4 users and conflict report with 3 conflicts",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:/app/conflicts.json",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:/app/merged_users.parquet",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "oc-1",
+          "kind": "artifact",
+          "description": "Merged Parquet file at /app/merged_users.parquet with schema: user_id (int), name (string), email (string), created_date (string YYYY-MM-DD), status (string, optional). Conflict report at /app/conflicts.json.",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "user request",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "c-4",
+          "statement": "merge_users.py executes successfully, reads all three sources, maps fields, merges by user_id with priority-based conflict resolution",
+          "evidenceRefs": [
+            {
+              "resultId": "result-10",
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "merge_users.py",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "c-5",
+          "statement": "Merged dataset contains 4 unique users (101-104) with correct schema: user_id (int64), name (string), email (string), created_date (string), status (string)",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "fs-2",
+              "traceEventId": null,
+              "artifactRef": null,
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:/app/merged_users.parquet",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T15:39:26.036Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "oc-1"
+      },
+      {
+        "at": "2026-06-08T15:39:28.037Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-1"
+      },
+      {
+        "at": "2026-06-08T15:41:42.623Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact",
+        "recordId": "c-4"
+      },
+      {
+        "at": "2026-06-08T15:41:44.980Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-2"
+      },
+      {
+        "at": "2026-06-08T15:41:47.166Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact",
+        "recordId": "c-5"
+      }
+    ]
+  }
+]

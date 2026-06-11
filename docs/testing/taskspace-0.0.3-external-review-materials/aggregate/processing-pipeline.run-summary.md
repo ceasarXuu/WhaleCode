@@ -1,0 +1,27 @@
+﻿# TaskSpace Benchmark Run Summary
+
+- pair: D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__processing-pipeline\20260608-202555-620\pair-001
+  - reported_evidence_level: E3-candidate
+  - included_in_utility_aggregate: False
+  - included_in_e3_aggregate: False
+  - pair_report: D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__processing-pipeline\20260608-202555-620\pair-001\pair-report.md
+- pair: D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__processing-pipeline\20260608-202555-620\pair-002
+  - reported_evidence_level: E3-candidate
+  - included_in_utility_aggregate: False
+  - included_in_e3_aggregate: False
+  - pair_report: D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__processing-pipeline\20260608-202555-620\pair-002\pair-report.md
+- pair: D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__processing-pipeline\20260608-202555-620\pair-003
+  - reported_evidence_level: E1
+  - included_in_utility_aggregate: False
+  - included_in_e3_aggregate: False
+  - pair_report: D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__processing-pipeline\20260608-202555-620\pair-003\pair-report.md
+- pair: D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__processing-pipeline\20260608-202555-620\pair-004
+  - reported_evidence_level: E1
+  - included_in_utility_aggregate: False
+  - included_in_e3_aggregate: False
+  - pair_report: D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__processing-pipeline\20260608-202555-620\pair-004\pair-report.md
+- pair: D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__processing-pipeline\20260608-202555-620\pair-005
+  - reported_evidence_level: E3-candidate
+  - included_in_utility_aggregate: False
+  - included_in_e3_aggregate: False
+  - pair_report: D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__processing-pipeline\20260608-202555-620\pair-005\pair-report.md

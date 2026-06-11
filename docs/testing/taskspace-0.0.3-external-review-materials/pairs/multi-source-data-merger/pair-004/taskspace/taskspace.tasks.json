@@ -1,0 +1,135 @@
+[
+  {
+    "id": "task-1",
+    "title": "Merge user data from three sources",
+    "objective": "Read, parse, merge, and resolve conflicts from three user data sources (JSON, CSV, Parquet) with priority-based field resolution, generating merged parquet and conflict JSON.",
+    "status": "active",
+    "ownerSessionId": "019ea7cf-95bd-7553-9c5a-c62243125f0b",
+    "activeMapId": "map-1",
+    "mapIds": [
+      "map-1"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "source_a_file",
+          "provenance": "observed_from_environment",
+          "description": "Primary source: /data/source_a/users.json - JSON format, highest priority",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:/data/source_a/users.json",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "source_b_file",
+          "provenance": "observed_from_environment",
+          "description": "Secondary source: /data/source_b/users.csv - CSV format",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:/data/source_b/users.csv",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "source_c_file",
+          "provenance": "observed_from_environment",
+          "description": "Tertiary source: /data/source_c/users.parquet - Parquet format",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:/data/source_c/users.parquet",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "merged_parquet",
+          "kind": "artifact",
+          "description": "Merged user dataset in Parquet format at /app/merged_users.parquet with columns: user_id (integer), name (string), email (string), created_date (string YYYY-MM-DD), status (string, optional).",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "user request (merge three data sources)",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "conflict_report",
+          "kind": "artifact",
+          "description": "Conflict report JSON at /app/conflicts.json with schema: {\"total_conflicts\": int, \"conflicts\": [{\"user_id\": int, \"field\": str, \"values\": {\"source_a\": value|null, ...}, \"selected\": value}]}",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "user request (merge three data sources)",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T15:17:50.664Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "source_a_file"
+      },
+      {
+        "at": "2026-06-08T15:17:50.665Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "source_b_file"
+      },
+      {
+        "at": "2026-06-08T15:17:50.666Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "source_c_file"
+      },
+      {
+        "at": "2026-06-08T15:17:57.112Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "merged_parquet"
+      },
+      {
+        "at": "2026-06-08T15:17:57.116Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "conflict_report"
+      }
+    ]
+  }
+]

@@ -1,0 +1,152 @@
+﻿validator_runtime_probe=terminal_bench_equivalent_wrapper
+validator_proof_nonce=88fe2cec338a4e259e3134b9291a1134
+validator_wrapper_sha256=2e1df0c6f9e4d769e2625f312c313cbf66806dbf18b3429f6670b112a959ac4e
+validator_entry_sha256=0a25324cfea370c32d91f89c8f07ba5348a3f50047269f8275abdd2579e3b8bf
+docker_backend=wsl
+docker_image=whale-taskspace-terminal-bench:81630f15c8dc7bab-88fe2cec
+docker_container=whale-tbench-81630f15c8dc7bab-88fe2cec
+repo_mount=/mnt/d/whalecode-alpha/target/bench004-20260608-202551/runs/terminal_bench__recover-accuracy-log/20260608-235934-100/pair-001/left/terminal-bench-drive/app
+validator_mount=/tests
+validator_runtime_manifest_path=D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__recover-accuracy-log\20260608-235934-100\pair-001\left\artifacts\external-validator-runtime\terminal-bench-runtime-manifest.json
+29.1.3
+docker_version_exit=0
+proxy_env_skipped_loopback=HTTP_PROXY
+proxy_env_skipped_loopback=HTTPS_PROXY
+proxy_env_skipped_loopback=http_proxy
+proxy_env_skipped_loopback=https_proxy
+proxy_env_count=0
+docker_build_result_path=D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__recover-accuracy-log\20260608-235934-100\pair-001\left\artifacts\external-validator-runtime\docker-build-result.json
+validator_proof_nonce=88fe2cec338a4e259e3134b9291a1134
+validator_runtime=terminal_bench_equivalent_docker_app
+container_workdir=/app
+test_dir=/tests
+validator_mount=/tests
+validator_command=bash /tests/run-tests.sh
+validator_mount_readonly=true
+Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [48.0 kB]
+Get:4 http://deb.debian.org/debian bookworm/main amd64 Packages [8790 kB]
+Get:5 http://deb.debian.org/debian bookworm-updates/main amd64 Packages [6924 B]
+Get:6 http://deb.debian.org/debian-security bookworm-security/main amd64 Packages [306 kB]
+Fetched 9358 kB in 1min 36s (97.0 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following additional packages will be installed:
+  libbrotli1 libcurl4 libldap-2.5-0 libldap-common libnghttp2-14 libpsl5
+  librtmp1 libsasl2-2 libsasl2-modules libsasl2-modules-db libssh2-1
+  publicsuffix
+Suggested packages:
+  libsasl2-modules-gssapi-mit | libsasl2-modules-gssapi-heimdal
+  libsasl2-modules-ldap libsasl2-modules-otp libsasl2-modules-sql
+The following NEW packages will be installed:
+  curl libbrotli1 libcurl4 libldap-2.5-0 libldap-common libnghttp2-14 libpsl5
+  librtmp1 libsasl2-2 libsasl2-modules libsasl2-modules-db libssh2-1
+  publicsuffix
+0 upgraded, 13 newly installed, 0 to remove and 47 not upgraded.
+Need to get 1839 kB of archives.
+After this operation, 4550 kB of additional disk space will be used.
+Ign:1 http://deb.debian.org/debian bookworm/main amd64 libbrotli1 amd64 1.0.9-2+b6
+Ign:2 http://deb.debian.org/debian bookworm/main amd64 libsasl2-modules-db amd64 2.1.28+dfsg-10
+Ign:3 http://deb.debian.org/debian bookworm/main amd64 libsasl2-2 amd64 2.1.28+dfsg-10
+Ign:4 http://deb.debian.org/debian bookworm/main amd64 libldap-2.5-0 amd64 2.5.13+dfsg-5
+Ign:5 http://deb.debian.org/debian-security bookworm-security/main amd64 libnghttp2-14 amd64 1.52.0-1+deb12u3
+Ign:6 http://deb.debian.org/debian bookworm/main amd64 libpsl5 amd64 0.21.2-1
+Ign:7 http://deb.debian.org/debian bookworm/main amd64 librtmp1 amd64 2.4+20151223.gitfa8646d.1-2+b2
+Ign:8 http://deb.debian.org/debian bookworm/main amd64 libssh2-1 amd64 1.10.0-3+b1
+Ign:9 http://deb.debian.org/debian bookworm/main amd64 libcurl4 amd64 7.88.1-10+deb12u14
+Ign:10 http://deb.debian.org/debian bookworm/main amd64 curl amd64 7.88.1-10+deb12u14
+Ign:11 http://deb.debian.org/debian bookworm/main amd64 libldap-common all 2.5.13+dfsg-5
+Ign:12 http://deb.debian.org/debian bookworm/main amd64 libsasl2-modules amd64 2.1.28+dfsg-10
+Ign:13 http://deb.debian.org/debian bookworm/main amd64 publicsuffix all 20230209.2326-1
+Ign:1 http://deb.debian.org/debian bookworm/main amd64 libbrotli1 amd64 1.0.9-2+b6
+Ign:2 http://deb.debian.org/debian bookworm/main amd64 libsasl2-modules-db amd64 2.1.28+dfsg-10
+Ign:3 http://deb.debian.org/debian bookworm/main amd64 libsasl2-2 amd64 2.1.28+dfsg-10
+Ign:4 http://deb.debian.org/debian bookworm/main amd64 libldap-2.5-0 amd64 2.5.13+dfsg-5
+Ign:5 http://deb.debian.org/debian-security bookworm-security/main amd64 libnghttp2-14 amd64 1.52.0-1+deb12u3
+Ign:6 http://deb.debian.org/debian bookworm/main amd64 libpsl5 amd64 0.21.2-1
+Ign:7 http://deb.debian.org/debian bookworm/main amd64 librtmp1 amd64 2.4+20151223.gitfa8646d.1-2+b2
+Ign:8 http://deb.debian.org/debian bookworm/main amd64 libssh2-1 amd64 1.10.0-3+b1
+Ign:9 http://deb.debian.org/debian bookworm/main amd64 libcurl4 amd64 7.88.1-10+deb12u14
+Ign:10 http://deb.debian.org/debian bookworm/main amd64 curl amd64 7.88.1-10+deb12u14
+Ign:11 http://deb.debian.org/debian bookworm/main amd64 libldap-common all 2.5.13+dfsg-5
+Ign:12 http://deb.debian.org/debian bookworm/main amd64 libsasl2-modules amd64 2.1.28+dfsg-10
+Ign:13 http://deb.debian.org/debian bookworm/main amd64 publicsuffix all 20230209.2326-1
+Ign:1 http://deb.debian.org/debian bookworm/main amd64 libbrotli1 amd64 1.0.9-2+b6
+Ign:2 http://deb.debian.org/debian bookworm/main amd64 libsasl2-modules-db amd64 2.1.28+dfsg-10
+Ign:3 http://deb.debian.org/debian bookworm/main amd64 libsasl2-2 amd64 2.1.28+dfsg-10
+Ign:4 http://deb.debian.org/debian bookworm/main amd64 libldap-2.5-0 amd64 2.5.13+dfsg-5
+Ign:5 http://deb.debian.org/debian-security bookworm-security/main amd64 libnghttp2-14 amd64 1.52.0-1+deb12u3
+Ign:6 http://deb.debian.org/debian bookworm/main amd64 libpsl5 amd64 0.21.2-1
+Ign:7 http://deb.debian.org/debian bookworm/main amd64 librtmp1 amd64 2.4+20151223.gitfa8646d.1-2+b2
+Ign:8 http://deb.debian.org/debian bookworm/main amd64 libssh2-1 amd64 1.10.0-3+b1
+Ign:9 http://deb.debian.org/debian bookworm/main amd64 libcurl4 amd64 7.88.1-10+deb12u14
+Ign:10 http://deb.debian.org/debian bookworm/main amd64 curl amd64 7.88.1-10+deb12u14
+Ign:11 http://deb.debian.org/debian bookworm/main amd64 libldap-common all 2.5.13+dfsg-5
+Ign:12 http://deb.debian.org/debian bookworm/main amd64 libsasl2-modules amd64 2.1.28+dfsg-10
+Ign:13 http://deb.debian.org/debian bookworm/main amd64 publicsuffix all 20230209.2326-1
+Err:1 http://deb.debian.org/debian bookworm/main amd64 libbrotli1 amd64 1.0.9-2+b6
+  Cannot initiate the connection to debian.map.fastlydns.net:80 (2a04:4e42:68::644). - connect (101: Network is unreachable) Could not connect to debian.map.fastlydns.net:80 (199.232.162.132), connection timed out Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Err:2 http://deb.debian.org/debian bookworm/main amd64 libsasl2-modules-db amd64 2.1.28+dfsg-10
+  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Err:3 http://deb.debian.org/debian bookworm/main amd64 libsasl2-2 amd64 2.1.28+dfsg-10
+  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Err:4 http://deb.debian.org/debian bookworm/main amd64 libldap-2.5-0 amd64 2.5.13+dfsg-5
+  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Err:5 http://deb.debian.org/debian-security bookworm-security/main amd64 libnghttp2-14 amd64 1.52.0-1+deb12u3
+  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Err:6 http://deb.debian.org/debian bookworm/main amd64 libpsl5 amd64 0.21.2-1
+  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Err:7 http://deb.debian.org/debian bookworm/main amd64 librtmp1 amd64 2.4+20151223.gitfa8646d.1-2+b2
+  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Err:8 http://deb.debian.org/debian bookworm/main amd64 libssh2-1 amd64 1.10.0-3+b1
+  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Err:9 http://deb.debian.org/debian bookworm/main amd64 libcurl4 amd64 7.88.1-10+deb12u14
+  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Err:10 http://deb.debian.org/debian bookworm/main amd64 curl amd64 7.88.1-10+deb12u14
+  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Err:11 http://deb.debian.org/debian bookworm/main amd64 libldap-common all 2.5.13+dfsg-5
+  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Err:12 http://deb.debian.org/debian bookworm/main amd64 libsasl2-modules amd64 2.1.28+dfsg-10
+  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+Err:13 http://deb.debian.org/debian bookworm/main amd64 publicsuffix all 20230209.2326-1
+  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+
+To add $HOME/.local/bin to your PATH, either restart your shell or run:
+
+    source $HOME/.local/bin/env (sh, bash, zsh)
+    source $HOME/.local/bin/env.fish (fish)
+============================= test session starts ==============================
+platform linux -- Python 3.13.1, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tests
+collected 3 items
+
+../tests/test_outputs.py ...                                             [100%]
+
+=============================== warnings summary ===============================
+.tbench-testing/lib/python3.13/site-packages/_pytest/cacheprovider.py:475
+  /app/.tbench-testing/lib/python3.13/site-packages/_pytest/cacheprovider.py:475: PytestCacheWarning: could not create cache path /tests/.pytest_cache/v/cache/nodeids: [Errno 30] Read-only file system: '/tests/pytest-cache-files-i_imlzy3'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED ../tests/test_outputs.py::test_output_files_exist
+PASSED ../tests/test_outputs.py::test_results_matches_golden
+PASSED ../tests/test_outputs.py::test_run_files_match_golden
+========================= 3 passed, 1 warning in 0.11s =========================
+docker_inspect_path=D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__recover-accuracy-log\20260608-235934-100\pair-001\left\artifacts\external-validator-runtime\terminal-bench-docker-inspect.json
+docker_inspect_available=True
+whale-tbench-81630f15c8dc7bab-88fe2cec
+validator_cleanup_container_exit=0
+Untagged: whale-taskspace-terminal-bench:81630f15c8dc7bab-88fe2cec
+Deleted: sha256:6e597e21dc7f70dd90fa955128a5462f4cb65ef6d8e3207af1cfafed0c509d8e
+validator_cleanup_image_exit=0
+

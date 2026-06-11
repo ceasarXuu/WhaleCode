@@ -1,0 +1,99 @@
+[
+  {
+    "id": "task-1",
+    "title": "Fix data processing pipeline",
+    "objective": "Identify and fix all issues with the pipeline scripts and dependencies to make run_pipeline.sh execute successfully",
+    "status": "active",
+    "ownerSessionId": "019ea742-37f8-7290-9443-b21b52988382",
+    "activeMapId": "map-1",
+    "mapIds": [
+      "map-1"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "fs-directory-contents",
+          "provenance": "observed_from_environment",
+          "description": "Current directory listing of W:\\app showing pipeline files",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "oc-pipeline-run",
+          "kind": "artifact",
+          "description": "Pipeline scripts execute successfully end-to-end in sequence, producing valid output without errors",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "user-request: fix pipeline scripts in W:\\app",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\run_pipeline.sh",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "fact-generate-report-bad-shebang",
+          "statement": "generate_report.sh has invalid shebang '#!/bin/nonexistent' which should be '#!/bin/bash'",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "fs-directory-contents",
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\generate_report.sh",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T12:43:24.215Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-directory-contents"
+      },
+      {
+        "at": "2026-06-08T12:43:31.932Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "oc-pipeline-run"
+      },
+      {
+        "at": "2026-06-08T12:44:25.690Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact",
+        "recordId": "fact-generate-report-bad-shebang"
+      }
+    ]
+  }
+]

@@ -1,0 +1,34 @@
+﻿{
+    "schema_version":  1,
+    "run_id":  "20260609-012431-317",
+    "scenario_id":  "terminal_bench__query-optimize",
+    "evidence_target":  "E3",
+    "phase":  "ineligible",
+    "created_at":  "2026-06-09T01:24:31.3325878+08:00",
+    "updated_at":  "2026-06-09T01:24:31.9225577+08:00",
+    "host":  "ROG306",
+    "process_owner":  "ROG306\\77585",
+    "process_id":  2104,
+    "command_line":  "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -File D:\\whalecode-alpha\\scripts\\taskspace-benchmark\\run-taskspace-benchmark.ps1 -ScenarioPath D:\\whalecode-alpha\\target\\bench004-20260608-202551\\materialized-scenarios\\terminal_bench__query-optimize -Repeats 5 -WhaleBin C:\\Users\\77585\\.whale\\bin\\whale.exe -Model deepseek-v4-flash -RunRoot D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs -TimeoutSeconds 900 -ValidationTimeoutSeconds 420 -SandboxMode full-auto -ConfigOverride model_reasoning_effort=\"max\" -EnableAggregate -AllowNonE2Result",
+    "argv":  "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -File D:\\whalecode-alpha\\scripts\\taskspace-benchmark\\run-taskspace-benchmark.ps1 -ScenarioPath D:\\whalecode-alpha\\target\\bench004-20260608-202551\\materialized-scenarios\\terminal_bench__query-optimize -Repeats 5 -WhaleBin C:\\Users\\77585\\.whale\\bin\\whale.exe -Model deepseek-v4-flash -RunRoot D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs -TimeoutSeconds 900 -ValidationTimeoutSeconds 420 -SandboxMode full-auto -ConfigOverride model_reasoning_effort=\"max\" -EnableAggregate -AllowNonE2Result",
+    "env_snapshot":  {
+                         "WHALE_HOME":  null,
+                         "TASKSPACE_DOCKER_BACKEND":  null,
+                         "TASKSPACE_DOCKER_WSL_DISTRO":  null
+                     },
+    "repeats":  5,
+    "samples":  [
+                    {
+                        "sample_id":  "terminal_bench__query-optimize",
+                        "status_path":  "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__query-optimize\\20260609-012431-317\\sample-status.json"
+                    }
+                ],
+    "attempted_pairs":  0,
+    "completed_pairs":  0,
+    "lock_owner":  "ROG306:2104",
+    "heartbeat_at":  "2026-06-09T01:24:31.9235588+08:00",
+    "stale_after_seconds":  1800,
+    "resume_decision":  "new_run",
+    "final_aggregate_ready":  false,
+    "resume_command":  "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -File D:\\whalecode-alpha\\scripts\\taskspace-benchmark\\run-taskspace-benchmark.ps1 -ScenarioPath D:\\whalecode-alpha\\target\\bench004-20260608-202551\\materialized-scenarios\\terminal_bench__query-optimize -Repeats 5 -WhaleBin C:\\Users\\77585\\.whale\\bin\\whale.exe -Model deepseek-v4-flash -RunRoot D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs -TimeoutSeconds 900 -ValidationTimeoutSeconds 420 -SandboxMode full-auto -ConfigOverride model_reasoning_effort=\"max\" -EnableAggregate -AllowNonE2Result"
+}

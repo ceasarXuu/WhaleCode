@@ -1,0 +1,67 @@
+﻿{
+    "remote_assets":  [
+                          {
+                              "url":  "https://huggingface.co/datasets/pimpalgaonkar/terminalbench-sqlite-db/resolve/84e42d43436afd2c21b4d3f94c05383fd3a6f78e/oewn.sqlite",
+                              "asset_kind":  "unknown_runtime_network_dependency",
+                              "source_path":  "C:\\Users\\77585\\AppData\\Local\\Temp\\whale-real-external-benchmarks\\terminal-bench\\original-tasks\\query-optimize\\Dockerfile",
+                              "relative_source_path":  "Dockerfile",
+                              "source_line":  46,
+                              "source_revision":  "1a6ffa9674b571da0ed040c470cb40c4d85f9b9b",
+                              "cache_key":  "fb0f3b1f6978c438a82ffbd3b2b1034448f5350eac8cd0b2ecc848f031534f10",
+                              "cache_path":  "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\materialized-scenarios\\_asset-cache\\query-optimize\\fb0f3b1f6978c438a82ffbd3b2b1034448f5350eac8cd0b2ecc848f031534f10\\oewn.sqlite",
+                              "cache_exists":  false,
+                              "expected_sha256":  "",
+                              "actual_sha256":  "",
+                              "size_bytes":  0,
+                              "license":  "external-benchmark-license-see-source",
+                              "required_for_e3":  true,
+                              "injection_method":  "none",
+                              "dockerfile_transform_diff":  "",
+                              "post_injection_tree_sha256":  "",
+                              "equivalence_proven":  false
+                          },
+                          {
+                              "url":  "https://astral.sh/uv/0.7.13/install.sh",
+                              "asset_kind":  "validator_dependency_cache",
+                              "source_path":  "C:\\Users\\77585\\AppData\\Local\\Temp\\whale-real-external-benchmarks\\terminal-bench\\original-tasks\\query-optimize\\run-tests.sh",
+                              "relative_source_path":  "run-tests.sh",
+                              "source_line":  13,
+                              "source_revision":  "1a6ffa9674b571da0ed040c470cb40c4d85f9b9b",
+                              "cache_key":  "9fa0a01a4851ac7e25d99350ea02e91e00635b82b96bfaafc833c70edd324bca",
+                              "cache_path":  "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\materialized-scenarios\\_adapter-generated\\uv-cache\\install.sh",
+                              "cache_exists":  true,
+                              "expected_sha256":  "1bd6dcfae3377079ed9ebeb47cc814b0a9b6f42a81089e97de49cd26f7b9d2d2",
+                              "actual_sha256":  "1bd6dcfae3377079ed9ebeb47cc814b0a9b6f42a81089e97de49cd26f7b9d2d2",
+                              "size_bytes":  63943,
+                              "license":  "external-benchmark-license-see-source",
+                              "required_for_e3":  false,
+                              "injection_method":  "covered_by_terminal_bench_uv_cache",
+                              "dockerfile_transform_diff":  "",
+                              "post_injection_tree_sha256":  "",
+                              "equivalence_proven":  true
+                          }
+                      ],
+    "ineligible_assets":  [
+                              {
+                                  "url":  "https://huggingface.co/datasets/pimpalgaonkar/terminalbench-sqlite-db/resolve/84e42d43436afd2c21b4d3f94c05383fd3a6f78e/oewn.sqlite",
+                                  "asset_kind":  "unknown_runtime_network_dependency",
+                                  "source_path":  "C:\\Users\\77585\\AppData\\Local\\Temp\\whale-real-external-benchmarks\\terminal-bench\\original-tasks\\query-optimize\\Dockerfile",
+                                  "relative_source_path":  "Dockerfile",
+                                  "source_line":  46,
+                                  "source_revision":  "1a6ffa9674b571da0ed040c470cb40c4d85f9b9b",
+                                  "cache_key":  "fb0f3b1f6978c438a82ffbd3b2b1034448f5350eac8cd0b2ecc848f031534f10",
+                                  "cache_path":  "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\materialized-scenarios\\_asset-cache\\query-optimize\\fb0f3b1f6978c438a82ffbd3b2b1034448f5350eac8cd0b2ecc848f031534f10\\oewn.sqlite",
+                                  "cache_exists":  false,
+                                  "expected_sha256":  "",
+                                  "actual_sha256":  "",
+                                  "size_bytes":  0,
+                                  "license":  "external-benchmark-license-see-source",
+                                  "required_for_e3":  true,
+                                  "injection_method":  "none",
+                                  "dockerfile_transform_diff":  "",
+                                  "post_injection_tree_sha256":  "",
+                                  "equivalence_proven":  false
+                              }
+                          ],
+    "e3_eligible":  false
+}

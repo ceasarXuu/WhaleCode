@@ -1,0 +1,54 @@
+﻿diff --git a/collect_data.sh b/collect_data.sh
+index a145966..f28bcaf 100644
+--- a/collect_data.sh
++++ b/collect_data.sh
+@@ -3,6 +3,7 @@
+ 
+ # Try to write to the output directory
+ mkdir -p /data/output
++chmod 755 /data/output 2>/dev/null
+ echo "test data" > /data/output/raw_data.txt
+ 
+ if [ $? -eq 0 ]; then
+diff --git a/generate_report.sh b/generate_report.sh
+index a3d14d2..afd208b 100644
+--- a/generate_report.sh
++++ b/generate_report.sh
+@@ -1,4 +1,4 @@
+-#!/bin/nonexistent
++#!/bin/bash
+ # Report generation script
+ 
+ # Check if processed data exists
+diff --git a/run_pipeline.sh b/run_pipeline.sh
+index bc99eeb..f2dbdfc 100644
+--- a/run_pipeline.sh
++++ b/run_pipeline.sh
+@@ -1,6 +1,27 @@
+ #!/bin/bash
+ # Main pipeline script that orchestrates the data processing workflow
+ 
++# --- Self-healing section: fix broken state from Dockerfile ---
++echo "[Fixup] Setting execute permissions on scripts..."
++chmod +x "$0" 2>/dev/null
++chmod +x process_data.sh 2>/dev/null
++chmod 755 collect_data.sh 2>/dev/null
++
++echo "[Fixup] Fixing generate_report.sh shebang..."
++if [ -f generate_report.sh ]; then
++    sed -i 's|#!/bin/nonexistent|#!/bin/bash|' generate_report.sh
++fi
++
++echo "[Fixup] Fixing process_data.sh line endings..."
++if command -v dos2unix >/dev/null 2>&1; then
++    dos2unix process_data.sh 2>/dev/null
++fi
++
++echo "[Fixup] Ensuring /data/output is writable..."
++mkdir -p /data/output
++chmod 755 /data/output 2>/dev/null
++# --- End of self-healing section ---
++
+ echo "Starting the data pipeline..."
+ 
+ # Step 1: Collect data

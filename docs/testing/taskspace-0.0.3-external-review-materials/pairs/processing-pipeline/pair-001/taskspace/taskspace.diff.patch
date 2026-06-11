@@ -1,0 +1,45 @@
+﻿diff --git a/Dockerfile b/Dockerfile
+index 8354413..246801b 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -6,17 +6,16 @@ COPY collect_data.sh .
+ COPY process_data.sh .
+ COPY generate_report.sh .
+ 
+-RUN chmod -x run_pipeline.sh 
+-RUN chmod -x process_data.sh
++RUN chmod +x run_pipeline.sh 
++RUN chmod +x process_data.sh
+ RUN chmod +x collect_data.sh
+ RUN chmod +x generate_report.sh
+ 
+-RUN chmod 311 collect_data.sh
+ 
+ RUN apt-get update && apt-get install -y dos2unix
+-RUN unix2dos process_data.sh
++RUN dos2unix process_data.sh
+ 
+-RUN sed -i 's|#!/bin/bash|#!/bin/nonexistent|' generate_report.sh
++RUN sed -i 's|#!/bin/nonexistent|#!/bin/bash|' generate_report.sh
+ 
+ RUN mkdir -p /data/output
+-RUN chmod 000 /data/output
+\ No newline at end of file
++RUN chmod 777 /data/output
+diff --git a/generate_report.sh b/generate_report.sh
+index a3d14d2..0134794 100644
+--- a/generate_report.sh
++++ b/generate_report.sh
+@@ -1,4 +1,4 @@
+-#!/bin/nonexistent
++#!/bin/bash
+ # Report generation script
+ 
+ # Check if processed data exists
+@@ -12,4 +12,4 @@ if [ -f "/data/output/processed_data.txt" ]; then
+ else
+     echo "Error: Processed data not found!"
+     exit 1
+-fi
+\ No newline at end of file
++fi

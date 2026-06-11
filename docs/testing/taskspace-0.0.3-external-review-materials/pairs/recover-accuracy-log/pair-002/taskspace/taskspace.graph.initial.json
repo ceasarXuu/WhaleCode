@@ -1,0 +1,86 @@
+{
+  "mode": "experiment",
+  "cognitiveSchemaVersion": "taskspace-cognitive-v1",
+  "routingRequired": false,
+  "bootstrapRequired": false,
+  "rebornRequested": false,
+  "activeTaskId": "task-1",
+  "activeMapId": "map-1",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Recover accuracy logs from raw generator/judge logs",
+      "objective": "Read two raw log files (generator.log, judge.log), sort events by timestamp per question_id, assign to 3 runs, save 6 per-run JSONL files and compute per-run accuracy in results.json",
+      "status": "active",
+      "ownerSessionId": "019ea801-69d9-7503-b686-4cb67971ce48",
+      "activeMapId": "map-1",
+      "mapIds": [
+        "map-1"
+      ],
+      "cognitiveState": {
+        "successCriteria": [],
+        "factSources": [],
+        "outputContracts": [],
+        "facts": [],
+        "assumptions": [],
+        "riskNotes": []
+      }
+    }
+  ],
+  "maps": [
+    {
+      "id": "map-1",
+      "taskId": "task-1",
+      "title": "Recover accuracy logs from raw generator/judge logs",
+      "status": "active",
+      "ownerSessionId": "019ea801-69d9-7503-b686-4cb67971ce48",
+      "baseMapVersion": "base-map-v1",
+      "createdFrom": null,
+      "readyNodeCount": 0,
+      "runningNodeCount": 1,
+      "completedNodeCount": 0,
+      "nodes": [
+        {
+          "id": "node-1",
+          "title": "Read raw log files",
+          "kind": "inspect_code_context",
+          "status": "running",
+          "contextSummary": "Read /app/raw_logs/generator.log and /app/raw_logs/judge.log to understand their structure",
+          "sourceRefs": [],
+          "activeLease": "lease-1",
+          "resultIds": [],
+          "originNodeId": null
+        }
+      ],
+      "edges": [],
+      "leases": [
+        {
+          "id": "lease-1",
+          "mapId": "map-1",
+          "nodeId": "node-1",
+          "holder": "main",
+          "previousNodeStatus": "ready",
+          "agentThreadId": "019ea801-69d9-7503-b686-4cb67971ce48",
+          "agentPath": null
+        }
+      ],
+      "results": []
+    }
+  ],
+  "maintenanceBarriers": [],
+  "traceSummary": {
+    "totalEventCount": 0,
+    "toolCallCount": 0,
+    "failedToolCallCount": 0,
+    "validatorFailureCount": 0,
+    "unclassifiedShellActionCount": 0
+  },
+  "traceEvents": [],
+  "sentinelSummary": {
+    "totalWarningCount": 0,
+    "activeWarningCount": 0,
+    "validatorFailureWarningCount": 0,
+    "unclassifiedShellWarningCount": 0
+  },
+  "sentinelWarnings": []
+}

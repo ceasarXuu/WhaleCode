@@ -1,0 +1,11 @@
+process_logs.py
+raw_logs/generator.log
+raw_logs/judge.log
+recovered_logs/.done
+recovered_logs/results.json
+recovered_logs/run_1_generator.jsonl
+recovered_logs/run_1_judge.jsonl
+recovered_logs/run_2_generator.jsonl
+recovered_logs/run_2_judge.jsonl
+recovered_logs/run_3_generator.jsonl
+recovered_logs/run_3_judge.jsonl

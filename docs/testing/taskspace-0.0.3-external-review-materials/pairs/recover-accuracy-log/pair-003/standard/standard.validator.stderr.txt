@@ -1,0 +1,64 @@
+﻿#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.77kB 0.0s done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for ghcr.io/laude-institute/t-bench/python-3-13:20250620
+#2 DONE 1.4s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B 0.0s done
+#3 DONE 0.0s
+
+#4 [1/4] FROM ghcr.io/laude-institute/t-bench/python-3-13:20250620@sha256:236734f0cafcce942ca09316d57236c2273a2b5411e116454a22cf6d718d95f5
+#4 resolve ghcr.io/laude-institute/t-bench/python-3-13:20250620@sha256:236734f0cafcce942ca09316d57236c2273a2b5411e116454a22cf6d718d95f5 0.0s done
+#4 DONE 0.0s
+
+#5 [internal] load build context
+#5 transferring context: 113B 0.0s done
+#5 DONE 0.1s
+
+#6 [2/4] WORKDIR /app
+#6 CACHED
+
+#7 [3/4] COPY task_deps/ /app/raw_logs/
+#7 CACHED
+
+#8 [4/4] RUN mkdir -p /app/recovered_logs/
+#8 CACHED
+
+#9 exporting to image
+#9 exporting layers done
+#9 exporting manifest sha256:e00561fb69d6295153f38b1b2c2e6e083862cf21b2e030550bd472e2e547bfa4 done
+#9 exporting config sha256:9813e83f16f231a290af6fa8de9cc02a78b849e74994d5fddc4d04b196a16abe done
+#9 exporting attestation manifest sha256:f93fb796048d604acc257d0e43bbf9385654a029feb5b118cbc04760b0d3fc47 0.0s done
+#9 exporting manifest list sha256:fcdc5e4e6dcbaabcdb2f1bc12d977e46755df38779c8108ba501d6a13cd648ec 0.0s done
+#9 naming to docker.io/library/whale-taskspace-terminal-bench:3d57b5fedf1f350f-b43c9a32 done
+#9 unpacking to docker.io/library/whale-taskspace-terminal-bench:3d57b5fedf1f350f-b43c9a32 0.0s done
+#9 DONE 0.1s
+W: Failed to fetch http://deb.debian.org/debian/dists/bookworm/InRelease  Cannot initiate the connection to debian.map.fastlydns.net:80 (2a04:4e42:68::644). - connect (101: Network is unreachable) Could not connect to debian.map.fastlydns.net:80 (199.232.162.132), connection timed out Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+W: Failed to fetch http://deb.debian.org/debian/dists/bookworm-updates/InRelease  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+W: Failed to fetch http://deb.debian.org/debian-security/dists/bookworm-security/InRelease  Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:68::644). - connect (101: Network is unreachable)
+W: Some index files failed to download. They have been ignored, or old ones used instead.
+E: Unable to locate package curl
+downloading uv 0.7.13 x86_64-unknown-linux-gnu
+Using CPython 3.13.1 interpreter at: /usr/local/bin/python
+Creating virtual environment at: .tbench-testing
+Using Python 3.13.1 environment at: .tbench-testing
+Resolved 5 packages in 4.60s
+Downloading pygments (1.2MiB)
+ Downloading pygments
+Prepared 5 packages in 20.39s
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 5 packages in 2.08s
+ + iniconfig==2.3.0
+ + packaging==26.2
+ + pluggy==1.6.0
+ + pygments==2.20.0
+ + pytest==8.4.1
+
+
+validation_cleanup_result_path=D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__recover-accuracy-log\20260608-235934-100\pair-003\left\artifacts\external-validator-runtime\validation-cleanup-result.json

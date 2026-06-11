@@ -1,0 +1,129 @@
+[
+  {
+    "id": "task-1",
+    "title": "Merge user data from three sources",
+    "objective": "Read, map, merge, and resolve conflicts across three user data sources (JSON/CSV/Parquet) with source priority, outputting merged Parquet and conflict JSON.",
+    "status": "active",
+    "ownerSessionId": "019ea7bd-3981-71f3-ae1c-9505e4400dc9",
+    "activeMapId": "map-1",
+    "mapIds": [
+      "map-1"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "fs-input-files",
+          "provenance": "provided_by_user",
+          "description": "Three input data source files: source_a/users.json (JSON, highest priority), source_b/users.csv (CSV, secondary), source_c/users.parquet (Parquet, tertiary). Located in /data/ directory.",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "current user request (merge three data sources)",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "oc-merged-parquet",
+          "kind": "artifact",
+          "description": "Merged Parquet file at /app/merged_users.parquet with columns: user_id (int), name (string), email (string), created_date (string YYYY-MM-DD), status (string, optional). One row per unique user, conflicts resolved by source_a > source_b > source_c priority.",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "current user request (merge three data sources)",
+              "validatorRef": null
+            }
+          ]
+        },
+        {
+          "id": "oc-conflict-report",
+          "kind": "artifact",
+          "description": "Conflict report at /app/conflicts.json with total_conflicts count and array of conflict objects containing user_id, field, values per source, and selected value.",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "current user request (merge three data sources)",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "fact-output-files",
+          "statement": "Two output files generated: merged_users.parquet (4 rows, correct schema, resolved conflicts) and conflicts.json (3 conflicts for user 101: name, email, created_date).",
+          "evidenceRefs": [
+            {
+              "resultId": "result-32",
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": null,
+              "validatorRef": null
+            },
+            {
+              "resultId": "result-34",
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": null,
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "fs-input-files",
+              "traceEventId": null,
+              "artifactRef": null,
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T14:57:46.047Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-input-files"
+      },
+      {
+        "at": "2026-06-08T14:57:53.122Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "oc-merged-parquet"
+      },
+      {
+        "at": "2026-06-08T14:57:53.125Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "oc-conflict-report"
+      },
+      {
+        "at": "2026-06-08T15:03:06.464Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact",
+        "recordId": "fact-output-files"
+      }
+    ]
+  }
+]

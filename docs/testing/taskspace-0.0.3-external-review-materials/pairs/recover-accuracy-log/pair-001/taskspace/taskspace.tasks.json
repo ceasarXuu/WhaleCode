@@ -1,0 +1,77 @@
+[
+  {
+    "id": "task-1",
+    "title": "Recover accuracy logs and compute per-run accuracy",
+    "objective": "Sort the generator.log and judge.log files, split into per-run files, and compute accuracy per run.",
+    "status": "active",
+    "ownerSessionId": "019ea7f7-7c33-7933-a3b9-33e29969466f",
+    "activeMapId": "map-1",
+    "mapIds": [
+      "map-1"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "fs-raw-logs",
+          "provenance": "observed_from_environment",
+          "description": "Raw generator.log and judge.log files exist at /app/raw_logs/",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "/app/raw_logs/generator.log",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "/app/raw_logs/judge.log",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "oc-1",
+          "kind": "artifact",
+          "description": "6 run jsonl files and 1 results.json",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "user request: recover-accuracy-log",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T16:01:21.111Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "oc-1"
+      },
+      {
+        "at": "2026-06-08T16:01:25.108Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-raw-logs"
+      }
+    ]
+  }
+]

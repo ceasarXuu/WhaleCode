@@ -1,0 +1,107 @@
+[
+  {
+    "id": "task-1",
+    "title": "Fix data processing pipeline",
+    "objective": "Identify and fix all issues with script files and dependencies in the data processing pipeline so that run_pipeline.sh executes successfully.",
+    "status": "active",
+    "ownerSessionId": "019ea767-acc9-7591-ac4c-c5276be357d7",
+    "activeMapId": "map-1",
+    "mapIds": [
+      "map-1"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "fs-workspace-dir",
+          "provenance": "observed_from_environment",
+          "description": "Working directory is W:\\app. The main script is run_pipeline.sh (referenced as /app/run_pipeline.sh in the task). The pipeline consists of multiple scripts that need to run in sequence.",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "oc-pipeline-run",
+          "kind": "validator",
+          "description": "run_pipeline.sh executes successfully end-to-end without errors. All scripts in the pipeline run without errors. Final output is produced.",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "Current user request: fix data processing pipeline",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "cf-final",
+          "statement": "All three pipeline scripts have been fixed: generate_report.sh shebang corrected from #!/bin/nonexistent to #!/bin/bash, and all /data/output absolute paths changed to relative ./data/output paths across collect_data.sh, process_data.sh, and generate_report.sh.",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "fs-workspace-dir",
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\generate_report.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "fs-workspace-dir",
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\collect_data.sh",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": "fs-workspace-dir",
+              "traceEventId": null,
+              "artifactRef": "W:\\app\\process_data.sh",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T13:24:19.183Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-workspace-dir"
+      },
+      {
+        "at": "2026-06-08T13:24:22.389Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "oc-pipeline-run"
+      },
+      {
+        "at": "2026-06-08T13:29:27.319Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact",
+        "recordId": "cf-final"
+      }
+    ]
+  }
+]

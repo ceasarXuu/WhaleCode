@@ -1,0 +1,48 @@
+﻿{
+    "invalid_prompt":  false,
+    "manual_review_required":  false,
+    "hard_hits":  [
+
+                  ],
+    "context_hits":  [
+
+                     ],
+    "allowed_context_hits":  [
+
+                             ],
+    "hard_hit_details":  [
+
+                         ],
+    "context_hit_details":  [
+
+                            ],
+    "allowed_context_hit_details":  [
+
+                                    ],
+    "source_spans":  [
+                         {
+                             "source_kind":  "upstream_task",
+                             "source_path":  "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\materialized-scenarios\\_adapter-generated\\terminal-bench-query-optimize-instruction.md",
+                             "line_start":  1,
+                             "line_end":  8,
+                             "byte_start":  0,
+                             "byte_end":  538,
+                             "raw_sha256":  "5791cbbd052f07c16d8348e043eeb6b3c3264c8a268e8cd7d339840c351d2adc",
+                             "adapted_sha256":  "41f33e27f30690051ea608289af9474f67641a8cea6729a55a6c7c4094bdc418",
+                             "start":  0,
+                             "end":  538
+                         },
+                         {
+                             "source_kind":  "adapter_wrapper",
+                             "source_path":  "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\materialized-scenarios\\_adapter-generated\\terminal-bench-query-optimize-adapted-instruction.md",
+                             "line_start":  9,
+                             "line_end":  10,
+                             "byte_start":  538,
+                             "byte_end":  786,
+                             "raw_sha256":  "bef320bc3889e7ef64f0005cb68b43cfa2cba57c5e72038467790e2996984aad",
+                             "adapted_sha256":  "41f33e27f30690051ea608289af9474f67641a8cea6729a55a6c7c4094bdc418",
+                             "start":  538,
+                             "end":  786
+                         }
+                     ]
+}

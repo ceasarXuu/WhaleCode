@@ -1,0 +1,47 @@
+[
+  {
+    "path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control.rs",
+    "exists": true,
+    "line_count": 449
+  },
+  {
+    "path": "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs",
+    "exists": true,
+    "line_count": 467
+  },
+  {
+    "path": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+    "exists": true,
+    "line_count": 12536
+  },
+  {
+    "path": "third_party/codex-cli/codex-rs/core/src/action_map/map.rs",
+    "exists": true,
+    "line_count": 388
+  },
+  {
+    "path": "third_party/codex-cli/codex-rs/core/src/action_map/contracts.rs",
+    "exists": true,
+    "line_count": 90
+  },
+  {
+    "path": "third_party/codex-cli/codex-rs/core/src/action_map/cognitive.rs",
+    "exists": true,
+    "line_count": 165
+  },
+  {
+    "path": "third_party/codex-cli/codex-rs/core/src/action_map/basemap.rs",
+    "exists": true,
+    "line_count": 160
+  },
+  {
+    "path": "third_party/codex-cli/codex-rs/core/src/context/subagent_notification.rs",
+    "exists": true,
+    "line_count": 34
+  },
+  {
+    "path": "third_party/codex-cli/codex-rs/tui/src/app/action_map_viewer.rs",
+    "exists": true,
+    "line_count": 486
+  }
+]

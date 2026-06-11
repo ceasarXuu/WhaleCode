@@ -1,0 +1,77 @@
+[
+  {
+    "id": "task-1",
+    "title": "Recover accuracy logs and compute per-run accuracy",
+    "objective": "Sort generator.log and judge.log by timestamp, assign to 3 runs per question_id, save per-run JSONL files and compute accuracy",
+    "status": "active",
+    "ownerSessionId": "019ea83d-1a66-7f10-ac3c-6e61ba188cd1",
+    "activeMapId": "map-1",
+    "mapIds": [
+      "map-1"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "fs-1",
+          "provenance": "provided_by_user",
+          "description": "Two input log files at /app/raw_logs/generator.log and /app/raw_logs/judge.log, each with 30 events containing timestamp, question_id, prediction/target fields.",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "/app/raw_logs/generator.log",
+              "validatorRef": null
+            },
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "/app/raw_logs/judge.log",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "oc-1",
+          "kind": "artifact",
+          "description": "Generate 7 output files: 6 per-run JSONL files (run_{1..3}_generator.jsonl, run_{1..3}_judge.jsonl) each with 10 lines sorted by timestamp, and results.json with per-run accuracy computed after excluding error events. JSONL must use compact format with no extra whitespace. results.json must follow the schema with correct, total, accuracy (or null).",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "User request (recover-accuracy-log)",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T17:17:28.043Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "oc-1"
+      },
+      {
+        "at": "2026-06-08T17:17:28.045Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-1"
+      }
+    ]
+  }
+]

@@ -1,0 +1,69 @@
+[
+  {
+    "id": "task-1",
+    "title": "Fix data processing pipeline",
+    "objective": "Identify and fix all issues with the script files and dependencies to make the pipeline run successfully",
+    "status": "active",
+    "ownerSessionId": "019ea73a-1f97-7ea2-ba15-022a4cef613f",
+    "activeMapId": "map-1",
+    "mapIds": [
+      "map-1"
+    ],
+    "cognitiveState": {
+      "successCriteria": [],
+      "factSources": [
+        {
+          "id": "fs-app-directory",
+          "provenance": "observed_from_environment",
+          "description": "Observed current working directory listing and file contents from W:\\app",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "W:\\app directory listing via shell",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "outputContracts": [
+        {
+          "id": "pipeline-success",
+          "kind": "validator",
+          "description": "The pipeline script run_pipeline.sh executes successfully to completion, all intermediate data files are produced in expected order, and no errors are raised by any steps.",
+          "evidenceRefs": [
+            {
+              "resultId": null,
+              "claimId": null,
+              "factSourceId": null,
+              "traceEventId": null,
+              "artifactRef": "User request: 'make the pipeline run successfully'",
+              "validatorRef": null
+            }
+          ]
+        }
+      ],
+      "facts": [],
+      "assumptions": [],
+      "riskNotes": []
+    },
+    "events": [
+      {
+        "at": "2026-06-08T12:34:33.578Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "fact_source",
+        "recordId": "fs-app-directory"
+      },
+      {
+        "at": "2026-06-08T12:34:38.361Z",
+        "kind": "cognitive_state_updated",
+        "mapId": "map-1",
+        "updateKind": "output_contract",
+        "recordId": "pipeline-success"
+      }
+    ]
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "whale_exec_jsonl": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-002\\left\\artifacts\\whale-exec.jsonl",
+  "whale_exec_stderr": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-002\\left\\artifacts\\whale-exec.stderr.log",
+  "rollout_jsonl": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-002\\left\\artifacts\\rollout.jsonl",
+  "observability_json": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-002\\left\\artifacts\\observability\\action-map-observability.json",
+  "terminal_bench_drive": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-002\\left\\terminal-bench-drive"
+}

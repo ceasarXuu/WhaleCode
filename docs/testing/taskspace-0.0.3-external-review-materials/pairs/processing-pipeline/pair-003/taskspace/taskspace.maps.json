@@ -1,0 +1,16 @@
+[
+  {
+    "id": "map-1",
+    "taskId": "task-1",
+    "title": "Fix data processing pipeline",
+    "ownerSessionId": "019ea757-49a3-7be2-8dbc-dc2d04d073df",
+    "createdFrom": null
+  },
+  {
+    "id": "map-2",
+    "taskId": "task-2",
+    "title": "Run pipeline verification",
+    "ownerSessionId": "019ea757-49a3-7be2-8dbc-dc2d04d073df",
+    "createdFrom": null
+  }
+]
