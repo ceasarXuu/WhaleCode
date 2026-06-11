@@ -2633,6 +2633,20 @@ preview:\n\
             .get(node_id)
             .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
         match node.kind {
+            NodeKind::InspectCodeContext => {
+                let task = map
+                    .task_id
+                    .as_deref()
+                    .and_then(|task_id| self.tasks.get(task_id));
+                if !node_has_successful_action(map, node, ActionClass::Read)
+                    && !node_has_successful_action(map, node, ActionClass::Search)
+                    && !task.is_some_and(|task| node_has_problem_state_effect(task, map, node))
+                {
+                    return Err(format!(
+                        "TaskSpace inspect_code_context node `{node_id}` cannot be completed without a recorded successful read/search action or a problem-state update tied to this node. Record a fact, open question, decision, or evidence-backed finding before finishing."
+                    ));
+                }
+            }
             NodeKind::ImplementSolution => {
                 if !node_has_successful_action(map, node, ActionClass::Edit) {
                     return Err(format!(
@@ -2649,8 +2663,43 @@ preview:\n\
                         node.kind.as_str()
                     ));
                 }
+                let task = map
+                    .task_id
+                    .as_deref()
+                    .and_then(|task_id| self.tasks.get(task_id));
+                if !task.is_some_and(|task| node_satisfies_success_criterion(task, map, node)) {
+                    return Err(format!(
+                        "TaskSpace {} node `{node_id}` cannot be completed without a satisfied success criterion tied to this validation node. Call taskspace_control(action=record_success_criteria) with status=satisfied and evidence_refs from this node's validator result before finishing.",
+                        node.kind.as_str()
+                    ));
+                }
             }
-            NodeKind::InspectCodeContext | NodeKind::FinalSynthesis | NodeKind::Custom => {}
+            NodeKind::FinalSynthesis => {
+                let task = map
+                    .task_id
+                    .as_deref()
+                    .and_then(|task_id| self.tasks.get(task_id))
+                    .ok_or_else(|| {
+                        "TaskSpace final_synthesis cannot be completed without an active task ledger."
+                            .to_string()
+                    })?;
+                if !task_success_criteria_satisfied(task) {
+                    return Err(format!(
+                        "TaskSpace final_synthesis node `{node_id}` cannot be completed until at least one success criterion is satisfied or waived with evidence."
+                    ));
+                }
+                if task.problem_ledger.decisions.is_empty() {
+                    return Err(format!(
+                        "TaskSpace final_synthesis node `{node_id}` cannot be completed without at least one recorded decision in the problem ledger."
+                    ));
+                }
+                if let Some(question_id) = task_open_blocking_question_id(task) {
+                    return Err(format!(
+                        "TaskSpace final_synthesis node `{node_id}` cannot be completed while blocking open question `{question_id}` is still open. Close it or block the final_synthesis node."
+                    ));
+                }
+            }
+            NodeKind::Custom => {}
         }
         Ok(())
     }
@@ -3378,15 +3427,9 @@ preview:\n\
         let Some(task) = self.tasks.get(task_id) else {
             return Ok(());
         };
-        if let Some(question) = task
-            .problem_ledger
-            .open_questions
-            .iter()
-            .find(|question| question.blocking && question.status == "open")
-        {
+        if let Some(question_id) = task_open_blocking_question_id(task) {
             return Err(format!(
-                "TaskSpace final_synthesis blocked by open blocking question `{}`. Close it or explain why final output is not ready.",
-                question.id
+                "TaskSpace final_synthesis blocked by open blocking question `{question_id}`. Close it or explain why final output is not ready."
             ));
         }
         Ok(())
@@ -7308,6 +7351,88 @@ fn node_has_successful_action(
     })
 }
 
+fn node_has_problem_state_effect(
+    task: &TaskState,
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> bool {
+    task.problem_ledger
+        .known_facts
+        .iter()
+        .any(|fact| evidence_refs_include_node_result(map, node, &fact.evidence_refs))
+        || task.problem_ledger.open_questions.iter().any(|question| {
+            question.opened_by_node_id.as_deref() == Some(node.id.as_str())
+                || evidence_refs_include_node_result(map, node, &question.evidence_refs)
+        })
+        || task.problem_ledger.decisions.iter().any(|decision| {
+            decision
+                .depends_on_results
+                .iter()
+                .any(|result_id| node_has_result_id(node, result_id))
+                || task.problem_ledger.open_questions.iter().any(|question| {
+                    decision
+                        .resolves_questions
+                        .iter()
+                        .any(|id| id == &question.id)
+                        && question.opened_by_node_id.as_deref() == Some(node.id.as_str())
+                })
+        })
+}
+
+fn node_satisfies_success_criterion(
+    task: &TaskState,
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> bool {
+    task.problem_ledger
+        .success_criteria
+        .iter()
+        .any(|criterion| {
+            criterion.status == "satisfied"
+                && evidence_refs_include_node_result(map, node, &criterion.evidence_refs)
+        })
+}
+
+fn task_success_criteria_satisfied(task: &TaskState) -> bool {
+    task.problem_ledger
+        .success_criteria
+        .iter()
+        .any(|criterion| {
+            matches!(criterion.status.as_str(), "satisfied" | "waived")
+                && !criterion.evidence_refs.is_empty()
+        })
+}
+
+fn task_open_blocking_question_id(task: &TaskState) -> Option<&str> {
+    task.problem_ledger
+        .open_questions
+        .iter()
+        .find(|question| question.blocking && question.status == "open")
+        .map(|question| question.id.as_str())
+}
+
+fn evidence_refs_include_node_result(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    evidence_refs: &[EvidenceRef],
+) -> bool {
+    evidence_refs.iter().any(|evidence_ref| {
+        evidence_ref.result_id.as_deref().is_some_and(|result_id| {
+            node_has_result_id(node, result_id)
+                && map
+                    .results
+                    .get(result_id)
+                    .is_some_and(|result| result.node_id == node.id)
+        })
+    })
+}
+
+fn node_has_result_id(node: &MapNode, result_id: &str) -> bool {
+    node.result_context
+        .iter()
+        .any(|result_ref| result_ref.id == result_id)
+}
+
 fn map_has_successful_edit(map: &ActionMapInstance) -> bool {
     map.nodes
         .values()
@@ -7363,7 +7488,7 @@ Node kind: {}\n\
 Lease: {lease_id}\n\
 Allowed action classes: {allowed_actions}\n\
 \n\
-        You must work only on this node's subtask. Use the provided node context and return a concise result package for this node. Include the claims you believe are supported, the evidence refs or concrete files/commands/validators behind them, changed artifacts if any, remaining uncertainty, and blockers if any. If evidence is weak or missing, say so instead of presenting the claim as final. Runtime enforces the allowed action classes above. Inspect, test, and final nodes are read-only for repository files; do not edit files or call apply_patch unless this node kind is implement_solution. Implementation nodes allow edits but not validation test runs; after editing, return the result so the parent can create or bind a smoke_test/regression_test node. Do not maintain the map directly. Do not call taskspace_control, spawn_agent, or wait_agent; return findings to the parent agent so it can review the result, mark result validity, and grow or route the task path.\n\n",
+        You must work only on this node's subtask. Use the provided node context and return a concise result package for this node. Include the claims you believe are supported, the evidence refs or concrete files/commands/validators behind them, changed artifacts if any, remaining uncertainty, and blockers if any. If evidence is weak or missing, say so instead of presenting the claim as final. Runtime enforces the allowed action classes above. Inspect nodes need concrete read/search evidence or a clear problem-state finding; implementation nodes need changed artifacts or an explicit no-edit blocker; validation nodes need command, exit status, and validator/test evidence; final nodes need satisfied criteria, accepted decisions, and remaining risks. Inspect, test, and final nodes are read-only for repository files; do not edit files or call apply_patch unless this node kind is implement_solution. Implementation nodes allow edits but not validation test runs; after editing, return the result so the parent can create or bind a smoke_test/regression_test node. Do not maintain the map directly. Do not call taskspace_control, spawn_agent, or wait_agent; return findings to the parent agent so it can review the result, mark result validity, and grow or route the task path.\n\n",
         node_kind.as_str()
     )
 }
@@ -7593,6 +7718,18 @@ mod tests {
         context: &str,
         bind_current: bool,
     ) -> (TaskId, ActionMapId, MapNodeId, Vec<MapRuntimeEvent>) {
+        let outcome = start_unseeded_test_task(state, owner, title, context, bind_current);
+        record_test_node_scope_question(state, owner, &outcome.2);
+        outcome
+    }
+
+    fn start_unseeded_test_task(
+        state: &mut ActionMapRuntimeState,
+        owner: ThreadId,
+        title: &str,
+        context: &str,
+        bind_current: bool,
+    ) -> (TaskId, ActionMapId, MapNodeId, Vec<MapRuntimeEvent>) {
         let outcome = state
             .start_task_for_main(
                 owner,
@@ -7629,7 +7766,31 @@ mod tests {
             )
             .expect("test task starts");
         seed_test_cognitive_preflight(state, owner);
+        if kind == NodeKind::InspectCodeContext {
+            record_test_node_scope_question(state, owner, &outcome.2);
+        }
         outcome
+    }
+
+    fn record_test_node_scope_question(
+        state: &mut ActionMapRuntimeState,
+        owner: ThreadId,
+        node_id: &str,
+    ) {
+        state
+            .record_open_question_for_main(
+                owner,
+                &format!("q-scope-{node_id}"),
+                "What exact scope did this fixture inspect?".to_string(),
+                "Test fixture marks this inspect node as a real problem-state update.".to_string(),
+                false,
+                Some(node_id.to_string()),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some(format!("test-fixture:{node_id}")),
+                    ..Default::default()
+                }],
+            )
+            .expect("test node scope question records");
     }
 
     fn seed_test_cognitive_preflight(state: &mut ActionMapRuntimeState, owner: ThreadId) {
@@ -7708,6 +7869,72 @@ mod tests {
                 Vec::new(),
             )
             .expect("test result validity records");
+    }
+
+    fn satisfy_test_criterion_with_result(
+        state: &mut ActionMapRuntimeState,
+        owner: ThreadId,
+        result_id: &str,
+    ) {
+        state
+            .record_success_criteria_for_main(
+                owner,
+                vec![ActionMapSuccessCriterionInput {
+                    id: "contract-test".to_string(),
+                    kind: "validator".to_string(),
+                    description: "Test fixture acceptance contract.".to_string(),
+                    status: "satisfied".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.to_string()),
+                        ..Default::default()
+                    }],
+                }],
+            )
+            .expect("test criterion is satisfied");
+    }
+
+    fn record_test_decision_for_result(
+        state: &mut ActionMapRuntimeState,
+        owner: ThreadId,
+        result_id: &str,
+    ) {
+        state
+            .record_decision_for_main(
+                owner,
+                ActionMapLedgerDecisionInput {
+                    id: format!("decision-{result_id}"),
+                    decision_kind: "test_fixture".to_string(),
+                    decision: "Use accepted evidence for final synthesis.".to_string(),
+                    rationale: "The test fixture marked the result accepted.".to_string(),
+                    depends_on_results: vec![result_id.to_string()],
+                    depends_on_facts: Vec::new(),
+                    resolves_questions: Vec::new(),
+                    supports_criteria: vec!["contract-test".to_string()],
+                    risks: Vec::new(),
+                },
+            )
+            .expect("test decision records");
+    }
+
+    fn seed_final_synthesis_readiness(
+        state: &mut ActionMapRuntimeState,
+        owner: ThreadId,
+    ) -> String {
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-final-readiness",
+                "internal_review",
+                Some(ActionClass::Review),
+                true,
+                "reviewed final synthesis readiness".to_string(),
+            )
+            .expect("final readiness result records")
+            .expect("final readiness result id");
+        accept_test_result(state, owner, &result_id);
+        satisfy_test_criterion_with_result(state, owner, &result_id);
+        record_test_decision_for_result(state, owner, &result_id);
+        result_id
     }
 
     fn question_test_result(state: &mut ActionMapRuntimeState, owner: ThreadId, result_id: &str) {
@@ -10142,6 +10369,7 @@ mod tests {
             )
             .expect("task starts");
         seed_test_cognitive_preflight(&mut state, owner);
+        seed_final_synthesis_readiness(&mut state, owner);
 
         let (finish, _events) = state
             .finish_main_node_with_next(
@@ -10152,7 +10380,7 @@ mod tests {
                 None,
             )
             .expect("final synthesis can finish through tool path");
-        assert_eq!(finish.result_id, "result-1");
+        assert_eq!(finish.result_id, "result-2");
         assert!(state.current_main_node_id.is_none());
 
         let error = state
@@ -10168,8 +10396,8 @@ mod tests {
         let map = state.active_map().expect("active map");
         let node = map.nodes.get("node-1").expect("final node");
         assert_eq!(node.status, NodeStatus::Completed);
-        assert_eq!(node.result_context.len(), 1);
-        assert_eq!(map.results.len(), 1);
+        assert_eq!(node.result_context.len(), 2);
+        assert_eq!(map.results.len(), 2);
     }
 
     #[test]
@@ -10189,6 +10417,7 @@ mod tests {
             )
             .expect("task starts");
         seed_test_cognitive_preflight(&mut state, owner);
+        seed_final_synthesis_readiness(&mut state, owner);
         state
             .finish_main_node_with_next(
                 owner,
@@ -10209,6 +10438,7 @@ mod tests {
                 true,
             )
             .expect("follow-up node can be created after final completion");
+        record_test_node_scope_question(&mut state, owner, &follow_up_node_id);
         let (follow_up, _) = state
             .finish_main_node(
                 owner,
@@ -10272,6 +10502,7 @@ mod tests {
             )
             .expect("finish implementation into validation");
         accept_test_result(&mut state, owner, &implementation.result_id);
+        record_test_decision_for_result(&mut state, owner, &implementation.result_id);
         state
             .prepare_main_tool_call(
                 owner,
@@ -10279,7 +10510,7 @@ mod tests {
                     .with_call_id("call-test"),
             )
             .expect("test allowed");
-        state
+        let (test_result_id, _) = state
             .record_main_tool_result(
                 owner,
                 "call-test",
@@ -10289,6 +10520,7 @@ mod tests {
             )
             .expect("record test succeeds")
             .expect("test result recorded");
+        satisfy_test_criterion_with_result(&mut state, owner, &test_result_id);
         let (validation, _) = state
             .finish_main_node_with_next(
                 owner,
@@ -10409,6 +10641,7 @@ mod tests {
             )
             .expect("task starts");
         seed_test_cognitive_preflight(&mut state, owner);
+        seed_final_synthesis_readiness(&mut state, owner);
 
         let error = state
             .finish_main_node_with_next(
@@ -10425,7 +10658,7 @@ mod tests {
         let map = state.active_map().expect("active map");
         let node = map.nodes.get("node-1").expect("final node");
         assert_eq!(node.status, NodeStatus::Running);
-        assert!(map.results.is_empty());
+        assert_eq!(map.results.len(), 1);
     }
 
     #[test]
@@ -10829,7 +11062,8 @@ mod tests {
             )
             .expect("create pricing node");
 
-        for (node_id, child) in [("node-2", ThreadId::new()), ("node-3", ThreadId::new())] {
+        let children = [("node-2", ThreadId::new()), ("node-3", ThreadId::new())];
+        for (node_id, child) in children {
             let assignment = state
                 .prepare_spawn_assignment(owner, node_id, Some(node_id))
                 .expect("claim ready inspect node")
@@ -10840,6 +11074,18 @@ mod tests {
                 child,
                 Some(format!("/root/{node_id}")),
             );
+        }
+        for (node_id, child) in children {
+            state
+                .record_child_tool_result_with_class(
+                    child,
+                    &format!("{node_id}-read"),
+                    "shell_command",
+                    Some(ActionClass::Read),
+                    true,
+                    format!("{node_id} inspected"),
+                )
+                .expect("child read evidence records");
             let (result_id, _) = state
                 .record_child_result(
                     child,
@@ -10855,7 +11101,7 @@ mod tests {
                 NodeKind::ImplementSolution,
                 "Implement combined fix".to_string(),
                 "Integrate parser and pricing findings.".to_string(),
-                Vec::new(),
+                vec!["node-2".to_string(), "node-3".to_string()],
                 true,
             )
             .expect("create implementation node");
@@ -12073,7 +12319,15 @@ mod tests {
             .expect("next best action records");
 
         let ledger = &state.tasks.get("task-1").expect("task").problem_ledger;
-        assert_eq!(ledger.open_questions[0].status, "closed");
+        assert_eq!(
+            ledger
+                .open_questions
+                .iter()
+                .find(|question| question.id == "q-1")
+                .expect("q-1")
+                .status,
+            "closed"
+        );
         assert_eq!(ledger.decisions[0].id, "d-1");
         assert_eq!(
             ledger
@@ -12091,7 +12345,15 @@ mod tests {
             .get("task-1")
             .expect("restored task")
             .problem_ledger;
-        assert_eq!(restored_ledger.open_questions[0].status, "closed");
+        assert_eq!(
+            restored_ledger
+                .open_questions
+                .iter()
+                .find(|question| question.id == "q-1")
+                .expect("restored q-1")
+                .status,
+            "closed"
+        );
         assert_eq!(restored_ledger.decisions[0].id, "d-1");
         assert_eq!(
             restored_ledger
@@ -12383,6 +12645,76 @@ mod tests {
     }
 
     #[test]
+    fn finish_inspect_node_requires_discovery_evidence_or_problem_state_effect() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_unseeded_test_task(
+            &mut state,
+            owner,
+            "Inspect parser",
+            "Find relevant parser behavior.",
+            true,
+        );
+
+        let error = state
+            .finish_main_node(owner, &node_id, "Inspected parser.".to_string(), None)
+            .expect_err("inspect node cannot finish without discovery effect");
+        assert!(error.contains("cannot be completed without a recorded successful read/search"));
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "read parser.py".to_string(),
+            )
+            .expect("read result records");
+        state
+            .finish_main_node(owner, &node_id, "Inspected parser.".to_string(), None)
+            .expect("inspect can finish after successful read evidence");
+    }
+
+    #[test]
+    fn finish_inspect_node_accepts_node_tied_problem_state_effect() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_unseeded_test_task(
+            &mut state,
+            owner,
+            "Inspect validator",
+            "Identify validator contract.",
+            true,
+        );
+
+        state
+            .record_open_question_for_main(
+                owner,
+                "q-validator-contract",
+                "Which validator output file is authoritative?".to_string(),
+                "Patch path depends on the validator contract.".to_string(),
+                false,
+                Some(node_id.clone()),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("validator.py".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("node-tied open question records");
+        state
+            .finish_main_node(
+                owner,
+                &node_id,
+                "Validator contract question recorded.".to_string(),
+                None,
+            )
+            .expect("inspect can finish after problem-state effect");
+    }
+
+    #[test]
     fn finish_smoke_node_requires_successful_validation_evidence() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -12431,10 +12763,130 @@ mod tests {
                 true,
                 "pytest passed".to_string(),
             )
-            .expect("successful test result records");
+            .expect("successful test result records")
+            .expect("test result id");
+        let missing_criterion = state
+            .finish_main_node(owner, &node_id, "Tests passed.".to_string(), None)
+            .expect_err("validation requires success criterion update");
+        assert!(
+            missing_criterion.contains("cannot be completed without a satisfied success criterion")
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-pass-2",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("second successful test result records")
+            .expect("test result id");
+        satisfy_test_criterion_with_result(&mut state, owner, &result_id);
         state
             .finish_main_node(owner, &node_id, "Tests passed.".to_string(), None)
             .expect("smoke test can finish after successful validation");
+    }
+
+    #[test]
+    fn finish_final_synthesis_requires_satisfied_criteria_and_decision() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::FinalSynthesis,
+            "Summarize completed work",
+            "Prepare the final user response.",
+            "Write final response",
+            "Summarize outcome and risks.",
+            true,
+        );
+
+        let error = state
+            .finish_main_node(
+                owner,
+                &node_id,
+                "Completed the requested work. Validation passed.".to_string(),
+                None,
+            )
+            .expect_err("final synthesis requires success criteria evidence");
+        assert!(
+            error.contains("at least one success criterion is satisfied or waived with evidence")
+        );
+
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-review",
+                "internal_review",
+                Some(ActionClass::Review),
+                true,
+                "reviewed accepted completion evidence".to_string(),
+            )
+            .expect("review evidence result records")
+            .expect("review result id");
+        accept_test_result(&mut state, owner, &result_id);
+        satisfy_test_criterion_with_result(&mut state, owner, &result_id);
+
+        let missing_decision = state
+            .finish_main_node(
+                owner,
+                &node_id,
+                "Completed the requested work. Validation passed.".to_string(),
+                None,
+            )
+            .expect_err("final synthesis requires a recorded decision");
+        assert!(missing_decision.contains("at least one recorded decision"));
+
+        record_test_decision_for_result(&mut state, owner, &result_id);
+        state
+            .record_open_question_for_main(
+                owner,
+                "q-final-blocker",
+                "Is the validation evidence sufficient for final output?".to_string(),
+                "Final synthesis should not complete while a blocking readiness question is open."
+                    .to_string(),
+                true,
+                Some(node_id.clone()),
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    ..Default::default()
+                }],
+            )
+            .expect("blocking final readiness question records");
+
+        let blocking_question = state
+            .finish_main_node(
+                owner,
+                &node_id,
+                "Completed the requested work. Validation passed.".to_string(),
+                None,
+            )
+            .expect_err("final synthesis requires closed blocking questions");
+        assert!(blocking_question.contains("q-final-blocker"));
+
+        state
+            .close_open_question_for_main(
+                owner,
+                "q-final-blocker",
+                "Validation evidence is sufficient for this test fixture.".to_string(),
+                Some(result_id.clone()),
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    ..Default::default()
+                }],
+            )
+            .expect("blocking final readiness question closes");
+        state
+            .finish_main_node(
+                owner,
+                &node_id,
+                "Completed the requested work. Validation passed.".to_string(),
+                None,
+            )
+            .expect("final synthesis can finish after criteria and decision");
     }
 
     #[test]
@@ -14323,6 +14775,18 @@ mod tests {
                 Some(format!("/root/{expected_node}")),
             );
             match *expected_node {
+                "define_scope" | "inspect_code_context" | "design_solution" => {
+                    state
+                        .record_child_tool_result_with_class(
+                            child,
+                            &format!("{expected_node}-read"),
+                            "shell_command",
+                            Some(ActionClass::Read),
+                            true,
+                            format!("{expected_node} inspected"),
+                        )
+                        .expect("read evidence records");
+                }
                 "implement_solution" => {
                     state
                         .record_child_tool_result_with_class(
@@ -14336,7 +14800,7 @@ mod tests {
                         .expect("edit evidence records");
                 }
                 "smoke_test" => {
-                    state
+                    let (test_result_id, _) = state
                         .record_child_tool_result_with_class(
                             child,
                             "child-test",
@@ -14345,7 +14809,25 @@ mod tests {
                             true,
                             "smoke test passed".to_string(),
                         )
-                        .expect("test evidence records");
+                        .expect("test evidence records")
+                        .expect("test evidence result id");
+                    satisfy_test_criterion_with_result(&mut state, owner, &test_result_id);
+                }
+                "final_synthesis" => {
+                    let (review_result_id, _) = state
+                        .record_child_tool_result_with_class(
+                            child,
+                            "child-final-readiness",
+                            "internal_review",
+                            Some(ActionClass::Review),
+                            true,
+                            "final synthesis readiness reviewed".to_string(),
+                        )
+                        .expect("final readiness evidence records")
+                        .expect("final readiness result id");
+                    accept_test_result(&mut state, owner, &review_result_id);
+                    satisfy_test_criterion_with_result(&mut state, owner, &review_result_id);
+                    record_test_decision_for_result(&mut state, owner, &review_result_id);
                 }
                 _ => {}
             }
@@ -14362,7 +14844,7 @@ mod tests {
         let map = state.maps.get(&map_id).expect("map");
         assert_eq!(map.status, MapStatus::Active);
         assert_eq!(state.active_map().expect("active").id, map_id);
-        assert_eq!(map.results.len(), SEED_NODE_IDS.len() + 2);
+        assert_eq!(map.results.len(), SEED_NODE_IDS.len() + 6);
     }
 
     #[test]

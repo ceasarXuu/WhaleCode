@@ -115,7 +115,15 @@ pub(crate) fn node_kind_selection_prompt() -> &'static str {
 - Prefer the minimum sufficient node chain; create multiple ready inspect_code_context nodes only for independent evidence tracks with distinct source surfaces.
 - If the user request names or implies two or more distinct functional surfaces, files, modules, or evidence classes before editing, treat them as independent investigation tracks until evidence proves otherwise. Create separate ready inspect_code_context nodes for those tracks and assign explorer subagents; the main agent should coordinate and integrate instead of reading every track itself.
 - Keep path correction, known-file reads, and single-evidence follow-up reads inside the current inspect_code_context node; do not create another inspect node or spawn an explorer just to read one known file.
-- Do not create custom nodes in live TaskSpace work. If work does not fit a kind, choose the closest concrete kind and explain the scope in the node title/context."
+- Do not split work into micro-nodes. A node should be a cohesive theme of work with a useful result package, not one file read, one command, one trivial observation, or one small thought.
+- Do not create custom nodes in live TaskSpace work. If work does not fit a kind, choose the closest concrete kind and explain the scope in the node title/context.
+
+Typed node finish contracts:
+- inspect_code_context/discover can finish only after successful read/search evidence or a problem-state update tied to the node, such as a fact, open question, or decision.
+- implement_solution/patch can finish only after a successful edit action, unless the node is blocked with an explicit no-edit reason.
+- smoke_test/regression_test/validate can finish only after a successful test/build result and a satisfied success criterion that cites this validation node's result.
+- final_synthesis can finish only after at least one success criterion is satisfied or waived with evidence and at least one decision is recorded.
+- If the contract is not met, do not write a stronger summary. Block the node or create/bind the correct follow-up node."
 }
 
 pub(crate) fn cognitive_state_protocol_prompt() -> &'static str {
@@ -153,6 +161,8 @@ mod tests {
         let prompt = base_map_metadata_prompt();
         assert!(prompt.contains("TaskSpace cognitive protocol (MVP)"));
         assert!(prompt.contains("problem-state and model manager"));
+        assert!(prompt.contains("Typed node finish contracts"));
+        assert!(prompt.contains("Do not split work into micro-nodes"));
         assert!(prompt.contains("generated_for_test_only"));
         assert!(!prompt.contains("promote_taskspace"));
         assert!(!prompt.contains("promotion_not_in_mvp"));
