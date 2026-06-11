@@ -165,6 +165,27 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
         task_ts.contains("cognitiveState: ActionMapSnapshotCognitiveState"),
         "ActionMapSnapshotTask TypeScript fixture must expose cognitiveState"
     );
+    assert!(
+        task_ts.contains("problemStateLedgerVersion?: string | null"),
+        "ActionMapSnapshotTask TypeScript fixture must expose problemStateLedgerVersion"
+    );
+    assert!(
+        task_ts.contains("problemLedger: ActionMapSnapshotProblemStateLedger"),
+        "ActionMapSnapshotTask TypeScript fixture must expose problemLedger"
+    );
+    let problem_ledger_ts = fixture_utf8(
+        &typescript_tree,
+        Path::new("ActionMapSnapshotProblemStateLedger.ts"),
+        "typescript",
+    )?;
+    assert!(
+        problem_ledger_ts
+            .contains("successCriteria: Array<ActionMapSnapshotProblemSuccessCriterion>")
+    );
+    assert!(
+        problem_ledger_ts.contains("openQuestions: Array<ActionMapSnapshotProblemOpenQuestion>")
+    );
+    assert!(problem_ledger_ts.contains("decisions: Array<ActionMapSnapshotProblemDecision>"));
     let cognitive_state_ts = fixture_utf8(
         &typescript_tree,
         Path::new("ActionMapSnapshotCognitiveState.ts"),
@@ -345,6 +366,14 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
             task_properties.contains_key("cognitiveState"),
             "{bundle_path} must expose task cognitiveState"
         );
+        anyhow::ensure!(
+            task_properties.contains_key("problemStateLedgerVersion"),
+            "{bundle_path} must expose task problemStateLedgerVersion"
+        );
+        anyhow::ensure!(
+            task_properties.contains_key("problemLedger"),
+            "{bundle_path} must expose task problemLedger"
+        );
         let task_required = task_schema
             .get("required")
             .and_then(Value::as_array)
@@ -353,6 +382,12 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
             !task_required.iter().any(|field| field == "cognitiveState"),
             "{bundle_path} must not require cognitiveState for legacy task snapshots"
         );
+        anyhow::ensure!(
+            !task_required
+                .iter()
+                .any(|field| field == "problemStateLedgerVersion"),
+            "{bundle_path} must not require problemStateLedgerVersion for legacy task snapshots"
+        );
         assert_eq!(
             task_properties
                 .get("cognitiveState")
@@ -360,6 +395,14 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
                 .and_then(|default| default.get("outputContracts")),
             Some(&serde_json::json!([])),
             "{bundle_path} must default task outputContracts to empty"
+        );
+        assert_eq!(
+            task_properties
+                .get("problemLedger")
+                .and_then(|property| property.get("default"))
+                .and_then(|default| default.get("schemaIncomplete")),
+            Some(&serde_json::json!(true)),
+            "{bundle_path} must default task problemLedger to legacy/incomplete"
         );
         let evidence_package_schema = action_map_result_evidence_package_schema(&value)
             .with_context(|| {

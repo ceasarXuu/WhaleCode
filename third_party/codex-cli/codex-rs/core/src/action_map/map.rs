@@ -6,6 +6,7 @@ use codex_protocol::ThreadId;
 
 use super::cognitive::NodeResultEvidencePackage;
 use super::cognitive::TaskCognitiveState;
+use super::ledger::ProblemStateLedger;
 
 pub(crate) type ActionMapId = String;
 pub(crate) type AssignmentLeaseId = String;
@@ -39,6 +40,7 @@ pub(crate) struct TaskState {
     pub(crate) active_map_id: Option<ActionMapId>,
     pub(crate) map_ids: Vec<ActionMapId>,
     pub(crate) cognitive_state: TaskCognitiveState,
+    pub(crate) problem_ledger: ProblemStateLedger,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

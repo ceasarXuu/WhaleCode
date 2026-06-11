@@ -16,6 +16,15 @@ use codex_protocol::protocol::ActionMapSnapshotMaintenanceBarrier;
 use codex_protocol::protocol::ActionMapSnapshotMap;
 use codex_protocol::protocol::ActionMapSnapshotNode;
 use codex_protocol::protocol::ActionMapSnapshotOutputContract;
+use codex_protocol::protocol::ActionMapSnapshotProblemBlocker;
+use codex_protocol::protocol::ActionMapSnapshotProblemDecision;
+use codex_protocol::protocol::ActionMapSnapshotProblemFact;
+use codex_protocol::protocol::ActionMapSnapshotProblemHypothesis;
+use codex_protocol::protocol::ActionMapSnapshotProblemNextBestAction;
+use codex_protocol::protocol::ActionMapSnapshotProblemOpenQuestion;
+use codex_protocol::protocol::ActionMapSnapshotProblemRisk;
+use codex_protocol::protocol::ActionMapSnapshotProblemStateLedger;
+use codex_protocol::protocol::ActionMapSnapshotProblemSuccessCriterion;
 use codex_protocol::protocol::ActionMapSnapshotResult;
 use codex_protocol::protocol::ActionMapSnapshotResultEvidencePackage;
 use codex_protocol::protocol::ActionMapSnapshotSentinelSummary;
@@ -62,6 +71,16 @@ use super::cognitive::OutputContractKind;
 use super::cognitive::ResultValidity;
 use super::cognitive::TaskCognitiveState;
 use super::contracts::contract_for;
+use super::ledger::PROBLEM_STATE_LEDGER_VERSION;
+use super::ledger::ProblemBlocker;
+use super::ledger::ProblemDecision;
+use super::ledger::ProblemHypothesis;
+use super::ledger::ProblemLedgerFact;
+use super::ledger::ProblemNextBestAction;
+use super::ledger::ProblemOpenQuestion;
+use super::ledger::ProblemRisk;
+use super::ledger::ProblemStateLedger;
+use super::ledger::ProblemSuccessCriterion;
 use super::map::ActionClass;
 use super::map::ActionMapId;
 use super::map::ActionMapInstance;
@@ -205,6 +224,28 @@ pub(crate) struct ActionMapCognitiveClaimInput {
     pub(crate) id: String,
     pub(crate) statement: String,
     pub(crate) evidence_refs: Vec<ActionMapEvidenceRefInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapSuccessCriterionInput {
+    pub(crate) id: String,
+    pub(crate) kind: String,
+    pub(crate) description: String,
+    pub(crate) status: String,
+    pub(crate) evidence_refs: Vec<ActionMapEvidenceRefInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapLedgerDecisionInput {
+    pub(crate) id: String,
+    pub(crate) decision_kind: String,
+    pub(crate) decision: String,
+    pub(crate) rationale: String,
+    pub(crate) depends_on_results: Vec<String>,
+    pub(crate) depends_on_facts: Vec<String>,
+    pub(crate) resolves_questions: Vec<String>,
+    pub(crate) supports_criteria: Vec<String>,
+    pub(crate) risks: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -492,21 +533,35 @@ impl ActionMapRuntimeState {
             .into_iter()
             .map(|task| {
                 let id = task.id;
+                let objective = task.objective;
+                let ledger_supported = task.problem_state_ledger_version.as_deref()
+                    == Some(PROBLEM_STATE_LEDGER_VERSION);
+                let cognitive_state = if cognitive_snapshot_supported {
+                    cognitive_state_from_snapshot(task.cognitive_state)
+                } else {
+                    TaskCognitiveState::default()
+                };
+                let problem_ledger = if ledger_supported {
+                    problem_ledger_from_snapshot(task.problem_ledger)
+                } else {
+                    legacy_problem_ledger_from_cognitive_state(
+                        &objective,
+                        &cognitive_state,
+                        now_ms(),
+                    )
+                };
                 (
                     id.clone(),
                     TaskState {
                         id,
                         title: task.title,
-                        objective: task.objective,
+                        objective: objective.clone(),
                         status: task_status_from_str(&task.status).unwrap_or(TaskStatus::Pending),
                         owner_session_id: task.owner_session_id,
                         active_map_id: task.active_map_id,
                         map_ids: task.map_ids,
-                        cognitive_state: if cognitive_snapshot_supported {
-                            cognitive_state_from_snapshot(task.cognitive_state)
-                        } else {
-                            TaskCognitiveState::default()
-                        },
+                        cognitive_state,
+                        problem_ledger,
                     },
                 )
             })
@@ -1637,6 +1692,29 @@ preview:\n\
         node_context_summary: String,
         bind_current: bool,
     ) -> Result<(TaskId, ActionMapId, MapNodeId, Vec<MapRuntimeEvent>), String> {
+        self.start_task_for_main_with_kind_and_criteria(
+            owner_session_id,
+            node_kind,
+            task_title,
+            task_objective,
+            Vec::new(),
+            node_title,
+            node_context_summary,
+            bind_current,
+        )
+    }
+
+    pub(crate) fn start_task_for_main_with_kind_and_criteria(
+        &mut self,
+        owner_session_id: ThreadId,
+        node_kind: NodeKind,
+        task_title: String,
+        task_objective: String,
+        initial_success_criteria: Vec<ActionMapSuccessCriterionInput>,
+        node_title: String,
+        node_context_summary: String,
+        bind_current: bool,
+    ) -> Result<(TaskId, ActionMapId, MapNodeId, Vec<MapRuntimeEvent>), String> {
         if self.mode != MapRuntimeMode::Experiment {
             return Err("TaskSpace mode is not active.".to_string());
         }
@@ -1673,21 +1751,23 @@ preview:\n\
 
         let task_id = self.next_task_id();
         let map_id = self.next_map_id();
+        let objective = if task_objective.is_empty() {
+            task_title.to_string()
+        } else {
+            task_objective.to_string()
+        };
         self.tasks.insert(
             task_id.clone(),
             TaskState {
                 id: task_id.clone(),
                 title: task_title.to_string(),
-                objective: if task_objective.is_empty() {
-                    task_title.to_string()
-                } else {
-                    task_objective.to_string()
-                },
+                objective: objective.clone(),
                 status: TaskStatus::Active,
                 owner_session_id: Some(owner_session_id),
                 active_map_id: None,
                 map_ids: Vec::new(),
                 cognitive_state: TaskCognitiveState::default(),
+                problem_ledger: ProblemStateLedger::new(objective, Vec::new(), now_ms()),
             },
         );
         let mut map = ActionMapInstance::new(
@@ -1714,6 +1794,11 @@ preview:\n\
             .get(&map_id)
             .expect("new TaskSpace map must be inserted before event emission");
         events.push(map_created_event(map));
+        if !initial_success_criteria.is_empty() {
+            events.extend(
+                self.record_success_criteria_for_main(owner_session_id, initial_success_criteria)?,
+            );
+        }
 
         let (node_id, mut node_events) = self.create_node_for_main_with_kind(
             owner_session_id,
@@ -1979,15 +2064,25 @@ preview:\n\
         let record = OutputContract {
             id: id.clone(),
             kind,
-            description,
-            evidence_refs,
+            description: description.clone(),
+            evidence_refs: evidence_refs.clone(),
         };
         upsert_output_contract(&mut task.cognitive_state.output_contracts, record);
+        task.problem_ledger.upsert_success_criterion(
+            ProblemSuccessCriterion {
+                id: id.clone(),
+                kind: kind.as_str().to_string(),
+                description,
+                status: "open".to_string(),
+                evidence_refs,
+            },
+            now_ms(),
+        );
         Ok(vec![MapRuntimeEvent::CognitiveStateUpdated(
             MapRuntimeCognitiveStateUpdatedEvent {
                 task_id,
                 map_id: Some(map_id),
-                update_kind: "output_contract".to_string(),
+                update_kind: "problem_ledger.output_contract".to_string(),
                 record_id: id,
             },
         )])
@@ -2020,15 +2115,23 @@ preview:\n\
         let record = FactSource {
             id: id.clone(),
             provenance,
-            description,
-            evidence_refs,
+            description: description.clone(),
+            evidence_refs: evidence_refs.clone(),
         };
         upsert_fact_source(&mut task.cognitive_state.fact_sources, record);
+        task.problem_ledger.upsert_known_fact(
+            ProblemLedgerFact {
+                id: id.clone(),
+                statement: description,
+                evidence_refs,
+            },
+            now_ms(),
+        );
         Ok(vec![MapRuntimeEvent::CognitiveStateUpdated(
             MapRuntimeCognitiveStateUpdatedEvent {
                 task_id,
                 map_id: Some(map_id),
-                update_kind: "fact_source".to_string(),
+                update_kind: "problem_ledger.fact_source".to_string(),
                 record_id: id,
             },
         )])
@@ -2053,16 +2156,228 @@ preview:\n\
             .expect("active task was validated before fact update");
         let record = CognitiveClaim {
             id: id.clone(),
-            statement,
-            evidence_refs,
+            statement: statement.clone(),
+            evidence_refs: evidence_refs.clone(),
         };
         upsert_cognitive_claim(&mut task.cognitive_state.facts, record);
+        task.problem_ledger.upsert_known_fact(
+            ProblemLedgerFact {
+                id: id.clone(),
+                statement,
+                evidence_refs,
+            },
+            now_ms(),
+        );
         Ok(vec![MapRuntimeEvent::CognitiveStateUpdated(
             MapRuntimeCognitiveStateUpdatedEvent {
                 task_id,
                 map_id: Some(map_id),
-                update_kind: "fact".to_string(),
+                update_kind: "problem_ledger.fact".to_string(),
                 record_id: id,
+            },
+        )])
+    }
+
+    pub(crate) fn record_success_criteria_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        criteria: Vec<ActionMapSuccessCriterionInput>,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        let criteria = self.normalize_success_criteria_inputs(&task_id, Some(&map_id), criteria)?;
+        if criteria.is_empty() {
+            return Err("TaskSpace record_success_criteria criteria cannot be empty.".to_string());
+        }
+        let mut events = Vec::new();
+        let task = self
+            .tasks
+            .get_mut(&task_id)
+            .expect("active task was validated before success criteria update");
+        for criterion in criteria {
+            let id = criterion.id.clone();
+            task.problem_ledger
+                .upsert_success_criterion(criterion, now_ms());
+            events.push(MapRuntimeEvent::CognitiveStateUpdated(
+                MapRuntimeCognitiveStateUpdatedEvent {
+                    task_id: task_id.clone(),
+                    map_id: Some(map_id.clone()),
+                    update_kind: "problem_ledger.success_criterion".to_string(),
+                    record_id: id,
+                },
+            ));
+        }
+        Ok(events)
+    }
+
+    pub(crate) fn record_open_question_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        question_id: &str,
+        question: String,
+        reason: String,
+        blocking: bool,
+        opened_by_node_id: Option<String>,
+        evidence_refs: Vec<ActionMapEvidenceRefInput>,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        let id = require_nonempty("question_id", question_id)?;
+        let question = require_nonempty_owned("question", question)?;
+        let reason = require_nonempty_owned("reason", reason)?;
+        if let Some(node_id) = opened_by_node_id.as_deref() {
+            self.validate_node_belongs_to_active_map(&map_id, node_id)?;
+        }
+        let evidence_refs = self.normalize_evidence_refs(&task_id, Some(&map_id), evidence_refs)?;
+        let task = self
+            .tasks
+            .get_mut(&task_id)
+            .expect("active task was validated before open question update");
+        task.problem_ledger.upsert_open_question(
+            ProblemOpenQuestion {
+                id: id.clone(),
+                question,
+                reason,
+                blocking,
+                status: "open".to_string(),
+                opened_by_node_id,
+                closed_by_result_id: None,
+                resolution: None,
+                evidence_refs,
+            },
+            now_ms(),
+        );
+        Ok(vec![MapRuntimeEvent::CognitiveStateUpdated(
+            MapRuntimeCognitiveStateUpdatedEvent {
+                task_id,
+                map_id: Some(map_id),
+                update_kind: "problem_ledger.open_question".to_string(),
+                record_id: id,
+            },
+        )])
+    }
+
+    pub(crate) fn close_open_question_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        question_id: &str,
+        resolution: String,
+        closed_by_result_id: Option<String>,
+        evidence_refs: Vec<ActionMapEvidenceRefInput>,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        let id = require_nonempty("question_id", question_id)?;
+        let resolution = require_nonempty_owned("resolution", resolution)?;
+        if let Some(result_id) = closed_by_result_id.as_deref() {
+            self.validate_result_belongs_to_active_map(&map_id, result_id)?;
+        }
+        let evidence_refs = self.normalize_evidence_refs(&task_id, Some(&map_id), evidence_refs)?;
+        if evidence_refs.is_empty() {
+            return Err("TaskSpace close_open_question evidence_refs cannot be empty.".to_string());
+        }
+        let task = self
+            .tasks
+            .get_mut(&task_id)
+            .expect("active task was validated before close question update");
+        if !task.problem_ledger.close_open_question(
+            &id,
+            resolution,
+            closed_by_result_id,
+            evidence_refs,
+            now_ms(),
+        ) {
+            return Err(format!(
+                "TaskSpace open question `{id}` does not exist on active task `{task_id}`."
+            ));
+        }
+        Ok(vec![MapRuntimeEvent::CognitiveStateUpdated(
+            MapRuntimeCognitiveStateUpdatedEvent {
+                task_id,
+                map_id: Some(map_id),
+                update_kind: "problem_ledger.open_question_closed".to_string(),
+                record_id: id,
+            },
+        )])
+    }
+
+    pub(crate) fn record_decision_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        decision: ActionMapLedgerDecisionInput,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        let id = require_nonempty_owned("decision_id", decision.id)?;
+        let decision_kind = require_nonempty_owned("decision_kind", decision.decision_kind)?;
+        let decision_text = require_nonempty_owned("decision", decision.decision)?;
+        let rationale = require_nonempty_owned("rationale", decision.rationale)?;
+        self.validate_result_ids_belong_to_active_map(&map_id, &decision.depends_on_results)?;
+        self.validate_ledger_refs(
+            &task_id,
+            &decision.depends_on_facts,
+            &decision.resolves_questions,
+            &decision.supports_criteria,
+        )?;
+        let task = self
+            .tasks
+            .get_mut(&task_id)
+            .expect("active task was validated before decision update");
+        task.problem_ledger.upsert_decision(
+            ProblemDecision {
+                id: id.clone(),
+                decision_kind,
+                decision: decision_text,
+                rationale,
+                depends_on_results: decision.depends_on_results,
+                depends_on_facts: decision.depends_on_facts,
+                resolves_questions: decision.resolves_questions,
+                supports_criteria: decision.supports_criteria,
+                risks: decision.risks,
+            },
+            now_ms(),
+        );
+        Ok(vec![MapRuntimeEvent::CognitiveStateUpdated(
+            MapRuntimeCognitiveStateUpdatedEvent {
+                task_id,
+                map_id: Some(map_id),
+                update_kind: "problem_ledger.decision".to_string(),
+                record_id: id,
+            },
+        )])
+    }
+
+    pub(crate) fn record_next_best_action_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        node_id: Option<String>,
+        action_summary: String,
+        reason: String,
+        expected_artifact: Option<String>,
+        blocked_by: Vec<String>,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        if let Some(node_id) = node_id.as_deref() {
+            self.validate_node_belongs_to_active_map(&map_id, node_id)?;
+        }
+        let action_summary = require_nonempty_owned("action_summary", action_summary)?;
+        let reason = require_nonempty_owned("reason", reason)?;
+        let task = self
+            .tasks
+            .get_mut(&task_id)
+            .expect("active task was validated before next best action update");
+        task.problem_ledger.set_next_best_action(
+            ProblemNextBestAction {
+                node_id,
+                action_summary,
+                reason,
+                expected_artifact: normalize_optional_string(expected_artifact),
+                blocked_by: normalize_string_vec(blocked_by),
+            },
+            now_ms(),
+        );
+        Ok(vec![MapRuntimeEvent::CognitiveStateUpdated(
+            MapRuntimeCognitiveStateUpdatedEvent {
+                task_id,
+                map_id: Some(map_id),
+                update_kind: "problem_ledger.next_best_action".to_string(),
+                record_id: "next_best_action".to_string(),
             },
         )])
     }
@@ -2254,6 +2569,128 @@ preview:\n\
             .into_iter()
             .map(|input| self.normalize_evidence_ref(task_id, map_id, input))
             .collect()
+    }
+
+    fn normalize_success_criteria_inputs(
+        &self,
+        task_id: &str,
+        map_id: Option<&str>,
+        inputs: Vec<ActionMapSuccessCriterionInput>,
+    ) -> Result<Vec<ProblemSuccessCriterion>, String> {
+        inputs
+            .into_iter()
+            .map(|input| {
+                let id = require_nonempty_owned("criterion_id", input.id)?;
+                let kind = normalize_success_criterion_kind(input.kind)?;
+                let status = normalize_success_criterion_status(input.status)?;
+                let description =
+                    require_nonempty_owned("criterion description", input.description)?;
+                let evidence_refs =
+                    self.normalize_evidence_refs(task_id, map_id, input.evidence_refs)?;
+                Ok(ProblemSuccessCriterion {
+                    id,
+                    kind,
+                    description,
+                    status,
+                    evidence_refs,
+                })
+            })
+            .collect()
+    }
+
+    fn validate_node_belongs_to_active_map(
+        &self,
+        map_id: &str,
+        node_id: &str,
+    ) -> Result<(), String> {
+        let map = self
+            .maps
+            .get(map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        if !map.nodes.contains_key(node_id) {
+            return Err(format!(
+                "TaskSpace node `{node_id}` does not exist on active task path `{map_id}`."
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_result_belongs_to_active_map(
+        &self,
+        map_id: &str,
+        result_id: &str,
+    ) -> Result<(), String> {
+        let map = self
+            .maps
+            .get(map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        if !map.results.contains_key(result_id) {
+            return Err(format!(
+                "TaskSpace result `{result_id}` does not exist on active task path `{map_id}`."
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_result_ids_belong_to_active_map(
+        &self,
+        map_id: &str,
+        result_ids: &[String],
+    ) -> Result<(), String> {
+        for result_id in normalize_string_vec(result_ids.to_vec()) {
+            self.validate_result_belongs_to_active_map(map_id, &result_id)?;
+        }
+        Ok(())
+    }
+
+    fn validate_ledger_refs(
+        &self,
+        task_id: &str,
+        fact_ids: &[String],
+        question_ids: &[String],
+        criterion_ids: &[String],
+    ) -> Result<(), String> {
+        let task = self
+            .tasks
+            .get(task_id)
+            .ok_or_else(|| format!("TaskSpace task `{task_id}` does not exist."))?;
+        for fact_id in normalize_string_vec(fact_ids.to_vec()) {
+            if !task
+                .problem_ledger
+                .known_facts
+                .iter()
+                .any(|fact| fact.id == fact_id)
+            {
+                return Err(format!(
+                    "TaskSpace record_decision depends_on_facts references unknown fact `{fact_id}`."
+                ));
+            }
+        }
+        for question_id in normalize_string_vec(question_ids.to_vec()) {
+            if !task
+                .problem_ledger
+                .open_questions
+                .iter()
+                .any(|question| question.id == question_id)
+            {
+                return Err(format!(
+                    "TaskSpace record_decision resolves_questions references unknown question `{question_id}`."
+                ));
+            }
+        }
+        for criterion_id in normalize_string_vec(criterion_ids.to_vec()) {
+            if !task
+                .problem_ledger
+                .success_criteria
+                .iter()
+                .any(|criterion| criterion.id == criterion_id)
+            {
+                return Err(format!(
+                    "TaskSpace record_decision supports_criteria references unknown criterion `{criterion_id}`."
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn normalize_evidence_refs_for_result(
@@ -3250,12 +3687,13 @@ preview:\n\
             TaskState {
                 id: task_id.clone(),
                 title: title.clone(),
-                objective: title,
+                objective: title.clone(),
                 status: TaskStatus::Active,
                 owner_session_id,
                 active_map_id: None,
                 map_ids: Vec::new(),
                 cognitive_state: TaskCognitiveState::default(),
+                problem_ledger: ProblemStateLedger::legacy_from_objective(title, now_ms()),
             },
         );
         self.active_task_id = Some(task_id.clone());
@@ -3485,6 +3923,9 @@ preview:\n\
             return Ok(());
         };
         let mut missing = Vec::new();
+        if !task.problem_ledger.has_success_criteria() {
+            missing.push("record_success_criteria");
+        }
         if task.cognitive_state.output_contracts.is_empty() {
             missing.push("record_output_contract");
         }
@@ -3495,7 +3936,7 @@ preview:\n\
             return Ok(());
         }
         Err(format!(
-            "TaskSpace cognitive preflight is required before ordinary work or subagent spawn on task `{task_id}`. Missing: {}. Call taskspace_control(action=record_output_contract) for the user-visible acceptance contract and taskspace_control(action=record_fact_source) for user-provided or observed source facts. Use non-empty evidence_refs such as artifact_ref for the current user request, README/test/source paths, or validator_ref for observed checks.",
+            "TaskSpace problem-state preflight is required before ordinary work or subagent spawn on task `{task_id}`. Missing: {}. Call taskspace_control(action=record_success_criteria) for explicit completion standards, taskspace_control(action=record_output_contract) for the user-visible acceptance contract, and taskspace_control(action=record_fact_source) for user-provided or observed source facts. Use evidence_refs such as artifact_ref for the current user request, README/test/source paths, or validator_ref for observed checks.",
             missing.join(", ")
         ))
     }
@@ -4636,6 +5077,7 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
 }
 
 fn append_task_cognitive_context(context: &mut String, task: &TaskState, map: &ActionMapInstance) {
+    append_problem_ledger_context(context, &task.problem_ledger);
     let cognitive = &task.cognitive_state;
     context.push_str("\nTask cognitive state (MVP):\n");
     if cognitive.output_contracts.is_empty()
@@ -4686,6 +5128,103 @@ fn append_task_cognitive_context(context: &mut String, task: &TaskState, map: &A
         append_claim_preview_list(context, &cognitive.facts, 6);
     }
     append_result_evidence_context(context, map);
+}
+
+fn append_problem_ledger_context(context: &mut String, ledger: &ProblemStateLedger) {
+    context.push_str("\nTask problem-state ledger (v1):\n");
+    if ledger.schema_incomplete {
+        context.push_str("- schema_incomplete=true; this task was restored from legacy state or lacks full problem-state records.\n");
+    }
+    if ledger.objective.trim().is_empty() {
+        context.push_str(
+            "- objective: missing; record or route a concrete task before ordinary work.\n",
+        );
+    } else {
+        context.push_str("- objective: ");
+        context.push_str(&single_line_preview(&ledger.objective, 220));
+        context.push('\n');
+    }
+    if ledger.success_criteria.is_empty() {
+        context.push_str("- success criteria: missing; call taskspace_control(action=record_success_criteria) before ordinary work.\n");
+    } else {
+        context.push_str("- success criteria:\n");
+        for criterion in ledger.success_criteria.iter().take(6) {
+            context.push_str("  - ");
+            context.push_str(&criterion.id);
+            context.push_str(" kind=");
+            context.push_str(&criterion.kind);
+            context.push_str(" status=");
+            context.push_str(&criterion.status);
+            context.push_str(" evidence_refs=");
+            context.push_str(&criterion.evidence_refs.len().to_string());
+            context.push_str(": ");
+            context.push_str(&single_line_preview(&criterion.description, 160));
+            context.push('\n');
+        }
+        append_omitted_count(
+            context,
+            ledger.success_criteria.len(),
+            6,
+            "success criteria",
+        );
+    }
+    if !ledger.known_facts.is_empty() {
+        context.push_str("- known facts:\n");
+        for fact in ledger.known_facts.iter().take(6) {
+            context.push_str("  - ");
+            context.push_str(&fact.id);
+            context.push_str(" evidence_refs=");
+            context.push_str(&fact.evidence_refs.len().to_string());
+            context.push_str(": ");
+            context.push_str(&single_line_preview(&fact.statement, 160));
+            context.push('\n');
+        }
+        append_omitted_count(context, ledger.known_facts.len(), 6, "known facts");
+    }
+    if !ledger.open_questions.is_empty() {
+        context.push_str("- open questions:\n");
+        for question in ledger.open_questions.iter().take(6) {
+            context.push_str("  - ");
+            context.push_str(&question.id);
+            context.push_str(" status=");
+            context.push_str(&question.status);
+            context.push_str(" blocking=");
+            context.push_str(if question.blocking { "true" } else { "false" });
+            context.push_str(": ");
+            context.push_str(&single_line_preview(&question.question, 160));
+            context.push('\n');
+        }
+        append_omitted_count(context, ledger.open_questions.len(), 6, "open questions");
+    }
+    if !ledger.decisions.is_empty() {
+        context.push_str("- decisions:\n");
+        for decision in ledger.decisions.iter().take(6) {
+            context.push_str("  - ");
+            context.push_str(&decision.id);
+            context.push_str(" kind=");
+            context.push_str(&decision.decision_kind);
+            context.push_str(" results=");
+            context.push_str(&decision.depends_on_results.len().to_string());
+            context.push_str(" facts=");
+            context.push_str(&decision.depends_on_facts.len().to_string());
+            context.push_str(": ");
+            context.push_str(&single_line_preview(&decision.decision, 160));
+            context.push('\n');
+        }
+        append_omitted_count(context, ledger.decisions.len(), 6, "decisions");
+    }
+    if let Some(action) = ledger.next_best_action.as_ref() {
+        context.push_str("- next best action");
+        if let Some(node_id) = action.node_id.as_deref() {
+            context.push_str(" node=");
+            context.push_str(node_id);
+        }
+        context.push_str(": ");
+        context.push_str(&single_line_preview(&action.action_summary, 180));
+        context.push_str(" reason=");
+        context.push_str(&single_line_preview(&action.reason, 120));
+        context.push('\n');
+    }
 }
 
 fn append_result_evidence_context(context: &mut String, map: &ActionMapInstance) {
@@ -5142,6 +5681,81 @@ fn upsert_cognitive_claim(records: &mut Vec<CognitiveClaim>, record: CognitiveCl
     }
 }
 
+fn normalize_success_criterion_kind(kind: String) -> Result<String, String> {
+    let kind = normalize_ledger_name(&kind);
+    match kind.as_str() {
+        "artifact" | "behavior" | "test" | "validator" | "compatibility" | "performance"
+        | "user_visible_output" => Ok(kind),
+        _ => Err(
+            "TaskSpace success criterion kind must be one of: artifact, behavior, test, validator, compatibility, performance, user_visible_output."
+                .to_string(),
+        ),
+    }
+}
+
+fn normalize_success_criterion_status(status: String) -> Result<String, String> {
+    let status = normalize_ledger_name(&status);
+    let status = if status.is_empty() {
+        "open".to_string()
+    } else {
+        status
+    };
+    match status.as_str() {
+        "open" | "satisfied" | "questioned" | "waived" => Ok(status),
+        _ => Err(
+            "TaskSpace success criterion status must be one of: open, satisfied, questioned, waived."
+                .to_string(),
+        ),
+    }
+}
+
+fn normalize_ledger_name(value: &str) -> String {
+    value
+        .trim()
+        .replace('-', "_")
+        .replace(' ', "_")
+        .to_ascii_lowercase()
+}
+
+fn legacy_problem_ledger_from_cognitive_state(
+    objective: &str,
+    cognitive_state: &TaskCognitiveState,
+    updated_at_ms: i64,
+) -> ProblemStateLedger {
+    let mut ledger =
+        ProblemStateLedger::legacy_from_objective(objective.to_string(), updated_at_ms);
+    for (index, criterion) in cognitive_state.success_criteria.iter().enumerate() {
+        let description = criterion.trim();
+        if description.is_empty() {
+            continue;
+        }
+        ledger.success_criteria.push(ProblemSuccessCriterion {
+            id: format!("legacy-sc-{}", index + 1),
+            kind: "behavior".to_string(),
+            description: description.to_string(),
+            status: "open".to_string(),
+            evidence_refs: Vec::new(),
+        });
+    }
+    for contract in &cognitive_state.output_contracts {
+        ledger.success_criteria.push(ProblemSuccessCriterion {
+            id: contract.id.clone(),
+            kind: contract.kind.as_str().to_string(),
+            description: contract.description.clone(),
+            status: "open".to_string(),
+            evidence_refs: contract.evidence_refs.clone(),
+        });
+    }
+    for source in &cognitive_state.fact_sources {
+        ledger.known_facts.push(ProblemLedgerFact {
+            id: source.id.clone(),
+            statement: source.description.clone(),
+            evidence_refs: source.evidence_refs.clone(),
+        });
+    }
+    ledger
+}
+
 fn snapshot_cognitive_state(state: &TaskCognitiveState) -> ActionMapSnapshotCognitiveState {
     ActionMapSnapshotCognitiveState {
         success_criteria: state.success_criteria.clone(),
@@ -5292,6 +5906,329 @@ fn evidence_ref_from_snapshot(snapshot: ActionMapSnapshotEvidenceRef) -> Evidenc
     }
 }
 
+fn snapshot_problem_ledger(ledger: &ProblemStateLedger) -> ActionMapSnapshotProblemStateLedger {
+    ActionMapSnapshotProblemStateLedger {
+        objective: ledger.objective.clone(),
+        success_criteria: ledger
+            .success_criteria
+            .iter()
+            .map(snapshot_problem_success_criterion)
+            .collect(),
+        known_facts: ledger
+            .known_facts
+            .iter()
+            .map(snapshot_problem_fact)
+            .collect(),
+        open_questions: ledger
+            .open_questions
+            .iter()
+            .map(snapshot_problem_open_question)
+            .collect(),
+        hypotheses: ledger
+            .hypotheses
+            .iter()
+            .map(snapshot_problem_hypothesis)
+            .collect(),
+        decisions: ledger
+            .decisions
+            .iter()
+            .map(snapshot_problem_decision)
+            .collect(),
+        risks: ledger.risks.iter().map(snapshot_problem_risk).collect(),
+        blockers: ledger
+            .blockers
+            .iter()
+            .map(snapshot_problem_blocker)
+            .collect(),
+        next_best_action: ledger
+            .next_best_action
+            .as_ref()
+            .map(snapshot_problem_next_best_action),
+        updated_at_ms: ledger.updated_at_ms,
+        schema_incomplete: ledger.schema_incomplete,
+    }
+}
+
+fn problem_ledger_from_snapshot(
+    snapshot: ActionMapSnapshotProblemStateLedger,
+) -> ProblemStateLedger {
+    ProblemStateLedger {
+        objective: snapshot.objective,
+        success_criteria: snapshot
+            .success_criteria
+            .into_iter()
+            .map(problem_success_criterion_from_snapshot)
+            .collect(),
+        known_facts: snapshot
+            .known_facts
+            .into_iter()
+            .map(problem_fact_from_snapshot)
+            .collect(),
+        open_questions: snapshot
+            .open_questions
+            .into_iter()
+            .map(problem_open_question_from_snapshot)
+            .collect(),
+        hypotheses: snapshot
+            .hypotheses
+            .into_iter()
+            .map(problem_hypothesis_from_snapshot)
+            .collect(),
+        decisions: snapshot
+            .decisions
+            .into_iter()
+            .map(problem_decision_from_snapshot)
+            .collect(),
+        risks: snapshot
+            .risks
+            .into_iter()
+            .map(problem_risk_from_snapshot)
+            .collect(),
+        blockers: snapshot
+            .blockers
+            .into_iter()
+            .map(problem_blocker_from_snapshot)
+            .collect(),
+        next_best_action: snapshot
+            .next_best_action
+            .map(problem_next_best_action_from_snapshot),
+        updated_at_ms: snapshot.updated_at_ms,
+        schema_incomplete: snapshot.schema_incomplete,
+    }
+}
+
+fn snapshot_problem_success_criterion(
+    criterion: &ProblemSuccessCriterion,
+) -> ActionMapSnapshotProblemSuccessCriterion {
+    ActionMapSnapshotProblemSuccessCriterion {
+        id: criterion.id.clone(),
+        kind: criterion.kind.clone(),
+        description: criterion.description.clone(),
+        status: criterion.status.clone(),
+        evidence_refs: criterion
+            .evidence_refs
+            .iter()
+            .map(snapshot_evidence_ref)
+            .collect(),
+    }
+}
+
+fn problem_success_criterion_from_snapshot(
+    snapshot: ActionMapSnapshotProblemSuccessCriterion,
+) -> ProblemSuccessCriterion {
+    ProblemSuccessCriterion {
+        id: snapshot.id,
+        kind: snapshot.kind,
+        description: snapshot.description,
+        status: snapshot.status,
+        evidence_refs: snapshot
+            .evidence_refs
+            .into_iter()
+            .map(evidence_ref_from_snapshot)
+            .collect(),
+    }
+}
+
+fn snapshot_problem_fact(fact: &ProblemLedgerFact) -> ActionMapSnapshotProblemFact {
+    ActionMapSnapshotProblemFact {
+        id: fact.id.clone(),
+        statement: fact.statement.clone(),
+        evidence_refs: fact
+            .evidence_refs
+            .iter()
+            .map(snapshot_evidence_ref)
+            .collect(),
+    }
+}
+
+fn problem_fact_from_snapshot(snapshot: ActionMapSnapshotProblemFact) -> ProblemLedgerFact {
+    ProblemLedgerFact {
+        id: snapshot.id,
+        statement: snapshot.statement,
+        evidence_refs: snapshot
+            .evidence_refs
+            .into_iter()
+            .map(evidence_ref_from_snapshot)
+            .collect(),
+    }
+}
+
+fn snapshot_problem_open_question(
+    question: &ProblemOpenQuestion,
+) -> ActionMapSnapshotProblemOpenQuestion {
+    ActionMapSnapshotProblemOpenQuestion {
+        id: question.id.clone(),
+        question: question.question.clone(),
+        reason: question.reason.clone(),
+        blocking: question.blocking,
+        status: question.status.clone(),
+        opened_by_node_id: question.opened_by_node_id.clone(),
+        closed_by_result_id: question.closed_by_result_id.clone(),
+        resolution: question.resolution.clone(),
+        evidence_refs: question
+            .evidence_refs
+            .iter()
+            .map(snapshot_evidence_ref)
+            .collect(),
+    }
+}
+
+fn problem_open_question_from_snapshot(
+    snapshot: ActionMapSnapshotProblemOpenQuestion,
+) -> ProblemOpenQuestion {
+    ProblemOpenQuestion {
+        id: snapshot.id,
+        question: snapshot.question,
+        reason: snapshot.reason,
+        blocking: snapshot.blocking,
+        status: snapshot.status,
+        opened_by_node_id: snapshot.opened_by_node_id,
+        closed_by_result_id: snapshot.closed_by_result_id,
+        resolution: snapshot.resolution,
+        evidence_refs: snapshot
+            .evidence_refs
+            .into_iter()
+            .map(evidence_ref_from_snapshot)
+            .collect(),
+    }
+}
+
+fn snapshot_problem_hypothesis(
+    hypothesis: &ProblemHypothesis,
+) -> ActionMapSnapshotProblemHypothesis {
+    ActionMapSnapshotProblemHypothesis {
+        id: hypothesis.id.clone(),
+        statement: hypothesis.statement.clone(),
+        confidence: hypothesis.confidence.clone(),
+        status: hypothesis.status.clone(),
+        evidence_refs: hypothesis
+            .evidence_refs
+            .iter()
+            .map(snapshot_evidence_ref)
+            .collect(),
+        falsification_check: hypothesis.falsification_check.clone(),
+    }
+}
+
+fn problem_hypothesis_from_snapshot(
+    snapshot: ActionMapSnapshotProblemHypothesis,
+) -> ProblemHypothesis {
+    ProblemHypothesis {
+        id: snapshot.id,
+        statement: snapshot.statement,
+        confidence: snapshot.confidence,
+        status: snapshot.status,
+        evidence_refs: snapshot
+            .evidence_refs
+            .into_iter()
+            .map(evidence_ref_from_snapshot)
+            .collect(),
+        falsification_check: snapshot.falsification_check,
+    }
+}
+
+fn snapshot_problem_decision(decision: &ProblemDecision) -> ActionMapSnapshotProblemDecision {
+    ActionMapSnapshotProblemDecision {
+        id: decision.id.clone(),
+        decision_kind: decision.decision_kind.clone(),
+        decision: decision.decision.clone(),
+        rationale: decision.rationale.clone(),
+        depends_on_results: decision.depends_on_results.clone(),
+        depends_on_facts: decision.depends_on_facts.clone(),
+        resolves_questions: decision.resolves_questions.clone(),
+        supports_criteria: decision.supports_criteria.clone(),
+        risks: decision.risks.clone(),
+    }
+}
+
+fn problem_decision_from_snapshot(snapshot: ActionMapSnapshotProblemDecision) -> ProblemDecision {
+    ProblemDecision {
+        id: snapshot.id,
+        decision_kind: snapshot.decision_kind,
+        decision: snapshot.decision,
+        rationale: snapshot.rationale,
+        depends_on_results: snapshot.depends_on_results,
+        depends_on_facts: snapshot.depends_on_facts,
+        resolves_questions: snapshot.resolves_questions,
+        supports_criteria: snapshot.supports_criteria,
+        risks: snapshot.risks,
+    }
+}
+
+fn snapshot_problem_risk(risk: &ProblemRisk) -> ActionMapSnapshotProblemRisk {
+    ActionMapSnapshotProblemRisk {
+        id: risk.id.clone(),
+        description: risk.description.clone(),
+        mitigation: risk.mitigation.clone(),
+        evidence_refs: risk
+            .evidence_refs
+            .iter()
+            .map(snapshot_evidence_ref)
+            .collect(),
+    }
+}
+
+fn problem_risk_from_snapshot(snapshot: ActionMapSnapshotProblemRisk) -> ProblemRisk {
+    ProblemRisk {
+        id: snapshot.id,
+        description: snapshot.description,
+        mitigation: snapshot.mitigation,
+        evidence_refs: snapshot
+            .evidence_refs
+            .into_iter()
+            .map(evidence_ref_from_snapshot)
+            .collect(),
+    }
+}
+
+fn snapshot_problem_blocker(blocker: &ProblemBlocker) -> ActionMapSnapshotProblemBlocker {
+    ActionMapSnapshotProblemBlocker {
+        id: blocker.id.clone(),
+        description: blocker.description.clone(),
+        evidence_refs: blocker
+            .evidence_refs
+            .iter()
+            .map(snapshot_evidence_ref)
+            .collect(),
+    }
+}
+
+fn problem_blocker_from_snapshot(snapshot: ActionMapSnapshotProblemBlocker) -> ProblemBlocker {
+    ProblemBlocker {
+        id: snapshot.id,
+        description: snapshot.description,
+        evidence_refs: snapshot
+            .evidence_refs
+            .into_iter()
+            .map(evidence_ref_from_snapshot)
+            .collect(),
+    }
+}
+
+fn snapshot_problem_next_best_action(
+    action: &ProblemNextBestAction,
+) -> ActionMapSnapshotProblemNextBestAction {
+    ActionMapSnapshotProblemNextBestAction {
+        node_id: action.node_id.clone(),
+        action_summary: action.action_summary.clone(),
+        reason: action.reason.clone(),
+        expected_artifact: action.expected_artifact.clone(),
+        blocked_by: action.blocked_by.clone(),
+    }
+}
+
+fn problem_next_best_action_from_snapshot(
+    snapshot: ActionMapSnapshotProblemNextBestAction,
+) -> ProblemNextBestAction {
+    ProblemNextBestAction {
+        node_id: snapshot.node_id,
+        action_summary: snapshot.action_summary,
+        reason: snapshot.reason,
+        expected_artifact: snapshot.expected_artifact,
+        blocked_by: snapshot.blocked_by,
+    }
+}
+
 fn evidence_refs_have_validator(evidence_refs: &[EvidenceRef]) -> bool {
     evidence_refs
         .iter()
@@ -5353,6 +6290,8 @@ fn snapshot_task(task: &TaskState) -> ActionMapSnapshotTask {
         active_map_id: task.active_map_id.clone(),
         map_ids: task.map_ids.clone(),
         cognitive_state: snapshot_cognitive_state(&task.cognitive_state),
+        problem_state_ledger_version: Some(PROBLEM_STATE_LEDGER_VERSION.to_string()),
+        problem_ledger: snapshot_problem_ledger(&task.problem_ledger),
     }
 }
 
@@ -7582,8 +8521,10 @@ mod tests {
             )
             .expect("fact source records");
         assert!(matches!(
-            fact_source_events[0],
-            MapRuntimeEvent::CognitiveStateUpdated(_)
+            &fact_source_events[0],
+            MapRuntimeEvent::CognitiveStateUpdated(event)
+                if event.update_kind == "problem_ledger.fact_source"
+                    && event.record_id == "source-user"
         ));
         state
             .record_output_contract_for_main(
@@ -10302,6 +11243,238 @@ mod tests {
             node.context.summary,
             "Check logging coverage before implementation."
         );
+    }
+
+    #[test]
+    fn start_task_initializes_problem_ledger_with_success_criteria() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+
+        state
+            .start_task_for_main_with_kind_and_criteria(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Recover logs".to_string(),
+                "Recover validator-visible log artifacts.".to_string(),
+                vec![ActionMapSuccessCriterionInput {
+                    id: "sc-1".to_string(),
+                    kind: "validator".to_string(),
+                    description: "Public validator exits with code 0.".to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                "Inspect validator".to_string(),
+                "Read the validator and expected artifacts.".to_string(),
+                true,
+            )
+            .expect("task starts with initial criteria");
+
+        let snapshot = state.snapshot();
+        let task = snapshot.tasks.first().expect("task snapshot");
+        assert_eq!(
+            task.problem_state_ledger_version.as_deref(),
+            Some(PROBLEM_STATE_LEDGER_VERSION)
+        );
+        assert_eq!(
+            task.problem_ledger.objective,
+            "Recover validator-visible log artifacts."
+        );
+        assert!(!task.problem_ledger.schema_incomplete);
+        assert_eq!(task.problem_ledger.success_criteria.len(), 1);
+        assert_eq!(task.problem_ledger.success_criteria[0].id, "sc-1");
+        assert_eq!(task.problem_ledger.success_criteria[0].kind, "validator");
+    }
+
+    #[test]
+    fn problem_ledger_records_questions_decisions_and_next_action() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task(
+            &mut state,
+            owner,
+            "Recover logs",
+            "Recover validator-visible log artifacts.",
+            true,
+        );
+
+        state
+            .record_open_question_for_main(
+                owner,
+                "q-1",
+                "Which output files does the validator require?".to_string(),
+                "The patch target depends on the required artifacts.".to_string(),
+                true,
+                Some(node_id.clone()),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("validator.py".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("open question records");
+        state
+            .close_open_question_for_main(
+                owner,
+                "q-1",
+                "Validator requires results.json and per-run JSONL outputs.".to_string(),
+                None,
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("validator.py".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("question closes");
+        state
+            .record_decision_for_main(
+                owner,
+                ActionMapLedgerDecisionInput {
+                    id: "d-1".to_string(),
+                    decision_kind: "patch".to_string(),
+                    decision: "Generate recovered output artifacts from parsed logs.".to_string(),
+                    rationale: "The validator output contract is now known.".to_string(),
+                    depends_on_results: Vec::new(),
+                    depends_on_facts: Vec::new(),
+                    resolves_questions: vec!["q-1".to_string()],
+                    supports_criteria: vec!["contract-test".to_string()],
+                    risks: Vec::new(),
+                },
+            )
+            .expect("decision records");
+        state
+            .record_next_best_action_for_main(
+                owner,
+                Some(node_id),
+                "Patch output generation and run validator once.".to_string(),
+                "The blocking output-contract question has been closed.".to_string(),
+                Some("patch plus validator evidence".to_string()),
+                Vec::new(),
+            )
+            .expect("next best action records");
+
+        let ledger = &state.tasks.get("task-1").expect("task").problem_ledger;
+        assert_eq!(ledger.open_questions[0].status, "closed");
+        assert_eq!(ledger.decisions[0].id, "d-1");
+        assert_eq!(
+            ledger
+                .next_best_action
+                .as_ref()
+                .expect("next action")
+                .action_summary,
+            "Patch output generation and run validator once."
+        );
+        let roundtrip_snapshot = state.snapshot();
+        let mut restored = ActionMapRuntimeState::default();
+        restored.restore_snapshot(roundtrip_snapshot);
+        let restored_ledger = &restored
+            .tasks
+            .get("task-1")
+            .expect("restored task")
+            .problem_ledger;
+        assert_eq!(restored_ledger.open_questions[0].status, "closed");
+        assert_eq!(restored_ledger.decisions[0].id, "d-1");
+        assert_eq!(
+            restored_ledger
+                .next_best_action
+                .as_ref()
+                .expect("restored next action")
+                .action_summary,
+            "Patch output generation and run validator once."
+        );
+        let context = state.build_developer_context().expect("context");
+        assert!(context.contains("Task problem-state ledger (v1)"));
+        assert!(context.contains("success criteria"));
+        assert!(context.contains("open questions"));
+        assert!(context.contains("next best action"));
+    }
+
+    #[test]
+    fn cognitive_preflight_requires_problem_success_criteria() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main(
+                owner,
+                "Review logging".to_string(),
+                "Check logging coverage before implementation.".to_string(),
+                "Review logging".to_string(),
+                "Check logging coverage before implementation.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        state
+            .record_fact_source_for_main(
+                owner,
+                "source-test",
+                "provided_by_user",
+                "Test fixture source facts.".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("test-fixture:user-request".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("fact source records");
+
+        let error = state
+            .prepare_main_tool_call(owner, "shell")
+            .expect_err("missing success criteria should block ordinary work");
+
+        assert!(error.contains("record_success_criteria"));
+        assert!(error.contains("record_output_contract"));
+    }
+
+    #[test]
+    fn restore_snapshot_without_ledger_version_migrates_legacy_cognitive_state() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Legacy-compatible task",
+            "Existing task objective.",
+            true,
+        );
+        let mut snapshot = state.snapshot();
+        snapshot.tasks[0].problem_state_ledger_version = None;
+        snapshot.tasks[0].problem_ledger = ActionMapSnapshotProblemStateLedger::default();
+
+        let mut restored = ActionMapRuntimeState::default();
+        restored.restore_snapshot(snapshot);
+        let restored_snapshot = restored.snapshot();
+
+        assert_eq!(
+            restored_snapshot.tasks[0]
+                .problem_state_ledger_version
+                .as_deref(),
+            Some(PROBLEM_STATE_LEDGER_VERSION)
+        );
+        assert!(restored_snapshot.tasks[0].problem_ledger.schema_incomplete);
+        assert_eq!(
+            restored_snapshot.tasks[0].problem_ledger.objective,
+            "Existing task objective."
+        );
+        assert!(
+            restored_snapshot.tasks[0]
+                .problem_ledger
+                .success_criteria
+                .iter()
+                .any(|criterion| criterion.id == "contract-test")
+        );
+        assert!(
+            restored_snapshot.tasks[0]
+                .problem_ledger
+                .known_facts
+                .iter()
+                .any(|fact| fact.id == "source-test")
+        );
+        restored
+            .prepare_main_tool_call(owner, "shell")
+            .expect("legacy cognitive criteria should migrate into ledger and pass preflight");
     }
 
     #[test]

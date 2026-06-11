@@ -1161,17 +1161,44 @@ impl Session {
         node_context_summary: String,
         bind_current: bool,
     ) -> Result<(String, String, String), String> {
+        self.start_action_map_task_for_main_with_kind_and_criteria(
+            turn_context,
+            node_kind,
+            task_title,
+            task_objective,
+            Vec::new(),
+            node_title,
+            node_context_summary,
+            bind_current,
+        )
+        .await
+    }
+
+    pub(crate) async fn start_action_map_task_for_main_with_kind_and_criteria(
+        &self,
+        turn_context: &TurnContext,
+        node_kind: NodeKind,
+        task_title: String,
+        task_objective: String,
+        initial_success_criteria: Vec<crate::action_map::ActionMapSuccessCriterionInput>,
+        node_title: String,
+        node_context_summary: String,
+        bind_current: bool,
+    ) -> Result<(String, String, String), String> {
         let (task_id, map_id, node_id, events) = {
             let mut state = self.state.lock().await;
-            state.action_map_runtime.start_task_for_main_with_kind(
-                self.conversation_id,
-                node_kind,
-                task_title,
-                task_objective,
-                node_title,
-                node_context_summary,
-                bind_current,
-            )
+            state
+                .action_map_runtime
+                .start_task_for_main_with_kind_and_criteria(
+                    self.conversation_id,
+                    node_kind,
+                    task_title,
+                    task_objective,
+                    initial_success_criteria,
+                    node_title,
+                    node_context_summary,
+                    bind_current,
+                )
         }?;
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;
@@ -1250,6 +1277,113 @@ impl Session {
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;
         Ok(result_id)
+    }
+
+    pub(crate) async fn record_action_map_success_criteria(
+        &self,
+        turn_context: &TurnContext,
+        criteria: Vec<crate::action_map::ActionMapSuccessCriterionInput>,
+    ) -> Result<(), String> {
+        let events = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .record_success_criteria_for_main(self.conversation_id, criteria)
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(())
+    }
+
+    pub(crate) async fn record_action_map_open_question(
+        &self,
+        turn_context: &TurnContext,
+        question_id: &str,
+        question: String,
+        reason: String,
+        blocking: bool,
+        opened_by_node_id: Option<String>,
+        evidence_refs: Vec<crate::action_map::ActionMapEvidenceRefInput>,
+    ) -> Result<(), String> {
+        let events = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.record_open_question_for_main(
+                self.conversation_id,
+                question_id,
+                question,
+                reason,
+                blocking,
+                opened_by_node_id,
+                evidence_refs,
+            )
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(())
+    }
+
+    pub(crate) async fn close_action_map_open_question(
+        &self,
+        turn_context: &TurnContext,
+        question_id: &str,
+        resolution: String,
+        closed_by_result_id: Option<String>,
+        evidence_refs: Vec<crate::action_map::ActionMapEvidenceRefInput>,
+    ) -> Result<(), String> {
+        let events = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.close_open_question_for_main(
+                self.conversation_id,
+                question_id,
+                resolution,
+                closed_by_result_id,
+                evidence_refs,
+            )
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(())
+    }
+
+    pub(crate) async fn record_action_map_decision(
+        &self,
+        turn_context: &TurnContext,
+        decision: crate::action_map::ActionMapLedgerDecisionInput,
+    ) -> Result<(), String> {
+        let events = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .record_decision_for_main(self.conversation_id, decision)
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(())
+    }
+
+    pub(crate) async fn record_action_map_next_best_action(
+        &self,
+        turn_context: &TurnContext,
+        node_id: Option<String>,
+        action_summary: String,
+        reason: String,
+        expected_artifact: Option<String>,
+        blocked_by: Vec<String>,
+    ) -> Result<(), String> {
+        let events = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.record_next_best_action_for_main(
+                self.conversation_id,
+                node_id,
+                action_summary,
+                reason,
+                expected_artifact,
+                blocked_by,
+            )
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(())
     }
 
     pub(crate) async fn record_action_map_output_contract(

@@ -15,6 +15,17 @@ fn node_kind_values() -> Vec<serde_json::Value> {
     ]
 }
 
+fn output_contract_kind_values() -> Vec<serde_json::Value> {
+    vec![
+        json!("artifact"),
+        json!("format"),
+        json!("encoding"),
+        json!("schema"),
+        json!("validator"),
+        json!("non_goal"),
+    ]
+}
+
 fn evidence_ref_schema() -> JsonSchema {
     JsonSchema::object(
         BTreeMap::from([
@@ -82,6 +93,61 @@ fn claims_schema() -> JsonSchema {
     )
 }
 
+fn success_criteria_schema(description: &str) -> JsonSchema {
+    JsonSchema::array(
+        JsonSchema::object(
+            BTreeMap::from([
+                (
+                    "id".to_string(),
+                    JsonSchema::string(Some("Stable criterion id such as sc-1.".to_string())),
+                ),
+                (
+                    "kind".to_string(),
+                    JsonSchema::string_enum(
+                        vec![
+                            json!("artifact"),
+                            json!("behavior"),
+                            json!("test"),
+                            json!("validator"),
+                            json!("compatibility"),
+                            json!("performance"),
+                            json!("user_visible_output"),
+                        ],
+                        Some("Criterion type.".to_string()),
+                    ),
+                ),
+                (
+                    "description".to_string(),
+                    JsonSchema::string(Some("Concrete completion standard.".to_string())),
+                ),
+                (
+                    "status".to_string(),
+                    JsonSchema::string_enum(
+                        vec![
+                            json!("open"),
+                            json!("satisfied"),
+                            json!("questioned"),
+                            json!("waived"),
+                        ],
+                        Some("Criterion status; use open when unsure.".to_string()),
+                    ),
+                ),
+                (
+                    "evidence_refs".to_string(),
+                    evidence_refs_schema("Evidence refs supporting this criterion."),
+                ),
+            ]),
+            Some(vec![
+                "id".to_string(),
+                "kind".to_string(),
+                "description".to_string(),
+            ]),
+            Some(false.into()),
+        ),
+        Some(description.to_string()),
+    )
+}
+
 pub fn create_taskspace_control_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
@@ -97,10 +163,15 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
                     json!("record_output_contract"),
                     json!("record_fact_source"),
                     json!("record_fact"),
+                    json!("record_success_criteria"),
+                    json!("record_open_question"),
+                    json!("close_open_question"),
+                    json!("record_decision"),
+                    json!("record_next_best_action"),
                     json!("mark_result_validity"),
                 ],
                 Some(
-                "One of: start_task, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, mark_result_validity. Use only for TaskSpace runtime control."
+                "One of: start_task, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, record_success_criteria, record_open_question, close_open_question, record_decision, record_next_best_action, mark_result_validity. Use only for TaskSpace runtime control."
                     .to_string(),
                 ),
             ),
@@ -151,10 +222,16 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
             )),
         ),
         (
+            "initial_success_criteria".to_string(),
+            success_criteria_schema(
+                "Optional for start_task. Provide initial explicit completion standards when available; ordinary work is blocked until criteria exist.",
+            ),
+        ),
+        (
             "kind".to_string(),
             JsonSchema::string_enum(
                 node_kind_values(),
-                Some("Required for create_node. Runtime kind for this node.".to_string()),
+                Some("Required only for create_node. Runtime kind for this node.".to_string()),
             ),
         ),
         (
@@ -278,12 +355,149 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
             )),
         ),
         (
+            "output_contract_kind".to_string(),
+            JsonSchema::string_enum(
+                output_contract_kind_values(),
+                Some(
+                    "Required for record_output_contract. One of: artifact, format, encoding, schema, validator, non_goal."
+                        .to_string(),
+                ),
+            ),
+        ),
+        (
             "claim_id".to_string(),
             JsonSchema::string(Some("Required for record_fact.".to_string())),
         ),
         (
             "statement".to_string(),
             JsonSchema::string(Some("Required for record_fact.".to_string())),
+        ),
+        (
+            "criteria".to_string(),
+            success_criteria_schema("Required for record_success_criteria."),
+        ),
+        (
+            "question_id".to_string(),
+            JsonSchema::string(Some(
+                "Required for record_open_question and close_open_question.".to_string(),
+            )),
+        ),
+        (
+            "question".to_string(),
+            JsonSchema::string(Some(
+                "Required for record_open_question. Concrete unresolved question."
+                    .to_string(),
+            )),
+        ),
+        (
+            "reason".to_string(),
+            JsonSchema::string(Some(
+                "Required for record_open_question and record_next_best_action.".to_string(),
+            )),
+        ),
+        (
+            "blocking".to_string(),
+            JsonSchema::boolean(Some(
+                "Optional for record_open_question. True if this must be resolved before final synthesis."
+                    .to_string(),
+            )),
+        ),
+        (
+            "opened_by_node_id".to_string(),
+            JsonSchema::string(Some(
+                "Optional for record_open_question. Node that surfaced this question."
+                    .to_string(),
+            )),
+        ),
+        (
+            "resolution".to_string(),
+            JsonSchema::string(Some(
+                "Required for close_open_question. Evidence-backed resolution.".to_string(),
+            )),
+        ),
+        (
+            "closed_by_result_id".to_string(),
+            JsonSchema::string(Some(
+                "Optional for close_open_question. Result that resolved this question."
+                    .to_string(),
+            )),
+        ),
+        (
+            "decision_id".to_string(),
+            JsonSchema::string(Some(
+                "Required for record_decision. Stable decision id such as d-1.".to_string(),
+            )),
+        ),
+        (
+            "decision_kind".to_string(),
+            JsonSchema::string(Some(
+                "Required for record_decision, for example design, patch, validation, or synthesis."
+                    .to_string(),
+            )),
+        ),
+        (
+            "decision".to_string(),
+            JsonSchema::string(Some("Required for record_decision.".to_string())),
+        ),
+        (
+            "rationale".to_string(),
+            JsonSchema::string(Some("Required for record_decision.".to_string())),
+        ),
+        (
+            "depends_on_results".to_string(),
+            JsonSchema::array(
+                JsonSchema::string(Some("Existing result id.".to_string())),
+                Some("Optional for record_decision.".to_string()),
+            ),
+        ),
+        (
+            "depends_on_facts".to_string(),
+            JsonSchema::array(
+                JsonSchema::string(Some("Existing ledger fact id.".to_string())),
+                Some("Optional for record_decision.".to_string()),
+            ),
+        ),
+        (
+            "resolves_questions".to_string(),
+            JsonSchema::array(
+                JsonSchema::string(Some("Existing open question id.".to_string())),
+                Some("Optional for record_decision.".to_string()),
+            ),
+        ),
+        (
+            "supports_criteria".to_string(),
+            JsonSchema::array(
+                JsonSchema::string(Some("Existing success criterion id.".to_string())),
+                Some("Optional for record_decision.".to_string()),
+            ),
+        ),
+        (
+            "risks".to_string(),
+            JsonSchema::array(
+                JsonSchema::string(Some("Risk summary or risk id.".to_string())),
+                Some("Optional for record_decision.".to_string()),
+            ),
+        ),
+        (
+            "action_summary".to_string(),
+            JsonSchema::string(Some(
+                "Required for record_next_best_action. Minimal next high-value action."
+                    .to_string(),
+            )),
+        ),
+        (
+            "expected_artifact".to_string(),
+            JsonSchema::string(Some(
+                "Optional for record_next_best_action. Expected artifact from this action."
+                    .to_string(),
+            )),
+        ),
+        (
+            "blocked_by".to_string(),
+            JsonSchema::array(
+                JsonSchema::string(Some("Question, blocker, or dependency id.".to_string())),
+                Some("Optional for record_next_best_action.".to_string()),
+            ),
         ),
         (
             "result_id".to_string(),
@@ -298,7 +512,10 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
                     json!("questioned"),
                     json!("invalid"),
                 ],
-                Some("Required for mark_result_validity.".to_string()),
+                Some(
+                    "Required for mark_result_validity. Use accepted only when claims and evidence_refs are non-empty; use unreviewed or questioned when no validation or source evidence is available."
+                        .to_string(),
+                ),
             ),
         ),
         (
@@ -347,24 +564,30 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
 
 Use this only when TaskSpace is enabled and you need to update task-map structure or cognitive state before ordinary work.
 
-The main agent is the TaskSpace problem-state and model manager. Use this tool to keep the task's current model explicit: route or create the semantic task, keep work bound to concrete nodes, record output contracts, record fact sources, record active facts, and mark result validity before relying on node or subagent output.
+The main agent is the TaskSpace problem-state and model manager. Use this tool to keep the task's current model explicit: route or create the semantic task, keep work bound to concrete nodes, record success criteria, record open questions, record decisions, update next best action, record output contracts, record fact sources, record active facts, and mark result validity before relying on node or subagent output.
 
-Runtime preflight blocks ordinary tools and spawn_agent until the active task has at least one output contract and one fact source. After finish_node, block_node, or subagent completion records a node-level result, runtime blocks further ordinary tools and spawn_agent until mark_result_validity records whether that result is accepted, questioned, or invalid.
+Runtime preflight blocks ordinary tools and spawn_agent until the active task has at least one success criterion, one output contract, and one fact source. After finish_node, block_node, or subagent completion records a node-level result, runtime blocks further ordinary tools and spawn_agent until mark_result_validity records whether that result is accepted, questioned, or invalid.
 
 Supported actions:
-- `start_task`: create a new semantic task, its active task path, and the first concrete node. Use this when the current user request does not belong to an existing task in the TaskSpace task inventory. Must include `node_kind`.
+- `start_task`: create a new semantic task, its active task path, and the first concrete node. Use this when the current user request does not belong to an existing task in the TaskSpace task inventory. Must include `node_kind`. Include `initial_success_criteria` whenever the user request gives enough information to define completion; if omitted, runtime will block ordinary work until `record_success_criteria` is called.
 - `route_task`: switch the active task path to an existing task chosen by the agent from the TaskSpace task inventory. Runtime validates the id but does not perform semantic matching.
-- `create_node`: create a concrete node in the active task path. This requires an existing active task path; use `start_task` first when the current request starts a new semantic task. Must include `kind`. BaseMap candidate nodes are guidance, not automatic graph nodes.
+- `create_node`: create a concrete node in the active task path. This requires an existing active task path; use `start_task` first when the current request starts a new semantic task. Must include `kind` with one of: inspect_code_context, implement_solution, smoke_test, regression_test, final_synthesis. BaseMap candidate nodes are guidance, not automatic graph nodes.
 - `bind_node`: bind the main agent's next ordinary action to an existing ready or blocked node that is not held by a subagent.
 - `finish_node`: record the current main node's result, mark it completed, and optionally bind an existing next node with `next_node_id` or create and bind a new next node with `next_node_kind`, `next_node_title`, and `next_node_context_summary`.
 - `block_node`: record why the current main node cannot proceed and mark it blocked.
-- `record_output_contract`: record a task-level output contract with stable `output_contract_id`, `kind`, `description`, and `evidence_refs`.
+- `record_output_contract`: record a task-level output contract with stable `output_contract_id`, `output_contract_kind`, `description`, and `evidence_refs`. Use one of: artifact, format, encoding, schema, validator, non_goal. Do not use node kinds here.
 - `record_fact_source`: record a task-level data source with stable `fact_source_id`, `provenance`, `description`, and `evidence_refs`.
 - `record_fact`: record an active task fact with stable `claim_id`, `statement`, and `evidence_refs`. Runtime only accepts facts supported by an accepted result or observed/provided fact source.
-- `mark_result_validity`: update an existing node result's evidence package. `accepted` requires claims and evidence refs. Use unreviewed/questioned/invalid when a result is missing evidence, conflicts with other evidence, or should not anchor the task model.
+- `record_success_criteria`: record explicit task completion standards. Ordinary work is blocked until at least one success criterion exists.
+- `record_open_question`: record an unresolved problem-state gap, with `blocking=true` if it must be answered before final synthesis.
+- `close_open_question`: close an open question with a concrete resolution and evidence refs.
+- `record_decision`: record a design, patch, validation, or synthesis decision with the facts, results, questions, and criteria it depends on.
+- `record_next_best_action`: record the current smallest high-value action implied by the problem state.
+- `mark_result_validity`: update an existing node result's evidence package. `accepted` requires non-empty claims and evidence refs. If no validation/source evidence was produced, use `unreviewed` or `questioned`; never call `accepted` with empty claims.
 
 Cognitive-state rules:
-- After start_task or route_task, record user-stated acceptance criteria, output format, schema, validator, artifact, and non-goal requirements as output contracts before ordinary work. Use non-empty evidence_refs; artifact_ref may cite the current user request, README/spec/test/source path, or expected artifact.
+- After start_task or route_task, record user-stated acceptance criteria, output format, schema, validator, artifact, and non-goal requirements as success criteria and output contracts before ordinary work. Use evidence_refs where available; artifact_ref may cite the current user request, README/spec/test/source path, or expected artifact.
+- Use open questions for real unknowns that affect the task model. Use decisions before patching or final synthesis so the task path records why this direction is justified.
 - Record user-provided facts, observed environment facts, and validator/test outputs as fact sources before turning them into active facts. Use non-empty evidence_refs; artifact_ref or validator_ref is acceptable before any node result exists.
 - `generated_for_test_only`, `inferred`, and `unknown` provenance may guide investigation but must not anchor active facts or final user claims unless rechecked against observed or user-provided evidence.
 - Treat subagent and node results as evidence packages, not final truth. After a node-level result is recorded, capture claims, evidence refs, changed artifacts, validator refs, and remaining uncertainty through `mark_result_validity` before using it, spawning follow-up work, running ordinary tools, or answering the user. For accepted implementation results, put modified files in `changed_artifacts`; `evidence_refs` alone mean supporting/source evidence.
@@ -420,6 +643,11 @@ mod tests {
                 "record_output_contract",
                 "record_fact_source",
                 "record_fact",
+                "record_success_criteria",
+                "record_open_question",
+                "close_open_question",
+                "record_decision",
+                "record_next_best_action",
                 "mark_result_validity",
             ]
         );
@@ -440,6 +668,18 @@ mod tests {
             "provenance",
             "claim_id",
             "statement",
+            "initial_success_criteria",
+            "criteria",
+            "question_id",
+            "question",
+            "blocking",
+            "decision_id",
+            "decision_kind",
+            "depends_on_results",
+            "supports_criteria",
+            "action_summary",
+            "expected_artifact",
+            "output_contract_kind",
             "claims",
             "evidence_refs",
             "result_id",
@@ -461,7 +701,11 @@ mod tests {
             .as_str()
             .expect("tool description is exposed");
         assert!(description.contains("problem-state and model manager"));
+        assert!(description.contains("record success criteria"));
+        assert!(description.contains("Runtime preflight blocks ordinary tools"));
         assert!(description.contains("Treat subagent and node results as evidence packages"));
         assert!(description.contains("generated_for_test_only"));
+        assert!(description.contains("Do not use node kinds here"));
+        assert!(description.contains("never call `accepted` with empty claims"));
     }
 }

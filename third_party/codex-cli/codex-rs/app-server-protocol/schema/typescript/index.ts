@@ -12,6 +12,15 @@ export type { ActionMapSnapshotMaintenanceBarrier } from "./ActionMapSnapshotMai
 export type { ActionMapSnapshotMap } from "./ActionMapSnapshotMap";
 export type { ActionMapSnapshotNode } from "./ActionMapSnapshotNode";
 export type { ActionMapSnapshotOutputContract } from "./ActionMapSnapshotOutputContract";
+export type { ActionMapSnapshotProblemBlocker } from "./ActionMapSnapshotProblemBlocker";
+export type { ActionMapSnapshotProblemDecision } from "./ActionMapSnapshotProblemDecision";
+export type { ActionMapSnapshotProblemFact } from "./ActionMapSnapshotProblemFact";
+export type { ActionMapSnapshotProblemHypothesis } from "./ActionMapSnapshotProblemHypothesis";
+export type { ActionMapSnapshotProblemNextBestAction } from "./ActionMapSnapshotProblemNextBestAction";
+export type { ActionMapSnapshotProblemOpenQuestion } from "./ActionMapSnapshotProblemOpenQuestion";
+export type { ActionMapSnapshotProblemRisk } from "./ActionMapSnapshotProblemRisk";
+export type { ActionMapSnapshotProblemStateLedger } from "./ActionMapSnapshotProblemStateLedger";
+export type { ActionMapSnapshotProblemSuccessCriterion } from "./ActionMapSnapshotProblemSuccessCriterion";
 export type { ActionMapSnapshotResult } from "./ActionMapSnapshotResult";
 export type { ActionMapSnapshotResultEvidencePackage } from "./ActionMapSnapshotResultEvidencePackage";
 export type { ActionMapSnapshotSentinelSummary } from "./ActionMapSnapshotSentinelSummary";

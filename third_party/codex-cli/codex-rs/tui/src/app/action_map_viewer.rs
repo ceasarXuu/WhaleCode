@@ -336,8 +336,31 @@ function renderCognitivePanel(task, m, s){
     return p;
   }
   const c=task.cognitiveState||{};
+  const ledger=task.problemLedger||{};
   p.appendChild(el('div',`${task.id} | ${task.status||''}`,'kv'));
   p.appendChild(el('div',task.objective||task.title||'','kv'));
+  p.appendChild(el('h3','problem ledger'));
+  if(ledger.schemaIncomplete)p.appendChild(el('div','schema incomplete / legacy task','muted'));
+  if(ledger.objective)p.appendChild(el('div','objective: '+ledger.objective,'kv'));
+  const ledgerCounts=el('div');
+  ledgerCounts.appendChild(badge('criteria '+arr(ledger.successCriteria).length));
+  ledgerCounts.appendChild(badge('facts '+arr(ledger.knownFacts).length));
+  ledgerCounts.appendChild(badge('questions '+arr(ledger.openQuestions).length));
+  ledgerCounts.appendChild(badge('decisions '+arr(ledger.decisions).length));
+  p.appendChild(ledgerCounts);
+  if(arr(ledger.successCriteria).length){
+    p.appendChild(detail('ledger-criteria:'+task.id,'success criteria',table(['id','kind','status','description','evidence'],arr(ledger.successCriteria).map(x=>[x.id,x.kind,x.status,x.description,evidenceList(x.evidenceRefs)]))));
+  }
+  if(arr(ledger.openQuestions).length){
+    p.appendChild(detail('ledger-questions:'+task.id,'open questions',table(['id','status','blocking','question','reason','resolution','evidence'],arr(ledger.openQuestions).map(x=>[x.id,x.status,x.blocking?'true':'false',x.question,x.reason,x.resolution||'',evidenceList(x.evidenceRefs)]))));
+  }
+  if(arr(ledger.decisions).length){
+    p.appendChild(detail('ledger-decisions:'+task.id,'decisions',table(['id','kind','decision','rationale','results','facts','questions','criteria'],arr(ledger.decisions).map(x=>[x.id,x.decisionKind,x.decision,x.rationale,list(x.dependsOnResults),list(x.dependsOnFacts),list(x.resolvesQuestions),list(x.supportsCriteria)]))));
+  }
+  if(ledger.nextBestAction){
+    const a=ledger.nextBestAction;
+    p.appendChild(detail('ledger-next:'+task.id,'next best action',table(['node','action','reason','artifact','blocked by'],[[a.nodeId||'',a.actionSummary||'',a.reason||'',a.expectedArtifact||'',list(a.blockedBy)]])));
+  }
   const counts=el('div');
   counts.appendChild(badge('contracts '+arr(c.outputContracts).length));
   counts.appendChild(badge('sources '+arr(c.factSources).length));
@@ -477,6 +500,10 @@ mod tests {
         assert!(ACTION_MAP_VIEWER_HTML.contains("details[data-key]"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("restoreUi()"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("cognitive state"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("problem ledger"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("success criteria"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("open questions"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("next best action"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("output contracts"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("fact sources"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("result validity"));

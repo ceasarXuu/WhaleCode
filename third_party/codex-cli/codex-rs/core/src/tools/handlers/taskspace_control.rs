@@ -3,7 +3,9 @@ use serde_json::Value as JsonValue;
 
 use crate::action_map::ActionMapCognitiveClaimInput;
 use crate::action_map::ActionMapEvidenceRefInput;
+use crate::action_map::ActionMapLedgerDecisionInput;
 use crate::action_map::ActionMapNextNodeDraft;
+use crate::action_map::ActionMapSuccessCriterionInput;
 use crate::action_map::NodeKind;
 use crate::function_tool::FunctionCallError;
 use crate::tools::context::ToolInvocation;
@@ -26,6 +28,8 @@ enum TaskSpaceControlArgs {
         task_objective: String,
         #[serde(default)]
         node_kind: String,
+        #[serde(default)]
+        initial_success_criteria: Vec<TaskSpaceSuccessCriterionArgs>,
         node_title: String,
         node_context_summary: String,
         #[serde(default)]
@@ -66,7 +70,8 @@ enum TaskSpaceControlArgs {
     },
     RecordOutputContract {
         output_contract_id: String,
-        kind: String,
+        #[serde(alias = "kind")]
+        output_contract_kind: String,
         description: String,
         #[serde(default)]
         evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
@@ -83,6 +88,54 @@ enum TaskSpaceControlArgs {
         statement: String,
         #[serde(default)]
         evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
+    },
+    RecordSuccessCriteria {
+        criteria: Vec<TaskSpaceSuccessCriterionArgs>,
+    },
+    RecordOpenQuestion {
+        question_id: String,
+        question: String,
+        reason: String,
+        #[serde(default)]
+        blocking: bool,
+        #[serde(default)]
+        opened_by_node_id: Option<String>,
+        #[serde(default)]
+        evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
+    },
+    CloseOpenQuestion {
+        question_id: String,
+        resolution: String,
+        #[serde(default)]
+        closed_by_result_id: Option<String>,
+        #[serde(default)]
+        evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
+    },
+    RecordDecision {
+        decision_id: String,
+        decision_kind: String,
+        decision: String,
+        rationale: String,
+        #[serde(default)]
+        depends_on_results: Vec<String>,
+        #[serde(default)]
+        depends_on_facts: Vec<String>,
+        #[serde(default)]
+        resolves_questions: Vec<String>,
+        #[serde(default)]
+        supports_criteria: Vec<String>,
+        #[serde(default)]
+        risks: Vec<String>,
+    },
+    RecordNextBestAction {
+        #[serde(default)]
+        node_id: Option<String>,
+        action_summary: String,
+        reason: String,
+        #[serde(default)]
+        expected_artifact: Option<String>,
+        #[serde(default)]
+        blocked_by: Vec<String>,
     },
     MarkResultValidity {
         result_id: String,
@@ -121,6 +174,18 @@ struct TaskSpaceEvidenceRefArgs {
 struct TaskSpaceCognitiveClaimArgs {
     claim_id: String,
     statement: String,
+    #[serde(default)]
+    evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskSpaceSuccessCriterionArgs {
+    #[serde(alias = "criterion_id")]
+    id: String,
+    kind: String,
+    description: String,
+    #[serde(default = "default_success_criterion_status")]
+    status: String,
     #[serde(default)]
     evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
 }
@@ -184,17 +249,19 @@ impl ToolHandler for TaskSpaceControlHandler {
                 task_title,
                 task_objective,
                 node_kind,
+                initial_success_criteria,
                 node_title,
                 node_context_summary,
                 bind_current,
             } => {
                 let node_kind = parse_node_kind("node_kind", &node_kind)?;
                 let (task_id, map_id, node_id) = session
-                    .start_action_map_task_for_main_with_kind(
+                    .start_action_map_task_for_main_with_kind_and_criteria(
                         &turn,
                         node_kind,
                         task_title,
                         task_objective,
+                        convert_success_criteria(initial_success_criteria),
                         node_title,
                         node_context_summary,
                         bind_current,
@@ -297,7 +364,7 @@ impl ToolHandler for TaskSpaceControlHandler {
             }
             TaskSpaceControlArgs::RecordOutputContract {
                 output_contract_id,
-                kind,
+                output_contract_kind,
                 description,
                 evidence_refs,
             } => {
@@ -305,7 +372,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .record_action_map_output_contract(
                         &turn,
                         &output_contract_id,
-                        &kind,
+                        &output_contract_kind,
                         description,
                         convert_evidence_refs(evidence_refs),
                     )
@@ -346,6 +413,104 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .await
                     .map_err(FunctionCallError::RespondToModel)?;
                 format!("TaskSpace fact recorded: {claim_id}")
+            }
+            TaskSpaceControlArgs::RecordSuccessCriteria { criteria } => {
+                let count = criteria.len();
+                session
+                    .record_action_map_success_criteria(&turn, convert_success_criteria(criteria))
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                format!("TaskSpace success criteria recorded: {count}")
+            }
+            TaskSpaceControlArgs::RecordOpenQuestion {
+                question_id,
+                question,
+                reason,
+                blocking,
+                opened_by_node_id,
+                evidence_refs,
+            } => {
+                session
+                    .record_action_map_open_question(
+                        &turn,
+                        &question_id,
+                        question,
+                        reason,
+                        blocking,
+                        opened_by_node_id,
+                        convert_evidence_refs(evidence_refs),
+                    )
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                format!("TaskSpace open question recorded: {question_id}")
+            }
+            TaskSpaceControlArgs::CloseOpenQuestion {
+                question_id,
+                resolution,
+                closed_by_result_id,
+                evidence_refs,
+            } => {
+                session
+                    .close_action_map_open_question(
+                        &turn,
+                        &question_id,
+                        resolution,
+                        closed_by_result_id,
+                        convert_evidence_refs(evidence_refs),
+                    )
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                format!("TaskSpace open question closed: {question_id}")
+            }
+            TaskSpaceControlArgs::RecordDecision {
+                decision_id,
+                decision_kind,
+                decision,
+                rationale,
+                depends_on_results,
+                depends_on_facts,
+                resolves_questions,
+                supports_criteria,
+                risks,
+            } => {
+                session
+                    .record_action_map_decision(
+                        &turn,
+                        ActionMapLedgerDecisionInput {
+                            id: decision_id.clone(),
+                            decision_kind,
+                            decision,
+                            rationale,
+                            depends_on_results,
+                            depends_on_facts,
+                            resolves_questions,
+                            supports_criteria,
+                            risks,
+                        },
+                    )
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                format!("TaskSpace decision recorded: {decision_id}")
+            }
+            TaskSpaceControlArgs::RecordNextBestAction {
+                node_id,
+                action_summary,
+                reason,
+                expected_artifact,
+                blocked_by,
+            } => {
+                session
+                    .record_action_map_next_best_action(
+                        &turn,
+                        node_id,
+                        action_summary,
+                        reason,
+                        expected_artifact,
+                        blocked_by,
+                    )
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                "TaskSpace next best action recorded".to_string()
             }
             TaskSpaceControlArgs::MarkResultValidity {
                 result_id,
@@ -446,4 +611,118 @@ fn convert_claims(inputs: Vec<TaskSpaceCognitiveClaimArgs>) -> Vec<ActionMapCogn
             evidence_refs: convert_evidence_refs(input.evidence_refs),
         })
         .collect()
+}
+
+fn convert_success_criteria(
+    inputs: Vec<TaskSpaceSuccessCriterionArgs>,
+) -> Vec<ActionMapSuccessCriterionInput> {
+    inputs
+        .into_iter()
+        .map(|input| ActionMapSuccessCriterionInput {
+            id: input.id,
+            kind: input.kind,
+            description: input.description,
+            status: input.status,
+            evidence_refs: convert_evidence_refs(input.evidence_refs),
+        })
+        .collect()
+}
+
+fn default_success_criterion_status() -> String {
+    "open".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn start_task_accepts_missing_initial_success_criteria_for_gate_recovery() {
+        let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
+            "action": "start_task",
+            "task_title": "Audit",
+            "task_objective": "Audit the codebase",
+            "node_kind": "inspect_code_context",
+            "node_title": "Inspect",
+            "node_context_summary": "Read the project shape",
+            "bind_current": true
+        }))
+        .expect("start_task args parse");
+
+        match args {
+            TaskSpaceControlArgs::StartTask {
+                initial_success_criteria,
+                ..
+            } => assert!(initial_success_criteria.is_empty()),
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn start_task_parses_initial_success_criteria_when_present() {
+        let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
+            "action": "start_task",
+            "task_title": "Audit",
+            "task_objective": "Audit the codebase",
+            "node_kind": "inspect_code_context",
+            "initial_success_criteria": [{
+                "id": "sc-1",
+                "kind": "validator",
+                "description": "Public validator exits 0",
+                "evidence_refs": [{"artifact_ref": "user-request"}]
+            }],
+            "node_title": "Inspect",
+            "node_context_summary": "Read the project shape"
+        }))
+        .expect("start_task criteria parse");
+
+        match args {
+            TaskSpaceControlArgs::StartTask {
+                initial_success_criteria,
+                ..
+            } => {
+                assert_eq!(initial_success_criteria.len(), 1);
+                assert_eq!(initial_success_criteria[0].id, "sc-1");
+                assert_eq!(initial_success_criteria[0].status, "open");
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn record_output_contract_prefers_specific_kind_field_and_keeps_alias() {
+        let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
+            "action": "record_output_contract",
+            "output_contract_id": "contract-1",
+            "output_contract_kind": "validator",
+            "description": "Public validator exits 0",
+            "evidence_refs": [{"artifact_ref": "user-request"}]
+        }))
+        .expect("record_output_contract args parse");
+
+        match args {
+            TaskSpaceControlArgs::RecordOutputContract {
+                output_contract_kind,
+                ..
+            } => assert_eq!(output_contract_kind, "validator"),
+            other => panic!("unexpected args: {other:?}"),
+        }
+
+        let legacy_args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
+            "action": "record_output_contract",
+            "output_contract_id": "contract-1",
+            "kind": "validator",
+            "description": "Public validator exits 0",
+            "evidence_refs": [{"artifact_ref": "user-request"}]
+        }))
+        .expect("record_output_contract legacy args parse");
+
+        match legacy_args {
+            TaskSpaceControlArgs::RecordOutputContract {
+                output_contract_kind,
+                ..
+            } => assert_eq!(output_contract_kind, "validator"),
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
 }

@@ -5838,6 +5838,357 @@
         },
         "type": "object"
       },
+      "ActionMapSnapshotProblemBlocker": {
+        "properties": {
+          "description": {
+            "default": "",
+            "type": "string"
+          },
+          "evidenceRefs": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
+            },
+            "type": "array"
+          },
+          "id": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ActionMapSnapshotProblemDecision": {
+        "properties": {
+          "decision": {
+            "default": "",
+            "type": "string"
+          },
+          "decisionKind": {
+            "default": "",
+            "type": "string"
+          },
+          "dependsOnFacts": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "dependsOnResults": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "default": "",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "type": "string"
+          },
+          "resolvesQuestions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "risks": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "supportsCriteria": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ActionMapSnapshotProblemFact": {
+        "properties": {
+          "evidenceRefs": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
+            },
+            "type": "array"
+          },
+          "id": {
+            "default": "",
+            "type": "string"
+          },
+          "statement": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ActionMapSnapshotProblemHypothesis": {
+        "properties": {
+          "confidence": {
+            "default": "",
+            "type": "string"
+          },
+          "evidenceRefs": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
+            },
+            "type": "array"
+          },
+          "falsificationCheck": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "default": "",
+            "type": "string"
+          },
+          "statement": {
+            "default": "",
+            "type": "string"
+          },
+          "status": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ActionMapSnapshotProblemNextBestAction": {
+        "properties": {
+          "actionSummary": {
+            "default": "",
+            "type": "string"
+          },
+          "blockedBy": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expectedArtifact": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nodeId": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ActionMapSnapshotProblemOpenQuestion": {
+        "properties": {
+          "blocking": {
+            "default": false,
+            "type": "boolean"
+          },
+          "closedByResultId": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evidenceRefs": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
+            },
+            "type": "array"
+          },
+          "id": {
+            "default": "",
+            "type": "string"
+          },
+          "openedByNodeId": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "question": {
+            "default": "",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "type": "string"
+          },
+          "resolution": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ActionMapSnapshotProblemRisk": {
+        "properties": {
+          "description": {
+            "default": "",
+            "type": "string"
+          },
+          "evidenceRefs": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
+            },
+            "type": "array"
+          },
+          "id": {
+            "default": "",
+            "type": "string"
+          },
+          "mitigation": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ActionMapSnapshotProblemStateLedger": {
+        "properties": {
+          "blockers": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotProblemBlocker"
+            },
+            "type": "array"
+          },
+          "decisions": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotProblemDecision"
+            },
+            "type": "array"
+          },
+          "hypotheses": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotProblemHypothesis"
+            },
+            "type": "array"
+          },
+          "knownFacts": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotProblemFact"
+            },
+            "type": "array"
+          },
+          "nextBestAction": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/v2/ActionMapSnapshotProblemNextBestAction"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "objective": {
+            "default": "",
+            "type": "string"
+          },
+          "openQuestions": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotProblemOpenQuestion"
+            },
+            "type": "array"
+          },
+          "risks": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotProblemRisk"
+            },
+            "type": "array"
+          },
+          "schemaIncomplete": {
+            "default": true,
+            "type": "boolean"
+          },
+          "successCriteria": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotProblemSuccessCriterion"
+            },
+            "type": "array"
+          },
+          "updatedAtMs": {
+            "default": 0,
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ActionMapSnapshotProblemSuccessCriterion": {
+        "properties": {
+          "description": {
+            "default": "",
+            "type": "string"
+          },
+          "evidenceRefs": {
+            "default": [],
+            "items": {
+              "$ref": "#/definitions/v2/ActionMapSnapshotEvidenceRef"
+            },
+            "type": "array"
+          },
+          "id": {
+            "default": "",
+            "type": "string"
+          },
+          "kind": {
+            "default": "",
+            "type": "string"
+          },
+          "status": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ActionMapSnapshotResult": {
         "properties": {
           "actionClass": {
@@ -6100,6 +6451,33 @@
               {
                 "type": "null"
               }
+            ]
+          },
+          "problemLedger": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/v2/ActionMapSnapshotProblemStateLedger"
+              }
+            ],
+            "default": {
+              "blockers": [],
+              "decisions": [],
+              "hypotheses": [],
+              "knownFacts": [],
+              "nextBestAction": null,
+              "objective": "",
+              "openQuestions": [],
+              "risks": [],
+              "schemaIncomplete": true,
+              "successCriteria": [],
+              "updatedAtMs": 0
+            }
+          },
+          "problemStateLedgerVersion": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
             ]
           },
           "status": {

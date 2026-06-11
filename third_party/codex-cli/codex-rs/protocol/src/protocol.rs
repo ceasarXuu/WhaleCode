@@ -1839,6 +1839,11 @@ pub struct ActionMapSnapshotTask {
     pub map_ids: Vec<String>,
     #[serde(default, deserialize_with = "deserialize_default_on_error")]
     pub cognitive_state: ActionMapSnapshotCognitiveState,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub problem_state_ledger_version: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_default_on_error")]
+    pub problem_ledger: ActionMapSnapshotProblemStateLedger,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -1909,6 +1914,192 @@ pub struct ActionMapSnapshotCognitiveClaim {
     pub statement: String,
     #[serde(default)]
     pub evidence_refs: Vec<ActionMapSnapshotEvidenceRef>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotProblemStateLedger {
+    #[serde(default)]
+    pub objective: String,
+    #[serde(default)]
+    pub success_criteria: Vec<ActionMapSnapshotProblemSuccessCriterion>,
+    #[serde(default)]
+    pub known_facts: Vec<ActionMapSnapshotProblemFact>,
+    #[serde(default)]
+    pub open_questions: Vec<ActionMapSnapshotProblemOpenQuestion>,
+    #[serde(default)]
+    pub hypotheses: Vec<ActionMapSnapshotProblemHypothesis>,
+    #[serde(default)]
+    pub decisions: Vec<ActionMapSnapshotProblemDecision>,
+    #[serde(default)]
+    pub risks: Vec<ActionMapSnapshotProblemRisk>,
+    #[serde(default)]
+    pub blockers: Vec<ActionMapSnapshotProblemBlocker>,
+    #[serde(default)]
+    pub next_best_action: Option<ActionMapSnapshotProblemNextBestAction>,
+    #[serde(default)]
+    pub updated_at_ms: i64,
+    #[serde(default = "default_true")]
+    pub schema_incomplete: bool,
+}
+
+impl Default for ActionMapSnapshotProblemStateLedger {
+    fn default() -> Self {
+        Self {
+            objective: String::new(),
+            success_criteria: Vec::new(),
+            known_facts: Vec::new(),
+            open_questions: Vec::new(),
+            hypotheses: Vec::new(),
+            decisions: Vec::new(),
+            risks: Vec::new(),
+            blockers: Vec::new(),
+            next_best_action: None,
+            updated_at_ms: 0,
+            schema_incomplete: true,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotProblemSuccessCriterion {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub evidence_refs: Vec<ActionMapSnapshotEvidenceRef>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotProblemFact {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub statement: String,
+    #[serde(default)]
+    pub evidence_refs: Vec<ActionMapSnapshotEvidenceRef>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotProblemOpenQuestion {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub question: String,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub blocking: bool,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub opened_by_node_id: Option<String>,
+    #[serde(default)]
+    pub closed_by_result_id: Option<String>,
+    #[serde(default)]
+    pub resolution: Option<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<ActionMapSnapshotEvidenceRef>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotProblemHypothesis {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub statement: String,
+    #[serde(default)]
+    pub confidence: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub evidence_refs: Vec<ActionMapSnapshotEvidenceRef>,
+    #[serde(default)]
+    pub falsification_check: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotProblemDecision {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub decision_kind: String,
+    #[serde(default)]
+    pub decision: String,
+    #[serde(default)]
+    pub rationale: String,
+    #[serde(default)]
+    pub depends_on_results: Vec<String>,
+    #[serde(default)]
+    pub depends_on_facts: Vec<String>,
+    #[serde(default)]
+    pub resolves_questions: Vec<String>,
+    #[serde(default)]
+    pub supports_criteria: Vec<String>,
+    #[serde(default)]
+    pub risks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotProblemRisk {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub mitigation: Option<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<ActionMapSnapshotEvidenceRef>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotProblemBlocker {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub evidence_refs: Vec<ActionMapSnapshotEvidenceRef>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotProblemNextBestAction {
+    #[serde(default)]
+    pub node_id: Option<String>,
+    #[serde(default)]
+    pub action_summary: String,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub expected_artifact: Option<String>,
+    #[serde(default)]
+    pub blocked_by: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -6194,6 +6385,19 @@ mod tests {
                     assumptions: Vec::new(),
                     risk_notes: Vec::new(),
                 },
+                problem_state_ledger_version: Some("taskspace-problem-ledger-v1".to_string()),
+                problem_ledger: ActionMapSnapshotProblemStateLedger {
+                    objective: "Build an artifact with traceable evidence".to_string(),
+                    success_criteria: vec![ActionMapSnapshotProblemSuccessCriterion {
+                        id: "sc-1".to_string(),
+                        kind: "artifact".to_string(),
+                        description: "final artifact is utf-8".to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: Vec::new(),
+                    }],
+                    schema_incomplete: false,
+                    ..Default::default()
+                },
             }],
             maps: vec![ActionMapSnapshotMap {
                 id: "map-1".to_string(),
@@ -6265,6 +6469,14 @@ mod tests {
             "source-1"
         );
         assert_eq!(
+            value["tasks"][0]["problemStateLedgerVersion"],
+            "taskspace-problem-ledger-v1"
+        );
+        assert_eq!(
+            value["tasks"][0]["problemLedger"]["successCriteria"][0]["id"],
+            "sc-1"
+        );
+        assert_eq!(
             value["maps"][0]["results"][0]["evidencePackage"]["validity"],
             "accepted"
         );
@@ -6272,6 +6484,37 @@ mod tests {
             value["maps"][0]["results"][0]["evidencePackage"]["claims"][0]["id"],
             "claim-1"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn action_map_snapshot_deserializes_legacy_task_without_problem_ledger() -> Result<()> {
+        let value = serde_json::json!({
+            "mode": "experiment",
+            "routingRequired": false,
+            "bootstrapRequired": false,
+            "rebornRequested": false,
+            "activeTaskId": "task-1",
+            "activeMapId": "map-1",
+            "tasks": [{
+                "id": "task-1",
+                "title": "Legacy",
+                "objective": "Legacy objective",
+                "status": "active",
+                "ownerSessionId": null,
+                "activeMapId": "map-1",
+                "mapIds": ["map-1"]
+            }],
+            "maps": [],
+            "maintenanceBarriers": []
+        });
+
+        let snapshot: ActionMapSnapshot = serde_json::from_value(value)?;
+
+        assert_eq!(snapshot.tasks.len(), 1);
+        assert_eq!(snapshot.tasks[0].problem_state_ledger_version, None);
+        assert!(snapshot.tasks[0].problem_ledger.schema_incomplete);
+        assert!(snapshot.tasks[0].problem_ledger.success_criteria.is_empty());
         Ok(())
     }
 
