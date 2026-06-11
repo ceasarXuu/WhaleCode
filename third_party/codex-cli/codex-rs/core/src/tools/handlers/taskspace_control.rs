@@ -5,6 +5,7 @@ use crate::action_map::ActionMapCognitiveClaimInput;
 use crate::action_map::ActionMapEvidenceRefInput;
 use crate::action_map::ActionMapLedgerDecisionInput;
 use crate::action_map::ActionMapNextNodeDraft;
+use crate::action_map::ActionMapResultAdoptionInput;
 use crate::action_map::ActionMapSuccessCriterionInput;
 use crate::action_map::NodeKind;
 use crate::function_tool::FunctionCallError;
@@ -151,6 +152,19 @@ enum TaskSpaceControlArgs {
         validator_refs: Vec<String>,
         #[serde(default)]
         remaining_uncertainty: Vec<String>,
+    },
+    AdoptResult {
+        result_id: String,
+        #[serde(default)]
+        adopted_by_facts: Vec<String>,
+        #[serde(default)]
+        adopted_by_hypotheses: Vec<String>,
+        #[serde(default)]
+        adopted_by_decisions: Vec<String>,
+        #[serde(default)]
+        adopted_by_criteria: Vec<String>,
+        #[serde(default)]
+        adopted_by_nodes: Vec<String>,
     },
 }
 
@@ -538,6 +552,30 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .map_err(FunctionCallError::RespondToModel)?;
                 format!("TaskSpace result validity recorded: {result_id} validity={validity}")
             }
+            TaskSpaceControlArgs::AdoptResult {
+                result_id,
+                adopted_by_facts,
+                adopted_by_hypotheses,
+                adopted_by_decisions,
+                adopted_by_criteria,
+                adopted_by_nodes,
+            } => {
+                session
+                    .adopt_action_map_result(
+                        &turn,
+                        ActionMapResultAdoptionInput {
+                            result_id: result_id.clone(),
+                            adopted_by_facts,
+                            adopted_by_hypotheses,
+                            adopted_by_decisions,
+                            adopted_by_criteria,
+                            adopted_by_nodes,
+                        },
+                    )
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                format!("TaskSpace result adoption recorded: {result_id}")
+            }
         };
         Ok(TaskSpaceControlOutput { message })
     }
@@ -722,6 +760,39 @@ mod tests {
                 output_contract_kind,
                 ..
             } => assert_eq!(output_contract_kind, "validator"),
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn adopt_result_parses_all_adoption_refs() {
+        let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
+            "action": "adopt_result",
+            "result_id": "result-1",
+            "adopted_by_facts": ["fact-1"],
+            "adopted_by_hypotheses": ["hyp-1"],
+            "adopted_by_decisions": ["decision-1"],
+            "adopted_by_criteria": ["sc-1"],
+            "adopted_by_nodes": ["node-1"]
+        }))
+        .expect("adopt_result args parse");
+
+        match args {
+            TaskSpaceControlArgs::AdoptResult {
+                result_id,
+                adopted_by_facts,
+                adopted_by_hypotheses,
+                adopted_by_decisions,
+                adopted_by_criteria,
+                adopted_by_nodes,
+            } => {
+                assert_eq!(result_id, "result-1");
+                assert_eq!(adopted_by_facts, vec!["fact-1"]);
+                assert_eq!(adopted_by_hypotheses, vec!["hyp-1"]);
+                assert_eq!(adopted_by_decisions, vec!["decision-1"]);
+                assert_eq!(adopted_by_criteria, vec!["sc-1"]);
+                assert_eq!(adopted_by_nodes, vec!["node-1"]);
+            }
             other => panic!("unexpected args: {other:?}"),
         }
     }

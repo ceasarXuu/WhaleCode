@@ -22,6 +22,7 @@ export type { ActionMapSnapshotProblemRisk } from "./ActionMapSnapshotProblemRis
 export type { ActionMapSnapshotProblemStateLedger } from "./ActionMapSnapshotProblemStateLedger";
 export type { ActionMapSnapshotProblemSuccessCriterion } from "./ActionMapSnapshotProblemSuccessCriterion";
 export type { ActionMapSnapshotResult } from "./ActionMapSnapshotResult";
+export type { ActionMapSnapshotResultAdoption } from "./ActionMapSnapshotResultAdoption";
 export type { ActionMapSnapshotResultEvidencePackage } from "./ActionMapSnapshotResultEvidencePackage";
 export type { ActionMapSnapshotSentinelSummary } from "./ActionMapSnapshotSentinelSummary";
 export type { ActionMapSnapshotSentinelWarningRef } from "./ActionMapSnapshotSentinelWarningRef";

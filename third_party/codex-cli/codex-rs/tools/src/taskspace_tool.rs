@@ -169,9 +169,10 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
                     json!("record_decision"),
                     json!("record_next_best_action"),
                     json!("mark_result_validity"),
+                    json!("adopt_result"),
                 ],
                 Some(
-                "One of: start_task, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, record_success_criteria, record_open_question, close_open_question, record_decision, record_next_best_action, mark_result_validity. Use only for TaskSpace runtime control."
+                "One of: start_task, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, record_success_criteria, record_open_question, close_open_question, record_decision, record_next_best_action, mark_result_validity, adopt_result. Use only for TaskSpace runtime control."
                     .to_string(),
                 ),
             ),
@@ -501,7 +502,9 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
         ),
         (
             "result_id".to_string(),
-            JsonSchema::string(Some("Required for mark_result_validity.".to_string())),
+            JsonSchema::string(Some(
+                "Required for mark_result_validity and adopt_result.".to_string(),
+            )),
         ),
         (
             "validity".to_string(),
@@ -556,6 +559,41 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
                 Some("Optional for mark_result_validity.".to_string()),
             ),
         ),
+        (
+            "adopted_by_facts".to_string(),
+            JsonSchema::array(
+                JsonSchema::string(Some("Existing fact id.".to_string())),
+                Some("Optional for adopt_result.".to_string()),
+            ),
+        ),
+        (
+            "adopted_by_hypotheses".to_string(),
+            JsonSchema::array(
+                JsonSchema::string(Some("Existing hypothesis id.".to_string())),
+                Some("Optional for adopt_result.".to_string()),
+            ),
+        ),
+        (
+            "adopted_by_decisions".to_string(),
+            JsonSchema::array(
+                JsonSchema::string(Some("Existing decision id.".to_string())),
+                Some("Optional for adopt_result.".to_string()),
+            ),
+        ),
+        (
+            "adopted_by_criteria".to_string(),
+            JsonSchema::array(
+                JsonSchema::string(Some("Existing success criterion id.".to_string())),
+                Some("Optional for adopt_result.".to_string()),
+            ),
+        ),
+        (
+            "adopted_by_nodes".to_string(),
+            JsonSchema::array(
+                JsonSchema::string(Some("Existing node id.".to_string())),
+                Some("Optional for adopt_result.".to_string()),
+            ),
+        ),
     ]);
 
     ToolSpec::Function(ResponsesApiTool {
@@ -564,7 +602,7 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
 
 Use this only when TaskSpace is enabled and you need to update task-map structure or cognitive state before ordinary work.
 
-The main agent is the TaskSpace problem-state and model manager. Use this tool to keep the task's current model explicit: route or create the semantic task, keep work bound to concrete nodes, record success criteria, record open questions, record decisions, update next best action, record output contracts, record fact sources, record active facts, and mark result validity before relying on node or subagent output.
+The main agent is the TaskSpace problem-state and model manager. Use this tool to keep the task's current model explicit: route or create the semantic task, keep work bound to concrete nodes, record success criteria, record open questions, record decisions, update next best action, record output contracts, record fact sources, record active facts, mark result validity before relying on node or subagent output, and record result adoption when accepted evidence is used by facts, decisions, criteria, or follow-up nodes.
 
 Runtime preflight blocks ordinary tools and spawn_agent until the active task has at least one success criterion, one output contract, and one fact source. After finish_node, block_node, or subagent completion records a node-level result, runtime blocks further ordinary tools and spawn_agent until mark_result_validity records whether that result is accepted, questioned, or invalid.
 
@@ -584,6 +622,7 @@ Supported actions:
 - `record_decision`: record a design, patch, validation, or synthesis decision with the facts, results, questions, and criteria it depends on.
 - `record_next_best_action`: record the current smallest high-value action implied by the problem state.
 - `mark_result_validity`: update an existing node result's evidence package. `accepted` requires non-empty claims and evidence refs. If no validation/source evidence was produced, use `unreviewed` or `questioned`; never call `accepted` with empty claims.
+- `adopt_result`: record how an accepted or questioned result is actually used by facts, decisions, criteria, hypotheses, or follow-up nodes. `record_fact` and `record_decision` auto-adopt referenced results; use this action for criteria/node adoption or to repair missing adoption links.
 
 Cognitive-state rules:
 - After start_task or route_task, record user-stated acceptance criteria, output format, schema, validator, artifact, and non-goal requirements as success criteria and output contracts before ordinary work. Use evidence_refs where available; artifact_ref may cite the current user request, README/spec/test/source path, or expected artifact.
@@ -591,6 +630,7 @@ Cognitive-state rules:
 - Record user-provided facts, observed environment facts, and validator/test outputs as fact sources before turning them into active facts. Use non-empty evidence_refs; artifact_ref or validator_ref is acceptable before any node result exists.
 - `generated_for_test_only`, `inferred`, and `unknown` provenance may guide investigation but must not anchor active facts or final user claims unless rechecked against observed or user-provided evidence.
 - Treat subagent and node results as evidence packages, not final truth. After a node-level result is recorded, capture claims, evidence refs, changed artifacts, validator refs, and remaining uncertainty through `mark_result_validity` before using it, spawning follow-up work, running ordinary tools, or answering the user. For accepted implementation results, put modified files in `changed_artifacts`; `evidence_refs` alone mean supporting/source evidence.
+- Decisions must cite at least one concrete dependency. Do not base a decision on invalid or unreviewed results. A questioned result cannot be the only dependency for a decision.
 - Direct trace events are internal audit records. Do not expose TaskSpace, task, map, node, lease, or subagent protocol terms to the user unless the user is explicitly debugging TaskSpace.
 
 Node kind selection:
@@ -649,6 +689,7 @@ mod tests {
                 "record_decision",
                 "record_next_best_action",
                 "mark_result_validity",
+                "adopt_result",
             ]
         );
         assert!(!actions.contains(&"promote_taskspace"));
@@ -685,6 +726,10 @@ mod tests {
             "result_id",
             "validity",
             "validity_reason",
+            "adopted_by_facts",
+            "adopted_by_decisions",
+            "adopted_by_criteria",
+            "adopted_by_nodes",
         ] {
             assert!(
                 properties.contains_key(present_field),
@@ -704,6 +749,8 @@ mod tests {
         assert!(description.contains("record success criteria"));
         assert!(description.contains("Runtime preflight blocks ordinary tools"));
         assert!(description.contains("Treat subagent and node results as evidence packages"));
+        assert!(description.contains("record result adoption"));
+        assert!(description.contains("Decisions must cite at least one concrete dependency"));
         assert!(description.contains("generated_for_test_only"));
         assert!(description.contains("Do not use node kinds here"));
         assert!(description.contains("never call `accepted` with empty claims"));

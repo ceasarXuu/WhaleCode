@@ -2130,6 +2130,8 @@ pub struct ActionMapSnapshotNode {
     pub title: String,
     #[serde(default = "default_action_map_node_kind")]
     pub kind: String,
+    #[serde(default = "default_action_map_canonical_node_kind")]
+    pub canonical_kind: String,
     pub status: String,
     pub context_summary: String,
     pub source_refs: Vec<String>,
@@ -2197,10 +2199,34 @@ pub struct ActionMapSnapshotResultEvidencePackage {
     pub validity: String,
     #[serde(default)]
     pub validity_reason: String,
+    #[serde(default, deserialize_with = "deserialize_default_on_error")]
+    pub adoption: ActionMapSnapshotResultAdoption,
 }
 
 fn default_action_map_result_validity() -> String {
     "unreviewed".to_string()
+}
+
+fn default_action_map_canonical_node_kind() -> String {
+    "custom".to_string()
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotResultAdoption {
+    #[serde(default)]
+    pub adoption_state: String,
+    #[serde(default)]
+    pub adopted_by_facts: Vec<String>,
+    #[serde(default)]
+    pub adopted_by_hypotheses: Vec<String>,
+    #[serde(default)]
+    pub adopted_by_decisions: Vec<String>,
+    #[serde(default)]
+    pub adopted_by_criteria: Vec<String>,
+    #[serde(default)]
+    pub adopted_by_nodes: Vec<String>,
 }
 
 impl Default for ActionMapSnapshotResultEvidencePackage {
@@ -2213,6 +2239,10 @@ impl Default for ActionMapSnapshotResultEvidencePackage {
             remaining_uncertainty: Vec::new(),
             validity: "unreviewed".to_string(),
             validity_reason: String::new(),
+            adoption: ActionMapSnapshotResultAdoption {
+                adoption_state: "none".to_string(),
+                ..Default::default()
+            },
         }
     }
 }
@@ -6441,6 +6471,11 @@ mod tests {
                         remaining_uncertainty: Vec::new(),
                         validity: "accepted".to_string(),
                         validity_reason: "validator passed".to_string(),
+                        adoption: ActionMapSnapshotResultAdoption {
+                            adoption_state: "accepted_adopted".to_string(),
+                            adopted_by_facts: vec!["fact-1".to_string()],
+                            ..Default::default()
+                        },
                     },
                     source_thread_id: ThreadId::new(),
                     created_at_ms: 1234,
@@ -6479,6 +6514,10 @@ mod tests {
         assert_eq!(
             value["maps"][0]["results"][0]["evidencePackage"]["validity"],
             "accepted"
+        );
+        assert_eq!(
+            value["maps"][0]["results"][0]["evidencePackage"]["adoption"]["adoptionState"],
+            "accepted_adopted"
         );
         assert_eq!(
             value["maps"][0]["results"][0]["evidencePackage"]["claims"][0]["id"],

@@ -119,6 +119,7 @@ pub(crate) struct NodeResultEvidencePackage {
     pub(crate) remaining_uncertainty: Vec<String>,
     pub(crate) validity: ResultValidity,
     pub(crate) validity_reason: String,
+    pub(crate) adoption: NodeResultAdoption,
 }
 
 impl Default for NodeResultEvidencePackage {
@@ -131,6 +132,98 @@ impl Default for NodeResultEvidencePackage {
             remaining_uncertainty: Vec::new(),
             validity: ResultValidity::Unreviewed,
             validity_reason: String::new(),
+            adoption: NodeResultAdoption::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct NodeResultAdoption {
+    pub(crate) adoption_state: ResultAdoptionState,
+    pub(crate) adopted_by_facts: Vec<String>,
+    pub(crate) adopted_by_hypotheses: Vec<String>,
+    pub(crate) adopted_by_decisions: Vec<String>,
+    pub(crate) adopted_by_criteria: Vec<String>,
+    pub(crate) adopted_by_nodes: Vec<String>,
+}
+
+impl NodeResultAdoption {
+    pub(crate) fn refresh_state(&mut self, validity: ResultValidity) {
+        self.adoption_state = match validity {
+            ResultValidity::Unreviewed => ResultAdoptionState::None,
+            ResultValidity::Accepted if self.has_refs() => ResultAdoptionState::AcceptedAdopted,
+            ResultValidity::Accepted => ResultAdoptionState::AcceptedUnused,
+            ResultValidity::Questioned => ResultAdoptionState::Questioned,
+            ResultValidity::Invalid => ResultAdoptionState::Invalid,
+        };
+    }
+
+    pub(crate) fn merge_refs(
+        &mut self,
+        facts: Vec<String>,
+        hypotheses: Vec<String>,
+        decisions: Vec<String>,
+        criteria: Vec<String>,
+        nodes: Vec<String>,
+    ) {
+        merge_unique(&mut self.adopted_by_facts, facts);
+        merge_unique(&mut self.adopted_by_hypotheses, hypotheses);
+        merge_unique(&mut self.adopted_by_decisions, decisions);
+        merge_unique(&mut self.adopted_by_criteria, criteria);
+        merge_unique(&mut self.adopted_by_nodes, nodes);
+    }
+
+    fn has_refs(&self) -> bool {
+        !self.adopted_by_facts.is_empty()
+            || !self.adopted_by_hypotheses.is_empty()
+            || !self.adopted_by_decisions.is_empty()
+            || !self.adopted_by_criteria.is_empty()
+            || !self.adopted_by_nodes.is_empty()
+    }
+}
+
+fn merge_unique(target: &mut Vec<String>, refs: Vec<String>) {
+    for value in refs {
+        if !target.contains(&value) {
+            target.push(value);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResultAdoptionState {
+    None,
+    AcceptedUnused,
+    AcceptedAdopted,
+    Questioned,
+    Invalid,
+}
+
+impl Default for ResultAdoptionState {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl ResultAdoptionState {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::AcceptedUnused => "accepted_unused",
+            Self::AcceptedAdopted => "accepted_adopted",
+            Self::Questioned => "questioned",
+            Self::Invalid => "invalid",
+        }
+    }
+
+    pub(crate) fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "none" => Some(Self::None),
+            "accepted_unused" => Some(Self::AcceptedUnused),
+            "accepted_adopted" => Some(Self::AcceptedAdopted),
+            "questioned" => Some(Self::Questioned),
+            "invalid" => Some(Self::Invalid),
+            _ => None,
         }
     }
 }

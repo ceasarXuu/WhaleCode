@@ -309,7 +309,7 @@ function renderGraph(m){
   const head=document.createElementNS(svg.namespaceURI,'path');head.setAttribute('d','M0,0 L7,3 L0,6 Z');head.setAttribute('fill','#777');marker.appendChild(head);defs.appendChild(marker);svg.appendChild(defs);
   m.edges.forEach(e=>{const a=layout.pos.get(e.from),b=layout.pos.get(e.to);if(!a||!b)return;const p=document.createElementNS(svg.namespaceURI,'path');const x1=a.x+a.w,y1=a.y+a.h/2,x2=b.x,y2=b.y+b.h/2,mid=(x1+x2)/2;p.setAttribute('class','edge');p.setAttribute('marker-end','url(#arrow)');p.setAttribute('d',`M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`);svg.appendChild(p)});
   inner.appendChild(svg);
-  m.nodes.forEach(n=>{const p=layout.pos.get(n.id);const card=el('div');card.className='graph-node '+(n.status||'');card.style.left=p.x+'px';card.style.top=p.y+'px';card.appendChild(el('div',short(n.title||n.id,32),'node-title'));card.appendChild(el('div',n.id+' | '+(n.status||''),'node-meta'));card.appendChild(el('div',short(n.contextSummary||'',72)));card.appendChild(el('div','results '+((n.resultIds||[]).length)+' | '+(n.activeLease?'leased':'free'),'node-meta'));inner.appendChild(card)});
+  m.nodes.forEach(n=>{const p=layout.pos.get(n.id);const card=el('div');card.className='graph-node '+(n.status||'');card.style.left=p.x+'px';card.style.top=p.y+'px';card.appendChild(el('div',short(n.title||n.id,32),'node-title'));card.appendChild(el('div',n.id+' | '+(n.status||'')+' | '+(n.canonicalKind||n.kind||''),'node-meta'));card.appendChild(el('div',short(n.contextSummary||'',72)));card.appendChild(el('div','results '+((n.resultIds||[]).length)+' | '+(n.activeLease?'leased':'free'),'node-meta'));inner.appendChild(card)});
   g.appendChild(inner);g.appendChild(el('div','drag to pan | wheel to zoom','graph-help'));
   function zoomAt(factor, cx, cy){
     const rect=g.getBoundingClientRect(), px=cx-rect.left, py=cy-rect.top;
@@ -387,10 +387,11 @@ function renderCognitivePanel(task, m, s){
   }
   const resultRows=arr(m.results).map(r=>{
     const ep=r.evidencePackage||{};
-    return [r.id,r.nodeId,ep.validity||'unreviewed',arr(ep.claims).length,arr(ep.evidenceRefs).length,list(ep.validatorRefs),ep.validityReason||''];
+    const adoption=ep.adoption||{};
+    return [r.id,r.nodeId,ep.validity||'unreviewed',adoption.adoptionState||'none',arr(ep.claims).length,arr(ep.evidenceRefs).length,list(ep.validatorRefs),ep.validityReason||''];
   });
   if(resultRows.length){
-    p.appendChild(detail('result-validity:'+m.id,'result validity',table(['result','node','validity','claims','evidence','validators','reason'],resultRows)));
+    p.appendChild(detail('result-validity:'+m.id,'result validity',table(['result','node','validity','adoption','claims','evidence','validators','reason'],resultRows)));
   }
   const warnings=arr(s.sentinelWarnings).filter(w=>w.mapId===m.id||w.taskId===task.id);
   if(warnings.length){
@@ -410,8 +411,18 @@ function renderResultDetail(r){
   line.appendChild(badge('claims '+arr(ep.claims).length));
   line.appendChild(badge('evidence '+arr(ep.evidenceRefs).length));
   line.appendChild(badge('validators '+arr(ep.validatorRefs).length));
+  const adoption=ep.adoption||{};
+  line.appendChild(badge('adoption '+(adoption.adoptionState||'none')));
   box.appendChild(line);
   if(ep.validityReason)box.appendChild(el('div','reason: '+ep.validityReason,'kv'));
+  const adoptionRows=[
+    ['facts',list(adoption.adoptedByFacts)],
+    ['hypotheses',list(adoption.adoptedByHypotheses)],
+    ['decisions',list(adoption.adoptedByDecisions)],
+    ['criteria',list(adoption.adoptedByCriteria)],
+    ['nodes',list(adoption.adoptedByNodes)],
+  ].filter(row=>row[1]);
+  if(adoptionRows.length)box.appendChild(table(['adopted by','refs'],adoptionRows));
   if(arr(ep.claims).length)box.appendChild(table(['claim','statement','evidence'],arr(ep.claims).map(c=>[c.id,c.statement,evidenceList(c.evidenceRefs)])));
   if(arr(ep.evidenceRefs).length)box.appendChild(table(['evidence refs'],arr(ep.evidenceRefs).map(e=>[evidenceText(e)])));
   if(arr(ep.changedArtifacts).length)box.appendChild(table(['changed artifacts'],arr(ep.changedArtifacts).map(x=>[x])));
@@ -445,7 +456,7 @@ function render(data){
     const graphPane=el('div');graphPane.appendChild(el('h3','graph'));graphPane.appendChild(renderGraph(m));layout.appendChild(graphPane);
     layout.appendChild(renderCognitivePanel(m.taskId?tasksById.get(m.taskId):null,m,s));
     next.appendChild(layout);
-    next.appendChild(detail('nodes:'+m.id,'nodes',table(['id','status','title','context','source refs','lease','results'],m.nodes.map(n=>[n.id,n.status,n.title,n.contextSummary,list(n.sourceRefs),n.activeLease||'',list(n.resultIds)]))));
+    next.appendChild(detail('nodes:'+m.id,'nodes',table(['id','status','kind','canonical','title','context','source refs','lease','results'],m.nodes.map(n=>[n.id,n.status,n.kind||'',n.canonicalKind||'',n.title,n.contextSummary,list(n.sourceRefs),n.activeLease||'',list(n.resultIds)]))));
     if(m.edges.length){next.appendChild(detail('edges:'+m.id,'edges',table(['from','to'],m.edges.map(e=>[e.from,e.to]))))}
     if(m.leases.length){next.appendChild(detail('leases:'+m.id,'leases',table(['id','node','agent thread','agent path'],m.leases.map(l=>[l.id,l.nodeId,l.agentThreadId||'',l.agentPath||'']))))}
     if(m.results.length){
@@ -508,6 +519,8 @@ mod tests {
         assert!(ACTION_MAP_VIEWER_HTML.contains("fact sources"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("result validity"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("evidencePackage"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("canonicalKind"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("adoptionState"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("sentinel warnings"));
     }
 }

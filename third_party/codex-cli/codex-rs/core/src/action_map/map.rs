@@ -103,6 +103,16 @@ impl NodeKind {
         }
     }
 
+    pub(crate) fn canonical_kind(self) -> &'static str {
+        match self {
+            NodeKind::InspectCodeContext => "discover",
+            NodeKind::ImplementSolution => "patch",
+            NodeKind::SmokeTest | NodeKind::RegressionTest => "validate",
+            NodeKind::FinalSynthesis => "synthesize",
+            NodeKind::Custom => "custom",
+        }
+    }
+
     pub(crate) fn from_str(value: &str) -> Option<Self> {
         let normalized = normalize_contract_name(value);
         match normalized.as_str() {

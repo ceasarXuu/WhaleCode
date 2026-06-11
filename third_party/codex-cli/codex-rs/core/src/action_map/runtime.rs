@@ -26,6 +26,7 @@ use codex_protocol::protocol::ActionMapSnapshotProblemRisk;
 use codex_protocol::protocol::ActionMapSnapshotProblemStateLedger;
 use codex_protocol::protocol::ActionMapSnapshotProblemSuccessCriterion;
 use codex_protocol::protocol::ActionMapSnapshotResult;
+use codex_protocol::protocol::ActionMapSnapshotResultAdoption;
 use codex_protocol::protocol::ActionMapSnapshotResultEvidencePackage;
 use codex_protocol::protocol::ActionMapSnapshotSentinelSummary;
 use codex_protocol::protocol::ActionMapSnapshotSentinelWarningRef;
@@ -65,9 +66,11 @@ use super::cognitive::CognitiveClaim;
 use super::cognitive::DataProvenance;
 use super::cognitive::EvidenceRef;
 use super::cognitive::FactSource;
+use super::cognitive::NodeResultAdoption;
 use super::cognitive::NodeResultEvidencePackage;
 use super::cognitive::OutputContract;
 use super::cognitive::OutputContractKind;
+use super::cognitive::ResultAdoptionState;
 use super::cognitive::ResultValidity;
 use super::cognitive::TaskCognitiveState;
 use super::contracts::contract_for;
@@ -246,6 +249,16 @@ pub(crate) struct ActionMapLedgerDecisionInput {
     pub(crate) resolves_questions: Vec<String>,
     pub(crate) supports_criteria: Vec<String>,
     pub(crate) risks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ActionMapResultAdoptionInput {
+    pub(crate) result_id: String,
+    pub(crate) adopted_by_facts: Vec<String>,
+    pub(crate) adopted_by_hypotheses: Vec<String>,
+    pub(crate) adopted_by_decisions: Vec<String>,
+    pub(crate) adopted_by_criteria: Vec<String>,
+    pub(crate) adopted_by_nodes: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -2149,33 +2162,63 @@ preview:\n\
         let statement = require_nonempty_owned("statement", statement)?;
         let evidence_refs = self.normalize_evidence_refs(&task_id, Some(&map_id), evidence_refs)?;
         self.validate_active_fact_evidence_refs(&task_id, Some(&map_id), &evidence_refs)?;
+        let adopted_result_ids = evidence_refs
+            .iter()
+            .filter_map(|evidence_ref| evidence_ref.result_id.clone())
+            .collect::<Vec<_>>();
 
-        let task = self
-            .tasks
-            .get_mut(&task_id)
-            .expect("active task was validated before fact update");
-        let record = CognitiveClaim {
-            id: id.clone(),
-            statement: statement.clone(),
-            evidence_refs: evidence_refs.clone(),
-        };
-        upsert_cognitive_claim(&mut task.cognitive_state.facts, record);
-        task.problem_ledger.upsert_known_fact(
-            ProblemLedgerFact {
+        {
+            let task = self
+                .tasks
+                .get_mut(&task_id)
+                .expect("active task was validated before fact update");
+            let record = CognitiveClaim {
                 id: id.clone(),
-                statement,
-                evidence_refs,
-            },
-            now_ms(),
-        );
-        Ok(vec![MapRuntimeEvent::CognitiveStateUpdated(
+                statement: statement.clone(),
+                evidence_refs: evidence_refs.clone(),
+            };
+            upsert_cognitive_claim(&mut task.cognitive_state.facts, record);
+            task.problem_ledger.upsert_known_fact(
+                ProblemLedgerFact {
+                    id: id.clone(),
+                    statement,
+                    evidence_refs,
+                },
+                now_ms(),
+            );
+        }
+        let mut events = vec![MapRuntimeEvent::CognitiveStateUpdated(
             MapRuntimeCognitiveStateUpdatedEvent {
                 task_id,
-                map_id: Some(map_id),
+                map_id: Some(map_id.clone()),
                 update_kind: "problem_ledger.fact".to_string(),
-                record_id: id,
+                record_id: id.clone(),
             },
-        )])
+        )];
+        for result_id in normalize_string_vec(adopted_result_ids) {
+            self.adopt_result_refs_on_active_map(
+                &map_id,
+                &result_id,
+                vec![id.clone()],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )?;
+            events.push(MapRuntimeEvent::CognitiveStateUpdated(
+                MapRuntimeCognitiveStateUpdatedEvent {
+                    task_id: self
+                        .maps
+                        .get(&map_id)
+                        .and_then(|map| map.task_id.clone())
+                        .unwrap_or_default(),
+                    map_id: Some(map_id.clone()),
+                    update_kind: "result_adoption.fact".to_string(),
+                    record_id: result_id,
+                },
+            ));
+        }
+        Ok(events)
     }
 
     pub(crate) fn record_success_criteria_for_main(
@@ -2308,12 +2351,34 @@ preview:\n\
         let decision_kind = require_nonempty_owned("decision_kind", decision.decision_kind)?;
         let decision_text = require_nonempty_owned("decision", decision.decision)?;
         let rationale = require_nonempty_owned("rationale", decision.rationale)?;
-        self.validate_result_ids_belong_to_active_map(&map_id, &decision.depends_on_results)?;
+        let depends_on_results = normalize_string_vec(decision.depends_on_results);
+        let depends_on_facts = normalize_string_vec(decision.depends_on_facts);
+        let resolves_questions = normalize_string_vec(decision.resolves_questions);
+        let supports_criteria = normalize_string_vec(decision.supports_criteria);
+        if depends_on_results.is_empty()
+            && depends_on_facts.is_empty()
+            && resolves_questions.is_empty()
+            && supports_criteria.is_empty()
+        {
+            return Err(
+                "TaskSpace record_decision requires at least one dependency reference: depends_on_results, depends_on_facts, resolves_questions, or supports_criteria."
+                    .to_string(),
+            );
+        }
+        self.validate_result_ids_belong_to_active_map(&map_id, &depends_on_results)?;
+        let has_non_result_dependency = !depends_on_facts.is_empty()
+            || !resolves_questions.is_empty()
+            || !supports_criteria.is_empty();
+        self.validate_result_dependencies_for_decision(
+            &map_id,
+            &depends_on_results,
+            has_non_result_dependency,
+        )?;
         self.validate_ledger_refs(
             &task_id,
-            &decision.depends_on_facts,
-            &decision.resolves_questions,
-            &decision.supports_criteria,
+            &depends_on_facts,
+            &resolves_questions,
+            &supports_criteria,
         )?;
         let task = self
             .tasks
@@ -2325,20 +2390,96 @@ preview:\n\
                 decision_kind,
                 decision: decision_text,
                 rationale,
-                depends_on_results: decision.depends_on_results,
-                depends_on_facts: decision.depends_on_facts,
-                resolves_questions: decision.resolves_questions,
-                supports_criteria: decision.supports_criteria,
-                risks: decision.risks,
+                depends_on_results: depends_on_results.clone(),
+                depends_on_facts,
+                resolves_questions,
+                supports_criteria,
+                risks: normalize_string_vec(decision.risks),
             },
             now_ms(),
         );
+        let mut events = vec![MapRuntimeEvent::CognitiveStateUpdated(
+            MapRuntimeCognitiveStateUpdatedEvent {
+                task_id: task_id.clone(),
+                map_id: Some(map_id.clone()),
+                update_kind: "problem_ledger.decision".to_string(),
+                record_id: id.clone(),
+            },
+        )];
+        for result_id in depends_on_results {
+            self.adopt_result_refs_on_active_map(
+                &map_id,
+                &result_id,
+                Vec::new(),
+                Vec::new(),
+                vec![id.clone()],
+                Vec::new(),
+                Vec::new(),
+            )?;
+            events.push(MapRuntimeEvent::CognitiveStateUpdated(
+                MapRuntimeCognitiveStateUpdatedEvent {
+                    task_id: task_id.clone(),
+                    map_id: Some(map_id.clone()),
+                    update_kind: "result_adoption.decision".to_string(),
+                    record_id: result_id,
+                },
+            ));
+        }
+        Ok(events)
+    }
+
+    pub(crate) fn adopt_result_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        adoption: ActionMapResultAdoptionInput,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        let result_id = require_nonempty_owned("result_id", adoption.result_id)?;
+        let adopted_by_facts = normalize_string_vec(adoption.adopted_by_facts);
+        let adopted_by_hypotheses = normalize_string_vec(adoption.adopted_by_hypotheses);
+        let adopted_by_decisions = normalize_string_vec(adoption.adopted_by_decisions);
+        let adopted_by_criteria = normalize_string_vec(adoption.adopted_by_criteria);
+        let adopted_by_nodes = normalize_string_vec(adoption.adopted_by_nodes);
+        if adopted_by_facts.is_empty()
+            && adopted_by_hypotheses.is_empty()
+            && adopted_by_decisions.is_empty()
+            && adopted_by_criteria.is_empty()
+            && adopted_by_nodes.is_empty()
+        {
+            return Err(
+                "TaskSpace adopt_result requires at least one adoption reference.".to_string(),
+            );
+        }
+        self.validate_result_ids_belong_to_active_map(&map_id, std::slice::from_ref(&result_id))?;
+        self.validate_result_dependencies_for_decision(
+            &map_id,
+            std::slice::from_ref(&result_id),
+            true,
+        )?;
+        self.validate_adoption_refs(
+            &task_id,
+            &map_id,
+            &adopted_by_facts,
+            &adopted_by_hypotheses,
+            &adopted_by_decisions,
+            &adopted_by_criteria,
+            &adopted_by_nodes,
+        )?;
+        self.adopt_result_refs_on_active_map(
+            &map_id,
+            &result_id,
+            adopted_by_facts,
+            adopted_by_hypotheses,
+            adopted_by_decisions,
+            adopted_by_criteria,
+            adopted_by_nodes,
+        )?;
         Ok(vec![MapRuntimeEvent::CognitiveStateUpdated(
             MapRuntimeCognitiveStateUpdatedEvent {
                 task_id,
                 map_id: Some(map_id),
-                update_kind: "problem_ledger.decision".to_string(),
-                record_id: id,
+                update_kind: "result_adoption".to_string(),
+                record_id: result_id,
             },
         )])
     }
@@ -2452,6 +2593,8 @@ preview:\n\
         let result = map.results.get_mut(&result_id).ok_or_else(|| {
             format!("TaskSpace result `{result_id}` does not exist on active task path `{map_id}`.")
         })?;
+        let mut adoption = result.evidence_package.adoption.clone();
+        adoption.refresh_state(validity);
         result.evidence_package = NodeResultEvidencePackage {
             claims,
             evidence_refs,
@@ -2460,6 +2603,7 @@ preview:\n\
             remaining_uncertainty: normalize_string_vec(remaining_uncertainty),
             validity,
             validity_reason: validity_reason.clone(),
+            adoption,
         };
         Ok(vec![MapRuntimeEvent::ResultValidityChanged(
             MapRuntimeResultValidityChangedEvent {
@@ -2640,6 +2784,159 @@ preview:\n\
         for result_id in normalize_string_vec(result_ids.to_vec()) {
             self.validate_result_belongs_to_active_map(map_id, &result_id)?;
         }
+        Ok(())
+    }
+
+    fn validate_result_dependencies_for_decision(
+        &self,
+        map_id: &str,
+        result_ids: &[String],
+        has_non_result_dependency: bool,
+    ) -> Result<(), String> {
+        for result_id in normalize_string_vec(result_ids.to_vec()) {
+            let result = self
+                .maps
+                .get(map_id)
+                .and_then(|map| map.results.get(&result_id))
+                .ok_or_else(|| {
+                    format!(
+                        "TaskSpace result `{result_id}` does not exist on active task path `{map_id}`."
+                    )
+                })?;
+            match result.evidence_package.validity {
+                ResultValidity::Accepted => {}
+                ResultValidity::Questioned => {
+                    if result_ids.len() == 1 && !has_non_result_dependency {
+                        return Err(format!(
+                            "TaskSpace record_decision cannot use questioned result `{result_id}` as the sole dependency."
+                        ));
+                    }
+                }
+                ResultValidity::Invalid => {
+                    return Err(format!(
+                        "TaskSpace record_decision cannot depend on invalid result `{result_id}`."
+                    ));
+                }
+                ResultValidity::Unreviewed => {
+                    return Err(format!(
+                        "TaskSpace record_decision cannot depend on unreviewed result `{result_id}`. Call mark_result_validity first."
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_adoption_refs(
+        &self,
+        task_id: &str,
+        map_id: &str,
+        fact_ids: &[String],
+        hypothesis_ids: &[String],
+        decision_ids: &[String],
+        criterion_ids: &[String],
+        node_ids: &[String],
+    ) -> Result<(), String> {
+        let task = self
+            .tasks
+            .get(task_id)
+            .ok_or_else(|| format!("TaskSpace task `{task_id}` does not exist."))?;
+        for fact_id in fact_ids {
+            if !task
+                .problem_ledger
+                .known_facts
+                .iter()
+                .any(|fact| fact.id == *fact_id)
+            {
+                return Err(format!(
+                    "TaskSpace adopt_result adopted_by_facts references unknown fact `{fact_id}`."
+                ));
+            }
+        }
+        for hypothesis_id in hypothesis_ids {
+            if !task
+                .problem_ledger
+                .hypotheses
+                .iter()
+                .any(|hypothesis| hypothesis.id == *hypothesis_id)
+            {
+                return Err(format!(
+                    "TaskSpace adopt_result adopted_by_hypotheses references unknown hypothesis `{hypothesis_id}`."
+                ));
+            }
+        }
+        for decision_id in decision_ids {
+            if !task
+                .problem_ledger
+                .decisions
+                .iter()
+                .any(|decision| decision.id == *decision_id)
+            {
+                return Err(format!(
+                    "TaskSpace adopt_result adopted_by_decisions references unknown decision `{decision_id}`."
+                ));
+            }
+        }
+        for criterion_id in criterion_ids {
+            if !task
+                .problem_ledger
+                .success_criteria
+                .iter()
+                .any(|criterion| criterion.id == *criterion_id)
+            {
+                return Err(format!(
+                    "TaskSpace adopt_result adopted_by_criteria references unknown criterion `{criterion_id}`."
+                ));
+            }
+        }
+        let map = self
+            .maps
+            .get(map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        for node_id in node_ids {
+            if !map.nodes.contains_key(node_id) {
+                return Err(format!(
+                    "TaskSpace adopt_result adopted_by_nodes references unknown node `{node_id}`."
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn adopt_result_refs_on_active_map(
+        &mut self,
+        map_id: &str,
+        result_id: &str,
+        facts: Vec<String>,
+        hypotheses: Vec<String>,
+        decisions: Vec<String>,
+        criteria: Vec<String>,
+        nodes: Vec<String>,
+    ) -> Result<(), String> {
+        let map = self
+            .maps
+            .get_mut(map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        let result = map.results.get_mut(result_id).ok_or_else(|| {
+            format!("TaskSpace result `{result_id}` does not exist on active task path `{map_id}`.")
+        })?;
+        if matches!(
+            result.evidence_package.validity,
+            ResultValidity::Invalid | ResultValidity::Unreviewed
+        ) {
+            return Err(format!(
+                "TaskSpace adopt_result cannot adopt {} result `{result_id}`.",
+                result.evidence_package.validity.as_str()
+            ));
+        }
+        result
+            .evidence_package
+            .adoption
+            .merge_refs(facts, hypotheses, decisions, criteria, nodes);
+        result
+            .evidence_package
+            .adoption
+            .refresh_state(result.evidence_package.validity);
         Ok(())
     }
 
@@ -3067,8 +3364,79 @@ preview:\n\
             owner_session_id,
             "finish final_synthesis",
         )?;
+        self.validate_no_open_blocking_questions()?;
+        self.validate_decision_result_dependencies_ready()?;
         self.validate_final_synthesis_has_validation_after_edit()?;
         self.validate_final_answer_no_internal_orchestration_terms(message)?;
+        Ok(())
+    }
+
+    fn validate_no_open_blocking_questions(&self) -> Result<(), String> {
+        let Some(task_id) = self.active_task_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(task) = self.tasks.get(task_id) else {
+            return Ok(());
+        };
+        if let Some(question) = task
+            .problem_ledger
+            .open_questions
+            .iter()
+            .find(|question| question.blocking && question.status == "open")
+        {
+            return Err(format!(
+                "TaskSpace final_synthesis blocked by open blocking question `{}`. Close it or explain why final output is not ready.",
+                question.id
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_decision_result_dependencies_ready(&self) -> Result<(), String> {
+        let Some(task_id) = self.active_task_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(task) = self.tasks.get(task_id) else {
+            return Ok(());
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return Ok(());
+        };
+        for decision in &task.problem_ledger.decisions {
+            for result_id in &decision.depends_on_results {
+                let result = map.results.get(result_id).ok_or_else(|| {
+                    format!(
+                        "TaskSpace decision `{}` depends on missing result `{result_id}`.",
+                        decision.id
+                    )
+                })?;
+                match result.evidence_package.validity {
+                    ResultValidity::Accepted => {}
+                    ResultValidity::Questioned => {
+                        let has_supporting_refs = !decision.depends_on_facts.is_empty()
+                            || !decision.resolves_questions.is_empty()
+                            || !decision.supports_criteria.is_empty()
+                            || decision.depends_on_results.len() > 1;
+                        if !has_supporting_refs {
+                            return Err(format!(
+                                "TaskSpace decision `{}` depends only on questioned result `{result_id}`.",
+                                decision.id
+                            ));
+                        }
+                    }
+                    ResultValidity::Invalid | ResultValidity::Unreviewed => {
+                        return Err(format!(
+                            "TaskSpace decision `{}` depends on {} result `{result_id}`.",
+                            decision.id,
+                            result.evidence_package.validity.as_str()
+                        ));
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
@@ -6254,12 +6622,26 @@ fn snapshot_evidence_package(
         remaining_uncertainty: package.remaining_uncertainty.clone(),
         validity: package.validity.as_str().to_string(),
         validity_reason: package.validity_reason.clone(),
+        adoption: snapshot_result_adoption(&package.adoption),
+    }
+}
+
+fn snapshot_result_adoption(adoption: &NodeResultAdoption) -> ActionMapSnapshotResultAdoption {
+    ActionMapSnapshotResultAdoption {
+        adoption_state: adoption.adoption_state.as_str().to_string(),
+        adopted_by_facts: adoption.adopted_by_facts.clone(),
+        adopted_by_hypotheses: adoption.adopted_by_hypotheses.clone(),
+        adopted_by_decisions: adoption.adopted_by_decisions.clone(),
+        adopted_by_criteria: adoption.adopted_by_criteria.clone(),
+        adopted_by_nodes: adoption.adopted_by_nodes.clone(),
     }
 }
 
 fn evidence_package_from_snapshot(
     snapshot: ActionMapSnapshotResultEvidencePackage,
 ) -> NodeResultEvidencePackage {
+    let validity =
+        ResultValidity::from_str(&snapshot.validity).unwrap_or(ResultValidity::Unreviewed);
     NodeResultEvidencePackage {
         claims: snapshot
             .claims
@@ -6274,10 +6656,27 @@ fn evidence_package_from_snapshot(
         changed_artifacts: snapshot.changed_artifacts,
         validator_refs: snapshot.validator_refs,
         remaining_uncertainty: snapshot.remaining_uncertainty,
-        validity: ResultValidity::from_str(&snapshot.validity)
-            .unwrap_or(ResultValidity::Unreviewed),
+        validity,
         validity_reason: snapshot.validity_reason,
+        adoption: result_adoption_from_snapshot(snapshot.adoption, validity),
     }
+}
+
+fn result_adoption_from_snapshot(
+    snapshot: ActionMapSnapshotResultAdoption,
+    validity: ResultValidity,
+) -> NodeResultAdoption {
+    let mut adoption = NodeResultAdoption {
+        adoption_state: ResultAdoptionState::from_str(&snapshot.adoption_state)
+            .unwrap_or(ResultAdoptionState::None),
+        adopted_by_facts: snapshot.adopted_by_facts,
+        adopted_by_hypotheses: snapshot.adopted_by_hypotheses,
+        adopted_by_decisions: snapshot.adopted_by_decisions,
+        adopted_by_criteria: snapshot.adopted_by_criteria,
+        adopted_by_nodes: snapshot.adopted_by_nodes,
+    };
+    adoption.refresh_state(validity);
+    adoption
 }
 
 fn snapshot_task(task: &TaskState) -> ActionMapSnapshotTask {
@@ -6470,6 +6869,7 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
             id: node.id.clone(),
             title: node.title.clone(),
             kind: node.kind.as_str().to_string(),
+            canonical_kind: node.kind.canonical_kind().to_string(),
             status: node.status.as_str().to_string(),
             context_summary: node.context.summary.clone(),
             source_refs: node.context.source_refs.clone(),
@@ -7334,6 +7734,319 @@ mod tests {
                 vec!["Needs another check before use.".to_string()],
             )
             .expect("test questioned result validity records");
+    }
+
+    #[test]
+    fn record_fact_and_decision_adopt_accepted_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Adoption chain",
+            "Accepted result should record downstream use.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "Read relevant file.".to_string(),
+            )
+            .expect("tool result records")
+            .expect("result exists");
+        accept_test_result(&mut state, owner, &result_id);
+
+        state
+            .record_fact_for_main(
+                owner,
+                "fact-adopted",
+                "The inspected file contains the target behavior.".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    ..Default::default()
+                }],
+            )
+            .expect("fact records and adopts result");
+        state
+            .record_decision_for_main(
+                owner,
+                ActionMapLedgerDecisionInput {
+                    id: "decision-adopted".to_string(),
+                    decision_kind: "design".to_string(),
+                    decision: "Use inspected behavior as the implementation constraint."
+                        .to_string(),
+                    rationale: "The accepted result and fact provide the constraint.".to_string(),
+                    depends_on_results: vec![result_id.clone()],
+                    depends_on_facts: vec!["fact-adopted".to_string()],
+                    resolves_questions: Vec::new(),
+                    supports_criteria: Vec::new(),
+                    risks: Vec::new(),
+                },
+            )
+            .expect("decision records and adopts result");
+
+        let snapshot = state.snapshot();
+        let adoption = &snapshot.maps[0].results[0].evidence_package.adoption;
+        assert_eq!(adoption.adoption_state, "accepted_adopted");
+        assert_eq!(adoption.adopted_by_facts, vec!["fact-adopted"]);
+        assert_eq!(adoption.adopted_by_decisions, vec!["decision-adopted"]);
+    }
+
+    #[test]
+    fn adopt_result_records_explicit_node_adoption() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task(
+            &mut state,
+            owner,
+            "Explicit adoption",
+            "Accepted result can be adopted by a follow-up node.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "Read relevant files.".to_string(),
+            )
+            .expect("tool result records")
+            .expect("result exists");
+        accept_test_result(&mut state, owner, &result_id);
+
+        state
+            .adopt_result_for_main(
+                owner,
+                ActionMapResultAdoptionInput {
+                    result_id: result_id.clone(),
+                    adopted_by_nodes: vec![node_id.clone()],
+                    ..Default::default()
+                },
+            )
+            .expect("explicit adoption records");
+
+        let snapshot = state.snapshot();
+        let adoption = &snapshot.maps[0].results[0].evidence_package.adoption;
+        assert_eq!(adoption.adoption_state, "accepted_adopted");
+        assert_eq!(adoption.adopted_by_nodes, vec![node_id]);
+    }
+
+    #[test]
+    fn record_decision_requires_dependency_and_rejects_bad_result_validity() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Decision gates",
+            "Decisions must be tied to usable evidence.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "Read relevant files.".to_string(),
+            )
+            .expect("tool result records")
+            .expect("result exists");
+
+        let no_dependency = state
+            .record_decision_for_main(
+                owner,
+                ActionMapLedgerDecisionInput {
+                    id: "decision-empty".to_string(),
+                    decision_kind: "design".to_string(),
+                    decision: "Do something.".to_string(),
+                    rationale: "No dependency provided.".to_string(),
+                    depends_on_results: Vec::new(),
+                    depends_on_facts: Vec::new(),
+                    resolves_questions: Vec::new(),
+                    supports_criteria: Vec::new(),
+                    risks: Vec::new(),
+                },
+            )
+            .expect_err("decision must require dependencies");
+        assert!(no_dependency.contains("requires at least one dependency reference"));
+
+        let unreviewed = state
+            .record_decision_for_main(
+                owner,
+                ActionMapLedgerDecisionInput {
+                    id: "decision-unreviewed".to_string(),
+                    decision_kind: "design".to_string(),
+                    decision: "Use unreviewed result.".to_string(),
+                    rationale: "Should fail.".to_string(),
+                    depends_on_results: vec![result_id.clone()],
+                    depends_on_facts: Vec::new(),
+                    resolves_questions: Vec::new(),
+                    supports_criteria: Vec::new(),
+                    risks: Vec::new(),
+                },
+            )
+            .expect_err("unreviewed result cannot anchor decision");
+        assert!(unreviewed.contains("cannot depend on unreviewed result"));
+
+        question_test_result(&mut state, owner, &result_id);
+        let questioned = state
+            .record_decision_for_main(
+                owner,
+                ActionMapLedgerDecisionInput {
+                    id: "decision-questioned".to_string(),
+                    decision_kind: "design".to_string(),
+                    decision: "Use questioned result alone.".to_string(),
+                    rationale: "Should fail.".to_string(),
+                    depends_on_results: vec![result_id.clone()],
+                    depends_on_facts: Vec::new(),
+                    resolves_questions: Vec::new(),
+                    supports_criteria: Vec::new(),
+                    risks: Vec::new(),
+                },
+            )
+            .expect_err("questioned result cannot be sole dependency");
+        assert!(questioned.contains("questioned result"));
+
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &result_id,
+                "invalid",
+                "Test fixture invalidated the result.".to_string(),
+                Vec::new(),
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("invalid result validity records");
+        let invalid = state
+            .record_decision_for_main(
+                owner,
+                ActionMapLedgerDecisionInput {
+                    id: "decision-invalid".to_string(),
+                    decision_kind: "design".to_string(),
+                    decision: "Use invalid result.".to_string(),
+                    rationale: "Should fail.".to_string(),
+                    depends_on_results: vec![result_id],
+                    depends_on_facts: Vec::new(),
+                    resolves_questions: Vec::new(),
+                    supports_criteria: Vec::new(),
+                    risks: Vec::new(),
+                },
+            )
+            .expect_err("invalid result cannot anchor decision");
+        assert!(invalid.contains("cannot depend on invalid result"));
+    }
+
+    #[test]
+    fn final_response_blocks_on_open_blocking_question() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Blocking final gate",
+            "Final synthesis should wait for blocking questions.",
+            true,
+        );
+        state
+            .record_open_question_for_main(
+                owner,
+                "q-blocking",
+                "Which validator must be authoritative?".to_string(),
+                "Final answer depends on validator choice.".to_string(),
+                true,
+                None,
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("test-fixture:question".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("blocking question records");
+
+        let error = state
+            .validate_final_response_ready(owner, "Final answer.", false)
+            .expect_err("open blocking question must block final response");
+        assert!(error.contains("q-blocking"));
+    }
+
+    #[test]
+    fn snapshot_exposes_canonical_node_kind() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Canonical node kind",
+            "Snapshot should expose canonical kind.",
+            "Patch node",
+            "Edit the target artifact.",
+            true,
+        );
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.maps[0].nodes[0].kind, "implement_solution");
+        assert_eq!(snapshot.maps[0].nodes[0].canonical_kind, "patch");
+    }
+
+    #[test]
+    fn restore_snapshot_rehydrates_legacy_result_adoption_state() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Legacy adoption restore",
+            "Accepted legacy results should restore with derived adoption state.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "Read relevant files.".to_string(),
+            )
+            .expect("tool result records")
+            .expect("result exists");
+        accept_test_result(&mut state, owner, &result_id);
+
+        let mut snapshot = state.snapshot();
+        snapshot.maps[0].results[0].evidence_package.adoption =
+            ActionMapSnapshotResultAdoption::default();
+
+        let mut restored = ActionMapRuntimeState::default();
+        restored.restore_snapshot(snapshot);
+        let restored_snapshot = restored.snapshot();
+
+        assert_eq!(
+            restored_snapshot.maps[0].results[0]
+                .evidence_package
+                .adoption
+                .adoption_state,
+            "accepted_unused"
+        );
     }
 
     fn fill_main_tool_budget(
@@ -8442,6 +9155,10 @@ mod tests {
                 remaining_uncertainty: Vec::new(),
                 validity: ResultValidity::Accepted,
                 validity_reason: "pytest passed".to_string(),
+                adoption: NodeResultAdoption {
+                    adoption_state: ResultAdoptionState::AcceptedUnused,
+                    ..Default::default()
+                },
             };
         }
 

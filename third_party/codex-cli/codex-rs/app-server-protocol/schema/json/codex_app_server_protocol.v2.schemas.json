@@ -554,6 +554,10 @@
             "null"
           ]
         },
+        "canonicalKind": {
+          "default": "custom",
+          "type": "string"
+        },
         "contextSummary": {
           "type": "string"
         },
@@ -1000,6 +1004,14 @@
             }
           ],
           "default": {
+            "adoption": {
+              "adoptedByCriteria": [],
+              "adoptedByDecisions": [],
+              "adoptedByFacts": [],
+              "adoptedByHypotheses": [],
+              "adoptedByNodes": [],
+              "adoptionState": "none"
+            },
             "changedArtifacts": [],
             "claims": [],
             "evidenceRefs": [],
@@ -1044,8 +1056,67 @@
       ],
       "type": "object"
     },
+    "ActionMapSnapshotResultAdoption": {
+      "properties": {
+        "adoptedByCriteria": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "adoptedByDecisions": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "adoptedByFacts": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "adoptedByHypotheses": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "adoptedByNodes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "adoptionState": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "ActionMapSnapshotResultEvidencePackage": {
       "properties": {
+        "adoption": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ActionMapSnapshotResultAdoption"
+            }
+          ],
+          "default": {
+            "adoptedByCriteria": [],
+            "adoptedByDecisions": [],
+            "adoptedByFacts": [],
+            "adoptedByHypotheses": [],
+            "adoptedByNodes": [],
+            "adoptionState": ""
+          }
+        },
         "changedArtifacts": {
           "default": [],
           "items": {

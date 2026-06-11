@@ -1386,6 +1386,22 @@ impl Session {
         Ok(())
     }
 
+    pub(crate) async fn adopt_action_map_result(
+        &self,
+        turn_context: &TurnContext,
+        adoption: crate::action_map::ActionMapResultAdoptionInput,
+    ) -> Result<(), String> {
+        let events = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .adopt_result_for_main(self.conversation_id, adoption)
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(())
+    }
+
     pub(crate) async fn record_action_map_output_contract(
         &self,
         turn_context: &TurnContext,
