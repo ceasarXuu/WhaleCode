@@ -251,6 +251,9 @@ function Get-TaskspaceBenchmarkMetrics {
     $obs = if ($ObservabilityResult) { $ObservabilityResult.observability } else { $null }
     $dockerResult = Get-TaskspaceDockerValidationResult $Validation
     $graphHealth = Get-TaskspaceGraphHealth $obs
+    $graphHealthReport = New-TaskspaceGraphHealthReport $obs $Side.Name $Side.LogicalMode
+    $graphHealthPath = Join-Path $Side.ArtifactDir "graph-health.json"
+    Write-TaskspaceGraphHealthReport $graphHealthReport $graphHealthPath
     $subagentThreadIds = @()
     if ($obs) {
         $subagentThreadIds = @($obs.nodes | ForEach-Object {
@@ -300,6 +303,16 @@ function Get-TaskspaceBenchmarkMetrics {
             $rolloutText = if ($rolloutPath -and (Test-Path -LiteralPath $rolloutPath)) { Get-Content -Raw -Encoding UTF8 -LiteralPath $rolloutPath } else { "" }
             (Get-SuccessfulTaskspaceOrdering $rolloutText).OrdinaryToolBeforeBinding
         } else { $false }
+        graph_health_path = $graphHealthPath
+        graph_health_warnings = @($graphHealthReport.warnings)
+        decision_count = [int]$graphHealthReport.decision_count
+        decision_density = [double]$graphHealthReport.decision_density
+        accepted_results = [int]$graphHealthReport.accepted_result_count
+        unreviewed_results = [int]$graphHealthReport.unreviewed_result_count
+        questioned_or_invalid_results = [int]$graphHealthReport.questioned_or_invalid_result_count
+        result_adoption_rate = if ($null -ne $graphHealthReport.result_adoption_rate) { [double]$graphHealthReport.result_adoption_rate } else { 0.0 }
+        result_adoption_metric_state = if ($graphHealthReport.PSObject.Properties.Name -contains "metric_availability") { [string]$graphHealthReport.metric_availability.result_adoption } else { "unknown" }
+        subagent_decision_yield = [double]$graphHealthReport.subagent_decision_yield
         observability_json = if ($ObservabilityResult) { $ObservabilityResult.observability_json } else { "" }
         rollout_path = if ($ObservabilityResult) { $ObservabilityResult.rollout_path } else { "" }
     }

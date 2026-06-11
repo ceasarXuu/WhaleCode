@@ -30,11 +30,16 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\prompt-guard.ps1")
 . (Join-Path $PSScriptRoot "lib\workspace.ps1")
 . (Join-Path $PSScriptRoot "lib\oracle-runner.ps1")
+. (Join-Path $PSScriptRoot "lib\graph-health.ps1")
 . (Join-Path $PSScriptRoot "lib\metrics-extractor.ps1")
 . (Join-Path $PSScriptRoot "lib\audit-report.ps1")
+. (Join-Path $PSScriptRoot "lib\failure-taxonomy.ps1")
+. (Join-Path $PSScriptRoot "lib\audit-manifest.ps1")
+. (Join-Path $PSScriptRoot "lib\pair-artifact-classifier.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-proof.ps1")
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
 . (Join-Path $PSScriptRoot "lib\report-summary.ps1")
+. (Join-Path $PSScriptRoot "lib\aggregate-report.ps1")
 . (Join-Path $PSScriptRoot "lib\source-guard.ps1")
 . (Join-Path $PSScriptRoot "lib\run-state.ps1")
 
@@ -154,19 +159,21 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $existingPairDir = Join-Path $runDir ("pair-{0:000}" -f $repeat)
     $existingPairReport = Join-Path $existingPairDir "pair-report.md"
     if ($resuming -and -not $ForceRerun -and (Test-Path -LiteralPath $existingPairReport)) {
-        Write-TaskspaceRunEvent $runDir "pair_skipped_completed" @{ repeat = $repeat; pair_report = $existingPairReport }
+        $classified = Get-TaskspacePairEvidenceFromArtifacts $existingPairDir $Repeats $promptGuard $EnableAggregate.IsPresent $AuditReviewRoot ([string]$manifest.EvidenceTarget) $probe
+        Write-TaskspacePairReport $existingPairReport $manifest $promptGuard $classified.variable_control $classified.evidence $classified.left_metrics $classified.right_metrics $classified.pair $probe
+        Write-TaskspaceRunEvent $runDir "pair_resumed_reclassified" @{
+            repeat = $repeat
+            pair_report = $existingPairReport
+            reported_evidence_level = [string]$classified.evidence.reported_evidence_level
+            included_in_utility_aggregate = [bool]$classified.evidence.included_in_utility_aggregate
+            included_in_e3_aggregate = [bool]$classified.evidence.included_in_e3_aggregate
+        }
         $pairReports.Add([pscustomobject]@{
                 repeat = $repeat
                 pair_dir = $existingPairDir
                 pair_report = $existingPairReport
                 evidence_target = $manifest.EvidenceTarget
-                evidence = [pscustomobject]@{
-                    reported_evidence_level = "resumed_existing"
-                    included_in_utility_aggregate = $false
-                    included_in_e3_aggregate = $false
-                    evidence_gate_failures = @("resumed_existing_pair_not_reclassified")
-                    e3_gate_failures = @()
-                }
+                evidence = $classified.evidence
             })
         Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $existingPairReport $commandLine | Out-Null
         continue
@@ -323,6 +330,10 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $evidence | Add-Member -NotePropertyName external_proof_agent_cannot_read_validator_source -NotePropertyValue $externalProof.validator_fidelity.agent_cannot_read_validator_source -Force
         $evidence | Add-Member -NotePropertyName external_proof_validator_e3_eligible -NotePropertyValue $externalProof.validator_fidelity.e3_eligible -Force
     }
+    $auditManifest = Write-TaskspaceAuditManifest $pair.PairDir $manifestResolved $metricsBySide["left"] $metricsBySide["right"] $evidence $variableControl $auditReview
+    $evidence | Add-Member -NotePropertyName audit_manifest_path -NotePropertyValue $auditManifest.json_path -Force
+    $evidence | Add-Member -NotePropertyName failure_taxonomy -NotePropertyValue @($auditManifest.failure_taxonomy) -Force
+    $evidence | Add-Member -NotePropertyName utility_direction -NotePropertyValue $auditManifest.utility_direction -Force
     Write-TaskspacePairReport $pairReportPath $manifest $promptGuard $variableControl $evidence $metricsBySide["left"] $metricsBySide["right"] $pair $probe
     if ([string]$manifest.EvidenceTarget -eq "E3") {
         Write-TaskspaceAuditReviewTemplate $pair.PairDir $expectedClaimScope | Out-Null

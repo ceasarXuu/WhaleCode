@@ -254,6 +254,20 @@ function Write-TaskspacePairReport {
     $lines.Add("")
     $lines.Add("## Evidence Gate Failures")
     if (@($EvidenceGate.evidence_gate_failures).Count -eq 0) { $lines.Add("- none") } else { foreach ($failure in $EvidenceGate.evidence_gate_failures) { $lines.Add("- $failure") } }
+    if ($EvidenceGate.PSObject.Properties.Name -contains "audit_manifest_path") {
+        $lines.Add("- audit_manifest_path: $($EvidenceGate.audit_manifest_path)")
+    }
+    if ($EvidenceGate.PSObject.Properties.Name -contains "utility_direction") {
+        $lines.Add("- utility_direction: $($EvidenceGate.utility_direction)")
+    }
+    if ($EvidenceGate.PSObject.Properties.Name -contains "failure_taxonomy") {
+        $taxonomy = @($EvidenceGate.failure_taxonomy)
+        if ($taxonomy.Count -eq 0) {
+            $lines.Add("- failure_taxonomy: none")
+        } else {
+            $lines.Add("- failure_taxonomy: $($taxonomy -join ', ')")
+        }
+    }
     $lines.Add("")
     if ([string]$Manifest.EvidenceTarget -eq "E3" -or @($EvidenceGate.e3_gate_failures).Count -gt 0) {
         $originType = if ($null -ne $Manifest.SampleOrigin -and $Manifest.SampleOrigin.PSObject.Properties.Name -contains "type") { [string]$Manifest.SampleOrigin.type } else { "" }

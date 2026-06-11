@@ -10,11 +10,16 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\prompt-guard.ps1")
 . (Join-Path $PSScriptRoot "lib\workspace.ps1")
 . (Join-Path $PSScriptRoot "lib\oracle-runner.ps1")
+. (Join-Path $PSScriptRoot "lib\graph-health.ps1")
 . (Join-Path $PSScriptRoot "lib\metrics-extractor.ps1")
 . (Join-Path $PSScriptRoot "lib\audit-report.ps1")
+. (Join-Path $PSScriptRoot "lib\failure-taxonomy.ps1")
+. (Join-Path $PSScriptRoot "lib\audit-manifest.ps1")
+. (Join-Path $PSScriptRoot "lib\pair-artifact-classifier.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-proof.ps1")
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
 . (Join-Path $PSScriptRoot "lib\report-summary.ps1")
+. (Join-Path $PSScriptRoot "lib\aggregate-report.ps1")
 . (Join-Path $PSScriptRoot "lib\run-state.ps1")
 . (Join-Path $PSScriptRoot "lib\matrix-report.ps1")
 . (Join-Path $PSScriptRoot "adapters\external-benchmark-common.ps1")
@@ -28,6 +33,8 @@ function Assert-Throws([scriptblock]$Body, [string]$Message) {
         $script:failures.Add($Message)
     } catch {}
 }
+$aggregateCommand = Get-Command Write-TaskspaceAggregateReport
+Assert-True ([string]$aggregateCommand.ScriptBlock.File -like "*lib\aggregate-report.ps1") "aggregate report writer was not loaded from lib\aggregate-report.ps1"
 
 $manifest = Read-TaskspaceScenarioManifest $repoRoot $Scenario
 $manifestByPath = Read-TaskspaceScenarioManifest $repoRoot "" $manifest.ScenarioRoot
@@ -147,6 +154,50 @@ Assert-True (@($cleanupParsed.classifications) -contains "docker_cleanup_contain
 Assert-True ([string]$cleanupParsed.cleanup_path -eq $cleanupFailurePath) "validation cleanup result path was not preserved"
 $timeoutParsed = Get-TaskspaceDockerValidationResult ([pscustomobject]@{ exit_code = 124; stdout_path = ""; stderr_path = "" })
 Assert-True (@($timeoutParsed.classifications) -contains "public_validation_timeout") "public validation timeout classification was not parsed"
+
+$graphObs = [pscustomobject]@{
+    nodes = @(
+        [pscustomobject]@{
+            id = "node-1"; kind = "inspect_code_context"; status = "completed"; title = "Investigate"
+            leases = @([pscustomobject]@{ agentThreadId = "agent-1" })
+            results = @(
+                [pscustomobject]@{ resultId = "result-1"; validity = "accepted"; sourceThreadId = "agent-1"; evidencePackage = [pscustomobject]@{ adoptionState = "accepted_not_adopted" } },
+                [pscustomobject]@{ resultId = "result-2"; validity = "unreviewed"; sourceThreadId = "agent-1"; evidencePackage = [pscustomobject]@{} }
+            )
+            events = @([pscustomobject]@{ to = "completed"; at = "2026-06-11T00:00:00Z" })
+        },
+        [pscustomobject]@{
+            id = "node-2"; kind = "final_synthesis"; status = "ready"; title = "Synthesize"
+            leases = @()
+            results = @()
+            events = @()
+        }
+    )
+    edges = @([pscustomobject]@{ from = "node-1"; to = "node-2" })
+    toolCalls = @([pscustomobject]@{ tool = "spawn_agent"; status = "completed" })
+    timeline = @()
+}
+$graphReport = New-TaskspaceGraphHealthReport $graphObs "right" "taskspace"
+Assert-True ([string]$graphReport.schema_version -eq "taskspace-graph-health-v1") "graph health report schema version missing"
+Assert-True ($graphReport.node_count -eq 2 -and $graphReport.edge_count -eq 1) "graph health report did not count nodes/edges"
+Assert-True (@($graphReport.warnings) -contains "high_unreviewed_result_ratio") "graph health did not flag high unreviewed result ratio"
+Assert-True (@($graphReport.warnings) -contains "subagent_no_adoption") "graph health did not flag unused subagent result"
+Assert-True ([string]$graphReport.metric_availability.result_adoption -eq "measured") "graph health did not expose result adoption metric availability"
+$legacyGraphObs = [pscustomobject]@{
+    nodes = @([pscustomobject]@{
+            id = "legacy-node"; kind = "inspect_code_context"; status = "completed"; title = "Legacy"
+            leases = @([pscustomobject]@{ agentThreadId = "legacy-agent" })
+            results = @([pscustomobject]@{ resultId = "legacy-result"; validity = "accepted"; sourceThreadId = "legacy-agent"; evidencePackage = [pscustomobject]@{} })
+            events = @()
+        })
+    edges = @()
+    toolCalls = @([pscustomobject]@{ tool = "spawn_agent"; status = "completed" })
+    timeline = @()
+}
+$legacyGraphReport = New-TaskspaceGraphHealthReport $legacyGraphObs "right" "taskspace"
+Assert-True ([string]$legacyGraphReport.metric_availability.result_adoption -eq "unsupported_legacy") "legacy graph health did not mark adoption as unsupported"
+Assert-True ($null -eq $legacyGraphReport.result_adoption_rate) "legacy graph health reported unsupported adoption as measured zero"
+Assert-True (-not (@($legacyGraphReport.warnings) -contains "subagent_no_adoption")) "legacy graph health emitted subagent adoption warning without adoption support"
 
 $standardArgv = New-TaskspaceWhaleArgv "standard" "model-x" "C:\neutral\left\repo" "C:\neutral\left\last.md"
 $taskspaceArgv = New-TaskspaceWhaleArgv "taskspace" "model-x" "C:\neutral\right\repo" "C:\neutral\right\last.md"
@@ -403,9 +454,46 @@ $metrics = [pscustomobject]@{
     validator_environment_mismatch = $false
     maps = 0; nodes = 0; edges = 0; edge_order_violations = 0; spawn_agent_calls = 0
     subagent_results = 0; open_leaf_nodes = 0; ordinary_before_binding = $false
+    graph_health_path = ""; graph_health_warnings = @(); decision_count = 0; decision_density = 0.0
+    accepted_results = 0; unreviewed_results = 0; questioned_or_invalid_results = 0
+    result_adoption_rate = 0.0; subagent_decision_yield = 0.0
 }
 $rightMetrics = $metrics.PSObject.Copy()
 $rightMetrics.mode = "right"; $rightMetrics.logical_mode = "taskspace"
+$rightGraphPath = Join-Path $pairOne.Right.ArtifactDir "graph-health.json"
+Write-TaskspaceGraphHealthReport $graphReport $rightGraphPath
+$rightMetrics.graph_health_path = $rightGraphPath
+$rightMetrics.graph_health_warnings = @($graphReport.warnings)
+$rightMetrics.nodes = [int]$graphReport.node_count
+$rightMetrics.edges = [int]$graphReport.edge_count
+$rightMetrics.decision_count = [int]$graphReport.decision_count
+$rightMetrics.decision_density = [double]$graphReport.decision_density
+$rightMetrics.unreviewed_results = [int]$graphReport.unreviewed_result_count
+$taxonomy = @(Get-TaskspaceFailureTaxonomy $metrics $rightMetrics)
+Assert-True (@($taxonomy) -contains "subagent_noise_or_unused") "failure taxonomy did not use graph health subagent signal"
+Assert-True ((Get-TaskspaceUtilityDirection $metrics $rightMetrics $taxonomy) -eq "both_success") "utility direction did not classify both-success pair"
+$timeoutMetrics = $metrics.PSObject.Copy()
+$timeoutMetrics.business_success = $false
+$timeoutMetrics.public_validation_exit_code = 124
+$timeoutMetrics.changed_paths = @()
+$timeoutMetrics | Add-Member -NotePropertyName validator_environment_failures -NotePropertyValue @("public_validation_timeout") -Force
+$timeoutTaxonomy = @(Get-TaskspaceFailureTaxonomy $timeoutMetrics $rightMetrics)
+Assert-True (@($timeoutTaxonomy) -contains "validator_slow_or_flaky") "timeout taxonomy did not classify validator slowness"
+Assert-True (-not (@($timeoutTaxonomy) -contains "agent_no_patch")) "timeout taxonomy incorrectly added agent_no_patch"
+$execTimeoutMetrics = $metrics.PSObject.Copy()
+$execTimeoutMetrics.business_success = $false
+$execTimeoutMetrics | Add-Member -NotePropertyName exec_timed_out -NotePropertyValue $true -Force
+$execTimeoutMetrics.changed_paths = @()
+$execTimeoutTaxonomy = @(Get-TaskspaceFailureTaxonomy $execTimeoutMetrics $rightMetrics)
+Assert-True (-not (@($execTimeoutTaxonomy) -contains "agent_no_patch")) "exec timeout taxonomy incorrectly added agent_no_patch"
+$environmentOnlyMetrics = $metrics.PSObject.Copy()
+$environmentOnlyMetrics.business_success = $false
+$environmentOnlyMetrics.public_validation_exit_code = 1
+$environmentOnlyMetrics.changed_paths = @("src/example.py")
+$environmentOnlyMetrics | Add-Member -NotePropertyName validator_environment_failures -NotePropertyValue @("docker_cleanup_container_failure") -Force
+$environmentOnlyTaxonomy = @(Get-TaskspaceFailureTaxonomy $environmentOnlyMetrics $rightMetrics)
+Assert-True (@($environmentOnlyTaxonomy) -contains "environment_noise") "environment-only taxonomy did not classify environment noise"
+Assert-True (-not (@($environmentOnlyTaxonomy) -contains "agent_patch_wrong")) "environment-only taxonomy incorrectly added agent_patch_wrong"
 $mismatchedOutcomeLeft = $metrics.PSObject.Copy()
 $mismatchedOutcomeRight = $rightMetrics.PSObject.Copy()
 $mismatchedOutcomeRight.hidden_oracle_exit_code = 1
@@ -420,9 +508,25 @@ Assert-True (-not $mismatchedOutcomeControl.invalid_pair) "different validator o
 $reportPath = Join-Path $runDir "manual-review-report.md"
 $varControl = [pscustomobject]@{ invalid_pair = $false; failures = @() }
 $manualEvidence = Get-TaskspaceEvidenceGate 3 $manualGuard "hard_sandbox" "known"
+$manualEvidence | Add-Member -NotePropertyName failure_taxonomy -NotePropertyValue @("subagent_noise_or_unused") -Force
+$manualEvidence | Add-Member -NotePropertyName utility_direction -NotePropertyValue "both_success" -Force
+$manifestResolvedForAudit = [pscustomobject]@{
+    repeat = 1
+    scenario = "manual-review"
+    human_review_required = $false
+}
+$auditResult = Write-TaskspaceAuditManifest $pairOne.PairDir $manifestResolvedForAudit $metrics $rightMetrics $manualEvidence $varControl $null
+Assert-True (Test-Path -LiteralPath $auditResult.json_path) "audit manifest json was not written"
+Assert-True (Test-Path -LiteralPath $auditResult.yaml_path) "audit manifest yaml was not written"
+$auditJson = Get-Content -Raw -Encoding UTF8 -LiteralPath $auditResult.json_path | ConvertFrom-Json
+Assert-True ([string]$auditJson.audit_version -eq "taskspace-e3-audit-v1") "audit manifest schema version missing"
+Assert-True ([string]$auditJson.classification.utility_direction -eq "both_success") "audit manifest utility direction missing"
+$manualEvidence | Add-Member -NotePropertyName audit_manifest_path -NotePropertyValue $auditResult.json_path -Force
 Write-TaskspacePairReport $reportPath $manifest $manualGuard $varControl $manualEvidence $metrics $rightMetrics $pairOne
 $reportText = Get-Content -Raw -Encoding UTF8 -LiteralPath $reportPath
 Assert-True ($reportText -match "manual_review_required: True") "manual review requirement was not persisted in pair report"
+Assert-True ($reportText -match "audit_manifest_path:") "pair report did not include audit manifest path"
+Assert-True ($reportText -match "failure_taxonomy: subagent_noise_or_unused") "pair report did not include failure taxonomy"
 $summaryPath = Join-Path $runDir "summary.md"
 Write-TaskspaceRunSummary -Path $summaryPath -Reports @([pscustomobject]@{ pair_dir = $pairOne.PairDir; pair_report = $reportPath; evidence = [pscustomobject]@{ reported_evidence_level = "E2"; included_in_utility_aggregate = $true } })
 $summaryText = Get-Content -Raw -Encoding UTF8 -LiteralPath $summaryPath
@@ -443,21 +547,31 @@ $singleFailedReportList = New-Object System.Collections.Generic.List[object]
 $singleFailedReportList.Add([pscustomobject]@{ evidence = [pscustomobject]@{ reported_evidence_level = "E1" } })
 $singleFailedReports = @(Get-TaskspaceFailedReports $singleFailedReportList "E3")
 Assert-True ($singleFailedReports.Count -eq 1) "single failed E3 report did not remain countable after array normalization"
-$aggregatePath = Join-Path $runDir "aggregate.md"
-Write-TaskspaceAggregateReport -Path $aggregatePath -Reports @(
+$aggregateFixtureDirPath = Join-Path $RunRoot "aggregate-fixture"
+New-Item -ItemType Directory -Force -Path $aggregateFixtureDirPath | Out-Null
+$aggregateFixtureDir = (Resolve-Path -LiteralPath $aggregateFixtureDirPath).Path
+$aggregateReportPath = [System.IO.Path]::Combine([string]$aggregateFixtureDir, "aggregate.md")
+if ([string]::IsNullOrWhiteSpace($aggregateReportPath)) {
+    throw "aggregate fixture path was empty; RunRoot=[$RunRoot] fixture=[$aggregateFixtureDir]"
+}
+Write-TaskspaceAggregateReport -Path $aggregateReportPath -Reports @(
     [pscustomobject]@{ repeat = 1; pair_report = "one.md"; evidence = [pscustomobject]@{ reported_evidence_level = "E2"; included_in_utility_aggregate = $true; evidence_gate_failures = @() } },
     [pscustomobject]@{ repeat = 2; pair_report = "two.md"; evidence = [pscustomobject]@{ reported_evidence_level = "E1"; included_in_utility_aggregate = $false; evidence_gate_failures = @("oracle_isolation_failed") } }
 )
-$aggregateText = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregatePath
+$aggregateText = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregateReportPath
 Assert-True ($aggregateText -match "valid_utility_pairs: 1") "aggregate did not count only E2 utility pairs"
 Assert-True ($aggregateText -match "excluded_pairs: 1") "aggregate did not exclude non-E2 pair"
-Assert-True ($aggregateText -notmatch "valid_e3_pairs") "E2 aggregate emitted E3 aggregate noise"
-$e3AggregatePath = Join-Path $runDir "aggregate-e3.md"
-Write-TaskspaceAggregateReport -Path $e3AggregatePath -Reports @(
+Assert-True ($aggregateText -match "valid_e3_pairs: 0") "aggregate did not emit explicit E3 zero count"
+$aggregateJson = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $aggregateFixtureDir "aggregate.json") | ConvertFrom-Json
+Assert-True ([int]$aggregateJson.valid_utility_pairs -eq 1) "aggregate json did not count valid utility pairs"
+$pairIndexJson = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $aggregateFixtureDir "pair-index.json") | ConvertFrom-Json
+Assert-True (@($pairIndexJson).Count -eq 2) "pair index json did not include all pairs"
+$e3AggregateReportPath = [System.IO.Path]::Combine([string]$aggregateFixtureDir, "aggregate-e3.md")
+Write-TaskspaceAggregateReport -Path $e3AggregateReportPath -Reports @(
     [pscustomobject]@{ repeat = 1; pair_report = "e3-one.md"; evidence = $e3Ready },
     [pscustomobject]@{ repeat = 2; pair_report = "e3-two.md"; evidence = $e3Candidate }
 )
-$e3AggregateText = Get-Content -Raw -Encoding UTF8 -LiteralPath $e3AggregatePath
+$e3AggregateText = Get-Content -Raw -Encoding UTF8 -LiteralPath $e3AggregateReportPath
 Assert-True ($e3AggregateText -match "valid_e3_pairs: 1") "E3 aggregate did not count complete E3 pairs"
 Assert-True ($e3AggregateText -match "e3_human_review_not_completed") "E3 aggregate did not preserve E3 gate failures"
 Assert-True ($e3AggregateText -match "e3_human_review_completed_pairs: 1") "E3 aggregate did not count human review completion"
@@ -465,6 +579,49 @@ Assert-True ($e3AggregateText -match "include_taskspace_better=1") "E3 aggregate
 Assert-True ($e3AggregateText -match "e3_taskspace_better_pairs: 1") "E3 aggregate did not count directional TaskSpace benefit"
 Assert-True ($e3AggregateText -match "e3_standard_better_pairs: 0") "E3 aggregate did not separate standard-better pairs"
 Assert-True ($e3AggregateText -match "only include_taskspace_better counts") "E3 aggregate did not include directional benefit warning"
+$resumeClassifyPair = New-Dir (Join-Path $runDir "resume-reclassifies-existing\pair-001")
+$resumeResolved = [pscustomobject]@{
+    scenario = "resume-reclassifies-existing"
+    repeat = 1
+    prompt_sha256_left = "same"; prompt_sha256_right = "same"
+    fixture_sha256_left = "same"; fixture_sha256_right = "same"
+    whale_sha256_left = "same"; whale_sha256_right = "same"
+    model_left = "same"; model_right = "same"
+    timeout_seconds_left = 1; timeout_seconds_right = 1
+    provider_param_status = "known"
+    oracle_isolation_policy = "deferred_materialization_allowed"
+    sample_origin = $null
+    external_benchmark = $null
+    e3 = $null
+    human_review_required = $false
+}
+Write-TaskspaceJson $resumeResolved (Join-Path $resumeClassifyPair "manifest.resolved.json")
+foreach ($side in @("left", "right")) {
+    New-Dir (Join-Path $resumeClassifyPair "$side\repo") | Out-Null
+    New-Dir (Join-Path $resumeClassifyPair "$side\artifacts") | Out-Null
+    Write-Text (Join-Path $resumeClassifyPair "$side\artifacts\validation.stdout.log") ""
+    Write-Text (Join-Path $resumeClassifyPair "$side\artifacts\validation.stderr.log") ""
+    Write-Text (Join-Path $resumeClassifyPair "$side\artifacts\git-diff.patch") ""
+}
+$resumeLeftMetrics = $metrics.PSObject.Copy()
+$resumeLeftMetrics.mode = "left"; $resumeLeftMetrics.logical_mode = "standard"; $resumeLeftMetrics.business_success = $true
+$resumeLeftMetrics.public_validation_exit_code = 0; $resumeLeftMetrics.hidden_oracle_exit_code = 0
+$resumeLeftMetrics | Add-Member -NotePropertyName validator_environment_failures -NotePropertyValue @() -Force
+$resumeLeftMetrics | Add-Member -NotePropertyName metrics_taints -NotePropertyValue @() -Force
+$resumeRightMetrics = $rightMetrics.PSObject.Copy()
+$resumeRightMetrics.mode = "right"; $resumeRightMetrics.logical_mode = "taskspace"; $resumeRightMetrics.business_success = $true
+$resumeRightMetrics.public_validation_exit_code = 0; $resumeRightMetrics.hidden_oracle_exit_code = 0
+$resumeRightMetrics | Add-Member -NotePropertyName validator_environment_failures -NotePropertyValue @() -Force
+$resumeRightMetrics | Add-Member -NotePropertyName metrics_taints -NotePropertyValue @() -Force
+Write-TaskspaceJson $resumeLeftMetrics (Join-Path $resumeClassifyPair "left\artifacts\metrics.json")
+Write-TaskspaceJson $resumeRightMetrics (Join-Path $resumeClassifyPair "right\artifacts\metrics.json")
+$resumeClassified = Get-TaskspacePairEvidenceFromArtifacts $resumeClassifyPair 3 $promptGuardOk $true "" "E2"
+Assert-True ([bool]$resumeClassified.evidence.included_in_utility_aggregate) "resume classifier did not preserve valid utility evidence"
+Assert-True (-not (@($resumeClassified.evidence.evidence_gate_failures) -contains "resumed_existing_pair_not_reclassified")) "resume classifier kept placeholder failure"
+$resumeAggregatePath = Join-Path (Split-Path -Parent $resumeClassifyPair) "aggregate-report.md"
+Write-TaskspaceAggregateReport -Path $resumeAggregatePath -Reports @([pscustomobject]@{ repeat = 1; pair_dir = $resumeClassifyPair; pair_report = (Join-Path $resumeClassifyPair "pair-report.md"); evidence = $resumeClassified.evidence })
+$resumeAggregate = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Split-Path -Parent $resumeClassifyPair) "aggregate.json") | ConvertFrom-Json
+Assert-True ([int]$resumeAggregate.valid_utility_pairs -eq 1) "resume aggregate did not include reclassified pair"
 $e3ReportManifest = $manifest.PSObject.Copy()
 $e3ReportManifest.EvidenceTarget = "E3"
 $e3ReportManifest.SampleOrigin = $e3Origin
