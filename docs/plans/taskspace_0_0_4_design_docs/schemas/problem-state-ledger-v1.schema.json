@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProblemStateLedgerV1",
+  "type": "object",
+  "required": [
+    "objective",
+    "success_criteria",
+    "known_facts",
+    "open_questions",
+    "hypotheses",
+    "decisions",
+    "risks",
+    "next_best_action"
+  ],
+  "properties": {
+    "objective": {
+      "type": "string",
+      "minLength": 1
+    },
+    "success_criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "description",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "satisfied",
+              "questioned",
+              "waived"
+            ]
+          },
+          "evidence_refs": {
+            "type": "array"
+          }
+        }
+      }
+    },
+    "known_facts": {
+      "type": "array"
+    },
+    "open_questions": {
+      "type": "array"
+    },
+    "hypotheses": {
+      "type": "array"
+    },
+    "decisions": {
+      "type": "array"
+    },
+    "risks": {
+      "type": "array"
+    },
+    "blockers": {
+      "type": "array"
+    },
+    "next_best_action": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "updated_at_ms": {
+      "type": "integer"
+    }
+  }
+}

@@ -1,0 +1,807 @@
+{
+  "agg": {
+    "multi-source-data-merger": {
+      "n": 5,
+      "standard_success": 0,
+      "taskspace_success": 0,
+      "directions": {
+        "both_failed": 5
+      },
+      "nodes_total": 56,
+      "edges_total": 60,
+      "results_total": 214,
+      "success_criteria_total": 0,
+      "output_contracts_total": 11,
+      "facts_total": 3,
+      "fact_sources_total": 14,
+      "validity": {
+        "unreviewed": 157,
+        "invalid": 22,
+        "accepted": 35
+      },
+      "node_status": {
+        "completed": 37,
+        "blocked": 19
+      },
+      "node_kind": {
+        "inspect_code_context": 14,
+        "implement_solution": 17,
+        "smoke_test": 9,
+        "regression_test": 9,
+        "final_synthesis": 7
+      },
+      "failure_classes": {
+        "taskspace_overhead_timeout": 5,
+        "validator_slow_or_flaky": 5,
+        "node_overfragmentation": 1,
+        "subagent_noise_or_unused": 1
+      },
+      "std_wall_s": 400.4,
+      "ts_wall_s": 2044.0
+    },
+    "processing-pipeline": {
+      "n": 5,
+      "standard_success": 3,
+      "taskspace_success": 2,
+      "directions": {
+        "both_success": 2,
+        "standard_better": 1,
+        "both_failed": 2
+      },
+      "nodes_total": 59,
+      "edges_total": 103,
+      "results_total": 357,
+      "success_criteria_total": 0,
+      "output_contracts_total": 6,
+      "facts_total": 8,
+      "fact_sources_total": 9,
+      "validity": {
+        "unreviewed": 297,
+        "accepted": 50,
+        "invalid": 1,
+        "questioned": 9
+      },
+      "node_status": {
+        "completed": 40,
+        "blocked": 17,
+        "ready": 1,
+        "pending": 1
+      },
+      "node_kind": {
+        "inspect_code_context": 26,
+        "implement_solution": 19,
+        "smoke_test": 6,
+        "final_synthesis": 5,
+        "regression_test": 3
+      },
+      "failure_classes": {
+        "subagent_noise_or_unused": 3,
+        "agent_patch_wrong": 3,
+        "node_overfragmentation": 2
+      },
+      "std_wall_s": 1804.7,
+      "ts_wall_s": 2810.2
+    },
+    "recover-accuracy-log": {
+      "n": 5,
+      "standard_success": 5,
+      "taskspace_success": 3,
+      "directions": {
+        "both_success": 3,
+        "standard_better": 2
+      },
+      "nodes_total": 46,
+      "edges_total": 43,
+      "results_total": 175,
+      "success_criteria_total": 0,
+      "output_contracts_total": 7,
+      "facts_total": 2,
+      "fact_sources_total": 7,
+      "validity": {
+        "unreviewed": 131,
+        "accepted": 35,
+        "invalid": 2,
+        "questioned": 7
+      },
+      "node_status": {
+        "completed": 31,
+        "blocked": 14,
+        "ready": 1
+      },
+      "node_kind": {
+        "inspect_code_context": 18,
+        "implement_solution": 12,
+        "regression_test": 4,
+        "smoke_test": 5,
+        "final_synthesis": 7
+      },
+      "failure_classes": {
+        "node_overfragmentation": 2,
+        "taskspace_overhead_timeout": 2,
+        "validator_slow_or_flaky": 2,
+        "subagent_noise_or_unused": 1
+      },
+      "std_wall_s": 618.3,
+      "ts_wall_s": 1915.4
+    }
+  },
+  "records": [
+    {
+      "pair_id": "processing-pipeline::001",
+      "sample_name": "processing-pipeline",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-001\\left",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-001\\right",
+      "planned_completed": "completed",
+      "standard_status": "pass",
+      "taskspace_status": "pass",
+      "standard_success": "True",
+      "taskspace_success": "True",
+      "standard_walltime": "505177",
+      "taskspace_walltime": "349466",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-001\\left\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=0;taskspace=0",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;audit_review_missing",
+      "failure_classification": "",
+      "artifact_audit_status": "missing",
+      "direction": "both_success",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/processing-pipeline/pair-001",
+      "graph_nodes": 8,
+      "graph_edges": 10,
+      "graph_results": 57,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 50,
+        "accepted": 6,
+        "invalid": 1
+      },
+      "node_status": {
+        "completed": 6,
+        "blocked": 2
+      },
+      "node_kind": {
+        "inspect_code_context": 3,
+        "implement_solution": 3,
+        "smoke_test": 1,
+        "final_synthesis": 1
+      },
+      "success_criteria": 0,
+      "output_contracts": 1,
+      "fact_sources": 1,
+      "facts": 0
+    },
+    {
+      "pair_id": "processing-pipeline::002",
+      "sample_name": "processing-pipeline",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-002\\right",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-002\\left",
+      "planned_completed": "completed",
+      "standard_status": "pass",
+      "taskspace_status": "fail",
+      "standard_success": "True",
+      "taskspace_success": "False",
+      "standard_walltime": "264966",
+      "taskspace_walltime": "495008",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-002\\right\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=0;taskspace=1",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;audit_review_missing",
+      "failure_classification": "subagent_noise_or_unused;agent_patch_wrong",
+      "artifact_audit_status": "missing",
+      "direction": "standard_better",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/processing-pipeline/pair-002",
+      "graph_nodes": 9,
+      "graph_edges": 11,
+      "graph_results": 57,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 47,
+        "accepted": 10
+      },
+      "node_status": {
+        "completed": 7,
+        "blocked": 2
+      },
+      "node_kind": {
+        "inspect_code_context": 4,
+        "implement_solution": 2,
+        "smoke_test": 1,
+        "regression_test": 1,
+        "final_synthesis": 1
+      },
+      "success_criteria": 0,
+      "output_contracts": 1,
+      "fact_sources": 1,
+      "facts": 1
+    },
+    {
+      "pair_id": "processing-pipeline::003",
+      "sample_name": "processing-pipeline",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-003\\left",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-003\\right",
+      "planned_completed": "completed",
+      "standard_status": "fail",
+      "taskspace_status": "fail",
+      "standard_success": "False",
+      "taskspace_success": "False",
+      "standard_walltime": "335250",
+      "taskspace_walltime": "884845",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-003\\left\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=1;taskspace=1",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;audit_review_missing",
+      "failure_classification": "node_overfragmentation;subagent_noise_or_unused;agent_patch_wrong",
+      "artifact_audit_status": "missing",
+      "direction": "both_failed",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/processing-pipeline/pair-003",
+      "graph_nodes": 20,
+      "graph_edges": 29,
+      "graph_results": 117,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 97,
+        "accepted": 15,
+        "questioned": 5
+      },
+      "node_status": {
+        "completed": 13,
+        "ready": 1,
+        "blocked": 6
+      },
+      "node_kind": {
+        "inspect_code_context": 11,
+        "implement_solution": 5,
+        "smoke_test": 2,
+        "regression_test": 1,
+        "final_synthesis": 1
+      },
+      "success_criteria": 0,
+      "output_contracts": 2,
+      "fact_sources": 3,
+      "facts": 1
+    },
+    {
+      "pair_id": "processing-pipeline::004",
+      "sample_name": "processing-pipeline",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-004\\right",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-004\\left",
+      "planned_completed": "completed",
+      "standard_status": "fail",
+      "taskspace_status": "fail",
+      "standard_success": "False",
+      "taskspace_success": "False",
+      "standard_walltime": "401804",
+      "taskspace_walltime": "324656",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-004\\right\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=1;taskspace=1",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;audit_review_missing",
+      "failure_classification": "subagent_noise_or_unused;agent_patch_wrong",
+      "artifact_audit_status": "missing",
+      "direction": "both_failed",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/processing-pipeline/pair-004",
+      "graph_nodes": 6,
+      "graph_edges": 9,
+      "graph_results": 36,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 29,
+        "accepted": 7
+      },
+      "node_status": {
+        "completed": 4,
+        "blocked": 1,
+        "pending": 1
+      },
+      "node_kind": {
+        "inspect_code_context": 3,
+        "implement_solution": 1,
+        "smoke_test": 1,
+        "final_synthesis": 1
+      },
+      "success_criteria": 0,
+      "output_contracts": 1,
+      "fact_sources": 1,
+      "facts": 1
+    },
+    {
+      "pair_id": "processing-pipeline::005",
+      "sample_name": "processing-pipeline",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-005\\left",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-005\\right",
+      "planned_completed": "completed",
+      "standard_status": "pass",
+      "taskspace_status": "pass",
+      "standard_success": "True",
+      "taskspace_success": "True",
+      "standard_walltime": "297518",
+      "taskspace_walltime": "756249",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__processing-pipeline\\20260608-202555-620\\pair-005\\left\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=0;taskspace=0",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;audit_review_missing",
+      "failure_classification": "node_overfragmentation",
+      "artifact_audit_status": "missing",
+      "direction": "both_success",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/processing-pipeline/pair-005",
+      "graph_nodes": 16,
+      "graph_edges": 44,
+      "graph_results": 90,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 74,
+        "accepted": 12,
+        "questioned": 4
+      },
+      "node_status": {
+        "completed": 10,
+        "blocked": 6
+      },
+      "node_kind": {
+        "inspect_code_context": 5,
+        "implement_solution": 8,
+        "final_synthesis": 1,
+        "smoke_test": 1,
+        "regression_test": 1
+      },
+      "success_criteria": 0,
+      "output_contracts": 1,
+      "fact_sources": 3,
+      "facts": 5
+    },
+    {
+      "pair_id": "multi-source-data-merger::001",
+      "sample_name": "multi-source-data-merger",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-001\\left",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-001\\right",
+      "planned_completed": "completed",
+      "standard_status": "fail",
+      "taskspace_status": "fail",
+      "standard_success": "False",
+      "taskspace_success": "False",
+      "standard_walltime": "95380",
+      "taskspace_walltime": "660118",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-001\\left\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=124;taskspace=124",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;public_validation_timeout;audit_review_missing",
+      "failure_classification": "taskspace_overhead_timeout;validator_slow_or_flaky;node_overfragmentation;subagent_noise_or_unused",
+      "artifact_audit_status": "missing",
+      "direction": "both_failed",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/multi-source-data-merger/pair-001",
+      "graph_nodes": 21,
+      "graph_edges": 29,
+      "graph_results": 68,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 44,
+        "invalid": 10,
+        "accepted": 14
+      },
+      "node_status": {
+        "completed": 13,
+        "blocked": 8
+      },
+      "node_kind": {
+        "inspect_code_context": 10,
+        "implement_solution": 4,
+        "smoke_test": 2,
+        "regression_test": 3,
+        "final_synthesis": 2
+      },
+      "success_criteria": 0,
+      "output_contracts": 2,
+      "fact_sources": 4,
+      "facts": 0
+    },
+    {
+      "pair_id": "multi-source-data-merger::002",
+      "sample_name": "multi-source-data-merger",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-002\\right",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-002\\left",
+      "planned_completed": "completed",
+      "standard_status": "fail",
+      "taskspace_status": "fail",
+      "standard_success": "False",
+      "taskspace_success": "False",
+      "standard_walltime": "111635",
+      "taskspace_walltime": "442135",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-002\\right\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=124;taskspace=124",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;public_validation_timeout;audit_review_missing",
+      "failure_classification": "taskspace_overhead_timeout;validator_slow_or_flaky",
+      "artifact_audit_status": "missing",
+      "direction": "both_failed",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/multi-source-data-merger/pair-002",
+      "graph_nodes": 12,
+      "graph_edges": 11,
+      "graph_results": 45,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 34,
+        "accepted": 6,
+        "invalid": 5
+      },
+      "node_status": {
+        "completed": 7,
+        "blocked": 5
+      },
+      "node_kind": {
+        "inspect_code_context": 1,
+        "regression_test": 2,
+        "implement_solution": 4,
+        "final_synthesis": 2,
+        "smoke_test": 3
+      },
+      "success_criteria": 0,
+      "output_contracts": 4,
+      "fact_sources": 4,
+      "facts": 0
+    },
+    {
+      "pair_id": "multi-source-data-merger::003",
+      "sample_name": "multi-source-data-merger",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-003\\left",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-003\\right",
+      "planned_completed": "completed",
+      "standard_status": "fail",
+      "taskspace_status": "fail",
+      "standard_success": "False",
+      "taskspace_success": "False",
+      "standard_walltime": "66995",
+      "taskspace_walltime": "339102",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-003\\left\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=124;taskspace=124",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;public_validation_timeout;audit_review_missing",
+      "failure_classification": "taskspace_overhead_timeout;validator_slow_or_flaky",
+      "artifact_audit_status": "missing",
+      "direction": "both_failed",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/multi-source-data-merger/pair-003",
+      "graph_nodes": 11,
+      "graph_edges": 10,
+      "graph_results": 35,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 25,
+        "accepted": 6,
+        "invalid": 4
+      },
+      "node_status": {
+        "completed": 7,
+        "blocked": 4
+      },
+      "node_kind": {
+        "inspect_code_context": 1,
+        "regression_test": 4,
+        "final_synthesis": 1,
+        "implement_solution": 4,
+        "smoke_test": 1
+      },
+      "success_criteria": 0,
+      "output_contracts": 2,
+      "fact_sources": 1,
+      "facts": 1
+    },
+    {
+      "pair_id": "multi-source-data-merger::004",
+      "sample_name": "multi-source-data-merger",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-004\\right",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-004\\left",
+      "planned_completed": "completed",
+      "standard_status": "fail",
+      "taskspace_status": "fail",
+      "standard_success": "False",
+      "taskspace_success": "False",
+      "standard_walltime": "72074",
+      "taskspace_walltime": "307049",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-004\\right\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=124;taskspace=124",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;public_validation_timeout;audit_review_missing",
+      "failure_classification": "taskspace_overhead_timeout;validator_slow_or_flaky",
+      "artifact_audit_status": "missing",
+      "direction": "both_failed",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/multi-source-data-merger/pair-004",
+      "graph_nodes": 7,
+      "graph_edges": 6,
+      "graph_results": 35,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 27,
+        "accepted": 5,
+        "invalid": 3
+      },
+      "node_status": {
+        "completed": 6,
+        "blocked": 1
+      },
+      "node_kind": {
+        "inspect_code_context": 1,
+        "implement_solution": 3,
+        "smoke_test": 2,
+        "final_synthesis": 1
+      },
+      "success_criteria": 0,
+      "output_contracts": 2,
+      "fact_sources": 3,
+      "facts": 0
+    },
+    {
+      "pair_id": "multi-source-data-merger::005",
+      "sample_name": "multi-source-data-merger",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-005\\left",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-005\\right",
+      "planned_completed": "completed",
+      "standard_status": "fail",
+      "taskspace_status": "fail",
+      "standard_success": "False",
+      "taskspace_success": "False",
+      "standard_walltime": "54283",
+      "taskspace_walltime": "295641",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__multi-source-data-merger\\20260608-220537-451\\pair-005\\left\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=124;taskspace=124",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;public_validation_timeout;audit_review_missing",
+      "failure_classification": "taskspace_overhead_timeout;validator_slow_or_flaky",
+      "artifact_audit_status": "missing",
+      "direction": "both_failed",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/multi-source-data-merger/pair-005",
+      "graph_nodes": 5,
+      "graph_edges": 4,
+      "graph_results": 31,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 27,
+        "accepted": 4
+      },
+      "node_status": {
+        "completed": 4,
+        "blocked": 1
+      },
+      "node_kind": {
+        "inspect_code_context": 1,
+        "implement_solution": 2,
+        "smoke_test": 1,
+        "final_synthesis": 1
+      },
+      "success_criteria": 0,
+      "output_contracts": 1,
+      "fact_sources": 2,
+      "facts": 2
+    },
+    {
+      "pair_id": "recover-accuracy-log::001",
+      "sample_name": "recover-accuracy-log",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-001\\left",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-001\\right",
+      "planned_completed": "completed",
+      "standard_status": "pass",
+      "taskspace_status": "pass",
+      "standard_success": "True",
+      "taskspace_success": "True",
+      "standard_walltime": "92261",
+      "taskspace_walltime": "310053",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-001\\left\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=0;taskspace=0",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;audit_review_missing",
+      "failure_classification": "",
+      "artifact_audit_status": "missing",
+      "direction": "both_success",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/recover-accuracy-log/pair-001",
+      "graph_nodes": 7,
+      "graph_edges": 6,
+      "graph_results": 30,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 24,
+        "accepted": 6
+      },
+      "node_status": {
+        "completed": 5,
+        "blocked": 2
+      },
+      "node_kind": {
+        "inspect_code_context": 2,
+        "implement_solution": 2,
+        "regression_test": 1,
+        "smoke_test": 1,
+        "final_synthesis": 1
+      },
+      "success_criteria": 0,
+      "output_contracts": 1,
+      "fact_sources": 1,
+      "facts": 0
+    },
+    {
+      "pair_id": "recover-accuracy-log::002",
+      "sample_name": "recover-accuracy-log",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-002\\right",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-002\\left",
+      "planned_completed": "completed",
+      "standard_status": "pass",
+      "taskspace_status": "pass",
+      "standard_success": "True",
+      "taskspace_success": "True",
+      "standard_walltime": "234510",
+      "taskspace_walltime": "657507",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-002\\right\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=0;taskspace=0",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;audit_review_missing",
+      "failure_classification": "node_overfragmentation",
+      "artifact_audit_status": "missing",
+      "direction": "both_success",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/recover-accuracy-log/pair-002",
+      "graph_nodes": 15,
+      "graph_edges": 15,
+      "graph_results": 52,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 38,
+        "accepted": 12,
+        "invalid": 2
+      },
+      "node_status": {
+        "completed": 10,
+        "ready": 1,
+        "blocked": 4
+      },
+      "node_kind": {
+        "inspect_code_context": 7,
+        "implement_solution": 3,
+        "final_synthesis": 2,
+        "smoke_test": 3
+      },
+      "success_criteria": 0,
+      "output_contracts": 2,
+      "fact_sources": 1,
+      "facts": 0
+    },
+    {
+      "pair_id": "recover-accuracy-log::003",
+      "sample_name": "recover-accuracy-log",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-003\\left",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-003\\right",
+      "planned_completed": "completed",
+      "standard_status": "pass",
+      "taskspace_status": "fail",
+      "standard_success": "True",
+      "taskspace_success": "False",
+      "standard_walltime": "115873",
+      "taskspace_walltime": "562652",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-003\\left\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=0;taskspace=124",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;public_validation_timeout;audit_review_missing",
+      "failure_classification": "taskspace_overhead_timeout;validator_slow_or_flaky;node_overfragmentation;subagent_noise_or_unused",
+      "artifact_audit_status": "missing",
+      "direction": "standard_better",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/recover-accuracy-log/pair-003",
+      "graph_nodes": 16,
+      "graph_edges": 16,
+      "graph_results": 53,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 36,
+        "questioned": 7,
+        "accepted": 10
+      },
+      "node_status": {
+        "completed": 9,
+        "blocked": 7
+      },
+      "node_kind": {
+        "inspect_code_context": 6,
+        "final_synthesis": 3,
+        "implement_solution": 4,
+        "regression_test": 2,
+        "smoke_test": 1
+      },
+      "success_criteria": 0,
+      "output_contracts": 1,
+      "fact_sources": 2,
+      "facts": 0
+    },
+    {
+      "pair_id": "recover-accuracy-log::004",
+      "sample_name": "recover-accuracy-log",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-004\\right",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-004\\left",
+      "planned_completed": "completed",
+      "standard_status": "pass",
+      "taskspace_status": "fail",
+      "standard_success": "True",
+      "taskspace_success": "False",
+      "standard_walltime": "80597",
+      "taskspace_walltime": "162920",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-004\\right\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=0;taskspace=124",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;public_validation_timeout;audit_review_missing",
+      "failure_classification": "taskspace_overhead_timeout;validator_slow_or_flaky",
+      "artifact_audit_status": "missing",
+      "direction": "standard_better",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/recover-accuracy-log/pair-004",
+      "graph_nodes": 2,
+      "graph_edges": 1,
+      "graph_results": 17,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 15,
+        "accepted": 2
+      },
+      "node_status": {
+        "completed": 2
+      },
+      "node_kind": {
+        "inspect_code_context": 1,
+        "implement_solution": 1
+      },
+      "success_criteria": 0,
+      "output_contracts": 2,
+      "fact_sources": 2,
+      "facts": 2
+    },
+    {
+      "pair_id": "recover-accuracy-log::005",
+      "sample_name": "recover-accuracy-log",
+      "standard_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-005\\left",
+      "taskspace_run_id": "D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-005\\right",
+      "planned_completed": "completed",
+      "standard_status": "pass",
+      "taskspace_status": "pass",
+      "standard_success": "True",
+      "taskspace_success": "True",
+      "standard_walltime": "95035",
+      "taskspace_walltime": "222288",
+      "timeout_budget": "agent=900s; public_validation=420s",
+      "validator_command": "exec --json -c model_reasoning_effort=max -m deepseek-v4-flash -C W:\\app --full-auto --output-last-message D:\\whalecode-alpha\\target\\bench004-20260608-202551\\runs\\terminal_bench__recover-accuracy-log\\20260608-235934-100\\pair-005\\left\\artifacts\\last-message.md -",
+      "validator_exit_code": "standard=0;taskspace=0",
+      "included_in_utility": "False",
+      "exclusion_reason": "manual_review_required;audit_review_missing",
+      "failure_classification": "",
+      "artifact_audit_status": "missing",
+      "direction": "both_success",
+      "package_path": "docs/testing/taskspace-0.0.3-external-review-materials/pairs/recover-accuracy-log/pair-005",
+      "graph_nodes": 6,
+      "graph_edges": 5,
+      "graph_results": 23,
+      "graph_leases": 0,
+      "validity": {
+        "unreviewed": 18,
+        "accepted": 5
+      },
+      "node_status": {
+        "completed": 5,
+        "blocked": 1
+      },
+      "node_kind": {
+        "inspect_code_context": 2,
+        "implement_solution": 2,
+        "regression_test": 1,
+        "final_synthesis": 1
+      },
+      "success_criteria": 0,
+      "output_contracts": 1,
+      "fact_sources": 1,
+      "facts": 0
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+schema_version: taskspace_control_v2
+actions:
+  start_task:
+    required: [task_title, task_objective, initial_success_criteria, node_kind, node_title, node_context_summary]
+    optional: [bind_current, initial_open_questions, initial_risks]
+  record_success_criteria:
+    required: [criteria]
+  record_open_question:
+    required: [question_id, question, reason, blocking]
+    optional: [opened_by_node_id]
+  close_open_question:
+    required: [question_id, resolution, evidence_refs]
+    optional: [closed_by_result_id]
+  record_hypothesis:
+    required: [hypothesis_id, statement, confidence, evidence_refs]
+    optional: [falsification_check]
+  update_hypothesis:
+    required: [hypothesis_id, status, reason]
+    optional: [evidence_refs]
+  record_decision:
+    required: [decision_id, decision_kind, decision, rationale]
+    optional: [depends_on_results, depends_on_facts, resolves_questions, supports_criteria, risks]
+  record_next_best_action:
+    required: [action_summary, reason, expected_artifact]
+    optional: [node_id, blocked_by]
+  adopt_result:
+    required: [result_id, adoption_state]
+    optional: [adopted_by]
+  record_subagent_plan:
+    required: [parent_node_id, why_parallelizable, expected_artifact, acceptance_check, max_scope]
+    optional: [supports_questions, tests_hypotheses, depends_on_results]
+  classify_failure:
+    required: [failure_classes, reason]
+    optional: [evidence_refs]

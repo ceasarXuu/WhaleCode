@@ -1,0 +1,40 @@
+audit_version: taskspace-e3-audit-v1
+pair_id: null
+sample_name: null
+standard:
+  success: null
+  exec_exit_code: null
+  public_validation_exit_code: null
+  wall_time_ms: null
+  changed_files: []
+  diff_ref: null
+  validator_stdout_ref: null
+  validator_stderr_ref: null
+  cleanup_ok: null
+taskspace:
+  success: null
+  exec_exit_code: null
+  public_validation_exit_code: null
+  wall_time_ms: null
+  changed_files: []
+  diff_ref: null
+  validator_stdout_ref: null
+  validator_stderr_ref: null
+  cleanup_ok: null
+  graph_ref: null
+  graph_health_ref: null
+  result_validity_summary: {}
+  decision_summary: {}
+classification:
+  included_in_utility: null
+  exclusion_reason: []
+  failure_taxonomy: []
+  utility_direction: null
+  audit_status: null
+proof:
+  oracle_isolation_ok: null
+  remote_asset_ok: null
+  cleanup_ok: null
+  validator_equivalence_ok: null
+  human_review_required: null
+  human_review_completed: null

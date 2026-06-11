@@ -1,0 +1,97 @@
+# 12. Benchmark 与 Release Plan
+
+## 1. Benchmark 分层
+
+0.0.4 不建议扩大 benchmark；应先清洗和分层现有 E3 样本。
+
+| 层 | 用途 | 样本 |
+|---|---|---|
+| Low-friction regression | 确认 TaskSpace 不拖垮简单/中等直线任务 | recover-accuracy-log |
+| Medium utility evidence | 主 utility 观察样本 | processing-pipeline 中 validator 稳定 pair |
+| Stress/noisy validator | 压力测试，不作为主 utility 结论 | multi-source-data-merger |
+| Fail-closed mechanism | 环境资产不可控验证 | query-optimize |
+
+## 2. 0.0.4 最小复跑矩阵
+
+```text
+recover-accuracy-log: 5 pairs
+processing-pipeline: 5 pairs
+multi-source-data-merger: 2 diagnostic pairs
+query-optimize: preflight only
+```
+
+## 3. 运行输出要求
+
+每个 pair 必须输出：
+
+```text
+audit.yaml
+graph-health.json
+standard.diff.patch
+taskspace.diff.patch
+standard.validator stdout/stderr
+taskspace.validator stdout/stderr
+failure taxonomy
+result adoption summary
+```
+
+## 4. Release gates
+
+### Gate A：基础安全
+
+```text
+Docker cleanup 无残留；
+remote asset fail-closed 生效；
+validator artifact 可读取。
+```
+
+### Gate B：schema/gate 基础
+
+```text
+TaskSpace run 有 success criteria；
+final synthesis gate 生效；
+invalid result gate 生效。
+```
+
+### Gate C：audit 基础
+
+```text
+valid_utility_pairs > 0，或每个 pair 的 exclusion 原因机械可解释；
+failure taxonomy 非 unknown。
+```
+
+### Gate D：行为质量
+
+```text
+recover-accuracy-log 不出现无解释 deep graph；
+processing-pipeline 输出 subagent ROI；
+graph health 能捕捉 node_overfragmentation 和 result_not_synthesized。
+```
+
+## 5. 成功判断
+
+0.0.4 成功条件：
+
+```text
+不是 TaskSpace better > Standard better，
+而是 TaskSpace 进入 clean audit + graph health + problem-state 可解释阶段。
+```
+
+## 6. 回归风险
+
+| 风险 | 缓解 |
+|---|---|
+| Gate 过硬导致 agent 卡死 | 先 hard 少量关键 gate，其余 warning |
+| Schema 过复杂导致模型不使用 | prompt 中给最小行动模板，viewer 提供状态缺口 |
+| Thin mode 分类误导 | 0.0.4 只 report-only，不自动切换 |
+| Audit manifest 过重 | 先用已有 artifact 聚合，避免引入人工作业负担 |
+| 0.0.3 trace 不兼容 | versioned schema，legacy viewer mode |
+
+## 7. 发布标准
+
+```text
+P0 issue 全部完成；
+E3 focused rerun 完成；
+release note 明确：0.0.4 是 observability/contract 版本，不宣称 utility win；
+version registry 记录 clean audit 状态。
+```

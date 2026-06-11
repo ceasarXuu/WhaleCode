@@ -1,0 +1,16 @@
+{
+  "schema_version": "taskspace-graph-health-v1",
+  "node_count": 0,
+  "edge_count": 0,
+  "result_count": 0,
+  "decision_count": 0,
+  "unreviewed_result_ratio": 0.0,
+  "result_adoption_rate": 0.0,
+  "decision_density": 0.0,
+  "blocked_node_ratio": 0.0,
+  "node_inflation_ratio": 0.0,
+  "open_question_closure_rate": 0.0,
+  "subagent_decision_yield": 0.0,
+  "thin_mode_violation": false,
+  "warnings": []
+}
