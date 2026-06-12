@@ -1,5 +1,13 @@
 # TaskSpace E3 Run Index
 
+## UTF-8 Current Summary
+
+The historical body below contains mojibake from earlier encoding damage. Use this current summary as the readable source of truth for the latest E3 run.
+
+| Date | TaskSpace version | Status | Scope | Result |
+|---|---|---|---|---|
+| 2026-06-12/13 | `0.0.4` | completed-not-mitigated | P0 comparable scope: `processing-pipeline`, `multi-source-data-merger`, `recover-accuracy-log` x 5 pairs; `query-optimize` fail-closed preflight | 15 executed pairs, 0 clean utility pairs, 0 clean E3 pairs, all executed standard and TaskSpace public validations failed. See [2026-06-13 TaskSpace 0.0.4 P0 E3 run](./2026-06-13-taskspace-0.0.4-p0-e3-run.md). |
+
 本文档记录每轮 E3 执行情况，避免不同轮次的范围、结论和 artifact 路径混淆。
 
 ## 记录规则
@@ -24,3 +32,8 @@
 | 2026-06-07 | 0.0.2 | partial | 第二次重跑 Terminal-Bench P0 candidate 4 samples x 5 repeats：`processing-pipeline`、`multi-source-data-merger`、`recover-accuracy-log`、`query-optimize`；计划 20 pairs，实际完成 15 pairs，`query-optimize` 0 pairs。 | 仍不是 clean E3：0 pair 进入 utility aggregate；诊断性结果为 TaskSpace better 2、Standard better 5、both success 2、both failed/inconclusive 6。新增明确暴露：validator 容器在 aggregate 写完后可能残留并阻塞 driver，需要人工停止本 run 残留容器后继续。 | [2026-06-07 P0 second rerun](./2026-06-07-taskspace-p0-second-rerun.md)；run root: `D:\whalecode-alpha\target\benchp0-20260607-163444`；aggregate：`processing-pipeline` `D:\whalecode-alpha\target\benchp0-20260607-163444\runs\terminal_bench__processing-pipeline\20260607-163451-317\aggregate-report.md`；`multi-source-data-merger` `D:\whalecode-alpha\target\benchp0-20260607-163444\runs\terminal_bench__multi-source-data-merger\20260607-181021-823\aggregate-report.md`；`recover-accuracy-log` `D:\whalecode-alpha\target\benchp0-20260607-163444\runs\terminal_bench__recover-accuracy-log\20260607-202431-017\aggregate-report.md` |
 | 2026-06-08 | 0.0.3 | smoke | Terminal-Bench `hello-world` 1 pair diagnostic smoke。 | 证明 harness cleanup blocker 已缓解：真实 Docker public validation timeout 后父级按 runtime manifest + labels 精确清理左右容器，run 后无残留 label 容器；metrics/proof 能读取 cleanup artifact。该 smoke 使用低 validation timeout 触发 cleanup，因此不是 utility/E3 结论。 | [2026-06-08 cleanup smoke](./2026-06-08-taskspace-0.0.3-harness-cleanup-smoke.md)；run root: `D:\whalecode-alpha\target\bench003smoke2-20260608-044924`；pair report: `D:\whalecode-alpha\target\bench003smoke2-20260608-044924\runs\terminal_bench__hello-world\20260608-044928-289\pair-001\pair-report.md` |
 | 2026-06-08/09 | 0.0.3 | partial | 基于 `0.0.3` 重跑 Terminal-Bench P0 candidate 4 samples x 5 repeats：`processing-pipeline`、`multi-source-data-merger`、`recover-accuracy-log`、`query-optimize`；计划 20 pairs，实际完成 15 pairs，`query-optimize` 0 pairs。 | cleanup blocker 未复现，所有 cleanup artifact 为 `ok` 且 run 后无 label 残留容器；但不是 clean E3：0 pair 进入 utility aggregate。诊断性结果为 TaskSpace better 0、Standard better 3、both success 5、both failed 7；`query-optimize` 继续因 HuggingFace `oewn.sqlite` 等价未证明 fail-closed。 | [2026-06-09 0.0.3 P0 E3 run](./2026-06-09-taskspace-0.0.3-p0-e3-run.md)；run root: `D:\whalecode-alpha\target\bench004-20260608-202551`；aggregate：`processing-pipeline` `D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__processing-pipeline\20260608-202555-620\aggregate-report.md`；`multi-source-data-merger` `D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__multi-source-data-merger\20260608-220537-451\aggregate-report.md`；`recover-accuracy-log` `D:\whalecode-alpha\target\bench004-20260608-202551\runs\terminal_bench__recover-accuracy-log\20260608-235934-100\aggregate-report.md` |
+## 2026-06-13 UTF-8 Append
+
+| Date | TaskSpace version | Status | Scope | Result summary | Index |
+|---|---|---|---|---|---|
+| 2026-06-12/13 | 0.0.4 | completed-not-mitigated | Terminal-Bench P0 comparable scope: `processing-pipeline`, `multi-source-data-merger`, `recover-accuracy-log` x 5 pairs; `query-optimize` fail-closed preflight | 15 executed pairs, 0 clean utility pairs, 0 clean E3 pairs. Both standard and TaskSpace failed public validation in all executed pairs, so diagnostic pass rate regressed versus `0.0.3`. `query-optimize` remained correctly fail-closed. | [2026-06-13 TaskSpace 0.0.4 P0 E3 run](./2026-06-13-taskspace-0.0.4-p0-e3-run.md); run root: `D:\whalecode-alpha\target\bench005-20260612-phase6` |

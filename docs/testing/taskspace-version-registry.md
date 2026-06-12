@@ -1,5 +1,13 @@
 # TaskSpace Version Registry
 
+## UTF-8 Current Summary
+
+The historical body below contains mojibake from earlier encoding damage. Use this current summary as the readable source of truth for the latest release-gate state.
+
+| Version | Bound run | Scope | Conclusion |
+|---|---|---|---|
+| `0.0.4` | `D:\whalecode-alpha\target\bench005-20260612-phase6` | P0 comparable scope: `processing-pipeline`, `multi-source-data-merger`, `recover-accuracy-log` x 5 pairs; `query-optimize` fail-closed preflight | Completed as a negative release-gate decision: not mitigated, clean utility unproven, 0 clean utility pairs, 0 clean E3 pairs. |
+
 本文档给 TaskSpace E3 评估建立版本号，避免后续讨论时混淆“代码能力版本”“测试运行批次”和“benchmark 结论”。
 
 ## 版本规则
@@ -61,3 +69,9 @@
 `0.0.1` 到 `0.0.2` 说明：底层 E3 执行链路和 remote asset fail-closed 是可复现的；但 TaskSpace 的效用没有提升，反而在 `multi-source-data-merger` 和 `processing-pipeline` 上出现更明显负收益。`0.0.3` 修复了 Docker cleanup blocker，并通过真实 timeout smoke 与同范围 P0 E3 复跑证明父级 cleanup 与证据链可收敛；但它没有证明 TaskSpace utility 改善，P0 诊断结果仍是负向。仍未解决的是 clean E3 audit gate、map 收敛能力、以及部分样本的 validator/network 噪声。
 
 后续版本应从 `0.0.4` 开始，每次工程机制改动都必须绑定一轮同范围 E3 复跑，并在本文件中记录是否真正改善了上一版本暴露的问题。
+
+## 2026-06-13 UTF-8 Append: 0.0.4 Record
+
+| Version | Bound run | Version nature | Scope | Conclusion |
+|---|---|---|---|---|
+| `0.0.4` | `D:\whalecode-alpha\target\bench005-20260612-phase6` | Phase 1-5 TaskSpace mechanism implementation validation and Phase 6 comparable E3 release gate | Same P0 comparable scope as `0.0.3`: `processing-pipeline`, `multi-source-data-merger`, `recover-accuracy-log` x 5 pairs; `query-optimize` fail-closed preflight | Not mitigated. Clean utility pairs remain 0 and clean E3 pairs remain 0. Diagnostic pass rate is worse than `0.0.3` because both standard and TaskSpace failed all 15 executed pairs. `query-optimize` guardrail stayed fail-closed. See [2026-06-13 TaskSpace 0.0.4 P0 E3 run](./2026-06-13-taskspace-0.0.4-p0-e3-run.md). |

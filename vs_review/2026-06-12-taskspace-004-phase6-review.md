@@ -1,7 +1,7 @@
 # Subagent VS Review: TaskSpace 0.0.4 Phase 6 Release Gate
 
 - Created: 2026-06-12T20:33:45+08:00
-- Updated: 2026-06-12T20:37:49+08:00
+- Updated: 2026-06-13T00:34:44+08:00
 - Report schema: adversarial-v1
 - Task: Complete TaskSpace v0.0.4 Phase 6 validation and release-gate review.
 - Report path: `vs_review/2026-06-12-taskspace-004-phase6-review.md`
@@ -226,3 +226,203 @@ Release-gate status should be partial/inconclusive, not passed. There is no fixe
 ## Final Conclusion
 
 The adversarial review completed and blocks any claim that TaskSpace v0.0.4 Phase 6 is complete. Current evidence supports only installed build proof plus diagnostic smoke artifact generation. Phase 6 remains partial/inconclusive until a fixed comparable clean E3 run package, comparison report, and registry/run-index updates exist.
+
+## Round 2: Final E3 Conclusion Validity
+
+### Review Input
+
+#### Objective
+
+Review whether the updated TaskSpace v0.0.4 Phase 6 final conclusion is evidence-backed: v0.0.4 does not mitigate v0.0.3 problems, clean utility remains unproven, and the run distinguishes mechanism failure, agent behavior failure, and benchmark/environment noise.
+
+#### Review Target
+
+- Final Phase 6 comparison report and tracking updates created after fixed comparable E3 run.
+- Verify the report does not overclaim and that it accurately reflects current run artifacts.
+
+#### Target Locations
+
+- `docs/testing/2026-06-13-taskspace-0.0.4-p0-e3-run.md`
+- `docs/testing/2026-06-12-taskspace-0.0.4-phase6-release-gate-note.md`
+- `docs/testing/taskspace-version-registry.md`
+- `docs/testing/taskspace-e3-run-index.md`
+- `target/bench005-20260612-phase6/runs/terminal_bench__processing-pipeline/20260612-204257-719/aggregate-report.md`
+- `target/bench005-20260612-phase6/runs/terminal_bench__multi-source-data-merger/20260612-222100-306/aggregate-report.md`
+- `target/bench005-20260612-phase6/runs/terminal_bench__recover-accuracy-log/20260612-231439-816/aggregate-report.md`
+- `target/bench005-20260612-phase6/runs/terminal_bench__query-optimize/20260613-002149-295/sample-status.json`
+- `target/bench005-20260612-phase6/runs/terminal_bench__query-optimize/20260613-002149-295/preflight.remote-assets.json`
+
+#### Change Introduction
+
+A fixed comparable E3 run package now exists for three executed P0 samples x 5 repeats plus `query-optimize` fail-closed preflight. The docs conclude that 0.0.4 is `completed-not-mitigated`: clean utility pairs remain zero, diagnostic pass rate regressed, and release should not claim mitigation success.
+
+#### Risk Focus
+
+- The report may overclaim completion despite zero clean utility/E3 pairs.
+- The report may compare diagnostic pass rates incorrectly against 0.0.3.
+- The tracking docs may be malformed or misleading due old file encoding issues.
+- The distinction between mechanism failure, agent behavior failure, and benchmark/environment noise may be too weak.
+- Artifact paths or numbers in the report may not match run artifacts.
+- The conclusion may need to remain blocked rather than completed-not-mitigated.
+
+#### User-Perspective Review Focus
+
+- Can a future maintainer understand the final gate status without hidden chat context?
+- Is it obvious that 0.0.4 did not pass as a mitigation success?
+- Are follow-up issues actionable and evidence-backed?
+
+#### Assumptions To Attack
+
+- A negative Phase 6 conclusion can close Phase 6 even with zero clean utility pairs.
+- Diagnostic all-fail outcomes are enough to say not mitigated.
+- The report correctly avoids utility/cost claims from excluded pairs.
+- Registry/run-index updates are enough despite old mojibake content.
+
+#### Adversarial Lenses
+
+- requirements
+- testing
+- observability
+- release
+- documentation
+- comprehension
+- maintenance
+
+#### Verification Status
+
+- `git diff --check` passed after docs update.
+- No Docker container with label `whale.taskspace.terminal_bench=true` was listed after the run.
+- New report line count is 88; release gate note is 60; prior Round 1 review report is 228.
+- The reviewer must inspect files and artifacts directly.
+
+#### Reviewer Instructions
+
+- Fresh internal subagent session.
+- No inherited main-agent context.
+- Read target files directly.
+- Do not modify files.
+- Cite evidence paths and line numbers when possible.
+- If generated JSON line numbers are awkward, cite exact path and field/key/value.
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| complex | 20 minutes | 10 minutes once if active | 2 | cannot pass if review is unavailable |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| `test-validity-adversary` | The target is a release-gate validation conclusion; the highest risk is self-deceptive evidence or invalid clean-pair accounting. | E3 evidence quality, comparison validity, release-gate conclusion validity |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| `test-validity-adversary` | `multi_agent_v1.spawn_agent` | `019ebcaa-1a69-7831-9278-6d2994dcfb53` | spawn_agent tool result in current Codex thread | `fork_context=false` | Round 2 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| round2-test-validity | `test-validity-adversary` | 1 | `019ebcaa-1a69-7831-9278-6d2994dcfb53` | 5 minutes | completed | Reviewer completed within the initial wait. | completed |
+
+### Reviewer Outputs
+
+#### round2-test-validity
+
+##### Summary
+
+Read-only review completed. The updated final conclusion is evidence-backed: the report does not claim mitigation success, does not claim clean utility, and the artifact numbers checked by the reviewer match the current run package.
+
+The strongest conclusion supported is negative: `0.0.4` is completed as a release-gate answer, but the answer is `not mitigated / clean utility unproven`. The reviewer found no blocking evidence-validity issue requiring the conclusion to revert to blocked, as long as `completed-not-mitigated` is understood as a negative gate decision, not a successful release.
+
+##### Blocking Findings
+
+- none
+
+##### Non-blocking Risks
+
+- Tracking docs still contain mojibake historical content.
+  - Broken assumption: registry/run-index updates are enough despite old encoding.
+  - Failure scenario: a future maintainer audits version history and cannot reliably read pre-append context.
+  - Trigger condition: `taskspace-version-registry.md` and `taskspace-e3-run-index.md` have mojibake historical bodies, though the new append is readable.
+  - Impact: maintenance/comprehension risk, not a current numeric evidence failure.
+  - Proof needed: repaired UTF-8 historical docs or a readable current-state summary at the top.
+- Mechanism-failure wording can still be read too broadly.
+  - Broken assumption: `valid_utility_pairs=0` alone proves only audit/review mechanism failure.
+  - Failure scenario: readers miss that exclusions also include `business_success_false`, cleanup/proof issues, and environment failures.
+  - Trigger condition: final report labels zero clean pairs as mechanism failure while aggregate JSON has multiple exclusion reasons.
+  - Impact: root-cause prioritization could drift.
+  - Proof needed: one clarifying sentence that zero clean pairs are the gate outcome, with exclusion reasons split underneath.
+- Review closure artifact is still pending.
+  - Broken assumption: this Round 2 review is already recorded in `/vs_review`.
+  - Failure scenario: main workflow claims adversarial closure while the review report still says pending.
+  - Trigger condition: reviewer output is not appended and triaged.
+  - Impact: process/audit gap, not a flaw in the final report's evidence.
+  - Proof needed: append this review output and main-agent accept/reject/defer responses.
+
+##### User-Perspective Checks
+
+- Usability: pass - A future maintainer can understand the final gate status from `docs/testing/2026-06-13-taskspace-0.0.4-p0-e3-run.md`.
+- Ease of use: pass - It is obvious that `0.0.4` did not pass as mitigation success.
+- Ease of understanding: pass - Follow-ups are actionable and evidence-backed.
+
+##### Required Fixes
+
+- none
+
+##### Missing Tests
+
+- No automated doc-artifact consistency test proves the report tables cannot drift from `aggregate.json`/`audit.json`.
+- No clean inclusion test exists yet for the human/audit review path; all reviewed aggregates still show `valid_utility_pairs=0` and `valid_e3_pairs=0`.
+- Reviewer could not independently verify post-run Docker cleanup state because `docker ps --filter label=whale.taskspace.terminal_bench=true` timed out in the reviewer session.
+
+##### Missing Logs / Observability
+
+- Completed sample `run-status.json` files do not expose a useful `aggregate_report_path` in the reviewer's parsed output, so the Markdown report does most navigation work.
+- Aggregate artifacts do not carry a machine-readable final release-gate status like `not_mitigated_clean_utility_unproven`; that status currently lives in docs.
+- Persisted Docker cleanup proof was not available from the target files reviewed.
+
+##### Evidence
+
+- `docs/testing/2026-06-13-taskspace-0.0.4-p0-e3-run.md` - all executed samples have `valid_utility_pairs=0`, `valid_e3_pairs=0`, and clean gate remains closed.
+- `docs/testing/2026-06-13-taskspace-0.0.4-p0-e3-run.md` - current diagnostic pass rates are all `0/5`, and the `0.0.3` comparison direction is correctly negative.
+- `docs/testing/2026-06-09-taskspace-0.0.3-p0-e3-run.md` - supports the reported `0.0.3` baseline of processing `3/5` standard vs `2/5` TaskSpace, merger `0/5` vs `0/5`, recover `5/5` vs `3/5`.
+- Current aggregate reports - each executed sample confirms 5 configured/all pairs, 0 clean utility, 0 clean E3, and 5 exclusions.
+- Current audit aggregation matched report values: processing `0/5`, `0/5`, `362.2s`, `742.2s`, evidence `48/314/30`; merger `0/5`, `0/5`, `108.4s`, `458.0s`, evidence `41/103/13`; recover `0/5`, `0/5`, `122.8s`, `632.1s`, evidence `34/120/20`.
+- `query-optimize` `sample-status.json`: `phase=ineligible`, `attempted_pairs=0`, `completed_pairs=0`.
+- `query-optimize` `preflight.remote-assets.json`: `oewn.sqlite` has `cache_exists=false`, `equivalence_proven=false`, and top-level `e3_eligible=false`.
+
+### Main Agent Response
+
+| Reviewer | Finding | Broken Assumption / Failure Scenario | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|---|
+| `test-validity-adversary` | No blocking findings against the final evidence conclusion. | n/a | n/a | accept | Reviewer confirmed the negative release-gate conclusion is evidence-backed and does not overclaim mitigation or clean utility. | Kept final conclusion as `completed-not-mitigated`. | n/a |
+| `test-validity-adversary` | Tracking docs still contain mojibake historical content. | Readable append alone may not be enough for future maintainers. | major | accept | The old bodies are visibly mojibake. | Added UTF-8 current summaries at the top of `taskspace-version-registry.md` and `taskspace-e3-run-index.md`. | Full historical encoding repair can be done separately if needed. |
+| `test-validity-adversary` | Mechanism-failure wording can still be read too broadly. | Zero clean pairs alone could be misread as only an audit/review mechanism failure. | major | accept | Aggregates and pair reports include mixed exclusion causes. | Clarified the mechanism-failure row in `docs/testing/2026-06-13-taskspace-0.0.4-p0-e3-run.md`. | Use the issue list to split gate/inclusion, validator proof, environment, and agent behavior work. |
+| `test-validity-adversary` | Review closure artifact is still pending. | The review cannot be claimed closed while `/vs_review` says pending. | major | accept | Round 2 output had not yet been appended. | Appended Round 2 output and this triage table. | n/a |
+| `test-validity-adversary` | No automated doc-artifact consistency test. | Report tables may drift from artifacts in future edits. | major | defer | Current report was manually verified against artifacts; adding a generator/checker is outside Phase 6 closure. | Documented as missing test in this review. | Track for 0.0.5 release-gate tooling. |
+| `test-validity-adversary` | No clean inclusion test for the human/audit review path. | Future claims may still fail to produce clean included pairs. | major | defer | All reviewed aggregates remain zero clean pairs; Phase 6 negative conclusion explicitly preserves that. | Documented as missing test and P0 follow-up. | Track in 0.0.5 audit/review inclusion work. |
+| `test-validity-adversary` | Reviewer could not independently verify Docker cleanup state. | Cleanup proof may be only main-agent verified. | minor | accept | Main-agent `docker ps --filter label=whale.taskspace.terminal_bench=true` returned no listed containers after the run. | Kept this as validation evidence; no report change needed. | Add persisted cleanup proof to future run package. |
+| `test-validity-adversary` | Aggregate artifacts lack machine-readable final release-gate status. | Status currently lives in docs. | major | defer | Current Phase 6 deliverable is the comparison report/tracking docs; adding aggregate schema fields is tooling work. | Documented as missing observability. | Track for release-gate generator in 0.0.5. |
+
+### Closure Status
+
+- Blocking findings found: no
+- Accepted blocking findings fixed: n/a
+- Blocking re-review completed: n/a
+- Blocking re-review passed: n/a
+- Blocking re-review round links:
+  - n/a
+- Blocking re-review launch records:
+  - n/a
+- Rejected findings backed by evidence: n/a
+- Deferred findings documented: yes
+- Blocked reason: n/a
+- Allowed to proceed: yes
+
+## Final Round 2 Conclusion
+
+The final Phase 6 E3 conclusion may proceed as a negative release-gate answer: `0.0.4` is not a mitigation success, clean utility remains unproven, and the fixed comparable run package is sufficient to close Phase 6 with a `completed-not-mitigated` decision.
