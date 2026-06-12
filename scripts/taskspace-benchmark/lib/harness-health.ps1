@@ -117,7 +117,7 @@ function Get-TaskspaceInfraSignatureFromMetrics {
 function Test-TaskspaceHardInfraSignature {
     param($Signature)
     if ($null -eq $Signature) { return $false }
-    [string]$Signature.stable_code -in @("relative_materialized_path", "path_unresolvable", "validator_source_missing", "uv_cache_missing", "docker_backend_unavailable", "runtime_manifest_missing", "validator_probe_failed")
+    [string]$Signature.stable_code -in @("relative_materialized_path", "path_unresolvable", "validator_source_missing", "uv_cache_missing", "docker_backend_unavailable", "runtime_manifest_missing", "validator_probe_failed", "workspace_baseline_git_failed", "workspace_fixture_copy_failed", "workspace_materialization_failed")
 }
 
 function Get-TaskspaceSentinelAbortDecision {

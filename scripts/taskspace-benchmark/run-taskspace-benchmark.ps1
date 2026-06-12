@@ -209,7 +209,31 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     Set-TaskspaceBenchmarkRunPhase $runDir "execute" ($repeat - 1) ($repeat - 1) | Out-Null
     Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" ($repeat - 1) ($repeat - 1) "" "" "" "" $commandLine | Out-Null
     Write-TaskspaceRunEvent $runDir "pair_started" @{ repeat = $repeat }
-    $pair = New-TaskspacePairWorkspace $manifest $runDir $repeat
+    try {
+        $pair = New-TaskspacePairWorkspace $manifest $runDir $repeat
+    } catch {
+        $message = [string]$_.Exception.Message
+        $stableCode = if ($message -match "workspace_baseline_git_failed|workspace_baseline_dirty") {
+            "workspace_baseline_git_failed"
+        } elseif ($message -match "workspace_fixture_copy_failed") {
+            "workspace_fixture_copy_failed"
+        } else {
+            "workspace_materialization_failed"
+        }
+        $signature = New-TaskspaceInfraSignature "harness_materialization_failure" "workspace_materialization" $stableCode $message "" $runDir
+        $abortPath = Join-Path $existingPairDir "pair-abort.json"
+        Write-TaskspaceJson ([pscustomobject]@{
+                abort_scope = "sample"
+                abort_phase = "workspace_materialization"
+                reason = $stableCode
+                infra_signature = $signature
+                first_failure_artifact = $abortPath
+            }) $abortPath
+        Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "workspace_materialization" $stableCode $signature $abortPath $commandLine ($repeat - 1) ($repeat - 1) | Out-Null
+        Write-Host "RunDir: $runDir"
+        Write-Host "PairAbort: $abortPath"
+        exit 3
+    }
     foreach ($side in @($pair.Left, $pair.Right)) {
         if (-not (Test-TaskspaceNeutralCwd $side.RepoDir)) {
             throw "Non-neutral cwd for $($side.Name): $($side.RepoDir)"

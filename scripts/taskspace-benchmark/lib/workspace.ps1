@@ -24,17 +24,43 @@ function Initialize-TaskspaceRepoBaseline {
     param([Parameter(Mandatory = $true)][string]$RepoDir)
     Push-Location $RepoDir
     try {
-        git init | Out-Null
-        git config user.email "taskspace-benchmark@example.local" | Out-Null
-        git config user.name "TaskSpace Benchmark" | Out-Null
-        git add . | Out-Null
-        git commit -m "baseline fixture" | Out-Null
-        if ((git status --porcelain) -ne $null) {
-            $status = git status --porcelain
-            if ($status) { throw "Fixture repo is dirty after baseline commit: $status" }
-        }
+        Invoke-TaskspaceWorkspaceGit @("init")
+        Invoke-TaskspaceWorkspaceGit @("config", "user.email", "taskspace-benchmark@example.local")
+        Invoke-TaskspaceWorkspaceGit @("config", "user.name", "TaskSpace Benchmark")
+        Invoke-TaskspaceWorkspaceGit @("add", ".")
+        Invoke-TaskspaceWorkspaceGit @("commit", "-m", "baseline fixture")
+        Invoke-TaskspaceWorkspaceGit @("fsck", "--no-progress")
+        $status = Invoke-TaskspaceWorkspaceGit @("status", "--porcelain") -PassThru
+        if ($status) { throw "workspace_baseline_dirty: $status" }
     } finally {
         Pop-Location
+    }
+}
+
+function Invoke-TaskspaceWorkspaceGit {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [switch]$PassThru
+    )
+    $output = & git -c core.autocrlf=false -c core.longpaths=true @Arguments 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $text = [string]::Join("`n", @($output))
+        throw "workspace_baseline_git_failed: git $($Arguments -join ' ') exited $LASTEXITCODE`n$text"
+    }
+    if ($PassThru) { return $output }
+}
+
+function Copy-TaskspaceFixtureToRepo {
+    param(
+        [Parameter(Mandatory = $true)][string]$FixtureDir,
+        [Parameter(Mandatory = $true)][string]$RepoDir
+    )
+    try {
+        foreach ($item in @(Get-ChildItem -LiteralPath $FixtureDir -Force)) {
+            Copy-Item -LiteralPath $item.FullName -Destination $RepoDir -Recurse -Force
+        }
+    } catch {
+        throw "workspace_fixture_copy_failed: $($_.Exception.Message)"
     }
 }
 
@@ -65,7 +91,7 @@ function New-TaskspacePairWorkspace {
             New-Dir (Join-Path $sideRoot "repo")
         }
         $artifactDir = New-Dir (Join-Path $repeatDir "$side\artifacts")
-        Copy-Item -Path (Join-Path $Manifest.FixtureDir "*") -Destination $repoDir -Recurse -Force
+        Copy-TaskspaceFixtureToRepo $Manifest.FixtureDir $repoDir
         Initialize-TaskspaceRepoBaseline $repoDir
         $sides[$side] = [pscustomobject]@{
             Name = $side
