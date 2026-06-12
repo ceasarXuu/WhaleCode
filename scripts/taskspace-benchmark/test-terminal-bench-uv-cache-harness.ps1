@@ -41,6 +41,42 @@ Assert-True ($scenario.external_benchmark.adapter_metadata.validator_dependency_
 Assert-True ($validator -match "uv_cache_mount") "runtime proof manifest did not record uv cache mount"
 Assert-True ($validator -match "uv_archive_sha256") "runtime proof manifest did not record uv archive hash"
 
+$relativeRoot = "target\terminal-bench-uv-cache-relative-selftest\$((Get-Date).ToString("yyyyMMdd-HHmmss-fff"))"
+$relativeOutputRoot = Join-Path $relativeRoot "adapter-out"
+$relativeCacheRoot = Join-Path $repoRoot $relativeOutputRoot
+New-Item -ItemType Directory -Force -Path (Join-Path $relativeCacheRoot "_adapter-generated\uv-cache") | Out-Null
+"installer" | Set-Content -LiteralPath (Join-Path $relativeCacheRoot "_adapter-generated\uv-cache\install.sh") -Encoding ASCII
+"archive" | Set-Content -LiteralPath (Join-Path $relativeCacheRoot "_adapter-generated\uv-cache\uv-x86_64-unknown-linux-gnu.tar.gz") -Encoding ASCII
+$relativeTask = Join-Path $relativeCacheRoot "..\task"
+New-Item -ItemType Directory -Force -Path $relativeTask | Out-Null
+@'
+instruction: "Create hello.txt."
+category: file-operations
+'@ | Set-Content -LiteralPath (Join-Path $relativeTask "task.yaml") -Encoding UTF8
+"FROM scratch" | Set-Content -LiteralPath (Join-Path $relativeTask "Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $relativeTask "run-tests.sh") -Encoding UTF8
+Push-Location $repoRoot
+try {
+    $relativeAdapterOut = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $relativeTask -OutputRoot $relativeOutputRoot -SampleId "uv-cache-relative" -SourceVersion "pinned"
+} finally {
+    Pop-Location
+}
+$relativeScenarioDir = [string]($relativeAdapterOut | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$relativeScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $relativeScenarioDir "scenario.json") | ConvertFrom-Json
+$relativeValidator = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $relativeScenarioDir "external-validator.ps1")
+$relativeCachePath = [string]$relativeScenario.external_benchmark.adapter_metadata.validator_dependency_cache.root
+Assert-True ($relativeCachePath -match '^[A-Za-z]:\\') "relative OutputRoot produced non-absolute uv cache metadata path"
+Assert-True ($relativeValidator -match "\`$uvCacheDir = '([A-Za-z]:\\[^']+_adapter-generated\\uv-cache)'") "relative OutputRoot produced non-absolute validator uvCacheDir"
+$pairCwd = Join-Path $relativeCacheRoot "pair-cwd"
+New-Item -ItemType Directory -Force -Path $pairCwd | Out-Null
+Push-Location $pairCwd
+try {
+    $resolvedRelativeCache = (Resolve-Path -LiteralPath $relativeCachePath).Path
+} finally {
+    Pop-Location
+}
+Assert-True ($resolvedRelativeCache -eq $relativeCachePath) "absolute uv cache path did not resolve from pair working directory"
+
 if ($failures.Count -gt 0) {
     Write-Host "Terminal-Bench uv cache self-test: FAIL"
     foreach ($failure in $failures) { Write-Host "- $failure" }

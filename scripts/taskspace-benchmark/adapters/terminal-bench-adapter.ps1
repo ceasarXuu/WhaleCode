@@ -11,6 +11,8 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "terminal-bench-remote-assets.ps1")
 . (Join-Path $PSScriptRoot "terminal-bench-equivalence.ps1")
 
+$OutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
+
 function ConvertFrom-TerminalBenchYamlScalar {
     param([Parameter(Mandatory = $true)][string]$Scalar)
     $text = $Scalar.Trim()

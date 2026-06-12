@@ -1,6 +1,7 @@
 function New-TerminalBenchUvCache {
     param([Parameter(Mandatory = $true)][string]$OutputRoot)
-    $cache = Join-Path $OutputRoot "_adapter-generated\uv-cache"
+    $resolvedOutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
+    $cache = Join-Path $resolvedOutputRoot "_adapter-generated\uv-cache"
     New-Item -ItemType Directory -Force -Path (Join-Path $cache "bin") | Out-Null
     $installerUrl = "https://astral.sh/uv/0.7.13/install.sh"
     $archiveUrl = "https://github.com/astral-sh/uv/releases/download/0.7.13/uv-x86_64-unknown-linux-gnu.tar.gz"
