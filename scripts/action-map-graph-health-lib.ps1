@@ -1,5 +1,7 @@
 function Get-TaskspaceGraphHealth($Obs) {
     $empty = [pscustomobject]@{
+        SchemaVersion = "taskspace-graph-health-v2"
+        GeneratedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
         EdgeCount = 0
         OrderedEdgeCount = 0
         EdgeOrderViolationCount = 0
@@ -15,11 +17,27 @@ function Get-TaskspaceGraphHealth($Obs) {
         ImplementationDependsOnParallelInspectTracks = $false
         OpenLeafNodeCount = 0
         OpenFinalSynthesisCount = 0
+        SpawnCount = 0
+        SubagentPlanCount = 0
+        SubagentResultCount = 0
+        AcceptedSubagentResultCount = 0
+        AdoptedSubagentResultCount = 0
+        DecisionsSupportedBySubagentResultCount = 0
+        SubagentDecisionYield = 0.0
+        ThinModeRecommended = $false
+        RecommendedMode = ""
+        ThinModeReason = ""
+        ThinModeViolation = $false
+        Warnings = @()
     }
     if (-not $Obs) { return $empty }
 
-    $nodes = @($Obs.nodes)
-    $edges = @($Obs.edges)
+    $nodes = @(Get-TaskspaceObsNodes $Obs)
+    $edges = @(Get-TaskspaceObsEdges $Obs)
+    $results = @(Get-TaskspaceObsResults $Obs $nodes)
+    $subagentPlans = @(Get-TaskspaceObsSubagentPlans $Obs)
+    $decisions = @(Get-TaskspaceObsDecisions $Obs)
+    $warnings = New-Object System.Collections.Generic.List[object]
     $byId = @{}
     foreach ($node in $nodes) { $byId[[string]$node.id] = $node }
 
@@ -91,7 +109,56 @@ function Get-TaskspaceGraphHealth($Obs) {
         }
     }
 
+    $spawnCount = Get-TaskspaceSpawnCount $Obs $subagentPlans
+    $subagentResults = @(Get-TaskspaceSubagentResults $results $nodes)
+    $acceptedSubagentResults = @($subagentResults | Where-Object {
+            [string](Get-ObjectValue $_ "validity" "Validity" "evidencePackage.validity") -eq "accepted"
+        })
+    $adoptedSubagentResults = @($acceptedSubagentResults | Where-Object {
+            Test-TaskspaceResultHasAnyAdoption $_
+        })
+    $decisionSupportingResultIds = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($result in $acceptedSubagentResults) {
+        if (Test-TaskspaceResultSupportsDecision $result $decisions) {
+            [void]$decisionSupportingResultIds.Add((Get-TaskspaceResultId $result))
+        }
+    }
+    foreach ($result in $acceptedSubagentResults) {
+        if (-not (Test-TaskspaceResultHasAnyAdoption $result)) {
+            $warnings.Add([pscustomobject]@{
+                    Code = "subagent_no_adoption"
+                    Severity = "warning"
+                    Reason = "accepted subagent result has no recorded adoption"
+                    EvidenceRefs = @((Get-TaskspaceResultId $result))
+                })
+        }
+    }
+
+    $thinModeRecommendation = Get-TaskspaceThinModeRecommendation $Obs $nodes $edges $implIds $testIds $parallelInspectIds
+    $recommendedMode = [string]$thinModeRecommendation.Mode
+    $thinModeReason = [string]$thinModeRecommendation.Reason
+    $thinModeRecommended = $recommendedMode -eq "thin"
+    $thinModeViolation = $thinModeRecommended -and $spawnCount -gt 0
+    if ($thinModeViolation) {
+        $warnings.Add([pscustomobject]@{
+                Code = "thin_mode_violation"
+                Severity = "warning"
+                Reason = "thin mode was recommended, but subagent spawn activity was observed"
+                EvidenceRefs = @("spawn_count=$spawnCount")
+            })
+    }
+    if ($spawnCount -gt 0 -and $decisionSupportingResultIds.Count -eq 0) {
+        $warnings.Add([pscustomobject]@{
+                Code = "subagent_no_decision_yield"
+                Severity = "warning"
+                Reason = "subagent activity produced no accepted result supporting a current decision"
+                EvidenceRefs = @("spawn_count=$spawnCount")
+            })
+    }
+
     [pscustomobject]@{
+        SchemaVersion = "taskspace-graph-health-v2"
+        GeneratedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
         EdgeCount = $edges.Count
         OrderedEdgeCount = $orderedEdgeCount
         EdgeOrderViolationCount = $edgeOrderViolationCount
@@ -107,7 +174,203 @@ function Get-TaskspaceGraphHealth($Obs) {
         DirectImplementationDependsOnParallelInspectTracks = $directImplementationDependsOnParallelInspectTracks
         OpenLeafNodeCount = $openLeafNodeCount
         OpenFinalSynthesisCount = $openFinalSynthesisCount
+        SpawnCount = $spawnCount
+        SubagentPlanCount = $subagentPlans.Count
+        SubagentResultCount = $subagentResults.Count
+        AcceptedSubagentResultCount = $acceptedSubagentResults.Count
+        AdoptedSubagentResultCount = $adoptedSubagentResults.Count
+        DecisionsSupportedBySubagentResultCount = $decisionSupportingResultIds.Count
+        SubagentDecisionYield = if ($spawnCount -gt 0) { [double]$decisionSupportingResultIds.Count / [double]$spawnCount } else { 0.0 }
+        ThinModeRecommended = $thinModeRecommended
+        RecommendedMode = $recommendedMode
+        ThinModeReason = $thinModeReason
+        ThinModeViolation = $thinModeViolation
+        Warnings = @($warnings.ToArray())
     }
+}
+
+function Get-TaskspaceThinModeRecommendation($Obs, [object[]]$Nodes, [object[]]$Edges, [string[]]$ImplementationIds, [string[]]$TestIds, [string[]]$ParallelInspectIds) {
+    $explicitMode = [string](Get-ObjectValue $Obs "recommendedMode" "RecommendedMode" "thinMode.recommendedMode" "graphHealth.recommendedMode")
+    if (-not [string]::IsNullOrWhiteSpace($explicitMode)) {
+        return [pscustomobject]@{
+            Mode = $explicitMode
+            Reason = "explicit report input"
+        }
+    }
+
+    $hasImplementationOrTest = @($ImplementationIds).Count -gt 0 -or @($TestIds).Count -gt 0
+    $isSmallLinearGraph = @($Nodes).Count -le 2 -and @($Edges).Count -le 1
+    $hasParallelInspectNeed = @($ParallelInspectIds).Count -gt 1
+    if ($isSmallLinearGraph -and -not $hasImplementationOrTest -and -not $hasParallelInspectNeed) {
+        return [pscustomobject]@{
+            Mode = "thin"
+            Reason = "small read-only graph without implementation, validation, or parallel inspect need"
+        }
+    }
+
+    return [pscustomobject]@{
+        Mode = "standard"
+        Reason = "graph needs normal TaskSpace orchestration"
+    }
+}
+
+function Get-TaskspaceObsNodes($Obs) {
+    if ((Get-ObjectPropertyNames $Obs) -contains "nodes") { return @($Obs.nodes) }
+    if ((Get-ObjectPropertyNames $Obs) -contains "maps") {
+        return @($Obs.maps | ForEach-Object { @($_.nodes) })
+    }
+    return @()
+}
+
+function Get-TaskspaceObsEdges($Obs) {
+    if ((Get-ObjectPropertyNames $Obs) -contains "edges") { return @($Obs.edges) }
+    if ((Get-ObjectPropertyNames $Obs) -contains "maps") {
+        return @($Obs.maps | ForEach-Object { @($_.edges) })
+    }
+    return @()
+}
+
+function Get-TaskspaceObsSubagentPlans($Obs) {
+    if ((Get-ObjectPropertyNames $Obs) -contains "subagentPlans") { return @($Obs.subagentPlans | Where-Object { $null -ne $_ }) }
+    if ((Get-ObjectPropertyNames $Obs) -contains "subagent_plans") { return @($Obs.subagent_plans | Where-Object { $null -ne $_ }) }
+    if ((Get-ObjectPropertyNames $Obs) -contains "maps") {
+        return @($Obs.maps | ForEach-Object { @($_.subagentPlans) + @($_.subagent_plans) } | Where-Object { $null -ne $_ })
+    }
+    return @()
+}
+
+function Get-TaskspaceObsResults($Obs, $Nodes) {
+    $direct = New-Object System.Collections.Generic.List[object]
+    if ((Get-ObjectPropertyNames $Obs) -contains "results") {
+        foreach ($result in @($Obs.results | Where-Object { $null -ne $_ })) { $direct.Add($result) }
+    }
+    if ((Get-ObjectPropertyNames $Obs) -contains "maps") {
+        foreach ($map in @($Obs.maps)) {
+            foreach ($result in @($map.results | Where-Object { $null -ne $_ })) { $direct.Add($result) }
+        }
+    }
+    foreach ($node in @($Nodes)) {
+        foreach ($result in @($node.results | Where-Object { $null -ne $_ })) { $direct.Add($result) }
+    }
+    return @($direct.ToArray())
+}
+
+function Get-TaskspaceObsDecisions($Obs) {
+    $decisions = New-Object System.Collections.Generic.List[object]
+    if ((Get-ObjectPropertyNames $Obs) -contains "decisions") {
+        foreach ($decision in @($Obs.decisions | Where-Object { $null -ne $_ })) { $decisions.Add($decision) }
+    }
+    if ((Get-ObjectPropertyNames $Obs) -contains "tasks") {
+        foreach ($task in @($Obs.tasks)) {
+            foreach ($decision in @($task.problemLedger.decisions | Where-Object { $null -ne $_ })) { $decisions.Add($decision) }
+            foreach ($decision in @($task.problem_ledger.decisions | Where-Object { $null -ne $_ })) { $decisions.Add($decision) }
+        }
+    }
+    return @($decisions.ToArray())
+}
+
+function Get-TaskspaceSpawnCount($Obs, $SubagentPlans) {
+    if (@($SubagentPlans).Count -gt 0) { return @($SubagentPlans).Count }
+    if ((Get-ObjectPropertyNames $Obs) -contains "toolCalls") {
+        return @($Obs.toolCalls | Where-Object { $_.tool -eq "spawn_agent" -and $_.status -eq "completed" }).Count
+    }
+    if ((Get-ObjectPropertyNames $Obs) -contains "agents") { return @($Obs.agents).Count }
+    return 0
+}
+
+function Get-TaskspaceSubagentResults($Results, $Nodes) {
+    $agentThreads = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($node in @($Nodes)) {
+        foreach ($thread in @($node.agentThreads)) { [void]$agentThreads.Add([string]$thread) }
+    }
+    return @($Results | Where-Object {
+            -not [string]::IsNullOrWhiteSpace([string](Get-ObjectValue $_ "subagentPlanId" "subagent_plan_id")) -or
+            $agentThreads.Contains([string](Get-ObjectValue $_ "sourceThreadId" "source_thread_id"))
+        })
+}
+
+function Test-TaskspaceResultHasAnyAdoption($Result) {
+    $adoption = Get-ObjectValue $Result "adoption" "evidencePackage.adoption" "evidence_package.adoption"
+    if (-not $adoption) { return $false }
+    foreach ($name in @("adoptedByFacts", "adoptedByHypotheses", "adoptedByDecisions", "adoptedByCriteria", "adoptedByNodes", "adopted_by_facts", "adopted_by_hypotheses", "adopted_by_decisions", "adopted_by_criteria", "adopted_by_nodes")) {
+        if ((Get-ObjectValueCount $adoption $name) -gt 0) { return $true }
+    }
+    return $false
+}
+
+function Test-TaskspaceResultSupportsDecision($Result, $Decisions) {
+    $resultId = Get-TaskspaceResultId $Result
+    if ([string]::IsNullOrWhiteSpace($resultId)) { return $false }
+    $adoption = Get-ObjectValue $Result "adoption" "evidencePackage.adoption" "evidence_package.adoption"
+    $adoptedDecisionIds = @()
+    if ($adoption) {
+        $adoptedDecisionIds = @(Get-ObjectValueArray $adoption "adoptedByDecisions" "adopted_by_decisions")
+        $factOrHypothesisAdoptionCount =
+            (Get-ObjectValueCount $adoption "adoptedByFacts" "adopted_by_facts") +
+            (Get-ObjectValueCount $adoption "adoptedByHypotheses" "adopted_by_hypotheses")
+        if ($adoptedDecisionIds.Count -gt 0 -or $factOrHypothesisAdoptionCount -gt 0) {
+            foreach ($decision in @($Decisions)) {
+                $decisionId = [string](Get-ObjectValue $decision "id" "Id")
+                $dependsOnResult = (Get-ObjectValueArray $decision "dependsOnResults" "depends_on_results") -contains $resultId
+                $adoptedCurrentDecision = $adoptedDecisionIds.Count -eq 0 -or $adoptedDecisionIds -contains $decisionId
+                if ($dependsOnResult -and $adoptedCurrentDecision) { return $true }
+            }
+        }
+        if ($adoptedDecisionIds.Count -gt 0) { return $false }
+    }
+    foreach ($decision in @($Decisions)) {
+        if ((Get-ObjectValueArray $decision "dependsOnResults" "depends_on_results") -contains $resultId) { return $true }
+    }
+    return $false
+}
+
+function Get-TaskspaceResultId($Result) {
+    return [string](Get-ObjectValue $Result "id" "Id" "resultId" "result_id")
+}
+
+function Get-ObjectPropertyNames($Object) {
+    if (-not $Object) { return @() }
+    return @($Object.PSObject.Properties | ForEach-Object { $_.Name })
+}
+
+function Get-ObjectValue($Object, [Parameter(ValueFromRemainingArguments = $true)][string[]]$Paths) {
+    foreach ($path in $Paths) {
+        $value = Get-ObjectPathValue $Object $path
+        if ($null -ne $value) { return $value }
+    }
+    return $null
+}
+
+function Get-ObjectValueArray($Object, [Parameter(ValueFromRemainingArguments = $true)][string[]]$Paths) {
+    $value = $null
+    foreach ($path in $Paths) {
+        $candidate = Get-ObjectPathValue $Object $path
+        if ($null -ne $candidate) {
+            $value = $candidate
+            break
+        }
+    }
+    if ($null -eq $value) { return @() }
+    if ($value -is [array]) { return @($value | Where-Object { $null -ne $_ -and -not [string]::IsNullOrWhiteSpace([string]$_) }) }
+    if ([string]::IsNullOrWhiteSpace([string]$value)) { return @() }
+    return @($value)
+}
+
+function Get-ObjectValueCount($Object, [Parameter(ValueFromRemainingArguments = $true)][string[]]$Paths) {
+    $values = Get-ObjectValueArray $Object $Paths
+    return @($values).Count
+}
+
+function Get-ObjectPathValue($Object, [string]$Path) {
+    if (-not $Object -or [string]::IsNullOrWhiteSpace($Path)) { return $null }
+    $current = $Object
+    foreach ($part in ($Path -split "\.")) {
+        if (-not $current) { return $null }
+        $property = $current.PSObject.Properties[$part]
+        if (-not $property) { return $null }
+        $current = $property.Value
+    }
+    return $current
 }
 
 function Test-TaskspaceDirectEdgeExists([object[]]$Edges, [string[]]$FromIds, [string[]]$ToIds) {

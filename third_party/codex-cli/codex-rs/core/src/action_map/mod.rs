@@ -17,5 +17,6 @@ pub(crate) use runtime::ActionMapLedgerDecisionInput;
 pub(crate) use runtime::ActionMapNextNodeDraft;
 pub(crate) use runtime::ActionMapResultAdoptionInput;
 pub(crate) use runtime::ActionMapRuntimeState;
+pub(crate) use runtime::ActionMapSubagentPlanInput;
 pub(crate) use runtime::ActionMapSuccessCriterionInput;
 pub(crate) use runtime::format_action_map_snapshot;

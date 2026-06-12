@@ -16,6 +16,53 @@ function Get-TaskspaceResultAdoptionState {
     "legacy_unset"
 }
 
+function Get-TaskspaceBenchmarkResultId {
+    param($Result)
+    if ($Result -and $Result.PSObject.Properties.Name -contains "id") { return [string]$Result.id }
+    if ($Result -and $Result.PSObject.Properties.Name -contains "resultId") { return [string]$Result.resultId }
+    if ($Result -and $Result.PSObject.Properties.Name -contains "result_id") { return [string]$Result.result_id }
+    ""
+}
+
+function Get-TaskspaceBenchmarkResultAdoption {
+    param($Result)
+    if (-not $Result) { return $null }
+    if ($Result.PSObject.Properties.Name -contains "adoption") { return $Result.adoption }
+    if ($Result.PSObject.Properties.Name -contains "evidencePackage" -and
+        $null -ne $Result.evidencePackage -and
+        $Result.evidencePackage.PSObject.Properties.Name -contains "adoption") {
+        return $Result.evidencePackage.adoption
+    }
+    return $null
+}
+
+function Test-TaskspaceBenchmarkResultSupportsDecision {
+    param($Result, [object[]]$Decisions)
+    $resultId = Get-TaskspaceBenchmarkResultId $Result
+    if ([string]::IsNullOrWhiteSpace($resultId)) { return $false }
+    $adoption = Get-TaskspaceBenchmarkResultAdoption $Result
+    $adoptedDecisionIds = @()
+    if ($adoption) {
+        foreach ($name in @("adoptedByDecisions", "adopted_by_decisions")) {
+            if ($adoption.PSObject.Properties.Name -contains $name -and @($adoption.$name).Count -gt 0) {
+                $adoptedDecisionIds = @($adoption.$name)
+                break
+            }
+        }
+    }
+    foreach ($decision in @($Decisions)) {
+        $decisionId = if ($decision.PSObject.Properties.Name -contains "id") { [string]$decision.id } elseif ($decision.PSObject.Properties.Name -contains "Id") { [string]$decision.Id } else { "" }
+        foreach ($name in @("dependsOnResults", "depends_on_results")) {
+            $adoptedCurrentDecision = $adoptedDecisionIds.Count -eq 0 -or $adoptedDecisionIds -contains $decisionId
+            if ($decision.PSObject.Properties.Name -contains $name -and @($decision.$name) -contains $resultId -and $adoptedCurrentDecision) {
+                return $true
+            }
+        }
+    }
+    if ($adoptedDecisionIds.Count -gt 0) { return $false }
+    return $false
+}
+
 function New-TaskspaceGraphHealthReport {
     param(
         $Observability,
@@ -46,18 +93,38 @@ function New-TaskspaceGraphHealthReport {
             [string]$_.details.updateKind -match "(?i)decision"
         })
     } else { @() }
+    $decisions = @()
+    if ($Observability -and $Observability.PSObject.Properties.Name -contains "decisions") {
+        $decisions = @($Observability.decisions | Where-Object { $null -ne $_ })
+    }
+    elseif ($Observability -and $Observability.PSObject.Properties.Name -contains "tasks") {
+        $decisions = @($Observability.tasks | ForEach-Object { @($_.problemLedger.decisions) + @($_.problem_ledger.decisions) } | Where-Object { $null -ne $_ })
+    }
     $blockedNodes = @($nodes | Where-Object { [string]$_.status -eq "blocked" })
     $spawnCalls = @($toolCalls | Where-Object { [string]$_.tool -eq "spawn_agent" -and [string]$_.status -eq "completed" })
+    $subagentPlans = if ($Observability -and $Observability.PSObject.Properties.Name -contains "maps") {
+        @($Observability.maps | ForEach-Object { @($_.subagentPlans) + @($_.subagent_plans) } | Where-Object { $null -ne $_ })
+    } else { @() }
+    $subagentSpawnCount = if (@($subagentPlans).Count -gt 0) { @($subagentPlans).Count } else { @($spawnCalls).Count }
     $subagentResultCount = 0
     $subagentAdoptedCount = 0
+    $subagentDecisionResultIds = [System.Collections.Generic.HashSet[string]]::new()
     $subagentThreadIds = @($nodes | ForEach-Object {
             @($_.leases | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.agentThreadId) } | ForEach-Object { [string]$_.agentThreadId })
         } | Sort-Object -Unique)
     foreach ($result in $results) {
-        if ($subagentThreadIds -contains [string]$result.sourceThreadId) {
+        $isSubagentResult = (
+            ($result.PSObject.Properties.Name -contains "subagentPlanId" -and -not [string]::IsNullOrWhiteSpace([string]$result.subagentPlanId)) -or
+            ($result.PSObject.Properties.Name -contains "subagent_plan_id" -and -not [string]::IsNullOrWhiteSpace([string]$result.subagent_plan_id)) -or
+            ($subagentThreadIds -contains [string]$result.sourceThreadId)
+        )
+        if ($isSubagentResult) {
             $subagentResultCount++
             if ((Get-TaskspaceResultAdoptionState $result) -in @("accepted_adopted", "adopted")) {
                 $subagentAdoptedCount++
+            }
+            if ([string]$result.validity -eq "accepted" -and (Test-TaskspaceBenchmarkResultSupportsDecision $result $decisions)) {
+                [void]$subagentDecisionResultIds.Add((Get-TaskspaceBenchmarkResultId $result))
             }
         }
     }
@@ -73,7 +140,8 @@ function New-TaskspaceGraphHealthReport {
     if ($nodeCount -ge 4 -and $decisionDensity -lt 0.25) { $warnings.Add("low_decision_density") }
     if ($nodeCount -gt 0 -and $blockedRatio -gt 0.25) { $warnings.Add("high_blocked_node_ratio") }
     if ($nodeInflationRatio -gt 12) { $warnings.Add("node_inflation_high") }
-    if (@($spawnCalls).Count -gt 0 -and $subagentAdoptedCount -eq 0 -and $adoptionMetricState -eq "measured") { $warnings.Add("subagent_no_adoption") }
+    if ($subagentSpawnCount -gt 0 -and $subagentAdoptedCount -eq 0 -and $adoptionMetricState -eq "measured") { $warnings.Add("subagent_no_adoption") }
+    if ($subagentSpawnCount -gt 0 -and $subagentDecisionResultIds.Count -eq 0) { $warnings.Add("subagent_no_decision_yield") }
     if ([string]$LogicalMode -eq "taskspace" -and $nodeCount -le 1 -and @($spawnCalls).Count -eq 0) { $warnings.Add("thin_mode_violation") }
     if ([int]$legacyHealth.OpenFinalSynthesisCount -gt 0) { $warnings.Add("synthesis_not_ready") }
     [pscustomobject]@{
@@ -99,9 +167,10 @@ function New-TaskspaceGraphHealthReport {
             open_question_closure = "unsupported"
         }
         open_question_closure_rate = $null
-        subagent_decision_yield = Get-TaskspaceSafeRatio $subagentAdoptedCount @($spawnCalls).Count
-        subagent_spawn_count = @($spawnCalls).Count
+        subagent_decision_yield = Get-TaskspaceSafeRatio $subagentDecisionResultIds.Count $subagentSpawnCount
+        subagent_spawn_count = $subagentSpawnCount
         subagent_result_count = $subagentResultCount
+        subagent_decision_result_count = $subagentDecisionResultIds.Count
         thin_mode_violation = (@($warnings) -contains "thin_mode_violation")
         legacy = $legacyHealth
         warnings = @($warnings.ToArray())

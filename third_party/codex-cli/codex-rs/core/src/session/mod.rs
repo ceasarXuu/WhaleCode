@@ -1386,6 +1386,22 @@ impl Session {
         Ok(())
     }
 
+    pub(crate) async fn record_action_map_subagent_plan(
+        &self,
+        turn_context: &TurnContext,
+        plan: crate::action_map::ActionMapSubagentPlanInput,
+    ) -> Result<String, String> {
+        let (plan_id, events) = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .record_subagent_plan_for_main(self.conversation_id, plan)
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(plan_id)
+    }
+
     pub(crate) async fn adopt_action_map_result(
         &self,
         turn_context: &TurnContext,

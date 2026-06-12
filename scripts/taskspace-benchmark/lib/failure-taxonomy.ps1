@@ -75,7 +75,7 @@ function Get-TaskspaceFailureTaxonomy {
     if ($graphWarnings -contains "node_inflation_high") {
         Add-TaskspaceFailureClass $classes "node_overfragmentation"
     }
-    if ($graphWarnings -contains "subagent_no_adoption") {
+    if ($graphWarnings -contains "subagent_no_adoption" -or $graphWarnings -contains "subagent_no_decision_yield") {
         Add-TaskspaceFailureClass $classes "subagent_noise_or_unused"
     }
     if ($graphWarnings -contains "synthesis_not_ready") {

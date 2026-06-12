@@ -6,6 +6,7 @@ use crate::action_map::ActionMapEvidenceRefInput;
 use crate::action_map::ActionMapLedgerDecisionInput;
 use crate::action_map::ActionMapNextNodeDraft;
 use crate::action_map::ActionMapResultAdoptionInput;
+use crate::action_map::ActionMapSubagentPlanInput;
 use crate::action_map::ActionMapSuccessCriterionInput;
 use crate::action_map::NodeKind;
 use crate::function_tool::FunctionCallError;
@@ -137,6 +138,19 @@ enum TaskSpaceControlArgs {
         expected_artifact: Option<String>,
         #[serde(default)]
         blocked_by: Vec<String>,
+    },
+    RecordSubagentPlan {
+        parent_node_id: String,
+        why_parallelizable: String,
+        expected_artifact: String,
+        acceptance_check: String,
+        max_scope: String,
+        #[serde(default)]
+        supports_questions: Vec<String>,
+        #[serde(default)]
+        tests_hypotheses: Vec<String>,
+        #[serde(default)]
+        depends_on_results: Vec<String>,
     },
     MarkResultValidity {
         result_id: String,
@@ -525,6 +539,34 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .await
                     .map_err(FunctionCallError::RespondToModel)?;
                 "TaskSpace next best action recorded".to_string()
+            }
+            TaskSpaceControlArgs::RecordSubagentPlan {
+                parent_node_id,
+                why_parallelizable,
+                expected_artifact,
+                acceptance_check,
+                max_scope,
+                supports_questions,
+                tests_hypotheses,
+                depends_on_results,
+            } => {
+                let plan_id = session
+                    .record_action_map_subagent_plan(
+                        &turn,
+                        ActionMapSubagentPlanInput {
+                            parent_node_id,
+                            why_parallelizable,
+                            expected_artifact,
+                            acceptance_check,
+                            max_scope,
+                            supports_questions,
+                            tests_hypotheses,
+                            depends_on_results,
+                        },
+                    )
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                format!("TaskSpace subagent plan recorded: {plan_id}")
             }
             TaskSpaceControlArgs::MarkResultValidity {
                 result_id,

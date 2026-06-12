@@ -30,6 +30,7 @@ use codex_protocol::protocol::ActionMapSnapshotResultAdoption;
 use codex_protocol::protocol::ActionMapSnapshotResultEvidencePackage;
 use codex_protocol::protocol::ActionMapSnapshotSentinelSummary;
 use codex_protocol::protocol::ActionMapSnapshotSentinelWarningRef;
+use codex_protocol::protocol::ActionMapSnapshotSubagentPlan;
 use codex_protocol::protocol::ActionMapSnapshotTask;
 use codex_protocol::protocol::ActionMapSnapshotTraceEventRef;
 use codex_protocol::protocol::ActionMapSnapshotTraceSummary;
@@ -101,6 +102,9 @@ use super::map::NodeResultId;
 use super::map::NodeResultKind;
 use super::map::NodeResultRef;
 use super::map::NodeStatus;
+use super::map::SubagentPlan;
+use super::map::SubagentPlanId;
+use super::map::SubagentPlanStatus;
 use super::map::TaskId;
 use super::map::TaskSpaceTraceEvent;
 use super::map::TaskState;
@@ -261,6 +265,18 @@ pub(crate) struct ActionMapResultAdoptionInput {
     pub(crate) adopted_by_nodes: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ActionMapSubagentPlanInput {
+    pub(crate) parent_node_id: String,
+    pub(crate) why_parallelizable: String,
+    pub(crate) expected_artifact: String,
+    pub(crate) acceptance_check: String,
+    pub(crate) max_scope: String,
+    pub(crate) supports_questions: Vec<String>,
+    pub(crate) tests_hypotheses: Vec<String>,
+    pub(crate) depends_on_results: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ActionMapRuntimeState {
     mode: MapRuntimeMode,
@@ -284,6 +300,7 @@ pub(crate) struct ActionMapRuntimeState {
     next_node_seq: u64,
     next_lease_seq: u64,
     next_result_seq: u64,
+    next_subagent_plan_seq: u64,
     next_trace_event_seq: u64,
     next_sentinel_warning_seq: u64,
 }
@@ -399,6 +416,7 @@ impl Default for ActionMapRuntimeState {
             next_node_seq: 1,
             next_lease_seq: 1,
             next_result_seq: 1,
+            next_subagent_plan_seq: 1,
             next_trace_event_seq: 1,
             next_sentinel_warning_seq: 1,
         }
@@ -616,6 +634,7 @@ impl ActionMapRuntimeState {
                             NodeResult {
                                 id: result.id,
                                 assignment_id: result.assignment_id,
+                                subagent_plan_id: result.subagent_plan_id,
                                 map_id: result.map_id,
                                 node_id: result.node_id,
                                 kind,
@@ -688,6 +707,36 @@ impl ActionMapRuntimeState {
                                 previous_node_status,
                                 agent_thread_id: lease.agent_thread_id,
                                 agent_path: lease.agent_path,
+                                subagent_plan_id: lease.subagent_plan_id,
+                            },
+                        ))
+                    })
+                    .collect();
+                instance.subagent_plans = map
+                    .subagent_plans
+                    .into_iter()
+                    .filter_map(|plan| {
+                        let status = subagent_plan_status_from_str(&plan.status)?;
+                        Some((
+                            plan.id.clone(),
+                            SubagentPlan {
+                                id: plan.id,
+                                task_id: plan.task_id,
+                                map_id: plan.map_id,
+                                parent_node_id: plan.parent_node_id,
+                                why_parallelizable: plan.why_parallelizable,
+                                expected_artifact: plan.expected_artifact,
+                                acceptance_check: plan.acceptance_check,
+                                max_scope: plan.max_scope,
+                                supports_questions: plan.supports_questions,
+                                tests_hypotheses: plan.tests_hypotheses,
+                                depends_on_results: plan.depends_on_results,
+                                status,
+                                lease_id: plan.lease_id,
+                                child_thread_id: plan.child_thread_id,
+                                result_ids: plan.result_ids,
+                                created_at_ms: plan.created_at_ms,
+                                updated_at_ms: plan.updated_at_ms,
                             },
                         ))
                     })
@@ -745,6 +794,10 @@ impl ActionMapRuntimeState {
         self.next_result_seq = next_numeric_seq(
             self.maps.values().flat_map(|map| map.results.keys()),
             "result-",
+        );
+        self.next_subagent_plan_seq = next_numeric_seq(
+            self.maps.values().flat_map(|map| map.subagent_plans.keys()),
+            "subagent-plan-",
         );
         self.next_trace_event_seq = next_numeric_seq(
             self.taskspace_trace_events.iter().map(|event| &event.id),
@@ -1120,6 +1173,7 @@ preview:\n\
             let result = NodeResult {
                 id: result_id.clone(),
                 assignment_id: lease_id.clone(),
+                subagent_plan_id: None,
                 map_id: map_id.clone(),
                 node_id: node_id.clone(),
                 kind: NodeResultKind::MainToolCall,
@@ -1367,6 +1421,10 @@ preview:\n\
             .maps
             .get_mut(&map_id)
             .ok_or_else(|| format!("TaskSpace child task path `{map_id}` is missing."))?;
+        let subagent_plan_id = map
+            .leases
+            .get(&lease_id)
+            .and_then(|lease| lease.subagent_plan_id.clone());
         let node = map
             .nodes
             .get_mut(&node_id)
@@ -1375,6 +1433,7 @@ preview:\n\
         let result = NodeResult {
             id: result_id.clone(),
             assignment_id: lease_id.clone(),
+            subagent_plan_id,
             map_id: map_id.clone(),
             node_id: node_id.clone(),
             kind: NodeResultKind::MainToolCall,
@@ -2484,6 +2543,86 @@ preview:\n\
         )])
     }
 
+    pub(crate) fn record_subagent_plan_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        input: ActionMapSubagentPlanInput,
+    ) -> Result<(SubagentPlanId, Vec<MapRuntimeEvent>), String> {
+        let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        let parent_node_id = require_nonempty_owned("parent_node_id", input.parent_node_id)?;
+        let why_parallelizable =
+            require_nonempty_owned("why_parallelizable", input.why_parallelizable)?;
+        let expected_artifact =
+            require_nonempty_owned("expected_artifact", input.expected_artifact)?;
+        let acceptance_check = require_nonempty_owned("acceptance_check", input.acceptance_check)?;
+        let max_scope = require_nonempty_owned("max_scope", input.max_scope)?;
+        let supports_questions = normalize_string_vec(input.supports_questions);
+        let tests_hypotheses = normalize_string_vec(input.tests_hypotheses);
+        let depends_on_results = normalize_string_vec(input.depends_on_results);
+        self.validate_result_ids_belong_to_active_map(&map_id, &depends_on_results)?;
+
+        let now = now_ms();
+        let plan_id = self.next_subagent_plan_id();
+        let map = self
+            .maps
+            .get_mut(&map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        let node = map.nodes.get(&parent_node_id).ok_or_else(|| {
+            format!("TaskSpace record_subagent_plan parent_node_id `{parent_node_id}` does not exist on active task path `{map_id}`.")
+        })?;
+        if node.status != NodeStatus::Ready {
+            return Err(format!(
+                "TaskSpace record_subagent_plan parent node `{parent_node_id}` must be ready; current status is {}.",
+                node.status.as_str()
+            ));
+        }
+        if node.active_lease.is_some() {
+            return Err(format!(
+                "TaskSpace record_subagent_plan parent node `{parent_node_id}` is already held by an active lease."
+            ));
+        }
+        if map.subagent_plans.values().any(|plan| {
+            plan.parent_node_id == parent_node_id && plan.status == SubagentPlanStatus::Planned
+        }) {
+            return Err(format!(
+                "TaskSpace record_subagent_plan parent node `{parent_node_id}` already has an unused subagent plan."
+            ));
+        }
+        map.subagent_plans.insert(
+            plan_id.clone(),
+            SubagentPlan {
+                id: plan_id.clone(),
+                task_id: Some(task_id.clone()),
+                map_id: map_id.clone(),
+                parent_node_id,
+                why_parallelizable,
+                expected_artifact,
+                acceptance_check,
+                max_scope,
+                supports_questions,
+                tests_hypotheses,
+                depends_on_results,
+                status: SubagentPlanStatus::Planned,
+                lease_id: None,
+                child_thread_id: None,
+                result_ids: Vec::new(),
+                created_at_ms: now,
+                updated_at_ms: now,
+            },
+        );
+        Ok((
+            plan_id.clone(),
+            vec![MapRuntimeEvent::CognitiveStateUpdated(
+                MapRuntimeCognitiveStateUpdatedEvent {
+                    task_id,
+                    map_id: Some(map_id),
+                    update_kind: "subagent_plan.recorded".to_string(),
+                    record_id: plan_id,
+                },
+            )],
+        ))
+    }
+
     pub(crate) fn record_next_best_action_for_main(
         &mut self,
         owner_session_id: ThreadId,
@@ -3578,8 +3717,20 @@ preview:\n\
         let node_id = self.select_spawn_node_id(&map_id, requested_node_id)?;
         self.validate_spawn_parallelism(&map_id, &node_id)?;
         self.validate_maintenance_barrier_for_node(&node_id)?;
+        let subagent_plan_id = self.select_subagent_plan_id_for_node(&map_id, &node_id)?;
+        let subagent_plan = self
+            .maps
+            .get(&map_id)
+            .and_then(|map| map.subagent_plans.get(&subagent_plan_id))
+            .cloned()
+            .ok_or_else(|| {
+                format!(
+                    "TaskSpace subagent plan `{subagent_plan_id}` disappeared before lease creation."
+                )
+            })?;
 
         let lease_id = self.next_lease_id();
+        let now = now_ms();
         let map = self
             .maps
             .get_mut(&map_id)
@@ -3593,6 +3744,11 @@ preview:\n\
         node.active_lease = Some(lease_id.clone());
         let node_title = node.title.clone();
         let node_kind = node.kind;
+        if let Some(plan) = map.subagent_plans.get_mut(&subagent_plan_id) {
+            plan.status = SubagentPlanStatus::Leased;
+            plan.lease_id = Some(lease_id.clone());
+            plan.updated_at_ms = now;
+        }
         map.leases.insert(
             lease_id.clone(),
             AssignmentLease {
@@ -3603,6 +3759,7 @@ preview:\n\
                 previous_node_status,
                 agent_thread_id: None,
                 agent_path: None,
+                subagent_plan_id: Some(subagent_plan_id.clone()),
             },
         );
         events.push(node_status_changed_event(
@@ -3627,6 +3784,7 @@ preview:\n\
                     &node_title,
                     node_kind,
                     &lease_id,
+                    &subagent_plan,
                 ),
                 map_id,
                 node_id,
@@ -3657,6 +3815,12 @@ preview:\n\
             }
             lease.agent_thread_id = Some(thread_id);
             lease.agent_path = agent_path.clone();
+            if let Some(plan_id) = lease.subagent_plan_id.clone()
+                && let Some(plan) = map.subagent_plans.get_mut(&plan_id)
+            {
+                plan.child_thread_id = Some(thread_id);
+                plan.updated_at_ms = now_ms();
+            }
             return Some(MapRuntimeEvent::LeaseAttached(
                 MapRuntimeLeaseAttachedEvent {
                     map_id: lease.map_id.clone(),
@@ -3753,10 +3917,15 @@ preview:\n\
         if node.active_lease.as_deref() != Some(lease_id.as_str()) {
             return None;
         }
+        let subagent_plan_id = map
+            .leases
+            .get(&lease_id)
+            .and_then(|lease| lease.subagent_plan_id.clone());
 
         let result = NodeResult {
             id: result_id.clone(),
             assignment_id: lease_id.clone(),
+            subagent_plan_id: subagent_plan_id.clone(),
             map_id: map_id.clone(),
             node_id: node_id.clone(),
             kind,
@@ -3780,6 +3949,13 @@ preview:\n\
             NodeResultKind::MainToolCall => NodeStatus::Running,
         };
         map.leases.remove(&lease_id);
+        if let Some(plan_id) = subagent_plan_id.as_ref()
+            && let Some(plan) = map.subagent_plans.get_mut(plan_id)
+        {
+            plan.status = SubagentPlanStatus::ResultRecorded;
+            plan.result_ids.push(result_id.clone());
+            plan.updated_at_ms = now_ms();
+        }
         self.child_tool_reservations
             .retain(|_, reservation| reservation.lease_id != lease_id);
         let mut events = vec![
@@ -4008,7 +4184,7 @@ preview:\n\
                 context.push_str(&base_map_metadata_prompt());
             }
             context.push_str(
-                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. spawn_agent can only claim ready nodes; do not bind a node to the main agent and then hand it off. If a subagent should own work, create that node with bind_current=false or finish/block the current main node first. If more than one ready node exists, spawn_agent must include node_id for the intended node; if only one ready node exists, runtime may bind it automatically. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Node result context stays on the node; use it only when it is relevant to the next step. Do not spawn an agent merely because TaskSpace is active or because a node exists; spawn only when the node represents a bounded, independent track whose result the main agent will integrate. For inspect_code_context nodes, explorer spawn is for a parallel investigation group, not single-track outsourcing; create at least two ready independent inspect nodes before assigning explorer subagents.\n",
+                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. spawn_agent can only claim ready nodes that already have an unused taskspace_control(action=record_subagent_plan) record; the plan must name the parent_node_id, why the work is parallelizable, expected_artifact, acceptance_check, and max_scope. Do not bind a node to the main agent and then hand it off. If a subagent should own work, create that node with bind_current=false or finish/block the current main node first, then record_subagent_plan before spawning. If more than one ready node exists, spawn_agent must include node_id for the intended node; if only one ready node exists, runtime may bind it automatically. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Node result context stays on the node; use it only when it is relevant to the next step. Do not spawn an agent merely because TaskSpace is active or because a node exists; spawn only when the node represents a bounded, independent track whose result the main agent will integrate. For inspect_code_context nodes, explorer spawn is for a parallel investigation group, not single-track outsourcing; create at least two ready independent inspect nodes before assigning explorer subagents.\n",
             );
             context.push_str(
                 "When the task naturally separates into independent investigation tracks, proactively create separate inspect_code_context nodes and assign subagents instead of waiting for the user to ask for parallel work. If the current request names multiple areas such as parser/pricing/invoice/tests/config, this trigger is already satisfied; create at least two ready inspect nodes with distinct evidence surfaces before implementation. Keep dependency edges explicit: independent investigation nodes should not depend on each other, implementation nodes should depend on the investigation nodes they integrate, and validation/final nodes should depend on the implementation or validation predecessor they verify.\n",
@@ -4190,6 +4366,7 @@ preview:\n\
                 previous_node_status,
                 agent_thread_id: Some(owner_session_id),
                 agent_path: None,
+                subagent_plan_id: None,
             },
         );
         self.current_main_node_id = Some(node_id.to_string());
@@ -4496,6 +4673,7 @@ preview:\n\
             let result = NodeResult {
                 id: result_id.clone(),
                 assignment_id: current_lease_id.clone(),
+                subagent_plan_id: None,
                 map_id: map_id.clone(),
                 node_id: node_id.to_string(),
                 kind,
@@ -5049,6 +5227,36 @@ preview:\n\
         }
     }
 
+    fn select_subagent_plan_id_for_node(
+        &self,
+        map_id: &str,
+        node_id: &str,
+    ) -> Result<SubagentPlanId, String> {
+        let map = self
+            .maps
+            .get(map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        let mut plans = map
+            .subagent_plans
+            .values()
+            .filter(|plan| {
+                plan.parent_node_id == node_id && plan.status == SubagentPlanStatus::Planned
+            })
+            .map(|plan| plan.id.clone())
+            .collect::<Vec<_>>();
+        plans.sort();
+        match plans.as_slice() {
+            [plan_id] => Ok(plan_id.clone()),
+            [] => Err(format!(
+                "TaskSpace blocked spawn_agent for node `{node_id}` because no unused subagent plan exists. Call taskspace_control(action=record_subagent_plan) with parent_node_id=`{node_id}`, expected_artifact, acceptance_check, and max_scope before spawning."
+            )),
+            _ => Err(format!(
+                "TaskSpace blocked spawn_agent for node `{node_id}` because multiple unused subagent plans exist: {}.",
+                plans.join(", ")
+            )),
+        }
+    }
+
     fn ready_parallel_inspect_node_ids(map: &ActionMapInstance) -> Vec<String> {
         ordered_node_ids(map)
             .into_iter()
@@ -5270,6 +5478,12 @@ preview:\n\
     fn next_result_id(&mut self) -> NodeResultId {
         let id = format!("result-{}", self.next_result_seq);
         self.next_result_seq += 1;
+        id
+    }
+
+    fn next_subagent_plan_id(&mut self) -> SubagentPlanId {
+        let id = format!("subagent-plan-{}", self.next_subagent_plan_seq);
+        self.next_subagent_plan_seq += 1;
         id
     }
 
@@ -5890,6 +6104,15 @@ fn node_result_kind_from_str(kind: &str) -> Option<NodeResultKind> {
         "map_update_request" => Some(NodeResultKind::MapUpdateRequest),
         "timeout_summary" => Some(NodeResultKind::TimeoutSummary),
         "main_tool_call" => Some(NodeResultKind::MainToolCall),
+        _ => None,
+    }
+}
+
+fn subagent_plan_status_from_str(status: &str) -> Option<SubagentPlanStatus> {
+    match status {
+        "planned" => Some(SubagentPlanStatus::Planned),
+        "leased" => Some(SubagentPlanStatus::Leased),
+        "result_recorded" => Some(SubagentPlanStatus::ResultRecorded),
         _ => None,
     }
 }
@@ -6940,6 +7163,7 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
             previous_node_status: lease.previous_node_status.as_str().to_string(),
             agent_thread_id: lease.agent_thread_id,
             agent_path: lease.agent_path.clone(),
+            subagent_plan_id: lease.subagent_plan_id.clone(),
         })
         .collect::<Vec<_>>();
     leases.sort_by(|left, right| left.id.cmp(&right.id));
@@ -6950,6 +7174,7 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
         .map(|result| ActionMapSnapshotResult {
             id: result.id.clone(),
             assignment_id: result.assignment_id.clone(),
+            subagent_plan_id: result.subagent_plan_id.clone(),
             map_id: result.map_id.clone(),
             node_id: result.node_id.clone(),
             kind: result.kind.as_str().to_string(),
@@ -6962,6 +7187,31 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
         })
         .collect::<Vec<_>>();
     results.sort_by(|left, right| left.id.cmp(&right.id));
+
+    let mut subagent_plans = map
+        .subagent_plans
+        .values()
+        .map(|plan| ActionMapSnapshotSubagentPlan {
+            id: plan.id.clone(),
+            task_id: plan.task_id.clone(),
+            map_id: plan.map_id.clone(),
+            parent_node_id: plan.parent_node_id.clone(),
+            why_parallelizable: plan.why_parallelizable.clone(),
+            expected_artifact: plan.expected_artifact.clone(),
+            acceptance_check: plan.acceptance_check.clone(),
+            max_scope: plan.max_scope.clone(),
+            supports_questions: plan.supports_questions.clone(),
+            tests_hypotheses: plan.tests_hypotheses.clone(),
+            depends_on_results: plan.depends_on_results.clone(),
+            status: plan.status.as_str().to_string(),
+            lease_id: plan.lease_id.clone(),
+            child_thread_id: plan.child_thread_id,
+            result_ids: plan.result_ids.clone(),
+            created_at_ms: plan.created_at_ms,
+            updated_at_ms: plan.updated_at_ms,
+        })
+        .collect::<Vec<_>>();
+    subagent_plans.sort_by(|left, right| left.id.cmp(&right.id));
 
     ActionMapSnapshotMap {
         id: map.id.clone(),
@@ -6985,6 +7235,7 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
             .collect(),
         leases,
         results,
+        subagent_plans,
     }
 }
 
@@ -7499,6 +7750,7 @@ fn assignment_prompt(
     node_title: &str,
     node_kind: NodeKind,
     lease_id: &str,
+    subagent_plan: &SubagentPlan,
 ) -> String {
     let allowed_actions = contract_for(node_kind)
         .allowed_actions
@@ -7512,11 +7764,33 @@ Map: {map_id}\n\
 Node: {node_id} - {node_title}\n\
 Node kind: {}\n\
 Lease: {lease_id}\n\
+Subagent plan: {}\n\
+Expected artifact: {}\n\
+Acceptance check: {}\n\
+Maximum scope: {}\n\
+Supports questions: {}\n\
+Tests hypotheses: {}\n\
+Depends on results: {}\n\
 Allowed action classes: {allowed_actions}\n\
 \n\
-        You must work only on this node's subtask. Use the provided node context and return a concise result package for this node. Include the claims you believe are supported, the evidence refs or concrete files/commands/validators behind them, changed artifacts if any, remaining uncertainty, and blockers if any. If evidence is weak or missing, say so instead of presenting the claim as final. Runtime enforces the allowed action classes above. Inspect nodes need concrete read/search evidence or a clear problem-state finding; implementation nodes need changed artifacts or an explicit no-edit blocker; validation nodes need command, exit status, and validator/test evidence; final nodes need satisfied criteria, accepted decisions, and remaining risks. Inspect, test, and final nodes are read-only for repository files; do not edit files or call apply_patch unless this node kind is implement_solution. Implementation nodes allow edits but not validation test runs; after editing, return the result so the parent can create or bind a smoke_test/regression_test node. Do not maintain the map directly. Do not call taskspace_control, spawn_agent, or wait_agent; return findings to the parent agent so it can review the result, mark result validity, and grow or route the task path.\n\n",
-        node_kind.as_str()
+        You must work only on this node's subtask and stay within Maximum scope. Use the provided node context and return a concise result package for this node. Include the claims you believe are supported, the evidence refs or concrete files/commands/validators behind them, changed artifacts if any, remaining uncertainty, and blockers if any. If evidence is weak or missing, say so instead of presenting the claim as final. Runtime enforces the allowed action classes above. Inspect nodes need concrete read/search evidence or a clear problem-state finding; implementation nodes need changed artifacts or an explicit no-edit blocker; validation nodes need command, exit status, and validator/test evidence; final nodes need satisfied criteria, accepted decisions, and remaining risks. Inspect, test, and final nodes are read-only for repository files; do not edit files or call apply_patch unless this node kind is implement_solution. Implementation nodes allow edits but not validation test runs; after editing, return the result so the parent can create or bind a smoke_test/regression_test node. Do not maintain the map directly. Do not call taskspace_control, spawn_agent, or wait_agent; return findings to the parent agent so it can review the result, mark result validity, and grow or route the task path.\n\n",
+        node_kind.as_str(),
+        subagent_plan.id,
+        subagent_plan.expected_artifact,
+        subagent_plan.acceptance_check,
+        subagent_plan.max_scope,
+        format_optional_refs(&subagent_plan.supports_questions),
+        format_optional_refs(&subagent_plan.tests_hypotheses),
+        format_optional_refs(&subagent_plan.depends_on_results)
     )
+}
+
+fn format_optional_refs(refs: &[String]) -> String {
+    if refs.is_empty() {
+        "none".to_string()
+    } else {
+        refs.join(", ")
+    }
 }
 
 fn child_tool_reservation_key(child_thread_id: ThreadId, call_id: &str) -> String {
@@ -7851,6 +8125,34 @@ mod tests {
                 evidence_refs,
             )
             .expect("test fact source records");
+    }
+
+    fn prepare_test_spawn_assignment(
+        state: &mut ActionMapRuntimeState,
+        owner: ThreadId,
+        requested_task_name: &str,
+        requested_node_id: Option<&str>,
+    ) -> Result<(Option<ActionMapAssignment>, Vec<MapRuntimeEvent>), String> {
+        let map_id = state
+            .active_map_id
+            .clone()
+            .ok_or_else(|| "test fixture has no active map".to_string())?;
+        let node_id = state.select_spawn_node_id(&map_id, requested_node_id)?;
+        state.record_subagent_plan_for_main(
+            owner,
+            ActionMapSubagentPlanInput {
+                parent_node_id: node_id,
+                why_parallelizable: "Test fixture marks this node as bounded parallel work."
+                    .to_string(),
+                expected_artifact: "Concise result package with claims and evidence.".to_string(),
+                acceptance_check: "Parent can validate result validity and adoption.".to_string(),
+                max_scope: "Only the assigned node.".to_string(),
+                supports_questions: Vec::new(),
+                tests_hypotheses: Vec::new(),
+                depends_on_results: Vec::new(),
+            },
+        )?;
+        state.prepare_spawn_assignment(owner, requested_task_name, requested_node_id)
     }
 
     fn accept_test_result(state: &mut ActionMapRuntimeState, owner: ThreadId, result_id: &str) {
@@ -11090,11 +11392,11 @@ mod tests {
 
         let children = [("node-2", ThreadId::new()), ("node-3", ThreadId::new())];
         for (node_id, child) in children {
-            let assignment = state
-                .prepare_spawn_assignment(owner, node_id, Some(node_id))
-                .expect("claim ready inspect node")
-                .0
-                .expect("assignment");
+            let assignment =
+                prepare_test_spawn_assignment(&mut state, owner, node_id, Some(node_id))
+                    .expect("claim ready inspect node")
+                    .0
+                    .expect("assignment");
             state.attach_agent_to_lease(
                 &assignment.lease_id,
                 child,
@@ -11253,8 +11555,7 @@ mod tests {
             )
             .expect("create pricing node");
 
-        let first = state
-            .prepare_spawn_assignment(owner, "parser", Some("node-2"))
+        let first = prepare_test_spawn_assignment(&mut state, owner, "parser", Some("node-2"))
             .expect("first parallel inspect assignment")
             .0
             .expect("assignment");
@@ -11263,8 +11564,7 @@ mod tests {
             ThreadId::new(),
             Some("/root/parser".into()),
         );
-        let second = state
-            .prepare_spawn_assignment(owner, "pricing", Some("node-3"))
+        let second = prepare_test_spawn_assignment(&mut state, owner, "pricing", Some("node-3"))
             .expect("second parallel inspect assignment")
             .0
             .expect("assignment");
@@ -11593,9 +11893,9 @@ mod tests {
         fill_main_tool_budget(&mut state, owner);
         assert!(state.prepare_main_tool_call(owner, "shell").is_err());
 
-        let (assignment, events) = state
-            .prepare_spawn_assignment(owner, "parallel follow-up", Some("node-2"))
-            .expect("barrier node should not block an explicit separate ready node");
+        let (assignment, events) =
+            prepare_test_spawn_assignment(&mut state, owner, "parallel follow-up", Some("node-2"))
+                .expect("barrier node should not block an explicit separate ready node");
 
         let assignment = assignment.expect("assignment");
         assert_eq!(assignment.node_id, "node-2");
@@ -11975,11 +12275,11 @@ mod tests {
             )
             .expect("pricing inspect node");
         for (node_id, child) in [("node-2", ThreadId::new()), ("node-3", ThreadId::new())] {
-            let assignment = state
-                .prepare_spawn_assignment(owner, node_id, Some(node_id))
-                .expect("spawn parallel inspect")
-                .0
-                .expect("assignment");
+            let assignment =
+                prepare_test_spawn_assignment(&mut state, owner, node_id, Some(node_id))
+                    .expect("spawn parallel inspect")
+                    .0
+                    .expect("assignment");
             state.attach_agent_to_lease(&assignment.lease_id, child, None);
             let (child_result_id, _) = state
                 .record_child_result(
@@ -13213,9 +13513,9 @@ mod tests {
             "Change calculate_tax rounding.",
             false,
         );
-        let (assignment, _) = state
-            .prepare_spawn_assignment(owner, "worker", Some(&node_id))
-            .expect("spawn assignment");
+        let (assignment, _) =
+            prepare_test_spawn_assignment(&mut state, owner, "worker", Some(&node_id))
+                .expect("spawn assignment");
         let assignment = assignment.expect("assignment");
         state.attach_agent_to_lease(&assignment.lease_id, child, None);
 
@@ -13254,9 +13554,9 @@ mod tests {
             "Run pytest.",
             false,
         );
-        let (assignment, _) = state
-            .prepare_spawn_assignment(owner, "verifier", Some(&node_id))
-            .expect("spawn assignment");
+        let (assignment, _) =
+            prepare_test_spawn_assignment(&mut state, owner, "verifier", Some(&node_id))
+                .expect("spawn assignment");
         let assignment = assignment.expect("assignment");
         state.attach_agent_to_lease(&assignment.lease_id, child, None);
         state
@@ -13305,9 +13605,9 @@ mod tests {
             "Run pytest.",
             false,
         );
-        let (assignment, _) = state
-            .prepare_spawn_assignment(owner, "verifier", Some(&node_id))
-            .expect("spawn assignment");
+        let (assignment, _) =
+            prepare_test_spawn_assignment(&mut state, owner, "verifier", Some(&node_id))
+                .expect("spawn assignment");
         let assignment = assignment.expect("assignment");
         state.attach_agent_to_lease(&assignment.lease_id, child, None);
         let (failed_result_id, _) = state
@@ -13632,9 +13932,9 @@ mod tests {
         let owner = ThreadId::new();
         seed_test_map(&mut state, owner);
 
-        let (assignment, events) = state
-            .prepare_spawn_assignment(owner, "implement maps", None)
-            .expect("assignment succeeds");
+        let (assignment, events) =
+            prepare_test_spawn_assignment(&mut state, owner, "implement maps", None)
+                .expect("assignment succeeds");
         let assignment = assignment.expect("experiment assignment");
 
         assert_eq!(assignment.node_id, "define_scope");
@@ -13662,6 +13962,87 @@ mod tests {
     }
 
     #[test]
+    fn spawn_assignment_requires_recorded_subagent_plan() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
+
+        let error = state
+            .prepare_spawn_assignment(owner, "define scope", Some("define_scope"))
+            .expect_err("spawn must require pre-spawn plan");
+
+        assert!(error.contains("record_subagent_plan"));
+        let map = state.maps.get("map-1").expect("map");
+        assert!(map.leases.is_empty());
+        assert!(map.subagent_plans.is_empty());
+        assert_eq!(map.nodes["define_scope"].status, NodeStatus::Ready);
+    }
+
+    #[test]
+    fn subagent_plan_links_lease_child_result_and_snapshot() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        let child = ThreadId::new();
+        seed_test_map(&mut state, owner);
+
+        let (plan_id, _) = state
+            .record_subagent_plan_for_main(
+                owner,
+                ActionMapSubagentPlanInput {
+                    parent_node_id: "define_scope".to_string(),
+                    why_parallelizable: "Independent discovery track.".to_string(),
+                    expected_artifact: "Scope evidence report.".to_string(),
+                    acceptance_check: "Parent can validate evidence refs.".to_string(),
+                    max_scope: "Only define_scope.".to_string(),
+                    supports_questions: vec!["q-scope-define_scope".to_string()],
+                    tests_hypotheses: Vec::new(),
+                    depends_on_results: Vec::new(),
+                },
+            )
+            .expect("plan records");
+        let assignment = state
+            .prepare_spawn_assignment(owner, "define scope", Some("define_scope"))
+            .expect("spawn with plan succeeds")
+            .0
+            .expect("assignment");
+        assert!(
+            assignment
+                .message_prefix
+                .contains(&format!("Subagent plan: {plan_id}"))
+        );
+        state.attach_agent_to_lease(&assignment.lease_id, child, Some("/child".to_string()));
+        let (result_id, _) = state
+            .record_child_result(child, &AgentStatus::Completed(Some("done".to_string())))
+            .expect("child result records");
+
+        let map = state.maps.get("map-1").expect("map");
+        let plan = map.subagent_plans.get(&plan_id).expect("plan");
+        assert_eq!(plan.status, SubagentPlanStatus::ResultRecorded);
+        assert_eq!(plan.lease_id.as_deref(), Some(assignment.lease_id.as_str()));
+        assert_eq!(plan.child_thread_id, Some(child));
+        assert_eq!(plan.result_ids, vec![result_id.clone()]);
+        assert_eq!(
+            map.results[&result_id].subagent_plan_id.as_deref(),
+            Some(plan_id.as_str())
+        );
+
+        let snapshot = state.snapshot();
+        let snapshot_map = snapshot
+            .maps
+            .iter()
+            .find(|map| map.id == "map-1")
+            .expect("snapshot map");
+        assert_eq!(snapshot_map.subagent_plans.len(), 1);
+        assert_eq!(snapshot_map.subagent_plans[0].id, plan_id);
+        assert_eq!(
+            snapshot_map.results[0].subagent_plan_id.as_deref(),
+            Some(snapshot_map.subagent_plans[0].id.as_str())
+        );
+    }
+
+    #[test]
     fn dynamic_ready_node_is_visible_and_claimable_by_subagent() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -13679,9 +14060,9 @@ mod tests {
         let context = state.build_developer_context().expect("context");
         assert!(context.contains("- node-1: Parallel review kind=inspect_code_context [ready]"));
 
-        let (assignment, _) = state
-            .prepare_spawn_assignment(owner, "parallel review", None)
-            .expect("dynamic assignment succeeds");
+        let (assignment, _) =
+            prepare_test_spawn_assignment(&mut state, owner, "parallel review", None)
+                .expect("dynamic assignment succeeds");
         let assignment = assignment.expect("experiment assignment");
 
         assert_eq!(assignment.node_id, "node-1");
@@ -13742,9 +14123,9 @@ mod tests {
             )
             .expect("second ready node");
 
-        let (assignment, _) = state
-            .prepare_spawn_assignment(owner, "parallel work", Some("node-2"))
-            .expect("explicit node assignment succeeds");
+        let (assignment, _) =
+            prepare_test_spawn_assignment(&mut state, owner, "parallel work", Some("node-2"))
+                .expect("explicit node assignment succeeds");
         let assignment = assignment.expect("experiment assignment");
 
         assert_eq!(assignment.node_id, "node-2");
@@ -13853,11 +14234,11 @@ mod tests {
             "Verify requested leased node validation.",
             false,
         );
-        let first = state
-            .prepare_spawn_assignment(owner, "first holder", Some("node-1"))
-            .expect("first claim succeeds")
-            .0
-            .expect("assignment");
+        let first =
+            prepare_test_spawn_assignment(&mut state, owner, "first holder", Some("node-1"))
+                .expect("first claim succeeds")
+                .0
+                .expect("assignment");
         let before = state.snapshot();
         let error = state
             .prepare_spawn_assignment(owner, "second holder", Some("node-1"))
@@ -13876,8 +14257,7 @@ mod tests {
         let owner = ThreadId::new();
         seed_test_map(&mut state, owner);
         let child = ThreadId::new();
-        let assignment = state
-            .prepare_spawn_assignment(owner, "fast child", None)
+        let assignment = prepare_test_spawn_assignment(&mut state, owner, "fast child", None)
             .expect("claim")
             .0
             .expect("assignment");
@@ -13917,8 +14297,7 @@ mod tests {
         seed_test_map(&mut state, owner);
         let first_child = ThreadId::new();
         let second_child = ThreadId::new();
-        let assignment = state
-            .prepare_spawn_assignment(owner, "first child", None)
+        let assignment = prepare_test_spawn_assignment(&mut state, owner, "first child", None)
             .expect("claim")
             .0
             .expect("assignment");
@@ -13955,8 +14334,7 @@ mod tests {
         let owner = ThreadId::new();
         seed_test_map(&mut state, owner);
         let child = ThreadId::new();
-        let assignment = state
-            .prepare_spawn_assignment(owner, "fast child", None)
+        let assignment = prepare_test_spawn_assignment(&mut state, owner, "fast child", None)
             .expect("claim")
             .0
             .expect("assignment");
@@ -14018,8 +14396,7 @@ mod tests {
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
         seed_test_map(&mut state, owner);
-        let first = state
-            .prepare_spawn_assignment(owner, "first", None)
+        let first = prepare_test_spawn_assignment(&mut state, owner, "first", None)
             .expect("first claim succeeds")
             .0
             .expect("first assignment");
@@ -14030,8 +14407,7 @@ mod tests {
         assert!(second.contains("no ready node is available"));
 
         state.release_lease(&first.lease_id, "test_release");
-        let reclaimed = state
-            .prepare_spawn_assignment(owner, "second", None)
+        let reclaimed = prepare_test_spawn_assignment(&mut state, owner, "second", None)
             .expect("released node can be claimed again")
             .0
             .expect("reclaimed assignment");
@@ -14046,8 +14422,7 @@ mod tests {
         let owner = ThreadId::new();
         seed_test_map(&mut state, owner);
         let child = ThreadId::new();
-        let assignment = state
-            .prepare_spawn_assignment(owner, "first", None)
+        let assignment = prepare_test_spawn_assignment(&mut state, owner, "first", None)
             .expect("claim")
             .0
             .expect("assignment");
@@ -14078,8 +14453,7 @@ mod tests {
         let owner = ThreadId::new();
         seed_test_map(&mut state, owner);
         let child = ThreadId::new();
-        let assignment = state
-            .prepare_spawn_assignment(owner, "implement maps", None)
+        let assignment = prepare_test_spawn_assignment(&mut state, owner, "implement maps", None)
             .expect("assignment succeeds")
             .0
             .expect("experiment assignment");
@@ -14147,8 +14521,7 @@ mod tests {
         seed_test_map(&mut state, owner);
         let child = ThreadId::new();
 
-        let assignment = state
-            .prepare_spawn_assignment(owner, "inspect runtime", None)
+        let assignment = prepare_test_spawn_assignment(&mut state, owner, "inspect runtime", None)
             .expect("assignment succeeds")
             .0
             .expect("experiment assignment");
@@ -14312,11 +14685,11 @@ mod tests {
             false,
         );
 
-        let assignment = state
-            .prepare_spawn_assignment(owner, "inspect pricing", Some("node-1"))
-            .expect("spawn assignment")
-            .0
-            .expect("experiment assignment");
+        let assignment =
+            prepare_test_spawn_assignment(&mut state, owner, "inspect pricing", Some("node-1"))
+                .expect("spawn assignment")
+                .0
+                .expect("experiment assignment");
         assert!(
             assignment
                 .message_prefix
@@ -14430,11 +14803,11 @@ mod tests {
                 false,
             )
             .expect("create second inspect track");
-        let assignment = state
-            .prepare_spawn_assignment(owner, "inspect pricing", Some("node-1"))
-            .expect("spawn assignment")
-            .0
-            .expect("experiment assignment");
+        let assignment =
+            prepare_test_spawn_assignment(&mut state, owner, "inspect pricing", Some("node-1"))
+                .expect("spawn assignment")
+                .0
+                .expect("experiment assignment");
         state.attach_agent_to_lease(
             &assignment.lease_id,
             child,
@@ -14483,11 +14856,11 @@ mod tests {
                 false,
             )
             .expect("create second inspect track");
-        let assignment = state
-            .prepare_spawn_assignment(owner, "inspect pricing", Some("node-1"))
-            .expect("spawn assignment")
-            .0
-            .expect("experiment assignment");
+        let assignment =
+            prepare_test_spawn_assignment(&mut state, owner, "inspect pricing", Some("node-1"))
+                .expect("spawn assignment")
+                .0
+                .expect("experiment assignment");
         state.attach_agent_to_lease(
             &assignment.lease_id,
             child,
@@ -14929,8 +15302,7 @@ mod tests {
         let owner = ThreadId::new();
         seed_test_map(&mut state, owner);
         let child = ThreadId::new();
-        let assignment = state
-            .prepare_spawn_assignment(owner, "first", None)
+        let assignment = prepare_test_spawn_assignment(&mut state, owner, "first", None)
             .expect("claim")
             .0
             .expect("assignment");
@@ -14964,8 +15336,7 @@ mod tests {
         let owner = ThreadId::new();
         seed_test_map(&mut state, owner);
         let child = ThreadId::new();
-        let assignment = state
-            .prepare_spawn_assignment(owner, "first", None)
+        let assignment = prepare_test_spawn_assignment(&mut state, owner, "first", None)
             .expect("claim")
             .0
             .expect("assignment");
@@ -14994,8 +15365,7 @@ mod tests {
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
         seed_test_map(&mut state, owner);
-        let assignment = state
-            .prepare_spawn_assignment(owner, "first", None)
+        let assignment = prepare_test_spawn_assignment(&mut state, owner, "first", None)
             .expect("claim")
             .0
             .expect("assignment");
@@ -15021,8 +15391,7 @@ mod tests {
         let owner = ThreadId::new();
         seed_test_map(&mut state, owner);
         let child = ThreadId::new();
-        let assignment = state
-            .prepare_spawn_assignment(owner, "first", None)
+        let assignment = prepare_test_spawn_assignment(&mut state, owner, "first", None)
             .expect("claim")
             .0
             .expect("assignment");
@@ -15062,8 +15431,7 @@ mod tests {
 
         for expected_node in SEED_NODE_IDS {
             let child = ThreadId::new();
-            let assignment = state
-                .prepare_spawn_assignment(owner, expected_node, None)
+            let assignment = prepare_test_spawn_assignment(&mut state, owner, expected_node, None)
                 .expect("claim")
                 .0
                 .expect("assignment");
@@ -15153,8 +15521,7 @@ mod tests {
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
         seed_test_map(&mut state, owner);
-        let first = state
-            .prepare_spawn_assignment(owner, "first", None)
+        let first = prepare_test_spawn_assignment(&mut state, owner, "first", None)
             .expect("assignment")
             .0
             .expect("experiment")

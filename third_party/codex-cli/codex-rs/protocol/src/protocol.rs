@@ -2120,6 +2120,8 @@ pub struct ActionMapSnapshotMap {
     pub edges: Vec<ActionMapSnapshotEdge>,
     pub leases: Vec<ActionMapSnapshotLease>,
     pub results: Vec<ActionMapSnapshotResult>,
+    #[serde(default)]
+    pub subagent_plans: Vec<ActionMapSnapshotSubagentPlan>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -2159,6 +2161,8 @@ pub struct ActionMapSnapshotLease {
     pub previous_node_status: String,
     pub agent_thread_id: Option<ThreadId>,
     pub agent_path: Option<String>,
+    #[serde(default)]
+    pub subagent_plan_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -2179,6 +2183,48 @@ pub struct ActionMapSnapshotResult {
     pub evidence_package: ActionMapSnapshotResultEvidencePackage,
     pub source_thread_id: ThreadId,
     pub created_at_ms: i64,
+    #[serde(default)]
+    pub subagent_plan_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotSubagentPlan {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub map_id: String,
+    #[serde(default)]
+    pub parent_node_id: String,
+    #[serde(default)]
+    pub why_parallelizable: String,
+    #[serde(default)]
+    pub expected_artifact: String,
+    #[serde(default)]
+    pub acceptance_check: String,
+    #[serde(default)]
+    pub max_scope: String,
+    #[serde(default)]
+    pub supports_questions: Vec<String>,
+    #[serde(default)]
+    pub tests_hypotheses: Vec<String>,
+    #[serde(default)]
+    pub depends_on_results: Vec<String>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub lease_id: Option<String>,
+    #[serde(default)]
+    pub child_thread_id: Option<ThreadId>,
+    #[serde(default)]
+    pub result_ids: Vec<String>,
+    #[serde(default)]
+    pub created_at_ms: i64,
+    #[serde(default)]
+    pub updated_at_ms: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -6353,6 +6399,7 @@ mod tests {
             tool_success: Some(true),
             body: "pytest passed".to_string(),
             evidence_package: ActionMapSnapshotResultEvidencePackage::default(),
+            subagent_plan_id: None,
             source_thread_id: ThreadId::new(),
             created_at_ms: 1234,
         };
@@ -6477,9 +6524,11 @@ mod tests {
                             ..Default::default()
                         },
                     },
+                    subagent_plan_id: None,
                     source_thread_id: ThreadId::new(),
                     created_at_ms: 1234,
                 }],
+                subagent_plans: Vec::new(),
             }],
             maintenance_barriers: Vec::new(),
             trace_summary: ActionMapSnapshotTraceSummary::default(),

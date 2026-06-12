@@ -403,11 +403,31 @@ try {
                         createdFrom = $null
                         edges = @()
                         nodes = @([ordered]@{ id = "node-1"; title = "Read | source"; kind = "inspect_code_context"; status = "completed" })
+                        subagentPlans = @([ordered]@{
+                                id = "subagent-plan-1"
+                                taskId = "task-1"
+                                mapId = "map-1"
+                                parentNodeId = "node-1"
+                                whyParallelizable = "independent source inspection"
+                                expectedArtifact = "source audit notes"
+                                acceptanceCheck = "result cites validator evidence"
+                                maxScope = "read-only inspection"
+                                supportsQuestions = @("question-1")
+                                testsHypotheses = @()
+                                dependsOnResults = @()
+                                status = "result_recorded"
+                                leaseId = "lease-3"
+                                childThreadId = "thread-2"
+                                resultIds = @("result-3")
+                                createdAtMs = "100"
+                                updatedAtMs = "200"
+                            })
                         results = @([ordered]@{
                                 id = "result-3"
                                 nodeId = "node-1"
                                 assignmentId = "lease-3"
                                 sourceThreadId = "thread-1"
+                                subagentPlanId = "subagent-plan-1"
                                 kind = "result"
                                 actionClass = "test"
                                 body = "validated"
@@ -444,6 +464,9 @@ try {
     Assert-Equal ([bool]$exportJson.cognitiveAudit.hardGatePassed) $true "black-box fixture should pass final artifact hard gate"
     Assert-Equal ([int]$exportJson.summary.inputParseErrors) 0 "black-box fixture should have no parse errors"
     Assert-Equal ([int]$exportJson.summary.finalArtifacts) 1 "black-box fixture should export final artifact count"
+    Assert-Equal ([int]$exportJson.summary.subagentPlans) 1 "black-box fixture should export subagent plan count"
+    Assert-Equal ([string]$exportJson.maps[0].subagentPlans[0].id) "subagent-plan-1" "black-box fixture should retain subagent plan"
+    Assert-Equal ([string]$exportJson.nodes[0].results[0].subagentPlanId) "subagent-plan-1" "black-box fixture should retain result subagent plan join key"
     $html = Get-Content -LiteralPath (Join-Path $exportDir "action-map-observability.html") -Raw -Encoding UTF8
     $match = [regex]::Match($html, '(?s)<script type="application/json" id="trace-data">(.*?)</script>')
     if (-not $match.Success) {

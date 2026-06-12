@@ -12,6 +12,7 @@ pub(crate) type ActionMapId = String;
 pub(crate) type AssignmentLeaseId = String;
 pub(crate) type MapNodeId = String;
 pub(crate) type NodeResultId = String;
+pub(crate) type SubagentPlanId = String;
 pub(crate) type TaskId = String;
 pub(crate) type TaskSpaceTraceEventId = String;
 
@@ -286,6 +287,7 @@ pub(crate) struct AssignmentLease {
     pub(crate) previous_node_status: NodeStatus,
     pub(crate) agent_thread_id: Option<ThreadId>,
     pub(crate) agent_path: Option<String>,
+    pub(crate) subagent_plan_id: Option<SubagentPlanId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -301,6 +303,45 @@ pub(crate) struct ActionMapInstance {
     pub(crate) created_from: Option<ActionMapId>,
     pub(crate) leases: HashMap<AssignmentLeaseId, AssignmentLease>,
     pub(crate) results: HashMap<NodeResultId, NodeResult>,
+    pub(crate) subagent_plans: HashMap<SubagentPlanId, SubagentPlan>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SubagentPlanStatus {
+    Planned,
+    Leased,
+    ResultRecorded,
+}
+
+impl SubagentPlanStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            SubagentPlanStatus::Planned => "planned",
+            SubagentPlanStatus::Leased => "leased",
+            SubagentPlanStatus::ResultRecorded => "result_recorded",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SubagentPlan {
+    pub(crate) id: SubagentPlanId,
+    pub(crate) task_id: Option<TaskId>,
+    pub(crate) map_id: ActionMapId,
+    pub(crate) parent_node_id: MapNodeId,
+    pub(crate) why_parallelizable: String,
+    pub(crate) expected_artifact: String,
+    pub(crate) acceptance_check: String,
+    pub(crate) max_scope: String,
+    pub(crate) supports_questions: Vec<String>,
+    pub(crate) tests_hypotheses: Vec<String>,
+    pub(crate) depends_on_results: Vec<NodeResultId>,
+    pub(crate) status: SubagentPlanStatus,
+    pub(crate) lease_id: Option<AssignmentLeaseId>,
+    pub(crate) child_thread_id: Option<ThreadId>,
+    pub(crate) result_ids: Vec<NodeResultId>,
+    pub(crate) created_at_ms: i64,
+    pub(crate) updated_at_ms: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -328,6 +369,7 @@ impl NodeResultKind {
 pub(crate) struct NodeResult {
     pub(crate) id: NodeResultId,
     pub(crate) assignment_id: AssignmentLeaseId,
+    pub(crate) subagent_plan_id: Option<SubagentPlanId>,
     pub(crate) map_id: ActionMapId,
     pub(crate) node_id: MapNodeId,
     pub(crate) kind: NodeResultKind,
@@ -374,6 +416,7 @@ impl ActionMapInstance {
             created_from: None,
             leases: HashMap::new(),
             results: HashMap::new(),
+            subagent_plans: HashMap::new(),
         }
     }
 

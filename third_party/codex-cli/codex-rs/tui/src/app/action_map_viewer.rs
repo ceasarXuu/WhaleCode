@@ -402,6 +402,68 @@ function renderCognitivePanel(task, m, s){
   }
   return p;
 }
+function resultAdoptionRefs(r){
+  const ep=r.evidencePackage||{};
+  const adoption=ep.adoption||{};
+  return {
+    facts:arr(adoption.adoptedByFacts),
+    hypotheses:arr(adoption.adoptedByHypotheses),
+    decisions:arr(adoption.adoptedByDecisions),
+    criteria:arr(adoption.adoptedByCriteria),
+    nodes:arr(adoption.adoptedByNodes)
+  };
+}
+function resultSupportsDecision(r, decisions){
+  const id=r.id||r.resultId||r.result_id;
+  const refs=resultAdoptionRefs(r);
+  if(!id)return false;
+  if(refs.decisions.length||refs.facts.length||refs.hypotheses.length){
+    return decisions.some(d=>arr(d.dependsOnResults).includes(id)&&(refs.decisions.length===0||refs.decisions.includes(d.id)));
+  }
+  return decisions.some(d=>arr(d.dependsOnResults).includes(id));
+}
+function subagentRoi(task,m){
+  const plans=arr(m.subagentPlans);
+  const planIds=new Set(plans.map(p=>p.id));
+  const subagentResults=arr(m.results).filter(r=>r.subagentPlanId||planIds.has(r.subagentPlanId));
+  const accepted=subagentResults.filter(r=>(r.evidencePackage||{}).validity==='accepted');
+  const adopted=accepted.filter(r=>{
+    const refs=resultAdoptionRefs(r);
+    return refs.facts.length||refs.hypotheses.length||refs.decisions.length||refs.criteria.length||refs.nodes.length;
+  });
+  const decisions=arr((task&&task.problemLedger&&task.problemLedger.decisions)||[]);
+  const decisionResults=accepted.filter(r=>resultSupportsDecision(r,decisions));
+  const warnings=[];
+  accepted.forEach(r=>{if(!adopted.includes(r))warnings.push({code:'subagent_no_adoption',reason:'accepted subagent result has no recorded adoption',evidence:r.id||r.resultId||r.result_id})});
+  if(plans.length>0&&decisionResults.length===0)warnings.push({code:'subagent_no_decision_yield',reason:'subagent activity produced no accepted result supporting a current decision',evidence:'spawn count '+plans.length});
+  return {plans,subagentResults,accepted,adopted,decisionResults,warnings,yield:plans.length?decisionResults.length/plans.length:0};
+}
+function renderSubagentPanel(task,m){
+  const roi=subagentRoi(task,m);
+  const p=el('div');p.className='panel subagent-roi-panel';
+  p.appendChild(el('h3','subagent roi'));
+  const line=el('div');
+  line.appendChild(badge('plans '+roi.plans.length));
+  line.appendChild(badge('results '+roi.subagentResults.length));
+  line.appendChild(badge('accepted '+roi.accepted.length));
+  line.appendChild(badge('adopted '+roi.adopted.length));
+  line.appendChild(badge('decision yield '+roi.decisionResults.length+'/'+(roi.plans.length||0)));
+  p.appendChild(line);
+  if(roi.plans.length){
+    p.appendChild(detail('subagent-plans:'+m.id,'subagent plans',table(['id','node','status','lease','child','results','expected artifact','acceptance','max scope'],roi.plans.map(x=>[x.id,x.parentNodeId,x.status,x.leaseId||'',x.childThreadId||'',list(x.resultIds),x.expectedArtifact||'',x.acceptanceCheck||'',x.maxScope||'']))));
+  }
+  if(roi.subagentResults.length){
+    p.appendChild(detail('subagent-results:'+m.id,'subagent result adoption',table(['result','plan','node','validity','adoption','decision support','facts','hypotheses','decisions','nodes'],roi.subagentResults.map(r=>{
+      const refs=resultAdoptionRefs(r);
+      return [r.id||r.resultId||r.result_id,r.subagentPlanId||'',r.nodeId,(r.evidencePackage||{}).validity||'unreviewed',((r.evidencePackage||{}).adoption||{}).adoptionState||'none',resultSupportsDecision(r,arr((task&&task.problemLedger&&task.problemLedger.decisions)||[]))?'yes':'no',list(refs.facts),list(refs.hypotheses),list(refs.decisions),list(refs.nodes)];
+    }))));
+  }
+  if(roi.warnings.length){
+    p.appendChild(detail('subagent-warnings:'+m.id,'subagent warnings',table(['code','reason','evidence'],roi.warnings.map(w=>[w.code,w.reason,w.evidence]))));
+  }
+  if(!roi.plans.length)p.appendChild(el('div','No subagent plans recorded.','muted'));
+  return p;
+}
 function renderResultDetail(r){
   const box=el('div');
   const ep=r.evidencePackage||{};
@@ -454,7 +516,11 @@ function render(data){
     next.appendChild(line);
     const layout=el('div');layout.className='map-layout';
     const graphPane=el('div');graphPane.appendChild(el('h3','graph'));graphPane.appendChild(renderGraph(m));layout.appendChild(graphPane);
-    layout.appendChild(renderCognitivePanel(m.taskId?tasksById.get(m.taskId):null,m,s));
+    const task=m.taskId?tasksById.get(m.taskId):null;
+    const side=el('div');
+    side.appendChild(renderCognitivePanel(task,m,s));
+    side.appendChild(renderSubagentPanel(task,m));
+    layout.appendChild(side);
     next.appendChild(layout);
     next.appendChild(detail('nodes:'+m.id,'nodes',table(['id','status','kind','canonical','title','context','source refs','lease','results'],m.nodes.map(n=>[n.id,n.status,n.kind||'',n.canonicalKind||'',n.title,n.contextSummary,list(n.sourceRefs),n.activeLease||'',list(n.resultIds)]))));
     if(m.edges.length){next.appendChild(detail('edges:'+m.id,'edges',table(['from','to'],m.edges.map(e=>[e.from,e.to]))))}
@@ -522,5 +588,15 @@ mod tests {
         assert!(ACTION_MAP_VIEWER_HTML.contains("canonicalKind"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("adoptionState"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("sentinel warnings"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("subagent roi"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("subagent plans"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("subagent result adoption"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("decision yield"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("subagent warnings"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("r.id||r.resultId||r.result_id"));
+        assert!(
+            ACTION_MAP_VIEWER_HTML
+                .contains("refs.decisions.length===0||refs.decisions.includes(d.id)")
+        );
     }
 }

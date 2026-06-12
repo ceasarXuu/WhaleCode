@@ -75,6 +75,7 @@ function Ensure-Map {
             title = $Title
             ownerSessionId = $OwnerSessionId
             createdFrom = $CreatedFrom
+            subagentPlans = New-Object System.Collections.Generic.List[object]
         }
         $MapById[$MapId] = $map
         $Maps.Add($map)
@@ -85,8 +86,57 @@ function Ensure-Map {
         if ($TaskId) { $map.taskId = $TaskId }
         if ($OwnerSessionId) { $map.ownerSessionId = $OwnerSessionId }
         if ($CreatedFrom) { $map.createdFrom = $CreatedFrom }
+        if ($null -eq $map.subagentPlans) {
+            $map.subagentPlans = New-Object System.Collections.Generic.List[object]
+        }
     }
     return $map
+}
+
+function Add-Or-Update-SubagentPlan {
+    param(
+        [object]$Map,
+        [object]$Plan
+    )
+
+    if (-not $Map -or -not $Plan) {
+        return
+    }
+    if ($null -eq $Map.subagentPlans) {
+        $Map.subagentPlans = New-Object System.Collections.Generic.List[object]
+    }
+    $planId = [string]$Plan.id
+    if ([string]::IsNullOrWhiteSpace($planId)) {
+        return
+    }
+    $existing = @($Map.subagentPlans | Where-Object { [string]$_.id -eq $planId } | Select-Object -First 1)
+    $record = [ordered]@{
+        id = $planId
+        taskId = [string]$Plan.taskId
+        mapId = [string]$Plan.mapId
+        parentNodeId = [string]$Plan.parentNodeId
+        whyParallelizable = [string]$Plan.whyParallelizable
+        expectedArtifact = [string]$Plan.expectedArtifact
+        acceptanceCheck = [string]$Plan.acceptanceCheck
+        maxScope = [string]$Plan.maxScope
+        supportsQuestions = @(Get-ObjectArray $Plan.supportsQuestions)
+        testsHypotheses = @(Get-ObjectArray $Plan.testsHypotheses)
+        dependsOnResults = @(Get-ObjectArray $Plan.dependsOnResults)
+        status = [string]$Plan.status
+        leaseId = [string]$Plan.leaseId
+        childThreadId = [string]$Plan.childThreadId
+        resultIds = @(Get-ObjectArray $Plan.resultIds)
+        createdAtMs = [string]$Plan.createdAtMs
+        updatedAtMs = [string]$Plan.updatedAtMs
+    }
+    if ($existing.Count -gt 0) {
+        $existingPlan = $existing[0]
+        foreach ($property in $record.Keys) {
+            $existingPlan[$property] = $record[$property]
+        }
+        return
+    }
+    $Map.subagentPlans.Add($record)
 }
 
 function Ensure-Task {
@@ -184,7 +234,8 @@ function Add-Or-Update-NodeResult {
         [string]$Body = "",
         [object]$EvidencePackage = $null,
         [string]$MapId = "",
-        [string]$TaskId = ""
+        [string]$TaskId = "",
+        [string]$SubagentPlanId = ""
     )
 
     if (-not $Node -or [string]::IsNullOrWhiteSpace($ResultId)) {
@@ -212,6 +263,7 @@ function Add-Or-Update-NodeResult {
         if ($ActionClass) { $result.actionClass = $ActionClass }
         if ($MapId) { $result.mapId = $MapId }
         if ($TaskId) { $result.taskId = $TaskId }
+        if ($SubagentPlanId) { $result.subagentPlanId = $SubagentPlanId }
         if ($Body) {
             $result.body = $Body
             Update-ResultDerivedFields $result $Body
@@ -238,6 +290,7 @@ function Add-Or-Update-NodeResult {
         success = $null
         preview = ""
         evidencePackage = Convert-EvidencePackage $EvidencePackage
+        subagentPlanId = $SubagentPlanId
         validity = "unreviewed"
         claimCount = 0
         evidenceRefCount = 0

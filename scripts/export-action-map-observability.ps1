@@ -228,7 +228,10 @@ foreach ($item in $rolloutItems) {
             }
             foreach ($snapshotMap in @($payload.snapshot.maps)) {
                 $snapshotMapCount++
-                [void](Ensure-Map $maps $mapById ([string]$snapshotMap.id) ([string]$snapshotMap.title) ([string]$snapshotMap.ownerSessionId) $snapshotMap.createdFrom ([string]$snapshotMap.taskId))
+                $map = Ensure-Map $maps $mapById ([string]$snapshotMap.id) ([string]$snapshotMap.title) ([string]$snapshotMap.ownerSessionId) $snapshotMap.createdFrom ([string]$snapshotMap.taskId)
+                foreach ($snapshotPlan in @($snapshotMap.subagentPlans)) {
+                    Add-Or-Update-SubagentPlan $map $snapshotPlan
+                }
                 foreach ($snapshotEdge in @($snapshotMap.edges)) {
                     $from = [string]$snapshotEdge.from
                     $to = [string]$snapshotEdge.to
@@ -252,7 +255,7 @@ foreach ($item in $rolloutItems) {
                 }
                 foreach ($snapshotResult in @($snapshotMap.results)) {
                     $node = Ensure-Node $nodes ([string]$snapshotResult.nodeId)
-                    Add-Or-Update-NodeResult $node $at ([string]$snapshotResult.id) ([string]$snapshotResult.assignmentId) ([string]$snapshotResult.sourceThreadId) ([string]$snapshotResult.kind) ([string]$snapshotResult.actionClass) ([string]$snapshotResult.body) $snapshotResult.evidencePackage ([string]$snapshotMap.id) ([string]$snapshotMap.taskId)
+                    Add-Or-Update-NodeResult $node $at ([string]$snapshotResult.id) ([string]$snapshotResult.assignmentId) ([string]$snapshotResult.sourceThreadId) ([string]$snapshotResult.kind) ([string]$snapshotResult.actionClass) ([string]$snapshotResult.body) $snapshotResult.evidencePackage ([string]$snapshotMap.id) ([string]$snapshotMap.taskId) ([string]$snapshotResult.subagentPlanId)
                 }
             }
             foreach ($snapshotBarrier in @($payload.snapshot.maintenanceBarriers)) {
@@ -383,6 +386,13 @@ $nodeList = @($nodes.Values | Sort-Object id)
 $taskList = @($tasks.ToArray() | Sort-Object id)
 $agentList = @($agents.Values | Sort-Object threadId)
 $blockedToolActionCount = 0
+$subagentPlanCount = 0
+foreach ($map in @($maps.ToArray())) {
+    $plans = $map["subagentPlans"]
+    if ($null -ne $plans) {
+        $subagentPlanCount += [int]$plans.Count
+    }
+}
 foreach ($node in $nodeList) {
     $blockedActions = $node["blockedActions"]
     if ($null -ne $blockedActions) {
@@ -393,6 +403,7 @@ $cognitiveAudit = Get-CognitiveAuditSummary $taskList $nodeList @($sentinelWarni
 $summary = [ordered]@{
     tasks = $taskList.Count
     maps = $maps.Count
+    subagentPlans = $subagentPlanCount
     nodes = $nodeList.Count
     edges = $edges.Count
     agents = $agentList.Count

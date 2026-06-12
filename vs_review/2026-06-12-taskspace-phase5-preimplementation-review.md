@@ -216,3 +216,261 @@ Phase 5 is implementable, but not yet bounded enough as a preimplementation cont
 ## Final Conclusion
 
 Phase 5 may proceed into implementation, but it cannot be marked complete until the accepted blocking findings are fixed, validated, and re-reviewed by a fresh internal subagent closure round.
+
+## Round 2: Phase 5 Implementation Closure Review
+
+### Review Input
+
+#### Objective
+Review whether the implemented TaskSpace v0.0.4 Phase 5 changes close the accepted Round 1 blockers without introducing over-role-izing, self-deceptive ROI, or thin-mode behavior switches.
+
+#### Review Target
+Post-implementation closure review for SubagentPlanV1, graph-health ROI, viewer v2, observability export, and thin-mode report-only behavior.
+
+#### Target Locations
+- `third_party/codex-cli/codex-rs/core/src/action_map/map.rs`
+- `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- `third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control.rs`
+- `third_party/codex-cli/codex-rs/core/src/session/mod.rs`
+- `third_party/codex-cli/codex-rs/protocol/src/protocol.rs`
+- `third_party/codex-cli/codex-rs/tui/src/app/action_map_viewer.rs`
+- `scripts/action-map-graph-health-lib.ps1`
+- `scripts/action-map-observability-lib.ps1`
+- `scripts/export-action-map-observability.ps1`
+- `scripts/taskspace-benchmark/lib/graph-health.ps1`
+- `scripts/taskspace-benchmark/lib/failure-taxonomy.ps1`
+- `scripts/test-action-map-graph-health.ps1`
+- `scripts/test-action-map-observability-lib.ps1`
+- `scripts/taskspace-benchmark/test-harness.ps1`
+
+#### Change Introduction
+Implementation added first-class `SubagentPlanV1` runtime/snapshot state, `taskspace_control(action=record_subagent_plan)`, spawn gating on an unused plan for the selected node, plan binding through lease/child/result/snapshot, graph-health v2 ROI and thin-mode warnings, observability export of `subagentPlans` and `subagentPlanId`, benchmark ROI updates, and viewer v2 subagent ROI/adoption panels.
+
+#### Verification Status Sent To Reviewer
+- `cargo check -p codex-core`: PASS
+- `cargo test -p codex-core action_map::runtime::tests -- --nocapture`: PASS, 158 tests
+- `cargo test -p codex-protocol action_map -- --nocapture`: PASS, 8 tests
+- `cargo test -p codex-tui action_map_viewer -- --nocapture`: PASS, 2 tests
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-action-map-graph-health.ps1`: PASS
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-action-map-observability-lib.ps1`: PASS
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1`: PASS
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| closure-adversary | multi_agent_v1.spawn_agent | 019ebb6b-15a8-7ad0-a90a-7fc43787043d | spawn_agent result in current Codex thread | fork_context=false | Round 2 Review Input | main-agent history, reasoning, drafts, conclusions beyond navigation packet | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| closure-adversary-r2 | closure-adversary | 1 | 019ebb6b-15a8-7ad0-a90a-7fc43787043d | 15 minutes max, completed early | completed | reviewer returned blocking closure findings | completed |
+
+### Reviewer Outputs
+
+#### closure-adversary-r2
+
+##### Summary
+Read-only closure review completed. The Rust SubagentPlan lifecycle is mostly present: plan record gates spawn, lease/result/snapshot carry `subagent_plan_id`, and legacy serde defaults avoid obvious phantom plan creation. The closure was not clean because ROI/reporting still had decision-yield correctness gaps and tests missed the real export shape.
+
+##### Blocking Findings
+- Benchmark and viewer ROI can count stale decision adoption as current decision yield.
+  - Counterexample: accepted subagent result has `adoptedByDecisions=["deleted-decision"]`, but current ledger has no such decision and no `dependsOnResults` edge to the result.
+  - Trigger: old snapshot/export or ledger rewrite leaves stale adoption refs.
+  - Impact: `subagent_decision_yield` becomes positive and `subagent_no_decision_yield` is suppressed even though no current decision is supported.
+  - Proof needed: tests where `adoptedByDecisions` references a missing or currently unrelated decision must yield 0 and warn.
+  - Evidence: `scripts/taskspace-benchmark/lib/graph-health.ps1`, `third_party/codex-cli/codex-rs/tui/src/app/action_map_viewer.rs`.
+- Graph-health v2 misses real exported result join keys.
+  - Counterexample: exported node result has `resultId=result-1`, accepted, `subagentPlanId=subagent-plan-1`; current decision has `dependsOnResults=["result-1"]`.
+  - Trigger: running v2 graph health on observability export rather than raw snapshot-shaped rows.
+  - Impact: false negative ROI and noisy closure reports for valid subagent evidence.
+  - Proof needed: integration test using exported observability shape, not only synthetic `id` rows.
+  - Evidence: `scripts/action-map-observability-lib.ps1`, `scripts/export-action-map-observability.ps1`, `scripts/action-map-graph-health-lib.ps1`.
+
+##### Non-blocking Risks
+- `subagent_plan_links_lease_child_result_and_snapshot` does not restore the snapshot despite the test name.
+- Viewer tests are still mostly string checks and do not execute ROI logic.
+- Lease/result runtime events do not carry `subagent_plan_id`; snapshot export carries the join key, but event-only observability remains weaker.
+
+##### Required Fixes
+- Require `adoptedByDecisions` refs to match current ledger decisions, preferably also checking that the decision depends on the result.
+- Teach v2 graph health to accept `resultId`/`result_id` everywhere it compares result IDs.
+- Add tests for stale decision refs, exported observability shape, and viewer ROI guardrails.
+
+### Main Agent Response
+
+| Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|
+| closure-adversary | Benchmark and viewer ROI can count stale decision adoption as current decision yield. | blocking | accept | ROI must represent current decision support, not stale adoption refs. | Updated graph-health v2, benchmark graph-health, and viewer ROI logic so `adoptedByDecisions` only counts when it references a current decision that also depends on the result. Added stale decision counterexamples to graph-health and benchmark tests. | Fresh closure re-review required. |
+| closure-adversary | Graph-health v2 misses real exported result join keys. | blocking | accept | Observability export stores node results as `resultId`; v2 must support exported and snapshot-shaped result IDs. | Updated graph-health v2 and benchmark result-id helpers to support `id`, `resultId`, and `result_id`. Added exported observability-shape graph-health test. | Fresh closure re-review required. |
+| closure-adversary | Snapshot restore roundtrip test gap. | non-blocking | defer | Existing runtime tests cover snapshot export and serde defaults; restore roundtrip is useful but not required for Phase 5 closure because serde restore path already maps `subagent_plans` and existing restore tests cover snapshot migration patterns. | No code change in this round. | Track as future hardening if snapshot restoration regressions appear. |
+| closure-adversary | Viewer ROI execution test gap. | non-blocking | accept | Viewer logic was corrected, and static guardrails now assert the exact current-decision and exported-result-id expressions are present. Full JS execution harness is not currently part of the viewer test stack. | Added viewer static assertions for `resultId/result_id` and current decision matching. | Consider a JS DOM harness later if viewer logic grows. |
+| closure-adversary | Event-only observability weaker than snapshot export. | non-blocking | defer | Phase 5 exit criterion can judge contribution from snapshot/export artifacts; event-only joins are a future observability improvement. | No runtime event payload change in this round. | Keep as future observability hardening. |
+
+### Post-Fix Validation
+
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-action-map-graph-health.ps1`: PASS
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1`: PASS
+- `cargo test -p codex-tui action_map_viewer -- --nocapture`: PASS
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: no
+- Blocking re-review passed: no
+- Required next action: start a new fresh internal subagent closure review focused on the Round 2 fixes.
+
+## Round 3: Focused ROI Closure Re-review
+
+### Review Input
+
+#### Objective
+Verify whether the accepted Round 2 ROI and exported-result-id blockers are closed.
+
+#### Review Target
+Focused read-only re-review of graph-health v2, benchmark graph-health, and viewer ROI decision-yield logic.
+
+#### Target Locations
+- `scripts/action-map-graph-health-lib.ps1`
+- `scripts/test-action-map-graph-health.ps1`
+- `scripts/taskspace-benchmark/lib/graph-health.ps1`
+- `scripts/taskspace-benchmark/test-harness.ps1`
+- `third_party/codex-cli/codex-rs/tui/src/app/action_map_viewer.rs`
+- `vs_review/2026-06-12-taskspace-phase5-preimplementation-review.md`
+
+#### Verification Status Sent To Reviewer
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-action-map-graph-health.ps1`: PASS
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1`: PASS
+- `cargo test -p codex-tui action_map_viewer -- --nocapture`: PASS
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| focused-roi-closure-adversary | multi_agent_v1.spawn_agent | 019ebb75-eb9d-7c32-a7ac-10c0fe789737 | spawn_agent result in current Codex thread | fork_context=false | Round 3 Review Input | main-agent history, reasoning, drafts, conclusions beyond navigation packet | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| focused-roi-closure-adversary-r3 | focused-roi-closure-adversary | 1 | 019ebb75-eb9d-7c32-a7ac-10c0fe789737 | 15 minutes max, completed early | completed | reviewer returned blocking closure findings | completed |
+
+### Reviewer Outputs
+
+#### focused-roi-closure-adversary-r3
+
+##### Summary
+Read-only re-review completed. The Round 2 blockers were not fully closed. Benchmark and viewer logic looked corrected for the stale-decision counterexample, but `scripts/action-map-graph-health-lib.ps1` still had two blocking gaps.
+
+##### Blocking Findings
+- Stale `adoptedByDecisions` can still count as current decision yield in v2 graph health.
+  - Counterexample: stale ref plus current unrelated decision dependency produced `Count=1`, `Yield=1`, no `subagent_no_decision_yield`.
+  - Required fix: if `adoptedByDecisions` is present, do not use the fallback dependency-only path.
+- Exported `resultId` rows undercount when more than one exported result supports decisions.
+  - Counterexample: two accepted exported `resultId` rows yielded `Count=1`, `Yield=0.5`; expected `Count=2`, `Yield=1`.
+  - Required fix: add decision-supporting result IDs to the set using normalized IDs, not only `id`/`Id`.
+
+### Main Agent Response
+
+| Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|
+| focused-roi-closure-adversary | Stale `adoptedByDecisions` can still count through fallback. | blocking | accept | Explicit stale decision refs must invalidate decision support unless they match a current decision that depends on the result. | Updated `Test-TaskspaceResultSupportsDecision` to return false after explicit unmatched `adoptedByDecisions`; updated benchmark logic similarly. Strengthened graph-health test so current `decision-1.dependsOnResults=["result-1"]` still yields 0 when adoption cites `deleted-decision`. | Fresh closure re-review required. |
+| focused-roi-closure-adversary | Exported `resultId` rows collapse in decision-support set. | blocking | accept | The set key must use the same normalized result ID that comparisons use. | Added `Get-TaskspaceResultId` and use it for both decision checks and decision-supporting result set/evidence refs. Strengthened exported-shape test to two `resultId` rows and two current decisions; expected count 2 and yield 1. | Fresh closure re-review required. |
+
+### Post-Fix Validation
+
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-action-map-graph-health.ps1`: PASS
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1`: PASS
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-action-map-observability-lib.ps1`: PASS
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: no
+- Blocking re-review passed: no
+- Required next action: start a new fresh internal subagent closure review focused on Round 3 fixes.
+
+## Round 4: Final Focused ROI Closure Review
+
+### Review Input
+
+#### Objective
+Verify whether Round 3 accepted blocking findings are now closed in graph-health v2 and benchmark/viewer ROI.
+
+#### Review Target
+Final focused read-only re-review of graph-health v2 normalized result IDs and explicit stale decision adoption handling.
+
+#### Target Locations
+- `scripts/action-map-graph-health-lib.ps1`
+- `scripts/test-action-map-graph-health.ps1`
+- `scripts/taskspace-benchmark/lib/graph-health.ps1`
+- `scripts/taskspace-benchmark/test-harness.ps1`
+- `third_party/codex-cli/codex-rs/tui/src/app/action_map_viewer.rs`
+- `vs_review/2026-06-12-taskspace-phase5-preimplementation-review.md`
+
+#### Verification Status Sent To Reviewer
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-action-map-graph-health.ps1`: PASS
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1`: PASS
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-action-map-observability-lib.ps1`: PASS
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| final-roi-closure-adversary | multi_agent_v1.spawn_agent | 019ebb7c-4f6b-7282-a38c-d40aec97c3b2 | spawn_agent result in current Codex thread | fork_context=false | Round 4 Review Input | main-agent history, reasoning, drafts, conclusions beyond navigation packet | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| final-roi-closure-adversary-r4 | final-roi-closure-adversary | 1 | 019ebb7c-4f6b-7282-a38c-d40aec97c3b2 | 15 minutes max, completed early | completed | reviewer found no blocking closure findings | completed |
+
+### Reviewer Outputs
+
+#### final-roi-closure-adversary-r4
+
+##### Summary
+Round 3 accepted blocking findings appear closed for graph-health v2. No remaining blocking findings were found.
+
+##### Blocking Findings
+None.
+
+##### Evidence
+- `scripts/action-map-graph-health-lib.ps1`: `Test-TaskspaceResultSupportsDecision` normalizes result IDs through `Get-TaskspaceResultId`, requires explicit `adoptedByDecisions` to match a current decision that depends on the result, and returns false after unmatched explicit decision refs.
+- `scripts/action-map-graph-health-lib.ps1`: decision-yield set keys use `Get-TaskspaceResultId`.
+- `scripts/action-map-graph-health-lib.ps1`: helper covers `id`, `Id`, `resultId`, `result_id`.
+- `scripts/test-action-map-graph-health.ps1`: stale adopted-decision test has current `decision-1` depending on `result-1`, expects yield count `0`, and expects `subagent_no_decision_yield`.
+- `scripts/test-action-map-graph-health.ps1`: exported-shape test uses two `resultId` rows and expects count `2`, yield `1`.
+
+##### Non-blocking Risks
+- Benchmark stale-decision test covered stale explicit adoption, but its current decision did not reproduce the exact fallback counterexample.
+- Viewer ROI logic looks corrected, but coverage is still static/string-level rather than executing the embedded JS ROI function.
+- Minor viewer warning evidence used `r.id` for no-adoption warnings, so `resultId`-only rows could show blank evidence.
+
+### Main Agent Response
+
+| Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|
+| final-roi-closure-adversary | No blocking findings. | n/a | accept | Fresh closure reviewer found Round 3 blockers closed. | Marked closure passed. | None. |
+| final-roi-closure-adversary | Benchmark exact fallback counterexample missing. | non-blocking | accept | Low-cost test hardening. | Updated benchmark stale-decision test so current `decision-1.dependsOnResults=["result-1"]` while adoption cites `deleted-decision`. Re-ran benchmark harness: PASS. | None. |
+| final-roi-closure-adversary | Viewer no-adoption warning could show blank evidence for resultId-only rows. | non-blocking | accept | Low-cost user-facing evidence polish. | Updated viewer warning evidence to use `r.id || r.resultId || r.result_id`. Re-ran viewer test: PASS. | None. |
+| final-roi-closure-adversary | Viewer ROI still string-level tested only. | non-blocking | defer | A JS execution harness is out of scope for Phase 5 closure; static guardrails and source review cover the changed expressions. | No additional harness added. | Revisit if viewer panel becomes release-critical. |
+
+### Post-Fix Validation
+
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1`: PASS
+- `cargo test -p codex-tui action_map_viewer -- --nocapture`: PASS
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-action-map-graph-health.ps1`: PASS
+
+### Final Closure Status
+
+- Blocking findings found in closure rounds: yes
+- Accepted blocking findings fixed: yes
+- Fresh blocking re-review completed after fixes: yes
+- Blocking re-review passed: yes
+- Remaining blocking findings: none
+- Deferred findings: viewer executable JS ROI harness, non-blocking
+- Phase 5 allowed to close: yes

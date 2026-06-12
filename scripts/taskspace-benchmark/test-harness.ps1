@@ -182,7 +182,63 @@ Assert-True ([string]$graphReport.schema_version -eq "taskspace-graph-health-v1"
 Assert-True ($graphReport.node_count -eq 2 -and $graphReport.edge_count -eq 1) "graph health report did not count nodes/edges"
 Assert-True (@($graphReport.warnings) -contains "high_unreviewed_result_ratio") "graph health did not flag high unreviewed result ratio"
 Assert-True (@($graphReport.warnings) -contains "subagent_no_adoption") "graph health did not flag unused subagent result"
+Assert-True (@($graphReport.warnings) -contains "subagent_no_decision_yield") "graph health did not flag missing subagent decision yield"
+Assert-True ([double]$graphReport.subagent_decision_yield -eq 0.0) "graph health counted ordinary adoption as decision yield"
 Assert-True ([string]$graphReport.metric_availability.result_adoption -eq "measured") "graph health did not expose result adoption metric availability"
+$graphDecisionObs = [pscustomobject]@{
+    nodes = @(
+        [pscustomobject]@{
+            id = "node-1"; kind = "inspect_code_context"; status = "completed"; title = "Investigate"
+            leases = @()
+            results = @(
+                [pscustomobject]@{
+                    resultId = "result-1"; validity = "accepted"; sourceThreadId = "agent-1"; subagentPlanId = "subagent-plan-1"
+                    evidencePackage = [pscustomobject]@{
+                        adoptionState = "accepted_adopted"
+                        adoption = [pscustomobject]@{ adoptedByDecisions = @("decision-1") }
+                    }
+                },
+                [pscustomobject]@{
+                    resultId = "result-2"; validity = "accepted"; sourceThreadId = "agent-2"; subagentPlanId = "subagent-plan-2"
+                    evidencePackage = [pscustomobject]@{ adoptionState = "accepted_adopted" }
+                }
+            )
+            events = @()
+        }
+    )
+    maps = @([pscustomobject]@{ subagentPlans = @([pscustomobject]@{ id = "subagent-plan-1" }, [pscustomobject]@{ id = "subagent-plan-2" }) })
+    edges = @()
+    decisions = @([pscustomobject]@{ id = "decision-1"; dependsOnResults = @("result-1") })
+    toolCalls = @()
+    timeline = @()
+}
+$graphDecisionReport = New-TaskspaceGraphHealthReport $graphDecisionObs "right" "taskspace"
+Assert-True ([double]$graphDecisionReport.subagent_decision_yield -eq 0.5) "graph health decision yield should count only decision-supported accepted subagent results"
+Assert-True (-not (@($graphDecisionReport.warnings) -contains "subagent_no_decision_yield")) "graph health emitted missing-yield warning despite decision support"
+$graphStaleDecisionObs = [pscustomobject]@{
+    nodes = @(
+        [pscustomobject]@{
+            id = "node-1"; kind = "inspect_code_context"; status = "completed"; title = "Investigate"
+            leases = @()
+            results = @([pscustomobject]@{
+                    resultId = "result-1"; validity = "accepted"; sourceThreadId = "agent-1"; subagentPlanId = "subagent-plan-1"
+                    evidencePackage = [pscustomobject]@{
+                        adoptionState = "accepted_adopted"
+                        adoption = [pscustomobject]@{ adoptedByDecisions = @("deleted-decision") }
+                    }
+                })
+            events = @()
+        }
+    )
+    maps = @([pscustomobject]@{ subagentPlans = @([pscustomobject]@{ id = "subagent-plan-1" }) })
+    edges = @()
+    decisions = @([pscustomobject]@{ id = "decision-1"; dependsOnResults = @("result-1") })
+    toolCalls = @()
+    timeline = @()
+}
+$graphStaleDecisionReport = New-TaskspaceGraphHealthReport $graphStaleDecisionObs "right" "taskspace"
+Assert-True ([double]$graphStaleDecisionReport.subagent_decision_yield -eq 0.0) "graph health counted stale decision adoption as decision yield"
+Assert-True (@($graphStaleDecisionReport.warnings) -contains "subagent_no_decision_yield") "graph health did not warn on stale decision adoption"
 $legacyGraphObs = [pscustomobject]@{
     nodes = @([pscustomobject]@{
             id = "legacy-node"; kind = "inspect_code_context"; status = "completed"; title = "Legacy"
