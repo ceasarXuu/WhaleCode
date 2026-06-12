@@ -2667,9 +2667,11 @@ preview:\n\
                     .task_id
                     .as_deref()
                     .and_then(|task_id| self.tasks.get(task_id));
-                if !task.is_some_and(|task| node_satisfies_success_criterion(task, map, node)) {
+                if !task.is_some_and(|task| {
+                    node_satisfies_success_criterion_with_validation_result(task, map, node)
+                }) {
                     return Err(format!(
-                        "TaskSpace {} node `{node_id}` cannot be completed without a satisfied success criterion tied to this validation node. Call taskspace_control(action=record_success_criteria) with status=satisfied and evidence_refs from this node's validator result before finishing.",
+                        "TaskSpace {} node `{node_id}` cannot be completed without a satisfied success criterion tied to this validation node's successful test/build result. Call taskspace_control(action=record_success_criteria) with status=satisfied and evidence_refs from this node's successful validator result before finishing.",
                         node.kind.as_str()
                     ));
                 }
@@ -2683,9 +2685,9 @@ preview:\n\
                         "TaskSpace final_synthesis cannot be completed without an active task ledger."
                             .to_string()
                     })?;
-                if !task_success_criteria_satisfied(task) {
+                if !task_success_criteria_complete(task) {
                     return Err(format!(
-                        "TaskSpace final_synthesis node `{node_id}` cannot be completed until at least one success criterion is satisfied or waived with evidence."
+                        "TaskSpace final_synthesis node `{node_id}` cannot be completed until every success criterion is satisfied or waived with evidence."
                     ));
                 }
                 if task.problem_ledger.decisions.is_empty() {
@@ -7379,7 +7381,7 @@ fn node_has_problem_state_effect(
         })
 }
 
-fn node_satisfies_success_criterion(
+fn node_satisfies_success_criterion_with_validation_result(
     task: &TaskState,
     map: &ActionMapInstance,
     node: &MapNode,
@@ -7389,15 +7391,18 @@ fn node_satisfies_success_criterion(
         .iter()
         .any(|criterion| {
             criterion.status == "satisfied"
-                && evidence_refs_include_node_result(map, node, &criterion.evidence_refs)
+                && evidence_refs_include_successful_validation_result(
+                    map,
+                    node,
+                    &criterion.evidence_refs,
+                )
         })
 }
 
-fn task_success_criteria_satisfied(task: &TaskState) -> bool {
-    task.problem_ledger
-        .success_criteria
-        .iter()
-        .any(|criterion| {
+fn task_success_criteria_complete(task: &TaskState) -> bool {
+    let criteria = &task.problem_ledger.success_criteria;
+    !criteria.is_empty()
+        && criteria.iter().all(|criterion| {
             matches!(criterion.status.as_str(), "satisfied" | "waived")
                 && !criterion.evidence_refs.is_empty()
         })
@@ -7423,6 +7428,27 @@ fn evidence_refs_include_node_result(
                     .results
                     .get(result_id)
                     .is_some_and(|result| result.node_id == node.id)
+        })
+    })
+}
+
+fn evidence_refs_include_successful_validation_result(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    evidence_refs: &[EvidenceRef],
+) -> bool {
+    evidence_refs.iter().any(|evidence_ref| {
+        evidence_ref.result_id.as_deref().is_some_and(|result_id| {
+            node_has_result_id(node, result_id)
+                && map.results.get(result_id).is_some_and(|result| {
+                    result.node_id == node.id
+                        && result.kind == NodeResultKind::MainToolCall
+                        && matches!(
+                            result.action_class,
+                            Some(ActionClass::Build | ActionClass::Test)
+                        )
+                        && result.tool_success == Some(true)
+                })
         })
     })
 }
@@ -12789,6 +12815,179 @@ mod tests {
     }
 
     #[test]
+    fn finish_smoke_node_rejects_criterion_citing_same_node_failed_validation_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+
+        let (failed_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "pytest failed".to_string(),
+            )
+            .expect("failed test result records")
+            .expect("failed test result id");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-pass",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("successful test result records")
+            .expect("successful test result id");
+        satisfy_test_criterion_with_result(&mut state, owner, &failed_result_id);
+
+        let error = state
+            .finish_main_node(owner, &node_id, "Tests passed.".to_string(), None)
+            .expect_err("criterion cannot cite failed validator result");
+        assert!(
+            error.contains("successful test/build result"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn finish_smoke_node_rejects_criterion_citing_same_node_non_validation_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+
+        let (review_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-review",
+                "internal_review",
+                Some(ActionClass::Review),
+                true,
+                "reviewed validation output".to_string(),
+            )
+            .expect("review result records")
+            .expect("review result id");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-pass",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("successful test result records")
+            .expect("successful test result id");
+        satisfy_test_criterion_with_result(&mut state, owner, &review_result_id);
+
+        let error = state
+            .finish_main_node(owner, &node_id, "Tests passed.".to_string(), None)
+            .expect_err("criterion cannot cite non-validation result");
+        assert!(
+            error.contains("successful test/build result"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn finish_smoke_node_rejects_criterion_citing_other_validation_node_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, first_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate parser fix",
+            "Run parser validation.",
+            "Run parser smoke tests",
+            "Run parser pytest.",
+            true,
+        );
+
+        let (first_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-parser-test",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "parser pytest passed".to_string(),
+            )
+            .expect("first successful test result records")
+            .expect("first test result id");
+        satisfy_test_criterion_with_result(&mut state, owner, &first_result_id);
+        let (first_finish, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &first_node_id,
+                "Parser smoke passed.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run pricing smoke tests".to_string(),
+                    context_summary: "Validate pricing behavior.".to_string(),
+                    dependency_node_ids: Vec::new(),
+                }),
+            )
+            .expect("first validation finishes into second validation");
+        assert_eq!(first_finish.result_id, "result-2");
+
+        let second_node_id = state
+            .current_main_node_id
+            .clone()
+            .expect("second validation node is bound");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-pricing-test",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pricing pytest passed".to_string(),
+            )
+            .expect("second successful test result records")
+            .expect("second test result id");
+        satisfy_test_criterion_with_result(&mut state, owner, &first_result_id);
+
+        let error = state
+            .finish_main_node(
+                owner,
+                &second_node_id,
+                "Pricing smoke passed.".to_string(),
+                None,
+            )
+            .expect_err("criterion cannot cite another validation node result");
+        assert!(
+            error.contains("successful test/build result"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
     fn finish_final_synthesis_requires_satisfied_criteria_and_decision() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -12812,9 +13011,7 @@ mod tests {
                 None,
             )
             .expect_err("final synthesis requires success criteria evidence");
-        assert!(
-            error.contains("at least one success criterion is satisfied or waived with evidence")
-        );
+        assert!(error.contains("every success criterion"));
 
         let (result_id, _) = state
             .record_main_tool_result_with_class(
@@ -12841,6 +13038,45 @@ mod tests {
         assert!(missing_decision.contains("at least one recorded decision"));
 
         record_test_decision_for_result(&mut state, owner, &result_id);
+        state
+            .record_success_criteria_for_main(
+                owner,
+                vec![ActionMapSuccessCriterionInput {
+                    id: "second-contract".to_string(),
+                    kind: "validator".to_string(),
+                    description: "Second test fixture acceptance contract.".to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("second-contract".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+            )
+            .expect("second criterion records");
+        let open_criterion = state
+            .finish_main_node(
+                owner,
+                &node_id,
+                "Completed the requested work. Validation passed.".to_string(),
+                None,
+            )
+            .expect_err("final synthesis requires all criteria complete");
+        assert!(open_criterion.contains("every success criterion"));
+        state
+            .record_success_criteria_for_main(
+                owner,
+                vec![ActionMapSuccessCriterionInput {
+                    id: "second-contract".to_string(),
+                    kind: "validator".to_string(),
+                    description: "Second test fixture acceptance contract.".to_string(),
+                    status: "waived".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+            )
+            .expect("second criterion waives with evidence");
         state
             .record_open_question_for_main(
                 owner,
@@ -13050,6 +13286,70 @@ mod tests {
             result
                 .body
                 .contains("cannot be completed without a recorded successful test or build action")
+        );
+    }
+
+    #[test]
+    fn subagent_smoke_node_rejects_criterion_citing_bad_validation_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        let child = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            false,
+        );
+        let (assignment, _) = state
+            .prepare_spawn_assignment(owner, "verifier", Some(&node_id))
+            .expect("spawn assignment");
+        let assignment = assignment.expect("assignment");
+        state.attach_agent_to_lease(&assignment.lease_id, child, None);
+        let (failed_result_id, _) = state
+            .record_child_tool_result_with_class(
+                child,
+                "child-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "pytest failed".to_string(),
+            )
+            .expect("failed child tool result records")
+            .expect("failed child result id");
+        state
+            .record_child_tool_result_with_class(
+                child,
+                "child-test-pass",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("successful child tool result records")
+            .expect("successful child result id");
+        satisfy_test_criterion_with_result(&mut state, owner, &failed_result_id);
+
+        let (result_id, _) = state
+            .record_child_result(
+                child,
+                &AgentStatus::Completed(Some("Tests passed.".to_string())),
+            )
+            .expect("child result records as blocker");
+
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get(&node_id).expect("node");
+        assert_eq!(node.status, NodeStatus::Blocked);
+        let result = map.results.get(&result_id).expect("stored result");
+        assert_eq!(result.kind, NodeResultKind::Blocker);
+        assert!(
+            result.body.contains("successful test/build result"),
+            "unexpected result body: {}",
+            result.body
         );
     }
 
