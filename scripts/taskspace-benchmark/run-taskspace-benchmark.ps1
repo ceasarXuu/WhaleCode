@@ -84,11 +84,11 @@ if (-not $resuming) {
     $existingStatus = Read-TaskspaceRunStatus $runDir
     $stale = Test-TaskspaceRunLockStale $existingStatus
     Write-TaskspaceRunEvent $runDir "resume_requested" @{ stale_lock = $stale; command_line = $commandLine }
-    if (-not $stale -and $existingStatus.phase -notin @("completed", "ineligible")) {
-        throw "Run appears active and is not stale: $runDir"
-    }
     if ($existingStatus -and $existingStatus.PSObject.Properties.Name -contains "run_validity" -and [string]$existingStatus.run_validity -eq "invalid_harness" -and -not $ForceRerun) {
         throw "Run is invalid_harness and cannot be resumed without -ForceRerun: $runDir"
+    }
+    if (-not $stale -and $existingStatus.phase -notin @("completed", "ineligible")) {
+        throw "Run appears active and is not stale: $runDir"
     }
     if ($stale) { Write-TaskspaceRunEvent $runDir "stale_lock_reclaimed" @{ previous_lock_owner = [string]$existingStatus.lock_owner } }
 }
