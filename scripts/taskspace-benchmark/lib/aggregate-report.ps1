@@ -45,6 +45,9 @@ function Write-TaskspaceAggregateReport {
     $environmentRows = @($all | Where-Object {
             (@($_.evidence.evidence_gate_failures) + @($_.evidence.e3_gate_failures)) -match "environment|remote_asset|docker_|public_validation_timeout"
         })
+    $invalidHarnessRows = @($all | Where-Object {
+            (@($_.evidence.failure_taxonomy) + @($_.evidence.evidence_gate_failures) + @($_.evidence.e3_gate_failures)) -match "invalid_harness|harness_materialization|validator_probe|validator_pretest|suite_circuit_breaker|path_unresolvable|uv_cache|validator_source|no_tests_started"
+        })
     $auditReadyRows = @($e3Rows | Where-Object { $_.evidence.human_review_completed -and @($_.evidence.e3_gate_failures).Count -eq 0 })
     $reviewCompleted = @($e3Rows | Where-Object { $_.evidence.human_review_completed })
     $validE3Reviewed = @($validE3 | Where-Object { $_.evidence.human_review_completed })
@@ -95,8 +98,16 @@ function Write-TaskspaceAggregateReport {
             }
         }
     }
+    $diagnosticComparisonEnabled = ($invalidHarnessRows.Count -eq 0)
     $aggregate = [ordered]@{
         aggregate_version = "taskspace-0.0.4-phase1-aggregate-v1"
+        run_validity = if ($diagnosticComparisonEnabled) { "valid" } else { "invalid_harness" }
+        diagnostic_comparison_enabled = $diagnosticComparisonEnabled
+        invalid_run_reason = if ($diagnosticComparisonEnabled) { "" } else { "invalid_harness_failure_detected" }
+        abort_scope = if ($diagnosticComparisonEnabled) { "none" } else { "sample" }
+        abort_phase = if ($diagnosticComparisonEnabled) { "" } else { "report_gate" }
+        abort_signature = ""
+        first_failure_artifact = if ($invalidHarnessRows.Count -gt 0) { [string]$invalidHarnessRows[0].pair_report } else { "" }
         configured_pairs = $all.Count
         eligible_pairs = $all.Count - $environmentRows.Count
         environment_failed_pairs = $environmentRows.Count
@@ -108,8 +119,8 @@ function Write-TaskspaceAggregateReport {
         valid_utility_pairs = $validUtility.Count
         valid_e3_pairs = $validE3.Count
         excluded_pairs = $all.Count - $included.Count
-        taskspace_better = if ($directionCounts.ContainsKey("taskspace_better")) { $directionCounts["taskspace_better"] } else { 0 }
-        standard_better = if ($directionCounts.ContainsKey("standard_better")) { $directionCounts["standard_better"] } else { 0 }
+        taskspace_better = if ($diagnosticComparisonEnabled -and $directionCounts.ContainsKey("taskspace_better")) { $directionCounts["taskspace_better"] } else { 0 }
+        standard_better = if ($diagnosticComparisonEnabled -and $directionCounts.ContainsKey("standard_better")) { $directionCounts["standard_better"] } else { 0 }
         both_success = if ($directionCounts.ContainsKey("both_success")) { $directionCounts["both_success"] } else { 0 }
         both_failed = if ($directionCounts.ContainsKey("both_failed")) { $directionCounts["both_failed"] } else { 0 }
         inconclusive = if ($directionCounts.ContainsKey("inconclusive")) { $directionCounts["inconclusive"] } else { 0 }
@@ -129,10 +140,23 @@ function Write-TaskspaceAggregateReport {
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("# TaskSpace Benchmark Aggregate Report")
     $lines.Add("")
-    foreach ($key in @("configured_pairs", "eligible_pairs", "environment_failed_pairs", "partial_pairs", "e3_candidate_pairs", "audit_ready_pairs", "e3_included_pairs", "all_pairs", "valid_utility_pairs", "valid_e3_pairs", "excluded_pairs", "taskspace_better", "standard_better", "both_success", "both_failed", "inconclusive")) {
+    $lines.Add("- run_validity: $($aggregate["run_validity"])")
+    $lines.Add("- diagnostic_comparison_enabled: $($aggregate["diagnostic_comparison_enabled"])")
+    if (-not $diagnosticComparisonEnabled) {
+        $lines.Add("- invalid_run_reason: $($aggregate["invalid_run_reason"])")
+        $lines.Add("- first_failure_artifact: $($aggregate["first_failure_artifact"])")
+        $lines.Add("- diagnostic_note: comparison disabled because harness validity is not established")
+    }
+    $summaryKeys = @("configured_pairs", "eligible_pairs", "environment_failed_pairs", "partial_pairs", "e3_candidate_pairs", "audit_ready_pairs", "e3_included_pairs", "all_pairs", "valid_utility_pairs", "valid_e3_pairs", "excluded_pairs")
+    if ($diagnosticComparisonEnabled) {
+        $summaryKeys += @("taskspace_better", "standard_better", "both_success", "both_failed", "inconclusive")
+    } else {
+        $summaryKeys += @("both_success", "both_failed", "inconclusive")
+    }
+    foreach ($key in $summaryKeys) {
         $lines.Add("- ${key}: $($aggregate[$key])")
     }
-    if ($e3Rows.Count -gt 0) {
+    if ($e3Rows.Count -gt 0 -and $diagnosticComparisonEnabled) {
         $decisionSummary = @($decisionCounts.Keys | Sort-Object | ForEach-Object { "$_=$($decisionCounts[$_])" }) -join "; "
         $lines.Add("- e3_human_review_completed_pairs: $($reviewCompleted.Count)")
         $lines.Add("- e3_human_review_disagreement_pairs: $($reviewDisagreements.Count)")

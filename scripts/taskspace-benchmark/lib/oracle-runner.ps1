@@ -5,9 +5,10 @@ function Invoke-TaskspaceValidationCommand {
         [Parameter(Mandatory = $true)][string]$StdoutPath,
         [Parameter(Mandatory = $true)][string]$StderrPath,
         [int]$TimeoutSeconds = 120,
-        [string]$ProofDir = ""
+        [string]$ProofDir = "",
+        [string[]]$ExtraArgs = @()
     )
-    $args = @($Validation.args | ForEach-Object { [string]$_ })
+    $args = @($Validation.args | ForEach-Object { [string]$_ }) + @($ExtraArgs | ForEach-Object { [string]$_ })
     $oldProofDir = $env:TASKSPACE_VALIDATION_ARTIFACT_DIR
     $exitCode = 0
     $timedOut = $false

@@ -31,6 +31,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\workspace.ps1")
 . (Join-Path $PSScriptRoot "lib\oracle-runner.ps1")
 . (Join-Path $PSScriptRoot "lib\graph-health.ps1")
+. (Join-Path $PSScriptRoot "lib\harness-health.ps1")
 . (Join-Path $PSScriptRoot "lib\metrics-extractor.ps1")
 . (Join-Path $PSScriptRoot "lib\audit-report.ps1")
 . (Join-Path $PSScriptRoot "lib\failure-taxonomy.ps1")
@@ -85,6 +86,9 @@ if (-not $resuming) {
     Write-TaskspaceRunEvent $runDir "resume_requested" @{ stale_lock = $stale; command_line = $commandLine }
     if (-not $stale -and $existingStatus.phase -notin @("completed", "ineligible")) {
         throw "Run appears active and is not stale: $runDir"
+    }
+    if ($existingStatus -and $existingStatus.PSObject.Properties.Name -contains "run_validity" -and [string]$existingStatus.run_validity -eq "invalid_harness" -and -not $ForceRerun) {
+        throw "Run is invalid_harness and cannot be resumed without -ForceRerun: $runDir"
     }
     if ($stale) { Write-TaskspaceRunEvent $runDir "stale_lock_reclaimed" @{ previous_lock_owner = [string]$existingStatus.lock_owner } }
 }
@@ -148,6 +152,29 @@ if ($remoteAssets.Count -gt 0) {
         exit 2
     }
 }
+$harnessHealthPath = Join-Path $runDir "harness-health.json"
+$harnessHealth = Get-TaskspaceHarnessHealth $manifest $runDir $manifest.ScenarioRoot
+Write-TaskspaceHarnessHealth $harnessHealthPath $harnessHealth
+Write-TaskspaceRunEvent $runDir "harness_health_completed" @{ status = [string]$harnessHealth.status; path = $harnessHealthPath }
+if ([string]$harnessHealth.status -eq "fail") {
+    $firstFinding = @($harnessHealth.findings | Where-Object { [string]$_.severity -eq "fail" } | Select-Object -First 1)[0]
+    $signature = New-TaskspaceInfraSignature "harness_materialization_failure" "preflight" ([string]$firstFinding.stable_code) ([string]$firstFinding.message) "" $harnessHealthPath
+    $abortPath = Join-Path $runDir "abort-summary.md"
+    @(
+        "# TaskSpace Harness Abort",
+        "",
+        "- run_validity: invalid_harness",
+        "- abort_phase: preflight",
+        "- reason: $($firstFinding.message)",
+        "- infra_signature: $($signature.key)",
+        "- harness_health: $harnessHealthPath"
+    ) | Set-Content -LiteralPath $abortPath -Encoding UTF8
+    Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "preflight" ([string]$firstFinding.stable_code) $signature $harnessHealthPath $commandLine 0 0 | Out-Null
+    Write-Host "RunDir: $runDir"
+    Write-Host "HarnessHealth: $harnessHealthPath"
+    Write-Host "AbortSummary: $abortPath"
+    exit 3
+}
 if (-not (Test-Path -LiteralPath $WhaleBin)) { throw "Whale binary not found: $WhaleBin" }
 $helpText = & $WhaleBin exec --help 2>&1
 if (($helpText -join [Environment]::NewLine) -notmatch "--taskspace") {
@@ -155,6 +182,7 @@ if (($helpText -join [Environment]::NewLine) -notmatch "--taskspace") {
 }
 
 $pairReports = New-Object System.Collections.Generic.List[object]
+$probe = $null
 for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $existingPairDir = Join-Path $runDir ("pair-{0:000}" -f $repeat)
     $existingPairReport = Join-Path $existingPairDir "pair-report.md"
@@ -185,6 +213,40 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     foreach ($side in @($pair.Left, $pair.Right)) {
         if (-not (Test-TaskspaceNeutralCwd $side.RepoDir)) {
             throw "Non-neutral cwd for $($side.Name): $($side.RepoDir)"
+        }
+    }
+    if ([string]$manifest.EvidenceTarget -eq "E3" -or ($manifest.ExternalBenchmark -and $manifest.ExternalBenchmark.adapter_metadata -and [bool]$manifest.ExternalBenchmark.adapter_metadata.validator_probe_supported)) {
+        foreach ($side in @($pair.Left, $pair.Right)) {
+            $probeStdout = Join-Path $side.ArtifactDir "validator-probe.stdout.log"
+            $probeStderr = Join-Path $side.ArtifactDir "validator-probe.stderr.log"
+            $probeProofDir = Join-Path $side.ArtifactDir "external-validator-runtime-probe"
+            $probeExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $probeStdout $probeStderr ([Math]::Min(120, [Math]::Max(30, $ValidationTimeoutSeconds))) $probeProofDir @("-ProbeOnly")
+            $probeValidation = [pscustomobject]@{ exit_code = $probeExit; stdout_path = $probeStdout; stderr_path = $probeStderr }
+            $probeLifecycle = Get-TaskspaceValidationLifecycle $probeValidation
+            $probeText = Get-TaskspaceValidationText $probeValidation
+            $probeSignature = Get-TaskspaceHarnessTextSignature $probeText "probe" $side.Name $probeStderr
+            if ($probeExit -ne 0) {
+                if ($null -eq $probeSignature) { $probeSignature = New-TaskspaceInfraSignature "harness_materialization_failure" "probe" "validator_probe_failed" "Validator probe failed" $side.Name $probeStderr }
+                $abortPath = Join-Path $pair.PairDir "pair-abort.json"
+                Write-TaskspaceJson ([pscustomobject]@{
+                        abort_scope = "sample"
+                        abort_phase = "probe"
+                        reason = "validator_probe_failed"
+                        infra_signature = $probeSignature
+                        first_failure_artifact = $probeStderr
+                    }) $abortPath
+                Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "probe" "validator_probe_failed" $probeSignature $abortPath $commandLine ($repeat - 1) ($repeat - 1) | Out-Null
+                Write-Host "RunDir: $runDir"
+                Write-Host "PairAbort: $abortPath"
+                exit 3
+            }
+            if ([bool]$probeLifecycle.tests_started_seen) {
+                $signature = New-TaskspaceInfraSignature "harness_materialization_failure" "probe" "validator_probe_failed" "Probe unexpectedly reached tests_started" $side.Name $probeStdout
+                $abortPath = Join-Path $pair.PairDir "pair-abort.json"
+                Write-TaskspaceJson ([pscustomobject]@{ abort_scope = "sample"; abort_phase = "probe"; reason = "probe_reached_tests"; infra_signature = $signature; first_failure_artifact = $probeStdout }) $abortPath
+                Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "probe" "probe_reached_tests" $signature $abortPath $commandLine ($repeat - 1) ($repeat - 1) | Out-Null
+                exit 3
+            }
         }
     }
     $manifestResolved = [ordered]@{
@@ -342,6 +404,25 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $pairReports.Add([pscustomobject]@{ repeat = $repeat; pair_dir = $pair.PairDir; pair_report = $pairReportPath; evidence_target = $manifest.EvidenceTarget; evidence = $evidence })
     Write-TaskspaceRunEvent $runDir "pair_completed" @{ repeat = $repeat; pair_report = $pairReportPath; reported_evidence_level = [string]$evidence.reported_evidence_level }
     Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $pairReportPath $commandLine | Out-Null
+    if ([string]$manifest.EvidenceTarget -eq "E3" -and $repeat -eq 1 -and $Repeats -gt 1) {
+        $sentinel = Get-TaskspaceSentinelAbortDecision $standardMetrics $taskspaceMetrics
+        Write-TaskspaceRunEvent $runDir "sentinel_pair_completed" @{ repeat = $repeat; abort = [bool]$sentinel.abort; reason = [string]$sentinel.reason }
+        if ([bool]$sentinel.abort) {
+            $abortPath = Join-Path $pair.PairDir "pair-abort.json"
+            Write-TaskspaceJson ([pscustomobject]@{
+                    abort_scope = "sample"
+                    abort_phase = "sentinel_pair"
+                    reason = [string]$sentinel.reason
+                    infra_signature = $sentinel.signature
+                    first_failure_artifact = if ($sentinel.signature) { [string]$sentinel.signature.artifact } else { $pairReportPath }
+                    skipped_repeats = @((($repeat + 1)..$Repeats) | Where-Object { $_ -le $Repeats })
+                }) $abortPath
+            Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "sentinel_pair" ([string]$sentinel.reason) $sentinel.signature $abortPath $commandLine $repeat $repeat | Out-Null
+            Write-Host "RunDir: $runDir"
+            Write-Host "PairAbort: $abortPath"
+            exit 3
+        }
+    }
 }
 
 $runSummaryPath = Join-Path $runDir "run-summary.md"

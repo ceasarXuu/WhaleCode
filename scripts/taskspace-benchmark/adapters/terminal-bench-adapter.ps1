@@ -188,6 +188,7 @@ if (Test-Path -LiteralPath (Join-Path $taskRoot "tests")) {
 $originalValidatorSha = Get-TaskspaceExternalTreeSha256 $validatorSourceDir
 $validator = Join-Path $generatedDir "terminal-bench-$($SampleId -replace '[^A-Za-z0-9_.-]', '_')-validator.ps1"
 $validatorLines = @(
+    'param([switch]$ProbeOnly, [switch]$ProbeDocker)',
     '$ErrorActionPreference = "Stop"',
     '$script:TaskspaceDockerBackend = ""',
     '$script:LastDockerExitCode = 0',
@@ -255,6 +256,28 @@ $validatorLines = @(
     '$repoDir = (Resolve-Path -LiteralPath (Get-Location)).Path',
     '$proofDir = if ($env:TASKSPACE_VALIDATION_ARTIFACT_DIR) { $env:TASKSPACE_VALIDATION_ARTIFACT_DIR } else { Join-Path $repoDir ".taskspace-validator-proof" }',
     'New-Item -ItemType Directory -Path $proofDir -Force | Out-Null',
+    '$probeResultPath = Join-Path $proofDir "validator-probe-result.json"',
+    'function Write-ValidatorProbeResult {',
+    '    param([string]$Status, [string]$Stage, [string]$StableCode = "", [string]$Message = "")',
+    '    @{',
+    '        schema_version = 1',
+    '        status = $Status',
+    '        stage = $Stage',
+    '        runtime_manifest_path = if ($script:runtimeManifestPath) { $script:runtimeManifestPath } else { "" }',
+    '        uv_cache_path = if ($script:uvCacheDir) { $script:uvCacheDir } else { "" }',
+    '        docker_backend = $script:TaskspaceDockerBackend',
+    '        failure_signature = if ($StableCode) { @{ schema_version = 1; category = "harness_materialization_failure"; stage = $Stage; stable_code = $StableCode; normalized_message = $Message; key = "harness_materialization_failure/$StableCode" } } else { $null }',
+    '    } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $probeResultPath -Encoding UTF8',
+    '    Write-Host "validator_probe_result_path=$probeResultPath"',
+    '}',
+    'trap {',
+    '    $message = [string]$_.Exception.Message',
+    '    $code = if ($message -match "docker command is required|Requested WSL Docker backend is unavailable|Unsupported TASKSPACE_DOCKER_BACKEND") { "docker_backend_unavailable" } elseif ($message -match "Resolve-Path|Cannot find path|PathNotFound") { "path_unresolvable" } elseif ($message -match "run-tests script not found|validator script not found") { "validator_source_missing" } elseif ($message -match "uv[-_ ]cache|uv-x86_64|install\.sh") { "uv_cache_missing" } else { "validator_probe_failed" }',
+    '    Write-ValidatorProbeResult "fail" "validator_pretest" $code $message',
+    '    Write-Error $message',
+    '    exit 3',
+    '}',
+    'Write-Host "validator_probe_started=true"',
     '$fixtureDir = Join-Path $scenarioRoot "fixture"',
     '$validatorSource = Join-Path $scenarioRoot "external-validator-source"',
     '$testScript = Join-Path $validatorSource "run-tests.sh"',
@@ -274,6 +297,7 @@ $validatorLines = @(
     'export TEST_DIR=/tests',
     'export PATH=/tbench-uv-cache/bin:$PATH',
     'cd /app',
+    'echo validator_lifecycle_stage=entry_started',
     'echo validator_proof_nonce=$WHALE_TBENCH_PROOF_NONCE',
     'echo validator_runtime=terminal_bench_equivalent_docker_app',
     'echo container_workdir=$(pwd)',
@@ -284,7 +308,14 @@ $validatorLines = @(
     'test -d "$TEST_DIR"',
     'test -f /tests/run-tests.sh',
     'if touch /tests/.whale-write-test 2>/tmp/whale-validator-ro.err; then echo validator_mount_readonly=false; rm -f /tests/.whale-write-test; exit 81; else echo validator_mount_readonly=true; fi',
+    'echo validator_lifecycle_stage=tests_started',
+    'echo validator_tests_started=true',
+    'set +e',
     'bash /tests/run-tests.sh',
+    'test_exit=$?',
+    'echo validator_lifecycle_stage=tests_completed',
+    'echo validator_tests_completed=true',
+    'exit $test_exit',
     '''@',
     '$entryContent = $entryContent -replace "`r`n", "`n"',
     '[System.IO.File]::WriteAllText($entryScript, $entryContent, [System.Text.Encoding]::ASCII)',
@@ -295,7 +326,8 @@ $validatorLines = @(
     '$repoDockerPath = ConvertTo-DockerPath $repoDir $backend',
     '$validatorDockerPath = ConvertTo-DockerPath $validatorSource $backend',
     '$entryDockerPath = ConvertTo-DockerPath $entryScript $backend',
-    "`$uvCacheDir = $uvCacheLiteral",
+    "`$script:uvCacheDir = $uvCacheLiteral",
+    '$uvCacheDir = $script:uvCacheDir',
     '$uvCacheDockerPath = ConvertTo-DockerPath $uvCacheDir $backend',
     '$uvInstallPath = Join-Path $uvCacheDir "install.sh"',
     '$uvArchivePath = Join-Path $uvCacheDir "uv-x86_64-unknown-linux-gnu.tar.gz"',
@@ -308,7 +340,8 @@ $validatorLines = @(
     'Write-Host "docker_container=$containerName"',
     'Write-Host "repo_mount=$repoDockerPath"',
     'Write-Host "validator_mount=/tests"',
-    '$runtimeManifestPath = Join-Path $proofDir "terminal-bench-runtime-manifest.json"',
+    '$script:runtimeManifestPath = Join-Path $proofDir "terminal-bench-runtime-manifest.json"',
+    '$runtimeManifestPath = $script:runtimeManifestPath',
     '$inspectPath = Join-Path $proofDir "terminal-bench-docker-inspect.json"',
     '$dockerResultPath = Join-Path $proofDir "docker-build-result.json"',
     '$dockerPhases = New-Object System.Collections.Generic.List[object]',
@@ -347,8 +380,19 @@ $validatorLines = @(
     '    validator_command = "bash /tests/run-tests.sh"',
     '} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $runtimeManifestPath -Encoding UTF8',
     'Write-Host "validator_runtime_manifest_path=$runtimeManifestPath"',
+    'if ($ProbeOnly -and -not $ProbeDocker) {',
+    '    Write-Host "validator_probe_completed=true"',
+    '    Write-ValidatorProbeResult "pass" "probe" "" ""',
+    '    exit 0',
+    '}',
     'Invoke-Docker -Arguments @("version", "--format", "{{.Server.Version}}")',
     'Write-Host "docker_version_exit=$($script:LastDockerExitCode)"',
+    'if ($ProbeOnly) {',
+    '    if ($script:LastDockerExitCode -ne 0) { Write-ValidatorProbeResult "fail" "probe_docker" "docker_backend_unavailable" "docker version failed"; exit 3 }',
+    '    Write-Host "validator_probe_completed=true"',
+    '    Write-ValidatorProbeResult "pass" "probe_docker" "" ""',
+    '    exit 0',
+    '}',
     '$networkArgs = if ($backend -eq "wsl") { @("--network", "host") } else { @("--add-host", "host.docker.internal:host-gateway") }',
     '$proxyArgs = @()',
     'foreach ($proxyName in @("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")) {',
@@ -431,6 +475,11 @@ $adapterMetadata = [ordered]@{
     fixture_mode = $fixtureMode
     generated_fixture_allowlist = @($generatedFixtureAllowlist)
     validator_dependency_cache = $uvCache
+    uv_cache_root = [string]$uvCache.root
+    validator_source_dir = $validatorSourceDir
+    fixture_source = $fixtureSource
+    generated_validator_path = $validator
+    validator_probe_supported = $true
     prompt_adaptation = "current_working_directory_is_terminal_bench_app"
     original_instruction_sha256 = (Get-TaskspaceExternalFileSha256 $originalPromptSource)
     solution_visible_to_agent = $false

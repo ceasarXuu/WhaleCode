@@ -1,3 +1,7 @@
+if (-not (Get-Command Get-TaskspaceValidationLifecycle -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot "harness-health.ps1")
+}
+
 function Get-TaskspaceDiffText {
     param(
         [Parameter(Mandatory = $true)][string]$RepoDir,
@@ -184,6 +188,8 @@ function Get-TaskspaceDockerValidationResult {
     if ($Validation.PSObject.Properties.Name -contains "exit_code" -and [int]$Validation.exit_code -eq 124) {
         $classifications += "public_validation_timeout"
     }
+    $fallbackSignature = Get-TaskspaceHarnessTextSignature $combined "validator_pretest" "" ""
+    if ($fallbackSignature) { $classifications += [string]$fallbackSignature.stable_code }
     $cleanupPath = ""
     $cleanupMatch = [regex]::Match($combined, "validation_cleanup_result_path=([^\r\n]+)")
     if ($cleanupMatch.Success) { $cleanupPath = $cleanupMatch.Groups[1].Value.Trim() }
@@ -250,6 +256,19 @@ function Get-TaskspaceBenchmarkMetrics {
         })
     $obs = if ($ObservabilityResult) { $ObservabilityResult.observability } else { $null }
     $dockerResult = Get-TaskspaceDockerValidationResult $Validation
+    $lifecycle = Get-TaskspaceValidationLifecycle $Validation
+    $probeResult = Get-TaskspaceValidatorProbeResult $Validation
+    $validationText = Get-TaskspaceValidationText $Validation
+    $fallbackSignature = Get-TaskspaceHarnessTextSignature $validationText "validator_pretest" $Side.Name $Validation.stderr_path
+    $probeSignature = $null
+    if ($probeResult.json -and $probeResult.json.PSObject.Properties.Name -contains "failure_signature" -and $probeResult.json.failure_signature) {
+        $probeSignature = $probeResult.json.failure_signature
+    }
+    $infraSignature = if ($probeSignature) { $probeSignature } else { $fallbackSignature }
+    $pretestFailure = ([int]$Validation.exit_code -ne 0 -and -not [bool]$lifecycle.tests_started_seen)
+    if ($pretestFailure -and $null -eq $infraSignature) {
+        $infraSignature = New-TaskspaceInfraSignature "harness_materialization_failure" "validator_pretest" "no_tests_started_marker" "Validation failed before tests_started marker" $Side.Name $Validation.stderr_path
+    }
     $graphHealth = Get-TaskspaceGraphHealth $obs
     $graphHealthReport = New-TaskspaceGraphHealthReport $obs $Side.Name $Side.LogicalMode
     $graphHealthPath = Join-Path $Side.ArtifactDir "graph-health.json"
@@ -278,6 +297,14 @@ function Get-TaskspaceBenchmarkMetrics {
         validation_cleanup_result_path = $dockerResult.cleanup_path
         validator_environment_failures = @($dockerResult.classifications)
         validator_environment_mismatch = (Test-TaskspaceValidatorEnvironmentMismatch $Validation)
+        validator_probe_result_path = $probeResult.path
+        validator_probe_status = if ($probeResult.json -and $probeResult.json.PSObject.Properties.Name -contains "status") { [string]$probeResult.json.status } else { "" }
+        tests_started_seen = [bool]$lifecycle.tests_started_seen
+        tests_completed_seen = [bool]$lifecycle.tests_completed_seen
+        validation_lifecycle_stage = [string]$lifecycle.validation_lifecycle_stage
+        public_validation_reached_tests = [bool]$lifecycle.tests_started_seen
+        pretest_failure = [bool]$pretestFailure
+        infra_signature = $infraSignature
         business_success = ($Exec.exit_code -eq 0 -and $Validation.exit_code -eq 0 -and $Oracle.exit_code -eq 0)
         invalid_prompt = $false
         invalid_pair = $false

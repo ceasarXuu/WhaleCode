@@ -269,6 +269,20 @@ function Write-TaskspacePairReport {
         }
     }
     $lines.Add("")
+    $lines.Add("## Harness Health / Abort")
+    $allMetricsForHarness = @($LeftMetrics, $RightMetrics)
+    $pretestFailures = @($allMetricsForHarness | Where-Object { $_.PSObject.Properties.Name -contains "pretest_failure" -and [bool]$_.pretest_failure })
+    $infraSignatures = @($allMetricsForHarness | Where-Object { $_.PSObject.Properties.Name -contains "infra_signature" -and $_.infra_signature } | ForEach-Object { $_.infra_signature })
+    $lines.Add("- pretest_failure_sides: $(if ($pretestFailures.Count -eq 0) { 'none' } else { @($pretestFailures | ForEach-Object { $_.mode }) -join ', ' })")
+    $lines.Add("- infra_signatures: $(if ($infraSignatures.Count -eq 0) { 'none' } else { @($infraSignatures | ForEach-Object { $_.key }) -join ', ' })")
+    foreach ($metric in $allMetricsForHarness) {
+        $lines.Add("- $($metric.mode)_validation_lifecycle_stage: $(if ($metric.PSObject.Properties.Name -contains 'validation_lifecycle_stage') { $metric.validation_lifecycle_stage } else { 'unknown' })")
+        $lines.Add("- $($metric.mode)_tests_started_seen: $(if ($metric.PSObject.Properties.Name -contains 'tests_started_seen') { $metric.tests_started_seen } else { $false })")
+        if ($metric.PSObject.Properties.Name -contains "validator_probe_result_path" -and -not [string]::IsNullOrWhiteSpace([string]$metric.validator_probe_result_path)) {
+            $lines.Add("- $($metric.mode)_validator_probe_result_path: $($metric.validator_probe_result_path)")
+        }
+    }
+    $lines.Add("")
     if ([string]$Manifest.EvidenceTarget -eq "E3" -or @($EvidenceGate.e3_gate_failures).Count -gt 0) {
         $originType = if ($null -ne $Manifest.SampleOrigin -and $Manifest.SampleOrigin.PSObject.Properties.Name -contains "type") { [string]$Manifest.SampleOrigin.type } else { "" }
         $claimScope = if ($null -ne $Manifest.E3 -and $Manifest.E3.PSObject.Properties.Name -contains "claim_scope") { [string]$Manifest.E3.claim_scope } else { "" }

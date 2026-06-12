@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$RunDir,
-    [switch]$EnableAggregate
+    [switch]$EnableAggregate,
+    [switch]$AllowInvalidHarnessFinalize
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,6 +32,14 @@ function Get-PairRepoDir {
 }
 
 $run = (Resolve-Path -LiteralPath $RunDir).Path
+$sampleStatusPath = Join-Path $run "sample-status.json"
+if ((Test-Path -LiteralPath $sampleStatusPath) -and -not $AllowInvalidHarnessFinalize) {
+    $sampleStatus = Read-JsonFile $sampleStatusPath
+    if ($sampleStatus.PSObject.Properties.Name -contains "run_validity" -and [string]$sampleStatus.run_validity -eq "invalid_harness") {
+        Write-Error "Run is invalid_harness; use -AllowInvalidHarnessFinalize only for forensic report rebuilds: $sampleStatusPath"
+        exit 3
+    }
+}
 $promptGuardPath = Join-Path $run "prompt-guard.json"
 if (-not (Test-Path -LiteralPath $promptGuardPath)) { throw "prompt-guard.json not found under run dir: $run" }
 $promptGuard = Read-JsonFile $promptGuardPath

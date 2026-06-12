@@ -45,7 +45,12 @@ function Get-TaskspaceFailureTaxonomy {
         @($taskspaceEnvironmentFailures)
     ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Sort-Object -Unique
     foreach ($failure in $environmentFailures) {
-        if ([string]$failure -match "remote_asset") { Add-TaskspaceFailureClass $classes "remote_asset_equivalence_unproven" }
+        if ([string]$failure -match "validator_probe_failed") { Add-TaskspaceFailureClass $classes "validator_probe_failure" }
+        elseif ([string]$failure -match "path_unresolvable|relative_materialized_path|uv_cache_missing|validator_source_missing|runtime_manifest_missing") { Add-TaskspaceFailureClass $classes "harness_materialization_failure" }
+        elseif ([string]$failure -match "no_tests_started_marker") { Add-TaskspaceFailureClass $classes "validator_pretest_failure" }
+        elseif ([string]$failure -match "suite_circuit_breaker|suite_repeated_infra_signature") { Add-TaskspaceFailureClass $classes "suite_circuit_breaker" }
+        elseif ([string]$failure -match "invalid_harness") { Add-TaskspaceFailureClass $classes "invalid_harness_run" }
+        elseif ([string]$failure -match "remote_asset") { Add-TaskspaceFailureClass $classes "remote_asset_equivalence_unproven" }
         elseif ([string]$failure -match "docker") { Add-TaskspaceFailureClass $classes "environment_noise" }
         elseif ([string]$failure -match "public_validation_timeout") { Add-TaskspaceFailureClass $classes "validator_slow_or_flaky" }
         else { Add-TaskspaceFailureClass $classes "environment_noise" }
@@ -95,6 +100,9 @@ function Get-TaskspaceFailureTaxonomy {
         if (@($gateFailures | Where-Object { [string]$_ -match "remote_asset" }).Count -gt 0) {
             Add-TaskspaceFailureClass $classes "remote_asset_equivalence_unproven"
         }
+        if (@($gateFailures | Where-Object { [string]$_ -match "invalid_harness|validator_probe|pretest|path_unresolvable|uv_cache|validator_source" }).Count -gt 0) {
+            Add-TaskspaceFailureClass $classes "invalid_harness_run"
+        }
         if (@($gateFailures | Where-Object { [string]$_ -match "environment|docker" }).Count -gt 0) {
             Add-TaskspaceFailureClass $classes "environment_noise"
         }
@@ -107,7 +115,7 @@ function Get-TaskspaceFailureTaxonomy {
 
 function Get-TaskspaceUtilityDirection {
     param($StandardMetrics, $TaskspaceMetrics, [string[]]$FailureClasses = @())
-    if (@($FailureClasses | Where-Object { $_ -in @("environment_noise", "validator_slow_or_flaky", "remote_asset_unavailable", "remote_asset_equivalence_unproven", "audit_unclean") }).Count -gt 0) {
+    if (@($FailureClasses | Where-Object { $_ -in @("environment_noise", "validator_slow_or_flaky", "remote_asset_unavailable", "remote_asset_equivalence_unproven", "audit_unclean", "harness_materialization_failure", "validator_probe_failure", "validator_pretest_failure", "suite_circuit_breaker", "invalid_harness_run") }).Count -gt 0) {
         return "inconclusive"
     }
     $standardSuccess = Test-TaskspaceMetricSuccess $StandardMetrics

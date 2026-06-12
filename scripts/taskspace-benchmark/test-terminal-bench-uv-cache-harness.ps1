@@ -40,6 +40,10 @@ $validator = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $scenarioDi
 Assert-True ($scenario.external_benchmark.adapter_metadata.validator_dependency_cache.PSObject.Properties.Name -contains "apt_get_curl_short_circuit") "uv cache metadata did not record apt shim"
 Assert-True ($validator -match "uv_cache_mount") "runtime proof manifest did not record uv cache mount"
 Assert-True ($validator -match "uv_archive_sha256") "runtime proof manifest did not record uv archive hash"
+Assert-True ($validator -match "param\(\[switch\]\`$ProbeOnly, \[switch\]\`$ProbeDocker\)") "generated validator did not expose probe switches"
+Assert-True ($validator -match "validator_tests_started=true") "generated validator did not emit tests_started marker"
+Assert-True ($validator -match "validator_tests_completed=true") "generated validator did not emit tests_completed marker"
+Assert-True ($validator -match "validator_probe_result_path=") "generated validator did not emit probe result path"
 
 $relativeRoot = "target\terminal-bench-uv-cache-relative-selftest\$((Get-Date).ToString("yyyyMMdd-HHmmss-fff"))"
 $relativeOutputRoot = Join-Path $relativeRoot "adapter-out"
@@ -66,7 +70,7 @@ $relativeScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $rel
 $relativeValidator = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $relativeScenarioDir "external-validator.ps1")
 $relativeCachePath = [string]$relativeScenario.external_benchmark.adapter_metadata.validator_dependency_cache.root
 Assert-True ($relativeCachePath -match '^[A-Za-z]:\\') "relative OutputRoot produced non-absolute uv cache metadata path"
-Assert-True ($relativeValidator -match "\`$uvCacheDir = '([A-Za-z]:\\[^']+_adapter-generated\\uv-cache)'") "relative OutputRoot produced non-absolute validator uvCacheDir"
+Assert-True ($relativeValidator -match "\`$script:uvCacheDir = '([A-Za-z]:\\[^']+_adapter-generated\\uv-cache)'") "relative OutputRoot produced non-absolute validator uvCacheDir"
 $pairCwd = Join-Path $relativeCacheRoot "pair-cwd"
 New-Item -ItemType Directory -Force -Path $pairCwd | Out-Null
 Push-Location $pairCwd

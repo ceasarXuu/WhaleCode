@@ -98,6 +98,11 @@ function Initialize-TaskspaceBenchmarkRunState {
         resume_decision = "new_run"
         final_aggregate_ready = $false
         resume_command = $CommandLine
+        run_validity = "valid"
+        diagnostic_comparison_enabled = $true
+        exit_code = 0
+        resume_allowed = $true
+        force_rerun_required = $false
     }
     Write-TaskspaceAtomicJson $status (Join-Path $RunDir "run-status.json")
     Write-TaskspaceRunEvent $RunDir "run_initialized" @{ scenario_id = $ScenarioId; repeats = $Repeats; evidence_target = $EvidenceTarget }
@@ -127,6 +132,19 @@ function Set-TaskspaceBenchmarkRunPhase {
     if ($AttemptedPairs -ge 0) { $status["attempted_pairs"] = $AttemptedPairs }
     if ($CompletedPairs -ge 0) { $status["completed_pairs"] = $CompletedPairs }
     $status["final_aggregate_ready"] = $FinalAggregateReady
+    if ($Phase -eq "invalid_harness") {
+        $status["run_validity"] = "invalid_harness"
+        $status["diagnostic_comparison_enabled"] = $false
+        $status["exit_code"] = 3
+        $status["resume_allowed"] = $false
+        $status["force_rerun_required"] = $true
+    } elseif (-not $status.Contains("run_validity")) {
+        $status["run_validity"] = "valid"
+        $status["diagnostic_comparison_enabled"] = $true
+        $status["exit_code"] = 0
+        $status["resume_allowed"] = $true
+        $status["force_rerun_required"] = $false
+    }
     Write-TaskspaceAtomicJson $status $path
     Write-TaskspaceRunEvent $RunDir "run_phase_changed" @{ phase = $Phase; attempted_pairs = $status["attempted_pairs"]; completed_pairs = $status["completed_pairs"] }
 }
@@ -165,8 +183,48 @@ function Set-TaskspaceSampleStatus {
         audit_status = if ($Phase -eq "audit_required") { "draft_written_pending_review" } elseif ($Phase -eq "finalize") { "completed_or_not_required" } else { "not_started" }
         finalize_idempotency_token = ""
         resume_command = $ResumeCommand
+        run_validity = if ($Phase -eq "invalid_harness") { "invalid_harness" } elseif ($Phase -eq "ineligible") { "ineligible" } else { "valid" }
+        diagnostic_comparison_enabled = ($Phase -ne "invalid_harness")
+        exit_code = if ($Phase -eq "invalid_harness") { 3 } elseif ($Phase -eq "ineligible") { 2 } else { 0 }
+        resume_allowed = ($Phase -ne "invalid_harness")
+        force_rerun_required = ($Phase -eq "invalid_harness")
+        abort_scope = if ($Phase -eq "invalid_harness") { "sample" } else { "none" }
+        abort_phase = ""
+        abort_signature = ""
     }
     Write-TaskspaceAtomicJson $status (Join-Path $RunDir "sample-status.json")
     Write-TaskspaceRunEvent $RunDir "sample_phase_changed" @{ sample_id = $SampleId; phase = $Phase; attempted_pairs = $AttemptedPairs; completed_pairs = $CompletedPairs }
     $status
+}
+
+function Set-TaskspaceInvalidHarnessStatus {
+    param(
+        [Parameter(Mandatory = $true)][string]$RunDir,
+        [Parameter(Mandatory = $true)][string]$SampleId,
+        [Parameter(Mandatory = $true)][string]$AbortPhase,
+        [Parameter(Mandatory = $true)][string]$Reason,
+        $Signature = $null,
+        [string]$ArtifactPath = "",
+        [string]$ResumeCommand = "",
+        [int]$AttemptedPairs = 0,
+        [int]$CompletedPairs = 0
+    )
+    Set-TaskspaceBenchmarkRunPhase $RunDir "invalid_harness" $AttemptedPairs $CompletedPairs $false | Out-Null
+    $status = Set-TaskspaceSampleStatus $RunDir $SampleId "invalid_harness" $AttemptedPairs $CompletedPairs "" $Reason "" $ArtifactPath $ResumeCommand
+    $statusMap = [ordered]@{}
+    foreach ($prop in @($status.PSObject.Properties)) { $statusMap[$prop.Name] = $prop.Value }
+    $statusMap["abort_scope"] = "sample"
+    $statusMap["abort_phase"] = $AbortPhase
+    $statusMap["abort_signature"] = if ($Signature) { [string]$Signature.key } else { "" }
+    $statusMap["abort_reason"] = $Reason
+    $statusMap["first_failure_artifact"] = $ArtifactPath
+    Write-TaskspaceAtomicJson $statusMap (Join-Path $RunDir "sample-status.json")
+    Write-TaskspaceRunEvent $RunDir "sample_aborted_by_guardrail" @{
+        sample_id = $SampleId
+        abort_phase = $AbortPhase
+        reason = $Reason
+        abort_signature = $statusMap["abort_signature"]
+        artifact = $ArtifactPath
+    }
+    [pscustomobject]$statusMap
 }

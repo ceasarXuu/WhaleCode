@@ -25,14 +25,86 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 if ([string]::IsNullOrWhiteSpace($SourceVersion)) { throw "SourceVersion must pin the external benchmark source revision." }
 if (-not $RunRoot) { $RunRoot = Join-Path ([System.IO.Path]::GetTempPath()) "whale-external-bench-runs" }
+$RunRoot = [System.IO.Path]::GetFullPath($RunRoot)
+New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
 $scenarioRoot = Join-Path $RunRoot "materialized-scenarios"
 $adapter = switch ($Benchmark) {
     "deepswe" { Join-Path $PSScriptRoot "adapters\deepswe-adapter.ps1" }
     "terminal-bench" { Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1" }
 }
-$materialized = & $adapter -TaskDir $TaskDir -OutputRoot $scenarioRoot -SampleId $SampleId -SourceVersion $SourceVersion
+try {
+    $materialized = & $adapter -TaskDir $TaskDir -OutputRoot $scenarioRoot -SampleId $SampleId -SourceVersion $SourceVersion
+} catch {
+    $message = [string]$_.Exception.Message
+    $code = if ($message -match "uv") { "uv_cache_missing" } elseif ($message -match "validator") { "validator_source_missing" } elseif ($message -match "Resolve-Path|Cannot find path") { "path_unresolvable" } else { "adapter_materialization_failed" }
+    $signature = [pscustomobject]@{
+        schema_version = 1
+        category = "harness_materialization_failure"
+        stage = "external_materialization"
+        stable_code = $code
+        normalized_message = $message
+        side = ""
+        artifact = ""
+        key = "harness_materialization_failure/$code"
+    }
+    $healthPath = Join-Path $RunRoot "external-materialization-health.json"
+    $runStatusPath = Join-Path $RunRoot "run-status.json"
+    $sampleStatusPath = Join-Path $RunRoot "sample-status.json"
+    $abortSummaryPath = Join-Path $RunRoot "abort-summary.md"
+    [pscustomobject]@{
+        schema_version = 1
+        status = "fail"
+        run_validity = "invalid_harness"
+        findings = @([pscustomobject]@{ severity = "fail"; stable_code = $code; message = $message; path = $TaskDir })
+        checked_paths = @([pscustomobject]@{ name = "task_dir"; path = $TaskDir; exists = (Test-Path -LiteralPath $TaskDir); fully_qualified = ([System.IO.Path]::IsPathRooted($TaskDir) -and -not [string]::IsNullOrWhiteSpace([System.IO.Path]::GetPathRoot($TaskDir))) })
+        infra_signature = $signature
+        generated_at = (Get-Date).ToString("o")
+    } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $healthPath -Encoding UTF8
+    [pscustomobject]@{
+        schema_version = 1
+        phase = "invalid_harness"
+        run_validity = "invalid_harness"
+        diagnostic_comparison_enabled = $false
+        exit_code = 3
+        resume_allowed = $false
+        force_rerun_required = $true
+        invalid_run_reason = $code
+        first_failure_artifact = $healthPath
+    } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $runStatusPath -Encoding UTF8
+    [pscustomobject]@{
+        schema_version = 1
+        sample_id = if ($SampleId) { $SampleId } else { Split-Path -Leaf $TaskDir }
+        phase = "invalid_harness"
+        run_validity = "invalid_harness"
+        diagnostic_comparison_enabled = $false
+        exit_code = 3
+        resume_allowed = $false
+        force_rerun_required = $true
+        abort_scope = "sample"
+        abort_phase = "external_materialization"
+        abort_signature = $signature.key
+        abort_reason = $code
+        first_failure_artifact = $healthPath
+    } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $sampleStatusPath -Encoding UTF8
+    @(
+        "# TaskSpace External Materialization Abort",
+        "",
+        "- run_validity: invalid_harness",
+        "- abort_phase: external_materialization",
+        "- reason: $code",
+        "- health: $healthPath"
+    ) | Set-Content -LiteralPath $abortSummaryPath -Encoding UTF8
+    Write-Host "ExternalMaterializationHealth: $healthPath"
+    Write-Host "AbortSummary: $abortSummaryPath"
+    exit 3
+}
 $scenarioDir = [string]($materialized | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
-if ([string]::IsNullOrWhiteSpace($scenarioDir)) { throw "Adapter did not return a scenario_dir." }
+if ([string]::IsNullOrWhiteSpace($scenarioDir)) {
+    $healthPath = Join-Path $RunRoot "external-materialization-health.json"
+    [pscustomobject]@{ schema_version = 1; status = "fail"; run_validity = "invalid_harness"; findings = @([pscustomobject]@{ severity = "fail"; stable_code = "adapter_materialization_failed"; message = "Adapter did not return a scenario_dir."; path = $TaskDir }); generated_at = (Get-Date).ToString("o") } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $healthPath -Encoding UTF8
+    [pscustomobject]@{ schema_version = 1; sample_id = if ($SampleId) { $SampleId } else { Split-Path -Leaf $TaskDir }; phase = "invalid_harness"; run_validity = "invalid_harness"; exit_code = 3; abort_scope = "sample"; abort_phase = "external_materialization"; abort_signature = "harness_materialization_failure/adapter_materialization_failed"; first_failure_artifact = $healthPath } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $RunRoot "sample-status.json") -Encoding UTF8
+    exit 3
+}
 $runner = if ([string]::IsNullOrWhiteSpace($RunnerPath)) { Join-Path $repoRoot "scripts\taskspace-benchmark\run-taskspace-benchmark.ps1" } else { $RunnerPath }
 $args = @(
     "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $runner,
