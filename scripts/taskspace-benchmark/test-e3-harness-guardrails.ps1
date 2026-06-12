@@ -102,6 +102,7 @@ Set-TaskspaceInvalidHarnessStatus $stateRun "sample" "sentinel_pair" "same_infra
 $runStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $stateRun "run-status.json") | ConvertFrom-Json
 $sampleStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $stateRun "sample-status.json") | ConvertFrom-Json
 Assert-True ([string]$runStatus.run_validity -eq "invalid_harness" -and [int]$runStatus.exit_code -eq 3) "invalid run status did not record exit code 3"
+Assert-True ([string]$sampleStatus.run_validity -eq "invalid_harness" -and [int]$sampleStatus.exit_code -eq 3) "invalid sample status did not record invalid_harness exit code 3"
 Assert-True (-not [bool]$sampleStatus.resume_allowed -and [string]$sampleStatus.abort_phase -eq "sentinel_pair") "invalid sample status did not block resume"
 
 $aggregatePath = Join-Path $runDir "aggregate-report.md"

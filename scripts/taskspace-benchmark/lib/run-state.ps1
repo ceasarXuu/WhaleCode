@@ -9,7 +9,16 @@ function Write-TaskspaceAtomicJson {
     }
     $tmp = "$Path.tmp.$([guid]::NewGuid().ToString('N'))"
     try {
-        ($Value | ConvertTo-Json -Depth 40) | Set-Content -LiteralPath $tmp -Encoding UTF8
+        $jsonValue = if ($Value -is [System.Collections.IDictionary]) {
+            $object = New-Object psobject
+            foreach ($entry in @($Value.GetEnumerator())) {
+                $object | Add-Member -NotePropertyName ([string]$entry.Key) -NotePropertyValue $entry.Value
+            }
+            $object
+        } else {
+            $Value
+        }
+        ($jsonValue | ConvertTo-Json -Depth 40) | Set-Content -LiteralPath $tmp -Encoding UTF8
         Move-Item -LiteralPath $tmp -Destination $Path -Force
     } finally {
         if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force }
@@ -212,7 +221,11 @@ function Set-TaskspaceInvalidHarnessStatus {
     Set-TaskspaceBenchmarkRunPhase $RunDir "invalid_harness" $AttemptedPairs $CompletedPairs $false | Out-Null
     $status = Set-TaskspaceSampleStatus $RunDir $SampleId "invalid_harness" $AttemptedPairs $CompletedPairs "" $Reason "" $ArtifactPath $ResumeCommand
     $statusMap = [ordered]@{}
-    foreach ($prop in @($status.PSObject.Properties)) { $statusMap[$prop.Name] = $prop.Value }
+    if ($status -is [System.Collections.IDictionary]) {
+        foreach ($entry in @($status.GetEnumerator())) { $statusMap[[string]$entry.Key] = $entry.Value }
+    } else {
+        foreach ($prop in @($status.PSObject.Properties)) { $statusMap[$prop.Name] = $prop.Value }
+    }
     $statusMap["abort_scope"] = "sample"
     $statusMap["abort_phase"] = $AbortPhase
     $statusMap["abort_signature"] = if ($Signature) { [string]$Signature.key } else { "" }
