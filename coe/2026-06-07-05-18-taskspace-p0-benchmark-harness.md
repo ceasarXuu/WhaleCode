@@ -1,7 +1,7 @@
 # Problem P-001: TaskSpace P0 benchmark run cannot produce clean E3 evidence
 - Status: open
 - Created: 2026-06-07 05:18
-- Updated: 2026-06-07 06:20
+- Updated: 2026-06-13 01:33
 - Objective: explain why the Terminal-Bench P0 run stopped as partial, and define evidence-backed repair criteria before another P0/E3 run is trusted.
 - Symptoms:
   - `recover-accuracy-log` exited before agent execution with `Scenario prompt leaks internal TaskSpace concepts: multi-agent`.
@@ -35,6 +35,11 @@
   - E-006: `multi-source-data-merger` pair reports mix business failure, validator timeout, manual-review, and E3 eligibility gates.
   - E-008: test-validity adversarial review found remaining self-deception risks in the first repair plan.
   - E-009: release/observability adversarial review found resumability and classification gaps in the first repair plan.
+  - E-017: the 0.0.4 Phase 6 run has the same `Resolve-Path` uv-cache failure in all 30 validation stderr logs.
+  - E-018: the 0.0.3 comparable run has no `Resolve-Path` uv-cache failures in its 30 validation stderr logs.
+  - E-019: 0.0.4 generated validators embed a relative `uvCacheDir`, while 0.0.3 generated validators embed an absolute path.
+  - E-020: the Terminal-Bench adapter writes `$uvCache.root` directly into generated validator scripts without resolving it to an absolute path.
+  - E-021: `RunRoot` and Terminal-Bench adapter `OutputRoot` are joined and passed through without a consistent absolute-path boundary.
 - Ruled out:
   - The `recover-accuracy-log` failure is not evidence of agent failure; agent execution never started.
   - The `query-optimize` partial result is not clean evidence that TaskSpace failed; validator environment setup failed first.
@@ -44,7 +49,7 @@
   - Metrics extraction handles locked/incomplete changed files without aborting the whole pair.
   - Run orchestration emits per-sample classifications and can resume audit/finalize deterministically.
   - A rerun of P0 smoke covers at least `recover-accuracy-log` and `query-optimize` through pair-report generation.
-- Current conclusion: P0 did not complete because the benchmark harness is not robust enough for this harder external sample set; the failures are primarily harness/environment classification failures, with separate TaskSpace behavior issues visible inside the completed artifacts.
+- Current conclusion: P0 did not complete because the benchmark harness is not robust enough for this harder external sample set. The original 2026-06-07 failures were primarily harness/environment classification failures, with separate TaskSpace behavior issues visible inside the completed artifacts. The 2026-06-12/13 0.0.4 Phase 6 comparable run is additionally polluted by a confirmed validator materialization regression: generated validators can embed a relative uv-cache path, causing public validation to fail before tests run for both standard and TaskSpace sides.
 - Repair-plan conclusion: the fix must be stronger than making failed samples pass. It must add provenance, equivalence proof, taints, resumable run state, and audit boundaries so future failures are still cleanly classifiable.
 - Related hypotheses:
   - H-001
@@ -52,6 +57,7 @@
   - H-003
   - H-004
   - H-005
+  - H-006
 - Resolution basis:
   - repair implemented; full P0 rerun not yet executed
   - fix-validation evidence: E-010, E-011, E-012, E-013, E-014
@@ -625,3 +631,170 @@
   ```
 - Interpretation: the runner now has a real resume entrypoint for completed pair reuse. This is not a full phase-by-phase resume matrix, but it closes the previous "metadata only" blocker for completed run recovery.
 - Time: 2026-06-07 06:20
+
+## Hypothesis H-006: 0.0.4 Phase 6 validators embed a relative uv-cache path
+- Status: confirmed
+- Parent: P-001
+- Claim: the 0.0.4 Phase 6 comparable run's all-standard/all-TaskSpace public-validation failures were caused by generated Terminal-Bench validators embedding a relative `uvCacheDir`, which `Resolve-Path` evaluates from each pair execution directory and fails before the Docker validator runs real tests.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - Standard mode was not expected to regress to 0/15 without a harness/environment change. The raw validation logs show a common pre-test path-resolution failure on both logical modes, not solution-specific assertion failures.
+- Falsifiable predictions:
+  - If true: every 0.0.4 validation stderr should show the same `Resolve-Path` failure for `target\bench005-20260612-phase6\materialized-scenarios\_adapter-generated\uv-cache`, while the uv-cache exists at the absolute run-root path.
+  - If true: the 0.0.3 comparable validators should embed absolute uv-cache paths and their validation stderr logs should not contain this failure.
+  - If false: public validation should reach Docker build/test output and failures should vary by solution or sample rather than failing at the same path-resolution line.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: common pre-test relative uv-cache path-resolution failure.
+  - Signal: validation stderr group counts, generated validator path literals, and adapter generator source.
+  - Capture method: inspect 0.0.4 and 0.0.3 validation stderr logs, generated `external-validator.ps1`, and `scripts/taskspace-benchmark/adapters/terminal-bench-adapter.ps1`.
+  - Event name or marker:
+    - `Resolve-Path : Cannot find path`
+  - Correlation keys:
+    - run root `D:\whalecode-alpha\target\bench005-20260612-phase6`
+    - run root `D:\whalecode-alpha\target\bench004-20260608-202551`
+  - Differentiates from:
+    - agent answer quality regression
+    - Terminal-Bench task-level assertion failure
+    - Docker availability failure
+  - Supports if:
+    - 0.0.4 logs all fail on relative uv-cache resolution and 0.0.3 logs do not.
+  - Refutes if:
+    - failures occur after Docker/test execution or the generated 0.0.4 validator uses an absolute uv-cache path.
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-017
+  - E-018
+  - E-019
+  - E-020
+  - E-021
+- Conclusion: confirmed. The 0.0.4 Phase 6 diagnostic pass-rate comparison is invalid as an agent-quality comparison; the run is polluted by validator materialization failure shared by both standard and TaskSpace sides.
+- Repair design readiness: ready
+- Next step: repair the adapter so generated validators always embed absolute uv-cache paths, add a regression test that invokes generated validation from a pair working directory, then rerun the comparable Phase 6 scope.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-017: 0.0.4 validation stderr logs all fail on uv-cache Resolve-Path
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: diagnostic-log
+- Source: command grouping `target\bench005-20260612-phase6\runs\**\validation.stderr.log` by `uv-cache` and `Resolve-Path`.
+- Prediction or plan link:
+  - H-006 prediction: every 0.0.4 validation stderr should show the same pre-test relative uv-cache path-resolution failure.
+- Matched signal:
+  - all 30 validation stderr logs matched the uv-cache `Resolve-Path` failure.
+- Correlation keys:
+  - run root `D:\whalecode-alpha\target\bench005-20260612-phase6`
+- Raw content:
+  ```text
+  Name Count
+  ---- -----
+  True    30
+
+  Resolve-Path : Cannot find path 'target\bench005-20260612-phase6\materialized-scenarios\_adapter-generated\uv-cache' because it does not exist.
+  ```
+- Interpretation: the 0.0.4 run did not produce valid public-validation pass/fail evidence for agent quality; both logical modes failed on a shared validator setup error.
+- Time: 2026-06-13 01:33
+
+## Evidence E-018: 0.0.3 validation stderr logs do not show the uv-cache Resolve-Path failure
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: diagnostic-log
+- Source: command grouping `target\bench004-20260608-202551\runs\**\validation.stderr.log` by `uv-cache` and `Resolve-Path`.
+- Prediction or plan link:
+  - H-006 prediction: the 0.0.3 comparable run should not contain the 0.0.4 relative uv-cache failure.
+- Matched signal:
+  - all 30 comparable 0.0.3 validation stderr logs were negative for the uv-cache `Resolve-Path` pattern.
+- Correlation keys:
+  - run root `D:\whalecode-alpha\target\bench004-20260608-202551`
+- Raw content:
+  ```text
+  Name  Count
+  ----  -----
+  False    30
+  ```
+- Interpretation: the all-failed 0.0.4 validation pattern is a new run/materialization defect, not a stable property of the benchmark or standard mode.
+- Time: 2026-06-13 01:33
+
+## Evidence E-019: generated validators changed from absolute to relative uvCacheDir
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: code-location
+- Source: generated validators under `target\bench005-20260612-phase6\materialized-scenarios` and `target\bench004-20260608-202551\materialized-scenarios`.
+- Prediction or plan link:
+  - H-006 prediction: 0.0.4 generated validators should embed a relative uv-cache path while 0.0.3 uses an absolute path.
+- Matched signal:
+  - 0.0.4 uses `target\bench005...`; 0.0.3 uses `D:\whalecode-alpha\target\bench004...`.
+- Correlation keys:
+  - line `external-validator.ps1:108`
+- Raw content:
+  ```text
+  0.0.4:
+  $uvCacheDir = 'target\bench005-20260612-phase6\materialized-scenarios\_adapter-generated\uv-cache'
+
+  0.0.3:
+  $uvCacheDir = 'D:\whalecode-alpha\target\bench004-20260608-202551\materialized-scenarios\_adapter-generated\uv-cache'
+  ```
+- Interpretation: the literal path embedded in generated validator scripts is sufficient to explain why the 0.0.4 script fails when launched from a pair directory.
+- Time: 2026-06-13 01:33
+
+## Evidence E-020: adapter writes the cache root literal without absolutizing it
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: code-location
+- Source: `scripts\taskspace-benchmark\adapters\terminal-bench-adapter.ps1` and `terminal-bench-uv-cache.ps1`.
+- Prediction or plan link:
+  - H-006 prediction: generator source should allow a relative `OutputRoot` to become a relative `uvCacheDir` literal in generated validators.
+- Matched signal:
+  - `New-TerminalBenchUvCache` builds `$cache` from `$OutputRoot`, and `terminal-bench-adapter.ps1` writes `$uvCache.root` directly into `$uvCacheLiteral`.
+- Correlation keys:
+  - `terminal-bench-uv-cache.ps1:3`
+  - `terminal-bench-adapter.ps1:126`
+  - `terminal-bench-adapter.ps1:130`
+  - `terminal-bench-adapter.ps1:296`
+- Raw content:
+  ```text
+  $cache = Join-Path $OutputRoot "_adapter-generated\uv-cache"
+  $uvCache = New-TerminalBenchUvCache $OutputRoot
+  $uvCacheLiteral = "'" + $uvCache.root.Replace("'", "''") + "'"
+  "`$uvCacheDir = $uvCacheLiteral"
+  ```
+- Interpretation: if Phase 6 passes a relative run/materialization root into the adapter, the generated validator records a relative cache path. That relative path is then resolved from the later pair execution directory and fails before public validation tests run.
+- Time: 2026-06-13 01:33
+
+## Evidence E-021: runner and adapter do not enforce an absolute path boundary
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: code-location
+- Source: `scripts\taskspace-benchmark\run-taskspace-benchmark.ps1`, `lib\workspace.ps1`, and `adapters\terminal-bench-adapter.ps1`.
+- Prediction or plan link:
+  - H-006 prediction: a relative run root can propagate into generated validator materialization paths.
+- Matched signal:
+  - the runner only defaults `RunRoot` when empty, then passes it through `Join-Path`; the workspace helper creates run dirs via `Join-Path $RunRoot`; the adapter accepts `OutputRoot` and uses it for `_adapter-generated` and uv-cache creation without resolving it.
+- Correlation keys:
+  - `run-taskspace-benchmark.ps1:47`
+  - `run-taskspace-benchmark.ps1:73`
+  - `workspace.ps1:7`
+  - `terminal-bench-adapter.ps1:125-130`
+- Raw content:
+  ```text
+  if (-not $RunRoot) { $RunRoot = Get-NeutralTaskspaceBenchmarkRunRoot $repoRoot }
+  $runDir = Join-Path (Join-Path $RunRoot $manifest.Id) $RunId
+  New-Dir (Join-Path $RunRoot "$ScenarioId\$stamp")
+  $generatedDir = New-TaskspaceExternalDir (Join-Path $OutputRoot "_adapter-generated")
+  $uvCache = New-TerminalBenchUvCache $OutputRoot
+  ```
+- Interpretation: the durable fix should establish an absolute path boundary either immediately after `RunRoot` input normalization, inside the adapter for `OutputRoot`, or both. Fixing only one generated script would not address the root cause.
+- Time: 2026-06-13 01:33
