@@ -45,7 +45,7 @@ function Get-TaskspaceHarnessTextSignature {
         [string]$Side = "",
         [string]$Artifact = ""
     )
-    if ($Text -match "docker command is required|Requested WSL Docker backend is unavailable|Unsupported TASKSPACE_DOCKER_BACKEND") {
+    if ($Text -match "docker command is required|Docker backend unavailable|Requested WSL Docker backend is unavailable|Requested native Docker backend is unavailable|Unsupported TASKSPACE_DOCKER_BACKEND|getpwnam\(root\) failed|getpwuid\(0\) failed|Wsl/Service/E_UNEXPECTED|I/O error @util\.cpp") {
         return New-TaskspaceInfraSignature "harness_materialization_failure" $Stage "docker_backend_unavailable" "Docker backend unavailable" $Side $Artifact
     }
     if ($Text -match "Resolve-Path|Cannot find path|PathNotFound") {

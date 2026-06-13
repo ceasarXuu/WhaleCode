@@ -478,7 +478,11 @@ Assert-True ([bool]$adapterScenario.external_benchmark.validator_fidelity.docker
 Assert-True ([string]$adapterScenario.external_benchmark.adapter_metadata.instruction_extraction_mode -eq "literal") "terminal-bench literal instruction mode was not recorded"
 Assert-True (@($adapterScenario.prompt_guard.source_spans).Count -eq 2) "terminal-bench prompt guard source spans were not recorded"
 Assert-True (@($adapterScenario.external_benchmark.adapter_metadata.generated_fixture_allowlist) -contains "task-deps/input.csv") "terminal-bench recursive fixture allowlist missed public file"
-Assert-True ((Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $adapterScenarioDir "external-validator.ps1")) -match "proxy_env_skipped_loopback") "terminal-bench validator did not guard WSL loopback proxy injection"
+$adapterValidatorText = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $adapterScenarioDir "external-validator.ps1")
+Assert-True ($adapterValidatorText -match "proxy_env_skipped_loopback") "terminal-bench validator did not guard WSL loopback proxy injection"
+Assert-True ($adapterValidatorText -match "Invoke-DockerBackendProbe") "terminal-bench validator did not time-bound Docker backend probing"
+Assert-True ($adapterValidatorText -match "Requested native Docker backend is unavailable") "terminal-bench validator did not validate native Docker wrapper availability"
+Assert-True ($adapterValidatorText -match "getpwnam\\\(root\\\) failed") "terminal-bench validator did not classify WSL root lookup backend failures"
 $terminalBenchEnv = Join-Path $runDir "terminal-bench-env"
 New-Item -ItemType Directory -Path (Join-Path $terminalBenchEnv "environment") -Force | Out-Null
 @'

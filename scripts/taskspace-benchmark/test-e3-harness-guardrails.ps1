@@ -35,6 +35,11 @@ $pretestStderr = Join-Path $runDir "pretest.stderr.log"
 $sig = Get-TaskspaceHarnessTextSignature (Get-Content -Raw -Encoding UTF8 -LiteralPath $pretestStderr) "validator_pretest" "left" $pretestStderr
 Assert-True ($sig -and [string]$sig.stable_code -eq "path_unresolvable") "stderr fallback did not classify path_unresolvable"
 
+$wslStderr = Join-Path $runDir "wsl.stderr.log"
+"external-validator.ps1 : <3>WSL (1148 - Relay) ERROR: CreateProcessParseCommon:1014: getpwnam(root) failed 5" | Set-Content -LiteralPath $wslStderr -Encoding UTF8
+$wslSig = Get-TaskspaceHarnessTextSignature (Get-Content -Raw -Encoding UTF8 -LiteralPath $wslStderr) "validator_pretest" "left" $wslStderr
+Assert-True ($wslSig -and [string]$wslSig.stable_code -eq "docker_backend_unavailable") "stderr fallback did not classify WSL root lookup as docker_backend_unavailable"
+
 $standardMetrics = [pscustomobject]@{
     mode = "left"
     logical_mode = "standard"
