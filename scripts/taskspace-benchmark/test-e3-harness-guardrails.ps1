@@ -100,6 +100,29 @@ $health = Get-TaskspaceHarnessHealth $manifest $runDir $runDir
 Assert-True ([string]$health.status -eq "fail") "preflight health did not fail relative materialized path"
 Assert-True (@($health.findings | Where-Object { [string]$_.stable_code -eq "relative_materialized_path" }).Count -gt 0) "preflight health did not name relative_materialized_path"
 
+$manifest.ExternalBenchmark.adapter_metadata.uv_cache_root = Join-Path $runDir "uv-cache"
+New-Item -ItemType Directory -Force -Path $manifest.ExternalBenchmark.adapter_metadata.uv_cache_root | Out-Null
+$oldMinFreeBytes = $env:TASKSPACE_MIN_FREE_BYTES
+$oldMinFreeGib = $env:TASKSPACE_MIN_FREE_GIB
+try {
+    $env:TASKSPACE_MIN_FREE_BYTES = "1"
+    Remove-Item Env:TASKSPACE_MIN_FREE_GIB -ErrorAction SilentlyContinue
+    $spacePassHealth = Get-TaskspaceHarnessHealth $manifest $runDir $runDir
+    Assert-True ([string]$spacePassHealth.status -eq "pass") "disk preflight failed with a 1 byte minimum"
+    Assert-True (@($spacePassHealth.disk_space_checks).Count -gt 0) "disk preflight did not record checked disks"
+
+    $env:TASKSPACE_MIN_FREE_BYTES = ([int64]::MaxValue).ToString()
+    $spaceFailHealth = Get-TaskspaceHarnessHealth $manifest $runDir $runDir
+    $spaceFinding = @($spaceFailHealth.findings | Where-Object { [string]$_.stable_code -eq "disk_space_low" } | Select-Object -First 1)[0]
+    Assert-True ([string]$spaceFailHealth.status -eq "fail") "disk preflight did not fail with impossible minimum"
+    Assert-True ($spaceFinding -and [int64]$spaceFinding.required_free_bytes -eq [int64]::MaxValue) "disk preflight did not record disk_space_low finding details"
+    $spaceSig = New-TaskspaceInfraSignature "harness_materialization_failure" "preflight" "disk_space_low" "Disk space low" "" $runDir
+    Assert-True (Test-TaskspaceHardInfraSignature $spaceSig) "disk_space_low was not treated as a hard infra signature"
+} finally {
+    if ($null -eq $oldMinFreeBytes) { Remove-Item Env:TASKSPACE_MIN_FREE_BYTES -ErrorAction SilentlyContinue } else { $env:TASKSPACE_MIN_FREE_BYTES = $oldMinFreeBytes }
+    if ($null -eq $oldMinFreeGib) { Remove-Item Env:TASKSPACE_MIN_FREE_GIB -ErrorAction SilentlyContinue } else { $env:TASKSPACE_MIN_FREE_GIB = $oldMinFreeGib }
+}
+
 $stateRun = Join-Path $runDir "invalid-state"
 New-Item -ItemType Directory -Force -Path $stateRun | Out-Null
 Initialize-TaskspaceBenchmarkRunState $stateRun "sample" 5 "E3" "selftest" | Out-Null

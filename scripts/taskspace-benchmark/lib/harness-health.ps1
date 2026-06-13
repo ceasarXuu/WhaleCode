@@ -38,6 +38,68 @@ function Test-TaskspaceResolvablePathFrom {
     Test-Path -LiteralPath $candidate
 }
 
+function Get-TaskspaceMinimumFreeBytes {
+    if (-not [string]::IsNullOrWhiteSpace($env:TASKSPACE_MIN_FREE_BYTES)) {
+        return [int64]$env:TASKSPACE_MIN_FREE_BYTES
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:TASKSPACE_MIN_FREE_GIB)) {
+        return [int64]([double]$env:TASKSPACE_MIN_FREE_GIB * 1GB)
+    }
+    [int64](20GB)
+}
+
+function Get-TaskspaceExistingPathForDisk {
+    param([AllowEmptyString()][string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return "" }
+    $candidate = [System.IO.Path]::GetFullPath($Path)
+    while (-not [string]::IsNullOrWhiteSpace($candidate) -and -not (Test-Path -LiteralPath $candidate)) {
+        $parent = Split-Path -Parent $candidate
+        if ($parent -eq $candidate) { break }
+        $candidate = $parent
+    }
+    if (Test-Path -LiteralPath $candidate) { return $candidate }
+    ""
+}
+
+function Get-TaskspaceDiskSpaceChecks {
+    param([Parameter(Mandatory = $true)][string[]]$Paths)
+    $minimum = Get-TaskspaceMinimumFreeBytes
+    $checks = New-Object System.Collections.Generic.List[object]
+    $seenRoots = @{}
+    foreach ($path in @($Paths)) {
+        $existing = Get-TaskspaceExistingPathForDisk $path
+        if ([string]::IsNullOrWhiteSpace($existing)) { continue }
+        $root = [System.IO.Path]::GetPathRoot($existing)
+        if ([string]::IsNullOrWhiteSpace($root) -or $seenRoots.ContainsKey($root)) { continue }
+        $seenRoots[$root] = $true
+        try {
+            $drive = New-Object System.IO.DriveInfo($root)
+            $free = [int64]$drive.AvailableFreeSpace
+            $checks.Add([pscustomobject]@{
+                    root = $root
+                    path = $existing
+                    free_bytes = $free
+                    required_free_bytes = $minimum
+                    free_gib = [math]::Round($free / 1GB, 2)
+                    required_free_gib = [math]::Round($minimum / 1GB, 2)
+                    status = if ($free -lt $minimum) { "fail" } else { "pass" }
+                })
+        } catch {
+            $checks.Add([pscustomobject]@{
+                    root = $root
+                    path = $existing
+                    free_bytes = 0
+                    required_free_bytes = $minimum
+                    free_gib = 0
+                    required_free_gib = [math]::Round($minimum / 1GB, 2)
+                    status = "fail"
+                    error = [string]$_.Exception.Message
+                })
+        }
+    }
+    @($checks.ToArray())
+}
+
 function Get-TaskspaceHarnessTextSignature {
     param(
         [AllowEmptyString()][string]$Text = "",
@@ -117,7 +179,7 @@ function Get-TaskspaceInfraSignatureFromMetrics {
 function Test-TaskspaceHardInfraSignature {
     param($Signature)
     if ($null -eq $Signature) { return $false }
-    [string]$Signature.stable_code -in @("relative_materialized_path", "path_unresolvable", "validator_source_missing", "uv_cache_missing", "docker_backend_unavailable", "runtime_manifest_missing", "validator_probe_failed", "workspace_baseline_git_failed", "workspace_fixture_copy_failed", "workspace_materialization_failed")
+    [string]$Signature.stable_code -in @("relative_materialized_path", "path_unresolvable", "validator_source_missing", "uv_cache_missing", "docker_backend_unavailable", "runtime_manifest_missing", "validator_probe_failed", "workspace_baseline_git_failed", "workspace_fixture_copy_failed", "workspace_materialization_failed", "disk_space_low")
 }
 
 function Get-TaskspaceSentinelAbortDecision {
@@ -187,6 +249,29 @@ function Get-TaskspaceHarnessHealth {
             }
         }
     }
+    $spacePaths = New-Object System.Collections.Generic.List[string]
+    $spacePaths.Add($RunDir)
+    if (-not [string]::IsNullOrWhiteSpace($ScenarioBaseDir)) { $spacePaths.Add($ScenarioBaseDir) }
+    foreach ($pathInfo in @($checked.ToArray())) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$pathInfo.path)) { $spacePaths.Add([string]$pathInfo.path) }
+    }
+    $dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
+    if ($dockerCommand -and -not [string]::IsNullOrWhiteSpace([string]$dockerCommand.Source)) {
+        $spacePaths.Add([string]$dockerCommand.Source)
+    }
+    if (Test-Path -LiteralPath "D:\whale-docker") { $spacePaths.Add("D:\whale-docker") }
+    $diskSpaceChecks = Get-TaskspaceDiskSpaceChecks @($spacePaths.ToArray())
+    foreach ($space in @($diskSpaceChecks | Where-Object { [string]$_.status -eq "fail" })) {
+        $findings.Add([pscustomobject]@{
+                severity = "fail"
+                stable_code = "disk_space_low"
+                message = "Free disk space below TaskSpace preflight minimum on $($space.root): $($space.free_gib) GiB available, $($space.required_free_gib) GiB required"
+                path = [string]$space.path
+                root = [string]$space.root
+                free_bytes = [int64]$space.free_bytes
+                required_free_bytes = [int64]$space.required_free_bytes
+            })
+    }
     $hardFindings = @($findings.ToArray() | Where-Object { [string]$_.severity -eq "fail" })
     [pscustomobject]@{
         schema_version = 1
@@ -194,6 +279,7 @@ function Get-TaskspaceHarnessHealth {
         run_validity = if ($hardFindings.Count -gt 0) { "invalid_harness" } else { "valid" }
         findings = @($findings.ToArray())
         checked_paths = @($checked.ToArray())
+        disk_space_checks = @($diskSpaceChecks)
         generated_at = (Get-Date).ToString("o")
         run_dir = $RunDir
         scenario_base_dir = $ScenarioBaseDir

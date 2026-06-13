@@ -39,3 +39,6 @@ PowerShell parse validation passed for `terminal-bench-adapter.ps1`, `harness-he
 
 # Evidence E-011
 A generated Terminal-Bench `external-validator.ps1 -ProbeOnly -ProbeDocker` run passed after space cleanup. Output included `docker_backend=wsl`, Docker server version `29.1.3`, `docker_version_exit=0`, `validator_probe_completed=true`, and `validator-probe-result.json` with `status: pass`, `stage: probe_docker`, and `failure_signature: null`.
+
+# Evidence E-012
+Follow-up guardrail fix added preflight disk checks to `Get-TaskspaceHarnessHealth`. `test-e3-harness-guardrails.ps1` passed with coverage for low-threshold pass and impossible-threshold `disk_space_low` failure. A runner smoke with `TASKSPACE_MIN_FREE_BYTES=[int64]::MaxValue` exited with code `3` before pair execution and wrote `harness-health.json` status `fail`, `run_validity: invalid_harness`, stable code `disk_space_low`, plus an abort summary using infra signature `harness_materialization_failure/disk_space_low`.
