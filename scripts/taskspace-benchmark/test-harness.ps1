@@ -484,6 +484,8 @@ Assert-True ($adapterValidatorText -match "Invoke-DockerBackendProbe") "terminal
 Assert-True ($adapterValidatorText -match "Requested native Docker backend is unavailable") "terminal-bench validator did not validate native Docker wrapper availability"
 Assert-True ($adapterValidatorText -match "Test-DockerCommandIsWslWrapper") "terminal-bench validator did not detect WSL docker command wrappers"
 Assert-True ($adapterValidatorText -match "getpwnam\\\(root\\\) failed") "terminal-bench validator did not classify WSL root lookup backend failures"
+$suiteRunnerText = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1")
+Assert-True ($suiteRunnerText -match "child_process_failed") "E3 suite runner did not classify child process failures"
 $terminalBenchEnv = Join-Path $runDir "terminal-bench-env"
 New-Item -ItemType Directory -Path (Join-Path $terminalBenchEnv "environment") -Force | Out-Null
 @'

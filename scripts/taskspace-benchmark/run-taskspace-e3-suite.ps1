@@ -137,6 +137,21 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
     $childExit = $LASTEXITCODE
     $statusPath = Get-ChildItem -LiteralPath $sampleRoot -Filter "sample-status.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     $status = if ($statusPath) { Get-Content -Raw -Encoding UTF8 -LiteralPath $statusPath.FullName | ConvertFrom-Json } else { [pscustomobject]@{ sample_id = $sampleId; run_validity = if ($childExit -eq 3) { "invalid_harness" } else { "unknown" }; exit_code = $childExit } }
+    if ($childExit -ne 0 -and -not ($status.PSObject.Properties.Name -contains "run_validity" -and [string]$status.run_validity -eq "invalid_harness")) {
+        $status = [pscustomobject]@{
+            sample_id = if ($status.PSObject.Properties.Name -contains "sample_id") { [string]$status.sample_id } else { $sampleId }
+            task_dir = $taskDir
+            run_validity = "invalid_harness"
+            exit_code = $childExit
+            abort_scope = "sample"
+            abort_phase = "child_process"
+            abort_signature = "harness_materialization_failure/child_process_failed"
+            abort_reason = "child_exit_$childExit"
+            attempted_pairs = if ($status.PSObject.Properties.Name -contains "attempted_pairs") { $status.attempted_pairs } else { 0 }
+            completed_pairs = if ($status.PSObject.Properties.Name -contains "completed_pairs") { $status.completed_pairs } else { 0 }
+            first_failure_artifact = if ($statusPath) { [string]$statusPath.FullName } else { $sampleRoot }
+        }
+    }
     $sampleStatuses.Add($status)
     if ($childExit -eq 1 -and $exitCode -eq 0) { $exitCode = 1 }
     if ($childExit -eq 2 -and $exitCode -eq 0) { $exitCode = 2 }

@@ -20,6 +20,18 @@ function Get-TaskspaceSha256IfPresent {
     (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
 }
 
+function Invoke-TaskspaceGitScalar {
+    param([string]$RepoRoot, [string[]]$Arguments)
+    if ([string]::IsNullOrWhiteSpace($RepoRoot) -or -not (Test-Path -LiteralPath $RepoRoot) -or -not (Get-Command git -ErrorAction SilentlyContinue)) { return "" }
+    try {
+        $output = & git -C $RepoRoot @Arguments 2>$null
+        if ($LASTEXITCODE -ne 0) { return "" }
+        ([string]$output).Trim()
+    } catch {
+        ""
+    }
+}
+
 function Test-TaskspacePathUnderRoot {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -209,12 +221,10 @@ function New-TaskspaceExternalEvidenceProof {
             $actualSha = Get-TaskspaceSha256IfPresent $path
             $actualCurrentBlob = ""
             $actualPinnedBlob = ""
-            if (-not [string]::IsNullOrWhiteSpace($sourceRoot) -and (Test-Path -LiteralPath $sourceRoot) -and (Get-Command git -ErrorAction SilentlyContinue)) {
-                $actualCurrentBlob = (& git -C $sourceRoot hash-object $path 2>$null)
-                if ($LASTEXITCODE -eq 0) { $actualCurrentBlob = $actualCurrentBlob.Trim() } else { $actualCurrentBlob = "" }
-                $actualPinnedBlob = (& git -C $sourceRoot rev-parse "$sourceRevision`:$relative" 2>$null)
-                if ($LASTEXITCODE -eq 0) { $actualPinnedBlob = $actualPinnedBlob.Trim() } else { $actualPinnedBlob = "" }
+            if (-not [string]::IsNullOrWhiteSpace($actualSha)) {
+                $actualCurrentBlob = Invoke-TaskspaceGitScalar $sourceRoot @("hash-object", $path)
             }
+            $actualPinnedBlob = Invoke-TaskspaceGitScalar $sourceRoot @("rev-parse", "$sourceRevision`:$relative")
             $matches = (
                 -not [string]::IsNullOrWhiteSpace($actualSha) -and
                 $actualSha -eq $expectedSha -and

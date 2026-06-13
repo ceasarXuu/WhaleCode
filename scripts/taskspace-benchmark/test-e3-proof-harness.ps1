@@ -221,6 +221,21 @@ $isolatedProof = New-TaskspaceExternalEvidenceProof $pair $manifestIsolated $met
 Assert-True ($isolatedProof.validator_fidelity.official_runner_or_equivalent) "official equivalent proof did not accept source-hashed /tests protocol"
 Assert-True ($isolatedProof.validator_fidelity.agent_cannot_read_validator_source) "source guard proof did not prove validator source isolation"
 
+$missingOfficialSourceManifest = $manifestIsolated.PSObject.Copy()
+$missingOfficialSourceManifest.ExternalBenchmark = $manifestIsolated.ExternalBenchmark.PSObject.Copy()
+$missingOfficialSourceManifest.ExternalBenchmark.adapter_metadata = $manifestIsolated.ExternalBenchmark.adapter_metadata.PSObject.Copy()
+$missingOfficialSourceManifest.ExternalBenchmark.adapter_metadata.official_equivalence = $manifestIsolated.ExternalBenchmark.adapter_metadata.official_equivalence.PSObject.Copy()
+$missingOfficialSourceManifest.ExternalBenchmark.adapter_metadata.official_equivalence.source_files = @([pscustomobject]@{
+        path = Join-Path $officialRoot "missing-harness.py"
+        relative_path = "missing-harness.py"
+        current_sha256 = $officialHash
+        pinned_blob_id = $officialBlob
+        current_blob_id = $currentBlob
+        matches_pinned_revision = $true
+    })
+$missingOfficialSourceProof = New-TaskspaceExternalEvidenceProof $pair $missingOfficialSourceManifest $metricsBySide $sourceGuard
+Assert-True (-not $missingOfficialSourceProof.validator_fidelity.official_runner_or_equivalent) "missing official source file should downgrade proof, not throw"
+
 $manifestMissingSource = $manifest.PSObject.Copy()
 $manifestMissingSource.ExternalBenchmark = $manifest.ExternalBenchmark.PSObject.Copy()
 $manifestMissingSource.ExternalBenchmark.validator_source_dir = "missing-source"
