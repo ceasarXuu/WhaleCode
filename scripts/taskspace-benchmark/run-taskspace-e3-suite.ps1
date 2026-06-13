@@ -20,6 +20,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "lib\harness-health.ps1")
+. (Join-Path $PSScriptRoot "lib\suite-status.ps1")
 if ($Repeats -lt 5) { throw "E3 suite requires Repeats >= 5." }
 if (-not (Test-Path -LiteralPath $TaskListPath)) { Write-Error "TaskListPath not found: $TaskListPath"; exit 4 }
 if (-not $RunRoot) { $RunRoot = Join-Path ([System.IO.Path]::GetTempPath()) "whale-e3-suite-runs" }
@@ -137,20 +138,10 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
     $childExit = $LASTEXITCODE
     $statusPath = Get-ChildItem -LiteralPath $sampleRoot -Filter "sample-status.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     $status = if ($statusPath) { Get-Content -Raw -Encoding UTF8 -LiteralPath $statusPath.FullName | ConvertFrom-Json } else { [pscustomobject]@{ sample_id = $sampleId; run_validity = if ($childExit -eq 3) { "invalid_harness" } else { "unknown" }; exit_code = $childExit } }
-    if ($childExit -ne 0 -and -not ($status.PSObject.Properties.Name -contains "run_validity" -and [string]$status.run_validity -eq "invalid_harness")) {
-        $status = [pscustomobject]@{
-            sample_id = if ($status.PSObject.Properties.Name -contains "sample_id") { [string]$status.sample_id } else { $sampleId }
-            task_dir = $taskDir
-            run_validity = "invalid_harness"
-            exit_code = $childExit
-            abort_scope = "sample"
-            abort_phase = "child_process"
-            abort_signature = "harness_materialization_failure/child_process_failed"
-            abort_reason = "child_exit_$childExit"
-            attempted_pairs = if ($status.PSObject.Properties.Name -contains "attempted_pairs") { $status.attempted_pairs } else { 0 }
-            completed_pairs = if ($status.PSObject.Properties.Name -contains "completed_pairs") { $status.completed_pairs } else { 0 }
-            first_failure_artifact = if ($statusPath) { [string]$statusPath.FullName } else { $sampleRoot }
-        }
+    $alreadyInvalidHarness = $status.PSObject.Properties.Name -contains "run_validity" -and [string]$status.run_validity -eq "invalid_harness"
+    $completedDiagnosticRun = Test-TaskspaceSuiteChildStatusComplete $status $Repeats
+    if ($childExit -ne 0 -and -not $alreadyInvalidHarness -and -not $completedDiagnosticRun) {
+        $status = New-TaskspaceSuiteChildFailureStatus $status $sampleId $taskDir $childExit $(if ($statusPath) { [string]$statusPath.FullName } else { "" }) $sampleRoot
     }
     $sampleStatuses.Add($status)
     if ($childExit -eq 1 -and $exitCode -eq 0) { $exitCode = 1 }

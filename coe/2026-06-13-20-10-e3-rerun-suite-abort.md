@@ -118,6 +118,33 @@
 - Supports: H-001 repair prerequisite.
 - Observation: cloned `https://github.com/laude-institute/terminal-bench.git` to `C:\w\terminal-bench-1a6ffa9674b571da0ed040c470cb40c4d85f9b9b`, checked out `1a6ffa9674b571da0ed040c470cb40c4d85f9b9b`, and verified `original-tasks\multi-source-data-merger` exists.
 
+## Hypothesis H-004: Suite runner misclassified completed diagnostic exit 1 as child process failure
+
+- Status: confirmed
+- Rationale: the second durable-path E3 run completed the first two samples at 5/5 pairs with child `run_validity=valid` and `phase=audit_required`, but the suite rewrote both sample rows to `invalid_harness` because the child process exited 1.
+- Prediction:
+  - Child `sample-status.json` for `recover-accuracy-log` and `processing-pipeline` records `attempted_pairs=5`, `completed_pairs=5`, `run_validity=valid`, and `phase=audit_required`.
+  - The suite-level row records `harness_materialization_failure/child_process_failed` for those same samples.
+  - `run-taskspace-benchmark.ps1` can intentionally exit 1 after a completed run when failed pairs remain and `AllowNonE2Result` is not set.
+
+### Evidence E-011
+
+- Type: runtime artifact
+- Supports: H-004 symptom.
+- Observation: `C:\w\e3v004-rerun2-20260613-202032\runs\suite-20260613-202033\suite-health.json` records repeated `harness_materialization_failure/child_process_failed` and skips `multi-source-data-merger`, while the child `sample-status.json` files for the first two samples record valid completed 5/5 diagnostic runs awaiting audit.
+
+### Evidence E-012
+
+- Type: code path
+- Supports: H-004 mechanism.
+- Observation: `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1` exits 1 after finalizing a completed run when failed pairs exist and `AllowNonE2Result` is not set, so exit 1 is a valid diagnostic result and not always an infrastructure crash.
+
+### Evidence E-013
+
+- Type: fix validation
+- Supports: H-004 repair.
+- Observation: added `lib\suite-status.ps1` so the suite preserves valid completed child statuses for `completed`, `audit_required`, or `finalize` phases with all required pairs attempted and completed; nonzero incomplete child statuses still synthesize `harness_materialization_failure/child_process_failed`. `test-e3-harness-guardrails.ps1` and `test-harness.ps1` both passed after the fix.
+
 ## Problem P-001 Current Conclusion
 
 - Status: repair-implemented-pending-rerun
@@ -125,9 +152,11 @@
   - H-001: the E3 task list used a non-durable temp task path that disappeared before rerun.
   - H-002: missing official source files in E3 proof hashing could abort the child process instead of producing a proof mismatch.
   - H-003: suite runner could preserve stale child status after child exit 1, making an incomplete sample look valid.
+  - H-004: suite runner could also overcorrect by treating completed diagnostic exit 1 as child process failure.
 - Repair implemented:
   - `e3-proof.ps1` now wraps git scalar calls and does not call current blob hashing when the source file is absent.
   - `run-taskspace-e3-suite.ps1` now synthesizes `harness_materialization_failure/child_process_failed` for nonzero child exits that did not already write invalid-harness status.
+  - `run-taskspace-e3-suite.ps1` now preserves completed valid diagnostic child statuses even when the child exits 1.
   - A durable Terminal-Bench source checkout is available for the next E3 task list.
 - Remaining validation:
   - Rerun E3 using durable task paths under `C:\w\terminal-bench-1a6ffa9674b571da0ed040c470cb40c4d85f9b9b\original-tasks`.

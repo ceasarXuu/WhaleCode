@@ -7,6 +7,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\failure-taxonomy.ps1")
 . (Join-Path $PSScriptRoot "lib\aggregate-report.ps1")
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
+. (Join-Path $PSScriptRoot "lib\suite-status.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\e3-guardrails-selftest" }
 $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
@@ -132,6 +133,25 @@ $sampleStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $stateRu
 Assert-True ([string]$runStatus.run_validity -eq "invalid_harness" -and [int]$runStatus.exit_code -eq 3) "invalid run status did not record exit code 3"
 Assert-True ([string]$sampleStatus.run_validity -eq "invalid_harness" -and [int]$sampleStatus.exit_code -eq 3) "invalid sample status did not record invalid_harness exit code 3"
 Assert-True (-not [bool]$sampleStatus.resume_allowed -and [string]$sampleStatus.abort_phase -eq "sentinel_pair") "invalid sample status did not block resume"
+
+$completeDiagnosticStatus = [pscustomobject]@{
+    sample_id = "diagnostic-complete"
+    run_validity = "valid"
+    phase = "audit_required"
+    attempted_pairs = 5
+    completed_pairs = 5
+}
+Assert-True (Test-TaskspaceSuiteChildStatusComplete $completeDiagnosticStatus 5) "suite status helper did not preserve completed audit_required diagnostic run"
+$incompleteStatus = [pscustomobject]@{
+    sample_id = "diagnostic-incomplete"
+    run_validity = "valid"
+    phase = "execute"
+    attempted_pairs = 3
+    completed_pairs = 3
+}
+Assert-True (-not (Test-TaskspaceSuiteChildStatusComplete $incompleteStatus 5)) "suite status helper accepted incomplete child status"
+$childFailure = New-TaskspaceSuiteChildFailureStatus $incompleteStatus "diagnostic-incomplete" $runDir 1 "" $runDir
+Assert-True ([string]$childFailure.run_validity -eq "invalid_harness" -and [string]$childFailure.abort_signature -eq "harness_materialization_failure/child_process_failed") "suite status helper did not synthesize child process failure"
 
 $aggregatePath = Join-Path $runDir "aggregate-report.md"
 $evidence = [pscustomobject]@{
