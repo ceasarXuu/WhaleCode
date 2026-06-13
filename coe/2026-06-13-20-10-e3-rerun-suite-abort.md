@@ -145,9 +145,27 @@
 - Supports: H-004 repair.
 - Observation: added `lib\suite-status.ps1` so the suite preserves valid completed child statuses for `completed`, `audit_required`, or `finalize` phases with all required pairs attempted and completed; nonzero incomplete child statuses still synthesize `harness_materialization_failure/child_process_failed`. `test-e3-harness-guardrails.ps1` and `test-harness.ps1` both passed after the fix.
 
+### Evidence E-014
+
+- Type: rerun result
+- Supports: H-001/H-002/H-003/H-004 repairs.
+- Observation: E3 rerun root `C:\w\e3v004-rerun3-20260614-010208` completed at `2026-06-14T06:35:51+08:00` on commit `7a7e0aa28`. `suite-health.json` reports `status=completed`, empty `signature_counts`, empty `suite_abort_reason`, and three valid sample statuses.
+
+### Evidence E-015
+
+- Type: rerun result
+- Supports: full-suite coverage.
+- Observation: all three samples reached `phase=audit_required`, `run_validity=valid`, `attempted_pairs=5`, and `completed_pairs=5`: `recover-accuracy-log`, `processing-pipeline`, and `multi-source-data-merger`. The third sample was not skipped.
+
+### Evidence E-016
+
+- Type: rerun result
+- Supports: outcome interpretation.
+- Observation: suite exit code was `1`, but sample statuses had `abort_scope=none` and no `abort_signature`. Run summaries show all 15 pair reports were produced, but no pair was included in utility or E3 aggregate because results remained diagnostic/audit-pending or lower evidence level. This is a benchmark outcome, not a harness execution failure.
+
 ## Problem P-001 Current Conclusion
 
-- Status: repair-implemented-pending-rerun
+- Status: repair-validated-by-rerun
 - Confirmed root causes:
   - H-001: the E3 task list used a non-durable temp task path that disappeared before rerun.
   - H-002: missing official source files in E3 proof hashing could abort the child process instead of producing a proof mismatch.
@@ -158,5 +176,7 @@
   - `run-taskspace-e3-suite.ps1` now synthesizes `harness_materialization_failure/child_process_failed` for nonzero child exits that did not already write invalid-harness status.
   - `run-taskspace-e3-suite.ps1` now preserves completed valid diagnostic child statuses even when the child exits 1.
   - A durable Terminal-Bench source checkout is available for the next E3 task list.
-- Remaining validation:
-  - Rerun E3 using durable task paths under `C:\w\terminal-bench-1a6ffa9674b571da0ed040c470cb40c4d85f9b9b\original-tasks`.
+- Rerun validation:
+  - Completed full 3-sample E3 suite from durable task paths under `C:\w\terminal-bench-1a6ffa9674b571da0ed040c470cb40c4d85f9b9b\original-tasks`.
+  - The suite ran all samples and all 15 repeats without suite-level abort or invalid harness signature.
+  - Final exit code `1` reflects benchmark diagnostic/audit outcome, not infrastructure failure.
