@@ -160,15 +160,7 @@ if ([string]$harnessHealth.status -eq "fail") {
     $firstFinding = @($harnessHealth.findings | Where-Object { [string]$_.severity -eq "fail" } | Select-Object -First 1)[0]
     $signature = New-TaskspaceInfraSignature "harness_materialization_failure" "preflight" ([string]$firstFinding.stable_code) ([string]$firstFinding.message) "" $harnessHealthPath
     $abortPath = Join-Path $runDir "abort-summary.md"
-    @(
-        "# TaskSpace Harness Abort",
-        "",
-        "- run_validity: invalid_harness",
-        "- abort_phase: preflight",
-        "- reason: $($firstFinding.message)",
-        "- infra_signature: $($signature.key)",
-        "- harness_health: $harnessHealthPath"
-    ) | Set-Content -LiteralPath $abortPath -Encoding UTF8
+    New-TaskspaceHarnessAbortSummaryLines "TaskSpace Harness Abort" "preflight" $firstFinding $signature $harnessHealthPath | Set-Content -LiteralPath $abortPath -Encoding UTF8
     Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "preflight" ([string]$firstFinding.stable_code) $signature $harnessHealthPath $commandLine 0 0 | Out-Null
     Write-Host "RunDir: $runDir"
     Write-Host "HarnessHealth: $harnessHealthPath"
@@ -208,6 +200,21 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     }
     Set-TaskspaceBenchmarkRunPhase $runDir "execute" ($repeat - 1) ($repeat - 1) | Out-Null
     Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" ($repeat - 1) ($repeat - 1) "" "" "" "" $commandLine | Out-Null
+    $pairHealthPath = Join-Path $runDir ("harness-health-pair-{0:000}.json" -f $repeat)
+    $pairHealth = New-TaskspaceDiskHealth @($runDir, $manifest.ScenarioRoot, $manifest.FixtureDir) ("pair_{0:000}_preflight" -f $repeat)
+    Write-TaskspaceHarnessHealth $pairHealthPath $pairHealth
+    Write-TaskspaceRunEvent $runDir "pair_disk_health_completed" @{ repeat = $repeat; status = [string]$pairHealth.status; path = $pairHealthPath }
+    if ([string]$pairHealth.status -eq "fail") {
+        $firstFinding = @($pairHealth.findings | Where-Object { [string]$_.severity -eq "fail" } | Select-Object -First 1)[0]
+        $signature = New-TaskspaceInfraSignature "harness_materialization_failure" "pair_preflight" ([string]$firstFinding.stable_code) ([string]$firstFinding.message) "" $pairHealthPath
+        $abortPath = Join-Path $runDir ("pair-{0:000}-preflight-abort.md" -f $repeat)
+        New-TaskspaceHarnessAbortSummaryLines "TaskSpace Pair Preflight Abort" "pair_preflight" $firstFinding $signature $pairHealthPath | Set-Content -LiteralPath $abortPath -Encoding UTF8
+        Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "pair_preflight" ([string]$firstFinding.stable_code) $signature $pairHealthPath $commandLine ($repeat - 1) ($repeat - 1) | Out-Null
+        Write-Host "RunDir: $runDir"
+        Write-Host "HarnessHealth: $pairHealthPath"
+        Write-Host "AbortSummary: $abortPath"
+        exit 3
+    }
     Write-TaskspaceRunEvent $runDir "pair_started" @{ repeat = $repeat }
     try {
         $pair = New-TaskspacePairWorkspace $manifest $runDir $repeat

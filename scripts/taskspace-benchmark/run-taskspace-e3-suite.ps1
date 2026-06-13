@@ -19,6 +19,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "lib\harness-health.ps1")
 if ($Repeats -lt 5) { throw "E3 suite requires Repeats >= 5." }
 if (-not (Test-Path -LiteralPath $TaskListPath)) { Write-Error "TaskListPath not found: $TaskListPath"; exit 4 }
 if (-not $RunRoot) { $RunRoot = Join-Path ([System.IO.Path]::GetTempPath()) "whale-e3-suite-runs" }
@@ -75,6 +76,7 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
         exit 4
     }
     if ($suiteAbort) {
+        $skipReason = if ([string]$suiteAbort -match "disk_space_low|disk_space_threshold_invalid") { "suite_global_disk_guard" } else { "suite_repeated_infra_signature" }
         $row = [pscustomobject]@{
             sample_id = $sampleId
             task_dir = $taskDir
@@ -82,13 +84,37 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
             abort_scope = "suite"
             abort_phase = "suite_circuit_breaker"
             abort_signature = $suiteAbort
-            skipped_reason = "suite_repeated_infra_signature"
+            skipped_reason = $skipReason
         }
         ($row | ConvertTo-Json -Compress) | Add-Content -LiteralPath $skippedPath -Encoding UTF8
         $sampleStatuses.Add($row)
         continue
     }
     $sampleRoot = Join-Path $samplesRoot $sampleId
+    $sampleDiskHealthPath = Join-Path $suiteRoot ("suite-disk-health-{0:000}.json" -f ($index + 1))
+    $sampleDiskHealth = New-TaskspaceDiskHealth @($suiteRoot, $sampleRoot, $taskDir) "suite_sample_preflight"
+    Write-TaskspaceHarnessHealth $sampleDiskHealthPath $sampleDiskHealth
+    if ([string]$sampleDiskHealth.status -eq "fail") {
+        $firstFinding = @($sampleDiskHealth.findings | Where-Object { [string]$_.severity -eq "fail" } | Select-Object -First 1)[0]
+        $signature = New-TaskspaceInfraSignature "harness_materialization_failure" "suite_sample_preflight" ([string]$firstFinding.stable_code) ([string]$firstFinding.message) "" $sampleDiskHealthPath
+        $status = [pscustomobject]@{
+            sample_id = $sampleId
+            task_dir = $taskDir
+            run_validity = "invalid_harness"
+            exit_code = 3
+            abort_scope = "sample"
+            abort_phase = "suite_sample_preflight"
+            abort_signature = $signature.key
+            abort_reason = [string]$firstFinding.stable_code
+            first_failure_artifact = $sampleDiskHealthPath
+        }
+        $sampleStatuses.Add($status)
+        if (-not $signatureCounts.ContainsKey($signature.key)) { $signatureCounts[$signature.key] = 0 }
+        $signatureCounts[$signature.key]++
+        $suiteAbort = $signature.key
+        $exitCode = 3
+        continue
+    }
     $args = @(
         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $runner,
         "-Benchmark", $Benchmark,
@@ -119,7 +145,7 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
         if (-not $signatureCounts.ContainsKey($sig)) { $signatureCounts[$sig] = 0 }
         $signatureCounts[$sig]++
         if ($exitCode -eq 0) { $exitCode = 3 }
-        $global = $sig -match "docker_backend_unavailable|uv_cache_missing|validator_source_missing"
+        $global = $sig -match "docker_backend_unavailable|uv_cache_missing|validator_source_missing|disk_space_low|disk_space_threshold_invalid"
         if (-not $ContinueAfterInvalidHarness -and ($global -or $signatureCounts[$sig] -ge 2)) {
             $suiteAbort = $sig
             $exitCode = 3

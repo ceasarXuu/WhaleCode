@@ -39,11 +39,18 @@ function Test-TaskspaceResolvablePathFrom {
 }
 
 function Get-TaskspaceMinimumFreeBytes {
+    $script:TaskspaceDiskThresholdError = ""
     if (-not [string]::IsNullOrWhiteSpace($env:TASKSPACE_MIN_FREE_BYTES)) {
-        return [int64]$env:TASKSPACE_MIN_FREE_BYTES
+        try { return [int64]$env:TASKSPACE_MIN_FREE_BYTES } catch {
+            $script:TaskspaceDiskThresholdError = "Invalid TASKSPACE_MIN_FREE_BYTES: $env:TASKSPACE_MIN_FREE_BYTES"
+            return [int64](20GB)
+        }
     }
     if (-not [string]::IsNullOrWhiteSpace($env:TASKSPACE_MIN_FREE_GIB)) {
-        return [int64]([double]$env:TASKSPACE_MIN_FREE_GIB * 1GB)
+        try { return [int64]([double]$env:TASKSPACE_MIN_FREE_GIB * 1GB) } catch {
+            $script:TaskspaceDiskThresholdError = "Invalid TASKSPACE_MIN_FREE_GIB: $env:TASKSPACE_MIN_FREE_GIB"
+            return [int64](20GB)
+        }
     }
     [int64](20GB)
 }
@@ -98,6 +105,119 @@ function Get-TaskspaceDiskSpaceChecks {
         }
     }
     @($checks.ToArray())
+}
+
+function Get-TaskspaceSupplementalDiskPaths {
+    $paths = New-Object System.Collections.Generic.List[string]
+    foreach ($candidate in @($env:UV_CACHE_DIR, $env:WHALE_TASKSPACE_UV_CACHE_DIR)) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) { $paths.Add([string]$candidate) }
+    }
+    $dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
+    if ($dockerCommand -and -not [string]::IsNullOrWhiteSpace([string]$dockerCommand.Source)) { $paths.Add([string]$dockerCommand.Source) }
+    if (Test-Path -LiteralPath "D:\whale-docker") { $paths.Add("D:\whale-docker") }
+    @($paths.ToArray())
+}
+
+function Invoke-TaskspaceShortCommand {
+    param(
+        [Parameter(Mandatory = $true)][string]$Command,
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [int]$TimeoutSeconds = 20
+    )
+    $job = Start-Job -ScriptBlock {
+        param([string]$InnerCommand, [string[]]$InnerArguments)
+        $output = & $InnerCommand @InnerArguments 2>&1
+        [pscustomobject]@{ exit_code = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }; output = @($output | ForEach-Object { [string]$_ }) }
+    } -ArgumentList $Command, $Arguments
+    if (-not (Wait-Job -Job $job -Timeout $TimeoutSeconds)) {
+        Stop-Job -Job $job -ErrorAction SilentlyContinue | Out-Null
+        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        return [pscustomobject]@{ exit_code = 124; output = @("timeout after $TimeoutSeconds seconds") }
+    }
+    $result = Receive-Job -Job $job
+    Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+    if ($null -eq $result) { return [pscustomobject]@{ exit_code = 1; output = @("no output") } }
+    $result | Select-Object -First 1
+}
+
+function Get-TaskspaceDockerStorageChecks {
+    param([int64]$MinimumFreeBytes = (Get-TaskspaceMinimumFreeBytes))
+    $checks = New-Object System.Collections.Generic.List[object]
+    $distro = if ($env:TASKSPACE_DOCKER_WSL_DISTRO) { $env:TASKSPACE_DOCKER_WSL_DISTRO } else { "whale-docker" }
+    if (-not (Get-Command wsl -ErrorAction SilentlyContinue)) { return @($checks.ToArray()) }
+    $info = Invoke-TaskspaceShortCommand "wsl" @("-d", $distro, "--", "sh", "-lc", "docker info --format '{{.DockerRootDir}}' 2>/dev/null || true") 20
+    $dockerRoot = (@($info.output) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -First 1)
+    if ([string]::IsNullOrWhiteSpace([string]$dockerRoot)) { $dockerRoot = "/var/lib/docker" }
+    $paths = @("/", [string]$dockerRoot) | Sort-Object -Unique
+    foreach ($path in $paths) {
+        $df = Invoke-TaskspaceShortCommand "wsl" @("-d", $distro, "--", "df", "-Pk", $path) 20
+        $line = @($df.output | Where-Object { [string]$_ -match "^\S+\s+\d+\s+\d+\s+\d+\s+\d+%" } | Select-Object -Last 1)
+        if ([int]$df.exit_code -ne 0 -or -not $line) {
+            $checks.Add([pscustomobject]@{ kind = "wsl_df"; distro = $distro; path = $path; status = "fail"; free_bytes = 0; required_free_bytes = $MinimumFreeBytes; message = (@($df.output) -join " ") })
+            continue
+        }
+        $parts = ([string]$line).Trim() -split "\s+"
+        $free = [int64]$parts[3] * 1024
+        $checks.Add([pscustomobject]@{
+                kind = "wsl_df"
+                distro = $distro
+                path = $path
+                docker_root = [string]$dockerRoot
+                free_bytes = $free
+                required_free_bytes = $MinimumFreeBytes
+                free_gib = [math]::Round($free / 1GB, 2)
+                required_free_gib = [math]::Round($MinimumFreeBytes / 1GB, 2)
+                status = if ($free -lt $MinimumFreeBytes) { "fail" } else { "pass" }
+            })
+    }
+    @($checks.ToArray())
+}
+
+function New-TaskspaceDiskHealth {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Paths,
+        [string]$Stage = "preflight"
+    )
+    $minimum = Get-TaskspaceMinimumFreeBytes
+    $hostChecks = Get-TaskspaceDiskSpaceChecks @($Paths + (Get-TaskspaceSupplementalDiskPaths))
+    $dockerChecks = Get-TaskspaceDockerStorageChecks $minimum
+    $findings = New-Object System.Collections.Generic.List[object]
+    if (-not [string]::IsNullOrWhiteSpace($script:TaskspaceDiskThresholdError)) {
+        $findings.Add([pscustomobject]@{ severity = "fail"; stable_code = "disk_space_threshold_invalid"; message = $script:TaskspaceDiskThresholdError; path = ""; stage = $Stage })
+    }
+    $allChecks = @($hostChecks) + @($dockerChecks)
+    foreach ($space in @($allChecks | Where-Object { [string]$_.status -eq "fail" })) {
+        $label = if ($space.PSObject.Properties.Name -contains "root") { [string]$space.root } else { "$($space.distro):$($space.path)" }
+        $findings.Add([pscustomobject]@{
+                severity = "fail"; stable_code = "disk_space_low"; stage = $Stage
+                message = "Free disk space below TaskSpace preflight minimum on ${label}: $($space.free_gib) GiB available, $($space.required_free_gib) GiB required"
+                path = [string]$space.path; root = $label; free_bytes = [int64]$space.free_bytes; required_free_bytes = [int64]$space.required_free_bytes
+            })
+    }
+    $hardFindings = @($findings.ToArray())
+    [pscustomobject]@{ schema_version = 1; status = if ($hardFindings.Count -gt 0) { "fail" } else { "pass" }; run_validity = if ($hardFindings.Count -gt 0) { "invalid_harness" } else { "valid" }; findings = @($findings.ToArray()); disk_space_checks = @($hostChecks); docker_storage_checks = @($dockerChecks); generated_at = (Get-Date).ToString("o") }
+}
+
+function New-TaskspaceHarnessAbortSummaryLines {
+    param([string]$Title, [string]$Phase, $Finding, $Signature, [string]$HealthPath)
+    $lines = @("# $Title", "", "- run_validity: invalid_harness", "- abort_phase: $Phase", "- reason: $($Finding.message)", "- infra_signature: $($Signature.key)", "- harness_health: $HealthPath")
+    if ([string]$Finding.stable_code -eq "disk_space_low") {
+        $lines += @(
+            "- failed_root: $($Finding.root)",
+            "- failed_path: $($Finding.path)",
+            "- free_gib: $([math]::Round([int64]$Finding.free_bytes / 1GB, 2))",
+            "- required_gib: $([math]::Round([int64]$Finding.required_free_bytes / 1GB, 2))",
+            "- override_bytes_env: TASKSPACE_MIN_FREE_BYTES",
+            "- override_gib_env: TASKSPACE_MIN_FREE_GIB",
+            "- likely_cleanup_paths: run root, repo target directories, Docker/WSL data root, D:\whale-docker"
+        )
+    } elseif ([string]$Finding.stable_code -eq "disk_space_threshold_invalid") {
+        $lines += @(
+            "- override_bytes_env: TASKSPACE_MIN_FREE_BYTES",
+            "- override_gib_env: TASKSPACE_MIN_FREE_GIB"
+        )
+    }
+    $lines
 }
 
 function Get-TaskspaceHarnessTextSignature {
@@ -179,7 +299,7 @@ function Get-TaskspaceInfraSignatureFromMetrics {
 function Test-TaskspaceHardInfraSignature {
     param($Signature)
     if ($null -eq $Signature) { return $false }
-    [string]$Signature.stable_code -in @("relative_materialized_path", "path_unresolvable", "validator_source_missing", "uv_cache_missing", "docker_backend_unavailable", "runtime_manifest_missing", "validator_probe_failed", "workspace_baseline_git_failed", "workspace_fixture_copy_failed", "workspace_materialization_failed", "disk_space_low")
+    [string]$Signature.stable_code -in @("relative_materialized_path", "path_unresolvable", "validator_source_missing", "uv_cache_missing", "docker_backend_unavailable", "runtime_manifest_missing", "validator_probe_failed", "workspace_baseline_git_failed", "workspace_fixture_copy_failed", "workspace_materialization_failed", "disk_space_low", "disk_space_threshold_invalid")
 }
 
 function Get-TaskspaceSentinelAbortDecision {
@@ -255,23 +375,8 @@ function Get-TaskspaceHarnessHealth {
     foreach ($pathInfo in @($checked.ToArray())) {
         if (-not [string]::IsNullOrWhiteSpace([string]$pathInfo.path)) { $spacePaths.Add([string]$pathInfo.path) }
     }
-    $dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
-    if ($dockerCommand -and -not [string]::IsNullOrWhiteSpace([string]$dockerCommand.Source)) {
-        $spacePaths.Add([string]$dockerCommand.Source)
-    }
-    if (Test-Path -LiteralPath "D:\whale-docker") { $spacePaths.Add("D:\whale-docker") }
-    $diskSpaceChecks = Get-TaskspaceDiskSpaceChecks @($spacePaths.ToArray())
-    foreach ($space in @($diskSpaceChecks | Where-Object { [string]$_.status -eq "fail" })) {
-        $findings.Add([pscustomobject]@{
-                severity = "fail"
-                stable_code = "disk_space_low"
-                message = "Free disk space below TaskSpace preflight minimum on $($space.root): $($space.free_gib) GiB available, $($space.required_free_gib) GiB required"
-                path = [string]$space.path
-                root = [string]$space.root
-                free_bytes = [int64]$space.free_bytes
-                required_free_bytes = [int64]$space.required_free_bytes
-            })
-    }
+    $diskHealth = New-TaskspaceDiskHealth @($spacePaths.ToArray()) "preflight"
+    foreach ($finding in @($diskHealth.findings)) { $findings.Add($finding) }
     $hardFindings = @($findings.ToArray() | Where-Object { [string]$_.severity -eq "fail" })
     [pscustomobject]@{
         schema_version = 1
@@ -279,7 +384,8 @@ function Get-TaskspaceHarnessHealth {
         run_validity = if ($hardFindings.Count -gt 0) { "invalid_harness" } else { "valid" }
         findings = @($findings.ToArray())
         checked_paths = @($checked.ToArray())
-        disk_space_checks = @($diskSpaceChecks)
+        disk_space_checks = @($diskHealth.disk_space_checks)
+        docker_storage_checks = @($diskHealth.docker_storage_checks)
         generated_at = (Get-Date).ToString("o")
         run_dir = $RunDir
         scenario_base_dir = $ScenarioBaseDir

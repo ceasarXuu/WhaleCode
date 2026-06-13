@@ -482,6 +482,7 @@ $adapterValidatorText = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path 
 Assert-True ($adapterValidatorText -match "proxy_env_skipped_loopback") "terminal-bench validator did not guard WSL loopback proxy injection"
 Assert-True ($adapterValidatorText -match "Invoke-DockerBackendProbe") "terminal-bench validator did not time-bound Docker backend probing"
 Assert-True ($adapterValidatorText -match "Requested native Docker backend is unavailable") "terminal-bench validator did not validate native Docker wrapper availability"
+Assert-True ($adapterValidatorText -match "Test-DockerCommandIsWslWrapper") "terminal-bench validator did not detect WSL docker command wrappers"
 Assert-True ($adapterValidatorText -match "getpwnam\\\(root\\\) failed") "terminal-bench validator did not classify WSL root lookup backend failures"
 $terminalBenchEnv = Join-Path $runDir "terminal-bench-env"
 New-Item -ItemType Directory -Path (Join-Path $terminalBenchEnv "environment") -Force | Out-Null

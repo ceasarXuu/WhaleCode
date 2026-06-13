@@ -23,11 +23,26 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+. (Join-Path $PSScriptRoot "lib\harness-health.ps1")
 if ([string]::IsNullOrWhiteSpace($SourceVersion)) { throw "SourceVersion must pin the external benchmark source revision." }
 if (-not $RunRoot) { $RunRoot = Join-Path ([System.IO.Path]::GetTempPath()) "whale-external-bench-runs" }
 $RunRoot = [System.IO.Path]::GetFullPath($RunRoot)
 New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
 $scenarioRoot = Join-Path $RunRoot "materialized-scenarios"
+$preMaterializationHealthPath = Join-Path $RunRoot "external-materialization-preflight-health.json"
+$preMaterializationHealth = New-TaskspaceDiskHealth @($RunRoot, $scenarioRoot, $TaskDir) "external_materialization_preflight"
+Write-TaskspaceHarnessHealth $preMaterializationHealthPath $preMaterializationHealth
+if ([string]$preMaterializationHealth.status -eq "fail") {
+    $firstFinding = @($preMaterializationHealth.findings | Where-Object { [string]$_.severity -eq "fail" } | Select-Object -First 1)[0]
+    $signature = New-TaskspaceInfraSignature "harness_materialization_failure" "external_materialization_preflight" ([string]$firstFinding.stable_code) ([string]$firstFinding.message) "" $preMaterializationHealthPath
+    $abortSummaryPath = Join-Path $RunRoot "abort-summary.md"
+    New-TaskspaceHarnessAbortSummaryLines "TaskSpace External Materialization Abort" "external_materialization_preflight" $firstFinding $signature $preMaterializationHealthPath | Set-Content -LiteralPath $abortSummaryPath -Encoding UTF8
+    [pscustomobject]@{ schema_version = 1; phase = "invalid_harness"; run_validity = "invalid_harness"; diagnostic_comparison_enabled = $false; exit_code = 3; resume_allowed = $false; force_rerun_required = $true; invalid_run_reason = [string]$firstFinding.stable_code; first_failure_artifact = $preMaterializationHealthPath } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $RunRoot "run-status.json") -Encoding UTF8
+    [pscustomobject]@{ schema_version = 1; sample_id = if ($SampleId) { $SampleId } else { Split-Path -Leaf $TaskDir }; phase = "invalid_harness"; run_validity = "invalid_harness"; diagnostic_comparison_enabled = $false; exit_code = 3; resume_allowed = $false; force_rerun_required = $true; abort_scope = "sample"; abort_phase = "external_materialization_preflight"; abort_signature = $signature.key; abort_reason = [string]$firstFinding.stable_code; first_failure_artifact = $preMaterializationHealthPath } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $RunRoot "sample-status.json") -Encoding UTF8
+    Write-Host "ExternalMaterializationHealth: $preMaterializationHealthPath"
+    Write-Host "AbortSummary: $abortSummaryPath"
+    exit 3
+}
 $adapter = switch ($Benchmark) {
     "deepswe" { Join-Path $PSScriptRoot "adapters\deepswe-adapter.ps1" }
     "terminal-bench" { Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1" }
@@ -86,14 +101,7 @@ try {
         abort_reason = $code
         first_failure_artifact = $healthPath
     } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $sampleStatusPath -Encoding UTF8
-    @(
-        "# TaskSpace External Materialization Abort",
-        "",
-        "- run_validity: invalid_harness",
-        "- abort_phase: external_materialization",
-        "- reason: $code",
-        "- health: $healthPath"
-    ) | Set-Content -LiteralPath $abortSummaryPath -Encoding UTF8
+    New-TaskspaceHarnessAbortSummaryLines "TaskSpace External Materialization Abort" "external_materialization" ([pscustomobject]@{ stable_code = $code; message = $message; path = $TaskDir; root = ""; free_bytes = 0; required_free_bytes = 0 }) $signature $healthPath | Set-Content -LiteralPath $abortSummaryPath -Encoding UTF8
     Write-Host "ExternalMaterializationHealth: $healthPath"
     Write-Host "AbortSummary: $abortSummaryPath"
     exit 3
