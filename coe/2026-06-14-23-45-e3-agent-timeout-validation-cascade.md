@@ -155,3 +155,21 @@ Diagnostic evidence plan:
 ## Evidence E-017
 
 Supports H-005 validation. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` now passes with a synthetic suite timing fixture that writes `runtime-calibration-report.md/json`, renders `speedup_decision=speedup_blocked_instrumentation`, includes profile/parallelism metadata, and preserves `parallelism.resource_governor_status=pass` in JSON.
+
+## Hypothesis H-006
+
+Claim: validation timeout phase splitting is only complete if the runner-level markers also drive the hard score taxonomy; otherwise a pretest hang can still be misread as an agent-visible validation timeout instead of engineering-unclean infrastructure failure.
+
+Predictions:
+- A timeout before `validator_tests_started=true` must preserve `validation_timeout_phase=pretest`, classify as `public_validation_timeout`, add `no_tests_started_marker`, and return `engineering_unclean`.
+- A timeout after `validator_tests_started=true` must preserve `validation_timeout_phase=tests`, classify as `public_validation_timeout`, return `engineering_unclean`, and must not add `no_tests_started_marker`.
+- The fixture should run inside `test-oracle-runner-harness.ps1` without invoking a full E3 suite.
+
+Diagnostic evidence plan:
+- Source `failure-taxonomy.ps1` in the oracle runner harness.
+- Convert the existing pretest/tests timeout lifecycle fixtures into synthetic metrics.
+- Assert the resulting unclean reasons and agent outcome for both phases.
+
+## Evidence E-018
+
+Supports H-006 validation. `scripts/taskspace-benchmark/test-oracle-runner-harness.ps1` now passes with taxonomy assertions proving pretest timeout maps to `public_validation_timeout` plus `no_tests_started_marker` and `engineering_unclean`, while tests-started timeout keeps `public_validation_timeout` and `engineering_unclean` without incorrectly adding `no_tests_started_marker`. `scripts/taskspace-benchmark/test-e3-score-validity.ps1` also still passes after this fixture extension.

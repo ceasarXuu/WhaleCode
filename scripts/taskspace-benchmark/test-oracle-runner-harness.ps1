@@ -6,6 +6,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $repoRoot "scripts\action-map-real-user-e2e-lib.ps1")
 . (Join-Path $PSScriptRoot "lib\harness-health.ps1")
+. (Join-Path $PSScriptRoot "lib\failure-taxonomy.ps1")
 . (Join-Path $PSScriptRoot "lib\oracle-runner.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\oracle-runner-selftest" }
@@ -64,6 +65,22 @@ if ([string]$pretestLifecycle.validation_timeout_phase -ne "pretest") {
     Write-Host "- validation pretest timeout phase was not preserved"
     exit 1
 }
+$pretestMetrics = [pscustomobject]@{
+    public_validation_exit_code = $pretestExit
+    validation_lifecycle_stage = [string]$pretestLifecycle.validation_lifecycle_stage
+    tests_started_seen = [bool]$pretestLifecycle.tests_started_seen
+    exec_timed_out = $false
+    pretest_failure = $true
+    infra_signature = [pscustomobject]@{ stable_code = "no_tests_started_marker" }
+    validator_environment_failures = @()
+}
+$pretestReasons = @(Get-TaskspaceEngineeringUncleanReasons $pretestMetrics)
+$pretestOutcome = Get-TaskspaceAgentOutcome $pretestMetrics $pretestReasons
+if (@($pretestReasons | Where-Object { [string]$_ -eq "public_validation_timeout" }).Count -ne 1 -or @($pretestReasons | Where-Object { [string]$_ -eq "no_tests_started_marker" }).Count -ne 1 -or [string]$pretestOutcome -ne "engineering_unclean") {
+    Write-Host "TaskSpace oracle-runner self-test: FAIL"
+    Write-Host "- validation pretest timeout was not classified as engineering-unclean taxonomy; reasons=$($pretestReasons -join ',') outcome=$pretestOutcome"
+    exit 1
+}
 
 $testsStdout = Join-Path $artifactDir "validation-tests-timeout.stdout.log"
 $testsStderr = Join-Path $artifactDir "validation-tests-timeout.stderr.log"
@@ -80,6 +97,21 @@ $testsLifecycle = Get-TaskspaceValidationLifecycle ([pscustomobject]@{ stdout_pa
 if (-not [bool]$testsLifecycle.tests_started_seen -or [string]$testsLifecycle.validation_timeout_phase -ne "tests" -or [string]::IsNullOrWhiteSpace([string]$testsLifecycle.tests_started_at)) {
     Write-Host "TaskSpace oracle-runner self-test: FAIL"
     Write-Host "- validation tests timeout did not preserve tests_started marker and timeout phase"
+    exit 1
+}
+$testsMetrics = [pscustomobject]@{
+    public_validation_exit_code = $testsExit
+    validation_lifecycle_stage = [string]$testsLifecycle.validation_lifecycle_stage
+    tests_started_seen = [bool]$testsLifecycle.tests_started_seen
+    exec_timed_out = $false
+    pretest_failure = $false
+    validator_environment_failures = @()
+}
+$testsReasons = @(Get-TaskspaceEngineeringUncleanReasons $testsMetrics)
+$testsOutcome = Get-TaskspaceAgentOutcome $testsMetrics $testsReasons
+if (@($testsReasons | Where-Object { [string]$_ -eq "public_validation_timeout" }).Count -ne 1 -or @($testsReasons | Where-Object { [string]$_ -eq "no_tests_started_marker" }).Count -ne 0 -or [string]$testsOutcome -ne "engineering_unclean") {
+    Write-Host "TaskSpace oracle-runner self-test: FAIL"
+    Write-Host "- validation tests timeout taxonomy lost tests_started distinction; reasons=$($testsReasons -join ',') outcome=$testsOutcome"
     exit 1
 }
 
