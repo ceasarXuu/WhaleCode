@@ -234,6 +234,14 @@ Assert-True ([string]$timing.runtime_optimization_status -eq "blocked" -and @($t
 Assert-True (@($timing.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:process_launch_wait_ms" }).Count -eq 1) "pair timing did not report missing process launch wait when no process timing was observed"
 $metricWithTiming = Add-TaskspaceMetricTimingFields $metricsBySide.left $validationTimingBySide.left
 Assert-True ([int64]$metricWithTiming.public_validation_duration_ms -gt 0) "metric timing did not record validation duration"
+$modelTimingJsonl = Join-Path $RunRoot ("model-timing-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff") + ".jsonl")
+@(
+    '{"type":"thread.started","thread_id":"thread-model-timing"}',
+    '{"type":"responsesapi.websocket_timing","timing_metrics":{"responses_duration_excl_engine_and_client_tool_time_ms":120,"engine_service_total_ms":450}}'
+) | Set-Content -LiteralPath $modelTimingJsonl -Encoding UTF8
+$modelTiming = Get-TaskspaceModelTimingAttribution $modelTimingJsonl
+Assert-True ([int64]$modelTiming.model_request_duration_ms -eq 570) "model timing parser did not aggregate websocket timing metrics"
+Assert-True ([string]$modelTiming.model_timing_source_status -eq "responsesapi_websocket_timing") "model timing parser did not record timing source status"
 $processTimingPairDir = Join-Path $RunRoot ("process-timing-pair-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
 New-Item -ItemType Directory -Force -Path $processTimingPairDir | Out-Null
 $processMetrics = @{
@@ -242,6 +250,8 @@ $processMetrics = @{
 }
 $processMetrics.left | Add-Member -NotePropertyName process_launch_wait_ms -NotePropertyValue 11 -Force
 $processMetrics.right | Add-Member -NotePropertyName process_launch_wait_ms -NotePropertyValue 13 -Force
+$processMetrics.left | Add-Member -NotePropertyName model_request_duration_ms -NotePropertyValue 570 -Force
+$processMetrics.right | Add-Member -NotePropertyName model_request_duration_ms -NotePropertyValue 430 -Force
 $processValidationTiming = @{
     left = [pscustomobject]@{ logical_mode = "standard"; validation_started_at = $now; validation_finished_at = $now.AddSeconds(1); validation_exit_code = 0; validation_process_launch_wait_ms = 17; oracle_started_at = $now.AddSeconds(1); oracle_finished_at = $now.AddSeconds(2); oracle_exit_code = 0; engineering_unclean_reasons = @() }
     right = [pscustomobject]@{ logical_mode = "taskspace"; validation_started_at = $now; validation_finished_at = $now.AddSeconds(1); validation_exit_code = 0; validation_process_launch_wait_ms = 19; oracle_started_at = $now.AddSeconds(1); oracle_finished_at = $now.AddSeconds(2); oracle_exit_code = 0; engineering_unclean_reasons = @() }
@@ -249,7 +259,9 @@ $processValidationTiming = @{
 $processTimingPath = Write-TaskspacePairTiming $processTimingPairDir 1 $now $now.AddSeconds(3) ([pscustomobject]@{ Id = "process-timing-fixture" }) $null $processMetrics $processValidationTiming @()
 $processTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $processTimingPath | ConvertFrom-Json
 Assert-True ([int64]$processTiming.process_launch_wait_ms -eq 60) "pair timing did not aggregate agent and validation process launch wait"
+Assert-True ([int64]$processTiming.model_request_duration_ms -eq 1000) "pair timing did not aggregate model request duration"
 Assert-True (@($processTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:process_launch_wait_ms" }).Count -eq 0) "pair timing still reported process launch wait missing after observing process timing"
+Assert-True (@($processTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:model_request_duration_ms" }).Count -eq 0) "pair timing still reported model request duration missing after observing timing"
 $skipTimingBySide = @{
     left = [pscustomobject]@{ logical_mode = "standard"; validation_started_at = $now; validation_finished_at = $now; validation_exit_code = 0; validation_skipped = $true; validation_skip_reason = "agent_exec_timeout"; oracle_started_at = $now; oracle_finished_at = $now; oracle_exit_code = 0; engineering_unclean_reasons = @() }
 }

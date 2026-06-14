@@ -422,6 +422,14 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $validation = [pscustomobject]@{ exit_code = $validationExit; stdout_path = $validationStdout; stderr_path = $validationStderr }
         $metrics = Get-TaskspaceBenchmarkMetrics $side $exec $validation $oracle $obsBySide[$side.Name]
         $metrics.invalid_prompt = $promptGuard.invalid_prompt
+        $modelTiming = Get-TaskspaceModelTimingAttribution $exec.jsonl_path
+        $metrics | Add-Member -NotePropertyName model_queue_wait_ms -NotePropertyValue $modelTiming.model_queue_wait_ms -Force
+        $metrics | Add-Member -NotePropertyName model_retry_backoff_ms -NotePropertyValue $modelTiming.model_retry_backoff_ms -Force
+        $metrics | Add-Member -NotePropertyName model_request_duration_ms -NotePropertyValue $modelTiming.model_request_duration_ms -Force
+        $metrics | Add-Member -NotePropertyName model_timing_event_count -NotePropertyValue $modelTiming.model_timing_event_count -Force
+        $metrics | Add-Member -NotePropertyName model_timing_source_status -NotePropertyValue $modelTiming.model_timing_source_status -Force
+        $metrics | Add-Member -NotePropertyName model_timing_source_path -NotePropertyValue $modelTiming.model_timing_source_path -Force
+        $metrics | Add-Member -NotePropertyName model_timing_parse_errors -NotePropertyValue $modelTiming.model_timing_parse_errors -Force
         $metrics | Add-Member -NotePropertyName process_launch_wait_ms -NotePropertyValue $exec.process_launch_wait_ms -Force
         $metrics | Add-Member -NotePropertyName public_validation_skipped -NotePropertyValue ([bool]$skipValidationAfterExecTimeout) -Force
         $metrics | Add-Member -NotePropertyName public_validation_skip_reason -NotePropertyValue $(if ($skipValidationAfterExecTimeout) { "agent_exec_timeout" } else { "" }) -Force

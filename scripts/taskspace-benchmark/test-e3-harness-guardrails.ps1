@@ -259,11 +259,11 @@ $pairEnd = $pairStart.AddSeconds(10)
 $timingMetrics = @{
     left = [pscustomobject]@{
         logical_mode = "standard"; wall_time_ms = 2000; exec_exit_code = 0; exec_timed_out = $false
-        validator_environment_failures = @(); docker_build_duration_ms = 1600; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100; docker_cache_key = "cache-a"
+        validator_environment_failures = @(); docker_build_duration_ms = 1600; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100; docker_cache_key = "cache-a"; model_request_duration_ms = 700
     }
     right = [pscustomobject]@{
         logical_mode = "taskspace"; wall_time_ms = 2000; exec_exit_code = 0; exec_timed_out = $false
-        validator_environment_failures = @(); docker_build_duration_ms = 100; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100; docker_cache_key = "cache-a"
+        validator_environment_failures = @(); docker_build_duration_ms = 100; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100; docker_cache_key = "cache-a"; model_request_duration_ms = 300
     }
 }
 $timingValidation = @{
@@ -277,6 +277,7 @@ Assert-True ([double]$pairTiming.timing_breakdown.subtotal_percentages.docker_bu
 Assert-True ([string]$pairTiming.timing_breakdown.largest_span.name -eq "agent") "pair timing largest span did not identify agent subtotal"
 Assert-True ([string]$pairTiming.timing_breakdown.top_spans[0].name -eq "agent") "pair timing did not render sorted top spans"
 Assert-True (@($pairTiming.docker_cache_keys).Count -eq 1 -and [string]$pairTiming.docker_cache_keys[0] -eq "cache-a") "pair timing did not record unique Docker cache key"
+Assert-True ([int64]$pairTiming.model_request_duration_ms -eq 1000 -and @($pairTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_request_duration_ms" }).Count -eq 0) "pair timing did not aggregate observed model request duration"
 
 $unclean = Get-TaskspaceTimingBottleneck 10000 1000 1000 0 0 0 0 @("docker_run_failure")
 Assert-True ([string]$unclean.classification -eq "engineering_unclean_slow") "timing bottleneck did not prioritize engineering unclean"
@@ -299,6 +300,7 @@ Assert-True ([int64]$sampleTiming.docker_build_duration_ms -eq 2600) "sample tim
 Assert-True ([int]$sampleTiming.bottleneck_counts.docker_build_bound -eq 1) "sample timing did not aggregate bottleneck count"
 Assert-True ([int64]$sampleTiming.phase_distributions.total.median_ms -eq 10000 -and [int64]$sampleTiming.phase_distributions.total.p95_ms -eq 20000) "sample timing did not compute deterministic median/p95"
 Assert-True ([int]$sampleTiming.docker_cache_key_counts."cache-a" -eq 2 -and [string]$sampleTiming.repeated_docker_cache_keys[0] -eq "cache-a") "sample timing did not detect repeated Docker cache key"
+Assert-True ([int64]$sampleTiming.model_request_duration_ms -eq 2000 -and @($sampleTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_request_duration_ms" }).Count -eq 0) "sample timing did not aggregate observed model request duration"
 
 $suiteRoot = Join-Path $runDir "timing-suite"
 $suiteSampleRoot = Join-Path $suiteRoot "samples\timing-sample"
@@ -309,6 +311,7 @@ $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteRoo
 Assert-True ([int64]$suiteTiming.docker_build_duration_ms -eq 2600) "suite timing did not aggregate docker build duration"
 Assert-True ([int]$suiteTiming.bottleneck_counts.docker_build_bound -eq 1) "suite timing did not aggregate bottleneck count"
 Assert-True ([int]$suiteTiming.docker_cache_key_counts."cache-a" -eq 2 -and [string]$suiteTiming.repeated_docker_cache_keys[0] -eq "cache-a") "suite timing did not aggregate repeated Docker cache keys"
+Assert-True ([int64]$suiteTiming.model_request_duration_ms -eq 2000 -and @($suiteTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_request_duration_ms" }).Count -eq 0) "suite timing did not aggregate observed model request duration"
 $runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath (Join-Path $suiteRoot "suite-timing.json") -ScoreValid $true
 $runtimeBottleneckText = Get-Content -Raw -Encoding UTF8 -LiteralPath $runtimeBottleneckPath
 $runtimeBottleneckJson = Get-Content -Raw -Encoding UTF8 -LiteralPath ([System.IO.Path]::ChangeExtension($runtimeBottleneckPath, ".json")) | ConvertFrom-Json

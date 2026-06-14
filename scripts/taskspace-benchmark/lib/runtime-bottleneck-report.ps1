@@ -31,6 +31,7 @@ function Get-TaskspaceRuntimePhaseRows {
     $rows = New-Object System.Collections.Generic.List[object]
     foreach ($name in @(
             "agent_duration_ms",
+            "model_request_duration_ms",
             "public_validation_duration_ms",
             "hidden_oracle_duration_ms",
             "docker_build_duration_ms",

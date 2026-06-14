@@ -90,6 +90,51 @@ function New-TaskspaceMissingWaitAttribution {
     @($missing.ToArray())
 }
 
+function Get-TaskspaceModelTimingAttribution {
+    param([string]$JsonlPath)
+    $requestMs = [int64]0
+    $eventCount = 0
+    $parseErrors = 0
+    if ([string]::IsNullOrWhiteSpace($JsonlPath) -or -not (Test-Path -LiteralPath $JsonlPath)) {
+        return [pscustomobject]@{
+            model_request_duration_ms = $null
+            model_queue_wait_ms = $null
+            model_retry_backoff_ms = $null
+            model_timing_event_count = 0
+            model_timing_source_status = "jsonl_missing"
+            model_timing_source_path = $JsonlPath
+            model_timing_parse_errors = 0
+        }
+    }
+    foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $JsonlPath -ErrorAction SilentlyContinue)) {
+        if ([string]::IsNullOrWhiteSpace($line) -or $line.Trim() -eq "artifact") { continue }
+        try { $evt = $line | ConvertFrom-Json } catch { $parseErrors++; continue }
+        $eventType = if ($evt.PSObject.Properties.Name -contains "type") { [string]$evt.type } else { "" }
+        $payload = if ($evt.PSObject.Properties.Name -contains "payload") { $evt.payload } else { $null }
+        $payloadType = if ($payload -and $payload.PSObject.Properties.Name -contains "type") { [string]$payload.type } else { "" }
+        $timingMetrics = $null
+        if ($eventType -eq "responsesapi.websocket_timing" -and $evt.PSObject.Properties.Name -contains "timing_metrics") {
+            $timingMetrics = $evt.timing_metrics
+        } elseif ($payloadType -eq "responsesapi.websocket_timing" -and $payload.PSObject.Properties.Name -contains "timing_metrics") {
+            $timingMetrics = $payload.timing_metrics
+        }
+        if (-not $timingMetrics) { continue }
+        $eventCount++
+        $overhead = if ($timingMetrics.PSObject.Properties.Name -contains "responses_duration_excl_engine_and_client_tool_time_ms") { [int64]$timingMetrics.responses_duration_excl_engine_and_client_tool_time_ms } else { 0 }
+        $engine = if ($timingMetrics.PSObject.Properties.Name -contains "engine_service_total_ms") { [int64]$timingMetrics.engine_service_total_ms } else { 0 }
+        $requestMs += ($overhead + $engine)
+    }
+    [pscustomobject]@{
+        model_request_duration_ms = if ($eventCount -gt 0) { $requestMs } else { $null }
+        model_queue_wait_ms = $null
+        model_retry_backoff_ms = $null
+        model_timing_event_count = $eventCount
+        model_timing_source_status = if ($eventCount -gt 0) { "responsesapi_websocket_timing" } elseif ($parseErrors -gt 0) { "jsonl_without_timing_with_parse_errors" } else { "jsonl_without_timing" }
+        model_timing_source_path = $JsonlPath
+        model_timing_parse_errors = $parseErrors
+    }
+}
+
 function New-TaskspaceTimingDistribution {
     param([int64[]]$Values)
     [pscustomobject]@{
@@ -202,11 +247,12 @@ function Write-TaskspacePairTiming {
     foreach ($span in @($spans | Where-Object { [string]$_.phase -eq "public_validation" })) { $validationMs += [int64]$span.duration_ms }
     $oracleMs = 0
     foreach ($span in @($spans | Where-Object { [string]$_.phase -eq "hidden_oracle" })) { $oracleMs += [int64]$span.duration_ms }
-    $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0; $processLaunchWaitMs = 0; $processLaunchWaitObserved = $false
+    $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0; $processLaunchWaitMs = 0; $processLaunchWaitObserved = $false; $modelRequestMs = 0; $modelRequestObserved = $false
     $dockerCacheKeys = New-Object System.Collections.Generic.List[string]
     $metricValues = if ($MetricsBySide) { @($MetricsBySide.Values) } else { @() }
     foreach ($metrics in $metricValues) {
         if ($metrics.PSObject.Properties.Name -contains "process_launch_wait_ms" -and $null -ne $metrics.process_launch_wait_ms) { $processLaunchWaitMs += [int64]$metrics.process_launch_wait_ms; $processLaunchWaitObserved = $true }
+        if ($metrics.PSObject.Properties.Name -contains "model_request_duration_ms" -and $null -ne $metrics.model_request_duration_ms) { $modelRequestMs += [int64]$metrics.model_request_duration_ms; $modelRequestObserved = $true }
         if ($metrics.PSObject.Properties.Name -contains "docker_build_duration_ms") { $dockerBuildMs += [int64]$metrics.docker_build_duration_ms }
         if ($metrics.PSObject.Properties.Name -contains "docker_run_duration_ms") { $dockerRunMs += [int64]$metrics.docker_run_duration_ms }
         if ($metrics.PSObject.Properties.Name -contains "docker_cleanup_duration_ms") { $dockerCleanupMs += [int64]$metrics.docker_cleanup_duration_ms }
@@ -222,7 +268,11 @@ function Write-TaskspacePairTiming {
     }
     $totalDurationMs = [int64](($PairFinishedAt - $PairStartedAt).TotalMilliseconds)
     $breakdown = New-TaskspaceTimingBreakdown $totalDurationMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $EngineeringUncleanReasons
-    $waitMissingFields = @(Get-TaskspaceRequiredWaitTimingFields | Where-Object { $processLaunchWaitObserved -eq $false -or [string]$_ -ne "process_launch_wait_ms" })
+    $waitMissingFields = @(Get-TaskspaceRequiredWaitTimingFields | Where-Object {
+            ([string]$_ -eq "process_launch_wait_ms" -and $processLaunchWaitObserved -eq $false) -or
+            ([string]$_ -eq "model_request_duration_ms" -and $modelRequestObserved -eq $false) -or
+            ([string]$_ -notin @("process_launch_wait_ms", "model_request_duration_ms"))
+        })
     $waitBlockers = @($waitMissingFields | ForEach-Object { "missing_wait_attribution:$_" })
     $artifact = [ordered]@{
         schema_version = 1
@@ -240,7 +290,7 @@ function Write-TaskspacePairTiming {
         docker_cleanup_duration_ms = $dockerCleanupMs
         model_queue_wait_ms = $null
         model_retry_backoff_ms = $null
-        model_request_duration_ms = $null
+        model_request_duration_ms = if ($modelRequestObserved) { $modelRequestMs } else { $null }
         process_launch_wait_ms = if ($processLaunchWaitObserved) { $processLaunchWaitMs } else { $null }
         docker_token_wait_ms = $null
         validation_token_wait_ms = $null
@@ -338,7 +388,7 @@ function Write-TaskspaceSampleTiming {
     foreach ($file in $pairTimingFiles) {
         try { $pairs += (Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json) } catch { $parseErrors.Add($file.FullName) }
     }
-    $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0; $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0; $processLaunchWaitMs = 0; $processLaunchWaitObserved = $false
+    $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0; $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0; $processLaunchWaitMs = 0; $processLaunchWaitObserved = $false; $modelRequestMs = 0; $modelRequestObserved = $false
     $bottleneckCounts = @{}
     $cacheKeyCounts = @{}
     $childRuntimeBlockers = New-Object System.Collections.Generic.List[string]
@@ -359,6 +409,7 @@ function Write-TaskspaceSampleTiming {
         $oracleMs += [int64]$pair.hidden_oracle_duration_ms
         $overheadMs += [int64]$pair.measured_overhead_ms
         if ($pair.PSObject.Properties.Name -contains "process_launch_wait_ms" -and $null -ne $pair.process_launch_wait_ms) { $processLaunchWaitMs += [int64]$pair.process_launch_wait_ms; $processLaunchWaitObserved = $true }
+        if ($pair.PSObject.Properties.Name -contains "model_request_duration_ms" -and $null -ne $pair.model_request_duration_ms) { $modelRequestMs += [int64]$pair.model_request_duration_ms; $modelRequestObserved = $true }
         $pairDockerBuildMs = if ($pair.PSObject.Properties.Name -contains "docker_build_duration_ms") { [int64]$pair.docker_build_duration_ms } else { 0 }
         $pairDockerRunMs = if ($pair.PSObject.Properties.Name -contains "docker_run_duration_ms") { [int64]$pair.docker_run_duration_ms } else { 0 }
         $pairDockerCleanupMs = if ($pair.PSObject.Properties.Name -contains "docker_cleanup_duration_ms") { [int64]$pair.docker_cleanup_duration_ms } else { 0 }
@@ -402,7 +453,7 @@ function Write-TaskspaceSampleTiming {
         docker_cleanup_duration_ms = $dockerCleanupMs
         model_queue_wait_ms = $null
         model_retry_backoff_ms = $null
-        model_request_duration_ms = $null
+        model_request_duration_ms = if ($modelRequestObserved) { $modelRequestMs } else { $null }
         process_launch_wait_ms = if ($processLaunchWaitObserved) { $processLaunchWaitMs } else { $null }
         docker_token_wait_ms = $null
         validation_token_wait_ms = $null
@@ -461,7 +512,7 @@ function Write-TaskspaceSuiteTiming {
     foreach ($file in $sampleTimingFiles) {
         try { $samples += (Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json) } catch { $parseErrors.Add($file.FullName) }
     }
-    $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0; $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0; $processLaunchWaitMs = 0; $processLaunchWaitObserved = $false
+    $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0; $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0; $processLaunchWaitMs = 0; $processLaunchWaitObserved = $false; $modelRequestMs = 0; $modelRequestObserved = $false
     $bottleneckCounts = @{}
     $cacheKeyCounts = @{}
     $childRuntimeBlockers = New-Object System.Collections.Generic.List[string]
@@ -482,6 +533,7 @@ function Write-TaskspaceSuiteTiming {
         $oracleMs += [int64]$sample.hidden_oracle_duration_ms
         $overheadMs += [int64]$sample.measured_overhead_ms
         if ($sample.PSObject.Properties.Name -contains "process_launch_wait_ms" -and $null -ne $sample.process_launch_wait_ms) { $processLaunchWaitMs += [int64]$sample.process_launch_wait_ms; $processLaunchWaitObserved = $true }
+        if ($sample.PSObject.Properties.Name -contains "model_request_duration_ms" -and $null -ne $sample.model_request_duration_ms) { $modelRequestMs += [int64]$sample.model_request_duration_ms; $modelRequestObserved = $true }
         $sampleDockerBuildMs = if ($sample.PSObject.Properties.Name -contains "docker_build_duration_ms") { [int64]$sample.docker_build_duration_ms } else { 0 }
         $sampleDockerRunMs = if ($sample.PSObject.Properties.Name -contains "docker_run_duration_ms") { [int64]$sample.docker_run_duration_ms } else { 0 }
         $sampleDockerCleanupMs = if ($sample.PSObject.Properties.Name -contains "docker_cleanup_duration_ms") { [int64]$sample.docker_cleanup_duration_ms } else { 0 }
@@ -528,7 +580,7 @@ function Write-TaskspaceSuiteTiming {
         docker_cleanup_duration_ms = $dockerCleanupMs
         model_queue_wait_ms = $null
         model_retry_backoff_ms = $null
-        model_request_duration_ms = $null
+        model_request_duration_ms = if ($modelRequestObserved) { $modelRequestMs } else { $null }
         process_launch_wait_ms = if ($processLaunchWaitObserved) { $processLaunchWaitMs } else { $null }
         docker_token_wait_ms = $null
         validation_token_wait_ms = $null
