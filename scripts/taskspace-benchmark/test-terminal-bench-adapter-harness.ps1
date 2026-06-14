@@ -242,6 +242,39 @@ Assert-True ($cachePinnedValidator -match [regex]::Escape('cache_lock_wait_ms = 
 Assert-True ($cachePinnedValidator -match [regex]::Escape('$cacheManifestPath = Join-Path $proofDir "docker-cache-manifest.json"')) "generated validator did not write Docker cache manifest path"
 Assert-True ($cachePinnedValidator -match [regex]::Escape('validator_source_sha256 = $validatorSourceSha256')) "generated validator cache manifest did not include validator source hash"
 Assert-True ($cachePinnedValidator -match [regex]::Escape('adapter_sha256 = $adapterSha256')) "generated validator cache manifest did not include adapter hash"
+
+$cacheEdgeTask = Join-Path $runDir "docker-cache-edges"
+New-Item -ItemType Directory -Path $cacheEdgeTask | Out-Null
+@'
+instruction: "Create hello.txt."
+category: file-operations
+'@ | Set-Content -LiteralPath (Join-Path $cacheEdgeTask "task.yaml") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $cacheEdgeTask "run-tests.sh") -Encoding UTF8
+@'
+from alpine@sha256:1111111111111111111111111111111111111111111111111111111111111111 as base
+FROM busybox@sha256:2222222222222222222222222222222222222222222222222222222222222222 AS runtime
+'@ | Set-Content -LiteralPath (Join-Path $cacheEdgeTask "Dockerfile") -Encoding UTF8
+$cacheMultiStageOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $cacheEdgeTask -OutputRoot (Join-Path $runDir "docker-cache-multistage-out") -SampleId "docker-cache-edges" -SourceVersion "pinned"
+$cacheMultiStageScenarioDir = [string]($cacheMultiStageOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$cacheMultiStageScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cacheMultiStageScenarioDir "scenario.json") | ConvertFrom-Json
+$cacheMultiStage = $cacheMultiStageScenario.external_benchmark.adapter_metadata.docker_image_cache
+Assert-True ([bool]$cacheMultiStage.cache_eligible -and @($cacheMultiStage.dockerfile_from_images).Count -eq 2) "lowercase/multistage digest-pinned Dockerfile should be cache eligible with both FROM images recorded"
+@'
+ARG BASE_IMAGE=alpine@sha256:3333333333333333333333333333333333333333333333333333333333333333
+FROM $BASE_IMAGE
+'@ | Set-Content -LiteralPath (Join-Path $cacheEdgeTask "Dockerfile") -Encoding UTF8
+$cacheArgFromOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $cacheEdgeTask -OutputRoot (Join-Path $runDir "docker-cache-arg-from-out") -SampleId "docker-cache-edges" -SourceVersion "pinned"
+$cacheArgFromScenarioDir = [string]($cacheArgFromOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$cacheArgFromScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cacheArgFromScenarioDir "scenario.json") | ConvertFrom-Json
+$cacheArgFrom = $cacheArgFromScenario.external_benchmark.adapter_metadata.docker_image_cache
+Assert-True (-not [bool]$cacheArgFrom.cache_eligible -and [string]$cacheArgFrom.cache_bypass_reason -eq "dockerfile_base_image_not_digest_pinned") "ARG-based FROM should disable Docker cache eligibility"
+"RUN echo no-from" | Set-Content -LiteralPath (Join-Path $cacheEdgeTask "Dockerfile") -Encoding UTF8
+$cacheNoFromOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $cacheEdgeTask -OutputRoot (Join-Path $runDir "docker-cache-no-from-out") -SampleId "docker-cache-edges" -SourceVersion "pinned"
+$cacheNoFromScenarioDir = [string]($cacheNoFromOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$cacheNoFromScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cacheNoFromScenarioDir "scenario.json") | ConvertFrom-Json
+$cacheNoFrom = $cacheNoFromScenario.external_benchmark.adapter_metadata.docker_image_cache
+Assert-True (-not [bool]$cacheNoFrom.cache_eligible -and @($cacheNoFrom.dockerfile_from_images).Count -eq 0) "no-FROM Dockerfile should disable Docker cache eligibility and record no FROM images"
+
 "echo changed" | Set-Content -LiteralPath (Join-Path $cacheTask "run-tests.sh") -Encoding UTF8
 $cacheValidatorChangedOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $cacheTask -OutputRoot (Join-Path $runDir "docker-cache-validator-changed-out") -SampleId "docker-cache" -SourceVersion "pinned"
 $cacheValidatorChangedScenarioDir = [string]($cacheValidatorChangedOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })

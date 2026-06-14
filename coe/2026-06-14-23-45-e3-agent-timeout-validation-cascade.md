@@ -496,3 +496,34 @@ Validation passed:
 - `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
 
 Remaining scope: this does not close Docker cache proof edge cases, governed parallel smoke release evidence, official one-pair/three-task calibration artifacts, legacy full-run import, or final full E3 release-gate approval.
+
+## Hypothesis H-020
+
+Claim: Docker cache optimization is safe only if cache eligibility and cache-key identity fail closed for edge-case Dockerfiles. Without explicit fixtures, ARG-based FROM, multistage/lowercase FROM, missing FROM, or metadata drift can silently reuse the wrong image or over-disable useful cache.
+
+Predictions:
+- Digest-pinned lowercase/multistage Dockerfiles should be cache eligible and record every FROM image.
+- ARG-based FROM should disable cache eligibility because the resolved base image is not proven at adapter time.
+- Dockerfiles with no FROM should disable cache eligibility and record no FROM images.
+- Validator source, SourceVersion, and Dockerfile mutations should change the cache key.
+
+Diagnostic evidence plan:
+- Extend `test-terminal-bench-adapter-harness.ps1` with Docker cache edge fixtures.
+- Keep the real Docker cache smoke separate for opt-in runtime cache hit proof.
+
+## Evidence E-033
+
+Supports H-020 for adapter-level cache proof fixtures. `test-terminal-bench-adapter-harness.ps1` now covers:
+- validator source mutation changes the cache key;
+- SourceVersion mutation changes the cache key;
+- Dockerfile mutation changes the cache key;
+- lowercase multistage digest-pinned Dockerfile is cache eligible and records two FROM images;
+- ARG-based FROM disables cache eligibility with `dockerfile_base_image_not_digest_pinned`;
+- no-FROM Dockerfile disables cache eligibility and records zero FROM images.
+
+Validation passed:
+- PowerShell parser check for `test-terminal-bench-adapter-harness.ps1`
+- `.\scripts\taskspace-benchmark\test-terminal-bench-adapter-harness.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
+
+Remaining scope: this is adapter-level fixture proof. The release gate still needs accepted runtime Docker cache smoke evidence, governed parallel smoke release evidence, official one-pair/three-task calibration artifacts, legacy full-run import, and final full E3 approval.
