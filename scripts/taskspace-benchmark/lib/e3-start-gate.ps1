@@ -1,4 +1,5 @@
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "calibration-gate.ps1")
 
 function Invoke-TaskspaceGateCommand {
     param(
@@ -62,6 +63,12 @@ function New-TaskspaceE3StartGateMarkdown {
 function New-TaskspaceE3GateRow {
     param([string]$Name, [string]$Status, [string]$Reason = "", [string]$StableCode = "", [string]$Message = "")
     [pscustomobject]@{ name = $Name; status = $Status; reason = $Reason; stable_code = $StableCode; message = $Message }
+}
+
+function Convert-TaskspaceCalibrationGateRow {
+    param($Row)
+    $stableCode = if ([string]::IsNullOrWhiteSpace([string]$Row.reason)) { "" } else { [string]$Row.reason }
+    New-TaskspaceE3GateRow "calibration_$($Row.name)" ([string]$Row.status) ([string]$Row.reason) $stableCode ([string]$Row.artifact)
 }
 
 function Get-TaskspaceE3TaskListGate {
@@ -177,10 +184,13 @@ function Invoke-TaskspaceE3StartGate {
         [string]$TaskListPath = "",
         [string]$SourceVersion = "",
         [string]$OnePairSmokeRoot = "",
+        [string]$SerialCalibrationRoot = "",
+        [string]$ParallelEquivalencePath = "",
         [switch]$RunSelfTests,
         [switch]$AllowSkippedPathContract,
         [switch]$AllowSkippedSelfTests,
         [switch]$AllowSkippedOnePairSmoke,
+        [switch]$AllowSkippedCalibrationGate,
         [string[]]$SelfTestCommands = @(
             ".\scripts\taskspace-benchmark\test-e3-score-validity.ps1",
             ".\scripts\taskspace-benchmark\test-terminal-bench-uv-cache-harness.ps1",
@@ -231,6 +241,19 @@ function Invoke-TaskspaceE3StartGate {
     } else {
         $gates.Add($smokeGate)
     }
+    if ($AllowSkippedCalibrationGate) {
+        $gates.Add((New-TaskspaceE3GateRow "calibration_gate" "skipped_allowed" "calibration gate explicitly skipped" "calibration_gate_skipped_allowed"))
+        $calibrationGate = $null
+    } else {
+        $calibrationGate = Invoke-TaskspaceCalibrationGate `
+            -OnePairSmokeRoot $OnePairSmokeRoot `
+            -SerialCalibrationRoot $SerialCalibrationRoot `
+            -ParallelEquivalencePath $ParallelEquivalencePath `
+            -OutputPath (Join-Path $OutputDir "calibration-gate.json")
+        foreach ($calibrationRow in @($calibrationGate.gates)) {
+            $gates.Add((Convert-TaskspaceCalibrationGateRow $calibrationRow))
+        }
+    }
     $selfTests = @()
     $preSelfTestFailures = @($gates.ToArray() | Where-Object { [string]$_.status -eq "fail" })
     if ($RunSelfTests -and $preSelfTestFailures.Count -eq 0) {
@@ -255,7 +278,8 @@ function Invoke-TaskspaceE3StartGate {
         self_tests = @($selfTests)
         disk_health = $diskHealth
         manifest_health = $manifestHealth
-        skipped_gate_policy = [pscustomobject]@{ allow_skipped_path_contract = [bool]$AllowSkippedPathContract; allow_skipped_self_tests = [bool]$AllowSkippedSelfTests; allow_skipped_one_pair_smoke = [bool]$AllowSkippedOnePairSmoke }
+        calibration_gate = $calibrationGate
+        skipped_gate_policy = [pscustomobject]@{ allow_skipped_path_contract = [bool]$AllowSkippedPathContract; allow_skipped_self_tests = [bool]$AllowSkippedSelfTests; allow_skipped_one_pair_smoke = [bool]$AllowSkippedOnePairSmoke; allow_skipped_calibration_gate = [bool]$AllowSkippedCalibrationGate }
         first_failure_gate = if ($firstFailure) { [string]$firstFailure.name } else { "" }
         first_failure_stable_code = if ($firstFailure) { [string]$firstFailure.stable_code } else { "" }
         first_failure_message = if ($firstFailure) { [string]$firstFailure.message } else { "" }

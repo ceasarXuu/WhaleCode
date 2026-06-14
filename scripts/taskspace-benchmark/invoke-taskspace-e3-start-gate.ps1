@@ -4,12 +4,15 @@ param(
     [string]$TaskListPath = "",
     [string]$SourceVersion = "",
     [string]$OnePairSmokeRoot = "",
+    [string]$SerialCalibrationRoot = "",
+    [string]$ParallelEquivalencePath = "",
     [string]$RunRoot = "",
     [string]$OutputDir = "",
     [switch]$RunSelfTests,
     [switch]$AllowSkippedPathContract,
     [switch]$AllowSkippedSelfTests,
-    [switch]$AllowSkippedOnePairSmoke
+    [switch]$AllowSkippedOnePairSmoke,
+    [switch]$AllowSkippedCalibrationGate
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,10 +35,13 @@ $gate = Invoke-TaskspaceE3StartGate `
     -TaskListPath $TaskListPath `
     -SourceVersion $SourceVersion `
     -OnePairSmokeRoot $OnePairSmokeRoot `
+    -SerialCalibrationRoot $SerialCalibrationRoot `
+    -ParallelEquivalencePath $ParallelEquivalencePath `
     -RunSelfTests:$RunSelfTests `
     -AllowSkippedPathContract:$AllowSkippedPathContract `
     -AllowSkippedSelfTests:$AllowSkippedSelfTests `
-    -AllowSkippedOnePairSmoke:$AllowSkippedOnePairSmoke
+    -AllowSkippedOnePairSmoke:$AllowSkippedOnePairSmoke `
+    -AllowSkippedCalibrationGate:$AllowSkippedCalibrationGate
 
 Write-Host "E3StartGate: $($gate.json_path)"
 Write-Host "E3StartGateReport: $($gate.markdown_path)"

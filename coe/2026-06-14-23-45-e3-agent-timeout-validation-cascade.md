@@ -247,3 +247,43 @@ Diagnostic evidence plan:
 ## Evidence E-022
 
 Supports H-010 validation. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` now passes with a calibration gate fixture proving complete timing/equivalence evidence sets `status=pass`, `full_e3_allowed=true`, and `speed_claim_allowed=true`; a missing one-pair root fails with `one_pair_root_missing`; and a drifted equivalence artifact fails with `parallel_score_drift`. `scripts/taskspace-benchmark/test-e3-score-validity.ps1` and `git diff --check` also pass after the calibration gate and documentation updates.
+
+## Hypothesis H-011
+
+Claim: calibration evidence is not a real guardrail until the canonical scoring suite invokes it before sample scheduling. A library-only `Invoke-TaskspaceCalibrationGate` plus synthetic unit fixture can still let operators launch hours-long full E3 runs without serial calibration or parallel equivalence.
+
+Predictions:
+- `run-taskspace-e3-suite.ps1 -ScoringMode` must pass `SerialCalibrationRoot` and `ParallelEquivalencePath` into the start gate.
+- `Invoke-TaskspaceE3StartGate` must call `Invoke-TaskspaceCalibrationGate` before self-tests and before any sample scheduling.
+- An aggregate-only one-pair smoke root must fail calibration because it lacks `pair-timing.json`, `sample-timing.json`, and `runtime-bottleneck.md`.
+- A scoring suite with missing calibration artifacts must exit `3`, write start-gate/suite-health artifacts, and create zero sample directories.
+- Parallel equivalence must require `comparable=true` and `drift_count=0`, not only `parallel_smoke_score_drift=false`.
+
+Diagnostic evidence plan:
+- Wire calibration gate into `e3-start-gate.ps1`.
+- Add suite/start-gate CLI parameters for serial calibration and parallel equivalence evidence.
+- Extend `test-e3-start-gate.ps1` with aggregate-only and suite-level missing-calibration fail-closed fixtures.
+- Extend `test-e3-harness-guardrails.ps1` with a non-comparable equivalence negative fixture.
+- Run focused start-gate, guardrails, score-validity, and diff-check validation.
+
+## Evidence E-023
+
+Supports H-011 validation. `scripts/taskspace-benchmark/test-e3-start-gate.ps1` now passes with fixtures proving complete calibration evidence passes, an aggregate-only one-pair root fails `calibration_one_pair_smoke`, and `run-taskspace-e3-suite.ps1 -ScoringMode -OnePairSmokeRoot <aggregate-only>` exits `3` before creating sample directories. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` now also proves `comparable=false` fails with `parallel_not_comparable`. `scripts/taskspace-benchmark/test-e3-score-validity.ps1` and `git diff --check` pass after the suite/start-gate wiring.
+
+## Hypothesis H-012
+
+Claim: the scoring suite still has a score-bearing bypass if `-SkipStartGate` can be combined with `-ScoringMode` or `-RequireScoreValidity`. Calibration/start-gate enforcement is only closed when bypassing the gate is illegal for score-bearing non-PlanOnly runs.
+
+Predictions:
+- `run-taskspace-e3-suite.ps1 -ScoringMode -SkipStartGate` exits `4` before suite-root creation or sample scheduling.
+- `run-taskspace-e3-suite.ps1 -RequireScoreValidity -SkipStartGate` exits `4` before suite-root creation or sample scheduling.
+- `-PlanOnly -SkipStartGate` can remain available as a dry-run escape because it is not score-bearing.
+
+Diagnostic evidence plan:
+- Add an early suite guard rejecting `($ScoringMode -or $RequireScoreValidity) -and $SkipStartGate -and -not $PlanOnly`.
+- Add start-gate self-test fixtures that capture child process exit codes for both score-bearing bypass attempts.
+- Run a fresh closure review focused only on the remaining bypass.
+
+## Evidence E-024
+
+Supports H-012 validation. `scripts/taskspace-benchmark/test-e3-start-gate.ps1` now passes with negative fixtures proving both `-ScoringMode -SkipStartGate` and `-RequireScoreValidity -SkipStartGate` exit `4` with the explicit `SkipStartGate is not allowed` message. The Round 3 adversarial closure review in `vs_review/2026-06-15-e3-calibration-gate-review.md` found no remaining blocking findings and confirmed the guard runs before suite-root/sample scheduling.

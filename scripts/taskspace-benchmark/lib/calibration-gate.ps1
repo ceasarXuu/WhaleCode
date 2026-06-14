@@ -72,6 +72,12 @@ function Test-TaskspaceParallelSmokeEvidence {
     if (-not (Test-TaskspaceJsonField $equivalence "parallel_smoke_score_drift") -or [bool]$equivalence.parallel_smoke_score_drift) {
         return New-TaskspaceCalibrationGateRow "parallel_smoke" "fail" "parallel_score_drift" $EquivalencePath
     }
+    if (-not (Test-TaskspaceJsonField $equivalence "comparable") -or -not [bool]$equivalence.comparable) {
+        return New-TaskspaceCalibrationGateRow "parallel_smoke" "fail" "parallel_not_comparable" $EquivalencePath
+    }
+    if (-not (Test-TaskspaceJsonField $equivalence "drift_count") -or [int]$equivalence.drift_count -ne 0) {
+        return New-TaskspaceCalibrationGateRow "parallel_smoke" "fail" "parallel_drift_count_nonzero" $EquivalencePath
+    }
     if (-not (Test-TaskspaceJsonField $equivalence "compared_sample_ids") -or @($equivalence.compared_sample_ids).Count -eq 0) {
         return New-TaskspaceCalibrationGateRow "parallel_smoke" "fail" "parallel_compared_samples_missing" $EquivalencePath
     }

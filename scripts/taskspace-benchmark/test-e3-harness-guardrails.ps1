@@ -465,6 +465,15 @@ $driftEquivalencePath = Join-Path $calibrationGateRoot "drift-equivalence.json"
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $driftEquivalencePath -Encoding UTF8
 $driftCalibrationGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePairRoot -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $driftEquivalencePath
 Assert-True ([string]$driftCalibrationGate.status -eq "fail" -and [string]$driftCalibrationGate.first_failure.reason -eq "parallel_score_drift") "calibration gate did not block parallel score drift"
+$notComparableEquivalencePath = Join-Path $calibrationGateRoot "not-comparable-equivalence.json"
+[pscustomobject]@{
+    comparable = $false
+    parallel_smoke_score_drift = $false
+    drift_count = 0
+    compared_sample_ids = @("sample-a")
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $notComparableEquivalencePath -Encoding UTF8
+$notComparableCalibrationGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePairRoot -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $notComparableEquivalencePath
+Assert-True ([string]$notComparableCalibrationGate.status -eq "fail" -and [string]$notComparableCalibrationGate.first_failure.reason -eq "parallel_not_comparable") "calibration gate did not block non-comparable parallel equivalence"
 
 if ($failures.Count -gt 0) {
     Write-Host "E3 harness guardrails self-test: FAIL"

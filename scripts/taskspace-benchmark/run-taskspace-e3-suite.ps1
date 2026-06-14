@@ -22,6 +22,8 @@ param(
     [switch]$EnableDockerImageCache,
     [switch]$ContinueAfterInvalidHarness,
     [string]$OnePairSmokeRoot = "",
+    [string]$SerialCalibrationRoot = "",
+    [string]$ParallelEquivalencePath = "",
     [switch]$SkipStartGate,
     [switch]$AllowSkippedOnePairSmoke,
     [string]$RunnerPath = "",
@@ -44,6 +46,10 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "lib\e3-start-gate.ps1")
 if ($Repeats -lt 5) { throw "E3 suite requires Repeats >= 5." }
 if (-not (Test-Path -LiteralPath $TaskListPath)) { Write-Error "TaskListPath not found: $TaskListPath"; exit 4 }
+if (($ScoringMode -or $RequireScoreValidity) -and $SkipStartGate -and -not $PlanOnly) {
+    [Console]::Error.WriteLine("SkipStartGate is not allowed for score-bearing E3 suite runs. Use PlanOnly for dry runs or provide start/calibration gate evidence.")
+    exit 4
+}
 if (-not $RunRoot) { $RunRoot = Join-Path ([System.IO.Path]::GetTempPath()) "whale-e3-suite-runs" }
 $RunRoot = [System.IO.Path]::GetFullPath($RunRoot)
 New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
@@ -85,6 +91,8 @@ if (($ScoringMode -or $RequireScoreValidity) -and -not $PlanOnly -and -not $Skip
         -TaskListPath $TaskListPath `
         -SourceVersion $SourceVersion `
         -OnePairSmokeRoot $OnePairSmokeRoot `
+        -SerialCalibrationRoot $SerialCalibrationRoot `
+        -ParallelEquivalencePath $ParallelEquivalencePath `
         -RunSelfTests `
         -AllowSkippedPathContract `
         -AllowSkippedOnePairSmoke:$AllowSkippedOnePairSmoke
