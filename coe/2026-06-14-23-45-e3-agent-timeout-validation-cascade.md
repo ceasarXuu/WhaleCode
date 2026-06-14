@@ -335,3 +335,30 @@ Validation passed:
 - `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
 
 Remaining scope: this does not complete the full Section 16.13 runtime plan. `calibration-selection.json`, previous-run reconstruction, final full E3 release gate evidence, and official one-pair/3-task calibration artifacts remain open.
+
+## Hypothesis H-015
+
+Claim: the representative three-task serial calibration cannot be trusted until the suite writes a deterministic `calibration-selection.json` that records the source task list hash, selected task IDs/families, subset hash, and excluded-task rationale. Without this artifact, a calibration subset can be cherry-picked or accidentally incomparable.
+
+Predictions:
+- A task list with task-family metadata should select at most one task from each family in deterministic family order, then fill remaining slots by task order.
+- The artifact must include the source task-list hash and a stable subset hash.
+- Excluded tasks must retain a machine-readable rationale.
+- `run-taskspace-e3-suite.ps1` should write `calibration-selection.json` for canonical suite runs before scheduling samples.
+
+Diagnostic evidence plan:
+- Add `scripts/taskspace-benchmark/lib/calibration-selection.ps1`.
+- Add a guardrails fixture with multiple families and a duplicate-family task.
+- Assert the suite writes the artifact during the existing serial/parallel smoke fixture.
+
+## Evidence E-027
+
+Supports H-015 validation for artifact production. `scripts/taskspace-benchmark/lib/calibration-selection.ps1` now writes deterministic selection artifacts with `source_task_list_hash`, `subset_task_list_hash`, `selected_task_ids`, `selected_task_families`, `selected_tasks`, and `excluded_tasks`. `scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1` writes `calibration-selection.json` under the suite root and records the path in `suite-health.json`. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` now validates the selection rule and confirms a suite smoke writes a complete selection artifact.
+
+Validation passed:
+- PowerShell parser check for `calibration-selection.ps1`, `run-taskspace-e3-suite.ps1`, and `test-e3-harness-guardrails.ps1`.
+- `.\scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-start-gate.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
+
+Remaining scope: this still does not produce official one-pair or representative three-task calibration evidence. Previous-run reconstruction, validator/Docker overhead proof, governed parallel smoke release evidence, and full E3 release-gate approval remain open.

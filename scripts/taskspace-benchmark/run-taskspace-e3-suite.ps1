@@ -44,6 +44,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "lib\resource-governor.ps1")
 . (Join-Path $PSScriptRoot "lib\scenario-manifest.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-identity.ps1")
+. (Join-Path $PSScriptRoot "lib\calibration-selection.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-start-gate.ps1")
 if ($Repeats -lt 5) { throw "E3 suite requires Repeats >= 5." }
 if (-not (Test-Path -LiteralPath $TaskListPath)) { Write-Error "TaskListPath not found: $TaskListPath"; exit 4 }
@@ -180,6 +181,7 @@ function Write-SuiteHealth {
         score_invalid_child_runs = $scoreSummary.score_invalid_child_runs
         first_score_invalid_run = $scoreSummary.first_score_invalid_run
         suite_score_valid = $scoreSummary.suite_score_valid
+        calibration_selection_path = (Join-Path $suiteRoot "calibration-selection.json")
         expected_time_saved_minutes = $timeSaved.expected_time_saved_minutes
         expected_time_saved_basis = $timeSaved.expected_time_saved_basis
         skipped_pair_equivalent_count = $timeSaved.skipped_pair_equivalent_count
@@ -194,6 +196,9 @@ try {
     exit 4
 }
 if ($tasks.Count -eq 0) { Write-Error "TaskListPath contains no samples."; exit 4 }
+$calibrationSelectionPath = Join-Path $suiteRoot "calibration-selection.json"
+$calibrationSelection = New-TaskspaceCalibrationSelection -TaskListPath $TaskListPath -OutputPath $calibrationSelectionPath -Benchmark $Benchmark -SelectionCount 3
+Write-Host "CalibrationSelection: $calibrationSelectionPath"
 
 $runner = if ([string]::IsNullOrWhiteSpace($RunnerPath)) { Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1" } else { [System.IO.Path]::GetFullPath($RunnerPath) }
 if (-not (Test-Path -LiteralPath $runner)) { Write-Error "RunnerPath not found: $runner"; exit 4 }

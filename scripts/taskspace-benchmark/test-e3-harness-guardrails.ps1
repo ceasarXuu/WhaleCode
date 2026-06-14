@@ -13,6 +13,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\resource-governor.ps1")
 . (Join-Path $PSScriptRoot "lib\parallel-diff.ps1")
 . (Join-Path $PSScriptRoot "lib\calibration-gate.ps1")
+. (Join-Path $PSScriptRoot "lib\calibration-selection.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\e3-guardrails-selftest" }
 $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
@@ -57,6 +58,21 @@ $parallelismPath = Write-TaskspaceParallelismArtifact $parallelismFixtureRoot $p
 $parallelism = Get-Content -Raw -Encoding UTF8 -LiteralPath $parallelismPath | ConvertFrom-Json
 Assert-True ([string]$parallelism.resource_governor_status -eq "blocked") "parallelism artifact did not block unsupported/low-disk fixture"
 Assert-True ([int64]$parallelism.wait.resource_wait_ms_total -eq 17) "parallelism artifact did not persist wait totals"
+
+$selectionRoot = Join-Path $runDir "calibration-selection"
+New-Item -ItemType Directory -Force -Path $selectionRoot | Out-Null
+$selectionTaskList = Join-Path $selectionRoot "tasks.jsonl"
+@(
+    ([pscustomobject]@{ sample_id = "b-1"; task_dir = (Join-Path $selectionRoot "family-b\one"); source_version = "selftest"; task_family = "b" } | ConvertTo-Json -Compress),
+    ([pscustomobject]@{ sample_id = "a-1"; task_dir = (Join-Path $selectionRoot "family-a\one"); source_version = "selftest"; task_family = "a" } | ConvertTo-Json -Compress),
+    ([pscustomobject]@{ sample_id = "a-2"; task_dir = (Join-Path $selectionRoot "family-a\two"); source_version = "selftest"; task_family = "a" } | ConvertTo-Json -Compress),
+    ([pscustomobject]@{ sample_id = "c-1"; task_dir = (Join-Path $selectionRoot "family-c\one"); source_version = "selftest"; task_family = "c" } | ConvertTo-Json -Compress)
+) | Set-Content -LiteralPath $selectionTaskList -Encoding UTF8
+$selection = New-TaskspaceCalibrationSelection -TaskListPath $selectionTaskList -OutputPath (Join-Path $selectionRoot "calibration-selection.json") -Benchmark "terminal-bench"
+Assert-True (($selection.selected_task_ids -join ",") -eq "a-1,b-1,c-1") "calibration selection did not choose one task per sorted family"
+Assert-True ([string]$selection.source_task_list_hash -eq (Get-TaskspaceFileSha256 $selectionTaskList)) "calibration selection did not record source task-list hash"
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$selection.subset_task_list_hash)) "calibration selection did not record subset hash"
+Assert-True (@($selection.excluded_tasks | Where-Object { [string]$_.sample_id -eq "a-2" -and [string]$_.reason -eq "not_selected_after_family_coverage_limit" }).Count -eq 1) "calibration selection did not record excluded task rationale"
 
 $pretestStderr = Join-Path $runDir "pretest.stderr.log"
 "Resolve-Path : Cannot find path 'target\bad-uv-cache'" | Set-Content -LiteralPath $pretestStderr -Encoding UTF8
@@ -226,6 +242,10 @@ $serialOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path
 Assert-True ($LASTEXITCODE -eq 0) "serial suite baseline for parallel smoke failed: $($serialOutput -join ' | ')"
 $serialSuiteRootLine = @($serialOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
 $serialRunRoot = ([string]$serialSuiteRootLine) -replace "^SuiteRoot:\s*", ""
+$serialSelectionPath = Join-Path $serialRunRoot "calibration-selection.json"
+Assert-True (Test-Path -LiteralPath $serialSelectionPath) "suite did not write calibration-selection artifact"
+$serialSelection = Get-Content -Raw -Encoding UTF8 -LiteralPath $serialSelectionPath | ConvertFrom-Json
+Assert-True (@($serialSelection.selected_task_ids).Count -eq 3 -and -not [string]::IsNullOrWhiteSpace([string]$serialSelection.source_task_list_hash)) "suite calibration-selection artifact is incomplete"
 $parallelOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1") -Benchmark terminal-bench -TaskListPath $parallelTaskList -SourceVersion selftest -Repeats 5 -RunRoot (Join-Path $parallelSuiteRoot "runs") -PlanOnly -ScoringMode -SkipStartGate -RunnerPath $parallelStubRunner -MaxParallelSamples 2 2>&1
 Assert-True ($LASTEXITCODE -eq 0) "sample-level parallel suite smoke failed: $($parallelOutput -join ' | ')"
 $parallelSuiteRootLine = @($parallelOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
