@@ -236,6 +236,7 @@ $mergedSampleIds = @($parallelHealth.sample_statuses | ForEach-Object { [string]
 Assert-True ([string]$parallelHealth.status -eq "completed" -and [bool]$parallelHealth.suite_score_valid) "parallel suite smoke did not complete as score-valid"
 Assert-True (($mergedSampleIds -join ",") -eq "sample-a,sample-b,sample-c") "parallel suite merge order was not deterministic"
 Assert-True ([string]$parallelismSmoke.serial_only_status -eq "sample_parallel_supported" -and [bool]$parallelismSmoke.sample_parallel_enabled -and [int]$parallelismSmoke.configured.max_parallel_samples -eq 2) "parallelism artifact did not record sample-level parallel mode"
+Assert-True ([int]$parallelismSmoke.observed.max_parallel_samples -eq 2) "parallelism artifact did not record observed sample-level parallelism"
 Assert-True ((Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-a\sample-status.json")) -and (Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-b\sample-status.json")) -and (Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-c\sample-status.json"))) "parallel suite smoke did not isolate sample artifacts"
 $equivalencePath = Join-Path $parallelSuiteRoot "serial-vs-parallel-equivalence.json"
 $equivalence = Write-TaskspaceSuiteScoreEquivalence (Join-Path $serialRunRoot "suite-health.json") (Join-Path $parallelRunRoot "suite-health.json") $equivalencePath

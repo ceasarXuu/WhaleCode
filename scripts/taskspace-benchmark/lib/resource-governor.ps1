@@ -126,7 +126,7 @@ function Write-TaskspaceParallelismArtifact {
         schema_version = 1
         configured = $Config
         observed = [ordered]@{
-            max_parallel_samples = 1
+            max_parallel_samples = if ([bool]$SerialGuard.sample_parallel_enabled -and @($SerialGuard.unsupported_parallel_fields).Count -eq 0) { [int]$Config.max_parallel_samples } else { 1 }
             max_parallel_pairs_per_sample = 1
             max_parallel_validations_per_pair = 1
             max_docker_concurrency = 1
