@@ -2,8 +2,8 @@
 
 - Created: 2026-06-13
 - Updated: 2026-06-14
-- Version: 0.4
-- Status: Repair-ready plan for hard clean-execution scoring and runtime reduction contract
+- Version: 0.5
+- Status: Implementation-ready plan draft for hard clean-execution scoring, runtime bottleneck diagnosis, and governed speedup; not approved for speed claims
 - Owner / Responsible: WhaleCode core
 - Related Systems: TaskSpace E3 benchmark harness, Terminal-Bench adapter, aggregate report, audit manifest, failure taxonomy, E3 proof, score validity gate
 - Risk Level: High
@@ -2023,3 +2023,603 @@ The expected practical result is:
 - engineering-unclean runs: from multi-hour to `<30-40 min` when the first pair exposes the issue;
 - preflight-invalid runs: `<5 min`;
 - clean full E3: calibration-backed speedup first, then calibrated `2-3x` only after resource-governed parallelism proves stable and bottlenecks support it.
+
+## 16. Integrated Runtime Bottleneck And Speedup Plan
+
+This section turns the runtime concern into a hard execution plan. It is part of the same E3 guardrail work, not a separate optimization project, because a slow invalid run is itself a guardrail failure.
+
+Section 16 is the canonical runtime implementation sequence for work after version `0.5` of this plan. Earlier runtime notes in section 15 remain useful design background, but they are superseded wherever they conflict with the `P0` to `P5` order, gates, and acceptance criteria below. Engineers implementing runtime work must follow section 16 first and use section 15 only as supporting rationale.
+
+### 16.1 Runtime Problem Statement
+
+A 15-task E3 run taking several hours is not automatically wrong, but it is currently unexplained enough to be operationally unsafe. The runner must stop making operators infer bottlenecks from console output.
+
+The current known timing evidence from the official one-pair smoke is:
+
+| Evidence | Observed Signal | Planning Meaning |
+|---|---|---|
+| total one-pair wall time | about 575s | one pair can already consume close to 10 minutes |
+| agent duration | about 225s | agent time is material but not the whole run |
+| public validation duration | about 324s | validator/Docker time can exceed agent time |
+| Docker run duration | about 56s in recorded Docker spans | Docker is a real sub-bottleneck but the validation wrapper can spend additional time outside the recorded Docker span |
+| TaskSpace side | agent timed out, then validation also timed out | current runner can waste validator time after an agent execution timeout |
+
+This evidence is enough to block blind reruns. It is not enough to claim a full-suite bottleneck or a speedup target. The first deliverable must be complete timing attribution.
+
+### 16.2 Hard Runtime Questions The Plan Must Answer
+
+Before another full 15-task E3 is treated as useful, the harness must answer these questions from artifacts:
+
+1. How much wall time is spent in agent execution, public validation, hidden oracle, Docker build, Docker run, cleanup, reporting, and waiting for resources?
+2. How much time is spent after the run is already score-invalid?
+3. Does agent execution timeout cause avoidable downstream validator timeout?
+4. Are Docker images rebuilt when the immutable input hash is unchanged?
+5. Are Standard and TaskSpace slow on the same tasks, or is one profile creating more expensive states?
+6. Is the bottleneck local Docker/storage, model/API queueing, benchmark tests, or Whale agent time?
+7. Does any proposed parallelism preserve score validity, artifact determinism, and side comparability?
+
+If any question cannot be answered, runtime optimization status is `blocked`.
+
+### 16.3 Phase P0: Timing Evidence Before More Full Runs
+
+#### Objective
+
+Make every long E3 run explainable from machine-readable timing artifacts.
+
+#### Entry Criteria
+
+- Current hard clean-execution taxonomy is present.
+- `pair-timing.json` and `sample-timing.json` exist for the latest one-pair smoke or can be generated from existing run artifacts.
+- No full 15-task speed claim is being made from partial console evidence.
+
+#### Entry Criteria Checks
+
+| Entry Criterion | Check Method | Evidence / Output | Owner |
+|---|---|---|---|
+| timing artifacts are emitted | run one official one-pair smoke | `pair-timing.json`, `sample-timing.json` | harness |
+| timing fields distinguish agent and validator | inspect JSON fields | `agent_duration_ms`, `public_validation_duration_ms` | harness |
+| missing timing is explicit | synthetic missing-field fixture | `timing_quality=partial` or `runtime_optimization_status=blocked` | harness |
+
+#### Design Approach
+
+Use additive timing artifacts. Do not infer performance from markdown reports. The timing writer must record intervals, not only durations, so future parallel runs can distinguish inclusive child work from exclusive wall-clock savings.
+
+#### Implementation Tasks
+
+1. Introduce or complete `scripts/taskspace-benchmark/lib/timing.ps1`.
+2. Add one shared `Write-TaskspaceTimingSpan` helper with atomic JSON writes.
+3. Wrap agent execution, public validation, hidden oracle, Docker build/run, cleanup, pair report, aggregate report, preflight, and probe.
+4. Write `pair-timing.json` for each pair and `sample-timing.json` for each sample.
+5. Add suite-level `suite-timing.json` for multi-sample wrapper runs.
+6. Add `runtime-bottleneck.md` beside aggregate output, generated only from timing JSON.
+7. Add required wait and queue spans:
+   - `model_queue_wait_ms`;
+   - `model_retry_backoff_ms`;
+   - `model_request_duration_ms`;
+   - `process_launch_wait_ms`;
+   - `docker_token_wait_ms`;
+   - `validation_token_wait_ms`;
+   - `disk_reservation_wait_ms`;
+   - `cache_lock_wait_ms`;
+   - `resource_wait_ms_total`.
+8. Add a reducer that computes:
+   - wall time;
+   - named phase totals;
+   - largest phase;
+   - largest non-agent phase;
+   - top slow pairs;
+   - unattributed time;
+   - time after first hard invalid event.
+9. Add `bottleneck_classification=unknown` when model/API/resource wait spans are unavailable and any unexplained time exceeds tolerance.
+
+#### Deliverables
+
+- `lib/timing.ps1`
+- timing JSON artifacts
+- `runtime-bottleneck.md`
+- synthetic timing reducer tests
+
+#### Testing And Validation
+
+| Validation Item | Method | Passing Standard |
+|---|---|---|
+| synthetic timing fixture | unit-style PowerShell test | deterministic phase totals |
+| missing timing fixture | unit-style PowerShell test | status is `blocked`, not success |
+| official one-pair smoke | one materialized Terminal-Bench scenario | timing artifacts exist and identify largest phase |
+| reconciliation | reducer check | `unattributed_ms / wall_time_ms <= 5%` or blocked with reason |
+| model/API wait timing | synthetic timing fixture | queue, retry backoff, request duration, and resource wait fields are present or explicitly unavailable |
+| unknown bottleneck guard | synthetic timing fixture | missing wait spans produce `runtime_optimization_status=blocked` |
+
+#### Exit Criteria
+
+- Runtime bottleneck is visible without reading console output.
+- A full run without complete timing is not allowed to produce a speed conclusion.
+- Unknown model/API/resource wait attribution blocks speed claims.
+- The next phase can decide whether time is being wasted after invalidation.
+
+#### Review Plan
+
+Review the timing schema before implementation and review the first official smoke artifacts after implementation. The review must check whether reported totals reconcile to wall time and whether nullable fields have explicit reasons.
+
+#### Risks And Fallback
+
+| Risk | Impact | Trigger Signal | Mitigation | Fallback |
+|---|---|---|---|---|
+| timing fields are silently zero | false bottleneck | zero duration with no skip reason | nullable fields plus `missing_reason` | block speed report |
+| interval overlap is double-counted | fake speedup | child totals exceed wall time with no inclusive/exclusive split | store span parent and worker IDs | serial-only timing |
+| report code becomes another slow step | extra runtime | reporting duration grows materially | time report generation itself | write JSON only, skip markdown |
+
+#### Gate To Next Phase
+
+Proceed only when the one-pair smoke and synthetic timing fixture pass.
+
+### 16.4 Phase P1: Stop Validator Waste After Agent Timeout
+
+#### Objective
+
+Prevent an allowed agent execution timeout from cascading into avoidable public validation timeout and multi-minute wasted runtime.
+
+#### Entry Criteria
+
+- Phase P0 timing artifacts can show agent timeout and validator time separately.
+- Failure taxonomy already treats `agent_exec_timeout` as the only allowed unexpected benchmark timeout.
+- Validator timeout remains engineering-unclean.
+- A pre-agent validator/proof probe contract exists and can produce a pass/fail artifact before agent execution.
+
+#### Entry Criteria Checks
+
+| Entry Criterion | Check Method | Evidence / Output | Owner |
+|---|---|---|---|
+| exec timeout is detectable before validation | inspect side metrics after agent run | `exec_timed_out=true` | runner |
+| validation can be skipped explicitly | fixture or dry run | `public_validation_skipped=true` | runner |
+| pre-agent proof passed before skip | inspect proof artifact | `pre_agent_validator_probe_status=passed` and `validator_equivalence_ok=true` | proof |
+| skipped validation is not counted as pass | score validity fixture | side outcome is `agent_exec_timeout`, not success | taxonomy |
+
+#### Design Approach
+
+If a side's agent execution times out, the runner should not run expensive public validation on an incomplete workspace by default. It should classify that side as `agent_exec_timeout`, write an explicit validation skip record, and continue only the work needed to preserve harness proof and pair-level accounting.
+
+This skip is score-clean only when the pre-agent validator/proof probe passed before agent execution. If the probe is missing, failed, stale, or hash-mismatched, the side becomes `engineering_unclean` with `pre_agent_validator_probe_missing_or_failed`; the runner must not silently convert it into a clean agent timeout. This does not relax validator timeout policy; it avoids creating validator timeout from a known incomplete agent attempt after the validator environment has already been proven.
+
+#### Implementation Tasks
+
+1. Add side-level validation skip contract:
+   - `public_validation_skipped=true`;
+   - `public_validation_skip_reason=agent_exec_timeout`;
+   - `public_validation_exit_code=null`;
+   - `validator_environment_failures=[]`;
+   - `business_success=false`;
+   - `validation_timing_ms=0`;
+   - `validation_skip_recorded_at`;
+   - `pre_agent_validator_probe_status=passed`;
+   - `pre_agent_validator_probe_hash`;
+   - `validator_equivalence_ok=true`.
+2. In `run-taskspace-benchmark.ps1`, branch after `Invoke-TaskspaceAgentRun` and before public validation.
+3. Ensure hidden oracle is also skipped for the timed-out side unless an explicit diagnostic flag requests it.
+4. Preserve pair-level proof:
+   - preflight/probe proof still runs before agent execution;
+   - skipped validation must not mark validator fidelity unproven only if pre-agent proof already established equivalence;
+   - missing or failed pre-agent proof makes the skipped side engineering-unclean;
+   - skipped validation must not fabricate runtime proof.
+5. Update `Get-TaskspaceAgentOutcome` and aggregate paths so `agent_exec_timeout` is score-bearing as a timeout outcome, while the run remains clean if no other engineering issue exists.
+6. Add `-ValidateAfterAgentTimeout` as diagnostic-only if operators need forensic validator output; scoring mode default must be skip.
+
+#### Deliverables
+
+- runner branch for timed-out agent side
+- metrics schema fields for validation skip
+- taxonomy tests for clean `agent_exec_timeout`
+- timing report that counts saved validator time
+
+#### Testing And Validation
+
+| Validation Item | Method | Passing Standard |
+|---|---|---|
+| timeout side fixture | synthetic metrics | side outcome is `agent_exec_timeout` |
+| validation skip fixture | runner-level dry fixture | no public validation process starts |
+| missing pre-agent probe fixture | score validity fixture | skipped validation becomes `engineering_unclean`, not clean timeout |
+| failed pre-agent probe fixture | score validity fixture | `pre_agent_validator_probe_missing_or_failed` blocks score validity |
+| non-timeout agent failure fixture | runner-level fixture | validation still runs normally |
+| score validity fixture | `test-e3-score-validity.ps1` | no `public_validation_timeout` reason appears |
+| official one-pair smoke with short agent timeout | real Terminal-Bench scenario | timed-out side skips validator, run is not invalid solely from downstream validator timeout |
+
+#### Exit Criteria
+
+- Agent timeout no longer causes avoidable validator timeout.
+- Skipped validation is score-clean only with a passed, current pre-agent validator/proof probe.
+- Runtime report shows estimated validator time saved for skipped timed-out sides.
+- Any actual validator timeout that occurs when validation is legitimately run still invalidates the execution.
+
+#### Review Plan
+
+Review must focus on whether this incorrectly hides real validator failures. The acceptance evidence must show that validation is skipped only after `exec_timed_out=true`, and that non-timeout agent failures still run validation normally.
+
+#### Risks And Fallback
+
+| Risk | Impact | Trigger Signal | Mitigation | Fallback |
+|---|---|---|---|---|
+| skip hides a validator infrastructure defect | false clean run | validator was never probed before agent | require pre-agent probe/proof before skip can be clean | mark skipped side `engineering_unclean` |
+| timeout side becomes incomparable | unclear score | aggregate treats timeout as missing | make `agent_exec_timeout` explicit score-bearing outcome | exclude pair with reason |
+| diagnostic needs validator output | less forensic data | operator requests deeper debug | `-ValidateAfterAgentTimeout` diagnostic-only | rerun single pair diagnostic |
+
+#### Gate To Next Phase
+
+Proceed only when a timed-out agent side can finish without creating `public_validation_timeout` and without weakening proof gates.
+
+### 16.5 Phase P2: Fast-Fail Invalid Full Runs
+
+#### Objective
+
+Stop scheduling new E3 work after the first hard engineering-unclean condition makes the score invalid.
+
+#### Entry Criteria
+
+- Phase P0 timing can measure time after invalidation.
+- Phase P1 prevents agent timeout from producing avoidable validator timeout.
+- Failure taxonomy has a complete hard engineering-unclean list.
+
+#### Entry Criteria Checks
+
+| Entry Criterion | Check Method | Evidence / Output | Owner |
+|---|---|---|---|
+| hard invalid reason is stable | taxonomy tests | stable reason code | taxonomy |
+| suite can cancel future work | suite fixture | skipped pair/sample records | suite driver |
+| audit pending is not hard invalid | score validity tests | `audit_required`, not `engineering_unclean` | aggregate |
+
+#### Design Approach
+
+Fast-fail applies only to hard engineering-unclean conditions. It must not stop because of `audit_required`, `agent_exec_timeout`, or ordinary agent wrong answers. The cancellation must be explicit: skipped samples and pairs are artifacts, not missing outputs.
+
+#### Implementation Tasks
+
+1. Add suite-level scoring invalid flag and first-invalid timestamp.
+2. Stop scheduling new samples/pairs when a hard invalid reason appears.
+3. Allow currently running child jobs to finish only if killing them would corrupt artifacts; otherwise cancel before agent execution.
+4. Write `suite-health.json`, skipped records, and `abort-summary.md`.
+5. Add `estimated_time_saved_ms` using completed clean pair median and mark it as estimate.
+6. Ensure aggregate disables all Standard vs TaskSpace score language when score is invalid.
+
+#### Deliverables
+
+- suite circuit breaker
+- skipped-work artifacts
+- invalid-run aggregate language
+- fast-fail tests
+
+#### Testing And Validation
+
+| Validation Item | Method | Passing Standard |
+|---|---|---|
+| injected Docker failure | synthetic runner fixture | exits `3`, no later sample starts |
+| repeated infra signature | two-sample fixture | suite aborts after second same hard signature |
+| audit-only run | fixture | run remains executable and score publication waits for audit |
+| official smoke invalid case | one real sample | abort artifacts are complete |
+
+#### Exit Criteria
+
+- Invalid scoring runs no longer consume all 15 tasks.
+- Reports make invalidity impossible to confuse with model performance.
+
+#### Review Plan
+
+Review skipped-work records and aggregate output. Confirm that no score/better/worse field is populated when `score_valid=false`.
+
+#### Risks And Fallback
+
+| Risk | Impact | Trigger Signal | Mitigation | Fallback |
+|---|---|---|---|---|
+| fast-fail stops useful diagnostic batch | less debug evidence | operator needs all failures | explicit diagnostic mode disables scoring fast-fail | diagnostic-only rerun |
+| cancellation leaves partial state ambiguous | confusing resume | missing status files | write status before cancellation | force rerun sample |
+| invalid reason too broad | excessive aborts | agent wrong answer aborts suite | taxonomy fixture for each allowed outcome | serial no-fast-fail mode |
+
+#### Gate To Next Phase
+
+Proceed only after a hard invalid fixture proves that later work is skipped and score output is suppressed.
+
+### 16.6 Phase P3: Remove Avoidable Docker And Validator Overhead
+
+#### Objective
+
+Reduce non-agent runtime while preserving external benchmark semantics.
+
+#### Entry Criteria
+
+- Phase P0 identifies validator/Docker time as a material bottleneck.
+- Phase P2 prevents invalid runs from wasting full-suite time.
+- Docker disk preflight is present.
+
+#### Entry Criteria Checks
+
+| Entry Criterion | Check Method | Evidence / Output | Owner |
+|---|---|---|---|
+| Docker build/run timings exist | timing JSON | build/run fields per side | harness |
+| immutable input hash exists | adapter proof | Dockerfile, validator, source, uv cache hashes | adapter |
+| disk reserve check exists | preflight artifact | free space and threshold | harness |
+
+#### Design Approach
+
+Only cache immutable validator assets. Scoring mode must prefer correctness over speed. Mutable Dockerfiles, unpinned source, or unknown uv cache state must disable cache and mark the reason.
+
+#### Implementation Tasks
+
+1. Add Docker cache key:
+   - Dockerfile hash;
+   - validator script hash;
+   - normalized run-tests hash;
+   - Terminal-Bench source version;
+   - uv cache hash;
+   - adapter version;
+   - resolved base image digest, not only the base tag;
+   - full Docker build context hash after `.dockerignore` application;
+   - platform/architecture;
+   - Docker engine version and buildx/backend mode when it can affect output;
+   - remote package lockfiles and package manager metadata used during build;
+   - network-disabled or network-allowed mode;
+   - environment variables passed into build or run.
+2. Add cache manifest with image digest, created time, source hashes, and scoring eligibility.
+3. Add per-cache-key build lock.
+4. Split validation timeout into pretest and test timeout.
+5. Abort no-marker validators on pretest timeout instead of full test timeout.
+6. Make finalize artifact-only and forbid validator reruns unless `-ForceRerunValidation` is passed.
+7. Record cache hit/miss and reuse reason in timing artifacts.
+
+#### Deliverables
+
+- Docker cache manifest
+- cache lock implementation
+- pretest/test timeout split
+- artifact-only finalize guard
+- cache hit/miss timing fields
+
+#### Testing And Validation
+
+| Validation Item | Method | Passing Standard |
+|---|---|---|
+| cache hit | run same immutable scenario twice | second run records `cache_hit=true` |
+| mutable source | fixture with mutable tag/input | cache disabled with reason |
+| base image drift | fixture with changed resolved digest | cache miss or score-ineligible cache |
+| build context drift | fixture with changed context file | cache miss |
+| remote package drift | fixture with package metadata change | cache miss or scoring cache disabled |
+| platform drift | fixture with changed platform/arch | cache miss |
+| uv cache drift | fixture with changed uv cache hash | cache miss |
+| no-marker validator | fixture | aborts at pretest timeout |
+| finalize | mtime check | validation stdout/stderr unchanged |
+| disk reserve | low-threshold fixture | abort before Docker build/run |
+
+#### Exit Criteria
+
+- Repeated immutable tasks avoid rebuild work.
+- Scoring cache is disabled unless the full immutable build context and resolved base inputs are proven.
+- Broken setup fails before full validation timeout.
+- Finalize cannot accidentally rerun expensive validators.
+
+#### Review Plan
+
+Review cache key construction and proof artifacts. Reject the phase if any mutable input can hit scoring cache without an explicit opt-in diagnostic mode.
+
+#### Risks And Fallback
+
+| Risk | Impact | Trigger Signal | Mitigation | Fallback |
+|---|---|---|---|---|
+| stale Docker cache | false pass/fail | source hash mismatch | full hash key and digest check | rebuild and mark cache invalid |
+| cache locks deadlock | stuck run | lock wait exceeds threshold | lock timeout with owner metadata | disable cache |
+| pretest timeout too short | false infra failure | legitimate setup exceeds threshold | calibrate from clean timing | raise pretest timeout with evidence |
+
+#### Gate To Next Phase
+
+Proceed only when immutable cache hit and no-marker timeout fixtures pass.
+
+### 16.7 Phase P4: Resource-Governed Parallelism
+
+#### Objective
+
+Reduce clean full-suite wall time with controlled parallelism after serial correctness and timing are proven.
+
+#### Entry Criteria
+
+- Serial one-pair smoke is clean or cleanly classified.
+- Full serial calibration has complete timing.
+- Docker/cache/disk preflight passes.
+- Score validity and inclusion/exclusion rules are stable.
+
+#### Entry Criteria Checks
+
+| Entry Criterion | Check Method | Evidence / Output | Owner |
+|---|---|---|---|
+| serial baseline exists | full or representative serial run | `suite-timing.json` | benchmark owner |
+| resource tokens exist | unit test | Docker/model/disk token acquisition and release | suite driver |
+| deterministic merge exists | parallel fixture | stable aggregate ordering and hashes | suite driver |
+
+#### Design Approach
+
+Parallelism belongs in the suite driver. Child runs write isolated artifacts; the parent owns scheduling, cancellation, merge, and final reports. Defaults remain serial until the parallel smoke proves no score drift.
+
+#### Implementation Tasks
+
+1. Add configuration:
+   - `MaxParallelSamples`;
+   - `MaxParallelPairsPerSample`;
+   - `MaxParallelValidationsPerPair`;
+   - `MaxDockerConcurrency`;
+   - `MaxModelConcurrency`;
+   - `DiskReserveGb`.
+2. Implement resource token manager.
+3. Start with `MaxParallelSamples=2`, `MaxDockerConcurrency=1`, `MaxModelConcurrency=1`.
+4. Keep Standard and TaskSpace agent execution serial within a pair for comparable scoring.
+5. Write `parallelism.json` with configured and observed concurrency.
+6. Merge child artifacts deterministically by sample ID and pair ID.
+7. Compare serial and parallel output fields:
+   - `score_ready`;
+   - `score_valid`;
+   - Standard and TaskSpace score values;
+   - per-task and per-pair outcomes;
+   - pass/fail/timeout counts;
+   - better/worse/tie counts;
+   - inclusion/exclusion counts;
+   - hard outcome counts;
+   - audit status;
+   - proof status;
+   - model ID, reasoning effort, timeout, sandbox, and tool budget;
+   - prompt/config hash;
+   - profile hash;
+   - scenario input hash;
+   - validator/proof artifact hashes;
+   - pair ordering and deterministic merge manifest.
+
+#### Deliverables
+
+- suite-level worker scheduler
+- resource token manager
+- `parallelism.json`
+- deterministic merge manifest
+- serial-vs-parallel comparison check
+
+#### Testing And Validation
+
+| Validation Item | Method | Passing Standard |
+|---|---|---|
+| path isolation | two-worker fixture | no duplicate artifact paths |
+| Docker token | controlled parallel fixture | observed Docker concurrency does not exceed config |
+| deterministic merge | repeat fixture | aggregate order and hashes stable |
+| parallel smoke | `MaxParallelSamples=2` | no score validity, outcome, score value, profile/config hash, or inclusion drift |
+| serial-vs-parallel score diff | comparison fixture | per-task outcomes, pair rows, score values, profile hashes, prompt/config hashes, artifact hashes, and ordering match expected equivalence rules |
+| cancellation | injected invalid while worker pending | pending work is skipped explicitly |
+
+#### Exit Criteria
+
+- First parallel smoke reports observed wall-time reduction and no scoring drift.
+- Serial-vs-parallel comparison proves no actual result drift, not only no metadata drift.
+- Parallel mode remains opt-in until a full calibrated run passes.
+
+#### Review Plan
+
+Review must compare serial and parallel artifacts field by field. Any missing artifact, changed score validity, or changed inclusion reason blocks rollout.
+
+#### Risks And Fallback
+
+| Risk | Impact | Trigger Signal | Mitigation | Fallback |
+|---|---|---|---|---|
+| parallelism creates path collisions | invalid evidence | duplicate path/hash conflict | isolated child roots | serial mode |
+| model queueing erases speedup | no wall-time gain | high `resource_wait_ms` | lower `MaxModelConcurrency` and record queue time | serial model token |
+| Docker contention causes failures | engineering unclean | Docker run/build failures under parallelism | keep Docker concurrency 1 first | serial validation |
+| disk fills faster | system instability | reserve check fails | disk token and cleanup gate | abort scheduling |
+
+#### Gate To Next Phase
+
+Proceed only when serial-vs-parallel comparison shows no scoring drift and timing proves actual wall-time reduction.
+
+### 16.8 Phase P5: Speed Target Decision
+
+#### Objective
+
+Answer whether E3 can be made substantially faster, with a defensible target.
+
+#### Entry Criteria
+
+- Phase P0-P4 validation has passed or produced explicit blocked reasons.
+- A serial baseline and at least one governed parallel smoke exist.
+- All timing artifacts reconcile.
+
+#### Entry Criteria Checks
+
+| Entry Criterion | Check Method | Evidence / Output | Owner |
+|---|---|---|---|
+| serial baseline complete | inspect `suite-timing.json` | `timing_quality=complete` | benchmark owner |
+| parallel smoke comparable | serial-vs-parallel diff | no scoring drift | benchmark owner |
+| bottleneck class stable | timing reducer | named bottleneck with share | benchmark owner |
+
+#### Design Approach
+
+The speed target is selected from evidence, not from aspiration. If the bottleneck is agent solving, the comparable v0.0.4 profile cannot be made dramatically faster without changing the benchmark profile. If the bottleneck is validator/Docker/scheduling, speedup is a harness engineering target.
+
+#### Implementation Tasks
+
+1. Generate `runtime-calibration-report.md`.
+2. Classify the dominant bottleneck:
+   - `agent_bound`;
+   - `validator_bound`;
+   - `docker_build_bound`;
+   - `docker_run_bound`;
+   - `storage_bound`;
+   - `model_queue_bound`;
+   - `invalid_waste_bound`;
+   - `mixed`.
+3. Compute plausible speedup from observed shares:
+   - fast-fail savings for invalid runs;
+   - cache savings for immutable Docker work;
+   - sample parallelism savings from observed critical path;
+   - validation parallelism savings only if Docker tokens permit.
+4. Publish one of three decisions:
+   - `speedup_target_approved`;
+   - `speedup_target_limited`;
+   - `speedup_blocked`.
+5. If approved, set the next target:
+   - first milestone usually `>=30%` clean wall-time reduction;
+   - `2-3x` only after serial baseline plus full governed parallel run supports it.
+
+#### Deliverables
+
+- `runtime-calibration-report.md`
+- bottleneck classification
+- approved or blocked speed target
+- next implementation issue list
+
+#### Testing And Validation
+
+| Validation Item | Method | Passing Standard |
+|---|---|---|
+| report completeness | artifact review | every major phase has duration and share |
+| claim guard | report fixture | no `2-3x` claim without required evidence |
+| agent-bound case | synthetic timing fixture | target limited or blocked |
+| validator-bound case | synthetic timing fixture | cache/parallel work item named |
+
+#### Exit Criteria
+
+- The project has a defensible answer to "why does 15-task E3 take hours?"
+- The project has a defensible answer to "can it be made much faster?"
+- Any speed claim names the bottleneck, evidence, target, and constraints.
+
+#### Review Plan
+
+Run adversarial review against the calibration report before using it to justify a full E3 rerun or performance claim.
+
+#### Risks And Fallback
+
+| Risk | Impact | Trigger Signal | Mitigation | Fallback |
+|---|---|---|---|---|
+| speed target is based on invalid run | misleading plan | `score_valid=false` baseline | separate invalid fast-fail from clean speed | rerun clean calibration |
+| benchmark profile changes | incomparable result | model/timeout/reasoning fields changed | profile hash in report | new profile baseline |
+| optimistic parallel extrapolation | missed target | parallel smoke not representative | require full governed run before strong claim | smaller target |
+
+#### Gate To Next Phase
+
+Do not start a full optimized E3 until this phase has either approved a target with evidence or explicitly blocked speed claims.
+
+### 16.9 Runtime Execution Order
+
+The implementation order is mandatory:
+
+1. Fix hard engineering-unclean causes that make current E3 invalid.
+2. Implement P0 complete timing.
+3. Implement P1 skip validation after agent timeout.
+4. Implement P2 fast-fail invalid full runs.
+5. Run one official one-pair smoke and inspect timing.
+6. Implement P3 Docker/validator overhead reduction only if timing says it matters.
+7. Run serial calibration.
+8. Implement P4 resource-governed parallelism.
+9. Run parallel smoke.
+10. Complete P5 speed target decision.
+11. Only then run full optimized E3.
+
+### 16.10 Runtime Plan Acceptance Checklist
+
+- [ ] Every major runtime phase has a named timing field.
+- [ ] `agent_exec_timeout` does not create downstream `public_validation_timeout` by default.
+- [ ] Validator timeout remains engineering-unclean when validation actually runs.
+- [ ] Invalid scoring runs stop scheduling new work.
+- [ ] Audit-required runs are not confused with engineering-unclean runs.
+- [ ] Docker cache is allowed only with immutable input proof.
+- [ ] Parallelism is opt-in, resource-governed, and artifact-isolated.
+- [ ] Serial and parallel score-validity fields match before parallel mode is accepted.
+- [ ] Any speed claim is backed by serial baseline, parallel smoke, and timing reconciliation.
+- [ ] `2-3x` is forbidden as a claim until proven by a full governed run.
