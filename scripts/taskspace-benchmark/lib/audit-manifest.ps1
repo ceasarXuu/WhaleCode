@@ -82,9 +82,10 @@ function Write-TaskspaceAuditManifest {
     )
     $standardMetrics = @($LeftMetrics, $RightMetrics) | Where-Object { [string]$_.logical_mode -eq "standard" } | Select-Object -First 1
     $taskspaceMetrics = @($LeftMetrics, $RightMetrics) | Where-Object { [string]$_.logical_mode -eq "taskspace" } | Select-Object -First 1
-    $standardUncleanReasons = @(Get-TaskspaceEngineeringUncleanReasons $standardMetrics $Evidence $AuditReview $VariableControl)
-    $taskspaceUncleanReasons = @(Get-TaskspaceEngineeringUncleanReasons $taskspaceMetrics $Evidence $AuditReview $VariableControl)
-    $pairUncleanReasons = @(@($standardUncleanReasons) + @($taskspaceUncleanReasons)) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Sort-Object -Unique
+    $standardUncleanReasons = @(Get-TaskspaceEngineeringUncleanReasons $standardMetrics)
+    $taskspaceUncleanReasons = @(Get-TaskspaceEngineeringUncleanReasons $taskspaceMetrics)
+    $pairLevelUncleanReasons = @(Get-TaskspaceEngineeringUncleanReasons $null $Evidence $AuditReview $VariableControl)
+    $pairUncleanReasons = @(@($standardUncleanReasons) + @($taskspaceUncleanReasons) + @($pairLevelUncleanReasons)) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Sort-Object -Unique
     $standardOutcome = Get-TaskspaceAgentOutcome $standardMetrics $standardUncleanReasons
     $taskspaceOutcome = Get-TaskspaceAgentOutcome $taskspaceMetrics $taskspaceUncleanReasons
     $engineeringUnclean = Test-TaskspaceEngineeringUnclean $pairUncleanReasons

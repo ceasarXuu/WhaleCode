@@ -130,6 +130,25 @@ Assert-True ([int]$auditPendingAggregate.engineering_unclean_count -eq 0) "audit
 Assert-True ([int]$auditPendingAggregate.audit_required_count -eq 1) "audit-pending aggregate audit_required_count mismatch"
 Assert-True ($auditPendingText -match "score fields disabled because E3 human review is pending") "audit-pending aggregate did not render pending-audit note"
 
+$pairTimeoutDir = Join-Path $runDir "audit-timeout-side-scope"
+New-Item -ItemType Directory -Force -Path $pairTimeoutDir | Out-Null
+$pairTimeoutEvidence = [pscustomobject]@{
+    evidence_gate_failures = @()
+    e3_gate_failures = @("public_validation_timeout")
+    included_in_utility_aggregate = $false
+    included_in_e3_aggregate = $false
+}
+$pairTimeoutManifest = Write-TaskspaceAuditManifest $pairTimeoutDir `
+    ([pscustomobject]@{ repeat = 1; scenario = "score-validity-fixture"; human_review_required = $false }) `
+    (New-Metrics "left" "standard" -Success $true -PublicExit 0) `
+    (New-Metrics "right" "taskspace" -Success $false -PublicExit 124 -Failures @("public_validation_timeout") -TestsCompleted $false) `
+    $pairTimeoutEvidence `
+    ([pscustomobject]@{ invalid_pair = $false }) `
+    $null
+Assert-True ([string]$pairTimeoutManifest.outcome_standard -eq "solved") "pair-level timeout contaminated clean standard side outcome"
+Assert-True ([string]$pairTimeoutManifest.outcome_taskspace -eq "engineering_unclean") "taskspace timeout side was not engineering unclean"
+Assert-True ([bool]$pairTimeoutManifest.engineering_unclean) "pair-level timeout did not invalidate pair scoring"
+
 $aggregatePath = Join-Path $runDir "aggregate-report.md"
 $invalidEvidence = [pscustomobject]@{
     reported_evidence_level = "E3-candidate"

@@ -132,10 +132,27 @@ function New-TaskspaceExternalEvidenceProof {
         $proofNonce = Get-TaskspaceProofMarkerValue $combinedLog "validator_proof_nonce"
         $wrapperSha = Get-TaskspaceProofMarkerValue $combinedLog "validator_wrapper_sha256"
         $entrySha = Get-TaskspaceProofMarkerValue $combinedLog "validator_entry_sha256"
+        $validationTimedOutAfterTestsStarted = (
+            $metrics -and
+            $metrics.PSObject.Properties.Name -contains "public_validation_exit_code" -and
+            [int]$metrics.public_validation_exit_code -eq 124 -and
+            $metrics.PSObject.Properties.Name -contains "tests_started_seen" -and
+            [bool]$metrics.tests_started_seen
+        )
+        $timeoutRuntimeMarkersProven = (
+            $validationTimedOutAfterTestsStarted -and
+            -not [string]::IsNullOrWhiteSpace($proofNonce) -and
+            -not [string]::IsNullOrWhiteSpace($wrapperSha) -and
+            -not [string]::IsNullOrWhiteSpace($entrySha) -and
+            $runtimeManifestUnderArtifact -and
+            $runtimeManifest -and
+            $runtimeCommand -eq "bash /tests/run-tests.sh")
         $runtimeRows.Add([pscustomobject]@{
             side = $sideName
             logical_mode = [string]$metrics.logical_mode
             validation_exit_code = [int]$metrics.public_validation_exit_code
+            validation_timeout_after_tests_started = $validationTimedOutAfterTestsStarted
+            timeout_runtime_markers_proven = $timeoutRuntimeMarkersProven
             proof_nonce = $proofNonce
             docker_wrapper_seen = ((Test-TaskspaceProofMarker $combinedLog "validator_runtime_probe=terminal_bench_docker_wrapper") -or
                 (Test-TaskspaceProofMarker $combinedLog "validator_runtime_probe=terminal_bench_equivalent_wrapper"))
@@ -184,12 +201,20 @@ function New-TaskspaceExternalEvidenceProof {
         })
     }
     $runtimeOk = @($runtimeRows | Where-Object {
-            -not ($_.docker_wrapper_seen -and $_.docker_app_runtime_seen -and $_.container_workdir_app -and $_.docker_inspect_seen -and
+            $fullRuntimeProof = ($_.docker_wrapper_seen -and $_.docker_app_runtime_seen -and $_.container_workdir_app -and $_.docker_inspect_seen -and
                 $_.proof_nonce -match '^[0-9a-f]{32}$' -and $_.wrapper_sha -match '^[0-9a-f]{64}$' -and $_.entry_sha -match '^[0-9a-f]{64}$' -and
                 $_.runtime_manifest_proven -and $_.docker_inspect_mounts_proven -and
                 $_.validation_cleanup_result_under_artifact -and $_.validation_cleanup_classification -eq "ok")
+            $timeoutAfterStartProof = ($_.validation_timeout_after_tests_started -and $_.timeout_runtime_markers_proven -and
+                $_.docker_wrapper_seen -and $_.docker_app_runtime_seen -and $_.container_workdir_app -and
+                $_.test_dir_seen -and $_.validator_mount_seen -and $_.validator_mount_readonly -and $_.official_test_command_seen)
+            -not ($fullRuntimeProof -or $timeoutAfterStartProof)
         }).Count -eq 0
-    $mountOk = @($runtimeRows | Where-Object { -not ($_.test_dir_seen -and $_.validator_mount_seen -and $_.validator_mount_readonly -and $_.docker_inspect_mounts_proven) }).Count -eq 0
+    $mountOk = @($runtimeRows | Where-Object {
+            $fullMountProof = ($_.test_dir_seen -and $_.validator_mount_seen -and $_.validator_mount_readonly -and $_.docker_inspect_mounts_proven)
+            $timeoutAfterStartMountProof = ($_.validation_timeout_after_tests_started -and $_.test_dir_seen -and $_.validator_mount_seen -and $_.validator_mount_readonly)
+            -not ($fullMountProof -or $timeoutAfterStartMountProof)
+        }).Count -eq 0
     $runtimeProof = [pscustomobject]@{
         benchmark = [string]$external.name
         adapter_version = [string]$external.adapter_version
