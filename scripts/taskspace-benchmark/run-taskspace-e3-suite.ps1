@@ -103,6 +103,48 @@ function Write-SuiteStartGateAbortHealth {
     } | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $suiteHealthPath -Encoding UTF8
 }
 
+function Write-SuiteEarlyAbortArtifacts {
+    param(
+        [Parameter(Mandatory = $true)][string]$Reason,
+        [string]$Phase = "pre_scheduling",
+        $SampleStatuses = @()
+    )
+    $statuses = @($SampleStatuses)
+    if ($statuses.Count -eq 0) {
+        $statuses = @([pscustomobject]@{
+                sample_id = "suite"
+                phase = $Phase
+                run_validity = "invalid_harness"
+                exit_code = 3
+                abort_scope = "suite"
+                abort_phase = $Phase
+                abort_signature = $Reason
+                abort_reason = $Reason
+                sample_root = $suiteRoot
+            })
+    }
+    [pscustomobject]@{
+        schema_version = 1
+        status = "invalid_harness"
+        suite_root = $suiteRoot
+        signature_counts = @{}
+        sample_statuses = @($statuses)
+        suite_abort_reason = $Reason
+        invalid_harness_sample_count = @($statuses | Where-Object { $_.PSObject.Properties.Name -contains "run_validity" -and [string]$_.run_validity -eq "invalid_harness" }).Count
+        remaining_samples_skipped = @($statuses | Where-Object { $_.PSObject.Properties.Name -contains "skipped_reason" -and -not [string]::IsNullOrWhiteSpace([string]$_.skipped_reason) }).Count
+        completed_child_processes = 0
+        score_valid_child_runs = 0
+        score_invalid_child_runs = 0
+        suite_score_valid = $false
+        calibration_selection_path = (Join-Path $suiteRoot "calibration-selection.json")
+        generated_at = (Get-Date).ToString("o")
+    } | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $suiteHealthPath -Encoding UTF8
+    $suiteTimingPath = Write-TaskspaceSuiteTiming -SuiteRoot $suiteRoot -SampleStatuses $statuses -TaskListHash $taskListHash -SourceVersion $SourceVersion -ProfileHash $profileHash
+    $runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath $suiteTimingPath -ScoreValid $false
+    $calibrationPath = Write-TaskspaceRuntimeCalibrationReport -TimingPath $suiteTimingPath -ScoreValid $false -CommandLine ([Environment]::CommandLine) -ParallelismPath $(if (Get-Variable -Name parallelismPath -Scope Script -ErrorAction SilentlyContinue) { $script:parallelismPath } else { "" })
+    [pscustomobject]@{ suite_timing_path = $suiteTimingPath; runtime_bottleneck_path = $runtimeBottleneckPath; runtime_calibration_path = $calibrationPath }
+}
+
 if (($ScoringMode -or $RequireScoreValidity) -and -not $PlanOnly -and -not $SkipStartGate) {
     $gate = Invoke-TaskspaceE3StartGate `
         -RepoRoot (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path `
@@ -123,8 +165,10 @@ if (($ScoringMode -or $RequireScoreValidity) -and -not $PlanOnly -and -not $Skip
     Write-Host "E3StartGateReport: $($gate.markdown_path)"
     if ([int]$gate.exit_code -ne 0) {
         Write-SuiteStartGateAbortHealth $gate
+        $early = Write-SuiteEarlyAbortArtifacts -Reason "e3_start_gate_failed/$($gate.first_failure_stable_code)" -Phase "e3_start_gate"
         Write-Host "SuiteRoot: $suiteRoot"
         Write-Host "SuiteHealth: $suiteHealthPath"
+        Write-Host "SuiteTiming: $($early.suite_timing_path)"
         exit 3
     }
 }
@@ -145,6 +189,12 @@ if (-not [bool]$resourceConfig.valid) {
 }
 if ([string]$diskReservation.status -eq "fail") {
     [Console]::Error.WriteLine("Disk reservation failed before suite scheduling. See $parallelismPath")
+    $diskFailure = @($diskReservation.failures | Select-Object -First 1)[0]
+    $reason = if ($diskFailure) { "harness_materialization_failure/$($diskFailure.stable_code)" } else { "harness_materialization_failure/disk_reservation_failed" }
+    $early = Write-SuiteEarlyAbortArtifacts -Reason $reason -Phase "disk_reservation"
+    Write-Host "SuiteRoot: $suiteRoot"
+    Write-Host "SuiteHealth: $suiteHealthPath"
+    Write-Host "SuiteTiming: $($early.suite_timing_path)"
     exit 3
 }
 if (@($serialGuard.unsupported_parallel_fields).Count -gt 0) {

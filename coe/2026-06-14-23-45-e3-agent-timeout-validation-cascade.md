@@ -408,3 +408,38 @@ Observed output:
 Interpretation: the disk-preflight smoke aborted before sample scheduling/timing finalization. R0 reconstruction correctly blocks speed conclusions because suite timing is missing, while preserving the disk-space engineering failure as the suite-health cause. This is useful evidence for instrumentation closure: pre-scheduling aborts need either a minimal suite timing artifact or explicit reconstruction support for pre-timing aborts.
 
 Legacy gap: `target/e3-full-20260606-014919` appears to be an older run-root layout with per-sample/pair artifacts but no canonical `suite-health.json` or `suite-timing.json`; the current R0 reconstructor cannot directly reconstruct it. A legacy importer or the actual canonical full E3 suite root is still needed before claiming the previous full E3 run has been reconstructed.
+
+## Hypothesis H-017
+
+Claim: pre-scheduling early aborts must write minimal timing and reconstruction artifacts. Otherwise, the runtime plan can discover an engineering problem but still fail to produce the evidence needed to explain or gate the next command.
+
+Predictions:
+- Start-gate failures should write `suite-health.json`, `suite-timing.json`, runtime bottleneck report, and runtime calibration report before exiting `3`.
+- Disk-reservation failures before sample scheduling should write the same minimal suite artifacts before exiting `3`.
+- Runtime reconstruction over these early-abort suite roots should produce one invalid suite-level sample row, `first_invalid_sample_index=0`, no false missing `suite-timing.json`, and `invalid_waste_bound`.
+
+Diagnostic evidence plan:
+- Add a suite early-abort artifact writer in `run-taskspace-e3-suite.ps1`.
+- Fix `runtime-reconstruction.ps1` so single-element `sample_statuses` is treated as an array and suite-level abort rows do not require nonexistent per-sample timing.
+- Extend `test-e3-start-gate.ps1` to assert suite timing and reconstruction sample-row behavior.
+- Run a disk-reservation early-abort smoke through the canonical suite driver.
+
+## Evidence E-030
+
+Supports H-017 for start-gate and disk-reservation early-abort paths. `run-taskspace-e3-suite.ps1` now writes early abort artifacts before exiting `3`. `runtime-reconstruction.ps1` now preserves single-row `suite-health.sample_statuses`, reports `first_invalid_sample_index=0`, and does not create a false missing `sample-timing` entry for a suite-level abort row. `test-e3-start-gate.ps1` asserts `suite-timing.json`, reconstruction sample rows, and first-invalid index for start-gate failures.
+
+Validation passed:
+- PowerShell parser check for `runtime-reconstruction.ps1`, `run-taskspace-e3-suite.ps1`, and `test-e3-start-gate.ps1`.
+- `.\scripts\taskspace-benchmark\test-e3-start-gate.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
+
+Disk-reservation smoke:
+- Command category: canonical suite driver with `-PlanOnly -SkipStartGate -DiskReserveGb 999999999`
+- Suite root: `target/e3-disk-early-abort-timing-smoke-2/suite-20260615-032809`
+- Exit code: `3`
+- `suite-timing.json`: present
+- Reconstruction output root: `target/e3-disk-early-abort-timing-smoke-2/suite-20260615-032809/runtime-reconstruction/smoke`
+- Observed reconstruction: `first_invalid_sample_index=0`, `sample_rows=1`, `missing_fields=[]`, `bottleneck_classification=invalid_waste_bound`
+
+Remaining scope: this does not close first-pair invalid fast-fail, validator/Docker overhead proof, governed parallel smoke release evidence, official one-pair/three-task calibration artifacts, legacy full-run import, or final full E3 release-gate approval.

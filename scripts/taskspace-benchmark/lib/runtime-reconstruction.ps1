@@ -16,6 +16,23 @@ function Get-TaskspaceRuntimeMs {
     0
 }
 
+function Test-TaskspaceProperty {
+    param($Object, [string]$Name)
+    $null -ne $Object -and $null -ne $Object.PSObject.Properties[$Name]
+}
+
+function Get-TaskspacePropertyValue {
+    param($Object, [string]$Name, $Default = "")
+    if (Test-TaskspaceProperty $Object $Name) { return $Object.PSObject.Properties[$Name].Value }
+    $Default
+}
+
+function Get-TaskspaceArrayProperty {
+    param($Object, [string]$Name)
+    if (-not (Test-TaskspaceProperty $Object $Name)) { return @() }
+    @($Object.PSObject.Properties[$Name].Value)
+}
+
 function Get-TaskspaceReconstructionClass {
     param(
         [bool]$HasInvalid,
@@ -59,23 +76,26 @@ function Write-TaskspaceRuntimeReconstruction {
     $missing = New-Object System.Collections.Generic.List[string]
     if (-not $suiteHealth) { $missing.Add("suite-health.json") }
     if (-not $suiteTiming) { $missing.Add("suite-timing.json") }
-    $statuses = if ($suiteHealth -and $suiteHealth.PSObject.Properties.Name -contains "sample_statuses") { @($suiteHealth.sample_statuses) } else { @() }
+    [object[]]$statuses = @(Get-TaskspaceArrayProperty $suiteHealth "sample_statuses")
     $sampleRows = New-Object System.Collections.Generic.List[object]
     $firstInvalidIndex = -1
     for ($i = 0; $i -lt $statuses.Count; $i++) {
         $status = $statuses[$i]
-        $sampleRoot = if ($status.PSObject.Properties.Name -contains "sample_root") { [string]$status.sample_root } else { "" }
-        $skippedReason = if ($status.PSObject.Properties.Name -contains "skipped_reason") { [string]$status.skipped_reason } else { "" }
-        $timingPath = if ($sampleRoot) { Join-Path $sampleRoot "sample-timing.json" } else { "" }
+        $sampleRoot = [string](Get-TaskspacePropertyValue $status "sample_root" "")
+        $skippedReason = [string](Get-TaskspacePropertyValue $status "skipped_reason" "")
+        $abortScope = [string](Get-TaskspacePropertyValue $status "abort_scope" "")
+        $runValidity = [string](Get-TaskspacePropertyValue $status "run_validity" "")
+        $suiteLevelAbort = $abortScope -eq "suite" -and $runValidity -eq "invalid_harness" -and ([System.IO.Path]::GetFullPath($sampleRoot) -eq $SuiteRoot)
+        $timingPath = if ($sampleRoot -and -not $suiteLevelAbort) { Join-Path $sampleRoot "sample-timing.json" } else { "" }
         $timing = Read-TaskspaceJsonIfPresent $timingPath
-        if ($sampleRoot -and -not $timing -and [string]::IsNullOrWhiteSpace($skippedReason)) { $missing.Add("sample-timing:$sampleRoot") }
+        if ($sampleRoot -and -not $timing -and -not $suiteLevelAbort -and [string]::IsNullOrWhiteSpace($skippedReason)) { $missing.Add("sample-timing:$sampleRoot") }
         $duration = Get-TaskspaceRuntimeMs $timing @("total_pair_duration_ms", "sample_wall_ms", "total_duration_ms")
-        $invalid = ($status.PSObject.Properties.Name -contains "run_validity" -and [string]$status.run_validity -eq "invalid_harness")
+        $invalid = ($runValidity -eq "invalid_harness")
         if ($invalid -and $firstInvalidIndex -lt 0) { $firstInvalidIndex = $i }
         $sampleRows.Add([pscustomobject]@{
                 index = $i
-                sample_id = if ($status.PSObject.Properties.Name -contains "sample_id") { [string]$status.sample_id } else { "" }
-                run_validity = if ($status.PSObject.Properties.Name -contains "run_validity") { [string]$status.run_validity } else { "" }
+                sample_id = [string](Get-TaskspacePropertyValue $status "sample_id" "")
+                run_validity = $runValidity
                 skipped_reason = $skippedReason
                 duration_ms = $duration
                 timing_path = $timingPath
@@ -95,7 +115,7 @@ function Write-TaskspaceRuntimeReconstruction {
     $dockerRunMs = Get-TaskspaceRuntimeMs $suiteTiming @("docker_run_ms", "docker_run_duration_ms")
     $dockerCleanupMs = Get-TaskspaceRuntimeMs $suiteTiming @("docker_cleanup_ms", "docker_cleanup_duration_ms")
     foreach ($field in @("agent_duration_ms", "public_validation_duration_ms", "docker_build_duration_ms", "docker_run_duration_ms", "docker_cleanup_duration_ms")) {
-        if ($suiteTiming -and -not ($suiteTiming.PSObject.Properties.Name -contains $field)) { $missing.Add("missing_timing_field:$field") }
+        if ($suiteTiming -and -not (Test-TaskspaceProperty $suiteTiming $field)) { $missing.Add("missing_timing_field:$field") }
     }
     $classification = Get-TaskspaceReconstructionClass ($firstInvalidIndex -ge 0) $timeAfterInvalid $suiteWallMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs @($missing.ToArray())
     $artifact = [ordered]@{

@@ -5,6 +5,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\scenario-manifest.ps1")
 . (Join-Path $PSScriptRoot "lib\harness-health.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-start-gate.ps1")
+. (Join-Path $PSScriptRoot "lib\runtime-reconstruction.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\e3-start-gate-selftest" }
 $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
@@ -165,8 +166,9 @@ try {
     $suiteRootLine = @($suiteGateOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
     $suiteRunRoot = ([string]$suiteRootLine) -replace "^SuiteRoot:\s*", ""
     $suiteHealthPath = Join-Path $suiteRunRoot "suite-health.json"
+    $suiteTimingPath = Join-Path $suiteRunRoot "suite-timing.json"
     $suiteStartGatePath = Join-Path $suiteRunRoot "start-gate\e3-start-gate.json"
-    Assert-True ((Test-Path -LiteralPath $suiteHealthPath) -and (Test-Path -LiteralPath $suiteStartGatePath)) "suite start gate did not write health and gate artifacts"
+    Assert-True ((Test-Path -LiteralPath $suiteHealthPath) -and (Test-Path -LiteralPath $suiteTimingPath) -and (Test-Path -LiteralPath $suiteStartGatePath)) "suite start gate did not write health, timing, and gate artifacts"
     $suiteHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteHealthPath | ConvertFrom-Json
     $suiteStartGate = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteStartGatePath | ConvertFrom-Json
     $sampleDirs = @(Get-ChildItem -LiteralPath (Join-Path $suiteRunRoot "samples") -Directory -ErrorAction SilentlyContinue)
@@ -174,6 +176,10 @@ try {
     Assert-True ([string]$suiteStartGate.status -eq "fail" -and @($suiteStartGate.gates | Where-Object { [string]$_.name -eq "one_pair_smoke" -and [string]$_.status -eq "fail" }).Count -eq 1) "suite start gate did not preserve one-pair smoke failure"
     Assert-True (@($suiteStartGate.gates | Where-Object { [string]$_.name -eq "cheap_self_tests" -and [string]$_.status -eq "skipped" -and [string]$_.stable_code -eq "self_tests_skipped_after_previous_failure" }).Count -eq 1) "suite start gate ran self-tests after an earlier gate failure"
     Assert-True ($sampleDirs.Count -eq 0) "suite start gate created sample runs after gate failure"
+    $suiteReconstruction = Write-TaskspaceRuntimeReconstruction -SuiteRoot $suiteRunRoot -OutputRoot (Join-Path $suiteRunRoot "runtime-reconstruction\selftest")
+    Assert-True (@($suiteReconstruction.artifact.missing_fields | Where-Object { [string]$_ -eq "suite-timing.json" }).Count -eq 0) "early start-gate abort reconstruction still misses suite-timing.json"
+    Assert-True ([int]$suiteReconstruction.artifact.first_invalid_sample_index -eq 0) "early start-gate abort reconstruction did not identify first invalid sample"
+    Assert-True (@($suiteReconstruction.artifact.sample_rows).Count -eq 1) "early start-gate abort reconstruction did not preserve suite sample row"
 
     $oldErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
@@ -191,6 +197,7 @@ try {
     $suiteCalibrationRootLine = @($suiteCalibrationOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
     $suiteCalibrationRunRoot = ([string]$suiteCalibrationRootLine) -replace "^SuiteRoot:\s*", ""
     $suiteCalibrationStartGate = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteCalibrationRunRoot "start-gate\e3-start-gate.json") | ConvertFrom-Json
+    Assert-True (Test-Path -LiteralPath (Join-Path $suiteCalibrationRunRoot "suite-timing.json")) "suite calibration gate failure did not write suite-timing.json"
     $suiteCalibrationSampleDirs = @(Get-ChildItem -LiteralPath (Join-Path $suiteCalibrationRunRoot "samples") -Directory -ErrorAction SilentlyContinue)
     Assert-True (@($suiteCalibrationStartGate.gates | Where-Object { [string]$_.name -eq "calibration_one_pair_smoke" -and [string]$_.status -eq "fail" }).Count -eq 1) "suite start gate did not preserve calibration one-pair timing failure"
     Assert-True ($suiteCalibrationSampleDirs.Count -eq 0) "suite calibration gate created sample runs after gate failure"
