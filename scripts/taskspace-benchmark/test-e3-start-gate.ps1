@@ -62,6 +62,12 @@ try {
     $smokeGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-smoke-pass") -ScenarioPath $scenarioDir -OnePairSmokeRoot $smokeRoot -RunRoot (Join-Path $runDir "runs") -AllowSkippedSelfTests -SelfTestCommands @()
     Assert-True ([string]$smokeGate.status -eq "pass" -and @($smokeGate.gates | Where-Object { [string]$_.name -eq "one_pair_smoke" -and [string]$_.status -eq "pass" }).Count -eq 1) "start gate did not accept valid one-pair smoke artifact"
 
+    $classifiedSmokeRoot = Join-Path $runDir "one-pair-classified-smoke"
+    New-Item -ItemType Directory -Force -Path $classifiedSmokeRoot | Out-Null
+    [pscustomobject]@{ run_validity = "invalid_harness"; abort_signature = "harness_materialization_failure/docker_run_failure" } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $classifiedSmokeRoot "sample-status.json") -Encoding UTF8
+    $classifiedSmokeGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-classified-smoke-pass") -ScenarioPath $scenarioDir -OnePairSmokeRoot $classifiedSmokeRoot -RunRoot (Join-Path $runDir "runs") -AllowSkippedSelfTests -SelfTestCommands @()
+    Assert-True ([string]$classifiedSmokeGate.status -eq "pass" -and @($classifiedSmokeGate.gates | Where-Object { [string]$_.name -eq "one_pair_smoke" -and [string]$_.reason -eq "classified_invalid_harness" }).Count -eq 1) "start gate did not accept classified invalid one-pair sample-status artifact"
+
     $noSelfTestGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-no-selftests") -ScenarioPath $scenarioDir -RunRoot (Join-Path $runDir "runs") -AllowSkippedOnePairSmoke -SelfTestCommands @()
     Assert-True ([string]$noSelfTestGate.status -eq "fail" -and [string]$noSelfTestGate.first_failure_stable_code -eq "self_tests_not_run") "start gate allowed skipped self-tests without explicit allow"
 

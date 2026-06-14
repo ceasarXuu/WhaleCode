@@ -1385,7 +1385,7 @@ Safe reductions:
 - `finalize-taskspace-e3-run.ps1` now performs artifact-only rerender work, writes `finalize-health.json`, rebuilds `sample-timing.json` before aggregate rendering, and records `validation_rerun_allowed=false` / `hidden_oracle_rerun_allowed=false`.
 - `run-taskspace-e3-suite.ps1` now records suite score-validity fields and conservative `expected_time_saved_minutes` in `suite-health.json`; skipped samples also get their own `sample-status.json` with `phase=skipped`.
 - Suite-level invalidation now emits `suite_score_invalidated` to `events.jsonl` with the invalid sample, reason, child run path, and remaining skipped sample count.
-- `invoke-taskspace-e3-start-gate.ps1` now requires `-OnePairSmokeRoot` unless `-AllowSkippedOnePairSmoke` is explicitly set; valid one-pair smoke evidence is either `aggregate.json.score_valid=true` or a classified `invalid_harness` suite health artifact.
+- `invoke-taskspace-e3-start-gate.ps1` now requires `-OnePairSmokeRoot` unless `-AllowSkippedOnePairSmoke` is explicitly set; valid one-pair smoke evidence is either `aggregate.json.score_valid=true`, a classified `invalid_harness` suite health artifact, or a classified `sample-status.json` with a non-empty `abort_signature`. This matters because a scoring-mode one-pair smoke can correctly abort before aggregate generation once the harness proves an engineering-unclean condition.
 - No-op finalize behavior is covered by `test-harness.ps1`: the fixture verifies that validation stdout mtime is unchanged after finalize. Parallel execution remains future work until its own tests pass.
 
 #### Exit Criteria
@@ -1552,6 +1552,179 @@ Proceed in this order:
 10. Add pair-level parallelism only after sample-level proof.
 11. Add validation-level parallelism only after Docker cache locks are proven.
 12. Leave side-agent parallelism disabled unless timing comparability is explicitly disabled.
+
+### 15.9.1 Runtime Speedup Engineering Plan
+
+The speedup work is feasible, but it must be staged. The target is not simply "make E3 faster"; the target is "make clean E3 faster while invalid E3 stops early." These are separate engineering problems.
+
+#### Phase S0: Make Runtime Accounting Complete
+
+Objective: explain every long run from artifacts, without reading console logs.
+
+Implementation details:
+
+1. Add `pair-timing.json` for every pair:
+   - `pair_id`, `sample_id`, `scenario_id`;
+   - `started_at`, `completed_at`, `elapsed_ms`;
+   - `standard_agent_ms`, `taskspace_agent_ms`;
+   - `standard_public_validation_ms`, `taskspace_public_validation_ms`;
+   - `standard_docker_build_ms`, `taskspace_docker_build_ms`;
+   - `standard_docker_run_ms`, `taskspace_docker_run_ms`;
+   - `standard_cleanup_ms`, `taskspace_cleanup_ms`;
+   - `reporting_ms`, `finalize_ms`;
+   - `largest_phase`, `largest_non_agent_phase`.
+2. Add `sample-timing.json` in each sample root:
+   - pair totals;
+   - skipped/cancelled pair counts;
+   - first invalid-harness timestamp;
+   - time spent after first invalid-harness event.
+3. Add `suite-timing.json` in the E3 suite root:
+   - wall time;
+   - sum by phase;
+   - top five slowest pairs;
+   - bottleneck class;
+   - timing fields missing count.
+4. Add a `Write-TaskspaceTimingSpan` helper in `scripts/taskspace-benchmark/lib/timing.ps1` instead of open-coded stopwatch fields.
+5. Make timing writes atomic, using the existing JSON writer pattern in `run-state.ps1`.
+
+Acceptance:
+
+- A synthetic three-pair fixture produces deterministic `suite-timing.json`.
+- Missing timing fields make runtime optimization status `blocked`, not `pass`.
+- Timing subtotal difference from suite wall time is reported as `unattributed_ms`.
+- `unattributed_ms` must be below a documented tolerance before using the run as speed evidence.
+
+#### Phase S1: Stop Wasting Time On Invalid Runs
+
+Objective: once E3 is score-invalid for a hard engineering reason, stop scheduling new scoring work.
+
+Implementation details:
+
+1. Normalize scoring-mode invalid harness exits to process exit `3`:
+   - suite runner;
+   - external benchmark runner;
+   - sample runner;
+   - finalize/report rerun paths.
+2. Add a suite circuit breaker:
+   - trigger on `run_validity=invalid_harness`;
+   - trigger on hard failure classes except allowed `exec_timeout`;
+   - stop new pairs/samples immediately;
+   - write `cancelled_due_to_score_invalid` for work not started.
+3. Preserve already-written evidence:
+   - do not delete partial artifacts;
+   - do not rebuild aggregate as if the run were score-bearing;
+   - write `sample-status.json` and `suite-health.json`.
+4. Ensure final reports use "invalid execution" language and never report Standard/TaskSpace score deltas from invalid runs.
+
+Acceptance:
+
+- Injected Docker run failure exits `3`.
+- The suite writes `suite-health.json.run_validity=invalid_harness`.
+- No later sample starts after the first hard invalid-harness event.
+- Final report says the score is invalid and points to abort artifacts.
+
+#### Phase S2: Remove Avoidable Validator And Docker Overhead
+
+Objective: reduce non-agent time without changing the benchmark task or scoring semantics.
+
+Implementation details:
+
+1. Split validation timeout:
+   - `ValidationPretestTimeoutSeconds` covers setup before `tests_started`;
+   - `ValidationTestTimeoutSeconds` covers actual tests after marker;
+   - no-marker failures abort with `no_tests_started_marker`.
+2. Cache Docker images only when inputs are immutable:
+   - cache key includes Dockerfile hash, validator script hash, source version, uv cache hash, and benchmark adapter version;
+   - digest-pinned base images are cache-eligible;
+   - mutable tags require opt-in diagnostic mode or cache disabled.
+3. Add Docker cache locks:
+   - one writer per cache key;
+   - concurrent readers wait for writer completion;
+   - failed build invalidates that cache entry.
+4. Bound cleanup:
+   - cleanup timeout has its own field;
+   - cleanup failures classify as engineering-unclean;
+   - cleanup cannot hide validation results.
+5. Make finalize artifact-only:
+   - no validator rerun;
+   - no hidden oracle rerun;
+   - only aggregate, markdown, and health files are regenerated.
+
+Acceptance:
+
+- Second run of the same immutable scenario records `cache_hit=true`.
+- A mutable Dockerfile does not use cache in scoring mode.
+- A no-marker validator aborts before full validation timeout.
+- Finalize does not change validation stdout/stderr mtimes.
+
+#### Phase S3: Add Resource-Governed Parallelism
+
+Objective: reduce clean full-suite wall time after serial mode is already clean.
+
+Implementation details:
+
+1. Keep defaults serial:
+   - `MaxParallelSamples=1`;
+   - `MaxParallelPairsPerSample=1`;
+   - `MaxParallelValidationsPerPair=1`;
+   - `MaxParallelSidesPerPair=1`.
+2. Implement resource tokens before worker jobs:
+   - Docker token;
+   - model token;
+   - validation token;
+   - disk reservation token;
+   - Docker cache-key lock.
+3. Start with sample-level parallelism:
+   - independent sample roots;
+   - deterministic merge order by sample ID;
+   - no shared current directory.
+4. Add pair-level parallelism only after sample parallelism passes:
+   - deterministic pair roots;
+   - no shared temporary files;
+   - pair-local stdout/stderr only.
+5. Add validation-level parallelism only after Docker cache locks pass:
+   - Standard and TaskSpace validations can overlap only if Docker concurrency permits;
+   - both sides must record independent timing and proof markers.
+6. Keep side-agent parallelism disabled for scoring comparison unless the report explicitly sets `timing_comparison_valid=false`.
+
+Acceptance:
+
+- `parallelism.json` records configured and observed concurrency.
+- Parallel smoke has no duplicate artifact paths.
+- Serial and parallel runs have equivalent score validity.
+- First accepted full parallel profile is at least `30%` faster than serial clean baseline.
+
+#### Phase S4: Decide Whether Agent-Side Speed Changes Are Allowed
+
+Objective: avoid "speedups" that are actually weaker TaskSpace capability.
+
+Implementation details:
+
+1. Treat model, reasoning effort, timeout, subagent count, and tool-call budget as scoring profile fields.
+2. Do not change these in the v0.0.4 comparable score profile.
+3. If a faster agent profile is tested, mark it diagnostic-only until promoted to a new benchmark profile.
+4. Report capability tradeoffs separately from harness speedups.
+
+Acceptance:
+
+- v0.0.4 comparable run has identical score profile fields before and after speed work.
+- Diagnostic speed runs cannot be merged into score comparison tables.
+- Any adopted cheaper profile gets a new profile ID and a fresh baseline.
+
+#### Expected Speedup Bound
+
+Use these estimates only after clean timing artifacts exist:
+
+| Optimization | Plausible impact | Why |
+|---|---:|---|
+| invalid-run fast-fail | hours saved on bad runs | stops after first hard engineering defect instead of consuming all 15 pairs |
+| Docker cache | medium to high | avoids repeated image builds for immutable scenarios |
+| pretest timeout split | high on broken validators | no-marker/setup failures do not wait for full test timeout |
+| sample-level parallelism | `1.5-2x` initial target | independent sample roots have low coupling |
+| pair/validation parallelism | additional `1.2-1.5x` | useful after Docker contention is governed |
+| agent budget reduction | unknown and non-comparable | may reduce capability, so not a v0.0.4 harness speedup |
+
+Do not promise `2-3x` until a serial clean baseline and a resource-governed parallel smoke both pass. A realistic first milestone is `>=30%` clean wall-time reduction with score validity unchanged.
 
 ### 15.10 Runtime Acceptance Matrix
 

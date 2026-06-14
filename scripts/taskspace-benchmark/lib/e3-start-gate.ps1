@@ -126,7 +126,19 @@ function Get-TaskspaceE3OnePairSmokeGate {
             return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_suite_health_malformed" "one_pair_suite_health_malformed" ([string]$_.Exception.Message)
         }
     }
-    New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_smoke_artifact_missing" "one_pair_smoke_artifact_missing" "No aggregate.json or suite-health.json found under OnePairSmokeRoot."
+    $sampleStatusPath = Get-ChildItem -LiteralPath $OnePairSmokeRoot -Filter "sample-status.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($sampleStatusPath) {
+        try {
+            $sampleStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $sampleStatusPath.FullName | ConvertFrom-Json
+            if ([string]$sampleStatus.run_validity -eq "invalid_harness" -and -not [string]::IsNullOrWhiteSpace([string]$sampleStatus.abort_signature)) {
+                return New-TaskspaceE3GateRow "one_pair_smoke" "pass" "classified_invalid_harness" "" ([string]$sampleStatusPath.FullName)
+            }
+            return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_sample_status_not_classified" "one_pair_sample_status_not_classified" ([string]$sampleStatusPath.FullName)
+        } catch {
+            return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_sample_status_malformed" "one_pair_sample_status_malformed" ([string]$_.Exception.Message)
+        }
+    }
+    New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_smoke_artifact_missing" "one_pair_smoke_artifact_missing" "No aggregate.json, suite-health.json, or sample-status.json found under OnePairSmokeRoot."
 }
 
 function New-TaskspaceE3SetupFailureGate {
