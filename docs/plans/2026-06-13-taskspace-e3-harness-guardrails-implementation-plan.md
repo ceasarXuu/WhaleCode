@@ -1216,6 +1216,14 @@ These classes are diagnostics. They must not change scoring results directly; th
 - Runtime optimization work is prioritized from measured bottlenecks, not intuition.
 - The plan can distinguish "agent legitimately slow" from "harness wasting hours".
 
+#### Current Implementation Notes
+
+- `scripts/taskspace-benchmark/lib/timing.ps1` now emits `timing_breakdown`, subtotal percentages, largest span, `bottleneck_classification`, and `bottleneck_reason` for pair/sample/suite timing artifacts.
+- Pair timing aggregates Docker build/run/cleanup durations from side metrics when validator artifacts provide them.
+- Sample and suite timing aggregate Docker subtotals and bottleneck counts across child artifacts.
+- `test-e3-harness-guardrails.ps1` includes synthetic timing fixtures for `agent_bound`, `validator_bound`, `docker_build_bound`, `cleanup_bound`, and `engineering_unclean_slow`.
+- Median/p95 per-span summaries, duplicate Docker build count by cache key, and report-rendered top-three spans are still pending.
+
 ### 15.6 Phase R2: Validator And Docker Overhead Reduction
 
 #### Objective

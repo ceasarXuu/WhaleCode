@@ -8,6 +8,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\aggregate-report.ps1")
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
 . (Join-Path $PSScriptRoot "lib\suite-status.ps1")
+. (Join-Path $PSScriptRoot "lib\timing.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\e3-guardrails-selftest" }
 $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
@@ -173,6 +174,55 @@ Assert-True ([string]$aggregate.run_validity -eq "invalid_harness") "aggregate d
 Assert-True (-not [bool]$aggregate.diagnostic_comparison_enabled) "aggregate did not disable diagnostic comparison"
 Assert-True ($aggregateText -match "diagnostic_comparison_enabled: False") "aggregate report did not render comparison-disabled status"
 Assert-True ($aggregateText -notmatch "taskspace_better|standard_better|regressed|worse") "invalid harness aggregate rendered directional comparison wording"
+
+$timingRun = Join-Path $runDir "timing"
+New-Item -ItemType Directory -Force -Path $timingRun | Out-Null
+$pairTimingDir = Join-Path $timingRun "pair-001"
+New-Item -ItemType Directory -Force -Path $pairTimingDir | Out-Null
+$pairStart = [datetime]"2026-06-14T00:00:00Z"
+$pairEnd = $pairStart.AddSeconds(10)
+$timingMetrics = @{
+    left = [pscustomobject]@{
+        logical_mode = "standard"; wall_time_ms = 2000; exec_exit_code = 0; exec_timed_out = $false
+        validator_environment_failures = @(); docker_build_duration_ms = 1600; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100
+    }
+    right = [pscustomobject]@{
+        logical_mode = "taskspace"; wall_time_ms = 2000; exec_exit_code = 0; exec_timed_out = $false
+        validator_environment_failures = @(); docker_build_duration_ms = 100; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100
+    }
+}
+$timingValidation = @{
+    left = [pscustomobject]@{ logical_mode = "standard"; validation_started_at = $pairStart.AddSeconds(4); validation_finished_at = $pairStart.AddSeconds(4.5); validation_exit_code = 0; oracle_started_at = $pairStart.AddSeconds(4.5); oracle_finished_at = $pairStart.AddSeconds(4.75); oracle_exit_code = 0; engineering_unclean_reasons = @() }
+    right = [pscustomobject]@{ logical_mode = "taskspace"; validation_started_at = $pairStart.AddSeconds(5); validation_finished_at = $pairStart.AddSeconds(5.5); validation_exit_code = 0; oracle_started_at = $pairStart.AddSeconds(5.5); oracle_finished_at = $pairStart.AddSeconds(5.75); oracle_exit_code = 0; engineering_unclean_reasons = @() }
+}
+Write-TaskspacePairTiming -PairDir $pairTimingDir -Repeat 1 -PairStartedAt $pairStart -PairFinishedAt $pairEnd -Manifest ([pscustomobject]@{ Id = "timing-sample" }) -Pair $null -MetricsBySide $timingMetrics -ValidationTimingBySide $timingValidation | Out-Null
+$pairTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $pairTimingDir "pair-timing.json") | ConvertFrom-Json
+Assert-True ([string]$pairTiming.bottleneck_classification -eq "docker_build_bound") "pair timing did not classify docker build bottleneck"
+Assert-True ([double]$pairTiming.timing_breakdown.subtotal_percentages.docker_build -eq 17.0) "pair timing docker build percentage was not deterministic"
+Assert-True ([string]$pairTiming.timing_breakdown.largest_span.name -eq "agent") "pair timing largest span did not identify agent subtotal"
+
+$unclean = Get-TaskspaceTimingBottleneck 10000 1000 1000 0 0 0 0 @("docker_run_failure")
+Assert-True ([string]$unclean.classification -eq "engineering_unclean_slow") "timing bottleneck did not prioritize engineering unclean"
+$agentBound = Get-TaskspaceTimingBottleneck 10000 7000 1000 0 0 0 0 @()
+Assert-True ([string]$agentBound.classification -eq "agent_bound") "timing bottleneck did not classify agent_bound"
+$validatorBound = Get-TaskspaceTimingBottleneck 10000 1000 3000 0 0 0 0 @()
+Assert-True ([string]$validatorBound.classification -eq "validator_bound") "timing bottleneck did not classify validator_bound"
+$cleanupBound = Get-TaskspaceTimingBottleneck 10000 1000 1000 0 0 500 0 @()
+Assert-True ([string]$cleanupBound.classification -eq "cleanup_bound") "timing bottleneck did not classify cleanup_bound"
+
+Write-TaskspaceSampleTiming $timingRun "timing-sample" | Out-Null
+$sampleTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $timingRun "sample-timing.json") | ConvertFrom-Json
+Assert-True ([int64]$sampleTiming.docker_build_duration_ms -eq 1700) "sample timing did not aggregate docker build duration"
+Assert-True ([int]$sampleTiming.bottleneck_counts.docker_build_bound -eq 1) "sample timing did not aggregate bottleneck count"
+
+$suiteRoot = Join-Path $runDir "timing-suite"
+$suiteSampleRoot = Join-Path $suiteRoot "samples\timing-sample"
+New-Item -ItemType Directory -Force -Path $suiteSampleRoot | Out-Null
+Copy-Item -LiteralPath (Join-Path $timingRun "sample-timing.json") -Destination (Join-Path $suiteSampleRoot "sample-timing.json") -Force
+Write-TaskspaceSuiteTiming -SuiteRoot $suiteRoot -SampleStatuses @([pscustomobject]@{ sample_root = $suiteSampleRoot }) | Out-Null
+$suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteRoot "suite-timing.json") | ConvertFrom-Json
+Assert-True ([int64]$suiteTiming.docker_build_duration_ms -eq 1700) "suite timing did not aggregate docker build duration"
+Assert-True ([int]$suiteTiming.bottleneck_counts.docker_build_bound -eq 1) "suite timing did not aggregate bottleneck count"
 
 if ($failures.Count -gt 0) {
     Write-Host "E3 harness guardrails self-test: FAIL"
