@@ -41,7 +41,7 @@ function New-GateScenario {
 }
 
 function New-CalibrationFixtures {
-    param([string]$Root)
+    param([string]$Root, [string]$TaskListHash = "task-list-a", [string]$SourceVersion = "source-a", [string]$ProfileHash = "profile-a")
     $onePairRoot = Join-Path $Root "one-pair"
     $serialRoot = Join-Path $Root "serial"
     New-Item -ItemType Directory -Force -Path $onePairRoot, $serialRoot | Out-Null
@@ -51,6 +51,9 @@ function New-CalibrationFixtures {
         public_validation_duration_ms = 2000
         bottleneck_classification = "validator_bound"
         runtime_optimization_status = "ready"
+        task_list_hash = $TaskListHash
+        source_version = $SourceVersion
+        profile_hash = $ProfileHash
     } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $onePairRoot "pair-timing.json") -Encoding UTF8
     [pscustomobject]@{ sample_id = "calibration-one-pair" } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $onePairRoot "sample-timing.json") -Encoding UTF8
     "# Runtime Bottleneck`n" | Set-Content -LiteralPath (Join-Path $onePairRoot "runtime-bottleneck.md") -Encoding UTF8
@@ -60,6 +63,9 @@ function New-CalibrationFixtures {
         runtime_optimization_status = "ready"
         bottleneck_classification = "mixed_or_unclassified"
         wait_attribution_status = "complete"
+        task_list_hash = $TaskListHash
+        source_version = $SourceVersion
+        profile_hash = $ProfileHash
     } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $serialRoot "suite-timing.json") -Encoding UTF8
     "# Runtime Calibration`n" | Set-Content -LiteralPath (Join-Path $serialRoot "runtime-calibration-report.md") -Encoding UTF8
     $equivalencePath = Join-Path $Root "serial-vs-parallel-equivalence.json"
@@ -68,6 +74,9 @@ function New-CalibrationFixtures {
         parallel_smoke_score_drift = $false
         drift_count = 0
         compared_sample_ids = @("sample-a", "sample-b", "sample-c")
+        task_list_hash = $TaskListHash
+        source_version = $SourceVersion
+        profile_hash = $ProfileHash
     } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $equivalencePath -Encoding UTF8
     [pscustomobject]@{ one_pair_root = $onePairRoot; serial_root = $serialRoot; equivalence_path = $equivalencePath }
 }
@@ -97,8 +106,13 @@ try {
     Assert-True ([string]$aggregateOnlyCalibrationGate.status -eq "fail" -and @($aggregateOnlyCalibrationGate.gates | Where-Object { [string]$_.name -eq "calibration_one_pair_smoke" -and [string]$_.status -eq "fail" }).Count -eq 1) "start gate allowed aggregate-only one-pair root without timing calibration artifacts"
 
     $calibration = New-CalibrationFixtures (Join-Path $runDir "calibration-fixtures")
-    $calibratedGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-calibration-pass") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -AllowSkippedSelfTests -SelfTestCommands @()
+    $calibratedGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-calibration-pass") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -AllowSkippedSelfTests -SelfTestCommands @()
     Assert-True ([string]$calibratedGate.status -eq "pass" -and @($calibratedGate.gates | Where-Object { [string]$_.name -eq "calibration_parallel_smoke" -and [string]$_.status -eq "pass" }).Count -eq 1) "start gate did not pass complete calibration evidence"
+    Assert-True (Test-Path -LiteralPath $calibratedGate.gate_decision_path) "start gate did not write gate-decision artifact"
+    $gateDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $calibratedGate.gate_decision_path | ConvertFrom-Json
+    Assert-True ([string]$gateDecision.status -eq "pass" -and [string]$gateDecision.task_list_hash -eq "task-list-a" -and [string]$gateDecision.profile_hash -eq "profile-a") "gate-decision did not preserve expected identity"
+    $identityMismatchStartGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-calibration-identity-fail") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-b" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -AllowSkippedSelfTests -SelfTestCommands @()
+    Assert-True ([string]$identityMismatchStartGate.status -eq "fail" -and @($identityMismatchStartGate.gates | Where-Object { [string]$_.name -eq "calibration_one_pair_smoke" -and [string]$_.stable_code -eq "one_pair_smoke_identity_mismatch:task_list_hash" }).Count -eq 1) "start gate did not fail closed on calibration identity mismatch"
 
     $classifiedSmokeRoot = Join-Path $runDir "one-pair-classified-smoke"
     New-Item -ItemType Directory -Force -Path $classifiedSmokeRoot | Out-Null

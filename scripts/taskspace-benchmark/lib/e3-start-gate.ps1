@@ -65,6 +65,30 @@ function New-TaskspaceE3GateRow {
     [pscustomobject]@{ name = $Name; status = $Status; reason = $Reason; stable_code = $StableCode; message = $Message }
 }
 
+function New-TaskspaceE3GateDecision {
+    param($Gate, [string]$Phase = "R1", [string]$TaskListHash = "", [string]$SourceVersion = "", [string]$ProfileHash = "")
+    $passed = ($Gate -and [string]$Gate.status -eq "pass")
+    $nextCategory = if ($passed) { "serial_calibration" } else { "fixture_tests" }
+    $calibrationPass = $false
+    if ($Gate -and $Gate.calibration_gate) {
+        $calibrationPass = ([string]$Gate.calibration_gate.status -eq "pass")
+    }
+    [pscustomobject]@{
+        schema_version = 1
+        status = if ($passed) { "pass" } else { "blocked" }
+        phase = $Phase
+        next_allowed_command_category = $nextCategory
+        full_e3_allowed = $false
+        speed_claim_allowed = $false
+        calibration_gate_passed = $calibrationPass
+        task_list_hash = $TaskListHash
+        source_version = $SourceVersion
+        profile_hash = $ProfileHash
+        blocking_reasons = @(@($Gate.gates | Where-Object { [string]$_.status -eq "fail" } | ForEach-Object { [string]$_.stable_code }))
+        generated_at = (Get-Date).ToString("o")
+    }
+}
+
 function Convert-TaskspaceCalibrationGateRow {
     param($Row)
     $stableCode = if ([string]::IsNullOrWhiteSpace([string]$Row.reason)) { "" } else { [string]$Row.reason }
@@ -183,6 +207,8 @@ function Invoke-TaskspaceE3StartGate {
         [string]$RunRoot = "",
         [string]$TaskListPath = "",
         [string]$SourceVersion = "",
+        [string]$ExpectedTaskListHash = "",
+        [string]$ExpectedProfileHash = "",
         [string]$OnePairSmokeRoot = "",
         [string]$SerialCalibrationRoot = "",
         [string]$ParallelEquivalencePath = "",
@@ -249,6 +275,9 @@ function Invoke-TaskspaceE3StartGate {
             -OnePairSmokeRoot $OnePairSmokeRoot `
             -SerialCalibrationRoot $SerialCalibrationRoot `
             -ParallelEquivalencePath $ParallelEquivalencePath `
+            -ExpectedTaskListHash $ExpectedTaskListHash `
+            -ExpectedSourceVersion $SourceVersion `
+            -ExpectedProfileHash $ExpectedProfileHash `
             -OutputPath (Join-Path $OutputDir "calibration-gate.json")
         foreach ($calibrationRow in @($calibrationGate.gates)) {
             $gates.Add((Convert-TaskspaceCalibrationGateRow $calibrationRow))
@@ -290,7 +319,10 @@ function Invoke-TaskspaceE3StartGate {
     }
     $gate | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
     New-TaskspaceE3StartGateMarkdown $gate | Set-Content -LiteralPath $markdownPath -Encoding UTF8
+    $gateDecisionPath = Join-Path $OutputDir "gate-decision.json"
+    New-TaskspaceE3GateDecision $gate "R1" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $gateDecisionPath -Encoding UTF8
     $gate | Add-Member -NotePropertyName json_path -NotePropertyValue $jsonPath -Force
     $gate | Add-Member -NotePropertyName markdown_path -NotePropertyValue $markdownPath -Force
+    $gate | Add-Member -NotePropertyName gate_decision_path -NotePropertyValue $gateDecisionPath -Force
     $gate
 }

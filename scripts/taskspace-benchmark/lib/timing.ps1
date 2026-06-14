@@ -245,7 +245,10 @@ function Write-TaskspacePairTiming {
         $Pair,
         $MetricsBySide,
         $ValidationTimingBySide,
-        [string[]]$EngineeringUncleanReasons = @()
+        [string[]]$EngineeringUncleanReasons = @(),
+        [string]$TaskListHash = "",
+        [string]$SourceVersion = "",
+        [string]$ProfileHash = ""
     )
     $spans = New-Object System.Collections.Generic.List[object]
     $spans.Add((New-TaskspaceTimingSpan "pair_total" $PairStartedAt $PairFinishedAt "" "" 0 $false $EngineeringUncleanReasons))
@@ -307,6 +310,9 @@ function Write-TaskspacePairTiming {
     $artifact = [ordered]@{
         schema_version = 1
         scenario = if ($Manifest -and $Manifest.PSObject.Properties.Name -contains "Id") { [string]$Manifest.Id } else { "" }
+        task_list_hash = $TaskListHash
+        source_version = $SourceVersion
+        profile_hash = $ProfileHash
         pair_id = "pair-{0:000}" -f $Repeat
         pair_dir = $PairDir
         started_at = $PairStartedAt.ToString("o")
@@ -409,7 +415,10 @@ function Add-TaskspaceMetricTimingFields {
 function Write-TaskspaceSampleTiming {
     param(
         [Parameter(Mandatory = $true)][string]$RunDir,
-        [Parameter(Mandatory = $true)][string]$SampleId
+        [Parameter(Mandatory = $true)][string]$SampleId,
+        [string]$TaskListHash = "",
+        [string]$SourceVersion = "",
+        [string]$ProfileHash = ""
     )
     $pairTimingFiles = @(Get-ChildItem -LiteralPath $RunDir -Filter "pair-timing.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName)
     $pairDirs = @(Get-ChildItem -LiteralPath $RunDir -Directory -Filter "pair-*" -ErrorAction SilentlyContinue | Sort-Object FullName)
@@ -478,6 +487,9 @@ function Write-TaskspaceSampleTiming {
     $artifact = [ordered]@{
         schema_version = 1
         sample_id = $SampleId
+        task_list_hash = $TaskListHash
+        source_version = $SourceVersion
+        profile_hash = $ProfileHash
         run_dir = $RunDir
         pair_count = @($pairs).Count
         total_pair_duration_ms = $totalMs
@@ -533,7 +545,10 @@ function Write-TaskspaceSampleTiming {
 function Write-TaskspaceSuiteTiming {
     param(
         [Parameter(Mandatory = $true)][string]$SuiteRoot,
-        [Parameter(Mandatory = $true)]$SampleStatuses
+        [Parameter(Mandatory = $true)]$SampleStatuses,
+        [string]$TaskListHash = "",
+        [string]$SourceVersion = "",
+        [string]$ProfileHash = ""
     )
     $sampleTimingFiles = @(Get-ChildItem -LiteralPath $SuiteRoot -Filter "sample-timing.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName)
     $sampleDirs = @(Get-ChildItem -LiteralPath (Join-Path $SuiteRoot "samples") -Directory -ErrorAction SilentlyContinue | Sort-Object FullName)
@@ -611,6 +626,9 @@ function Write-TaskspaceSuiteTiming {
     $artifact = [ordered]@{
         schema_version = 1
         suite_root = $SuiteRoot
+        task_list_hash = $TaskListHash
+        source_version = $SourceVersion
+        profile_hash = $ProfileHash
         sample_count = @($SampleStatuses).Count
         timing_sample_count = @($samples).Count
         total_pair_duration_ms = $totalMs

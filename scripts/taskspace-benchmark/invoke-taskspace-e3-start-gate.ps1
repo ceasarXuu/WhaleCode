@@ -3,6 +3,8 @@ param(
     [string]$ScenarioPath = "",
     [string]$TaskListPath = "",
     [string]$SourceVersion = "",
+    [string]$ExpectedTaskListHash = "",
+    [string]$ExpectedProfileHash = "",
     [string]$OnePairSmokeRoot = "",
     [string]$SerialCalibrationRoot = "",
     [string]$ParallelEquivalencePath = "",
@@ -34,6 +36,8 @@ $gate = Invoke-TaskspaceE3StartGate `
     -RunRoot $RunRoot `
     -TaskListPath $TaskListPath `
     -SourceVersion $SourceVersion `
+    -ExpectedTaskListHash $ExpectedTaskListHash `
+    -ExpectedProfileHash $ExpectedProfileHash `
     -OnePairSmokeRoot $OnePairSmokeRoot `
     -SerialCalibrationRoot $SerialCalibrationRoot `
     -ParallelEquivalencePath $ParallelEquivalencePath `
@@ -45,4 +49,5 @@ $gate = Invoke-TaskspaceE3StartGate `
 
 Write-Host "E3StartGate: $($gate.json_path)"
 Write-Host "E3StartGateReport: $($gate.markdown_path)"
+Write-Host "GateDecision: $($gate.gate_decision_path)"
 exit ([int]$gate.exit_code)

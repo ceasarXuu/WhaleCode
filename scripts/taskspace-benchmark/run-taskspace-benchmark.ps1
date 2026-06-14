@@ -15,6 +15,8 @@ param(
     [switch]$EnableAggregate, [switch]$AllowNonE2Result, [switch]$ScoringMode, [switch]$RequireScoreValidity, [switch]$EnableDockerImageCache,
     [switch]$ResumeLatest,
     [string]$RunId = "",
+    [string]$TaskListHash = "",
+    [string]$ProfileHash = "",
     [switch]$ForceRerun,
     [switch]$PlanOnly
 )
@@ -514,7 +516,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $evidence | Add-Member -NotePropertyName outcome_standard -NotePropertyValue ([string]$auditManifest.outcome_standard) -Force
     $evidence | Add-Member -NotePropertyName outcome_taskspace -NotePropertyValue ([string]$auditManifest.outcome_taskspace) -Force
     $pairFinishedAt = Get-Date
-    $pairTimingPath = Write-TaskspacePairTiming $pair.PairDir $repeat $pairStartedAt $pairFinishedAt $manifest $pair $metricsBySide $validationTimingBySide @($auditManifest.engineering_unclean_reasons)
+    $pairTimingPath = Write-TaskspacePairTiming -PairDir $pair.PairDir -Repeat $repeat -PairStartedAt $pairStartedAt -PairFinishedAt $pairFinishedAt -Manifest $manifest -Pair $pair -MetricsBySide $metricsBySide -ValidationTimingBySide $validationTimingBySide -EngineeringUncleanReasons @($auditManifest.engineering_unclean_reasons) -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
     $evidence | Add-Member -NotePropertyName pair_timing_path -NotePropertyValue $pairTimingPath -Force
     Write-TaskspacePairReport $pairReportPath $manifest $promptGuard $variableControl $evidence $metricsBySide["left"] $metricsBySide["right"] $pair $probe
     if ([string]$manifest.EvidenceTarget -eq "E3") {
@@ -544,7 +546,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                     skipped_repeats = @((($repeat + 1)..$Repeats) | Where-Object { $_ -le $Repeats })
             }) $abortPath
             Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "sentinel_pair" ([string]$sentinel.reason) $sentinel.signature $abortPath $commandLine $repeat $repeat | Out-Null
-            Write-TaskspaceSampleTiming $runDir $manifest.Id | Out-Null
+            Write-TaskspaceSampleTiming -RunDir $runDir -SampleId $manifest.Id -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash | Out-Null
             Write-Host "RunDir: $runDir"
             Write-Host "PairAbort: $abortPath"
             exit 3
@@ -554,7 +556,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
 
 $runSummaryPath = Join-Path $runDir "run-summary.md"
 Write-TaskspaceRunSummary -Path $runSummaryPath -Reports @($pairReports.ToArray())
-$sampleTimingPath = Write-TaskspaceSampleTiming $runDir $manifest.Id
+$sampleTimingPath = Write-TaskspaceSampleTiming -RunDir $runDir -SampleId $manifest.Id -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
 if ($EnableAggregate) {
     $aggregatePath = Join-Path $runDir "aggregate-report.md"
     Write-TaskspaceAggregateReport -Path $aggregatePath -Reports @($pairReports.ToArray())

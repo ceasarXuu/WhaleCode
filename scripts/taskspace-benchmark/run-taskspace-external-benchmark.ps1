@@ -18,6 +18,8 @@ param(
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [string]$AuditReviewRoot = "",
     [string]$RunnerPath = "",
+    [string]$TaskListHash = "",
+    [string]$ProfileHash = "",
     [switch]$EnableAggregate,
     [switch]$AllowDiagnosticNonTargetResult,
     [switch]$ScoringMode,
@@ -132,6 +134,8 @@ $args = @(
     "-ValidationTestTimeoutSeconds", $ValidationTestTimeoutSeconds,
     "-SandboxMode", $SandboxMode
 )
+if (-not [string]::IsNullOrWhiteSpace($TaskListHash)) { $args += @("-TaskListHash", $TaskListHash) }
+if (-not [string]::IsNullOrWhiteSpace($ProfileHash)) { $args += @("-ProfileHash", $ProfileHash) }
 foreach ($override in @($ConfigOverride)) { $args += @("-ConfigOverride", $override) }
 if (-not [string]::IsNullOrWhiteSpace($AuditReviewRoot)) { $args += @("-AuditReviewRoot", $AuditReviewRoot) }
 if ($EnableAggregate) { $args += "-EnableAggregate" }

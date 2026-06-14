@@ -239,12 +239,9 @@ Assert-True ([string]$parallelismSmoke.serial_only_status -eq "sample_parallel_s
 Assert-True ([int]$parallelismSmoke.observed.max_parallel_samples -eq 2) "parallelism artifact did not record observed sample-level parallelism"
 Assert-True ((Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-a\sample-status.json")) -and (Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-b\sample-status.json")) -and (Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-c\sample-status.json"))) "parallel suite smoke did not isolate sample artifacts"
 $equivalencePath = Join-Path $parallelSuiteRoot "serial-vs-parallel-equivalence.json"
-$equivalence = Write-TaskspaceSuiteScoreEquivalence (Join-Path $serialRunRoot "suite-health.json") (Join-Path $parallelRunRoot "suite-health.json") $equivalencePath
-$equivalence | Add-Member -NotePropertyName task_list_hash -NotePropertyValue "task-list-a" -Force
-$equivalence | Add-Member -NotePropertyName source_version -NotePropertyValue "source-a" -Force
-$equivalence | Add-Member -NotePropertyName profile_hash -NotePropertyValue "profile-a" -Force
-$equivalence | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $equivalencePath -Encoding UTF8
+$equivalence = Write-TaskspaceSuiteScoreEquivalence -SerialSuiteHealthPath (Join-Path $serialRunRoot "suite-health.json") -ParallelSuiteHealthPath (Join-Path $parallelRunRoot "suite-health.json") -OutputPath $equivalencePath -TaskListHash "task-list-a" -SourceVersion "source-a" -ProfileHash "profile-a"
 Assert-True ([bool]$equivalence.comparable -and -not [bool]$equivalence.parallel_smoke_score_drift -and [int]$equivalence.drift_count -eq 0) "serial-vs-parallel equivalence reported unexpected drift"
+Assert-True ([string]$equivalence.task_list_hash -eq "task-list-a" -and [string]$equivalence.source_version -eq "source-a" -and [string]$equivalence.profile_hash -eq "profile-a") "serial-vs-parallel equivalence did not preserve identity fields"
 $driftFixture = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $parallelRunRoot "suite-health.json") | ConvertFrom-Json
 $driftFixture.sample_statuses[1].run_validity = "invalid_harness"
 $driftResult = Compare-TaskspaceSuiteScoreEquivalence (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $serialRunRoot "suite-health.json") | ConvertFrom-Json) $driftFixture
@@ -400,10 +397,11 @@ $suiteRoot = Join-Path $runDir "timing-suite"
 $suiteSampleRoot = Join-Path $suiteRoot "samples\timing-sample"
 New-Item -ItemType Directory -Force -Path $suiteSampleRoot | Out-Null
 Copy-Item -LiteralPath (Join-Path $timingRun "sample-timing.json") -Destination (Join-Path $suiteSampleRoot "sample-timing.json") -Force
-Write-TaskspaceSuiteTiming -SuiteRoot $suiteRoot -SampleStatuses @([pscustomobject]@{ sample_root = $suiteSampleRoot }) | Out-Null
+Write-TaskspaceSuiteTiming -SuiteRoot $suiteRoot -SampleStatuses @([pscustomobject]@{ sample_root = $suiteSampleRoot }) -TaskListHash "task-list-a" -SourceVersion "source-a" -ProfileHash "profile-a" | Out-Null
 $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteRoot "suite-timing.json") | ConvertFrom-Json
 Assert-True ([int64]$suiteTiming.docker_build_duration_ms -eq 2600) "suite timing did not aggregate docker build duration"
 Assert-True ([int]$suiteTiming.bottleneck_counts.docker_build_bound -eq 1) "suite timing did not aggregate bottleneck count"
+Assert-True ([string]$suiteTiming.task_list_hash -eq "task-list-a" -and [string]$suiteTiming.source_version -eq "source-a" -and [string]$suiteTiming.profile_hash -eq "profile-a") "suite timing did not preserve identity fields"
 Assert-True ([int]$suiteTiming.docker_cache_key_counts."cache-a" -eq 2 -and [string]$suiteTiming.repeated_docker_cache_keys[0] -eq "cache-a") "suite timing did not aggregate repeated Docker cache keys"
 Assert-True ([int64]$suiteTiming.model_request_duration_ms -eq 2000 -and @($suiteTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_request_duration_ms" }).Count -eq 0) "suite timing did not aggregate observed model request duration"
 Assert-True ([int64]$suiteTiming.resource_wait_ms_total -eq 20 -and @($suiteTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "resource_wait_ms_total" }).Count -eq 0) "suite timing did not aggregate observed cache lock wait"

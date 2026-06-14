@@ -118,11 +118,17 @@ function Write-TaskspaceSuiteScoreEquivalence {
     param(
         [Parameter(Mandatory = $true)][string]$SerialSuiteHealthPath,
         [Parameter(Mandatory = $true)][string]$ParallelSuiteHealthPath,
-        [Parameter(Mandatory = $true)][string]$OutputPath
+        [Parameter(Mandatory = $true)][string]$OutputPath,
+        [string]$TaskListHash = "",
+        [string]$SourceVersion = "",
+        [string]$ProfileHash = ""
     )
     $serial = Get-Content -Raw -Encoding UTF8 -LiteralPath $SerialSuiteHealthPath | ConvertFrom-Json
     $parallel = Get-Content -Raw -Encoding UTF8 -LiteralPath $ParallelSuiteHealthPath | ConvertFrom-Json
     $result = Compare-TaskspaceSuiteScoreEquivalence $serial $parallel
+    $result | Add-Member -NotePropertyName task_list_hash -NotePropertyValue $TaskListHash -Force
+    $result | Add-Member -NotePropertyName source_version -NotePropertyValue $SourceVersion -Force
+    $result | Add-Member -NotePropertyName profile_hash -NotePropertyValue $ProfileHash -Force
     $result | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
     $result
 }

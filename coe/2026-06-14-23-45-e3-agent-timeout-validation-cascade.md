@@ -306,3 +306,32 @@ Diagnostic evidence plan:
 ## Evidence E-025
 
 Supports H-013 validation at the gate layer. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` now passes with complete identity fields on one-pair timing, serial timing, and parallel equivalence artifacts, and a negative fixture proves `ExpectedTaskListHash=task-list-b` fails with `one_pair_smoke_identity_mismatch:task_list_hash`. This does not yet complete end-to-end identity enforcement; suite/start-gate still need to compute real task-list/profile identity and real timing/equivalence producers must emit those fields.
+
+## Hypothesis H-014
+
+Claim: calibration identity becomes an effective guardrail only when the canonical suite computes task-list/profile identity, passes it into the start gate, and real timing/equivalence producers persist the same fields. A gate-only fixture can still be bypassed by stale or manually assembled artifacts.
+
+Predictions:
+- `run-taskspace-e3-suite.ps1` should compute a SHA256 task-list hash and a stable profile hash before invoking the start gate.
+- `Invoke-TaskspaceE3StartGate` should pass expected task-list/source/profile identity into `Invoke-TaskspaceCalibrationGate`.
+- `pair-timing.json`, `sample-timing.json`, `suite-timing.json`, and `serial-vs-parallel-equivalence.json` should carry identity fields from real producers.
+- A mismatched expected task-list hash should fail at the start gate before sample scheduling.
+- Start gate should emit `gate-decision.json` so operators have a machine-readable next-command decision instead of relying on chat notes.
+
+Diagnostic evidence plan:
+- Add a small shared identity helper for SHA256 file hash and stable profile JSON hash.
+- Thread identity through suite, external runner, benchmark runner, timing writers, parallel diff writer, and start gate.
+- Extend start-gate and guardrails self-tests for identity mismatch and `gate-decision.json`.
+- Run parser checks plus focused start-gate, guardrails, and score-validity tests.
+
+## Evidence E-026
+
+Supports H-014 validation for the canonical suite/start-gate path. `scripts/taskspace-benchmark/lib/e3-identity.ps1` now provides stable hash helpers. `run-taskspace-e3-suite.ps1` computes task-list hash and profile hash, passes them to `Invoke-TaskspaceE3StartGate`, and forwards them through child runs. `run-taskspace-external-benchmark.ps1` and `run-taskspace-benchmark.ps1` pass those fields into timing writers. `scripts/taskspace-benchmark/lib/timing.ps1` writes `task_list_hash`, `source_version`, and `profile_hash` into pair/sample/suite timing artifacts. `scripts/taskspace-benchmark/lib/parallel-diff.ps1` writes the same identity fields into equivalence artifacts. `scripts/taskspace-benchmark/lib/e3-start-gate.ps1` passes expected identity into `Invoke-TaskspaceCalibrationGate` and writes `gate-decision.json`.
+
+Validation passed:
+- PowerShell parser check for touched scripts.
+- `.\scripts\taskspace-benchmark\test-e3-start-gate.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
+
+Remaining scope: this does not complete the full Section 16.13 runtime plan. `calibration-selection.json`, previous-run reconstruction, final full E3 release gate evidence, and official one-pair/3-task calibration artifacts remain open.

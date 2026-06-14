@@ -43,6 +43,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "lib\runtime-bottleneck-report.ps1")
 . (Join-Path $PSScriptRoot "lib\resource-governor.ps1")
 . (Join-Path $PSScriptRoot "lib\scenario-manifest.ps1")
+. (Join-Path $PSScriptRoot "lib\e3-identity.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-start-gate.ps1")
 if ($Repeats -lt 5) { throw "E3 suite requires Repeats >= 5." }
 if (-not (Test-Path -LiteralPath $TaskListPath)) { Write-Error "TaskListPath not found: $TaskListPath"; exit 4 }
@@ -59,6 +60,25 @@ $samplesRoot = Join-Path $suiteRoot "samples"
 New-Item -ItemType Directory -Path $samplesRoot -Force | Out-Null
 $suiteHealthPath = Join-Path $suiteRoot "suite-health.json"
 $skippedPath = Join-Path $suiteRoot "skipped-samples.jsonl"
+$taskListHash = Get-TaskspaceFileSha256 $TaskListPath
+$profileIdentity = New-TaskspaceE3ProfileIdentity `
+    -Benchmark $Benchmark `
+    -SourceVersion $SourceVersion `
+    -Model $Model `
+    -Repeats $Repeats `
+    -TimeoutSeconds $TimeoutSeconds `
+    -ValidationTimeoutSeconds $ValidationTimeoutSeconds `
+    -ValidationPretestTimeoutSeconds $ValidationPretestTimeoutSeconds `
+    -ValidationTestTimeoutSeconds $ValidationTestTimeoutSeconds `
+    -SandboxMode $SandboxMode `
+    -ConfigOverride $ConfigOverride `
+    -EnableDockerImageCache ([bool]$EnableDockerImageCache) `
+    -MaxParallelSamples $MaxParallelSamples `
+    -MaxParallelPairsPerSample $MaxParallelPairsPerSample `
+    -MaxParallelValidationsPerPair $MaxParallelValidationsPerPair `
+    -MaxDockerConcurrency $MaxDockerConcurrency `
+    -MaxModelConcurrency $MaxModelConcurrency
+$profileHash = [string]$profileIdentity.profile_hash
 
 function Write-SuiteStartGateAbortHealth {
     param($Gate)
@@ -90,6 +110,8 @@ if (($ScoringMode -or $RequireScoreValidity) -and -not $PlanOnly -and -not $Skip
         -RunRoot $suiteRoot `
         -TaskListPath $TaskListPath `
         -SourceVersion $SourceVersion `
+        -ExpectedTaskListHash $taskListHash `
+        -ExpectedProfileHash $profileHash `
         -OnePairSmokeRoot $OnePairSmokeRoot `
         -SerialCalibrationRoot $SerialCalibrationRoot `
         -ParallelEquivalencePath $ParallelEquivalencePath `
@@ -259,6 +281,8 @@ function New-SuiteChildArgs {
         "-ValidationPretestTimeoutSeconds", $ValidationPretestTimeoutSeconds,
         "-ValidationTestTimeoutSeconds", $ValidationTestTimeoutSeconds,
         "-SandboxMode", $SandboxMode,
+        "-TaskListHash", $taskListHash,
+        "-ProfileHash", $profileHash,
         "-EnableAggregate"
     )
     foreach ($override in @($ConfigOverride)) { $childArgs += @("-ConfigOverride", $override) }
@@ -382,7 +406,7 @@ for ($index = 0; $index -lt $tasks.Count; ) {
 
 $statusText = if ($suiteAbort) { "invalid_harness" } else { "completed" }
 Write-SuiteHealth $statusText @($sampleStatuses.ToArray()) $signatureCounts $suiteAbort
-$suiteTimingPath = Write-TaskspaceSuiteTiming $suiteRoot @($sampleStatuses.ToArray())
+$suiteTimingPath = Write-TaskspaceSuiteTiming -SuiteRoot $suiteRoot -SampleStatuses @($sampleStatuses.ToArray()) -TaskListHash $taskListHash -SourceVersion $SourceVersion -ProfileHash $profileHash
 $runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath $suiteTimingPath -ScoreValid (-not [bool]$suiteAbort)
 $gitCommit = ""
 try { $gitCommit = (& git -C (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path rev-parse HEAD 2>$null) } catch { $gitCommit = "" }
