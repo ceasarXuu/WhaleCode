@@ -870,7 +870,14 @@ Expected smoke result:
 - If unclean, process exits `3`, `suite-health.json` names the first engineering reason, and no remaining samples are scheduled.
 - Any other exit code or missing `score_valid` field is a harness bug and blocks full E3.
 
-Only after the one-pair smoke passes may full E3 be scheduled:
+Historical note: earlier drafts allowed a larger scoring run after only this
+one-pair smoke. That rule is obsolete. A one-pair smoke is now only the first
+runtime evidence item; it does not authorize any multi-sample scoring run,
+full 15-task E3, or speed claim.
+
+Do not run the following command as a release/scoring gate unless Section 16.13
+R5 has already allowed it through `calibration-gate.json`,
+`gate-decision.json`, and matching task-list/source/profile identity:
 
 ```powershell
 .\scripts\taskspace-benchmark\run-taskspace-e3-suite.ps1 `
@@ -879,6 +886,10 @@ Only after the one-pair smoke passes may full E3 be scheduled:
   -RepeatCount 5 `
   -ScoringMode
 ```
+
+If this command is useful during development, label the result explicitly as
+non-release calibration or debugging evidence. It must not appear in a final
+0.0.4 E3 score report unless the R5 gate has passed.
 
 ### 14.7 Full E3 Start Gate
 
@@ -2912,3 +2923,364 @@ Stop speed work and return to cleanliness fixes when any of these is true:
 
 These stop conditions are not optional. They prevent the project from turning
 performance work into another invalid E3 run.
+
+### 16.13 Detailed Runtime Bottleneck Repair Plan
+
+This section turns the speed question into an execution plan. The immediate
+problem is not only "15 tasks take hours"; the engineering problem is that the
+runner cannot yet prove which part of the hours is legitimate agent work and
+which part is avoidable harness work. Until that proof exists, the suite must
+not make speed claims or spend another full E3 cycle on a likely invalid run.
+
+#### 16.13.1 Working Hypotheses For The Multi-Hour Runtime
+
+Treat these as hypotheses to prove or reject from artifacts:
+
+| Hypothesis | Why It Is Plausible | Required Evidence | If Proven |
+|---|---|---|---|
+| validator timeout waste | the previous invalid run contained multiple `public_validation_timeout=124` outcomes | per-side validation duration, lifecycle marker state, first-invalid timestamp | split pretest/test timeout, make validator timeout engineering-unclean, stop later scheduling |
+| Docker setup/build waste | previous results included Docker build/run/environment failures | Docker build/run/cleanup timing and cache key status | fix Docker environment first; add immutable cache and cache-lock proof |
+| serial scheduling waste | 15 tasks were scheduled serially even after score validity became impossible | suite scheduler timeline and skipped/later sample start times | circuit-breaker must cancel remaining work after hard invalid |
+| agent-bound runtime | the agent may be consuming most of the configured timeout legitimately | agent process duration, model request duration, model queue/backoff duration | no comparable v0.0.4 large speedup; only profile-versioned budget/model changes |
+| model/API wait | provider queue/retry/backoff can make parallelism slower rather than faster | model queue wait and retry/backoff fields | add model token limits and retry tuning before raising concurrency |
+| disk/resource contention | D drive exhaustion occurred during the workstream | disk reservation logs and free-space samples over time | add disk preflight/reservation and cleanup policy before parallel smoke |
+
+#### 16.13.2 Phase R0: Current Evidence Reconciliation
+
+Objective: reconstruct where the last multi-hour run spent time without
+rerunning E3.
+
+Entry criteria:
+
+| Entry Criterion | Check Method | Evidence / Output | Owner |
+|---|---|---|---|
+| previous E3 artifact root is available | inspect latest suite root and `artifacts/report.md` | artifact path recorded | benchmark owner |
+| no full rerun is in progress | process list / suite lock | no active E3 child process | benchmark owner |
+| current git commit is recorded | `git rev-parse HEAD` | commit hash in COE | benchmark owner |
+
+Implementation tasks:
+
+1. Add or run a read-only `runtime-reconstruct` path that scans existing
+   `pair-timing.json`, `sample-timing.json`, `suite-timing.json`,
+   `suite-health.json`, validation result JSON, Docker result JSON, and audit
+   artifacts.
+2. Emit `runtime-reconstruction.md/json` even if fields are missing.
+3. Write reconstruction output under a separate reconstruction root, for
+   example `<run-root>/runtime-reconstruction/<timestamp>/`. Never write the
+   reconstruction files into historical pair/sample directories and never
+   rewrite existing timing, validation, Docker, audit, or score artifacts.
+4. Mark every missing timing field as `missing`, never as `0`.
+5. Compute:
+   - suite wall time;
+   - time before first engineering-unclean event;
+   - time after first engineering-unclean event;
+   - top 10 pair/side durations;
+   - agent, validator, Docker, cleanup, report, wait, and unattributed shares.
+
+Validation:
+
+| Validation Item | Method | Passing Standard |
+|---|---|---|
+| reconstruction is read-only | compare git status and artifact mtimes outside report output | no existing run artifact is rewritten |
+| missing fields visible | fixture with missing Docker timing | report lists `missing_docker_timing`, not `0ms` |
+| first-invalid waste computed | injected suite fixture | `time_after_first_invalid_ms` matches fixture |
+
+Exit criteria:
+
+- `runtime-reconstruction.md/json` exists.
+- It names one of: `invalid_waste_bound`, `agent_bound`,
+  `model_queue_bound`, `validator_bound`, `docker_build_bound`,
+  `docker_run_bound`, `storage_bound`, `mixed`, or `unknown`.
+- If classification is `unknown`, the next phase is instrumentation only.
+- `gate-decision.json` is written with
+  `next_allowed_command_category=instrumentation_only` unless timing is already
+  complete and no engineering-unclean blocker exists.
+
+#### 16.13.3 Phase R1: Instrumentation Closure
+
+Objective: make every future scoring run self-explaining enough to answer the
+speed question.
+
+Entry criteria:
+
+| Entry Criterion | Check Method | Evidence / Output | Owner |
+|---|---|---|---|
+| R0 has a reconstruction or explicit missing-field list | inspect `runtime-reconstruction.json` | missing fields enumerated | benchmark owner |
+| no score claim depends on incomplete timing | inspect aggregate report | speed status is blocked | benchmark owner |
+
+Implementation tasks:
+
+1. Extend timing producers so real pair/sample/suite runs emit:
+   `agent_execution_ms`, `model_queue_wait_ms`,
+   `model_request_duration_ms`, `model_retry_backoff_ms`,
+   `public_validation_ms`, `hidden_oracle_ms`, `docker_build_ms`,
+   `docker_run_ms`, `docker_cleanup_ms`, `report_finalize_ms`,
+   `process_launch_wait_ms`, `resource_wait_ms_total`, and
+   `unattributed_ms`.
+2. Add `timing_quality` with:
+   - `complete`;
+   - `blocked_missing_fields`;
+   - `blocked_unreconciled_wall_time`.
+3. Add `runtime_optimization_status` with:
+   - `blocked_instrumentation`;
+   - `blocked_invalid_run`;
+   - `candidate_validator_or_docker`;
+   - `candidate_parallelism`;
+   - `limited_agent_bound`;
+   - `target_approved`.
+4. Persist the exact task-list hash, source version, and profile hash beside
+   timing artifacts so stale calibration cannot authorize a full run.
+5. Until direct helper entrypoints enforce the same task-list/source/profile
+   identity gate as the canonical suite start gate, document and treat them as
+   non-scoring development helpers only. Any direct helper invoked with scoring
+   intent must fail closed or be excluded from final E3 evidence.
+
+Validation:
+
+| Validation Item | Method | Passing Standard |
+|---|---|---|
+| timing field fixture | synthetic pair/sample/suite timing | all required fields present or explicitly `null` with missing reason |
+| reconciliation fixture | known duration fixture | serial unattributed time is `<=5%` or status blocks |
+| identity fixture | mismatched task-list hash | calibration gate fails before scheduling |
+
+Exit criteria:
+
+- `test-e3-harness-guardrails.ps1` proves timing and identity fields.
+- `test-e3-score-validity.ps1` proves missing timing blocks speed claims.
+- No full E3 can start in scoring mode without calibration identity evidence.
+- Direct helper documentation and tests make clear that it cannot authorize
+  score-bearing E3 without the same identity gate.
+
+#### 16.13.4 Phase R2: Eliminate Invalid-Run Waste
+
+Objective: make engineering-unclean runs fail fast instead of consuming hours.
+
+Entry criteria:
+
+| Entry Criterion | Check Method | Evidence / Output | Owner |
+|---|---|---|---|
+| hard clean-execution taxonomy is active | focused score-validity test | engineering failures are score-invalid | benchmark owner |
+| start gate is enforced | start-gate test | `-SkipStartGate` cannot bypass scoring runs | benchmark owner |
+
+Implementation tasks:
+
+1. Enforce first hard engineering-unclean event as a suite-level circuit
+   breaker in scoring mode.
+2. Write skipped sample records for all unstarted tasks with
+   `skipped_reason=previous_engineering_unclean`.
+3. Keep clean `agent_exec_timeout` score-bearing and do not treat it as a
+   circuit-breaker unless mixed with infra failure.
+4. Ensure finalize is artifact-only and cannot rerun validators/oracles after
+   score validity is already blocked.
+
+Validation:
+
+| Validation Item | Method | Passing Standard |
+|---|---|---|
+| injected Docker failure | suite fixture | exit `3`, no later samples start |
+| injected validator timeout | suite fixture | exit `3`, later samples are explicit skipped records |
+| clean agent timeout | short-timeout fixture | remains score-bearing and does not trigger validator timeout cascade |
+| finalize no-rerun | mtime/hash check | validation/oracle outputs unchanged during finalize |
+
+Exit criteria:
+
+- Invalid E3 runtime is bounded by the first hard failure plus report finalization.
+- The aggregate report says `score_valid=false` and contains no better/worse
+  comparison language.
+
+#### 16.13.5 Phase R3: Reduce Validator And Docker Overhead
+
+Objective: reduce avoidable harness overhead while preserving score semantics.
+
+Entry criteria:
+
+| Entry Criterion | Check Method | Evidence / Output | Owner |
+|---|---|---|---|
+| one-pair timing is clean or cleanly invalid | calibration gate | one-pair timing root accepted or failure reason explicit | benchmark owner |
+| Docker failures are not present in the current environment | Docker probe | build/run/proof probe passes | benchmark owner |
+| disk reserve is healthy | disk preflight | free-space threshold passes | benchmark owner |
+
+Implementation tasks:
+
+1. Split validator timeout into:
+   - pretest/setup timeout before `tests_started`;
+   - test timeout after `tests_started`.
+2. Add immutable Docker cache proof:
+   - Dockerfile content hash;
+   - build context hash;
+   - resolved base image digest when available;
+   - platform/env;
+   - validator source hash;
+   - uv/cache input hash or disabled reason.
+3. Add cache lock timing so concurrent future workers do not corrupt cache.
+4. Keep cache disabled by default when immutable proof is incomplete.
+
+Validation:
+
+| Validation Item | Method | Passing Standard |
+|---|---|---|
+| no-marker validator | fixture | exits before full test timeout and is engineering-unclean |
+| tests-started timeout | fixture | remains engineering-unclean with lifecycle evidence |
+| cache hit | same immutable scenario twice | second run records `cache_hit=true` |
+| cache miss | Dockerfile/build-context/env drift fixture | cache miss or disabled reason is explicit |
+| cache lock | parallel cache writer fixture | one writer, others wait; wait time recorded |
+
+Exit criteria:
+
+- Validator/Docker overhead can be classified from artifacts.
+- Cache cannot be used when proof is incomplete.
+- No Docker/validator engineering issue is hidden as model failure.
+
+#### 16.13.6 Phase R4: Governed Parallelism
+
+Objective: reduce clean-suite wall time without changing benchmark outcomes.
+
+Entry criteria:
+
+| Entry Criterion | Check Method | Evidence / Output | Owner |
+|---|---|---|---|
+| serial baseline is score-valid | calibration gate | serial calibration root accepted | benchmark owner |
+| timing is complete | `timing_quality` | `complete` or no speed claim | benchmark owner |
+| resource guards pass | start gate | disk, Docker, model, cache limits recorded | benchmark owner |
+| serial-vs-parallel comparator exists | comparator self-test | drift fixture fails as expected | benchmark owner |
+
+Implementation tasks:
+
+1. Keep default execution serial.
+2. Add only sample-level parallelism first.
+3. Use isolated child roots and stable parent merge order from the task list.
+4. Add resource tokens:
+   - `MaxParallelSamples`;
+   - `MaxDockerConcurrency`;
+   - `MaxModelConcurrency`;
+   - disk reservation threshold;
+   - cache writer lock.
+5. Write `parallelism.json` with configured and observed concurrency plus wait
+   totals.
+6. Run serial-vs-parallel comparison over score validity, hard outcomes,
+   inclusion/exclusion reason, audit/proof status, profile/config/prompt
+   hashes, and artifact identity.
+
+Validation:
+
+| Validation Item | Method | Passing Standard |
+|---|---|---|
+| sample parallel smoke | `MaxParallelSamples=2`, other tokens `1` | deterministic artifact roots and stable merge order |
+| resource token fixture | controlled workers | observed concurrency never exceeds configured limits |
+| drift negative fixture | mutate one sample outcome/hash | comparator blocks parallel acceptance |
+| wall-time proof | serial baseline vs parallel smoke | observed reduction and no score drift |
+
+Exit criteria:
+
+- Parallel mode remains opt-in.
+- Serial and parallel score-bearing fields match exactly.
+- Any speedup claim cites serial baseline, parallel smoke, and timing
+  reconciliation.
+
+#### 16.13.7 Phase R5: Full E3 Release Gate
+
+Objective: decide whether a full optimized 15-task E3 run is allowed.
+
+Entry criteria:
+
+| Entry Criterion | Check Method | Evidence / Output | Owner |
+|---|---|---|---|
+| R1-R4 validations pass | test logs and calibration artifacts | all required artifacts present | benchmark owner |
+| no open P0 engineering-clean issue | COE/audit review | no unresolved hard failure | benchmark owner |
+| expected identity matches | calibration gate | task-list/source/profile hash pass | benchmark owner |
+
+Implementation tasks:
+
+1. Run one official one-pair smoke.
+2. Run one representative three-task serial calibration.
+3. Run one governed sample-parallel smoke if serial calibration is valid.
+4. Generate `runtime-calibration-report.md/json`.
+5. Generate `calibration-selection.json` for the representative three-task
+   serial calibration with:
+   - source task-list path and SHA256;
+   - selected task IDs in planned order;
+   - selected task-family labels;
+   - subset task-list SHA256;
+   - deterministic selection rule;
+   - explicit rationale when fewer than three task families exist;
+   - excluded task IDs and reason.
+6. Require adversarial review of the report before full 15-task E3.
+7. Run full 15-task E3 only when the report decision is:
+   - `speedup_target_approved`; or
+   - `speedup_limited_agent_bound` and the purpose is capability scoring, not
+     speed proof.
+
+Validation:
+
+| Validation Item | Method | Passing Standard |
+|---|---|---|
+| calibration gate | start-gate artifact | `status=pass`, `full_e3_allowed=true` |
+| speed claim gate | calibration report | `speed_claim_allowed=true` only with clean comparable evidence |
+| calibration selection | `calibration-selection.json` | deterministic subset rule, source hash, subset hash, selected task families, and excluded-task rationale are present |
+| adversarial review | review artifact | no blocking finding on score validity or speed proof |
+
+Exit criteria:
+
+- Full E3 is either explicitly allowed with artifact proof or blocked with a
+  named reason.
+- The final report separates:
+  - solved/wrong/clean agent timeout;
+  - engineering-unclean invalidation;
+  - speed decision and confidence.
+
+#### 16.13.8 Command-Level Gate Decisions
+
+Every runtime phase must end by writing or updating `gate-decision.json`. This
+artifact is the operator-facing answer to "what command may run next?" Raw logs,
+chat notes, or informal judgment do not authorize the next E3 step.
+
+Required fields:
+
+```json
+{
+  "status": "pass|blocked",
+  "phase": "R0|R1|R2|R3|R4|R5",
+  "next_allowed_command_category": "instrumentation_only|fixture_tests|one_pair_smoke|serial_calibration|parallel_smoke|full_e3|none",
+  "full_e3_allowed": false,
+  "speed_claim_allowed": false,
+  "task_list_hash": "<sha256-or-null>",
+  "source_version": "0.0.4",
+  "profile_hash": "<sha256-or-null>",
+  "blocking_reasons": []
+}
+```
+
+Gate table:
+
+| Completed Phase | If Passed | If Blocked |
+|---|---|---|
+| R0 reconstruction | `fixture_tests` or `instrumentation_only` depending on timing completeness | `instrumentation_only` |
+| R1 instrumentation | `one_pair_smoke` | `instrumentation_only` |
+| R2 invalid-run fast-fail | `one_pair_smoke` or `serial_calibration` | `fixture_tests` |
+| R3 validator/Docker overhead | `serial_calibration` | `fixture_tests` |
+| R4 governed parallelism | `parallel_smoke` when serial calibration is clean | `serial_calibration` or `fixture_tests` |
+| R5 release gate | `full_e3` only when calibration identity, serial baseline, parallel smoke, and review all pass | `none` for full E3; follow blocking reason |
+
+Full 15-task E3 is forbidden unless `next_allowed_command_category=full_e3`,
+`full_e3_allowed=true`, `speed_claim_allowed` is correct for the run purpose,
+and task-list/source/profile identity matches the planned run.
+
+#### 16.13.9 Hard Stop Rules For Runtime Work
+
+Abort the speed track and return to cleanliness/debug when any condition is
+observed:
+
+| Stop Condition | Required Action |
+|---|---|
+| Docker build/run/environment failure | mark run engineering-unclean; fix Docker before more E3 scoring |
+| validator timeout or validator probe failure | mark run engineering-unclean; fix validator/probe/timeout split |
+| disk reserve below threshold | abort before scheduling; run safe cleanup or move artifacts |
+| missing timing identity | block calibration; do not use artifact to authorize full E3 |
+| model/profile/task-list hash mismatch | block full E3 and speed claim |
+| parallel comparator drift | disable parallel path and keep serial mode |
+| unattributed serial wall time `>5%` | instrumentation work only |
+
+The expected result of this plan is not a guaranteed `2-3x` speedup. The
+expected result is a reliable answer: either E3 can be made materially faster
+without changing the v0.0.4 profile, or the run is legitimately agent-bound and
+large comparable speedup is not available.
