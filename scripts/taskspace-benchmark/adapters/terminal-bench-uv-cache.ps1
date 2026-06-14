@@ -7,6 +7,15 @@ function New-TerminalBenchUvCache {
     $archiveUrl = "https://github.com/astral-sh/uv/releases/download/0.7.13/uv-x86_64-unknown-linux-gnu.tar.gz"
     $installer = Join-Path $cache "install.sh"
     $archive = Join-Path $cache "uv-x86_64-unknown-linux-gnu.tar.gz"
+    $seedRoot = if ($env:TASKSPACE_TBENCH_UV_CACHE_SOURCE) { [System.IO.Path]::GetFullPath($env:TASKSPACE_TBENCH_UV_CACHE_SOURCE) } else { "" }
+    if (-not [string]::IsNullOrWhiteSpace($seedRoot) -and (Test-Path -LiteralPath $seedRoot)) {
+        foreach ($name in @("install.sh", "uv-x86_64-unknown-linux-gnu.tar.gz")) {
+            $seedFile = Join-Path $seedRoot $name
+            if (Test-Path -LiteralPath $seedFile) {
+                Copy-Item -LiteralPath $seedFile -Destination (Join-Path $cache $name) -Force
+            }
+        }
+    }
     $enabled = $true
     foreach ($item in @(@($installerUrl, $installer, 60), @($archiveUrl, $archive, 180))) {
         $downloadOk = $true

@@ -8,6 +8,11 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\terminal-bench-adapter-selftest" }
 $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
 New-Item -ItemType Directory -Path $runDir -Force | Out-Null
+$uvSeed = Join-Path $runDir "uv-cache-seed"
+New-Item -ItemType Directory -Path $uvSeed -Force | Out-Null
+"offline installer seed" | Set-Content -LiteralPath (Join-Path $uvSeed "install.sh") -Encoding ASCII
+"offline archive seed" | Set-Content -LiteralPath (Join-Path $uvSeed "uv-x86_64-unknown-linux-gnu.tar.gz") -Encoding ASCII
+$env:TASKSPACE_TBENCH_UV_CACHE_SOURCE = $uvSeed
 $failures = New-Object System.Collections.Generic.List[string]
 function Assert-True([bool]$Condition, [string]$Message) { if (-not $Condition) { $script:failures.Add($Message) } }
 
@@ -218,6 +223,12 @@ $cachePinnedOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter
 $cachePinnedScenarioDir = [string]($cachePinnedOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
 $cachePinnedScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cachePinnedScenarioDir "scenario.json") | ConvertFrom-Json
 Assert-True ([bool]$cachePinnedScenario.external_benchmark.adapter_metadata.docker_image_cache.cache_eligible) "digest-pinned Dockerfile base image should be cache eligible"
+$pinnedCache = $cachePinnedScenario.external_benchmark.adapter_metadata.docker_image_cache
+Assert-True ([int]$pinnedCache.schema_version -eq 2 -and [string]$pinnedCache.cache_schema_version -eq "terminal-bench-image-cache-v2") "docker cache metadata did not record v2 schema"
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$pinnedCache.validator_source_sha256)) "docker cache metadata did not include validator source hash"
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$pinnedCache.adapter_sha256)) "docker cache metadata did not include adapter hash"
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$pinnedCache.uv_install_sha256) -and -not [string]::IsNullOrWhiteSpace([string]$pinnedCache.uv_archive_sha256)) "docker cache metadata did not include uv cache hashes"
+Assert-True ([string]$pinnedCache.docker_platform -eq "default" -and [string]$pinnedCache.docker_network_mode -eq "default" -and [string]$pinnedCache.docker_build_environment_mode -eq "host-proxy-forwarded") "docker cache metadata did not include platform/network/env proof fields"
 $cachePinnedValidator = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cachePinnedScenarioDir "external-validator.ps1")
 Assert-True ($cacheValidator -match [regex]::Escape('Invoke-DockerOutput -Arguments @("image", "inspect", $cacheImage)')) "generated validator did not inspect cache image before build"
 Assert-True ($cachePinnedValidator -match [regex]::Escape('Invoke-Docker -Arguments @("build", "--pull", "-t", $cacheImage, $fixtureDockerPath)')) "generated validator did not build stable cache image on miss"
@@ -225,6 +236,18 @@ Assert-True ($cachePinnedValidator -match [regex]::Escape('"cache_hit"')) "gener
 Assert-True ($cachePinnedValidator -match [regex]::Escape('Invoke-WithDockerCacheLock')) "generated validator did not wrap Docker cache inspect/build with cache lock"
 Assert-True ($cachePinnedValidator -match [regex]::Escape('cache_lock_wait_ms = [int64]$script:TaskspaceDockerCacheLockWaitMs')) "generated validator did not record Docker cache lock wait"
 Assert-True ($cachePinnedValidator -match [regex]::Escape('$cacheManifestPath = Join-Path $proofDir "docker-cache-manifest.json"')) "generated validator did not write Docker cache manifest path"
+Assert-True ($cachePinnedValidator -match [regex]::Escape('validator_source_sha256 = $validatorSourceSha256')) "generated validator cache manifest did not include validator source hash"
+Assert-True ($cachePinnedValidator -match [regex]::Escape('adapter_sha256 = $adapterSha256')) "generated validator cache manifest did not include adapter hash"
+"echo changed" | Set-Content -LiteralPath (Join-Path $cacheTask "run-tests.sh") -Encoding UTF8
+$cacheValidatorChangedOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $cacheTask -OutputRoot (Join-Path $runDir "docker-cache-validator-changed-out") -SampleId "docker-cache" -SourceVersion "pinned"
+$cacheValidatorChangedScenarioDir = [string]($cacheValidatorChangedOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$cacheValidatorChangedScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cacheValidatorChangedScenarioDir "scenario.json") | ConvertFrom-Json
+Assert-True ([string]$cacheValidatorChangedScenario.external_benchmark.adapter_metadata.docker_image_cache.cache_key -ne [string]$pinnedCache.cache_key) "docker cache key did not change after validator source mutation"
+"echo ok" | Set-Content -LiteralPath (Join-Path $cacheTask "run-tests.sh") -Encoding UTF8
+$cacheSourceChangedOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $cacheTask -OutputRoot (Join-Path $runDir "docker-cache-source-changed-out") -SampleId "docker-cache" -SourceVersion "pinned-v2"
+$cacheSourceChangedScenarioDir = [string]($cacheSourceChangedOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$cacheSourceChangedScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cacheSourceChangedScenarioDir "scenario.json") | ConvertFrom-Json
+Assert-True ([string]$cacheSourceChangedScenario.external_benchmark.adapter_metadata.docker_image_cache.cache_key -ne [string]$pinnedCache.cache_key) "docker cache key did not change after SourceVersion mutation"
 "FROM scratch`nLABEL changed=true" | Set-Content -LiteralPath (Join-Path $cacheTask "Dockerfile") -Encoding UTF8
 $cacheChangedOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $cacheTask -OutputRoot (Join-Path $runDir "docker-cache-changed-out") -SampleId "docker-cache" -SourceVersion "pinned"
 $cacheChangedScenarioDir = [string]($cacheChangedOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })

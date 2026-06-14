@@ -115,3 +115,25 @@ Supports H-003 implementation validation. `scripts/taskspace-benchmark/lib/resou
 ## Evidence E-014
 
 Supports H-003 runner validation. A cheap suite smoke using `run-taskspace-e3-suite.ps1 -MaxParallelSamples 2` exited with code `4` before child scheduling and wrote `target\e3-resource-governor-suite-smoke\suite-20260615-010713\parallelism.json` with `serial_only_status=unsupported_parallelism`. The first implementation initially used `Write-Error` under `$ErrorActionPreference=Stop`, causing exit `1`; replacing it with explicit stderr output restored the intended stable exit code.
+
+## Hypothesis H-004
+
+Claim: Docker image cache proof was incomplete because the cache key and manifest did not include all important immutable inputs, especially normalized validator source and adapter/uv inputs.
+
+Predictions:
+- Existing cache metadata includes fixture and Dockerfile hashes, but not normalized validator source hash or adapter hash.
+- Mutating `run-tests.sh` can leave Dockerfile/fixture inputs unchanged while changing validator semantics.
+- Adding validator, adapter, uv, platform/network/env fields to the key and manifest should make such mutations visible and cache-invalidating.
+
+Diagnostic evidence plan:
+- Inspect adapter cache key construction.
+- Add adapter fixtures proving cache key changes after validator source and source-version mutation.
+- Run generated-validator parse test and real Docker cache smoke to verify manifest fields are emitted.
+
+## Evidence E-015
+
+Supports H-004 repair validation. `scripts/taskspace-benchmark/test-terminal-bench-adapter-harness.ps1` now passes with offline uv-cache seed and fixtures proving Docker cache metadata schema v2 records `validator_source_sha256`, `adapter_sha256`, uv hashes, platform/network/env fields, and that cache key changes after validator source or `SourceVersion` mutation.
+
+## Evidence E-016
+
+Supports H-004 runtime validation. `scripts/taskspace-benchmark/test-terminal-bench-docker-cache-smoke.ps1` passed after the cache-key v2 change. The generated `docker-cache-manifest.json` in `target\terminal-bench-docker-cache-smoke\20260615-011635-814` recorded `cache_schema_version=terminal-bench-image-cache-v2`, validator source hash, adapter hash, uv hashes, platform/network/env fields, and `cache_hit=true` on the second run.
