@@ -364,8 +364,6 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $validation = [pscustomobject]@{ exit_code = $validationExit; stdout_path = $validationStdout; stderr_path = $validationStderr }
         $metrics = Get-TaskspaceBenchmarkMetrics $side $exec $validation $oracle $obsBySide[$side.Name]
         $metrics.invalid_prompt = $promptGuard.invalid_prompt
-        Write-TaskspaceJson $metrics (Join-Path $side.ArtifactDir "metrics.json")
-        $metricsBySide[$side.Name] = $metrics
         $validationTimingBySide[$side.Name] = [pscustomobject]@{
             logical_mode = [string]$side.LogicalMode
             validation_started_at = $validationStartedAt
@@ -376,6 +374,9 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             oracle_exit_code = if ($oracle -and $oracle.PSObject.Properties.Name -contains "exit_code") { [int]$oracle.exit_code } else { 0 }
             engineering_unclean_reasons = @($metrics.validator_environment_failures)
         }
+        Add-TaskspaceMetricTimingFields $metrics $validationTimingBySide[$side.Name] | Out-Null
+        Write-TaskspaceJson $metrics (Join-Path $side.ArtifactDir "metrics.json")
+        $metricsBySide[$side.Name] = $metrics
     }
     $variableControl = Compare-TaskspacePairVariables $manifestResolved $metricsBySide["left"] $metricsBySide["right"]
     $externalProof = New-TaskspaceExternalEvidenceProof $pair $manifest $metricsBySide $sourceGuard
@@ -445,6 +446,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $abort = New-TaskspaceScoringAbort $pair.PairDir $pairReportPath $auditManifest $repeat $Repeats
         Write-TaskspaceRunEvent $runDir "engineering_unclean_detected" @{ repeat = $repeat; reasons = @($auditManifest.engineering_unclean_reasons); first_failure_artifact = $pairReportPath }
         Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "score_validity" $abort.reason $abort.signature $abort.abort_path $commandLine $repeat $repeat | Out-Null
+        Write-TaskspaceSampleTiming $runDir $manifest.Id | Out-Null
         Write-Host "RunDir: $runDir"
         Write-Host "PairAbort: $($abort.abort_path)"
         exit 3
@@ -461,8 +463,9 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                     infra_signature = $sentinel.signature
                     first_failure_artifact = if ($sentinel.signature) { [string]$sentinel.signature.artifact } else { $pairReportPath }
                     skipped_repeats = @((($repeat + 1)..$Repeats) | Where-Object { $_ -le $Repeats })
-                }) $abortPath
+            }) $abortPath
             Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "sentinel_pair" ([string]$sentinel.reason) $sentinel.signature $abortPath $commandLine $repeat $repeat | Out-Null
+            Write-TaskspaceSampleTiming $runDir $manifest.Id | Out-Null
             Write-Host "RunDir: $runDir"
             Write-Host "PairAbort: $abortPath"
             exit 3
@@ -483,8 +486,10 @@ if ($EnableAggregate) {
 }
 $runFinalReady = $EnableAggregate.IsPresent -and -not ($manifest.EvidenceTarget -eq "E3" -and @($pairReports.ToArray() | Where-Object { @($_.evidence.e3_gate_failures) -contains "e3_human_review_not_completed" }).Count -gt 0)
 Set-TaskspaceBenchmarkRunPhase $runDir "completed" $Repeats $Repeats $runFinalReady | Out-Null
+$sampleTimingPath = Write-TaskspaceSampleTiming $runDir $manifest.Id
 Write-Host "RunDir: $runDir"
 Write-Host "RunSummary: $runSummaryPath"
+Write-Host "SampleTiming: $sampleTimingPath"
 foreach ($report in $pairReports) { Write-Host "PairReport: $($report.pair_report)" }
 
 $failedPairs = @(Get-TaskspaceFailedReports $pairReports ([string]$manifest.EvidenceTarget))

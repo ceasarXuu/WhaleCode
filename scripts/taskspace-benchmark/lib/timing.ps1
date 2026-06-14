@@ -77,3 +77,100 @@ function Write-TaskspacePairTiming {
     $artifact | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $path -Encoding UTF8
     $path
 }
+
+function Add-TaskspaceMetricTimingFields {
+    param($Metrics, $ValidationTiming)
+    if (-not $Metrics -or -not $ValidationTiming) { return $Metrics }
+    $validationMs = [int64](($ValidationTiming.validation_finished_at - $ValidationTiming.validation_started_at).TotalMilliseconds)
+    $oracleMs = [int64](($ValidationTiming.oracle_finished_at - $ValidationTiming.oracle_started_at).TotalMilliseconds)
+    $Metrics | Add-Member -NotePropertyName public_validation_duration_ms -NotePropertyValue $validationMs -Force
+    $Metrics | Add-Member -NotePropertyName hidden_oracle_duration_ms -NotePropertyValue $oracleMs -Force
+    $Metrics | Add-Member -NotePropertyName validator_probe_duration_ms -NotePropertyValue $null -Force
+    $Metrics | Add-Member -NotePropertyName docker_observed_duration_ms -NotePropertyValue $null -Force
+    if ($Metrics.PSObject.Properties.Name -contains "docker_build_result_path" -and $Metrics.docker_build_result_path -and (Test-Path -LiteralPath $Metrics.docker_build_result_path)) {
+        try {
+            $docker = Get-Content -Raw -Encoding UTF8 -LiteralPath $Metrics.docker_build_result_path | ConvertFrom-Json
+            $phases = @($docker.phases | Where-Object { $_.timestamp })
+            if ($phases.Count -ge 2) {
+                $first = [datetime]::Parse([string]$phases[0].timestamp)
+                $last = [datetime]::Parse([string]$phases[-1].timestamp)
+                $Metrics.docker_observed_duration_ms = [int64](($last - $first).TotalMilliseconds)
+            }
+        } catch {
+            $Metrics.docker_observed_duration_ms = $null
+        }
+    }
+    $Metrics
+}
+
+function Write-TaskspaceSampleTiming {
+    param(
+        [Parameter(Mandatory = $true)][string]$RunDir,
+        [Parameter(Mandatory = $true)][string]$SampleId
+    )
+    $pairTimingFiles = @(Get-ChildItem -LiteralPath $RunDir -Filter "pair-timing.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName)
+    $pairs = @()
+    foreach ($file in $pairTimingFiles) {
+        try { $pairs += (Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json) } catch {}
+    }
+    $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0
+    foreach ($pair in $pairs) {
+        $totalMs += [int64]$pair.total_duration_ms
+        $agentMs += [int64]$pair.agent_duration_ms
+        $validationMs += [int64]$pair.public_validation_duration_ms
+        $oracleMs += [int64]$pair.hidden_oracle_duration_ms
+        $overheadMs += [int64]$pair.measured_overhead_ms
+    }
+    $artifact = [ordered]@{
+        schema_version = 1
+        sample_id = $SampleId
+        run_dir = $RunDir
+        pair_count = @($pairs).Count
+        total_pair_duration_ms = $totalMs
+        agent_duration_ms = $agentMs
+        public_validation_duration_ms = $validationMs
+        hidden_oracle_duration_ms = $oracleMs
+        measured_overhead_ms = $overheadMs
+        pair_timing_paths = @($pairTimingFiles | ForEach-Object { $_.FullName })
+        generated_at = (Get-Date).ToString("o")
+    }
+    $path = Join-Path $RunDir "sample-timing.json"
+    $artifact | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $path -Encoding UTF8
+    $path
+}
+
+function Write-TaskspaceSuiteTiming {
+    param(
+        [Parameter(Mandatory = $true)][string]$SuiteRoot,
+        [Parameter(Mandatory = $true)]$SampleStatuses
+    )
+    $sampleTimingFiles = @(Get-ChildItem -LiteralPath $SuiteRoot -Filter "sample-timing.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName)
+    $samples = @()
+    foreach ($file in $sampleTimingFiles) {
+        try { $samples += (Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json) } catch {}
+    }
+    $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0
+    foreach ($sample in $samples) {
+        $totalMs += [int64]$sample.total_pair_duration_ms
+        $agentMs += [int64]$sample.agent_duration_ms
+        $validationMs += [int64]$sample.public_validation_duration_ms
+        $oracleMs += [int64]$sample.hidden_oracle_duration_ms
+        $overheadMs += [int64]$sample.measured_overhead_ms
+    }
+    $artifact = [ordered]@{
+        schema_version = 1
+        suite_root = $SuiteRoot
+        sample_count = @($SampleStatuses).Count
+        timing_sample_count = @($samples).Count
+        total_pair_duration_ms = $totalMs
+        agent_duration_ms = $agentMs
+        public_validation_duration_ms = $validationMs
+        hidden_oracle_duration_ms = $oracleMs
+        measured_overhead_ms = $overheadMs
+        sample_timing_paths = @($sampleTimingFiles | ForEach-Object { $_.FullName })
+        generated_at = (Get-Date).ToString("o")
+    }
+    $path = Join-Path $SuiteRoot "suite-timing.json"
+    $artifact | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $path -Encoding UTF8
+    $path
+}

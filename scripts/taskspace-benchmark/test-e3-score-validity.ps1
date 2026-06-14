@@ -134,6 +134,16 @@ $timingPath = Write-TaskspacePairTiming $timingPairDir 1 $now $now.AddSeconds(5)
 $timing = Get-Content -Raw -Encoding UTF8 -LiteralPath $timingPath | ConvertFrom-Json
 Assert-True ([int64]$timing.total_duration_ms -gt 0) "timing artifact did not record total duration"
 Assert-True (@($timing.spans | Where-Object { [string]$_.phase -eq "public_validation" }).Count -eq 2) "timing artifact did not record both validation spans"
+$metricWithTiming = Add-TaskspaceMetricTimingFields $metricsBySide.left $validationTimingBySide.left
+Assert-True ([int64]$metricWithTiming.public_validation_duration_ms -gt 0) "metric timing did not record validation duration"
+$sampleTimingPath = Write-TaskspaceSampleTiming $runDir "score-validity-fixture"
+$sampleTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $sampleTimingPath | ConvertFrom-Json
+Assert-True ([int]$sampleTiming.pair_count -eq 1) "sample timing did not aggregate pair timing"
+Assert-True ([int64]$sampleTiming.public_validation_duration_ms -gt 0) "sample timing did not aggregate validation duration"
+$suiteTimingPath = Write-TaskspaceSuiteTiming $runDir @([pscustomobject]@{ sample_id = "score-validity-fixture" })
+$suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | ConvertFrom-Json
+Assert-True ([int]$suiteTiming.timing_sample_count -eq 1) "suite timing did not aggregate sample timing"
+Assert-True ([int64]$suiteTiming.total_pair_duration_ms -gt 0) "suite timing did not record total pair duration"
 
 if ($failures.Count -gt 0) {
     Write-Host "E3 score-validity self-test: FAIL"
