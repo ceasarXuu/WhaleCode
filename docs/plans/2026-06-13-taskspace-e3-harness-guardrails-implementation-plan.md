@@ -871,6 +871,7 @@ Canonical command:
   -ScenarioPath <materialized-scenario-path> `
   -RunRoot <planned-e3-run-root> `
   -OutputDir <gate-output-dir> `
+  -OnePairSmokeRoot <one-pair-smoke-root> `
   -RunSelfTests
 ```
 
@@ -880,6 +881,7 @@ The implementation is intentionally strict:
 
 - omitted `-RunSelfTests` is a failed gate unless `-AllowSkippedSelfTests` is supplied for a diagnostic-only smoke;
 - omitted scenario/path-contract evidence is a failed gate unless `-AllowSkippedPathContract` is supplied and the operator relies on later adapter/materialization preflight;
+- omitted `-OnePairSmokeRoot` is a failed gate unless `-AllowSkippedOnePairSmoke` is supplied for a diagnostic-only gate;
 - `TaskListPath` must exist, parse, contain at least one task, include `task_dir`, and provide `source_version` either per row or through the command default;
 - Docker storage checks must produce an explicit pass; an empty/unverified Docker storage result is not a pass.
 
@@ -1383,6 +1385,7 @@ Safe reductions:
 - `finalize-taskspace-e3-run.ps1` now performs artifact-only rerender work, writes `finalize-health.json`, rebuilds `sample-timing.json` before aggregate rendering, and records `validation_rerun_allowed=false` / `hidden_oracle_rerun_allowed=false`.
 - `run-taskspace-e3-suite.ps1` now records suite score-validity fields and conservative `expected_time_saved_minutes` in `suite-health.json`; skipped samples also get their own `sample-status.json` with `phase=skipped`.
 - Suite-level invalidation now emits `suite_score_invalidated` to `events.jsonl` with the invalid sample, reason, child run path, and remaining skipped sample count.
+- `invoke-taskspace-e3-start-gate.ps1` now requires `-OnePairSmokeRoot` unless `-AllowSkippedOnePairSmoke` is explicitly set; valid one-pair smoke evidence is either `aggregate.json.score_valid=true` or a classified `invalid_harness` suite health artifact.
 - No-op finalize behavior is covered by `test-harness.ps1`: the fixture verifies that validation stdout mtime is unchanged after finalize. Parallel execution remains future work until its own tests pass.
 
 #### Exit Criteria

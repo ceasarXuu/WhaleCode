@@ -88,6 +88,44 @@ function Get-TaskspaceE3TaskListGate {
     New-TaskspaceE3GateRow "task_list" "pass"
 }
 
+function Get-TaskspaceE3OnePairSmokeGate {
+    param([string]$OnePairSmokeRoot)
+    if ([string]::IsNullOrWhiteSpace($OnePairSmokeRoot)) {
+        return New-TaskspaceE3GateRow "one_pair_smoke" "skipped" "OnePairSmokeRoot not set" "one_pair_smoke_not_provided" "One-pair smoke artifact root was not provided."
+    }
+    if (-not (Test-Path -LiteralPath $OnePairSmokeRoot)) {
+        return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_smoke_missing" "one_pair_smoke_missing" "OnePairSmokeRoot not found: $OnePairSmokeRoot"
+    }
+    $aggregatePath = Get-ChildItem -LiteralPath $OnePairSmokeRoot -Filter "aggregate.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($aggregatePath) {
+        try {
+            $aggregate = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregatePath.FullName | ConvertFrom-Json
+            if ($aggregate.PSObject.Properties.Name -contains "score_valid" -and [bool]$aggregate.score_valid) {
+                return New-TaskspaceE3GateRow "one_pair_smoke" "pass" "" "" ([string]$aggregatePath.FullName)
+            }
+            if ($aggregate.PSObject.Properties.Name -contains "run_validity" -and [string]$aggregate.run_validity -eq "invalid_harness") {
+                return New-TaskspaceE3GateRow "one_pair_smoke" "pass" "classified_invalid_harness" "" ([string]$aggregatePath.FullName)
+            }
+            return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_score_invalid_unclassified" "one_pair_score_invalid_unclassified" ([string]$aggregatePath.FullName)
+        } catch {
+            return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_aggregate_malformed" "one_pair_aggregate_malformed" ([string]$_.Exception.Message)
+        }
+    }
+    $suiteHealthPath = Get-ChildItem -LiteralPath $OnePairSmokeRoot -Filter "suite-health.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($suiteHealthPath) {
+        try {
+            $suiteHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteHealthPath.FullName | ConvertFrom-Json
+            if ([string]$suiteHealth.status -eq "invalid_harness" -and -not [string]::IsNullOrWhiteSpace([string]$suiteHealth.suite_abort_reason)) {
+                return New-TaskspaceE3GateRow "one_pair_smoke" "pass" "classified_invalid_harness" "" ([string]$suiteHealthPath.FullName)
+            }
+            return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_suite_health_not_classified" "one_pair_suite_health_not_classified" ([string]$suiteHealthPath.FullName)
+        } catch {
+            return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_suite_health_malformed" "one_pair_suite_health_malformed" ([string]$_.Exception.Message)
+        }
+    }
+    New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_smoke_artifact_missing" "one_pair_smoke_artifact_missing" "No aggregate.json or suite-health.json found under OnePairSmokeRoot."
+}
+
 function New-TaskspaceE3SetupFailureGate {
     param([string]$OutputDir, [string]$Message, [string]$StableCode = "start_gate_setup_failed")
     New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
@@ -123,9 +161,11 @@ function Invoke-TaskspaceE3StartGate {
         [string]$RunRoot = "",
         [string]$TaskListPath = "",
         [string]$SourceVersion = "",
+        [string]$OnePairSmokeRoot = "",
         [switch]$RunSelfTests,
         [switch]$AllowSkippedPathContract,
         [switch]$AllowSkippedSelfTests,
+        [switch]$AllowSkippedOnePairSmoke,
         [string[]]$SelfTestCommands = @(
             ".\scripts\taskspace-benchmark\test-e3-score-validity.ps1",
             ".\scripts\taskspace-benchmark\test-terminal-bench-uv-cache-harness.ps1",
@@ -168,6 +208,14 @@ function Invoke-TaskspaceE3StartGate {
     }
     $taskListGate = Get-TaskspaceE3TaskListGate $TaskListPath $SourceVersion
     if ([string]$taskListGate.status -ne "skipped") { $gates.Add($taskListGate) }
+    $smokeGate = Get-TaskspaceE3OnePairSmokeGate $OnePairSmokeRoot
+    if ([string]$smokeGate.status -eq "skipped" -and $AllowSkippedOnePairSmoke) {
+        $gates.Add((New-TaskspaceE3GateRow "one_pair_smoke" "skipped_allowed" "OnePairSmokeRoot not set" "one_pair_smoke_not_provided"))
+    } elseif ([string]$smokeGate.status -eq "skipped") {
+        $gates.Add((New-TaskspaceE3GateRow "one_pair_smoke" "fail" "OnePairSmokeRoot not set" "one_pair_smoke_not_provided"))
+    } else {
+        $gates.Add($smokeGate)
+    }
     $selfTests = @()
     if ($RunSelfTests) {
         $selfTests = @($SelfTestCommands | ForEach-Object { Invoke-TaskspaceGateCommand $RepoRoot $_ 180 })
@@ -189,7 +237,7 @@ function Invoke-TaskspaceE3StartGate {
         self_tests = @($selfTests)
         disk_health = $diskHealth
         manifest_health = $manifestHealth
-        skipped_gate_policy = [pscustomobject]@{ allow_skipped_path_contract = [bool]$AllowSkippedPathContract; allow_skipped_self_tests = [bool]$AllowSkippedSelfTests }
+        skipped_gate_policy = [pscustomobject]@{ allow_skipped_path_contract = [bool]$AllowSkippedPathContract; allow_skipped_self_tests = [bool]$AllowSkippedSelfTests; allow_skipped_one_pair_smoke = [bool]$AllowSkippedOnePairSmoke }
         first_failure_gate = if ($firstFailure) { [string]$firstFailure.name } else { "" }
         first_failure_stable_code = if ($firstFailure) { [string]$firstFailure.stable_code } else { "" }
         first_failure_message = if ($firstFailure) { [string]$firstFailure.message } else { "" }
