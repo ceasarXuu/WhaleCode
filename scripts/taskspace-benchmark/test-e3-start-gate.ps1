@@ -75,6 +75,7 @@ function New-CalibrationFixtures {
         parallel_smoke_score_drift = $false
         drift_count = 0
         compared_sample_ids = @("sample-a", "sample-b", "sample-c")
+        required_sample_fields = @("sample_id", "run_validity")
         task_list_hash = $TaskListHash
         source_version = $SourceVersion
         profile_hash = $ProfileHash

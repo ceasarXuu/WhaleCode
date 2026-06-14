@@ -38,6 +38,17 @@ Assert-True ([bool]$lifecycle.tests_started_seen) "lifecycle parser missed tests
 Assert-True ([bool]$lifecycle.tests_completed_seen) "lifecycle parser missed tests_completed marker"
 Assert-True ([string]$lifecycle.validation_lifecycle_stage -eq "tests_completed") "lifecycle parser did not keep last stage"
 
+$legacyRoot = Join-Path $runDir "legacy-runtime-root"
+$legacyRun = Join-Path $legacyRoot "runs\terminal_bench__hello-world\20260606-014926-073"
+New-Item -ItemType Directory -Force -Path (Join-Path $legacyRun "pair-001\left"), (Join-Path $legacyRun "pair-001\right"), (Join-Path $legacyRun "pair-002\left"), (Join-Path $legacyRun "pair-002\right") | Out-Null
+$legacyReconstruction = Write-TaskspaceRuntimeReconstruction -SuiteRoot $legacyRoot -OutputRoot (Join-Path $runDir "legacy-runtime-reconstruction")
+$legacyArtifact = $legacyReconstruction.artifact
+Assert-True ([string]$legacyArtifact.suite_root -eq [System.IO.Path]::GetFullPath($legacyRoot)) "legacy reconstruction did not preserve source suite root"
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$legacyArtifact.legacy_import_path)) "legacy reconstruction did not emit import artifact path"
+Assert-True ([string]$legacyArtifact.bottleneck_classification -eq "unknown") "legacy reconstruction should classify missing timing as unknown"
+Assert-True (@($legacyArtifact.sample_rows).Count -eq 1 -and [string]$legacyArtifact.sample_rows[0].sample_id -eq "hello-world") "legacy reconstruction did not import sample rows"
+Assert-True (@($legacyArtifact.missing_fields | Where-Object { [string]$_ -eq "legacy_timing_unavailable:pair_timing" }).Count -eq 1) "legacy reconstruction did not expose missing pair timing"
+
 $resourceConfig = New-TaskspaceResourceGovernorConfig
 $serialGuard = Test-TaskspaceResourceGovernorSerialOnly $resourceConfig
 Assert-True ([bool]$resourceConfig.valid -and [bool]$serialGuard.serial_only) "resource governor default config is not serial-valid"

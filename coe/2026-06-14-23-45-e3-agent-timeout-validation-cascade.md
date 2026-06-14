@@ -553,3 +553,33 @@ Validation passed:
 - `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
 
 Remaining scope: this is fixture-level comparator proof. Official serial calibration, governed parallel smoke release evidence, legacy full-run import, and final full E3 approval remain open.
+
+## Hypothesis H-022
+
+Claim: old E3 run roots that predate suite-level timing/status artifacts must be imported into the reconstruction contract instead of being interpreted manually. The importer must make missing timing and score-validity evidence explicit, and incomplete legacy roots must classify as unknown rather than producing speedup or score conclusions.
+
+Predictions:
+- A root shaped as `runs/terminal_bench__<sample>/<timestamp>/pair-*` should be detected as a legacy runtime root.
+- Reconstruction should preserve the original suite root and write a normalized suite root plus `legacy-runtime-import.json`.
+- The normalized reconstruction should expose sample rows and pair counts without inventing agent, validator, Docker, or suite wall-clock durations.
+- Missing pair/sample/suite timing and score-validity evidence should appear as `legacy_timing_unavailable:*` fields.
+- `bottleneck_classification` should remain `unknown` for incomplete legacy timing.
+
+Diagnostic evidence plan:
+- Extend `runtime-reconstruction.ps1` with a legacy import path that writes normalized `suite-health.json`, `suite-timing.json`, and zero-value sample timing rows.
+- Add a fixture in `test-e3-harness-guardrails.ps1`.
+- Run reconstruction on the existing legacy root `target/e3-full-20260606-014919`.
+
+## Evidence E-035
+
+Supports H-022. `runtime-reconstruction.ps1` now detects legacy roots with `runs/terminal_bench__*` or `runs/deepswe__*`, writes `legacy-runtime-import.json`, normalizes sample rows into `legacy-normalized-suite`, and marks missing timing/status evidence as legacy unavailable fields. `test-e3-harness-guardrails.ps1` covers the legacy import fixture. `test-e3-start-gate.ps1` calibration fixture was also updated to include `required_sample_fields`, preserving the stricter parallel comparator gate.
+
+Real legacy reconstruction was run on `target/e3-full-20260606-014919` with output root `target/e3-full-20260606-014919/runtime-reconstruction/legacy-import-20260615b`. Result: `sample_count=1`, `pair_count=5`, `bottleneck_classification=unknown`, and missing fields `legacy_timing_unavailable:pair_timing`, `legacy_timing_unavailable:sample_timing`, `legacy_timing_unavailable:score_validity`, and `legacy_timing_unavailable:suite_wall_time`.
+
+Validation passed:
+- PowerShell parser check for `runtime-reconstruction.ps1`, `test-e3-harness-guardrails.ps1`, and `test-e3-start-gate.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-start-gate.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
+
+Remaining scope: official one-pair timing smoke, representative 3-task serial calibration, governed parallel smoke release evidence, accepted calibration gate, adversarial review, and final full E3 approval remain open.
