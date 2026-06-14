@@ -469,3 +469,30 @@ Validation passed:
 - `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
 
 Remaining scope: this is a fixture-level proof, not an official Terminal-Bench invalid case. Validator lifecycle split, Docker cache proof edge cases, governed parallel smoke release evidence, official one-pair/three-task calibration artifacts, legacy full-run import, and final full E3 release-gate approval remain open.
+
+## Hypothesis H-019
+
+Claim: validator timeout classification is only useful if both layers are covered: the generated Terminal-Bench validator must emit lifecycle markers, and the runner must preserve whether timeout happened before or after `tests_started`.
+
+Predictions:
+- Generated Terminal-Bench validators should include `validator_lifecycle_stage=entry_started`, `validator_lifecycle_stage=tests_started`, `validator_lifecycle_stage=tests_completed`, `validator_tests_started=true`, and `validator_tests_completed=true`.
+- Probe mode must complete before test execution and must not emit `tests_started`.
+- A process that times out before `validator_tests_started=true` should write `taskspace_validation_timeout_phase=pretest`.
+- A process that emits `validator_tests_started=true` and then times out should write `taskspace_validation_timeout_phase=tests` and preserve `taskspace_tests_started_at`.
+- Score-validity taxonomy should keep both timeout phases engineering-unclean under the hard execution constraint.
+
+Diagnostic evidence plan:
+- Extend `test-terminal-bench-adapter-harness.ps1` with generated-validator marker assertions.
+- Reuse `test-oracle-runner-harness.ps1` for real process-level pretest/test timeout behavior.
+- Reuse `test-e3-score-validity.ps1` for taxonomy-level pretest/test timeout classification.
+
+## Evidence E-032
+
+Supports H-019 for fixture-level validator lifecycle split. `test-terminal-bench-adapter-harness.ps1` now asserts generated Terminal-Bench validators contain lifecycle markers and keep ProbeOnly before test execution. `test-oracle-runner-harness.ps1` passes and proves real process-level pretest timeout and tests timeout phase preservation. `test-e3-score-validity.ps1` passes and preserves engineering-unclean taxonomy for validator timeouts.
+
+Validation passed:
+- `.\scripts\taskspace-benchmark\test-terminal-bench-adapter-harness.ps1`
+- `.\scripts\taskspace-benchmark\test-oracle-runner-harness.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
+
+Remaining scope: this does not close Docker cache proof edge cases, governed parallel smoke release evidence, official one-pair/three-task calibration artifacts, legacy full-run import, or final full E3 release-gate approval.

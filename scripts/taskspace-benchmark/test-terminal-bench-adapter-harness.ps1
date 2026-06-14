@@ -182,6 +182,10 @@ Assert-True ((Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $inlineSce
 $parseErrors = $null
 [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $inlineScenarioDir "external-validator.ps1"), [ref]$null, [ref]$parseErrors) | Out-Null
 Assert-True (@($parseErrors).Count -eq 0) "generated Terminal-Bench validator PowerShell did not parse"
+$inlineValidator = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $inlineScenarioDir "external-validator.ps1")
+Assert-True ($inlineValidator -match "validator_lifecycle_stage=entry_started" -and $inlineValidator -match "validator_lifecycle_stage=tests_started" -and $inlineValidator -match "validator_lifecycle_stage=tests_completed") "generated Terminal-Bench validator did not include lifecycle markers"
+Assert-True ($inlineValidator -match "validator_tests_started=true" -and $inlineValidator -match "validator_tests_completed=true") "generated Terminal-Bench validator did not include tests started/completed markers"
+Assert-True ($inlineValidator -match [regex]::Escape('if ($ProbeOnly -and -not $ProbeDocker)') -and $inlineValidator -match "validator_probe_completed=true") "generated Terminal-Bench validator did not keep probe mode before test execution"
 
 $bomTask = Join-Path $runDir "bom-crlf-script"
 New-Item -ItemType Directory -Path $bomTask | Out-Null
