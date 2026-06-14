@@ -260,8 +260,10 @@ $processTimingPath = Write-TaskspacePairTiming $processTimingPairDir 1 $now $now
 $processTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $processTimingPath | ConvertFrom-Json
 Assert-True ([int64]$processTiming.process_launch_wait_ms -eq 60) "pair timing did not aggregate agent and validation process launch wait"
 Assert-True ([int64]$processTiming.model_request_duration_ms -eq 1000) "pair timing did not aggregate model request duration"
+Assert-True ([int64]$processTiming.resource_wait_ms_total -eq 0 -and [string]$processTiming.resource_wait_attribution_mode -eq "serial_no_resource_governor") "pair timing did not record serial resource wait attribution"
 Assert-True (@($processTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:process_launch_wait_ms" }).Count -eq 0) "pair timing still reported process launch wait missing after observing process timing"
 Assert-True (@($processTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:model_request_duration_ms" }).Count -eq 0) "pair timing still reported model request duration missing after observing timing"
+Assert-True (@($processTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:(docker_token_wait_ms|validation_token_wait_ms|disk_reservation_wait_ms|cache_lock_wait_ms|resource_wait_ms_total)" }).Count -eq 0) "pair timing reported serial resource wait fields as missing"
 $skipTimingBySide = @{
     left = [pscustomobject]@{ logical_mode = "standard"; validation_started_at = $now; validation_finished_at = $now; validation_exit_code = 0; validation_skipped = $true; validation_skip_reason = "agent_exec_timeout"; oracle_started_at = $now; oracle_finished_at = $now; oracle_exit_code = 0; engineering_unclean_reasons = @() }
 }

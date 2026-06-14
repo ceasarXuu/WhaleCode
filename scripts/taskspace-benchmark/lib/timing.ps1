@@ -90,6 +90,17 @@ function New-TaskspaceMissingWaitAttribution {
     @($missing.ToArray())
 }
 
+function New-TaskspaceSerialResourceWaitAttribution {
+    [pscustomobject]@{
+        docker_token_wait_ms = 0
+        validation_token_wait_ms = 0
+        disk_reservation_wait_ms = 0
+        cache_lock_wait_ms = 0
+        resource_wait_ms_total = 0
+        resource_wait_attribution_mode = "serial_no_resource_governor"
+    }
+}
+
 function Get-TaskspaceModelTimingAttribution {
     param([string]$JsonlPath)
     $requestMs = [int64]0
@@ -268,10 +279,11 @@ function Write-TaskspacePairTiming {
     }
     $totalDurationMs = [int64](($PairFinishedAt - $PairStartedAt).TotalMilliseconds)
     $breakdown = New-TaskspaceTimingBreakdown $totalDurationMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $EngineeringUncleanReasons
+    $resourceWait = New-TaskspaceSerialResourceWaitAttribution
     $waitMissingFields = @(Get-TaskspaceRequiredWaitTimingFields | Where-Object {
             ([string]$_ -eq "process_launch_wait_ms" -and $processLaunchWaitObserved -eq $false) -or
             ([string]$_ -eq "model_request_duration_ms" -and $modelRequestObserved -eq $false) -or
-            ([string]$_ -notin @("process_launch_wait_ms", "model_request_duration_ms"))
+            ([string]$_ -in @("model_queue_wait_ms", "model_retry_backoff_ms"))
         })
     $waitBlockers = @($waitMissingFields | ForEach-Object { "missing_wait_attribution:$_" })
     $artifact = [ordered]@{
@@ -292,12 +304,13 @@ function Write-TaskspacePairTiming {
         model_retry_backoff_ms = $null
         model_request_duration_ms = if ($modelRequestObserved) { $modelRequestMs } else { $null }
         process_launch_wait_ms = if ($processLaunchWaitObserved) { $processLaunchWaitMs } else { $null }
-        docker_token_wait_ms = $null
-        validation_token_wait_ms = $null
-        disk_reservation_wait_ms = $null
-        cache_lock_wait_ms = $null
-        resource_wait_ms_total = $null
-        wait_attribution_status = "missing"
+        docker_token_wait_ms = [int64]$resourceWait.docker_token_wait_ms
+        validation_token_wait_ms = [int64]$resourceWait.validation_token_wait_ms
+        disk_reservation_wait_ms = [int64]$resourceWait.disk_reservation_wait_ms
+        cache_lock_wait_ms = [int64]$resourceWait.cache_lock_wait_ms
+        resource_wait_ms_total = [int64]$resourceWait.resource_wait_ms_total
+        resource_wait_attribution_mode = [string]$resourceWait.resource_wait_attribution_mode
+        wait_attribution_status = if ($waitBlockers.Count -gt 0) { "missing" } else { "complete" }
         wait_attribution_missing_fields = @($waitMissingFields)
         docker_cache_keys = @($dockerCacheKeys.ToArray() | Sort-Object -Unique)
         measured_overhead_ms = $totalDurationMs - $agentMs
@@ -437,6 +450,7 @@ function Write-TaskspaceSampleTiming {
     }
     $aggregateUncleanReasons = if ($bottleneckCounts.ContainsKey("engineering_unclean_slow")) { @("child_engineering_unclean_slow") } else { @() }
     $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $aggregateUncleanReasons
+    $resourceWait = New-TaskspaceSerialResourceWaitAttribution
     $waitBlockers = @($waitMissingFields.ToArray() | ForEach-Object { "missing_wait_attribution:$_" })
     $timingBlocked = (@($missingPairTimingDirs).Count -gt 0 -or $parseErrors.Count -gt 0 -or $waitBlockers.Count -gt 0 -or $childRuntimeBlockers.Count -gt 0)
     $artifact = [ordered]@{
@@ -455,11 +469,12 @@ function Write-TaskspaceSampleTiming {
         model_retry_backoff_ms = $null
         model_request_duration_ms = if ($modelRequestObserved) { $modelRequestMs } else { $null }
         process_launch_wait_ms = if ($processLaunchWaitObserved) { $processLaunchWaitMs } else { $null }
-        docker_token_wait_ms = $null
-        validation_token_wait_ms = $null
-        disk_reservation_wait_ms = $null
-        cache_lock_wait_ms = $null
-        resource_wait_ms_total = $null
+        docker_token_wait_ms = [int64]$resourceWait.docker_token_wait_ms
+        validation_token_wait_ms = [int64]$resourceWait.validation_token_wait_ms
+        disk_reservation_wait_ms = [int64]$resourceWait.disk_reservation_wait_ms
+        cache_lock_wait_ms = [int64]$resourceWait.cache_lock_wait_ms
+        resource_wait_ms_total = [int64]$resourceWait.resource_wait_ms_total
+        resource_wait_attribution_mode = [string]$resourceWait.resource_wait_attribution_mode
         wait_attribution_status = if ($waitBlockers.Count -gt 0) { "missing" } else { "complete" }
         wait_attribution_missing_fields = @($waitMissingFields.ToArray())
         measured_overhead_ms = $overheadMs
@@ -564,6 +579,7 @@ function Write-TaskspaceSuiteTiming {
     }
     $aggregateUncleanReasons = if ($bottleneckCounts.ContainsKey("engineering_unclean_slow")) { @("child_engineering_unclean_slow") } else { @() }
     $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $aggregateUncleanReasons
+    $resourceWait = New-TaskspaceSerialResourceWaitAttribution
     $waitBlockers = @($waitMissingFields.ToArray() | ForEach-Object { "missing_wait_attribution:$_" })
     $timingBlocked = (@($missingSampleTimingDirs).Count -gt 0 -or $parseErrors.Count -gt 0 -or $waitBlockers.Count -gt 0 -or $childRuntimeBlockers.Count -gt 0)
     $artifact = [ordered]@{
@@ -582,11 +598,12 @@ function Write-TaskspaceSuiteTiming {
         model_retry_backoff_ms = $null
         model_request_duration_ms = if ($modelRequestObserved) { $modelRequestMs } else { $null }
         process_launch_wait_ms = if ($processLaunchWaitObserved) { $processLaunchWaitMs } else { $null }
-        docker_token_wait_ms = $null
-        validation_token_wait_ms = $null
-        disk_reservation_wait_ms = $null
-        cache_lock_wait_ms = $null
-        resource_wait_ms_total = $null
+        docker_token_wait_ms = [int64]$resourceWait.docker_token_wait_ms
+        validation_token_wait_ms = [int64]$resourceWait.validation_token_wait_ms
+        disk_reservation_wait_ms = [int64]$resourceWait.disk_reservation_wait_ms
+        cache_lock_wait_ms = [int64]$resourceWait.cache_lock_wait_ms
+        resource_wait_ms_total = [int64]$resourceWait.resource_wait_ms_total
+        resource_wait_attribution_mode = [string]$resourceWait.resource_wait_attribution_mode
         wait_attribution_status = if ($waitBlockers.Count -gt 0) { "missing" } else { "complete" }
         wait_attribution_missing_fields = @($waitMissingFields.ToArray())
         measured_overhead_ms = $overheadMs

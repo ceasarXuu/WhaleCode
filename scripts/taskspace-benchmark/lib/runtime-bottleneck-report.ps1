@@ -83,6 +83,7 @@ function Write-TaskspaceRuntimeBottleneckReport {
         runtime_optimization_status = if ($timing -and $timing.PSObject.Properties.Name -contains "runtime_optimization_status") { [string]$timing.runtime_optimization_status } else { "" }
         bottleneck_classification = if ($timing -and $timing.PSObject.Properties.Name -contains "bottleneck_classification") { [string]$timing.bottleneck_classification } else { "" }
         wait_attribution_status = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_status") { [string]$timing.wait_attribution_status } else { "" }
+        resource_wait_attribution_mode = if ($timing -and $timing.PSObject.Properties.Name -contains "resource_wait_attribution_mode") { [string]$timing.resource_wait_attribution_mode } else { "" }
         runtime_optimization_blockers = @($blockersForJson)
         wait_attribution_missing_fields = @($missingForJson)
         phase_durations = @(if ($timing) { Get-TaskspaceRuntimePhaseRows $timing } else { @() })
@@ -104,6 +105,7 @@ function Write-TaskspaceRuntimeBottleneckReport {
         $lines.Add("- runtime_optimization_status: $(if ($timing.PSObject.Properties.Name -contains 'runtime_optimization_status') { $timing.runtime_optimization_status } else { '' })")
         $lines.Add("- bottleneck_classification: $(if ($timing.PSObject.Properties.Name -contains 'bottleneck_classification') { $timing.bottleneck_classification } else { '' })")
         $lines.Add("- wait_attribution_status: $(if ($timing.PSObject.Properties.Name -contains 'wait_attribution_status') { $timing.wait_attribution_status } else { '' })")
+        $lines.Add("- resource_wait_attribution_mode: $(if ($timing.PSObject.Properties.Name -contains 'resource_wait_attribution_mode') { $timing.resource_wait_attribution_mode } else { '' })")
         $blockers = @($blockersForJson)
         $lines.Add("- runtime_optimization_blockers: $(if ($blockers.Count -eq 0) { 'none' } else { $blockers -join ', ' })")
         $missing = @($missingForJson)
