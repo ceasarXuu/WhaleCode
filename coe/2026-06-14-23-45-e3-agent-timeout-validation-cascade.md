@@ -191,3 +191,22 @@ Diagnostic evidence plan:
 ## Evidence E-019
 
 Supports H-007 validation. `scripts/taskspace-benchmark/test-e3-start-gate.ps1` now passes with a canonical suite fixture proving a scoring suite without one-pair smoke exits `3`, writes `suite-health.json` and `start-gate/e3-start-gate.json`, records self-tests as skipped after the previous gate failure, and creates no sample run directories. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` still passes, showing existing PlanOnly guardrail fixtures remain usable.
+
+## Hypothesis H-008
+
+Claim: runtime speed work cannot progress from planning to evidence without an opt-in sample-level parallel scheduler. The resource governor should allow only `MaxParallelSamples` at this stage, continue rejecting pair/validation/model/Docker concurrency, and preserve deterministic suite artifacts.
+
+Predictions:
+- `MaxParallelSamples=2` should no longer fail as unsupported when other concurrency knobs remain `1`.
+- Pair-level, validation-level, Docker, and model concurrency should still fail closed.
+- Parallel sample children must write isolated sample roots, and parent merge order must follow the task list rather than completion order.
+- Parallelism metadata must identify sample parallel mode and avoid claiming serial timing comparability.
+
+Diagnostic evidence plan:
+- Extend `run-taskspace-e3-suite.ps1` with a batch scheduler for sample-level parallel child processes.
+- Keep the default serial path unchanged when `MaxParallelSamples=1`.
+- Add a stub-runner suite smoke using three samples and `MaxParallelSamples=2`.
+
+## Evidence E-020
+
+Supports H-008 validation. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` now passes with a `MaxParallelSamples=2` stub-runner smoke proving the suite exits cleanly, writes isolated `samples/sample-*/sample-status.json` files, merges `sample-a,sample-b,sample-c` in task-list order, and records `parallelism.json` with `serial_only_status=sample_parallel_supported`, `sample_parallel_enabled=true`, `configured.max_parallel_samples=2`, and `timing_comparison_valid=false`. `scripts/taskspace-benchmark/test-e3-start-gate.ps1` and `scripts/taskspace-benchmark/test-e3-score-validity.ps1` also still pass after the scheduler change.

@@ -24,6 +24,7 @@ param(
     [string]$OnePairSmokeRoot = "",
     [switch]$SkipStartGate,
     [switch]$AllowSkippedOnePairSmoke,
+    [string]$RunnerPath = "",
     [int]$MaxParallelSamples = 1,
     [int]$MaxParallelPairsPerSample = 1,
     [int]$MaxParallelValidationsPerPair = 1,
@@ -115,7 +116,7 @@ if ([string]$diskReservation.status -eq "fail") {
     [Console]::Error.WriteLine("Disk reservation failed before suite scheduling. See $parallelismPath")
     exit 3
 }
-if (-not [bool]$serialGuard.serial_only) {
+if (@($serialGuard.unsupported_parallel_fields).Count -gt 0) {
     [Console]::Error.WriteLine("Parallel E3 execution flags are not implemented yet. Unsupported fields: " + (@($serialGuard.unsupported_parallel_fields) -join ", ") + ". See $parallelismPath")
     exit 4
 }
@@ -164,83 +165,85 @@ try {
 }
 if ($tasks.Count -eq 0) { Write-Error "TaskListPath contains no samples."; exit 4 }
 
-$runner = Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1"
+$runner = if ([string]::IsNullOrWhiteSpace($RunnerPath)) { Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1" } else { [System.IO.Path]::GetFullPath($RunnerPath) }
+if (-not (Test-Path -LiteralPath $runner)) { Write-Error "RunnerPath not found: $runner"; exit 4 }
 $sampleStatuses = New-Object System.Collections.Generic.List[object]
 $signatureCounts = @{}
 $suiteAbort = ""
 $exitCode = 0
+$maxSampleWorkers = [Math]::Max(1, [int]$resourceConfig.max_parallel_samples)
 
-for ($index = 0; $index -lt $tasks.Count; $index++) {
-    $task = $tasks[$index]
-    $taskDir = if ($task.PSObject.Properties.Name -contains "task_dir") { [string]$task.task_dir } else { "" }
-    $sampleId = if ($task.PSObject.Properties.Name -contains "sample_id") { [string]$task.sample_id } else { "sample-$($index + 1)" }
-    $recordSourceVersion = if ($task.PSObject.Properties.Name -contains "source_version" -and -not [string]::IsNullOrWhiteSpace([string]$task.source_version)) { [string]$task.source_version } else { $SourceVersion }
+function New-SuiteSampleRow {
+    param($Task, [int]$Index)
+    $taskDir = if ($Task.PSObject.Properties.Name -contains "task_dir") { [string]$Task.task_dir } else { "" }
+    $sampleId = if ($Task.PSObject.Properties.Name -contains "sample_id") { [string]$Task.sample_id } else { "sample-$($Index + 1)" }
+    $recordSourceVersion = if ($Task.PSObject.Properties.Name -contains "source_version" -and -not [string]::IsNullOrWhiteSpace([string]$Task.source_version)) { [string]$Task.source_version } else { $SourceVersion }
     if ([string]::IsNullOrWhiteSpace($taskDir) -or [string]::IsNullOrWhiteSpace($recordSourceVersion)) {
-        Write-Error "Suite sample requires task_dir and source_version/default SourceVersion: $sampleId"
-        exit 4
+        throw "Suite sample requires task_dir and source_version/default SourceVersion: $sampleId"
     }
-    if ($suiteAbort) {
-        $skipReason = if ([string]$suiteAbort -match "disk_space_low|disk_space_threshold_invalid") { "suite_global_disk_guard" } else { "suite_repeated_infra_signature" }
-        $skippedSampleRoot = Join-Path $samplesRoot $sampleId
-        $row = [pscustomobject]@{
-            sample_id = $sampleId
-            task_dir = $taskDir
-            phase = "skipped"
-            run_validity = "invalid_harness"
-            exit_code = 3
-            abort_scope = "suite"
-            abort_phase = "suite_circuit_breaker"
-            abort_signature = $suiteAbort
-            skipped_reason = $skipReason
-            sample_root = $skippedSampleRoot
-        }
-        New-Item -ItemType Directory -Path $skippedSampleRoot -Force | Out-Null
-        $row | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $skippedSampleRoot "sample-status.json") -Encoding UTF8
-        ($row | ConvertTo-Json -Compress) | Add-Content -LiteralPath $skippedPath -Encoding UTF8
-        $sampleStatuses.Add($row)
-        continue
+    [pscustomobject]@{
+        index = $Index
+        task_dir = $taskDir
+        sample_id = $sampleId
+        source_version = $recordSourceVersion
+        sample_root = (Join-Path $samplesRoot $sampleId)
     }
-    $sampleRoot = Join-Path $samplesRoot $sampleId
-    $sampleDiskHealthPath = Join-Path $suiteRoot ("suite-disk-health-{0:000}.json" -f ($index + 1))
-    $sampleDiskHealth = New-TaskspaceDiskHealth @($suiteRoot, $sampleRoot, $taskDir) "suite_sample_preflight"
+}
+
+function New-SuiteSkippedSample {
+    param($Row, [string]$AbortSignature)
+    $skipReason = if ([string]$AbortSignature -match "disk_space_low|disk_space_threshold_invalid") { "suite_global_disk_guard" } else { "suite_repeated_infra_signature" }
+    $skippedSampleRoot = [string]$Row.sample_root
+    $status = [pscustomobject]@{
+        sample_id = [string]$Row.sample_id
+        task_dir = [string]$Row.task_dir
+        phase = "skipped"
+        run_validity = "invalid_harness"
+        exit_code = 3
+        abort_scope = "suite"
+        abort_phase = "suite_circuit_breaker"
+        abort_signature = $AbortSignature
+        skipped_reason = $skipReason
+        sample_root = $skippedSampleRoot
+    }
+    New-Item -ItemType Directory -Path $skippedSampleRoot -Force | Out-Null
+    $status | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $skippedSampleRoot "sample-status.json") -Encoding UTF8
+    ($status | ConvertTo-Json -Compress) | Add-Content -LiteralPath $skippedPath -Encoding UTF8
+    $status
+}
+
+function Test-SuiteSampleDiskPreflight {
+    param($Row)
+    $sampleDiskHealthPath = Join-Path $suiteRoot ("suite-disk-health-{0:000}.json" -f ([int]$Row.index + 1))
+    $sampleDiskHealth = New-TaskspaceDiskHealth @($suiteRoot, [string]$Row.sample_root, [string]$Row.task_dir) "suite_sample_preflight"
     Write-TaskspaceHarnessHealth $sampleDiskHealthPath $sampleDiskHealth
-    if ([string]$sampleDiskHealth.status -eq "fail") {
-        $firstFinding = @($sampleDiskHealth.findings | Where-Object { [string]$_.severity -eq "fail" } | Select-Object -First 1)[0]
-        $signature = New-TaskspaceInfraSignature "harness_materialization_failure" "suite_sample_preflight" ([string]$firstFinding.stable_code) ([string]$firstFinding.message) "" $sampleDiskHealthPath
-        $status = [pscustomobject]@{
-            sample_id = $sampleId
-            task_dir = $taskDir
-            run_validity = "invalid_harness"
-            exit_code = 3
-            abort_scope = "sample"
-            abort_phase = "suite_sample_preflight"
-            abort_signature = $signature.key
-            abort_reason = [string]$firstFinding.stable_code
-            first_failure_artifact = $sampleDiskHealthPath
-            sample_root = $sampleRoot
-        }
-        $sampleStatuses.Add($status)
-        if (-not $signatureCounts.ContainsKey($signature.key)) { $signatureCounts[$signature.key] = 0 }
-        $signatureCounts[$signature.key]++
-        $suiteAbort = $signature.key
-        $exitCode = 3
-        Write-TaskspaceRunEvent $suiteRoot "suite_score_invalidated" @{
-            suite_run_id = (Split-Path -Leaf $suiteRoot)
-            child_run_id = $sampleRoot
-            sample_id = $sampleId
-            reason = $signature.key
-            remaining_samples_skipped = [Math]::Max(0, $tasks.Count - $index - 1)
-        }
-        continue
+    if ([string]$sampleDiskHealth.status -ne "fail") { return $null }
+    $firstFinding = @($sampleDiskHealth.findings | Where-Object { [string]$_.severity -eq "fail" } | Select-Object -First 1)[0]
+    $signature = New-TaskspaceInfraSignature "harness_materialization_failure" "suite_sample_preflight" ([string]$firstFinding.stable_code) ([string]$firstFinding.message) "" $sampleDiskHealthPath
+    [pscustomobject]@{
+        sample_id = [string]$Row.sample_id
+        task_dir = [string]$Row.task_dir
+        run_validity = "invalid_harness"
+        exit_code = 3
+        abort_scope = "sample"
+        abort_phase = "suite_sample_preflight"
+        abort_signature = $signature.key
+        abort_reason = [string]$firstFinding.stable_code
+        first_failure_artifact = $sampleDiskHealthPath
+        sample_root = [string]$Row.sample_root
     }
-    $args = @(
+}
+
+function New-SuiteChildArgs {
+    param($Row)
+    $childArgs = @(
         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $runner,
         "-Benchmark", $Benchmark,
-        "-TaskDir", $taskDir,
-        "-SampleId", $sampleId,
-        "-SourceVersion", $recordSourceVersion,
+        "-TaskDir", [string]$Row.task_dir,
+        "-SampleId", [string]$Row.sample_id,
+        "-SourceVersion", [string]$Row.source_version,
         "-Repeats", $Repeats,
-        "-RunRoot", $sampleRoot,
+        "-RunRoot", [string]$Row.sample_root,
         "-WhaleBin", $WhaleBin,
         "-Model", $Model,
         "-TimeoutSeconds", $TimeoutSeconds,
@@ -250,71 +253,122 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
         "-SandboxMode", $SandboxMode,
         "-EnableAggregate"
     )
-    foreach ($override in @($ConfigOverride)) { $args += @("-ConfigOverride", $override) }
-    if ($AuditReviewRoot) { $args += @("-AuditReviewRoot", $AuditReviewRoot) }
-    if ($PlanOnly) { $args += "-PlanOnly" }
-    if ($ScoringMode) { $args += "-ScoringMode" }
-    if ($RequireScoreValidity) { $args += "-RequireScoreValidity" }
-    if ($EnableDockerImageCache) { $args += "-EnableDockerImageCache" }
-    & powershell @args
-    $childExit = $LASTEXITCODE
-    $statusPath = Get-ChildItem -LiteralPath $sampleRoot -Filter "sample-status.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    $status = if ($statusPath) { Get-Content -Raw -Encoding UTF8 -LiteralPath $statusPath.FullName | ConvertFrom-Json } else { [pscustomobject]@{ sample_id = $sampleId; run_validity = if ($childExit -eq 3) { "invalid_harness" } else { "unknown" }; exit_code = $childExit } }
-    if (-not ($status.PSObject.Properties.Name -contains "sample_root")) { $status | Add-Member -NotePropertyName sample_root -NotePropertyValue $sampleRoot -Force }
+    foreach ($override in @($ConfigOverride)) { $childArgs += @("-ConfigOverride", $override) }
+    if ($AuditReviewRoot) { $childArgs += @("-AuditReviewRoot", $AuditReviewRoot) }
+    if ($PlanOnly) { $childArgs += "-PlanOnly" }
+    if ($ScoringMode) { $childArgs += "-ScoringMode" }
+    if ($RequireScoreValidity) { $childArgs += "-RequireScoreValidity" }
+    if ($EnableDockerImageCache) { $childArgs += "-EnableDockerImageCache" }
+    $childArgs
+}
+
+function Complete-SuiteSampleStatus {
+    param($Row, [int]$ChildExit)
+    $statusPath = Get-ChildItem -LiteralPath ([string]$Row.sample_root) -Filter "sample-status.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $status = if ($statusPath) { Get-Content -Raw -Encoding UTF8 -LiteralPath $statusPath.FullName | ConvertFrom-Json } else { [pscustomobject]@{ sample_id = [string]$Row.sample_id; run_validity = if ($ChildExit -eq 3) { "invalid_harness" } else { "unknown" }; exit_code = $ChildExit } }
+    if (-not ($status.PSObject.Properties.Name -contains "sample_root")) { $status | Add-Member -NotePropertyName sample_root -NotePropertyValue ([string]$Row.sample_root) -Force }
     $alreadyInvalidHarness = $status.PSObject.Properties.Name -contains "run_validity" -and [string]$status.run_validity -eq "invalid_harness"
     $completedDiagnosticRun = Test-TaskspaceSuiteChildStatusComplete $status $Repeats
-    if ($childExit -ne 0 -and -not $alreadyInvalidHarness -and -not $completedDiagnosticRun) {
-        $status = New-TaskspaceSuiteChildFailureStatus $status $sampleId $taskDir $childExit $(if ($statusPath) { [string]$statusPath.FullName } else { "" }) $sampleRoot
+    if ($ChildExit -ne 0 -and -not $alreadyInvalidHarness -and -not $completedDiagnosticRun) {
+        $status = New-TaskspaceSuiteChildFailureStatus $status ([string]$Row.sample_id) ([string]$Row.task_dir) $ChildExit $(if ($statusPath) { [string]$statusPath.FullName } else { "" }) ([string]$Row.sample_root)
     }
-    $aggregatePath = Get-ChildItem -LiteralPath $sampleRoot -Filter "aggregate.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $aggregatePath = Get-ChildItem -LiteralPath ([string]$Row.sample_root) -Filter "aggregate.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if (($ScoringMode -or $RequireScoreValidity) -and $aggregatePath) {
         try {
             $aggregate = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregatePath.FullName | ConvertFrom-Json
             if ($aggregate.PSObject.Properties.Name -contains "score_valid" -and -not [bool]$aggregate.score_valid) {
-                $status = New-TaskspaceSuiteChildFailureStatus $status $sampleId $taskDir 3 ([string]$aggregatePath.FullName) $sampleRoot
+                $status = New-TaskspaceSuiteChildFailureStatus $status ([string]$Row.sample_id) ([string]$Row.task_dir) 3 ([string]$aggregatePath.FullName) ([string]$Row.sample_root)
                 $status.abort_phase = "score_validity"
                 $status.abort_signature = "harness_materialization_failure/score_invalid"
                 $status.abort_reason = if ($aggregate.PSObject.Properties.Name -contains "score_invalid_reason") { [string]$aggregate.score_invalid_reason } else { "score_invalid" }
-                $alreadyInvalidHarness = $true
-                $childExit = 3
+                $ChildExit = 3
             }
         } catch {
             if ($RequireScoreValidity -or $ScoringMode) {
-                $status = New-TaskspaceSuiteChildFailureStatus $status $sampleId $taskDir 3 ([string]$aggregatePath.FullName) $sampleRoot
+                $status = New-TaskspaceSuiteChildFailureStatus $status ([string]$Row.sample_id) ([string]$Row.task_dir) 3 ([string]$aggregatePath.FullName) ([string]$Row.sample_root)
                 $status.abort_phase = "score_validity"
                 $status.abort_reason = "aggregate_score_validity_parse_failed"
-                $alreadyInvalidHarness = $true
-                $childExit = 3
+                $ChildExit = 3
             }
         }
     }
-    $sampleStatuses.Add($status)
-    if ($childExit -eq 1 -and $exitCode -eq 0) { $exitCode = 1 }
-    if ($childExit -eq 2 -and $exitCode -eq 0) { $exitCode = 2 }
-    if ($childExit -eq 3 -or ($status.PSObject.Properties.Name -contains "run_validity" -and [string]$status.run_validity -eq "invalid_harness")) {
-        $sig = if ($status.PSObject.Properties.Name -contains "abort_signature" -and -not [string]::IsNullOrWhiteSpace([string]$status.abort_signature)) { [string]$status.abort_signature } else { "harness_materialization_failure/unknown" }
+    [pscustomobject]@{ status = $status; child_exit = $ChildExit }
+}
+
+function Update-SuiteAbortFromStatus {
+    param($Status, [int]$ChildExit, [int]$Index)
+    if ($ChildExit -eq 1 -and $script:exitCode -eq 0) { $script:exitCode = 1 }
+    if ($ChildExit -eq 2 -and $script:exitCode -eq 0) { $script:exitCode = 2 }
+    if ($ChildExit -eq 3 -or ($Status.PSObject.Properties.Name -contains "run_validity" -and [string]$Status.run_validity -eq "invalid_harness")) {
+        $sig = if ($Status.PSObject.Properties.Name -contains "abort_signature" -and -not [string]::IsNullOrWhiteSpace([string]$Status.abort_signature)) { [string]$Status.abort_signature } else { "harness_materialization_failure/unknown" }
         if (-not $signatureCounts.ContainsKey($sig)) { $signatureCounts[$sig] = 0 }
         $signatureCounts[$sig]++
-        if ($exitCode -eq 0) { $exitCode = 3 }
+        if ($script:exitCode -eq 0) { $script:exitCode = 3 }
         $global = $sig -match "docker_backend_unavailable|uv_cache_missing|validator_source_missing|disk_space_low|disk_space_threshold_invalid"
         $shouldAbortSuite = $false
-        if (($ScoringMode -or $RequireScoreValidity) -and -not $ContinueAfterInvalidHarness) {
-            $shouldAbortSuite = $true
-        }
-        if (-not $ContinueAfterInvalidHarness -and ($global -or $signatureCounts[$sig] -ge 2)) {
-            $shouldAbortSuite = $true
-        }
-        if ($shouldAbortSuite) {
-            $suiteAbort = $sig
-            $exitCode = 3
+        if (($ScoringMode -or $RequireScoreValidity) -and -not $ContinueAfterInvalidHarness) { $shouldAbortSuite = $true }
+        if (-not $ContinueAfterInvalidHarness -and ($global -or $signatureCounts[$sig] -ge 2)) { $shouldAbortSuite = $true }
+        if ($shouldAbortSuite -and -not $script:suiteAbort) {
+            $script:suiteAbort = $sig
+            $script:exitCode = 3
             Write-TaskspaceRunEvent $suiteRoot "suite_score_invalidated" @{
                 suite_run_id = (Split-Path -Leaf $suiteRoot)
-                child_run_id = if ($status.PSObject.Properties.Name -contains "sample_root") { [string]$status.sample_root } else { $sampleRoot }
-                sample_id = $sampleId
+                child_run_id = if ($Status.PSObject.Properties.Name -contains "sample_root") { [string]$Status.sample_root } else { "" }
+                sample_id = if ($Status.PSObject.Properties.Name -contains "sample_id") { [string]$Status.sample_id } else { "" }
                 reason = $sig
-                remaining_samples_skipped = [Math]::Max(0, $tasks.Count - $index - 1)
+                remaining_samples_skipped = [Math]::Max(0, $tasks.Count - $Index - 1)
             }
         }
+    }
+}
+
+for ($index = 0; $index -lt $tasks.Count; ) {
+    $batch = New-Object System.Collections.Generic.List[object]
+    while ($index -lt $tasks.Count -and $batch.Count -lt $maxSampleWorkers) {
+        $row = New-SuiteSampleRow $tasks[$index] $index
+        $batch.Add($row)
+        $index++
+    }
+    $jobs = New-Object System.Collections.Generic.List[object]
+    foreach ($row in @($batch.ToArray())) {
+        if ($suiteAbort) {
+            $sampleStatuses.Add((New-SuiteSkippedSample $row $suiteAbort))
+            continue
+        }
+        $preflightStatus = Test-SuiteSampleDiskPreflight $row
+        if ($preflightStatus) {
+            $status = $preflightStatus
+            $sampleStatuses.Add($status)
+            Update-SuiteAbortFromStatus $status 3 ([int]$row.index)
+            continue
+        }
+        $childArgs = New-SuiteChildArgs $row
+        if ($maxSampleWorkers -eq 1) {
+            & powershell @childArgs
+            $result = [pscustomobject]@{ row = $row; exit_code = $LASTEXITCODE; output = @() }
+        } else {
+            $job = Start-Job -ScriptBlock {
+                param([string[]]$ChildArgs)
+                $output = & powershell @ChildArgs 2>&1
+                [pscustomobject]@{ exit_code = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }; output = @($output | ForEach-Object { [string]$_ }) }
+            } -ArgumentList (, [string[]]$childArgs)
+            $result = [pscustomobject]@{ row = $row; job = $job }
+        }
+        $jobs.Add($result)
+    }
+    foreach ($jobRow in @($jobs.ToArray() | Sort-Object { [int]$_.row.index })) {
+        if ($jobRow.PSObject.Properties.Name -contains "job") {
+            Wait-Job -Job $jobRow.job | Out-Null
+            $jobResult = Receive-Job -Job $jobRow.job | Select-Object -First 1
+            Remove-Job -Job $jobRow.job -Force -ErrorAction SilentlyContinue
+            foreach ($line in @($jobResult.output)) { Write-Host $line }
+            $childExit = [int]$jobResult.exit_code
+        } else {
+            $childExit = [int]$jobRow.exit_code
+        }
+        $completed = Complete-SuiteSampleStatus $jobRow.row $childExit
+        $sampleStatuses.Add($completed.status)
+        Update-SuiteAbortFromStatus $completed.status ([int]$completed.child_exit) ([int]$jobRow.row.index)
     }
 }
 

@@ -38,15 +38,16 @@ function New-TaskspaceResourceGovernorConfig {
 function Test-TaskspaceResourceGovernorSerialOnly {
     param($Config)
     $unsupported = New-Object System.Collections.Generic.List[string]
-    if ([int]$Config.max_parallel_samples -ne 1) { $unsupported.Add("MaxParallelSamples") }
     if ([int]$Config.max_parallel_pairs_per_sample -ne 1) { $unsupported.Add("MaxParallelPairsPerSample") }
     if ([int]$Config.max_parallel_validations_per_pair -ne 1) { $unsupported.Add("MaxParallelValidationsPerPair") }
     if ([int]$Config.max_docker_concurrency -ne 1) { $unsupported.Add("MaxDockerConcurrency") }
     if ([int]$Config.max_model_concurrency -ne 1) { $unsupported.Add("MaxModelConcurrency") }
+    $sampleParallelEnabled = ([int]$Config.max_parallel_samples -gt 1)
     [pscustomobject]@{
-        serial_only = ($unsupported.Count -eq 0)
+        serial_only = ($unsupported.Count -eq 0 -and -not $sampleParallelEnabled)
         unsupported_parallel_fields = @($unsupported.ToArray())
-        status = if ($unsupported.Count -eq 0) { "pass" } else { "unsupported_parallelism" }
+        sample_parallel_enabled = $sampleParallelEnabled
+        status = if ($unsupported.Count -eq 0) { $(if ($sampleParallelEnabled) { "sample_parallel_supported" } else { "pass" }) } else { "unsupported_parallelism" }
     }
 }
 
@@ -133,10 +134,11 @@ function Write-TaskspaceParallelismArtifact {
         }
         serial_only_status = [string]$SerialGuard.status
         unsupported_parallel_fields = @($SerialGuard.unsupported_parallel_fields)
+        sample_parallel_enabled = [bool]$SerialGuard.sample_parallel_enabled
         disk_reservation = $DiskReservation
         wait = $WaitSnapshot
         timing_comparison_valid = [bool]$SerialGuard.serial_only
-        resource_governor_status = if ([bool]$Config.valid -and [bool]$SerialGuard.serial_only -and (-not $DiskReservation -or [string]$DiskReservation.status -eq "pass")) { "pass" } else { "blocked" }
+        resource_governor_status = if ([bool]$Config.valid -and @($SerialGuard.unsupported_parallel_fields).Count -eq 0 -and (-not $DiskReservation -or [string]$DiskReservation.status -eq "pass")) { "pass" } else { "blocked" }
         generated_at = (Get-Date).ToString("o")
     }
     $path = Join-Path $SuiteRoot "parallelism.json"

@@ -37,9 +37,12 @@ Assert-True ([string]$lifecycle.validation_lifecycle_stage -eq "tests_completed"
 $resourceConfig = New-TaskspaceResourceGovernorConfig
 $serialGuard = Test-TaskspaceResourceGovernorSerialOnly $resourceConfig
 Assert-True ([bool]$resourceConfig.valid -and [bool]$serialGuard.serial_only) "resource governor default config is not serial-valid"
+$sampleParallelConfig = New-TaskspaceResourceGovernorConfig -MaxParallelSamples 2
+$sampleParallelGuard = Test-TaskspaceResourceGovernorSerialOnly $sampleParallelConfig
+Assert-True (-not [bool]$sampleParallelGuard.serial_only -and [bool]$sampleParallelGuard.sample_parallel_enabled -and @($sampleParallelGuard.unsupported_parallel_fields).Count -eq 0) "resource governor did not allow sample-level parallelism only"
 $parallelConfig = New-TaskspaceResourceGovernorConfig -MaxParallelSamples 2 -MaxDockerConcurrency 2
 $parallelGuard = Test-TaskspaceResourceGovernorSerialOnly $parallelConfig
-Assert-True (-not [bool]$parallelGuard.serial_only -and @($parallelGuard.unsupported_parallel_fields).Count -eq 2) "resource governor did not reject unsupported parallel fields"
+Assert-True (-not [bool]$parallelGuard.serial_only -and @($parallelGuard.unsupported_parallel_fields).Count -eq 1 -and @($parallelGuard.unsupported_parallel_fields) -contains "MaxDockerConcurrency") "resource governor did not reject unsupported parallel fields"
 $waitSnapshot = New-TaskspaceResourceWaitSnapshot -DockerTokenWaitMs 2 -ValidationTokenWaitMs 3 -DiskReservationWaitMs 5 -CacheLockWaitMs 7
 Assert-True ([int64]$waitSnapshot.resource_wait_ms_total -eq 17) "resource governor wait snapshot did not aggregate waits"
 $diskReservationPass = Test-TaskspaceDiskReservation @($runDir) 0
@@ -177,6 +180,57 @@ try {
     if ($null -eq $oldSuiteMinFreeBytes) { Remove-Item Env:TASKSPACE_MIN_FREE_BYTES -ErrorAction SilentlyContinue } else { $env:TASKSPACE_MIN_FREE_BYTES = $oldSuiteMinFreeBytes }
     if ($null -eq $oldSuiteMinFreeGib) { Remove-Item Env:TASKSPACE_MIN_FREE_GIB -ErrorAction SilentlyContinue } else { $env:TASKSPACE_MIN_FREE_GIB = $oldSuiteMinFreeGib }
 }
+
+$parallelSuiteRoot = Join-Path $runDir "suite-parallel"
+$parallelTaskList = Join-Path $parallelSuiteRoot "tasks.jsonl"
+$parallelStubRunner = Join-Path $parallelSuiteRoot "stub-runner.ps1"
+$parallelTaskA = Join-Path $parallelSuiteRoot "task-a"
+$parallelTaskB = Join-Path $parallelSuiteRoot "task-b"
+$parallelTaskC = Join-Path $parallelSuiteRoot "task-c"
+New-Item -ItemType Directory -Force -Path $parallelTaskA, $parallelTaskB, $parallelTaskC | Out-Null
+@(
+    ([pscustomobject]@{ sample_id = "sample-a"; task_dir = $parallelTaskA; source_version = "selftest" } | ConvertTo-Json -Compress),
+    ([pscustomobject]@{ sample_id = "sample-b"; task_dir = $parallelTaskB; source_version = "selftest" } | ConvertTo-Json -Compress),
+    ([pscustomobject]@{ sample_id = "sample-c"; task_dir = $parallelTaskC; source_version = "selftest" } | ConvertTo-Json -Compress)
+) | Set-Content -LiteralPath $parallelTaskList -Encoding UTF8
+@'
+param(
+    [string]$Benchmark,
+    [string]$TaskDir,
+    [string]$SampleId,
+    [string]$SourceVersion,
+    [int]$Repeats,
+    [string]$RunRoot,
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
+)
+$ErrorActionPreference = "Stop"
+New-Item -ItemType Directory -Force -Path $RunRoot | Out-Null
+if ($SampleId -eq "sample-a") { Start-Sleep -Seconds 2 }
+[pscustomobject]@{
+    sample_id = $SampleId
+    task_dir = $TaskDir
+    phase = "completed"
+    run_validity = "valid"
+    exit_code = 0
+    attempted_pairs = $Repeats
+    completed_pairs = $Repeats
+    sample_root = $RunRoot
+    source_version = $SourceVersion
+    benchmark = $Benchmark
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $RunRoot "sample-status.json") -Encoding UTF8
+exit 0
+'@ | Set-Content -LiteralPath $parallelStubRunner -Encoding UTF8
+$parallelOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1") -Benchmark terminal-bench -TaskListPath $parallelTaskList -SourceVersion selftest -Repeats 5 -RunRoot (Join-Path $parallelSuiteRoot "runs") -PlanOnly -ScoringMode -SkipStartGate -RunnerPath $parallelStubRunner -MaxParallelSamples 2 2>&1
+Assert-True ($LASTEXITCODE -eq 0) "sample-level parallel suite smoke failed: $($parallelOutput -join ' | ')"
+$parallelSuiteRootLine = @($parallelOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
+$parallelRunRoot = ([string]$parallelSuiteRootLine) -replace "^SuiteRoot:\s*", ""
+$parallelHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $parallelRunRoot "suite-health.json") | ConvertFrom-Json
+$parallelismSmoke = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $parallelRunRoot "parallelism.json") | ConvertFrom-Json
+$mergedSampleIds = @($parallelHealth.sample_statuses | ForEach-Object { [string]$_.sample_id })
+Assert-True ([string]$parallelHealth.status -eq "completed" -and [bool]$parallelHealth.suite_score_valid) "parallel suite smoke did not complete as score-valid"
+Assert-True (($mergedSampleIds -join ",") -eq "sample-a,sample-b,sample-c") "parallel suite merge order was not deterministic"
+Assert-True ([string]$parallelismSmoke.serial_only_status -eq "sample_parallel_supported" -and [bool]$parallelismSmoke.sample_parallel_enabled -and [int]$parallelismSmoke.configured.max_parallel_samples -eq 2) "parallelism artifact did not record sample-level parallel mode"
+Assert-True ((Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-a\sample-status.json")) -and (Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-b\sample-status.json")) -and (Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-c\sample-status.json"))) "parallel suite smoke did not isolate sample artifacts"
 
 $stateRun = Join-Path $runDir "invalid-state"
 New-Item -ItemType Directory -Force -Path $stateRun | Out-Null
