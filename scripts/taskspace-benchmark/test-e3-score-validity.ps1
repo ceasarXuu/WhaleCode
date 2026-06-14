@@ -158,6 +158,29 @@ Assert-True ([int64]$timing.total_duration_ms -gt 0) "timing artifact did not re
 Assert-True (@($timing.spans | Where-Object { [string]$_.phase -eq "public_validation" }).Count -eq 2) "timing artifact did not record both validation spans"
 $metricWithTiming = Add-TaskspaceMetricTimingFields $metricsBySide.left $validationTimingBySide.left
 Assert-True ([int64]$metricWithTiming.public_validation_duration_ms -gt 0) "metric timing did not record validation duration"
+$dockerResultPath = Join-Path $runDir "docker-build-result.json"
+[pscustomobject]@{
+    phases = @(
+        [pscustomobject]@{ phase = "build"; duration_ms = 1000; timestamp = $now.ToString("o") },
+        [pscustomobject]@{ phase = "run"; duration_ms = 2000; timestamp = $now.AddSeconds(2).ToString("o") },
+        [pscustomobject]@{ phase = "inspect"; duration_ms = 300; timestamp = $now.AddSeconds(3).ToString("o") },
+        [pscustomobject]@{ phase = "cleanup_container"; duration_ms = 400; timestamp = $now.AddSeconds(4).ToString("o") },
+        [pscustomobject]@{ phase = "cleanup_image"; duration_ms = 500; timestamp = $now.AddSeconds(5).ToString("o") }
+    )
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $dockerResultPath -Encoding UTF8
+$metricsBySide.left | Add-Member -NotePropertyName docker_build_result_path -NotePropertyValue $dockerResultPath -Force
+$metricWithDockerTiming = Add-TaskspaceMetricTimingFields $metricsBySide.left $validationTimingBySide.left
+Assert-True ([int64]$metricWithDockerTiming.docker_build_duration_ms -eq 1000) "metric timing did not record docker build duration"
+Assert-True ([int64]$metricWithDockerTiming.docker_run_duration_ms -eq 2000) "metric timing did not record docker run duration"
+Assert-True ([int64]$metricWithDockerTiming.docker_cleanup_duration_ms -eq 900) "metric timing did not aggregate docker cleanup duration"
+$pretestTimeoutMetrics = New-Metrics "left" "standard" -PublicExit 124 -PretestFailure $true
+$pretestTimeoutMetrics | Add-Member -NotePropertyName tests_started_seen -NotePropertyValue $false -Force
+$pretestTimeoutMetrics = Add-TaskspaceMetricTimingFields $pretestTimeoutMetrics $validationTimingBySide.left
+Assert-True ([string]$pretestTimeoutMetrics.validation_timeout_phase -eq "pretest") "timeout without tests_started was not classified as pretest"
+$testTimeoutMetrics = New-Metrics "right" "taskspace" -PublicExit 124
+$testTimeoutMetrics | Add-Member -NotePropertyName tests_started_seen -NotePropertyValue $true -Force
+$testTimeoutMetrics = Add-TaskspaceMetricTimingFields $testTimeoutMetrics $validationTimingBySide.right
+Assert-True ([string]$testTimeoutMetrics.validation_timeout_phase -eq "tests") "timeout after tests_started was not classified as tests"
 $sampleTimingPath = Write-TaskspaceSampleTiming $runDir "score-validity-fixture"
 $sampleTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $sampleTimingPath | ConvertFrom-Json
 Assert-True ([int]$sampleTiming.pair_count -eq 1) "sample timing did not aggregate pair timing"

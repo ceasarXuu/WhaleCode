@@ -10,6 +10,7 @@ param(
     [string]$Model = "deepseek-v4-flash",
     [int]$TimeoutSeconds = 900,
     [int]$ValidationTimeoutSeconds = 420,
+    [int]$ValidationPretestTimeoutSeconds = 120,
     [ValidateSet("bypass", "full-auto", "workspace-write")]
     [string]$SandboxMode = "full-auto",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
@@ -139,6 +140,7 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
         "-Model", $Model,
         "-TimeoutSeconds", $TimeoutSeconds,
         "-ValidationTimeoutSeconds", $ValidationTimeoutSeconds,
+        "-ValidationPretestTimeoutSeconds", $ValidationPretestTimeoutSeconds,
         "-SandboxMode", $SandboxMode,
         "-EnableAggregate"
     )

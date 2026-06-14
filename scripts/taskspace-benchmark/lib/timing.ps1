@@ -87,10 +87,29 @@ function Add-TaskspaceMetricTimingFields {
     $Metrics | Add-Member -NotePropertyName hidden_oracle_duration_ms -NotePropertyValue $oracleMs -Force
     $Metrics | Add-Member -NotePropertyName validator_probe_duration_ms -NotePropertyValue $null -Force
     $Metrics | Add-Member -NotePropertyName docker_observed_duration_ms -NotePropertyValue $null -Force
+    $Metrics | Add-Member -NotePropertyName docker_build_duration_ms -NotePropertyValue $null -Force
+    $Metrics | Add-Member -NotePropertyName docker_run_duration_ms -NotePropertyValue $null -Force
+    $Metrics | Add-Member -NotePropertyName docker_inspect_duration_ms -NotePropertyValue $null -Force
+    $Metrics | Add-Member -NotePropertyName docker_cleanup_duration_ms -NotePropertyValue $null -Force
+    $timeoutPhase = if ([int]$Metrics.public_validation_exit_code -eq 124) {
+        if ($Metrics.PSObject.Properties.Name -contains "tests_started_seen" -and [bool]$Metrics.tests_started_seen) { "tests" } else { "pretest" }
+    } else { "" }
+    $Metrics | Add-Member -NotePropertyName validation_timeout_phase -NotePropertyValue $timeoutPhase -Force
     if ($Metrics.PSObject.Properties.Name -contains "docker_build_result_path" -and $Metrics.docker_build_result_path -and (Test-Path -LiteralPath $Metrics.docker_build_result_path)) {
         try {
             $docker = Get-Content -Raw -Encoding UTF8 -LiteralPath $Metrics.docker_build_result_path | ConvertFrom-Json
             $phases = @($docker.phases | Where-Object { $_.timestamp })
+            foreach ($phase in @($docker.phases)) {
+                if (-not ($phase.PSObject.Properties.Name -contains "duration_ms")) { continue }
+                $duration = [int64]$phase.duration_ms
+                switch ([string]$phase.phase) {
+                    "build" { $Metrics.docker_build_duration_ms = $duration }
+                    "run" { $Metrics.docker_run_duration_ms = $duration }
+                    "inspect" { $Metrics.docker_inspect_duration_ms = $duration }
+                    "cleanup_container" { $Metrics.docker_cleanup_duration_ms = [int64]$Metrics.docker_cleanup_duration_ms + $duration }
+                    "cleanup_image" { $Metrics.docker_cleanup_duration_ms = [int64]$Metrics.docker_cleanup_duration_ms + $duration }
+                }
+            }
             if ($phases.Count -ge 2) {
                 $first = [datetime]::Parse([string]$phases[0].timestamp)
                 $last = [datetime]::Parse([string]$phases[-1].timestamp)

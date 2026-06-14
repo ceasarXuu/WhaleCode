@@ -5,8 +5,7 @@ param(
     [string]$RunRoot = "",
     [string]$WhaleBin = "$env:USERPROFILE\.whale\bin\whale.exe",
     [string]$Model = "deepseek-v4-flash",
-    [int]$TimeoutSeconds = 900,
-    [int]$ValidationTimeoutSeconds = 420,
+    [int]$TimeoutSeconds = 900, [int]$ValidationTimeoutSeconds = 420, [int]$ValidationPretestTimeoutSeconds = 120,
     [ValidateSet("bypass", "full-auto", "workspace-write")]
     [string]$SandboxMode = "full-auto",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
@@ -240,7 +239,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             $probeStdout = Join-Path $side.ArtifactDir "validator-probe.stdout.log"
             $probeStderr = Join-Path $side.ArtifactDir "validator-probe.stderr.log"
             $probeProofDir = Join-Path $side.ArtifactDir "external-validator-runtime-probe"
-            $probeExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $probeStdout $probeStderr ([Math]::Min(120, [Math]::Max(30, $ValidationTimeoutSeconds))) $probeProofDir @("-ProbeOnly")
+            $probeExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $probeStdout $probeStderr ([Math]::Min($ValidationPretestTimeoutSeconds, [Math]::Max(30, $ValidationTimeoutSeconds))) $probeProofDir @("-ProbeOnly")
             $probeValidation = [pscustomobject]@{ exit_code = $probeExit; stdout_path = $probeStdout; stderr_path = $probeStderr }
             $probeLifecycle = Get-TaskspaceValidationLifecycle $probeValidation
             $probeText = Get-TaskspaceValidationText $probeValidation
@@ -286,6 +285,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         timeout_seconds_left = $TimeoutSeconds
         timeout_seconds_right = $TimeoutSeconds
         validation_timeout_seconds = $ValidationTimeoutSeconds
+        validation_pretest_timeout_seconds = $ValidationPretestTimeoutSeconds
         provider_param_status = $providerParamStatus
         config_overrides = @($ConfigOverride)
         sandbox_mode = $SandboxMode
