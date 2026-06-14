@@ -864,15 +864,31 @@ Only after the one-pair smoke passes may full E3 be scheduled:
 
 Before running a multi-hour E3 suite, the operator must verify these artifacts from the cheap gate:
 
+Canonical command:
+
+```powershell
+.\scripts\taskspace-benchmark\invoke-taskspace-e3-start-gate.ps1 `
+  -ScenarioPath <materialized-scenario-path> `
+  -RunRoot <planned-e3-run-root> `
+  -OutputDir <gate-output-dir> `
+  -RunSelfTests
+```
+
+For external suites where scenarios are materialized later by the adapter, pass `-TaskListPath <task-list>` and still use `-RunSelfTests`. In that mode the path-contract gate is explicitly `skipped` with reason `no_scenario_manifest`; it is not a pass. Full E3 may proceed only when either a materialized scenario path-contract gate has passed or the adapter/materialization preflight is expected to enforce the path contract before agent execution.
+
 | Gate | Required value |
 |---|---|
 | Disk preflight | `harness-health.json.status = pass` and no checked volume below configured free-space threshold |
 | Docker storage | Docker data root and target run root have enough free space |
 | Path contract | Generated validator paths are fully qualified, not relative to pair workspace |
+| Cheap start-gate artifact | `e3-start-gate.json.status = pass` and `run_validity = valid` |
+| Cheap self-tests | `cheap_self_tests.status = pass` when `-RunSelfTests` is used |
 | Proof harness | `test-e3-proof-harness.ps1` passes |
 | Score validity fixtures | all fixture cases pass |
 | One-pair smoke | has explicit `score_valid=true` or classified exit code `3` |
 | Report language | invalid run report contains no better/worse/regressed conclusion |
+
+The gate writes `e3-start-gate.json` and `e3-start-gate.md`. If any hard gate fails, the process exits `3` and the JSON uses `run_validity=invalid_harness`. A failed start gate is not an E3 result and must not be summarized as TaskSpace better/worse/regressed.
 
 If any gate fails, do not run full E3. Fix the gate first and rerun the cheap suite.
 
