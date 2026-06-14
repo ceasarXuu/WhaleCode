@@ -221,6 +221,56 @@ try {
     if ($null -eq $oldSuiteMinFreeGib) { Remove-Item Env:TASKSPACE_MIN_FREE_GIB -ErrorAction SilentlyContinue } else { $env:TASKSPACE_MIN_FREE_GIB = $oldSuiteMinFreeGib }
 }
 
+$suiteChildInvalidRoot = Join-Path $runDir "suite-child-invalid"
+$suiteChildTaskA = Join-Path $suiteChildInvalidRoot "task-a"
+$suiteChildTaskB = Join-Path $suiteChildInvalidRoot "task-b"
+$suiteChildStubRunner = Join-Path $suiteChildInvalidRoot "stub-runner.ps1"
+New-Item -ItemType Directory -Force -Path $suiteChildTaskA, $suiteChildTaskB | Out-Null
+$suiteChildTaskList = Join-Path $suiteChildInvalidRoot "tasks.jsonl"
+@(
+    ([pscustomobject]@{ sample_id = "sample-a"; task_dir = $suiteChildTaskA; source_version = "selftest" } | ConvertTo-Json -Compress),
+    ([pscustomobject]@{ sample_id = "sample-b"; task_dir = $suiteChildTaskB; source_version = "selftest" } | ConvertTo-Json -Compress)
+) | Set-Content -LiteralPath $suiteChildTaskList -Encoding UTF8
+@'
+param(
+    [string]$Benchmark,
+    [string]$TaskDir,
+    [string]$SampleId,
+    [string]$SourceVersion,
+    [int]$Repeats,
+    [string]$RunRoot,
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
+)
+$ErrorActionPreference = "Stop"
+New-Item -ItemType Directory -Force -Path $RunRoot | Out-Null
+[pscustomobject]@{
+    schema_version = 1
+    sample_id = $SampleId
+    phase = "invalid_harness"
+    run_validity = "invalid_harness"
+    exit_code = 3
+    abort_scope = "sample"
+    abort_phase = "score_validity"
+    abort_signature = "harness_materialization_failure/stub_score_invalid"
+    abort_reason = "stub_score_invalid"
+    first_failure_artifact = $TaskDir
+    sample_root = $RunRoot
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $RunRoot "sample-status.json") -Encoding UTF8
+exit 3
+'@ | Set-Content -LiteralPath $suiteChildStubRunner -Encoding UTF8
+$suiteChildOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1") -Benchmark terminal-bench -TaskListPath $suiteChildTaskList -SourceVersion selftest -Repeats 5 -RunRoot (Join-Path $suiteChildInvalidRoot "runs") -RunnerPath $suiteChildStubRunner -PlanOnly -ScoringMode -SkipStartGate 2>&1
+Assert-True ($LASTEXITCODE -eq 3) "suite child invalid fixture did not exit invalid_harness"
+$suiteChildRootLine = @($suiteChildOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
+$suiteChildRunRoot = ([string]$suiteChildRootLine) -replace "^SuiteRoot:\s*", ""
+$suiteChildHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteChildRunRoot "suite-health.json") | ConvertFrom-Json
+$suiteChildSkipped = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteChildRunRoot "samples\sample-b\sample-status.json") | ConvertFrom-Json
+$suiteChildEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $suiteChildRunRoot "events.jsonl") | ForEach-Object { $_ | ConvertFrom-Json })
+$suiteChildInvalidEvents = @($suiteChildEvents | Where-Object { [string]$_.event -eq "suite_score_invalidated" })
+Assert-True ([string]$suiteChildHealth.status -eq "invalid_harness" -and -not [bool]$suiteChildHealth.suite_score_valid) "suite child invalid fixture did not invalidate suite score"
+Assert-True ([int]$suiteChildHealth.remaining_samples_skipped -eq 1 -and [int]$suiteChildHealth.score_invalid_child_runs -eq 2) "suite child invalid fixture did not count skipped sample"
+Assert-True ([string]$suiteChildSkipped.phase -eq "skipped" -and [string]$suiteChildSkipped.abort_signature -eq "harness_materialization_failure/stub_score_invalid") "suite child invalid fixture did not skip second sample with first invalid signature"
+Assert-True ($suiteChildInvalidEvents.Count -eq 1 -and [int]$suiteChildInvalidEvents[0].remaining_samples_skipped -eq 1) "suite child invalid fixture did not emit score invalidated event"
+
 $parallelSuiteRoot = Join-Path $runDir "suite-parallel"
 $parallelTaskList = Join-Path $parallelSuiteRoot "tasks.jsonl"
 $parallelStubRunner = Join-Path $parallelSuiteRoot "stub-runner.ps1"

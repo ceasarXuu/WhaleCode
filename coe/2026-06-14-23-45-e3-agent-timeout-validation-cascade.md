@@ -443,3 +443,29 @@ Disk-reservation smoke:
 - Observed reconstruction: `first_invalid_sample_index=0`, `sample_rows=1`, `missing_fields=[]`, `bottleneck_classification=invalid_waste_bound`
 
 Remaining scope: this does not close first-pair invalid fast-fail, validator/Docker overhead proof, governed parallel smoke release evidence, official one-pair/three-task calibration artifacts, legacy full-run import, or final full E3 release-gate approval.
+
+## Hypothesis H-018
+
+Claim: once a child sample returns `invalid_harness` in score-bearing suite flow, the suite driver must invalidate the suite, emit one suite invalidation event, and skip later samples. Otherwise a known engineering-unclean result can still consume the rest of the task list.
+
+Predictions:
+- A child runner that writes `sample-status.json` with `run_validity=invalid_harness` and exits `3` should make the suite exit `3`.
+- The next sample should be materialized only as a skipped sample status, not executed by the child runner.
+- `suite-health.json` should record `status=invalid_harness`, `suite_score_valid=false`, `remaining_samples_skipped=1`, and count the skipped invalid sample.
+- `events.jsonl` should contain exactly one `suite_score_invalidated` event with the remaining skipped count.
+
+Diagnostic evidence plan:
+- Add a fixture to `test-e3-harness-guardrails.ps1` with a two-sample task list and a stub runner that always writes child `invalid_harness` status then exits `3`.
+- Run the fixture through the canonical suite driver in `-PlanOnly -ScoringMode -SkipStartGate` mode so the test exercises suite scheduling and circuit-breaker behavior without requiring real E3 calibration evidence.
+
+## Evidence E-031
+
+Supports H-018 for fixture-level suite circuit-breaker behavior. `test-e3-harness-guardrails.ps1` now includes a `suite-child-invalid` fixture. The first sample's stub runner writes `run_validity=invalid_harness`, `abort_signature=harness_materialization_failure/stub_score_invalid`, and exits `3`; the suite driver exits `3`, writes invalid suite health, skips `sample-b`, and emits one `suite_score_invalidated` event.
+
+Validation passed:
+- PowerShell parser check for `test-e3-harness-guardrails.ps1`.
+- `.\scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-start-gate.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
+
+Remaining scope: this is a fixture-level proof, not an official Terminal-Bench invalid case. Validator lifecycle split, Docker cache proof edge cases, governed parallel smoke release evidence, official one-pair/three-task calibration artifacts, legacy full-run import, and final full E3 release-gate approval remain open.
