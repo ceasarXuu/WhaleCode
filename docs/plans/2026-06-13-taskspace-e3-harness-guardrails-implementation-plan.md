@@ -1,8 +1,8 @@
 # TaskSpace E3 Harness Guardrails Implementation Plan
 
 - Created: 2026-06-13
-- Updated: 2026-06-14
-- Version: 0.5
+- Updated: 2026-06-15
+- Version: 0.6
 - Status: Implementation-ready plan draft for hard clean-execution scoring, runtime bottleneck diagnosis, and governed speedup; not approved for speed claims
 - Owner / Responsible: WhaleCode core
 - Related Systems: TaskSpace E3 benchmark harness, Terminal-Bench adapter, aggregate report, audit manifest, failure taxonomy, E3 proof, score validity gate
@@ -2623,3 +2623,197 @@ The implementation order is mandatory:
 - [ ] Serial and parallel score-validity fields match before parallel mode is accepted.
 - [ ] Any speed claim is backed by serial baseline, parallel smoke, and timing reconciliation.
 - [ ] `2-3x` is forbidden as a claim until proven by a full governed run.
+
+### 16.11 Detailed Plan For 15-Task Runtime Bottleneck And Speedup
+
+This section is the concrete implementation plan for the question: why does a
+15-task E3 run take hours, and can it be made substantially faster? It is part
+of the guardrail plan because a slow invalid run is an engineering failure, and
+a speedup that changes score semantics is not an acceptable E3 result.
+
+#### 16.11.1 Required Runtime Accounting Model
+
+Every score-bearing E3 run must be explainable by this accounting equation:
+
+```text
+suite_wall_ms
+  ~= agent_execution_ms
+   + validation_ms
+   + hidden_oracle_ms
+   + docker_build_ms
+   + docker_run_ms
+   + docker_cleanup_ms
+   + preflight_probe_ms
+   + report_finalize_ms
+   + resource_wait_ms_total
+   + process_launch_wait_ms
+   + unattributed_ms
+```
+
+The reducer must compute this at pair, sample, and suite level. In serial mode,
+phase totals should reconcile to wall time within tolerance. In future parallel
+mode, the reducer must also emit inclusive phase totals and critical-path wall
+time, because summed child durations can legitimately exceed suite wall time.
+
+Required output fields:
+
+| Field | Level | Source | Required Meaning |
+|---|---|---|---|
+| `suite_wall_ms` | suite | suite driver clock | real elapsed wall time from first scheduling action to final report write |
+| `sample_wall_ms` | sample | sample runner clock | elapsed time for one benchmark task and all repeats |
+| `pair_wall_ms` | pair | pair runner clock | elapsed time for one repeat |
+| `agent_execution_ms` | side/pair/sample/suite | `Invoke-RealProcess` timing and side metrics | Standard plus TaskSpace agent process duration |
+| `model_queue_wait_ms` | side/pair/sample/suite | Whale/Codex provider telemetry or wrapper timing | time waiting before first model request can start |
+| `model_request_duration_ms` | side/pair/sample/suite | provider telemetry or JSONL events | time inside model requests, including streaming |
+| `model_retry_backoff_ms` | side/pair/sample/suite | provider retry telemetry | time intentionally sleeping after retryable model/API errors |
+| `public_validation_ms` | side/pair/sample/suite | validation runner timing | public validator duration when validation actually runs |
+| `hidden_oracle_ms` | side/pair/sample/suite | oracle runner timing | hidden oracle duration when enabled |
+| `docker_build_ms` | side/pair/sample/suite | docker build result JSON | image build duration |
+| `docker_run_ms` | side/pair/sample/suite | docker run result JSON | test container run duration |
+| `docker_cleanup_ms` | side/pair/sample/suite | cleanup result JSON | container/image cleanup duration |
+| `preflight_probe_ms` | sample/suite | harness-health and validator probe timing | static preflight plus cheap runtime probe cost |
+| `report_finalize_ms` | sample/suite | report writer timing | markdown/JSON aggregation and finalize duration |
+| `process_launch_wait_ms` | side/pair/sample/suite | process sidecar JSON | time spent between process object creation and observed start |
+| `docker_token_wait_ms` | pair/sample/suite | future resource governor | time waiting for Docker concurrency token |
+| `validation_token_wait_ms` | pair/sample/suite | future resource governor | time waiting for validation slot |
+| `disk_reservation_wait_ms` | pair/sample/suite | disk guard/resource governor | time waiting for disk reservation or cleanup gate |
+| `cache_lock_wait_ms` | pair/sample/suite | Docker/cache lock manager | time waiting for immutable cache writer |
+| `resource_wait_ms_total` | pair/sample/suite | reducer | sum of named token/cache/disk waits |
+| `unattributed_ms` | pair/sample/suite | reducer | wall time not explained by named spans |
+
+Acceptance:
+
+- `unattributed_ms / wall_ms <= 5%` for serial score-bearing timing.
+- If model/API wait fields are unavailable, they must be `null` with a missing
+  attribution blocker; they must not be silently treated as `0`.
+- A run with missing required wait fields may be useful for functional debugging,
+  but it cannot support "faster", "slower", "same speed", or `2-3x` claims.
+
+#### 16.11.2 First Bottleneck Collection Pass
+
+Before implementing parallelism or changing agent budgets, run a bounded timing
+collection pass:
+
+1. Run one official one-pair smoke with normal scoring profile and complete
+   timing artifacts.
+2. Run one representative three-task serial calibration if the one-pair smoke is
+   clean or cleanly classified. Use one task from each observed task family when
+   possible.
+3. Do not run the full 15-task suite until:
+   - engineering-clean causes from the previous run are fixed;
+   - timing artifacts reconcile;
+   - required wait attribution is either present or explicitly blocks speed
+     claims.
+4. Generate `runtime-bottleneck.md` and `runtime-calibration-report.md` from
+   artifacts, not console output.
+
+The calibration report must include:
+
+| Section | Required Content |
+|---|---|
+| run identity | command, git commit, profile hash, model IDs, timeout values, scoring mode |
+| score validity | `score_valid`, `engineering_unclean`, invalid reasons, audit status |
+| timing quality | reconciliation percentage, missing fields, blocked reasons |
+| phase shares | wall time and percentage by phase |
+| top slow rows | slowest pair, slowest side, slowest validation, slowest Docker build/run |
+| timeout waste | time after first hard invalid event, time saved by agent-timeout validation skip |
+| cache status | Docker cache hit/miss/disabled reason and cache lock wait |
+| resource waits | model/Docker/disk/cache wait totals |
+| bottleneck decision | dominant class, confidence, next allowed optimization |
+
+Acceptance:
+
+- The report can answer whether the hours are mostly agent solving, validator
+  setup/test time, Docker build/run, invalid wasted work, model/API queueing, or
+  local resource contention.
+- If the answer is `unknown`, the next task is instrumentation, not optimization.
+
+#### 16.11.3 Bottleneck Decision Rules
+
+Use these deterministic rules for the first classification. Thresholds are
+deliberately conservative and must be revisited only with calibration evidence.
+
+| Classification | Rule | Allowed Next Work |
+|---|---|---|
+| `invalid_waste_bound` | hard invalid event occurs before `50%` of scheduled work completes, or `time_after_first_invalid_ms >= 20%` of suite wall time | P2 fast-fail and suite cancellation only |
+| `agent_bound` | agent execution is `>=70%` of clean serial wall time and model wait is not dominant | do not claim large harness speedup; only profile/versioned agent changes |
+| `model_queue_bound` | model queue/retry/backoff is `>=10%` of wall time or dominates agent overhead | provider retry/queue tuning and `MaxModelConcurrency`; no parallel scale-up until queue is controlled |
+| `validator_bound` | validation plus oracle is `>=30%` of wall time | validator pretest split, artifact-only finalize, validation scheduling |
+| `docker_build_bound` | Docker build is `>=15%` of wall time or repeated identical builds are observed | immutable Docker cache work |
+| `docker_run_bound` | Docker run is the largest non-agent phase | validation timeout split and Docker token scheduling |
+| `storage_bound` | cleanup, disk reservation, or cache lock waits are `>=10%` of wall time | disk guard tuning, cleanup policy, cache lock design |
+| `mixed` | no single phase dominates and all timing fields are complete | small targeted optimizations plus governed parallel smoke |
+| `unknown` | required timing or wait fields are missing | instrumentation only; speed claims blocked |
+
+Important scoring rule: changing agent timeout, model, reasoning effort, prompt
+profile, or TaskSpace control schema is not a harness speedup. It creates a new
+benchmark profile and needs a separate baseline.
+
+#### 16.11.4 Engineering Workstreams And Dependencies
+
+| Workstream | Dependency | Implementation Detail | Validation |
+|---|---|---|---|
+| timing completeness | current `lib/timing.ps1` | finish required wait fields, missing reason, reducer, report generation | synthetic timing fixtures plus one official one-pair smoke |
+| invalid fast-fail | failure taxonomy and suite driver | stop scheduling after hard invalid; write skipped records | injected hard invalid fixture; no later sample starts |
+| agent-timeout skip | pre-agent validator probe | skip validation only after `exec_timed_out=true` and passed probe hash | short-timeout official smoke |
+| Docker cache | immutable input hash | cache key includes full build context, base digest, uv cache, platform, env | same scenario twice gives safe hit; drift fixtures miss |
+| timeout split | lifecycle markers | pretest timeout for no-marker setup, test timeout after `tests_started` | no-marker fixture aborts early; test failure still counts as benchmark outcome |
+| resource governor | timing and clean serial baseline | model/Docker/disk/cache tokens with wait accounting | parallel fixture proves no token limit violation |
+| parallel suite | resource governor and deterministic merge | isolated child roots, parent scheduler, stable merge | serial-vs-parallel score diff shows no drift |
+| speed decision | serial baseline and parallel smoke | compute plausible savings from observed shares | calibration report approves/limits/blocks target |
+
+#### 16.11.5 Expected Speedup Boundaries
+
+Do not promise a large speedup before classification. The maximum credible
+speedup depends on the measured bottleneck:
+
+| Bottleneck | Can It Be Much Faster? | Reason |
+|---|---|---|
+| invalid engineering waste | yes for invalid runs | fast-fail can avoid spending the remaining suite on an already invalid score |
+| Docker build repetition | yes if immutable cache is safe | repeated build cost can be removed without changing answers |
+| validator/Docker run | moderate to high | pretest split and bounded validation scheduling can help if tests are independent |
+| serial sample scheduling | moderate to high | sample-level parallelism can reduce wall time if Docker/model/disk are not saturated |
+| model/API queueing | uncertain | parallelism can make it worse; queue timing must drive concurrency |
+| agent solving time | limited for comparable v0.0.4 | reducing timeout/model/reasoning/prompt changes the benchmark profile |
+| storage contention | uncertain | cleanup and disk reservation can help, but parallelism may worsen it |
+
+First accepted target should be conservative:
+
+- `>=30%` clean wall-time reduction is acceptable only after serial baseline and
+  one governed parallel smoke show no score drift.
+- `2-3x` is allowed only after a full governed run proves comparable results and
+  timing explains the wall-time reduction.
+- If the clean run is agent-bound, the plan must explicitly say that major
+  speedup is not available under the same v0.0.4 scoring profile.
+
+#### 16.11.6 Minimum Test Matrix Before Full E3 Rerun
+
+| Test | Command / Method | Must Prove |
+|---|---|---|
+| timing reducer unit | `test-e3-score-validity.ps1` timing fixture | missing wait attribution blocks speed claims |
+| process launch timing | short official smoke | `process_launch_wait_ms` exists and is not counted missing |
+| timeout skip | short agent timeout official smoke | no downstream public validation timeout after allowed agent timeout |
+| invalid fast-fail | suite fixture with injected hard invalid | skipped work is explicit and aggregate score language is disabled |
+| Docker cache safety | same immutable validator twice plus drift fixtures | cache hit only when full immutable key matches |
+| pretest timeout split | no-marker validator fixture | setup failures do not wait for full test timeout |
+| serial calibration | representative 3-task serial run | timing quality complete or speed status blocked |
+| parallel smoke | `MaxParallelSamples=2`, conservative tokens | no score validity drift, no artifact collision, observed wall reduction |
+
+Full 15-task E3 should run only after this matrix is green or after the plan
+records a specific blocker explaining why a full run would still be useful.
+
+#### 16.11.7 Operator Gate For "Can We Speed It Up?"
+
+The runner/report layer must publish one of these decisions:
+
+| Decision | Required Conditions | Operator Meaning |
+|---|---|---|
+| `speedup_blocked_instrumentation` | required timing/wait fields missing | collect instrumentation before optimizing |
+| `speedup_blocked_invalid_run` | `score_valid=false` or engineering unclean | fix harness cleanliness before performance work |
+| `speedup_limited_agent_bound` | clean timing shows agent execution dominates | large comparable speedup is unlikely without changing profile |
+| `speedup_candidate_validator_or_docker` | clean timing shows validator/Docker dominates | proceed with cache, timeout split, validation scheduling |
+| `speedup_candidate_parallelism` | clean timing complete and resources not saturated | proceed with governed parallel smoke |
+| `speedup_target_approved` | serial baseline plus parallel smoke pass without score drift | full optimized E3 allowed |
+
+These decisions must appear in `runtime-calibration-report.md` and in aggregate
+metadata. A human should not need to infer the answer from raw logs.
