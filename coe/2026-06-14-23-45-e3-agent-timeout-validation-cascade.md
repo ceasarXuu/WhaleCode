@@ -210,3 +210,21 @@ Diagnostic evidence plan:
 ## Evidence E-020
 
 Supports H-008 validation. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` now passes with a `MaxParallelSamples=2` stub-runner smoke proving the suite exits cleanly, writes isolated `samples/sample-*/sample-status.json` files, merges `sample-a,sample-b,sample-c` in task-list order, and records `parallelism.json` with `serial_only_status=sample_parallel_supported`, `sample_parallel_enabled=true`, `configured.max_parallel_samples=2`, and `timing_comparison_valid=false`. `scripts/taskspace-benchmark/test-e3-start-gate.ps1` and `scripts/taskspace-benchmark/test-e3-score-validity.ps1` also still pass after the scheduler change.
+
+## Hypothesis H-009
+
+Claim: a parallel smoke is not acceptable evidence until it is compared against a serial baseline for score drift. Relying on a hand-set `parallel_smoke_score_drift=false` flag would allow parallel scheduling to be accepted without proving score-validity, hard outcome, audit/proof, or profile equivalence.
+
+Predictions:
+- The harness needs a deterministic serial-vs-parallel suite-health comparator.
+- The comparator must fail when score-bearing fields differ for any sample.
+- The sample-level parallel smoke should emit an equivalence artifact with `parallel_smoke_score_drift=false` only when serial and parallel outputs match.
+
+Diagnostic evidence plan:
+- Add a small `parallel-diff.ps1` helper for suite-health equivalence.
+- Extend the sample parallel smoke to run both serial and `MaxParallelSamples=2` suites with the same stub runner.
+- Add a negative drift fixture that mutates one sample outcome and proves the comparator catches it.
+
+## Evidence E-021
+
+Supports H-009 validation. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` now passes with serial and sample-parallel stub suites compared by `scripts/taskspace-benchmark/lib/parallel-diff.ps1`. The generated `serial-vs-parallel-equivalence.json` records `comparable=true`, `parallel_smoke_score_drift=false`, `drift_count=0`, and compared samples `sample-a,sample-b,sample-c`; the negative fixture changes `sample-b.run_validity` and is detected as drift. `scripts/taskspace-benchmark/test-e3-score-validity.ps1` still passes after adding the comparator.

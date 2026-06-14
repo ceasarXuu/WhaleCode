@@ -11,6 +11,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\timing.ps1")
 . (Join-Path $PSScriptRoot "lib\runtime-bottleneck-report.ps1")
 . (Join-Path $PSScriptRoot "lib\resource-governor.ps1")
+. (Join-Path $PSScriptRoot "lib\parallel-diff.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\e3-guardrails-selftest" }
 $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
@@ -220,6 +221,10 @@ if ($SampleId -eq "sample-a") { Start-Sleep -Seconds 2 }
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $RunRoot "sample-status.json") -Encoding UTF8
 exit 0
 '@ | Set-Content -LiteralPath $parallelStubRunner -Encoding UTF8
+$serialOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1") -Benchmark terminal-bench -TaskListPath $parallelTaskList -SourceVersion selftest -Repeats 5 -RunRoot (Join-Path $parallelSuiteRoot "serial-runs") -PlanOnly -ScoringMode -SkipStartGate -RunnerPath $parallelStubRunner 2>&1
+Assert-True ($LASTEXITCODE -eq 0) "serial suite baseline for parallel smoke failed: $($serialOutput -join ' | ')"
+$serialSuiteRootLine = @($serialOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
+$serialRunRoot = ([string]$serialSuiteRootLine) -replace "^SuiteRoot:\s*", ""
 $parallelOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1") -Benchmark terminal-bench -TaskListPath $parallelTaskList -SourceVersion selftest -Repeats 5 -RunRoot (Join-Path $parallelSuiteRoot "runs") -PlanOnly -ScoringMode -SkipStartGate -RunnerPath $parallelStubRunner -MaxParallelSamples 2 2>&1
 Assert-True ($LASTEXITCODE -eq 0) "sample-level parallel suite smoke failed: $($parallelOutput -join ' | ')"
 $parallelSuiteRootLine = @($parallelOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
@@ -231,6 +236,13 @@ Assert-True ([string]$parallelHealth.status -eq "completed" -and [bool]$parallel
 Assert-True (($mergedSampleIds -join ",") -eq "sample-a,sample-b,sample-c") "parallel suite merge order was not deterministic"
 Assert-True ([string]$parallelismSmoke.serial_only_status -eq "sample_parallel_supported" -and [bool]$parallelismSmoke.sample_parallel_enabled -and [int]$parallelismSmoke.configured.max_parallel_samples -eq 2) "parallelism artifact did not record sample-level parallel mode"
 Assert-True ((Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-a\sample-status.json")) -and (Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-b\sample-status.json")) -and (Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-c\sample-status.json"))) "parallel suite smoke did not isolate sample artifacts"
+$equivalencePath = Join-Path $parallelSuiteRoot "serial-vs-parallel-equivalence.json"
+$equivalence = Write-TaskspaceSuiteScoreEquivalence (Join-Path $serialRunRoot "suite-health.json") (Join-Path $parallelRunRoot "suite-health.json") $equivalencePath
+Assert-True ([bool]$equivalence.comparable -and -not [bool]$equivalence.parallel_smoke_score_drift -and [int]$equivalence.drift_count -eq 0) "serial-vs-parallel equivalence reported unexpected drift"
+$driftFixture = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $parallelRunRoot "suite-health.json") | ConvertFrom-Json
+$driftFixture.sample_statuses[1].run_validity = "invalid_harness"
+$driftResult = Compare-TaskspaceSuiteScoreEquivalence (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $serialRunRoot "suite-health.json") | ConvertFrom-Json) $driftFixture
+Assert-True (-not [bool]$driftResult.comparable -and [bool]$driftResult.parallel_smoke_score_drift -and @($driftResult.drifts | Where-Object { [string]$_.scope -eq "sample:sample-b" -and [string]$_.field -eq "run_validity" }).Count -eq 1) "serial-vs-parallel equivalence did not detect sample score drift"
 
 $stateRun = Join-Path $runDir "invalid-state"
 New-Item -ItemType Directory -Force -Path $stateRun | Out-Null
