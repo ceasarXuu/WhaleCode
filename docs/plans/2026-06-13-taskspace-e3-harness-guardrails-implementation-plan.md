@@ -2,7 +2,7 @@
 
 - Created: 2026-06-13
 - Updated: 2026-06-14
-- Version: 0.3
+- Version: 0.4
 - Status: Repair-ready plan for hard clean-execution scoring and runtime reduction contract
 - Owner / Responsible: WhaleCode core
 - Related Systems: TaskSpace E3 benchmark harness, Terminal-Bench adapter, aggregate report, audit manifest, failure taxonomy, E3 proof, score validity gate
@@ -31,7 +31,7 @@ TaskSpace E3 一次完整执行会占用数小时。如果 benchmark harness 或
 - 不改 DeepSeek / Whale agent 推理路径。
 - 不调整 TaskSpace 0.0.4 的 scoring 逻辑或产品行为。
 - 不用 full E3 作为开发迭代测试手段。
-- 不把所有 validation failure 都归为 harness failure。进入真实测试后的 assertion failure 仍然是 benchmark outcome。
+- 不把所有 validation failure 都归为 harness failure。进入真实测试后的 assertion failure 仍然是 benchmark outcome；validator timeout 例外，仍按 engineering-unclean 处理，因为硬执行约束只允许 agent execution timeout 作为意外超时结果。
 - 不用静默 fallback 掩盖工程错误。guardrail 发现硬错误时必须生成可定位 artifact 并中止对应 scope。
 
 ## 4. Current Code Anchors
@@ -190,7 +190,7 @@ For E3 samples with repeat count greater than one, repeat 1 is a sentinel. After
 | standard side fails before `tests_started` with a hard infra signature | abort remaining repeats for this sample |
 | taskspace side alone fails before `tests_started` because of harness-generated path/probe/proof failure | abort sample as invalid harness |
 | either side reaches `tests_started`, then test assertions fail | do not abort as infra; continue repeat policy |
-| public validation timeout happens before `tests_started` | classify as `validator_slow_or_flaky`; abort only if repeated in sentinel on both sides |
+| public validation timeout happens before or after `tests_started` | classify as engineering-unclean timeout; lifecycle stage only determines reason detail |
 
 ### 6.4 Suite Circuit Breaker
 
@@ -333,6 +333,7 @@ Acceptance tests:
 - Synthetic metrics where both sides fail with `Resolve-Path` before `tests_started` aborts after repeat 1 and skips repeats 2-N.
 - Synthetic metrics where standard fails before `tests_started` with `uv_cache_missing` aborts after repeat 1.
 - Synthetic metrics where taskspace fails after `tests_started` with assertion failure does not trigger infra abort.
+- Synthetic metrics where validation times out after `tests_started` remains engineering-unclean and score-invalid.
 - Resume from invalid harness run refuses continuation without `-ForceRerun`.
 - Finalize from invalid harness run refuses normal aggregate rebuild and points to `sample-status.json`.
 
@@ -415,7 +416,7 @@ Acceptance tests:
 
 - Invalid harness aggregate says comparison is disabled and points to abort artifacts.
 - Invalid harness aggregate does not say TaskSpace regressed, improved, better, worse, or tied.
-- Valid assertion failures after `tests_started` still render normal utility/diagnostic comparison.
+- Valid assertion failures after `tests_started` still render normal utility/diagnostic comparison; validator timeouts do not.
 - Failure taxonomy summary includes new infra classes.
 
 Exit criteria:
@@ -524,7 +525,7 @@ Reason: validation reached tests_started marker; assertion failures are benchmar
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Guardrail false-positive aborts real benchmark failures | Could hide legitimate TaskSpace regressions | Require lifecycle marker distinction: pre-test/probe failures can abort; failures after `tests_started` are benchmark outcomes |
+| Guardrail false-positive aborts real benchmark failures | Could hide legitimate TaskSpace regressions | Require lifecycle marker distinction: pre-test/probe failures can abort; assertion failures after `tests_started` are benchmark outcomes; validator timeouts remain engineering-unclean |
 | Probe becomes expensive | Reintroduces wasted time | Default probe avoids image build and full tests; Docker probe is explicit |
 | Suite driver is fragmented | Circuit breaker not consistently applied | Identify actual P0/E3 entrypoint in Phase 4; centralize suite state writes |
 | Resume semantics accidentally reuse invalid harness artifacts | Future runs inherit bad state | Refuse `-ResumeLatest` on `invalid_harness` unless `-ForceRerun` |
@@ -542,7 +543,7 @@ The guardrail implementation is complete when all criteria below are true:
 
 1. A path-materialization bug equivalent to the recent uv-cache failure is caught before agent execution or no later than sentinel pair 1.
 2. Missing validator source, missing uv cache, and Docker backend unavailability produce classified artifacts and do not run remaining E3 repeats.
-3. A failure after `tests_started` remains a normal benchmark result and does not trigger harness abort.
+3. An assertion failure after `tests_started` remains a normal benchmark result and does not trigger harness abort; a validator timeout after `tests_started` remains engineering-unclean and score-invalid.
 4. Aggregate report for invalid harness run disables diagnostic comparison and contains no better/worse/regressed wording.
 5. Process exit code `3` is used consistently for invalid harness at wrapper, runner, sentinel, suite, and finalize guard points.
 6. `-ResumeLatest` and explicit `-RunId` cannot silently continue an invalid harness run.
@@ -567,10 +568,10 @@ The repository already has part of the guardrail substrate. The repair should ex
 | File | Current useful behavior | Repair gap |
 |---|---|---|
 | `scripts/taskspace-benchmark/lib/harness-health.ps1` | Defines invalid harness exit code `3`, disk checks, Docker storage checks, fully qualified path checks, validator probe parsing, text signatures, hard infra signature checks, sentinel abort decisions, and harness health artifacts. | It can detect many infra signatures, but the runner and report layers do not yet convert every non-agent condition into a hard score-invalid contract. |
-| `scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1` | Provides a suite-level entrypoint and child run orchestration. | It must stop scheduling later samples as soon as a scoring child emits `score_valid=false` or an engineering-unclean abort artifact. |
-| `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1` | Orchestrates sample and pair execution, writes pair artifacts, aggregate reports, run status, and E3 audit-required states. | It currently allows a run to reach `completed` or `audit_required` even when score validity is unknown or false. It needs an explicit scoring mode gate. |
-| `scripts/taskspace-benchmark/lib/aggregate-report.ps1` | Emits `run_validity`, invalid-run fields, and disables some diagnostic comparison fields when the run is invalid. | It does not yet expose the hard scoring contract fields `score_valid`, `score_invalid_reason`, `engineering_unclean_count`, `agent_exec_timeout_count`, and `clean_comparable_pair_count`. |
-| `scripts/taskspace-benchmark/lib/audit-manifest.ps1` | Records side metrics, inclusion flags, exclusion reason, failure taxonomy, utility direction, and audit status. | It lacks per-pair hard outcome fields such as `outcome_standard`, `outcome_taskspace`, `engineering_unclean`, `engineering_unclean_reasons`, and `run_score_valid`. |
+| `scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1` | Provides a suite-level entrypoint and child run orchestration. | It must stop scheduling later samples as soon as a scoring child emits an engineering-unclean abort artifact. Pure audit-required children must block score publication but not invalidate the harness. |
+| `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1` | Orchestrates sample and pair execution, writes pair artifacts, aggregate reports, run status, and E3 audit-required states. | It currently allows a run to reach `completed` or `audit_required` without one authoritative score-readiness gate. It needs an explicit scoring mode gate. |
+| `scripts/taskspace-benchmark/lib/aggregate-report.ps1` | Emits `run_validity`, invalid-run fields, and disables some diagnostic comparison fields when the run is invalid. | It does not yet expose the hard scoring contract fields `score_ready`, `score_valid`, `score_block_reason`, `engineering_unclean_count`, `audit_required_count`, `agent_exec_timeout_count`, and `clean_comparable_pair_count`. |
+| `scripts/taskspace-benchmark/lib/audit-manifest.ps1` | Records side metrics, inclusion flags, exclusion reason, failure taxonomy, utility direction, and audit status. | It lacks per-pair hard outcome fields such as `outcome_standard`, `outcome_taskspace`, `engineering_unclean`, `audit_required`, `engineering_unclean_reasons`, `run_score_ready`, and `run_score_valid`. |
 | `scripts/taskspace-benchmark/lib/failure-taxonomy.ps1` | Maps many observed failures into diagnostic classes and utility directions. | Legacy classes such as `validator_slow_or_flaky` and `taskspace_overhead_timeout` can still look like comparable diagnostic outcomes. They need to feed a separate hard `engineering_unclean` classifier. |
 | `scripts/taskspace-benchmark/lib/suite-status.ps1` | Distinguishes completed child process state from failed child process state. | It must also distinguish process completion from score validity. A child can finish cleanly as a process and still invalidate E3 scoring. |
 
@@ -580,9 +581,9 @@ The previous E3 run was invalid because the execution pipeline measured and aggr
 
 Observed invalidating signals:
 
-- `e3_human_review_not_completed` on all 15 pairs.
+- `e3_human_review_not_completed` on all 15 pairs; this blocks score publication but is not by itself a hard engineering failure.
 - `manual_review_required` on 10 of 15 pairs.
-- `audit_unclean` on all 15 pairs.
+- `audit_unclean` on all 15 pairs in the legacy taxonomy; the repaired contract must split pure audit-pending from malformed or mismatched audit evidence.
 - `public_validation_timeout` on 8 of 15 pairs.
 - `e3_external_validator_fidelity_unproven` on 8 of 15 pairs.
 - `e3_external_validator_not_e3_eligible` on 8 of 15 pairs.
@@ -599,15 +600,17 @@ Add the following fields to every aggregate JSON and markdown report produced by
 
 ```json
 {
+  "score_ready": false,
   "score_valid": false,
+  "score_block_reason": "engineering_unclean",
   "score_invalid_reason": "engineering_unclean",
   "score_fields_enabled": false,
   "engineering_unclean_count": 15,
   "engineering_unclean_reasons": {
-    "e3_human_review_not_completed": 15,
     "public_validation_timeout": 8,
     "docker_run_failure": 7
   },
+  "audit_required_count": 15,
   "agent_exec_timeout_count": 0,
   "clean_comparable_pair_count": 0,
   "score_bearing_outcomes": ["solved", "wrong", "agent_exec_timeout"]
@@ -618,6 +621,7 @@ Required report behavior:
 
 - If `score_valid=false`, set `taskspace_better`, `standard_better`, `pass_rate_delta`, `diagnostic_pass_rate_delta`, and any "regressed" wording to `null`, `n/a`, or an explicit disabled value.
 - If `score_valid=false`, the first markdown section must say the score is invalid before listing task counts.
+- If `engineering_unclean=false` but `audit_required=true`, the first markdown section must say the score is pending audit, not invalid harness. It must still disable better/worse/regressed wording.
 - If the only non-success condition is clean `agent_exec_timeout`, keep `score_valid=true` and count it as an agent outcome.
 - If `agent_exec_timeout` is mixed with Docker, validator, proof, audit, disk, path, or report failure on the same pair, classify that pair as `engineering_unclean`, not as clean agent timeout.
 - The aggregate report must preserve diagnostic details, but diagnostic detail is not a score.
@@ -629,11 +633,13 @@ Add the following fields to each pair-level audit manifest row:
   "outcome_standard": "solved",
   "outcome_taskspace": "engineering_unclean",
   "engineering_unclean": true,
+  "audit_required": false,
   "engineering_unclean_reasons": [
     "public_validation_timeout",
     "docker_run_failure"
   ],
   "agent_exec_timeout_clean": false,
+  "run_score_ready": false,
   "run_score_valid": false,
   "score_exclusion_reason": "engineering_unclean"
 }
@@ -674,10 +680,11 @@ Implement the fix in this order.
    | Public validation succeeded and hidden oracle succeeded, with no infra reason | `solved` |
    | Public validation reached tests and failed assertion, with no infra reason | `wrong` |
    | Agent execution timed out, validation/proof/Docker/audit are otherwise clean | `agent_exec_timeout` |
-   | `public_validation_exit_code=124` | `engineering_unclean` reason `public_validation_timeout` |
+   | `public_validation_exit_code=124`, even after `tests_started` | `engineering_unclean` reason `public_validation_timeout`; lifecycle markers only explain where the timeout happened |
    | Any Docker build/run/cleanup/inspect failure before trustworthy test result | `engineering_unclean` with the Docker reason code |
    | Validator proof missing, validator fidelity unproven, or E3 eligibility false | `engineering_unclean` |
-   | Audit required but no completed audit decision in scoring mode | `engineering_unclean` reason `e3_human_review_not_completed` |
+   | Audit required but no completed audit decision in scoring mode, with no other hard infra reason | `audit_required`, `score_ready=false`, `score_valid=false`, not `engineering_unclean` |
+   | Audit review malformed, hash-mismatched, or contradicts pair artifacts | `engineering_unclean` reason `e3_audit_review_invalid` |
    | Missing report, unparsable metrics, path not absolute, disk below threshold | `engineering_unclean` |
 
    Keep the old taxonomy functions for diagnostics, but make `Get-TaskspaceUtilityDirection` consume the hard outcome first. If hard outcome is `engineering_unclean`, utility direction must be `invalid_run` or `score_disabled`, never `taskspace_better`, `standard_better`, or `inconclusive`.
@@ -690,8 +697,10 @@ Implement the fix in this order.
    - Compute `engineering_unclean_reasons_taskspace`.
    - Compute `outcome_standard`.
    - Compute `outcome_taskspace`.
-   - Set pair-level `engineering_unclean` if either side has hard unclean reasons, or if cross-side proof/audit state is unclean.
-   - Set `run_score_valid=false` for that pair when `engineering_unclean=true`.
+   - Set pair-level `engineering_unclean` if either side has hard unclean reasons, or if cross-side proof/audit state is corrupt.
+   - Set pair-level `audit_required` when the only blocker is missing human review.
+   - Set `run_score_ready=false` when either `engineering_unclean=true` or `audit_required=true`.
+   - Set `run_score_valid=false` when `engineering_unclean=true`, and keep it false until required audit is completed.
 
    The manifest writer must keep the old fields for backwards compatibility, but the new hard fields are authoritative for scoring.
 
@@ -701,28 +710,34 @@ Implement the fix in this order.
 
    ```powershell
    $scoreRows = $AuditRows | Where-Object { $_.sample_kind -eq 'e3' }
-   $engineeringUncleanRows = $scoreRows | Where-Object { $_.engineering_unclean -eq $true }
-   $cleanRows = $scoreRows | Where-Object { $_.engineering_unclean -ne $true }
+    $engineeringUncleanRows = $scoreRows | Where-Object { $_.engineering_unclean -eq $true }
+    $auditRequiredRows = $scoreRows | Where-Object { $_.audit_required -eq $true }
+    $cleanRows = $scoreRows | Where-Object { $_.engineering_unclean -ne $true -and $_.audit_required -ne $true }
 
-   $scoreValid = ($engineeringUncleanRows.Count -eq 0)
+    $scoreReady = ($engineeringUncleanRows.Count -eq 0 -and $auditRequiredRows.Count -eq 0)
+    $scoreValid = $scoreReady
    ```
 
    Required reducer outputs:
 
    - `score_valid`
+   - `score_ready`
+   - `score_block_reason`
    - `score_invalid_reason`
    - `score_fields_enabled`
    - `engineering_unclean_count`
    - `engineering_unclean_reasons`
+   - `audit_required_count`
    - `agent_exec_timeout_count`
    - `clean_comparable_pair_count`
    - `score_bearing_outcomes`
 
-   If `$scoreValid -eq $false`, do not calculate public score deltas from all rows. Instead:
+   If `$scoreReady -eq $false`, do not calculate public score deltas from all rows. Instead:
 
    - Preserve raw counts under a `diagnostics` object.
    - Set comparison fields to disabled values.
-   - Render the markdown summary as "Score validity: invalid".
+   - Render the markdown summary as "Score status: audit required" when the only blocker is audit.
+   - Render the markdown summary as "Score validity: invalid" when any hard engineering unclean row exists.
 
 4. `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1`
 
@@ -739,6 +754,7 @@ Implement the fix in this order.
    - In scoring mode, an `audit_required` sample is not score-complete unless a completed audit decision exists.
    - After each pair, read the pair audit manifest or pair metrics and run the hard classifier.
    - If a pair is `engineering_unclean`, write `pair-abort.json`, set sample status to `invalid_harness`, set process exit code `3`, and stop scheduling later repeats for the sample.
+   - If the only blocker is `audit_required`, set sample phase `audit_required`, keep `run_validity=valid`, keep the run resumable/finalizable, continue executable pairs, and exit without score language.
    - If the pair is clean `agent_exec_timeout`, continue aggregation and count it as an agent outcome.
    - If `-ScoringMode` is absent, allow diagnostic completion but still set `score_valid=false` when hard unclean reasons exist.
 
@@ -754,10 +770,10 @@ Implement the fix in this order.
        $status = Read-TaskspaceSampleStatus $child.RunRoot
        $aggregate = Read-TaskspaceAggregate $child.RunRoot
 
-       if ($status.run_validity -eq 'invalid_harness' -or $aggregate.score_valid -eq $false) {
-           Write-TaskspaceSuiteHealth -Status 'invalid_harness' -AbortScope 'suite'
-           exit 3
-       }
+        if ($status.run_validity -eq 'invalid_harness' -or $aggregate.score_block_reason -eq 'engineering_unclean') {
+            Write-TaskspaceSuiteHealth -Status 'invalid_harness' -AbortScope 'suite'
+            exit 3
+        }
    }
    ```
 
@@ -770,10 +786,12 @@ Implement the fix in this order.
    - `completed_child_processes`
    - `score_valid_child_runs`
    - `score_invalid_child_runs`
+   - `audit_required_child_runs`
    - `first_score_invalid_run`
+   - `suite_score_ready`
    - `suite_score_valid`
 
-   A child with phase `completed` but `score_valid=false` must not be counted as a successful scoring child.
+   A child with phase `audit_required` and no hard engineering unclean reason is process-complete but score-pending. It must not be counted as a successful scoring child and must not invalidate the harness.
 
 7. `scripts/taskspace-benchmark/finalize-taskspace-e3-run.ps1`
 
@@ -781,7 +799,8 @@ Implement the fix in this order.
 
    Required behavior:
 
-   - Default: fail with exit code `3` and write `run_validity=invalid_harness`.
+   - Default for hard engineering unclean: fail with exit code `3` and write `run_validity=invalid_harness`.
+   - Pure audit-pending artifacts: write `phase=audit_required`, `run_validity=valid`, `score_ready=false`, and no score language.
    - `-DiagnosticOnly` or existing forensic override: allow report regeneration, but preserve `score_valid=false`.
    - Never convert an invalid scoring run into a valid run during finalize.
 
@@ -808,7 +827,8 @@ Required fixture cases:
 | `validator-timeout.json` | `public_validation_exit_code=124` | any | `engineering_unclean` | `false` |
 | `docker-run-failure.json` | `docker_run_failure=true` | any | `engineering_unclean` | `false` |
 | `proof-false.json` | validator fidelity false | any | `engineering_unclean` | `false` |
-| `audit-missing.json` | manual review required | manual review not completed | `engineering_unclean` in scoring mode | `false` |
+| `audit-missing.json` | manual review required | manual review not completed | `audit_required`, score pending, not hard infra | `false`, `score_ready=false` |
+| `audit-invalid.json` | manual review hash mismatch | any | `engineering_unclean` | `false` |
 | `timeout-plus-docker.json` | timeout plus Docker failure | any | `engineering_unclean`, not clean timeout | `false` |
 | `previous-e3-rerun-summary.json` | previous run counts | previous run counts | all scoring disabled | `false` |
 
@@ -983,7 +1003,7 @@ Current code serialization facts:
 | Invalid scoring run fast-fail | stop in `<30-40 min` when first pair proves engineering-unclean | suite exit code `3`, `suite-health.json`, first-failure artifact |
 | Preflight-invalid run fast-fail | stop in `<5 min` before agent execution | `harness-health.json`, `run-status.json` |
 | One-pair scoring smoke | finish or classify in `<35 min` | `suite-timing.json` |
-| Clean full E3 conservative speedup | reduce wall time by `>=30%` without score-validity regressions | compare against serial timing baseline |
+| Clean full E3 conservative speedup | reduce wall time by the calibrated target without score-validity regressions | compare against serial timing baseline |
 | Clean full E3 target speedup | reach `2-3x` after resource governor validation | calibrated run with bounded parallelism |
 | Timing observability | every phase has start/end/duration fields | `pair-timing.json`, `sample-timing.json`, `suite-timing.json` |
 
@@ -1288,7 +1308,7 @@ Use deterministic classification before choosing a fix:
 5. Recalibrate full E3.
    - Compare serial clean baseline to resource-governed parallel run.
    - Keep the scoring profile identical unless the run is explicitly labeled non-comparable.
-   - Require `score_valid=true` before claiming speedup.
+   - Require `score_ready=true` and `score_valid=true` before claiming score-bearing speedup.
 
 #### Speedup Targets
 
@@ -1298,7 +1318,7 @@ Use deterministic classification before choosing a fix:
 | artifact-only finalize | avoids accidental rerun waste | finalize modifies reports/timing only; validation stdout mtime is unchanged |
 | Docker cache | removes repeated immutable image builds | second same-scenario validation records `cache_hit=true` |
 | pretest timeout split | avoids full validator timeout before tests start | no-marker validator aborts before full test timeout |
-| sample-level parallelism | clean-suite wall-time reduction | `>=30%` faster than serial with deterministic artifacts |
+| sample-level parallelism | clean-suite wall-time reduction | meets the calibrated wall-time target with deterministic artifacts |
 | calibrated parallel profile | larger clean-suite reduction | target `2-3x` only after score validity and resource governor proof |
 
 #### Validation Gate
@@ -1306,8 +1326,8 @@ Use deterministic classification before choosing a fix:
 Do not claim "E3 is faster" unless all of these are true:
 
 - the compared runs use the same scoring profile and task list;
-- both runs are `score_valid=true`;
-- timing artifacts reconcile to wall time within a documented tolerance;
+- both runs are `score_ready=true` and `score_valid=true`;
+- serial timing artifacts reconcile to wall time within a documented tolerance, and parallel timing reconciles exclusive wall attribution plus critical path;
 - Docker cache behavior is explicit in artifacts;
 - parallelism settings are recorded;
 - no engineering-unclean condition is hidden inside diagnostics.
@@ -1354,7 +1374,7 @@ Safe reductions:
 5. Split validation timeout:
    - `ValidationPretestTimeoutSeconds`, default `90-120`;
    - `ValidationTestTimeoutSeconds`, default remains close to current `420` after `tests_started`;
-   - a timeout before `tests_started` is `engineering_unclean`.
+   - any validator timeout is `engineering_unclean`; lifecycle markers distinguish pretest timeout from post-`tests_started` timeout only for diagnosis.
    - score-bearing public validation, not only `-ProbeOnly`, must use this split.
    - stdout/stderr markers must be durable while the process is running; timeout classification cannot depend on normal process exit.
 6. Add bounded cleanup:
@@ -1558,6 +1578,58 @@ Proceed in this order:
 
 The speedup work is feasible, but it must be staged. The target is not simply "make E3 faster"; the target is "make clean E3 faster while invalid E3 stops early." These are separate engineering problems.
 
+The immediate engineering question is why a 15-task E3 run takes hours. A valid answer must come from timing artifacts, not from console impressions. The runner must be able to answer, for every run:
+
+- how much wall time was agent execution versus public validation versus Docker build/run versus cleanup/reporting;
+- whether slow time happened before benchmark tests started or inside the benchmark tests;
+- whether the same task is slow on Standard, TaskSpace, or both;
+- whether repeated runs are rebuilding immutable Docker assets unnecessarily;
+- whether the run kept scheduling work after it was already score-invalid;
+- whether model/API queueing or local Docker/storage contention is the dominant bottleneck.
+
+Observed one-pair smoke evidence already shows that this is not purely "agent thinking time": a single official Terminal-Bench smoke spent roughly 228s in agent execution and roughly 270s in public validation, with Docker run time dominating the validator side. That evidence is not enough to generalize across all 15 tasks, but it is enough to require validator/Docker timing as first-class data before approving any speedup claim.
+
+#### 15.9.1.1 Runtime Bottleneck Model For 15-Task E3
+
+For planning purposes, model a full v0.0.4 E3 run as:
+
+```text
+total_wall_time =
+  suite_setup
+  + sum(samples) {
+      sample_preflight
+      + sum(repeats) {
+          standard_agent
+          + standard_public_validation
+          + taskspace_agent
+          + taskspace_public_validation
+          + pair_reporting
+      }
+      + sample_aggregate
+    }
+  + suite_aggregate
+```
+
+The model must be refined by actual artifacts before implementation decisions:
+
+| Suspected Time Sink | How To Prove | Engineering Response |
+|---|---|---|
+| agent timeout or long solving | `*_agent_ms`, exec timeout flag, model request timing | keep as benchmark outcome unless the profile is intentionally changed |
+| public validation runs for minutes per side | `*_public_validation_ms`, `*_docker_run_ms`, lifecycle markers | split pretest/test timeout, cache immutable setup, parallelize only with Docker tokens |
+| repeated Docker image builds | `*_docker_build_ms`, cache key, image digest, cache hit/miss | deterministic Docker cache with immutable input hash |
+| invalid run keeps scheduling later samples | first invalid timestamp vs later pair start times | hard circuit breaker and skipped-work records |
+| API/model queue wait | model request timing and retry counters | `MaxModelConcurrency`, queue timing, provider error classification |
+| local disk or Docker storage pressure | disk preflight snapshots and Docker system df snapshots | disk reservation token and early abort |
+| reporting/finalize reruns validators | validation artifact mtimes and finalize spans | artifact-only finalize |
+
+Acceptance for this model:
+
+- `suite-timing.json` reconciles at least `95%` of wall time into named buckets before any speedup result is accepted.
+- If `unattributed_ms / wall_time_ms > 5%`, the report must say `runtime_optimization_status=blocked`.
+- The report must identify `largest_phase` and `largest_non_agent_phase`; otherwise speed planning is incomplete.
+- A 15-task run without complete timing artifacts cannot be used to claim "faster", "slower", or "same speed".
+- In parallel mode, timing reconciliation must separate inclusive worker duration from exclusive wall-clock critical path. Inclusive child spans may exceed wall time and must not be used as wall-time savings evidence.
+
 #### Phase S0: Make Runtime Accounting Complete
 
 Objective: explain every long run from artifacts, without reading console logs.
@@ -1587,6 +1659,37 @@ Implementation details:
    - timing fields missing count.
 4. Add a `Write-TaskspaceTimingSpan` helper in `scripts/taskspace-benchmark/lib/timing.ps1` instead of open-coded stopwatch fields.
 5. Make timing writes atomic, using the existing JSON writer pattern in `run-state.ps1`.
+6. Add a timing extractor path for existing artifacts:
+   - parse `metrics.json` for exec/public validation durations when present;
+   - fall back to process start/end timestamps only with `timing_quality=partial`;
+   - record nullable fields with `missing_reason`, not silent `0`.
+7. Add stage timing around these runner functions:
+   - manifest/materialization;
+   - preflight/probe;
+   - Standard `Invoke-RealProcess`;
+   - Standard public validation;
+   - TaskSpace `Invoke-RealProcess`;
+   - TaskSpace public validation;
+   - hidden oracle if enabled;
+   - pair report;
+   - aggregate/finalize.
+8. Add `runtime-bottleneck.md` beside aggregate report:
+   - top slow pairs;
+   - phase share table;
+   - slowest side per task;
+   - hard invalid time saved estimate;
+   - blocked fields if timing is incomplete.
+9. Store every timing span with interval fields, not only duration:
+   - `span_id`, `parent_span_id`;
+   - `worker_id`;
+   - `resource_kind`;
+   - `started_at`, `completed_at`, `duration_ms`;
+   - `wait_ms` and `run_ms` where resource tokens are used.
+10. Add parallel timing reducers:
+   - `inclusive_duration_ms` for total work performed;
+   - `exclusive_wall_ms` for non-overlapped wall attribution;
+   - `critical_path_ms` for the longest dependency path;
+   - `resource_wait_ms` for time blocked on Docker/model/disk/validation tokens.
 
 Acceptance:
 
@@ -1594,6 +1697,10 @@ Acceptance:
 - Missing timing fields make runtime optimization status `blocked`, not `pass`.
 - Timing subtotal difference from suite wall time is reported as `unattributed_ms`.
 - `unattributed_ms` must be below a documented tolerance before using the run as speed evidence.
+- One official one-pair smoke must produce `pair-timing.json`, `sample-timing.json`, and `runtime-bottleneck.md`.
+- The timing report must distinguish `agent_duration_ms` from `public_validation_duration_ms`.
+- The timing report must classify a validator-dominant pair as `validator_bound`, not `agent_bound`.
+- A parallel overlap fixture must prove that inclusive child totals can exceed wall time while `exclusive_wall_ms` still reconciles to suite wall time.
 
 #### Phase S1: Stop Wasting Time On Invalid Runs
 
@@ -1616,6 +1723,20 @@ Implementation details:
    - do not rebuild aggregate as if the run were score-bearing;
    - write `sample-status.json` and `suite-health.json`.
 4. Ensure final reports use "invalid execution" language and never report Standard/TaskSpace score deltas from invalid runs.
+5. Treat audit lifecycle separately from engineering unclean:
+   - `e3_human_review_not_completed` is `audit_required`, not a hard engineering failure;
+   - it must block final score publication;
+   - it must not stop the suite before all executable pairs run;
+   - real audit corruption such as mismatched hashes or malformed review remains a hard score-validity failure.
+6. Add skipped-work accounting:
+   - `skipped_sample_count`;
+   - `skipped_pair_count`;
+   - `cancelled_after_invalid_ms`;
+   - `estimated_time_saved_ms` computed from completed-pair median, marked as estimate.
+7. Add explicit allowed-unexpected list:
+   - agent `exec_timeout` is an allowed benchmark outcome;
+   - validator timeout before or after `tests_started` is engineering-unclean; lifecycle proof only determines whether the stable reason is `validator_pretest_timeout` or `public_validation_timeout_after_tests_started`;
+   - Docker build/run failure, missing source, path failure, no lifecycle marker, cleanup failure, and storage exhaustion are hard engineering unclean.
 
 Acceptance:
 
@@ -1623,6 +1744,10 @@ Acceptance:
 - The suite writes `suite-health.json.run_validity=invalid_harness`.
 - No later sample starts after the first hard invalid-harness event.
 - Final report says the score is invalid and points to abort artifacts.
+- A pure `audit_required` run exits with a resumable/audit-required status and does not claim a score.
+- A hard engineering failure after pair 1 prevents pair 2 from starting in scoring mode.
+- The suite report shows how much work was skipped and why.
+- Pretest validator timeout and post-`tests_started` validator timeout are both score-invalid engineering failures, with different reason codes for diagnosis.
 
 #### Phase S2: Remove Avoidable Validator And Docker Overhead
 
@@ -1650,6 +1775,19 @@ Implementation details:
    - no validator rerun;
    - no hidden oracle rerun;
    - only aggregate, markdown, and health files are regenerated.
+6. Add validation-stage reuse rules:
+   - public validation outputs are immutable once `validation_completed=true`;
+   - rerun/finalize may read them but cannot overwrite them unless `-ForceRerunValidation` is explicitly passed;
+   - every reuse must record source artifact hash and mtime.
+7. Add Docker/system preflight timing:
+   - Docker daemon availability check;
+   - `docker system df` snapshot;
+   - free disk snapshot before sample scheduling and before each Docker-heavy phase;
+   - fail before scheduling new workers if disk reserve is below threshold.
+8. Split validator shell script normalization from validator execution:
+   - normalization happens at materialization time;
+   - normalized script hash is included in cache key;
+   - runtime validator does not mutate source scripts.
 
 Acceptance:
 
@@ -1657,6 +1795,9 @@ Acceptance:
 - A mutable Dockerfile does not use cache in scoring mode.
 - A no-marker validator aborts before full validation timeout.
 - Finalize does not change validation stdout/stderr mtimes.
+- A disk-reserve failure aborts before starting a new Docker build/run.
+- Validator script normalization is covered by a BOM/CRLF fixture and does not change test semantics.
+- Docker cache hit/miss appears in `pair-timing.json` and `runtime-bottleneck.md`.
 
 #### Phase S3: Add Resource-Governed Parallelism
 
@@ -1687,13 +1828,34 @@ Implementation details:
    - Standard and TaskSpace validations can overlap only if Docker concurrency permits;
    - both sides must record independent timing and proof markers.
 6. Keep side-agent parallelism disabled for scoring comparison unless the report explicitly sets `timing_comparison_valid=false`.
+7. Implement parallel execution as a suite-driver concern first:
+   - worker jobs call the existing sample runner with isolated run roots;
+   - parent process owns scheduling, cancellation, status merge, and final report;
+   - child processes never write directly into shared aggregate files.
+8. Add resource budget defaults:
+   - `MaxParallelSamples=1` for scoring until accepted;
+   - first experimental profile uses `MaxParallelSamples=2`;
+   - `MaxDockerConcurrency=1` until cache locks pass;
+   - `MaxModelConcurrency=1` until provider queue timing is observable.
+9. Add deterministic merge:
+   - sort samples by task ID;
+   - sort repeats numerically;
+   - write merge manifest with child run IDs and hashes.
+10. Add cancellation protocol:
+   - when parent detects hard invalid harness, it stops scheduling new jobs;
+   - running jobs are allowed to finish unless they are in pre-agent/probe stage;
+   - cancelled jobs write `cancelled_due_to_score_invalid`.
 
 Acceptance:
 
 - `parallelism.json` records configured and observed concurrency.
 - Parallel smoke has no duplicate artifact paths.
-- Serial and parallel runs have equivalent score validity.
-- First accepted full parallel profile is at least `30%` faster than serial clean baseline.
+- Serial and parallel runs have equivalent score readiness, score validity, inclusion/exclusion rows, hard outcome classification, and audit/proof status.
+- The first accepted full parallel profile reports observed wall-time reduction; it only passes the speed target when calibration says `>=30%` is plausible for the observed bottleneck class.
+- Parent suite report can be rebuilt from child manifests without rerunning children.
+- Killing or cancelling one child leaves the suite status explicit, not silently incomplete.
+- Parallel mode cannot be enabled unless disk and Docker reserve checks pass.
+- Parallel timing report includes inclusive duration, exclusive wall attribution, critical path, and resource wait attribution.
 
 #### Phase S4: Decide Whether Agent-Side Speed Changes Are Allowed
 
@@ -1712,6 +1874,43 @@ Acceptance:
 - Diagnostic speed runs cannot be merged into score comparison tables.
 - Any adopted cheaper profile gets a new profile ID and a fresh baseline.
 
+#### Phase S5: Calibrate Full 15-Task Runtime And Decide Speed Target
+
+Objective: answer whether E3 can be made dramatically faster with evidence, and choose the next engineering target.
+
+Implementation details:
+
+1. Run a serial clean calibration only after hard engineering-unclean issues are fixed:
+   - same task list;
+   - same model/profile;
+   - `MaxParallel*=1`;
+   - complete timing artifacts required.
+2. Compute baseline:
+   - total wall time;
+   - median/p95 per-pair time;
+   - agent share;
+   - validator share;
+   - Docker build/run share;
+   - cleanup/reporting share;
+   - invalid/audit/timeout counts.
+3. Run one controlled parallel smoke:
+   - start with `MaxParallelSamples=2`;
+   - keep Docker and model concurrency at `1` unless resource tokens prove safe;
+   - compare score validity and artifact hashes against serial run where deterministic.
+4. Decide the next target from bottleneck class:
+   - if validator/Docker bound, prioritize Docker cache and validation parallelism;
+   - if agent bound, only pursue agent profile changes as a new benchmark profile;
+   - if storage bound, prioritize cleanup and disk reservation;
+   - if API queue bound, prioritize model concurrency controls and queue telemetry.
+
+Acceptance:
+
+- The calibration report states whether `>=30%` speedup is currently plausible and why.
+- Any `2-3x` claim must have both a serial baseline and a parallel smoke artifact.
+- If the bottleneck is agent time, the plan must say v0.0.4 comparable score cannot be sped up substantially without changing the scoring profile.
+- If the bottleneck is validator/Docker time, the plan must name the exact cache/parallelism work item that unlocks the next speed target.
+- If calibration says `>=30%` is not plausible for the observed bottleneck, the phase exits with a smaller evidence-backed target instead of failing the plan.
+
 #### Expected Speedup Bound
 
 Use these estimates only after clean timing artifacts exist:
@@ -1725,7 +1924,7 @@ Use these estimates only after clean timing artifacts exist:
 | pair/validation parallelism | additional `1.2-1.5x` | useful after Docker contention is governed |
 | agent budget reduction | unknown and non-comparable | may reduce capability, so not a v0.0.4 harness speedup |
 
-Do not promise `2-3x` until a serial clean baseline and a resource-governed parallel smoke both pass. A realistic first milestone is `>=30%` clean wall-time reduction with score validity unchanged.
+Do not promise `2-3x` until a serial clean baseline and a resource-governed parallel smoke both pass. A realistic first milestone is a calibration-backed clean wall-time reduction target, often around `>=30%` only when validator/Docker or sample scheduling is the measured bottleneck.
 
 ### 15.10 Runtime Acceptance Matrix
 
@@ -1739,7 +1938,7 @@ Do not promise `2-3x` until a serial clean baseline and a resource-governed para
 | sample parallel smoke | `-MaxParallelSamples 2` | two samples overlap | deterministic artifacts, no score drift |
 | pair parallel smoke | `-MaxParallelPairsPerSample 2` | two repeats overlap | no path/cache collision |
 | validation parallel smoke | `-MaxParallelValidationsPerPair 2` | both side validations overlap | correct metrics for both sides |
-| full clean calibrated run | selected concurrency profile | faster than serial | `>=30%` wall-time reduction and `score_valid=true` |
+| full clean calibrated run | selected concurrency profile | faster than serial if bottleneck allows | evidence-backed wall-time reduction target, `score_ready=true`, `score_valid=true`, no inclusion/exclusion drift |
 
 ### 15.11 Required Commands Before Full Parallel E3
 
@@ -1769,7 +1968,7 @@ Timing smoke:
   -ScoringMode
 ```
 
-First safe parallel smoke:
+Planned first safe parallel smoke after Phase R3 implements the flags:
 
 ```powershell
 .\scripts\taskspace-benchmark\run-taskspace-e3-suite.ps1 `
@@ -1782,19 +1981,22 @@ First safe parallel smoke:
   -Model deepseek-v4-flash `
   -TimeoutSeconds 900 `
   -ValidationTimeoutSeconds 420 `
+  -MaxParallelSamples 2 `
+  -MaxDockerConcurrency 1 `
+  -MaxModelConcurrency 1 `
   -SandboxMode full-auto `
   -ConfigOverride 'model_reasoning_effort="max"' `
   -ScoringMode
 ```
 
-Parallel execution flags such as `-MaxParallelSamples`, `-MaxDockerConcurrency`, and `-MaxModelConcurrency` are planned runner contract, not current suite-runner CLI. Do not add them to production E3 commands until Phase R3 implements and tests them.
+Parallel execution flags such as `-MaxParallelSamples`, `-MaxDockerConcurrency`, and `-MaxModelConcurrency` are planned runner contract, not current suite-runner CLI. The command above is the post-R3 target command shape. Do not add these flags to production E3 commands until Phase R3 implements them and `parallelism.json.observed.max_parallel_samples=2` is proven by smoke artifacts.
 
 Do not run full parallel E3 until the smoke artifacts prove:
 
 - no pair/sample path collisions;
 - no Docker cache race;
 - no missing timing spans;
-- no score-validity mismatch between serial and parallel mode;
+- no score readiness, score-validity, inclusion/exclusion, hard-outcome, audit, or proof mismatch between serial and parallel mode;
 - enough disk and Docker storage remains after cleanup.
 
 ### 15.12 Risks And Fallback
@@ -1820,4 +2022,4 @@ The expected practical result is:
 
 - engineering-unclean runs: from multi-hour to `<30-40 min` when the first pair exposes the issue;
 - preflight-invalid runs: `<5 min`;
-- clean full E3: conservative `>=30%` speedup first, then calibrated `2-3x` only after resource-governed parallelism proves stable.
+- clean full E3: calibration-backed speedup first, then calibrated `2-3x` only after resource-governed parallelism proves stable and bottlenecks support it.
