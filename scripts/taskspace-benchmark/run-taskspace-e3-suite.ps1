@@ -25,6 +25,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "lib\harness-health.ps1")
+. (Join-Path $PSScriptRoot "lib\run-state.ps1")
 . (Join-Path $PSScriptRoot "lib\suite-status.ps1")
 . (Join-Path $PSScriptRoot "lib\timing.ps1")
 if ($Repeats -lt 5) { throw "E3 suite requires Repeats >= 5." }
@@ -143,6 +144,13 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
         $signatureCounts[$signature.key]++
         $suiteAbort = $signature.key
         $exitCode = 3
+        Write-TaskspaceRunEvent $suiteRoot "suite_score_invalidated" @{
+            suite_run_id = (Split-Path -Leaf $suiteRoot)
+            child_run_id = $sampleRoot
+            sample_id = $sampleId
+            reason = $signature.key
+            remaining_samples_skipped = [Math]::Max(0, $tasks.Count - $index - 1)
+        }
         continue
     }
     $args = @(
@@ -209,13 +217,23 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
         $signatureCounts[$sig]++
         if ($exitCode -eq 0) { $exitCode = 3 }
         $global = $sig -match "docker_backend_unavailable|uv_cache_missing|validator_source_missing|disk_space_low|disk_space_threshold_invalid"
+        $shouldAbortSuite = $false
         if (($ScoringMode -or $RequireScoreValidity) -and -not $ContinueAfterInvalidHarness) {
-            $suiteAbort = $sig
-            $exitCode = 3
+            $shouldAbortSuite = $true
         }
         if (-not $ContinueAfterInvalidHarness -and ($global -or $signatureCounts[$sig] -ge 2)) {
+            $shouldAbortSuite = $true
+        }
+        if ($shouldAbortSuite) {
             $suiteAbort = $sig
             $exitCode = 3
+            Write-TaskspaceRunEvent $suiteRoot "suite_score_invalidated" @{
+                suite_run_id = (Split-Path -Leaf $suiteRoot)
+                child_run_id = if ($status.PSObject.Properties.Name -contains "sample_root") { [string]$status.sample_root } else { $sampleRoot }
+                sample_id = $sampleId
+                reason = $sig
+                remaining_samples_skipped = [Math]::Max(0, $tasks.Count - $index - 1)
+            }
         }
     }
 }

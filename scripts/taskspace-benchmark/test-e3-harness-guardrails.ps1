@@ -145,9 +145,12 @@ try {
     $suiteRunRoot = ([string]$suiteRootLine) -replace "^SuiteRoot:\s*", ""
     $suiteHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteRunRoot "suite-health.json") | ConvertFrom-Json
     $skippedStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteRunRoot "samples\sample-b\sample-status.json") | ConvertFrom-Json
+    $suiteEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $suiteRunRoot "events.jsonl") | ForEach-Object { $_ | ConvertFrom-Json })
+    $scoreInvalidatedEvents = @($suiteEvents | Where-Object { [string]$_.event -eq "suite_score_invalidated" })
     Assert-True ([string]$suiteHealth.status -eq "invalid_harness" -and -not [bool]$suiteHealth.suite_score_valid) "suite health did not record invalid suite score"
     Assert-True ([int]$suiteHealth.remaining_samples_skipped -eq 1 -and [int]$suiteHealth.score_invalid_child_runs -eq 2) "suite health did not count skipped invalid sample"
     Assert-True ($null -eq $suiteHealth.expected_time_saved_minutes -and [string]$suiteHealth.expected_time_saved_basis -eq "no_serial_baseline") "suite health did not explain missing time-saved baseline"
+    Assert-True ($scoreInvalidatedEvents.Count -eq 1 -and [int]$scoreInvalidatedEvents[0].remaining_samples_skipped -eq 1) "suite did not emit one score invalidated event with skipped sample count"
     Assert-True ([string]$skippedStatus.phase -eq "skipped" -and [string]$skippedStatus.abort_phase -eq "suite_circuit_breaker") "skipped sample status did not record suite circuit breaker"
 } finally {
     if ($null -eq $oldSuiteMinFreeBytes) { Remove-Item Env:TASKSPACE_MIN_FREE_BYTES -ErrorAction SilentlyContinue } else { $env:TASKSPACE_MIN_FREE_BYTES = $oldSuiteMinFreeBytes }
