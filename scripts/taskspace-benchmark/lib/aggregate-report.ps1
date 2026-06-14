@@ -196,6 +196,7 @@ function Write-TaskspaceAggregateReport {
         runtime_optimization_status = if ($runtimeBottleneckArtifact.json -and $runtimeBottleneckArtifact.json.PSObject.Properties.Name -contains "runtime_optimization_status") { [string]$runtimeBottleneckArtifact.json.runtime_optimization_status } elseif ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "runtime_optimization_status") { [string]$timingArtifact.json.runtime_optimization_status } else { "" }
         wait_attribution_status = if ($runtimeBottleneckArtifact.json -and $runtimeBottleneckArtifact.json.PSObject.Properties.Name -contains "wait_attribution_status") { [string]$runtimeBottleneckArtifact.json.wait_attribution_status } elseif ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "wait_attribution_status") { [string]$timingArtifact.json.wait_attribution_status } else { "" }
         wait_attribution_missing_fields = if ($runtimeBottleneckArtifact.json -and $runtimeBottleneckArtifact.json.PSObject.Properties.Name -contains "wait_attribution_missing_fields") { @($runtimeBottleneckArtifact.json.wait_attribution_missing_fields) } elseif ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "wait_attribution_missing_fields") { @($timingArtifact.json.wait_attribution_missing_fields) } else { @() }
+        wait_attribution_unavailable_fields = if ($runtimeBottleneckArtifact.json -and $runtimeBottleneckArtifact.json.PSObject.Properties.Name -contains "wait_attribution_unavailable_fields") { $runtimeBottleneckArtifact.json.wait_attribution_unavailable_fields } elseif ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "wait_attribution_unavailable_fields") { $timingArtifact.json.wait_attribution_unavailable_fields } else { [pscustomobject]@{} }
         top_spans = if ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "timing_breakdown") { @($timingArtifact.json.timing_breakdown.top_spans) } else { @() }
         phase_distributions = if ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "phase_distributions") { $timingArtifact.json.phase_distributions } else { $null }
         repeated_docker_cache_keys = if ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "repeated_docker_cache_keys") { @($timingArtifact.json.repeated_docker_cache_keys) } else { @() }
@@ -307,6 +308,8 @@ function Write-TaskspaceAggregateReport {
     $lines.Add("- runtime_optimization_status: $($timingSummary["runtime_optimization_status"])")
     $lines.Add("- wait_attribution_status: $($timingSummary["wait_attribution_status"])")
     $lines.Add("- wait_attribution_missing_fields: $(if (@($timingSummary["wait_attribution_missing_fields"]).Count -eq 0) { 'none' } else { @($timingSummary["wait_attribution_missing_fields"]) -join ', ' })")
+    $unavailableWaitPairs = @($timingSummary["wait_attribution_unavailable_fields"].PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" })
+    $lines.Add("- wait_attribution_unavailable_fields: $(if ($unavailableWaitPairs.Count -eq 0) { 'none' } else { $unavailableWaitPairs -join ', ' })")
     if (@($timingSummary["top_spans"]).Count -eq 0) {
         $lines.Add("- top_spans: none")
     } else {

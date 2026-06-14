@@ -71,6 +71,7 @@ function Write-TaskspaceRuntimeBottleneckReport {
     }
     $blockersForJson = if ($timing -and $timing.PSObject.Properties.Name -contains "runtime_optimization_blockers") { @(Get-TaskspaceRuntimeUniqueStrings $timing.runtime_optimization_blockers) } else { @() }
     $missingForJson = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_missing_fields") { @(Get-TaskspaceRuntimeUniqueStrings $timing.wait_attribution_missing_fields) } else { @() }
+    $unavailableForJson = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_unavailable_fields") { $timing.wait_attribution_unavailable_fields } else { [pscustomobject]@{} }
     $jsonArtifact = [ordered]@{
         schema_version = 1
         timing_path = $TimingPath
@@ -86,6 +87,7 @@ function Write-TaskspaceRuntimeBottleneckReport {
         resource_wait_attribution_mode = if ($timing -and $timing.PSObject.Properties.Name -contains "resource_wait_attribution_mode") { [string]$timing.resource_wait_attribution_mode } else { "" }
         runtime_optimization_blockers = @($blockersForJson)
         wait_attribution_missing_fields = @($missingForJson)
+        wait_attribution_unavailable_fields = $unavailableForJson
         phase_durations = @(if ($timing) { Get-TaskspaceRuntimePhaseRows $timing } else { @() })
         top_spans = if ($timing -and $timing.PSObject.Properties.Name -contains "timing_breakdown" -and $timing.timing_breakdown) { @($timing.timing_breakdown.top_spans) } else { @() }
         repeated_docker_cache_keys = if ($timing -and $timing.PSObject.Properties.Name -contains "repeated_docker_cache_keys") { @(Get-TaskspaceRuntimeUniqueStrings $timing.repeated_docker_cache_keys) } else { @() }
@@ -110,6 +112,8 @@ function Write-TaskspaceRuntimeBottleneckReport {
         $lines.Add("- runtime_optimization_blockers: $(if ($blockers.Count -eq 0) { 'none' } else { $blockers -join ', ' })")
         $missing = @($missingForJson)
         $lines.Add("- wait_attribution_missing_fields: $(if ($missing.Count -eq 0) { 'none' } else { $missing -join ', ' })")
+        $unavailablePairs = @($unavailableForJson.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" })
+        $lines.Add("- wait_attribution_unavailable_fields: $(if ($unavailablePairs.Count -eq 0) { 'none' } else { $unavailablePairs -join ', ' })")
         $lines.Add("")
         $lines.Add("## Phase Durations")
         foreach ($row in @(Get-TaskspaceRuntimePhaseRows $timing)) {

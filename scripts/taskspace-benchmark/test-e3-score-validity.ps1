@@ -230,7 +230,8 @@ $timingPath = Write-TaskspacePairTiming $timingPairDir 1 $now $now.AddSeconds(5)
 $timing = Get-Content -Raw -Encoding UTF8 -LiteralPath $timingPath | ConvertFrom-Json
 Assert-True ([int64]$timing.total_duration_ms -gt 0) "timing artifact did not record total duration"
 Assert-True (@($timing.spans | Where-Object { [string]$_.phase -eq "public_validation" }).Count -eq 2) "timing artifact did not record both validation spans"
-Assert-True ([string]$timing.runtime_optimization_status -eq "blocked" -and @($timing.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:model_queue_wait_ms" }).Count -eq 1) "pair timing did not block speed claims when wait attribution is missing"
+Assert-True ([string]$timing.runtime_optimization_status -eq "blocked" -and @($timing.runtime_optimization_blockers | Where-Object { [string]$_ -match "unavailable_wait_attribution:model_queue_wait_ms" }).Count -eq 1) "pair timing did not block speed claims when model queue attribution is unavailable"
+Assert-True ([string]$timing.wait_attribution_unavailable_fields.model_queue_wait_ms -eq "whale_jsonl_provider_queue_retry_telemetry_unavailable") "pair timing did not record unavailable model queue attribution reason"
 Assert-True (@($timing.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:process_launch_wait_ms" }).Count -eq 1) "pair timing did not report missing process launch wait when no process timing was observed"
 $metricWithTiming = Add-TaskspaceMetricTimingFields $metricsBySide.left $validationTimingBySide.left
 Assert-True ([int64]$metricWithTiming.public_validation_duration_ms -gt 0) "metric timing did not record validation duration"
@@ -321,7 +322,7 @@ $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | C
 Assert-True ([int]$suiteTiming.timing_sample_count -eq 1) "suite timing did not aggregate sample timing"
 Assert-True ([int64]$suiteTiming.total_pair_duration_ms -gt 0) "suite timing did not record total pair duration"
 Assert-True ([string]$suiteTiming.runtime_optimization_status -eq "blocked" -and [string]$suiteTiming.timing_quality -eq "incomplete") "suite timing did not block when wait attribution was missing"
-Assert-True (@($suiteTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:model_queue_wait_ms" }).Count -gt 0) "suite timing did not expose missing wait attribution blocker"
+Assert-True (@($suiteTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "unavailable_wait_attribution:model_queue_wait_ms" }).Count -gt 0) "suite timing did not expose unavailable model queue attribution blocker"
 $suiteRoot = Join-Path $runDir "suite-fixture"
 $suiteSamples = Join-Path $suiteRoot "samples"
 New-Item -ItemType Directory -Force -Path (Join-Path $suiteSamples "sample-a") | Out-Null

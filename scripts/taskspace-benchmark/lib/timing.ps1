@@ -83,6 +83,13 @@ function New-TaskspaceMissingWaitAttribution {
     param($Object)
     $missing = New-Object System.Collections.Generic.List[string]
     foreach ($field in @(Get-TaskspaceRequiredWaitTimingFields)) {
+        $unavailable = (
+            $Object -and
+            $Object.PSObject.Properties.Name -contains "wait_attribution_unavailable_fields" -and
+            $Object.wait_attribution_unavailable_fields -and
+            $Object.wait_attribution_unavailable_fields.PSObject.Properties.Name -contains $field
+        )
+        if ($unavailable) { continue }
         if (-not $Object -or -not ($Object.PSObject.Properties.Name -contains $field) -or $null -eq $Object.$field) {
             $missing.Add($field)
         }
@@ -99,6 +106,15 @@ function New-TaskspaceSerialResourceWaitAttribution {
         resource_wait_ms_total = 0
         resource_wait_attribution_mode = "serial_no_resource_governor"
     }
+}
+
+function New-TaskspaceUnavailableWaitAttribution {
+    param([string[]]$Fields, [string]$Reason)
+    $result = [ordered]@{}
+    foreach ($field in @($Fields)) {
+        if (-not [string]::IsNullOrWhiteSpace($field)) { $result[$field] = $Reason }
+    }
+    [pscustomobject]$result
 }
 
 function Get-TaskspaceModelTimingAttribution {
@@ -280,12 +296,13 @@ function Write-TaskspacePairTiming {
     $totalDurationMs = [int64](($PairFinishedAt - $PairStartedAt).TotalMilliseconds)
     $breakdown = New-TaskspaceTimingBreakdown $totalDurationMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $EngineeringUncleanReasons
     $resourceWait = New-TaskspaceSerialResourceWaitAttribution
+    $unavailableWaitFields = @("model_queue_wait_ms", "model_retry_backoff_ms")
+    $unavailableWaitReasons = New-TaskspaceUnavailableWaitAttribution $unavailableWaitFields "whale_jsonl_provider_queue_retry_telemetry_unavailable"
     $waitMissingFields = @(Get-TaskspaceRequiredWaitTimingFields | Where-Object {
             ([string]$_ -eq "process_launch_wait_ms" -and $processLaunchWaitObserved -eq $false) -or
-            ([string]$_ -eq "model_request_duration_ms" -and $modelRequestObserved -eq $false) -or
-            ([string]$_ -in @("model_queue_wait_ms", "model_retry_backoff_ms"))
+            ([string]$_ -eq "model_request_duration_ms" -and $modelRequestObserved -eq $false)
         })
-    $waitBlockers = @($waitMissingFields | ForEach-Object { "missing_wait_attribution:$_" })
+    $waitBlockers = @(@($waitMissingFields | ForEach-Object { "missing_wait_attribution:$_" }) + @($unavailableWaitFields | ForEach-Object { "unavailable_wait_attribution:$_" }))
     $artifact = [ordered]@{
         schema_version = 1
         scenario = if ($Manifest -and $Manifest.PSObject.Properties.Name -contains "Id") { [string]$Manifest.Id } else { "" }
@@ -312,6 +329,7 @@ function Write-TaskspacePairTiming {
         resource_wait_attribution_mode = [string]$resourceWait.resource_wait_attribution_mode
         wait_attribution_status = if ($waitBlockers.Count -gt 0) { "missing" } else { "complete" }
         wait_attribution_missing_fields = @($waitMissingFields)
+        wait_attribution_unavailable_fields = $unavailableWaitReasons
         docker_cache_keys = @($dockerCacheKeys.ToArray() | Sort-Object -Unique)
         measured_overhead_ms = $totalDurationMs - $agentMs
         timing_breakdown = $breakdown
@@ -451,7 +469,9 @@ function Write-TaskspaceSampleTiming {
     $aggregateUncleanReasons = if ($bottleneckCounts.ContainsKey("engineering_unclean_slow")) { @("child_engineering_unclean_slow") } else { @() }
     $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $aggregateUncleanReasons
     $resourceWait = New-TaskspaceSerialResourceWaitAttribution
-    $waitBlockers = @($waitMissingFields.ToArray() | ForEach-Object { "missing_wait_attribution:$_" })
+    $unavailableWaitFields = @("model_queue_wait_ms", "model_retry_backoff_ms")
+    $unavailableWaitReasons = New-TaskspaceUnavailableWaitAttribution $unavailableWaitFields "whale_jsonl_provider_queue_retry_telemetry_unavailable"
+    $waitBlockers = @(@($waitMissingFields.ToArray() | ForEach-Object { "missing_wait_attribution:$_" }) + @($unavailableWaitFields | ForEach-Object { "unavailable_wait_attribution:$_" }))
     $timingBlocked = (@($missingPairTimingDirs).Count -gt 0 -or $parseErrors.Count -gt 0 -or $waitBlockers.Count -gt 0 -or $childRuntimeBlockers.Count -gt 0)
     $artifact = [ordered]@{
         schema_version = 1
@@ -477,6 +497,7 @@ function Write-TaskspaceSampleTiming {
         resource_wait_attribution_mode = [string]$resourceWait.resource_wait_attribution_mode
         wait_attribution_status = if ($waitBlockers.Count -gt 0) { "missing" } else { "complete" }
         wait_attribution_missing_fields = @($waitMissingFields.ToArray())
+        wait_attribution_unavailable_fields = $unavailableWaitReasons
         measured_overhead_ms = $overheadMs
         timing_breakdown = $breakdown
         bottleneck_classification = [string]$breakdown.bottleneck_classification
@@ -580,7 +601,9 @@ function Write-TaskspaceSuiteTiming {
     $aggregateUncleanReasons = if ($bottleneckCounts.ContainsKey("engineering_unclean_slow")) { @("child_engineering_unclean_slow") } else { @() }
     $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $aggregateUncleanReasons
     $resourceWait = New-TaskspaceSerialResourceWaitAttribution
-    $waitBlockers = @($waitMissingFields.ToArray() | ForEach-Object { "missing_wait_attribution:$_" })
+    $unavailableWaitFields = @("model_queue_wait_ms", "model_retry_backoff_ms")
+    $unavailableWaitReasons = New-TaskspaceUnavailableWaitAttribution $unavailableWaitFields "whale_jsonl_provider_queue_retry_telemetry_unavailable"
+    $waitBlockers = @(@($waitMissingFields.ToArray() | ForEach-Object { "missing_wait_attribution:$_" }) + @($unavailableWaitFields | ForEach-Object { "unavailable_wait_attribution:$_" }))
     $timingBlocked = (@($missingSampleTimingDirs).Count -gt 0 -or $parseErrors.Count -gt 0 -or $waitBlockers.Count -gt 0 -or $childRuntimeBlockers.Count -gt 0)
     $artifact = [ordered]@{
         schema_version = 1
@@ -606,6 +629,7 @@ function Write-TaskspaceSuiteTiming {
         resource_wait_attribution_mode = [string]$resourceWait.resource_wait_attribution_mode
         wait_attribution_status = if ($waitBlockers.Count -gt 0) { "missing" } else { "complete" }
         wait_attribution_missing_fields = @($waitMissingFields.ToArray())
+        wait_attribution_unavailable_fields = $unavailableWaitReasons
         measured_overhead_ms = $overheadMs
         timing_breakdown = $breakdown
         bottleneck_classification = [string]$breakdown.bottleneck_classification
