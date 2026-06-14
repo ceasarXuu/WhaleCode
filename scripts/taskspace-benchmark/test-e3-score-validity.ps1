@@ -195,10 +195,12 @@ $sampleTimingPath = Write-TaskspaceSampleTiming $runDir "score-validity-fixture"
 $sampleTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $sampleTimingPath | ConvertFrom-Json
 Assert-True ([int]$sampleTiming.missing_pair_timing_count -eq 1) "sample timing did not record missing pair timing"
 Assert-True ([int]$sampleTiming.timing_parse_error_count -eq 1) "sample timing did not record malformed pair timing"
+Assert-True ([string]$sampleTiming.runtime_optimization_status -eq "blocked" -and [string]$sampleTiming.timing_quality -eq "incomplete") "sample timing did not block runtime optimization when pair timing evidence was incomplete"
 $suiteTimingPath = Write-TaskspaceSuiteTiming $runDir @([pscustomobject]@{ sample_id = "score-validity-fixture" })
 $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | ConvertFrom-Json
 Assert-True ([int]$suiteTiming.timing_sample_count -eq 1) "suite timing did not aggregate sample timing"
 Assert-True ([int64]$suiteTiming.total_pair_duration_ms -gt 0) "suite timing did not record total pair duration"
+Assert-True ([string]$suiteTiming.runtime_optimization_status -eq "ready" -and [string]$suiteTiming.timing_quality -eq "complete") "suite timing incorrectly blocked when sample timing artifact was present and parseable"
 $suiteRoot = Join-Path $runDir "suite-fixture"
 $suiteSamples = Join-Path $suiteRoot "samples"
 New-Item -ItemType Directory -Force -Path (Join-Path $suiteSamples "sample-a") | Out-Null
@@ -208,6 +210,7 @@ $suiteTimingPath = Write-TaskspaceSuiteTiming $suiteRoot @([pscustomobject]@{ sa
 $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | ConvertFrom-Json
 Assert-True ([int]$suiteTiming.missing_sample_timing_count -eq 1) "suite timing did not record missing sample timing"
 Assert-True ([int]$suiteTiming.timing_parse_error_count -eq 1) "suite timing did not record malformed sample timing"
+Assert-True ([string]$suiteTiming.runtime_optimization_status -eq "blocked" -and [string]$suiteTiming.timing_quality -eq "incomplete") "suite timing did not block runtime optimization when sample timing evidence was incomplete"
 $suiteRootFromStatus = Join-Path $runDir "suite-status-fixture"
 New-Item -ItemType Directory -Force -Path $suiteRootFromStatus | Out-Null
 $missingStatusRoot = Join-Path $suiteRootFromStatus "samples\sample-missing"

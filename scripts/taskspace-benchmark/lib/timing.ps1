@@ -318,6 +318,7 @@ function Write-TaskspaceSampleTiming {
     }
     $aggregateUncleanReasons = if ($bottleneckCounts.ContainsKey("engineering_unclean_slow")) { @("child_engineering_unclean_slow") } else { @() }
     $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $aggregateUncleanReasons
+    $timingBlocked = (@($missingPairTimingDirs).Count -gt 0 -or $parseErrors.Count -gt 0)
     $artifact = [ordered]@{
         schema_version = 1
         sample_id = $SampleId
@@ -349,6 +350,9 @@ function Write-TaskspaceSampleTiming {
         missing_pair_timing_dirs = @($missingPairTimingDirs)
         timing_parse_error_count = $parseErrors.Count
         timing_parse_error_paths = @($parseErrors.ToArray())
+        timing_quality = if ($timingBlocked) { "incomplete" } else { "complete" }
+        runtime_optimization_status = if ($timingBlocked) { "blocked" } else { "ready" }
+        runtime_optimization_blockers = @(@($missingPairTimingDirs | ForEach-Object { "missing_pair_timing:$_" }) + @($parseErrors.ToArray() | ForEach-Object { "malformed_pair_timing:$_" }))
         pair_timing_paths = @($pairTimingFiles | ForEach-Object { $_.FullName })
         generated_at = (Get-Date).ToString("o")
     }
@@ -417,6 +421,7 @@ function Write-TaskspaceSuiteTiming {
     }
     $aggregateUncleanReasons = if ($bottleneckCounts.ContainsKey("engineering_unclean_slow")) { @("child_engineering_unclean_slow") } else { @() }
     $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $aggregateUncleanReasons
+    $timingBlocked = (@($missingSampleTimingDirs).Count -gt 0 -or $parseErrors.Count -gt 0)
     $artifact = [ordered]@{
         schema_version = 1
         suite_root = $SuiteRoot
@@ -448,6 +453,9 @@ function Write-TaskspaceSuiteTiming {
         missing_sample_timing_dirs = @($missingSampleTimingDirs)
         timing_parse_error_count = $parseErrors.Count
         timing_parse_error_paths = @($parseErrors.ToArray())
+        timing_quality = if ($timingBlocked) { "incomplete" } else { "complete" }
+        runtime_optimization_status = if ($timingBlocked) { "blocked" } else { "ready" }
+        runtime_optimization_blockers = @(@($missingSampleTimingDirs | ForEach-Object { "missing_sample_timing:$_" }) + @($parseErrors.ToArray() | ForEach-Object { "malformed_sample_timing:$_" }))
         sample_timing_paths = @($sampleTimingFiles | ForEach-Object { $_.FullName })
         generated_at = (Get-Date).ToString("o")
     }
