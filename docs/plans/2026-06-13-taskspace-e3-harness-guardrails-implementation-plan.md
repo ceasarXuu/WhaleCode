@@ -1223,6 +1223,7 @@ These classes are diagnostics. They must not change scoring results directly; th
 - `scripts/taskspace-benchmark/lib/timing.ps1` now emits `timing_breakdown`, subtotal percentages, largest span, `bottleneck_classification`, and `bottleneck_reason` for pair/sample/suite timing artifacts.
 - Pair timing aggregates Docker build/run/cleanup durations from side metrics when validator artifacts provide them.
 - Sample and suite timing aggregate Docker subtotals and bottleneck counts across child artifacts.
+- Sample and suite timing expose `timing_quality`, `runtime_optimization_status`, and `runtime_optimization_blockers`; missing or malformed timing artifacts block runtime optimization claims instead of silently producing a speedup basis.
 - `test-e3-harness-guardrails.ps1` includes synthetic timing fixtures for `agent_bound`, `validator_bound`, `docker_build_bound`, `cleanup_bound`, and `engineering_unclean_slow`.
 - Sample and suite timing now include per-phase median/p95 summaries, repeated Docker cache key detection, and report-rendered top spans in aggregate reports.
 - Real one-pair calibration on `single-file-fast-fix` writes `sample-timing.json`, and aggregate reports now render `Timing Summary` from that artifact before final status is written.
