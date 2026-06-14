@@ -231,8 +231,25 @@ $timing = Get-Content -Raw -Encoding UTF8 -LiteralPath $timingPath | ConvertFrom
 Assert-True ([int64]$timing.total_duration_ms -gt 0) "timing artifact did not record total duration"
 Assert-True (@($timing.spans | Where-Object { [string]$_.phase -eq "public_validation" }).Count -eq 2) "timing artifact did not record both validation spans"
 Assert-True ([string]$timing.runtime_optimization_status -eq "blocked" -and @($timing.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:model_queue_wait_ms" }).Count -eq 1) "pair timing did not block speed claims when wait attribution is missing"
+Assert-True (@($timing.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:process_launch_wait_ms" }).Count -eq 1) "pair timing did not report missing process launch wait when no process timing was observed"
 $metricWithTiming = Add-TaskspaceMetricTimingFields $metricsBySide.left $validationTimingBySide.left
 Assert-True ([int64]$metricWithTiming.public_validation_duration_ms -gt 0) "metric timing did not record validation duration"
+$processTimingPairDir = Join-Path $RunRoot ("process-timing-pair-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
+New-Item -ItemType Directory -Force -Path $processTimingPairDir | Out-Null
+$processMetrics = @{
+    left = New-Metrics "left" "standard" -Success $true -PublicExit 0
+    right = New-Metrics "right" "taskspace" -Success $true -PublicExit 0
+}
+$processMetrics.left | Add-Member -NotePropertyName process_launch_wait_ms -NotePropertyValue 11 -Force
+$processMetrics.right | Add-Member -NotePropertyName process_launch_wait_ms -NotePropertyValue 13 -Force
+$processValidationTiming = @{
+    left = [pscustomobject]@{ logical_mode = "standard"; validation_started_at = $now; validation_finished_at = $now.AddSeconds(1); validation_exit_code = 0; validation_process_launch_wait_ms = 17; oracle_started_at = $now.AddSeconds(1); oracle_finished_at = $now.AddSeconds(2); oracle_exit_code = 0; engineering_unclean_reasons = @() }
+    right = [pscustomobject]@{ logical_mode = "taskspace"; validation_started_at = $now; validation_finished_at = $now.AddSeconds(1); validation_exit_code = 0; validation_process_launch_wait_ms = 19; oracle_started_at = $now.AddSeconds(1); oracle_finished_at = $now.AddSeconds(2); oracle_exit_code = 0; engineering_unclean_reasons = @() }
+}
+$processTimingPath = Write-TaskspacePairTiming $processTimingPairDir 1 $now $now.AddSeconds(3) ([pscustomobject]@{ Id = "process-timing-fixture" }) $null $processMetrics $processValidationTiming @()
+$processTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $processTimingPath | ConvertFrom-Json
+Assert-True ([int64]$processTiming.process_launch_wait_ms -eq 60) "pair timing did not aggregate agent and validation process launch wait"
+Assert-True (@($processTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:process_launch_wait_ms" }).Count -eq 0) "pair timing still reported process launch wait missing after observing process timing"
 $skipTimingBySide = @{
     left = [pscustomobject]@{ logical_mode = "standard"; validation_started_at = $now; validation_finished_at = $now; validation_exit_code = 0; validation_skipped = $true; validation_skip_reason = "agent_exec_timeout"; oracle_started_at = $now; oracle_finished_at = $now; oracle_exit_code = 0; engineering_unclean_reasons = @() }
 }

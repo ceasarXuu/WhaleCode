@@ -317,6 +317,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             $jsonlPath = Join-Path $side.ArtifactDir "whale-exec.jsonl"
             $stderrPath = Join-Path $side.ArtifactDir "whale-exec.stderr.log"
             $lastMessagePath = Join-Path $side.ArtifactDir "last-message.md"
+            $processTimingPath = Join-Path $side.ArtifactDir "process-timing.json"
             $stdinPath = Join-Path $side.ArtifactDir "user-prompt.txt"
             Write-Text $stdinPath $prompt
             $mount = $null
@@ -329,7 +330,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 $started = Get-Date
                 $timedOut = $false
                 try {
-                    $exitCode = Invoke-RealProcess $WhaleBin $args $executionRepoDir $jsonlPath $stderrPath $TimeoutSeconds $stdinPath
+                    $exitCode = Invoke-RealProcess $WhaleBin $args $executionRepoDir $jsonlPath $stderrPath $TimeoutSeconds $stdinPath $processTimingPath
                 } catch {
                     if ([string]$_.Exception.Message -notmatch "^Process timed out after ") { throw }
                     $exitCode = 124
@@ -354,6 +355,13 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 jsonl_path = $jsonlPath
                 stderr_path = $stderrPath
                 last_message_path = $lastMessagePath
+                process_timing_path = $processTimingPath
+                process_launch_wait_ms = if (Test-Path -LiteralPath $processTimingPath) {
+                    try {
+                        $processTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $processTimingPath | ConvertFrom-Json
+                        if ($processTiming.PSObject.Properties.Name -contains "process_launch_wait_ms") { [int64]$processTiming.process_launch_wait_ms } else { $null }
+                    } catch { $null }
+                } else { $null }
             }
             $obsBySide[$side.Name] = $obs
         }
@@ -368,6 +376,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $validationStdout = Join-Path $side.ArtifactDir "validation.stdout.log"
         $validationStderr = Join-Path $side.ArtifactDir "validation.stderr.log"
         $validationProofDir = Join-Path $side.ArtifactDir "external-validator-runtime"
+        $validationProcessTimingPath = Join-Path $validationProofDir "validation-process-timing.json"
         $exec = $execBySide[$side.Name]
         $probeStatus = if ($probeStatusBySide.ContainsKey($side.Name)) { $probeStatusBySide[$side.Name] } else { $null }
         $probePassed = ($probeStatus -and [string]$probeStatus.status -eq "passed" -and [string]$probeStatus.hash -match '^[0-9a-f]{64}$')
@@ -413,6 +422,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $validation = [pscustomobject]@{ exit_code = $validationExit; stdout_path = $validationStdout; stderr_path = $validationStderr }
         $metrics = Get-TaskspaceBenchmarkMetrics $side $exec $validation $oracle $obsBySide[$side.Name]
         $metrics.invalid_prompt = $promptGuard.invalid_prompt
+        $metrics | Add-Member -NotePropertyName process_launch_wait_ms -NotePropertyValue $exec.process_launch_wait_ms -Force
         $metrics | Add-Member -NotePropertyName public_validation_skipped -NotePropertyValue ([bool]$skipValidationAfterExecTimeout) -Force
         $metrics | Add-Member -NotePropertyName public_validation_skip_reason -NotePropertyValue $(if ($skipValidationAfterExecTimeout) { "agent_exec_timeout" } else { "" }) -Force
         $metrics | Add-Member -NotePropertyName pre_agent_validator_probe_status -NotePropertyValue $(if ($probeStatus) { [string]$probeStatus.status } else { "" }) -Force
@@ -424,6 +434,12 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             validation_exit_code = $validationExit
             validation_skipped = [bool]$skipValidationAfterExecTimeout
             validation_skip_reason = if ($skipValidationAfterExecTimeout) { "agent_exec_timeout" } else { "" }
+            validation_process_launch_wait_ms = if (Test-Path -LiteralPath $validationProcessTimingPath) {
+                try {
+                    $validationProcessTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $validationProcessTimingPath | ConvertFrom-Json
+                    if ($validationProcessTiming.PSObject.Properties.Name -contains "process_launch_wait_ms") { [int64]$validationProcessTiming.process_launch_wait_ms } else { $null }
+                } catch { $null }
+            } else { $null }
             probe_duration_ms = if ($probeTimingBySide.ContainsKey($side.Name)) { [int64]$probeTimingBySide[$side.Name] } else { $null }
             oracle_started_at = $oracleStartedAt
             oracle_finished_at = $oracleFinishedAt

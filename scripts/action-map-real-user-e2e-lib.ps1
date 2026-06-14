@@ -25,7 +25,8 @@ function Invoke-RealProcess {
         [string]$StdoutPath,
         [string]$StderrPath,
         [int]$TimeoutSeconds,
-        [string]$StdinPath = ""
+        [string]$StdinPath = "",
+        [string]$TimingPath = ""
     )
     $encoding = [System.Text.UTF8Encoding]::new($false)
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -43,7 +44,18 @@ function Invoke-RealProcess {
     }) -join " ")
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
+    $launchStartedAt = Get-Date
     [void]$process.Start()
+    $processStartedAt = Get-Date
+    if (-not [string]::IsNullOrWhiteSpace($TimingPath)) {
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $TimingPath) | Out-Null
+        [pscustomobject]@{
+            schema_version = 1
+            process_launch_started_at = $launchStartedAt.ToString("o")
+            process_started_at = $processStartedAt.ToString("o")
+            process_launch_wait_ms = [int64](($processStartedAt - $launchStartedAt).TotalMilliseconds)
+        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $TimingPath -Encoding UTF8
+    }
     $stdoutTask = $process.StandardOutput.ReadToEndAsync()
     $stderrTask = $process.StandardError.ReadToEndAsync()
     if ($StdinPath) {

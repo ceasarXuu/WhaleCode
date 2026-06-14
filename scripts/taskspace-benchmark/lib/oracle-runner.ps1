@@ -68,8 +68,25 @@ function Invoke-TaskspaceValidationProcess {
     $startInfo.CreateNoWindow = $true
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
+    $launchStartedAt = $null
+    $processStartedAt = $null
+    $launchWaitMs = $null
     try {
+        $launchStartedAt = Get-Date
         [void]$process.Start()
+        $processStartedAt = Get-Date
+        $launchWaitMs = [int64](($processStartedAt - $launchStartedAt).TotalMilliseconds)
+        if (-not [string]::IsNullOrWhiteSpace($env:TASKSPACE_VALIDATION_ARTIFACT_DIR)) {
+            try {
+                New-Item -ItemType Directory -Force -Path $env:TASKSPACE_VALIDATION_ARTIFACT_DIR | Out-Null
+                [pscustomobject]@{
+                    schema_version = 1
+                    process_launch_started_at = $launchStartedAt.ToString("o")
+                    process_started_at = $processStartedAt.ToString("o")
+                    process_launch_wait_ms = $launchWaitMs
+                } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $env:TASKSPACE_VALIDATION_ARTIFACT_DIR "validation-process-timing.json") -Encoding UTF8
+            } catch {}
+        }
         while (-not $process.HasExited) {
             Start-Sleep -Milliseconds 100
             $now = Get-Date
@@ -111,9 +128,9 @@ function Invoke-TaskspaceValidationProcess {
         if ($timeoutPhase) {
             Add-TaskspaceValidationLogLine $StderrPath "Validation timed out during $timeoutPhase after $activeTimeout seconds: $FilePath $($ArgumentList -join ' ')" | Out-Null
             Add-TaskspaceValidationLogLine $StderrPath "taskspace_validation_timeout_phase=$timeoutPhase" | Out-Null
-            return [pscustomobject]@{ exit_code = 124; timed_out = $true; timeout_phase = $timeoutPhase }
+            return [pscustomobject]@{ exit_code = 124; timed_out = $true; timeout_phase = $timeoutPhase; process_launch_wait_ms = $launchWaitMs }
         }
-        [pscustomobject]@{ exit_code = [int]$process.ExitCode; timed_out = $false; timeout_phase = "" }
+        [pscustomobject]@{ exit_code = [int]$process.ExitCode; timed_out = $false; timeout_phase = ""; process_launch_wait_ms = $launchWaitMs }
     } finally {
         $process.Dispose()
     }

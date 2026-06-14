@@ -63,3 +63,7 @@ Supports H-001 proof validation. In the same official smoke, `external-e3-proof.
 ## Evidence E-008
 
 Supports P0 timing guardrail validation. Regenerating `sample-timing.json` for the same official smoke after the wait-attribution timing change produced `runtime_optimization_status=blocked`, `timing_quality=incomplete`, `wait_attribution_status=missing`, and blockers for `model_queue_wait_ms`, `model_retry_backoff_ms`, `model_request_duration_ms`, `process_launch_wait_ms`, `docker_token_wait_ms`, `validation_token_wait_ms`, `disk_reservation_wait_ms`, `cache_lock_wait_ms`, and `resource_wait_ms_total`. This prevents using the smoke as a speed claim while wait attribution is not instrumented.
+
+## Evidence E-009
+
+Supports P0 wait-attribution validation. Official materialized one-pair smoke at `target\e3-official-smoke-process-wait\terminal_bench__analyze-access-logs\20260615-000128-881` recorded agent process timing sidecars for both sides. The pair and sample timing artifacts recorded `process_launch_wait_ms=20` and no longer listed `missing_wait_attribution:process_launch_wait_ms`, while still blocking runtime optimization for uninstrumented model/API/resource waits.
