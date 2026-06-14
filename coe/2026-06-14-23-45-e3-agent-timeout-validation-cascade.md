@@ -287,3 +287,22 @@ Diagnostic evidence plan:
 ## Evidence E-024
 
 Supports H-012 validation. `scripts/taskspace-benchmark/test-e3-start-gate.ps1` now passes with negative fixtures proving both `-ScoringMode -SkipStartGate` and `-RequireScoreValidity -SkipStartGate` exit `4` with the explicit `SkipStartGate is not allowed` message. The Round 3 adversarial closure review in `vs_review/2026-06-15-e3-calibration-gate-review.md` found no remaining blocking findings and confirmed the guard runs before suite-root/sample scheduling.
+
+## Hypothesis H-013
+
+Claim: calibration artifacts can be stale or from the wrong run unless the gate can compare expected identity fields. A passing gate based only on file presence and timing field presence is not enough to prevent unrelated one-pair, serial calibration, or parallel equivalence artifacts from authorizing a full E3 run.
+
+Predictions:
+- When expected identity is provided, one-pair timing must include matching `task_list_hash`, `source_version`, and `profile_hash`.
+- Serial calibration timing must enforce the same optional identity fields.
+- Parallel equivalence must enforce the same optional identity fields.
+- A mismatched expected task-list hash should fail the gate before full E3 is allowed.
+
+Diagnostic evidence plan:
+- Add optional expected identity parameters to `Invoke-TaskspaceCalibrationGate`.
+- Add identity checks to all three calibration sub-gates.
+- Extend the guardrails fixture with matching identity pass and mismatched identity fail.
+
+## Evidence E-025
+
+Supports H-013 validation at the gate layer. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` now passes with complete identity fields on one-pair timing, serial timing, and parallel equivalence artifacts, and a negative fixture proves `ExpectedTaskListHash=task-list-b` fails with `one_pair_smoke_identity_mismatch:task_list_hash`. This does not yet complete end-to-end identity enforcement; suite/start-gate still need to compute real task-list/profile identity and real timing/equivalence producers must emit those fields.

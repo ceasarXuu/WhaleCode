@@ -240,6 +240,10 @@ Assert-True ([int]$parallelismSmoke.observed.max_parallel_samples -eq 2) "parall
 Assert-True ((Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-a\sample-status.json")) -and (Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-b\sample-status.json")) -and (Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-c\sample-status.json"))) "parallel suite smoke did not isolate sample artifacts"
 $equivalencePath = Join-Path $parallelSuiteRoot "serial-vs-parallel-equivalence.json"
 $equivalence = Write-TaskspaceSuiteScoreEquivalence (Join-Path $serialRunRoot "suite-health.json") (Join-Path $parallelRunRoot "suite-health.json") $equivalencePath
+$equivalence | Add-Member -NotePropertyName task_list_hash -NotePropertyValue "task-list-a" -Force
+$equivalence | Add-Member -NotePropertyName source_version -NotePropertyValue "source-a" -Force
+$equivalence | Add-Member -NotePropertyName profile_hash -NotePropertyValue "profile-a" -Force
+$equivalence | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $equivalencePath -Encoding UTF8
 Assert-True ([bool]$equivalence.comparable -and -not [bool]$equivalence.parallel_smoke_score_drift -and [int]$equivalence.drift_count -eq 0) "serial-vs-parallel equivalence reported unexpected drift"
 $driftFixture = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $parallelRunRoot "suite-health.json") | ConvertFrom-Json
 $driftFixture.sample_statuses[1].run_validity = "invalid_harness"
@@ -442,6 +446,9 @@ New-Item -ItemType Directory -Force -Path $onePairRoot, $serialCalibrationRoot |
     public_validation_duration_ms = 2000
     bottleneck_classification = "validator_bound"
     runtime_optimization_status = "ready"
+    task_list_hash = "task-list-a"
+    source_version = "source-a"
+    profile_hash = "profile-a"
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $onePairRoot "pair-timing.json") -Encoding UTF8
 [pscustomobject]@{ sample_id = "calibration-one-pair" } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $onePairRoot "sample-timing.json") -Encoding UTF8
 "# Runtime Bottleneck`n" | Set-Content -LiteralPath (Join-Path $onePairRoot "runtime-bottleneck.md") -Encoding UTF8
@@ -451,12 +458,17 @@ New-Item -ItemType Directory -Force -Path $onePairRoot, $serialCalibrationRoot |
     runtime_optimization_status = "ready"
     bottleneck_classification = "mixed_or_unclassified"
     wait_attribution_status = "complete"
+    task_list_hash = "task-list-a"
+    source_version = "source-a"
+    profile_hash = "profile-a"
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $serialCalibrationRoot "suite-timing.json") -Encoding UTF8
 "# Runtime Calibration`n" | Set-Content -LiteralPath (Join-Path $serialCalibrationRoot "runtime-calibration-report.md") -Encoding UTF8
 $calibrationGatePath = Join-Path $calibrationGateRoot "calibration-gate.json"
-$calibrationGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePairRoot -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $equivalencePath -OutputPath $calibrationGatePath
+$calibrationGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePairRoot -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $equivalencePath -ExpectedTaskListHash "task-list-a" -ExpectedSourceVersion "source-a" -ExpectedProfileHash "profile-a" -OutputPath $calibrationGatePath
 Assert-True ([string]$calibrationGate.status -eq "pass" -and [bool]$calibrationGate.full_e3_allowed -and [bool]$calibrationGate.speed_claim_allowed) "calibration gate did not pass complete timing/equivalence evidence"
 Assert-True (Test-Path -LiteralPath $calibrationGatePath) "calibration gate did not write its artifact"
+$identityMismatchGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePairRoot -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $equivalencePath -ExpectedTaskListHash "task-list-b" -ExpectedSourceVersion "source-a" -ExpectedProfileHash "profile-a"
+Assert-True ([string]$identityMismatchGate.status -eq "fail" -and [string]$identityMismatchGate.first_failure.reason -eq "one_pair_smoke_identity_mismatch:task_list_hash") "calibration gate did not block identity-mismatched one-pair timing evidence"
 $missingOnePairGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot (Join-Path $calibrationGateRoot "missing-one-pair") -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $equivalencePath
 Assert-True ([string]$missingOnePairGate.status -eq "fail" -and -not [bool]$missingOnePairGate.full_e3_allowed -and [string]$missingOnePairGate.first_failure.reason -eq "one_pair_root_missing") "calibration gate did not block missing one-pair smoke evidence"
 $driftEquivalencePath = Join-Path $calibrationGateRoot "drift-equivalence.json"

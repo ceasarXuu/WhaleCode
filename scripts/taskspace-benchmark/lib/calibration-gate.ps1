@@ -21,8 +21,20 @@ function Get-TaskspaceJsonFile {
     Get-Content -Raw -Encoding UTF8 -LiteralPath $Path | ConvertFrom-Json
 }
 
+function Test-TaskspaceCalibrationIdentityField {
+    param($Object, [string]$Field, [string]$Expected, [string]$Scope, [string]$Artifact)
+    if ([string]::IsNullOrWhiteSpace($Expected)) { return $null }
+    if (-not (Test-TaskspaceJsonField $Object $Field)) {
+        return New-TaskspaceCalibrationGateRow $Scope "fail" "$($Scope)_identity_field_missing:$Field" $Artifact
+    }
+    if ([string]$Object.$Field -ne $Expected) {
+        return New-TaskspaceCalibrationGateRow $Scope "fail" "$($Scope)_identity_mismatch:$Field" $Artifact
+    }
+    $null
+}
+
 function Test-TaskspaceOnePairTimingEvidence {
-    param([string]$Root)
+    param([string]$Root, [string]$ExpectedTaskListHash = "", [string]$ExpectedSourceVersion = "", [string]$ExpectedProfileHash = "")
     if ([string]::IsNullOrWhiteSpace($Root) -or -not (Test-Path -LiteralPath $Root)) {
         return New-TaskspaceCalibrationGateRow "one_pair_smoke" "fail" "one_pair_root_missing" $Root
     }
@@ -38,11 +50,18 @@ function Test-TaskspaceOnePairTimingEvidence {
             return New-TaskspaceCalibrationGateRow "one_pair_smoke" "fail" "one_pair_timing_field_missing:$field" $pairTimingPath.FullName
         }
     }
+    foreach ($identityCheck in @(
+            (Test-TaskspaceCalibrationIdentityField $pairTiming "task_list_hash" $ExpectedTaskListHash "one_pair_smoke" $pairTimingPath.FullName),
+            (Test-TaskspaceCalibrationIdentityField $pairTiming "source_version" $ExpectedSourceVersion "one_pair_smoke" $pairTimingPath.FullName),
+            (Test-TaskspaceCalibrationIdentityField $pairTiming "profile_hash" $ExpectedProfileHash "one_pair_smoke" $pairTimingPath.FullName)
+        )) {
+        if ($identityCheck) { return $identityCheck }
+    }
     New-TaskspaceCalibrationGateRow "one_pair_smoke" "pass" "" $pairTimingPath.FullName
 }
 
 function Test-TaskspaceSerialCalibrationEvidence {
-    param([string]$Root, [int]$MinimumSamples = 3)
+    param([string]$Root, [int]$MinimumSamples = 3, [string]$ExpectedTaskListHash = "", [string]$ExpectedSourceVersion = "", [string]$ExpectedProfileHash = "")
     if ([string]::IsNullOrWhiteSpace($Root) -or -not (Test-Path -LiteralPath $Root)) {
         return New-TaskspaceCalibrationGateRow "serial_calibration" "fail" "serial_calibration_root_missing" $Root
     }
@@ -60,11 +79,18 @@ function Test-TaskspaceSerialCalibrationEvidence {
             return New-TaskspaceCalibrationGateRow "serial_calibration" "fail" "serial_calibration_field_missing:$field" $suiteTimingPath.FullName
         }
     }
+    foreach ($identityCheck in @(
+            (Test-TaskspaceCalibrationIdentityField $suiteTiming "task_list_hash" $ExpectedTaskListHash "serial_calibration" $suiteTimingPath.FullName),
+            (Test-TaskspaceCalibrationIdentityField $suiteTiming "source_version" $ExpectedSourceVersion "serial_calibration" $suiteTimingPath.FullName),
+            (Test-TaskspaceCalibrationIdentityField $suiteTiming "profile_hash" $ExpectedProfileHash "serial_calibration" $suiteTimingPath.FullName)
+        )) {
+        if ($identityCheck) { return $identityCheck }
+    }
     New-TaskspaceCalibrationGateRow "serial_calibration" "pass" "" $suiteTimingPath.FullName
 }
 
 function Test-TaskspaceParallelSmokeEvidence {
-    param([string]$EquivalencePath)
+    param([string]$EquivalencePath, [string]$ExpectedTaskListHash = "", [string]$ExpectedSourceVersion = "", [string]$ExpectedProfileHash = "")
     $equivalence = Get-TaskspaceJsonFile $EquivalencePath
     if (-not $equivalence) {
         return New-TaskspaceCalibrationGateRow "parallel_smoke" "fail" "parallel_equivalence_missing" $EquivalencePath
@@ -81,6 +107,13 @@ function Test-TaskspaceParallelSmokeEvidence {
     if (-not (Test-TaskspaceJsonField $equivalence "compared_sample_ids") -or @($equivalence.compared_sample_ids).Count -eq 0) {
         return New-TaskspaceCalibrationGateRow "parallel_smoke" "fail" "parallel_compared_samples_missing" $EquivalencePath
     }
+    foreach ($identityCheck in @(
+            (Test-TaskspaceCalibrationIdentityField $equivalence "task_list_hash" $ExpectedTaskListHash "parallel_smoke" $EquivalencePath),
+            (Test-TaskspaceCalibrationIdentityField $equivalence "source_version" $ExpectedSourceVersion "parallel_smoke" $EquivalencePath),
+            (Test-TaskspaceCalibrationIdentityField $equivalence "profile_hash" $ExpectedProfileHash "parallel_smoke" $EquivalencePath)
+        )) {
+        if ($identityCheck) { return $identityCheck }
+    }
     New-TaskspaceCalibrationGateRow "parallel_smoke" "pass" "" $EquivalencePath
 }
 
@@ -89,12 +122,15 @@ function Invoke-TaskspaceCalibrationGate {
         [string]$OnePairSmokeRoot = "",
         [string]$SerialCalibrationRoot = "",
         [string]$ParallelEquivalencePath = "",
+        [string]$ExpectedTaskListHash = "",
+        [string]$ExpectedSourceVersion = "",
+        [string]$ExpectedProfileHash = "",
         [string]$OutputPath = ""
     )
     $rows = @(
-        Test-TaskspaceOnePairTimingEvidence $OnePairSmokeRoot
-        Test-TaskspaceSerialCalibrationEvidence $SerialCalibrationRoot
-        Test-TaskspaceParallelSmokeEvidence $ParallelEquivalencePath
+        Test-TaskspaceOnePairTimingEvidence $OnePairSmokeRoot $ExpectedTaskListHash $ExpectedSourceVersion $ExpectedProfileHash
+        Test-TaskspaceSerialCalibrationEvidence $SerialCalibrationRoot 3 $ExpectedTaskListHash $ExpectedSourceVersion $ExpectedProfileHash
+        Test-TaskspaceParallelSmokeEvidence $ParallelEquivalencePath $ExpectedTaskListHash $ExpectedSourceVersion $ExpectedProfileHash
     )
     $failed = @($rows | Where-Object { [string]$_.status -ne "pass" })
     $result = [pscustomobject]@{
@@ -102,6 +138,11 @@ function Invoke-TaskspaceCalibrationGate {
         status = if ($failed.Count -eq 0) { "pass" } else { "fail" }
         full_e3_allowed = ($failed.Count -eq 0)
         speed_claim_allowed = ($failed.Count -eq 0)
+        expected_identity = [pscustomobject]@{
+            task_list_hash = $ExpectedTaskListHash
+            source_version = $ExpectedSourceVersion
+            profile_hash = $ExpectedProfileHash
+        }
         gates = @($rows)
         first_failure = if ($failed.Count -gt 0) { $failed[0] } else { $null }
         generated_at = (Get-Date).ToString("o")
