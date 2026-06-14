@@ -178,6 +178,40 @@ $parseErrors = $null
 [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $inlineScenarioDir "external-validator.ps1"), [ref]$null, [ref]$parseErrors) | Out-Null
 Assert-True (@($parseErrors).Count -eq 0) "generated Terminal-Bench validator PowerShell did not parse"
 
+$cacheTask = Join-Path $runDir "docker-cache"
+New-Item -ItemType Directory -Path $cacheTask | Out-Null
+@'
+instruction: "Create hello.txt."
+category: file-operations
+'@ | Set-Content -LiteralPath (Join-Path $cacheTask "task.yaml") -Encoding UTF8
+"FROM scratch" | Set-Content -LiteralPath (Join-Path $cacheTask "Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $cacheTask "run-tests.sh") -Encoding UTF8
+$cacheOutputRoot = Join-Path $runDir "docker-cache-out"
+$cacheOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $cacheTask -OutputRoot $cacheOutputRoot -SampleId "docker-cache" -SourceVersion "pinned"
+$cacheScenarioDir = [string]($cacheOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$cacheScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cacheScenarioDir "scenario.json") | ConvertFrom-Json
+$cacheKey = [string]$cacheScenario.external_benchmark.adapter_metadata.docker_image_cache.cache_key
+Assert-True (-not [string]::IsNullOrWhiteSpace($cacheKey)) "docker image cache key was not recorded"
+Assert-True (-not [bool]$cacheScenario.external_benchmark.adapter_metadata.docker_image_cache.cache_eligible) "floating Dockerfile base image should not be cache eligible"
+Assert-True ([string]$cacheScenario.external_benchmark.adapter_metadata.docker_image_cache.cache_bypass_reason -eq "dockerfile_base_image_not_digest_pinned") "floating Dockerfile cache bypass reason was not recorded"
+$cacheValidator = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cacheScenarioDir "external-validator.ps1")
+Assert-True ($cacheValidator -match [regex]::Escape('$cacheEnabled = ([string]$env:TASKSPACE_DOCKER_IMAGE_CACHE -eq "1" -and $cacheEligible)')) "generated validator did not gate docker cache behind env opt-in and eligibility"
+Assert-True ($cacheValidator -match [regex]::Escape('$cacheEligible = $false')) "generated validator did not disable cache for floating Dockerfile base image"
+"FROM alpine@sha256:0000000000000000000000000000000000000000000000000000000000000000" | Set-Content -LiteralPath (Join-Path $cacheTask "Dockerfile") -Encoding UTF8
+$cachePinnedOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $cacheTask -OutputRoot (Join-Path $runDir "docker-cache-pinned-out") -SampleId "docker-cache" -SourceVersion "pinned"
+$cachePinnedScenarioDir = [string]($cachePinnedOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$cachePinnedScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cachePinnedScenarioDir "scenario.json") | ConvertFrom-Json
+Assert-True ([bool]$cachePinnedScenario.external_benchmark.adapter_metadata.docker_image_cache.cache_eligible) "digest-pinned Dockerfile base image should be cache eligible"
+$cachePinnedValidator = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cachePinnedScenarioDir "external-validator.ps1")
+Assert-True ($cacheValidator -match [regex]::Escape('Invoke-DockerOutput -Arguments @("image", "inspect", $cacheImage)')) "generated validator did not inspect cache image before build"
+Assert-True ($cachePinnedValidator -match [regex]::Escape('Invoke-Docker -Arguments @("build", "--pull", "-t", $cacheImage, $fixtureDockerPath)')) "generated validator did not build stable cache image on miss"
+Assert-True ($cachePinnedValidator -match [regex]::Escape('"cache_hit"')) "generated validator did not record cache hit classification"
+"FROM scratch`nLABEL changed=true" | Set-Content -LiteralPath (Join-Path $cacheTask "Dockerfile") -Encoding UTF8
+$cacheChangedOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $cacheTask -OutputRoot (Join-Path $runDir "docker-cache-changed-out") -SampleId "docker-cache" -SourceVersion "pinned"
+$cacheChangedScenarioDir = [string]($cacheChangedOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$cacheChangedScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cacheChangedScenarioDir "scenario.json") | ConvertFrom-Json
+Assert-True ([string]$cacheChangedScenario.external_benchmark.adapter_metadata.docker_image_cache.cache_key -ne $cacheKey) "docker cache key did not change after Dockerfile mutation"
+
 $foldedTask = Join-Path $runDir "folded"
 New-Item -ItemType Directory -Path $foldedTask | Out-Null
 @'

@@ -1123,7 +1123,100 @@ Abort rules in scoring mode:
 - An engineering-unclean scoring run cannot reach full 15-pair completion.
 - The invalid-rerun path drops from the rerun3 baseline of ~333 minutes to first-pair classification time.
 
-### 15.5 Phase R2: Validator And Docker Overhead Reduction
+### 15.5 Phase R1.5: Runtime Bottleneck Attribution
+
+#### Objective
+
+Explain why a 15-pair E3 run takes hours before changing concurrency or agent budgets. The first implementation should produce phase-level timing evidence from the artifacts already written by the runner, then use that evidence to decide which optimization is allowed in scoring mode.
+
+#### Timing Model
+
+Every pair must be decomposed into these spans:
+
+| Span | Source Artifact | Owner | Optimization Boundary |
+|---|---|---|---|
+| `standard_agent_duration_ms` | standard side run metadata / process timing | agent side | comparable scoring behavior; timeout is valid result |
+| `taskspace_agent_duration_ms` | TaskSpace side run metadata / process timing | agent side | profile changes require versioned score profile |
+| `validator_probe_duration_ms` | `validator-probe-result.json` | harness | must not run tests |
+| `public_validation_duration_ms` | validation process timing | harness / oracle | score-bearing; cannot skip unless engineering-unclean already proven |
+| `hidden_oracle_duration_ms` | oracle process timing | harness / oracle | no hidden rerun when public validation already made run invalid |
+| `docker_build_duration_ms` | `docker-build-result.json` | harness / Docker | cache only with immutable digest-pinned Dockerfile proof |
+| `docker_run_duration_ms` | `docker-run-result.json` or metrics stderr/stdout markers | harness / Docker | no score semantic changes |
+| `docker_cleanup_duration_ms` | `validation-cleanup-result.json` | harness / Docker | bounded cleanup; failure invalidates scoring run |
+| `worker_queue_wait_ms` | future `parallelism.json` | scheduler | resource governor controlled |
+| `resource_wait_ms` | future `resource-governor.json` | scheduler | must not hide disk/API/Docker pressure |
+
+Pair report and aggregate report should show:
+
+- total wall time;
+- agent time subtotal;
+- validator/Docker subtotal;
+- cleanup subtotal;
+- idle/queue subtotal when parallelism is enabled;
+- top three spans by duration;
+- time saved by fast-fail or cache, when applicable.
+
+#### Bottleneck Classification Rules
+
+Use deterministic thresholds so the operator can tell whether the run is slow for valid benchmark reasons or harness reasons:
+
+| Classification | Rule | Action |
+|---|---|---|
+| `agent_bound` | agent subtotal is `>=70%` of wall time and no engineering-unclean signals exist | optimize only through explicit score profile or accept as benchmark cost |
+| `validator_bound` | public/hidden validation subtotal is `>=30%` of wall time | implement timeout split, probe, and no-op rerender first |
+| `docker_build_bound` | Docker build subtotal is `>=15%` or repeated same-scenario builds appear | enable digest-pinned Docker image cache after two-run smoke |
+| `cleanup_bound` | cleanup subtotal is `>=5%` or cleanup has unbounded tail | move to bounded cleanup and fail invalid in scoring mode |
+| `queue_bound` | workers wait `>=10%` of wall time after parallelism is enabled | tune resource governor, not agent profile |
+| `engineering_unclean_slow` | any non-timeout infra failure appears after expensive work | fail-fast bug; add preflight/probe/sentinel coverage |
+
+These classes are diagnostics. They must not change scoring results directly; they decide which engineering phase is allowed next.
+
+#### Implementation Tasks
+
+1. Add timing span extraction to `scripts/taskspace-benchmark/lib/metrics-extractor.ps1` using existing process start/end data and generated validator artifacts.
+2. Add missing validator-side timestamps in generated Terminal-Bench validators:
+   - before Docker image inspect/build;
+   - after image build or cache hit;
+   - before Docker run;
+   - after Docker run;
+   - before cleanup dispatch;
+   - after bounded cleanup result is recorded.
+3. Add `timing_breakdown` to pair metrics:
+   - raw durations;
+   - subtotal percentages;
+   - largest span name;
+   - bottleneck classification.
+4. Add aggregate timing summary:
+   - median and p95 per span;
+   - total time by span across all pairs;
+   - repeated Docker build count by cache key;
+   - `estimated_serial_full_run_minutes`;
+   - `estimated_optimized_full_run_minutes`.
+5. Add regression fixtures:
+   - synthetic agent-bound pair;
+   - synthetic validator-bound pair;
+   - repeated Docker-build fixture;
+   - cleanup-bound fixture;
+   - engineering-unclean slow fixture.
+6. Add report language rule: if `score_valid=false`, timing report may say "time wasted / avoided" but must not say TaskSpace was better or worse.
+
+#### Acceptance Tests
+
+| Validation Item | Method | Passing Standard |
+|---|---|---|
+| timing extraction | synthetic metrics fixture | every span is present or explicitly `null` with reason |
+| bottleneck classification | fixed-duration fixture matrix | each class maps to the expected rule |
+| aggregate summary | 3-pair fixture | median/p95/subtotal values are deterministic |
+| repeated Docker build detection | same cache key fixture | report lists duplicate build count |
+| invalid slow run language | invalid aggregate fixture | reports engineering waste without score comparison |
+
+#### Exit Criteria
+
+- A 15-pair run can be explained by phase totals without reading raw logs.
+- Runtime optimization work is prioritized from measured bottlenecks, not intuition.
+- The plan can distinguish "agent legitimately slow" from "harness wasting hours".
+
+### 15.6 Phase R2: Validator And Docker Overhead Reduction
 
 #### Objective
 
@@ -1190,7 +1283,11 @@ Safe reductions:
 - `ValidationPretestTimeoutSeconds` and `ValidationTestTimeoutSeconds` are now runner-facing budgets for score-bearing public validation.
 - The validation runner polls stdout/stderr files during execution and records `taskspace_validation_timeout_phase`, `taskspace_tests_started_at`, and `taskspace_tests_completed_at` markers when available.
 - Terminal-Bench generated validator cleanup is deferred to the runner cleanup path, which performs identity-checked Docker cleanup with bounded process execution and writes `validation-cleanup-result.json`.
-- Docker image caching, cache invalidation, no-op diagnostic rerenders, and parallel execution remain future work until their own tests pass.
+- Terminal-Bench Docker image caching is implemented behind `-EnableDockerImageCache`; it sets `TASKSPACE_DOCKER_IMAGE_CACHE=1` only for score-bearing public validation, records `cache_key/cache_image/fixture_sha256/dockerfile_sha256`, and treats `cache_hit` as a non-failure Docker build phase.
+- Cache invalidation is content-hash based: fixture tree or Dockerfile changes produce a different cache key.
+- Cache eligibility is intentionally fail-closed: generated validators only use the image cache when every parsed Dockerfile `FROM` reference is digest-pinned as `@sha256:<64 hex>`. Floating tags, `ARG`-based bases, missing `FROM`, or parser-uncertain forms record `cache_eligible=false` and bypass cache even when `-EnableDockerImageCache` is set.
+- Runtime cache hit behavior is generated-script covered and metadata/invalidation tested; a real-Docker two-run smoke is still required before enabling cache in full production E3.
+- No-op diagnostic rerenders and parallel execution remain future work until their own tests pass.
 
 #### Exit Criteria
 
@@ -1198,7 +1295,7 @@ Safe reductions:
 - Repeated same-scenario validation does not rebuild immutable Docker images unnecessarily.
 - No validator optimization changes score-bearing semantics.
 
-### 15.6 Phase R3: Bounded Parallel Execution
+### 15.7 Phase R3: Bounded Parallel Execution
 
 #### Objective
 
@@ -1286,7 +1383,7 @@ Every worker must acquire resource tokens before execution and release them in `
 - Serial mode remains the default and passes all guardrail tests.
 - Parallel mode produces deterministic artifacts and equivalent score validity.
 
-### 15.7 Phase R4: TaskSpace-Side Agent Cost Controls
+### 15.8 Phase R4: TaskSpace-Side Agent Cost Controls
 
 #### Objective
 
@@ -1340,36 +1437,38 @@ TaskSpace is the largest agent-side cost in rerun3. However, changing reasoning 
 - TaskSpace runtime can be analyzed by cost driver.
 - Any runtime-saving profile change is explicit and versioned.
 
-### 15.8 Runtime Reduction Rollout Plan
+### 15.9 Runtime Reduction Rollout Plan
 
 Proceed in this order:
 
 1. Implement timing artifacts in serial mode.
-2. Implement score-validity fast-fail.
-3. Validate invalid rerun fixture exits early.
-4. Implement validator/Docker duration fields.
-5. Add Docker cache and pretest timeout split behind flags.
-6. Run one-pair scoring smoke.
-7. Add resource governor with defaults still serial.
-8. Add sample-level parallelism.
-9. Add pair-level parallelism only after sample-level proof.
-10. Add validation-level parallelism only after Docker cache locks are proven.
-11. Leave side-agent parallelism disabled unless timing comparability is explicitly disabled.
+2. Implement runtime bottleneck attribution and aggregate timing summaries.
+3. Implement score-validity fast-fail.
+4. Validate invalid rerun fixture exits early.
+5. Implement validator/Docker duration fields.
+6. Add Docker cache and pretest timeout split behind flags.
+7. Run one-pair scoring smoke.
+8. Add resource governor with defaults still serial.
+9. Add sample-level parallelism.
+10. Add pair-level parallelism only after sample-level proof.
+11. Add validation-level parallelism only after Docker cache locks are proven.
+12. Leave side-agent parallelism disabled unless timing comparability is explicitly disabled.
 
-### 15.9 Runtime Acceptance Matrix
+### 15.10 Runtime Acceptance Matrix
 
 | Scenario | Command Shape | Expected Runtime Behavior | Passing Standard |
 |---|---|---|---|
 | preflight invalid | one sample scoring run | abort before agent | `<5 min`, exit `3` |
 | first-pair engineering-unclean | one sample scoring run | abort after pair 1 | `<30-40 min`, no pair 2 |
 | invalid rerun3 fixture | synthetic aggregate | no full scheduling | score invalid and no score language |
+| timing attribution fixture | synthetic 3-pair aggregate | runtime split by phase | deterministic bottleneck class and subtotal percentages |
 | serial one-pair clean smoke | `MaxParallel*=1` | baseline timing | complete or clean timeout with timing artifacts |
 | sample parallel smoke | `-MaxParallelSamples 2` | two samples overlap | deterministic artifacts, no score drift |
 | pair parallel smoke | `-MaxParallelPairsPerSample 2` | two repeats overlap | no path/cache collision |
 | validation parallel smoke | `-MaxParallelValidationsPerPair 2` | both side validations overlap | correct metrics for both sides |
 | full clean calibrated run | selected concurrency profile | faster than serial | `>=30%` wall-time reduction and `score_valid=true` |
 
-### 15.10 Required Commands Before Full Parallel E3
+### 15.11 Required Commands Before Full Parallel E3
 
 ```powershell
 .\scripts\taskspace-benchmark\test-e3-score-validity.ps1
@@ -1424,7 +1523,7 @@ Do not run full parallel E3 until the smoke artifacts prove:
 - no score-validity mismatch between serial and parallel mode;
 - enough disk and Docker storage remains after cleanup.
 
-### 15.11 Risks And Fallback
+### 15.12 Risks And Fallback
 
 | Risk | Impact | Trigger Signal | Mitigation | Fallback |
 |---|---|---|---|---|
@@ -1434,8 +1533,9 @@ Do not run full parallel E3 until the smoke artifacts prove:
 | model/API rate limits slow or fail workers | flaky runtime | provider errors or long queue wait | `MaxModelConcurrency`, retry policy, queue timing | lower concurrency |
 | disk fills faster under concurrency | system instability | disk preflight fails or free space drops below threshold | per-worker disk reservation | abort scheduling new workers |
 | fast-fail cancels useful diagnostics | less evidence | operator needs forensic run | `-DiagnosticOnly` or `-DisableScoringFastFail` explicit flag | diagnostic serial run |
+| timing attribution is incomplete | wrong optimization priority | spans are `null` without reason or totals do not reconcile | require nullable reason and reconciliation check | keep serial baseline and block parallel rollout |
 
-### 15.12 Runtime Success Definition
+### 15.13 Runtime Success Definition
 
 Runtime work is successful only when both statements are true:
 

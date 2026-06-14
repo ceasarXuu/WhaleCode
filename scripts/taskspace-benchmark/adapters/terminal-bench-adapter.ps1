@@ -102,6 +102,20 @@ function Test-TerminalBenchPublicFixtureRelativePath {
     return $true
 }
 
+function Get-TerminalBenchDockerfileBaseImageProof {
+    param([Parameter(Mandatory = $true)][string]$DockerfilePath)
+    if (-not (Test-Path -LiteralPath $DockerfilePath)) { return [pscustomobject]@{ from_images = @(); digest_pinned = $false } }
+    $fromImages = New-Object System.Collections.Generic.List[string]
+    foreach ($line in Get-Content -Encoding UTF8 -LiteralPath $DockerfilePath) {
+        if ($line -match '^\s*FROM\s+([^\s]+)') { $fromImages.Add($matches[1]) }
+    }
+    $images = @($fromImages.ToArray())
+    [pscustomobject]@{
+        from_images = $images
+        digest_pinned = ($images.Count -gt 0 -and @($images | Where-Object { $_ -notmatch '@sha256:[0-9a-fA-F]{64}$' }).Count -eq 0)
+    }
+}
+
 $taskRoot = (Resolve-Path -LiteralPath $TaskDir).Path
 if ([string]::IsNullOrWhiteSpace($SampleId)) { $SampleId = Split-Path -Leaf $taskRoot }
 $instructionCandidates = @("instruction.md", "prompt.md", "task.md", "README.md") |
@@ -186,6 +200,18 @@ if (Test-Path -LiteralPath (Join-Path $taskRoot "tests")) {
     }
 }
 $originalValidatorSha = Get-TaskspaceExternalTreeSha256 $validatorSourceDir
+$fixtureTreeSha = Get-TaskspaceExternalTreeSha256 $fixtureSource
+$dockerfilePath = Join-Path $fixtureSource "Dockerfile"
+$dockerfileSha = if (Test-Path -LiteralPath $dockerfilePath) { Get-TaskspaceExternalFileSha256 $dockerfilePath } else { "" }
+$baseImageProof = Get-TerminalBenchDockerfileBaseImageProof $dockerfilePath
+$cacheMaterial = "terminal-bench-image-cache-v1`nsource=$SourceVersion`nfixture=$fixtureTreeSha`ndockerfile=$dockerfileSha"
+$cacheKeyBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($cacheMaterial))
+$dockerCacheKey = (([System.BitConverter]::ToString($cacheKeyBytes)) -replace "-", "").ToLowerInvariant().Substring(0, 32)
+$dockerCacheKeyLiteral = "'" + $dockerCacheKey.Replace("'", "''") + "'"
+$fixtureTreeShaLiteral = "'" + $fixtureTreeSha.Replace("'", "''") + "'"
+$dockerfileShaLiteral = "'" + $dockerfileSha.Replace("'", "''") + "'"
+$cacheEligibleLiteral = if ([bool]$baseImageProof.digest_pinned) { '$true' } else { '$false' }
+$baseImagesLiteral = "@(" + ((@($baseImageProof.from_images) | ForEach-Object { "'" + ([string]$_).Replace("'", "''") + "'" }) -join ", ") + ")"
 $validator = Join-Path $generatedDir "terminal-bench-$($SampleId -replace '[^A-Za-z0-9_.-]', '_')-validator.ps1"
 $validatorLines = @(
     'param([switch]$ProbeOnly, [switch]$ProbeDocker)',
@@ -342,7 +368,15 @@ $validatorLines = @(
     '$proofNoncePrefix = $proofNonce.Substring(0, 8)',
     '$proofDirHashBytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($proofDir))',
     '$proofDirHash = (([System.BitConverter]::ToString($proofDirHashBytes)) -replace "-", "").ToLowerInvariant().Substring(0, 16)',
-    '$image = "whale-taskspace-terminal-bench:$repoHash-$proofNoncePrefix"',
+    "`$dockerCacheKey = $dockerCacheKeyLiteral",
+    "`$fixtureTreeSha256 = $fixtureTreeShaLiteral",
+    "`$dockerfileSha256 = $dockerfileShaLiteral",
+    "`$cacheBaseImages = $baseImagesLiteral",
+    "`$cacheEligible = $cacheEligibleLiteral",
+    '$cacheEnabled = ([string]$env:TASKSPACE_DOCKER_IMAGE_CACHE -eq "1" -and $cacheEligible)',
+    '$cacheBypassReason = if ($cacheEligible) { "" } else { "dockerfile_base_image_not_digest_pinned" }',
+    '$cacheImage = "whale-taskspace-terminal-bench-cache:$dockerCacheKey"',
+    '$image = if ($cacheEnabled) { $cacheImage } else { "whale-taskspace-terminal-bench:$repoHash-$proofNoncePrefix" }',
     '$containerName = "whale-tbench-$repoHash-$proofNoncePrefix"',
     '$entryContent = @''',
     'set -euo pipefail',
@@ -388,6 +422,10 @@ $validatorLines = @(
     'Write-Host "validator_wrapper_sha256=$wrapperSha"',
     'Write-Host "validator_entry_sha256=$entrySha"',
     'Write-Host "docker_backend=$backend"',
+    'Write-Host "docker_cache_enabled=$cacheEnabled"',
+    'Write-Host "docker_cache_eligible=$cacheEligible"',
+    'Write-Host "docker_cache_bypass_reason=$cacheBypassReason"',
+    'Write-Host "docker_cache_key=$dockerCacheKey"',
     'Write-Host "docker_image=$image"',
     'Write-Host "docker_container=$containerName"',
     'Write-Host "repo_mount=$repoDockerPath"',
@@ -406,6 +444,15 @@ $validatorLines = @(
     '        schema_version = 1',
     '        docker_backend = $script:TaskspaceDockerBackend',
     '        image = $image',
+    '        cache_enabled = $cacheEnabled',
+    '        cache_eligible = $cacheEligible',
+    '        cache_bypass_reason = $cacheBypassReason',
+    '        cache_hit = if ($script:TaskspaceDockerCacheHit) { $true } else { $false }',
+    '        cache_key = $dockerCacheKey',
+    '        cache_image = $cacheImage',
+    '        fixture_sha256 = $fixtureTreeSha256',
+    '        dockerfile_sha256 = $dockerfileSha256',
+    '        dockerfile_from_images = @($cacheBaseImages)',
     '        container_name = $containerName',
     '        result_path = $dockerResultPath',
     '        phases = @($script:dockerPhases.ToArray())',
@@ -418,6 +465,14 @@ $validatorLines = @(
     '    entry_script_path = $entryScript',
     '    entry_sha256 = $entrySha',
     '    docker_backend = $backend',
+    '    docker_cache_enabled = $cacheEnabled',
+    '    docker_cache_eligible = $cacheEligible',
+    '    docker_cache_bypass_reason = $cacheBypassReason',
+    '    docker_cache_key = $dockerCacheKey',
+    '    docker_cache_image = $cacheImage',
+    '    fixture_sha256 = $fixtureTreeSha256',
+    '    dockerfile_sha256 = $dockerfileSha256',
+    '    dockerfile_from_images = @($cacheBaseImages)',
     '    wsl_distro = if ($env:TASKSPACE_DOCKER_WSL_DISTRO) { $env:TASKSPACE_DOCKER_WSL_DISTRO } else { "whale-docker" }',
     '    image = $image',
     '    container_name = $containerName',
@@ -464,11 +519,22 @@ $validatorLines = @(
     '}',
     'Write-Host "proxy_env_count=$($proxyArgs.Count / 2)"',
     '$exitCode = 0',
+    '$script:TaskspaceDockerCacheHit = $false',
     'try {',
     '    $phaseStartedAt = Get-Date',
-    '    Invoke-Docker -Arguments @("build", "--pull", "-t", $image, $fixtureDockerPath)',
+    '    if ($cacheEnabled) {',
+    '        Invoke-DockerOutput -Arguments @("image", "inspect", $cacheImage) | Out-Null',
+    '        if ($script:LastDockerExitCode -eq 0) {',
+    '            $script:TaskspaceDockerCacheHit = $true',
+    '        } else {',
+    '            Invoke-Docker -Arguments @("build", "--pull", "-t", $cacheImage, $fixtureDockerPath)',
+    '        }',
+    '    } else {',
+    '        Invoke-Docker -Arguments @("build", "--pull", "-t", $image, $fixtureDockerPath)',
+    '    }',
     '    $phaseFinishedAt = Get-Date',
-    '    Add-DockerPhaseResult "build" $script:LastDockerExitCode $(if ($script:LastDockerExitCode -eq 0) { "ok" } else { "docker_build_environment_failure" }) $phaseStartedAt $phaseFinishedAt',
+    '    Add-DockerPhaseResult "build" $script:LastDockerExitCode $(if ($script:TaskspaceDockerCacheHit) { "cache_hit" } elseif ($script:LastDockerExitCode -eq 0) { "ok" } else { "docker_build_environment_failure" }) $phaseStartedAt $phaseFinishedAt',
+    '    Write-Host "docker_cache_hit=$script:TaskspaceDockerCacheHit"',
     '    Write-Host "docker_build_result_path=$dockerResultPath"',
     '    if ($script:LastDockerExitCode -ne 0) { exit $script:LastDockerExitCode }',
     '    $runArgs = @(',
@@ -530,6 +596,19 @@ $adapterMetadata = [ordered]@{
     fixture_mode = $fixtureMode
     generated_fixture_allowlist = @($generatedFixtureAllowlist)
     validator_dependency_cache = $uvCache
+    docker_image_cache = [ordered]@{
+        schema_version = 1
+        opt_in_env = "TASKSPACE_DOCKER_IMAGE_CACHE=1"
+        cache_key = $dockerCacheKey
+        cache_image = "whale-taskspace-terminal-bench-cache:$dockerCacheKey"
+        cache_eligible = [bool]$baseImageProof.digest_pinned
+        cache_bypass_reason = if ([bool]$baseImageProof.digest_pinned) { "" } else { "dockerfile_base_image_not_digest_pinned" }
+        fixture_sha256 = $fixtureTreeSha
+        dockerfile_sha256 = $dockerfileSha
+        dockerfile_from_images = @($baseImageProof.from_images)
+        source_version = $SourceVersion
+        default_enabled = $false
+    }
     uv_cache_root = [string]$uvCache.root
     validator_source_dir = $validatorSourceDir
     fixture_source = $fixtureSource

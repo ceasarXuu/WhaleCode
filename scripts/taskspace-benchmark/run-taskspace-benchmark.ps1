@@ -12,10 +12,7 @@ param(
     [ValidateSet("deferred_materialization_allowed", "hard_sandbox_only")]
     [string]$OracleIsolationPolicy = "deferred_materialization_allowed",
     [string]$AuditReviewRoot = "",
-    [switch]$EnableAggregate,
-    [switch]$AllowNonE2Result,
-    [switch]$ScoringMode,
-    [switch]$RequireScoreValidity,
+    [switch]$EnableAggregate, [switch]$AllowNonE2Result, [switch]$ScoringMode, [switch]$RequireScoreValidity, [switch]$EnableDockerImageCache,
     [switch]$ResumeLatest,
     [string]$RunId = "",
     [switch]$ForceRerun,
@@ -24,10 +21,8 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\bootstrap.ps1") -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot
-
 if ($Repeats -lt 1) { throw "Repeats must be >= 1" }
 if (-not $RunRoot) { $RunRoot = Get-NeutralTaskspaceBenchmarkRunRoot $repoRoot }
-
 $manifest = Read-TaskspaceScenarioManifest $repoRoot $Scenario $ScenarioPath
 $prompt = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifest.PromptPath
 $promptGuardConfig = $manifest.PromptGuard
@@ -48,7 +43,6 @@ $promptGuard = Invoke-TaskspacePromptGuard -PromptText $prompt -AllowedContextTe
 if ($promptGuard.invalid_prompt) {
     throw "Scenario prompt leaks internal TaskSpace concepts: $(@($promptGuard.hard_hits) -join ', ')"
 }
-
 $commandLine = if ($MyInvocation.Line) { [string]$MyInvocation.Line } else { [Environment]::CommandLine }
 $runDir = ""
 if (-not [string]::IsNullOrWhiteSpace($RunId)) {
@@ -101,7 +95,6 @@ if ([string]::IsNullOrWhiteSpace($providerParamStatus.explicit.model_reasoning_e
     $providerParamStatus.complete = $false
     $providerParamStatus.missing = @("model_reasoning_effort")
 }
-
 if ($PlanOnly) {
     Write-Host "RunDir: $runDir"
     Write-Host "PromptInvalid: $($promptGuard.invalid_prompt)"
@@ -291,6 +284,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         validation_timeout_seconds = $ValidationTimeoutSeconds
         validation_pretest_timeout_seconds = $ValidationPretestTimeoutSeconds
         validation_test_timeout_seconds = $ValidationTestTimeoutSeconds
+        docker_image_cache_enabled = [bool]$EnableDockerImageCache
         provider_param_status = $providerParamStatus
         config_overrides = @($ConfigOverride)
         sandbox_mode = $SandboxMode
@@ -302,7 +296,6 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         e3 = $manifest.E3
     }
     Write-TaskspaceJson $manifestResolved (Join-Path $pair.PairDir "manifest.resolved.json")
-
     $execBySide = @{}
     $obsBySide = @{}
     $sourceGuard = $null
@@ -357,7 +350,6 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     }
     $probe = Invoke-TaskspaceOracleIsolationProbe $WhaleBin $pair.Left.RepoDir $pair.PairDir $pair.CanaryPath $pair.CanaryText $Model $SandboxMode $ConfigOverride 180
     Materialize-TaskspacePrivateOracle $pair $manifest
-
     $metricsBySide = @{}
     $validationTimingBySide = @{}
     foreach ($side in @($pair.Left, $pair.Right)) {
@@ -366,7 +358,10 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $validationProofDir = Join-Path $side.ArtifactDir "external-validator-runtime"
         $effectiveValidationTimeout = [Math]::Max(30, $ValidationTimeoutSeconds)
         $validationStartedAt = Get-Date
-        $validationExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $validationStdout $validationStderr $effectiveValidationTimeout $validationProofDir @() $ValidationPretestTimeoutSeconds $ValidationTestTimeoutSeconds
+        $oldDockerImageCache = $env:TASKSPACE_DOCKER_IMAGE_CACHE
+        try { if ($EnableDockerImageCache) { $env:TASKSPACE_DOCKER_IMAGE_CACHE = "1" } else { Remove-Item Env:\TASKSPACE_DOCKER_IMAGE_CACHE -ErrorAction SilentlyContinue }
+            $validationExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $validationStdout $validationStderr $effectiveValidationTimeout $validationProofDir @() $ValidationPretestTimeoutSeconds $ValidationTestTimeoutSeconds
+        } finally { if ($null -eq $oldDockerImageCache) { Remove-Item Env:\TASKSPACE_DOCKER_IMAGE_CACHE -ErrorAction SilentlyContinue } else { $env:TASKSPACE_DOCKER_IMAGE_CACHE = $oldDockerImageCache } }
         $validationFinishedAt = Get-Date
         $oracleStartedAt = Get-Date
         $oracle = Invoke-TaskspaceHiddenOracle $side.RepoDir $side.ArtifactDir $pair.HiddenOraclePath "" -BypassSandbox:($SandboxMode -eq "bypass")

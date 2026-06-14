@@ -19,6 +19,7 @@ param(
     [switch]$PlanOnly,
     [switch]$ScoringMode,
     [switch]$RequireScoreValidity,
+    [switch]$EnableDockerImageCache,
     [switch]$ContinueAfterInvalidHarness
 )
 
@@ -151,6 +152,7 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
     if ($PlanOnly) { $args += "-PlanOnly" }
     if ($ScoringMode) { $args += "-ScoringMode" }
     if ($RequireScoreValidity) { $args += "-RequireScoreValidity" }
+    if ($EnableDockerImageCache) { $args += "-EnableDockerImageCache" }
     & powershell @args
     $childExit = $LASTEXITCODE
     $statusPath = Get-ChildItem -LiteralPath $sampleRoot -Filter "sample-status.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1

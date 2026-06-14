@@ -183,7 +183,7 @@ function Get-TaskspaceDockerValidationResult {
     } else { $null }
     $classifications = @()
     if ($json -and $json.PSObject.Properties.Name -contains "phases") {
-        $classifications = @($json.phases | Where-Object { [string]$_.classification -ne "ok" } | ForEach-Object { [string]$_.classification } | Sort-Object -Unique)
+        $classifications = @($json.phases | Where-Object { [string]$_.classification -notin @("ok", "cache_hit") } | ForEach-Object { [string]$_.classification } | Sort-Object -Unique)
     }
     if ($Validation.PSObject.Properties.Name -contains "exit_code" -and [int]$Validation.exit_code -eq 124) {
         $classifications += "public_validation_timeout"
@@ -294,6 +294,13 @@ function Get-TaskspaceBenchmarkMetrics {
         metrics_warnings = @($metricsWarnings)
         metrics_taints = @($metricsTaints)
         docker_build_result_path = $dockerResult.path
+        docker_cache_enabled = ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_enabled" -and [bool]$dockerResult.json.cache_enabled)
+        docker_cache_eligible = ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_eligible" -and [bool]$dockerResult.json.cache_eligible)
+        docker_cache_hit = ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_hit" -and [bool]$dockerResult.json.cache_hit)
+        docker_cache_bypass_reason = if ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_bypass_reason") { [string]$dockerResult.json.cache_bypass_reason } else { "" }
+        docker_cache_key = if ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_key") { [string]$dockerResult.json.cache_key } else { "" }
+        docker_cache_image = if ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_image") { [string]$dockerResult.json.cache_image } else { "" }
+        dockerfile_from_images = if ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "dockerfile_from_images") { @($dockerResult.json.dockerfile_from_images) } else { @() }
         validation_cleanup_result_path = $dockerResult.cleanup_path
         validator_environment_failures = @($dockerResult.classifications)
         validator_environment_mismatch = (Test-TaskspaceValidatorEnvironmentMismatch $Validation)

@@ -22,6 +22,7 @@ param(
     [switch]$AllowDiagnosticNonTargetResult,
     [switch]$ScoringMode,
     [switch]$RequireScoreValidity,
+    [switch]$EnableDockerImageCache,
     [switch]$PlanOnly
 )
 
@@ -137,6 +138,7 @@ if ($EnableAggregate) { $args += "-EnableAggregate" }
 if ($AllowDiagnosticNonTargetResult) { $args += "-AllowNonE2Result" }
 if ($ScoringMode) { $args += "-ScoringMode" }
 if ($RequireScoreValidity) { $args += "-RequireScoreValidity" }
+if ($EnableDockerImageCache) { $args += "-EnableDockerImageCache" }
 if ($PlanOnly) { $args += "-PlanOnly" }
 & powershell @args
 $exitCode = $LASTEXITCODE
