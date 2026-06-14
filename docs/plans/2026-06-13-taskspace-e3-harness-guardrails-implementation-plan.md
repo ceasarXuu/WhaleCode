@@ -1,11 +1,11 @@
 # TaskSpace E3 Harness Guardrails Implementation Plan
 
 - Created: 2026-06-13
-- Updated: 2026-06-13
-- Version: 0.1
-- Status: Revised after round 1 adversarial review
+- Updated: 2026-06-14
+- Version: 0.2
+- Status: Repair-ready plan for hard clean-execution scoring contract
 - Owner / Responsible: WhaleCode core
-- Related Systems: TaskSpace E3 benchmark harness, Terminal-Bench adapter, aggregate report, failure taxonomy, E3 proof
+- Related Systems: TaskSpace E3 benchmark harness, Terminal-Bench adapter, aggregate report, audit manifest, failure taxonomy, E3 proof, score validity gate
 - Risk Level: High
 - Plan Type: Engineering implementation plan
 
@@ -549,3 +549,369 @@ The guardrail implementation is complete when all criteria below are true:
 7. Low-cost self-tests cover preflight, wrapper materialization health, lifecycle marker parsing, probe, sentinel abort, suite circuit breaker summary, resume/finalize guard, and report rendering.
 8. One-pair E3 smoke demonstrates either valid test lifecycle progression or a correctly classified guardrail abort.
 9. Full E3 is only run after the guardrail tests and smoke pass.
+
+## 14. 2026-06-14 Hard Clean-Execution Repair Addendum
+
+This addendum supersedes any earlier wording that treats Docker failures, validator failures, proof failures, incomplete audit, or report-generation gaps as normal comparable benchmark outcomes. For E3 scoring, only three agent outcomes are score-bearing:
+
+- `solved`
+- `wrong`
+- `agent_exec_timeout`
+
+Every other unexpected condition is `engineering_unclean`. If any pair in a scoring E3 run is `engineering_unclean`, the whole scoring run is invalid and the report must not emit TaskSpace better, Standard better, pass-rate delta, regression, or improvement conclusions.
+
+### 14.1 Current Implementation State
+
+The repository already has part of the guardrail substrate. The repair should extend it instead of replacing it.
+
+| File | Current useful behavior | Repair gap |
+|---|---|---|
+| `scripts/taskspace-benchmark/lib/harness-health.ps1` | Defines invalid harness exit code `3`, disk checks, Docker storage checks, fully qualified path checks, validator probe parsing, text signatures, hard infra signature checks, sentinel abort decisions, and harness health artifacts. | It can detect many infra signatures, but the runner and report layers do not yet convert every non-agent condition into a hard score-invalid contract. |
+| `scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1` | Provides a suite-level entrypoint and child run orchestration. | It must stop scheduling later samples as soon as a scoring child emits `score_valid=false` or an engineering-unclean abort artifact. |
+| `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1` | Orchestrates sample and pair execution, writes pair artifacts, aggregate reports, run status, and E3 audit-required states. | It currently allows a run to reach `completed` or `audit_required` even when score validity is unknown or false. It needs an explicit scoring mode gate. |
+| `scripts/taskspace-benchmark/lib/aggregate-report.ps1` | Emits `run_validity`, invalid-run fields, and disables some diagnostic comparison fields when the run is invalid. | It does not yet expose the hard scoring contract fields `score_valid`, `score_invalid_reason`, `engineering_unclean_count`, `agent_exec_timeout_count`, and `clean_comparable_pair_count`. |
+| `scripts/taskspace-benchmark/lib/audit-manifest.ps1` | Records side metrics, inclusion flags, exclusion reason, failure taxonomy, utility direction, and audit status. | It lacks per-pair hard outcome fields such as `outcome_standard`, `outcome_taskspace`, `engineering_unclean`, `engineering_unclean_reasons`, and `run_score_valid`. |
+| `scripts/taskspace-benchmark/lib/failure-taxonomy.ps1` | Maps many observed failures into diagnostic classes and utility directions. | Legacy classes such as `validator_slow_or_flaky` and `taskspace_overhead_timeout` can still look like comparable diagnostic outcomes. They need to feed a separate hard `engineering_unclean` classifier. |
+| `scripts/taskspace-benchmark/lib/suite-status.ps1` | Distinguishes completed child process state from failed child process state. | It must also distinguish process completion from score validity. A child can finish cleanly as a process and still invalidate E3 scoring. |
+
+### 14.2 Root Cause From The Previous E3 Run
+
+The previous E3 run was invalid because the execution pipeline measured and aggregated tasks after the benchmark infrastructure had already become unclean.
+
+Observed invalidating signals:
+
+- `e3_human_review_not_completed` on all 15 pairs.
+- `manual_review_required` on 10 of 15 pairs.
+- `audit_unclean` on all 15 pairs.
+- `public_validation_timeout` on 8 of 15 pairs.
+- `e3_external_validator_fidelity_unproven` on 8 of 15 pairs.
+- `e3_external_validator_not_e3_eligible` on 8 of 15 pairs.
+- `docker_run_failure` on 7 of 15 pairs.
+- `docker_build_environment_failure` on 1 of 15 pairs.
+- `docker_cleanup_container_inspect_failure` on 1 of 15 pairs.
+- `e3_exec_timeout` on 2 of 15 pairs, but those pairs were mixed with Docker failures and therefore were not clean agent timeouts.
+
+The engineering bug is not that these signals were invisible. The bug is that no single score-validity gate owned the rule: "score-bearing outcomes are solved, wrong, and clean agent execution timeout only." As a result, diagnostic artifacts were allowed to reach final comparison language.
+
+### 14.3 Concrete Data Contract
+
+Add the following fields to every aggregate JSON and markdown report produced by E3 scoring mode:
+
+```json
+{
+  "score_valid": false,
+  "score_invalid_reason": "engineering_unclean",
+  "score_fields_enabled": false,
+  "engineering_unclean_count": 15,
+  "engineering_unclean_reasons": {
+    "e3_human_review_not_completed": 15,
+    "public_validation_timeout": 8,
+    "docker_run_failure": 7
+  },
+  "agent_exec_timeout_count": 0,
+  "clean_comparable_pair_count": 0,
+  "score_bearing_outcomes": ["solved", "wrong", "agent_exec_timeout"]
+}
+```
+
+Required report behavior:
+
+- If `score_valid=false`, set `taskspace_better`, `standard_better`, `pass_rate_delta`, `diagnostic_pass_rate_delta`, and any "regressed" wording to `null`, `n/a`, or an explicit disabled value.
+- If `score_valid=false`, the first markdown section must say the score is invalid before listing task counts.
+- If the only non-success condition is clean `agent_exec_timeout`, keep `score_valid=true` and count it as an agent outcome.
+- If `agent_exec_timeout` is mixed with Docker, validator, proof, audit, disk, path, or report failure on the same pair, classify that pair as `engineering_unclean`, not as clean agent timeout.
+- The aggregate report must preserve diagnostic details, but diagnostic detail is not a score.
+
+Add the following fields to each pair-level audit manifest row:
+
+```json
+{
+  "outcome_standard": "solved",
+  "outcome_taskspace": "engineering_unclean",
+  "engineering_unclean": true,
+  "engineering_unclean_reasons": [
+    "public_validation_timeout",
+    "docker_run_failure"
+  ],
+  "agent_exec_timeout_clean": false,
+  "run_score_valid": false,
+  "score_exclusion_reason": "engineering_unclean"
+}
+```
+
+### 14.4 File-Level Repair Plan
+
+Implement the fix in this order.
+
+1. `scripts/taskspace-benchmark/lib/failure-taxonomy.ps1`
+
+   Add a hard outcome classifier that is separate from the existing diagnostic taxonomy:
+
+   ```powershell
+   function Get-TaskspaceEngineeringUncleanReasons {
+       param(
+           [Parameter(Mandatory=$true)] [hashtable] $Metrics,
+           [hashtable] $Proof = @{},
+           [hashtable] $Audit = @{},
+           [hashtable] $HarnessHealth = @{}
+       )
+       # Return stable reason codes only. Do not return prose.
+   }
+
+   function Get-TaskspaceAgentOutcome {
+       param(
+           [Parameter(Mandatory=$true)] [hashtable] $Metrics,
+           [string[]] $EngineeringUncleanReasons = @()
+       )
+       # solved | wrong | agent_exec_timeout | engineering_unclean
+   }
+   ```
+
+   Mapping rules:
+
+   | Signal | Outcome |
+   |---|---|
+   | Public validation succeeded and hidden oracle succeeded, with no infra reason | `solved` |
+   | Public validation reached tests and failed assertion, with no infra reason | `wrong` |
+   | Agent execution timed out, validation/proof/Docker/audit are otherwise clean | `agent_exec_timeout` |
+   | `public_validation_exit_code=124` | `engineering_unclean` reason `public_validation_timeout` |
+   | Any Docker build/run/cleanup/inspect failure before trustworthy test result | `engineering_unclean` with the Docker reason code |
+   | Validator proof missing, validator fidelity unproven, or E3 eligibility false | `engineering_unclean` |
+   | Audit required but no completed audit decision in scoring mode | `engineering_unclean` reason `e3_human_review_not_completed` |
+   | Missing report, unparsable metrics, path not absolute, disk below threshold | `engineering_unclean` |
+
+   Keep the old taxonomy functions for diagnostics, but make `Get-TaskspaceUtilityDirection` consume the hard outcome first. If hard outcome is `engineering_unclean`, utility direction must be `invalid_run` or `score_disabled`, never `taskspace_better`, `standard_better`, or `inconclusive`.
+
+2. `scripts/taskspace-benchmark/lib/audit-manifest.ps1`
+
+   Extend the manifest row object after side metrics are loaded:
+
+   - Compute `engineering_unclean_reasons_standard`.
+   - Compute `engineering_unclean_reasons_taskspace`.
+   - Compute `outcome_standard`.
+   - Compute `outcome_taskspace`.
+   - Set pair-level `engineering_unclean` if either side has hard unclean reasons, or if cross-side proof/audit state is unclean.
+   - Set `run_score_valid=false` for that pair when `engineering_unclean=true`.
+
+   The manifest writer must keep the old fields for backwards compatibility, but the new hard fields are authoritative for scoring.
+
+3. `scripts/taskspace-benchmark/lib/aggregate-report.ps1`
+
+   Add a score-validity reducer before any better/worse counts are calculated:
+
+   ```powershell
+   $scoreRows = $AuditRows | Where-Object { $_.sample_kind -eq 'e3' }
+   $engineeringUncleanRows = $scoreRows | Where-Object { $_.engineering_unclean -eq $true }
+   $cleanRows = $scoreRows | Where-Object { $_.engineering_unclean -ne $true }
+
+   $scoreValid = ($engineeringUncleanRows.Count -eq 0)
+   ```
+
+   Required reducer outputs:
+
+   - `score_valid`
+   - `score_invalid_reason`
+   - `score_fields_enabled`
+   - `engineering_unclean_count`
+   - `engineering_unclean_reasons`
+   - `agent_exec_timeout_count`
+   - `clean_comparable_pair_count`
+   - `score_bearing_outcomes`
+
+   If `$scoreValid -eq $false`, do not calculate public score deltas from all rows. Instead:
+
+   - Preserve raw counts under a `diagnostics` object.
+   - Set comparison fields to disabled values.
+   - Render the markdown summary as "Score validity: invalid".
+
+4. `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1`
+
+   Introduce a scoring mode switch without breaking diagnostic runs:
+
+   ```powershell
+   [switch] $ScoringMode,
+   [switch] $RequireScoreValidity
+   ```
+
+   Execution rules:
+
+   - `-ScoringMode` implies `-RequireScoreValidity`.
+   - In scoring mode, an `audit_required` sample is not score-complete unless a completed audit decision exists.
+   - After each pair, read the pair audit manifest or pair metrics and run the hard classifier.
+   - If a pair is `engineering_unclean`, write `pair-abort.json`, set sample status to `invalid_harness`, set process exit code `3`, and stop scheduling later repeats for the sample.
+   - If the pair is clean `agent_exec_timeout`, continue aggregation and count it as an agent outcome.
+   - If `-ScoringMode` is absent, allow diagnostic completion but still set `score_valid=false` when hard unclean reasons exist.
+
+5. `scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1`
+
+   The suite driver must treat child process completion and score validity as separate gates.
+
+   Required loop behavior:
+
+   ```powershell
+   foreach ($sample in $Samples) {
+       $child = Invoke-E3Sample -ScoringMode
+       $status = Read-TaskspaceSampleStatus $child.RunRoot
+       $aggregate = Read-TaskspaceAggregate $child.RunRoot
+
+       if ($status.run_validity -eq 'invalid_harness' -or $aggregate.score_valid -eq $false) {
+           Write-TaskspaceSuiteHealth -Status 'invalid_harness' -AbortScope 'suite'
+           exit 3
+       }
+   }
+   ```
+
+   The driver must not run sample 2 or sample 3 after sample 1 proves the scoring environment is unclean.
+
+6. `scripts/taskspace-benchmark/lib/suite-status.ps1`
+
+   Add score-validity fields to suite summaries:
+
+   - `completed_child_processes`
+   - `score_valid_child_runs`
+   - `score_invalid_child_runs`
+   - `first_score_invalid_run`
+   - `suite_score_valid`
+
+   A child with phase `completed` but `score_valid=false` must not be counted as a successful scoring child.
+
+7. `scripts/taskspace-benchmark/finalize-taskspace-e3-run.ps1`
+
+   Finalize must refuse to generate scoring language when existing artifacts contain hard unclean reasons.
+
+   Required behavior:
+
+   - Default: fail with exit code `3` and write `run_validity=invalid_harness`.
+   - `-DiagnosticOnly` or existing forensic override: allow report regeneration, but preserve `score_valid=false`.
+   - Never convert an invalid scoring run into a valid run during finalize.
+
+### 14.5 Low-Cost Test Fixtures
+
+Create or extend a focused test script:
+
+- Preferred new script: `scripts/taskspace-benchmark/test-e3-score-validity.ps1`
+- Acceptable alternative: extend `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` if the new tests stay readable.
+
+Use synthetic JSON fixtures under:
+
+```text
+scripts/taskspace-benchmark/test-fixtures/e3-score-validity/
+```
+
+Required fixture cases:
+
+| Fixture | Standard side | TaskSpace side | Expected pair outcome | Expected score validity |
+|---|---|---|---|---|
+| `clean-solved.json` | validation pass | validation pass | `solved` or `both_success` | `true` |
+| `clean-wrong.json` | validation fail after tests started | validation fail after tests started | `wrong` | `true` |
+| `clean-agent-timeout.json` | clean timeout or normal finish | `exec_timed_out=true`, no infra reason | `agent_exec_timeout` | `true` |
+| `validator-timeout.json` | `public_validation_exit_code=124` | any | `engineering_unclean` | `false` |
+| `docker-run-failure.json` | `docker_run_failure=true` | any | `engineering_unclean` | `false` |
+| `proof-false.json` | validator fidelity false | any | `engineering_unclean` | `false` |
+| `audit-missing.json` | manual review required | manual review not completed | `engineering_unclean` in scoring mode | `false` |
+| `timeout-plus-docker.json` | timeout plus Docker failure | any | `engineering_unclean`, not clean timeout | `false` |
+| `previous-e3-rerun-summary.json` | previous run counts | previous run counts | all scoring disabled | `false` |
+
+Minimum assertions:
+
+```powershell
+Assert-Equal $result.score_valid $false
+Assert-Equal $result.score_fields_enabled $false
+Assert-Contains $result.engineering_unclean_reasons.Keys 'public_validation_timeout'
+Assert-Null $result.taskspace_better
+Assert-Null $result.standard_better
+Assert-Null $result.pass_rate_delta
+```
+
+### 14.6 Smoke And Regression Commands
+
+Run the tests in this order. Do not start full E3 until every command below passes.
+
+```powershell
+.\scripts\taskspace-benchmark\test-e3-score-validity.ps1
+.\scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1
+.\scripts\taskspace-benchmark\test-e3-proof-harness.ps1
+.\scripts\taskspace-benchmark\test-harness.ps1
+```
+
+After the cheap tests pass, run exactly one scoring smoke pair:
+
+```powershell
+.\scripts\taskspace-benchmark\run-taskspace-e3-suite.ps1 `
+  -Version '0.0.4' `
+  -SampleLimit 1 `
+  -RepeatCount 1 `
+  -ScoringMode
+```
+
+Expected smoke result:
+
+- If clean, aggregate JSON has `score_valid=true` and exactly one clean comparable pair or clean agent timeout.
+- If unclean, process exits `3`, `suite-health.json` names the first engineering reason, and no remaining samples are scheduled.
+- Any other exit code or missing `score_valid` field is a harness bug and blocks full E3.
+
+Only after the one-pair smoke passes may full E3 be scheduled:
+
+```powershell
+.\scripts\taskspace-benchmark\run-taskspace-e3-suite.ps1 `
+  -Version '0.0.4' `
+  -SampleLimit 3 `
+  -RepeatCount 5 `
+  -ScoringMode
+```
+
+### 14.7 Full E3 Start Gate
+
+Before running a multi-hour E3 suite, the operator must verify these artifacts from the cheap gate:
+
+| Gate | Required value |
+|---|---|
+| Disk preflight | `harness-health.json.status = pass` and no checked volume below configured free-space threshold |
+| Docker storage | Docker data root and target run root have enough free space |
+| Path contract | Generated validator paths are fully qualified, not relative to pair workspace |
+| Proof harness | `test-e3-proof-harness.ps1` passes |
+| Score validity fixtures | all fixture cases pass |
+| One-pair smoke | has explicit `score_valid=true` or classified exit code `3` |
+| Report language | invalid run report contains no better/worse/regressed conclusion |
+
+If any gate fails, do not run full E3. Fix the gate first and rerun the cheap suite.
+
+### 14.8 Logging Requirements
+
+Add explicit structured events. These are required because the last failure was visible only after expensive work had already completed.
+
+| Event | Emitted by | Required fields |
+|---|---|---|
+| `score_validity_evaluated` | aggregate reducer | `run_id`, `sample_id`, `score_valid`, `engineering_unclean_count`, `agent_exec_timeout_count` |
+| `engineering_unclean_detected` | runner after pair | `run_id`, `pair_id`, `side`, `reasons`, `first_failure_artifact` |
+| `scoring_run_aborted` | runner and suite driver | `run_id`, `abort_scope`, `abort_phase`, `exit_code`, `reason` |
+| `audit_score_blocked` | audit manifest writer | `run_id`, `pair_id`, `audit_status`, `missing_decision_count` |
+| `suite_score_invalidated` | suite driver | `suite_run_id`, `child_run_id`, `sample_id`, `reason`, `remaining_samples_skipped` |
+
+The markdown report should include the first failure artifact path. The JSON logs should include stable reason codes so future tooling can aggregate failures across runs.
+
+### 14.9 Acceptance Criteria For This Repair
+
+This repair is complete only when all items below are true:
+
+1. The previous E3 failure pattern is reproducible by a cheap fixture and produces `score_valid=false`.
+2. Public validation timeout is classified as `engineering_unclean`, not a model wrong answer.
+3. Docker build/run/cleanup/inspect failure is classified as `engineering_unclean`, not an agent outcome.
+4. Missing audit decision in scoring mode invalidates the score.
+5. Clean agent execution timeout remains score-bearing.
+6. Timeout mixed with Docker, validator, proof, audit, disk, path, or report failure is not counted as clean timeout.
+7. Suite process stops after the first scoring-invalid child run.
+8. Aggregate JSON includes all score-validity fields.
+9. Invalid markdown reports contain no better/worse/regressed language.
+10. Full E3 cannot be started from the documented workflow before cheap fixture tests and one-pair smoke pass.
+
+### 14.10 Non-Negotiable Engineering Constraint
+
+A completed process is not the same thing as a valid benchmark score. E3 execution is considered successful only when:
+
+- all planned scoring pairs either produce `solved`, `wrong`, or clean `agent_exec_timeout`;
+- no engineering-unclean reason appears in any scoring pair;
+- audit requirements are completed before score reporting;
+- aggregate report sets `score_valid=true`.
+
+If these conditions are not met, the run may still be useful for diagnostics, but its score is invalid and must be reported as such.
