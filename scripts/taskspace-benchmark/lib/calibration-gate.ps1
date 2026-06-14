@@ -107,6 +107,9 @@ function Test-TaskspaceParallelSmokeEvidence {
     if (-not (Test-TaskspaceJsonField $equivalence "compared_sample_ids") -or @($equivalence.compared_sample_ids).Count -eq 0) {
         return New-TaskspaceCalibrationGateRow "parallel_smoke" "fail" "parallel_compared_samples_missing" $EquivalencePath
     }
+    if (-not (Test-TaskspaceJsonField $equivalence "required_sample_fields") -or @($equivalence.required_sample_fields).Count -eq 0) {
+        return New-TaskspaceCalibrationGateRow "parallel_smoke" "fail" "parallel_required_sample_fields_missing" $EquivalencePath
+    }
     foreach ($identityCheck in @(
             (Test-TaskspaceCalibrationIdentityField $equivalence "task_list_hash" $ExpectedTaskListHash "parallel_smoke" $EquivalencePath),
             (Test-TaskspaceCalibrationIdentityField $equivalence "source_version" $ExpectedSourceVersion "parallel_smoke" $EquivalencePath),

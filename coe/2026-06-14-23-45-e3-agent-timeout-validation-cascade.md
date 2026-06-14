@@ -527,3 +527,29 @@ Validation passed:
 - `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
 
 Remaining scope: this is adapter-level fixture proof. The release gate still needs accepted runtime Docker cache smoke evidence, governed parallel smoke release evidence, official one-pair/three-task calibration artifacts, legacy full-run import, and final full E3 approval.
+
+## Hypothesis H-021
+
+Claim: serial-vs-parallel comparison must fail closed when required sample identity/proof fields are absent. Comparing only fields that happen to exist lets a parallel smoke pass even when profile, config, prompt, or proof identity cannot be verified.
+
+Predictions:
+- `Compare-TaskspaceSuiteScoreEquivalence` should accept a list of required sample fields.
+- Missing required fields on either serial or parallel sample rows should produce drifts with `<missing>` markers.
+- `Write-TaskspaceSuiteScoreEquivalence` should persist the required field list into the equivalence artifact.
+- `Invoke-TaskspaceCalibrationGate` should reject parallel equivalence artifacts that omit required sample-field provenance.
+
+Diagnostic evidence plan:
+- Add required-field support to `parallel-diff.ps1`.
+- Extend `test-e3-harness-guardrails.ps1` with a missing required field negative fixture.
+- Extend calibration-gate fixture so a parallel equivalence artifact without `required_sample_fields` fails before full E3 can be allowed.
+
+## Evidence E-034
+
+Supports H-021 for comparator/gate fail-closed behavior. `scripts/taskspace-benchmark/lib/parallel-diff.ps1` now accepts `RequiredSampleFields`, emits missing-field drifts, and records `required_sample_fields` in the equivalence artifact. `scripts/taskspace-benchmark/lib/calibration-gate.ps1` now rejects parallel equivalence artifacts that omit `required_sample_fields`. `test-e3-harness-guardrails.ps1` includes both a missing required field negative comparator fixture and a calibration-gate fixture for missing `required_sample_fields`.
+
+Validation passed:
+- PowerShell parser check for `parallel-diff.ps1`, `calibration-gate.ps1`, and `test-e3-harness-guardrails.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
+
+Remaining scope: this is fixture-level comparator proof. Official serial calibration, governed parallel smoke release evidence, legacy full-run import, and final full E3 approval remain open.

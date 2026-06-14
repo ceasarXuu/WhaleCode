@@ -40,7 +40,8 @@ function Compare-TaskspaceScalarField {
 function Compare-TaskspaceSuiteScoreEquivalence {
     param(
         [Parameter(Mandatory = $true)]$SerialSuiteHealth,
-        [Parameter(Mandatory = $true)]$ParallelSuiteHealth
+        [Parameter(Mandatory = $true)]$ParallelSuiteHealth,
+        [string[]]$RequiredSampleFields = @()
     )
     $drifts = New-Object System.Collections.Generic.List[object]
     foreach ($field in @(
@@ -74,6 +75,19 @@ function Compare-TaskspaceSuiteScoreEquivalence {
         if (-not $parallelMap.ContainsKey($sampleId)) { continue }
         $serialStatus = $serialMap[$sampleId]
         $parallelStatus = $parallelMap[$sampleId]
+        foreach ($field in @($RequiredSampleFields | Sort-Object -Unique)) {
+            $serialHasField = $serialStatus.PSObject.Properties.Name -contains $field
+            $parallelHasField = $parallelStatus.PSObject.Properties.Name -contains $field
+            if (-not $serialHasField -or -not $parallelHasField) {
+                $drifts.Add([pscustomobject]@{
+                        scope = "sample:$sampleId"
+                        field = $field
+                        serial = if ($serialHasField) { Get-TaskspaceComparableField $serialStatus $field } else { "<missing>" }
+                        parallel = if ($parallelHasField) { Get-TaskspaceComparableField $parallelStatus $field } else { "<missing>" }
+                    })
+                continue
+            }
+        }
         foreach ($field in @(
                 "run_validity",
                 "phase",
@@ -111,6 +125,7 @@ function Compare-TaskspaceSuiteScoreEquivalence {
         drift_count = $drifts.Count
         drifts = @($drifts.ToArray())
         compared_sample_ids = @($serialIds)
+        required_sample_fields = @($RequiredSampleFields)
     }
 }
 
@@ -121,11 +136,12 @@ function Write-TaskspaceSuiteScoreEquivalence {
         [Parameter(Mandatory = $true)][string]$OutputPath,
         [string]$TaskListHash = "",
         [string]$SourceVersion = "",
-        [string]$ProfileHash = ""
+        [string]$ProfileHash = "",
+        [string[]]$RequiredSampleFields = @()
     )
     $serial = Get-Content -Raw -Encoding UTF8 -LiteralPath $SerialSuiteHealthPath | ConvertFrom-Json
     $parallel = Get-Content -Raw -Encoding UTF8 -LiteralPath $ParallelSuiteHealthPath | ConvertFrom-Json
-    $result = Compare-TaskspaceSuiteScoreEquivalence $serial $parallel
+    $result = Compare-TaskspaceSuiteScoreEquivalence $serial $parallel $RequiredSampleFields
     $result | Add-Member -NotePropertyName task_list_hash -NotePropertyValue $TaskListHash -Force
     $result | Add-Member -NotePropertyName source_version -NotePropertyValue $SourceVersion -Force
     $result | Add-Member -NotePropertyName profile_hash -NotePropertyValue $ProfileHash -Force

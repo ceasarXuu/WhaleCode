@@ -331,13 +331,15 @@ Assert-True ([string]$parallelismSmoke.serial_only_status -eq "sample_parallel_s
 Assert-True ([int]$parallelismSmoke.observed.max_parallel_samples -eq 2) "parallelism artifact did not record observed sample-level parallelism"
 Assert-True ((Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-a\sample-status.json")) -and (Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-b\sample-status.json")) -and (Test-Path -LiteralPath (Join-Path $parallelRunRoot "samples\sample-c\sample-status.json"))) "parallel suite smoke did not isolate sample artifacts"
 $equivalencePath = Join-Path $parallelSuiteRoot "serial-vs-parallel-equivalence.json"
-$equivalence = Write-TaskspaceSuiteScoreEquivalence -SerialSuiteHealthPath (Join-Path $serialRunRoot "suite-health.json") -ParallelSuiteHealthPath (Join-Path $parallelRunRoot "suite-health.json") -OutputPath $equivalencePath -TaskListHash "task-list-a" -SourceVersion "source-a" -ProfileHash "profile-a"
+$equivalence = Write-TaskspaceSuiteScoreEquivalence -SerialSuiteHealthPath (Join-Path $serialRunRoot "suite-health.json") -ParallelSuiteHealthPath (Join-Path $parallelRunRoot "suite-health.json") -OutputPath $equivalencePath -TaskListHash "task-list-a" -SourceVersion "source-a" -ProfileHash "profile-a" -RequiredSampleFields @("run_validity", "phase")
 Assert-True ([bool]$equivalence.comparable -and -not [bool]$equivalence.parallel_smoke_score_drift -and [int]$equivalence.drift_count -eq 0) "serial-vs-parallel equivalence reported unexpected drift"
 Assert-True ([string]$equivalence.task_list_hash -eq "task-list-a" -and [string]$equivalence.source_version -eq "source-a" -and [string]$equivalence.profile_hash -eq "profile-a") "serial-vs-parallel equivalence did not preserve identity fields"
 $driftFixture = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $parallelRunRoot "suite-health.json") | ConvertFrom-Json
 $driftFixture.sample_statuses[1].run_validity = "invalid_harness"
 $driftResult = Compare-TaskspaceSuiteScoreEquivalence (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $serialRunRoot "suite-health.json") | ConvertFrom-Json) $driftFixture
 Assert-True (-not [bool]$driftResult.comparable -and [bool]$driftResult.parallel_smoke_score_drift -and @($driftResult.drifts | Where-Object { [string]$_.scope -eq "sample:sample-b" -and [string]$_.field -eq "run_validity" }).Count -eq 1) "serial-vs-parallel equivalence did not detect sample score drift"
+$requiredFieldResult = Compare-TaskspaceSuiteScoreEquivalence (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $serialRunRoot "suite-health.json") | ConvertFrom-Json) (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $parallelRunRoot "suite-health.json") | ConvertFrom-Json) @("prompt_hash", "config_hash", "proof_status")
+Assert-True (-not [bool]$requiredFieldResult.comparable -and [bool]$requiredFieldResult.parallel_smoke_score_drift -and @($requiredFieldResult.drifts | Where-Object { [string]$_.serial -eq "<missing>" -or [string]$_.parallel -eq "<missing>" }).Count -gt 0) "serial-vs-parallel equivalence silently passed missing required sample fields"
 
 $stateRun = Join-Path $runDir "invalid-state"
 New-Item -ItemType Directory -Force -Path $stateRun | Out-Null
@@ -561,6 +563,18 @@ $identityMismatchGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePa
 Assert-True ([string]$identityMismatchGate.status -eq "fail" -and [string]$identityMismatchGate.first_failure.reason -eq "one_pair_smoke_identity_mismatch:task_list_hash") "calibration gate did not block identity-mismatched one-pair timing evidence"
 $missingOnePairGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot (Join-Path $calibrationGateRoot "missing-one-pair") -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $equivalencePath
 Assert-True ([string]$missingOnePairGate.status -eq "fail" -and -not [bool]$missingOnePairGate.full_e3_allowed -and [string]$missingOnePairGate.first_failure.reason -eq "one_pair_root_missing") "calibration gate did not block missing one-pair smoke evidence"
+$missingRequiredFieldsEquivalencePath = Join-Path $calibrationGateRoot "missing-required-fields-equivalence.json"
+[pscustomobject]@{
+    parallel_smoke_score_drift = $false
+    comparable = $true
+    drift_count = 0
+    compared_sample_ids = @("sample-a")
+    task_list_hash = "task-list-a"
+    source_version = "source-a"
+    profile_hash = "profile-a"
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $missingRequiredFieldsEquivalencePath -Encoding UTF8
+$missingRequiredFieldsGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePairRoot -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $missingRequiredFieldsEquivalencePath
+Assert-True ([string]$missingRequiredFieldsGate.status -eq "fail" -and [string]$missingRequiredFieldsGate.first_failure.reason -eq "parallel_required_sample_fields_missing") "calibration gate did not block parallel equivalence missing required sample fields"
 $driftEquivalencePath = Join-Path $calibrationGateRoot "drift-equivalence.json"
 [pscustomobject]@{
     parallel_smoke_score_drift = $true
@@ -574,6 +588,7 @@ $notComparableEquivalencePath = Join-Path $calibrationGateRoot "not-comparable-e
     parallel_smoke_score_drift = $false
     drift_count = 0
     compared_sample_ids = @("sample-a")
+    required_sample_fields = @("run_validity", "phase")
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $notComparableEquivalencePath -Encoding UTF8
 $notComparableCalibrationGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePairRoot -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $notComparableEquivalencePath
 Assert-True ([string]$notComparableCalibrationGate.status -eq "fail" -and [string]$notComparableCalibrationGate.first_failure.reason -eq "parallel_not_comparable") "calibration gate did not block non-comparable parallel equivalence"
