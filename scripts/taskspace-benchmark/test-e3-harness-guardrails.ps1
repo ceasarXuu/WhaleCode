@@ -311,15 +311,19 @@ Assert-True ([int]$suiteTiming.bottleneck_counts.docker_build_bound -eq 1) "suit
 Assert-True ([int]$suiteTiming.docker_cache_key_counts."cache-a" -eq 2 -and [string]$suiteTiming.repeated_docker_cache_keys[0] -eq "cache-a") "suite timing did not aggregate repeated Docker cache keys"
 $runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath (Join-Path $suiteRoot "suite-timing.json") -ScoreValid $true
 $runtimeBottleneckText = Get-Content -Raw -Encoding UTF8 -LiteralPath $runtimeBottleneckPath
+$runtimeBottleneckJson = Get-Content -Raw -Encoding UTF8 -LiteralPath ([System.IO.Path]::ChangeExtension($runtimeBottleneckPath, ".json")) | ConvertFrom-Json
 Assert-True ($runtimeBottleneckText -match "speedup_decision: speedup_blocked_instrumentation") "runtime bottleneck report did not block speedup when wait attribution is missing"
 Assert-True ($runtimeBottleneckText -match "wait_attribution_missing_fields: .*model_queue_wait_ms") "runtime bottleneck report did not render missing wait attribution fields"
+Assert-True ([string]$runtimeBottleneckJson.speedup_decision -eq "speedup_blocked_instrumentation") "runtime bottleneck JSON did not record speedup decision"
 
 $timingAggregatePath = Join-Path $suiteRoot "aggregate-report.md"
 Write-TaskspaceAggregateReport -Path $timingAggregatePath -Reports @([pscustomobject]@{ repeat = 1; pair_dir = $pairTimingDir; pair_report = "pair-report.md"; evidence_target = "E3"; evidence = $evidence })
 $timingAggregate = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteRoot "aggregate.json") | ConvertFrom-Json
 $timingAggregateText = Get-Content -Raw -Encoding UTF8 -LiteralPath $timingAggregatePath
 Assert-True ([string]$timingAggregate.timing_summary.bottleneck_classification -eq "mixed_or_unclassified") "aggregate JSON did not include suite timing bottleneck"
+Assert-True ([string]$timingAggregate.timing_summary.speedup_decision -eq "speedup_blocked_instrumentation") "aggregate JSON did not include runtime speedup decision"
 Assert-True ($timingAggregateText -match "## Timing Summary" -and $timingAggregateText -match "top_span:" -and $timingAggregateText -match "total_median_ms") "aggregate report did not render timing summary"
+Assert-True ($timingAggregateText -match "speedup_decision: speedup_blocked_instrumentation") "aggregate report did not render speedup decision"
 Assert-True ($timingAggregateText -match "repeated_docker_cache_keys: cache-a") "aggregate report did not render repeated Docker cache keys"
 
 if ($failures.Count -gt 0) {

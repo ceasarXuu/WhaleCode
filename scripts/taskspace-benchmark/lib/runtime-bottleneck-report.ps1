@@ -57,6 +57,7 @@ function Write-TaskspaceRuntimeBottleneckReport {
         [bool]$ScoreValid = $true
     )
     if (-not $OutputPath) { $OutputPath = Join-Path (Split-Path -Parent $TimingPath) "runtime-bottleneck.md" }
+    $jsonPath = [System.IO.Path]::ChangeExtension($OutputPath, ".json")
     $timing = $null
     $parseError = ""
     if (Test-Path -LiteralPath $TimingPath) {
@@ -67,6 +68,28 @@ function Write-TaskspaceRuntimeBottleneckReport {
     } else {
         Get-TaskspaceRuntimeSpeedDecision $timing $ScoreValid
     }
+    $blockersForJson = if ($timing -and $timing.PSObject.Properties.Name -contains "runtime_optimization_blockers") { @(Get-TaskspaceRuntimeUniqueStrings $timing.runtime_optimization_blockers) } else { @() }
+    $missingForJson = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_missing_fields") { @(Get-TaskspaceRuntimeUniqueStrings $timing.wait_attribution_missing_fields) } else { @() }
+    $jsonArtifact = [ordered]@{
+        schema_version = 1
+        timing_path = $TimingPath
+        report_path = $OutputPath
+        score_valid = $ScoreValid
+        speedup_decision = [string]$decision.decision
+        speedup_decision_reason = [string]$decision.reason
+        timing_parse_error = $parseError
+        timing_quality = if ($timing -and $timing.PSObject.Properties.Name -contains "timing_quality") { [string]$timing.timing_quality } else { "" }
+        runtime_optimization_status = if ($timing -and $timing.PSObject.Properties.Name -contains "runtime_optimization_status") { [string]$timing.runtime_optimization_status } else { "" }
+        bottleneck_classification = if ($timing -and $timing.PSObject.Properties.Name -contains "bottleneck_classification") { [string]$timing.bottleneck_classification } else { "" }
+        wait_attribution_status = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_status") { [string]$timing.wait_attribution_status } else { "" }
+        runtime_optimization_blockers = @($blockersForJson)
+        wait_attribution_missing_fields = @($missingForJson)
+        phase_durations = @(if ($timing) { Get-TaskspaceRuntimePhaseRows $timing } else { @() })
+        top_spans = if ($timing -and $timing.PSObject.Properties.Name -contains "timing_breakdown" -and $timing.timing_breakdown) { @($timing.timing_breakdown.top_spans) } else { @() }
+        repeated_docker_cache_keys = if ($timing -and $timing.PSObject.Properties.Name -contains "repeated_docker_cache_keys") { @(Get-TaskspaceRuntimeUniqueStrings $timing.repeated_docker_cache_keys) } else { @() }
+        generated_at = (Get-Date).ToString("o")
+    }
+    $jsonArtifact | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("# TaskSpace Runtime Bottleneck Report")
     $lines.Add("")
@@ -80,9 +103,9 @@ function Write-TaskspaceRuntimeBottleneckReport {
         $lines.Add("- runtime_optimization_status: $(if ($timing.PSObject.Properties.Name -contains 'runtime_optimization_status') { $timing.runtime_optimization_status } else { '' })")
         $lines.Add("- bottleneck_classification: $(if ($timing.PSObject.Properties.Name -contains 'bottleneck_classification') { $timing.bottleneck_classification } else { '' })")
         $lines.Add("- wait_attribution_status: $(if ($timing.PSObject.Properties.Name -contains 'wait_attribution_status') { $timing.wait_attribution_status } else { '' })")
-        $blockers = if ($timing.PSObject.Properties.Name -contains "runtime_optimization_blockers") { @(Get-TaskspaceRuntimeUniqueStrings $timing.runtime_optimization_blockers) } else { @() }
+        $blockers = @($blockersForJson)
         $lines.Add("- runtime_optimization_blockers: $(if ($blockers.Count -eq 0) { 'none' } else { $blockers -join ', ' })")
-        $missing = if ($timing.PSObject.Properties.Name -contains "wait_attribution_missing_fields") { @(Get-TaskspaceRuntimeUniqueStrings $timing.wait_attribution_missing_fields) } else { @() }
+        $missing = @($missingForJson)
         $lines.Add("- wait_attribution_missing_fields: $(if ($missing.Count -eq 0) { 'none' } else { $missing -join ', ' })")
         $lines.Add("")
         $lines.Add("## Phase Durations")

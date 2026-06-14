@@ -57,6 +57,21 @@ function Get-TaskspaceAggregateTimingArtifact {
     [pscustomobject]@{ path = ""; json = $null }
 }
 
+function Get-TaskspaceRuntimeBottleneckArtifact {
+    param([Parameter(Mandatory = $true)][string]$ReportPath)
+    $dir = Split-Path -Parent $ReportPath
+    $candidate = Join-Path $dir "runtime-bottleneck.json"
+    if (Test-Path -LiteralPath $candidate) {
+        try {
+            $json = Get-Content -Raw -Encoding UTF8 -LiteralPath $candidate | ConvertFrom-Json
+            return [pscustomobject]@{ path = $candidate; json = $json }
+        } catch {
+            return [pscustomobject]@{ path = $candidate; json = $null; parse_error = [string]$_.Exception.Message }
+        }
+    }
+    [pscustomobject]@{ path = ""; json = $null }
+}
+
 function Write-TaskspaceAggregateJsonArtifacts {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -171,9 +186,16 @@ function Write-TaskspaceAggregateReport {
         }).Count
     $cleanComparablePairCount = @($all | Where-Object { @(Get-TaskspaceRowEngineeringUncleanReasons $_).Count -eq 0 -and -not ($_.evidence.PSObject.Properties.Name -contains "audit_required" -and [bool]$_.evidence.audit_required) }).Count
     $timingArtifact = Get-TaskspaceAggregateTimingArtifact $Path
+    $runtimeBottleneckArtifact = Get-TaskspaceRuntimeBottleneckArtifact $Path
     $timingSummary = [ordered]@{
         timing_path = [string]$timingArtifact.path
+        runtime_bottleneck_path = [string]$runtimeBottleneckArtifact.path
         bottleneck_classification = if ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "bottleneck_classification") { [string]$timingArtifact.json.bottleneck_classification } else { "" }
+        speedup_decision = if ($runtimeBottleneckArtifact.json -and $runtimeBottleneckArtifact.json.PSObject.Properties.Name -contains "speedup_decision") { [string]$runtimeBottleneckArtifact.json.speedup_decision } else { "" }
+        speedup_decision_reason = if ($runtimeBottleneckArtifact.json -and $runtimeBottleneckArtifact.json.PSObject.Properties.Name -contains "speedup_decision_reason") { [string]$runtimeBottleneckArtifact.json.speedup_decision_reason } else { "" }
+        runtime_optimization_status = if ($runtimeBottleneckArtifact.json -and $runtimeBottleneckArtifact.json.PSObject.Properties.Name -contains "runtime_optimization_status") { [string]$runtimeBottleneckArtifact.json.runtime_optimization_status } elseif ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "runtime_optimization_status") { [string]$timingArtifact.json.runtime_optimization_status } else { "" }
+        wait_attribution_status = if ($runtimeBottleneckArtifact.json -and $runtimeBottleneckArtifact.json.PSObject.Properties.Name -contains "wait_attribution_status") { [string]$runtimeBottleneckArtifact.json.wait_attribution_status } elseif ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "wait_attribution_status") { [string]$timingArtifact.json.wait_attribution_status } else { "" }
+        wait_attribution_missing_fields = if ($runtimeBottleneckArtifact.json -and $runtimeBottleneckArtifact.json.PSObject.Properties.Name -contains "wait_attribution_missing_fields") { @($runtimeBottleneckArtifact.json.wait_attribution_missing_fields) } elseif ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "wait_attribution_missing_fields") { @($timingArtifact.json.wait_attribution_missing_fields) } else { @() }
         top_spans = if ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "timing_breakdown") { @($timingArtifact.json.timing_breakdown.top_spans) } else { @() }
         phase_distributions = if ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "phase_distributions") { $timingArtifact.json.phase_distributions } else { $null }
         repeated_docker_cache_keys = if ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "repeated_docker_cache_keys") { @($timingArtifact.json.repeated_docker_cache_keys) } else { @() }
@@ -278,7 +300,13 @@ function Write-TaskspaceAggregateReport {
     $lines.Add("")
     $lines.Add("## Timing Summary")
     $lines.Add("- timing_path: $($timingSummary["timing_path"])")
+    $lines.Add("- runtime_bottleneck_path: $($timingSummary["runtime_bottleneck_path"])")
     $lines.Add("- bottleneck_classification: $($timingSummary["bottleneck_classification"])")
+    $lines.Add("- speedup_decision: $($timingSummary["speedup_decision"])")
+    $lines.Add("- speedup_decision_reason: $($timingSummary["speedup_decision_reason"])")
+    $lines.Add("- runtime_optimization_status: $($timingSummary["runtime_optimization_status"])")
+    $lines.Add("- wait_attribution_status: $($timingSummary["wait_attribution_status"])")
+    $lines.Add("- wait_attribution_missing_fields: $(if (@($timingSummary["wait_attribution_missing_fields"]).Count -eq 0) { 'none' } else { @($timingSummary["wait_attribution_missing_fields"]) -join ', ' })")
     if (@($timingSummary["top_spans"]).Count -eq 0) {
         $lines.Add("- top_spans: none")
     } else {
