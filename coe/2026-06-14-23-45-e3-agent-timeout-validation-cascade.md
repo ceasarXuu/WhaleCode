@@ -93,3 +93,25 @@ Supports H-002 repair validation. `scripts/taskspace-benchmark/test-e3-score-val
 ## Evidence E-012
 
 Supports H-002 regression validation. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` still passes after the speed decision mapping change, proving the existing runtime bottleneck report and aggregate timing summary fixtures continue to render `speedup_blocked_instrumentation` for missing/unavailable wait attribution.
+
+## Hypothesis H-003
+
+Claim: resource-governed parallelism needs a serial-default contract before any parallel worker implementation; otherwise operators can pass planned parallel flags and assume they are active or safe.
+
+Predictions:
+- The suite runner has no independent resource-governor artifact proving configured limits, observed concurrency, disk reservation, or wait accounting.
+- Adding a serial-default `parallelism.json` should not change default suite behavior.
+- Passing unsupported parallel flags should fail before sample scheduling with a stable exit code and artifact path.
+
+Diagnostic evidence plan:
+- Inspect suite runner parameters and artifact outputs.
+- Add a pure fixture for governor config, unsupported parallel flags, disk reservation failure, and wait totals.
+- Run a cheap suite-level smoke with `-MaxParallelSamples 2` and verify it exits before child scheduling with `parallelism.json`.
+
+## Evidence E-013
+
+Supports H-003 implementation validation. `scripts/taskspace-benchmark/lib/resource-governor.ps1` now defines serial-default resource config, serial-only guard, disk reservation probe, resource wait snapshot, and `parallelism.json` writer. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` passes with fixtures proving default serial config, unsupported parallel field detection, low-disk reservation fail-closed behavior, and wait total persistence.
+
+## Evidence E-014
+
+Supports H-003 runner validation. A cheap suite smoke using `run-taskspace-e3-suite.ps1 -MaxParallelSamples 2` exited with code `4` before child scheduling and wrote `target\e3-resource-governor-suite-smoke\suite-20260615-010713\parallelism.json` with `serial_only_status=unsupported_parallelism`. The first implementation initially used `Write-Error` under `$ErrorActionPreference=Stop`, causing exit `1`; replacing it with explicit stderr output restored the intended stable exit code.

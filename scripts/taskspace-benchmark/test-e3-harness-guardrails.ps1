@@ -10,6 +10,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\suite-status.ps1")
 . (Join-Path $PSScriptRoot "lib\timing.ps1")
 . (Join-Path $PSScriptRoot "lib\runtime-bottleneck-report.ps1")
+. (Join-Path $PSScriptRoot "lib\resource-governor.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\e3-guardrails-selftest" }
 $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
@@ -32,6 +33,25 @@ $lifecycle = Get-TaskspaceValidationLifecycle $validation
 Assert-True ([bool]$lifecycle.tests_started_seen) "lifecycle parser missed tests_started marker"
 Assert-True ([bool]$lifecycle.tests_completed_seen) "lifecycle parser missed tests_completed marker"
 Assert-True ([string]$lifecycle.validation_lifecycle_stage -eq "tests_completed") "lifecycle parser did not keep last stage"
+
+$resourceConfig = New-TaskspaceResourceGovernorConfig
+$serialGuard = Test-TaskspaceResourceGovernorSerialOnly $resourceConfig
+Assert-True ([bool]$resourceConfig.valid -and [bool]$serialGuard.serial_only) "resource governor default config is not serial-valid"
+$parallelConfig = New-TaskspaceResourceGovernorConfig -MaxParallelSamples 2 -MaxDockerConcurrency 2
+$parallelGuard = Test-TaskspaceResourceGovernorSerialOnly $parallelConfig
+Assert-True (-not [bool]$parallelGuard.serial_only -and @($parallelGuard.unsupported_parallel_fields).Count -eq 2) "resource governor did not reject unsupported parallel fields"
+$waitSnapshot = New-TaskspaceResourceWaitSnapshot -DockerTokenWaitMs 2 -ValidationTokenWaitMs 3 -DiskReservationWaitMs 5 -CacheLockWaitMs 7
+Assert-True ([int64]$waitSnapshot.resource_wait_ms_total -eq 17) "resource governor wait snapshot did not aggregate waits"
+$diskReservationPass = Test-TaskspaceDiskReservation @($runDir) 0
+Assert-True ([string]$diskReservationPass.status -eq "pass") "resource governor zero-byte disk reservation should pass"
+$diskReservationFail = Test-TaskspaceDiskReservation @($runDir) ([int64]::MaxValue)
+Assert-True ([string]$diskReservationFail.status -eq "fail" -and [string]$diskReservationFail.failures[0].stable_code -eq "disk_reservation_insufficient") "resource governor low-disk fixture did not fail closed"
+$parallelismFixtureRoot = Join-Path $runDir "parallelism-fixture"
+New-Item -ItemType Directory -Force -Path $parallelismFixtureRoot | Out-Null
+$parallelismPath = Write-TaskspaceParallelismArtifact $parallelismFixtureRoot $parallelConfig $parallelGuard $diskReservationFail $waitSnapshot
+$parallelism = Get-Content -Raw -Encoding UTF8 -LiteralPath $parallelismPath | ConvertFrom-Json
+Assert-True ([string]$parallelism.resource_governor_status -eq "blocked") "parallelism artifact did not block unsupported/low-disk fixture"
+Assert-True ([int64]$parallelism.wait.resource_wait_ms_total -eq 17) "parallelism artifact did not persist wait totals"
 
 $pretestStderr = Join-Path $runDir "pretest.stderr.log"
 "Resolve-Path : Cannot find path 'target\bad-uv-cache'" | Set-Content -LiteralPath $pretestStderr -Encoding UTF8

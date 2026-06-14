@@ -20,7 +20,13 @@ param(
     [switch]$ScoringMode,
     [switch]$RequireScoreValidity,
     [switch]$EnableDockerImageCache,
-    [switch]$ContinueAfterInvalidHarness
+    [switch]$ContinueAfterInvalidHarness,
+    [int]$MaxParallelSamples = 1,
+    [int]$MaxParallelPairsPerSample = 1,
+    [int]$MaxParallelValidationsPerPair = 1,
+    [int]$MaxDockerConcurrency = 1,
+    [int]$MaxModelConcurrency = 1,
+    [double]$DiskReserveGb = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -29,6 +35,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "lib\suite-status.ps1")
 . (Join-Path $PSScriptRoot "lib\timing.ps1")
 . (Join-Path $PSScriptRoot "lib\runtime-bottleneck-report.ps1")
+. (Join-Path $PSScriptRoot "lib\resource-governor.ps1")
 if ($Repeats -lt 5) { throw "E3 suite requires Repeats >= 5." }
 if (-not (Test-Path -LiteralPath $TaskListPath)) { Write-Error "TaskListPath not found: $TaskListPath"; exit 4 }
 if (-not $RunRoot) { $RunRoot = Join-Path ([System.IO.Path]::GetTempPath()) "whale-e3-suite-runs" }
@@ -40,6 +47,28 @@ $samplesRoot = Join-Path $suiteRoot "samples"
 New-Item -ItemType Directory -Path $samplesRoot -Force | Out-Null
 $suiteHealthPath = Join-Path $suiteRoot "suite-health.json"
 $skippedPath = Join-Path $suiteRoot "skipped-samples.jsonl"
+$resourceConfig = New-TaskspaceResourceGovernorConfig `
+    -MaxParallelSamples $MaxParallelSamples `
+    -MaxParallelPairsPerSample $MaxParallelPairsPerSample `
+    -MaxParallelValidationsPerPair $MaxParallelValidationsPerPair `
+    -MaxDockerConcurrency $MaxDockerConcurrency `
+    -MaxModelConcurrency $MaxModelConcurrency `
+    -DiskReserveGb $DiskReserveGb
+$serialGuard = Test-TaskspaceResourceGovernorSerialOnly $resourceConfig
+$diskReservation = Test-TaskspaceDiskReservation @($suiteRoot, $samplesRoot, (Split-Path -Parent $TaskListPath)) ([int64]$resourceConfig.disk_reserve_bytes)
+$parallelismPath = Write-TaskspaceParallelismArtifact $suiteRoot $resourceConfig $serialGuard $diskReservation (New-TaskspaceResourceWaitSnapshot)
+if (-not [bool]$resourceConfig.valid) {
+    [Console]::Error.WriteLine("Invalid resource governor configuration: " + (@($resourceConfig.errors) -join "; "))
+    exit 4
+}
+if ([string]$diskReservation.status -eq "fail") {
+    [Console]::Error.WriteLine("Disk reservation failed before suite scheduling. See $parallelismPath")
+    exit 3
+}
+if (-not [bool]$serialGuard.serial_only) {
+    [Console]::Error.WriteLine("Parallel E3 execution flags are not implemented yet. Unsupported fields: " + (@($serialGuard.unsupported_parallel_fields) -join ", ") + ". See $parallelismPath")
+    exit 4
+}
 
 function Read-TaskspaceSuiteList {
     param([string]$Path)
@@ -247,5 +276,6 @@ Write-Host "SuiteRoot: $suiteRoot"
 Write-Host "SuiteHealth: $suiteHealthPath"
 Write-Host "SuiteTiming: $suiteTimingPath"
 Write-Host "RuntimeBottleneck: $runtimeBottleneckPath"
+Write-Host "Parallelism: $parallelismPath"
 if (Test-Path -LiteralPath $skippedPath) { Write-Host "SkippedSamples: $skippedPath" }
 exit $exitCode
