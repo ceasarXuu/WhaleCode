@@ -1222,7 +1222,8 @@ These classes are diagnostics. They must not change scoring results directly; th
 - Pair timing aggregates Docker build/run/cleanup durations from side metrics when validator artifacts provide them.
 - Sample and suite timing aggregate Docker subtotals and bottleneck counts across child artifacts.
 - `test-e3-harness-guardrails.ps1` includes synthetic timing fixtures for `agent_bound`, `validator_bound`, `docker_build_bound`, `cleanup_bound`, and `engineering_unclean_slow`.
-- Median/p95 per-span summaries, duplicate Docker build count by cache key, and report-rendered top-three spans are still pending.
+- Sample and suite timing now include per-phase median/p95 summaries, repeated Docker cache key detection, and report-rendered top spans in aggregate reports.
+- Remaining R1.5 work is to calibrate these fields on a real one-pair or suite run and use the resulting bottleneck class to choose the next runtime optimization.
 
 ### 15.6 Phase R2: Validator And Docker Overhead Reduction
 

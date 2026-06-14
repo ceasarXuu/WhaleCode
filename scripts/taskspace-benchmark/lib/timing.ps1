@@ -48,6 +48,32 @@ function Get-TaskspaceLargestTimingSpan {
     [pscustomobject]@{ name = $largestName; duration_ms = $largestMs }
 }
 
+function Get-TaskspaceTopTimingSpans {
+    param([hashtable]$Durations, [int]$Count = 3)
+    @($Durations.Keys | ForEach-Object {
+            [pscustomobject]@{ name = [string]$_; duration_ms = [int64]$Durations[$_] }
+        } | Sort-Object -Property duration_ms -Descending | Select-Object -First $Count)
+}
+
+function Get-TaskspaceTimingPercentile {
+    param([int64[]]$Values, [double]$Percentile)
+    $sorted = @($Values | Sort-Object)
+    if ($sorted.Count -eq 0) { return $null }
+    if ($sorted.Count -eq 1) { return [int64]$sorted[0] }
+    $rank = [Math]::Ceiling(($Percentile / 100.0) * [double]$sorted.Count) - 1
+    $index = [Math]::Max(0, [Math]::Min($sorted.Count - 1, [int]$rank))
+    [int64]$sorted[$index]
+}
+
+function New-TaskspaceTimingDistribution {
+    param([int64[]]$Values)
+    [pscustomobject]@{
+        count = @($Values).Count
+        median_ms = Get-TaskspaceTimingPercentile $Values 50
+        p95_ms = Get-TaskspaceTimingPercentile $Values 95
+    }
+}
+
 function Get-TaskspaceTimingBottleneck {
     param(
         [int64]$TotalMs,
@@ -106,6 +132,7 @@ function New-TaskspaceTimingBreakdown {
             queue_wait = Get-TaskspaceTimingPercent $QueueWaitMs $TotalMs
         }
         largest_span = Get-TaskspaceLargestTimingSpan $durations
+        top_spans = @(Get-TaskspaceTopTimingSpans $durations 3)
         bottleneck_classification = [string]$bottleneck.classification
         bottleneck_reason = [string]$bottleneck.reason
     }
@@ -145,11 +172,15 @@ function Write-TaskspacePairTiming {
     $oracleMs = 0
     foreach ($span in @($spans | Where-Object { [string]$_.phase -eq "hidden_oracle" })) { $oracleMs += [int64]$span.duration_ms }
     $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0
+    $dockerCacheKeys = New-Object System.Collections.Generic.List[string]
     $metricValues = if ($MetricsBySide) { @($MetricsBySide.Values) } else { @() }
     foreach ($metrics in $metricValues) {
         if ($metrics.PSObject.Properties.Name -contains "docker_build_duration_ms") { $dockerBuildMs += [int64]$metrics.docker_build_duration_ms }
         if ($metrics.PSObject.Properties.Name -contains "docker_run_duration_ms") { $dockerRunMs += [int64]$metrics.docker_run_duration_ms }
         if ($metrics.PSObject.Properties.Name -contains "docker_cleanup_duration_ms") { $dockerCleanupMs += [int64]$metrics.docker_cleanup_duration_ms }
+        if ($metrics.PSObject.Properties.Name -contains "docker_cache_key" -and -not [string]::IsNullOrWhiteSpace([string]$metrics.docker_cache_key)) {
+            $dockerCacheKeys.Add([string]$metrics.docker_cache_key)
+        }
     }
     $totalDurationMs = [int64](($PairFinishedAt - $PairStartedAt).TotalMilliseconds)
     $breakdown = New-TaskspaceTimingBreakdown $totalDurationMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $EngineeringUncleanReasons
@@ -167,6 +198,7 @@ function Write-TaskspacePairTiming {
         docker_build_duration_ms = $dockerBuildMs
         docker_run_duration_ms = $dockerRunMs
         docker_cleanup_duration_ms = $dockerCleanupMs
+        docker_cache_keys = @($dockerCacheKeys.ToArray() | Sort-Object -Unique)
         measured_overhead_ms = $totalDurationMs - $agentMs
         timing_breakdown = $breakdown
         bottleneck_classification = [string]$breakdown.bottleneck_classification
@@ -251,18 +283,38 @@ function Write-TaskspaceSampleTiming {
     }
     $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0; $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0
     $bottleneckCounts = @{}
+    $cacheKeyCounts = @{}
+    $phaseValues = @{
+        total = New-Object System.Collections.Generic.List[int64]
+        agent = New-Object System.Collections.Generic.List[int64]
+        public_validation = New-Object System.Collections.Generic.List[int64]
+        hidden_oracle = New-Object System.Collections.Generic.List[int64]
+        docker_build = New-Object System.Collections.Generic.List[int64]
+        docker_run = New-Object System.Collections.Generic.List[int64]
+        docker_cleanup = New-Object System.Collections.Generic.List[int64]
+    }
     foreach ($pair in $pairs) {
         $totalMs += [int64]$pair.total_duration_ms
         $agentMs += [int64]$pair.agent_duration_ms
         $validationMs += [int64]$pair.public_validation_duration_ms
         $oracleMs += [int64]$pair.hidden_oracle_duration_ms
         $overheadMs += [int64]$pair.measured_overhead_ms
-        if ($pair.PSObject.Properties.Name -contains "docker_build_duration_ms") { $dockerBuildMs += [int64]$pair.docker_build_duration_ms }
-        if ($pair.PSObject.Properties.Name -contains "docker_run_duration_ms") { $dockerRunMs += [int64]$pair.docker_run_duration_ms }
-        if ($pair.PSObject.Properties.Name -contains "docker_cleanup_duration_ms") { $dockerCleanupMs += [int64]$pair.docker_cleanup_duration_ms }
+        $pairDockerBuildMs = if ($pair.PSObject.Properties.Name -contains "docker_build_duration_ms") { [int64]$pair.docker_build_duration_ms } else { 0 }
+        $pairDockerRunMs = if ($pair.PSObject.Properties.Name -contains "docker_run_duration_ms") { [int64]$pair.docker_run_duration_ms } else { 0 }
+        $pairDockerCleanupMs = if ($pair.PSObject.Properties.Name -contains "docker_cleanup_duration_ms") { [int64]$pair.docker_cleanup_duration_ms } else { 0 }
+        $dockerBuildMs += $pairDockerBuildMs; $dockerRunMs += $pairDockerRunMs; $dockerCleanupMs += $pairDockerCleanupMs
+        $phaseValues.total.Add([int64]$pair.total_duration_ms); $phaseValues.agent.Add([int64]$pair.agent_duration_ms)
+        $phaseValues.public_validation.Add([int64]$pair.public_validation_duration_ms); $phaseValues.hidden_oracle.Add([int64]$pair.hidden_oracle_duration_ms)
+        $phaseValues.docker_build.Add($pairDockerBuildMs); $phaseValues.docker_run.Add($pairDockerRunMs); $phaseValues.docker_cleanup.Add($pairDockerCleanupMs)
         $class = if ($pair.PSObject.Properties.Name -contains "bottleneck_classification") { [string]$pair.bottleneck_classification } else { "unknown" }
         if (-not $bottleneckCounts.ContainsKey($class)) { $bottleneckCounts[$class] = 0 }
         $bottleneckCounts[$class]++
+        if ($pair.PSObject.Properties.Name -contains "docker_cache_keys") {
+            foreach ($key in @($pair.docker_cache_keys | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })) {
+                if (-not $cacheKeyCounts.ContainsKey([string]$key)) { $cacheKeyCounts[[string]$key] = 0 }
+                $cacheKeyCounts[[string]$key]++
+            }
+        }
     }
     $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs
     $artifact = [ordered]@{
@@ -281,6 +333,17 @@ function Write-TaskspaceSampleTiming {
         timing_breakdown = $breakdown
         bottleneck_classification = [string]$breakdown.bottleneck_classification
         bottleneck_counts = Convert-TaskspaceTimingHashtable $bottleneckCounts
+        phase_distributions = [ordered]@{
+            total = New-TaskspaceTimingDistribution ([int64[]]$phaseValues.total.ToArray())
+            agent = New-TaskspaceTimingDistribution ([int64[]]$phaseValues.agent.ToArray())
+            public_validation = New-TaskspaceTimingDistribution ([int64[]]$phaseValues.public_validation.ToArray())
+            hidden_oracle = New-TaskspaceTimingDistribution ([int64[]]$phaseValues.hidden_oracle.ToArray())
+            docker_build = New-TaskspaceTimingDistribution ([int64[]]$phaseValues.docker_build.ToArray())
+            docker_run = New-TaskspaceTimingDistribution ([int64[]]$phaseValues.docker_run.ToArray())
+            docker_cleanup = New-TaskspaceTimingDistribution ([int64[]]$phaseValues.docker_cleanup.ToArray())
+        }
+        docker_cache_key_counts = Convert-TaskspaceTimingHashtable $cacheKeyCounts
+        repeated_docker_cache_keys = @($cacheKeyCounts.Keys | Where-Object { [int]$cacheKeyCounts[$_] -gt 1 } | Sort-Object)
         missing_pair_timing_count = @($missingPairTimingDirs).Count
         missing_pair_timing_dirs = @($missingPairTimingDirs)
         timing_parse_error_count = $parseErrors.Count
@@ -315,19 +378,39 @@ function Write-TaskspaceSuiteTiming {
     }
     $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0; $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0
     $bottleneckCounts = @{}
+    $cacheKeyCounts = @{}
+    $phaseValues = @{
+        total = New-Object System.Collections.Generic.List[int64]
+        agent = New-Object System.Collections.Generic.List[int64]
+        public_validation = New-Object System.Collections.Generic.List[int64]
+        hidden_oracle = New-Object System.Collections.Generic.List[int64]
+        docker_build = New-Object System.Collections.Generic.List[int64]
+        docker_run = New-Object System.Collections.Generic.List[int64]
+        docker_cleanup = New-Object System.Collections.Generic.List[int64]
+    }
     foreach ($sample in $samples) {
         $totalMs += [int64]$sample.total_pair_duration_ms
         $agentMs += [int64]$sample.agent_duration_ms
         $validationMs += [int64]$sample.public_validation_duration_ms
         $oracleMs += [int64]$sample.hidden_oracle_duration_ms
         $overheadMs += [int64]$sample.measured_overhead_ms
-        if ($sample.PSObject.Properties.Name -contains "docker_build_duration_ms") { $dockerBuildMs += [int64]$sample.docker_build_duration_ms }
-        if ($sample.PSObject.Properties.Name -contains "docker_run_duration_ms") { $dockerRunMs += [int64]$sample.docker_run_duration_ms }
-        if ($sample.PSObject.Properties.Name -contains "docker_cleanup_duration_ms") { $dockerCleanupMs += [int64]$sample.docker_cleanup_duration_ms }
+        $sampleDockerBuildMs = if ($sample.PSObject.Properties.Name -contains "docker_build_duration_ms") { [int64]$sample.docker_build_duration_ms } else { 0 }
+        $sampleDockerRunMs = if ($sample.PSObject.Properties.Name -contains "docker_run_duration_ms") { [int64]$sample.docker_run_duration_ms } else { 0 }
+        $sampleDockerCleanupMs = if ($sample.PSObject.Properties.Name -contains "docker_cleanup_duration_ms") { [int64]$sample.docker_cleanup_duration_ms } else { 0 }
+        $dockerBuildMs += $sampleDockerBuildMs; $dockerRunMs += $sampleDockerRunMs; $dockerCleanupMs += $sampleDockerCleanupMs
+        $phaseValues.total.Add([int64]$sample.total_pair_duration_ms); $phaseValues.agent.Add([int64]$sample.agent_duration_ms)
+        $phaseValues.public_validation.Add([int64]$sample.public_validation_duration_ms); $phaseValues.hidden_oracle.Add([int64]$sample.hidden_oracle_duration_ms)
+        $phaseValues.docker_build.Add($sampleDockerBuildMs); $phaseValues.docker_run.Add($sampleDockerRunMs); $phaseValues.docker_cleanup.Add($sampleDockerCleanupMs)
         if ($sample.PSObject.Properties.Name -contains "bottleneck_counts") {
             foreach ($prop in @($sample.bottleneck_counts.PSObject.Properties)) {
                 if (-not $bottleneckCounts.ContainsKey($prop.Name)) { $bottleneckCounts[$prop.Name] = 0 }
                 $bottleneckCounts[$prop.Name] += [int]$prop.Value
+            }
+        }
+        if ($sample.PSObject.Properties.Name -contains "docker_cache_key_counts") {
+            foreach ($prop in @($sample.docker_cache_key_counts.PSObject.Properties)) {
+                if (-not $cacheKeyCounts.ContainsKey($prop.Name)) { $cacheKeyCounts[$prop.Name] = 0 }
+                $cacheKeyCounts[$prop.Name] += [int]$prop.Value
             }
         }
     }
@@ -348,6 +431,17 @@ function Write-TaskspaceSuiteTiming {
         timing_breakdown = $breakdown
         bottleneck_classification = [string]$breakdown.bottleneck_classification
         bottleneck_counts = Convert-TaskspaceTimingHashtable $bottleneckCounts
+        phase_distributions = [ordered]@{
+            total = New-TaskspaceTimingDistribution ([int64[]]$phaseValues.total.ToArray())
+            agent = New-TaskspaceTimingDistribution ([int64[]]$phaseValues.agent.ToArray())
+            public_validation = New-TaskspaceTimingDistribution ([int64[]]$phaseValues.public_validation.ToArray())
+            hidden_oracle = New-TaskspaceTimingDistribution ([int64[]]$phaseValues.hidden_oracle.ToArray())
+            docker_build = New-TaskspaceTimingDistribution ([int64[]]$phaseValues.docker_build.ToArray())
+            docker_run = New-TaskspaceTimingDistribution ([int64[]]$phaseValues.docker_run.ToArray())
+            docker_cleanup = New-TaskspaceTimingDistribution ([int64[]]$phaseValues.docker_cleanup.ToArray())
+        }
+        docker_cache_key_counts = Convert-TaskspaceTimingHashtable $cacheKeyCounts
+        repeated_docker_cache_keys = @($cacheKeyCounts.Keys | Where-Object { [int]$cacheKeyCounts[$_] -gt 1 } | Sort-Object)
         missing_sample_timing_count = @($missingSampleTimingDirs).Count
         missing_sample_timing_dirs = @($missingSampleTimingDirs)
         timing_parse_error_count = $parseErrors.Count

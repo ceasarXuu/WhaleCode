@@ -184,11 +184,11 @@ $pairEnd = $pairStart.AddSeconds(10)
 $timingMetrics = @{
     left = [pscustomobject]@{
         logical_mode = "standard"; wall_time_ms = 2000; exec_exit_code = 0; exec_timed_out = $false
-        validator_environment_failures = @(); docker_build_duration_ms = 1600; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100
+        validator_environment_failures = @(); docker_build_duration_ms = 1600; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100; docker_cache_key = "cache-a"
     }
     right = [pscustomobject]@{
         logical_mode = "taskspace"; wall_time_ms = 2000; exec_exit_code = 0; exec_timed_out = $false
-        validator_environment_failures = @(); docker_build_duration_ms = 100; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100
+        validator_environment_failures = @(); docker_build_duration_ms = 100; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100; docker_cache_key = "cache-a"
     }
 }
 $timingValidation = @{
@@ -200,6 +200,8 @@ $pairTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $pairTimin
 Assert-True ([string]$pairTiming.bottleneck_classification -eq "docker_build_bound") "pair timing did not classify docker build bottleneck"
 Assert-True ([double]$pairTiming.timing_breakdown.subtotal_percentages.docker_build -eq 17.0) "pair timing docker build percentage was not deterministic"
 Assert-True ([string]$pairTiming.timing_breakdown.largest_span.name -eq "agent") "pair timing largest span did not identify agent subtotal"
+Assert-True ([string]$pairTiming.timing_breakdown.top_spans[0].name -eq "agent") "pair timing did not render sorted top spans"
+Assert-True (@($pairTiming.docker_cache_keys).Count -eq 1 -and [string]$pairTiming.docker_cache_keys[0] -eq "cache-a") "pair timing did not record unique Docker cache key"
 
 $unclean = Get-TaskspaceTimingBottleneck 10000 1000 1000 0 0 0 0 @("docker_run_failure")
 Assert-True ([string]$unclean.classification -eq "engineering_unclean_slow") "timing bottleneck did not prioritize engineering unclean"
@@ -210,10 +212,18 @@ Assert-True ([string]$validatorBound.classification -eq "validator_bound") "timi
 $cleanupBound = Get-TaskspaceTimingBottleneck 10000 1000 1000 0 0 500 0 @()
 Assert-True ([string]$cleanupBound.classification -eq "cleanup_bound") "timing bottleneck did not classify cleanup_bound"
 
+$pairTimingDir2 = Join-Path $timingRun "pair-002"
+New-Item -ItemType Directory -Force -Path $pairTimingDir2 | Out-Null
+$timingMetrics.left.docker_build_duration_ms = 800
+$timingMetrics.right.docker_build_duration_ms = 100
+Write-TaskspacePairTiming -PairDir $pairTimingDir2 -Repeat 2 -PairStartedAt $pairStart -PairFinishedAt $pairStart.AddSeconds(20) -Manifest ([pscustomobject]@{ Id = "timing-sample" }) -Pair $null -MetricsBySide $timingMetrics -ValidationTimingBySide $timingValidation | Out-Null
+
 Write-TaskspaceSampleTiming $timingRun "timing-sample" | Out-Null
 $sampleTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $timingRun "sample-timing.json") | ConvertFrom-Json
-Assert-True ([int64]$sampleTiming.docker_build_duration_ms -eq 1700) "sample timing did not aggregate docker build duration"
+Assert-True ([int64]$sampleTiming.docker_build_duration_ms -eq 2600) "sample timing did not aggregate docker build duration"
 Assert-True ([int]$sampleTiming.bottleneck_counts.docker_build_bound -eq 1) "sample timing did not aggregate bottleneck count"
+Assert-True ([int64]$sampleTiming.phase_distributions.total.median_ms -eq 10000 -and [int64]$sampleTiming.phase_distributions.total.p95_ms -eq 20000) "sample timing did not compute deterministic median/p95"
+Assert-True ([int]$sampleTiming.docker_cache_key_counts."cache-a" -eq 2 -and [string]$sampleTiming.repeated_docker_cache_keys[0] -eq "cache-a") "sample timing did not detect repeated Docker cache key"
 
 $suiteRoot = Join-Path $runDir "timing-suite"
 $suiteSampleRoot = Join-Path $suiteRoot "samples\timing-sample"
@@ -221,8 +231,17 @@ New-Item -ItemType Directory -Force -Path $suiteSampleRoot | Out-Null
 Copy-Item -LiteralPath (Join-Path $timingRun "sample-timing.json") -Destination (Join-Path $suiteSampleRoot "sample-timing.json") -Force
 Write-TaskspaceSuiteTiming -SuiteRoot $suiteRoot -SampleStatuses @([pscustomobject]@{ sample_root = $suiteSampleRoot }) | Out-Null
 $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteRoot "suite-timing.json") | ConvertFrom-Json
-Assert-True ([int64]$suiteTiming.docker_build_duration_ms -eq 1700) "suite timing did not aggregate docker build duration"
+Assert-True ([int64]$suiteTiming.docker_build_duration_ms -eq 2600) "suite timing did not aggregate docker build duration"
 Assert-True ([int]$suiteTiming.bottleneck_counts.docker_build_bound -eq 1) "suite timing did not aggregate bottleneck count"
+Assert-True ([int]$suiteTiming.docker_cache_key_counts."cache-a" -eq 2 -and [string]$suiteTiming.repeated_docker_cache_keys[0] -eq "cache-a") "suite timing did not aggregate repeated Docker cache keys"
+
+$timingAggregatePath = Join-Path $suiteRoot "aggregate-report.md"
+Write-TaskspaceAggregateReport -Path $timingAggregatePath -Reports @([pscustomobject]@{ repeat = 1; pair_dir = $pairTimingDir; pair_report = "pair-report.md"; evidence_target = "E3"; evidence = $evidence })
+$timingAggregate = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteRoot "aggregate.json") | ConvertFrom-Json
+$timingAggregateText = Get-Content -Raw -Encoding UTF8 -LiteralPath $timingAggregatePath
+Assert-True ([string]$timingAggregate.timing_summary.bottleneck_classification -eq "mixed_or_unclassified") "aggregate JSON did not include suite timing bottleneck"
+Assert-True ($timingAggregateText -match "## Timing Summary" -and $timingAggregateText -match "top_span:" -and $timingAggregateText -match "total_median_ms") "aggregate report did not render timing summary"
+Assert-True ($timingAggregateText -match "repeated_docker_cache_keys: cache-a") "aggregate report did not render repeated Docker cache keys"
 
 if ($failures.Count -gt 0) {
     Write-Host "E3 harness guardrails self-test: FAIL"

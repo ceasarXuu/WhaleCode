@@ -40,6 +40,23 @@ function Get-TaskspaceRowEngineeringUncleanReasons {
     @($reasons.ToArray())
 }
 
+function Get-TaskspaceAggregateTimingArtifact {
+    param([Parameter(Mandatory = $true)][string]$ReportPath)
+    $dir = Split-Path -Parent $ReportPath
+    foreach ($name in @("suite-timing.json", "sample-timing.json")) {
+        $candidate = Join-Path $dir $name
+        if (Test-Path -LiteralPath $candidate) {
+            try {
+                $json = Get-Content -Raw -Encoding UTF8 -LiteralPath $candidate | ConvertFrom-Json
+                return [pscustomobject]@{ path = $candidate; json = $json }
+            } catch {
+                return [pscustomobject]@{ path = $candidate; json = $null; parse_error = [string]$_.Exception.Message }
+            }
+        }
+    }
+    [pscustomobject]@{ path = ""; json = $null }
+}
+
 function Write-TaskspaceAggregateJsonArtifacts {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -144,6 +161,14 @@ function Write-TaskspaceAggregateReport {
             -not ($_.evidence.PSObject.Properties.Name -contains "engineering_unclean" -and [bool]$_.evidence.engineering_unclean)
         }).Count
     $cleanComparablePairCount = @($all | Where-Object { @(Get-TaskspaceRowEngineeringUncleanReasons $_).Count -eq 0 }).Count
+    $timingArtifact = Get-TaskspaceAggregateTimingArtifact $Path
+    $timingSummary = [ordered]@{
+        timing_path = [string]$timingArtifact.path
+        bottleneck_classification = if ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "bottleneck_classification") { [string]$timingArtifact.json.bottleneck_classification } else { "" }
+        top_spans = if ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "timing_breakdown") { @($timingArtifact.json.timing_breakdown.top_spans) } else { @() }
+        phase_distributions = if ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "phase_distributions") { $timingArtifact.json.phase_distributions } else { $null }
+        repeated_docker_cache_keys = if ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "repeated_docker_cache_keys") { @($timingArtifact.json.repeated_docker_cache_keys) } else { @() }
+    }
     $aggregate = [ordered]@{
         aggregate_version = "taskspace-0.0.4-phase1-aggregate-v1"
         run_validity = if ($scoreValid) { "valid" } else { "invalid_harness" }
@@ -185,6 +210,7 @@ function Write-TaskspaceAggregateReport {
             graph_health_files = @($graphHealthPaths).Count
             warnings = Convert-TaskspaceHashtableToObject $graphWarningCounts
         }
+        timing_summary = $timingSummary
     }
     $failureSummary = [ordered]@{
         failure_taxonomy_summary = $aggregate.failure_taxonomy_summary
@@ -234,6 +260,27 @@ function Write-TaskspaceAggregateReport {
     $lines.Add("## Graph Health Summary")
     $lines.Add("- graph_health_files: $(@($graphHealthPaths).Count)")
     if ($graphWarningCounts.Count -eq 0) { $lines.Add("- warnings: none") } else { foreach ($key in @($graphWarningCounts.Keys | Sort-Object)) { $lines.Add("- ${key}: $($graphWarningCounts[$key])") } }
+    $lines.Add("")
+    $lines.Add("## Timing Summary")
+    $lines.Add("- timing_path: $($timingSummary["timing_path"])")
+    $lines.Add("- bottleneck_classification: $($timingSummary["bottleneck_classification"])")
+    if (@($timingSummary["top_spans"]).Count -eq 0) {
+        $lines.Add("- top_spans: none")
+    } else {
+        foreach ($span in @($timingSummary["top_spans"])) { $lines.Add("- top_span: $($span.name)=$($span.duration_ms)ms") }
+    }
+    if ($timingSummary["phase_distributions"]) {
+        foreach ($phase in @($timingSummary["phase_distributions"].PSObject.Properties.Name | Sort-Object)) {
+            $dist = $timingSummary["phase_distributions"].$phase
+            $lines.Add("- ${phase}_median_ms: $($dist.median_ms)")
+            $lines.Add("- ${phase}_p95_ms: $($dist.p95_ms)")
+        }
+    }
+    if (@($timingSummary["repeated_docker_cache_keys"]).Count -gt 0) {
+        $lines.Add("- repeated_docker_cache_keys: $(@($timingSummary["repeated_docker_cache_keys"]) -join ', ')")
+    } else {
+        $lines.Add("- repeated_docker_cache_keys: none")
+    }
     foreach ($report in $all) {
         $lines.Add("")
         $lines.Add("## Pair $($report.repeat)")
