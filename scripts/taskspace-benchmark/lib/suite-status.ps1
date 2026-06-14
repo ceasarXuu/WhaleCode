@@ -58,3 +58,35 @@ function Get-TaskspaceSuiteRemainingSkippedPairs {
     }
     $skippedPairs
 }
+
+function Get-TaskspaceSuiteExpectedTimeSaved {
+    param([Parameter(Mandatory = $true)][string]$SuiteRoot, $SampleStatuses, [int]$Repeats)
+    $sampleTimingFiles = @(Get-ChildItem -LiteralPath $SuiteRoot -Filter "sample-timing.json" -Recurse -ErrorAction SilentlyContinue)
+    $totalMs = [int64]0
+    $pairCount = 0
+    foreach ($file in $sampleTimingFiles) {
+        try {
+            $timing = Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json
+            if ($timing.PSObject.Properties.Name -contains "pair_count" -and [int]$timing.pair_count -gt 0) {
+                $pairCount += [int]$timing.pair_count
+                $totalMs += [int64]$timing.total_pair_duration_ms
+            }
+        } catch {}
+    }
+    $skippedPairs = Get-TaskspaceSuiteRemainingSkippedPairs $SuiteRoot
+    $skippedSamples = @($SampleStatuses | Where-Object { $_.PSObject.Properties.Name -contains "skipped_reason" -and -not [string]::IsNullOrWhiteSpace([string]$_.skipped_reason) }).Count
+    $skippedPairEquivalent = $skippedPairs + ($skippedSamples * $Repeats)
+    if ($pairCount -le 0 -or $skippedPairEquivalent -le 0) {
+        return [pscustomobject]@{
+            expected_time_saved_minutes = $null
+            skipped_pair_equivalent_count = $skippedPairEquivalent
+            expected_time_saved_basis = if ($skippedPairEquivalent -le 0) { "no_skipped_work" } else { "no_serial_baseline" }
+        }
+    }
+    $averagePairMs = [double]$totalMs / [double]$pairCount
+    [pscustomobject]@{
+        expected_time_saved_minutes = [Math]::Round((($averagePairMs * $skippedPairEquivalent) / 60000.0), 2)
+        skipped_pair_equivalent_count = $skippedPairEquivalent
+        expected_time_saved_basis = "observed_average_pair_duration_ms=$([Math]::Round($averagePairMs, 0))"
+    }
+}

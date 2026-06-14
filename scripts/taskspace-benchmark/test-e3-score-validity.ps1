@@ -230,6 +230,12 @@ $abortPairDir = Join-Path $suiteAbortRoot "samples\sample-a\run\pair-001"
 New-Item -ItemType Directory -Force -Path $abortPairDir | Out-Null
 [pscustomobject]@{ skipped_repeats = @(2, 3, 4, 5) } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $abortPairDir "pair-abort.json") -Encoding UTF8
 Assert-True ((Get-TaskspaceSuiteRemainingSkippedPairs $suiteAbortRoot) -eq 4) "suite skipped pair helper did not count pair-abort skipped repeats"
+$observedTimingDir = Join-Path $suiteAbortRoot "samples\sample-a"
+[pscustomobject]@{ pair_count = 1; total_pair_duration_ms = 120000 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $observedTimingDir "sample-timing.json") -Encoding UTF8
+$timeSaved = Get-TaskspaceSuiteExpectedTimeSaved $suiteAbortRoot @([pscustomobject]@{ sample_id = "sample-b"; skipped_reason = "suite_repeated_infra_signature" }) 5
+Assert-True ([double]$timeSaved.expected_time_saved_minutes -eq 18.0 -and [int]$timeSaved.skipped_pair_equivalent_count -eq 9) "suite expected time saved did not use observed pair baseline"
+$noBaselineSaved = Get-TaskspaceSuiteExpectedTimeSaved (Join-Path $runDir "suite-no-baseline") @([pscustomobject]@{ sample_id = "sample-b"; skipped_reason = "suite_repeated_infra_signature" }) 5
+Assert-True ($null -eq $noBaselineSaved.expected_time_saved_minutes -and [string]$noBaselineSaved.expected_time_saved_basis -eq "no_serial_baseline") "suite expected time saved did not explain missing baseline"
 
 if ($failures.Count -gt 0) {
     Write-Host "E3 score-validity self-test: FAIL"

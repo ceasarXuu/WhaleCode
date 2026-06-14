@@ -1381,6 +1381,7 @@ Safe reductions:
 - Cache eligibility is intentionally fail-closed: generated validators only use the image cache when every parsed Dockerfile `FROM` reference is digest-pinned as `@sha256:<64 hex>`. Floating tags, `ARG`-based bases, missing `FROM`, or parser-uncertain forms record `cache_eligible=false` and bypass cache even when `-EnableDockerImageCache` is set.
 - Runtime cache hit behavior is generated-script covered, metadata/invalidation tested, and real-Docker covered by `scripts/taskspace-benchmark/test-terminal-bench-docker-cache-smoke.ps1`. The smoke builds a digest-pinned Terminal-Bench fixture, runs the generated validator twice with `TASKSPACE_DOCKER_IMAGE_CACHE=1`, and requires the second run to record `cache_hit=true`.
 - `finalize-taskspace-e3-run.ps1` now performs artifact-only rerender work, writes `finalize-health.json`, rebuilds `sample-timing.json` before aggregate rendering, and records `validation_rerun_allowed=false` / `hidden_oracle_rerun_allowed=false`.
+- `run-taskspace-e3-suite.ps1` now records suite score-validity fields and conservative `expected_time_saved_minutes` in `suite-health.json`; skipped samples also get their own `sample-status.json` with `phase=skipped`.
 - No-op finalize behavior is covered by `test-harness.ps1`: the fixture verifies that validation stdout mtime is unchanged after finalize. Parallel execution remains future work until its own tests pass.
 
 #### Exit Criteria

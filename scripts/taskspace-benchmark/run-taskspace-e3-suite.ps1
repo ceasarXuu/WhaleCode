@@ -52,6 +52,7 @@ function Write-SuiteHealth {
     $invalid = @($SampleStatuses | Where-Object { $_.PSObject.Properties.Name -contains "run_validity" -and [string]$_.run_validity -eq "invalid_harness" })
     $skippedPairs = Get-TaskspaceSuiteRemainingSkippedPairs $suiteRoot
     $scoreSummary = Get-TaskspaceSuiteScoreValiditySummary $SampleStatuses $Repeats
+    $timeSaved = Get-TaskspaceSuiteExpectedTimeSaved $suiteRoot $SampleStatuses $Repeats
     [pscustomobject]@{
         schema_version = 1
         status = $Status
@@ -67,6 +68,9 @@ function Write-SuiteHealth {
         score_invalid_child_runs = $scoreSummary.score_invalid_child_runs
         first_score_invalid_run = $scoreSummary.first_score_invalid_run
         suite_score_valid = $scoreSummary.suite_score_valid
+        expected_time_saved_minutes = $timeSaved.expected_time_saved_minutes
+        expected_time_saved_basis = $timeSaved.expected_time_saved_basis
+        skipped_pair_equivalent_count = $timeSaved.skipped_pair_equivalent_count
         generated_at = (Get-Date).ToString("o")
     } | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $suiteHealthPath -Encoding UTF8
 }
