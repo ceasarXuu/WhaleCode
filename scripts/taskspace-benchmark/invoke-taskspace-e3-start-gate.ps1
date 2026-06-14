@@ -2,9 +2,12 @@ param(
     [string]$Scenario = "",
     [string]$ScenarioPath = "",
     [string]$TaskListPath = "",
+    [string]$SourceVersion = "",
     [string]$RunRoot = "",
     [string]$OutputDir = "",
-    [switch]$RunSelfTests
+    [switch]$RunSelfTests,
+    [switch]$AllowSkippedPathContract,
+    [switch]$AllowSkippedSelfTests
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,7 +28,10 @@ $gate = Invoke-TaskspaceE3StartGate `
     -ScenarioPath $ScenarioPath `
     -RunRoot $RunRoot `
     -TaskListPath $TaskListPath `
-    -RunSelfTests:$RunSelfTests
+    -SourceVersion $SourceVersion `
+    -RunSelfTests:$RunSelfTests `
+    -AllowSkippedPathContract:$AllowSkippedPathContract `
+    -AllowSkippedSelfTests:$AllowSkippedSelfTests
 
 Write-Host "E3StartGate: $($gate.json_path)"
 Write-Host "E3StartGateReport: $($gate.markdown_path)"

@@ -876,6 +876,13 @@ Canonical command:
 
 For external suites where scenarios are materialized later by the adapter, pass `-TaskListPath <task-list>` and still use `-RunSelfTests`. In that mode the path-contract gate is explicitly `skipped` with reason `no_scenario_manifest`; it is not a pass. Full E3 may proceed only when either a materialized scenario path-contract gate has passed or the adapter/materialization preflight is expected to enforce the path contract before agent execution.
 
+The implementation is intentionally strict:
+
+- omitted `-RunSelfTests` is a failed gate unless `-AllowSkippedSelfTests` is supplied for a diagnostic-only smoke;
+- omitted scenario/path-contract evidence is a failed gate unless `-AllowSkippedPathContract` is supplied and the operator relies on later adapter/materialization preflight;
+- `TaskListPath` must exist, parse, contain at least one task, include `task_dir`, and provide `source_version` either per row or through the command default;
+- Docker storage checks must produce an explicit pass; an empty/unverified Docker storage result is not a pass.
+
 | Gate | Required value |
 |---|---|
 | Disk preflight | `harness-health.json.status = pass` and no checked volume below configured free-space threshold |

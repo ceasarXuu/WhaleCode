@@ -48,24 +48,49 @@ try {
 
     $scenarioDir = Join-Path $runDir "scenario-pass"
     New-GateScenario $scenarioDir
-    $gate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-pass") -ScenarioPath $scenarioDir -RunRoot (Join-Path $runDir "runs") -SelfTestCommands @()
+    $gate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-pass") -ScenarioPath $scenarioDir -RunRoot (Join-Path $runDir "runs") -AllowSkippedSelfTests -SelfTestCommands @()
     Assert-True ([string]$gate.status -eq "pass" -and [int]$gate.exit_code -eq 0) "start gate did not pass clean fixture"
     Assert-True (Test-Path -LiteralPath $gate.json_path) "start gate did not write json artifact"
     Assert-True (Test-Path -LiteralPath $gate.markdown_path) "start gate did not write markdown artifact"
 
+    $noSelfTestGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-no-selftests") -ScenarioPath $scenarioDir -RunRoot (Join-Path $runDir "runs") -SelfTestCommands @()
+    Assert-True ([string]$noSelfTestGate.status -eq "fail" -and [string]$noSelfTestGate.first_failure_stable_code -eq "self_tests_not_run") "start gate allowed skipped self-tests without explicit allow"
+
     $relativeScenario = Join-Path $runDir "scenario-relative"
     New-GateScenario $relativeScenario $true
-    $relativeGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-relative") -ScenarioPath $relativeScenario -RunRoot (Join-Path $runDir "runs") -SelfTestCommands @()
+    $relativeGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-relative") -ScenarioPath $relativeScenario -RunRoot (Join-Path $runDir "runs") -AllowSkippedSelfTests -SelfTestCommands @()
     Assert-True ([string]$relativeGate.status -eq "fail" -and [int]$relativeGate.exit_code -eq 3) "start gate did not fail relative path contract"
     Assert-True (@($relativeGate.gates | Where-Object { [string]$_.name -eq "path_contract" -and [string]$_.status -eq "fail" }).Count -eq 1) "start gate did not identify path_contract failure"
 
     $env:TASKSPACE_MIN_FREE_BYTES = ([int64]::MaxValue).ToString()
-    $diskGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-disk") -ScenarioPath $scenarioDir -RunRoot (Join-Path $runDir "runs") -SelfTestCommands @()
+    $diskGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-disk") -ScenarioPath $scenarioDir -RunRoot (Join-Path $runDir "runs") -AllowSkippedSelfTests -SelfTestCommands @()
     Assert-True ([string]$diskGate.status -eq "fail" -and [string]$diskGate.run_validity -eq "invalid_harness") "start gate did not fail impossible disk threshold"
 
     $env:TASKSPACE_MIN_FREE_BYTES = "1"
     $selfTestGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-selftest") -ScenarioPath $scenarioDir -RunRoot (Join-Path $runDir "runs") -RunSelfTests -SelfTestCommands @("exit 7")
     Assert-True ([string]$selfTestGate.status -eq "fail" -and [int]$selfTestGate.exit_code -eq 3) "start gate did not fail failing self-test command"
+    Assert-True ([string]$selfTestGate.first_failure_gate -eq "cheap_self_tests" -and [string]$selfTestGate.first_failure_command -eq "exit 7") "start gate did not record first failing self-test command"
+
+    $missingScenarioGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-missing-scenario") -ScenarioPath (Join-Path $runDir "missing-scenario") -RunRoot (Join-Path $runDir "runs") -AllowSkippedSelfTests -SelfTestCommands @()
+    Assert-True ([string]$missingScenarioGate.status -eq "fail" -and [int]$missingScenarioGate.exit_code -eq 3 -and (Test-Path -LiteralPath $missingScenarioGate.json_path)) "start gate did not write artifacts for missing scenario"
+
+    $taskListMissingGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-tasklist-missing") -TaskListPath (Join-Path $runDir "missing-tasks.jsonl") -RunRoot (Join-Path $runDir "runs") -AllowSkippedPathContract -AllowSkippedSelfTests -SelfTestCommands @()
+    Assert-True ([string]$taskListMissingGate.status -eq "fail" -and [string]$taskListMissingGate.first_failure_stable_code -eq "task_list_missing") "start gate did not fail missing task list"
+
+    $emptyTaskList = Join-Path $runDir "empty-tasks.jsonl"
+    "" | Set-Content -LiteralPath $emptyTaskList -Encoding UTF8
+    $taskListEmptyGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-tasklist-empty") -TaskListPath $emptyTaskList -RunRoot (Join-Path $runDir "runs") -AllowSkippedPathContract -AllowSkippedSelfTests -SelfTestCommands @()
+    Assert-True ([string]$taskListEmptyGate.status -eq "fail" -and [string]$taskListEmptyGate.first_failure_stable_code -eq "task_list_empty") "start gate did not fail empty task list"
+
+    $badTaskList = Join-Path $runDir "bad-tasks.jsonl"
+    "{not-json" | Set-Content -LiteralPath $badTaskList -Encoding UTF8
+    $taskListBadGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-tasklist-bad") -TaskListPath $badTaskList -RunRoot (Join-Path $runDir "runs") -AllowSkippedPathContract -AllowSkippedSelfTests -SelfTestCommands @()
+    Assert-True ([string]$taskListBadGate.status -eq "fail" -and [string]$taskListBadGate.first_failure_stable_code -eq "task_list_malformed") "start gate did not fail malformed task list"
+
+    $taskList = Join-Path $runDir "tasks.jsonl"
+    ([pscustomobject]@{ task_dir = $scenarioDir; source_version = "fixture-source" } | ConvertTo-Json -Compress) | Set-Content -LiteralPath $taskList -Encoding UTF8
+    $taskListGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-tasklist-pass") -TaskListPath $taskList -RunRoot (Join-Path $runDir "runs") -AllowSkippedPathContract -AllowSkippedSelfTests -SelfTestCommands @()
+    Assert-True ([string]$taskListGate.status -eq "pass" -and @($taskListGate.gates | Where-Object { [string]$_.name -eq "path_contract" -and [string]$_.status -eq "skipped_allowed" }).Count -eq 1) "start gate did not require explicit skipped path-contract allow"
 } finally {
     if ($null -eq $oldMinFreeBytes) { Remove-Item Env:TASKSPACE_MIN_FREE_BYTES -ErrorAction SilentlyContinue } else { $env:TASKSPACE_MIN_FREE_BYTES = $oldMinFreeBytes }
     if ($null -eq $oldMinFreeGib) { Remove-Item Env:TASKSPACE_MIN_FREE_GIB -ErrorAction SilentlyContinue } else { $env:TASKSPACE_MIN_FREE_GIB = $oldMinFreeGib }
