@@ -479,6 +479,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
 
 $runSummaryPath = Join-Path $runDir "run-summary.md"
 Write-TaskspaceRunSummary -Path $runSummaryPath -Reports @($pairReports.ToArray())
+$sampleTimingPath = Write-TaskspaceSampleTiming $runDir $manifest.Id
 if ($EnableAggregate) {
     $aggregatePath = Join-Path $runDir "aggregate-report.md"
     Write-TaskspaceAggregateReport -Path $aggregatePath -Reports @($pairReports.ToArray())
@@ -490,7 +491,6 @@ if ($EnableAggregate) {
 }
 $runFinalReady = $EnableAggregate.IsPresent -and -not ($manifest.EvidenceTarget -eq "E3" -and @($pairReports.ToArray() | Where-Object { @($_.evidence.e3_gate_failures) -contains "e3_human_review_not_completed" }).Count -gt 0)
 Set-TaskspaceBenchmarkRunPhase $runDir "completed" $Repeats $Repeats $runFinalReady | Out-Null
-$sampleTimingPath = Write-TaskspaceSampleTiming $runDir $manifest.Id
 Write-Host "RunDir: $runDir"
 Write-Host "RunSummary: $runSummaryPath"
 Write-Host "SampleTiming: $sampleTimingPath"

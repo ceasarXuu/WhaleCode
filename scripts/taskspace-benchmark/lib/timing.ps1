@@ -316,7 +316,8 @@ function Write-TaskspaceSampleTiming {
             }
         }
     }
-    $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs
+    $aggregateUncleanReasons = if ($bottleneckCounts.ContainsKey("engineering_unclean_slow")) { @("child_engineering_unclean_slow") } else { @() }
+    $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $aggregateUncleanReasons
     $artifact = [ordered]@{
         schema_version = 1
         sample_id = $SampleId
@@ -414,7 +415,8 @@ function Write-TaskspaceSuiteTiming {
             }
         }
     }
-    $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs
+    $aggregateUncleanReasons = if ($bottleneckCounts.ContainsKey("engineering_unclean_slow")) { @("child_engineering_unclean_slow") } else { @() }
+    $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $aggregateUncleanReasons
     $artifact = [ordered]@{
         schema_version = 1
         suite_root = $SuiteRoot

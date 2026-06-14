@@ -1223,7 +1223,8 @@ These classes are diagnostics. They must not change scoring results directly; th
 - Sample and suite timing aggregate Docker subtotals and bottleneck counts across child artifacts.
 - `test-e3-harness-guardrails.ps1` includes synthetic timing fixtures for `agent_bound`, `validator_bound`, `docker_build_bound`, `cleanup_bound`, and `engineering_unclean_slow`.
 - Sample and suite timing now include per-phase median/p95 summaries, repeated Docker cache key detection, and report-rendered top spans in aggregate reports.
-- Remaining R1.5 work is to calibrate these fields on a real one-pair or suite run and use the resulting bottleneck class to choose the next runtime optimization.
+- Real one-pair calibration on `single-file-fast-fix` writes `sample-timing.json`, and aggregate reports now render `Timing Summary` from that artifact before final status is written.
+- Remaining R1.5 work is to calibrate these fields on an E3/Terminal-Bench one-pair run and use the resulting bottleneck class to choose the next runtime optimization.
 
 ### 15.6 Phase R2: Validator And Docker Overhead Reduction
 
