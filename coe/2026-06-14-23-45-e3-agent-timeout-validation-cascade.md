@@ -389,3 +389,22 @@ Validation passed:
 - `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
 
 Remaining scope: reconstruction tooling exists, but it has not yet been run against the previous invalid official E3 suite root. Validator/Docker overhead proof, governed parallel smoke release evidence, official calibration artifacts, and final full E3 release gate remain open.
+
+## Evidence E-029
+
+Extends H-016 with a real non-selftest reconstruction run. `scripts/taskspace-benchmark/reconstruct-e3-runtime.ps1` was executed against `target/suite-disk-preflight-smoke-3/suite-20260613-164323`. It wrote:
+
+- `target/suite-disk-preflight-smoke-3/suite-20260613-164323/runtime-reconstruction/20260615-030246/runtime-reconstruction.json`
+- `target/suite-disk-preflight-smoke-3/suite-20260613-164323/runtime-reconstruction/20260615-030246/runtime-reconstruction.md`
+
+Observed output:
+- `bottleneck_classification=unknown`
+- `first_invalid_sample_index=0`
+- `time_after_first_invalid_ms=0`
+- `missing_fields=["suite-timing.json"]`
+- `suite_health.status=aborted`
+- `suite_abort_reason=harness_materialization_failure/disk_space_low`
+
+Interpretation: the disk-preflight smoke aborted before sample scheduling/timing finalization. R0 reconstruction correctly blocks speed conclusions because suite timing is missing, while preserving the disk-space engineering failure as the suite-health cause. This is useful evidence for instrumentation closure: pre-scheduling aborts need either a minimal suite timing artifact or explicit reconstruction support for pre-timing aborts.
+
+Legacy gap: `target/e3-full-20260606-014919` appears to be an older run-root layout with per-sample/pair artifacts but no canonical `suite-health.json` or `suite-timing.json`; the current R0 reconstructor cannot directly reconstruct it. A legacy importer or the actual canonical full E3 suite root is still needed before claiming the previous full E3 run has been reconstructed.
