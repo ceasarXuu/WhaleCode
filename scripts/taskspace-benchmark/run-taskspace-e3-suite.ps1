@@ -45,6 +45,9 @@ function Read-TaskspaceSuiteList {
 
 function Write-SuiteHealth {
     param($Status, $SampleStatuses, $SignatureCounts, [string]$AbortReason = "")
+    $skipped = @($SampleStatuses | Where-Object { $_.PSObject.Properties.Name -contains "skipped_reason" -and -not [string]::IsNullOrWhiteSpace([string]$_.skipped_reason) })
+    $invalid = @($SampleStatuses | Where-Object { $_.PSObject.Properties.Name -contains "run_validity" -and [string]$_.run_validity -eq "invalid_harness" })
+    $skippedPairs = Get-TaskspaceSuiteRemainingSkippedPairs $suiteRoot
     [pscustomobject]@{
         schema_version = 1
         status = $Status
@@ -52,6 +55,9 @@ function Write-SuiteHealth {
         signature_counts = $SignatureCounts
         sample_statuses = @($SampleStatuses)
         suite_abort_reason = $AbortReason
+        invalid_harness_sample_count = $invalid.Count
+        remaining_samples_skipped = $skipped.Count
+        remaining_pairs_skipped = $skippedPairs
         generated_at = (Get-Date).ToString("o")
     } | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $suiteHealthPath -Encoding UTF8
 }
@@ -89,6 +95,7 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
             abort_phase = "suite_circuit_breaker"
             abort_signature = $suiteAbort
             skipped_reason = $skipReason
+            sample_root = Join-Path $samplesRoot $sampleId
         }
         ($row | ConvertTo-Json -Compress) | Add-Content -LiteralPath $skippedPath -Encoding UTF8
         $sampleStatuses.Add($row)
@@ -111,6 +118,7 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
             abort_signature = $signature.key
             abort_reason = [string]$firstFinding.stable_code
             first_failure_artifact = $sampleDiskHealthPath
+            sample_root = $sampleRoot
         }
         $sampleStatuses.Add($status)
         if (-not $signatureCounts.ContainsKey($signature.key)) { $signatureCounts[$signature.key] = 0 }
@@ -143,6 +151,7 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
     $childExit = $LASTEXITCODE
     $statusPath = Get-ChildItem -LiteralPath $sampleRoot -Filter "sample-status.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     $status = if ($statusPath) { Get-Content -Raw -Encoding UTF8 -LiteralPath $statusPath.FullName | ConvertFrom-Json } else { [pscustomobject]@{ sample_id = $sampleId; run_validity = if ($childExit -eq 3) { "invalid_harness" } else { "unknown" }; exit_code = $childExit } }
+    if (-not ($status.PSObject.Properties.Name -contains "sample_root")) { $status | Add-Member -NotePropertyName sample_root -NotePropertyValue $sampleRoot -Force }
     $alreadyInvalidHarness = $status.PSObject.Properties.Name -contains "run_validity" -and [string]$status.run_validity -eq "invalid_harness"
     $completedDiagnosticRun = Test-TaskspaceSuiteChildStatusComplete $status $Repeats
     if ($childExit -ne 0 -and -not $alreadyInvalidHarness -and -not $completedDiagnosticRun) {
@@ -190,7 +199,7 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
     }
 }
 
-$statusText = if ($suiteAbort) { "aborted" } else { "completed" }
+$statusText = if ($suiteAbort) { "invalid_harness" } else { "completed" }
 Write-SuiteHealth $statusText @($sampleStatuses.ToArray()) $signatureCounts $suiteAbort
 $suiteTimingPath = Write-TaskspaceSuiteTiming $suiteRoot @($sampleStatuses.ToArray())
 Write-Host "SuiteRoot: $suiteRoot"

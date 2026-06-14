@@ -109,9 +109,13 @@ function Write-TaskspaceSampleTiming {
         [Parameter(Mandatory = $true)][string]$SampleId
     )
     $pairTimingFiles = @(Get-ChildItem -LiteralPath $RunDir -Filter "pair-timing.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName)
+    $pairDirs = @(Get-ChildItem -LiteralPath $RunDir -Directory -Filter "pair-*" -ErrorAction SilentlyContinue | Sort-Object FullName)
+    $pairTimingParents = @($pairTimingFiles | ForEach-Object { (Split-Path -Parent $_.FullName) })
+    $missingPairTimingDirs = @($pairDirs | Where-Object { $pairTimingParents -notcontains $_.FullName } | ForEach-Object { $_.FullName })
+    $parseErrors = New-Object System.Collections.Generic.List[string]
     $pairs = @()
     foreach ($file in $pairTimingFiles) {
-        try { $pairs += (Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json) } catch {}
+        try { $pairs += (Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json) } catch { $parseErrors.Add($file.FullName) }
     }
     $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0
     foreach ($pair in $pairs) {
@@ -131,6 +135,10 @@ function Write-TaskspaceSampleTiming {
         public_validation_duration_ms = $validationMs
         hidden_oracle_duration_ms = $oracleMs
         measured_overhead_ms = $overheadMs
+        missing_pair_timing_count = @($missingPairTimingDirs).Count
+        missing_pair_timing_dirs = @($missingPairTimingDirs)
+        timing_parse_error_count = $parseErrors.Count
+        timing_parse_error_paths = @($parseErrors.ToArray())
         pair_timing_paths = @($pairTimingFiles | ForEach-Object { $_.FullName })
         generated_at = (Get-Date).ToString("o")
     }
@@ -145,9 +153,19 @@ function Write-TaskspaceSuiteTiming {
         [Parameter(Mandatory = $true)]$SampleStatuses
     )
     $sampleTimingFiles = @(Get-ChildItem -LiteralPath $SuiteRoot -Filter "sample-timing.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName)
+    $sampleDirs = @(Get-ChildItem -LiteralPath (Join-Path $SuiteRoot "samples") -Directory -ErrorAction SilentlyContinue | Sort-Object FullName)
+    $statusSampleDirs = @($SampleStatuses | ForEach-Object {
+            if ($_.PSObject.Properties.Name -contains "sample_root" -and -not [string]::IsNullOrWhiteSpace([string]$_.sample_root)) {
+                [string]$_.sample_root
+            }
+        })
+    $expectedSampleDirs = @(@($sampleDirs | ForEach-Object { $_.FullName }) + $statusSampleDirs | Sort-Object -Unique)
+    $sampleTimingParents = @($sampleTimingFiles | ForEach-Object { (Split-Path -Parent $_.FullName) })
+    $missingSampleTimingDirs = @($expectedSampleDirs | Where-Object { $sampleTimingParents -notcontains $_ })
+    $parseErrors = New-Object System.Collections.Generic.List[string]
     $samples = @()
     foreach ($file in $sampleTimingFiles) {
-        try { $samples += (Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json) } catch {}
+        try { $samples += (Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json) } catch { $parseErrors.Add($file.FullName) }
     }
     $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0
     foreach ($sample in $samples) {
@@ -167,6 +185,10 @@ function Write-TaskspaceSuiteTiming {
         public_validation_duration_ms = $validationMs
         hidden_oracle_duration_ms = $oracleMs
         measured_overhead_ms = $overheadMs
+        missing_sample_timing_count = @($missingSampleTimingDirs).Count
+        missing_sample_timing_dirs = @($missingSampleTimingDirs)
+        timing_parse_error_count = $parseErrors.Count
+        timing_parse_error_paths = @($parseErrors.ToArray())
         sample_timing_paths = @($sampleTimingFiles | ForEach-Object { $_.FullName })
         generated_at = (Get-Date).ToString("o")
     }

@@ -71,6 +71,12 @@ function Get-TaskspacePairEvidenceFromArtifacts {
     $evidence | Add-Member -NotePropertyName audit_manifest_path -NotePropertyValue $auditManifest.json_path -Force
     $evidence | Add-Member -NotePropertyName failure_taxonomy -NotePropertyValue @($auditManifest.failure_taxonomy) -Force
     $evidence | Add-Member -NotePropertyName utility_direction -NotePropertyValue $auditManifest.utility_direction -Force
+    $evidence | Add-Member -NotePropertyName run_score_valid -NotePropertyValue ([bool]$auditManifest.run_score_valid) -Force
+    $evidence | Add-Member -NotePropertyName engineering_unclean -NotePropertyValue ([bool]$auditManifest.engineering_unclean) -Force
+    $evidence | Add-Member -NotePropertyName engineering_unclean_reasons -NotePropertyValue @($auditManifest.engineering_unclean_reasons) -Force
+    $evidence | Add-Member -NotePropertyName outcome_standard -NotePropertyValue ([string]$auditManifest.outcome_standard) -Force
+    $evidence | Add-Member -NotePropertyName outcome_taskspace -NotePropertyValue ([string]$auditManifest.outcome_taskspace) -Force
+    $evidence | Add-Member -NotePropertyName score_exclusion_reason -NotePropertyValue ([string]$auditManifest.score_exclusion_reason) -Force
     $pair = [pscustomobject]@{
         Repeat = [int]$manifestResolved.repeat
         PairDir = $PairDir
@@ -83,6 +89,7 @@ function Get-TaskspacePairEvidenceFromArtifacts {
         right_metrics = $rightMetrics
         variable_control = $variableControl
         audit_review = $auditReview
+        audit_manifest = $auditManifest
         evidence = $evidence
         pair = $pair
     }

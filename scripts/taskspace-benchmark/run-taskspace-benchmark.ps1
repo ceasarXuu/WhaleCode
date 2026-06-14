@@ -176,8 +176,14 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 pair_report = $existingPairReport
                 evidence_target = $manifest.EvidenceTarget
                 evidence = $classified.evidence
-            })
+        })
         Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $existingPairReport $commandLine | Out-Null
+        if (($ScoringMode -or $RequireScoreValidity) -and $classified.evidence.PSObject.Properties.Name -contains "engineering_unclean" -and [bool]$classified.evidence.engineering_unclean) {
+            $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $existingPairDir $existingPairReport $classified.evidence $commandLine $repeat $Repeats
+            Write-Host "RunDir: $runDir"
+            Write-Host "PairAbort: $($abort.abort_path)"
+            exit 3
+        }
         continue
     }
     Set-TaskspaceBenchmarkRunPhase $runDir "execute" ($repeat - 1) ($repeat - 1) | Out-Null
@@ -443,10 +449,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     Write-TaskspaceRunEvent $runDir "pair_completed" @{ repeat = $repeat; pair_report = $pairReportPath; reported_evidence_level = [string]$evidence.reported_evidence_level }
     Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $pairReportPath $commandLine | Out-Null
     if (($ScoringMode -or $RequireScoreValidity) -and [bool]$auditManifest.engineering_unclean) {
-        $abort = New-TaskspaceScoringAbort $pair.PairDir $pairReportPath $auditManifest $repeat $Repeats
-        Write-TaskspaceRunEvent $runDir "engineering_unclean_detected" @{ repeat = $repeat; reasons = @($auditManifest.engineering_unclean_reasons); first_failure_artifact = $pairReportPath }
-        Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "score_validity" $abort.reason $abort.signature $abort.abort_path $commandLine $repeat $repeat | Out-Null
-        Write-TaskspaceSampleTiming $runDir $manifest.Id | Out-Null
+        $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $pair.PairDir $pairReportPath $evidence $commandLine $repeat $Repeats
         Write-Host "RunDir: $runDir"
         Write-Host "PairAbort: $($abort.abort_path)"
         exit 3

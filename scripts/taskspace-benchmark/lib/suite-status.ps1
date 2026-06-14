@@ -25,5 +25,18 @@ function New-TaskspaceSuiteChildFailureStatus {
         attempted_pairs = if ($Status -and $Status.PSObject.Properties.Name -contains "attempted_pairs") { $Status.attempted_pairs } else { 0 }
         completed_pairs = if ($Status -and $Status.PSObject.Properties.Name -contains "completed_pairs") { $Status.completed_pairs } else { 0 }
         first_failure_artifact = if ($StatusPath) { $StatusPath } else { $SampleRoot }
+        sample_root = $SampleRoot
     }
+}
+
+function Get-TaskspaceSuiteRemainingSkippedPairs {
+    param([Parameter(Mandatory = $true)][string]$SuiteRoot)
+    $skippedPairs = 0
+    foreach ($abortFile in @(Get-ChildItem -LiteralPath $SuiteRoot -Filter "pair-abort.json" -Recurse -ErrorAction SilentlyContinue)) {
+        try {
+            $abort = Get-Content -Raw -Encoding UTF8 -LiteralPath $abortFile.FullName | ConvertFrom-Json
+            $skippedPairs += @($abort.skipped_repeats).Count
+        } catch {}
+    }
+    $skippedPairs
 }

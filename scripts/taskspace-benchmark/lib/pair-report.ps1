@@ -294,13 +294,22 @@ function Write-TaskspacePairReport {
     }
     $lines.Add("")
     if ([string]$Manifest.EvidenceTarget -eq "E3" -or @($EvidenceGate.e3_gate_failures).Count -gt 0) {
+        $e3ScoreValid = if ($EvidenceGate.PSObject.Properties.Name -contains "run_score_valid") {
+            [bool]$EvidenceGate.run_score_valid
+        } elseif ($EvidenceGate.PSObject.Properties.Name -contains "engineering_unclean") {
+            -not [bool]$EvidenceGate.engineering_unclean
+        } else {
+            $true
+        }
+        $humanReviewDecision = if ($e3ScoreValid) { [string]$EvidenceGate.human_review_decision } else { "score_disabled" }
         $originType = if ($null -ne $Manifest.SampleOrigin -and $Manifest.SampleOrigin.PSObject.Properties.Name -contains "type") { [string]$Manifest.SampleOrigin.type } else { "" }
         $claimScope = if ($null -ne $Manifest.E3 -and $Manifest.E3.PSObject.Properties.Name -contains "claim_scope") { [string]$Manifest.E3.claim_scope } else { "" }
         $lines.Add("## E3 Gate")
         $lines.Add("- sample_origin_type: $originType")
         $lines.Add("- human_review_required: $($Manifest.HumanReviewRequired)")
         $lines.Add("- human_review_completed: $($EvidenceGate.human_review_completed)")
-        $lines.Add("- human_review_decision: $($EvidenceGate.human_review_decision)")
+        $lines.Add("- human_review_decision: $humanReviewDecision")
+        $lines.Add("- score_valid: $e3ScoreValid")
         $lines.Add("- human_review_disagreement: $($EvidenceGate.human_review_disagreement)")
         $lines.Add("- e3_minimum_repeats: $($EvidenceGate.e3_minimum_repeats)")
         $lines.Add("- claim_scope: $claimScope")
@@ -369,6 +378,13 @@ function Write-TaskspacePairReport {
     }
     $standardMetrics = @($LeftMetrics, $RightMetrics) | Where-Object { $_.logical_mode -eq "standard" } | Select-Object -First 1
     if ($standardMetrics -and $taskspaceMetrics) {
+        $scoreValid = if ($EvidenceGate.PSObject.Properties.Name -contains "run_score_valid") {
+            [bool]$EvidenceGate.run_score_valid
+        } elseif ($EvidenceGate.PSObject.Properties.Name -contains "engineering_unclean") {
+            -not [bool]$EvidenceGate.engineering_unclean
+        } else {
+            $true
+        }
         $toolRatio = if ([int]$standardMetrics.tool_call_count -gt 0) {
             [math]::Round(([double]$taskspaceMetrics.tool_call_count / [double]$standardMetrics.tool_call_count), 2)
         } else { 0 }
@@ -377,7 +393,9 @@ function Write-TaskspacePairReport {
         } else { 0 }
         $toolWarn = $Manifest.Thresholds.taskspace_tool_call_ratio_warn -and $toolRatio -gt [double]$Manifest.Thresholds.taskspace_tool_call_ratio_warn
         $timeWarn = $Manifest.Thresholds.taskspace_wall_time_ratio_warn -and $timeRatio -gt [double]$Manifest.Thresholds.taskspace_wall_time_ratio_warn
-        $outcome = if ($taskspaceMetrics.business_success -and -not $standardMetrics.business_success) {
+        $outcome = if (-not $scoreValid) {
+            "score_disabled"
+        } elseif ($taskspaceMetrics.business_success -and -not $standardMetrics.business_success) {
             "taskspace_better"
         } elseif ($standardMetrics.business_success -and -not $taskspaceMetrics.business_success) {
             "taskspace_worse"
@@ -391,11 +409,14 @@ function Write-TaskspacePairReport {
         $lines.Add("")
         $lines.Add("## Utility Assessment")
         $lines.Add("- outcome: $outcome")
+        $lines.Add("- score_valid: $scoreValid")
         $lines.Add("- taskspace_tool_call_ratio: $toolRatio")
         $lines.Add("- taskspace_wall_time_ratio: $timeRatio")
         $lines.Add("- taskspace_tool_call_ratio_warn: $toolWarn")
         $lines.Add("- taskspace_wall_time_ratio_warn: $timeWarn")
-        $utilityNote = if ($EvidenceGate.included_in_utility_aggregate -or $EvidenceGate.included_in_e3_aggregate) {
+        $utilityNote = if (-not $scoreValid) {
+            "score fields disabled because engineering clean execution is not established; raw side outcomes are diagnostic only."
+        } elseif ($EvidenceGate.included_in_utility_aggregate -or $EvidenceGate.included_in_e3_aggregate) {
             "included evidence passed the configured comparability gate; utility outcome is reported separately to avoid overstating benefit."
         } else {
             "excluded evidence is diagnostic only; it does not prove paired comparability or TaskSpace utility."

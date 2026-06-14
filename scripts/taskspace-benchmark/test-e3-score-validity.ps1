@@ -5,7 +5,9 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\failure-taxonomy.ps1")
 . (Join-Path $PSScriptRoot "lib\audit-manifest.ps1")
 . (Join-Path $PSScriptRoot "lib\aggregate-report.ps1")
+. (Join-Path $PSScriptRoot "lib\pair-report.ps1")
 . (Join-Path $PSScriptRoot "lib\timing.ps1")
+. (Join-Path $PSScriptRoot "lib\suite-status.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\e3-score-validity-selftest" }
 $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
@@ -119,6 +121,26 @@ Assert-True ($null -eq $aggregate.taskspace_better -and $null -eq $aggregate.sta
 Assert-True ($aggregateText -match "score_valid: False") "aggregate markdown did not render score_valid"
 Assert-True ($aggregateText -notmatch "taskspace_better|standard_better|regressed|worse") "invalid aggregate rendered directional comparison wording"
 
+$pairReportPath = Join-Path $runDir "invalid-pair-report.md"
+$pairPromptGuard = [pscustomobject]@{ invalid_prompt = $false; manual_review_required = $false; hard_hits = @(); context_hits = @() }
+$pairVariableControl = [pscustomobject]@{ failures = @() }
+$pairManifest = [pscustomobject]@{ Expected = [pscustomobject]@{}; Thresholds = [pscustomobject]@{} }
+$standardMetrics = New-Metrics "left" "standard" -Success $false -PublicExit 124 -Failures @("public_validation_timeout")
+$taskspaceMetrics = New-Metrics "right" "taskspace" -Success $true -PublicExit 0
+Write-TaskspacePairReport $pairReportPath $pairManifest $pairPromptGuard $pairVariableControl $invalidEvidence $standardMetrics $taskspaceMetrics ([pscustomobject]@{ PairDir = $runDir }) $null
+$pairReportText = Get-Content -Raw -Encoding UTF8 -LiteralPath $pairReportPath
+Assert-True ($pairReportText -match "outcome: score_disabled") "invalid pair report did not disable score outcome"
+Assert-True ($pairReportText -notmatch "taskspace_better|taskspace_worse|regressed") "invalid pair report leaked directional wording"
+$invalidE3Evidence = $invalidEvidence.PSObject.Copy()
+$invalidE3Evidence.human_review_completed = $true
+$invalidE3Evidence.human_review_decision = "include_taskspace_better"
+$pairReportPath = Join-Path $runDir "invalid-e3-pair-report.md"
+$pairManifest = [pscustomobject]@{ EvidenceTarget = "E3"; HumanReviewRequired = $true; Expected = [pscustomobject]@{}; Thresholds = [pscustomobject]@{}; SampleOrigin = [pscustomobject]@{ type = "external_benchmark" }; E3 = [pscustomobject]@{ claim_scope = "fixture" } }
+Write-TaskspacePairReport $pairReportPath $pairManifest $pairPromptGuard $pairVariableControl $invalidE3Evidence $standardMetrics $taskspaceMetrics ([pscustomobject]@{ PairDir = $runDir }) $null
+$pairReportText = Get-Content -Raw -Encoding UTF8 -LiteralPath $pairReportPath
+Assert-True ($pairReportText -match "human_review_decision: score_disabled") "invalid E3 pair report did not mask directional human review decision"
+Assert-True ($pairReportText -notmatch "taskspace_better|taskspace_worse|standard_better|regressed") "invalid E3 pair report leaked directional review wording"
+
 $timingPairDir = Join-Path $runDir "pair-001"
 New-Item -ItemType Directory -Force -Path $timingPairDir | Out-Null
 $metricsBySide = @{
@@ -140,10 +162,44 @@ $sampleTimingPath = Write-TaskspaceSampleTiming $runDir "score-validity-fixture"
 $sampleTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $sampleTimingPath | ConvertFrom-Json
 Assert-True ([int]$sampleTiming.pair_count -eq 1) "sample timing did not aggregate pair timing"
 Assert-True ([int64]$sampleTiming.public_validation_duration_ms -gt 0) "sample timing did not aggregate validation duration"
+$missingTimingPair = Join-Path $runDir "pair-002"
+New-Item -ItemType Directory -Force -Path $missingTimingPair | Out-Null
+$badTimingPair = Join-Path $runDir "pair-003"
+New-Item -ItemType Directory -Force -Path $badTimingPair | Out-Null
+"not-json" | Set-Content -LiteralPath (Join-Path $badTimingPair "pair-timing.json") -Encoding UTF8
+$sampleTimingPath = Write-TaskspaceSampleTiming $runDir "score-validity-fixture"
+$sampleTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $sampleTimingPath | ConvertFrom-Json
+Assert-True ([int]$sampleTiming.missing_pair_timing_count -eq 1) "sample timing did not record missing pair timing"
+Assert-True ([int]$sampleTiming.timing_parse_error_count -eq 1) "sample timing did not record malformed pair timing"
 $suiteTimingPath = Write-TaskspaceSuiteTiming $runDir @([pscustomobject]@{ sample_id = "score-validity-fixture" })
 $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | ConvertFrom-Json
 Assert-True ([int]$suiteTiming.timing_sample_count -eq 1) "suite timing did not aggregate sample timing"
 Assert-True ([int64]$suiteTiming.total_pair_duration_ms -gt 0) "suite timing did not record total pair duration"
+$suiteRoot = Join-Path $runDir "suite-fixture"
+$suiteSamples = Join-Path $suiteRoot "samples"
+New-Item -ItemType Directory -Force -Path (Join-Path $suiteSamples "sample-a") | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $suiteSamples "sample-b") | Out-Null
+"not-json" | Set-Content -LiteralPath (Join-Path $suiteSamples "sample-a\sample-timing.json") -Encoding UTF8
+$suiteTimingPath = Write-TaskspaceSuiteTiming $suiteRoot @([pscustomobject]@{ sample_id = "sample-a" }, [pscustomobject]@{ sample_id = "sample-b" })
+$suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | ConvertFrom-Json
+Assert-True ([int]$suiteTiming.missing_sample_timing_count -eq 1) "suite timing did not record missing sample timing"
+Assert-True ([int]$suiteTiming.timing_parse_error_count -eq 1) "suite timing did not record malformed sample timing"
+$suiteRootFromStatus = Join-Path $runDir "suite-status-fixture"
+New-Item -ItemType Directory -Force -Path $suiteRootFromStatus | Out-Null
+$missingStatusRoot = Join-Path $suiteRootFromStatus "samples\sample-missing"
+$suiteTimingPath = Write-TaskspaceSuiteTiming $suiteRootFromStatus @([pscustomobject]@{ sample_id = "sample-missing"; sample_root = $missingStatusRoot; run_validity = "invalid_harness" })
+$suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | ConvertFrom-Json
+Assert-True ([int]$suiteTiming.missing_sample_timing_count -eq 1) "suite timing did not use sample status to record missing timing"
+$helperStatus = New-TaskspaceSuiteChildFailureStatus $null "sample-helper-missing" "task-dir" 3 "" (Join-Path $suiteRootFromStatus "samples\sample-helper-missing")
+Assert-True ($helperStatus.PSObject.Properties.Name -contains "sample_root") "suite child failure status did not preserve sample_root"
+$suiteTimingPath = Write-TaskspaceSuiteTiming $suiteRootFromStatus @($helperStatus)
+$suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | ConvertFrom-Json
+Assert-True ([int]$suiteTiming.missing_sample_timing_count -eq 1) "suite timing did not use helper-generated status to record missing timing"
+$suiteAbortRoot = Join-Path $runDir "suite-abort-fixture"
+$abortPairDir = Join-Path $suiteAbortRoot "samples\sample-a\run\pair-001"
+New-Item -ItemType Directory -Force -Path $abortPairDir | Out-Null
+[pscustomobject]@{ skipped_repeats = @(2, 3, 4, 5) } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $abortPairDir "pair-abort.json") -Encoding UTF8
+Assert-True ((Get-TaskspaceSuiteRemainingSkippedPairs $suiteAbortRoot) -eq 4) "suite skipped pair helper did not count pair-abort skipped repeats"
 
 if ($failures.Count -gt 0) {
     Write-Host "E3 score-validity self-test: FAIL"
