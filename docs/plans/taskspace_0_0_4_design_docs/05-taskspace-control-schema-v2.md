@@ -220,8 +220,8 @@ adoption_refs:
 ```json
 {
   "action": "classify_failure",
-  "failure_classes": ["taskspace_overhead_timeout", "validator_slow_or_flaky"],
-  "reason": "TaskSpace public validator exited 124 while standard passed; graph health shows no large node expansion in this pair",
+  "failure_classes": ["engineering_unclean", "validator_slow_or_flaky"],
+  "reason": "TaskSpace public validator exited 124; under the hard E3 contract this is validator infrastructure failure, not an agent_exec_timeout score outcome",
   "evidence_refs": [{"artifact_ref": "taskspace.validator.stderr.txt"}]
 }
 ```

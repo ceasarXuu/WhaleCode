@@ -72,6 +72,8 @@ final_synthesis
 
 `recover-accuracy-log` 中 Standard 5/5，TaskSpace 3/5。两个 TaskSpace 失败 pair 的形态不同：
 
+注意：下表保留 0.0.3 证据包中的 legacy raw labels。按 2026-06-14 硬性 E3 契约，validator timeout / flaky 不能再产生 score-bearing `standard_better`；它应使执行进入 `score_valid=false / engineering_unclean`，只能作为诊断输入。
+
 | Pair | Direction | Nodes | Edges | Results | Failure classes |
 |---|---|---:|---:|---:|---|
 | pair-003 | standard_better | 16 | 16 | 53 | taskspace_overhead_timeout; validator_slow_or_flaky; node_overfragmentation; subagent_noise_or_unused |

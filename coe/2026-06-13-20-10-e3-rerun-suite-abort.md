@@ -161,7 +161,13 @@
 
 - Type: rerun result
 - Supports: outcome interpretation.
-- Observation: suite exit code was `1`, but sample statuses had `abort_scope=none` and no `abort_signature`. Run summaries show all 15 pair reports were produced, but no pair was included in utility or E3 aggregate because results remained diagnostic/audit-pending or lower evidence level. This is a benchmark outcome, not a harness execution failure.
+- Observation: suite exit code was `1`, but sample statuses had `abort_scope=none` and no `abort_signature`. Run summaries show all 15 pair reports were produced, but no pair was included in utility or E3 aggregate because results remained diagnostic/audit-pending or lower evidence level. This proves the suite process completed; it does not prove the E3 scoring execution was clean.
+
+### Evidence E-017
+
+- Type: execution contract update
+- Supports: outcome reinterpretation.
+- Observation: the hard E3 contract now allows only `solved`, `wrong`, and `agent_exec_timeout` as score-bearing agent outcomes. Docker/container/validator/materialization/path/disk/proof/report/audit failures are `engineering_unclean`; any such contamination makes the E3 run `score_valid=false`.
 
 ## Problem P-001 Current Conclusion
 
@@ -179,4 +185,8 @@
 - Rerun validation:
   - Completed full 3-sample E3 suite from durable task paths under `C:\w\terminal-bench-1a6ffa9674b571da0ed040c470cb40c4d85f9b9b\original-tasks`.
   - The suite ran all samples and all 15 repeats without suite-level abort or invalid harness signature.
-  - Final exit code `1` reflects benchmark diagnostic/audit outcome, not infrastructure failure.
+  - This validates the child-exit/materialization fixes only.
+- Scoring conclusion:
+  - The rerun is not a clean score-bearing E3 execution under the hard contract.
+  - Any Docker/container/validator/materialization/path/disk/proof/report/audit contamination makes the correct scoring state `score_valid=false / engineering_unclean`.
+  - The run can be used for engineering diagnosis, but not for Standard vs TaskSpace score, better/worse, pass-rate delta, cost delta, or agent ability claims.

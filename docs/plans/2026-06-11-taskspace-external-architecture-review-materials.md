@@ -396,8 +396,8 @@ blocker refs
 - cleanup 是否 ok。
 
 审查用途：
-- 区分 agent 失败、TaskSpace overhead、validator 慢、环境噪声。
-- 判断 TaskSpace 是否系统性放大 timeout 风险。
+- 区分 agent 解题失败、agent 解题超时和工程不 clean。
+- 判断 TaskSpace 是否系统性放大 agent_exec_timeout 风险；validator/Docker/环境异常不得折算成 agent 能力结果。
 
 #### 13. 失败分类
 
@@ -405,12 +405,13 @@ blocker refs
 - `agent_patch_wrong`
 - `agent_no_patch`
 - `agent_validation_loop`
-- `taskspace_overhead_timeout`
+- `agent_exec_timeout`
 - `subagent_noise_or_unused`
 - `node_overfragmentation`
 - `result_not_synthesized`
 - `validator_slow_or_flaky`
 - `environment_noise`
+- `engineering_unclean`
 - `remote_asset_unavailable`
 - `remote_asset_equivalence_unproven`
 - `audit_unclean`
@@ -691,10 +692,11 @@ audit aggregate 相关代码
 - `agent_patch_wrong`：代码修改方向错误。
 - `agent_no_patch`：未产生有效 patch。
 - `agent_validation_loop`：验证失败后无法收敛。
-- `taskspace_overhead_timeout`：调度和图维护成本导致 timeout。
-- `validator_slow_or_flaky`：validator 本身慢或不稳定。
-- `environment_noise`：Docker、依赖、文件系统、网络等外部噪声。
-- `audit_unclean`：结果看似成功但证据隔离不足，不能纳入 clean utility。
+- `agent_exec_timeout`：agent 在规定解题时间内没有完成；这是唯一可作为 agent outcome 的异常。
+- `validator_slow_or_flaky`：validator 本身慢或不稳定；映射为 `engineering_unclean`，不得算分。
+- `environment_noise`：Docker、依赖、文件系统、网络等外部噪声；映射为 `engineering_unclean`，不得算分。
+- `engineering_unclean`：非 agent 解题因素污染执行；本次 E3 run `score_valid=false`。
+- `audit_unclean`：结果看似成功但证据隔离不足；映射为 `engineering_unclean`，不得纳入 score。
 
 ### 3. Viewer Snapshot 示例
 

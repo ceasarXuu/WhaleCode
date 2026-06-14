@@ -195,6 +195,33 @@ External benchmark 样本使用：
 
 E3 必须在 E2 gate 基础上增加门槛。
 
+### Hard Clean Execution Contract
+
+E3 判分只允许把每一侧 agent 结果归入三个状态：
+
+| Outcome | 含义 | 是否可进入 clean score |
+|---|---|---|
+| `solved` | agent 完成修改，public/external validator 与 hidden oracle 都干净运行并通过 | 是 |
+| `wrong` | agent 完成修改，validator/oracle 干净运行并给出业务失败 | 是 |
+| `agent_exec_timeout` | agent 在规定解题时间内没有完成；这是唯一允许的异常形态 | 是，按 agent timeout failure 计入 |
+
+除 `agent_exec_timeout` 外，任何非 `solved` / `wrong` 结果都不是 agent 能力结果，而是 `engineering_unclean`。`engineering_unclean` 包括但不限于：
+
+- Docker build/run/cleanup failure、WSL/backend 不可用、container runtime 异常。
+- 磁盘空间不足、路径不可解析、fixture/materialization/source checkout/cache 不完整。
+- public/external validator 自身超时、崩溃、依赖缺失、proof mismatch、runner 等价性不可证明。
+- harness child process 非预期退出、suite/report/parser 写入失败、artifact 缺失或生命周期 marker 不完整。
+- 审计所需 artifact 不足，导致无法证明 validator/oracle 是干净执行。
+
+`public_validation_timeout` 不是 `agent_exec_timeout`。除非任务规范明确把 validator 超时定义为业务验收的一部分，否则 validator timeout 一律是 `engineering_unclean`。
+
+硬性聚合规则：
+
+- 只要本次 E3 执行出现任何 `engineering_unclean`，整次执行的 `score_valid=false`，不得输出 Standard vs TaskSpace 分数、better/worse 结论或版本收益声明。
+- 可保留 diagnostic report，但必须标注 `engineering_unclean=true`，只能用于定位工程问题，不能反映 agent 能力。
+- clean score 只能基于同时满足 `solved` / `wrong` / `agent_exec_timeout` 且 validator/oracle 运行干净的 comparable pairs。
+- clean comparable pair 数量低于计划样本和 repeat 门槛时，aggregate 结论必须是 invalid / insufficient clean evidence。
+
 基础门槛：
 
 - `invalid_pair = false`
@@ -228,8 +255,12 @@ E3 额外门槛：
 | 缺少原始 prompt checksum、claim scope、脱敏说明、隐私复核或外部 validator metadata | E3-candidate |
 | human review 没有有效 include decision | E3-candidate |
 | 原始 prompt 被 TaskSpace 友好化 | invalid_prompt |
-| validator 不稳定且无法解释 | excluded_pair |
-| 样本含隐私且未脱敏 | excluded_pair |
+| agent 解题执行超时 | `agent_exec_timeout`，可进入 clean aggregate，但按 agent timeout failure 计入 |
+| public/external validator timeout、validator crash 或 validator 依赖缺失 | `engineering_unclean`，整次执行 `score_valid=false` |
+| Docker/WSL/container build/run/cleanup failure | `engineering_unclean`，整次执行 `score_valid=false` |
+| materialization/source/path/cache/disk/proof/report/parser/lifecycle marker 异常 | `engineering_unclean`，整次执行 `score_valid=false` |
+| validator 不稳定且无法解释 | `engineering_unclean`，整次执行 `score_valid=false` |
+| 样本含隐私且未脱敏 | invalid_sample，不进入 E3 执行；若已执行则整次执行 `score_valid=false` |
 
 当前 runner 的真实执行路径尚未接入 artifact audit report，因此即使 E3 manifest 存在，实际 run 也只能产出 `E3-candidate`。只有后续实现 audit report 读取、复核结论聚合，并满足上述全部字段后，runner 才允许报告 `E3`。
 
@@ -238,6 +269,7 @@ E3 额外门槛：
 - `e3.minimum_repeats` 可以提高门槛，但不能把 E3 最低重复次数降到 5 以下。
 - `E3-candidate` 不进入 E2 utility aggregate，也不进入 E3 aggregate。
 - E3 aggregate 必须显示 artifact audit 完成数、decision 分布和复核分歧数量；pass rate 只能由这些计数派生，不作为第一版硬输出字段。
+- E3 aggregate 必须输出 `score_valid`、`engineering_unclean_count`、`agent_exec_timeout_count` 和 `clean_comparable_pair_count`；当 `engineering_unclean_count > 0` 时，所有 score/better/worse 字段必须为空或标记 invalid。
 
 ## Audit Review 模板
 
@@ -270,12 +302,15 @@ date:
 - `include_no_clear_delta`
 - `exclude_harness_failure`
 - `exclude_invalid_prompt`
-- `exclude_validator_unclear`
+- `run_invalid_engineering_unclean`
+- `exclude_validator_unclear`（legacy diagnostic label only；不得用于 scoreable exclusion）
 - `exclude_privacy_or_sample_risk`
 
 ## Utility 指标
 
-E3 不能只看 pass/fail。
+E3 不能只看 pass/fail，也不能把工程异常折算成 agent pass/fail。
+
+所有 utility 指标只在 `score_valid=true` 时计算。`engineering_unclean=true` 的执行只能输出 diagnostic counts 和 root-cause taxonomy，不能输出有效成绩。
 
 必须统计：
 
