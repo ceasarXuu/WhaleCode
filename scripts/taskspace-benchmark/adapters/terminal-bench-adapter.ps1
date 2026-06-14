@@ -501,16 +501,7 @@ $validatorLines = @(
     '    Write-Host "docker_inspect_path=$inspectPath"',
     '    Write-Host "docker_inspect_available=$($script:LastDockerExitCode -eq 0)"',
     '} finally {',
-    '    $phaseStartedAt = Get-Date',
-    '    Invoke-Docker -Arguments @("rm", "-f", $containerName)',
-    '    $phaseFinishedAt = Get-Date',
-    '    Write-Host "validator_cleanup_container_exit=$($script:LastDockerExitCode)"',
-    '    Add-DockerPhaseResult "cleanup_container" $script:LastDockerExitCode $(if ($script:LastDockerExitCode -eq 0) { "ok" } else { "docker_cleanup_container_failure" }) $phaseStartedAt $phaseFinishedAt',
-    '    $phaseStartedAt = Get-Date',
-    '    Invoke-Docker -Arguments @("rmi", "-f", $image)',
-    '    $phaseFinishedAt = Get-Date',
-    '    Write-Host "validator_cleanup_image_exit=$($script:LastDockerExitCode)"',
-    '    Add-DockerPhaseResult "cleanup_image" $script:LastDockerExitCode $(if ($script:LastDockerExitCode -eq 0) { "ok" } else { "docker_cleanup_image_failure" }) $phaseStartedAt $phaseFinishedAt',
+    '    Write-Host "validator_cleanup_deferred_to_runner=true"',
     '}',
     'exit $exitCode'
 )

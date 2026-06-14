@@ -161,11 +161,11 @@ Assert-True ([int64]$metricWithTiming.public_validation_duration_ms -gt 0) "metr
 $dockerResultPath = Join-Path $runDir "docker-build-result.json"
 [pscustomobject]@{
     phases = @(
-        [pscustomobject]@{ phase = "build"; duration_ms = 1000; timestamp = $now.ToString("o") },
-        [pscustomobject]@{ phase = "run"; duration_ms = 2000; timestamp = $now.AddSeconds(2).ToString("o") },
-        [pscustomobject]@{ phase = "inspect"; duration_ms = 300; timestamp = $now.AddSeconds(3).ToString("o") },
-        [pscustomobject]@{ phase = "cleanup_container"; duration_ms = 400; timestamp = $now.AddSeconds(4).ToString("o") },
-        [pscustomobject]@{ phase = "cleanup_image"; duration_ms = 500; timestamp = $now.AddSeconds(5).ToString("o") }
+        [pscustomobject]@{ phase = "build"; duration_ms = 1000; started_at = $now.ToString("o"); finished_at = $now.AddSeconds(1).ToString("o"); timestamp = $now.AddSeconds(1).ToString("o") },
+        [pscustomobject]@{ phase = "run"; duration_ms = 2000; started_at = $now.AddSeconds(1).ToString("o"); finished_at = $now.AddSeconds(3).ToString("o"); timestamp = $now.AddSeconds(3).ToString("o") },
+        [pscustomobject]@{ phase = "inspect"; duration_ms = 300; started_at = $now.AddSeconds(3).ToString("o"); finished_at = $now.AddMilliseconds(3300).ToString("o"); timestamp = $now.AddMilliseconds(3300).ToString("o") },
+        [pscustomobject]@{ phase = "cleanup_container"; duration_ms = 400; started_at = $now.AddMilliseconds(3300).ToString("o"); finished_at = $now.AddMilliseconds(3700).ToString("o"); timestamp = $now.AddMilliseconds(3700).ToString("o") },
+        [pscustomobject]@{ phase = "cleanup_image"; duration_ms = 500; started_at = $now.AddMilliseconds(3700).ToString("o"); finished_at = $now.AddMilliseconds(4200).ToString("o"); timestamp = $now.AddMilliseconds(4200).ToString("o") }
     )
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $dockerResultPath -Encoding UTF8
 $metricsBySide.left | Add-Member -NotePropertyName docker_build_result_path -NotePropertyValue $dockerResultPath -Force
@@ -173,6 +173,7 @@ $metricWithDockerTiming = Add-TaskspaceMetricTimingFields $metricsBySide.left $v
 Assert-True ([int64]$metricWithDockerTiming.docker_build_duration_ms -eq 1000) "metric timing did not record docker build duration"
 Assert-True ([int64]$metricWithDockerTiming.docker_run_duration_ms -eq 2000) "metric timing did not record docker run duration"
 Assert-True ([int64]$metricWithDockerTiming.docker_cleanup_duration_ms -eq 900) "metric timing did not aggregate docker cleanup duration"
+Assert-True ([int64]$metricWithDockerTiming.docker_observed_duration_ms -eq 4200) "metric timing did not record full docker observed duration"
 $pretestTimeoutMetrics = New-Metrics "left" "standard" -PublicExit 124 -PretestFailure $true
 $pretestTimeoutMetrics | Add-Member -NotePropertyName tests_started_seen -NotePropertyValue $false -Force
 $pretestTimeoutMetrics = Add-TaskspaceMetricTimingFields $pretestTimeoutMetrics $validationTimingBySide.left

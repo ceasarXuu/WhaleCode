@@ -5,6 +5,7 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $repoRoot "scripts\action-map-real-user-e2e-lib.ps1")
+. (Join-Path $PSScriptRoot "lib\harness-health.ps1")
 . (Join-Path $PSScriptRoot "lib\oracle-runner.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\oracle-runner-selftest" }
@@ -41,6 +42,44 @@ $timeoutExit = Invoke-TaskspaceValidationCommand $repoDir ([pscustomobject]@{
 if ($timeoutExit -ne 124) {
     Write-Host "TaskSpace oracle-runner self-test: FAIL"
     Write-Host "- validation timeout aborted or returned $timeoutExit instead of 124"
+    exit 1
+}
+
+$pretestStdout = Join-Path $artifactDir "validation-pretest-timeout.stdout.log"
+$pretestStderr = Join-Path $artifactDir "validation-pretest-timeout.stderr.log"
+$pretestWatch = [System.Diagnostics.Stopwatch]::StartNew()
+$pretestExit = Invoke-TaskspaceValidationCommand $repoDir ([pscustomobject]@{
+    command = "powershell"
+    args = @("-NoProfile", "-Command", "Start-Sleep -Seconds 5")
+}) $pretestStdout $pretestStderr 5 "" @() 1 5
+$pretestWatch.Stop()
+if ($pretestExit -ne 124 -or $pretestWatch.Elapsed.TotalSeconds -ge 4) {
+    Write-Host "TaskSpace oracle-runner self-test: FAIL"
+    Write-Host "- validation pretest timeout did not fail fast; exit=$pretestExit elapsed=$($pretestWatch.Elapsed.TotalSeconds)"
+    exit 1
+}
+$pretestLifecycle = Get-TaskspaceValidationLifecycle ([pscustomobject]@{ stdout_path = $pretestStdout; stderr_path = $pretestStderr })
+if ([string]$pretestLifecycle.validation_timeout_phase -ne "pretest") {
+    Write-Host "TaskSpace oracle-runner self-test: FAIL"
+    Write-Host "- validation pretest timeout phase was not preserved"
+    exit 1
+}
+
+$testsStdout = Join-Path $artifactDir "validation-tests-timeout.stdout.log"
+$testsStderr = Join-Path $artifactDir "validation-tests-timeout.stderr.log"
+$testsExit = Invoke-TaskspaceValidationCommand $repoDir ([pscustomobject]@{
+    command = "powershell"
+    args = @("-NoProfile", "-Command", "Write-Output 'validator_lifecycle_stage=tests_started'; Write-Output 'validator_tests_started=true'; Start-Sleep -Seconds 5")
+}) $testsStdout $testsStderr 10 "" @() 5 1
+if ($testsExit -ne 124) {
+    Write-Host "TaskSpace oracle-runner self-test: FAIL"
+    Write-Host "- validation tests timeout returned $testsExit instead of 124"
+    exit 1
+}
+$testsLifecycle = Get-TaskspaceValidationLifecycle ([pscustomobject]@{ stdout_path = $testsStdout; stderr_path = $testsStderr })
+if (-not [bool]$testsLifecycle.tests_started_seen -or [string]$testsLifecycle.validation_timeout_phase -ne "tests" -or [string]::IsNullOrWhiteSpace([string]$testsLifecycle.tests_started_at)) {
+    Write-Host "TaskSpace oracle-runner self-test: FAIL"
+    Write-Host "- validation tests timeout did not preserve tests_started marker and timeout phase"
     exit 1
 }
 

@@ -1166,10 +1166,13 @@ Safe reductions:
    - `ValidationPretestTimeoutSeconds`, default `90-120`;
    - `ValidationTestTimeoutSeconds`, default remains close to current `420` after `tests_started`;
    - a timeout before `tests_started` is `engineering_unclean`.
+   - score-bearing public validation, not only `-ProbeOnly`, must use this split.
+   - stdout/stderr markers must be durable while the process is running; timeout classification cannot depend on normal process exit.
 6. Add bounded cleanup:
-   - cleanup must have a timeout;
-   - cleanup failure is engineering-unclean in scoring mode;
-   - cleanup artifacts include container/image IDs and failure reason.
+    - cleanup must have a timeout;
+    - cleanup failure is engineering-unclean in scoring mode;
+    - cleanup artifacts include container/image IDs and failure reason.
+   - generated validators must not run unbounded Docker cleanup in `finally`; cleanup should be delegated to the bounded runner cleanup path or use an equivalent bounded helper.
 7. Add a no-op mode for diagnostic rerenders so `finalize` does not re-run expensive validators.
 
 #### Testing And Validation
@@ -1181,6 +1184,13 @@ Safe reductions:
 | pretest timeout | synthetic no-marker validator | aborts before full 420s |
 | tests-started timeout | synthetic slow test fixture | classified separately from pretest failure |
 | cleanup timeout | synthetic cleanup failure | bounded duration and classified artifact |
+
+#### Current Implementation Notes
+
+- `ValidationPretestTimeoutSeconds` and `ValidationTestTimeoutSeconds` are now runner-facing budgets for score-bearing public validation.
+- The validation runner polls stdout/stderr files during execution and records `taskspace_validation_timeout_phase`, `taskspace_tests_started_at`, and `taskspace_tests_completed_at` markers when available.
+- Terminal-Bench generated validator cleanup is deferred to the runner cleanup path, which performs identity-checked Docker cleanup with bounded process execution and writes `validation-cleanup-result.json`.
+- Docker image caching, cache invalidation, no-op diagnostic rerenders, and parallel execution remain future work until their own tests pass.
 
 #### Exit Criteria
 
@@ -1401,11 +1411,10 @@ First safe parallel smoke:
   -ValidationTimeoutSeconds 420 `
   -SandboxMode full-auto `
   -ConfigOverride 'model_reasoning_effort="max"' `
-  -ScoringMode `
-  -MaxParallelSamples 2 `
-  -MaxDockerConcurrency 1 `
-  -MaxModelConcurrency 2
+  -ScoringMode
 ```
+
+Parallel execution flags such as `-MaxParallelSamples`, `-MaxDockerConcurrency`, and `-MaxModelConcurrency` are planned runner contract, not current suite-runner CLI. Do not add them to production E3 commands until Phase R3 implements and tests them.
 
 Do not run full parallel E3 until the smoke artifacts prove:
 

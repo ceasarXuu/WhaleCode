@@ -5,7 +5,7 @@ param(
     [string]$RunRoot = "",
     [string]$WhaleBin = "$env:USERPROFILE\.whale\bin\whale.exe",
     [string]$Model = "deepseek-v4-flash",
-    [int]$TimeoutSeconds = 900, [int]$ValidationTimeoutSeconds = 420, [int]$ValidationPretestTimeoutSeconds = 120,
+    [int]$TimeoutSeconds = 900, [int]$ValidationTimeoutSeconds = 420, [int]$ValidationPretestTimeoutSeconds = 120, [int]$ValidationTestTimeoutSeconds = 420,
     [ValidateSet("bypass", "full-auto", "workspace-write")]
     [string]$SandboxMode = "full-auto",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
@@ -234,12 +234,16 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             throw "Non-neutral cwd for $($side.Name): $($side.RepoDir)"
         }
     }
+    $probeTimingBySide = @{}
     if ([string]$manifest.EvidenceTarget -eq "E3" -or ($manifest.ExternalBenchmark -and $manifest.ExternalBenchmark.adapter_metadata -and [bool]$manifest.ExternalBenchmark.adapter_metadata.validator_probe_supported)) {
         foreach ($side in @($pair.Left, $pair.Right)) {
             $probeStdout = Join-Path $side.ArtifactDir "validator-probe.stdout.log"
             $probeStderr = Join-Path $side.ArtifactDir "validator-probe.stderr.log"
             $probeProofDir = Join-Path $side.ArtifactDir "external-validator-runtime-probe"
+            $probeStartedAt = Get-Date
             $probeExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $probeStdout $probeStderr ([Math]::Min($ValidationPretestTimeoutSeconds, [Math]::Max(30, $ValidationTimeoutSeconds))) $probeProofDir @("-ProbeOnly")
+            $probeFinishedAt = Get-Date
+            $probeTimingBySide[$side.Name] = [int64](($probeFinishedAt - $probeStartedAt).TotalMilliseconds)
             $probeValidation = [pscustomobject]@{ exit_code = $probeExit; stdout_path = $probeStdout; stderr_path = $probeStderr }
             $probeLifecycle = Get-TaskspaceValidationLifecycle $probeValidation
             $probeText = Get-TaskspaceValidationText $probeValidation
@@ -286,6 +290,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         timeout_seconds_right = $TimeoutSeconds
         validation_timeout_seconds = $ValidationTimeoutSeconds
         validation_pretest_timeout_seconds = $ValidationPretestTimeoutSeconds
+        validation_test_timeout_seconds = $ValidationTestTimeoutSeconds
         provider_param_status = $providerParamStatus
         config_overrides = @($ConfigOverride)
         sandbox_mode = $SandboxMode
@@ -361,7 +366,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $validationProofDir = Join-Path $side.ArtifactDir "external-validator-runtime"
         $effectiveValidationTimeout = [Math]::Max(30, $ValidationTimeoutSeconds)
         $validationStartedAt = Get-Date
-        $validationExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $validationStdout $validationStderr $effectiveValidationTimeout $validationProofDir
+        $validationExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $validationStdout $validationStderr $effectiveValidationTimeout $validationProofDir @() $ValidationPretestTimeoutSeconds $ValidationTestTimeoutSeconds
         $validationFinishedAt = Get-Date
         $oracleStartedAt = Get-Date
         $oracle = Invoke-TaskspaceHiddenOracle $side.RepoDir $side.ArtifactDir $pair.HiddenOraclePath "" -BypassSandbox:($SandboxMode -eq "bypass")
@@ -375,6 +380,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             validation_started_at = $validationStartedAt
             validation_finished_at = $validationFinishedAt
             validation_exit_code = $validationExit
+            probe_duration_ms = if ($probeTimingBySide.ContainsKey($side.Name)) { [int64]$probeTimingBySide[$side.Name] } else { $null }
             oracle_started_at = $oracleStartedAt
             oracle_finished_at = $oracleFinishedAt
             oracle_exit_code = if ($oracle -and $oracle.PSObject.Properties.Name -contains "exit_code") { [int]$oracle.exit_code } else { 0 }

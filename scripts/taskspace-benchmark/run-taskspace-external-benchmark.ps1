@@ -12,6 +12,7 @@ param(
     [int]$TimeoutSeconds = 900,
     [int]$ValidationTimeoutSeconds = 420,
     [int]$ValidationPretestTimeoutSeconds = 120,
+    [int]$ValidationTestTimeoutSeconds = 420,
     [ValidateSet("bypass", "full-auto", "workspace-write")]
     [string]$SandboxMode = "full-auto",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
@@ -127,6 +128,7 @@ $args = @(
     "-TimeoutSeconds", $TimeoutSeconds,
     "-ValidationTimeoutSeconds", $ValidationTimeoutSeconds,
     "-ValidationPretestTimeoutSeconds", $ValidationPretestTimeoutSeconds,
+    "-ValidationTestTimeoutSeconds", $ValidationTestTimeoutSeconds,
     "-SandboxMode", $SandboxMode
 )
 foreach ($override in @($ConfigOverride)) { $args += @("-ConfigOverride", $override) }

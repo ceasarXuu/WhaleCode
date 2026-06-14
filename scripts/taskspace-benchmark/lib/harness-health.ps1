@@ -273,10 +273,16 @@ function Get-TaskspaceValidationLifecycle {
     $combined = Get-TaskspaceValidationText $Validation
     $stages = @([regex]::Matches($combined, "(?m)^validator_lifecycle_stage=([^\r\n]+)\s*$") | ForEach-Object { $_.Groups[1].Value.Trim() })
     $stage = if ($stages.Count -gt 0) { [string]$stages[-1] } else { "unknown" }
+    $timeoutPhaseMatch = [regex]::Match($combined, "(?m)^taskspace_validation_timeout_phase=([^\r\n]+)\s*$")
+    $testsStartedAtMatch = [regex]::Match($combined, "(?m)^taskspace_tests_started_at=([^\r\n]+)\s*$")
+    $testsCompletedAtMatch = [regex]::Match($combined, "(?m)^taskspace_tests_completed_at=([^\r\n]+)\s*$")
     [pscustomobject]@{
         tests_started_seen = ($combined -match "(?m)^validator_tests_started=true\s*$")
         tests_completed_seen = ($combined -match "(?m)^validator_tests_completed=true\s*$")
         validation_lifecycle_stage = $stage
+        validation_timeout_phase = if ($timeoutPhaseMatch.Success) { $timeoutPhaseMatch.Groups[1].Value.Trim() } else { "" }
+        tests_started_at = if ($testsStartedAtMatch.Success) { $testsStartedAtMatch.Groups[1].Value.Trim() } else { "" }
+        tests_completed_at = if ($testsCompletedAtMatch.Success) { $testsCompletedAtMatch.Groups[1].Value.Trim() } else { "" }
     }
 }
 

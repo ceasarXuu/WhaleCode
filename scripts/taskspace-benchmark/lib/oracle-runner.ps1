@@ -6,26 +6,24 @@ function Invoke-TaskspaceValidationCommand {
         [Parameter(Mandatory = $true)][string]$StderrPath,
         [int]$TimeoutSeconds = 120,
         [string]$ProofDir = "",
-        [string[]]$ExtraArgs = @()
+        [string[]]$ExtraArgs = @(),
+        [int]$PretestTimeoutSeconds = 0,
+        [int]$TestTimeoutSeconds = 0
     )
     $args = @($Validation.args | ForEach-Object { [string]$_ }) + @($ExtraArgs | ForEach-Object { [string]$_ })
     $oldProofDir = $env:TASKSPACE_VALIDATION_ARTIFACT_DIR
     $exitCode = 0
     $timedOut = $false
+    $timeoutPhase = ""
     try {
         if (-not [string]::IsNullOrWhiteSpace($ProofDir)) {
             New-Dir $ProofDir | Out-Null
             $env:TASKSPACE_VALIDATION_ARTIFACT_DIR = (Resolve-Path -LiteralPath $ProofDir).Path
         }
-        try {
-            $exitCode = Invoke-RealProcess ([string]$Validation.command) $args $RepoDir $StdoutPath $StderrPath $TimeoutSeconds
-        } catch {
-            if ([string]$_.Exception.Message -notmatch "^Process timed out after ") { throw }
-            $timedOut = $true
-            $exitCode = 124
-            if (-not (Test-Path -LiteralPath $StdoutPath)) { Write-Text $StdoutPath "" }
-            Write-Text $StderrPath "Validation timed out after $TimeoutSeconds seconds.`n$($_.Exception.Message)`n"
-        }
+        $result = Invoke-TaskspaceValidationProcess ([string]$Validation.command) $args $RepoDir $StdoutPath $StderrPath $TimeoutSeconds $PretestTimeoutSeconds $TestTimeoutSeconds
+        $exitCode = [int]$result.exit_code
+        $timedOut = [bool]$result.timed_out
+        $timeoutPhase = [string]$result.timeout_phase
         $cleanupReason = if ($timedOut) { "timeout" } else { "post_validation" }
         Invoke-TaskspaceValidationCleanupNoThrow $ProofDir $cleanupReason $StderrPath | Out-Null
         $exitCode
@@ -35,6 +33,98 @@ function Invoke-TaskspaceValidationCommand {
         } else {
             $env:TASKSPACE_VALIDATION_ARTIFACT_DIR = $oldProofDir
         }
+    }
+}
+
+function Invoke-TaskspaceValidationProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][string[]]$ArgumentList,
+        [Parameter(Mandatory = $true)][string]$WorkingDirectory,
+        [Parameter(Mandatory = $true)][string]$StdoutPath,
+        [Parameter(Mandatory = $true)][string]$StderrPath,
+        [int]$TimeoutSeconds = 120,
+        [int]$PretestTimeoutSeconds = 0,
+        [int]$TestTimeoutSeconds = 0
+    )
+    Write-Text $StdoutPath ""
+    Write-Text $StderrPath ""
+    $testsStartedAt = $null
+    $testsCompletedAt = $null
+    $testsStartedMarkerRecorded = $false
+    $testsCompletedMarkerRecorded = $false
+    $startedAt = Get-Date
+    $timeoutPhase = ""
+    $argumentString = ConvertTo-TaskspaceCmdArgumentString $ArgumentList
+    $quotedFile = '"' + ($FilePath -replace '"', '""') + '"'
+    $quotedStdout = '"' + ($StdoutPath -replace '"', '""') + '"'
+    $quotedStderr = '"' + ($StderrPath -replace '"', '""') + '"'
+    $cmdLine = "call $quotedFile $argumentString > $quotedStdout 2> $quotedStderr"
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = "cmd.exe"
+    $startInfo.Arguments = "/d /c $cmdLine"
+    $startInfo.WorkingDirectory = $WorkingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        [void]$process.Start()
+        while (-not $process.HasExited) {
+            Start-Sleep -Milliseconds 100
+            $now = Get-Date
+            $text = ""
+            try { $text = (Get-Content -Raw -Encoding UTF8 -LiteralPath $StdoutPath -ErrorAction SilentlyContinue) + "`n" + (Get-Content -Raw -Encoding UTF8 -LiteralPath $StderrPath -ErrorAction SilentlyContinue) } catch {}
+            if (-not $testsStartedAt -and $text -match "(?m)^validator_tests_started=true\s*$") {
+                $testsStartedAt = $now
+                $testsStartedMarkerRecorded = $true
+            }
+            if (-not $testsCompletedAt -and $text -match "(?m)^validator_tests_completed=true\s*$") {
+                $testsCompletedAt = $now
+                $testsCompletedMarkerRecorded = $true
+            }
+            $activeTimeout = if ($testsStartedAt) {
+                if ($TestTimeoutSeconds -gt 0) { $TestTimeoutSeconds } else { $TimeoutSeconds }
+            } elseif ($PretestTimeoutSeconds -gt 0) {
+                $PretestTimeoutSeconds
+            } else {
+                $TimeoutSeconds
+            }
+            $activeStartedAt = if ($testsStartedAt) { [datetime]$testsStartedAt } else { $startedAt }
+            if (($now - $activeStartedAt).TotalSeconds -ge $activeTimeout) {
+                $timeoutPhase = if ($testsStartedAt) { "tests" } else { "pretest" }
+                Stop-TaskspaceValidationProcessTree $process
+                break
+            }
+        }
+        try { $process.WaitForExit(5000) | Out-Null } catch {}
+        if ($testsStartedMarkerRecorded) {
+            if (-not (Add-TaskspaceValidationLogLine $StdoutPath "taskspace_tests_started_at=$($testsStartedAt.ToString("o"))")) {
+                Add-TaskspaceValidationLogLine $StderrPath "taskspace_tests_started_at=$($testsStartedAt.ToString("o"))" | Out-Null
+            }
+        }
+        if ($testsCompletedMarkerRecorded) {
+            if (-not (Add-TaskspaceValidationLogLine $StdoutPath "taskspace_tests_completed_at=$($testsCompletedAt.ToString("o"))")) {
+                Add-TaskspaceValidationLogLine $StderrPath "taskspace_tests_completed_at=$($testsCompletedAt.ToString("o"))" | Out-Null
+            }
+        }
+        if ($timeoutPhase) {
+            Add-TaskspaceValidationLogLine $StderrPath "Validation timed out during $timeoutPhase after $activeTimeout seconds: $FilePath $($ArgumentList -join ' ')" | Out-Null
+            Add-TaskspaceValidationLogLine $StderrPath "taskspace_validation_timeout_phase=$timeoutPhase" | Out-Null
+            return [pscustomobject]@{ exit_code = 124; timed_out = $true; timeout_phase = $timeoutPhase }
+        }
+        [pscustomobject]@{ exit_code = [int]$process.ExitCode; timed_out = $false; timeout_phase = "" }
+    } finally {
+        $process.Dispose()
+    }
+}
+
+function Stop-TaskspaceValidationProcessTree {
+    param([Parameter(Mandatory = $true)]$Process)
+    try {
+        & taskkill.exe /PID ([int]$Process.Id) /T /F *> $null
+    } catch {
+        try { $Process.Kill($true) } catch { try { $Process.Kill() } catch {} }
     }
 }
 
@@ -87,6 +177,30 @@ function ConvertTo-TaskspaceProcessArgumentString {
                 $arg = [string]$_
                 if ($arg -match '[\s"]') { '"' + ($arg -replace '"', '\"') + '"' } else { $arg }
             }) -join " ")
+}
+
+function ConvertTo-TaskspaceCmdArgumentString {
+    param([string[]]$Arguments)
+    (($Arguments | ForEach-Object {
+                $arg = [string]$_
+                if ($arg -match '[\s"&|<>^]') { '"' + ($arg -replace '"', '""') + '"' } else { $arg }
+            }) -join " ")
+}
+
+function Add-TaskspaceValidationLogLine {
+    param(
+        [Parameter(Mandatory = $true)][string]$PathValue,
+        [Parameter(Mandatory = $true)][string]$Line
+    )
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        try {
+            Add-Content -LiteralPath $PathValue -Encoding UTF8 -Value $Line -ErrorAction Stop
+            return $true
+        } catch {
+            Start-Sleep -Milliseconds 100
+        }
+    }
+    return $false
 }
 
 function Invoke-TaskspaceCleanupProcess {
@@ -173,6 +287,7 @@ function Invoke-TaskspaceValidationCleanup {
     )
     if ([string]::IsNullOrWhiteSpace($ProofDir)) { return $null }
     New-Item -ItemType Directory -Path $ProofDir -Force | Out-Null
+    $cleanupStartedAt = Get-Date
     $runtimeManifestPath = Join-Path $ProofDir "terminal-bench-runtime-manifest.json"
     $cleanupResultPath = Join-Path $ProofDir "validation-cleanup-result.json"
     if (-not (Test-Path -LiteralPath $runtimeManifestPath)) {
@@ -252,6 +367,7 @@ function Invoke-TaskspaceValidationCleanup {
         }
     }
 
+    $cleanupFinishedAt = Get-Date
     $result = [pscustomobject]@{
         schema_version = 1
         reason = $Reason
@@ -272,7 +388,10 @@ function Invoke-TaskspaceValidationCleanup {
         container_rm_exit_code = if ($null -ne $remove) { [int]$remove.exit_code } else { $null }
         image_inspect_exit_code = if ($null -ne $imageInspect) { [int]$imageInspect.exit_code } else { $null }
         image_rm_exit_code = if ($null -ne $imageRemove) { [int]$imageRemove.exit_code } else { $null }
-        timestamp = (Get-Date).ToString("o")
+        started_at = $cleanupStartedAt.ToString("o")
+        finished_at = $cleanupFinishedAt.ToString("o")
+        duration_ms = [int64](($cleanupFinishedAt - $cleanupStartedAt).TotalMilliseconds)
+        timestamp = $cleanupFinishedAt.ToString("o")
     }
     ($result | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $cleanupResultPath -Encoding UTF8
     if (-not [string]::IsNullOrWhiteSpace($StderrPath)) {

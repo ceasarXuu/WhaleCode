@@ -302,6 +302,9 @@ function Get-TaskspaceBenchmarkMetrics {
         tests_started_seen = [bool]$lifecycle.tests_started_seen
         tests_completed_seen = [bool]$lifecycle.tests_completed_seen
         validation_lifecycle_stage = [string]$lifecycle.validation_lifecycle_stage
+        validation_timeout_phase = [string]$lifecycle.validation_timeout_phase
+        tests_started_at = [string]$lifecycle.tests_started_at
+        tests_completed_at = [string]$lifecycle.tests_completed_at
         public_validation_reached_tests = [bool]$lifecycle.tests_started_seen
         pretest_failure = [bool]$pretestFailure
         infra_signature = $infraSignature

@@ -85,13 +85,16 @@ function Add-TaskspaceMetricTimingFields {
     $oracleMs = [int64](($ValidationTiming.oracle_finished_at - $ValidationTiming.oracle_started_at).TotalMilliseconds)
     $Metrics | Add-Member -NotePropertyName public_validation_duration_ms -NotePropertyValue $validationMs -Force
     $Metrics | Add-Member -NotePropertyName hidden_oracle_duration_ms -NotePropertyValue $oracleMs -Force
-    $Metrics | Add-Member -NotePropertyName validator_probe_duration_ms -NotePropertyValue $null -Force
+    $probeMs = if ($ValidationTiming.PSObject.Properties.Name -contains "probe_duration_ms") { $ValidationTiming.probe_duration_ms } else { $null }
+    $Metrics | Add-Member -NotePropertyName validator_probe_duration_ms -NotePropertyValue $probeMs -Force
     $Metrics | Add-Member -NotePropertyName docker_observed_duration_ms -NotePropertyValue $null -Force
     $Metrics | Add-Member -NotePropertyName docker_build_duration_ms -NotePropertyValue $null -Force
     $Metrics | Add-Member -NotePropertyName docker_run_duration_ms -NotePropertyValue $null -Force
     $Metrics | Add-Member -NotePropertyName docker_inspect_duration_ms -NotePropertyValue $null -Force
     $Metrics | Add-Member -NotePropertyName docker_cleanup_duration_ms -NotePropertyValue $null -Force
-    $timeoutPhase = if ([int]$Metrics.public_validation_exit_code -eq 124) {
+    $timeoutPhase = if ($Metrics.PSObject.Properties.Name -contains "validation_timeout_phase" -and -not [string]::IsNullOrWhiteSpace([string]$Metrics.validation_timeout_phase)) {
+        [string]$Metrics.validation_timeout_phase
+    } elseif ([int]$Metrics.public_validation_exit_code -eq 124) {
         if ($Metrics.PSObject.Properties.Name -contains "tests_started_seen" -and [bool]$Metrics.tests_started_seen) { "tests" } else { "pretest" }
     } else { "" }
     $Metrics | Add-Member -NotePropertyName validation_timeout_phase -NotePropertyValue $timeoutPhase -Force
@@ -110,14 +113,22 @@ function Add-TaskspaceMetricTimingFields {
                     "cleanup_image" { $Metrics.docker_cleanup_duration_ms = [int64]$Metrics.docker_cleanup_duration_ms + $duration }
                 }
             }
-            if ($phases.Count -ge 2) {
-                $first = [datetime]::Parse([string]$phases[0].timestamp)
-                $last = [datetime]::Parse([string]$phases[-1].timestamp)
+            if ($phases.Count -ge 1) {
+                $first = [datetime]::Parse([string]$phases[0].started_at)
+                $last = [datetime]::Parse([string]$phases[-1].finished_at)
                 $Metrics.docker_observed_duration_ms = [int64](($last - $first).TotalMilliseconds)
             }
         } catch {
             $Metrics.docker_observed_duration_ms = $null
         }
+    }
+    if ($Metrics.PSObject.Properties.Name -contains "validation_cleanup_result_path" -and $Metrics.validation_cleanup_result_path -and (Test-Path -LiteralPath $Metrics.validation_cleanup_result_path)) {
+        try {
+            $cleanup = Get-Content -Raw -Encoding UTF8 -LiteralPath $Metrics.validation_cleanup_result_path | ConvertFrom-Json
+            if ($cleanup.PSObject.Properties.Name -contains "duration_ms") {
+                $Metrics.docker_cleanup_duration_ms = [int64]$Metrics.docker_cleanup_duration_ms + [int64]$cleanup.duration_ms
+            }
+        } catch {}
     }
     $Metrics
 }
