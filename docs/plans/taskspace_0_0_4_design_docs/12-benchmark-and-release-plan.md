@@ -95,3 +95,134 @@ E3 focused rerun 完成；
 release note 明确：0.0.4 是 observability/contract 版本，不宣称 utility win；
 version registry 记录 clean audit 状态。
 ```
+## 8. E3 runtime calibration and speed plan
+
+This section is a hard execution plan for the observed problem: 15 E3 tasks can
+take hours, and that cost is unacceptable unless the run is mechanically clean
+and produces timing evidence. It is not enough to say "parallelize later"; the
+harness must first identify where time is spent and must block unsupported speed
+claims.
+
+### Phase 8.1: required timing evidence before another full E3
+
+Implementation:
+
+```text
+scripts/taskspace-benchmark/lib/timing.ps1
+scripts/taskspace-benchmark/lib/runtime-bottleneck-report.ps1
+scripts/taskspace-benchmark/lib/calibration-gate.ps1
+```
+
+Required artifacts:
+
+```text
+one-pair smoke:
+  pair-timing.json
+  sample-timing.json
+  runtime-bottleneck.md
+
+3-sample serial calibration:
+  suite-timing.json
+  runtime-calibration-report.md
+
+parallel smoke:
+  serial-vs-parallel-equivalence.json
+```
+
+Acceptance:
+
+```text
+calibration-gate.json status=pass
+full_e3_allowed=true
+speed_claim_allowed=true
+no missing required timing fields
+no parallel_smoke_score_drift
+```
+
+If this gate fails, a full E3 run is blocked. The run may only be used as harness
+debugging evidence, not as TaskSpace score evidence.
+
+### Phase 8.2: bottleneck classification
+
+Each calibration report must classify the dominant time sink:
+
+```text
+agent_bound
+validator_bound
+docker_build_bound
+docker_run_bound
+cleanup_bound
+engineering_unclean_slow
+mixed_or_unclassified
+```
+
+Developer steps:
+
+```text
+1. Read pair-timing.json top_spans and subtotal_percentages.
+2. Compare agent duration, public validation duration, Docker build/run, cleanup,
+   model request, and resource wait totals.
+3. If any engineering-unclean signature appears, classify as engineering_unclean_slow
+   and invalidate score-bearing conclusions.
+4. Write runtime-bottleneck.md with the concrete top span and optimization status.
+```
+
+Acceptance:
+
+```text
+runtime-bottleneck.md contains speedup_decision
+suite aggregate renders Timing Summary
+engineering_unclean_slow blocks score comparison
+```
+
+### Phase 8.3: safe speedup rollout
+
+Speedup must be staged. The only supported parallelism in 0.0.4 is sample-level
+parallelism after serial/parallel equivalence is proven.
+
+Developer steps:
+
+```text
+1. Keep pair-level and validation-level parallelism fail-closed.
+2. Enable MaxParallelSamples only after disk reservation and resource governor pass.
+3. Run one serial smoke and one sample-parallel smoke on the same task list.
+4. Compare suite-health.json through serial-vs-parallel-equivalence.json.
+5. If any score-bearing field drifts, disable parallel full E3.
+```
+
+Acceptance:
+
+```text
+parallelism.json sample_parallel_supported
+serial-vs-parallel-equivalence.json comparable=true
+parallel_smoke_score_drift=false
+calibration-gate.json status=pass
+```
+
+### Phase 8.4: full E3 execution rule
+
+Before launching the 15-task E3:
+
+```text
+1. Run start gate.
+2. Run disk-space preflight.
+3. Run one-pair timing smoke.
+4. Run 3-sample serial calibration.
+5. Run sample-parallel smoke and equivalence diff.
+6. Run calibration gate.
+7. Only then start full E3.
+```
+
+Full E3 output must include:
+
+```text
+suite-health.json
+aggregate.json
+aggregate-report.md
+suite-timing.json
+runtime-calibration-report.md
+calibration-gate.json
+parallelism.json
+```
+
+No performance conclusion is valid without those files.

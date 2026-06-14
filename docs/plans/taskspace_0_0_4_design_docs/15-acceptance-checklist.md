@@ -58,3 +58,34 @@
 [ ] final synthesis possible with invalid result dependency
 [ ] TaskSpace run can finish without success criteria
 ```
+
+## 6. E3 runtime calibration checklist
+
+```text
+[ ] one-pair timing smoke emits pair-timing.json
+[ ] one-pair timing smoke emits sample-timing.json
+[ ] one-pair timing smoke emits runtime-bottleneck.md
+[ ] 3-sample serial calibration emits suite-timing.json
+[ ] 3-sample serial calibration emits runtime-calibration-report.md
+[ ] sample-parallel smoke emits parallelism.json
+[ ] serial-vs-parallel-equivalence.json comparable=true
+[ ] serial-vs-parallel-equivalence.json parallel_smoke_score_drift=false
+[ ] calibration-gate.json status=pass before full E3
+[ ] calibration-gate.json full_e3_allowed=true before full E3
+[ ] calibration-gate.json speed_claim_allowed=true before speedup claim
+```
+
+## 7. E3 speed no-go conditions
+
+```text
+[ ] missing pair-timing.json
+[ ] missing sample-timing.json
+[ ] missing suite-timing.json
+[ ] missing runtime-bottleneck.md
+[ ] missing runtime-calibration-report.md
+[ ] missing calibration-gate.json
+[ ] calibration-gate.json status=fail
+[ ] parallel_smoke_score_drift=true
+[ ] engineering_unclean_slow present in timing summary
+[ ] runtime bottleneck cannot identify top span
+```

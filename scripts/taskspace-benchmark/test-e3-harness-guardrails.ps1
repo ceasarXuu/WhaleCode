@@ -12,6 +12,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\runtime-bottleneck-report.ps1")
 . (Join-Path $PSScriptRoot "lib\resource-governor.ps1")
 . (Join-Path $PSScriptRoot "lib\parallel-diff.ps1")
+. (Join-Path $PSScriptRoot "lib\calibration-gate.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\e3-guardrails-selftest" }
 $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
@@ -430,6 +431,40 @@ Assert-True ($timingAggregateText -match "## Timing Summary" -and $timingAggrega
 Assert-True ($timingAggregateText -match "speedup_decision: speedup_blocked_instrumentation") "aggregate report did not render speedup decision"
 Assert-True ($timingAggregateText -match "wait_attribution_unavailable_fields: .*model_queue_wait_ms=whale_jsonl_provider_queue_retry_telemetry_unavailable") "aggregate report did not render unavailable wait attribution reason"
 Assert-True ($timingAggregateText -match "repeated_docker_cache_keys: cache-a") "aggregate report did not render repeated Docker cache keys"
+
+$calibrationGateRoot = Join-Path $runDir "calibration-gate"
+$onePairRoot = Join-Path $calibrationGateRoot "one-pair"
+$serialCalibrationRoot = Join-Path $calibrationGateRoot "serial-calibration"
+New-Item -ItemType Directory -Force -Path $onePairRoot, $serialCalibrationRoot | Out-Null
+[pscustomobject]@{
+    agent_duration_ms = 1000
+    public_validation_duration_ms = 2000
+    bottleneck_classification = "validator_bound"
+    runtime_optimization_status = "ready"
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $onePairRoot "pair-timing.json") -Encoding UTF8
+[pscustomobject]@{ sample_id = "calibration-one-pair" } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $onePairRoot "sample-timing.json") -Encoding UTF8
+"# Runtime Bottleneck`n" | Set-Content -LiteralPath (Join-Path $onePairRoot "runtime-bottleneck.md") -Encoding UTF8
+[pscustomobject]@{
+    sample_count = 3
+    timing_quality = "complete"
+    runtime_optimization_status = "ready"
+    bottleneck_classification = "mixed_or_unclassified"
+    wait_attribution_status = "complete"
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $serialCalibrationRoot "suite-timing.json") -Encoding UTF8
+"# Runtime Calibration`n" | Set-Content -LiteralPath (Join-Path $serialCalibrationRoot "runtime-calibration-report.md") -Encoding UTF8
+$calibrationGatePath = Join-Path $calibrationGateRoot "calibration-gate.json"
+$calibrationGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePairRoot -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $equivalencePath -OutputPath $calibrationGatePath
+Assert-True ([string]$calibrationGate.status -eq "pass" -and [bool]$calibrationGate.full_e3_allowed -and [bool]$calibrationGate.speed_claim_allowed) "calibration gate did not pass complete timing/equivalence evidence"
+Assert-True (Test-Path -LiteralPath $calibrationGatePath) "calibration gate did not write its artifact"
+$missingOnePairGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot (Join-Path $calibrationGateRoot "missing-one-pair") -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $equivalencePath
+Assert-True ([string]$missingOnePairGate.status -eq "fail" -and -not [bool]$missingOnePairGate.full_e3_allowed -and [string]$missingOnePairGate.first_failure.reason -eq "one_pair_root_missing") "calibration gate did not block missing one-pair smoke evidence"
+$driftEquivalencePath = Join-Path $calibrationGateRoot "drift-equivalence.json"
+[pscustomobject]@{
+    parallel_smoke_score_drift = $true
+    compared_sample_ids = @("sample-a")
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $driftEquivalencePath -Encoding UTF8
+$driftCalibrationGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePairRoot -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $driftEquivalencePath
+Assert-True ([string]$driftCalibrationGate.status -eq "fail" -and [string]$driftCalibrationGate.first_failure.reason -eq "parallel_score_drift") "calibration gate did not block parallel score drift"
 
 if ($failures.Count -gt 0) {
     Write-Host "E3 harness guardrails self-test: FAIL"

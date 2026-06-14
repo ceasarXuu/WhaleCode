@@ -137,3 +137,96 @@ ThinModeClassifierReportOnly
 ViewerV2 full drill-down
 graph prune/merge hard actions
 ```
+## 8. E3 runtime calibration implementation stages
+
+The E3 harness must not launch another full 15-task run until runtime cost and
+speedup safety are mechanically gated.
+
+### Stage 5: timing instrumentation closure
+
+Deliverables:
+
+```text
+pair-timing.json
+sample-timing.json
+suite-timing.json
+runtime-bottleneck.md
+runtime-calibration-report.md
+```
+
+Engineering details:
+
+```text
+1. Pair timing records agent, validation, Docker build/run, cleanup, model request,
+   cache wait, and resource wait totals.
+2. Sample timing aggregates pair timing and preserves bottleneck counts.
+3. Suite timing aggregates sample timing and exposes sample_count.
+4. Runtime reports render both markdown and JSON so CI can gate on fields.
+```
+
+Acceptance:
+
+```text
+test-e3-harness-guardrails.ps1 passes timing assertions
+aggregate-report.md includes Timing Summary
+speedup_decision is present in report JSON
+```
+
+### Stage 6: calibration gate before full E3
+
+Deliverables:
+
+```text
+scripts/taskspace-benchmark/lib/calibration-gate.ps1
+calibration-gate.json
+```
+
+Engineering details:
+
+```text
+1. Validate one-pair smoke artifacts before larger runs.
+2. Validate 3-sample serial calibration artifacts before speed claims.
+3. Validate serial-vs-parallel equivalence before sample-level parallel full E3.
+4. Fail closed on missing timing fields, missing reports, low sample count, or
+   parallel score drift.
+```
+
+Acceptance:
+
+```text
+full_e3_allowed=false when one-pair smoke evidence is missing
+speed_claim_allowed=false when serial calibration evidence is missing
+full_e3_allowed=false when parallel_smoke_score_drift=true
+full_e3_allowed=true only when all calibration gates pass
+```
+
+### Stage 7: speedup rollout
+
+Deliverables:
+
+```text
+MaxParallelSamples sample-level scheduler
+parallelism.json
+serial-vs-parallel-equivalence.json
+```
+
+Engineering details:
+
+```text
+1. Sample-level parallelism may run independent samples concurrently.
+2. Pair-level, validation-level, Docker, and model concurrency remain fail-closed
+   until separately proven.
+3. Parallel smoke must compare score-bearing suite-health fields against a serial
+   baseline before full E3.
+4. Disk reservation and resource governor checks run before scheduling.
+```
+
+Acceptance:
+
+```text
+MaxParallelSamples=2 selftest completes
+merged sample order is deterministic
+serial-vs-parallel-equivalence.json comparable=true
+parallel_smoke_score_drift=false
+unsupported parallel fields still fail closed
+```

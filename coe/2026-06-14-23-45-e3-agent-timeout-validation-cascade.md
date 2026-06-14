@@ -228,3 +228,22 @@ Diagnostic evidence plan:
 ## Evidence E-021
 
 Supports H-009 validation. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` now passes with serial and sample-parallel stub suites compared by `scripts/taskspace-benchmark/lib/parallel-diff.ps1`. The generated `serial-vs-parallel-equivalence.json` records `comparable=true`, `parallel_smoke_score_drift=false`, `drift_count=0`, and compared samples `sample-a,sample-b,sample-c`; the negative fixture changes `sample-b.run_validity` and is detected as drift. `scripts/taskspace-benchmark/test-e3-score-validity.ps1` still passes after adding the comparator.
+
+## Hypothesis H-010
+
+Claim: a full 15-task E3 or runtime speedup conclusion is still unsafe if it only has parallel smoke evidence. The harness also needs a calibration gate that proves one-pair timing, representative serial calibration, and serial-vs-parallel equivalence all exist before allowing expensive full E3 execution or speed claims.
+
+Predictions:
+- Missing one-pair timing evidence must block `full_e3_allowed`.
+- Missing or too-small serial calibration evidence must block `speed_claim_allowed`.
+- Parallel score drift must block both full E3 and speed claims.
+- Complete timing plus equivalence evidence should produce a machine-readable `calibration-gate.json` with `status=pass`.
+
+Diagnostic evidence plan:
+- Add `scripts/taskspace-benchmark/lib/calibration-gate.ps1`.
+- Extend the guardrails self-test with complete, missing one-pair, and parallel-drift fixtures.
+- Add the runtime calibration/speed plan to the 0.0.4 plan and acceptance checklist so future E3 execution is gated by the same artifact contract.
+
+## Evidence E-022
+
+Supports H-010 validation. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` now passes with a calibration gate fixture proving complete timing/equivalence evidence sets `status=pass`, `full_e3_allowed=true`, and `speed_claim_allowed=true`; a missing one-pair root fails with `one_pair_root_missing`; and a drifted equivalence artifact fails with `parallel_score_drift`. `scripts/taskspace-benchmark/test-e3-score-validity.ps1` and `git diff --check` also pass after the calibration gate and documentation updates.
