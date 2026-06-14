@@ -304,6 +304,8 @@ function Get-TaskspaceBenchmarkMetrics {
         docker_cache_bypass_reason = if ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_bypass_reason") { [string]$dockerResult.json.cache_bypass_reason } else { "" }
         docker_cache_key = if ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_key") { [string]$dockerResult.json.cache_key } else { "" }
         docker_cache_image = if ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_image") { [string]$dockerResult.json.cache_image } else { "" }
+        docker_cache_lock_wait_ms = if ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_lock_wait_ms") { [int64]$dockerResult.json.cache_lock_wait_ms } else { $null }
+        docker_cache_manifest_path = if ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_manifest_path") { [string]$dockerResult.json.cache_manifest_path } else { "" }
         dockerfile_from_images = if ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "dockerfile_from_images") { @($dockerResult.json.dockerfile_from_images) } else { @() }
         validation_cleanup_result_path = $dockerResult.cleanup_path
         validator_environment_failures = @($validatorEnvironmentFailures)

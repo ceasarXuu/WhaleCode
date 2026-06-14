@@ -222,6 +222,9 @@ $cachePinnedValidator = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path 
 Assert-True ($cacheValidator -match [regex]::Escape('Invoke-DockerOutput -Arguments @("image", "inspect", $cacheImage)')) "generated validator did not inspect cache image before build"
 Assert-True ($cachePinnedValidator -match [regex]::Escape('Invoke-Docker -Arguments @("build", "--pull", "-t", $cacheImage, $fixtureDockerPath)')) "generated validator did not build stable cache image on miss"
 Assert-True ($cachePinnedValidator -match [regex]::Escape('"cache_hit"')) "generated validator did not record cache hit classification"
+Assert-True ($cachePinnedValidator -match [regex]::Escape('Invoke-WithDockerCacheLock')) "generated validator did not wrap Docker cache inspect/build with cache lock"
+Assert-True ($cachePinnedValidator -match [regex]::Escape('cache_lock_wait_ms = [int64]$script:TaskspaceDockerCacheLockWaitMs')) "generated validator did not record Docker cache lock wait"
+Assert-True ($cachePinnedValidator -match [regex]::Escape('$cacheManifestPath = Join-Path $proofDir "docker-cache-manifest.json"')) "generated validator did not write Docker cache manifest path"
 "FROM scratch`nLABEL changed=true" | Set-Content -LiteralPath (Join-Path $cacheTask "Dockerfile") -Encoding UTF8
 $cacheChangedOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $cacheTask -OutputRoot (Join-Path $runDir "docker-cache-changed-out") -SampleId "docker-cache" -SourceVersion "pinned"
 $cacheChangedScenarioDir = [string]($cacheChangedOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })

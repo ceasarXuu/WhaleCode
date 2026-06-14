@@ -259,11 +259,11 @@ $pairEnd = $pairStart.AddSeconds(10)
 $timingMetrics = @{
     left = [pscustomobject]@{
         logical_mode = "standard"; wall_time_ms = 2000; exec_exit_code = 0; exec_timed_out = $false
-        validator_environment_failures = @(); docker_build_duration_ms = 1600; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100; docker_cache_key = "cache-a"; model_request_duration_ms = 700
+        validator_environment_failures = @(); docker_build_duration_ms = 1600; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100; docker_cache_key = "cache-a"; model_request_duration_ms = 700; docker_cache_lock_wait_ms = 3
     }
     right = [pscustomobject]@{
         logical_mode = "taskspace"; wall_time_ms = 2000; exec_exit_code = 0; exec_timed_out = $false
-        validator_environment_failures = @(); docker_build_duration_ms = 100; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100; docker_cache_key = "cache-a"; model_request_duration_ms = 300
+        validator_environment_failures = @(); docker_build_duration_ms = 100; docker_run_duration_ms = 200; docker_cleanup_duration_ms = 100; docker_cache_key = "cache-a"; model_request_duration_ms = 300; docker_cache_lock_wait_ms = 7
     }
 }
 $timingValidation = @{
@@ -278,7 +278,7 @@ Assert-True ([string]$pairTiming.timing_breakdown.largest_span.name -eq "agent")
 Assert-True ([string]$pairTiming.timing_breakdown.top_spans[0].name -eq "agent") "pair timing did not render sorted top spans"
 Assert-True (@($pairTiming.docker_cache_keys).Count -eq 1 -and [string]$pairTiming.docker_cache_keys[0] -eq "cache-a") "pair timing did not record unique Docker cache key"
 Assert-True ([int64]$pairTiming.model_request_duration_ms -eq 1000 -and @($pairTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_request_duration_ms" }).Count -eq 0) "pair timing did not aggregate observed model request duration"
-Assert-True ([int64]$pairTiming.resource_wait_ms_total -eq 0 -and [string]$pairTiming.resource_wait_attribution_mode -eq "serial_no_resource_governor") "pair timing did not record serial resource wait attribution"
+Assert-True ([int64]$pairTiming.cache_lock_wait_ms -eq 10 -and [int64]$pairTiming.resource_wait_ms_total -eq 10 -and [string]$pairTiming.resource_wait_attribution_mode -eq "serial_with_cache_lock_observed") "pair timing did not aggregate observed cache lock wait"
 
 $unclean = Get-TaskspaceTimingBottleneck 10000 1000 1000 0 0 0 0 @("docker_run_failure")
 Assert-True ([string]$unclean.classification -eq "engineering_unclean_slow") "timing bottleneck did not prioritize engineering unclean"
@@ -302,7 +302,7 @@ Assert-True ([int]$sampleTiming.bottleneck_counts.docker_build_bound -eq 1) "sam
 Assert-True ([int64]$sampleTiming.phase_distributions.total.median_ms -eq 10000 -and [int64]$sampleTiming.phase_distributions.total.p95_ms -eq 20000) "sample timing did not compute deterministic median/p95"
 Assert-True ([int]$sampleTiming.docker_cache_key_counts."cache-a" -eq 2 -and [string]$sampleTiming.repeated_docker_cache_keys[0] -eq "cache-a") "sample timing did not detect repeated Docker cache key"
 Assert-True ([int64]$sampleTiming.model_request_duration_ms -eq 2000 -and @($sampleTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_request_duration_ms" }).Count -eq 0) "sample timing did not aggregate observed model request duration"
-Assert-True ([int64]$sampleTiming.resource_wait_ms_total -eq 0 -and @($sampleTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "resource_wait_ms_total" }).Count -eq 0) "sample timing reported serial resource wait as missing"
+Assert-True ([int64]$sampleTiming.resource_wait_ms_total -eq 20 -and @($sampleTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "resource_wait_ms_total" }).Count -eq 0) "sample timing did not aggregate observed cache lock wait"
 
 $suiteRoot = Join-Path $runDir "timing-suite"
 $suiteSampleRoot = Join-Path $suiteRoot "samples\timing-sample"
@@ -314,7 +314,7 @@ Assert-True ([int64]$suiteTiming.docker_build_duration_ms -eq 2600) "suite timin
 Assert-True ([int]$suiteTiming.bottleneck_counts.docker_build_bound -eq 1) "suite timing did not aggregate bottleneck count"
 Assert-True ([int]$suiteTiming.docker_cache_key_counts."cache-a" -eq 2 -and [string]$suiteTiming.repeated_docker_cache_keys[0] -eq "cache-a") "suite timing did not aggregate repeated Docker cache keys"
 Assert-True ([int64]$suiteTiming.model_request_duration_ms -eq 2000 -and @($suiteTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "model_request_duration_ms" }).Count -eq 0) "suite timing did not aggregate observed model request duration"
-Assert-True ([int64]$suiteTiming.resource_wait_ms_total -eq 0 -and @($suiteTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "resource_wait_ms_total" }).Count -eq 0) "suite timing reported serial resource wait as missing"
+Assert-True ([int64]$suiteTiming.resource_wait_ms_total -eq 20 -and @($suiteTiming.wait_attribution_missing_fields | Where-Object { [string]$_ -eq "resource_wait_ms_total" }).Count -eq 0) "suite timing did not aggregate observed cache lock wait"
 $runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath (Join-Path $suiteRoot "suite-timing.json") -ScoreValid $true
 $runtimeBottleneckText = Get-Content -Raw -Encoding UTF8 -LiteralPath $runtimeBottleneckPath
 $runtimeBottleneckJson = Get-Content -Raw -Encoding UTF8 -LiteralPath ([System.IO.Path]::ChangeExtension($runtimeBottleneckPath, ".json")) | ConvertFrom-Json
@@ -323,7 +323,7 @@ Assert-True ($runtimeBottleneckText -notmatch "wait_attribution_missing_fields: 
 Assert-True ($runtimeBottleneckText -match "wait_attribution_unavailable_fields: .*model_queue_wait_ms=whale_jsonl_provider_queue_retry_telemetry_unavailable") "runtime bottleneck report did not render unavailable wait attribution fields"
 Assert-True ($runtimeBottleneckText -notmatch "wait_attribution_missing_fields: .*resource_wait_ms_total") "runtime bottleneck report treated serial resource wait as missing"
 Assert-True ([string]$runtimeBottleneckJson.speedup_decision -eq "speedup_blocked_instrumentation") "runtime bottleneck JSON did not record speedup decision"
-Assert-True ([string]$runtimeBottleneckJson.resource_wait_attribution_mode -eq "serial_no_resource_governor") "runtime bottleneck JSON did not record resource wait attribution mode"
+Assert-True ([string]$runtimeBottleneckJson.resource_wait_attribution_mode -eq "serial_with_cache_lock_observed") "runtime bottleneck JSON did not record observed cache lock attribution mode"
 Assert-True ([string]$runtimeBottleneckJson.wait_attribution_unavailable_fields.model_retry_backoff_ms -eq "whale_jsonl_provider_queue_retry_telemetry_unavailable") "runtime bottleneck JSON did not record unavailable retry attribution reason"
 
 $timingAggregatePath = Join-Path $suiteRoot "aggregate-report.md"

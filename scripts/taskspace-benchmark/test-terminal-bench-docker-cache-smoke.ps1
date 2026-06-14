@@ -62,7 +62,10 @@ function Invoke-SmokeValidator {
     if ($LASTEXITCODE -ne 0) { throw "validator $Name exited $LASTEXITCODE" }
     $resultPath = Join-Path $proofDir "docker-build-result.json"
     Assert-True (Test-Path -LiteralPath $resultPath) "validator $Name did not write docker-build-result.json"
-    Get-Content -Raw -Encoding UTF8 -LiteralPath $resultPath | ConvertFrom-Json
+    $result = Get-Content -Raw -Encoding UTF8 -LiteralPath $resultPath | ConvertFrom-Json
+    Assert-True ($result.PSObject.Properties.Name -contains "cache_lock_wait_ms") "validator $Name did not record cache lock wait"
+    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$result.cache_manifest_path) -and (Test-Path -LiteralPath ([string]$result.cache_manifest_path))) "validator $Name did not write docker cache manifest"
+    $result
 }
 
 $first = Invoke-SmokeValidator "first"
