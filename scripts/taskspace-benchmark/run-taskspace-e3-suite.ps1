@@ -28,6 +28,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "lib\run-state.ps1")
 . (Join-Path $PSScriptRoot "lib\suite-status.ps1")
 . (Join-Path $PSScriptRoot "lib\timing.ps1")
+. (Join-Path $PSScriptRoot "lib\runtime-bottleneck-report.ps1")
 if ($Repeats -lt 5) { throw "E3 suite requires Repeats >= 5." }
 if (-not (Test-Path -LiteralPath $TaskListPath)) { Write-Error "TaskListPath not found: $TaskListPath"; exit 4 }
 if (-not $RunRoot) { $RunRoot = Join-Path ([System.IO.Path]::GetTempPath()) "whale-e3-suite-runs" }
@@ -241,8 +242,10 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
 $statusText = if ($suiteAbort) { "invalid_harness" } else { "completed" }
 Write-SuiteHealth $statusText @($sampleStatuses.ToArray()) $signatureCounts $suiteAbort
 $suiteTimingPath = Write-TaskspaceSuiteTiming $suiteRoot @($sampleStatuses.ToArray())
+$runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath $suiteTimingPath -ScoreValid (-not [bool]$suiteAbort)
 Write-Host "SuiteRoot: $suiteRoot"
 Write-Host "SuiteHealth: $suiteHealthPath"
 Write-Host "SuiteTiming: $suiteTimingPath"
+Write-Host "RuntimeBottleneck: $runtimeBottleneckPath"
 if (Test-Path -LiteralPath $skippedPath) { Write-Host "SkippedSamples: $skippedPath" }
 exit $exitCode

@@ -9,6 +9,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
 . (Join-Path $PSScriptRoot "lib\suite-status.ps1")
 . (Join-Path $PSScriptRoot "lib\timing.ps1")
+. (Join-Path $PSScriptRoot "lib\runtime-bottleneck-report.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\e3-guardrails-selftest" }
 $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
@@ -308,6 +309,10 @@ $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteRoo
 Assert-True ([int64]$suiteTiming.docker_build_duration_ms -eq 2600) "suite timing did not aggregate docker build duration"
 Assert-True ([int]$suiteTiming.bottleneck_counts.docker_build_bound -eq 1) "suite timing did not aggregate bottleneck count"
 Assert-True ([int]$suiteTiming.docker_cache_key_counts."cache-a" -eq 2 -and [string]$suiteTiming.repeated_docker_cache_keys[0] -eq "cache-a") "suite timing did not aggregate repeated Docker cache keys"
+$runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath (Join-Path $suiteRoot "suite-timing.json") -ScoreValid $true
+$runtimeBottleneckText = Get-Content -Raw -Encoding UTF8 -LiteralPath $runtimeBottleneckPath
+Assert-True ($runtimeBottleneckText -match "speedup_decision: speedup_blocked_instrumentation") "runtime bottleneck report did not block speedup when wait attribution is missing"
+Assert-True ($runtimeBottleneckText -match "wait_attribution_missing_fields: .*model_queue_wait_ms") "runtime bottleneck report did not render missing wait attribution fields"
 
 $timingAggregatePath = Join-Path $suiteRoot "aggregate-report.md"
 Write-TaskspaceAggregateReport -Path $timingAggregatePath -Reports @([pscustomobject]@{ repeat = 1; pair_dir = $pairTimingDir; pair_report = "pair-report.md"; evidence_target = "E3"; evidence = $evidence })
