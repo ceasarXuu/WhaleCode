@@ -19,6 +19,69 @@ function Add-TaskspaceFailureClass {
     }
 }
 
+function Get-TaskspaceMetricBool {
+    param($Metrics, [Parameter(Mandatory = $true)][string]$Name)
+    ($Metrics -and $Metrics.PSObject.Properties.Name -contains $Name -and [bool]$Metrics.$Name)
+}
+
+function Get-TaskspaceEngineeringUncleanReasons {
+    param(
+        $Metrics,
+        $Evidence = $null,
+        $AuditReview = $null,
+        $VariableControl = $null
+    )
+    $reasons = New-Object System.Collections.Generic.List[string]
+    if ($Metrics) {
+        if ($Metrics.PSObject.Properties.Name -contains "public_validation_exit_code" -and [int]$Metrics.public_validation_exit_code -eq 124) {
+            Add-TaskspaceFailureClass $reasons "public_validation_timeout"
+        }
+        foreach ($failure in @(Get-TaskspaceMetricArray $Metrics "validator_environment_failures")) {
+            $text = [string]$failure
+            if ([string]::IsNullOrWhiteSpace($text)) { continue }
+            Add-TaskspaceFailureClass $reasons $text
+        }
+        if (Get-TaskspaceMetricBool $Metrics "pretest_failure") {
+            $signature = if ($Metrics.PSObject.Properties.Name -contains "infra_signature" -and $Metrics.infra_signature) { [string]$Metrics.infra_signature.stable_code } else { "validator_pretest_failure" }
+            Add-TaskspaceFailureClass $reasons $signature
+        }
+        if ($Metrics.PSObject.Properties.Name -contains "validation_lifecycle_stage" -and [string]$Metrics.validation_lifecycle_stage -eq "unknown" -and -not (Get-TaskspaceMetricBool $Metrics "tests_started_seen") -and -not (Get-TaskspaceMetricBool $Metrics "exec_timed_out")) {
+            Add-TaskspaceFailureClass $reasons "no_tests_started_marker"
+        }
+    }
+    if ($Evidence) {
+        foreach ($failure in @(@($Evidence.evidence_gate_failures) + @($Evidence.e3_gate_failures))) {
+            $text = [string]$failure
+            if ($text -match "public_validation_timeout|docker|validator|proof|eligible|fidelity|audit_review_missing|e3_human_review_not_completed|path_unresolvable|uv_cache|source|materialization|disk_space|report") {
+                Add-TaskspaceFailureClass $reasons $text
+            }
+        }
+    }
+    if ($VariableControl -and $VariableControl.PSObject.Properties.Name -contains "invalid_pair" -and [bool]$VariableControl.invalid_pair) {
+        Add-TaskspaceFailureClass $reasons "audit_unclean"
+    }
+    if ($AuditReview -and $AuditReview.PSObject.Properties.Name -contains "completed" -and -not [bool]$AuditReview.completed) {
+        Add-TaskspaceFailureClass $reasons "e3_human_review_not_completed"
+    }
+    @($reasons.ToArray())
+}
+
+function Get-TaskspaceAgentOutcome {
+    param(
+        $Metrics,
+        [string[]]$EngineeringUncleanReasons = @()
+    )
+    if (@($EngineeringUncleanReasons).Count -gt 0) { return "engineering_unclean" }
+    if (Get-TaskspaceMetricBool $Metrics "exec_timed_out") { return "agent_exec_timeout" }
+    if (Test-TaskspaceMetricSuccess $Metrics) { return "solved" }
+    "wrong"
+}
+
+function Test-TaskspaceEngineeringUnclean {
+    param([string[]]$Reasons = @())
+    @($Reasons | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count -gt 0
+}
+
 function Get-TaskspaceFailureTaxonomy {
     param(
         $StandardMetrics,
@@ -36,6 +99,13 @@ function Get-TaskspaceFailureTaxonomy {
     $taskspaceExecTimeout = ($TaskspaceMetrics -and $TaskspaceMetrics.PSObject.Properties.Name -contains "exec_timed_out" -and [bool]$TaskspaceMetrics.exec_timed_out)
     $standardEnvironmentFailures = @(Get-TaskspaceMetricArray $StandardMetrics "validator_environment_failures")
     $taskspaceEnvironmentFailures = @(Get-TaskspaceMetricArray $TaskspaceMetrics "validator_environment_failures")
+    $hardReasons = @(
+        @(Get-TaskspaceEngineeringUncleanReasons $StandardMetrics $Evidence $AuditReview $VariableControl) +
+        @(Get-TaskspaceEngineeringUncleanReasons $TaskspaceMetrics $Evidence $AuditReview $VariableControl)
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Sort-Object -Unique
+    if ($hardReasons.Count -gt 0) {
+        Add-TaskspaceFailureClass $classes "engineering_unclean"
+    }
     $standardAgentFailureClassifiable = -not ($standardValidationTimeout -or $standardExecTimeout -or $standardEnvironmentFailures.Count -gt 0)
     $taskspaceAgentFailureClassifiable = -not ($taskspaceValidationTimeout -or $taskspaceExecTimeout -or $taskspaceEnvironmentFailures.Count -gt 0)
     $standardChanged = @(Get-TaskspaceMetricArray $StandardMetrics "changed_paths")
@@ -115,8 +185,8 @@ function Get-TaskspaceFailureTaxonomy {
 
 function Get-TaskspaceUtilityDirection {
     param($StandardMetrics, $TaskspaceMetrics, [string[]]$FailureClasses = @())
-    if (@($FailureClasses | Where-Object { $_ -in @("environment_noise", "validator_slow_or_flaky", "remote_asset_unavailable", "remote_asset_equivalence_unproven", "audit_unclean", "harness_materialization_failure", "validator_probe_failure", "validator_pretest_failure", "suite_circuit_breaker", "invalid_harness_run") }).Count -gt 0) {
-        return "inconclusive"
+    if (@($FailureClasses | Where-Object { $_ -in @("engineering_unclean", "environment_noise", "validator_slow_or_flaky", "remote_asset_unavailable", "remote_asset_equivalence_unproven", "audit_unclean", "harness_materialization_failure", "validator_probe_failure", "validator_pretest_failure", "suite_circuit_breaker", "invalid_harness_run") }).Count -gt 0) {
+        return "score_disabled"
     }
     $standardSuccess = Test-TaskspaceMetricSuccess $StandardMetrics
     $taskspaceSuccess = Test-TaskspaceMetricSuccess $TaskspaceMetrics

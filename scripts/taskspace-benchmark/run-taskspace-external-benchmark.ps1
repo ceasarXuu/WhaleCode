@@ -18,6 +18,8 @@ param(
     [string]$RunnerPath = "",
     [switch]$EnableAggregate,
     [switch]$AllowDiagnosticNonTargetResult,
+    [switch]$ScoringMode,
+    [switch]$RequireScoreValidity,
     [switch]$PlanOnly
 )
 
@@ -129,6 +131,8 @@ foreach ($override in @($ConfigOverride)) { $args += @("-ConfigOverride", $overr
 if (-not [string]::IsNullOrWhiteSpace($AuditReviewRoot)) { $args += @("-AuditReviewRoot", $AuditReviewRoot) }
 if ($EnableAggregate) { $args += "-EnableAggregate" }
 if ($AllowDiagnosticNonTargetResult) { $args += "-AllowNonE2Result" }
+if ($ScoringMode) { $args += "-ScoringMode" }
+if ($RequireScoreValidity) { $args += "-RequireScoreValidity" }
 if ($PlanOnly) { $args += "-PlanOnly" }
 & powershell @args
 $exitCode = $LASTEXITCODE

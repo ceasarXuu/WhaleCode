@@ -1,13 +1,18 @@
 function Get-TaskspaceSideAuditRecord {
     param(
         [Parameter(Mandatory = $true)]$Metrics,
-        [Parameter(Mandatory = $true)][string]$PairDir
+        [Parameter(Mandatory = $true)][string]$PairDir,
+        [string[]]$EngineeringUncleanReasons = @(),
+        [string]$Outcome = ""
     )
     $sideName = [string]$Metrics.mode
     $artifactRoot = "$sideName/artifacts"
     [ordered]@{
         mode = $sideName
         logical_mode = [string]$Metrics.logical_mode
+        outcome = $Outcome
+        engineering_unclean = (Test-TaskspaceEngineeringUnclean $EngineeringUncleanReasons)
+        engineering_unclean_reasons = @($EngineeringUncleanReasons)
         success = [bool]$Metrics.business_success
         exec_exit_code = [int]$Metrics.exec_exit_code
         exec_timed_out = [bool]$Metrics.exec_timed_out
@@ -77,6 +82,12 @@ function Write-TaskspaceAuditManifest {
     )
     $standardMetrics = @($LeftMetrics, $RightMetrics) | Where-Object { [string]$_.logical_mode -eq "standard" } | Select-Object -First 1
     $taskspaceMetrics = @($LeftMetrics, $RightMetrics) | Where-Object { [string]$_.logical_mode -eq "taskspace" } | Select-Object -First 1
+    $standardUncleanReasons = @(Get-TaskspaceEngineeringUncleanReasons $standardMetrics $Evidence $AuditReview $VariableControl)
+    $taskspaceUncleanReasons = @(Get-TaskspaceEngineeringUncleanReasons $taskspaceMetrics $Evidence $AuditReview $VariableControl)
+    $pairUncleanReasons = @(@($standardUncleanReasons) + @($taskspaceUncleanReasons)) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Sort-Object -Unique
+    $standardOutcome = Get-TaskspaceAgentOutcome $standardMetrics $standardUncleanReasons
+    $taskspaceOutcome = Get-TaskspaceAgentOutcome $taskspaceMetrics $taskspaceUncleanReasons
+    $engineeringUnclean = Test-TaskspaceEngineeringUnclean $pairUncleanReasons
     $failureClasses = @(Get-TaskspaceFailureTaxonomy $standardMetrics $taskspaceMetrics $Evidence $AuditReview $VariableControl)
     $direction = Get-TaskspaceUtilityDirection $standardMetrics $taskspaceMetrics $failureClasses
     $gateFailures = @(@($Evidence.evidence_gate_failures) + @($Evidence.e3_gate_failures))
@@ -102,14 +113,26 @@ function Write-TaskspaceAuditManifest {
         audit_version = "taskspace-e3-audit-v1"
         pair_id = "pair-{0:000}" -f [int]$ManifestResolved.repeat
         sample_name = [string]$ManifestResolved.scenario
-        standard = Get-TaskspaceSideAuditRecord $standardMetrics $PairDir
-        taskspace = Get-TaskspaceSideAuditRecord $taskspaceMetrics $PairDir
+        run_score_valid = (-not $engineeringUnclean)
+        engineering_unclean = $engineeringUnclean
+        engineering_unclean_reasons = @($pairUncleanReasons)
+        outcome_standard = $standardOutcome
+        outcome_taskspace = $taskspaceOutcome
+        agent_exec_timeout_clean = (($standardOutcome -eq "agent_exec_timeout" -or $taskspaceOutcome -eq "agent_exec_timeout") -and -not $engineeringUnclean)
+        score_exclusion_reason = if ($engineeringUnclean) { "engineering_unclean" } else { "" }
+        standard = Get-TaskspaceSideAuditRecord $standardMetrics $PairDir $standardUncleanReasons $standardOutcome
+        taskspace = Get-TaskspaceSideAuditRecord $taskspaceMetrics $PairDir $taskspaceUncleanReasons $taskspaceOutcome
         classification = [ordered]@{
             included_in_utility = [bool]($Evidence.included_in_utility_aggregate -or $Evidence.included_in_e3_aggregate)
             exclusion_reason = $exclusionReason
             failure_taxonomy = @($failureClasses)
             utility_direction = $direction
             audit_status = $auditStatus
+            run_score_valid = (-not $engineeringUnclean)
+            engineering_unclean = $engineeringUnclean
+            engineering_unclean_reasons = @($pairUncleanReasons)
+            outcome_standard = $standardOutcome
+            outcome_taskspace = $taskspaceOutcome
         }
         proof = [ordered]@{
             oracle_isolation_ok = $oracleOk
@@ -137,5 +160,10 @@ function Write-TaskspaceAuditManifest {
         failure_taxonomy = @($failureClasses)
         utility_direction = $direction
         audit_status = $auditStatus
+        run_score_valid = (-not $engineeringUnclean)
+        engineering_unclean = $engineeringUnclean
+        engineering_unclean_reasons = @($pairUncleanReasons)
+        outcome_standard = $standardOutcome
+        outcome_taskspace = $taskspaceOutcome
     }
 }

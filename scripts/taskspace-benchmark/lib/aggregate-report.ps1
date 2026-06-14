@@ -12,6 +12,34 @@ function Convert-TaskspaceHashtableToObject {
     [pscustomobject]$ordered
 }
 
+function Get-TaskspaceEvidenceArray {
+    param($Evidence, [Parameter(Mandatory = $true)][string]$Name)
+    if ($Evidence -and $Evidence.PSObject.Properties.Name -contains $Name) { return @($Evidence.$Name) }
+    @()
+}
+
+function Get-TaskspaceRowEngineeringUncleanReasons {
+    param($Row)
+    $reasons = New-Object System.Collections.Generic.List[string]
+    if (-not $Row -or -not $Row.evidence) { return @() }
+    foreach ($reason in @(Get-TaskspaceEvidenceArray $Row.evidence "engineering_unclean_reasons")) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$reason) -and -not $reasons.Contains([string]$reason)) { $reasons.Add([string]$reason) }
+    }
+    foreach ($failure in @((Get-TaskspaceEvidenceArray $Row.evidence "evidence_gate_failures") + (Get-TaskspaceEvidenceArray $Row.evidence "e3_gate_failures"))) {
+        $text = [string]$failure
+        if ($text -match "public_validation_timeout|docker|validator|proof|eligible|fidelity|path_unresolvable|uv_cache|source|materialization|disk_space|report") {
+            if (-not $reasons.Contains($text)) { $reasons.Add($text) }
+        }
+    }
+    foreach ($class in @(Get-TaskspaceEvidenceArray $Row.evidence "failure_taxonomy")) {
+        $text = [string]$class
+        if ($text -in @("engineering_unclean", "environment_noise", "validator_slow_or_flaky", "audit_unclean", "harness_materialization_failure", "validator_probe_failure", "validator_pretest_failure", "suite_circuit_breaker", "invalid_harness_run")) {
+            if (-not $reasons.Contains($text)) { $reasons.Add($text) }
+        }
+    }
+    @($reasons.ToArray())
+}
+
 function Write-TaskspaceAggregateJsonArtifacts {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -48,12 +76,17 @@ function Write-TaskspaceAggregateReport {
     $invalidHarnessRows = @($all | Where-Object {
             (@($_.evidence.failure_taxonomy) + @($_.evidence.evidence_gate_failures) + @($_.evidence.e3_gate_failures)) -match "invalid_harness|harness_materialization|validator_probe|validator_pretest|suite_circuit_breaker|path_unresolvable|uv_cache|validator_source|no_tests_started"
         })
+    $engineeringUncleanRows = @($all | Where-Object {
+            ($_.evidence.PSObject.Properties.Name -contains "engineering_unclean" -and [bool]$_.evidence.engineering_unclean) -or
+            (@(Get-TaskspaceRowEngineeringUncleanReasons $_).Count -gt 0)
+        })
     $auditReadyRows = @($e3Rows | Where-Object { $_.evidence.human_review_completed -and @($_.evidence.e3_gate_failures).Count -eq 0 })
     $reviewCompleted = @($e3Rows | Where-Object { $_.evidence.human_review_completed })
     $validE3Reviewed = @($validE3 | Where-Object { $_.evidence.human_review_completed })
     $reviewDisagreements = @($e3Rows | Where-Object { $_.evidence.human_review_disagreement })
     $decisionCounts = @{}
     $failureCounts = @{}
+    $engineeringUncleanCounts = @{}
     $directionCounts = @{}
     $excludedByReason = @{}
     $pairIndex = New-Object System.Collections.Generic.List[object]
@@ -61,6 +94,7 @@ function Write-TaskspaceAggregateReport {
         $decision = [string]$row.evidence.human_review_decision
         if ($row.evidence.human_review_completed) { Add-TaskspaceCount $decisionCounts ($(if ($decision) { $decision } else { "missing" })) }
         foreach ($class in @($row.evidence.failure_taxonomy)) { Add-TaskspaceCount $failureCounts ([string]$class) }
+        foreach ($reason in @(Get-TaskspaceRowEngineeringUncleanReasons $row)) { Add-TaskspaceCount $engineeringUncleanCounts ([string]$reason) }
         Add-TaskspaceCount $directionCounts ([string]$row.evidence.utility_direction)
         $gateFailures = @(@($row.evidence.evidence_gate_failures) + @($row.evidence.e3_gate_failures))
         if (-not ($row.evidence.included_in_utility_aggregate -or $row.evidence.included_in_e3_aggregate)) {
@@ -77,6 +111,11 @@ function Write-TaskspaceAggregateReport {
                 included_in_e3_aggregate = [bool]$row.evidence.included_in_e3_aggregate
                 utility_direction = if ($row.evidence.PSObject.Properties.Name -contains "utility_direction") { [string]$row.evidence.utility_direction } else { "" }
                 failure_taxonomy = if ($row.evidence.PSObject.Properties.Name -contains "failure_taxonomy") { @($row.evidence.failure_taxonomy) } else { @() }
+                run_score_valid = if ($row.evidence.PSObject.Properties.Name -contains "run_score_valid") { [bool]$row.evidence.run_score_valid } else { (@(Get-TaskspaceRowEngineeringUncleanReasons $row).Count -eq 0) }
+                engineering_unclean = if ($row.evidence.PSObject.Properties.Name -contains "engineering_unclean") { [bool]$row.evidence.engineering_unclean } else { (@(Get-TaskspaceRowEngineeringUncleanReasons $row).Count -gt 0) }
+                engineering_unclean_reasons = @(Get-TaskspaceRowEngineeringUncleanReasons $row)
+                outcome_standard = if ($row.evidence.PSObject.Properties.Name -contains "outcome_standard") { [string]$row.evidence.outcome_standard } else { "" }
+                outcome_taskspace = if ($row.evidence.PSObject.Properties.Name -contains "outcome_taskspace") { [string]$row.evidence.outcome_taskspace } else { "" }
                 evidence_gate_failures = @($row.evidence.evidence_gate_failures)
                 e3_gate_failures = @($row.evidence.e3_gate_failures)
             })
@@ -98,16 +137,30 @@ function Write-TaskspaceAggregateReport {
             }
         }
     }
-    $diagnosticComparisonEnabled = ($invalidHarnessRows.Count -eq 0)
+    $scoreValid = ($engineeringUncleanRows.Count -eq 0)
+    $diagnosticComparisonEnabled = ($invalidHarnessRows.Count -eq 0 -and $scoreValid)
+    $agentExecTimeoutCount = @($all | Where-Object {
+            (@($_.evidence.outcome_standard, $_.evidence.outcome_taskspace) -contains "agent_exec_timeout") -and
+            -not ($_.evidence.PSObject.Properties.Name -contains "engineering_unclean" -and [bool]$_.evidence.engineering_unclean)
+        }).Count
+    $cleanComparablePairCount = @($all | Where-Object { @(Get-TaskspaceRowEngineeringUncleanReasons $_).Count -eq 0 }).Count
     $aggregate = [ordered]@{
         aggregate_version = "taskspace-0.0.4-phase1-aggregate-v1"
-        run_validity = if ($diagnosticComparisonEnabled) { "valid" } else { "invalid_harness" }
+        run_validity = if ($scoreValid) { "valid" } else { "invalid_harness" }
+        score_valid = $scoreValid
+        score_invalid_reason = if ($scoreValid) { "" } else { "engineering_unclean" }
+        score_fields_enabled = $scoreValid
+        engineering_unclean_count = $engineeringUncleanRows.Count
+        engineering_unclean_reasons = Convert-TaskspaceHashtableToObject $engineeringUncleanCounts
+        agent_exec_timeout_count = $agentExecTimeoutCount
+        clean_comparable_pair_count = $cleanComparablePairCount
+        score_bearing_outcomes = @("solved", "wrong", "agent_exec_timeout")
         diagnostic_comparison_enabled = $diagnosticComparisonEnabled
-        invalid_run_reason = if ($diagnosticComparisonEnabled) { "" } else { "invalid_harness_failure_detected" }
-        abort_scope = if ($diagnosticComparisonEnabled) { "none" } else { "sample" }
-        abort_phase = if ($diagnosticComparisonEnabled) { "" } else { "report_gate" }
+        invalid_run_reason = if ($scoreValid) { "" } else { "engineering_unclean" }
+        abort_scope = if ($scoreValid) { "none" } else { "sample" }
+        abort_phase = if ($scoreValid) { "" } else { "report_gate" }
         abort_signature = ""
-        first_failure_artifact = if ($invalidHarnessRows.Count -gt 0) { [string]$invalidHarnessRows[0].pair_report } else { "" }
+        first_failure_artifact = if ($engineeringUncleanRows.Count -gt 0) { [string]$engineeringUncleanRows[0].pair_report } elseif ($invalidHarnessRows.Count -gt 0) { [string]$invalidHarnessRows[0].pair_report } else { "" }
         configured_pairs = $all.Count
         eligible_pairs = $all.Count - $environmentRows.Count
         environment_failed_pairs = $environmentRows.Count
@@ -119,8 +172,10 @@ function Write-TaskspaceAggregateReport {
         valid_utility_pairs = $validUtility.Count
         valid_e3_pairs = $validE3.Count
         excluded_pairs = $all.Count - $included.Count
-        taskspace_better = if ($diagnosticComparisonEnabled -and $directionCounts.ContainsKey("taskspace_better")) { $directionCounts["taskspace_better"] } else { 0 }
-        standard_better = if ($diagnosticComparisonEnabled -and $directionCounts.ContainsKey("standard_better")) { $directionCounts["standard_better"] } else { 0 }
+        taskspace_better = if ($scoreValid -and $diagnosticComparisonEnabled -and $directionCounts.ContainsKey("taskspace_better")) { $directionCounts["taskspace_better"] } else { $null }
+        standard_better = if ($scoreValid -and $diagnosticComparisonEnabled -and $directionCounts.ContainsKey("standard_better")) { $directionCounts["standard_better"] } else { $null }
+        pass_rate_delta = if ($scoreValid) { 0 } else { $null }
+        diagnostic_pass_rate_delta = if ($scoreValid -and $diagnosticComparisonEnabled) { 0 } else { $null }
         both_success = if ($directionCounts.ContainsKey("both_success")) { $directionCounts["both_success"] } else { 0 }
         both_failed = if ($directionCounts.ContainsKey("both_failed")) { $directionCounts["both_failed"] } else { 0 }
         inconclusive = if ($directionCounts.ContainsKey("inconclusive")) { $directionCounts["inconclusive"] } else { 0 }
@@ -141,11 +196,17 @@ function Write-TaskspaceAggregateReport {
     $lines.Add("# TaskSpace Benchmark Aggregate Report")
     $lines.Add("")
     $lines.Add("- run_validity: $($aggregate["run_validity"])")
+    $lines.Add("- score_valid: $($aggregate["score_valid"])")
+    $lines.Add("- score_fields_enabled: $($aggregate["score_fields_enabled"])")
     $lines.Add("- diagnostic_comparison_enabled: $($aggregate["diagnostic_comparison_enabled"])")
-    if (-not $diagnosticComparisonEnabled) {
+    if (-not $scoreValid) {
+        $lines.Add("- score_invalid_reason: $($aggregate["score_invalid_reason"])")
+        $lines.Add("- engineering_unclean_count: $($aggregate["engineering_unclean_count"])")
+        $lines.Add("- agent_exec_timeout_count: $($aggregate["agent_exec_timeout_count"])")
+        $lines.Add("- clean_comparable_pair_count: $($aggregate["clean_comparable_pair_count"])")
         $lines.Add("- invalid_run_reason: $($aggregate["invalid_run_reason"])")
         $lines.Add("- first_failure_artifact: $($aggregate["first_failure_artifact"])")
-        $lines.Add("- diagnostic_note: comparison disabled because harness validity is not established")
+        $lines.Add("- diagnostic_note: score fields disabled because engineering clean execution is not established")
     }
     $summaryKeys = @("configured_pairs", "eligible_pairs", "environment_failed_pairs", "partial_pairs", "e3_candidate_pairs", "audit_ready_pairs", "e3_included_pairs", "all_pairs", "valid_utility_pairs", "valid_e3_pairs", "excluded_pairs")
     if ($diagnosticComparisonEnabled) {

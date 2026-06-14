@@ -1,0 +1,26 @@
+param(
+    [Parameter(Mandatory = $true)][string]$RepoRoot,
+    [Parameter(Mandatory = $true)][string]$BenchmarkRoot
+)
+
+. (Join-Path $RepoRoot "scripts\action-map-real-user-e2e-lib.ps1")
+. (Join-Path $RepoRoot "scripts\action-map-graph-health-lib.ps1")
+. (Join-Path $BenchmarkRoot "lib\scenario-manifest.ps1")
+. (Join-Path $BenchmarkRoot "lib\prompt-guard.ps1")
+. (Join-Path $BenchmarkRoot "lib\workspace.ps1")
+. (Join-Path $BenchmarkRoot "lib\oracle-runner.ps1")
+. (Join-Path $BenchmarkRoot "lib\graph-health.ps1")
+. (Join-Path $BenchmarkRoot "lib\harness-health.ps1")
+. (Join-Path $BenchmarkRoot "lib\metrics-extractor.ps1")
+. (Join-Path $BenchmarkRoot "lib\audit-report.ps1")
+. (Join-Path $BenchmarkRoot "lib\failure-taxonomy.ps1")
+. (Join-Path $BenchmarkRoot "lib\audit-manifest.ps1")
+. (Join-Path $BenchmarkRoot "lib\pair-artifact-classifier.ps1")
+. (Join-Path $BenchmarkRoot "lib\e3-proof.ps1")
+. (Join-Path $BenchmarkRoot "lib\pair-report.ps1")
+. (Join-Path $BenchmarkRoot "lib\report-summary.ps1")
+. (Join-Path $BenchmarkRoot "lib\aggregate-report.ps1")
+. (Join-Path $BenchmarkRoot "lib\source-guard.ps1")
+. (Join-Path $BenchmarkRoot "lib\run-state.ps1")
+. (Join-Path $BenchmarkRoot "lib\timing.ps1")
+. (Join-Path $BenchmarkRoot "lib\score-validity.ps1")

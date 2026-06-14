@@ -15,6 +15,8 @@ param(
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [string]$AuditReviewRoot = "",
     [switch]$PlanOnly,
+    [switch]$ScoringMode,
+    [switch]$RequireScoreValidity,
     [switch]$ContinueAfterInvalidHarness
 )
 
@@ -134,6 +136,8 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
     foreach ($override in @($ConfigOverride)) { $args += @("-ConfigOverride", $override) }
     if ($AuditReviewRoot) { $args += @("-AuditReviewRoot", $AuditReviewRoot) }
     if ($PlanOnly) { $args += "-PlanOnly" }
+    if ($ScoringMode) { $args += "-ScoringMode" }
+    if ($RequireScoreValidity) { $args += "-RequireScoreValidity" }
     & powershell @args
     $childExit = $LASTEXITCODE
     $statusPath = Get-ChildItem -LiteralPath $sampleRoot -Filter "sample-status.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -142,6 +146,28 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
     $completedDiagnosticRun = Test-TaskspaceSuiteChildStatusComplete $status $Repeats
     if ($childExit -ne 0 -and -not $alreadyInvalidHarness -and -not $completedDiagnosticRun) {
         $status = New-TaskspaceSuiteChildFailureStatus $status $sampleId $taskDir $childExit $(if ($statusPath) { [string]$statusPath.FullName } else { "" }) $sampleRoot
+    }
+    $aggregatePath = Get-ChildItem -LiteralPath $sampleRoot -Filter "aggregate.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (($ScoringMode -or $RequireScoreValidity) -and $aggregatePath) {
+        try {
+            $aggregate = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregatePath.FullName | ConvertFrom-Json
+            if ($aggregate.PSObject.Properties.Name -contains "score_valid" -and -not [bool]$aggregate.score_valid) {
+                $status = New-TaskspaceSuiteChildFailureStatus $status $sampleId $taskDir 3 ([string]$aggregatePath.FullName) $sampleRoot
+                $status.abort_phase = "score_validity"
+                $status.abort_signature = "harness_materialization_failure/score_invalid"
+                $status.abort_reason = if ($aggregate.PSObject.Properties.Name -contains "score_invalid_reason") { [string]$aggregate.score_invalid_reason } else { "score_invalid" }
+                $alreadyInvalidHarness = $true
+                $childExit = 3
+            }
+        } catch {
+            if ($RequireScoreValidity -or $ScoringMode) {
+                $status = New-TaskspaceSuiteChildFailureStatus $status $sampleId $taskDir 3 ([string]$aggregatePath.FullName) $sampleRoot
+                $status.abort_phase = "score_validity"
+                $status.abort_reason = "aggregate_score_validity_parse_failed"
+                $alreadyInvalidHarness = $true
+                $childExit = 3
+            }
+        }
     }
     $sampleStatuses.Add($status)
     if ($childExit -eq 1 -and $exitCode -eq 0) { $exitCode = 1 }
@@ -152,6 +178,10 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
         $signatureCounts[$sig]++
         if ($exitCode -eq 0) { $exitCode = 3 }
         $global = $sig -match "docker_backend_unavailable|uv_cache_missing|validator_source_missing|disk_space_low|disk_space_threshold_invalid"
+        if (($ScoringMode -or $RequireScoreValidity) -and -not $ContinueAfterInvalidHarness) {
+            $suiteAbort = $sig
+            $exitCode = 3
+        }
         if (-not $ContinueAfterInvalidHarness -and ($global -or $signatureCounts[$sig] -ge 2)) {
             $suiteAbort = $sig
             $exitCode = 3

@@ -268,6 +268,16 @@ function Write-TaskspacePairReport {
             $lines.Add("- failure_taxonomy: $($taxonomy -join ', ')")
         }
     }
+    if ($EvidenceGate.PSObject.Properties.Name -contains "run_score_valid") {
+        $lines.Add("- run_score_valid: $($EvidenceGate.run_score_valid)")
+        $lines.Add("- engineering_unclean: $($EvidenceGate.engineering_unclean)")
+        $lines.Add("- engineering_unclean_reasons: $(if (@($EvidenceGate.engineering_unclean_reasons).Count -eq 0) { 'none' } else { @($EvidenceGate.engineering_unclean_reasons) -join ', ' })")
+        $lines.Add("- outcome_standard: $($EvidenceGate.outcome_standard)")
+        $lines.Add("- outcome_taskspace: $($EvidenceGate.outcome_taskspace)")
+    }
+    if ($EvidenceGate.PSObject.Properties.Name -contains "pair_timing_path") {
+        $lines.Add("- pair_timing_path: $($EvidenceGate.pair_timing_path)")
+    }
     $lines.Add("")
     $lines.Add("## Harness Health / Abort")
     $allMetricsForHarness = @($LeftMetrics, $RightMetrics)
