@@ -2817,3 +2817,98 @@ The runner/report layer must publish one of these decisions:
 
 These decisions must appear in `runtime-calibration-report.md` and in aggregate
 metadata. A human should not need to infer the answer from raw logs.
+
+### 16.12 Execution Backlog For The Runtime Speed Question
+
+This backlog is the concrete work plan for the question "can E3 be made much
+faster?" It separates three outcomes that must not be mixed:
+
+- invalid-run speed: stop bad executions early;
+- harness speed: reduce validator, Docker, cleanup, and scheduling overhead;
+- agent-profile speed: change model, timeout, reasoning effort, or TaskSpace
+  budgets, which is a new benchmark profile and not a v0.0.4 comparable speedup.
+
+#### 16.12.1 Immediate Implementation Order
+
+| Order | Work Item | Files / Modules | Acceptance |
+|---:|---|---|---|
+| 1 | close remaining timing attribution gaps | `lib/timing.ps1`, `lib/metrics-extractor.ps1`, generated validator timing JSON | required wait fields are present or explicitly unavailable; `runtime_optimization_status=blocked` when unavailable |
+| 2 | publish runtime bottleneck report for every scoring sample | `lib/runtime-bottleneck-report.ps1`, aggregate report path | `runtime-bottleneck.md/json` names largest phase, largest non-agent phase, timing quality, and blocked speed reasons |
+| 3 | make agent-timeout validation skip part of the scoring contract | `run-taskspace-benchmark.ps1`, `lib/failure-taxonomy.ps1`, proof/audit paths | clean `exec_timed_out=true` with passed pre-agent probe does not start public validation and is counted as `agent_exec_timeout` |
+| 4 | enforce full-suite fast-fail on hard engineering unclean | `run-taskspace-e3-suite.ps1`, `lib/suite-status.ps1`, aggregate reducer | first Docker/validator/proof/path/disk hard failure exits `3`, writes skipped records, and starts no later samples |
+| 5 | finish immutable Docker cache proof | `adapters/terminal-bench-adapter.ps1`, cache smoke tests | cache key covers full build context, validator script, source version, uv cache, platform, env, and resolved base digest where available |
+| 6 | add pretest/test timeout split fixtures | generated validator, validation runner | no-marker validator aborts before full validation timeout; tests-started timeout remains engineering-unclean |
+| 7 | implement resource-governor skeleton with defaults serial | new `lib/resource-governor.ps1`, suite driver | token waits are recorded, all limits default to `1`, serial behavior remains unchanged |
+| 8 | implement opt-in sample-level parallel smoke | suite driver | `MaxParallelSamples=2` produces deterministic artifacts and no score-validity drift |
+| 9 | generate calibration decision artifact | new or existing runtime report path | `runtime-calibration-report.md` publishes one of the speedup decisions from section 16.11.7 |
+
+Do not implement pair-level or validation-level parallelism before item 8
+passes. Do not change TaskSpace agent budgets under the v0.0.4 comparable
+profile.
+
+#### 16.12.2 Definition Of "Large Speedup Is Possible"
+
+The answer is conditional and must be artifact-backed:
+
+| Calibration Result | Answer | Allowed Claim |
+|---|---|---|
+| hard engineering failure appears early | yes for invalid runs | bad runs can be reduced from hours to first-failure time |
+| validator/Docker overhead is `>=30%` of clean wall time | likely | harness speedup is plausible; cache, timeout split, and validation scheduling are next |
+| sample scheduling is serial and resources are not saturated | likely | sample-level parallelism can target `>=30%` clean wall-time reduction |
+| agent execution is `>=70%` of clean wall time | limited | v0.0.4 comparable profile cannot be much faster without changing capability profile |
+| model queue/retry/backoff is material | unknown until governed | parallelism may hurt; tune concurrency and provider retry behavior first |
+| timing or wait attribution is incomplete | unknown | speed claims are blocked; instrumentation is the next task |
+
+The first approved target is `>=30%` clean wall-time reduction. A `2-3x` target
+is not valid until a serial baseline and governed parallel run both pass with
+matching score-validity, profile hash, and per-pair outcome fields.
+
+#### 16.12.3 Minimum Engineering Tickets
+
+Create implementation tickets with these exact acceptance hooks:
+
+1. Timing completeness ticket.
+   - Add or verify fields: `model_queue_wait_ms`,
+     `model_request_duration_ms`, `model_retry_backoff_ms`,
+     `process_launch_wait_ms`, `docker_token_wait_ms`,
+     `validation_token_wait_ms`, `disk_reservation_wait_ms`,
+     `cache_lock_wait_ms`, `resource_wait_ms_total`.
+   - Tests: synthetic missing-field fixture and one official one-pair smoke.
+2. Runtime decision ticket.
+   - Produce `speedup_blocked_instrumentation`,
+     `speedup_blocked_invalid_run`, `speedup_limited_agent_bound`,
+     `speedup_candidate_validator_or_docker`,
+     `speedup_candidate_parallelism`, or `speedup_target_approved`.
+   - Tests: fixture for each decision.
+3. Invalid-run fast-fail ticket.
+   - Stop later sample scheduling after first hard engineering-unclean scoring
+     child.
+   - Tests: injected Docker failure and validator timeout fixture.
+4. Docker cache safety ticket.
+   - Make cache manifest sufficient for forensic proof.
+   - Tests: same immutable scenario hit, Dockerfile drift miss, build-context
+     drift miss, platform/env drift miss or cache disabled.
+5. Resource-governor ticket.
+   - Add serial-default token manager and wait accounting.
+   - Tests: token limit fixture, low-disk reservation fixture, cache-lock wait
+     fixture.
+6. Parallel smoke ticket.
+   - Add opt-in sample parallelism only.
+   - Tests: serial-vs-parallel diff for score validity, hard outcomes,
+     inclusion/exclusion rows, audit/proof status, profile/config hashes, and
+     deterministic merge order.
+
+#### 16.12.4 Stop Conditions
+
+Stop speed work and return to cleanliness fixes when any of these is true:
+
+- `score_valid=false` for the calibration run;
+- `engineering_unclean_count > 0`;
+- timing reconciliation is incomplete and unblocked fields are missing;
+- Docker cache proof cannot prove immutable inputs;
+- parallel smoke changes any score-bearing outcome, inclusion/exclusion reason,
+  profile hash, prompt/config hash, audit status, or proof status;
+- disk or Docker storage reserve drops below threshold during smoke.
+
+These stop conditions are not optional. They prevent the project from turning
+performance work into another invalid E3 run.
