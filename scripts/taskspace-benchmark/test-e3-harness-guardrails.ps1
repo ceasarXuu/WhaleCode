@@ -125,6 +125,34 @@ try {
     if ($null -eq $oldMinFreeGib) { Remove-Item Env:TASKSPACE_MIN_FREE_GIB -ErrorAction SilentlyContinue } else { $env:TASKSPACE_MIN_FREE_GIB = $oldMinFreeGib }
 }
 
+$suiteSkipRoot = Join-Path $runDir "suite-skip"
+$suiteTaskA = Join-Path $suiteSkipRoot "task-a"
+$suiteTaskB = Join-Path $suiteSkipRoot "task-b"
+New-Item -ItemType Directory -Force -Path $suiteTaskA, $suiteTaskB | Out-Null
+$suiteTaskList = Join-Path $suiteSkipRoot "tasks.jsonl"
+@(
+    ([pscustomobject]@{ sample_id = "sample-a"; task_dir = $suiteTaskA; source_version = "selftest" } | ConvertTo-Json -Compress),
+    ([pscustomobject]@{ sample_id = "sample-b"; task_dir = $suiteTaskB; source_version = "selftest" } | ConvertTo-Json -Compress)
+) | Set-Content -LiteralPath $suiteTaskList -Encoding UTF8
+$oldSuiteMinFreeBytes = $env:TASKSPACE_MIN_FREE_BYTES
+$oldSuiteMinFreeGib = $env:TASKSPACE_MIN_FREE_GIB
+try {
+    $env:TASKSPACE_MIN_FREE_BYTES = ([int64]::MaxValue).ToString()
+    Remove-Item Env:TASKSPACE_MIN_FREE_GIB -ErrorAction SilentlyContinue
+    $suiteOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1") -Benchmark terminal-bench -TaskListPath $suiteTaskList -SourceVersion selftest -Repeats 5 -RunRoot (Join-Path $suiteSkipRoot "runs") -PlanOnly -ScoringMode 2>&1
+    Assert-True ($LASTEXITCODE -eq 3) "suite disk guard did not exit invalid_harness"
+    $suiteRootLine = @($suiteOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
+    $suiteRunRoot = ([string]$suiteRootLine) -replace "^SuiteRoot:\s*", ""
+    $suiteHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteRunRoot "suite-health.json") | ConvertFrom-Json
+    $skippedStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteRunRoot "samples\sample-b\sample-status.json") | ConvertFrom-Json
+    Assert-True ([string]$suiteHealth.status -eq "invalid_harness" -and -not [bool]$suiteHealth.suite_score_valid) "suite health did not record invalid suite score"
+    Assert-True ([int]$suiteHealth.remaining_samples_skipped -eq 1 -and [int]$suiteHealth.score_invalid_child_runs -eq 2) "suite health did not count skipped invalid sample"
+    Assert-True ([string]$skippedStatus.phase -eq "skipped" -and [string]$skippedStatus.abort_phase -eq "suite_circuit_breaker") "skipped sample status did not record suite circuit breaker"
+} finally {
+    if ($null -eq $oldSuiteMinFreeBytes) { Remove-Item Env:TASKSPACE_MIN_FREE_BYTES -ErrorAction SilentlyContinue } else { $env:TASKSPACE_MIN_FREE_BYTES = $oldSuiteMinFreeBytes }
+    if ($null -eq $oldSuiteMinFreeGib) { Remove-Item Env:TASKSPACE_MIN_FREE_GIB -ErrorAction SilentlyContinue } else { $env:TASKSPACE_MIN_FREE_GIB = $oldSuiteMinFreeGib }
+}
+
 $stateRun = Join-Path $runDir "invalid-state"
 New-Item -ItemType Directory -Force -Path $stateRun | Out-Null
 Initialize-TaskspaceBenchmarkRunState $stateRun "sample" 5 "E3" "selftest" | Out-Null

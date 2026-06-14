@@ -216,6 +216,12 @@ $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | C
 Assert-True ([int]$suiteTiming.missing_sample_timing_count -eq 1) "suite timing did not use sample status to record missing timing"
 $helperStatus = New-TaskspaceSuiteChildFailureStatus $null "sample-helper-missing" "task-dir" 3 "" (Join-Path $suiteRootFromStatus "samples\sample-helper-missing")
 Assert-True ($helperStatus.PSObject.Properties.Name -contains "sample_root") "suite child failure status did not preserve sample_root"
+$completeSuiteStatus = [pscustomobject]@{ sample_id = "sample-valid"; run_validity = "valid"; phase = "completed"; attempted_pairs = 5; completed_pairs = 5 }
+$suiteScoreSummary = Get-TaskspaceSuiteScoreValiditySummary @($completeSuiteStatus, $helperStatus) 5
+Assert-True ([int]$suiteScoreSummary.completed_child_processes -eq 1) "suite score summary did not count completed child"
+Assert-True ([int]$suiteScoreSummary.score_valid_child_runs -eq 1) "suite score summary did not count valid child"
+Assert-True ([int]$suiteScoreSummary.score_invalid_child_runs -eq 1) "suite score summary did not count invalid child"
+Assert-True (-not [bool]$suiteScoreSummary.suite_score_valid -and [string]$suiteScoreSummary.first_score_invalid_run -eq "sample-helper-missing") "suite score summary did not identify first invalid sample"
 $suiteTimingPath = Write-TaskspaceSuiteTiming $suiteRootFromStatus @($helperStatus)
 $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | ConvertFrom-Json
 Assert-True ([int]$suiteTiming.missing_sample_timing_count -eq 1) "suite timing did not use helper-generated status to record missing timing"

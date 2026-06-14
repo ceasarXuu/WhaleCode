@@ -51,6 +51,7 @@ function Write-SuiteHealth {
     $skipped = @($SampleStatuses | Where-Object { $_.PSObject.Properties.Name -contains "skipped_reason" -and -not [string]::IsNullOrWhiteSpace([string]$_.skipped_reason) })
     $invalid = @($SampleStatuses | Where-Object { $_.PSObject.Properties.Name -contains "run_validity" -and [string]$_.run_validity -eq "invalid_harness" })
     $skippedPairs = Get-TaskspaceSuiteRemainingSkippedPairs $suiteRoot
+    $scoreSummary = Get-TaskspaceSuiteScoreValiditySummary $SampleStatuses $Repeats
     [pscustomobject]@{
         schema_version = 1
         status = $Status
@@ -61,6 +62,11 @@ function Write-SuiteHealth {
         invalid_harness_sample_count = $invalid.Count
         remaining_samples_skipped = $skipped.Count
         remaining_pairs_skipped = $skippedPairs
+        completed_child_processes = $scoreSummary.completed_child_processes
+        score_valid_child_runs = $scoreSummary.score_valid_child_runs
+        score_invalid_child_runs = $scoreSummary.score_invalid_child_runs
+        first_score_invalid_run = $scoreSummary.first_score_invalid_run
+        suite_score_valid = $scoreSummary.suite_score_valid
         generated_at = (Get-Date).ToString("o")
     } | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $suiteHealthPath -Encoding UTF8
 }
@@ -90,16 +96,21 @@ for ($index = 0; $index -lt $tasks.Count; $index++) {
     }
     if ($suiteAbort) {
         $skipReason = if ([string]$suiteAbort -match "disk_space_low|disk_space_threshold_invalid") { "suite_global_disk_guard" } else { "suite_repeated_infra_signature" }
+        $skippedSampleRoot = Join-Path $samplesRoot $sampleId
         $row = [pscustomobject]@{
             sample_id = $sampleId
             task_dir = $taskDir
+            phase = "skipped"
             run_validity = "invalid_harness"
+            exit_code = 3
             abort_scope = "suite"
             abort_phase = "suite_circuit_breaker"
             abort_signature = $suiteAbort
             skipped_reason = $skipReason
-            sample_root = Join-Path $samplesRoot $sampleId
+            sample_root = $skippedSampleRoot
         }
+        New-Item -ItemType Directory -Path $skippedSampleRoot -Force | Out-Null
+        $row | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $skippedSampleRoot "sample-status.json") -Encoding UTF8
         ($row | ConvertTo-Json -Compress) | Add-Content -LiteralPath $skippedPath -Encoding UTF8
         $sampleStatuses.Add($row)
         continue

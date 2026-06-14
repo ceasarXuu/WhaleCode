@@ -29,6 +29,24 @@ function New-TaskspaceSuiteChildFailureStatus {
     }
 }
 
+function Get-TaskspaceSuiteScoreValiditySummary {
+    param($SampleStatuses, [int]$Repeats)
+    $statuses = @($SampleStatuses)
+    $completed = @($statuses | Where-Object { Test-TaskspaceSuiteChildStatusComplete $_ $Repeats })
+    $valid = @($statuses | Where-Object { $_.PSObject.Properties.Name -contains "run_validity" -and [string]$_.run_validity -eq "valid" })
+    $invalid = @($statuses | Where-Object { $_.PSObject.Properties.Name -contains "run_validity" -and [string]$_.run_validity -eq "invalid_harness" })
+    $firstInvalid = @($invalid | Select-Object -First 1)[0]
+    [pscustomobject]@{
+        completed_child_processes = $completed.Count
+        score_valid_child_runs = $valid.Count
+        score_invalid_child_runs = $invalid.Count
+        first_score_invalid_run = if ($firstInvalid) {
+            if ($firstInvalid.PSObject.Properties.Name -contains "sample_id") { [string]$firstInvalid.sample_id } else { "" }
+        } else { "" }
+        suite_score_valid = ($invalid.Count -eq 0)
+    }
+}
+
 function Get-TaskspaceSuiteRemainingSkippedPairs {
     param([Parameter(Mandatory = $true)][string]$SuiteRoot)
     $skippedPairs = 0
