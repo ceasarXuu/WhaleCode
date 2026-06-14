@@ -196,7 +196,16 @@ function Get-TaskspaceFailedReports {
         [Parameter(Mandatory = $true)]$Reports,
         [Parameter(Mandatory = $true)][string]$EvidenceTarget
     )
-    @($Reports | Where-Object { -not (Test-TaskspaceEvidenceSatisfiesTarget $EvidenceTarget ([string]$_.evidence.reported_evidence_level)) })
+    @($Reports | Where-Object {
+            $satisfiesTarget = Test-TaskspaceEvidenceSatisfiesTarget $EvidenceTarget ([string]$_.evidence.reported_evidence_level)
+            $auditPending = (
+                [string]$EvidenceTarget -eq "E3" -and
+                $_.evidence.PSObject.Properties.Name -contains "audit_required" -and
+                [bool]$_.evidence.audit_required -and
+                -not ($_.evidence.PSObject.Properties.Name -contains "engineering_unclean" -and [bool]$_.evidence.engineering_unclean)
+            )
+            -not $satisfiesTarget -and -not $auditPending
+        })
 }
 
 function Compare-TaskspacePairVariables {
@@ -269,7 +278,13 @@ function Write-TaskspacePairReport {
         }
     }
     if ($EvidenceGate.PSObject.Properties.Name -contains "run_score_valid") {
+        if ($EvidenceGate.PSObject.Properties.Name -contains "run_score_ready") {
+            $lines.Add("- run_score_ready: $($EvidenceGate.run_score_ready)")
+        }
         $lines.Add("- run_score_valid: $($EvidenceGate.run_score_valid)")
+        if ($EvidenceGate.PSObject.Properties.Name -contains "audit_required") {
+            $lines.Add("- audit_required: $($EvidenceGate.audit_required)")
+        }
         $lines.Add("- engineering_unclean: $($EvidenceGate.engineering_unclean)")
         $lines.Add("- engineering_unclean_reasons: $(if (@($EvidenceGate.engineering_unclean_reasons).Count -eq 0) { 'none' } else { @($EvidenceGate.engineering_unclean_reasons) -join ', ' })")
         $lines.Add("- outcome_standard: $($EvidenceGate.outcome_standard)")

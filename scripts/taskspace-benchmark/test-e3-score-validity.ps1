@@ -74,7 +74,10 @@ $auditMissingEvidence = [pscustomobject]@{
     e3_gate_failures = @("e3_human_review_not_completed")
 }
 $auditMissingReasons = @(Get-TaskspaceEngineeringUncleanReasons (New-Metrics "left" "standard" -Success $true -PublicExit 0) $auditMissingEvidence)
-Assert-True ($auditMissingReasons -contains "e3_human_review_not_completed") "audit missing was not engineering unclean"
+Assert-True ($auditMissingReasons.Count -eq 0) "pure audit missing should not be engineering unclean"
+Assert-True (Test-TaskspaceAuditPending $auditMissingEvidence ([pscustomobject]@{ completed = $false; failures = @("audit_review_missing") })) "pure audit missing was not classified as audit pending"
+$auditInvalidReasons = @(Get-TaskspaceEngineeringUncleanReasons (New-Metrics "left" "standard" -Success $true -PublicExit 0) $auditMissingEvidence ([pscustomobject]@{ completed = $false; failures = @("audit_hash_mismatch") }))
+Assert-True ($auditInvalidReasons -contains "e3_audit_review_invalid") "invalid audit review was not engineering unclean"
 
 $auditPairDir = Join-Path $runDir "audit-pair"
 New-Item -ItemType Directory -Force -Path $auditPairDir | Out-Null
@@ -85,9 +88,47 @@ $auditManifest = Write-TaskspaceAuditManifest $auditPairDir `
     $auditMissingEvidence `
     ([pscustomobject]@{ invalid_pair = $false }) `
     ([pscustomobject]@{ completed = $false; failures = @("audit_review_missing"); source_path = "" })
+Assert-True (-not [bool]$auditManifest.run_score_ready) "audit manifest did not mark missing review score-pending"
 Assert-True (-not [bool]$auditManifest.run_score_valid) "audit manifest did not mark missing review score-invalid"
-Assert-True ([bool]$auditManifest.engineering_unclean) "audit manifest did not mark missing review engineering-unclean"
-Assert-True (@($auditManifest.engineering_unclean_reasons) -contains "e3_human_review_not_completed") "audit manifest did not preserve missing review reason"
+Assert-True ([bool]$auditManifest.audit_required) "audit manifest did not mark missing review audit-required"
+Assert-True (-not [bool]$auditManifest.engineering_unclean) "audit manifest incorrectly marked missing review engineering-unclean"
+Assert-True (@($auditManifest.engineering_unclean_reasons).Count -eq 0) "audit manifest incorrectly preserved missing review as hard reason"
+
+$auditPendingAggregatePath = Join-Path $runDir "audit-pending-aggregate-report.md"
+$auditPendingEvidence = [pscustomobject]@{
+    reported_evidence_level = "E3-candidate"
+    included_in_utility_aggregate = $false
+    included_in_e3_aggregate = $false
+    evidence_gate_failures = @()
+    e3_gate_failures = @("e3_human_review_not_completed")
+    failure_taxonomy = @("audit_unclean")
+    utility_direction = "score_disabled"
+    human_review_completed = $false
+    human_review_decision = ""
+    human_review_disagreement = $false
+    run_score_ready = $false
+    run_score_valid = $false
+    audit_required = $true
+    engineering_unclean = $false
+    engineering_unclean_reasons = @()
+    outcome_standard = "solved"
+    outcome_taskspace = "solved"
+}
+Write-TaskspaceAggregateReport -Path $auditPendingAggregatePath -Reports @([pscustomobject]@{
+            repeat = 1
+            pair_dir = $runDir
+            pair_report = "pair-report.md"
+            evidence_target = "E3"
+            evidence = $auditPendingEvidence
+        })
+$auditPendingAggregate = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $runDir "aggregate.json") | ConvertFrom-Json
+$auditPendingText = Get-Content -Raw -Encoding UTF8 -LiteralPath $auditPendingAggregatePath
+Assert-True ([string]$auditPendingAggregate.run_validity -eq "valid") "audit-pending aggregate should not be invalid_harness"
+Assert-True (-not [bool]$auditPendingAggregate.score_ready -and -not [bool]$auditPendingAggregate.score_valid) "audit-pending aggregate did not disable score readiness"
+Assert-True ([string]$auditPendingAggregate.score_block_reason -eq "audit_required") "audit-pending aggregate did not report audit_required block"
+Assert-True ([int]$auditPendingAggregate.engineering_unclean_count -eq 0) "audit-pending aggregate incorrectly counted engineering unclean"
+Assert-True ([int]$auditPendingAggregate.audit_required_count -eq 1) "audit-pending aggregate audit_required_count mismatch"
+Assert-True ($auditPendingText -match "score fields disabled because E3 human review is pending") "audit-pending aggregate did not render pending-audit note"
 
 $aggregatePath = Join-Path $runDir "aggregate-report.md"
 $invalidEvidence = [pscustomobject]@{

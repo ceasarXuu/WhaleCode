@@ -433,7 +433,9 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $evidence | Add-Member -NotePropertyName audit_manifest_path -NotePropertyValue $auditManifest.json_path -Force
     $evidence | Add-Member -NotePropertyName failure_taxonomy -NotePropertyValue @($auditManifest.failure_taxonomy) -Force
     $evidence | Add-Member -NotePropertyName utility_direction -NotePropertyValue $auditManifest.utility_direction -Force
+    $evidence | Add-Member -NotePropertyName run_score_ready -NotePropertyValue ([bool]$auditManifest.run_score_ready) -Force
     $evidence | Add-Member -NotePropertyName run_score_valid -NotePropertyValue ([bool]$auditManifest.run_score_valid) -Force
+    $evidence | Add-Member -NotePropertyName audit_required -NotePropertyValue ([bool]$auditManifest.audit_required) -Force
     $evidence | Add-Member -NotePropertyName engineering_unclean -NotePropertyValue ([bool]$auditManifest.engineering_unclean) -Force
     $evidence | Add-Member -NotePropertyName engineering_unclean_reasons -NotePropertyValue @($auditManifest.engineering_unclean_reasons) -Force
     $evidence | Add-Member -NotePropertyName outcome_standard -NotePropertyValue ([string]$auditManifest.outcome_standard) -Force

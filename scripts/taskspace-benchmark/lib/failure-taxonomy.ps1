@@ -24,6 +24,35 @@ function Get-TaskspaceMetricBool {
     ($Metrics -and $Metrics.PSObject.Properties.Name -contains $Name -and [bool]$Metrics.$Name)
 }
 
+function Test-TaskspaceAuditPending {
+    param(
+        $Evidence = $null,
+        $AuditReview = $null,
+        $ManifestResolved = $null
+    )
+    $reviewRequired = $false
+    if ($ManifestResolved -and $ManifestResolved.PSObject.Properties.Name -contains "human_review_required" -and [bool]$ManifestResolved.human_review_required) {
+        $reviewRequired = $true
+    }
+    if ($Evidence) {
+        $gateFailures = @(@($Evidence.evidence_gate_failures) + @($Evidence.e3_gate_failures))
+        if (@($gateFailures | Where-Object { [string]$_ -eq "e3_human_review_not_completed" -or [string]$_ -eq "audit_review_missing" }).Count -gt 0) {
+            $reviewRequired = $true
+        }
+    }
+    if (-not $reviewRequired) { return $false }
+    if ($AuditReview -and $AuditReview.PSObject.Properties.Name -contains "completed" -and [bool]$AuditReview.completed) { return $false }
+    $true
+}
+
+function Test-TaskspaceAuditReviewInvalid {
+    param($AuditReview = $null)
+    if (-not $AuditReview -or -not ($AuditReview.PSObject.Properties.Name -contains "failures")) { return $false }
+    $failures = @($AuditReview.failures) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+    if ($failures.Count -eq 0) { return $false }
+    @($failures | Where-Object { [string]$_ -notin @("audit_review_missing", "e3_human_review_not_completed") }).Count -gt 0
+}
+
 function Get-TaskspaceEngineeringUncleanReasons {
     param(
         $Metrics,
@@ -53,7 +82,8 @@ function Get-TaskspaceEngineeringUncleanReasons {
     if ($Evidence) {
         foreach ($failure in @(@($Evidence.evidence_gate_failures) + @($Evidence.e3_gate_failures))) {
             $text = [string]$failure
-            if ($text -match "public_validation_timeout|docker|validator|proof|eligible|fidelity|audit_review_missing|e3_human_review_not_completed|path_unresolvable|uv_cache|source|materialization|disk_space|report") {
+            if ($text -in @("audit_review_missing", "e3_human_review_not_completed")) { continue }
+            if ($text -match "public_validation_timeout|docker|validator|proof|eligible|fidelity|audit_review_invalid|audit_hash_mismatch|audit_review_malformed|path_unresolvable|uv_cache|source|materialization|disk_space|report") {
                 Add-TaskspaceFailureClass $reasons $text
             }
         }
@@ -61,8 +91,8 @@ function Get-TaskspaceEngineeringUncleanReasons {
     if ($VariableControl -and $VariableControl.PSObject.Properties.Name -contains "invalid_pair" -and [bool]$VariableControl.invalid_pair) {
         Add-TaskspaceFailureClass $reasons "audit_unclean"
     }
-    if ($AuditReview -and $AuditReview.PSObject.Properties.Name -contains "completed" -and -not [bool]$AuditReview.completed) {
-        Add-TaskspaceFailureClass $reasons "e3_human_review_not_completed"
+    if (Test-TaskspaceAuditReviewInvalid $AuditReview) {
+        Add-TaskspaceFailureClass $reasons "e3_audit_review_invalid"
     }
     @($reasons.ToArray())
 }
@@ -160,8 +190,11 @@ function Get-TaskspaceFailureTaxonomy {
     if ($VariableControl -and $VariableControl.PSObject.Properties.Name -contains "invalid_pair" -and [bool]$VariableControl.invalid_pair) {
         Add-TaskspaceFailureClass $classes "audit_unclean"
     }
-    if ($AuditReview -and $AuditReview.PSObject.Properties.Name -contains "completed" -and -not [bool]$AuditReview.completed) {
+    if (Test-TaskspaceAuditPending $Evidence $AuditReview) {
         Add-TaskspaceFailureClass $classes "audit_unclean"
+    }
+    if (Test-TaskspaceAuditReviewInvalid $AuditReview) {
+        Add-TaskspaceFailureClass $classes "audit_invalid"
     }
     if ($Evidence) {
         $gateFailures = @(@($Evidence.evidence_gate_failures) + @($Evidence.e3_gate_failures))
