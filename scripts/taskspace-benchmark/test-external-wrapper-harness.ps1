@@ -28,6 +28,7 @@ param(
     [string]$RunRoot,
     [int]$TimeoutSeconds,
     [int]$ValidationTimeoutSeconds,
+    [string]$SourceVersion,
     [string]$SandboxMode,
     [string[]]$ConfigOverride,
     [string]$AuditReviewRoot,
@@ -36,6 +37,7 @@ param(
     [switch]$PlanOnly
 )
 Write-Host "validation_timeout=$ValidationTimeoutSeconds"
+Write-Host "source_version=$SourceVersion"
 if ($PlanOnly) { exit 0 }
 if ($AllowNonE2Result) { Write-Host "stub diagnostic allowed"; exit 0 }
 Write-Host "stub target unsatisfied"
@@ -49,6 +51,7 @@ $diagnosticOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-
 Assert-True ($LASTEXITCODE -eq 0) "external benchmark wrapper did not allow explicit diagnostic non-target result"
 Assert-True (($diagnosticOutput -join "`n") -match "DiagnosticNonTargetResultAllowed: True") "external benchmark wrapper did not print diagnostic opt-in marker"
 Assert-True (($diagnosticOutput -join "`n") -match "validation_timeout=77") "external benchmark wrapper did not pass validation timeout separately"
+Assert-True (($diagnosticOutput -join "`n") -match "source_version=pinned") "external benchmark wrapper did not pass source version to runner"
 
 if ($failures.Count -gt 0) {
     Write-Host "TaskSpace external wrapper self-test: FAIL"

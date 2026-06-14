@@ -397,7 +397,8 @@ FROM scratch
 param(
     [string]$ScenarioPath,
     [int]$Repeats,
-    [string]$RunRoot
+    [string]$RunRoot,
+    [string]$SourceVersion
 )
 $ErrorActionPreference = "Stop"
 $childRoot = Join-Path $RunRoot "stub-child"

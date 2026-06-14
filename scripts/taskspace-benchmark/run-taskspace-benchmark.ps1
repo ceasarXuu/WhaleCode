@@ -16,6 +16,7 @@ param(
     [switch]$ResumeLatest,
     [string]$RunId = "",
     [string]$TaskListHash = "",
+    [string]$SourceVersion = "",
     [string]$ProfileHash = "",
     [switch]$ForceRerun,
     [switch]$PlanOnly
@@ -173,7 +174,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         })
         Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $existingPairReport $commandLine | Out-Null
         if (($ScoringMode -or $RequireScoreValidity) -and $classified.evidence.PSObject.Properties.Name -contains "engineering_unclean" -and [bool]$classified.evidence.engineering_unclean) {
-            $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $existingPairDir $existingPairReport $classified.evidence $commandLine $repeat $Repeats
+        $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $existingPairDir $existingPairReport $classified.evidence $commandLine $repeat $Repeats -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
             Write-Host "RunDir: $runDir"
             Write-Host "PairAbort: $($abort.abort_path)"
             exit 3
@@ -527,7 +528,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     Write-TaskspaceRunEvent $runDir "pair_completed" @{ repeat = $repeat; pair_report = $pairReportPath; reported_evidence_level = [string]$evidence.reported_evidence_level }
     Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $pairReportPath $commandLine | Out-Null
     if (($ScoringMode -or $RequireScoreValidity) -and [bool]$auditManifest.engineering_unclean) {
-        $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $pair.PairDir $pairReportPath $evidence $commandLine $repeat $Repeats
+        $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $pair.PairDir $pairReportPath $evidence $commandLine $repeat $Repeats -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
         Write-Host "RunDir: $runDir"
         Write-Host "PairAbort: $($abort.abort_path)"
         exit 3
@@ -546,7 +547,8 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                     skipped_repeats = @((($repeat + 1)..$Repeats) | Where-Object { $_ -le $Repeats })
             }) $abortPath
             Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "sentinel_pair" ([string]$sentinel.reason) $sentinel.signature $abortPath $commandLine $repeat $repeat | Out-Null
-            Write-TaskspaceSampleTiming -RunDir $runDir -SampleId $manifest.Id -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash | Out-Null
+            $sampleTimingPath = Write-TaskspaceSampleTiming -RunDir $runDir -SampleId $manifest.Id -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
+            Write-TaskspaceRuntimeBottleneckReport -TimingPath $sampleTimingPath -ScoreValid $false | Out-Null
             Write-Host "RunDir: $runDir"
             Write-Host "PairAbort: $abortPath"
             exit 3

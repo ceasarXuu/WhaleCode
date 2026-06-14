@@ -2,6 +2,8 @@ param([string]$RunRoot = "")
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+. (Join-Path $PSScriptRoot "lib\harness-health.ps1")
+. (Join-Path $PSScriptRoot "lib\run-state.ps1")
 . (Join-Path $PSScriptRoot "lib\failure-taxonomy.ps1")
 . (Join-Path $PSScriptRoot "lib\audit-manifest.ps1")
 . (Join-Path $PSScriptRoot "lib\aggregate-report.ps1")
@@ -9,6 +11,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\timing.ps1")
 . (Join-Path $PSScriptRoot "lib\suite-status.ps1")
 . (Join-Path $PSScriptRoot "lib\runtime-bottleneck-report.ps1")
+. (Join-Path $PSScriptRoot "lib\score-validity.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\e3-score-validity-selftest" }
 $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
@@ -78,6 +81,22 @@ Assert-Outcome "agent timeout skip missing probe" (New-Metrics "left" "taskspace
 Assert-Outcome "agent timeout skip failed probe" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 0 -PublicValidationSkipped $true -PublicValidationSkipReason "agent_exec_timeout" -PreAgentProbeStatus "failed" -PreAgentProbeHash ("a" * 64)) "engineering_unclean" $false
 Assert-Outcome "validator timeout" (New-Metrics "left" "standard" -PublicExit 124 -Failures @("public_validation_timeout")) "engineering_unclean" $false
 Assert-Outcome "docker failure before tests" (New-Metrics "left" "standard" -PublicExit 1 -Failures @("docker_run_failure") -PretestFailure $true) "engineering_unclean" $false
+
+$abortRun = Join-Path $RunRoot ("score-validity-abort-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
+$abortPair = Join-Path $abortRun "pair-001"
+New-Item -ItemType Directory -Force -Path $abortPair | Out-Null
+$now = Get-Date
+Write-TaskspacePairTiming -PairDir $abortPair -Repeat 1 -PairStartedAt $now -PairFinishedAt $now.AddSeconds(1) -Manifest ([pscustomobject]@{ Id = "abort-sample" }) -Pair $null -MetricsBySide @{
+    left = (New-Metrics "left" "standard" -PublicExit 124 -Failures @("public_validation_timeout"))
+    right = (New-Metrics "right" "taskspace" -Success $true -PublicExit 0)
+} -ValidationTimingBySide @{} -EngineeringUncleanReasons @("public_validation_timeout") -TaskListHash "task-list-a" -SourceVersion "source-a" -ProfileHash "profile-a" | Out-Null
+$abortReport = Join-Path $abortPair "pair-report.md"
+"abort report" | Set-Content -LiteralPath $abortReport -Encoding UTF8
+$abortEvidence = [pscustomobject]@{ engineering_unclean_reasons = @("public_validation_timeout") }
+Stop-TaskspaceScoringInvalidRun -RunDir $abortRun -SampleId "abort-sample" -PairDir $abortPair -PairReportPath $abortReport -Evidence $abortEvidence -CommandLine "abort command" -Repeat 1 -Repeats 1 -TaskListHash "task-list-a" -SourceVersion "source-a" -ProfileHash "profile-a" | Out-Null
+$abortSampleTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $abortRun "sample-timing.json") | ConvertFrom-Json
+Assert-True ([string]$abortSampleTiming.source_version -eq "source-a" -and [string]$abortSampleTiming.task_list_hash -eq "task-list-a" -and [string]$abortSampleTiming.profile_hash -eq "profile-a") "score-validity abort sample timing did not preserve identity"
+Assert-True ((Test-Path -LiteralPath (Join-Path $abortRun "runtime-bottleneck.md")) -and (Test-Path -LiteralPath (Join-Path $abortRun "runtime-bottleneck.json"))) "score-validity abort did not write runtime bottleneck artifacts"
 Assert-Outcome "docker run test failure after tests" (New-Metrics "left" "standard" -PublicExit 1 -Failures @("docker_run_failure")) "wrong" $true
 Assert-Outcome "timeout plus docker before tests" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 1 -Failures @("docker_run_failure") -PretestFailure $true) "engineering_unclean" $false
 

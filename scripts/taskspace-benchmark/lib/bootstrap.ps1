@@ -23,4 +23,5 @@ param(
 . (Join-Path $BenchmarkRoot "lib\source-guard.ps1")
 . (Join-Path $BenchmarkRoot "lib\run-state.ps1")
 . (Join-Path $BenchmarkRoot "lib\timing.ps1")
+. (Join-Path $BenchmarkRoot "lib\runtime-bottleneck-report.ps1")
 . (Join-Path $BenchmarkRoot "lib\score-validity.ps1")

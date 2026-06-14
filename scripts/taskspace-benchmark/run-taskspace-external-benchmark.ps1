@@ -135,6 +135,7 @@ $args = @(
     "-SandboxMode", $SandboxMode
 )
 if (-not [string]::IsNullOrWhiteSpace($TaskListHash)) { $args += @("-TaskListHash", $TaskListHash) }
+$args += @("-SourceVersion", $SourceVersion)
 if (-not [string]::IsNullOrWhiteSpace($ProfileHash)) { $args += @("-ProfileHash", $ProfileHash) }
 foreach ($override in @($ConfigOverride)) { $args += @("-ConfigOverride", $override) }
 if (-not [string]::IsNullOrWhiteSpace($AuditReviewRoot)) { $args += @("-AuditReviewRoot", $AuditReviewRoot) }

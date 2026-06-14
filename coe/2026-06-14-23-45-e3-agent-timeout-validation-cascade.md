@@ -583,3 +583,35 @@ Validation passed:
 - `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
 
 Remaining scope: official one-pair timing smoke, representative 3-task serial calibration, governed parallel smoke release evidence, accepted calibration gate, adversarial review, and final full E3 approval remain open.
+
+## Hypothesis H-023
+
+Claim: official one-pair smoke artifacts must preserve task-list/source/profile identity and write runtime bottleneck reports even when scoring aborts with exit code `3`. Without this, a correctly classified invalid smoke still cannot be consumed by the calibration gate, causing another long rerun.
+
+Predictions:
+- `run-taskspace-external-benchmark.ps1` must pass `SourceVersion` through to `run-taskspace-benchmark.ps1`.
+- `run-taskspace-benchmark.ps1` must include source version in pair and sample timing artifacts.
+- `Stop-TaskspaceScoringInvalidRun` must write `sample-timing.json` with task-list/source/profile identity before exit `3`.
+- `Stop-TaskspaceScoringInvalidRun` and sentinel abort must write `runtime-bottleneck.md/json` before exit `3`.
+- Wrapper tests must fail if `SourceVersion` is not forwarded to a child runner.
+
+Diagnostic evidence plan:
+- Add `SourceVersion` to `run-taskspace-benchmark.ps1`.
+- Forward `SourceVersion` from `run-taskspace-external-benchmark.ps1`.
+- Extend score-validity abort closure to pass identity into sample timing and write runtime bottleneck artifacts.
+- Extend tests for wrapper source forwarding and abort timing/report closure.
+
+## Evidence E-036
+
+Supports H-023. An official `recover-accuracy-log` one-pair smoke under `target/e3-official-one-pair-calibration-20260615/one-pair-smoke` ran for about 23 minutes and exited `3` because the standard side hit `public_validation_timeout` while TaskSpace solved. That classification is correct under the hard clean-execution contract, but the produced artifacts exposed two contract gaps: `pair-timing.json` and `sample-timing.json` had empty `source_version`, and the score-validity abort path did not write `runtime-bottleneck.md/json`.
+
+The fix adds `SourceVersion` propagation into `run-taskspace-benchmark.ps1`, forwards it from `run-taskspace-external-benchmark.ps1`, and makes score-validity and sentinel aborts write runtime bottleneck artifacts after sample timing. `test-external-wrapper-harness.ps1` now asserts wrapper source forwarding, and `test-e3-score-validity.ps1` asserts abort sample timing identity plus runtime bottleneck artifacts.
+
+Validation passed:
+- PowerShell parser check for touched scripts
+- `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
+- `.\scripts\taskspace-benchmark\test-external-wrapper-harness.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-start-gate.ps1`
+
+Remaining scope: rerun the official one-pair smoke with the fixed artifact contract; if it still exits `3` for `public_validation_timeout`, it is a valid classified guardrail abort but not a passing calibration artifact for full E3.
