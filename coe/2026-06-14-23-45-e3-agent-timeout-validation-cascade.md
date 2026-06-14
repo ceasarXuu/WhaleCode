@@ -51,3 +51,11 @@ Supports H-001 repair validation. `scripts/taskspace-benchmark/test-e3-proof-har
 ## Evidence E-005
 
 Supports H-001 regression validation. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` and `scripts/taskspace-benchmark/test-harness.ps1` pass after the runner, timing, taxonomy, and proof changes, showing the existing invalid-harness and reporting paths still work.
+
+## Evidence E-006
+
+Supports H-001 runtime validation. Official materialized Terminal-Bench one-pair smoke at `target\e3-official-smoke-agent-timeout-skip-proof\terminal_bench__analyze-access-logs\20260614-234737-022` completed with runner exit `0` under `TimeoutSeconds=5`. Both Standard and TaskSpace sides recorded `exec_timed_out=true`, `public_validation_skipped=true`, `public_validation_skip_reason=agent_exec_timeout`, `pre_agent_validator_probe_status=passed`, `public_validation_duration_ms=0`, and no `validator_environment_failures`. The pair audit recorded `engineering_unclean=false`, `outcome_standard=agent_exec_timeout`, and `outcome_taskspace=agent_exec_timeout`.
+
+## Evidence E-007
+
+Supports H-001 proof validation. In the same official smoke, `external-e3-proof.json.validator_fidelity` recorded `official_runner_or_equivalent=true`, `agent_cannot_read_validator_source=true`, `e3_eligible=true`, `runtime_proven=true`, and `validator_mount_proven=true`. This confirms that the validation skip no longer cascades into `e3_external_validator_fidelity_unproven`.

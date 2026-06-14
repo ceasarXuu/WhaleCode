@@ -186,6 +186,7 @@ function New-TaskspaceExternalEvidenceProof {
                 (Test-TaskspaceProofMarker $combinedLog "validator_mount=/tests"))
             validator_mount_readonly = (Test-TaskspaceProofMarker $combinedLog "validator_mount_readonly=true")
             official_test_command_seen = (Test-TaskspaceProofMarker $combinedLog "validator_command=bash /tests/run-tests.sh")
+            official_protocol_pre_agent_probe_proven = $preAgentProbeProven
             wrapper_sha = $wrapperSha
             entry_sha = $entrySha
             runtime_manifest_path = $runtimeManifestPath
@@ -299,7 +300,7 @@ function New-TaskspaceExternalEvidenceProof {
         $sourceHashOk -and
         ($official.PSObject.Properties.Name -contains "source_files_match_pinned_revision" -and [bool]$official.source_files_match_pinned_revision) -and
         ($official.PSObject.Properties.Name -contains "task_worktree_dirty" -and -not [bool]$official.task_worktree_dirty) -and
-        @($runtimeRows | Where-Object { -not $_.official_test_command_seen }).Count -eq 0)
+        @($runtimeRows | Where-Object { -not ($_.official_test_command_seen -or $_.official_protocol_pre_agent_probe_proven) }).Count -eq 0)
     $remoteAssets = if ($null -ne $adapterMetadata -and $adapterMetadata.PSObject.Properties.Name -contains "remote_assets") {
         @($adapterMetadata.remote_assets)
     } else { @() }
@@ -316,7 +317,7 @@ function New-TaskspaceExternalEvidenceProof {
         official_protocol_source_proven = $officialProtocolOk
         remote_assets_equivalence_proven = $remoteAssetsOk
         remote_assets = @($remoteAssets)
-        runtime_command_matches_official_protocol = @($runtimeRows | Where-Object { -not $_.official_test_command_seen }).Count -eq 0
+        runtime_command_matches_official_protocol = @($runtimeRows | Where-Object { -not ($_.official_test_command_seen -or $_.official_protocol_pre_agent_probe_proven) }).Count -eq 0
         source_hashes = @($sourceHashRows.ToArray())
     }
     Write-TaskspaceJson $runnerProof $runnerPath
