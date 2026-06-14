@@ -25,6 +25,7 @@ This audit treats completion as unproven unless there is current code, test, rep
 | P4 observed concurrency | `parallelism.json` records configured and observed concurrency. | `resource-governor.ps1`, `test-e3-harness-guardrails.ps1`. | implemented for sample-level parallel fixture | Future Docker/model token managers must replace placeholder observed values when those modes are implemented. |
 | P5 speed decision | Runtime calibration report gives defensible answer to why 15-task E3 takes hours and whether speedup is possible. | `runtime-bottleneck-report.ps1`, `runtime-calibration-report.md/json` fixture checks, calibration gate. | partial | No current official 3-task serial calibration plus parallel smoke artifact has been run under this final gate. Speed claims remain blocked. |
 | Runtime bottleneck repair plan | The plan must explain why a 15-task E3 can take hours, how to identify the dominant bottleneck, and which speedups are allowed without changing the v0.0.4 scoring profile. | Section 16.13 of the implementation plan; `e3-start-gate.ps1` writes `gate-decision.json`; `calibration-selection.ps1` writes deterministic `calibration-selection.json`; `runtime-reconstruction.ps1` writes `runtime-reconstruction.json/md`; R0 reconstruction was run on `target/suite-disk-preflight-smoke-3/suite-20260613-164323`. | partially implemented | R0 tooling works on canonical suite artifacts and the disk-preflight smoke reconstructs as `unknown` because `suite-timing.json` is missing after pre-scheduling disk abort. Remaining R0-R5 work: legacy importer or located canonical root for the old full E3 artifact, validator/Docker overhead proof, governed parallel smoke release evidence, official one-pair/3-task calibration artifacts, and final full E3 release gate. |
+| Detailed speedup execution plan | The plan must turn the multi-hour runtime concern into concrete engineering tasks, artifact contracts, and phase gates before any full E3 rerun. | Section 16.14 of the implementation plan now defines timing budget buckets, early-abort timing closure, invalid-run waste elimination, validator/Docker cost reduction, governed sample-level parallelism, speed-claim decision rules, concrete implementation order, and adversarial review checklist. | planned, not implemented | Execute Section 16.14 in order. The first required implementation work remains early-abort timing artifact closure and runtime reconstruction sample-row correctness; no large speedup claim is allowed until accepted serial and parallel calibration artifacts exist. |
 
 ## Current No-Go Conditions
 
@@ -35,10 +36,21 @@ This audit treats completion as unproven unless there is current code, test, rep
 
 ## Next Engineering Actions
 
-1. Add missing Docker cache proof edge-case fixtures.
-2. Extend `parallel-diff.ps1` or suite health production so profile/config/prompt/proof artifact hashes required by Section 16 are always present and compared.
-3. Add a legacy reconstruction/import path for older run roots such as `target/e3-full-20260606-014919`, or locate the canonical suite root from the invalid full E3 run.
-4. Continue Section 16.13 R0-R5: instrumentation closure for pre-scheduling aborts without `suite-timing.json`, invalid-run fast-fail proof, validator/Docker overhead reduction proof, governed sample-parallel smoke, and final release gate.
-5. Run one official one-pair timing smoke and one representative 3-task serial calibration only when `gate-decision.json` says those command categories are allowed.
-6. Use `calibration-selection.json` as the required representative 3-task selection artifact for that calibration.
-7. Only after the above, run full 15-task E3 when `next_allowed_command_category=full_e3`, `full_e3_allowed=true`, and identity checks match.
+Execute these in order. Items in the backlog below must not jump ahead of the first two actions, because the known current blocker is that pre-scheduling aborts can still leave timing/reconstruction evidence incomplete.
+
+1. Finish early-abort timing artifact closure for start-gate and disk-reservation exits: `suite-health.json`, `suite-timing.json`, runtime bottleneck report, runtime calibration report, and `gate-decision.json` must exist on exit `3`.
+2. Fix runtime reconstruction sample-row extraction so early-abort suites produce `sample_rows`, `first_invalid_sample_index=0`, and no false missing `suite-timing.json`.
+3. Close score-invalid fast-fail gaps for first-pair Docker/validator/proof/audit/report failures.
+4. Complete validator lifecycle split and timeout classification.
+5. Add missing Docker cache proof edge-case fixtures.
+6. Extend `parallel-diff.ps1` or suite health production so profile/config/prompt/proof artifact hashes required by Section 16 are always present and compared.
+7. Add a legacy reconstruction/import path for older run roots such as `target/e3-full-20260606-014919`, or locate the canonical suite root from the invalid full E3 run.
+8. Run one official one-pair timing smoke and one representative 3-task serial calibration only when the provenance-bearing `gate-decision.json` says those command categories are allowed and all referenced artifact hashes verify.
+9. Use `calibration-selection.json` as the required representative 3-task selection artifact for that calibration.
+10. Only after the above, run full 15-task E3 when `next_allowed_command_category=full_e3`, `full_e3_allowed=true`, `calibration_gate.status=pass`, serial/parallel artifact hashes verify, `review_gate.status=pass`, and identity checks match.
+
+Backlog after actions 1-2 are closed:
+
+- Docker cache edge fixtures beyond the current regression cases.
+- Comparator coverage for optional prompt/config/proof hashes; absence of required hashes must block parallel acceptance rather than silently pass.
+- Legacy importer for old non-canonical run roots.
