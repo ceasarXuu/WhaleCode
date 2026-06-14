@@ -59,3 +59,7 @@ Supports H-001 runtime validation. Official materialized Terminal-Bench one-pair
 ## Evidence E-007
 
 Supports H-001 proof validation. In the same official smoke, `external-e3-proof.json.validator_fidelity` recorded `official_runner_or_equivalent=true`, `agent_cannot_read_validator_source=true`, `e3_eligible=true`, `runtime_proven=true`, and `validator_mount_proven=true`. This confirms that the validation skip no longer cascades into `e3_external_validator_fidelity_unproven`.
+
+## Evidence E-008
+
+Supports P0 timing guardrail validation. Regenerating `sample-timing.json` for the same official smoke after the wait-attribution timing change produced `runtime_optimization_status=blocked`, `timing_quality=incomplete`, `wait_attribution_status=missing`, and blockers for `model_queue_wait_ms`, `model_retry_backoff_ms`, `model_request_duration_ms`, `process_launch_wait_ms`, `docker_token_wait_ms`, `validation_token_wait_ms`, `disk_reservation_wait_ms`, `cache_lock_wait_ms`, and `resource_wait_ms_total`. This prevents using the smoke as a speed claim while wait attribution is not instrumented.

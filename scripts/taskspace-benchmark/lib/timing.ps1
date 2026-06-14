@@ -65,6 +65,31 @@ function Get-TaskspaceTimingPercentile {
     [int64]$sorted[$index]
 }
 
+function Get-TaskspaceRequiredWaitTimingFields {
+    @(
+        "model_queue_wait_ms",
+        "model_retry_backoff_ms",
+        "model_request_duration_ms",
+        "process_launch_wait_ms",
+        "docker_token_wait_ms",
+        "validation_token_wait_ms",
+        "disk_reservation_wait_ms",
+        "cache_lock_wait_ms",
+        "resource_wait_ms_total"
+    )
+}
+
+function New-TaskspaceMissingWaitAttribution {
+    param($Object)
+    $missing = New-Object System.Collections.Generic.List[string]
+    foreach ($field in @(Get-TaskspaceRequiredWaitTimingFields)) {
+        if (-not $Object -or -not ($Object.PSObject.Properties.Name -contains $field) -or $null -eq $Object.$field) {
+            $missing.Add($field)
+        }
+    }
+    @($missing.ToArray())
+}
+
 function New-TaskspaceTimingDistribution {
     param([int64[]]$Values)
     [pscustomobject]@{
@@ -190,6 +215,8 @@ function Write-TaskspacePairTiming {
     }
     $totalDurationMs = [int64](($PairFinishedAt - $PairStartedAt).TotalMilliseconds)
     $breakdown = New-TaskspaceTimingBreakdown $totalDurationMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $EngineeringUncleanReasons
+    $waitMissingFields = @(Get-TaskspaceRequiredWaitTimingFields)
+    $waitBlockers = @($waitMissingFields | ForEach-Object { "missing_wait_attribution:$_" })
     $artifact = [ordered]@{
         schema_version = 1
         scenario = if ($Manifest -and $Manifest.PSObject.Properties.Name -contains "Id") { [string]$Manifest.Id } else { "" }
@@ -204,12 +231,26 @@ function Write-TaskspacePairTiming {
         docker_build_duration_ms = $dockerBuildMs
         docker_run_duration_ms = $dockerRunMs
         docker_cleanup_duration_ms = $dockerCleanupMs
+        model_queue_wait_ms = $null
+        model_retry_backoff_ms = $null
+        model_request_duration_ms = $null
+        process_launch_wait_ms = $null
+        docker_token_wait_ms = $null
+        validation_token_wait_ms = $null
+        disk_reservation_wait_ms = $null
+        cache_lock_wait_ms = $null
+        resource_wait_ms_total = $null
+        wait_attribution_status = "missing"
+        wait_attribution_missing_fields = @($waitMissingFields)
         docker_cache_keys = @($dockerCacheKeys.ToArray() | Sort-Object -Unique)
         measured_overhead_ms = $totalDurationMs - $agentMs
         timing_breakdown = $breakdown
         bottleneck_classification = [string]$breakdown.bottleneck_classification
         bottleneck_reason = [string]$breakdown.bottleneck_reason
         engineering_unclean_reasons = @($EngineeringUncleanReasons)
+        timing_quality = "complete"
+        runtime_optimization_status = "blocked"
+        runtime_optimization_blockers = @($waitBlockers)
         spans = @($spans.ToArray())
         generated_at = (Get-Date).ToString("o")
     }
@@ -293,6 +334,8 @@ function Write-TaskspaceSampleTiming {
     $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0; $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0
     $bottleneckCounts = @{}
     $cacheKeyCounts = @{}
+    $childRuntimeBlockers = New-Object System.Collections.Generic.List[string]
+    $waitMissingFields = New-Object System.Collections.Generic.List[string]
     $phaseValues = @{
         total = New-Object System.Collections.Generic.List[int64]
         agent = New-Object System.Collections.Generic.List[int64]
@@ -324,10 +367,19 @@ function Write-TaskspaceSampleTiming {
                 $cacheKeyCounts[[string]$key]++
             }
         }
+        foreach ($missingField in @(New-TaskspaceMissingWaitAttribution $pair)) {
+            if (-not $waitMissingFields.Contains($missingField)) { $waitMissingFields.Add($missingField) }
+        }
+        if ($pair.PSObject.Properties.Name -contains "runtime_optimization_blockers") {
+            foreach ($blocker in @($pair.runtime_optimization_blockers | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })) {
+                $childRuntimeBlockers.Add("child_pair:$blocker")
+            }
+        }
     }
     $aggregateUncleanReasons = if ($bottleneckCounts.ContainsKey("engineering_unclean_slow")) { @("child_engineering_unclean_slow") } else { @() }
     $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $aggregateUncleanReasons
-    $timingBlocked = (@($missingPairTimingDirs).Count -gt 0 -or $parseErrors.Count -gt 0)
+    $waitBlockers = @($waitMissingFields.ToArray() | ForEach-Object { "missing_wait_attribution:$_" })
+    $timingBlocked = (@($missingPairTimingDirs).Count -gt 0 -or $parseErrors.Count -gt 0 -or $waitBlockers.Count -gt 0 -or $childRuntimeBlockers.Count -gt 0)
     $artifact = [ordered]@{
         schema_version = 1
         sample_id = $SampleId
@@ -340,6 +392,17 @@ function Write-TaskspaceSampleTiming {
         docker_build_duration_ms = $dockerBuildMs
         docker_run_duration_ms = $dockerRunMs
         docker_cleanup_duration_ms = $dockerCleanupMs
+        model_queue_wait_ms = $null
+        model_retry_backoff_ms = $null
+        model_request_duration_ms = $null
+        process_launch_wait_ms = $null
+        docker_token_wait_ms = $null
+        validation_token_wait_ms = $null
+        disk_reservation_wait_ms = $null
+        cache_lock_wait_ms = $null
+        resource_wait_ms_total = $null
+        wait_attribution_status = if ($waitBlockers.Count -gt 0) { "missing" } else { "complete" }
+        wait_attribution_missing_fields = @($waitMissingFields.ToArray())
         measured_overhead_ms = $overheadMs
         timing_breakdown = $breakdown
         bottleneck_classification = [string]$breakdown.bottleneck_classification
@@ -361,7 +424,7 @@ function Write-TaskspaceSampleTiming {
         timing_parse_error_paths = @($parseErrors.ToArray())
         timing_quality = if ($timingBlocked) { "incomplete" } else { "complete" }
         runtime_optimization_status = if ($timingBlocked) { "blocked" } else { "ready" }
-        runtime_optimization_blockers = @(@($missingPairTimingDirs | ForEach-Object { "missing_pair_timing:$_" }) + @($parseErrors.ToArray() | ForEach-Object { "malformed_pair_timing:$_" }))
+        runtime_optimization_blockers = @(@($missingPairTimingDirs | ForEach-Object { "missing_pair_timing:$_" }) + @($parseErrors.ToArray() | ForEach-Object { "malformed_pair_timing:$_" }) + $waitBlockers + @($childRuntimeBlockers.ToArray()))
         pair_timing_paths = @($pairTimingFiles | ForEach-Object { $_.FullName })
         generated_at = (Get-Date).ToString("o")
     }
@@ -393,6 +456,8 @@ function Write-TaskspaceSuiteTiming {
     $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0; $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0
     $bottleneckCounts = @{}
     $cacheKeyCounts = @{}
+    $childRuntimeBlockers = New-Object System.Collections.Generic.List[string]
+    $waitMissingFields = New-Object System.Collections.Generic.List[string]
     $phaseValues = @{
         total = New-Object System.Collections.Generic.List[int64]
         agent = New-Object System.Collections.Generic.List[int64]
@@ -427,10 +492,19 @@ function Write-TaskspaceSuiteTiming {
                 $cacheKeyCounts[$prop.Name] += [int]$prop.Value
             }
         }
+        foreach ($missingField in @(New-TaskspaceMissingWaitAttribution $sample)) {
+            if (-not $waitMissingFields.Contains($missingField)) { $waitMissingFields.Add($missingField) }
+        }
+        if ($sample.PSObject.Properties.Name -contains "runtime_optimization_blockers") {
+            foreach ($blocker in @($sample.runtime_optimization_blockers | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })) {
+                $childRuntimeBlockers.Add("child_sample:$blocker")
+            }
+        }
     }
     $aggregateUncleanReasons = if ($bottleneckCounts.ContainsKey("engineering_unclean_slow")) { @("child_engineering_unclean_slow") } else { @() }
     $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $aggregateUncleanReasons
-    $timingBlocked = (@($missingSampleTimingDirs).Count -gt 0 -or $parseErrors.Count -gt 0)
+    $waitBlockers = @($waitMissingFields.ToArray() | ForEach-Object { "missing_wait_attribution:$_" })
+    $timingBlocked = (@($missingSampleTimingDirs).Count -gt 0 -or $parseErrors.Count -gt 0 -or $waitBlockers.Count -gt 0 -or $childRuntimeBlockers.Count -gt 0)
     $artifact = [ordered]@{
         schema_version = 1
         suite_root = $SuiteRoot
@@ -443,6 +517,17 @@ function Write-TaskspaceSuiteTiming {
         docker_build_duration_ms = $dockerBuildMs
         docker_run_duration_ms = $dockerRunMs
         docker_cleanup_duration_ms = $dockerCleanupMs
+        model_queue_wait_ms = $null
+        model_retry_backoff_ms = $null
+        model_request_duration_ms = $null
+        process_launch_wait_ms = $null
+        docker_token_wait_ms = $null
+        validation_token_wait_ms = $null
+        disk_reservation_wait_ms = $null
+        cache_lock_wait_ms = $null
+        resource_wait_ms_total = $null
+        wait_attribution_status = if ($waitBlockers.Count -gt 0) { "missing" } else { "complete" }
+        wait_attribution_missing_fields = @($waitMissingFields.ToArray())
         measured_overhead_ms = $overheadMs
         timing_breakdown = $breakdown
         bottleneck_classification = [string]$breakdown.bottleneck_classification
@@ -464,7 +549,7 @@ function Write-TaskspaceSuiteTiming {
         timing_parse_error_paths = @($parseErrors.ToArray())
         timing_quality = if ($timingBlocked) { "incomplete" } else { "complete" }
         runtime_optimization_status = if ($timingBlocked) { "blocked" } else { "ready" }
-        runtime_optimization_blockers = @(@($missingSampleTimingDirs | ForEach-Object { "missing_sample_timing:$_" }) + @($parseErrors.ToArray() | ForEach-Object { "malformed_sample_timing:$_" }))
+        runtime_optimization_blockers = @(@($missingSampleTimingDirs | ForEach-Object { "missing_sample_timing:$_" }) + @($parseErrors.ToArray() | ForEach-Object { "malformed_sample_timing:$_" }) + $waitBlockers + @($childRuntimeBlockers.ToArray()))
         sample_timing_paths = @($sampleTimingFiles | ForEach-Object { $_.FullName })
         generated_at = (Get-Date).ToString("o")
     }
