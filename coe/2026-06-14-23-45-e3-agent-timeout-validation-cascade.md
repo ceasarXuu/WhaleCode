@@ -614,4 +614,8 @@ Validation passed:
 - `.\scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1`
 - `.\scripts\taskspace-benchmark\test-e3-start-gate.ps1`
 
-Remaining scope: rerun the official one-pair smoke with the fixed artifact contract; if it still exits `3` for `public_validation_timeout`, it is a valid classified guardrail abort but not a passing calibration artifact for full E3.
+Fixed official one-pair rerun completed under `target/e3-official-one-pair-calibration-20260615/one-pair-smoke-fixed` and exited `3` with `public_validation_timeout`. The rerun now writes `pair-timing.json` and `sample-timing.json` with task-list hash `611ad59289fcb243590ae9c563ecfcdd9271a7155a5adec07ad45bd6c0de818d`, source version `1a6ffa9674b571da0ed040c470cb40c4d85f9b9b`, and profile hash `38403a9dfe1131a1239ada68449bde4fbf5f356ad75435c5249e97426ca6337c`. It also writes `runtime-bottleneck.md/json` with `speedup_blocked_invalid_run` and `bottleneck_classification=engineering_unclean_slow`.
+
+The post-rerun calibration gate accepted the one-pair timing evidence and failed only on missing downstream evidence: `serial_calibration_root_missing` and `parallel_equivalence_missing`. This closes the artifact-contract defect. It does not authorize full E3 because the one-pair smoke is a classified guardrail abort, not clean score readiness.
+
+Remaining scope: decide whether to run representative 3-task serial calibration after a fresh gate, given that the low-friction official one-pair already shows validator timeout as an engineering-unclean blocker.
