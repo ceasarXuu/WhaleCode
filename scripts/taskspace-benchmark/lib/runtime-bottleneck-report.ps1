@@ -14,15 +14,40 @@ function Get-TaskspaceRuntimeSpeedDecision {
     if ($Timing.PSObject.Properties.Name -contains "runtime_optimization_status" -and [string]$Timing.runtime_optimization_status -eq "blocked") {
         return [pscustomobject]@{ decision = "speedup_blocked_instrumentation"; reason = "runtime_optimization_status_blocked" }
     }
+    $explicitApproval = (
+        $Timing.PSObject.Properties.Name -contains "speedup_target_evidence_status" -and
+        [string]$Timing.speedup_target_evidence_status -eq "approved"
+    )
+    $serialBaseline = (
+        $Timing.PSObject.Properties.Name -contains "serial_baseline_available" -and
+        [bool]$Timing.serial_baseline_available
+    )
+    $parallelSmoke = (
+        $Timing.PSObject.Properties.Name -contains "governed_parallel_smoke_passed" -and
+        [bool]$Timing.governed_parallel_smoke_passed
+    )
+    $scoreDrift = (
+        $Timing.PSObject.Properties.Name -contains "parallel_smoke_score_drift" -and
+        [bool]$Timing.parallel_smoke_score_drift
+    )
+    if ($explicitApproval -or ($serialBaseline -and $parallelSmoke -and -not $scoreDrift)) {
+        return [pscustomobject]@{ decision = "speedup_target_approved"; reason = "serial_baseline_and_governed_parallel_smoke_passed" }
+    }
     $class = if ($Timing.PSObject.Properties.Name -contains "bottleneck_classification") { [string]$Timing.bottleneck_classification } else { "unknown" }
     switch ($class) {
         "agent_bound" { return [pscustomobject]@{ decision = "speedup_limited_agent_bound"; reason = "agent_execution_dominates_clean_wall_time" } }
         "validator_bound" { return [pscustomobject]@{ decision = "speedup_candidate_validator_or_docker"; reason = "validation_or_oracle_dominates_clean_wall_time" } }
         "docker_build_bound" { return [pscustomobject]@{ decision = "speedup_candidate_validator_or_docker"; reason = "docker_build_dominates_clean_wall_time" } }
         "docker_run_bound" { return [pscustomobject]@{ decision = "speedup_candidate_validator_or_docker"; reason = "docker_run_dominates_clean_wall_time" } }
+        "cleanup_bound" { return [pscustomobject]@{ decision = "speedup_candidate_validator_or_docker"; reason = "cleanup_or_storage_overhead_requires_harness_work" } }
+        "storage_bound" { return [pscustomobject]@{ decision = "speedup_candidate_validator_or_docker"; reason = "storage_overhead_requires_harness_work" } }
+        "model_queue_bound" { return [pscustomobject]@{ decision = "speedup_blocked_instrumentation"; reason = "model_queue_requires_resource_governor_calibration" } }
         "queue_bound" { return [pscustomobject]@{ decision = "speedup_blocked_instrumentation"; reason = "queue_wait_requires_resource_governor_calibration" } }
         "engineering_unclean_slow" { return [pscustomobject]@{ decision = "speedup_blocked_invalid_run"; reason = "engineering_unclean_slow" } }
-        default { return [pscustomobject]@{ decision = "speedup_candidate_parallelism"; reason = "timing_complete_without_single_dominant_phase" } }
+        "mixed" { return [pscustomobject]@{ decision = "speedup_candidate_parallelism"; reason = "timing_complete_without_single_dominant_phase" } }
+        "mixed_or_unclassified" { return [pscustomobject]@{ decision = "speedup_candidate_parallelism"; reason = "timing_complete_without_single_dominant_phase" } }
+        "unknown" { return [pscustomobject]@{ decision = "speedup_blocked_instrumentation"; reason = "bottleneck_classification_unknown" } }
+        default { return [pscustomobject]@{ decision = "speedup_blocked_instrumentation"; reason = "unrecognized_bottleneck_classification:$class" } }
     }
 }
 

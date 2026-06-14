@@ -8,6 +8,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
 . (Join-Path $PSScriptRoot "lib\timing.ps1")
 . (Join-Path $PSScriptRoot "lib\suite-status.ps1")
+. (Join-Path $PSScriptRoot "lib\runtime-bottleneck-report.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\e3-score-validity-selftest" }
 $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
@@ -243,6 +244,24 @@ $modelTimingJsonl = Join-Path $RunRoot ("model-timing-" + (Get-Date -Format "yyy
 $modelTiming = Get-TaskspaceModelTimingAttribution $modelTimingJsonl
 Assert-True ([int64]$modelTiming.model_request_duration_ms -eq 570) "model timing parser did not aggregate websocket timing metrics"
 Assert-True ([string]$modelTiming.model_timing_source_status -eq "responsesapi_websocket_timing") "model timing parser did not record timing source status"
+$decisionCases = @(
+    [pscustomobject]@{ name = "missing timing"; timing = $null; score_valid = $true; expected = "speedup_blocked_instrumentation" },
+    [pscustomobject]@{ name = "invalid score"; timing = [pscustomobject]@{ bottleneck_classification = "validator_bound" }; score_valid = $false; expected = "speedup_blocked_invalid_run" },
+    [pscustomobject]@{ name = "blocked instrumentation"; timing = [pscustomobject]@{ runtime_optimization_status = "blocked"; bottleneck_classification = "mixed_or_unclassified" }; score_valid = $true; expected = "speedup_blocked_instrumentation" },
+    [pscustomobject]@{ name = "agent bound"; timing = [pscustomobject]@{ bottleneck_classification = "agent_bound" }; score_valid = $true; expected = "speedup_limited_agent_bound" },
+    [pscustomobject]@{ name = "validator bound"; timing = [pscustomobject]@{ bottleneck_classification = "validator_bound" }; score_valid = $true; expected = "speedup_candidate_validator_or_docker" },
+    [pscustomobject]@{ name = "cleanup bound"; timing = [pscustomobject]@{ bottleneck_classification = "cleanup_bound" }; score_valid = $true; expected = "speedup_candidate_validator_or_docker" },
+    [pscustomobject]@{ name = "model queue bound"; timing = [pscustomobject]@{ bottleneck_classification = "model_queue_bound" }; score_valid = $true; expected = "speedup_blocked_instrumentation" },
+    [pscustomobject]@{ name = "unknown class"; timing = [pscustomobject]@{ bottleneck_classification = "unknown" }; score_valid = $true; expected = "speedup_blocked_instrumentation" },
+    [pscustomobject]@{ name = "unrecognized class"; timing = [pscustomobject]@{ bottleneck_classification = "new_future_class" }; score_valid = $true; expected = "speedup_blocked_instrumentation" },
+    [pscustomobject]@{ name = "mixed clean"; timing = [pscustomobject]@{ bottleneck_classification = "mixed_or_unclassified" }; score_valid = $true; expected = "speedup_candidate_parallelism" },
+    [pscustomobject]@{ name = "approved evidence"; timing = [pscustomobject]@{ speedup_target_evidence_status = "approved"; bottleneck_classification = "mixed_or_unclassified" }; score_valid = $true; expected = "speedup_target_approved" },
+    [pscustomobject]@{ name = "governed smoke"; timing = [pscustomobject]@{ serial_baseline_available = $true; governed_parallel_smoke_passed = $true; parallel_smoke_score_drift = $false; bottleneck_classification = "mixed_or_unclassified" }; score_valid = $true; expected = "speedup_target_approved" }
+)
+foreach ($case in $decisionCases) {
+    $decision = Get-TaskspaceRuntimeSpeedDecision $case.timing ([bool]$case.score_valid)
+    Assert-True ([string]$decision.decision -eq [string]$case.expected) "runtime speed decision '$($case.name)' expected $($case.expected) but got $($decision.decision)"
+}
 $processTimingPairDir = Join-Path $RunRoot ("process-timing-pair-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
 New-Item -ItemType Directory -Force -Path $processTimingPairDir | Out-Null
 $processMetrics = @{

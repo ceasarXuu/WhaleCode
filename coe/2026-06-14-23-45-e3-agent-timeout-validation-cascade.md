@@ -67,3 +67,29 @@ Supports P0 timing guardrail validation. Regenerating `sample-timing.json` for t
 ## Evidence E-009
 
 Supports P0 wait-attribution validation. Official materialized one-pair smoke at `target\e3-official-smoke-process-wait\terminal_bench__analyze-access-logs\20260615-000128-881` recorded agent process timing sidecars for both sides. The pair and sample timing artifacts recorded `process_launch_wait_ms=20` and no longer listed `missing_wait_attribution:process_launch_wait_ms`, while still blocking runtime optimization for uninstrumented model/API/resource waits.
+
+## Hypothesis H-002
+
+Claim: the runtime speed gate can allow premature parallelism because `runtime-bottleneck-report.ps1` maps unknown or unhandled bottleneck classifications to `speedup_candidate_parallelism`.
+
+Predictions:
+- The decision function will default to `speedup_candidate_parallelism` for unrecognized classes, including `unknown`.
+- The plan requires unknown or missing attribution to block speed claims, not proceed to parallelism.
+- A synthetic decision fixture can prove the mapping without running E3.
+
+Diagnostic evidence plan:
+- Inspect `Get-TaskspaceRuntimeSpeedDecision`.
+- Add synthetic decision fixtures for `unknown`, `cleanup_bound`, `model_queue_bound`, `mixed_or_unclassified`, invalid score, blocked timing, and approved evidence.
+- Fix only the decision mapping and keep timing collection behavior unchanged.
+
+## Evidence E-010
+
+Supports H-002 prediction 1 and 2. Inspection of `scripts/taskspace-benchmark/lib/runtime-bottleneck-report.ps1` shows the decision function handles `agent_bound`, validator/Docker classes, `queue_bound`, and `engineering_unclean_slow`, then defaults every other class to `speedup_candidate_parallelism`. The plan's section 16.11.7 requires `unknown` or missing timing/wait evidence to publish `speedup_blocked_instrumentation`.
+
+## Evidence E-011
+
+Supports H-002 repair validation. `scripts/taskspace-benchmark/test-e3-score-validity.ps1` now passes with synthetic decision fixtures for missing timing, invalid score, blocked instrumentation, agent-bound, validator-bound, cleanup-bound, model-queue-bound, unknown, unrecognized future class, mixed clean timing, explicit approved evidence, and governed parallel smoke evidence. Unknown and unrecognized classifications now block instrumentation instead of proceeding to parallelism.
+
+## Evidence E-012
+
+Supports H-002 regression validation. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` still passes after the speed decision mapping change, proving the existing runtime bottleneck report and aggregate timing summary fixtures continue to render `speedup_blocked_instrumentation` for missing/unavailable wait attribution.
