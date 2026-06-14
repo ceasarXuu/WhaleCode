@@ -99,6 +99,29 @@ function New-Metrics([string]$ArtifactDir, [bool]$WithWrapper = $true, [bool]$Bu
     }
 }
 
+function New-SkippedTimeoutMetrics([string]$ArtifactDir) {
+    New-TestFile (Join-Path $ArtifactDir "validation.stdout.log") "public_validation_skipped=true`npublic_validation_skip_reason=agent_exec_timeout`n"
+    New-TestFile (Join-Path $ArtifactDir "validation.stderr.log") ""
+    New-TestFile (Join-Path $ArtifactDir "whale-exec.jsonl") ""
+    New-TestFile (Join-Path $ArtifactDir "whale-exec.stderr.log") "Process timed out"
+    New-TestFile (Join-Path $ArtifactDir "last-message.md") ""
+    [pscustomobject]@{
+        logical_mode = "taskspace"
+        exec_timed_out = $true
+        public_validation_skipped = $true
+        public_validation_skip_reason = "agent_exec_timeout"
+        pre_agent_validator_probe_status = "passed"
+        pre_agent_validator_probe_hash = ("c" * 64)
+        public_validation_exit_code = 0
+        validation_stdout_path = Join-Path $ArtifactDir "validation.stdout.log"
+        validation_stderr_path = Join-Path $ArtifactDir "validation.stderr.log"
+        jsonl_path = Join-Path $ArtifactDir "whale-exec.jsonl"
+        stderr_path = Join-Path $ArtifactDir "whale-exec.stderr.log"
+        last_message_path = Join-Path $ArtifactDir "last-message.md"
+        business_success = $false
+    }
+}
+
 $scenarioRoot = New-Dir (Join-Path $runDir "scenario")
 $validatorSource = New-Dir (Join-Path $scenarioRoot "external-validator-source")
 $validatorFile = Join-Path $validatorSource "run-tests.sh"
@@ -197,6 +220,20 @@ Assert-True ($proof.validator_fidelity.runtime_proven) "runtime proof did not ac
 $runtimeProof = Get-Content -Raw -Encoding UTF8 -LiteralPath $proof.runtime_proof_path | ConvertFrom-Json
 Assert-True (@($runtimeProof.sides | Where-Object { -not $_.uv_cache_proven }).Count -eq 0) "runtime proof did not prove uv cache mount and hashes"
 Assert-True (-not $proof.validator_fidelity.agent_cannot_read_validator_source) "declared false source isolation was promoted from placement proof alone"
+
+$skippedPairDir = New-Dir (Join-Path $runDir "pair-skipped-after-timeout")
+$skippedPair = [pscustomobject]@{
+    PairDir = $skippedPairDir
+    left = [pscustomobject]@{ RepoDir = New-Dir (Join-Path $skippedPairDir "left\repo"); ArtifactDir = New-Dir (Join-Path $skippedPairDir "left\artifacts") }
+    right = [pscustomobject]@{ RepoDir = New-Dir (Join-Path $skippedPairDir "right\repo"); ArtifactDir = New-Dir (Join-Path $skippedPairDir "right\artifacts") }
+}
+$skippedMetricsBySide = @{
+    left = (New-SkippedTimeoutMetrics $skippedPair.left.ArtifactDir)
+    right = (New-SkippedTimeoutMetrics $skippedPair.right.ArtifactDir)
+}
+$skippedProof = New-TaskspaceExternalEvidenceProof $skippedPair $manifest $skippedMetricsBySide $sourceGuard
+Assert-True ($skippedProof.validator_fidelity.runtime_proven) "runtime proof did not accept validation skip backed by passed pre-agent probe"
+Assert-True ($skippedProof.validator_fidelity.validator_mount_proven) "mount proof did not accept validation skip backed by passed pre-agent probe"
 
 $script:ForceBadUvCacheSource = $true
 $badUvPairDir = New-Dir (Join-Path $runDir "pair-bad-uv-cache")

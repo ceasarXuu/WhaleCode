@@ -161,8 +161,14 @@ function Write-TaskspacePairTiming {
         }
         $validationTiming = if ($ValidationTimingBySide -and $ValidationTimingBySide.ContainsKey($sideName)) { $ValidationTimingBySide[$sideName] } else { $null }
         if ($validationTiming) {
-            $spans.Add((New-TaskspaceTimingSpan "public_validation" $validationTiming.validation_started_at $validationTiming.validation_finished_at $sideName ([string]$validationTiming.logical_mode) ([int]$validationTiming.validation_exit_code) ([int]$validationTiming.validation_exit_code -eq 124) @($validationTiming.engineering_unclean_reasons)))
-            $spans.Add((New-TaskspaceTimingSpan "hidden_oracle" $validationTiming.oracle_started_at $validationTiming.oracle_finished_at $sideName ([string]$validationTiming.logical_mode) ([int]$validationTiming.oracle_exit_code) $false @()))
+            $validationSkipped = ($validationTiming.PSObject.Properties.Name -contains "validation_skipped" -and [bool]$validationTiming.validation_skipped)
+            if ($validationSkipped) {
+                $spans.Add((New-TaskspaceTimingSpan "public_validation_skipped" $validationTiming.validation_started_at $validationTiming.validation_finished_at $sideName ([string]$validationTiming.logical_mode) ([int]$validationTiming.validation_exit_code) $false @($validationTiming.validation_skip_reason)))
+                $spans.Add((New-TaskspaceTimingSpan "hidden_oracle_skipped" $validationTiming.oracle_started_at $validationTiming.oracle_finished_at $sideName ([string]$validationTiming.logical_mode) ([int]$validationTiming.oracle_exit_code) $false @($validationTiming.validation_skip_reason)))
+            } else {
+                $spans.Add((New-TaskspaceTimingSpan "public_validation" $validationTiming.validation_started_at $validationTiming.validation_finished_at $sideName ([string]$validationTiming.logical_mode) ([int]$validationTiming.validation_exit_code) ([int]$validationTiming.validation_exit_code -eq 124) @($validationTiming.engineering_unclean_reasons)))
+                $spans.Add((New-TaskspaceTimingSpan "hidden_oracle" $validationTiming.oracle_started_at $validationTiming.oracle_finished_at $sideName ([string]$validationTiming.logical_mode) ([int]$validationTiming.oracle_exit_code) $false @()))
+            }
         }
     }
     $agentMs = 0
@@ -215,10 +221,13 @@ function Write-TaskspacePairTiming {
 function Add-TaskspaceMetricTimingFields {
     param($Metrics, $ValidationTiming)
     if (-not $Metrics -or -not $ValidationTiming) { return $Metrics }
-    $validationMs = [int64](($ValidationTiming.validation_finished_at - $ValidationTiming.validation_started_at).TotalMilliseconds)
-    $oracleMs = [int64](($ValidationTiming.oracle_finished_at - $ValidationTiming.oracle_started_at).TotalMilliseconds)
+    $validationSkipped = ($ValidationTiming.PSObject.Properties.Name -contains "validation_skipped" -and [bool]$ValidationTiming.validation_skipped)
+    $validationMs = if ($validationSkipped) { 0 } else { [int64](($ValidationTiming.validation_finished_at - $ValidationTiming.validation_started_at).TotalMilliseconds) }
+    $oracleMs = if ($validationSkipped) { 0 } else { [int64](($ValidationTiming.oracle_finished_at - $ValidationTiming.oracle_started_at).TotalMilliseconds) }
     $Metrics | Add-Member -NotePropertyName public_validation_duration_ms -NotePropertyValue $validationMs -Force
     $Metrics | Add-Member -NotePropertyName hidden_oracle_duration_ms -NotePropertyValue $oracleMs -Force
+    $Metrics | Add-Member -NotePropertyName public_validation_skipped -NotePropertyValue $validationSkipped -Force
+    $Metrics | Add-Member -NotePropertyName public_validation_skip_reason -NotePropertyValue $(if ($validationSkipped -and $ValidationTiming.PSObject.Properties.Name -contains "validation_skip_reason") { [string]$ValidationTiming.validation_skip_reason } else { "" }) -Force
     $probeMs = if ($ValidationTiming.PSObject.Properties.Name -contains "probe_duration_ms") { $ValidationTiming.probe_duration_ms } else { $null }
     $Metrics | Add-Member -NotePropertyName validator_probe_duration_ms -NotePropertyValue $probeMs -Force
     $Metrics | Add-Member -NotePropertyName docker_observed_duration_ms -NotePropertyValue $null -Force

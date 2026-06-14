@@ -139,6 +139,22 @@ function New-TaskspaceExternalEvidenceProof {
             $metrics.PSObject.Properties.Name -contains "tests_started_seen" -and
             [bool]$metrics.tests_started_seen
         )
+        $validationSkippedAfterAgentTimeout = (
+            $metrics -and
+            $metrics.PSObject.Properties.Name -contains "public_validation_skipped" -and
+            [bool]$metrics.public_validation_skipped -and
+            $metrics.PSObject.Properties.Name -contains "public_validation_skip_reason" -and
+            [string]$metrics.public_validation_skip_reason -eq "agent_exec_timeout" -and
+            $metrics.PSObject.Properties.Name -contains "exec_timed_out" -and
+            [bool]$metrics.exec_timed_out
+        )
+        $preAgentProbeProven = (
+            $validationSkippedAfterAgentTimeout -and
+            $metrics.PSObject.Properties.Name -contains "pre_agent_validator_probe_status" -and
+            [string]$metrics.pre_agent_validator_probe_status -eq "passed" -and
+            $metrics.PSObject.Properties.Name -contains "pre_agent_validator_probe_hash" -and
+            [string]$metrics.pre_agent_validator_probe_hash -match '^[0-9a-f]{64}$'
+        )
         $timeoutRuntimeMarkersProven = (
             $validationTimedOutAfterTestsStarted -and
             -not [string]::IsNullOrWhiteSpace($proofNonce) -and
@@ -152,6 +168,10 @@ function New-TaskspaceExternalEvidenceProof {
             logical_mode = [string]$metrics.logical_mode
             validation_exit_code = [int]$metrics.public_validation_exit_code
             validation_timeout_after_tests_started = $validationTimedOutAfterTestsStarted
+            validation_skipped_after_agent_timeout = $validationSkippedAfterAgentTimeout
+            pre_agent_validator_probe_proven = $preAgentProbeProven
+            pre_agent_validator_probe_status = if ($metrics.PSObject.Properties.Name -contains "pre_agent_validator_probe_status") { [string]$metrics.pre_agent_validator_probe_status } else { "" }
+            pre_agent_validator_probe_hash = if ($metrics.PSObject.Properties.Name -contains "pre_agent_validator_probe_hash") { [string]$metrics.pre_agent_validator_probe_hash } else { "" }
             timeout_runtime_markers_proven = $timeoutRuntimeMarkersProven
             proof_nonce = $proofNonce
             docker_wrapper_seen = ((Test-TaskspaceProofMarker $combinedLog "validator_runtime_probe=terminal_bench_docker_wrapper") -or
@@ -208,12 +228,14 @@ function New-TaskspaceExternalEvidenceProof {
             $timeoutAfterStartProof = ($_.validation_timeout_after_tests_started -and $_.timeout_runtime_markers_proven -and
                 $_.docker_wrapper_seen -and $_.docker_app_runtime_seen -and $_.container_workdir_app -and
                 $_.test_dir_seen -and $_.validator_mount_seen -and $_.validator_mount_readonly -and $_.official_test_command_seen)
-            -not ($fullRuntimeProof -or $timeoutAfterStartProof)
+            $skippedAfterAgentTimeoutProof = ($_.validation_skipped_after_agent_timeout -and $_.pre_agent_validator_probe_proven)
+            -not ($fullRuntimeProof -or $timeoutAfterStartProof -or $skippedAfterAgentTimeoutProof)
         }).Count -eq 0
     $mountOk = @($runtimeRows | Where-Object {
             $fullMountProof = ($_.test_dir_seen -and $_.validator_mount_seen -and $_.validator_mount_readonly -and $_.docker_inspect_mounts_proven)
             $timeoutAfterStartMountProof = ($_.validation_timeout_after_tests_started -and $_.test_dir_seen -and $_.validator_mount_seen -and $_.validator_mount_readonly)
-            -not ($fullMountProof -or $timeoutAfterStartMountProof)
+            $skippedAfterAgentTimeoutProof = ($_.validation_skipped_after_agent_timeout -and $_.pre_agent_validator_probe_proven)
+            -not ($fullMountProof -or $timeoutAfterStartMountProof -or $skippedAfterAgentTimeoutProof)
         }).Count -eq 0
     $runtimeProof = [pscustomobject]@{
         benchmark = [string]$external.name

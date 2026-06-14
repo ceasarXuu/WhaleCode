@@ -228,6 +228,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         }
     }
     $probeTimingBySide = @{}
+    $probeStatusBySide = @{}
     if ([string]$manifest.EvidenceTarget -eq "E3" -or ($manifest.ExternalBenchmark -and $manifest.ExternalBenchmark.adapter_metadata -and [bool]$manifest.ExternalBenchmark.adapter_metadata.validator_probe_supported)) {
         foreach ($side in @($pair.Left, $pair.Right)) {
             $probeStdout = Join-Path $side.ArtifactDir "validator-probe.stdout.log"
@@ -262,6 +263,17 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 Write-TaskspaceJson ([pscustomobject]@{ abort_scope = "sample"; abort_phase = "probe"; reason = "probe_reached_tests"; infra_signature = $signature; first_failure_artifact = $probeStdout }) $abortPath
                 Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "probe" "probe_reached_tests" $signature $abortPath $commandLine ($repeat - 1) ($repeat - 1) | Out-Null
                 exit 3
+            }
+            $probeHashSource = "$probeText`n$probeExit"
+            $probeHashBytes = [System.Text.Encoding]::UTF8.GetBytes($probeHashSource)
+            $probeHash = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash($probeHashBytes)).Replace("-", "").ToLowerInvariant()
+            $probeStatusBySide[$side.Name] = [pscustomobject]@{
+                status = "passed"
+                exit_code = $probeExit
+                stdout_path = $probeStdout
+                stderr_path = $probeStderr
+                proof_dir = $probeProofDir
+                hash = $probeHash
             }
         }
     }
@@ -356,25 +368,62 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $validationStdout = Join-Path $side.ArtifactDir "validation.stdout.log"
         $validationStderr = Join-Path $side.ArtifactDir "validation.stderr.log"
         $validationProofDir = Join-Path $side.ArtifactDir "external-validator-runtime"
-        $effectiveValidationTimeout = [Math]::Max(30, $ValidationTimeoutSeconds)
-        $validationStartedAt = Get-Date
-        $oldDockerImageCache = $env:TASKSPACE_DOCKER_IMAGE_CACHE
-        try { if ($EnableDockerImageCache) { $env:TASKSPACE_DOCKER_IMAGE_CACHE = "1" } else { Remove-Item Env:\TASKSPACE_DOCKER_IMAGE_CACHE -ErrorAction SilentlyContinue }
-            $validationExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $validationStdout $validationStderr $effectiveValidationTimeout $validationProofDir @() $ValidationPretestTimeoutSeconds $ValidationTestTimeoutSeconds
-        } finally { if ($null -eq $oldDockerImageCache) { Remove-Item Env:\TASKSPACE_DOCKER_IMAGE_CACHE -ErrorAction SilentlyContinue } else { $env:TASKSPACE_DOCKER_IMAGE_CACHE = $oldDockerImageCache } }
-        $validationFinishedAt = Get-Date
-        $oracleStartedAt = Get-Date
-        $oracle = Invoke-TaskspaceHiddenOracle $side.RepoDir $side.ArtifactDir $pair.HiddenOraclePath "" -BypassSandbox:($SandboxMode -eq "bypass")
-        $oracleFinishedAt = Get-Date
         $exec = $execBySide[$side.Name]
+        $probeStatus = if ($probeStatusBySide.ContainsKey($side.Name)) { $probeStatusBySide[$side.Name] } else { $null }
+        $probePassed = ($probeStatus -and [string]$probeStatus.status -eq "passed" -and [string]$probeStatus.hash -match '^[0-9a-f]{64}$')
+        $skipValidationAfterExecTimeout = ($exec -and $exec.PSObject.Properties.Name -contains "timed_out" -and [bool]$exec.timed_out -and $probePassed)
+        if ($skipValidationAfterExecTimeout) {
+            $validationStartedAt = Get-Date
+            $skipRecord = [pscustomobject]@{
+                public_validation_skipped = $true
+                public_validation_skip_reason = "agent_exec_timeout"
+                pre_agent_validator_probe_status = if ($probeStatus) { [string]$probeStatus.status } else { "missing" }
+                pre_agent_validator_probe_hash = if ($probeStatus) { [string]$probeStatus.hash } else { "" }
+                pre_agent_validator_probe_stdout_path = if ($probeStatus) { [string]$probeStatus.stdout_path } else { "" }
+                pre_agent_validator_probe_stderr_path = if ($probeStatus) { [string]$probeStatus.stderr_path } else { "" }
+                validation_skip_recorded_at = $validationStartedAt.ToString("o")
+            }
+            Write-TaskspaceJson $skipRecord (Join-Path $side.ArtifactDir "validation-skip.json")
+            Write-Text $validationStdout "public_validation_skipped=true`npublic_validation_skip_reason=agent_exec_timeout`npre_agent_validator_probe_status=$($skipRecord.pre_agent_validator_probe_status)`n"
+            Write-Text $validationStderr ""
+            $validationExit = 0
+            $validationFinishedAt = $validationStartedAt
+            $oracleStartedAt = Get-Date
+            $oracle = [pscustomobject]@{
+                exit_code = 0
+                stdout_path = Join-Path $side.ArtifactDir "hidden-oracle.stdout.log"
+                stderr_path = Join-Path $side.ArtifactDir "hidden-oracle.stderr.log"
+                oracle_isolation_level = "skipped_after_agent_exec_timeout"
+            }
+            Write-Text $oracle.stdout_path "hidden_oracle_skipped=true`nhidden_oracle_skip_reason=agent_exec_timeout`n"
+            Write-Text $oracle.stderr_path ""
+            $oracleFinishedAt = $oracleStartedAt
+        } else {
+            $effectiveValidationTimeout = [Math]::Max(30, $ValidationTimeoutSeconds)
+            $validationStartedAt = Get-Date
+            $oldDockerImageCache = $env:TASKSPACE_DOCKER_IMAGE_CACHE
+            try { if ($EnableDockerImageCache) { $env:TASKSPACE_DOCKER_IMAGE_CACHE = "1" } else { Remove-Item Env:\TASKSPACE_DOCKER_IMAGE_CACHE -ErrorAction SilentlyContinue }
+                $validationExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $validationStdout $validationStderr $effectiveValidationTimeout $validationProofDir @() $ValidationPretestTimeoutSeconds $ValidationTestTimeoutSeconds
+            } finally { if ($null -eq $oldDockerImageCache) { Remove-Item Env:\TASKSPACE_DOCKER_IMAGE_CACHE -ErrorAction SilentlyContinue } else { $env:TASKSPACE_DOCKER_IMAGE_CACHE = $oldDockerImageCache } }
+            $validationFinishedAt = Get-Date
+            $oracleStartedAt = Get-Date
+            $oracle = Invoke-TaskspaceHiddenOracle $side.RepoDir $side.ArtifactDir $pair.HiddenOraclePath "" -BypassSandbox:($SandboxMode -eq "bypass")
+            $oracleFinishedAt = Get-Date
+        }
         $validation = [pscustomobject]@{ exit_code = $validationExit; stdout_path = $validationStdout; stderr_path = $validationStderr }
         $metrics = Get-TaskspaceBenchmarkMetrics $side $exec $validation $oracle $obsBySide[$side.Name]
         $metrics.invalid_prompt = $promptGuard.invalid_prompt
+        $metrics | Add-Member -NotePropertyName public_validation_skipped -NotePropertyValue ([bool]$skipValidationAfterExecTimeout) -Force
+        $metrics | Add-Member -NotePropertyName public_validation_skip_reason -NotePropertyValue $(if ($skipValidationAfterExecTimeout) { "agent_exec_timeout" } else { "" }) -Force
+        $metrics | Add-Member -NotePropertyName pre_agent_validator_probe_status -NotePropertyValue $(if ($probeStatus) { [string]$probeStatus.status } else { "" }) -Force
+        $metrics | Add-Member -NotePropertyName pre_agent_validator_probe_hash -NotePropertyValue $(if ($probeStatus) { [string]$probeStatus.hash } else { "" }) -Force
         $validationTimingBySide[$side.Name] = [pscustomobject]@{
             logical_mode = [string]$side.LogicalMode
             validation_started_at = $validationStartedAt
             validation_finished_at = $validationFinishedAt
             validation_exit_code = $validationExit
+            validation_skipped = [bool]$skipValidationAfterExecTimeout
+            validation_skip_reason = if ($skipValidationAfterExecTimeout) { "agent_exec_timeout" } else { "" }
             probe_duration_ms = if ($probeTimingBySide.ContainsKey($side.Name)) { [int64]$probeTimingBySide[$side.Name] } else { $null }
             oracle_started_at = $oracleStartedAt
             oracle_finished_at = $oracleFinishedAt

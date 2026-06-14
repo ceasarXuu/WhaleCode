@@ -62,6 +62,14 @@ function Get-TaskspaceEngineeringUncleanReasons {
     )
     $reasons = New-Object System.Collections.Generic.List[string]
     if ($Metrics) {
+        if (Get-TaskspaceMetricBool $Metrics "public_validation_skipped") {
+            $skipReason = if ($Metrics.PSObject.Properties.Name -contains "public_validation_skip_reason") { [string]$Metrics.public_validation_skip_reason } else { "" }
+            $probeStatus = if ($Metrics.PSObject.Properties.Name -contains "pre_agent_validator_probe_status") { [string]$Metrics.pre_agent_validator_probe_status } else { "" }
+            $probeHash = if ($Metrics.PSObject.Properties.Name -contains "pre_agent_validator_probe_hash") { [string]$Metrics.pre_agent_validator_probe_hash } else { "" }
+            if ($skipReason -ne "agent_exec_timeout" -or $probeStatus -ne "passed" -or $probeHash -notmatch '^[0-9a-f]{64}$') {
+                Add-TaskspaceFailureClass $reasons "pre_agent_validator_probe_missing_or_failed"
+            }
+        }
         if ($Metrics.PSObject.Properties.Name -contains "public_validation_exit_code" -and [int]$Metrics.public_validation_exit_code -eq 124) {
             Add-TaskspaceFailureClass $reasons "public_validation_timeout"
         }

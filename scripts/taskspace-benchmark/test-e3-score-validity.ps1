@@ -27,7 +27,11 @@ function New-Metrics {
         [int]$PublicExit = 1,
         [string[]]$Failures = @(),
         [bool]$PretestFailure = $false,
-        [bool]$TestsCompleted = $true
+        [bool]$TestsCompleted = $true,
+        [bool]$PublicValidationSkipped = $false,
+        [string]$PublicValidationSkipReason = "",
+        [string]$PreAgentProbeStatus = "",
+        [string]$PreAgentProbeHash = ""
     )
     [pscustomobject]@{
         mode = $Mode
@@ -40,6 +44,10 @@ function New-Metrics {
         wall_time_ms = 1000
         changed_paths = @("solution.py")
         validator_environment_failures = @($Failures)
+        public_validation_skipped = $PublicValidationSkipped
+        public_validation_skip_reason = $PublicValidationSkipReason
+        pre_agent_validator_probe_status = $PreAgentProbeStatus
+        pre_agent_validator_probe_hash = $PreAgentProbeHash
         metrics_taints = @()
         pretest_failure = $PretestFailure
         tests_started_seen = (-not $PretestFailure)
@@ -64,6 +72,9 @@ function Assert-Outcome {
 Assert-Outcome "clean solved" (New-Metrics "left" "standard" -Success $true -PublicExit 0) "solved" $true
 Assert-Outcome "clean wrong" (New-Metrics "left" "standard" -Success $false -PublicExit 2) "wrong" $true
 Assert-Outcome "clean agent timeout" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 1) "agent_exec_timeout" $true
+Assert-Outcome "clean agent timeout with validation skip" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 0 -PublicValidationSkipped $true -PublicValidationSkipReason "agent_exec_timeout" -PreAgentProbeStatus "passed" -PreAgentProbeHash ("a" * 64)) "agent_exec_timeout" $true
+Assert-Outcome "agent timeout skip missing probe" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 0 -PublicValidationSkipped $true -PublicValidationSkipReason "agent_exec_timeout") "engineering_unclean" $false
+Assert-Outcome "agent timeout skip failed probe" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 0 -PublicValidationSkipped $true -PublicValidationSkipReason "agent_exec_timeout" -PreAgentProbeStatus "failed" -PreAgentProbeHash ("a" * 64)) "engineering_unclean" $false
 Assert-Outcome "validator timeout" (New-Metrics "left" "standard" -PublicExit 124 -Failures @("public_validation_timeout")) "engineering_unclean" $false
 Assert-Outcome "docker failure before tests" (New-Metrics "left" "standard" -PublicExit 1 -Failures @("docker_run_failure") -PretestFailure $true) "engineering_unclean" $false
 Assert-Outcome "docker run test failure after tests" (New-Metrics "left" "standard" -PublicExit 1 -Failures @("docker_run_failure")) "wrong" $true
@@ -221,6 +232,20 @@ Assert-True ([int64]$timing.total_duration_ms -gt 0) "timing artifact did not re
 Assert-True (@($timing.spans | Where-Object { [string]$_.phase -eq "public_validation" }).Count -eq 2) "timing artifact did not record both validation spans"
 $metricWithTiming = Add-TaskspaceMetricTimingFields $metricsBySide.left $validationTimingBySide.left
 Assert-True ([int64]$metricWithTiming.public_validation_duration_ms -gt 0) "metric timing did not record validation duration"
+$skipTimingBySide = @{
+    left = [pscustomobject]@{ logical_mode = "standard"; validation_started_at = $now; validation_finished_at = $now; validation_exit_code = 0; validation_skipped = $true; validation_skip_reason = "agent_exec_timeout"; oracle_started_at = $now; oracle_finished_at = $now; oracle_exit_code = 0; engineering_unclean_reasons = @() }
+}
+$skipMetricsBySide = @{
+    left = New-Metrics "left" "standard" -Success $false -ExecTimedOut $true -PublicExit 0 -PublicValidationSkipped $true -PublicValidationSkipReason "agent_exec_timeout" -PreAgentProbeStatus "passed" -PreAgentProbeHash ("b" * 64)
+}
+$skipTimingPairDir = Join-Path $RunRoot ("skip-timing-pair-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
+New-Item -ItemType Directory -Force -Path $skipTimingPairDir | Out-Null
+$skipTimingPath = Write-TaskspacePairTiming $skipTimingPairDir 1 $now $now.AddSeconds(1) ([pscustomobject]@{ Id = "skip-timing-fixture" }) $null $skipMetricsBySide $skipTimingBySide @()
+$skipTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $skipTimingPath | ConvertFrom-Json
+Assert-True (@($skipTiming.spans | Where-Object { [string]$_.phase -eq "public_validation" }).Count -eq 0) "validation skip should not emit real public_validation span"
+Assert-True (@($skipTiming.spans | Where-Object { [string]$_.phase -eq "public_validation_skipped" }).Count -eq 1) "validation skip did not emit public_validation_skipped span"
+$skipMetricWithTiming = Add-TaskspaceMetricTimingFields $skipMetricsBySide.left $skipTimingBySide.left
+Assert-True ([int64]$skipMetricWithTiming.public_validation_duration_ms -eq 0) "validation skip should record zero validation duration"
 $dockerResultPath = Join-Path $runDir "docker-build-result.json"
 [pscustomobject]@{
     phases = @(
