@@ -345,6 +345,13 @@ Assert-True ($runtimeBottleneckText -notmatch "wait_attribution_missing_fields: 
 Assert-True ([string]$runtimeBottleneckJson.speedup_decision -eq "speedup_blocked_instrumentation") "runtime bottleneck JSON did not record speedup decision"
 Assert-True ([string]$runtimeBottleneckJson.resource_wait_attribution_mode -eq "serial_with_cache_lock_observed") "runtime bottleneck JSON did not record observed cache lock attribution mode"
 Assert-True ([string]$runtimeBottleneckJson.wait_attribution_unavailable_fields.model_retry_backoff_ms -eq "whale_jsonl_provider_queue_retry_telemetry_unavailable") "runtime bottleneck JSON did not record unavailable retry attribution reason"
+$calibrationParallelismPath = Write-TaskspaceParallelismArtifact $suiteRoot (New-TaskspaceResourceGovernorConfig) $null (Test-TaskspaceDiskReservation @($suiteRoot) 0) (New-TaskspaceResourceWaitSnapshot)
+$calibrationPath = Write-TaskspaceRuntimeCalibrationReport -TimingPath (Join-Path $suiteRoot "suite-timing.json") -ScoreValid $true -CommandLine "synthetic calibration" -GitCommit "test-commit" -ProfileHash "test-profile" -ParallelismPath $calibrationParallelismPath
+$calibrationText = Get-Content -Raw -Encoding UTF8 -LiteralPath $calibrationPath
+$calibrationJson = Get-Content -Raw -Encoding UTF8 -LiteralPath ([System.IO.Path]::ChangeExtension($calibrationPath, ".json")) | ConvertFrom-Json
+Assert-True ($calibrationText -match "# TaskSpace Runtime Calibration Report" -and $calibrationText -match "speedup_decision: speedup_blocked_instrumentation") "runtime calibration report did not render speedup decision"
+Assert-True ($calibrationText -match "resource_governor_status: pass" -and $calibrationText -match "profile_hash: test-profile") "runtime calibration report did not render parallelism/profile metadata"
+Assert-True ([string]$calibrationJson.speedup_decision -eq "speedup_blocked_instrumentation" -and [string]$calibrationJson.parallelism.resource_governor_status -eq "pass") "runtime calibration JSON did not preserve decision and parallelism status"
 
 $timingAggregatePath = Join-Path $suiteRoot "aggregate-report.md"
 Write-TaskspaceAggregateReport -Path $timingAggregatePath -Reports @([pscustomobject]@{ repeat = 1; pair_dir = $pairTimingDir; pair_report = "pair-report.md"; evidence_target = "E3"; evidence = $evidence })

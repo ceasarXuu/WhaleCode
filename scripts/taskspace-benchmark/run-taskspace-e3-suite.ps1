@@ -272,10 +272,14 @@ $statusText = if ($suiteAbort) { "invalid_harness" } else { "completed" }
 Write-SuiteHealth $statusText @($sampleStatuses.ToArray()) $signatureCounts $suiteAbort
 $suiteTimingPath = Write-TaskspaceSuiteTiming $suiteRoot @($sampleStatuses.ToArray())
 $runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath $suiteTimingPath -ScoreValid (-not [bool]$suiteAbort)
+$gitCommit = ""
+try { $gitCommit = (& git -C (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path rev-parse HEAD 2>$null) } catch { $gitCommit = "" }
+$calibrationPath = Write-TaskspaceRuntimeCalibrationReport -TimingPath $suiteTimingPath -ScoreValid (-not [bool]$suiteAbort) -CommandLine ([Environment]::CommandLine) -GitCommit ([string]$gitCommit).Trim() -ParallelismPath $parallelismPath
 Write-Host "SuiteRoot: $suiteRoot"
 Write-Host "SuiteHealth: $suiteHealthPath"
 Write-Host "SuiteTiming: $suiteTimingPath"
 Write-Host "RuntimeBottleneck: $runtimeBottleneckPath"
+Write-Host "RuntimeCalibration: $calibrationPath"
 Write-Host "Parallelism: $parallelismPath"
 if (Test-Path -LiteralPath $skippedPath) { Write-Host "SkippedSamples: $skippedPath" }
 exit $exitCode

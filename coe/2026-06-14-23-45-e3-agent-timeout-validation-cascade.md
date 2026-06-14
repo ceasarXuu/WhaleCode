@@ -137,3 +137,21 @@ Supports H-004 repair validation. `scripts/taskspace-benchmark/test-terminal-ben
 ## Evidence E-016
 
 Supports H-004 runtime validation. `scripts/taskspace-benchmark/test-terminal-bench-docker-cache-smoke.ps1` passed after the cache-key v2 change. The generated `docker-cache-manifest.json` in `target\terminal-bench-docker-cache-smoke\20260615-011635-814` recorded `cache_schema_version=terminal-bench-image-cache-v2`, validator source hash, adapter hash, uv hashes, platform/network/env fields, and `cache_hit=true` on the second run.
+
+## Hypothesis H-005
+
+Claim: runtime speed decisions need a formal calibration artifact, not only `runtime-bottleneck.md`, because operators need one stable gate for score validity, timing quality, bottleneck class, resource governor status, and speedup decision.
+
+Predictions:
+- The current module writes `runtime-bottleneck.md/json`, but not `runtime-calibration-report.md/json`.
+- The suite runner can produce calibration output from existing `suite-timing.json` and `parallelism.json` without rerunning validators.
+- A synthetic fixture can verify that the report blocks speed claims when wait attribution is incomplete.
+
+Diagnostic evidence plan:
+- Add `Write-TaskspaceRuntimeCalibrationReport`.
+- Wire suite runner to emit it after suite timing and bottleneck report.
+- Extend guardrail fixture to assert markdown and JSON decision fields.
+
+## Evidence E-017
+
+Supports H-005 validation. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` now passes with a synthetic suite timing fixture that writes `runtime-calibration-report.md/json`, renders `speedup_decision=speedup_blocked_instrumentation`, includes profile/parallelism metadata, and preserves `parallelism.resource_governor_status=pass` in JSON.

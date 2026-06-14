@@ -161,3 +161,100 @@ function Write-TaskspaceRuntimeBottleneckReport {
     $lines | Set-Content -LiteralPath $OutputPath -Encoding UTF8
     $OutputPath
 }
+
+function Write-TaskspaceRuntimeCalibrationReport {
+    param(
+        [Parameter(Mandatory = $true)][string]$TimingPath,
+        [string]$OutputPath = "",
+        [bool]$ScoreValid = $true,
+        [string]$CommandLine = "",
+        [string]$GitCommit = "",
+        [string]$ProfileHash = "",
+        [string]$ParallelismPath = ""
+    )
+    if (-not $OutputPath) { $OutputPath = Join-Path (Split-Path -Parent $TimingPath) "runtime-calibration-report.md" }
+    $jsonPath = [System.IO.Path]::ChangeExtension($OutputPath, ".json")
+    $timing = $null
+    $parseError = ""
+    if (Test-Path -LiteralPath $TimingPath) {
+        try { $timing = Get-Content -Raw -Encoding UTF8 -LiteralPath $TimingPath | ConvertFrom-Json } catch { $parseError = [string]$_.Exception.Message }
+    }
+    $parallelism = $null
+    if (-not [string]::IsNullOrWhiteSpace($ParallelismPath) -and (Test-Path -LiteralPath $ParallelismPath)) {
+        try { $parallelism = Get-Content -Raw -Encoding UTF8 -LiteralPath $ParallelismPath | ConvertFrom-Json } catch { $parallelism = $null }
+    }
+    $decision = if ($parseError) {
+        [pscustomobject]@{ decision = "speedup_blocked_instrumentation"; reason = "timing_parse_error" }
+    } else {
+        Get-TaskspaceRuntimeSpeedDecision $timing $ScoreValid
+    }
+    $blockers = if ($timing -and $timing.PSObject.Properties.Name -contains "runtime_optimization_blockers") { @(Get-TaskspaceRuntimeUniqueStrings $timing.runtime_optimization_blockers) } else { @() }
+    $missing = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_missing_fields") { @(Get-TaskspaceRuntimeUniqueStrings $timing.wait_attribution_missing_fields) } else { @() }
+    $unavailable = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_unavailable_fields") { $timing.wait_attribution_unavailable_fields } else { [pscustomobject]@{} }
+    $phaseRows = @(if ($timing) { Get-TaskspaceRuntimePhaseRows $timing } else { @() })
+    $jsonArtifact = [ordered]@{
+        schema_version = 1
+        report_path = $OutputPath
+        timing_path = $TimingPath
+        parallelism_path = $ParallelismPath
+        command_line = $CommandLine
+        git_commit = $GitCommit
+        profile_hash = $ProfileHash
+        score_valid = $ScoreValid
+        speedup_decision = [string]$decision.decision
+        speedup_decision_reason = [string]$decision.reason
+        timing_parse_error = $parseError
+        timing_quality = if ($timing -and $timing.PSObject.Properties.Name -contains "timing_quality") { [string]$timing.timing_quality } else { "" }
+        runtime_optimization_status = if ($timing -and $timing.PSObject.Properties.Name -contains "runtime_optimization_status") { [string]$timing.runtime_optimization_status } else { "" }
+        bottleneck_classification = if ($timing -and $timing.PSObject.Properties.Name -contains "bottleneck_classification") { [string]$timing.bottleneck_classification } else { "" }
+        bottleneck_counts = if ($timing -and $timing.PSObject.Properties.Name -contains "bottleneck_counts") { $timing.bottleneck_counts } else { [pscustomobject]@{} }
+        repeated_docker_cache_keys = if ($timing -and $timing.PSObject.Properties.Name -contains "repeated_docker_cache_keys") { @(Get-TaskspaceRuntimeUniqueStrings $timing.repeated_docker_cache_keys) } else { @() }
+        runtime_optimization_blockers = @($blockers)
+        wait_attribution_missing_fields = @($missing)
+        wait_attribution_unavailable_fields = $unavailable
+        phase_durations = @($phaseRows)
+        parallelism = $parallelism
+        generated_at = (Get-Date).ToString("o")
+    }
+    $jsonArtifact | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
+    $lines = New-Object System.Collections.Generic.List[string]
+    $lines.Add("# TaskSpace Runtime Calibration Report")
+    $lines.Add("")
+    $lines.Add("- score_valid: $ScoreValid")
+    $lines.Add("- speedup_decision: $($decision.decision)")
+    $lines.Add("- speedup_decision_reason: $($decision.reason)")
+    $lines.Add("- timing_path: $TimingPath")
+    if ($ParallelismPath) { $lines.Add("- parallelism_path: $ParallelismPath") }
+    if ($GitCommit) { $lines.Add("- git_commit: $GitCommit") }
+    if ($ProfileHash) { $lines.Add("- profile_hash: $ProfileHash") }
+    if ($CommandLine) { $lines.Add("- command_line: $CommandLine") }
+    if ($parseError) { $lines.Add("- timing_parse_error: $parseError") }
+    if ($timing) {
+        $lines.Add("- timing_quality: $(if ($timing.PSObject.Properties.Name -contains 'timing_quality') { $timing.timing_quality } else { '' })")
+        $lines.Add("- runtime_optimization_status: $(if ($timing.PSObject.Properties.Name -contains 'runtime_optimization_status') { $timing.runtime_optimization_status } else { '' })")
+        $lines.Add("- bottleneck_classification: $(if ($timing.PSObject.Properties.Name -contains 'bottleneck_classification') { $timing.bottleneck_classification } else { '' })")
+        $lines.Add("- runtime_optimization_blockers: $(if ($blockers.Count -eq 0) { 'none' } else { $blockers -join ', ' })")
+        $lines.Add("- wait_attribution_missing_fields: $(if ($missing.Count -eq 0) { 'none' } else { $missing -join ', ' })")
+        $unavailablePairs = @($unavailable.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" })
+        $lines.Add("- wait_attribution_unavailable_fields: $(if ($unavailablePairs.Count -eq 0) { 'none' } else { $unavailablePairs -join ', ' })")
+        $lines.Add("")
+        $lines.Add("## Phase Shares")
+        foreach ($row in @($phaseRows)) {
+            $lines.Add("- $($row.name): $(if ($null -eq $row.duration_ms) { 'null' } else { "$($row.duration_ms)ms" })")
+        }
+        if ($timing.PSObject.Properties.Name -contains "repeated_docker_cache_keys") {
+            $keys = @($timing.repeated_docker_cache_keys)
+            $lines.Add("")
+            $lines.Add("## Cache Status")
+            $lines.Add("- repeated_docker_cache_keys: $(if ($keys.Count -eq 0) { 'none' } else { $keys -join ', ' })")
+        }
+    }
+    if ($parallelism) {
+        $lines.Add("")
+        $lines.Add("## Parallelism")
+        $lines.Add("- resource_governor_status: $(if ($parallelism.PSObject.Properties.Name -contains 'resource_governor_status') { $parallelism.resource_governor_status } else { '' })")
+        $lines.Add("- serial_only_status: $(if ($parallelism.PSObject.Properties.Name -contains 'serial_only_status') { $parallelism.serial_only_status } else { '' })")
+    }
+    $lines | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+    $OutputPath
+}
