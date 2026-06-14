@@ -186,6 +186,48 @@ Assert-True (-not (Test-TaskspaceSuiteChildStatusComplete $incompleteStatus 5)) 
 $childFailure = New-TaskspaceSuiteChildFailureStatus $incompleteStatus "diagnostic-incomplete" $runDir 1 "" $runDir
 Assert-True ([string]$childFailure.run_validity -eq "invalid_harness" -and [string]$childFailure.abort_signature -eq "harness_materialization_failure/child_process_failed") "suite status helper did not synthesize child process failure"
 
+$externalExitRoot = Join-Path $runDir "external-exit-propagation"
+$externalTask = Join-Path $externalExitRoot "task"
+$stubRunner = Join-Path $externalExitRoot "stub-runner.ps1"
+New-Item -ItemType Directory -Force -Path $externalTask | Out-Null
+@'
+instruction: "Create hello.txt."
+category: data-processing
+'@ | Set-Content -LiteralPath (Join-Path $externalTask "task.yaml") -Encoding UTF8
+@'
+FROM scratch
+'@ | Set-Content -LiteralPath (Join-Path $externalTask "Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $externalTask "run-tests.sh") -Encoding UTF8
+@'
+param(
+    [string]$ScenarioPath,
+    [int]$Repeats,
+    [string]$RunRoot
+)
+$ErrorActionPreference = "Stop"
+$childRoot = Join-Path $RunRoot "stub-child"
+New-Item -ItemType Directory -Force -Path $childRoot | Out-Null
+[pscustomobject]@{
+    schema_version = 1
+    sample_id = "external-exit"
+    phase = "invalid_harness"
+    run_validity = "invalid_harness"
+    exit_code = 3
+    abort_scope = "sample"
+    abort_phase = "score_validity"
+    abort_signature = "harness_materialization_failure/stub_invalid"
+    abort_reason = "stub_invalid"
+    first_failure_artifact = $ScenarioPath
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $childRoot "sample-status.json") -Encoding UTF8
+exit 3
+'@ | Set-Content -LiteralPath $stubRunner -Encoding UTF8
+$externalOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1") -Benchmark terminal-bench -TaskDir $externalTask -SampleId "external-exit" -SourceVersion selftest -Repeats 1 -RunRoot (Join-Path $externalExitRoot "runs") -RunnerPath $stubRunner -ScoringMode -EnableAggregate 2>&1
+Assert-True ($LASTEXITCODE -eq 3) "external benchmark wrapper did not propagate invalid_harness child exit code 3"
+$externalStatusPath = Get-ChildItem -LiteralPath (Join-Path $externalExitRoot "runs") -Filter "sample-status.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+Assert-True ($null -ne $externalStatusPath) "external benchmark wrapper test did not leave child sample-status evidence"
+$externalStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $externalStatusPath.FullName | ConvertFrom-Json
+Assert-True ([string]$externalStatus.run_validity -eq "invalid_harness" -and [int]$externalStatus.exit_code -eq 3) "external benchmark wrapper child evidence did not preserve invalid_harness exit code"
+
 $aggregatePath = Join-Path $runDir "aggregate-report.md"
 $evidence = [pscustomobject]@{
     reported_evidence_level = "E3-candidate"
