@@ -1226,6 +1226,89 @@ These classes are diagnostics. They must not change scoring results directly; th
 - Real one-pair calibration on `single-file-fast-fix` writes `sample-timing.json`, and aggregate reports now render `Timing Summary` from that artifact before final status is written.
 - Remaining R1.5 work is to calibrate these fields on an E3/Terminal-Bench one-pair run and use the resulting bottleneck class to choose the next runtime optimization.
 
+### 15.5.1 E3 Runtime Bottleneck Investigation And Speedup Plan
+
+#### Problem Statement
+
+A 15-task E3 run taking several hours is not automatically acceptable. It can be legitimate if the agent spends most time solving within the configured timeout, but it is a harness defect if repeated validator setup, Docker builds, cleanup, score-invalid retries, or report/finalize rerenders dominate wall time. Runtime work must therefore first prove where time is spent, then apply only optimizations that preserve score validity.
+
+#### Current Evidence To Collect
+
+Every E3 run intended for scoring or timing calibration must persist enough data to answer these questions without reading raw console logs:
+
+| Question | Required Artifact Field | Source |
+|---|---|---|
+| How much wall time was agent execution? | `timing_breakdown.agent_duration_ms` | pair timing |
+| How much wall time was public validation? | `public_validation_duration_ms` | side metrics |
+| How much validation time was Docker build? | `docker_build_duration_ms` | generated validator / Docker result |
+| How much validation time was Docker run? | `docker_run_duration_ms` | generated validator / Docker result |
+| How much time was cleanup? | `docker_cleanup_duration_ms` | cleanup result |
+| Was the run already score-invalid? | `score_valid`, `engineering_unclean_reasons` | aggregate report |
+| Were same Docker images rebuilt repeatedly? | `repeated_docker_cache_keys`, `cache_hit` | sample/suite timing |
+| Did finalize rerun expensive work? | `finalize-health.json.validation_rerun_allowed=false` | finalize artifact |
+| Did workers wait for resources? | `parallelism.json.resource_wait_ms` | planned resource governor |
+
+Missing timing fields are themselves a blocker. A run with missing phase durations may be usable for functional debugging, but it is not acceptable evidence for runtime optimization decisions.
+
+#### Bottleneck Classification Rules
+
+Use deterministic classification before choosing a fix:
+
+| Class | Trigger | Primary Fix Path |
+|---|---|---|
+| `agent_bound` | agent execution is the largest span and score is valid | profile/cost controls only after score profile is versioned |
+| `validator_bound` | public validation dominates and tests started | validator timeout split, validation parallelism, better phase instrumentation |
+| `docker_build_bound` | Docker build is largest or repeated same cache key builds appear | digest-pinned Docker image cache and cache-key locks |
+| `docker_run_bound` | Docker run dominates after cache hit | validation parallelism with Docker concurrency governor |
+| `cleanup_bound` | cleanup is non-trivial or unbounded | bounded cleanup and cleanup failure classification |
+| `engineering_unclean_slow` | score invalid and time still continues after first hard infra failure | scoring fast-fail, suite circuit breaker, finalize no-op |
+| `resource_wait_bound` | planned workers spend large time waiting for disk/Docker/model tokens | tune concurrency down or raise host capacity |
+
+#### Engineering Workstream
+
+1. Baseline one-pair timing.
+   - Run a single Terminal-Bench E3 sample with serial execution and current scoring flags.
+   - Require `pair-timing.json`, `sample-timing.json`, aggregate `Timing Summary`, and `score_valid`.
+   - Exit early if `score_valid=false`; do not use invalid timing to justify clean-run speedups.
+2. Baseline 3-sample/15-task timing from artifacts only.
+   - For each sample, calculate agent, public validation, Docker build, Docker run, cleanup, reporting, and total wall time.
+   - Produce a compact table sorted by total wall time and by largest non-agent span.
+   - Flag repeated Docker cache keys and cache misses.
+3. Fix avoidable serial waste first.
+   - Enable Docker image cache only for digest-pinned immutable Dockerfiles.
+   - Ensure `finalize` is artifact-only and never reruns validators or hidden oracle.
+   - Ensure score-invalid runs stop after the first hard engineering-unclean pair in scoring mode.
+4. Add resource-governed parallelism only after serial artifacts are clean.
+   - Start with sample-level parallelism because it has the least artifact coupling.
+   - Add pair-level parallelism only after deterministic pair roots and aggregate merge order are tested.
+   - Add validation-level parallelism only after Docker cache locks and Docker concurrency limits are tested.
+5. Recalibrate full E3.
+   - Compare serial clean baseline to resource-governed parallel run.
+   - Keep the scoring profile identical unless the run is explicitly labeled non-comparable.
+   - Require `score_valid=true` before claiming speedup.
+
+#### Speedup Targets
+
+| Stage | Expected Impact | Acceptance Standard |
+|---|---:|---|
+| score-invalid fast-fail | prevents multi-hour invalid runs | first hard engineering-unclean pair exits `3` and no later samples run |
+| artifact-only finalize | avoids accidental rerun waste | finalize modifies reports/timing only; validation stdout mtime is unchanged |
+| Docker cache | removes repeated immutable image builds | second same-scenario validation records `cache_hit=true` |
+| pretest timeout split | avoids full validator timeout before tests start | no-marker validator aborts before full test timeout |
+| sample-level parallelism | clean-suite wall-time reduction | `>=30%` faster than serial with deterministic artifacts |
+| calibrated parallel profile | larger clean-suite reduction | target `2-3x` only after score validity and resource governor proof |
+
+#### Validation Gate
+
+Do not claim "E3 is faster" unless all of these are true:
+
+- the compared runs use the same scoring profile and task list;
+- both runs are `score_valid=true`;
+- timing artifacts reconcile to wall time within a documented tolerance;
+- Docker cache behavior is explicit in artifacts;
+- parallelism settings are recorded;
+- no engineering-unclean condition is hidden inside diagnostics.
+
 ### 15.6 Phase R2: Validator And Docker Overhead Reduction
 
 #### Objective
@@ -1297,7 +1380,8 @@ Safe reductions:
 - Cache invalidation is content-hash based: fixture tree or Dockerfile changes produce a different cache key.
 - Cache eligibility is intentionally fail-closed: generated validators only use the image cache when every parsed Dockerfile `FROM` reference is digest-pinned as `@sha256:<64 hex>`. Floating tags, `ARG`-based bases, missing `FROM`, or parser-uncertain forms record `cache_eligible=false` and bypass cache even when `-EnableDockerImageCache` is set.
 - Runtime cache hit behavior is generated-script covered, metadata/invalidation tested, and real-Docker covered by `scripts/taskspace-benchmark/test-terminal-bench-docker-cache-smoke.ps1`. The smoke builds a digest-pinned Terminal-Bench fixture, runs the generated validator twice with `TASKSPACE_DOCKER_IMAGE_CACHE=1`, and requires the second run to record `cache_hit=true`.
-- No-op diagnostic rerenders and parallel execution remain future work until their own tests pass.
+- `finalize-taskspace-e3-run.ps1` now performs artifact-only rerender work, writes `finalize-health.json`, rebuilds `sample-timing.json` before aggregate rendering, and records `validation_rerun_allowed=false` / `hidden_oracle_rerun_allowed=false`.
+- No-op finalize behavior is covered by `test-harness.ps1`: the fixture verifies that validation stdout mtime is unchanged after finalize. Parallel execution remains future work until its own tests pass.
 
 #### Exit Criteria
 

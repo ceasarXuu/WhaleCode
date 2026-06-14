@@ -16,6 +16,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\pair-report.ps1")
 . (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\report-summary.ps1")
 . (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\aggregate-report.ps1")
+. (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\timing.ps1")
 
 function Read-JsonFile {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -47,10 +48,12 @@ $pairDirs = @(Get-ChildItem -LiteralPath $run -Directory -Filter "pair-*" | Sort
 if ($pairDirs.Count -eq 0) { throw "No pair directories found under run dir: $run" }
 
 $reports = New-Object System.Collections.Generic.List[object]
+$sampleId = ""
 foreach ($pairDirItem in $pairDirs) {
     $pairDir = $pairDirItem.FullName
     $classified = Get-TaskspacePairEvidenceFromArtifacts $pairDir $pairDirs.Count $promptGuard $true "" "E3"
     $manifestResolved = $classified.manifest_resolved
+    if ([string]::IsNullOrWhiteSpace($sampleId)) { $sampleId = [string]$manifestResolved.scenario }
     $repeat = [int]$manifestResolved.repeat
     $evidence = $classified.evidence
     $manifestForReport = [pscustomobject]@{
@@ -71,7 +74,18 @@ foreach ($pairDirItem in $pairDirs) {
 
 $summaryPath = Join-Path $run "run-summary.md"
 Write-TaskspaceRunSummary -Path $summaryPath -Reports @($reports.ToArray())
+if ([string]::IsNullOrWhiteSpace($sampleId)) { $sampleId = Split-Path -Leaf $run }
+$sampleTimingPath = Write-TaskspaceSampleTiming $run $sampleId
 if ($EnableAggregate) { Write-TaskspaceAggregateReport -Path (Join-Path $run "aggregate-report.md") -Reports @($reports.ToArray()) }
+[pscustomobject]@{
+    schema_version = 1
+    rerender_mode = "artifact_only"
+    validation_rerun_allowed = $false
+    hidden_oracle_rerun_allowed = $false
+    pair_count = $reports.Count
+    sample_timing_path = $sampleTimingPath
+    generated_at = (Get-Date).ToString("o")
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $run "finalize-health.json") -Encoding UTF8
 Write-Host "RunSummary: $summaryPath"
 $failed = @(Get-TaskspaceFailedReports $reports "E3")
 if ($failed.Count -gt 0) { exit 1 }

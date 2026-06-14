@@ -740,6 +740,8 @@ $finalizeRightMetrics.validator_environment_failures = @()
 $finalizeRightMetrics.metrics_taints = @()
 Write-TaskspaceJson $finalizeLeftMetrics (Join-Path $finalizePair "left\artifacts\metrics.json")
 Write-TaskspaceJson $finalizeRightMetrics (Join-Path $finalizePair "right\artifacts\metrics.json")
+$finalizeValidationStdout = Join-Path $finalizePair "left\artifacts\validation.stdout.log"
+$finalizeValidationBefore = (Get-Item -LiteralPath $finalizeValidationStdout).LastWriteTimeUtc
 $finalizeOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "finalize-taskspace-e3-run.ps1") -RunDir $finalizeRun 2>&1
 Assert-True ($LASTEXITCODE -ne 0) "finalize with public validation timeout unexpectedly passed E3"
 $finalizedReport = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $finalizePair "pair-report.md")
@@ -747,6 +749,11 @@ Assert-True ($finalizedReport -match "public_validation_timeout") "finalize drop
 Assert-True ($finalizedReport -match "docker_cleanup_container_failure") "finalize dropped cleanup environment failure"
 Assert-True ($finalizedReport -match "metrics_critical_artifact_unhashed:tests/x.py") "finalize dropped metrics taint failure"
 Assert-True ($finalizedReport -match "included_in_e3_aggregate: False") "finalize allowed timeout pair into E3 aggregate"
+$finalizeHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $finalizeRun "finalize-health.json") | ConvertFrom-Json
+Assert-True ([string]$finalizeHealth.rerender_mode -eq "artifact_only") "finalize did not record artifact-only rerender mode"
+Assert-True (-not [bool]$finalizeHealth.validation_rerun_allowed -and -not [bool]$finalizeHealth.hidden_oracle_rerun_allowed) "finalize did not forbid validator/oracle rerun"
+Assert-True (Test-Path -LiteralPath (Join-Path $finalizeRun "sample-timing.json")) "finalize did not rebuild sample timing before report outputs"
+Assert-True ((Get-Item -LiteralPath $finalizeValidationStdout).LastWriteTimeUtc -eq $finalizeValidationBefore) "finalize modified validation stdout, suggesting a validator rerun"
 
 $matrixData = Get-TaskspaceMatrixReportData @(
     [pscustomobject]@{
