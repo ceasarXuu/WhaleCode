@@ -1296,7 +1296,7 @@ Safe reductions:
 - Terminal-Bench Docker image caching is implemented behind `-EnableDockerImageCache`; it sets `TASKSPACE_DOCKER_IMAGE_CACHE=1` only for score-bearing public validation, records `cache_key/cache_image/fixture_sha256/dockerfile_sha256`, and treats `cache_hit` as a non-failure Docker build phase.
 - Cache invalidation is content-hash based: fixture tree or Dockerfile changes produce a different cache key.
 - Cache eligibility is intentionally fail-closed: generated validators only use the image cache when every parsed Dockerfile `FROM` reference is digest-pinned as `@sha256:<64 hex>`. Floating tags, `ARG`-based bases, missing `FROM`, or parser-uncertain forms record `cache_eligible=false` and bypass cache even when `-EnableDockerImageCache` is set.
-- Runtime cache hit behavior is generated-script covered and metadata/invalidation tested; a real-Docker two-run smoke is still required before enabling cache in full production E3.
+- Runtime cache hit behavior is generated-script covered, metadata/invalidation tested, and real-Docker covered by `scripts/taskspace-benchmark/test-terminal-bench-docker-cache-smoke.ps1`. The smoke builds a digest-pinned Terminal-Bench fixture, runs the generated validator twice with `TASKSPACE_DOCKER_IMAGE_CACHE=1`, and requires the second run to record `cache_hit=true`.
 - No-op diagnostic rerenders and parallel execution remain future work until their own tests pass.
 
 #### Exit Criteria
@@ -1485,6 +1485,7 @@ Proceed in this order:
 .\scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1
 .\scripts\taskspace-benchmark\test-e3-proof-harness.ps1
 .\scripts\taskspace-benchmark\test-harness.ps1
+.\scripts\taskspace-benchmark\test-terminal-bench-docker-cache-smoke.ps1
 ```
 
 Timing smoke:
