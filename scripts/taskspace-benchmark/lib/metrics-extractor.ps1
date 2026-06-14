@@ -71,7 +71,7 @@ function Add-TaskspaceChangedPath {
                 $hashStatus = "read_error"
                 $hashError = [string]$_.Exception.Message
                 $hashErrorId = [string]$_.FullyQualifiedErrorId
-                if ($hashError -match "being used by another process|cannot access the file|in use") {
+                if ($hashError -match "being used by another process|cannot access the file|in use" -or $hashErrorId -match "FileReadError") {
                     $hashStatus = "unavailable_locked"
                 }
             }

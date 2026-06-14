@@ -51,7 +51,10 @@ function New-TaskspaceE3StartGateMarkdown {
     $lines.Add("")
     $lines.Add("## Self Tests")
     if (@($Gate.self_tests).Count -eq 0) { $lines.Add("- skipped") } else {
-        foreach ($test in @($Gate.self_tests)) { $lines.Add("- `$($test.command)`: exit=$($test.exit_code) timeout=$($test.timed_out)") }
+        foreach ($test in @($Gate.self_tests)) {
+            $commandText = [string]$test.command
+            $lines.Add("- ``$commandText``: exit=$($test.exit_code) timeout=$($test.timed_out)")
+        }
     }
     @($lines.ToArray())
 }
