@@ -189,4 +189,110 @@
 - Scoring conclusion:
   - The rerun is not a clean score-bearing E3 execution under the hard contract.
   - Any Docker/container/validator/materialization/path/disk/proof/report/audit contamination makes the correct scoring state `score_valid=false / engineering_unclean`.
-  - The run can be used for engineering diagnosis, but not for Standard vs TaskSpace score, better/worse, pass-rate delta, cost delta, or agent ability claims.
+- The run can be used for engineering diagnosis, but not for Standard vs TaskSpace score, better/worse, pass-rate delta, cost delta, or agent ability claims.
+
+## Problem P-002: E3 15-pair suite takes several hours
+
+- Observed symptom: the completed rerun3 E3 suite took from `2026-06-14T01:02:08.5401861+08:00` to `2026-06-14T06:35:51.6349124+08:00`, about 5.56 hours, for 3 samples x 5 repeats.
+- Expected behavior: a 15-pair diagnostic suite should have an explainable timing profile. If the wall time is dominated by avoidable serial orchestration, repeated validator timeouts, or engineering noise, full E3 should not be the primary debugging mechanism.
+- Actual behavior: the suite ran samples, repeats, sides, agent executions, validator probes, validations, and hidden oracle checks mostly serially.
+- Impact: every engineering-unclean rerun can burn multiple hours before producing a score-invalid result.
+- Environment:
+  - repository: `D:\whalecode-alpha`
+  - run root: `C:\w\e3v004-rerun3-20260614-010208`
+  - suite root: `C:\w\e3v004-rerun3-20260614-010208\runs\suite-20260614-010208`
+  - commit: `7a7e0aa288`
+  - command settings: `-Repeats 5`, `-TimeoutSeconds 900`, `-ValidationTimeoutSeconds 420`, `-ConfigOverride 'model_reasoning_effort="max"'`
+- Fix criteria:
+  - The timing budget must be decomposed into agent time, validator/Docker/oracle overhead, and orchestration overhead.
+  - The suite must expose per-phase timing in durable artifacts before any optimization or parallelization work is designed.
+
+## Hypothesis H-005: The suite is slow mainly because all samples, repeats, sides, and validation phases are serialized
+
+- Rationale: current scripts use plain `for` / `foreach` loops and synchronous child process invocation.
+- Prediction:
+  - The suite-level sample loop waits for each child process before starting the next sample.
+  - The sample-level repeat loop waits for each pair before starting the next repeat.
+  - Each pair executes the two sides sequentially, then validates the two sides sequentially.
+- Diagnostic evidence plan:
+  - Inspect `run-taskspace-e3-suite.ps1` and `run-taskspace-benchmark.ps1`.
+  - Compare code path serialization with `events.jsonl` timestamps.
+
+### Evidence E-018
+
+- Type: runtime artifact
+- Supports: P-002 observed duration and H-005 serial timing shape.
+- Observation: `launch.json` records suite start at `2026-06-14T01:02:08.5401861+08:00`; `e3-suite.exit.json` records finish at `2026-06-14T06:35:51.6349124+08:00`. The suite stdout lists sample run directories starting sequentially at `01:02:36`, `02:51:04`, and `04:49:50`.
+
+### Evidence E-019
+
+- Type: runtime artifact analysis
+- Supports: H-005 prediction that pair execution dominates total wall time.
+- Observation: parsing the three `events.jsonl` files shows 15 pair intervals totaling `332.45` minutes, average `22.16` minutes per pair, max `27.16` minutes. The full suite elapsed about `333.72` minutes, so almost all wall time is inside the pair loop rather than suite setup.
+
+### Evidence E-020
+
+- Type: code path
+- Supports: H-005 prediction that orchestration is synchronous.
+- Observation: `scripts\taskspace-benchmark\run-taskspace-e3-suite.ps1` has a sample loop at line 70 and invokes each child with synchronous `& powershell @args` at line 137. `scripts\taskspace-benchmark\run-taskspace-benchmark.ps1` has the repeat loop at line 178, side-level agent loop at line 317, and side-level validation loop at line 368.
+
+## Hypothesis H-006: Validator/Docker failures and timeouts are a major avoidable wall-time component
+
+- Rationale: pair reports show public validation timeouts and Docker failures across many pairs; validation timeout is configured to 420 seconds.
+- Prediction:
+  - Non-agent overhead will be large relative to total pair time.
+  - Pairs with public validation timeout will spend about 7 minutes per timed-out side.
+  - Docker runtime artifacts will account for many additional minutes even when they fail.
+- Diagnostic evidence plan:
+  - Parse pair reports for `wall_time_ms`, public validation exit codes, and validator environment failures.
+  - Compare pair elapsed time to summed agent wall time.
+
+### Evidence E-021
+
+- Type: runtime artifact analysis
+- Supports: H-006 prediction that non-agent overhead is large.
+- Observation: across the 15 pair reports, summed agent time is `190.52` minutes while pair elapsed time is `332.45` minutes. The residual `141.92` minutes is validation/Docker/oracle/report overhead, about `42.7%` of pair wall time.
+
+### Evidence E-022
+
+- Type: runtime artifact analysis
+- Supports: H-006 prediction that timeout and Docker noise are significant.
+- Observation: parsing pair reports found `8/15` pairs with at least one `public_validation_exit_code=124`, `9/15` pairs with Docker-related validator failures, and `2/15` pairs with agent execution timeouts. The configured `ValidationTimeoutSeconds` is `420`, so repeated public validation timeout alone can add roughly 7 minutes per affected side.
+
+### Evidence E-023
+
+- Type: runtime timestamp analysis
+- Supports: H-006 mechanism.
+- Observation: in `recover-accuracy-log` pair 001, left standard agent artifacts finished at `01:04:16`, but validation artifacts finished around `01:20:59` after a public validation timeout; right TaskSpace agent artifacts finished at `01:13:29`, and validation/Docker artifacts completed around `01:27:05`. The pair lasted from `01:02:40` to `01:27:09`, while agent time was only about `10.61` minutes.
+
+## Hypothesis H-007: TaskSpace execution time is materially higher than Standard and contributes the largest agent-side share
+
+- Rationale: TaskSpace side runs additional planning/action-map/subagent machinery and uses `model_reasoning_effort=max`.
+- Prediction:
+  - TaskSpace agent wall time will be much larger than Standard wall time.
+  - Agent time remains a large component even after subtracting validator/Docker overhead.
+- Diagnostic evidence plan:
+  - Parse all pair reports by logical mode, accounting for left/right side swapping.
+  - Compare total Standard and TaskSpace wall times.
+
+### Evidence E-024
+
+- Type: runtime artifact analysis
+- Supports: H-007.
+- Observation: dynamic parsing of the 15 pair reports by logical mode found Standard agent time `44.68` minutes and TaskSpace agent time `145.83` minutes. TaskSpace accounts for about `76.5%` of agent time and about `43.9%` of total pair wall time.
+
+## Problem P-002 Current Conclusion
+
+- Status: root-cause-confirmed-for-timing-profile
+- Confirmed timing causes:
+  - H-005: orchestration is serial at sample, repeat, side execution, and validation levels.
+  - H-006: validation/Docker/oracle overhead is large, with repeated public validation timeouts and Docker failures contributing avoidable wall time.
+  - H-007: TaskSpace agent execution is much slower than Standard in this run, especially under `model_reasoning_effort=max`.
+- Current timing budget:
+  - total suite elapsed: about `333.72` minutes
+  - pair loop elapsed: `332.45` minutes
+  - agent execution: `190.52` minutes
+  - non-agent overhead: `141.92` minutes
+  - Standard agent time: `44.68` minutes
+  - TaskSpace agent time: `145.83` minutes
+- Repair direction remains separate from this diagnostic conclusion. Any optimization should first add durable per-phase timing fields, then address score-invalid early aborts, validator timeout/Docker cleanup, and only then consider safe parallelism.
