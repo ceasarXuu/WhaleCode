@@ -14,6 +14,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\parallel-diff.ps1")
 . (Join-Path $PSScriptRoot "lib\calibration-gate.ps1")
 . (Join-Path $PSScriptRoot "lib\calibration-selection.ps1")
+. (Join-Path $PSScriptRoot "lib\runtime-reconstruction.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\e3-guardrails-selftest" }
 $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
@@ -73,6 +74,27 @@ Assert-True (($selection.selected_task_ids -join ",") -eq "a-1,b-1,c-1") "calibr
 Assert-True ([string]$selection.source_task_list_hash -eq (Get-TaskspaceFileSha256 $selectionTaskList)) "calibration selection did not record source task-list hash"
 Assert-True (-not [string]::IsNullOrWhiteSpace([string]$selection.subset_task_list_hash)) "calibration selection did not record subset hash"
 Assert-True (@($selection.excluded_tasks | Where-Object { [string]$_.sample_id -eq "a-2" -and [string]$_.reason -eq "not_selected_after_family_coverage_limit" }).Count -eq 1) "calibration selection did not record excluded task rationale"
+
+$reconstructRoot = Join-Path $runDir "runtime-reconstruct-fixture"
+$reconstructSamples = Join-Path $reconstructRoot "samples"
+New-Item -ItemType Directory -Force -Path (Join-Path $reconstructSamples "sample-a"), (Join-Path $reconstructSamples "sample-b"), (Join-Path $reconstructSamples "sample-c") | Out-Null
+@{ total_pair_duration_ms = 1000; agent_duration_ms = 100; public_validation_duration_ms = 900; docker_build_duration_ms = 0; docker_run_duration_ms = 0; docker_cleanup_duration_ms = 0 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $reconstructSamples "sample-a\sample-timing.json") -Encoding UTF8
+@{ total_pair_duration_ms = 2000; agent_duration_ms = 1500; public_validation_duration_ms = 500; docker_build_duration_ms = 0; docker_run_duration_ms = 0; docker_cleanup_duration_ms = 0 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $reconstructSamples "sample-b\sample-timing.json") -Encoding UTF8
+[pscustomobject]@{
+    status = "invalid_harness"
+    sample_statuses = @(
+        [pscustomobject]@{ sample_id = "sample-a"; run_validity = "invalid_harness"; sample_root = (Join-Path $reconstructSamples "sample-a") },
+        [pscustomobject]@{ sample_id = "sample-b"; run_validity = "valid"; sample_root = (Join-Path $reconstructSamples "sample-b") },
+        [pscustomobject]@{ sample_id = "sample-c"; run_validity = "invalid_harness"; skipped_reason = "previous_engineering_unclean"; sample_root = (Join-Path $reconstructSamples "sample-c") }
+    )
+} | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $reconstructRoot "suite-health.json") -Encoding UTF8
+[pscustomobject]@{ total_pair_duration_ms = 3000; agent_duration_ms = 1600; public_validation_duration_ms = 1400; docker_build_duration_ms = 0; docker_run_duration_ms = 0; docker_cleanup_duration_ms = 0 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $reconstructRoot "suite-timing.json") -Encoding UTF8
+$reconstructOutput = Join-Path $reconstructRoot "runtime-reconstruction\selftest"
+$reconstruction = Write-TaskspaceRuntimeReconstruction -SuiteRoot $reconstructRoot -OutputRoot $reconstructOutput
+Assert-True ((Test-Path -LiteralPath $reconstruction.json_path) -and (Test-Path -LiteralPath $reconstruction.markdown_path)) "runtime reconstruction did not write artifacts"
+Assert-True ([int64]$reconstruction.artifact.time_after_first_invalid_ms -eq 2000) "runtime reconstruction did not compute first-invalid waste"
+Assert-True ([string]$reconstruction.artifact.bottleneck_classification -eq "invalid_waste_bound") "runtime reconstruction did not classify invalid waste"
+Assert-True (([System.IO.Path]::GetFullPath($reconstruction.artifact.output_root)).StartsWith([System.IO.Path]::GetFullPath((Join-Path $reconstructRoot "runtime-reconstruction")))) "runtime reconstruction did not write under isolated output root"
 
 $pretestStderr = Join-Path $runDir "pretest.stderr.log"
 "Resolve-Path : Cannot find path 'target\bad-uv-cache'" | Set-Content -LiteralPath $pretestStderr -Encoding UTF8

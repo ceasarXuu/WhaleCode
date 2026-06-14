@@ -362,3 +362,30 @@ Validation passed:
 - `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
 
 Remaining scope: this still does not produce official one-pair or representative three-task calibration evidence. Previous-run reconstruction, validator/Docker overhead proof, governed parallel smoke release evidence, and full E3 release-gate approval remain open.
+
+## Hypothesis H-016
+
+Claim: R0 runtime reconstruction must be a read-only artifact generator over an existing suite root. It should not rewrite historical pair/sample/suite artifacts, and it must compute first-invalid waste plus a bottleneck classification even when later samples are explicitly skipped.
+
+Predictions:
+- The reconstruction output should live under a separate `runtime-reconstruction/<timestamp-or-label>/` root.
+- A suite with first sample `invalid_harness`, a later completed sample, and a later skipped sample should compute `time_after_first_invalid_ms` from the completed later sample only.
+- Explicitly skipped samples should not be treated as missing timing.
+- The reconstruction JSON/Markdown should name a bottleneck class such as `invalid_waste_bound` or `unknown` when timing fields are missing.
+
+Diagnostic evidence plan:
+- Add `scripts/taskspace-benchmark/lib/runtime-reconstruction.ps1`.
+- Add `scripts/taskspace-benchmark/reconstruct-e3-runtime.ps1` CLI.
+- Add a guardrails fixture for first-invalid waste and isolated output root.
+
+## Evidence E-028
+
+Supports H-016 validation for reconstruction tooling. `scripts/taskspace-benchmark/lib/runtime-reconstruction.ps1` scans `suite-health.json`, `suite-timing.json`, and sample timing files, then writes `runtime-reconstruction.json` and `runtime-reconstruction.md` under a separate output root. `scripts/taskspace-benchmark/reconstruct-e3-runtime.ps1` exposes the helper as an operator command. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` now verifies the first-invalid waste fixture: invalid first sample, completed second sample with 2000ms timing, skipped third sample with no timing, and classification `invalid_waste_bound`.
+
+Validation passed:
+- PowerShell parser check for `runtime-reconstruction.ps1`, `reconstruct-e3-runtime.ps1`, and `test-e3-harness-guardrails.ps1`.
+- `.\scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-start-gate.ps1`
+- `.\scripts\taskspace-benchmark\test-e3-score-validity.ps1`
+
+Remaining scope: reconstruction tooling exists, but it has not yet been run against the previous invalid official E3 suite root. Validator/Docker overhead proof, governed parallel smoke release evidence, official calibration artifacts, and final full E3 release gate remain open.
