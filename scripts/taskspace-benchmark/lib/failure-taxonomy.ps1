@@ -39,6 +39,7 @@ function Get-TaskspaceEngineeringUncleanReasons {
         foreach ($failure in @(Get-TaskspaceMetricArray $Metrics "validator_environment_failures")) {
             $text = [string]$failure
             if ([string]::IsNullOrWhiteSpace($text)) { continue }
+            if ($text -eq "docker_run_failure" -and (Get-TaskspaceMetricBool $Metrics "tests_started_seen") -and (Get-TaskspaceMetricBool $Metrics "tests_completed_seen")) { continue }
             Add-TaskspaceFailureClass $reasons $text
         }
         if (Get-TaskspaceMetricBool $Metrics "pretest_failure") {

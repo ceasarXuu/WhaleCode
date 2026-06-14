@@ -269,6 +269,10 @@ function Get-TaskspaceBenchmarkMetrics {
     if ($pretestFailure -and $null -eq $infraSignature) {
         $infraSignature = New-TaskspaceInfraSignature "harness_materialization_failure" "validator_pretest" "no_tests_started_marker" "Validation failed before tests_started marker" $Side.Name $Validation.stderr_path
     }
+    $validatorEnvironmentFailures = @($dockerResult.classifications | Where-Object {
+            $classification = [string]$_
+            -not ($classification -eq "docker_run_failure" -and [bool]$lifecycle.tests_started_seen -and [bool]$lifecycle.tests_completed_seen)
+        })
     $graphHealth = Get-TaskspaceGraphHealth $obs
     $graphHealthReport = New-TaskspaceGraphHealthReport $obs $Side.Name $Side.LogicalMode
     $graphHealthPath = Join-Path $Side.ArtifactDir "graph-health.json"
@@ -302,7 +306,7 @@ function Get-TaskspaceBenchmarkMetrics {
         docker_cache_image = if ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_image") { [string]$dockerResult.json.cache_image } else { "" }
         dockerfile_from_images = if ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "dockerfile_from_images") { @($dockerResult.json.dockerfile_from_images) } else { @() }
         validation_cleanup_result_path = $dockerResult.cleanup_path
-        validator_environment_failures = @($dockerResult.classifications)
+        validator_environment_failures = @($validatorEnvironmentFailures)
         validator_environment_mismatch = (Test-TaskspaceValidatorEnvironmentMismatch $Validation)
         validator_probe_result_path = $probeResult.path
         validator_probe_status = if ($probeResult.json -and $probeResult.json.PSObject.Properties.Name -contains "status") { [string]$probeResult.json.status } else { "" }

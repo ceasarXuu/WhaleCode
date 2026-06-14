@@ -26,7 +26,8 @@ function New-Metrics {
         [bool]$ExecTimedOut = $false,
         [int]$PublicExit = 1,
         [string[]]$Failures = @(),
-        [bool]$PretestFailure = $false
+        [bool]$PretestFailure = $false,
+        [bool]$TestsCompleted = $true
     )
     [pscustomobject]@{
         mode = $Mode
@@ -42,7 +43,8 @@ function New-Metrics {
         metrics_taints = @()
         pretest_failure = $PretestFailure
         tests_started_seen = (-not $PretestFailure)
-        validation_lifecycle_stage = if ($PretestFailure) { "unknown" } else { "tests_completed" }
+        tests_completed_seen = (-not $PretestFailure -and $TestsCompleted)
+        validation_lifecycle_stage = if ($PretestFailure) { "unknown" } elseif ($TestsCompleted) { "tests_completed" } else { "tests_started" }
     }
 }
 
@@ -63,8 +65,9 @@ Assert-Outcome "clean solved" (New-Metrics "left" "standard" -Success $true -Pub
 Assert-Outcome "clean wrong" (New-Metrics "left" "standard" -Success $false -PublicExit 2) "wrong" $true
 Assert-Outcome "clean agent timeout" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 1) "agent_exec_timeout" $true
 Assert-Outcome "validator timeout" (New-Metrics "left" "standard" -PublicExit 124 -Failures @("public_validation_timeout")) "engineering_unclean" $false
-Assert-Outcome "docker failure" (New-Metrics "left" "standard" -PublicExit 1 -Failures @("docker_run_failure")) "engineering_unclean" $false
-Assert-Outcome "timeout plus docker" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 1 -Failures @("docker_run_failure")) "engineering_unclean" $false
+Assert-Outcome "docker failure before tests" (New-Metrics "left" "standard" -PublicExit 1 -Failures @("docker_run_failure") -PretestFailure $true) "engineering_unclean" $false
+Assert-Outcome "docker run test failure after tests" (New-Metrics "left" "standard" -PublicExit 1 -Failures @("docker_run_failure")) "wrong" $true
+Assert-Outcome "timeout plus docker before tests" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 1 -Failures @("docker_run_failure") -PretestFailure $true) "engineering_unclean" $false
 
 $auditMissingEvidence = [pscustomobject]@{
     evidence_gate_failures = @()
