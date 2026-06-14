@@ -232,10 +232,13 @@ function Invoke-TaskspaceE3StartGate {
         $gates.Add($smokeGate)
     }
     $selfTests = @()
-    if ($RunSelfTests) {
+    $preSelfTestFailures = @($gates.ToArray() | Where-Object { [string]$_.status -eq "fail" })
+    if ($RunSelfTests -and $preSelfTestFailures.Count -eq 0) {
         $selfTests = @($SelfTestCommands | ForEach-Object { Invoke-TaskspaceGateCommand $RepoRoot $_ 180 })
         $failedTest = @($selfTests | Where-Object { [int]$_.exit_code -ne 0 } | Select-Object -First 1)[0]
         $gates.Add((New-TaskspaceE3GateRow "cheap_self_tests" $(if ($failedTest) { "fail" } else { "pass" }) $(if ($failedTest) { "self_test_failed" } else { "" }) $(if ($failedTest) { "self_test_failed" } else { "" }) $(if ($failedTest) { [string]$failedTest.command } else { "" })))
+    } elseif ($RunSelfTests) {
+        $gates.Add((New-TaskspaceE3GateRow "cheap_self_tests" "skipped" "previous_gate_failed" "self_tests_skipped_after_previous_failure"))
     } else {
         $gates.Add((New-TaskspaceE3GateRow "cheap_self_tests" $(if ($AllowSkippedSelfTests) { "skipped_allowed" } else { "fail" }) "RunSelfTests not set" "self_tests_not_run"))
     }

@@ -21,6 +21,9 @@ param(
     [switch]$RequireScoreValidity,
     [switch]$EnableDockerImageCache,
     [switch]$ContinueAfterInvalidHarness,
+    [string]$OnePairSmokeRoot = "",
+    [switch]$SkipStartGate,
+    [switch]$AllowSkippedOnePairSmoke,
     [int]$MaxParallelSamples = 1,
     [int]$MaxParallelPairsPerSample = 1,
     [int]$MaxParallelValidationsPerPair = 1,
@@ -36,6 +39,8 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "lib\timing.ps1")
 . (Join-Path $PSScriptRoot "lib\runtime-bottleneck-report.ps1")
 . (Join-Path $PSScriptRoot "lib\resource-governor.ps1")
+. (Join-Path $PSScriptRoot "lib\scenario-manifest.ps1")
+. (Join-Path $PSScriptRoot "lib\e3-start-gate.ps1")
 if ($Repeats -lt 5) { throw "E3 suite requires Repeats >= 5." }
 if (-not (Test-Path -LiteralPath $TaskListPath)) { Write-Error "TaskListPath not found: $TaskListPath"; exit 4 }
 if (-not $RunRoot) { $RunRoot = Join-Path ([System.IO.Path]::GetTempPath()) "whale-e3-suite-runs" }
@@ -47,6 +52,51 @@ $samplesRoot = Join-Path $suiteRoot "samples"
 New-Item -ItemType Directory -Path $samplesRoot -Force | Out-Null
 $suiteHealthPath = Join-Path $suiteRoot "suite-health.json"
 $skippedPath = Join-Path $suiteRoot "skipped-samples.jsonl"
+
+function Write-SuiteStartGateAbortHealth {
+    param($Gate)
+    [pscustomobject]@{
+        schema_version = 1
+        status = "invalid_harness"
+        suite_root = $suiteRoot
+        suite_abort_reason = "e3_start_gate_failed/$($Gate.first_failure_stable_code)"
+        start_gate_status = $Gate.status
+        start_gate_path = $Gate.json_path
+        start_gate_report = $Gate.markdown_path
+        first_failure_gate = $Gate.first_failure_gate
+        first_failure_stable_code = $Gate.first_failure_stable_code
+        invalid_harness_sample_count = 0
+        remaining_samples_skipped = 0
+        completed_child_processes = 0
+        score_valid_child_runs = 0
+        score_invalid_child_runs = 0
+        suite_score_valid = $false
+        generated_at = (Get-Date).ToString("o")
+    } | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $suiteHealthPath -Encoding UTF8
+}
+
+if (($ScoringMode -or $RequireScoreValidity) -and -not $PlanOnly -and -not $SkipStartGate) {
+    $gate = Invoke-TaskspaceE3StartGate `
+        -RepoRoot (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path `
+        -BenchmarkRoot $PSScriptRoot `
+        -OutputDir (Join-Path $suiteRoot "start-gate") `
+        -RunRoot $suiteRoot `
+        -TaskListPath $TaskListPath `
+        -SourceVersion $SourceVersion `
+        -OnePairSmokeRoot $OnePairSmokeRoot `
+        -RunSelfTests `
+        -AllowSkippedPathContract `
+        -AllowSkippedOnePairSmoke:$AllowSkippedOnePairSmoke
+    Write-Host "E3StartGate: $($gate.json_path)"
+    Write-Host "E3StartGateReport: $($gate.markdown_path)"
+    if ([int]$gate.exit_code -ne 0) {
+        Write-SuiteStartGateAbortHealth $gate
+        Write-Host "SuiteRoot: $suiteRoot"
+        Write-Host "SuiteHealth: $suiteHealthPath"
+        exit 3
+    }
+}
+
 $resourceConfig = New-TaskspaceResourceGovernorConfig `
     -MaxParallelSamples $MaxParallelSamples `
     -MaxParallelPairsPerSample $MaxParallelPairsPerSample `

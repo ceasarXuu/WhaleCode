@@ -173,3 +173,21 @@ Diagnostic evidence plan:
 ## Evidence E-018
 
 Supports H-006 validation. `scripts/taskspace-benchmark/test-oracle-runner-harness.ps1` now passes with taxonomy assertions proving pretest timeout maps to `public_validation_timeout` plus `no_tests_started_marker` and `engineering_unclean`, while tests-started timeout keeps `public_validation_timeout` and `engineering_unclean` without incorrectly adding `no_tests_started_marker`. `scripts/taskspace-benchmark/test-e3-score-validity.ps1` also still passes after this fixture extension.
+
+## Hypothesis H-007
+
+Claim: the E3 start gate is incomplete if it only exists as a standalone command; the canonical scoring suite must invoke it before scheduling any sample, otherwise operators can still start a full scoring run without guardrail self-tests or one-pair smoke evidence.
+
+Predictions:
+- `run-taskspace-e3-suite.ps1` should run the start gate for non-PlanOnly scoring runs unless explicitly bypassed for forensics.
+- Missing one-pair smoke evidence should fail the suite before sample directories are created.
+- When an earlier gate fails, expensive self-tests should be skipped and recorded as skipped due to the previous failure.
+
+Diagnostic evidence plan:
+- Wire `Invoke-TaskspaceE3StartGate` into the suite entrypoint.
+- Add a suite-level start-gate fixture in `test-e3-start-gate.ps1`.
+- Keep existing PlanOnly suite guardrail fixtures passing.
+
+## Evidence E-019
+
+Supports H-007 validation. `scripts/taskspace-benchmark/test-e3-start-gate.ps1` now passes with a canonical suite fixture proving a scoring suite without one-pair smoke exits `3`, writes `suite-health.json` and `start-gate/e3-start-gate.json`, records self-tests as skipped after the previous gate failure, and creates no sample run directories. `scripts/taskspace-benchmark/test-e3-harness-guardrails.ps1` still passes, showing existing PlanOnly guardrail fixtures remain usable.

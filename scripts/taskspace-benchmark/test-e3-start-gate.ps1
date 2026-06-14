@@ -106,6 +106,22 @@ try {
     ([pscustomobject]@{ task_dir = $scenarioDir; source_version = "fixture-source" } | ConvertTo-Json -Compress) | Set-Content -LiteralPath $taskList -Encoding UTF8
     $taskListGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-tasklist-pass") -TaskListPath $taskList -RunRoot (Join-Path $runDir "runs") -AllowSkippedPathContract -AllowSkippedSelfTests -AllowSkippedOnePairSmoke -SelfTestCommands @()
     Assert-True ([string]$taskListGate.status -eq "pass" -and @($taskListGate.gates | Where-Object { [string]$_.name -eq "path_contract" -and [string]$_.status -eq "skipped_allowed" }).Count -eq 1) "start gate did not require explicit skipped path-contract allow"
+
+    $suiteGateRoot = Join-Path $runDir "suite-start-gate"
+    $suiteGateOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1") -Benchmark terminal-bench -TaskListPath $taskList -SourceVersion selftest -Repeats 5 -RunRoot $suiteGateRoot -ScoringMode 2>&1
+    Assert-True ($LASTEXITCODE -eq 3) "suite start gate did not fail closed before scoring run"
+    $suiteRootLine = @($suiteGateOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
+    $suiteRunRoot = ([string]$suiteRootLine) -replace "^SuiteRoot:\s*", ""
+    $suiteHealthPath = Join-Path $suiteRunRoot "suite-health.json"
+    $suiteStartGatePath = Join-Path $suiteRunRoot "start-gate\e3-start-gate.json"
+    Assert-True ((Test-Path -LiteralPath $suiteHealthPath) -and (Test-Path -LiteralPath $suiteStartGatePath)) "suite start gate did not write health and gate artifacts"
+    $suiteHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteHealthPath | ConvertFrom-Json
+    $suiteStartGate = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteStartGatePath | ConvertFrom-Json
+    $sampleDirs = @(Get-ChildItem -LiteralPath (Join-Path $suiteRunRoot "samples") -Directory -ErrorAction SilentlyContinue)
+    Assert-True ([string]$suiteHealth.status -eq "invalid_harness" -and -not [bool]$suiteHealth.suite_score_valid) "suite start gate health did not mark invalid_harness"
+    Assert-True ([string]$suiteStartGate.status -eq "fail" -and @($suiteStartGate.gates | Where-Object { [string]$_.name -eq "one_pair_smoke" -and [string]$_.status -eq "fail" }).Count -eq 1) "suite start gate did not preserve one-pair smoke failure"
+    Assert-True (@($suiteStartGate.gates | Where-Object { [string]$_.name -eq "cheap_self_tests" -and [string]$_.status -eq "skipped" -and [string]$_.stable_code -eq "self_tests_skipped_after_previous_failure" }).Count -eq 1) "suite start gate ran self-tests after an earlier gate failure"
+    Assert-True ($sampleDirs.Count -eq 0) "suite start gate created sample runs after gate failure"
 } finally {
     if ($null -eq $oldMinFreeBytes) { Remove-Item Env:TASKSPACE_MIN_FREE_BYTES -ErrorAction SilentlyContinue } else { $env:TASKSPACE_MIN_FREE_BYTES = $oldMinFreeBytes }
     if ($null -eq $oldMinFreeGib) { Remove-Item Env:TASKSPACE_MIN_FREE_GIB -ErrorAction SilentlyContinue } else { $env:TASKSPACE_MIN_FREE_GIB = $oldMinFreeGib }
