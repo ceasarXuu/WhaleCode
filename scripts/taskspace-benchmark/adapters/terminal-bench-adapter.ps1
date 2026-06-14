@@ -193,10 +193,14 @@ $fixtureSource = [string]$remoteInjection.fixture_source
 $remoteAssets = @($remoteInjection.remote_assets)
 $remoteAssetsE3Eligible = @($remoteAssets | Where-Object { $_.required_for_e3 -and -not [bool]$_.equivalence_proven }).Count -eq 0
 $validatorSourceDir = New-TaskspaceExternalDir (Join-Path $generatedDir "terminal-bench-$($SampleId -replace '[^A-Za-z0-9_.-]', '_')-validator-source")
-Copy-Item -LiteralPath $validatorSource -Destination (Join-Path $validatorSourceDir "run-tests.sh") -Force
+Copy-TaskspaceExternalShellScript $validatorSource (Join-Path $validatorSourceDir "run-tests.sh")
 if (Test-Path -LiteralPath (Join-Path $taskRoot "tests")) {
     foreach ($item in Get-ChildItem -LiteralPath (Join-Path $taskRoot "tests") -Force) {
-        Copy-Item -LiteralPath $item.FullName -Destination $validatorSourceDir -Recurse -Force
+        if (-not $item.PSIsContainer -and [System.IO.Path]::GetExtension($item.FullName).ToLowerInvariant() -eq ".sh") {
+            Copy-TaskspaceExternalShellScript $item.FullName (Join-Path $validatorSourceDir $item.Name)
+        } else {
+            Copy-Item -LiteralPath $item.FullName -Destination $validatorSourceDir -Recurse -Force
+        }
     }
 }
 $originalValidatorSha = Get-TaskspaceExternalTreeSha256 $validatorSourceDir

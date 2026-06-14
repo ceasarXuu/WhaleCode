@@ -178,6 +178,22 @@ $parseErrors = $null
 [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $inlineScenarioDir "external-validator.ps1"), [ref]$null, [ref]$parseErrors) | Out-Null
 Assert-True (@($parseErrors).Count -eq 0) "generated Terminal-Bench validator PowerShell did not parse"
 
+$bomTask = Join-Path $runDir "bom-crlf-script"
+New-Item -ItemType Directory -Path $bomTask | Out-Null
+@'
+instruction: "Create hello.txt."
+category: data-processing
+'@ | Set-Content -LiteralPath (Join-Path $bomTask "task.yaml") -Encoding UTF8
+"FROM scratch" | Set-Content -LiteralPath (Join-Path $bomTask "Dockerfile") -Encoding UTF8
+[System.IO.File]::WriteAllText((Join-Path $bomTask "run-tests.sh"), "#!/usr/bin/env bash`r`necho ok`r`n", [System.Text.UTF8Encoding]::new($true))
+$bomOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $bomTask -OutputRoot (Join-Path $runDir "bom-out") -SampleId "bom" -SourceVersion "pinned"
+$bomScenarioDir = [string]($bomOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$normalizedScriptPath = Join-Path $bomScenarioDir "external-validator-source\run-tests.sh"
+$normalizedBytes = [System.IO.File]::ReadAllBytes($normalizedScriptPath)
+$normalizedText = [System.Text.Encoding]::UTF8.GetString($normalizedBytes)
+Assert-True (-not ($normalizedBytes.Length -ge 3 -and $normalizedBytes[0] -eq 0xEF -and $normalizedBytes[1] -eq 0xBB -and $normalizedBytes[2] -eq 0xBF)) "validator run-tests.sh retained UTF-8 BOM"
+Assert-True ($normalizedText -notmatch "`r") "validator run-tests.sh retained CRLF/CR line endings"
+
 $cacheTask = Join-Path $runDir "docker-cache"
 New-Item -ItemType Directory -Path $cacheTask | Out-Null
 @'
