@@ -519,6 +519,7 @@ Assert-True ($runtimeBottleneckText -notmatch "wait_attribution_missing_fields: 
 Assert-True ($runtimeBottleneckText -match "wait_attribution_unavailable_fields: .*model_queue_wait_ms=whale_jsonl_provider_queue_retry_telemetry_unavailable") "runtime bottleneck report did not render unavailable wait attribution fields"
 Assert-True ($runtimeBottleneckText -notmatch "wait_attribution_missing_fields: .*resource_wait_ms_total") "runtime bottleneck report treated serial resource wait as missing"
 Assert-True ([string]$runtimeBottleneckJson.speedup_decision -eq "speedup_blocked_instrumentation") "runtime bottleneck JSON did not record speedup decision"
+Assert-True (-not [bool]$runtimeBottleneckJson.speedup_evidence_valid -and $runtimeBottleneckText -match "speedup_evidence_valid: False") "runtime bottleneck report did not block speedup evidence validity"
 Assert-True ([string]$runtimeBottleneckJson.resource_wait_attribution_mode -eq "serial_with_cache_lock_observed") "runtime bottleneck JSON did not record observed cache lock attribution mode"
 Assert-True ([string]$runtimeBottleneckJson.wait_attribution_unavailable_fields.model_retry_backoff_ms -eq "whale_jsonl_provider_queue_retry_telemetry_unavailable") "runtime bottleneck JSON did not record unavailable retry attribution reason"
 $calibrationParallelismPath = Write-TaskspaceParallelismArtifact $suiteRoot (New-TaskspaceResourceGovernorConfig) $null (Test-TaskspaceDiskReservation @($suiteRoot) 0) (New-TaskspaceResourceWaitSnapshot)
@@ -526,6 +527,7 @@ $calibrationPath = Write-TaskspaceRuntimeCalibrationReport -TimingPath (Join-Pat
 $calibrationText = Get-Content -Raw -Encoding UTF8 -LiteralPath $calibrationPath
 $calibrationJson = Get-Content -Raw -Encoding UTF8 -LiteralPath ([System.IO.Path]::ChangeExtension($calibrationPath, ".json")) | ConvertFrom-Json
 Assert-True ($calibrationText -match "# TaskSpace Runtime Calibration Report" -and $calibrationText -match "speedup_decision: speedup_blocked_instrumentation") "runtime calibration report did not render speedup decision"
+Assert-True (-not [bool]$calibrationJson.speedup_evidence_valid -and $calibrationText -match "speedup_evidence_valid: False") "runtime calibration report did not render blocked speedup evidence validity"
 Assert-True ($calibrationText -match "resource_governor_status: pass" -and $calibrationText -match "profile_hash: test-profile") "runtime calibration report did not render parallelism/profile metadata"
 Assert-True ([string]$calibrationJson.speedup_decision -eq "speedup_blocked_instrumentation" -and [string]$calibrationJson.parallelism.resource_governor_status -eq "pass") "runtime calibration JSON did not preserve decision and parallelism status"
 
@@ -535,9 +537,11 @@ $timingAggregate = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suit
 $timingAggregateText = Get-Content -Raw -Encoding UTF8 -LiteralPath $timingAggregatePath
 Assert-True ([string]$timingAggregate.timing_summary.bottleneck_classification -eq "mixed_or_unclassified") "aggregate JSON did not include suite timing bottleneck"
 Assert-True ([string]$timingAggregate.timing_summary.speedup_decision -eq "speedup_blocked_instrumentation") "aggregate JSON did not include runtime speedup decision"
+Assert-True (-not [bool]$timingAggregate.timing_summary.speedup_evidence_valid) "aggregate JSON did not include blocked speedup evidence validity"
 Assert-True ([string]$timingAggregate.timing_summary.wait_attribution_unavailable_fields.model_queue_wait_ms -eq "whale_jsonl_provider_queue_retry_telemetry_unavailable") "aggregate JSON did not include unavailable wait attribution reason"
 Assert-True ($timingAggregateText -match "## Timing Summary" -and $timingAggregateText -match "top_span:" -and $timingAggregateText -match "total_median_ms") "aggregate report did not render timing summary"
 Assert-True ($timingAggregateText -match "speedup_decision: speedup_blocked_instrumentation") "aggregate report did not render speedup decision"
+Assert-True ($timingAggregateText -match "speedup_evidence_valid: False") "aggregate report did not render speedup evidence validity"
 Assert-True ($timingAggregateText -match "wait_attribution_unavailable_fields: .*model_queue_wait_ms=whale_jsonl_provider_queue_retry_telemetry_unavailable") "aggregate report did not render unavailable wait attribution reason"
 Assert-True ($timingAggregateText -match "repeated_docker_cache_keys: cache-a") "aggregate report did not render repeated Docker cache keys"
 

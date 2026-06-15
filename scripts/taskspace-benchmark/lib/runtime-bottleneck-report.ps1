@@ -51,6 +51,22 @@ function Get-TaskspaceRuntimeSpeedDecision {
     }
 }
 
+function Test-TaskspaceRuntimeSpeedEvidenceValid {
+    param(
+        $Timing,
+        [bool]$ScoreValid = $true,
+        [string]$TimingParseError = ""
+    )
+    if (-not $ScoreValid) { return $false }
+    if ($TimingParseError) { return $false }
+    if (-not $Timing) { return $false }
+    if ($Timing.PSObject.Properties.Name -contains "timing_quality" -and [string]$Timing.timing_quality -ne "complete") { return $false }
+    if (-not ($Timing.PSObject.Properties.Name -contains "timing_quality")) { return $false }
+    if ($Timing.PSObject.Properties.Name -contains "runtime_optimization_status" -and [string]$Timing.runtime_optimization_status -eq "blocked") { return $false }
+    if ($Timing.PSObject.Properties.Name -contains "speedup_evidence_valid") { return [bool]$Timing.speedup_evidence_valid }
+    return $true
+}
+
 function Get-TaskspaceRuntimePhaseRows {
     param($Timing)
     $rows = New-Object System.Collections.Generic.List[object]
@@ -94,6 +110,7 @@ function Write-TaskspaceRuntimeBottleneckReport {
     } else {
         Get-TaskspaceRuntimeSpeedDecision $timing $ScoreValid
     }
+    $speedupEvidenceValid = Test-TaskspaceRuntimeSpeedEvidenceValid $timing $ScoreValid $parseError
     $blockersForJson = if ($timing -and $timing.PSObject.Properties.Name -contains "runtime_optimization_blockers") { @(Get-TaskspaceRuntimeUniqueStrings $timing.runtime_optimization_blockers) } else { @() }
     $missingForJson = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_missing_fields") { @(Get-TaskspaceRuntimeUniqueStrings $timing.wait_attribution_missing_fields) } else { @() }
     $unavailableForJson = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_unavailable_fields") { $timing.wait_attribution_unavailable_fields } else { [pscustomobject]@{} }
@@ -102,6 +119,7 @@ function Write-TaskspaceRuntimeBottleneckReport {
         timing_path = $TimingPath
         report_path = $OutputPath
         score_valid = $ScoreValid
+        speedup_evidence_valid = $speedupEvidenceValid
         speedup_decision = [string]$decision.decision
         speedup_decision_reason = [string]$decision.reason
         timing_parse_error = $parseError
@@ -124,6 +142,7 @@ function Write-TaskspaceRuntimeBottleneckReport {
     $lines.Add("")
     $lines.Add("- timing_path: $TimingPath")
     $lines.Add("- score_valid: $ScoreValid")
+    $lines.Add("- speedup_evidence_valid: $speedupEvidenceValid")
     $lines.Add("- speedup_decision: $($decision.decision)")
     $lines.Add("- speedup_decision_reason: $($decision.reason)")
     if ($parseError) { $lines.Add("- timing_parse_error: $parseError") }
@@ -188,6 +207,7 @@ function Write-TaskspaceRuntimeCalibrationReport {
     } else {
         Get-TaskspaceRuntimeSpeedDecision $timing $ScoreValid
     }
+    $speedupEvidenceValid = Test-TaskspaceRuntimeSpeedEvidenceValid $timing $ScoreValid $parseError
     $blockers = if ($timing -and $timing.PSObject.Properties.Name -contains "runtime_optimization_blockers") { @(Get-TaskspaceRuntimeUniqueStrings $timing.runtime_optimization_blockers) } else { @() }
     $missing = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_missing_fields") { @(Get-TaskspaceRuntimeUniqueStrings $timing.wait_attribution_missing_fields) } else { @() }
     $unavailable = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_unavailable_fields") { $timing.wait_attribution_unavailable_fields } else { [pscustomobject]@{} }
@@ -201,6 +221,7 @@ function Write-TaskspaceRuntimeCalibrationReport {
         git_commit = $GitCommit
         profile_hash = $ProfileHash
         score_valid = $ScoreValid
+        speedup_evidence_valid = $speedupEvidenceValid
         speedup_decision = [string]$decision.decision
         speedup_decision_reason = [string]$decision.reason
         timing_parse_error = $parseError
@@ -221,6 +242,7 @@ function Write-TaskspaceRuntimeCalibrationReport {
     $lines.Add("# TaskSpace Runtime Calibration Report")
     $lines.Add("")
     $lines.Add("- score_valid: $ScoreValid")
+    $lines.Add("- speedup_evidence_valid: $speedupEvidenceValid")
     $lines.Add("- speedup_decision: $($decision.decision)")
     $lines.Add("- speedup_decision_reason: $($decision.reason)")
     $lines.Add("- timing_path: $TimingPath")

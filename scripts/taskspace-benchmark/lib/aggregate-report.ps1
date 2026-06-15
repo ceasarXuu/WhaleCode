@@ -191,6 +191,7 @@ function Write-TaskspaceAggregateReport {
         timing_path = [string]$timingArtifact.path
         runtime_bottleneck_path = [string]$runtimeBottleneckArtifact.path
         bottleneck_classification = if ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "bottleneck_classification") { [string]$timingArtifact.json.bottleneck_classification } else { "" }
+        speedup_evidence_valid = if ($runtimeBottleneckArtifact.json -and $runtimeBottleneckArtifact.json.PSObject.Properties.Name -contains "speedup_evidence_valid") { [bool]$runtimeBottleneckArtifact.json.speedup_evidence_valid } else { $false }
         speedup_decision = if ($runtimeBottleneckArtifact.json -and $runtimeBottleneckArtifact.json.PSObject.Properties.Name -contains "speedup_decision") { [string]$runtimeBottleneckArtifact.json.speedup_decision } else { "" }
         speedup_decision_reason = if ($runtimeBottleneckArtifact.json -and $runtimeBottleneckArtifact.json.PSObject.Properties.Name -contains "speedup_decision_reason") { [string]$runtimeBottleneckArtifact.json.speedup_decision_reason } else { "" }
         runtime_optimization_status = if ($runtimeBottleneckArtifact.json -and $runtimeBottleneckArtifact.json.PSObject.Properties.Name -contains "runtime_optimization_status") { [string]$runtimeBottleneckArtifact.json.runtime_optimization_status } elseif ($timingArtifact.json -and $timingArtifact.json.PSObject.Properties.Name -contains "runtime_optimization_status") { [string]$timingArtifact.json.runtime_optimization_status } else { "" }
@@ -303,6 +304,7 @@ function Write-TaskspaceAggregateReport {
     $lines.Add("- timing_path: $($timingSummary["timing_path"])")
     $lines.Add("- runtime_bottleneck_path: $($timingSummary["runtime_bottleneck_path"])")
     $lines.Add("- bottleneck_classification: $($timingSummary["bottleneck_classification"])")
+    $lines.Add("- speedup_evidence_valid: $($timingSummary["speedup_evidence_valid"])")
     $lines.Add("- speedup_decision: $($timingSummary["speedup_decision"])")
     $lines.Add("- speedup_decision_reason: $($timingSummary["speedup_decision_reason"])")
     $lines.Add("- runtime_optimization_status: $($timingSummary["runtime_optimization_status"])")
