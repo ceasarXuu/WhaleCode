@@ -76,6 +76,14 @@ Assert-True (@($runState.samples).Count -eq 1) "run state did not record sample 
 Assert-True (-not [string]::IsNullOrWhiteSpace([string]$sampleState.phase_started_at)) "sample state did not record phase_started_at"
 $runEvents = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $runDir "events.jsonl")
 Assert-True (@($runEvents | Where-Object { $_ -match '"event":"run_initialized"' }).Count -eq 1) "run initialized event was not appended"
+$deepRoot = Join-Path $RunRoot ("deep-" + ("x" * 60))
+$deepRunDir = Join-Path (Join-Path $deepRoot ("sample-" + ("y" * 65))) "20260615-000000-000"
+$deepStatusPath = Join-Path $deepRunDir "sample-status.json"
+Assert-True ($deepStatusPath.Length -lt 248 -and ("$deepStatusPath.tmp.$([guid]::NewGuid().ToString('N'))").Length -ge 260) "deep path fixture does not exercise atomic temp path boundary"
+Write-TaskspaceAtomicJson ([pscustomobject]@{ ok = $true }) $deepStatusPath
+Write-TaskspaceRunEvent $deepRunDir "deep_path_event" @{ ok = $true }
+Assert-True (Test-Path -LiteralPath $deepStatusPath) "atomic json writer failed on deep run-state path"
+Assert-True (Test-Path -LiteralPath (Join-Path $deepRunDir "events.jsonl")) "run event writer failed to create deep run directory"
 $resumeRunDir = Join-Path (Join-Path $RunRoot "resume-sample") "20260607-000000-000"
 New-Item -ItemType Directory -Path (Join-Path $resumeRunDir "pair-001") -Force | Out-Null
 Initialize-TaskspaceBenchmarkRunState $resumeRunDir "resume-sample" 1 "E2" "resume-test" | Out-Null

@@ -7,7 +7,7 @@ function Write-TaskspaceAtomicJson {
     if (-not (Test-Path -LiteralPath $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
-    $tmp = "$Path.tmp.$([guid]::NewGuid().ToString('N'))"
+    $tmp = "$Path.t$([guid]::NewGuid().ToString('N').Substring(0, 8))"
     try {
         $jsonValue = if ($Value -is [System.Collections.IDictionary]) {
             $object = New-Object psobject
@@ -32,6 +32,9 @@ function Write-TaskspaceRunEvent {
         [hashtable]$Data = @{}
     )
     $path = Join-Path $RunDir "events.jsonl"
+    if (-not (Test-Path -LiteralPath $RunDir)) {
+        New-Item -ItemType Directory -Path $RunDir -Force | Out-Null
+    }
     $row = [ordered]@{
         schema_version = 1
         timestamp = (Get-Date).ToString("o")
