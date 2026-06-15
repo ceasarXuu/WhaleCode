@@ -70,3 +70,30 @@ Observation:
 
 Supports:
 - H-001 prediction that the failure is a harness materialization problem, not an agent solving or public validation outcome.
+
+## Hypothesis H-002: Validator proof artifact paths exceed Windows writer path budget
+
+Status: confirmed
+
+Rationale:
+- After shortening the Terminal-Bench repo path, the suite passed workspace materialization but `analyze-access-logs` failed during validator probe.
+
+Predictions:
+- Probe stdout should show normal validator startup before result writing.
+- Probe stderr should fail while writing a proof artifact under `external-validator-runtime-probe`.
+- The failing result path should exceed the Windows path boundary.
+
+Diagnostic evidence plan:
+- Read validator probe stdout/stderr and measure `validator-probe-result.json` path length.
+
+## Evidence E-004
+
+Type: probe artifact
+
+Observation:
+- `validator-probe.stdout.log` shows `validator_probe_started=true`, Docker backend detection, repo mount, and validator mount.
+- `validator-probe.stderr.log` fails at generated `external-validator.ps1` while writing `external-validator-runtime-probe\validator-probe-result.json`.
+- The measured full path length for `validator-probe-result.json` is 266 characters.
+
+Supports:
+- H-002 prediction that proof artifact path length, not Docker execution or task logic, caused the probe failure.

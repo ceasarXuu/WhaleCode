@@ -111,12 +111,17 @@ $terminalBenchManifest = [pscustomobject]@{
         validator_fidelity = [pscustomobject]@{ validator_runtime = "terminal_bench_docker_app" }
     }
 }
-$terminalBenchRunDir = Join-Path (Join-Path $RunRoot ("suite-" + ("s" * 15))) "samples\analyze-access-logs\runs\terminal_bench__analyze-access-logs\20260615-000000-000"
+$terminalBenchBudgetRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("tbe3-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+$terminalBenchRunDir = Join-Path (Join-Path $terminalBenchBudgetRoot ("suite-" + ("s" * 15))) "samples\analyze-access-logs\runs\terminal_bench__analyze-access-logs\20260615-000000-000"
 $terminalBenchPair = New-TaskspacePairWorkspace $terminalBenchManifest $terminalBenchRunDir 1
 $worstLooseObjectPath = Join-Path $terminalBenchPair.Left.RepoDir ".git\objects\3e\40a9fe4e99fc548b9421b013c75c8cc706cb9d"
+$probeResultPath = Join-Path (Join-Path $terminalBenchPair.Left.ArtifactDir "vprobe") "validator-probe-result.json"
+$runtimeResultPath = Join-Path (Join-Path $terminalBenchPair.Left.ArtifactDir "vrun") "validation-cleanup-result.json"
 Assert-True ($terminalBenchPair.Left.ExecutionAliasRoot -eq (Split-Path -Parent $terminalBenchPair.Left.RepoDir)) "terminal-bench alias root should map side root directly"
 Assert-True ($terminalBenchPair.Left.RepoDir.EndsWith("\left\app") -and -not ($terminalBenchPair.Left.RepoDir -match "terminal-bench-drive")) "terminal-bench repo path was not shortened"
 Assert-True ($worstLooseObjectPath.Length -lt 260) "terminal-bench workspace path exceeds Git object path budget: $($worstLooseObjectPath.Length)"
+Assert-True ($probeResultPath.Length -lt 260) "terminal-bench probe proof path exceeds Windows path budget: $($probeResultPath.Length)"
+Assert-True ($runtimeResultPath.Length -lt 260) "terminal-bench runtime proof path exceeds Windows path budget: $($runtimeResultPath.Length)"
 $leftPrivateHits = @(Get-ChildItem -LiteralPath $pairOne.Left.RepoDir -Recurse -Force | Where-Object { $_.FullName -match 'private-oracle|reviewer-only' })
 $rightPrivateHits = @(Get-ChildItem -LiteralPath $pairOne.Right.RepoDir -Recurse -Force | Where-Object { $_.FullName -match 'private-oracle|reviewer-only' })
 Assert-True ($leftPrivateHits.Count -eq 0) "private oracle leaked into left repo"

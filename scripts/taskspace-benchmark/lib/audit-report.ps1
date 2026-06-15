@@ -72,8 +72,12 @@ function Get-TaskspaceRequiredAuditArtifacts {
         }
         if ($externalBenchmarkName -eq "terminal-bench") {
             foreach ($side in @("left", "right")) {
-                $required += "$side/artifacts/external-validator-runtime/terminal-bench-runtime-manifest.json"
-                $required += "$side/artifacts/external-validator-runtime/validation-cleanup-result.json"
+                $runtimeDir = "$side/artifacts/vrun"
+                if (-not (Test-Path -LiteralPath (Join-Path $PairDir $runtimeDir))) {
+                    $runtimeDir = "$side/artifacts/external-validator-runtime"
+                }
+                $required += "$runtimeDir/terminal-bench-runtime-manifest.json"
+                $required += "$runtimeDir/validation-cleanup-result.json"
             }
         }
     }

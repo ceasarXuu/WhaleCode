@@ -236,7 +236,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         foreach ($side in @($pair.Left, $pair.Right)) {
             $probeStdout = Join-Path $side.ArtifactDir "validator-probe.stdout.log"
             $probeStderr = Join-Path $side.ArtifactDir "validator-probe.stderr.log"
-            $probeProofDir = Join-Path $side.ArtifactDir "external-validator-runtime-probe"
+            $probeProofDir = Join-Path $side.ArtifactDir "vprobe"
             $probeStartedAt = Get-Date
             $probeExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $probeStdout $probeStderr ([Math]::Min($ValidationPretestTimeoutSeconds, [Math]::Max(30, $ValidationTimeoutSeconds))) $probeProofDir @("-ProbeOnly")
             $probeFinishedAt = Get-Date
@@ -378,7 +378,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     foreach ($side in @($pair.Left, $pair.Right)) {
         $validationStdout = Join-Path $side.ArtifactDir "validation.stdout.log"
         $validationStderr = Join-Path $side.ArtifactDir "validation.stderr.log"
-        $validationProofDir = Join-Path $side.ArtifactDir "external-validator-runtime"
+        $validationProofDir = Join-Path $side.ArtifactDir "vrun"
         $validationProcessTimingPath = Join-Path $validationProofDir "validation-process-timing.json"
         $exec = $execBySide[$side.Name]
         $probeStatus = if ($probeStatusBySide.ContainsKey($side.Name)) { $probeStatusBySide[$side.Name] } else { $null }
