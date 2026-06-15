@@ -143,6 +143,9 @@ try {
     Assert-True (Test-Path -LiteralPath $calibratedGate.gate_decision_path) "start gate did not write gate-decision artifact"
     $gateDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $calibratedGate.gate_decision_path | ConvertFrom-Json
     Assert-True ([string]$gateDecision.status -eq "pass" -and [string]$gateDecision.task_list_hash -eq "task-list-a" -and [string]$gateDecision.profile_hash -eq "profile-a") "gate-decision did not preserve expected identity"
+    Assert-True ([string]$gateDecision.next_allowed_command_category -eq "full_e3" -and [bool]$gateDecision.full_e3_allowed -and [bool]$gateDecision.speed_claim_allowed -and [bool]$gateDecision.calibration_gate_passed) "gate-decision did not authorize full E3 after complete calibration gate"
+    $skippedCalibrationDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $smokeGate.gate_decision_path | ConvertFrom-Json
+    Assert-True ([string]$skippedCalibrationDecision.next_allowed_command_category -eq "serial_calibration" -and -not [bool]$skippedCalibrationDecision.full_e3_allowed -and -not [bool]$skippedCalibrationDecision.speed_claim_allowed) "gate-decision authorized full E3 when calibration gate was skipped"
     $blockedCalibration = New-CalibrationFixtures (Join-Path $runDir "calibration-speedup-evidence-fail")
     $blockedCalibrationReport = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $blockedCalibration.serial_root "runtime-calibration-report.json") | ConvertFrom-Json
     $blockedCalibrationReport.speedup_evidence_valid = $false

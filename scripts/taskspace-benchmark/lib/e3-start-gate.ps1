@@ -68,18 +68,28 @@ function New-TaskspaceE3GateRow {
 function New-TaskspaceE3GateDecision {
     param($Gate, [string]$Phase = "R1", [string]$TaskListHash = "", [string]$SourceVersion = "", [string]$ProfileHash = "")
     $passed = ($Gate -and [string]$Gate.status -eq "pass")
-    $nextCategory = if ($passed) { "serial_calibration" } else { "fixture_tests" }
     $calibrationPass = $false
+    $fullE3Allowed = $false
+    $speedClaimAllowed = $false
     if ($Gate -and $Gate.calibration_gate) {
         $calibrationPass = ([string]$Gate.calibration_gate.status -eq "pass")
+        $fullE3Allowed = $calibrationPass -and [bool]$Gate.calibration_gate.full_e3_allowed
+        $speedClaimAllowed = $calibrationPass -and [bool]$Gate.calibration_gate.speed_claim_allowed
+    }
+    $nextCategory = if (-not $passed) {
+        "fixture_tests"
+    } elseif ($fullE3Allowed) {
+        "full_e3"
+    } else {
+        "serial_calibration"
     }
     [pscustomobject]@{
         schema_version = 1
         status = if ($passed) { "pass" } else { "blocked" }
         phase = $Phase
         next_allowed_command_category = $nextCategory
-        full_e3_allowed = $false
-        speed_claim_allowed = $false
+        full_e3_allowed = $fullE3Allowed
+        speed_claim_allowed = $speedClaimAllowed
         calibration_gate_passed = $calibrationPass
         task_list_hash = $TaskListHash
         source_version = $SourceVersion
