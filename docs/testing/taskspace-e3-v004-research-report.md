@@ -1,71 +1,71 @@
-# TaskSpace v0.0.4 E3 Run Research Report
+# TaskSpace v0.0.4 E3 运行研究报告
 
-Date: 2026-06-16
+日期：2026-06-16
 
-Run root:
+运行根目录：
 `D:\whalecode-alpha\target\e3-v004-proof-20260615\serial-clean-v1\suite-20260616-020714`
 
-## 1. Scope And Evidence
+## 1. 范围与证据
 
-This report analyzes the clean v0.0.4 E3 serial run over Terminal-Bench calibration tasks:
+本报告分析 v0.0.4 在 Terminal-Bench 校准任务上的一次工程 clean 的 E3 串行运行。
 
-- Tasks: `analyze-access-logs`, `log-summary`, `count-call-stack`
-- Repeats: 5 per task
-- Compared modes: `standard` vs `taskspace`
-- Pair count: 15
-- Engineering cleanliness: clean for this run
+- 任务：`analyze-access-logs`、`log-summary`、`count-call-stack`
+- 每个任务重复次数：5
+- 对比模式：`standard` vs `taskspace`
+- Pair 总数：15
+- 工程 clean 状态：本次运行 clean
   - `invalid_harness_sample_count=0`
   - `signature_count=0`
   - `engineering_unclean_pairs=0`
   - `suite_score_valid=true`
 
-Important caveat:
+重要 caveat：
 
-- The run still has E3 audit templates pending (`audit_required` at sample level). The raw solved/wrong values below are public-validator outcomes from `metrics.json`/`audit.json`, not a human-reviewed final benchmark claim.
+- 本次运行在 sample 层仍处于 `audit_required`，也就是 E3 人工审计模板尚未完成。下面的 solved/wrong 是来自 `metrics.json` 和 `audit.json` 的 public validator 原始结果，不是经过人工审计后的最终 benchmark claim。
 
-## 2. Executive Summary
+## 2. 执行摘要
 
-TaskSpace produced a small raw accuracy lift but at very high runtime and token cost.
+TaskSpace 带来了很小的原始正确率提升，但耗时和 token 成本非常高。
 
-| Metric | Standard | TaskSpace | TaskSpace / Standard |
+| 指标 | Standard | TaskSpace | TaskSpace / Standard |
 |---|---:|---:|---:|
-| Solved pairs | 7/15 | 8/15 | +1 solved pair |
-| Agent time | 791.9s | 3952.2s | 4.99x |
-| Public validation time | 1623.8s | 1437.8s | 0.89x |
-| Docker run time | 1441.1s | 1286.4s | 0.89x |
-| Direct input+output tokens | 2,564,355 | 51,073,287 | 19.92x |
-| Uncached input tokens | 185,043 | 660,749 | 3.57x |
+| 解决 pair 数 | 7/15 | 8/15 | +1 solved pair |
+| Agent 耗时 | 791.9s | 3952.2s | 4.99x |
+| Public validation 耗时 | 1623.8s | 1437.8s | 0.89x |
+| Docker run 耗时 | 1441.1s | 1286.4s | 0.89x |
+| 直接 input+output tokens | 2,564,355 | 51,073,287 | 19.92x |
+| 非缓存 input tokens | 185,043 | 660,749 | 3.57x |
 | Output tokens | 39,728 | 293,242 | 7.38x |
 | Tool calls | 103 | 124 | 1.20x |
 
-Main readout:
+主要结论：
 
-- TaskSpace is not broadly better yet. It is selectively better on some log-processing tasks, neutral on `log-summary`, and ineffective on `count-call-stack`.
-- The cost profile is dominated by massive cached input reuse, not just visible subagent JSONL overhead.
-- The runtime bottleneck is split between TaskSpace agent time and public validation. The suite-level timing classifies the run as `validator_bound`, but mode-level comparison shows TaskSpace agent execution is the largest differential.
-- TaskSpace graph quality signals are weak: every TaskSpace run had `high_unreviewed_result_ratio`, and 13/15 had `high_blocked_node_ratio`.
+- TaskSpace 目前还不是广义上更好的模式。它在部分日志处理任务上有选择性收益，在 `log-summary` 上整体持平，在 `count-call-stack` 上无效。
+- 成本结构主要由大量 cached input 复用驱动，不只是可见的 subagent JSONL 额外开销。
+- 运行耗时瓶颈由 TaskSpace agent 耗时和 public validation 共同构成。suite 级 timing 把整体分类为 `validator_bound`，但模式级对比显示，TaskSpace agent 执行耗时才是 Standard 和 TaskSpace 之间最大的差异来源。
+- TaskSpace 图结构质量信号偏弱：15/15 个 TaskSpace run 都出现 `high_unreviewed_result_ratio`，13/15 出现 `high_blocked_node_ratio`。
 
-## 3. Outcome Detail
+## 3. 执行效果明细
 
-| Task | Standard | TaskSpace | Interpretation |
+| Task | Standard | TaskSpace | 解读 |
 |---|---:|---:|---|
-| analyze-access-logs | 4/5 | 5/5 | TaskSpace gained one clear pair. |
-| count-call-stack | 0/5 | 0/5 | Both modes failed consistently. TaskSpace spent more without solving. |
-| log-summary | 3/5 | 3/5 | Same aggregate score, but different pair-level winners. |
-| Total | 7/15 | 8/15 | Net +1 solved pair. |
+| analyze-access-logs | 4/5 | 5/5 | TaskSpace 明确多赢 1 个 pair。 |
+| count-call-stack | 0/5 | 0/5 | 两种模式都稳定失败。TaskSpace 花费更多但没有解决。 |
+| log-summary | 3/5 | 3/5 | 总分相同，但 pair 级胜负不同。 |
+| Total | 7/15 | 8/15 | 净收益为 +1 solved pair。 |
 
-Pair-level result categories:
+Pair 级结果分类：
 
-| Category | Count |
+| 分类 | 数量 |
 |---|---:|
-| Both solved | 5 |
-| TaskSpace only | 3 |
-| Standard only | 2 |
-| Neither solved | 5 |
+| 双方都解决 | 5 |
+| 只有 TaskSpace 解决 | 3 |
+| 只有 Standard 解决 | 2 |
+| 双方都未解决 | 5 |
 
-Pair-level details:
+Pair 级明细：
 
-| Task | Pair | Result | Standard time | TaskSpace time | Standard tokens | TaskSpace tokens | TS token ratio |
+| Task | Pair | 结果 | Standard 耗时 | TaskSpace 耗时 | Standard tokens | TaskSpace tokens | TS token ratio |
 |---|---:|---|---:|---:|---:|---:|---:|
 | analyze-access-logs | 001 | TaskSpace only | 22.4s | 463.8s | 57,921 | 5,439,623 | 93.91x |
 | analyze-access-logs | 002 | Both | 33.2s | 131.1s | 74,865 | 831,299 | 11.10x |
@@ -83,24 +83,24 @@ Pair-level details:
 | log-summary | 004 | TaskSpace only | 26.6s | 263.8s | 69,243 | 2,652,195 | 38.30x |
 | log-summary | 005 | Standard only | 28.2s | 237.7s | 72,544 | 2,039,857 | 28.12x |
 
-## 4. Runtime Findings
+## 4. 耗时分析
 
-Suite timing:
+Suite 级 timing：
 
-- Total pair duration: 8276212ms, about 137.9 minutes
-- Agent execution: 4744306ms, about 79.1 minutes
-- Public validation: 3061684ms, about 51.0 minutes
-- Docker run: 2727821ms, about 45.5 minutes
-- Suite bottleneck classification: `validator_bound`
+- Total pair duration：8276212ms，约 137.9 分钟
+- Agent execution：4744306ms，约 79.1 分钟
+- Public validation：3061684ms，约 51.0 分钟
+- Docker run：2727821ms，约 45.5 分钟
+- Suite bottleneck classification：`validator_bound`
 
-Mode-level timing tells a sharper story:
+模式级 timing 给出的结论更尖锐：
 
-- Standard agent time: 13.2 minutes total
-- TaskSpace agent time: 65.9 minutes total
-- TaskSpace added about 52.7 minutes of agent runtime while gaining one net solved pair.
-- Public validation and Docker are large absolute costs, but they do not explain the TaskSpace vs Standard gap. Validation time is actually slightly lower for TaskSpace in this run.
+- Standard agent 总耗时：13.2 分钟
+- TaskSpace agent 总耗时：65.9 分钟
+- TaskSpace 额外消耗约 52.7 分钟 agent runtime，但净收益只有 +1 solved pair。
+- Public validation 和 Docker 是很大的绝对成本，但不能解释 TaskSpace 和 Standard 的差距。本次运行里 TaskSpace 的 validation 耗时甚至略低于 Standard。
 
-Task-level average agent time:
+按任务的平均 agent 耗时：
 
 | Task | Standard avg | TaskSpace avg | Ratio |
 |---|---:|---:|---:|
@@ -108,37 +108,37 @@ Task-level average agent time:
 | count-call-stack | 92.1s | 236.7s | 2.57x |
 | log-summary | 29.8s | 289.2s | 9.70x |
 
-Interpretation:
+解读：
 
-- TaskSpace has a high fixed orchestration/context overhead. It is especially expensive on tasks that Standard can solve in under 60 seconds.
-- `count-call-stack` shows that longer runtime does not guarantee better reasoning. TaskSpace spent 2.6x Standard time on average and still failed all five.
+- TaskSpace 有较高的固定 orchestration/context 开销。对于 Standard 能在 60 秒内解决的小任务，这个开销尤其昂贵。
+- `count-call-stack` 说明更长运行时间不必然带来更强推理。TaskSpace 平均耗时是 Standard 的 2.6x，但 5 次全部失败。
 
-## 5. Token Cost Findings
+## 5. Token 成本分析
 
-Direct mode usage, excluding nested subagent JSONL files:
+直接模式用量，不包含嵌套 subagent JSONL 文件：
 
 | Mode | Input | Cached input | Uncached input | Output | Reasoning output | Input+Output |
 |---|---:|---:|---:|---:|---:|---:|
 | Standard | 2,524,627 | 2,339,584 | 185,043 | 39,728 | 16,748 | 2,564,355 |
 | TaskSpace | 50,780,045 | 50,119,296 | 660,749 | 293,242 | 82,420 | 51,073,287 |
 
-All JSONL usage, including nested TaskSpace subagent JSONL files:
+所有 JSONL 用量，包含 TaskSpace 嵌套 subagent JSONL 文件：
 
-| Scope | Files | Input | Cached input | Uncached input | Output | Reasoning output | Input+Output |
+| 范围 | Files | Input | Cached input | Uncached input | Output | Reasoning output | Input+Output |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Direct only | 30 | 53,304,672 | 52,458,880 | 845,792 | 332,970 | 99,168 | 53,637,642 |
 | All JSONL | 45 | 53,982,666 | 52,920,192 | 1,062,474 | 341,964 | 100,764 | 54,324,630 |
 | Nested extra | 15 | 677,994 | 461,312 | 216,682 | 8,994 | 1,596 | 686,988 |
 
-Key observations:
+关键观察：
 
-- TaskSpace direct input is 20.1x Standard input.
-- TaskSpace direct input+output is 19.9x Standard.
-- TaskSpace uncached input is 3.6x Standard, much lower than the total-token ratio because the run benefits heavily from prompt caching.
-- TaskSpace cached input rate is about 98.7%; Standard cached input rate is about 92.7%.
-- The separate nested subagent JSONL files add only about 0.69M tokens. This means most TaskSpace token cost is not in standalone subagent files; it is in the main TaskSpace execution context, likely because graph state, subagent summaries, results, and accumulated context are repeatedly reintroduced into model calls.
+- TaskSpace direct input 是 Standard 的 20.1x。
+- TaskSpace direct input+output 是 Standard 的 19.9x。
+- TaskSpace uncached input 是 Standard 的 3.6x，明显低于总 token 倍数，因为本次运行大量受益于 prompt cache。
+- TaskSpace cached input rate 约 98.7%；Standard cached input rate 约 92.7%。
+- 独立的嵌套 subagent JSONL 只额外增加约 0.69M tokens。这意味着 TaskSpace 的大部分 token 成本不在 standalone subagent 文件里，而在主 TaskSpace 执行上下文里。更可能的原因是 graph state、subagent summary、result、累积 context 被反复带入模型调用。
 
-Largest token outliers:
+最大 token 异常点：
 
 | Task | Pair | Mode | Outcome | Tokens | Agent time |
 |---|---:|---|---|---:|---:|
@@ -148,7 +148,7 @@ Largest token outliers:
 | log-summary | 001 | TaskSpace | solved | 4,152,217 | 377.8s |
 | log-summary | 002 | TaskSpace | solved | 3,974,568 | 328.5s |
 
-Outcome/cost relationship:
+Outcome 与成本关系：
 
 | Mode | Outcome | Runs | Avg agent time | Avg tokens | Avg tool calls |
 |---|---|---:|---:|---:|---:|
@@ -157,11 +157,11 @@ Outcome/cost relationship:
 | TaskSpace | solved | 8 | 286.6s | 4,464,149 | 6.4 |
 | TaskSpace | wrong | 7 | 237.1s | 2,194,299 | 10.4 |
 
-This suggests TaskSpace success currently correlates with spending more context and time, not with a leaner or more efficient reasoning path.
+这说明当前 TaskSpace 的成功更像是和更多 context、更多时间投入相关，而不是来自更精简、更高效的推理路径。
 
-## 6. TaskSpace Behavior Pattern
+## 6. TaskSpace 行为模式
 
-TaskSpace graph warnings:
+TaskSpace graph warnings：
 
 | Warning | Count |
 |---|---:|
@@ -171,7 +171,7 @@ TaskSpace graph warnings:
 | low_decision_density | 2/15 |
 | synthesis_not_ready | 2/15 |
 
-Subagent usage:
+Subagent 使用情况：
 
 | Task | Spawn agent calls | Subagent results | TaskSpace solved |
 |---|---:|---:|---:|
@@ -179,138 +179,138 @@ Subagent usage:
 | count-call-stack | 0 | 0 | 0/5 |
 | log-summary | 11 | 42 | 3/5 |
 
-Behavioral interpretation:
+行为解读：
 
-- TaskSpace uses substantial structure and context even when subagents are not spawned.
-- On `count-call-stack`, TaskSpace did not spawn subagents at all, despite the task being consistently unsolved. It mainly behaved as a heavier single-agent workflow with more tool calls.
-- On `log-summary`, TaskSpace spawned many subagents but only tied Standard. The graph repeatedly warned `subagent_no_decision_yield`, indicating subagent outputs were not consistently converted into adopted decisions.
-- On `analyze-access-logs`, TaskSpace got a real benefit. It solved all five and beat Standard on one pair. However, the cost was extreme: 24.9M direct tokens for five TaskSpace runs versus 0.8M for Standard.
+- 即使没有 spawn subagent，TaskSpace 也会使用大量结构化状态和上下文。
+- 在 `count-call-stack` 上，尽管任务稳定失败，TaskSpace 没有 spawn subagent。它主要表现为一个更重的单 agent workflow，tool calls 更多，但没有形成新的解题路径。
+- 在 `log-summary` 上，TaskSpace spawn 了很多 subagent，但总分只和 Standard 持平。graph 多次出现 `subagent_no_decision_yield`，说明 subagent 产物没有稳定转化为被采纳的决策。
+- 在 `analyze-access-logs` 上，TaskSpace 确实带来了收益。它 5/5 解决，比 Standard 多赢一个 pair。但成本极高：5 个 TaskSpace run 直接消耗 24.9M tokens，而 Standard 只消耗 0.8M tokens。
 
-The strongest current TaskSpace pattern is "expensive breadth plus context accumulation." It can help on tasks where redundant inspection and synthesis improve reliability, but it does not yet reliably convert that breadth into decisions, nor does it detect when breadth is not helping.
+当前 TaskSpace 最明显的模式是：昂贵的广度探索加上下文累积。它在冗余检查和综合能提高可靠性的任务上可能有帮助，但还不能稳定地把广度转化为决策，也不能识别广度不再产生收益的时刻。
 
-## 7. Failure Pattern: count-call-stack
+## 7. 失败模式：count-call-stack
 
-Both modes failed all five `count-call-stack` repeats. This is not an engineering-cleanliness issue:
+`count-call-stack` 的 5 次重复中，两种模式全部失败。这不是工程 clean 问题：
 
-- Public validators completed.
-- Failures were normal validator assertion failures, primarily `FAILED ../tests/test_outputs.py::test_count_output`.
-- `engineering_unclean=false` for all rows.
+- Public validators 都完成了。
+- 失败是正常 validator assertion failure，主要是 `FAILED ../tests/test_outputs.py::test_count_output`。
+- 所有行都是 `engineering_unclean=false`。
 
-Observed behavior:
+观察到的行为：
 
-- Both modes wrote `output.txt` and often extracted or parsed `log.stack`.
-- Standard changed parsing helper files in some repeats.
-- TaskSpace created helper scripts in some repeats, but no subagents were spawned.
-- TaskSpace used more tool calls than Standard on this task: 63 vs 55.
-- TaskSpace used about 11.16M tokens versus Standard's 1.36M, with 0/5 solved for both.
+- 两种模式都写了 `output.txt`，并且经常解压或解析 `log.stack`。
+- Standard 在部分 repeat 中改写了解析辅助脚本。
+- TaskSpace 在部分 repeat 中也创建了 helper script，但没有 spawn subagent。
+- 在这个任务上，TaskSpace tool calls 多于 Standard：63 vs 55。
+- TaskSpace 消耗约 11.16M tokens，Standard 消耗约 1.36M tokens，但双方都是 0/5。
 
-Likely cause:
+可能原因：
 
-- This task appears format-sensitive and validator-specific. The agents generated plausible stack-analysis outputs but missed exact expected structure/content.
-- TaskSpace did not introduce a distinct verification or format-diff strategy. It mostly amplified the same local exploration loop.
-- Since no subagents were spawned, the multi-agent primitive did not engage on the task that most needed alternative hypotheses.
+- 这个任务对格式和 validator 预期非常敏感。agent 生成了看似合理的 stack analysis 输出，但没有满足精确的 expected structure/content。
+- TaskSpace 没有引入明显不同的 verification 或 format-diff 策略，而是放大了同类本地探索循环。
+- 因为没有 spawn subagent，最需要替代假设的任务反而没有真正启用 multi-agent primitive。
 
-## 8. What This Run Says About v0.0.4
+## 8. 本次运行对 v0.0.4 的含义
 
-Positive signal:
+正向信号：
 
-- Engineering harness is clean for this run.
-- TaskSpace can improve reliability on some log-processing tasks.
-- Prompt caching makes the huge context cost less catastrophic than raw token totals suggest.
+- 本次运行的工程 harness 是 clean 的。
+- TaskSpace 在部分日志处理任务上确实能提升可靠性。
+- Prompt caching 让巨大的上下文成本没有 raw token 总量看起来那么灾难性。
 
-Negative signal:
+负向信号：
 
-- Net effectiveness lift is only +1/15.
-- TaskSpace runtime is about 5x Standard agent runtime.
-- TaskSpace direct token cost is about 20x Standard.
-- Graph hygiene is poor: all TaskSpace runs have high unreviewed result ratio.
-- Subagent output adoption is weak. In several runs, subagents exist but do not translate into decision yield.
-- TaskSpace does not yet have a good "stop spending" mechanism when it is not improving the solution path.
+- 净效果提升只有 +1/15。
+- TaskSpace runtime 约为 Standard agent runtime 的 5x。
+- TaskSpace direct token cost 约为 Standard 的 20x。
+- Graph hygiene 较差：所有 TaskSpace run 都有 high unreviewed result ratio。
+- Subagent output adoption 较弱。多个 run 中存在 subagent，但没有转化为 decision yield。
+- TaskSpace 还缺少良好的“停止继续花费”的机制，不能在路径无收益时及时降级或停止。
 
-The cleanest characterization is:
+最准确的描述是：
 
-> v0.0.4 TaskSpace shows a correctness signal, but it is not cost-efficient. It behaves like a high-context orchestration system with occasional reliability gains rather than a consistently better coding agent mode.
+> v0.0.4 TaskSpace 展现了 correctness signal，但成本效率不成立。它更像一个高上下文 orchestration 系统，偶尔带来可靠性收益，而不是一个稳定更强的 coding agent 模式。
 
-## 9. Bottleneck Hypotheses
+## 9. 瓶颈假设
 
-H1: Context bloat is the primary token bottleneck.
+H1：Context bloat 是主要 token 瓶颈。
 
-- Evidence: TaskSpace direct input+output is 51.1M tokens, 19.9x Standard.
-- Evidence: Cached input dominates TaskSpace usage at about 98.7%.
-- Inference: repeated graph/context/subagent state is being included in model calls even when the actual task is small.
+- 证据：TaskSpace direct input+output 为 51.1M tokens，是 Standard 的 19.9x。
+- 证据：TaskSpace usage 中 cached input 占约 98.7%。
+- 推断：即使任务本身很小，graph/context/subagent state 也被反复纳入模型调用。
 
-H2: Decision adoption is the primary TaskSpace quality bottleneck.
+H2：Decision adoption 是主要质量瓶颈。
 
-- Evidence: `high_unreviewed_result_ratio` appears in 15/15 TaskSpace runs.
-- Evidence: `subagent_no_decision_yield` appears in 7/15 runs.
-- Inference: TaskSpace is generating intermediate results faster than it can validate/adopt them.
+- 证据：`high_unreviewed_result_ratio` 出现在 15/15 个 TaskSpace run。
+- 证据：`subagent_no_decision_yield` 出现在 7/15 个 run。
+- 推断：TaskSpace 产生中间结果的速度超过了验证和采纳这些结果的能力。
 
-H3: Task routing is too coarse.
+H3：Task routing 过粗。
 
-- Evidence: `count-call-stack` got no subagents and failed 0/5.
-- Evidence: `log-summary` got many subagents but only tied Standard.
-- Inference: TaskSpace is not yet deciding when to use subagents based on task shape and observed failure mode.
+- 证据：`count-call-stack` 没有使用 subagent，且 0/5。
+- 证据：`log-summary` 使用了很多 subagent，但只和 Standard 持平。
+- 推断：TaskSpace 还不能根据任务形态和已观察到的失败模式决定是否使用 subagent、何时停止或何时切换策略。
 
-H4: Validation remains a suite-level speed bottleneck.
+H4：Validation 仍是 suite 级速度瓶颈。
 
-- Evidence: public validation consumed about 51 minutes of the run; Docker run consumed about 45.5 minutes.
-- Evidence: validation time is large for both modes, so it limits total E3 iteration speed even after agent improvements.
+- 证据：public validation 消耗约 51 分钟；Docker run 消耗约 45.5 分钟。
+- 证据：validation 时间对两种模式都很大，所以即使 agent 侧优化完成，它仍会限制 E3 迭代速度。
 
-## 10. Recommendations
+## 10. 建议
 
-1. Add first-class token summaries to suite artifacts.
+1. 增加一等公民级 token summary artifact。
 
-- Persist `token-summary.json` at pair, sample, and suite levels.
-- Split direct agent usage from nested subagent usage.
-- Track input, cached input, uncached input, output, reasoning output, and cost estimate.
-- Add top-token outliers to `suite-health.json` or a companion report.
+- 在 pair、sample、suite 层持久化 `token-summary.json`。
+- 区分 direct agent usage 和 nested subagent usage。
+- 跟踪 input、cached input、uncached input、output、reasoning output 和 cost estimate。
+- 把 top-token outliers 写入 `suite-health.json` 或 companion report。
 
-2. Add TaskSpace budget guardrails.
+2. 增加 TaskSpace budget guardrails。
 
-- Abort or degrade TaskSpace when token ratio exceeds a threshold without new accepted decisions.
-- Suggested initial thresholds:
-  - `taskspace_total_tokens > 10x standard_tokens` and no new accepted decision in N steps.
-  - `high_unreviewed_result_ratio` plus `subagent_no_decision_yield` after first synthesis checkpoint.
-  - `synthesis_not_ready` near final answer should mark the run as diagnostically suspicious even if validator later passes.
+- 当 token ratio 超阈值但没有新增 accepted decisions 时，中断或降级 TaskSpace。
+- 建议初始阈值：
+  - `taskspace_total_tokens > 10x standard_tokens` 且 N 步内没有新增 accepted decision。
+  - 首次 synthesis checkpoint 后同时出现 `high_unreviewed_result_ratio` 和 `subagent_no_decision_yield`。
+  - 接近 final answer 时出现 `synthesis_not_ready`，即使 validator 后续通过，也应标记为诊断可疑。
 
-3. Improve decision adoption.
+3. 改进 decision adoption。
 
-- Require each subagent result to be accepted, rejected, or explicitly deferred.
-- Track "adopted evidence per 1M tokens" and "accepted result per subagent result".
-- Penalize graph growth that does not produce decisions.
+- 要求每个 subagent result 被 accepted、rejected 或 explicitly deferred。
+- 跟踪“每 1M tokens 采纳的证据数”和“每个 subagent result 对应的 accepted result 数”。
+- 惩罚不产生决策的 graph growth。
 
-4. Add task-shape routing.
+4. 增加 task-shape routing。
 
-- For small deterministic file tasks, start with a lightweight Standard-like path and escalate only on validator failure or ambiguity.
-- For parser/format-sensitive tasks like `count-call-stack`, route to a verification-first workflow:
-  - read expected output format,
-  - generate small parser,
-  - self-run output checks before final,
-  - compare validator failure text against produced output.
+- 对小型 deterministic file task，先走轻量 Standard-like 路径，只在 validator failure 或 ambiguity 时升级。
+- 对 `count-call-stack` 这类 parser/format-sensitive 任务，路由到 verification-first workflow：
+  - 读取 expected output format。
+  - 生成小型 parser。
+  - 在 final 前自运行 output checks。
+  - 对比 validator failure text 和实际输出。
 
-5. Optimize validation runtime.
+5. 优化 validation runtime。
 
-- Cache or prebuild validator Python/uv environments where possible.
-- Continue Docker image cache work, but note that Docker build was only about 1 minute 24 seconds total; Docker run and test environment setup dominate.
-- Keep validation timeout high enough to avoid invalid runs, but build preflight timing probes to identify tasks whose validator setup is intrinsically slow.
+- 尽可能缓存或预构建 validator Python/uv 环境。
+- 继续推进 Docker image cache，但要注意 Docker build 总共只有约 1 分 24 秒；Docker run 和 test environment setup 才是主因。
+- 保持足够高的 validation timeout 以避免 invalid run，同时增加 preflight timing probe 来识别 validator setup 天生较慢的任务。
 
-6. Add a TaskSpace value gate to E3 reporting.
+6. 给 E3 reporting 增加 TaskSpace value gate。
 
-- Report solved delta together with cost delta:
+- 汇报 solved delta 时必须同时汇报 cost delta：
   - `extra_solved_pairs`
   - `extra_agent_minutes`
   - `extra_uncached_tokens`
   - `extra_total_tokens`
   - `extra_cost_per_additional_solved_pair`
-- For this run, TaskSpace gained one extra solved pair at about +52.7 agent minutes and +48.5M direct input+output tokens.
+- 对本次运行，TaskSpace 多解决 1 个 pair，但额外消耗约 52.7 agent minutes 和 48.5M direct input+output tokens。
 
-## 11. Bottom Line
+## 11. 结论
 
-This v0.0.4 E3 run is useful because it is finally engineering-clean, but the product signal is mixed:
+本次 v0.0.4 E3 运行之所以有价值，是因为它终于是工程 clean 的；但产品信号是混合的：
 
-- Correctness: slight positive, +1/15.
-- Runtime: negative, about 5x agent time.
-- Token cost: strongly negative, about 20x direct tokens.
-- Behavior quality: mixed to negative, with persistent unreviewed/blocked graph warnings.
+- 正确性：小幅正向，+1/15。
+- 耗时：负向，约 5x agent time。
+- Token 成本：强负向，约 20x direct tokens。
+- 行为质量：混合偏负，持续存在 unreviewed/blocked graph warnings。
 
-The next phase should not only try to raise solved count. It should make TaskSpace prove value under cost controls: fewer unreviewed results, better decision adoption, adaptive escalation, and explicit token/runtime budgets.
+下一阶段不应只追求 solved count 提升。TaskSpace 必须在成本约束下证明价值：更少 unreviewed results、更强 decision adoption、自适应升级/降级，以及明确的 token/runtime budgets。
