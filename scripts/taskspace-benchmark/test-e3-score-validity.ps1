@@ -374,6 +374,22 @@ $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | C
 Assert-True ([int]$suiteTiming.missing_sample_timing_count -eq 1) "suite timing did not record missing sample timing"
 Assert-True ([int]$suiteTiming.timing_parse_error_count -eq 1) "suite timing did not record malformed sample timing"
 Assert-True ([string]$suiteTiming.runtime_optimization_status -eq "blocked" -and [string]$suiteTiming.timing_quality -eq "incomplete") "suite timing did not block runtime optimization when sample timing evidence was incomplete"
+$nestedSuiteRoot = Join-Path $runDir "suite-nested-timing-fixture"
+$nestedSampleRoot = Join-Path $nestedSuiteRoot "samples\sample-nested"
+$nestedRunRoot = Join-Path $nestedSampleRoot "runs\terminal_bench__sample-nested\20260616-000000-000"
+New-Item -ItemType Directory -Force -Path $nestedRunRoot | Out-Null
+[pscustomobject]@{
+    total_pair_duration_ms = 1000
+    agent_duration_ms = 400
+    public_validation_duration_ms = 500
+    hidden_oracle_duration_ms = 10
+    measured_overhead_ms = 90
+    bottleneck_counts = [pscustomobject]@{ validator_bound = 1 }
+    docker_cache_key_counts = [pscustomobject]@{}
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $nestedRunRoot "sample-timing.json") -Encoding UTF8
+$nestedSuiteTimingPath = Write-TaskspaceSuiteTiming $nestedSuiteRoot @([pscustomobject]@{ sample_id = "sample-nested"; sample_root = $nestedSampleRoot })
+$nestedSuiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $nestedSuiteTimingPath | ConvertFrom-Json
+Assert-True ([int]$nestedSuiteTiming.timing_sample_count -eq 1 -and [int]$nestedSuiteTiming.missing_sample_timing_count -eq 0) "suite timing treated nested sample-timing.json as missing"
 $suiteRootFromStatus = Join-Path $runDir "suite-status-fixture"
 New-Item -ItemType Directory -Force -Path $suiteRootFromStatus | Out-Null
 $missingStatusRoot = Join-Path $suiteRootFromStatus "samples\sample-missing"

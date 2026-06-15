@@ -97,3 +97,41 @@ Observation:
 
 Supports:
 - H-002 prediction that proof artifact path length, not Docker execution or task logic, caused the probe failure.
+
+## Hypothesis H-003: Serial calibration v4 is not valid clean evidence because validator timeouts were recorded as engineering unclean at pair level
+
+Status: confirmed
+
+Rationale:
+- The user-defined hard constraint allows only agent execution timeout as a non-infrastructure unexpected outcome.
+- Public validation timeout is a validator/runtime failure and must invalidate scoring evidence.
+
+Predictions:
+- Any pair with `public_validation_exit_code=124` should have `audit.json.engineering_unclean=true`.
+- Suite/sample timing should surface `engineering_unclean_slow` or equivalent blockers for those pairs.
+- A clean rerun must have zero public validation timeout reasons before scores are trusted.
+
+Diagnostic evidence plan:
+- Inspect serial calibration v4 pair metrics, pair reports, audit manifests, and suite timing.
+
+## Evidence E-005
+
+Type: audit artifact
+
+Observation:
+- Serial calibration v4 `log-summary` pair 001 has `left/artifacts/metrics.json` with `public_validation_exit_code=124`, `validator_environment_failures=["public_validation_timeout"]`, and `validation_timeout_phase="tests"`.
+- The same pair's `audit.json` has `engineering_unclean=true`, `engineering_unclean_reasons=["public_validation_timeout"]`, `run_score_valid=false`, and `score_exclusion_reason="engineering_unclean"`.
+
+Supports:
+- H-003 prediction that validator timeout is a hard engineering-unclean condition at pair level.
+
+## Evidence E-006
+
+Type: timing artifact
+
+Observation:
+- Recomputed serial calibration v4 `suite-timing.json` no longer reports missing sample timing after the nested timing-path fix (`missing_sample_timing_count=0`, `timing_sample_count=3`).
+- It still reports `bottleneck_classification="engineering_unclean_slow"` because child pair timing contains `public_validation_timeout` reasons.
+
+Supports:
+- H-003 prediction that old serial calibration v4 is invalid clean-score evidence even after timing path reconstruction is fixed.

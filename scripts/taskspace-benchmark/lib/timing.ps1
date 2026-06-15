@@ -558,8 +558,12 @@ function Write-TaskspaceSuiteTiming {
             }
         })
     $expectedSampleDirs = @(@($sampleDirs | ForEach-Object { $_.FullName }) + $statusSampleDirs | Sort-Object -Unique)
-    $sampleTimingParents = @($sampleTimingFiles | ForEach-Object { (Split-Path -Parent $_.FullName) })
-    $missingSampleTimingDirs = @($expectedSampleDirs | Where-Object { $sampleTimingParents -notcontains $_ })
+    $sampleTimingPaths = @($sampleTimingFiles | ForEach-Object { [System.IO.Path]::GetFullPath($_.FullName) })
+    $missingSampleTimingDirs = @($expectedSampleDirs | Where-Object {
+            $sampleRoot = [System.IO.Path]::GetFullPath([string]$_).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+            $prefix = $sampleRoot + [System.IO.Path]::DirectorySeparatorChar
+            @($sampleTimingPaths | Where-Object { $_ -eq (Join-Path $sampleRoot "sample-timing.json") -or $_.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase) }).Count -eq 0
+        })
     $parseErrors = New-Object System.Collections.Generic.List[string]
     $samples = @()
     foreach ($file in $sampleTimingFiles) {
