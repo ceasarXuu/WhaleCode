@@ -23,7 +23,54 @@
 
 - 本次运行在 sample 层仍处于 `audit_required`，也就是 E3 人工审计模板尚未完成。下面的 solved/wrong 是来自 `metrics.json` 和 `audit.json` 的 public validator 原始结果，不是经过人工审计后的最终 benchmark claim。
 
-## 2. 执行摘要
+## 2. v0.0.4 版本目标回顾与影响分析
+
+v0.0.4 的原始定位不是“让 TaskSpace 立刻全面超过 Standard”，而是把 TaskSpace 从可运行的 task/map/node 结构，升级成可审计的问题状态管理 runtime。也就是说，0.0.4 首先要证明结构化活动能稳定沉淀目标、事实、问题、决策、结果采纳和审计证据；只有在工程证据 clean 的前提下，才能继续判断它是否改善了 0.0.3 暴露的 utility 问题。
+
+因此本次评估需要分三层看：
+
+- 工程机制层：v0.0.4 的 ledger、adoption、graph health、audit、gate 是否真的落到 runtime/harness。
+- 执行有效性层：E3 是否能排除 Docker、validator、path、disk、report、audit 等工程污染。
+- 产品收益层：TaskSpace 是否以可接受成本带来更高 solved rate、更好决策质量或更强 subagent ROI。
+
+### 2.1 原始 v0.0.4 目标与对应工程
+
+| 版本目标 | 对应工程 | 本次运行中的具体作用和影响 | 判断 |
+|---|---|---|---|
+| 引入 `ProblemStateLedgerV1`，复用现有 `action_map` runtime，不新建并行 TaskSpace 存储 | `third_party/codex-cli/codex-rs/core/src/action_map/ledger.rs`、`map.rs` 的 `TaskState.problem_ledger`、`runtime.rs` 的 snapshot/restore/context 注入、`protocol/src/protocol.rs` 的 `problem_ledger` snapshot 字段 | 任务目标、成功标准、开放问题、决策和下一步动作进入 first-class state，不再只埋在自然语言 result 里。它让 final synthesis/readiness 可以被结构化检查，也让 graph health 能读取问题状态。但这也增加了每轮上下文负载，是 TaskSpace 高 token 成本的可能贡献因素之一。 | 机制已落地；收益未单独证明。 |
+| 扩展 `taskspace_control` 为 v2 action set，同时兼容 v1 | `tools/src/taskspace_tool.rs` schema、`core/src/tools/handlers/taskspace_control.rs`、`session/mod.rs`，新增/扩展 `initial_success_criteria`、`record_success_criteria`、`record_open_question`、`record_decision`、`record_next_best_action`、`adopt_result` 等动作 | 模型获得了显式记录问题状态和决策依赖的工具入口。本次 E3 能产出更丰富的 audit/graph 信号，但 15/15 TaskSpace run 仍出现 `high_unreviewed_result_ratio`，说明工具可用不等于模型稳定使用；v2 schema 改善了可审计性，还没有自动转化为更高决策质量。 | 工程达成；行为采纳不足。 |
+| 引入 `ResultAdoptionV1`，把 result validity 升级为“是否进入问题模型或决策” | `core/src/action_map/cognitive.rs` 的 `NodeResultAdoption` / `ResultAdoptionState`、`runtime.rs` 的 `adopt_result_for_main` 和 `record_decision` 依赖校验、`graph-health.ps1` 的 adoption 指标 | 这项工程让“subagent/result 产生了但没被用”变成可测问题。本次运行暴露 `subagent_no_decision_yield=7/15`、`high_unreviewed_result_ratio=15/15`，说明 0.0.4 确实看见了 adoption 瓶颈；但它没有解决该瓶颈，尤其 `log-summary` 大量 subagent 输出没有稳定转成净收益。 | 可观测性达成；质量目标未达成。 |
+| 引入 `GraphHealthReportOnly`，先报告不阻断 | `scripts/taskspace-benchmark/lib/graph-health.ps1`、`metrics-extractor.ps1` 写出 `graph-health.json`、`aggregate-report.ps1` 聚合 `graph-health-summary.json` | 本次报告能量化 `high_unreviewed_result_ratio`、`high_blocked_node_ratio`、`low_decision_density`、`synthesis_not_ready`，正是该目标的直接产物。Report-only 的副作用是：即使 graph health 很差，run 仍会继续消耗时间和 token，所以它适合诊断，不适合成本控制。 | 达成诊断目标；尚未形成运行期节流。 |
+| 引入 `CleanE3AuditManifest` 和 `FailureTaxonomyV1`，修正 E3 证据链 | `scripts/taskspace-benchmark/lib/audit-manifest.ps1`、`failure-taxonomy.ps1`、`audit-report.ps1`、`aggregate-report.ps1`，每个 pair 输出 `audit.json/yaml`、failure taxonomy、included/excluded/inconclusive、`score_valid`/`engineering_unclean` | 这是本次能称为“工程 clean run”的核心前提：`invalid_harness_sample_count=0`、`signature_count=0`、`engineering_unclean_pairs=0`、`suite_score_valid=true`。它也明确保留 `audit_required` caveat，避免把 public validator 原始结果包装成最终 benchmark claim。 | 工程有效性显著改善；人工审计闭环仍未完成。 |
+| 只对高确定性结构错误加 hard gate | `runtime.rs` 中 success criteria、invalid/questioned result、final_synthesis readiness、validate-after-edit、spawn plan 等检查；`basemap.rs` 中 node kind 和 final synthesis 协议提示 | gate 防止明显不安全的结构路径进入最终回答，并保持 final answer 不暴露内部 TaskSpace 术语。本次 E3 没有因为 gate 产生工程 unclean，但 `count-call-stack` 0/5 说明结构 gate 不等于任务语义成功；它主要防止坏证据进入最终决策，不能替代 format/validator 导向的解题策略。 | 安全边界达成；正确率收益有限。 |
+| 保持 TaskSpace 对用户不可见，viewer 作为调试面而非用户前置操作 | `basemap.rs` 的 final answer 语言约束、viewer/report 侧 graph health/adoption 展示、E3 artifact 包 | 对 benchmark 来说，TaskSpace 仍作为内部 orchestration 运行，任务输入没有要求用户理解 map/node/subagent。影响是正面的：用户可见行为没有被 TaskSpace 概念污染；但 debug/研究仍依赖 artifact 和报告。 | 用户边界基本达成。 |
+
+### 2.2 执行中追加的 E3 guardrails 目标
+
+0.0.4 原始 Phase 6 曾暴露 uv cache 相对路径、Docker/WSL、磁盘空间、suite 状态传播等工程问题。后续 guardrails 升级不是原始产品机制目标，但已经成为判断 v0.0.4 是否可信的硬前置。
+
+| 追加目标 | 对应工程 | 本次运行中的具体作用和影响 | 判断 |
+|---|---|---|---|
+| 硬性执行有效性契约：除 agent 执行超时外，其他 Docker、validator、path、disk、materialization、report/audit 异常都使本次执行无效 | `suite-status.ps1`、`run-state.ps1`、`aggregate-report.ps1`、`test-e3-score-validity.ps1`、`test-e3-harness-guardrails.ps1` | 这直接解决了之前“docker/validator fail 还被拿来算成绩”的问题。本次 suite health 明确 `suite_score_valid=true`，且没有工程异常签名，所以 public validator 结果至少不再被场外因素污染。 | 达成，且是本次报告可信的前提。 |
+| 提前发现工程异常，避免数小时无效 E3 | `harness-health.ps1`、`e3-start-gate.ps1`、`calibration-gate.ps1`、disk preflight、workspace path budget、validator probe、child invalid circuit breaker | D 盘空间、相对 uv cache、深路径写入、child status 传播等问题都被前移成 preflight/probe/start-gate/circuit-breaker 检查。本次没有触发早停，说明 run 通过了这些护栏；但这些护栏的价值主要是让坏 run 便宜，而不是让 clean run 更快。 | 工程护栏有效；不等同于性能优化。 |
+| 让 E3 runtime 自解释，定位 15-task 为什么要跑数小时 | `timing.ps1`、`runtime-bottleneck-report.ps1`、`runtime-reconstruction.ps1`、`resource-governor.ps1`、`parallel-diff.ps1`、`calibration-selection.ps1` | 本次能拆出 suite 级 `agent_duration_ms=4744306`、`public_validation_duration_ms=3061684`、`docker_run_duration_ms=2727821`，并给出 `validator_bound` 分类。但 `model_request_duration_ms` 缺失，`runtime_optimization_status=blocked`，所以不能宣称已完成速度优化或能稳定大幅提速。 | 诊断框架达成；速度结论仍受 instrumentation 限制。 |
+| 保持 v0.0.4 comparable profile，不用改 timeout/model/budget 来制造速度或分数改善 | `calibration-selection.json`、profile hash、task list hash、source version、start gate identity checks、parallel equivalence gate | 本次报告可以把“TaskSpace agent 时间 4.99x、direct tokens 19.92x”作为同 profile 下的成本信号，而不是另一个实验配置的结果。这也意味着如果要通过缩短 TaskSpace 预算、降低 reasoning、减少上下文等方式提速，必须另起 profile/version，不能算 v0.0.4 同口径提升。 | 可比性边界达成。 |
+
+### 2.3 目标达成总评
+
+v0.0.4 在“工程机制”和“证据链清洁度”上比 0.0.3 明显前进：它能产出 ledger/adoption/graph health/audit/timing 证据，也能把工程 unclean 和 agent 解题失败区分开。本次运行的最大价值就是终于让 E3 结果不再被 Docker、validator 或路径错误污染。
+
+但 v0.0.4 的产品收益没有成立：
+
+- 正确率只从 Standard 的 7/15 到 TaskSpace 的 8/15，净增 1 个 solved pair。
+- TaskSpace agent 耗时是 Standard 的 4.99x。
+- TaskSpace direct input+output tokens 是 Standard 的 19.92x。
+- graph health 显示所有 TaskSpace run 都有高比例 unreviewed results，subagent 结果采纳也不稳定。
+- `count-call-stack` 双方都是 0/5，TaskSpace 消耗更多但没有带来新的解题路径。
+
+因此，最准确的版本结论是：v0.0.4 大体完成了“可审计、可诊断、可区分工程污染”的工程目标，但还没有完成“以可接受成本稳定提升 agent 能力”的产品目标。下一阶段应该把重点从继续堆结构，转向 decision adoption、TaskSpace budget guardrails、task-shape routing 和 token/runtime budget 约束。
+
+## 3. 执行摘要
 
 TaskSpace 带来了很小的原始正确率提升，但耗时和 token 成本非常高。
 
@@ -45,7 +92,7 @@ TaskSpace 带来了很小的原始正确率提升，但耗时和 token 成本非
 - 运行耗时瓶颈由 TaskSpace agent 耗时和 public validation 共同构成。suite 级 timing 把整体分类为 `validator_bound`，但模式级对比显示，TaskSpace agent 执行耗时才是 Standard 和 TaskSpace 之间最大的差异来源。
 - TaskSpace 图结构质量信号偏弱：15/15 个 TaskSpace run 都出现 `high_unreviewed_result_ratio`，13/15 出现 `high_blocked_node_ratio`。
 
-## 3. 执行效果明细
+## 4. 执行效果明细
 
 | Task | Standard | TaskSpace | 解读 |
 |---|---:|---:|---|
@@ -96,7 +143,7 @@ Pair 级详细对比：
 | log-summary | 004 | 失败 | 通过 | 仅 TaskSpace | 26.6s | 263.8s | 83.6s | 107.4s | 69,243 (1,213) | 2,652,195 (14,371) | 38.30x | 543.3s |
 | log-summary | 005 | 通过 | 失败 | 仅 Standard | 28.2s | 237.7s | 64.1s | 95.5s | 72,544 (1,839) | 2,039,857 (13,220) | 28.12x | 454.2s |
 
-## 4. 耗时分析
+## 5. 耗时分析
 
 Suite 级 timing：
 
@@ -126,7 +173,7 @@ Suite 级 timing：
 - TaskSpace 有较高的固定 orchestration/context 开销。对于 Standard 能在 60 秒内解决的小任务，这个开销尤其昂贵。
 - `count-call-stack` 说明更长运行时间不必然带来更强推理。TaskSpace 平均耗时是 Standard 的 2.6x，但 5 次全部失败。
 
-## 5. Token 成本分析
+## 6. Token 成本分析
 
 直接模式用量，不包含嵌套 subagent JSONL 文件：
 
@@ -172,7 +219,7 @@ Outcome 与成本关系：
 
 这说明当前 TaskSpace 的成功更像是和更多 context、更多时间投入相关，而不是来自更精简、更高效的推理路径。
 
-## 6. TaskSpace 行为模式
+## 7. TaskSpace 行为模式
 
 TaskSpace graph warnings：
 
@@ -201,7 +248,7 @@ Subagent 使用情况：
 
 当前 TaskSpace 最明显的模式是：昂贵的广度探索加上下文累积。它在冗余检查和综合能提高可靠性的任务上可能有帮助，但还不能稳定地把广度转化为决策，也不能识别广度不再产生收益的时刻。
 
-## 7. 失败模式：count-call-stack
+## 8. 失败模式：count-call-stack
 
 `count-call-stack` 的 5 次重复中，两种模式全部失败。这不是工程 clean 问题：
 
@@ -223,7 +270,7 @@ Subagent 使用情况：
 - TaskSpace 没有引入明显不同的 verification 或 format-diff 策略，而是放大了同类本地探索循环。
 - 因为没有 spawn subagent，最需要替代假设的任务反而没有真正启用 multi-agent primitive。
 
-## 8. 本次运行对 v0.0.4 的含义
+## 9. 本次运行对 v0.0.4 的含义
 
 正向信号：
 
@@ -244,7 +291,7 @@ Subagent 使用情况：
 
 > v0.0.4 TaskSpace 展现了 correctness signal，但成本效率不成立。它更像一个高上下文 orchestration 系统，偶尔带来可靠性收益，而不是一个稳定更强的 coding agent 模式。
 
-## 9. 瓶颈假设
+## 10. 瓶颈假设
 
 H1：Context bloat 是主要 token 瓶颈。
 
@@ -269,7 +316,7 @@ H4：Validation 仍是 suite 级速度瓶颈。
 - 证据：public validation 消耗约 51 分钟；Docker run 消耗约 45.5 分钟。
 - 证据：validation 时间对两种模式都很大，所以即使 agent 侧优化完成，它仍会限制 E3 迭代速度。
 
-## 10. 建议
+## 11. 建议
 
 1. 增加一等公民级 token summary artifact。
 
@@ -317,7 +364,7 @@ H4：Validation 仍是 suite 级速度瓶颈。
   - `extra_cost_per_additional_solved_pair`
 - 对本次运行，TaskSpace 多解决 1 个 pair，但额外消耗约 52.7 agent minutes 和 48.5M direct input+output tokens。
 
-## 11. 结论
+## 12. 结论
 
 本次 v0.0.4 E3 运行之所以有价值，是因为它终于是工程 clean 的；但产品信号是混合的：
 
