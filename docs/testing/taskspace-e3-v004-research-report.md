@@ -63,25 +63,38 @@ Pair 级结果分类：
 | 只有 Standard 解决 | 2 |
 | 双方都未解决 | 5 |
 
-Pair 级明细：
+任务级效果与成本汇总：
 
-| Task | Pair | 结果 | Standard 耗时 | TaskSpace 耗时 | Standard tokens | TaskSpace tokens | TS token ratio |
-|---|---:|---|---:|---:|---:|---:|---:|
-| analyze-access-logs | 001 | TaskSpace only | 22.4s | 463.8s | 57,921 | 5,439,623 | 93.91x |
-| analyze-access-logs | 002 | Both | 33.2s | 131.1s | 74,865 | 831,299 | 11.10x |
-| analyze-access-logs | 003 | Both | 35.3s | 160.6s | 104,901 | 1,280,017 | 12.20x |
-| analyze-access-logs | 004 | Both | 33.9s | 192.2s | 422,971 | 4,389,679 | 10.38x |
-| analyze-access-logs | 005 | Both | 57.4s | 374.7s | 141,046 | 12,993,596 | 92.12x |
-| count-call-stack | 001 | Neither | 57.2s | 151.6s | 144,994 | 1,047,578 | 7.22x |
-| count-call-stack | 002 | Neither | 94.4s | 287.8s | 242,183 | 2,804,769 | 11.58x |
-| count-call-stack | 003 | Neither | 72.4s | 251.9s | 230,269 | 2,240,984 | 9.73x |
-| count-call-stack | 004 | Neither | 101.9s | 237.6s | 314,889 | 2,511,386 | 7.98x |
-| count-call-stack | 005 | Neither | 134.7s | 254.8s | 431,759 | 2,552,022 | 5.91x |
-| log-summary | 001 | TaskSpace only | 33.3s | 377.8s | 86,133 | 4,152,217 | 48.21x |
-| log-summary | 002 | Both | 28.4s | 328.5s | 86,074 | 3,974,568 | 46.18x |
-| log-summary | 003 | Standard only | 32.6s | 238.3s | 84,563 | 2,163,497 | 25.58x |
-| log-summary | 004 | TaskSpace only | 26.6s | 263.8s | 69,243 | 2,652,195 | 38.30x |
-| log-summary | 005 | Standard only | 28.2s | 237.7s | 72,544 | 2,039,857 | 28.12x |
+口径说明：
+- `agent` 是 agent 执行墙钟时间，不含 public validator。
+- `validation` 是 public validator 时间。
+- `tokens` 是 direct `whale-exec.jsonl` 的 `input+output`，括号内是 `uncached input`。该表不含嵌套 subagent JSONL 的额外 token。
+
+| Task | Standard solved | TaskSpace solved | Standard agent | TaskSpace agent | Standard validation | TaskSpace validation | Standard tokens | TaskSpace tokens | TS/Std tokens |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| analyze-access-logs | 4/5 | 5/5 | 182.2s | 1322.4s | 659.4s | 636.2s | 801,704 (98,887) | 24,934,214 (318,682) | 31.10x |
+| count-call-stack | 0/5 | 0/5 | 460.7s | 1183.7s | 503.7s | 366.5s | 1,364,094 (78,080) | 11,156,739 (189,392) | 8.18x |
+| log-summary | 3/5 | 3/5 | 149.1s | 1446.2s | 460.9s | 435.1s | 398,557 (8,076) | 14,982,334 (152,675) | 37.59x |
+
+Pair 级详细对比：
+
+| Task | Pair | Standard 结果 | TaskSpace 结果 | Pair 结果 | Standard agent | TaskSpace agent | Standard validation | TaskSpace validation | Standard tokens | TaskSpace tokens | TS/Std tokens | Pair total |
+|---|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| analyze-access-logs | 001 | 失败 | 通过 | 仅 TaskSpace | 22.4s | 463.8s | 76.2s | 66.6s | 57,921 (2,033) | 5,439,623 (102,627) | 93.91x | 664.0s |
+| analyze-access-logs | 002 | 通过 | 通过 | 双方通过 | 33.2s | 131.1s | 60.9s | 99.7s | 74,865 (1,981) | 831,299 (6,846) | 11.10x | 348.1s |
+| analyze-access-logs | 003 | 通过 | 通过 | 双方通过 | 35.3s | 160.6s | 239.0s | 83.8s | 104,901 (2,524) | 1,280,017 (8,094) | 12.20x | 542.1s |
+| analyze-access-logs | 004 | 通过 | 通过 | 双方通过 | 33.9s | 192.2s | 89.7s | 288.0s | 422,971 (89,324) | 4,389,679 (96,094) | 10.38x | 627.2s |
+| analyze-access-logs | 005 | 通过 | 通过 | 双方通过 | 57.4s | 374.7s | 193.5s | 98.1s | 141,046 (3,025) | 12,993,596 (105,021) | 92.12x | 775.3s |
+| count-call-stack | 001 | 失败 | 失败 | 双方失败 | 57.2s | 151.6s | 99.2s | 43.3s | 144,994 (9,019) | 1,047,578 (58,803) | 7.22x | 377.1s |
+| count-call-stack | 002 | 失败 | 失败 | 双方失败 | 94.4s | 287.8s | 86.7s | 99.2s | 242,183 (17,546) | 2,804,769 (28,450) | 11.58x | 592.6s |
+| count-call-stack | 003 | 失败 | 失败 | 双方失败 | 72.4s | 251.9s | 157.5s | 72.0s | 230,269 (13,811) | 2,240,984 (23,364) | 9.73x | 589.8s |
+| count-call-stack | 004 | 失败 | 失败 | 双方失败 | 101.9s | 237.6s | 40.6s | 102.3s | 314,889 (19,098) | 2,511,386 (17,092) | 7.98x | 505.7s |
+| count-call-stack | 005 | 失败 | 失败 | 双方失败 | 134.7s | 254.8s | 119.5s | 49.8s | 431,759 (18,606) | 2,552,022 (61,683) | 5.91x | 583.0s |
+| log-summary | 001 | 失败 | 通过 | 仅 TaskSpace | 33.3s | 377.9s | 134.9s | 81.6s | 86,133 (1,703) | 4,152,217 (93,238) | 48.21x | 665.3s |
+| log-summary | 002 | 通过 | 通过 | 双方通过 | 28.4s | 328.5s | 79.3s | 87.1s | 86,074 (1,636) | 3,974,568 (17,962) | 46.18x | 550.0s |
+| log-summary | 003 | 通过 | 失败 | 仅 Standard | 32.6s | 238.3s | 99.1s | 63.4s | 84,563 (1,685) | 2,163,497 (13,884) | 25.58x | 458.5s |
+| log-summary | 004 | 失败 | 通过 | 仅 TaskSpace | 26.6s | 263.8s | 83.6s | 107.4s | 69,243 (1,213) | 2,652,195 (14,371) | 38.30x | 543.3s |
+| log-summary | 005 | 通过 | 失败 | 仅 Standard | 28.2s | 237.7s | 64.1s | 95.5s | 72,544 (1,839) | 2,039,857 (13,220) | 28.12x | 454.2s |
 
 ## 4. 耗时分析
 
