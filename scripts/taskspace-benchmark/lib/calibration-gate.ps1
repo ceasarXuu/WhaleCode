@@ -44,6 +44,17 @@ function Test-TaskspaceRequiredBooleanValue {
     $null
 }
 
+function Test-TaskspaceRequiredBooleanField {
+    param($Object, [string]$Field, [string]$Scope, [string]$Artifact)
+    if (-not (Test-TaskspaceJsonField $Object $Field)) {
+        return New-TaskspaceCalibrationGateRow $Scope "fail" "$($Scope)_field_missing:$Field" $Artifact
+    }
+    if ($Object.$Field -isnot [bool]) {
+        return New-TaskspaceCalibrationGateRow $Scope "fail" "$($Scope)_field_invalid:$Field" $Artifact ([pscustomobject]@{ field = $Field; actual = $Object.$Field })
+    }
+    $null
+}
+
 function Test-TaskspaceRequiredIntegerValue {
     param($Object, [string]$Field, [int]$Expected, [string]$Scope, [string]$Artifact)
     if (-not (Test-TaskspaceJsonField $Object $Field)) {
@@ -94,6 +105,29 @@ function Test-TaskspaceCalibrationIdentityField {
     $null
 }
 
+function Test-TaskspaceCalibrationEngineeringCleanTiming {
+    param($Timing, [string]$Scope, [string]$Artifact)
+    if ($Timing -and $Timing.PSObject.Properties.Name -contains "engineering_unclean" -and [bool]$Timing.engineering_unclean) {
+        return New-TaskspaceCalibrationGateRow $Scope "fail" "$($Scope)_engineering_unclean" $Artifact ([pscustomobject]@{
+                engineering_unclean = $true
+                engineering_unclean_reasons = if ($Timing.PSObject.Properties.Name -contains "engineering_unclean_reasons") { @($Timing.engineering_unclean_reasons) } else { @("engineering_unclean") }
+            })
+    }
+    if ($Timing -and $Timing.PSObject.Properties.Name -contains "engineering_unclean_reasons" -and @($Timing.engineering_unclean_reasons).Count -gt 0) {
+        return New-TaskspaceCalibrationGateRow $Scope "fail" "$($Scope)_engineering_unclean_reasons_present" $Artifact ([pscustomobject]@{
+                engineering_unclean = $true
+                engineering_unclean_reasons = @($Timing.engineering_unclean_reasons)
+            })
+    }
+    if ($Timing -and $Timing.PSObject.Properties.Name -contains "bottleneck_classification" -and [string]$Timing.bottleneck_classification -eq "engineering_unclean_slow") {
+        return New-TaskspaceCalibrationGateRow $Scope "fail" "$($Scope)_engineering_unclean_slow" $Artifact ([pscustomobject]@{
+                engineering_unclean = $true
+                bottleneck_classification = [string]$Timing.bottleneck_classification
+            })
+    }
+    $null
+}
+
 function Test-TaskspaceOnePairTimingEvidence {
     param([string]$Root, [string]$ExpectedTaskListHash = "", [string]$ExpectedSourceVersion = "", [string]$ExpectedProfileHash = "")
     if ([string]::IsNullOrWhiteSpace($Root) -or -not (Test-Path -LiteralPath $Root)) {
@@ -108,6 +142,8 @@ function Test-TaskspaceOnePairTimingEvidence {
     }
     $pairTiming = Get-TaskspaceJsonFile $pairTimingPath.FullName
     $runtimeReport = Get-TaskspaceJsonFile $runtimeReportJsonPath
+    $cleanCheck = Test-TaskspaceCalibrationEngineeringCleanTiming $pairTiming "one_pair_smoke" $pairTimingPath.FullName
+    if ($cleanCheck) { return $cleanCheck }
     foreach ($field in @("agent_duration_ms", "public_validation_duration_ms", "bottleneck_classification", "runtime_optimization_status")) {
         if (-not (Test-TaskspaceJsonField $pairTiming $field)) {
             return New-TaskspaceCalibrationGateRow "one_pair_smoke" "fail" "one_pair_timing_field_missing:$field" $pairTimingPath.FullName
@@ -118,13 +154,14 @@ function Test-TaskspaceOnePairTimingEvidence {
             (Test-TaskspaceRequiredNonEmptyStringValue $runtimeReport "generated_at" "one_pair_smoke" $runtimeReportJsonPath),
             (Test-TaskspaceRequiredPathValue $runtimeReport "report_path" $runtimeReportPath.FullName "one_pair_smoke" $runtimeReportJsonPath),
             (Test-TaskspaceRequiredPathValue $runtimeReport "timing_path" $pairTimingPath.FullName "one_pair_smoke" $runtimeReportJsonPath),
-            (Test-TaskspaceRequiredBooleanValue $runtimeReport "speedup_evidence_valid" $true "one_pair_smoke" $runtimeReportJsonPath),
+            (Test-TaskspaceRequiredBooleanValue $runtimeReport "score_valid" $true "one_pair_smoke" $runtimeReportJsonPath),
+            (Test-TaskspaceRequiredBooleanField $runtimeReport "speedup_evidence_valid" "one_pair_smoke" $runtimeReportJsonPath),
             (Test-TaskspaceRequiredStringValue $runtimeReport "timing_quality" "complete" "one_pair_smoke" $runtimeReportJsonPath),
-            (Test-TaskspaceRequiredStringValue $runtimeReport "runtime_optimization_status" "ready" "one_pair_smoke" $runtimeReportJsonPath)
+            (Test-TaskspaceRequiredNonEmptyStringValue $runtimeReport "runtime_optimization_status" "one_pair_smoke" $runtimeReportJsonPath)
         )) {
         if ($runtimeCheck) { return $runtimeCheck }
     }
-    if (-not (Test-TaskspaceJsonField $runtimeReport "speedup_decision") -or [string]$runtimeReport.speedup_decision -like "speedup_blocked_*") {
+    if (-not (Test-TaskspaceJsonField $runtimeReport "speedup_decision") -or [string]$runtimeReport.speedup_decision -eq "speedup_blocked_invalid_run") {
         return New-TaskspaceCalibrationGateRow "one_pair_smoke" "fail" "one_pair_smoke_speedup_decision_blocked" $runtimeReportJsonPath ([pscustomobject]@{ speedup_decision = if (Test-TaskspaceJsonField $runtimeReport "speedup_decision") { [string]$runtimeReport.speedup_decision } else { "" } })
     }
     foreach ($identityCheck in @(
@@ -139,10 +176,16 @@ function Test-TaskspaceOnePairTimingEvidence {
             generated_at = [string]$runtimeReport.generated_at
             timing_path = [string]$runtimeReport.timing_path
             report_path = [string]$runtimeReport.report_path
+            score_valid = [bool]$runtimeReport.score_valid
             timing_quality = [string]$runtimeReport.timing_quality
             runtime_optimization_status = [string]$runtimeReport.runtime_optimization_status
             speedup_evidence_valid = [bool]$runtimeReport.speedup_evidence_valid
             speedup_decision = if (Test-TaskspaceJsonField $runtimeReport "speedup_decision") { [string]$runtimeReport.speedup_decision } else { "" }
+            speedup_decision_reason = if (Test-TaskspaceJsonField $runtimeReport "speedup_decision_reason") { [string]$runtimeReport.speedup_decision_reason } else { "" }
+            runtime_optimization_blockers = if (Test-TaskspaceJsonField $runtimeReport "runtime_optimization_blockers") { @($runtimeReport.runtime_optimization_blockers) } else { @() }
+            wait_attribution_missing_fields = if (Test-TaskspaceJsonField $runtimeReport "wait_attribution_missing_fields") { @($runtimeReport.wait_attribution_missing_fields) } else { @() }
+            wait_attribution_unavailable_fields = if (Test-TaskspaceJsonField $runtimeReport "wait_attribution_unavailable_fields") { $runtimeReport.wait_attribution_unavailable_fields } else { [pscustomobject]@{} }
+            speed_claim_allowed = ([bool]$runtimeReport.speedup_evidence_valid -and [string]$runtimeReport.speedup_decision -notlike "speedup_blocked_*")
         })
 }
 
@@ -159,6 +202,8 @@ function Test-TaskspaceSerialCalibrationEvidence {
     }
     $suiteTiming = Get-TaskspaceJsonFile $suiteTimingPath.FullName
     $calibrationReport = Get-TaskspaceJsonFile $calibrationReportJsonPath
+    $cleanCheck = Test-TaskspaceCalibrationEngineeringCleanTiming $suiteTiming "serial_calibration" $suiteTimingPath.FullName
+    if ($cleanCheck) { return $cleanCheck }
     if (-not (Test-TaskspaceJsonField $suiteTiming "sample_count") -or [int]$suiteTiming.sample_count -lt $MinimumSamples) {
         return New-TaskspaceCalibrationGateRow "serial_calibration" "fail" "serial_calibration_sample_count_low" $suiteTimingPath.FullName
     }
@@ -169,8 +214,8 @@ function Test-TaskspaceSerialCalibrationEvidence {
     }
     foreach ($suiteCheck in @(
             (Test-TaskspaceRequiredStringValue $suiteTiming "timing_quality" "complete" "serial_calibration" $suiteTimingPath.FullName),
-            (Test-TaskspaceRequiredStringValue $suiteTiming "runtime_optimization_status" "ready" "serial_calibration" $suiteTimingPath.FullName),
-            (Test-TaskspaceRequiredStringValue $suiteTiming "wait_attribution_status" "complete" "serial_calibration" $suiteTimingPath.FullName)
+            (Test-TaskspaceRequiredNonEmptyStringValue $suiteTiming "runtime_optimization_status" "serial_calibration" $suiteTimingPath.FullName),
+            (Test-TaskspaceRequiredNonEmptyStringValue $suiteTiming "wait_attribution_status" "serial_calibration" $suiteTimingPath.FullName)
         )) {
         if ($suiteCheck) { return $suiteCheck }
     }
@@ -180,14 +225,14 @@ function Test-TaskspaceSerialCalibrationEvidence {
             (Test-TaskspaceRequiredPathValue $calibrationReport "report_path" $calibrationReportPath.FullName "serial_calibration" $calibrationReportJsonPath),
             (Test-TaskspaceRequiredPathValue $calibrationReport "timing_path" $suiteTimingPath.FullName "serial_calibration" $calibrationReportJsonPath),
             (Test-TaskspaceRequiredBooleanValue $calibrationReport "score_valid" $true "serial_calibration" $calibrationReportJsonPath),
-            (Test-TaskspaceRequiredBooleanValue $calibrationReport "speedup_evidence_valid" $true "serial_calibration" $calibrationReportJsonPath),
+            (Test-TaskspaceRequiredBooleanField $calibrationReport "speedup_evidence_valid" "serial_calibration" $calibrationReportJsonPath),
             (Test-TaskspaceRequiredStringValue $calibrationReport "timing_quality" "complete" "serial_calibration" $calibrationReportJsonPath),
-            (Test-TaskspaceRequiredStringValue $calibrationReport "runtime_optimization_status" "ready" "serial_calibration" $calibrationReportJsonPath),
-            (Test-TaskspaceRequiredStringValue $calibrationReport "wait_attribution_status" "complete" "serial_calibration" $calibrationReportJsonPath)
+            (Test-TaskspaceRequiredNonEmptyStringValue $calibrationReport "runtime_optimization_status" "serial_calibration" $calibrationReportJsonPath),
+            (Test-TaskspaceRequiredNonEmptyStringValue $calibrationReport "wait_attribution_status" "serial_calibration" $calibrationReportJsonPath)
         )) {
         if ($reportCheck) { return $reportCheck }
     }
-    if (-not (Test-TaskspaceJsonField $calibrationReport "speedup_decision") -or [string]$calibrationReport.speedup_decision -like "speedup_blocked_*") {
+    if (-not (Test-TaskspaceJsonField $calibrationReport "speedup_decision") -or [string]$calibrationReport.speedup_decision -eq "speedup_blocked_invalid_run") {
         return New-TaskspaceCalibrationGateRow "serial_calibration" "fail" "serial_calibration_speedup_decision_blocked" $calibrationReportJsonPath ([pscustomobject]@{ speedup_decision = if (Test-TaskspaceJsonField $calibrationReport "speedup_decision") { [string]$calibrationReport.speedup_decision } else { "" } })
     }
     foreach ($identityCheck in @(
@@ -202,11 +247,17 @@ function Test-TaskspaceSerialCalibrationEvidence {
             generated_at = [string]$calibrationReport.generated_at
             timing_path = [string]$calibrationReport.timing_path
             report_path = [string]$calibrationReport.report_path
+            score_valid = [bool]$calibrationReport.score_valid
             timing_quality = [string]$suiteTiming.timing_quality
             runtime_optimization_status = [string]$suiteTiming.runtime_optimization_status
             wait_attribution_status = [string]$suiteTiming.wait_attribution_status
             speedup_evidence_valid = [bool]$calibrationReport.speedup_evidence_valid
             speedup_decision = [string]$calibrationReport.speedup_decision
+            speedup_decision_reason = if (Test-TaskspaceJsonField $calibrationReport "speedup_decision_reason") { [string]$calibrationReport.speedup_decision_reason } else { "" }
+            runtime_optimization_blockers = if (Test-TaskspaceJsonField $calibrationReport "runtime_optimization_blockers") { @($calibrationReport.runtime_optimization_blockers) } else { @() }
+            wait_attribution_missing_fields = if (Test-TaskspaceJsonField $calibrationReport "wait_attribution_missing_fields") { @($calibrationReport.wait_attribution_missing_fields) } else { @() }
+            wait_attribution_unavailable_fields = if (Test-TaskspaceJsonField $calibrationReport "wait_attribution_unavailable_fields") { $calibrationReport.wait_attribution_unavailable_fields } else { [pscustomobject]@{} }
+            speed_claim_allowed = ([bool]$calibrationReport.speedup_evidence_valid -and [string]$calibrationReport.speedup_decision -notlike "speedup_blocked_*" -and [string]$suiteTiming.runtime_optimization_status -eq "ready" -and [string]$suiteTiming.wait_attribution_status -eq "complete" -and [string]$calibrationReport.runtime_optimization_status -eq "ready" -and [string]$calibrationReport.wait_attribution_status -eq "complete")
         })
 }
 
@@ -257,11 +308,13 @@ function Invoke-TaskspaceCalibrationGate {
         Test-TaskspaceParallelSmokeEvidence $ParallelEquivalencePath $ExpectedTaskListHash $ExpectedSourceVersion $ExpectedProfileHash
     )
     $failed = @($rows | Where-Object { [string]$_.status -ne "pass" })
+    $speedRows = @($rows | Where-Object { $_.details -and ($_.details.PSObject.Properties.Name -contains "speed_claim_allowed") })
+    $speedClaimAllowed = ($failed.Count -eq 0 -and $speedRows.Count -gt 0 -and @($speedRows | Where-Object { -not [bool]$_.details.speed_claim_allowed }).Count -eq 0)
     $result = [pscustomobject]@{
         schema_version = 1
         status = if ($failed.Count -eq 0) { "pass" } else { "fail" }
         full_e3_allowed = ($failed.Count -eq 0)
-        speed_claim_allowed = ($failed.Count -eq 0)
+        speed_claim_allowed = $speedClaimAllowed
         expected_identity = [pscustomobject]@{
             task_list_hash = $ExpectedTaskListHash
             source_version = $ExpectedSourceVersion

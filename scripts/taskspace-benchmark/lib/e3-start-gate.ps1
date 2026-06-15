@@ -44,6 +44,11 @@ function New-TaskspaceE3StartGateMarkdown {
     $lines.Add("- first_failure_gate: $($Gate.first_failure_gate)")
     $lines.Add("- first_failure_stable_code: $($Gate.first_failure_stable_code)")
     $lines.Add("- first_failure_artifact: $($Gate.first_failure_artifact)")
+    if ($Gate.PSObject.Properties.Name -contains "gate_decision") {
+        $lines.Add("- next_allowed_command_category: $($Gate.gate_decision.next_allowed_command_category)")
+        $lines.Add("- full_e3_allowed: $($Gate.gate_decision.full_e3_allowed)")
+        $lines.Add("- speed_claim_allowed: $($Gate.gate_decision.speed_claim_allowed)")
+    }
     $lines.Add("")
     $lines.Add("## Gates")
     foreach ($gateRow in @($Gate.gates)) {
@@ -76,7 +81,13 @@ function New-TaskspaceE3GateDecision {
         $fullE3Allowed = $calibrationPass -and [bool]$Gate.calibration_gate.full_e3_allowed
         $speedClaimAllowed = $calibrationPass -and [bool]$Gate.calibration_gate.speed_claim_allowed
     }
-    $nextCategory = if (-not $passed) {
+    $calibrationFailed = $false
+    if ($Gate -and $Gate.gates) {
+        $calibrationFailed = @($Gate.gates | Where-Object { [string]$_.status -eq "fail" -and [string]$_.name -like "calibration_*" }).Count -gt 0
+    }
+    $nextCategory = if (-not $passed -and $calibrationFailed) {
+        "serial_calibration"
+    } elseif (-not $passed) {
         "fixture_tests"
     } elseif ($fullE3Allowed) {
         "full_e3"
@@ -327,10 +338,12 @@ function Invoke-TaskspaceE3StartGate {
         first_failure_artifact = if ($failed.Count -eq 0) { "" } else { $jsonPath }
         generated_at = (Get-Date).ToString("o")
     }
+    $gateDecision = New-TaskspaceE3GateDecision $gate "R1" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash
+    $gate | Add-Member -NotePropertyName gate_decision -NotePropertyValue $gateDecision -Force
     $gate | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
     New-TaskspaceE3StartGateMarkdown $gate | Set-Content -LiteralPath $markdownPath -Encoding UTF8
     $gateDecisionPath = Join-Path $OutputDir "gate-decision.json"
-    New-TaskspaceE3GateDecision $gate "R1" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $gateDecisionPath -Encoding UTF8
+    $gateDecision | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $gateDecisionPath -Encoding UTF8
     $gate | Add-Member -NotePropertyName json_path -NotePropertyValue $jsonPath -Force
     $gate | Add-Member -NotePropertyName markdown_path -NotePropertyValue $markdownPath -Force
     $gate | Add-Member -NotePropertyName gate_decision_path -NotePropertyValue $gateDecisionPath -Force

@@ -624,13 +624,101 @@ Copy-Item -LiteralPath (Join-Path $onePairRoot "sample-timing.json") -Destinatio
     score_valid = $true
     speedup_evidence_valid = $true
     speedup_decision = "speedup_blocked_instrumentation"
+    speedup_decision_reason = "runtime_optimization_status_blocked"
+    runtime_optimization_blockers = @("missing_wait_attribution:model_request_duration_ms")
     timing_quality = "complete"
     runtime_optimization_status = "ready"
     wait_attribution_status = "complete"
     generated_at = "2026-06-15T00:00:00.0000000Z"
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $blockedOnePairRoot "runtime-bottleneck.json") -Encoding UTF8
 $blockedOnePairGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $blockedOnePairRoot -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $equivalencePath
-Assert-True ([string]$blockedOnePairGate.status -eq "fail" -and [string]$blockedOnePairGate.first_failure.reason -eq "one_pair_smoke_speedup_decision_blocked") "calibration gate allowed one-pair blocked speedup decision"
+Assert-True ([string]$blockedOnePairGate.status -eq "pass" -and [bool]$blockedOnePairGate.full_e3_allowed -and -not [bool]$blockedOnePairGate.speed_claim_allowed) "calibration gate did not decouple one-pair instrumentation speed block from full E3 eligibility"
+Assert-True ([string]$blockedOnePairGate.gates[0].details.speedup_decision_reason -eq "runtime_optimization_status_blocked" -and @($blockedOnePairGate.gates[0].details.runtime_optimization_blockers).Count -eq 1) "calibration gate did not expose one-pair speed blocker details"
+$dirtyOnePairRoot = Join-Path $calibrationGateRoot "one-pair-dirty-timing"
+New-Item -ItemType Directory -Force -Path $dirtyOnePairRoot | Out-Null
+$dirtyOnePairTimingPath = Join-Path $dirtyOnePairRoot "pair-timing.json"
+$dirtyOnePairReportPath = Join-Path $dirtyOnePairRoot "runtime-bottleneck.md"
+[pscustomobject]@{
+    agent_duration_ms = 1000
+    public_validation_duration_ms = 2000
+    bottleneck_classification = "engineering_unclean_slow"
+    runtime_optimization_status = "blocked"
+    engineering_unclean = $true
+    engineering_unclean_reasons = @("public_validation_timeout")
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $dirtyOnePairTimingPath -Encoding UTF8
+Copy-Item -LiteralPath (Join-Path $onePairRoot "sample-timing.json") -Destination (Join-Path $dirtyOnePairRoot "sample-timing.json") -Force
+"# Runtime Bottleneck`n" | Set-Content -LiteralPath $dirtyOnePairReportPath -Encoding UTF8
+[pscustomobject]@{
+    schema_version = 1
+    timing_path = $dirtyOnePairTimingPath
+    report_path = $dirtyOnePairReportPath
+    score_valid = $true
+    speedup_evidence_valid = $true
+    speedup_decision = "speedup_candidate_validator_or_docker"
+    timing_quality = "complete"
+    runtime_optimization_status = "ready"
+    wait_attribution_status = "complete"
+    generated_at = "2026-06-15T00:00:00.0000000Z"
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $dirtyOnePairRoot "runtime-bottleneck.json") -Encoding UTF8
+$dirtyOnePairGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $dirtyOnePairRoot -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $equivalencePath
+Assert-True ([string]$dirtyOnePairGate.status -eq "fail" -and [string]$dirtyOnePairGate.first_failure.reason -eq "one_pair_smoke_engineering_unclean") "calibration gate trusted report score_valid over dirty one-pair timing"
+foreach ($dirtyCase in @(
+        [pscustomobject]@{ name = "flag-only"; fields = [pscustomobject]@{ engineering_unclean = $true }; expected = "one_pair_smoke_engineering_unclean" },
+        [pscustomobject]@{ name = "reasons-only"; fields = [pscustomobject]@{ engineering_unclean_reasons = @("docker_run_failure") }; expected = "one_pair_smoke_engineering_unclean_reasons_present" },
+        [pscustomobject]@{ name = "bottleneck-only"; fields = [pscustomobject]@{ bottleneck_classification = "engineering_unclean_slow" }; expected = "one_pair_smoke_engineering_unclean_slow" }
+    )) {
+    $caseRoot = Join-Path $calibrationGateRoot "one-pair-dirty-$($dirtyCase.name)"
+    New-Item -ItemType Directory -Force -Path $caseRoot | Out-Null
+    $caseTimingPath = Join-Path $caseRoot "pair-timing.json"
+    $caseReportPath = Join-Path $caseRoot "runtime-bottleneck.md"
+    $caseTiming = [pscustomobject]@{
+        agent_duration_ms = 1000
+        public_validation_duration_ms = 2000
+        bottleneck_classification = "validator_bound"
+        runtime_optimization_status = "ready"
+    }
+    foreach ($property in $dirtyCase.fields.PSObject.Properties) {
+        $caseTiming | Add-Member -NotePropertyName $property.Name -NotePropertyValue $property.Value -Force
+    }
+    $caseTiming | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $caseTimingPath -Encoding UTF8
+    Copy-Item -LiteralPath (Join-Path $onePairRoot "sample-timing.json") -Destination (Join-Path $caseRoot "sample-timing.json") -Force
+    "# Runtime Bottleneck`n" | Set-Content -LiteralPath $caseReportPath -Encoding UTF8
+    [pscustomobject]@{
+        schema_version = 1
+        timing_path = $caseTimingPath
+        report_path = $caseReportPath
+        score_valid = $true
+        speedup_evidence_valid = $true
+        speedup_decision = "speedup_candidate_validator_or_docker"
+        timing_quality = "complete"
+        runtime_optimization_status = "ready"
+        wait_attribution_status = "complete"
+        generated_at = "2026-06-15T00:00:00.0000000Z"
+    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $caseRoot "runtime-bottleneck.json") -Encoding UTF8
+    $caseGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $caseRoot -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $equivalencePath
+    Assert-True ([string]$caseGate.status -eq "fail" -and [string]$caseGate.first_failure.reason -eq [string]$dirtyCase.expected) "calibration gate missed isolated one-pair dirty indicator $($dirtyCase.name)"
+}
+$invalidOnePairRoot = Join-Path $calibrationGateRoot "one-pair-invalid-run"
+New-Item -ItemType Directory -Force -Path $invalidOnePairRoot | Out-Null
+$invalidOnePairTimingPath = Join-Path $invalidOnePairRoot "pair-timing.json"
+$invalidOnePairReportPath = Join-Path $invalidOnePairRoot "runtime-bottleneck.md"
+Copy-Item -LiteralPath $onePairTimingPath -Destination $invalidOnePairTimingPath -Force
+Copy-Item -LiteralPath (Join-Path $onePairRoot "sample-timing.json") -Destination (Join-Path $invalidOnePairRoot "sample-timing.json") -Force
+"# Runtime Bottleneck`n" | Set-Content -LiteralPath $invalidOnePairReportPath -Encoding UTF8
+[pscustomobject]@{
+    schema_version = 1
+    timing_path = $invalidOnePairTimingPath
+    report_path = $invalidOnePairReportPath
+    score_valid = $false
+    speedup_evidence_valid = $false
+    speedup_decision = "speedup_blocked_invalid_run"
+    timing_quality = "complete"
+    runtime_optimization_status = "blocked"
+    wait_attribution_status = "complete"
+    generated_at = "2026-06-15T00:00:00.0000000Z"
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $invalidOnePairRoot "runtime-bottleneck.json") -Encoding UTF8
+$invalidOnePairGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $invalidOnePairRoot -SerialCalibrationRoot $serialCalibrationRoot -ParallelEquivalencePath $equivalencePath
+Assert-True ([string]$invalidOnePairGate.status -eq "fail" -and [string]$invalidOnePairGate.first_failure.reason -eq "one_pair_smoke_field_invalid:score_valid") "calibration gate allowed invalid one-pair score evidence"
 $placeholderOnePairRoot = Join-Path $calibrationGateRoot "one-pair-placeholder-json"
 New-Item -ItemType Directory -Force -Path $placeholderOnePairRoot | Out-Null
 Copy-Item -LiteralPath $onePairTimingPath -Destination (Join-Path $placeholderOnePairRoot "pair-timing.json") -Force
@@ -668,7 +756,33 @@ Copy-Item -LiteralPath (Join-Path $serialCalibrationRoot "runtime-calibration-re
     generated_at = "2026-06-15T00:00:00.0000000Z"
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $blockedSerialRoot "runtime-calibration-report.json") -Encoding UTF8
 $blockedSerialGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePairRoot -SerialCalibrationRoot $blockedSerialRoot -ParallelEquivalencePath $equivalencePath
-Assert-True ([string]$blockedSerialGate.status -eq "fail" -and [string]$blockedSerialGate.first_failure.reason -eq "serial_calibration_field_invalid:speedup_evidence_valid") "calibration gate allowed speedup_evidence_valid=false"
+Assert-True ([string]$blockedSerialGate.status -eq "pass" -and [bool]$blockedSerialGate.full_e3_allowed -and -not [bool]$blockedSerialGate.speed_claim_allowed) "calibration gate did not decouple serial speed evidence from full E3 eligibility"
+$dirtySerialRoot = Join-Path $calibrationGateRoot "serial-dirty-timing"
+New-Item -ItemType Directory -Force -Path $dirtySerialRoot | Out-Null
+$dirtySerialTimingPath = Join-Path $dirtySerialRoot "suite-timing.json"
+[pscustomobject]@{
+    sample_count = 3
+    timing_quality = "complete"
+    runtime_optimization_status = "blocked"
+    bottleneck_classification = "engineering_unclean_slow"
+    wait_attribution_status = "complete"
+    engineering_unclean_reasons = @("child_engineering_unclean_slow")
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $dirtySerialTimingPath -Encoding UTF8
+"# Runtime Calibration`n" | Set-Content -LiteralPath (Join-Path $dirtySerialRoot "runtime-calibration-report.md") -Encoding UTF8
+[pscustomobject]@{
+    schema_version = 1
+    report_path = (Join-Path $dirtySerialRoot "runtime-calibration-report.md")
+    score_valid = $true
+    speedup_evidence_valid = $true
+    speedup_decision = "speedup_candidate_parallelism"
+    timing_path = $dirtySerialTimingPath
+    timing_quality = "complete"
+    runtime_optimization_status = "ready"
+    wait_attribution_status = "complete"
+    generated_at = "2026-06-15T00:00:00.0000000Z"
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $dirtySerialRoot "runtime-calibration-report.json") -Encoding UTF8
+$dirtySerialGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePairRoot -SerialCalibrationRoot $dirtySerialRoot -ParallelEquivalencePath $equivalencePath
+Assert-True ([string]$dirtySerialGate.status -eq "fail" -and [string]$dirtySerialGate.first_failure.reason -eq "serial_calibration_engineering_unclean_reasons_present") "calibration gate trusted report score_valid over dirty serial timing"
 $blockedDecisionSerialRoot = Join-Path $calibrationGateRoot "serial-blocked-decision"
 New-Item -ItemType Directory -Force -Path $blockedDecisionSerialRoot | Out-Null
 Copy-Item -LiteralPath $serialSuiteTimingPath -Destination (Join-Path $blockedDecisionSerialRoot "suite-timing.json") -Force
@@ -679,6 +793,8 @@ Copy-Item -LiteralPath $serialSuiteTimingPath -Destination (Join-Path $blockedDe
     score_valid = $true
     speedup_evidence_valid = $true
     speedup_decision = "speedup_blocked_instrumentation"
+    speedup_decision_reason = "runtime_optimization_status_blocked"
+    runtime_optimization_blockers = @("unavailable_wait_attribution:model_queue_wait_ms")
     timing_path = (Join-Path $blockedDecisionSerialRoot "suite-timing.json")
     timing_quality = "complete"
     runtime_optimization_status = "ready"
@@ -686,7 +802,26 @@ Copy-Item -LiteralPath $serialSuiteTimingPath -Destination (Join-Path $blockedDe
     generated_at = "2026-06-15T00:00:00.0000000Z"
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $blockedDecisionSerialRoot "runtime-calibration-report.json") -Encoding UTF8
 $blockedDecisionSerialGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePairRoot -SerialCalibrationRoot $blockedDecisionSerialRoot -ParallelEquivalencePath $equivalencePath
-Assert-True ([string]$blockedDecisionSerialGate.status -eq "fail" -and [string]$blockedDecisionSerialGate.first_failure.reason -eq "serial_calibration_speedup_decision_blocked") "calibration gate allowed serial blocked speedup decision with speedup_evidence_valid=true"
+Assert-True ([string]$blockedDecisionSerialGate.status -eq "pass" -and [bool]$blockedDecisionSerialGate.full_e3_allowed -and -not [bool]$blockedDecisionSerialGate.speed_claim_allowed) "calibration gate did not decouple serial instrumentation decision from full E3 eligibility"
+Assert-True ([string]$blockedDecisionSerialGate.gates[1].details.speedup_decision_reason -eq "runtime_optimization_status_blocked" -and @($blockedDecisionSerialGate.gates[1].details.runtime_optimization_blockers).Count -eq 1) "calibration gate did not expose serial speed blocker details"
+$invalidSerialRoot = Join-Path $calibrationGateRoot "serial-invalid-run"
+New-Item -ItemType Directory -Force -Path $invalidSerialRoot | Out-Null
+Copy-Item -LiteralPath $serialSuiteTimingPath -Destination (Join-Path $invalidSerialRoot "suite-timing.json") -Force
+"# Runtime Calibration`n" | Set-Content -LiteralPath (Join-Path $invalidSerialRoot "runtime-calibration-report.md") -Encoding UTF8
+[pscustomobject]@{
+    schema_version = 1
+    report_path = (Join-Path $invalidSerialRoot "runtime-calibration-report.md")
+    score_valid = $false
+    speedup_evidence_valid = $false
+    speedup_decision = "speedup_blocked_invalid_run"
+    timing_path = (Join-Path $invalidSerialRoot "suite-timing.json")
+    timing_quality = "complete"
+    runtime_optimization_status = "blocked"
+    wait_attribution_status = "complete"
+    generated_at = "2026-06-15T00:00:00.0000000Z"
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $invalidSerialRoot "runtime-calibration-report.json") -Encoding UTF8
+$invalidSerialGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePairRoot -SerialCalibrationRoot $invalidSerialRoot -ParallelEquivalencePath $equivalencePath
+Assert-True ([string]$invalidSerialGate.status -eq "fail" -and [string]$invalidSerialGate.first_failure.reason -eq "serial_calibration_field_invalid:score_valid") "calibration gate allowed invalid serial score evidence"
 $missingWaitSerialRoot = Join-Path $calibrationGateRoot "serial-missing-wait"
 New-Item -ItemType Directory -Force -Path $missingWaitSerialRoot | Out-Null
 $missingWaitSuiteTimingPath = Join-Path $missingWaitSerialRoot "suite-timing.json"
@@ -711,7 +846,7 @@ Copy-Item -LiteralPath (Join-Path $serialCalibrationRoot "runtime-calibration-re
     generated_at = "2026-06-15T00:00:00.0000000Z"
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $missingWaitSerialRoot "runtime-calibration-report.json") -Encoding UTF8
 $missingWaitGate = Invoke-TaskspaceCalibrationGate -OnePairSmokeRoot $onePairRoot -SerialCalibrationRoot $missingWaitSerialRoot -ParallelEquivalencePath $equivalencePath
-Assert-True ([string]$missingWaitGate.status -eq "fail" -and [string]$missingWaitGate.first_failure.reason -eq "serial_calibration_field_invalid:wait_attribution_status") "calibration gate allowed missing wait attribution"
+Assert-True ([string]$missingWaitGate.status -eq "pass" -and [bool]$missingWaitGate.full_e3_allowed -and -not [bool]$missingWaitGate.speed_claim_allowed) "calibration gate did not decouple missing wait attribution from full E3 eligibility"
 $missingTimingPathSerialRoot = Join-Path $calibrationGateRoot "serial-missing-timing-path"
 New-Item -ItemType Directory -Force -Path $missingTimingPathSerialRoot | Out-Null
 Copy-Item -LiteralPath $serialSuiteTimingPath -Destination (Join-Path $missingTimingPathSerialRoot "suite-timing.json") -Force
