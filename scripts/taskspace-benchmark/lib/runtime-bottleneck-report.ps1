@@ -55,11 +55,16 @@ function Test-TaskspaceRuntimeSpeedEvidenceValid {
     param(
         $Timing,
         [bool]$ScoreValid = $true,
-        [string]$TimingParseError = ""
+        [string]$TimingParseError = "",
+        [string]$SpeedupDecision = ""
     )
     if (-not $ScoreValid) { return $false }
     if ($TimingParseError) { return $false }
     if (-not $Timing) { return $false }
+    if ([string]::IsNullOrWhiteSpace($SpeedupDecision)) {
+        $SpeedupDecision = [string](Get-TaskspaceRuntimeSpeedDecision $Timing $ScoreValid).decision
+    }
+    if ($SpeedupDecision -like "speedup_blocked_*") { return $false }
     if ($Timing.PSObject.Properties.Name -contains "timing_quality" -and [string]$Timing.timing_quality -ne "complete") { return $false }
     if (-not ($Timing.PSObject.Properties.Name -contains "timing_quality")) { return $false }
     if ($Timing.PSObject.Properties.Name -contains "runtime_optimization_status" -and [string]$Timing.runtime_optimization_status -eq "blocked") { return $false }
@@ -110,7 +115,7 @@ function Write-TaskspaceRuntimeBottleneckReport {
     } else {
         Get-TaskspaceRuntimeSpeedDecision $timing $ScoreValid
     }
-    $speedupEvidenceValid = Test-TaskspaceRuntimeSpeedEvidenceValid $timing $ScoreValid $parseError
+    $speedupEvidenceValid = Test-TaskspaceRuntimeSpeedEvidenceValid $timing $ScoreValid $parseError ([string]$decision.decision)
     $blockersForJson = if ($timing -and $timing.PSObject.Properties.Name -contains "runtime_optimization_blockers") { @(Get-TaskspaceRuntimeUniqueStrings $timing.runtime_optimization_blockers) } else { @() }
     $missingForJson = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_missing_fields") { @(Get-TaskspaceRuntimeUniqueStrings $timing.wait_attribution_missing_fields) } else { @() }
     $unavailableForJson = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_unavailable_fields") { $timing.wait_attribution_unavailable_fields } else { [pscustomobject]@{} }
@@ -207,7 +212,7 @@ function Write-TaskspaceRuntimeCalibrationReport {
     } else {
         Get-TaskspaceRuntimeSpeedDecision $timing $ScoreValid
     }
-    $speedupEvidenceValid = Test-TaskspaceRuntimeSpeedEvidenceValid $timing $ScoreValid $parseError
+    $speedupEvidenceValid = Test-TaskspaceRuntimeSpeedEvidenceValid $timing $ScoreValid $parseError ([string]$decision.decision)
     $blockers = if ($timing -and $timing.PSObject.Properties.Name -contains "runtime_optimization_blockers") { @(Get-TaskspaceRuntimeUniqueStrings $timing.runtime_optimization_blockers) } else { @() }
     $missing = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_missing_fields") { @(Get-TaskspaceRuntimeUniqueStrings $timing.wait_attribution_missing_fields) } else { @() }
     $unavailable = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_unavailable_fields") { $timing.wait_attribution_unavailable_fields } else { [pscustomobject]@{} }
@@ -231,6 +236,7 @@ function Write-TaskspaceRuntimeCalibrationReport {
         bottleneck_counts = if ($timing -and $timing.PSObject.Properties.Name -contains "bottleneck_counts") { $timing.bottleneck_counts } else { [pscustomobject]@{} }
         repeated_docker_cache_keys = if ($timing -and $timing.PSObject.Properties.Name -contains "repeated_docker_cache_keys") { @(Get-TaskspaceRuntimeUniqueStrings $timing.repeated_docker_cache_keys) } else { @() }
         runtime_optimization_blockers = @($blockers)
+        wait_attribution_status = if ($timing -and $timing.PSObject.Properties.Name -contains "wait_attribution_status") { [string]$timing.wait_attribution_status } else { "" }
         wait_attribution_missing_fields = @($missing)
         wait_attribution_unavailable_fields = $unavailable
         phase_durations = @($phaseRows)
@@ -256,6 +262,7 @@ function Write-TaskspaceRuntimeCalibrationReport {
         $lines.Add("- runtime_optimization_status: $(if ($timing.PSObject.Properties.Name -contains 'runtime_optimization_status') { $timing.runtime_optimization_status } else { '' })")
         $lines.Add("- bottleneck_classification: $(if ($timing.PSObject.Properties.Name -contains 'bottleneck_classification') { $timing.bottleneck_classification } else { '' })")
         $lines.Add("- runtime_optimization_blockers: $(if ($blockers.Count -eq 0) { 'none' } else { $blockers -join ', ' })")
+        $lines.Add("- wait_attribution_status: $(if ($timing.PSObject.Properties.Name -contains 'wait_attribution_status') { $timing.wait_attribution_status } else { '' })")
         $lines.Add("- wait_attribution_missing_fields: $(if ($missing.Count -eq 0) { 'none' } else { $missing -join ', ' })")
         $unavailablePairs = @($unavailable.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" })
         $lines.Add("- wait_attribution_unavailable_fields: $(if ($unavailablePairs.Count -eq 0) { 'none' } else { $unavailablePairs -join ', ' })")
