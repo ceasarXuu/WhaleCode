@@ -85,7 +85,7 @@ function New-TaskspacePairWorkspace {
         $sideRoot = New-Dir (Join-Path $repeatDir $side)
         $aliasRoot = ""
         $repoDir = if ($needsTerminalBenchAppAlias) {
-            $aliasRoot = New-Dir (Join-Path $sideRoot "terminal-bench-drive")
+            $aliasRoot = $sideRoot
             New-Dir (Join-Path $aliasRoot "app")
         } else {
             New-Dir (Join-Path $sideRoot "repo")

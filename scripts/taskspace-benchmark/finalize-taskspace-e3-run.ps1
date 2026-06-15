@@ -25,7 +25,7 @@ function Read-JsonFile {
 
 function Get-PairRepoDir {
     param([Parameter(Mandatory = $true)][string]$SideDir)
-    foreach ($relative in @("repo", "terminal-bench-drive\app")) {
+    foreach ($relative in @("repo", "app", "terminal-bench-drive\app")) {
         $candidate = Join-Path $SideDir $relative
         if (Test-Path -LiteralPath $candidate) { return (Resolve-Path -LiteralPath $candidate).Path }
     }
