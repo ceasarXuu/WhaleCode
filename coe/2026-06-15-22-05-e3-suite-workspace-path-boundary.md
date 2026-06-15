@@ -135,3 +135,33 @@ Observation:
 
 Supports:
 - H-003 prediction that old serial calibration v4 is invalid clean-score evidence even after timing path reconstruction is fixed.
+
+## Hypothesis H-004: E3 suite calibration bypassed early score-invalid abort because scoring enforcement was opt-in and incompatible with SkipStartGate
+
+Status: confirmed
+
+Rationale:
+- Calibration runs need `-SkipStartGate` because they are the evidence used by the start gate.
+- The suite previously only passed `-ScoringMode` to child runners when explicitly requested, and rejected `-ScoringMode` with `-SkipStartGate` for real runs.
+- This allowed calibration runs to finish all pairs even when pair audit artifacts already marked validator timeout as engineering unclean.
+
+Predictions:
+- A suite run launched without explicit `-ScoringMode` should have child `resume_command` values that omit `-ScoringMode`.
+- The same run can have pair-level `audit.json.engineering_unclean=true` while suite status remains completed if no other invalid-harness path fires.
+- Making non-PlanOnly E3 suite runs enforce score validity by default should pass `-ScoringMode` to child runners even with `-SkipStartGate`.
+
+Diagnostic evidence plan:
+- Inspect serial clean/serial v4 child `resume_command` fields and suite code path for `New-SuiteChildArgs`.
+- Add a stub-runner regression test proving default non-PlanOnly suite runs pass `-ScoringMode` and abort remaining samples on child score invalidity.
+
+## Evidence E-007
+
+Type: runtime state and code path
+
+Observation:
+- Serial clean v1 sample `resume_command` fields omit `-ScoringMode` when the suite command omits it.
+- `run-taskspace-e3-suite.ps1` previously appended child `-ScoringMode` only when `$ScoringMode` was explicitly set.
+- The script also rejected explicit score-bearing runs combined with `-SkipStartGate`, blocking calibration from using scoring enforcement directly.
+
+Supports:
+- H-004 prediction that calibration could bypass early score-invalid abort despite pair-level engineering-unclean artifacts.

@@ -48,10 +48,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "lib\e3-start-gate.ps1")
 if ($Repeats -lt 5) { throw "E3 suite requires Repeats >= 5." }
 if (-not (Test-Path -LiteralPath $TaskListPath)) { Write-Error "TaskListPath not found: $TaskListPath"; exit 4 }
-if (($ScoringMode -or $RequireScoreValidity) -and $SkipStartGate -and -not $PlanOnly) {
-    [Console]::Error.WriteLine("SkipStartGate is not allowed for score-bearing E3 suite runs. Use PlanOnly for dry runs or provide start/calibration gate evidence.")
-    exit 4
-}
+$scoreValidityEnforced = ($ScoringMode -or $RequireScoreValidity -or -not $PlanOnly)
 if (-not $RunRoot) { $RunRoot = Join-Path ([System.IO.Path]::GetTempPath()) "whale-e3-suite-runs" }
 $RunRoot = [System.IO.Path]::GetFullPath($RunRoot)
 New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
@@ -145,7 +142,7 @@ function Write-SuiteEarlyAbortArtifacts {
     [pscustomobject]@{ suite_timing_path = $suiteTimingPath; runtime_bottleneck_path = $runtimeBottleneckPath; runtime_calibration_path = $calibrationPath }
 }
 
-if (($ScoringMode -or $RequireScoreValidity) -and -not $PlanOnly -and -not $SkipStartGate) {
+if ($scoreValidityEnforced -and -not $PlanOnly -and -not $SkipStartGate) {
     $gate = Invoke-TaskspaceE3StartGate `
         -RepoRoot (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path `
         -BenchmarkRoot $PSScriptRoot `
@@ -343,7 +340,7 @@ function New-SuiteChildArgs {
     foreach ($override in @($ConfigOverride)) { $childArgs += @("-ConfigOverride", $override) }
     if ($AuditReviewRoot) { $childArgs += @("-AuditReviewRoot", $AuditReviewRoot) }
     if ($PlanOnly) { $childArgs += "-PlanOnly" }
-    if ($ScoringMode) { $childArgs += "-ScoringMode" }
+    if ($scoreValidityEnforced) { $childArgs += "-ScoringMode" }
     if ($RequireScoreValidity) { $childArgs += "-RequireScoreValidity" }
     if ($EnableDockerImageCache) { $childArgs += "-EnableDockerImageCache" }
     $childArgs
@@ -360,7 +357,7 @@ function Complete-SuiteSampleStatus {
         $status = New-TaskspaceSuiteChildFailureStatus $status ([string]$Row.sample_id) ([string]$Row.task_dir) $ChildExit $(if ($statusPath) { [string]$statusPath.FullName } else { "" }) ([string]$Row.sample_root)
     }
     $aggregatePath = Get-ChildItem -LiteralPath ([string]$Row.sample_root) -Filter "aggregate.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (($ScoringMode -or $RequireScoreValidity) -and $aggregatePath) {
+    if ($scoreValidityEnforced -and $aggregatePath) {
         try {
             $aggregate = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregatePath.FullName | ConvertFrom-Json
             if ($aggregate.PSObject.Properties.Name -contains "score_valid" -and -not [bool]$aggregate.score_valid) {
@@ -371,7 +368,7 @@ function Complete-SuiteSampleStatus {
                 $ChildExit = 3
             }
         } catch {
-            if ($RequireScoreValidity -or $ScoringMode) {
+            if ($scoreValidityEnforced) {
                 $status = New-TaskspaceSuiteChildFailureStatus $status ([string]$Row.sample_id) ([string]$Row.task_dir) 3 ([string]$aggregatePath.FullName) ([string]$Row.sample_root)
                 $status.abort_phase = "score_validity"
                 $status.abort_reason = "aggregate_score_validity_parse_failed"
@@ -393,7 +390,7 @@ function Update-SuiteAbortFromStatus {
         if ($script:exitCode -eq 0) { $script:exitCode = 3 }
         $global = $sig -match "docker_backend_unavailable|uv_cache_missing|validator_source_missing|disk_space_low|disk_space_threshold_invalid"
         $shouldAbortSuite = $false
-        if (($ScoringMode -or $RequireScoreValidity) -and -not $ContinueAfterInvalidHarness) { $shouldAbortSuite = $true }
+        if ($scoreValidityEnforced -and -not $ContinueAfterInvalidHarness) { $shouldAbortSuite = $true }
         if (-not $ContinueAfterInvalidHarness -and ($global -or $signatureCounts[$sig] -ge 2)) { $shouldAbortSuite = $true }
         if ($shouldAbortSuite -and -not $script:suiteAbort) {
             $script:suiteAbort = $sig

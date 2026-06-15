@@ -282,6 +282,66 @@ Assert-True ([int]$suiteChildHealth.remaining_samples_skipped -eq 1 -and [int]$s
 Assert-True ([string]$suiteChildSkipped.phase -eq "skipped" -and [string]$suiteChildSkipped.abort_signature -eq "harness_materialization_failure/stub_score_invalid") "suite child invalid fixture did not skip second sample with first invalid signature"
 Assert-True ($suiteChildInvalidEvents.Count -eq 1 -and [int]$suiteChildInvalidEvents[0].remaining_samples_skipped -eq 1) "suite child invalid fixture did not emit score invalidated event"
 
+$suiteDefaultScoringRoot = Join-Path $runDir "suite-default-scoring"
+$suiteDefaultTaskA = Join-Path $suiteDefaultScoringRoot "task-a"
+$suiteDefaultTaskB = Join-Path $suiteDefaultScoringRoot "task-b"
+$suiteDefaultRunner = Join-Path $suiteDefaultScoringRoot "stub-runner.ps1"
+New-Item -ItemType Directory -Force -Path $suiteDefaultTaskA, $suiteDefaultTaskB | Out-Null
+$suiteDefaultTaskList = Join-Path $suiteDefaultScoringRoot "tasks.jsonl"
+@(
+    ([pscustomobject]@{ sample_id = "sample-a"; task_dir = $suiteDefaultTaskA; source_version = "selftest" } | ConvertTo-Json -Compress),
+    ([pscustomobject]@{ sample_id = "sample-b"; task_dir = $suiteDefaultTaskB; source_version = "selftest" } | ConvertTo-Json -Compress)
+) | Set-Content -LiteralPath $suiteDefaultTaskList -Encoding UTF8
+@'
+param(
+    [string]$Benchmark,
+    [string]$TaskDir,
+    [string]$SampleId,
+    [string]$SourceVersion,
+    [int]$Repeats,
+    [string]$RunRoot,
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
+)
+$ErrorActionPreference = "Stop"
+New-Item -ItemType Directory -Force -Path $RunRoot | Out-Null
+$scoringEnabled = @($Rest | Where-Object { [string]$_ -eq "-ScoringMode" }).Count -gt 0
+if ($scoringEnabled) {
+    [pscustomobject]@{
+        schema_version = 1
+        sample_id = $SampleId
+        phase = "invalid_harness"
+        run_validity = "invalid_harness"
+        exit_code = 3
+        abort_scope = "sample"
+        abort_phase = "score_validity"
+        abort_signature = "harness_materialization_failure/default_scoring"
+        abort_reason = "default_scoring"
+        first_failure_artifact = $TaskDir
+        sample_root = $RunRoot
+    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $RunRoot "sample-status.json") -Encoding UTF8
+    exit 3
+}
+[pscustomobject]@{
+    schema_version = 1
+    sample_id = $SampleId
+    phase = "completed"
+    run_validity = "valid"
+    attempted_pairs = $Repeats
+    completed_pairs = $Repeats
+    exit_code = 0
+    sample_root = $RunRoot
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $RunRoot "sample-status.json") -Encoding UTF8
+exit 0
+'@ | Set-Content -LiteralPath $suiteDefaultRunner -Encoding UTF8
+$suiteDefaultOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1") -Benchmark terminal-bench -TaskListPath $suiteDefaultTaskList -SourceVersion selftest -Repeats 5 -RunRoot (Join-Path $suiteDefaultScoringRoot "runs") -RunnerPath $suiteDefaultRunner -SkipStartGate 2>&1
+Assert-True ($LASTEXITCODE -eq 3) "suite did not enforce scoring mode by default"
+$suiteDefaultRootLine = @($suiteDefaultOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
+$suiteDefaultRunRoot = ([string]$suiteDefaultRootLine) -replace "^SuiteRoot:\s*", ""
+$suiteDefaultHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteDefaultRunRoot "suite-health.json") | ConvertFrom-Json
+$suiteDefaultSkipped = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteDefaultRunRoot "samples\sample-b\sample-status.json") | ConvertFrom-Json
+Assert-True ([string]$suiteDefaultHealth.status -eq "invalid_harness" -and -not [bool]$suiteDefaultHealth.suite_score_valid) "suite default scoring did not invalidate suite health"
+Assert-True ([string]$suiteDefaultSkipped.phase -eq "skipped" -and [string]$suiteDefaultSkipped.abort_signature -eq "harness_materialization_failure/default_scoring") "suite default scoring did not skip remaining sample"
+
 $parallelSuiteRoot = Join-Path $runDir "suite-parallel"
 $parallelTaskList = Join-Path $parallelSuiteRoot "tasks.jsonl"
 $parallelStubRunner = Join-Path $parallelSuiteRoot "stub-runner.ps1"
