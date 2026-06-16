@@ -311,6 +311,7 @@ function Get-TaskspaceBenchmarkMetrics {
         avg_output_tokens_per_request = $costInstrumentation.request_summary.avg_output_tokens_per_request
         taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.taskspace_control_count
         state_commit_count = [int]$costInstrumentation.taskspace_control_usage.state_commit_count
+        runtime_state_commit_count = [int]$costInstrumentation.taskspace_control_usage.runtime_state_commit_count
         taskspace_runtime_event_count = [int]$costInstrumentation.taskspace_control_usage.taskspace_runtime_event_count
         large_output_replay_count = [int]$costInstrumentation.replay_summary.large_output_replay_count
         largest_tool_output_bytes = [int64]$costInstrumentation.replay_summary.largest_tool_output_bytes

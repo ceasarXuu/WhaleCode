@@ -310,6 +310,31 @@ Remaining Phase 1 work:
 - Add an explicit runtime/usage metric for state-commit adoption vs legacy cognitive updates, because current `taskspace_control_count=0` is insufficient when runtime events are synthesized outside model-visible `whale-exec.jsonl` tool-call records.
 - Decide whether to keep enforcing Phase 1 partial cost gate before Phase 2 or move context-size reduction into Phase 2 as the next necessary dependency.
 
+## 2026-06-17 Phase 1 runtime state_commit metric
+
+Changed:
+
+- Added `runtime_state_commit_count` to taskspace control usage artifacts.
+- The existing `state_commit_count` remains model-visible `taskspace_control(action=state_commit)` count from exec JSONL.
+- The new field counts observability timeline events whose `details.updateKind` starts with `state_commit`, so runtime-synthesized state commits can be distinguished from legacy cognitive updates.
+- Aggregate cost artifacts now sum `runtime_state_commit_count` for taskspace and standard modes.
+- `metrics.json` now exposes `runtime_state_commit_count`.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-runtimecommit-3f8a
+TaskSpace benchmark harness self-test: PASS
+
+powershell -NoProfile -Command '. scripts\taskspace-benchmark\lib\cost-instrumentation.ps1; $out = Write-TaskspaceCostInstrumentationArtifacts ...; $out.taskspace_control_usage | ConvertTo-Json -Depth 10'
+runtime_state_commit_count: 0
+taskspace_runtime_event_count: 112
+```
+
+Conclusion:
+
+- The latest live smoke did not merely miss model-visible tool-call counting; it also had no runtime `state_commit.*` events. Phase 1 still needs stronger model/tool routing if `state_commit` adoption remains a gate.
+
 ## 2026-06-17 Phase 1 lifecycle state_commit sections
 
 Changed:
