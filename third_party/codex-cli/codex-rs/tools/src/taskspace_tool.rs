@@ -148,6 +148,366 @@ fn success_criteria_schema(description: &str) -> JsonSchema {
     )
 }
 
+fn state_commit_node_schema() -> JsonSchema {
+    JsonSchema::object(
+        BTreeMap::from([
+            (
+                "kind".to_string(),
+                JsonSchema::string_enum(
+                    node_kind_values(),
+                    Some("Runtime node kind to create.".to_string()),
+                ),
+            ),
+            (
+                "title".to_string(),
+                JsonSchema::string(Some("Human-readable node title.".to_string())),
+            ),
+            (
+                "context_summary".to_string(),
+                JsonSchema::string(Some("Concise context the node should carry.".to_string())),
+            ),
+            (
+                "dependency_node_ids".to_string(),
+                JsonSchema::array(
+                    JsonSchema::string(Some("Existing upstream node id.".to_string())),
+                    Some("Optional dependency node ids.".to_string()),
+                ),
+            ),
+            (
+                "bind_current".to_string(),
+                JsonSchema::boolean(Some("Bind the main agent to the created node.".to_string())),
+            ),
+        ]),
+        Some(vec![
+            "kind".to_string(),
+            "title".to_string(),
+            "context_summary".to_string(),
+        ]),
+        Some(false.into()),
+    )
+}
+
+fn state_commit_finished_node_schema() -> JsonSchema {
+    JsonSchema::object(
+        BTreeMap::from([
+            (
+                "node_id".to_string(),
+                JsonSchema::string(Some("Existing current node id to finish.".to_string())),
+            ),
+            (
+                "result_summary".to_string(),
+                JsonSchema::string(Some("Concise result summary.".to_string())),
+            ),
+            (
+                "next_node_id".to_string(),
+                JsonSchema::string(Some("Optional existing next node to bind.".to_string())),
+            ),
+            (
+                "next_node_kind".to_string(),
+                JsonSchema::string_enum(
+                    node_kind_values(),
+                    Some("Optional kind for atomically creating the next node.".to_string()),
+                ),
+            ),
+            (
+                "next_node_title".to_string(),
+                JsonSchema::string(Some("Optional title for the next node.".to_string())),
+            ),
+            (
+                "next_node_context_summary".to_string(),
+                JsonSchema::string(Some("Optional context for the next node.".to_string())),
+            ),
+            (
+                "next_dependency_node_ids".to_string(),
+                JsonSchema::array(
+                    JsonSchema::string(Some("Existing upstream node id.".to_string())),
+                    Some("Optional dependencies for the next node.".to_string()),
+                ),
+            ),
+        ]),
+        Some(vec!["node_id".to_string(), "result_summary".to_string()]),
+        Some(false.into()),
+    )
+}
+
+fn state_commit_blocker_schema() -> JsonSchema {
+    JsonSchema::object(
+        BTreeMap::from([
+            (
+                "node_id".to_string(),
+                JsonSchema::string(Some("Existing current node id to block.".to_string())),
+            ),
+            (
+                "blocker_summary".to_string(),
+                JsonSchema::string(Some("Concrete blocker summary.".to_string())),
+            ),
+        ]),
+        Some(vec!["node_id".to_string(), "blocker_summary".to_string()]),
+        Some(false.into()),
+    )
+}
+
+fn state_commit_result_validity_schema() -> JsonSchema {
+    JsonSchema::object(
+        BTreeMap::from([
+            (
+                "result_id".to_string(),
+                JsonSchema::string(Some("Existing result id to review.".to_string())),
+            ),
+            (
+                "validity".to_string(),
+                JsonSchema::string_enum(
+                    vec![
+                        json!("unreviewed"),
+                        json!("accepted"),
+                        json!("questioned"),
+                        json!("invalid"),
+                    ],
+                    Some("Validity state for the result evidence package.".to_string()),
+                ),
+            ),
+            (
+                "validity_reason".to_string(),
+                JsonSchema::string(Some("Concise validity reason.".to_string())),
+            ),
+            ("claims".to_string(), claims_schema()),
+            (
+                "evidence_refs".to_string(),
+                evidence_refs_schema("Evidence refs supporting this validity."),
+            ),
+            (
+                "changed_artifacts".to_string(),
+                JsonSchema::array(
+                    JsonSchema::string(Some(
+                        "Modified artifact path or output artifact.".to_string(),
+                    )),
+                    Some("Changed artifacts for accepted implementation results.".to_string()),
+                ),
+            ),
+            (
+                "validator_refs".to_string(),
+                JsonSchema::array(
+                    JsonSchema::string(Some(
+                        "Validator, test, build, or check reference.".to_string(),
+                    )),
+                    Some("Validator refs for validation results.".to_string()),
+                ),
+            ),
+            (
+                "remaining_uncertainty".to_string(),
+                JsonSchema::array(
+                    JsonSchema::string(Some("Remaining uncertainty or caveat.".to_string())),
+                    Some("Optional remaining uncertainty.".to_string()),
+                ),
+            ),
+        ]),
+        Some(vec![
+            "result_id".to_string(),
+            "validity".to_string(),
+            "validity_reason".to_string(),
+        ]),
+        Some(false.into()),
+    )
+}
+
+fn state_commit_result_adoption_schema() -> JsonSchema {
+    JsonSchema::object(
+        BTreeMap::from([
+            (
+                "result_id".to_string(),
+                JsonSchema::string(Some("Existing result id to adopt.".to_string())),
+            ),
+            (
+                "adopted_by_facts".to_string(),
+                JsonSchema::array(JsonSchema::string(None), Some("Fact ids.".to_string())),
+            ),
+            (
+                "adopted_by_hypotheses".to_string(),
+                JsonSchema::array(
+                    JsonSchema::string(None),
+                    Some("Hypothesis ids.".to_string()),
+                ),
+            ),
+            (
+                "adopted_by_decisions".to_string(),
+                JsonSchema::array(JsonSchema::string(None), Some("Decision ids.".to_string())),
+            ),
+            (
+                "adopted_by_criteria".to_string(),
+                JsonSchema::array(JsonSchema::string(None), Some("Criterion ids.".to_string())),
+            ),
+            (
+                "adopted_by_nodes".to_string(),
+                JsonSchema::array(
+                    JsonSchema::string(None),
+                    Some("Follow-up node ids.".to_string()),
+                ),
+            ),
+        ]),
+        Some(vec!["result_id".to_string()]),
+        Some(false.into()),
+    )
+}
+
+fn fact_sources_schema(description: &str) -> JsonSchema {
+    JsonSchema::array(
+        JsonSchema::object(
+            BTreeMap::from([
+                (
+                    "fact_source_id".to_string(),
+                    JsonSchema::string(Some("Stable fact source id.".to_string())),
+                ),
+                (
+                    "provenance".to_string(),
+                    JsonSchema::string_enum(
+                        vec![
+                            json!("observed_from_environment"),
+                            json!("provided_by_user"),
+                            json!("generated_for_test_only"),
+                            json!("inferred"),
+                            json!("unknown"),
+                        ],
+                        Some("Fact source provenance.".to_string()),
+                    ),
+                ),
+                (
+                    "description".to_string(),
+                    JsonSchema::string(Some("Concrete source description.".to_string())),
+                ),
+                (
+                    "evidence_refs".to_string(),
+                    evidence_refs_schema("Evidence refs for this source."),
+                ),
+            ]),
+            Some(vec![
+                "fact_source_id".to_string(),
+                "provenance".to_string(),
+                "description".to_string(),
+                "evidence_refs".to_string(),
+            ]),
+            Some(false.into()),
+        ),
+        Some(description.to_string()),
+    )
+}
+
+fn output_contracts_schema(description: &str) -> JsonSchema {
+    JsonSchema::array(
+        JsonSchema::object(
+            BTreeMap::from([
+                (
+                    "output_contract_id".to_string(),
+                    JsonSchema::string(Some("Stable output contract id.".to_string())),
+                ),
+                (
+                    "kind".to_string(),
+                    JsonSchema::string_enum(
+                        output_contract_kind_values(),
+                        Some("Output contract kind.".to_string()),
+                    ),
+                ),
+                (
+                    "description".to_string(),
+                    JsonSchema::string(Some("Concrete output contract description.".to_string())),
+                ),
+                (
+                    "evidence_refs".to_string(),
+                    evidence_refs_schema("Evidence refs for this contract."),
+                ),
+            ]),
+            Some(vec![
+                "output_contract_id".to_string(),
+                "kind".to_string(),
+                "description".to_string(),
+                "evidence_refs".to_string(),
+            ]),
+            Some(false.into()),
+        ),
+        Some(description.to_string()),
+    )
+}
+
+fn decisions_schema(description: &str) -> JsonSchema {
+    JsonSchema::array(
+        JsonSchema::object(
+            BTreeMap::from([
+                (
+                    "decision_id".to_string(),
+                    JsonSchema::string(Some("Stable decision id.".to_string())),
+                ),
+                (
+                    "decision_kind".to_string(),
+                    JsonSchema::string(Some("Decision kind.".to_string())),
+                ),
+                (
+                    "decision".to_string(),
+                    JsonSchema::string(Some("Decision statement.".to_string())),
+                ),
+                (
+                    "rationale".to_string(),
+                    JsonSchema::string(Some("Decision rationale.".to_string())),
+                ),
+                (
+                    "depends_on_results".to_string(),
+                    JsonSchema::array(JsonSchema::string(None), Some("Result ids.".to_string())),
+                ),
+                (
+                    "depends_on_facts".to_string(),
+                    JsonSchema::array(JsonSchema::string(None), Some("Fact ids.".to_string())),
+                ),
+                (
+                    "resolves_questions".to_string(),
+                    JsonSchema::array(JsonSchema::string(None), Some("Question ids.".to_string())),
+                ),
+                (
+                    "supports_criteria".to_string(),
+                    JsonSchema::array(JsonSchema::string(None), Some("Criterion ids.".to_string())),
+                ),
+                (
+                    "risks".to_string(),
+                    JsonSchema::array(
+                        JsonSchema::string(None),
+                        Some("Risk summaries.".to_string()),
+                    ),
+                ),
+            ]),
+            Some(vec![
+                "decision_id".to_string(),
+                "decision_kind".to_string(),
+                "decision".to_string(),
+                "rationale".to_string(),
+            ]),
+            Some(false.into()),
+        ),
+        Some(description.to_string()),
+    )
+}
+
+fn next_best_action_schema() -> JsonSchema {
+    JsonSchema::object(
+        BTreeMap::from([
+            (
+                "action_summary".to_string(),
+                JsonSchema::string(Some("Minimal next high-value action.".to_string())),
+            ),
+            (
+                "reason".to_string(),
+                JsonSchema::string(Some("Why this action is next.".to_string())),
+            ),
+            (
+                "expected_artifact".to_string(),
+                JsonSchema::string(Some("Expected artifact from this action.".to_string())),
+            ),
+            (
+                "blocked_by".to_string(),
+                JsonSchema::array(JsonSchema::string(None), Some("Blocker ids.".to_string())),
+            ),
+        ]),
+        Some(vec!["action_summary".to_string(), "reason".to_string()]),
+        Some(false.into()),
+    )
+}
+
 pub fn create_taskspace_control_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
@@ -171,12 +531,93 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
                     json!("mark_result_validity"),
                     json!("adopt_result"),
                     json!("read_output_ref"),
+                    json!("state_commit"),
                 ],
                 Some(
-                "One of: start_task, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, record_success_criteria, record_open_question, close_open_question, record_decision, record_next_best_action, mark_result_validity, adopt_result, read_output_ref. Use only for TaskSpace runtime control."
+                "One of: start_task, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, record_success_criteria, record_open_question, close_open_question, record_decision, record_next_best_action, mark_result_validity, adopt_result, read_output_ref, state_commit. Use only for TaskSpace runtime control."
                     .to_string(),
                 ),
             ),
+        ),
+        (
+            "commit_id".to_string(),
+            JsonSchema::string(Some(
+                "Optional for state_commit. Stable checkpoint id; runtime auto-generates one when omitted."
+                    .to_string(),
+            )),
+        ),
+        (
+            "schema_version".to_string(),
+            JsonSchema::string_enum(
+                vec![json!("taskspace-state-commit-v1")],
+                Some("Required for state_commit: taskspace-state-commit-v1.".to_string()),
+            ),
+        ),
+        (
+            "active_node_id".to_string(),
+            JsonSchema::string(Some(
+                "Optional for state_commit. Current node id this checkpoint is about."
+                    .to_string(),
+            )),
+        ),
+        (
+            "nodes".to_string(),
+            JsonSchema::array(
+                state_commit_node_schema(),
+                Some("state_commit section: nodes to create.".to_string()),
+            ),
+        ),
+        (
+            "finished_nodes".to_string(),
+            JsonSchema::array(
+                state_commit_finished_node_schema(),
+                Some("state_commit section: current nodes to finish.".to_string()),
+            ),
+        ),
+        (
+            "blockers".to_string(),
+            JsonSchema::array(
+                state_commit_blocker_schema(),
+                Some("state_commit section: nodes to block.".to_string()),
+            ),
+        ),
+        (
+            "result_validities".to_string(),
+            JsonSchema::array(
+                state_commit_result_validity_schema(),
+                Some("state_commit section: result validity reviews.".to_string()),
+            ),
+        ),
+        (
+            "result_adoptions".to_string(),
+            JsonSchema::array(
+                state_commit_result_adoption_schema(),
+                Some("state_commit section: result adoption links.".to_string()),
+            ),
+        ),
+        (
+            "success_criteria".to_string(),
+            success_criteria_schema("state_commit section: success criteria updates."),
+        ),
+        (
+            "output_contracts".to_string(),
+            output_contracts_schema("state_commit section: output contract updates."),
+        ),
+        (
+            "fact_sources".to_string(),
+            fact_sources_schema("state_commit section: fact source updates."),
+        ),
+        (
+            "facts".to_string(),
+            claims_schema(),
+        ),
+        (
+            "decisions".to_string(),
+            decisions_schema("state_commit section: decision records."),
+        ),
+        (
+            "next_best_action".to_string(),
+            next_best_action_schema(),
         ),
         (
             "task_id".to_string(),
@@ -670,6 +1111,7 @@ Supported actions:
 - `mark_result_validity`: update an existing node result's evidence package. `accepted` requires non-empty claims and evidence refs. If no validation/source evidence was produced, use `unreviewed` or `questioned`; never call `accepted` with empty claims.
 - `adopt_result`: record how an accepted or questioned result is actually used by facts, decisions, criteria, hypotheses, or follow-up nodes. `record_fact` and `record_decision` auto-adopt referenced results; use this action for criteria/node adoption or to repair missing adoption links.
 - `read_output_ref`: retrieve a bounded slice from an `OutputReferenceV1` artifact_ref. Use this instead of asking for a large raw stdout/stderr body to be replayed. Supports `mode=head`, `mode=tail`, `mode=line_range` with `start_line` and `end_line`, and `mode=grep` with `pattern`. `max_bytes` is clamped to a 16KB hard maximum.
+- `state_commit`: batch related lifecycle and cognitive updates in one checkpoint. Must include `schema_version=taskspace-state-commit-v1`. Use top-level section fields: `nodes`, `finished_nodes`, `blockers`, `result_validities`, `result_adoptions`, `success_criteria`, `output_contracts`, `fact_sources`, `facts`, `decisions`, and `next_best_action`. Prefer this over several single-record actions when closing an inspect/implement/test phase.
 
 Cognitive-state rules:
 - After start_task or route_task, record user-stated acceptance criteria, output format, schema, validator, artifact, and non-goal requirements as success criteria and output contracts before ordinary work. Use evidence_refs where available; artifact_ref may cite the current user request, README/spec/test/source path, or expected artifact.
@@ -738,6 +1180,7 @@ mod tests {
                 "mark_result_validity",
                 "adopt_result",
                 "read_output_ref",
+                "state_commit",
             ]
         );
         assert!(!actions.contains(&"promote_taskspace"));
@@ -784,6 +1227,20 @@ mod tests {
             "end_line",
             "pattern",
             "max_bytes",
+            "commit_id",
+            "schema_version",
+            "active_node_id",
+            "nodes",
+            "finished_nodes",
+            "blockers",
+            "result_validities",
+            "result_adoptions",
+            "success_criteria",
+            "output_contracts",
+            "fact_sources",
+            "facts",
+            "decisions",
+            "next_best_action",
         ] {
             assert!(
                 properties.contains_key(present_field),
@@ -810,5 +1267,16 @@ mod tests {
         assert!(description.contains("generated_for_test_only"));
         assert!(description.contains("Do not use node kinds here"));
         assert!(description.contains("never call `accepted` with empty claims"));
+        assert!(description.contains("state_commit"));
+        assert!(description.contains("finished_nodes"));
+        assert!(description.contains("result_validities"));
+        assert_eq!(
+            properties["schema_version"]["enum"][0],
+            "taskspace-state-commit-v1"
+        );
+        assert_eq!(
+            properties["finished_nodes"]["items"]["required"],
+            serde_json::json!(["node_id", "result_summary"])
+        );
     }
 }

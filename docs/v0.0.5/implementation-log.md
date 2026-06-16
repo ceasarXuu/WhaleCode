@@ -135,6 +135,56 @@ Remaining Phase 1 work:
 
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
 
+## 2026-06-17 Phase 1 state_commit tool schema visibility and validator block guard
+
+Changed:
+
+- Exposed `state_commit` in the model-visible `taskspace_control` action enum.
+- Added model-visible schemas for the transactional state_commit section fields:
+  - `nodes`
+  - `finished_nodes`
+  - `blockers`
+  - `result_validities`
+  - `result_adoptions`
+  - `success_criteria`
+  - `output_contracts`
+  - `fact_sources`
+  - `facts`
+  - `decisions`
+  - `next_best_action`
+- Added schema tests proving the tool definition now advertises `taskspace-state-commit-v1`, `finished_nodes`, and `result_validities`.
+- Added a runtime guard that rejects `block_node` on `smoke_test` / `regression_test` nodes after a successful test/build result has already been recorded. The recovery message now points back to one `state_commit` with result validity, satisfied criteria, and node finish sections.
+- Kept failed validation behavior intact: a validation node with a failed test/build result can still be blocked.
+
+Validation:
+
+```text
+cargo test -p codex-tools taskspace_control --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+2 passed
+
+cargo test -p codex-core block_validation_node --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+2 passed
+
+cargo test -p codex-core state_commit --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+6 passed
+
+cargo test -p codex-core finish_smoke_node --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+5 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-statecommit-schema-blockguard
+TaskSpace benchmark harness self-test: PASS
+```
+
+Reason:
+
+- The latest output-ref live smoke showed the model believed `state_commit` only exposed `action` and `schema_version`, then called an empty commit and failed to finish a successful smoke-test node. Runtime already accepted lifecycle sections, but the tool schema did not advertise them.
+- A successful validator result followed by `block_node` was an invalid recovery path. It turned a missing lifecycle/state commit into a blocked validation node and caused duplicate final-synthesis attempts.
+
+Remaining Phase 1 / Phase 2 work:
+
+- Rebuild/install Whale and rerun the large-output-ref live smoke to confirm the model now sees and uses `state_commit` section fields instead of empty commits.
+- Exit for the current Phase 2 slice still needs live evidence with nonzero output refs, no large-output replay, no provider protocol regression, and node count at or below the scenario threshold.
+
 ## 2026-06-17 Phase 2 routing fanout hardening
 
 Changed:

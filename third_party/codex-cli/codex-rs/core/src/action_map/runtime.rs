@@ -2283,6 +2283,25 @@ preview:\n\
         if blocker_summary.is_empty() {
             return Err("TaskSpace block_node blocker_summary cannot be empty.".to_string());
         }
+        let map_id = self.active_map_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no active task path exists.".to_string()
+        })?;
+        let map = self
+            .maps
+            .get(&map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        let node = map
+            .nodes
+            .get(node_id)
+            .ok_or_else(|| format!("TaskSpace node `{node_id}` is missing."))?;
+        if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+            && node_has_successful_validation_action(map, node)
+        {
+            return Err(format!(
+                "TaskSpace {} node `{node_id}` already has a successful test/build result, so it cannot be blocked as failed validation. Preferred fix: call taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) once with result_validities for the validator result, success_criteria status=satisfied with evidence_refs from this node's successful validator result, and finished_nodes for `{node_id}`.",
+                node.kind.as_str()
+            ));
+        }
         self.record_main_node_lifecycle_result(
             owner_session_id,
             node_id,
@@ -14236,6 +14255,79 @@ mod tests {
         state
             .finish_main_node(owner, &node_id, "Tests passed.".to_string(), None)
             .expect("smoke test can finish after successful validation");
+    }
+
+    #[test]
+    fn block_validation_node_rejects_successful_validator_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-pass",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("successful test result records")
+            .expect("test result id");
+        let error = state
+            .block_main_node(
+                owner,
+                &node_id,
+                "Cannot finish smoke_test node without explicit result validity.".to_string(),
+            )
+            .expect_err("successful validation should not be converted into a blocker");
+
+        assert!(error.contains("already has a successful test/build result"));
+        assert!(error.contains("action=state_commit"));
+        assert!(error.contains("result_validities"));
+        assert!(error.contains("finished_nodes"));
+    }
+
+    #[test]
+    fn block_validation_node_allows_failed_validator_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "pytest failed".to_string(),
+            )
+            .expect("failed test result records");
+
+        state
+            .block_main_node(owner, &node_id, "pytest failed".to_string())
+            .expect("failed validation can be blocked");
     }
 
     #[test]
