@@ -135,6 +135,37 @@ Remaining Phase 1 work:
 
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
 
+## 2026-06-17 Phase 1 validation evidence gate hardening
+
+Changed:
+
+- Relaxed SmokeTest/RegressionTest completion evidence matching to accept a non-empty `validator_ref` when the current validation node already has a successful test or build tool result.
+- Kept the stricter `result_id` path intact for exact result binding.
+- Added regression coverage for the live-smoke failure mode where the model records a satisfied test criterion with `validator_ref` text but not the exact runtime `result_id`.
+
+Validation:
+
+```text
+cargo test -p codex-core finish_smoke_node --manifest-path third_party/codex-cli/codex-rs/Cargo.toml
+5 passed
+
+cargo test -p codex-core state_commit --manifest-path third_party/codex-cli/codex-rs/Cargo.toml
+3 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-validationgate-6c1d
+TaskSpace benchmark harness self-test: PASS
+```
+
+Operational lesson:
+
+- Before any live TaskSpace benchmark, rebuild and reinstall the local `whale.exe`; otherwise the installed binary may not contain the latest prompt/runtime changes even when the source tree is current.
+- A repeated validation-gate rejection can dominate token cost. Inspect `action-map-observability.json` for recurring completion errors before treating a cost-gate failure as only model behavior.
+
+Remaining Phase 1 work:
+
+- Rebuild/install Whale and rerun the Phase 1 live smoke against the gate fix.
+- If the model still does not use `state_commit`, strengthen the immediate TaskSpace activation prompt instead of relying only on the BaseMap cognitive protocol section.
+
 ## 2026-06-17 Phase 1 lifecycle state_commit sections
 
 Changed:

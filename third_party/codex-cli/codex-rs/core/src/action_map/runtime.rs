@@ -8099,7 +8099,12 @@ fn evidence_refs_include_successful_validation_result(
                         )
                         && result.tool_success == Some(true)
                 })
-        })
+        }) || evidence_ref
+            .validator_ref
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+            && (node_has_successful_action(map, node, ActionClass::Test)
+                || node_has_successful_action(map, node, ActionClass::Build))
     })
 }
 
@@ -13640,6 +13645,54 @@ mod tests {
         state
             .finish_main_node(owner, &node_id, "Tests passed.".to_string(), None)
             .expect("smoke test can finish after successful validation");
+    }
+
+    #[test]
+    fn finish_smoke_node_accepts_validator_ref_after_successful_validation() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-pass",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("successful test result records")
+            .expect("test result id");
+        state
+            .record_success_criteria_for_main(
+                owner,
+                vec![ActionMapSuccessCriterionInput {
+                    id: "criterion-validator-ref".to_string(),
+                    kind: "test".to_string(),
+                    description: "pytest passes".to_string(),
+                    status: "satisfied".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        validator_ref: Some("pytest tests/: 3 passed".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+            )
+            .expect("criterion records");
+
+        state
+            .finish_main_node(owner, &node_id, "Tests passed.".to_string(), None)
+            .expect("smoke test can finish with validator_ref evidence");
     }
 
     #[test]
