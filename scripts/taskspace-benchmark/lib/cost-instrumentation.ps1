@@ -231,13 +231,25 @@ function New-TaskspaceReplaySummary {
     $largest = [int64]0
     $largeReplay = 0
     $checked = 0
+    $outputReferenceCount = 0
+    $outputSliceCount = 0
+    $truncationMarkerCount = 0
+    $rawLargeMarkerCount = 0
     foreach ($name in @("taskspace.graph.final.json", "taskspace.graph.timeout.json", "graph-health.json")) {
         $path = Join-Path $ArtifactDir $name
         if (-not (Test-Path -LiteralPath $path)) { continue }
         $checked++
         $text = Get-Content -Raw -Encoding UTF8 -LiteralPath $path
         if ($text.Length -gt $largest) { $largest = [int64]$text.Length }
+        $outputReferenceCount += ([regex]::Matches($text, "OutputReferenceV1:")).Count
+        $outputSliceCount += ([regex]::Matches($text, "OutputSliceV1:")).Count
         if ($text -match "\[\.{3} telemetry preview truncated \.\{3}\]" -or $text -match "\[\.\.\. telemetry preview truncated \.\.\.\]") {
+            $truncationMarkerCount++
+            $largeReplay++
+        }
+        $markerMatches = ([regex]::Matches($text, "middle-secret-marker")).Count
+        if ($markerMatches -ge 300) {
+            $rawLargeMarkerCount++
             $largeReplay++
         }
     }
@@ -247,7 +259,11 @@ function New-TaskspaceReplaySummary {
         checked_artifact_count = [int]$checked
         largest_tool_output_bytes = $largest
         large_output_replay_count = [int]$largeReplay
-        raw_output_in_prompt_violation = $false
+        output_reference_count = [int]$outputReferenceCount
+        output_slice_count = [int]$outputSliceCount
+        truncation_marker_count = [int]$truncationMarkerCount
+        raw_large_marker_count = [int]$rawLargeMarkerCount
+        raw_output_in_prompt_violation = ([int]$largeReplay -gt 0)
     }
 }
 

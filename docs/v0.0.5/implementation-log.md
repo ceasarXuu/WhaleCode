@@ -331,6 +331,31 @@ Remaining Phase 2 work:
 - Add output-ref trace events and focused next-turn replay smoke.
 - Add sensitive-data scan before exposing summaries/slices.
 
+## 2026-06-17 Phase 2 replay summary evidence fields
+
+Changed:
+
+- Extended benchmark replay summary with explicit output-ref evidence fields:
+  - `output_reference_count`
+  - `output_slice_count`
+  - `truncation_marker_count`
+  - `raw_large_marker_count`
+- Kept `large_output_replay_count` for compatibility, but now it is backed by counted marker classes instead of a single opaque heuristic.
+- `raw_output_in_prompt_violation` is now true when a replay marker class is detected.
+- Harness now verifies that `OutputReferenceV1` / `OutputSliceV1` artifacts are counted without being treated as raw replay.
+- Harness now verifies that a focused raw middle marker repeated at large-output scale sets replay count and violation status.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-replaysummary-neutral
+TaskSpace benchmark harness self-test: PASS
+```
+
+Limit:
+
+- This is still a benchmark artifact heuristic, not a full provider request reconstruction. Full Phase 2 exit still needs a focused runtime smoke with a large stdout followed by a model turn.
+
 ## 2026-06-17 Phase 1 state_commit recovery path
 
 Observed:

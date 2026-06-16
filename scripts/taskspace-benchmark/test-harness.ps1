@@ -298,6 +298,12 @@ $costDir = Join-Path $runDir "cost-instrumentation"
 New-Item -ItemType Directory -Path $costDir -Force | Out-Null
 $costJsonl = Join-Path $costDir "exec.jsonl"
 $costObs = Join-Path $costDir "observability.json"
+@{
+    events = @(
+        @{ kind = "tool_result"; text = "OutputReferenceV1:`nartifact_ref: output-ref://sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        @{ kind = "tool_result"; text = "OutputSliceV1:`nartifact_ref: output-ref://sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    )
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $costDir "taskspace.graph.final.json") -Encoding UTF8
 @(
     (@{ type = "response.completed"; response = @{ usage = @{ input_tokens = 120; output_tokens = 30; input_tokens_details = @{ cached_tokens = 20 } } } } | ConvertTo-Json -Compress -Depth 8),
     (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"start_task","title":"x"}' } } | ConvertTo-Json -Compress -Depth 8),
@@ -324,6 +330,15 @@ Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.finish_no
 Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_runtime_event_count -eq 3) "taskspace runtime event count was not parsed from observability"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.runtime_state_commit_count -eq 1) "runtime state_commit event count was not parsed from observability"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.runtime_event_counts.node_status_changed -eq 1) "runtime event kind was not counted"
+Assert-True ([int]$costArtifacts.replay_summary.output_reference_count -eq 1) "output reference count was not parsed"
+Assert-True ([int]$costArtifacts.replay_summary.output_slice_count -eq 1) "output slice count was not parsed"
+Assert-True ([int]$costArtifacts.replay_summary.large_output_replay_count -eq 0) "output reference artifact was incorrectly treated as raw replay"
+$rawReplayDir = Join-Path $runDir "raw-replay-cost"
+New-Item -ItemType Directory -Path $rawReplayDir -Force | Out-Null
+@{ events = @(@{ text = ("middle-secret-marker`n" * 350) }) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $rawReplayDir "taskspace.graph.final.json") -Encoding UTF8
+$rawReplayArtifacts = Write-TaskspaceCostInstrumentationArtifacts $rawReplayDir "" ""
+Assert-True ([int]$rawReplayArtifacts.replay_summary.raw_large_marker_count -eq 1) "raw large marker replay was not counted"
+Assert-True ([bool]$rawReplayArtifacts.replay_summary.raw_output_in_prompt_violation) "raw large marker replay did not set violation flag"
 $missingCostArtifacts = Write-TaskspaceCostInstrumentationArtifacts (Join-Path $runDir "missing-cost") ""
 Assert-True ([string]$missingCostArtifacts.token_summary.availability -eq "source_missing") "missing usage source was not marked source_missing"
 Assert-True ($null -eq $missingCostArtifacts.request_summary.model_request_count) "missing usage source was treated as zero requests"
