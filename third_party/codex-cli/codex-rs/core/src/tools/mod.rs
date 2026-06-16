@@ -5,6 +5,7 @@ pub(crate) mod handlers;
 pub(crate) mod hook_names;
 pub(crate) mod network_approval;
 pub(crate) mod orchestrator;
+pub(crate) mod output_reference;
 pub(crate) mod parallel;
 pub(crate) mod registry;
 pub(crate) mod router;

@@ -513,3 +513,46 @@ fn exec_command_tool_output_referenceizes_large_response() {
         other => panic!("expected FunctionCallOutput, got {other:?}"),
     }
 }
+
+#[test]
+fn exec_command_tool_output_summarizes_medium_response() {
+    let payload = ToolPayload::Function {
+        arguments: "{}".to_string(),
+    };
+    let mut raw_output = Vec::new();
+    raw_output.extend_from_slice(b"medium-head\n");
+    raw_output.extend_from_slice("medium-middle-marker\n".repeat(900).as_bytes());
+    raw_output.extend_from_slice(b"medium-tail\n");
+
+    let response = ExecCommandToolOutput {
+        event_call_id: "call-medium".to_string(),
+        chunk_id: "chunk-medium".to_string(),
+        wall_time: std::time::Duration::from_millis(250),
+        raw_output,
+        max_output_tokens: Some(100_000),
+        process_id: None,
+        exit_code: Some(0),
+        original_token_count: Some(4_000),
+        hook_command: None,
+    }
+    .to_response_item("call-medium", &payload);
+
+    match response {
+        ResponseInputItem::FunctionCallOutput { call_id, output } => {
+            assert_eq!(call_id, "call-medium");
+            let text = output
+                .body
+                .to_text()
+                .expect("exec output should serialize as text");
+            assert!(text.contains("OutputReferenceV1:"));
+            assert!(text.contains("policy: summarized_medium_output"));
+            assert!(text.contains("medium-head"));
+            assert!(text.contains("medium-tail"));
+            assert!(
+                text.matches("medium-middle-marker").count() < 300,
+                "medium output should not replay its full middle inline"
+            );
+        }
+        other => panic!("expected FunctionCallOutput, got {other:?}"),
+    }
+}

@@ -172,6 +172,50 @@ Limits:
 - Code-mode result serialization still follows the existing `truncated_output` behavior.
 - Focused runtime evidence for `large_output_replay_count = 0` still needs an integration smoke with a large stdout followed by a model turn.
 
+## 2026-06-17 Phase 2 OutputReferenceV1 policy module
+
+Changed:
+
+- Moved output reference policy out of `tools/context.rs` into `tools/output_reference.rs`.
+- Added `OutputReferenceV1` as an explicit runtime type with:
+  - policy
+  - sha256
+  - bytes
+  - lines
+  - bounded head/tail slices
+- Added the planned threshold policy:
+  - inline `<=8KB`
+  - summarized `8KB-50KB`
+  - referenced `>50KB`
+- Updated exec command model-visible output to use the shared policy module.
+- Added regression coverage for both medium summarized output and large referenced output.
+
+Validation:
+
+```text
+cargo fmt -p codex-core --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+passed
+
+cargo test -p codex-core output_reference --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+3 passed
+
+cargo test -p codex-core exec_command_tool_output_ --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+3 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-outputpolicy-neutral
+TaskSpace benchmark harness self-test: PASS
+```
+
+Operational note:
+
+- Running multiple `cargo test` commands in parallel caused 120s timeouts while waiting on cargo locks. Re-running the same tests sequentially completed successfully.
+
+Remaining Phase 2 work:
+
+- Persist raw output artifacts and include an artifact ref in `OutputReferenceV1`.
+- Add bounded slice retrieval.
+- Add output-ref trace events and focused `large_output_replay_count = 0` integration smoke.
+
 ## 2026-06-17 Phase 1 state_commit recovery path
 
 Observed:
