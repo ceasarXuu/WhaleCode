@@ -290,6 +290,47 @@ Remaining Phase 2 work:
 - Add output-ref trace events and focused next-turn replay smoke.
 - Add sensitive-data scan before exposing summaries/slices.
 
+## 2026-06-17 Phase 2 read_output_ref tool schema exposure
+
+Changed:
+
+- Updated the model-visible `taskspace_control` tool schema source in `codex-rs/tools/src/taskspace_tool.rs`.
+- Added `read_output_ref` to the exposed action enum.
+- Added schema fields for:
+  - `output_ref`
+  - `mode`
+  - `start_line`
+  - `end_line`
+  - `pattern`
+  - `max_bytes`
+- Updated the tool description so the model is told to retrieve bounded slices from `OutputReferenceV1` artifacts instead of asking for large raw stdout/stderr replay.
+- Extended schema tests so the action and fields cannot silently disappear.
+
+Validation:
+
+```text
+cargo test -p codex-tools taskspace_control --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+2 passed
+
+cargo test -p codex-core read_output_ref --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo fmt -p codex-tools -p codex-core --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-outputschema-neutral
+TaskSpace benchmark harness self-test: PASS
+```
+
+Operational note:
+
+- `cargo fmt --manifest-path third_party\codex-cli\codex-rs\Cargo.toml` fails with "Failed to find targets" on this workspace manifest. Use package-scoped formatting such as `cargo fmt -p codex-tools -p codex-core --manifest-path third_party\codex-cli\codex-rs\Cargo.toml`.
+
+Remaining Phase 2 work:
+
+- Add output-ref trace events and focused next-turn replay smoke.
+- Add sensitive-data scan before exposing summaries/slices.
+
 ## 2026-06-17 Phase 1 state_commit recovery path
 
 Observed:

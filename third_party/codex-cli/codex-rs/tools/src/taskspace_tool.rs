@@ -170,9 +170,10 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
                     json!("record_next_best_action"),
                     json!("mark_result_validity"),
                     json!("adopt_result"),
+                    json!("read_output_ref"),
                 ],
                 Some(
-                "One of: start_task, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, record_success_criteria, record_open_question, close_open_question, record_decision, record_next_best_action, mark_result_validity, adopt_result. Use only for TaskSpace runtime control."
+                "One of: start_task, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, record_success_criteria, record_open_question, close_open_question, record_decision, record_next_best_action, mark_result_validity, adopt_result, read_output_ref. Use only for TaskSpace runtime control."
                     .to_string(),
                 ),
             ),
@@ -594,6 +595,51 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
                 Some("Optional for adopt_result.".to_string()),
             ),
         ),
+        (
+            "output_ref".to_string(),
+            JsonSchema::string(Some(
+                "Required for read_output_ref. Must use output-ref://sha256/<64 hex> from OutputReferenceV1 artifact_ref."
+                    .to_string(),
+            )),
+        ),
+        (
+            "mode".to_string(),
+            JsonSchema::string_enum(
+                vec![json!("head"), json!("tail"), json!("line_range"), json!("grep")],
+                Some(
+                    "Required for read_output_ref. Choose a bounded slice mode."
+                        .to_string(),
+                ),
+            ),
+        ),
+        (
+            "start_line".to_string(),
+            JsonSchema::integer(Some(
+                "Required for read_output_ref when mode=line_range. 1-based inclusive start line."
+                    .to_string(),
+            )),
+        ),
+        (
+            "end_line".to_string(),
+            JsonSchema::integer(Some(
+                "Required for read_output_ref when mode=line_range. 1-based inclusive end line."
+                    .to_string(),
+            )),
+        ),
+        (
+            "pattern".to_string(),
+            JsonSchema::string(Some(
+                "Required for read_output_ref when mode=grep. Literal substring to match."
+                    .to_string(),
+            )),
+        ),
+        (
+            "max_bytes".to_string(),
+            JsonSchema::integer(Some(
+                "Optional for read_output_ref. Returned slice byte budget, clamped to a 16KB hard maximum."
+                    .to_string(),
+            )),
+        ),
     ]);
 
     ToolSpec::Function(ResponsesApiTool {
@@ -623,6 +669,7 @@ Supported actions:
 - `record_next_best_action`: record the current smallest high-value action implied by the problem state.
 - `mark_result_validity`: update an existing node result's evidence package. `accepted` requires non-empty claims and evidence refs. If no validation/source evidence was produced, use `unreviewed` or `questioned`; never call `accepted` with empty claims.
 - `adopt_result`: record how an accepted or questioned result is actually used by facts, decisions, criteria, hypotheses, or follow-up nodes. `record_fact` and `record_decision` auto-adopt referenced results; use this action for criteria/node adoption or to repair missing adoption links.
+- `read_output_ref`: retrieve a bounded slice from an `OutputReferenceV1` artifact_ref. Use this instead of asking for a large raw stdout/stderr body to be replayed. Supports `mode=head`, `mode=tail`, `mode=line_range` with `start_line` and `end_line`, and `mode=grep` with `pattern`. `max_bytes` is clamped to a 16KB hard maximum.
 
 Cognitive-state rules:
 - After start_task or route_task, record user-stated acceptance criteria, output format, schema, validator, artifact, and non-goal requirements as success criteria and output contracts before ordinary work. Use evidence_refs where available; artifact_ref may cite the current user request, README/spec/test/source path, or expected artifact.
@@ -690,6 +737,7 @@ mod tests {
                 "record_next_best_action",
                 "mark_result_validity",
                 "adopt_result",
+                "read_output_ref",
             ]
         );
         assert!(!actions.contains(&"promote_taskspace"));
@@ -730,6 +778,12 @@ mod tests {
             "adopted_by_decisions",
             "adopted_by_criteria",
             "adopted_by_nodes",
+            "output_ref",
+            "mode",
+            "start_line",
+            "end_line",
+            "pattern",
+            "max_bytes",
         ] {
             assert!(
                 properties.contains_key(present_field),
@@ -750,6 +804,8 @@ mod tests {
         assert!(description.contains("Runtime preflight blocks ordinary tools"));
         assert!(description.contains("Treat subagent and node results as evidence packages"));
         assert!(description.contains("record result adoption"));
+        assert!(description.contains("read_output_ref"));
+        assert!(description.contains("OutputReferenceV1"));
         assert!(description.contains("Decisions must cite at least one concrete dependency"));
         assert!(description.contains("generated_for_test_only"));
         assert!(description.contains("Do not use node kinds here"));
