@@ -266,6 +266,71 @@ pub(crate) struct ActionMapResultAdoptionInput {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ActionMapStateCommitInput {
+    pub(crate) commit_id: String,
+    pub(crate) active_node_id: Option<String>,
+    pub(crate) success_criteria: Vec<ActionMapSuccessCriterionInput>,
+    pub(crate) fact_sources: Vec<ActionMapStateCommitFactSourceInput>,
+    pub(crate) facts: Vec<ActionMapCognitiveClaimInput>,
+    pub(crate) decisions: Vec<ActionMapLedgerDecisionInput>,
+    pub(crate) next_best_action: Option<ActionMapStateCommitNextBestActionInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapStateCommitFactSourceInput {
+    pub(crate) id: String,
+    pub(crate) provenance: String,
+    pub(crate) description: String,
+    pub(crate) evidence_refs: Vec<ActionMapEvidenceRefInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapStateCommitNextBestActionInput {
+    pub(crate) node_id: Option<String>,
+    pub(crate) action_summary: String,
+    pub(crate) reason: String,
+    pub(crate) expected_artifact: Option<String>,
+    pub(crate) blocked_by: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ActionMapStateCommitOutcome {
+    pub(crate) commit_id: String,
+    pub(crate) status: ActionMapStateCommitStatus,
+    pub(crate) accepted_sections: Vec<String>,
+    pub(crate) rejected_sections: Vec<ActionMapStateCommitSectionError>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActionMapStateCommitStatus {
+    Accepted,
+    Partial,
+    Rejected,
+}
+
+impl Default for ActionMapStateCommitStatus {
+    fn default() -> Self {
+        Self::Rejected
+    }
+}
+
+impl ActionMapStateCommitStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::Partial => "partial",
+            Self::Rejected => "rejected",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapStateCommitSectionError {
+    pub(crate) section: String,
+    pub(crate) message: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ActionMapSubagentPlanInput {
     pub(crate) parent_node_id: String,
     pub(crate) why_parallelizable: String,
@@ -2660,6 +2725,144 @@ preview:\n\
                 record_id: "next_best_action".to_string(),
             },
         )])
+    }
+
+    pub(crate) fn state_commit_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        input: ActionMapStateCommitInput,
+    ) -> Result<(ActionMapStateCommitOutcome, Vec<MapRuntimeEvent>), String> {
+        let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        let commit_id = require_nonempty_owned("commit_id", input.commit_id)?;
+        let mut outcome = ActionMapStateCommitOutcome {
+            commit_id: commit_id.clone(),
+            ..ActionMapStateCommitOutcome::default()
+        };
+        let mut events = Vec::new();
+
+        if let Some(node_id) = input.active_node_id {
+            self.validate_node_belongs_to_active_map(&map_id, &node_id)?;
+            events.extend(self.bind_main_node(owner_session_id, &node_id)?);
+            outcome.accepted_sections.push("active_node".to_string());
+        }
+
+        self.apply_state_commit_section(
+            owner_session_id,
+            &commit_id,
+            &task_id,
+            &map_id,
+            "success_criteria",
+            !input.success_criteria.is_empty(),
+            |state| {
+                state.record_success_criteria_for_main(owner_session_id, input.success_criteria)
+            },
+            &mut outcome,
+            &mut events,
+        );
+        self.apply_state_commit_section(
+            owner_session_id,
+            &commit_id,
+            &task_id,
+            &map_id,
+            "fact_sources",
+            !input.fact_sources.is_empty(),
+            |state| {
+                let mut section_events = Vec::new();
+                for source in input.fact_sources {
+                    section_events.extend(state.record_fact_source_for_main(
+                        owner_session_id,
+                        &source.id,
+                        &source.provenance,
+                        source.description,
+                        source.evidence_refs,
+                    )?);
+                }
+                Ok(section_events)
+            },
+            &mut outcome,
+            &mut events,
+        );
+        self.apply_state_commit_section(
+            owner_session_id,
+            &commit_id,
+            &task_id,
+            &map_id,
+            "facts",
+            !input.facts.is_empty(),
+            |state| {
+                let mut section_events = Vec::new();
+                for fact in input.facts {
+                    section_events.extend(state.record_fact_for_main(
+                        owner_session_id,
+                        &fact.id,
+                        fact.statement,
+                        fact.evidence_refs,
+                    )?);
+                }
+                Ok(section_events)
+            },
+            &mut outcome,
+            &mut events,
+        );
+        self.apply_state_commit_section(
+            owner_session_id,
+            &commit_id,
+            &task_id,
+            &map_id,
+            "decisions",
+            !input.decisions.is_empty(),
+            |state| {
+                let mut section_events = Vec::new();
+                for decision in input.decisions {
+                    section_events
+                        .extend(state.record_decision_for_main(owner_session_id, decision)?);
+                }
+                Ok(section_events)
+            },
+            &mut outcome,
+            &mut events,
+        );
+        self.apply_state_commit_section(
+            owner_session_id,
+            &commit_id,
+            &task_id,
+            &map_id,
+            "next_best_action",
+            input.next_best_action.is_some(),
+            |state| {
+                let action = input
+                    .next_best_action
+                    .expect("next_best_action presence checked before section apply");
+                state.record_next_best_action_for_main(
+                    owner_session_id,
+                    action.node_id,
+                    action.action_summary,
+                    action.reason,
+                    action.expected_artifact,
+                    action.blocked_by,
+                )
+            },
+            &mut outcome,
+            &mut events,
+        );
+
+        outcome.status = match (
+            outcome.accepted_sections.is_empty(),
+            outcome.rejected_sections.is_empty(),
+        ) {
+            (false, true) => ActionMapStateCommitStatus::Accepted,
+            (false, false) => ActionMapStateCommitStatus::Partial,
+            (true, _) => ActionMapStateCommitStatus::Rejected,
+        };
+        events.push(MapRuntimeEvent::CognitiveStateUpdated(
+            MapRuntimeCognitiveStateUpdatedEvent {
+                task_id,
+                map_id: Some(map_id),
+                update_kind: format!("state_commit.{}", outcome.status.as_str()),
+                record_id: commit_id,
+            },
+        ));
+        Ok((outcome, events))
     }
 
     pub(crate) fn mark_result_validity_for_main(
@@ -5441,6 +5644,58 @@ preview:\n\
         events
     }
 
+    fn apply_state_commit_section<F>(
+        &mut self,
+        _owner_session_id: ThreadId,
+        commit_id: &str,
+        task_id: &str,
+        map_id: &str,
+        section: &str,
+        should_apply: bool,
+        apply: F,
+        outcome: &mut ActionMapStateCommitOutcome,
+        events: &mut Vec<MapRuntimeEvent>,
+    ) where
+        F: FnOnce(&mut ActionMapRuntimeState) -> Result<Vec<MapRuntimeEvent>, String>,
+    {
+        if !should_apply {
+            return;
+        }
+
+        let mut candidate = self.clone();
+        match apply(&mut candidate) {
+            Ok(mut section_events) => {
+                *self = candidate;
+                events.append(&mut section_events);
+                events.push(MapRuntimeEvent::CognitiveStateUpdated(
+                    MapRuntimeCognitiveStateUpdatedEvent {
+                        task_id: task_id.to_string(),
+                        map_id: Some(map_id.to_string()),
+                        update_kind: format!("state_commit.section.{section}.accepted"),
+                        record_id: commit_id.to_string(),
+                    },
+                ));
+                outcome.accepted_sections.push(section.to_string());
+            }
+            Err(message) => {
+                events.push(MapRuntimeEvent::CognitiveStateUpdated(
+                    MapRuntimeCognitiveStateUpdatedEvent {
+                        task_id: task_id.to_string(),
+                        map_id: Some(map_id.to_string()),
+                        update_kind: format!("state_commit.section.{section}.rejected"),
+                        record_id: commit_id.to_string(),
+                    },
+                ));
+                outcome
+                    .rejected_sections
+                    .push(ActionMapStateCommitSectionError {
+                        section: section.to_string(),
+                        message,
+                    });
+            }
+        }
+    }
+
     fn next_sentinel_warning_id(&mut self) -> String {
         let id = format!("sentinel-{}", self.next_sentinel_warning_seq);
         self.next_sentinel_warning_seq += 1;
@@ -8125,6 +8380,72 @@ mod tests {
                 evidence_refs,
             )
             .expect("test fact source records");
+    }
+
+    #[test]
+    fn state_commit_rolls_back_rejected_section_only() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_unseeded_test_task(&mut state, owner, "Audit", "Inspect code", true);
+
+        let (outcome, events) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-1".to_string(),
+                    success_criteria: vec![ActionMapSuccessCriterionInput {
+                        id: "sc-new".to_string(),
+                        kind: "validator".to_string(),
+                        description: "new validator passes".to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("test-fixture:validator".to_string()),
+                            ..Default::default()
+                        }],
+                    }],
+                    facts: vec![
+                        ActionMapCognitiveClaimInput {
+                            id: "fact-valid".to_string(),
+                            statement: "valid fact".to_string(),
+                            evidence_refs: vec![ActionMapEvidenceRefInput {
+                                fact_source_id: Some("source-test".to_string()),
+                                ..Default::default()
+                            }],
+                        },
+                        ActionMapCognitiveClaimInput {
+                            id: "fact-invalid".to_string(),
+                            statement: "invalid fact".to_string(),
+                            evidence_refs: Vec::new(),
+                        },
+                    ],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect("state commit runs");
+
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Partial);
+        assert_eq!(outcome.accepted_sections, vec!["success_criteria"]);
+        assert_eq!(outcome.rejected_sections[0].section, "facts");
+        let task = state.tasks.get("task-1").expect("task");
+        assert!(
+            task.problem_ledger
+                .success_criteria
+                .iter()
+                .any(|criterion| criterion.id == "sc-new")
+        );
+        assert!(
+            !task
+                .problem_ledger
+                .known_facts
+                .iter()
+                .any(|fact| fact.id == "fact-valid")
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            MapRuntimeEvent::CognitiveStateUpdated(event)
+                if event.update_kind == "state_commit.partial"
+        )));
     }
 
     fn prepare_test_spawn_assignment(

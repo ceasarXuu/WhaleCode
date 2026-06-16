@@ -7,7 +7,10 @@ function Write-TaskspaceAtomicJson {
     if (-not (Test-Path -LiteralPath $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
-    $tmp = "$Path.t$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+    $tmp = "$Path.tmp.$([guid]::NewGuid().ToString('N'))"
+    if ($tmp.Length -ge 260) {
+        $tmp = Join-Path $dir (".ts$([guid]::NewGuid().ToString('N').Substring(0, 8)).json")
+    }
     try {
         $jsonValue = if ($Value -is [System.Collections.IDictionary]) {
             $object = New-Object psobject

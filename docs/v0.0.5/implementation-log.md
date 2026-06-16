@@ -98,3 +98,40 @@ TaskSpace benchmark harness self-test: PASS
 Remaining Phase 0 work:
 
 - Replace replay detection heuristics with model-visible prompt/history reconstruction once the active profile work starts.
+
+## 2026-06-17 Phase 1 transactional state_commit start
+
+Changed:
+
+- Added compatible `taskspace_control(action=state_commit)` parsing with `schema_version=taskspace-state-commit-v1`.
+- Added runtime `state_commit_for_main` with section-level transaction semantics for:
+  - `success_criteria`
+  - `fact_sources`
+  - `facts`
+  - `decisions`
+  - `next_best_action`
+- Each section is applied on a cloned runtime candidate and committed only if that whole section validates.
+- Valid sections can land while invalid sections return structured section errors.
+- Runtime emits `state_commit.section.<section>.accepted`, `state_commit.section.<section>.rejected`, and final `state_commit.accepted|partial|rejected` cognitive events.
+- Cognitive protocol prompt now prefers `state_commit` for multi-record checkpoints while keeping legacy `record_*` actions available for targeted corrections.
+
+Validation:
+
+```text
+cargo test -p codex-core state_commit --manifest-path third_party/codex-cli/codex-rs/Cargo.toml
+2 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-statecommit-a9d2
+TaskSpace benchmark harness self-test: PASS
+```
+
+Notes:
+
+- The first implementation avoided adding a parallel TaskSpace state model. `state_commit` delegates to existing ledger/cognitive validation paths, so behavior stays compatible with legacy actions.
+- Section-level rollback is implemented by applying each section to a candidate runtime clone, then replacing the main runtime only on success. This keeps successful sections durable while preventing partially written records inside a rejected section.
+- Benchmark self-test had a stale long-path assumption: it asserted a legacy `.tmp.<guid>` path boundary while the writer used a shorter temp suffix. The writer now falls back to a short same-directory temp name when the naive temp path would exceed Windows path limits, and the self-test dynamically pads the fixture path to exercise that boundary.
+
+Remaining Phase 1 work:
+
+- Extend `state_commit` to node/result/blocker lifecycle sections instead of only cognitive ledger sections.
+- Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.

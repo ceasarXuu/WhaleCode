@@ -1485,6 +1485,22 @@ impl Session {
         Ok(())
     }
 
+    pub(crate) async fn state_commit_action_map(
+        &self,
+        turn_context: &TurnContext,
+        input: crate::action_map::ActionMapStateCommitInput,
+    ) -> Result<crate::action_map::ActionMapStateCommitOutcome, String> {
+        let (outcome, events) = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .state_commit_for_main(self.conversation_id, input)
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(outcome)
+    }
+
     pub(crate) async fn mark_action_map_result_validity(
         &self,
         turn_context: &TurnContext,

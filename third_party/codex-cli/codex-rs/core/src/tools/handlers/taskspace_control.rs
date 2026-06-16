@@ -6,6 +6,9 @@ use crate::action_map::ActionMapEvidenceRefInput;
 use crate::action_map::ActionMapLedgerDecisionInput;
 use crate::action_map::ActionMapNextNodeDraft;
 use crate::action_map::ActionMapResultAdoptionInput;
+use crate::action_map::ActionMapStateCommitFactSourceInput;
+use crate::action_map::ActionMapStateCommitInput;
+use crate::action_map::ActionMapStateCommitNextBestActionInput;
 use crate::action_map::ActionMapSubagentPlanInput;
 use crate::action_map::ActionMapSuccessCriterionInput;
 use crate::action_map::NodeKind;
@@ -180,6 +183,23 @@ enum TaskSpaceControlArgs {
         #[serde(default)]
         adopted_by_nodes: Vec<String>,
     },
+    StateCommit {
+        commit_id: String,
+        #[serde(default)]
+        schema_version: Option<String>,
+        #[serde(default)]
+        active_node_id: Option<String>,
+        #[serde(default)]
+        success_criteria: Vec<TaskSpaceSuccessCriterionArgs>,
+        #[serde(default)]
+        fact_sources: Vec<TaskSpaceFactSourceArgs>,
+        #[serde(default)]
+        facts: Vec<TaskSpaceCognitiveClaimArgs>,
+        #[serde(default)]
+        decisions: Vec<TaskSpaceDecisionArgs>,
+        #[serde(default)]
+        next_best_action: Option<TaskSpaceNextBestActionArgs>,
+    },
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -216,6 +236,47 @@ struct TaskSpaceSuccessCriterionArgs {
     status: String,
     #[serde(default)]
     evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskSpaceFactSourceArgs {
+    #[serde(alias = "fact_source_id")]
+    id: String,
+    provenance: String,
+    description: String,
+    #[serde(default)]
+    evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskSpaceDecisionArgs {
+    #[serde(alias = "decision_id")]
+    id: String,
+    decision_kind: String,
+    decision: String,
+    rationale: String,
+    #[serde(default)]
+    depends_on_results: Vec<String>,
+    #[serde(default)]
+    depends_on_facts: Vec<String>,
+    #[serde(default)]
+    resolves_questions: Vec<String>,
+    #[serde(default)]
+    supports_criteria: Vec<String>,
+    #[serde(default)]
+    risks: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskSpaceNextBestActionArgs {
+    #[serde(default)]
+    node_id: Option<String>,
+    action_summary: String,
+    reason: String,
+    #[serde(default)]
+    expected_artifact: Option<String>,
+    #[serde(default)]
+    blocked_by: Vec<String>,
 }
 
 pub struct TaskSpaceControlOutput {
@@ -618,6 +679,45 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .map_err(FunctionCallError::RespondToModel)?;
                 format!("TaskSpace result adoption recorded: {result_id}")
             }
+            TaskSpaceControlArgs::StateCommit {
+                commit_id,
+                schema_version,
+                active_node_id,
+                success_criteria,
+                fact_sources,
+                facts,
+                decisions,
+                next_best_action,
+            } => {
+                validate_state_commit_schema(schema_version.as_deref())?;
+                let outcome = session
+                    .state_commit_action_map(
+                        &turn,
+                        ActionMapStateCommitInput {
+                            commit_id: commit_id.clone(),
+                            active_node_id,
+                            success_criteria: convert_success_criteria(success_criteria),
+                            fact_sources: convert_fact_sources(fact_sources),
+                            facts: convert_claims(facts),
+                            decisions: convert_decisions(decisions),
+                            next_best_action: next_best_action.map(convert_next_best_action),
+                        },
+                    )
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)?;
+                format!(
+                    "TaskSpace state_commit {}: status={} accepted_sections=[{}] rejected_sections=[{}]",
+                    outcome.commit_id,
+                    outcome.status.as_str(),
+                    outcome.accepted_sections.join(","),
+                    outcome
+                        .rejected_sections
+                        .iter()
+                        .map(|error| format!("{}: {}", error.section, error.message))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                )
+            }
         };
         Ok(TaskSpaceControlOutput { message })
     }
@@ -706,6 +806,62 @@ fn convert_success_criteria(
             evidence_refs: convert_evidence_refs(input.evidence_refs),
         })
         .collect()
+}
+
+fn convert_fact_sources(
+    inputs: Vec<TaskSpaceFactSourceArgs>,
+) -> Vec<ActionMapStateCommitFactSourceInput> {
+    inputs
+        .into_iter()
+        .map(|input| ActionMapStateCommitFactSourceInput {
+            id: input.id,
+            provenance: input.provenance,
+            description: input.description,
+            evidence_refs: convert_evidence_refs(input.evidence_refs),
+        })
+        .collect()
+}
+
+fn convert_decisions(inputs: Vec<TaskSpaceDecisionArgs>) -> Vec<ActionMapLedgerDecisionInput> {
+    inputs
+        .into_iter()
+        .map(|input| ActionMapLedgerDecisionInput {
+            id: input.id,
+            decision_kind: input.decision_kind,
+            decision: input.decision,
+            rationale: input.rationale,
+            depends_on_results: input.depends_on_results,
+            depends_on_facts: input.depends_on_facts,
+            resolves_questions: input.resolves_questions,
+            supports_criteria: input.supports_criteria,
+            risks: input.risks,
+        })
+        .collect()
+}
+
+fn convert_next_best_action(
+    input: TaskSpaceNextBestActionArgs,
+) -> ActionMapStateCommitNextBestActionInput {
+    ActionMapStateCommitNextBestActionInput {
+        node_id: input.node_id,
+        action_summary: input.action_summary,
+        reason: input.reason,
+        expected_artifact: input.expected_artifact,
+        blocked_by: input.blocked_by,
+    }
+}
+
+fn validate_state_commit_schema(schema_version: Option<&str>) -> Result<(), FunctionCallError> {
+    if schema_version
+        .map(|value| value.trim().is_empty() || value == "taskspace-state-commit-v1")
+        .unwrap_or(true)
+    {
+        return Ok(());
+    }
+    Err(FunctionCallError::RespondToModel(
+        "taskspace_control state_commit schema_version must be taskspace-state-commit-v1."
+            .to_string(),
+    ))
 }
 
 fn default_success_criterion_status() -> String {
@@ -834,6 +990,71 @@ mod tests {
                 assert_eq!(adopted_by_decisions, vec!["decision-1"]);
                 assert_eq!(adopted_by_criteria, vec!["sc-1"]);
                 assert_eq!(adopted_by_nodes, vec!["node-1"]);
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn state_commit_parses_batch_sections() {
+        let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
+            "action": "state_commit",
+            "commit_id": "commit-1",
+            "schema_version": "taskspace-state-commit-v1",
+            "active_node_id": "node-1",
+            "success_criteria": [{
+                "id": "sc-1",
+                "kind": "validator",
+                "description": "self-test passes",
+                "evidence_refs": [{"artifact_ref": "user-request"}]
+            }],
+            "fact_sources": [{
+                "fact_source_id": "source-1",
+                "provenance": "provided_by_user",
+                "description": "The user requested v0.0.5 completion",
+                "evidence_refs": [{"artifact_ref": "user-request"}]
+            }],
+            "facts": [{
+                "claim_id": "fact-1",
+                "statement": "Phase 1 needs transactional state_commit",
+                "evidence_refs": [{"fact_source_id": "source-1"}]
+            }],
+            "decisions": [{
+                "decision_id": "decision-1",
+                "decision_kind": "implementation",
+                "decision": "reuse existing ledger structures",
+                "rationale": "prevents parallel state",
+                "depends_on_facts": ["fact-1"]
+            }],
+            "next_best_action": {
+                "node_id": "node-1",
+                "action_summary": "run focused tests",
+                "reason": "validate the commit path"
+            }
+        }))
+        .expect("state_commit args parse");
+
+        match args {
+            TaskSpaceControlArgs::StateCommit {
+                commit_id,
+                active_node_id,
+                success_criteria,
+                fact_sources,
+                facts,
+                decisions,
+                next_best_action,
+                ..
+            } => {
+                assert_eq!(commit_id, "commit-1");
+                assert_eq!(active_node_id.as_deref(), Some("node-1"));
+                assert_eq!(success_criteria[0].id, "sc-1");
+                assert_eq!(fact_sources[0].id, "source-1");
+                assert_eq!(facts[0].claim_id, "fact-1");
+                assert_eq!(decisions[0].id, "decision-1");
+                assert_eq!(
+                    next_best_action.expect("next action").action_summary,
+                    "run focused tests"
+                );
             }
             other => panic!("unexpected args: {other:?}"),
         }

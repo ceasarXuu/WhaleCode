@@ -76,8 +76,13 @@ Assert-True (@($runState.samples).Count -eq 1) "run state did not record sample 
 Assert-True (-not [string]::IsNullOrWhiteSpace([string]$sampleState.phase_started_at)) "sample state did not record phase_started_at"
 $runEvents = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $runDir "events.jsonl")
 Assert-True (@($runEvents | Where-Object { $_ -match '"event":"run_initialized"' }).Count -eq 1) "run initialized event was not appended"
-$deepRoot = Join-Path $RunRoot ("deep-" + ("x" * 60))
-$deepRunDir = Join-Path (Join-Path $deepRoot ("sample-" + ("y" * 65))) "20260615-000000-000"
+$deepPad = 1
+do {
+    $deepRoot = Join-Path $RunRoot ("deep-" + ("x" * $deepPad))
+    $deepRunDir = Join-Path (Join-Path $deepRoot ("sample-" + ("y" * $deepPad))) "20260615-000000-000"
+    $deepStatusPath = Join-Path $deepRunDir "sample-status.json"
+    $deepPad += 1
+} while ($deepStatusPath.Length -lt 224 -and $deepPad -lt 90)
 $deepStatusPath = Join-Path $deepRunDir "sample-status.json"
 Assert-True ($deepStatusPath.Length -lt 248 -and ("$deepStatusPath.tmp.$([guid]::NewGuid().ToString('N'))").Length -ge 260) "deep path fixture does not exercise atomic temp path boundary"
 Write-TaskspaceAtomicJson ([pscustomobject]@{ ok = $true }) $deepStatusPath
