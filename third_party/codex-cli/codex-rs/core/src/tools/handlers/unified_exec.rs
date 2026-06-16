@@ -16,6 +16,7 @@ use crate::tools::handlers::parse_arguments;
 use crate::tools::handlers::parse_arguments_with_base_path;
 use crate::tools::handlers::resolve_workdir_base_path;
 use crate::tools::hook_names::HookToolName;
+use crate::tools::output_reference::write_output_artifact_for_rollout;
 use crate::tools::registry::PostToolUsePayload;
 use crate::tools::registry::PreToolUsePayload;
 use crate::tools::registry::ToolHandler;
@@ -40,6 +41,7 @@ use codex_utils_output_truncation::approx_token_count;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tracing::warn;
 
 pub struct UnifiedExecHandler;
 
@@ -332,6 +334,7 @@ impl ToolHandler for UnifiedExecHandler {
                         chunk_id: String::new(),
                         wall_time: std::time::Duration::ZERO,
                         raw_output: output.into_text().into_bytes(),
+                        artifact_ref: None,
                         max_output_tokens: Some(max_output_tokens),
                         process_id: None,
                         exit_code: None,
@@ -374,6 +377,7 @@ impl ToolHandler for UnifiedExecHandler {
                             chunk_id: generate_chunk_id(),
                             wall_time: output.duration,
                             raw_output: output_text.into_bytes(),
+                            artifact_ref: None,
                             max_output_tokens: Some(max_output_tokens),
                             // Sandbox denial is terminal, so there is no live
                             // process for write_stdin to resume.
@@ -430,6 +434,28 @@ impl ToolHandler for UnifiedExecHandler {
                 )));
             }
         };
+
+        let mut response = response;
+        match session.current_rollout_path().await {
+            Ok(rollout_path) => {
+                match write_output_artifact_for_rollout(
+                    rollout_path.as_deref(),
+                    &response.raw_output,
+                )
+                .await
+                {
+                    Ok(artifact_ref) => {
+                        response.artifact_ref = artifact_ref;
+                    }
+                    Err(err) => {
+                        warn!("failed to write exec output artifact: {err}");
+                    }
+                }
+            }
+            Err(err) => {
+                warn!("failed to resolve rollout path for exec output artifact: {err}");
+            }
+        }
 
         Ok(response)
     }

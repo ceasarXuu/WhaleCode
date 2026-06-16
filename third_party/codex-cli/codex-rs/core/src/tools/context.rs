@@ -387,6 +387,7 @@ pub struct ExecCommandToolOutput {
     pub wall_time: Duration,
     /// Raw bytes returned for this unified exec call before any truncation.
     pub raw_output: Vec<u8>,
+    pub artifact_ref: Option<String>,
     pub max_output_tokens: Option<usize>,
     pub process_id: Option<i32>,
     pub exit_code: Option<i32>,
@@ -488,7 +489,9 @@ impl ExecCommandToolOutput {
     }
 
     fn model_visible_output(&self) -> String {
-        if let Some(reference_text) = reference_text_for_raw_output(&self.raw_output) {
+        if let Some(reference_text) =
+            reference_text_for_raw_output(&self.raw_output, self.artifact_ref.as_deref())
+        {
             return reference_text;
         }
         self.truncated_output()

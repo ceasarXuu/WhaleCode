@@ -216,6 +216,44 @@ Remaining Phase 2 work:
 - Add bounded slice retrieval.
 - Add output-ref trace events and focused `large_output_replay_count = 0` integration smoke.
 
+## 2026-06-17 Phase 2 exec output artifact store
+
+Changed:
+
+- Added `artifact_ref` to `OutputReferenceV1` model-visible metadata.
+- Added raw exec output artifact writing for non-inline outputs.
+- Artifact location is derived from the active rollout path:
+  - rollout: `<rollout>.jsonl`
+  - artifacts: `<rollout-stem>-artifacts/output-refs/<sha256>.stdout`
+- Artifact refs use `output-ref://sha256/<sha256>`.
+- `UnifiedExecHandler` attaches artifact refs after command execution and before response serialization.
+- Artifact write failures are logged as warnings and do not break provider tool-output protocol.
+
+Validation:
+
+```text
+cargo fmt -p codex-core --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+passed
+
+cargo test -p codex-core output_reference --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+4 passed
+
+cargo test -p codex-core exec_command_tool_output_ --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+3 passed
+
+cargo test -p codex-core post_tool_use_payload --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+8 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-outputartifact-neutral
+TaskSpace benchmark harness self-test: PASS
+```
+
+Remaining Phase 2 work:
+
+- Add bounded slice retrieval for `output-ref://sha256/<sha256>`.
+- Add output-ref trace events and focused next-turn replay smoke.
+- Add sensitive-data scan before exposing summaries/slices.
+
 ## 2026-06-17 Phase 1 state_commit recovery path
 
 Observed:

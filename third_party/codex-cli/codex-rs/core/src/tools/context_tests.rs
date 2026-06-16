@@ -438,6 +438,7 @@ fn exec_command_tool_output_formats_truncated_response() {
         chunk_id: "abc123".to_string(),
         wall_time: std::time::Duration::from_millis(1250),
         raw_output: b"token one token two token three token four token five".to_vec(),
+        artifact_ref: None,
         max_output_tokens: Some(4),
         process_id: None,
         exit_code: Some(0),
@@ -485,6 +486,7 @@ fn exec_command_tool_output_referenceizes_large_response() {
         chunk_id: "chunk-large".to_string(),
         wall_time: std::time::Duration::from_millis(250),
         raw_output,
+        artifact_ref: Some("output-ref://sha256/test-large".to_string()),
         max_output_tokens: Some(100_000),
         process_id: None,
         exit_code: Some(0),
@@ -502,6 +504,7 @@ fn exec_command_tool_output_referenceizes_large_response() {
                 .expect("exec output should serialize as text");
             assert!(text.contains("OutputReferenceV1:"));
             assert!(text.contains("policy: referenced_large_output"));
+            assert!(text.contains("artifact_ref: output-ref://sha256/test-large"));
             assert!(text.contains("sha256:"));
             assert!(text.contains("head-visible"));
             assert!(text.contains("tail-visible"));
@@ -529,6 +532,7 @@ fn exec_command_tool_output_summarizes_medium_response() {
         chunk_id: "chunk-medium".to_string(),
         wall_time: std::time::Duration::from_millis(250),
         raw_output,
+        artifact_ref: Some("output-ref://sha256/test-medium".to_string()),
         max_output_tokens: Some(100_000),
         process_id: None,
         exit_code: Some(0),
@@ -546,6 +550,7 @@ fn exec_command_tool_output_summarizes_medium_response() {
                 .expect("exec output should serialize as text");
             assert!(text.contains("OutputReferenceV1:"));
             assert!(text.contains("policy: summarized_medium_output"));
+            assert!(text.contains("artifact_ref: output-ref://sha256/test-medium"));
             assert!(text.contains("medium-head"));
             assert!(text.contains("medium-tail"));
             assert!(
