@@ -217,6 +217,17 @@ Remaining Phase 2 work:
 
 - Route expansion still regressed under the output-ref-positive live smoke: the graph completed but used 9 nodes against the scenario target of 4. The next fix should inspect the observability graph for the redundant node pattern and close that path without weakening output-ref enforcement.
 
+Follow-up note:
+
+- Fixed the live runner's output-ref contract write-back path to locate the taskspace side through `pair.Left` / `pair.Right`; the pair object has no `Sides` collection.
+- Latest live run after that fix:
+  - RunDir: `target\v005-phase2-live-smoke-outputref-contract-livepath-2\large-output-ref-smoke\20260617-072905-062`
+  - `runtime_output_ref_created_count=1`
+  - `large_output_replay_count=0`
+  - `raw_output_in_prompt_violation=false`
+  - `nodes=9`, `open_leaf_nodes=0`, `spawn_agent_calls=0`
+- Observed redundant route pattern: repeated diagnostic/inspect nodes (`node-4`, `node-5`) and blocked validation/final nodes after a completed implementation. The next runtime fix should prevent re-opening a diagnostic inspect after the diagnostic evidence already exists and require validation nodes with successful test evidence before final synthesis.
+
 ## 2026-06-17 Phase 2 shell output references
 
 Changed:
