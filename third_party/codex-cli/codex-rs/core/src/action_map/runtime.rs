@@ -2664,6 +2664,15 @@ preview:\n\
         let supports_questions = normalize_string_vec(input.supports_questions);
         let tests_hypotheses = normalize_string_vec(input.tests_hypotheses);
         let depends_on_results = normalize_string_vec(input.depends_on_results);
+        if supports_questions.is_empty()
+            && tests_hypotheses.is_empty()
+            && depends_on_results.is_empty()
+        {
+            return Err(
+                "TaskSpace record_subagent_plan requires at least one supports_questions, tests_hypotheses, or depends_on_results reference so subagent work can produce decision/adoption yield."
+                    .to_string(),
+            );
+        }
         self.validate_result_ids_belong_to_active_map(&map_id, &depends_on_results)?;
 
         let now = now_ms();
@@ -8675,13 +8684,13 @@ mod tests {
         state.record_subagent_plan_for_main(
             owner,
             ActionMapSubagentPlanInput {
-                parent_node_id: node_id,
+                parent_node_id: node_id.clone(),
                 why_parallelizable: "Test fixture marks this node as bounded parallel work."
                     .to_string(),
                 expected_artifact: "Concise result package with claims and evidence.".to_string(),
                 acceptance_check: "Parent can validate result validity and adoption.".to_string(),
                 max_scope: "Only the assigned node.".to_string(),
-                supports_questions: Vec::new(),
+                supports_questions: vec![format!("q-spawn-{node_id}")],
                 tests_hypotheses: Vec::new(),
                 depends_on_results: Vec::new(),
             },
@@ -14625,6 +14634,34 @@ mod tests {
             snapshot_map.results[0].subagent_plan_id.as_deref(),
             Some(snapshot_map.subagent_plans[0].id.as_str())
         );
+    }
+
+    #[test]
+    fn subagent_plan_requires_decision_yield_reference() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        seed_test_map(&mut state, owner);
+
+        let error = state
+            .record_subagent_plan_for_main(
+                owner,
+                ActionMapSubagentPlanInput {
+                    parent_node_id: "define_scope".to_string(),
+                    why_parallelizable: "Independent discovery track.".to_string(),
+                    expected_artifact: "Scope evidence report.".to_string(),
+                    acceptance_check: "Parent can validate evidence refs.".to_string(),
+                    max_scope: "Only define_scope.".to_string(),
+                    supports_questions: Vec::new(),
+                    tests_hypotheses: Vec::new(),
+                    depends_on_results: Vec::new(),
+                },
+            )
+            .expect_err("yieldless subagent plan is rejected");
+
+        assert!(error.contains("requires at least one supports_questions"));
+        let map = state.maps.get("map-1").expect("map");
+        assert!(map.subagent_plans.is_empty());
     }
 
     #[test]

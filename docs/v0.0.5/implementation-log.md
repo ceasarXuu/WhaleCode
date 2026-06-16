@@ -213,6 +213,60 @@ Remaining Phase 1 work:
 - Rebuild/install Whale and rerun live smoke with the prompt guard.
 - Pass criteria remain: nonzero `state_commit_count`, reduced runtime event expansion, no subagent warnings on `single-file-fast-fix`, and cost gate at least partial before moving to Phase 2.
 
+## 2026-06-17 Phase 1 prompt guard live smoke and subagent yield gate
+
+Live smoke:
+
+```text
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev profile
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -PersistUserPath -BackupLegacyCopies
+Installed Whale hash: F0FE137E32FB0AF2700F18492DEE920DDC4348092A73DC80FF61BCCF8461F34A
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario single-file-fast-fix -Repeats 1 -RunRoot target\v005-phase1-live-smoke-promptguard-f0fe -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-phase1-live-smoke-promptguard-f0fe\single-file-fast-fix\20260617-024816-297
+```
+
+Observed:
+
+- Runtime expansion improved but did not pass the gate:
+  - runtime events: `274 -> 189`
+  - nodes: `10 -> 9`
+  - spawn_agent calls: `3 -> 2`
+  - direct input/output ratio: `36.481 -> 26.9127`
+  - wall-time ratio: `8.9677 -> 7.2765`
+- `state_commit_count` remained `0`.
+- The remaining subagent plans had no `supports_questions`, `tests_hypotheses`, or `depends_on_results`, and graph health reported `subagent_no_decision_yield`.
+
+Changed:
+
+- `record_subagent_plan` now rejects yieldless plans. A subagent plan must include at least one `supports_questions`, `tests_hypotheses`, or `depends_on_results` reference so the result has a concrete adoption path.
+- Test fixtures now attach a synthetic support question when preparing valid spawn assignments.
+- Added a regression test that rejects an otherwise valid-looking subagent plan with no decision-yield reference.
+
+Validation:
+
+```text
+cargo test -p codex-core subagent_plan --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+3 passed
+
+cargo test -p codex-core spawn_assignment --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+9 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-yieldref-c72e
+TaskSpace benchmark harness self-test: PASS
+```
+
+Operational lesson:
+
+- Benchmark `RunRoot` names are part of the prompt isolation surface. Do not include treatment labels such as `subagent` in run directory names; the harness correctly rejects them as prompt leakage.
+
+Remaining Phase 1 work:
+
+- Rebuild/install Whale and rerun live smoke with the subagent yield gate.
+- If `state_commit_count` remains zero, add a stronger compatibility path: return runtime hints from legacy multi-record actions or make the benchmark usage parser count runtime `state_commit.*` events separately from model-visible tool calls.
+
 ## 2026-06-17 Phase 1 lifecycle state_commit sections
 
 Changed:
