@@ -90,7 +90,8 @@ Initialize-TaskspaceBenchmarkRunState $resumeRunDir "resume-sample" 1 "E2" "resu
 Set-TaskspaceBenchmarkRunPhase $resumeRunDir "completed" 1 1 $false | Out-Null
 "# existing" | Set-Content -LiteralPath (Join-Path $resumeRunDir "pair-001\pair-report.md") -Encoding UTF8
 $foundResume = Find-TaskspaceLatestRunDir $RunRoot "resume-sample"
-Assert-True ($foundResume -eq $resumeRunDir) "latest run finder did not return existing run"
+$expectedResume = (Resolve-Path -LiteralPath $resumeRunDir).Path
+Assert-True ($foundResume -eq $expectedResume) "latest run finder did not return existing run"
 $resumeStatus = Read-TaskspaceRunStatus $resumeRunDir
 Assert-True (-not (Test-TaskspaceRunLockStale $resumeStatus)) "fresh completed run was treated as stale"
 $resumeStatus.heartbeat_at = (Get-Date).AddHours(-2).ToString("o")
@@ -280,6 +281,35 @@ $legacyGraphReport = New-TaskspaceGraphHealthReport $legacyGraphObs "right" "tas
 Assert-True ([string]$legacyGraphReport.metric_availability.result_adoption -eq "unsupported_legacy") "legacy graph health did not mark adoption as unsupported"
 Assert-True ($null -eq $legacyGraphReport.result_adoption_rate) "legacy graph health reported unsupported adoption as measured zero"
 Assert-True (-not (@($legacyGraphReport.warnings) -contains "subagent_no_adoption")) "legacy graph health emitted subagent adoption warning without adoption support"
+$thinGraphReport = New-TaskspaceGraphHealthReport ([pscustomobject]@{
+        nodes = @([pscustomobject]@{ id = "node-1"; kind = "inspect_code_context"; status = "completed"; leases = @(); results = @(); events = @() })
+        edges = @()
+        toolCalls = @()
+        timeline = @()
+    }) "right" "taskspace"
+Assert-True (-not (@($thinGraphReport.warnings) -contains "thin_mode_violation")) "thin taskspace run without spawn was incorrectly warned"
+
+$costDir = Join-Path $runDir "cost-instrumentation"
+New-Item -ItemType Directory -Path $costDir -Force | Out-Null
+$costJsonl = Join-Path $costDir "exec.jsonl"
+@(
+    (@{ type = "response.completed"; response = @{ usage = @{ input_tokens = 120; output_tokens = 30; input_tokens_details = @{ cached_tokens = 20 } } } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"start_task","title":"x"}' } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"finish_node","node_id":"node-1"}' } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ type = "response.completed"; response = @{ usage = @{ output_tokens = 7 } } } | ConvertTo-Json -Compress -Depth 8)
+) | Set-Content -LiteralPath $costJsonl -Encoding UTF8
+$costArtifacts = Write-TaskspaceCostInstrumentationArtifacts $costDir $costJsonl
+Assert-True (Test-Path -LiteralPath $costArtifacts.token_summary_path) "token-summary.json was not written"
+Assert-True (Test-Path -LiteralPath $costArtifacts.request_summary_path) "request-summary.json was not written"
+Assert-True (Test-Path -LiteralPath $costArtifacts.taskspace_control_usage_path) "taskspace-control-usage.json was not written"
+Assert-True ([string]$costArtifacts.token_summary.availability -eq "partial") "partial token usage was not marked partial"
+Assert-True ([int]$costArtifacts.request_summary.model_request_count -eq 2) "model request count did not come from usage events"
+Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_control_count -eq 2) "taskspace_control count was not parsed"
+Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.start_task -eq 1) "taskspace_control start_task action was not counted"
+Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.finish_node -eq 1) "taskspace_control finish_node action was not counted"
+$missingCostArtifacts = Write-TaskspaceCostInstrumentationArtifacts (Join-Path $runDir "missing-cost") ""
+Assert-True ([string]$missingCostArtifacts.token_summary.availability -eq "source_missing") "missing usage source was not marked source_missing"
+Assert-True ($null -eq $missingCostArtifacts.request_summary.model_request_count) "missing usage source was treated as zero requests"
 
 $standardArgv = New-TaskspaceWhaleArgv "standard" "model-x" "C:\neutral\left\repo" "C:\neutral\left\last.md"
 $taskspaceArgv = New-TaskspaceWhaleArgv "taskspace" "model-x" "C:\neutral\right\repo" "C:\neutral\right\last.md"

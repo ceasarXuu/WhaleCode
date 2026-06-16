@@ -1,6 +1,9 @@
 if (-not (Get-Command Get-TaskspaceValidationLifecycle -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot "harness-health.ps1")
 }
+if (-not (Get-Command Write-TaskspaceCostInstrumentationArtifacts -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot "cost-instrumentation.ps1")
+}
 
 function Get-TaskspaceDiffText {
     param(
@@ -277,6 +280,7 @@ function Get-TaskspaceBenchmarkMetrics {
     $graphHealthReport = New-TaskspaceGraphHealthReport $obs $Side.Name $Side.LogicalMode
     $graphHealthPath = Join-Path $Side.ArtifactDir "graph-health.json"
     Write-TaskspaceGraphHealthReport $graphHealthReport $graphHealthPath
+    $costInstrumentation = Write-TaskspaceCostInstrumentationArtifacts $Side.ArtifactDir $Exec.jsonl_path
     $subagentThreadIds = @()
     if ($obs) {
         $subagentThreadIds = @($obs.nodes | ForEach-Object {
@@ -293,6 +297,22 @@ function Get-TaskspaceBenchmarkMetrics {
         wall_time_ms = $Exec.wall_time_ms
         tool_call_count = $commandStats.Completed
         failed_tool_call_count = $commandStats.Failed
+        token_summary_path = [string]$costInstrumentation.token_summary_path
+        request_summary_path = [string]$costInstrumentation.request_summary_path
+        taskspace_control_usage_path = [string]$costInstrumentation.taskspace_control_usage_path
+        token_summary_availability = [string]$costInstrumentation.token_summary.availability
+        model_request_count = $costInstrumentation.request_summary.model_request_count
+        input_tokens = $costInstrumentation.token_summary.input_tokens
+        output_tokens = $costInstrumentation.token_summary.output_tokens
+        cached_input_tokens = $costInstrumentation.token_summary.cached_input_tokens
+        uncached_input_tokens = $costInstrumentation.token_summary.uncached_input_tokens
+        avg_input_tokens_per_request = $costInstrumentation.request_summary.avg_input_tokens_per_request
+        avg_output_tokens_per_request = $costInstrumentation.request_summary.avg_output_tokens_per_request
+        taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.taskspace_control_count
+        state_commit_count = [int]$costInstrumentation.taskspace_control_usage.state_commit_count
+        large_output_replay_count = [int]$costInstrumentation.replay_summary.large_output_replay_count
+        largest_tool_output_bytes = [int64]$costInstrumentation.replay_summary.largest_tool_output_bytes
+        raw_output_in_prompt_violation = [bool]$costInstrumentation.replay_summary.raw_output_in_prompt_violation
         changed_file_inventory = @($changedInventory)
         changed_paths = @($changedInventory | ForEach-Object { $_.path })
         metrics_warnings = @($metricsWarnings)

@@ -142,7 +142,6 @@ function New-TaskspaceGraphHealthReport {
     if ($nodeInflationRatio -gt 12) { $warnings.Add("node_inflation_high") }
     if ($subagentSpawnCount -gt 0 -and $subagentAdoptedCount -eq 0 -and $adoptionMetricState -eq "measured") { $warnings.Add("subagent_no_adoption") }
     if ($subagentSpawnCount -gt 0 -and $subagentDecisionResultIds.Count -eq 0) { $warnings.Add("subagent_no_decision_yield") }
-    if ([string]$LogicalMode -eq "taskspace" -and $nodeCount -le 1 -and @($spawnCalls).Count -eq 0) { $warnings.Add("thin_mode_violation") }
     if ([int]$legacyHealth.OpenFinalSynthesisCount -gt 0) { $warnings.Add("synthesis_not_ready") }
     [pscustomobject]@{
         schema_version = "taskspace-graph-health-v1"
