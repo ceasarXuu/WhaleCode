@@ -86,7 +86,7 @@ Required fields:
 
 ```text
 schema_version
-commit_id
+commit_id (recommended; omitted values are recovered as handler-derived `auto-*` ids)
 active_node_id
 sections
 ```
@@ -109,7 +109,7 @@ next_best_action
 
 Required semantics:
 
-- idempotent replay by `commit_id`;
+- idempotent replay by caller-provided `commit_id`, with handler-derived `auto-*` ids used only to recover from missing model-formatted ids;
 - section-level validation;
 - section-level accept/reject result;
 - no mutation from rejected sections;

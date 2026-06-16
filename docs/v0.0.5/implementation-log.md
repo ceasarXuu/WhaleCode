@@ -135,6 +135,55 @@ Remaining Phase 1 work:
 
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
 
+## 2026-06-17 Phase 1 state_commit recovery path
+
+Observed:
+
+- Latest installed live smoke after output-contract support produced `runtime_state_commit_count=1`, but cost regressed:
+  - direct input+output ratio: 8.7965
+  - walltime ratio: 2.7188
+  - right-side input tokens: 862932
+  - nodes: 4
+  - runtime events: 85
+- The task solved, but stderr showed avoidable TaskSpace recovery failures:
+  - early `state_commit` parse failure: missing `commit_id`
+  - validation node completion still instructed the model to use legacy `record_success_criteria`
+  - final_synthesis was created and repeatedly blocked because the validation result / success criterion closure was not batched cleanly.
+
+Changed:
+
+- Made `state_commit.commit_id` optional at the handler boundary.
+- When omitted, the handler derives an `auto-*` id from the submitted arguments. Caller-provided ids still drive explicit idempotency.
+- Updated validation-node completion gate text to prefer one `state_commit` with:
+  - `result_validities`
+  - `success_criteria` status `satisfied`
+  - `finished_nodes`
+- Updated `state_commit_v1.schema.json`, the implementation plan, and the engineering contract so the documented schema matches the runtime recovery behavior.
+
+Validation:
+
+```text
+cargo fmt -p codex-core
+ok
+
+Get-Content -Raw docs\v0.0.5\schemas\state_commit_v1.schema.json | ConvertFrom-Json | Out-Null
+schema json ok
+
+cargo test -p codex-core state_commit --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+5 passed
+
+cargo test -p codex-core finish_smoke_node_requires_successful_validation_evidence --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-statecommit-recovery-9b7c
+TaskSpace benchmark harness self-test: PASS
+```
+
+Reason:
+
+- Phase 1 should reduce protocol-turn count. Treating a missing `commit_id` as a hard parse failure and pointing validation recovery at legacy single-record actions both work against that goal.
+- This does not remove explicit idempotency. It makes the common model-error recovery path cheap enough to keep the agent on the intended transactional protocol.
+
 ## 2026-06-17 Phase 1 validation evidence gate hardening
 
 Changed:

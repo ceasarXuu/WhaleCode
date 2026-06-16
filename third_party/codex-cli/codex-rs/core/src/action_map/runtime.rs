@@ -3198,7 +3198,7 @@ preview:\n\
                     node_satisfies_success_criterion_with_validation_result(task, map, node)
                 }) {
                     return Err(format!(
-                        "TaskSpace {} node `{node_id}` cannot be completed without a satisfied success criterion tied to this validation node's successful test/build result. Call taskspace_control(action=record_success_criteria) with status=satisfied and evidence_refs from this node's successful validator result before finishing.",
+                        "TaskSpace {} node `{node_id}` cannot be completed without a satisfied success criterion tied to this validation node's successful test/build result. Preferred fix: call taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) once with sections.result_validities for the validator result, sections.success_criteria status=satisfied with evidence_refs from this node's successful validator result, and sections.finished_nodes for `{node_id}`. Use legacy taskspace_control(action=record_success_criteria) only for a focused single-record correction.",
                         node.kind.as_str()
                     ));
                 }
@@ -13739,6 +13739,9 @@ mod tests {
         assert!(
             missing_criterion.contains("cannot be completed without a satisfied success criterion")
         );
+        assert!(missing_criterion.contains("action=state_commit"));
+        assert!(missing_criterion.contains("sections.result_validities"));
+        assert!(missing_criterion.contains("sections.finished_nodes"));
         let (result_id, _) = state
             .record_main_tool_result_with_class(
                 owner,

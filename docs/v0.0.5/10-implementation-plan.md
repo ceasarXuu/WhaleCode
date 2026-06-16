@@ -162,7 +162,7 @@ Reduce protocol turns without weakening evidence integrity.
 `state_commit` is a compatible new action, not the only action. It must be transactional at section level:
 
 - `schema_version`;
-- `commit_id` for idempotency;
+- optional `commit_id` for caller-controlled idempotency; when omitted, the handler derives an `auto-*` id from the submitted arguments so a missing id does not force a model retry;
 - `active_node_id`;
 - `sections` for nodes, result validity/adoption, success criteria, output contracts, fact sources, facts, decisions, blockers, and next action;
 - per-section validation result;
@@ -191,6 +191,7 @@ Reduce protocol turns without weakening evidence integrity.
 | Validation Item | Method | Passing Standard |
 |---|---|---|
 | Idempotent replay. | Submit same `commit_id` twice. | Second submission does not duplicate state. |
+| Missing commit id recovery. | Submit `state_commit` without `commit_id`. | Handler derives an `auto-*` id and applies valid sections. |
 | Partial rejection. | Commit valid fact and invalid result ref. | Fact accepted; invalid result section rejected with error. |
 | Legacy compatibility. | Existing fine-grained action tests. | No unrelated behavior regression. |
 | Cost smoke. | One focused pair. | `taskspace_control` call count decreases vs v004 baseline. |

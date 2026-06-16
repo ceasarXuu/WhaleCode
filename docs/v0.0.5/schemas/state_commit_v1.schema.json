@@ -2,11 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TaskSpace StateCommitV1",
   "type": "object",
-  "required": ["action", "commit_id", "schema_version"],
+  "required": ["action", "schema_version"],
   "additionalProperties": true,
   "properties": {
     "action": {"const": "state_commit"},
-    "commit_id": {"type": "string", "minLength": 1},
+    "commit_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Recommended for idempotency. If omitted, the handler derives an auto-* id from the submitted arguments for recovery from model formatting mistakes."
+    },
     "schema_version": {"const": "taskspace-state-commit-v1"},
     "active_node_id": {"type": "string"},
     "nodes": {

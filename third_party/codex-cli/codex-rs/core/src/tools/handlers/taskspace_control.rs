@@ -189,7 +189,8 @@ enum TaskSpaceControlArgs {
         adopted_by_nodes: Vec<String>,
     },
     StateCommit {
-        commit_id: String,
+        #[serde(default)]
+        commit_id: Option<String>,
         #[serde(default)]
         schema_version: Option<String>,
         #[serde(default)]
@@ -789,6 +790,8 @@ impl ToolHandler for TaskSpaceControlHandler {
                 next_best_action,
             } => {
                 validate_state_commit_schema(schema_version.as_deref())?;
+                let commit_id =
+                    commit_id.unwrap_or_else(|| auto_state_commit_id_from_arguments(&arguments));
                 let outcome = session
                     .state_commit_action_map(
                         &turn,
@@ -877,6 +880,15 @@ fn build_next_node_draft(
         context_summary,
         dependency_node_ids: next_dependency_node_ids,
     }))
+}
+
+fn auto_state_commit_id_from_arguments(arguments: &str) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in arguments.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("auto-{hash:016x}")
 }
 
 fn convert_evidence_refs(inputs: Vec<TaskSpaceEvidenceRefArgs>) -> Vec<ActionMapEvidenceRefInput> {
@@ -1295,7 +1307,7 @@ mod tests {
                 next_best_action,
                 ..
             } => {
-                assert_eq!(commit_id, "commit-1");
+                assert_eq!(commit_id.as_deref(), Some("commit-1"));
                 assert_eq!(active_node_id.as_deref(), Some("node-1"));
                 assert_eq!(nodes[0].kind, "smoke_test");
                 assert_eq!(
@@ -1314,6 +1326,36 @@ mod tests {
                     next_best_action.expect("next action").action_summary,
                     "run focused tests"
                 );
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn state_commit_accepts_missing_commit_id_for_recovery() {
+        let raw = serde_json::json!({
+            "action": "state_commit",
+            "schema_version": "taskspace-state-commit-v1",
+            "success_criteria": [{
+                "id": "sc-1",
+                "kind": "validator",
+                "description": "self-test passes",
+                "evidence_refs": [{"artifact_ref": "user-request"}]
+            }]
+        });
+        let arguments = raw.to_string();
+        let args: TaskSpaceControlArgs =
+            serde_json::from_value(raw).expect("state_commit args parse");
+
+        match args {
+            TaskSpaceControlArgs::StateCommit {
+                commit_id,
+                success_criteria,
+                ..
+            } => {
+                assert!(commit_id.is_none());
+                assert_eq!(success_criteria[0].id, "sc-1");
+                assert!(auto_state_commit_id_from_arguments(&arguments).starts_with("auto-"));
             }
             other => panic!("unexpected args: {other:?}"),
         }
