@@ -135,6 +135,54 @@ Remaining Phase 1 work:
 
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
 
+## 2026-06-17 Phase 2 routing fanout hardening
+
+Changed:
+
+- Promoted the pre-fix diagnostic routing rule from prompt guidance into runtime validation.
+- `smoke_test` and `regression_test` node creation now rejects title/context markers for pre-fix diagnostics, baselines, and `emit_large_log` diagnostic commands.
+- `finish_node` next-node drafts use the same validation, so the model cannot finish an inspect node into a misclassified diagnostic validation node.
+- Detached `inspect_code_context` creation is now rejected after a completed narrow main-agent inspect pass. This prevents state_commit from polluting a single-track task with ready inspect fanout that later fails at spawn time.
+- Added regression coverage for direct node creation, next-node draft creation, and lifecycle `state_commit` node-section rejection.
+
+Validation:
+
+```text
+cargo test -p codex-core validation_node --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+4 passed
+
+cargo test -p codex-core narrow_main_inspect --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+2 passed
+
+cargo test -p codex-core state_commit_rejects_detached_inspect_after_narrow_main_inspect --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-routing-fanout
+TaskSpace benchmark harness self-test: PASS
+
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev build
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -PersistUserPath -BackupLegacyCopies
+Installed Whale: C:\Users\77585\.whale\bin\whale.exe
+SHA256: F993C095F4C16E843354F4F5420A8ACE6FA7B7F9C3019F9860EC891524A52084
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-phase2-live-smoke-routing-fanout-f993 -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-phase2-live-smoke-routing-fanout-f993\large-output-ref-smoke\20260617-070750-573
+```
+
+Live smoke evidence:
+
+- `reported_evidence_level`: E2-candidate.
+- right/taskspace: `business_success=True`, `exec_exit_code=0`, `public_validation_exit_code=0`, `hidden_oracle_exit_code=0`.
+- Graph recovered from the prior fanout failure: `nodes=4`, `edges=3`, `open_leaf_nodes=0`, `spawn_agent_calls=0`, `edge_order_violations=0`, scenario warnings `none`.
+- Observability nodes were the intended chain: `inspect_code_context -> implement_solution -> regression_test -> final_synthesis`, all completed.
+- Remaining engineering-clean blockers are harness/environment level: `repeats_lt_3`, `cleanup_not_attempted_manifest_missing`, `no_tests_started_marker`.
+
+Remaining Phase 2 work:
+
+- This live smoke did not create a runtime output reference: `runtime_output_ref_created_count=0`. The model redirected the diagnostic output to `diagnostic_output.txt`, which kept `large_output_replay_count=0` and `raw_output_in_prompt_violation=false` but did not prove the output-reference path in this run. The next fix should prevent this bypass or add an oracle that requires direct large stdout capture.
+
 ## 2026-06-17 Phase 2 shell output references
 
 Changed:

@@ -1772,6 +1772,7 @@ preview:\n\
         validate_live_node_kind(kind)?;
         let title = title.trim();
         let context_summary = context_summary.trim();
+        validate_live_node_kind_context(kind, title, context_summary)?;
         if title.is_empty() {
             return Err("TaskSpace node title cannot be empty.".to_string());
         }
@@ -1847,6 +1848,16 @@ preview:\n\
         let ready = dependencies
             .iter()
             .all(|(_, status)| *status == NodeStatus::Completed);
+        if !bind_current
+            && ready
+            && kind == NodeKind::InspectCodeContext
+            && Self::has_completed_narrow_inspect(map)
+        {
+            return Err(
+                "TaskSpace cannot create a detached inspect_code_context node after a completed narrow inspect pass. Keep serial single-track investigation on the main agent; pre-fix diagnostic or baseline commands belong inside the current inspect_code_context result, and follow-up implementation should use implement_solution."
+                    .to_string(),
+            );
+        }
         if bind_current && !ready {
             return Err(
                 "TaskSpace cannot bind the main action to a new node until all dependencies are completed."
@@ -2206,6 +2217,11 @@ preview:\n\
             if draft.context_summary.trim().is_empty() {
                 return Err("TaskSpace next_node_context_summary cannot be empty.".to_string());
             }
+            validate_live_node_kind_context(
+                draft.kind,
+                draft.title.trim(),
+                draft.context_summary.trim(),
+            )?;
             self.validate_next_node_draft_after_finish(node_id, draft)?;
         }
         self.validate_broad_inspect_finish_transition(
@@ -6694,6 +6710,38 @@ fn validate_live_node_kind(kind: NodeKind) -> Result<(), String> {
                 .to_string(),
         );
     }
+    Ok(())
+}
+
+fn validate_live_node_kind_context(
+    kind: NodeKind,
+    title: &str,
+    context_summary: &str,
+) -> Result<(), String> {
+    if !matches!(kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
+        return Ok(());
+    }
+
+    let text = format!("{title}\n{context_summary}").to_ascii_lowercase();
+    let pre_fix_markers = [
+        "pre-fix",
+        "pre fix",
+        "pre_edit",
+        "pre-edit",
+        "before editing",
+        "before implementation",
+        "baseline",
+        "diagnostic command",
+        "diagnostic emit",
+        "emit_large_log",
+    ];
+    if pre_fix_markers.iter().any(|marker| text.contains(marker)) {
+        return Err(
+            "TaskSpace pre-fix diagnostic or baseline commands belong in inspect_code_context; create smoke_test/regression_test nodes only for post-implementation validation."
+                .to_string(),
+        );
+    }
+
     Ok(())
 }
 
@@ -11680,6 +11728,161 @@ mod tests {
     }
 
     #[test]
+    fn create_validation_node_rejects_pre_fix_diagnostic_context() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Fix large output replay",
+            "Inspect the current output replay behavior.",
+            true,
+        );
+
+        let error = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::SmokeTest,
+                "Run diagnostic emit_large_log.py before editing".to_string(),
+                "Capture the baseline failure before implementation.".to_string(),
+                vec!["node-1".to_string()],
+                false,
+            )
+            .expect_err("pre-fix diagnostic cannot be a validation node");
+
+        assert!(error.contains("inspect_code_context"));
+        assert!(error.contains("post-implementation validation"));
+    }
+
+    #[test]
+    fn finish_next_validation_draft_rejects_pre_fix_diagnostic_context() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task(
+            &mut state,
+            owner,
+            "Fix large output replay",
+            "Inspect the current output replay behavior.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "read scripts/emit_large_log.py".to_string(),
+            )
+            .expect("read result records");
+
+        let error = state
+            .finish_main_node_with_next(
+                owner,
+                &node_id,
+                "Found the diagnostic command to run.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run diagnostic command".to_string(),
+                    context_summary: "Run emit_large_log before implementation as a baseline."
+                        .to_string(),
+                    dependency_node_ids: vec![node_id.clone()],
+                }),
+            )
+            .expect_err("next validation draft cannot be pre-fix diagnostic");
+
+        assert!(error.contains("inspect_code_context"));
+        assert!(error.contains("post-implementation validation"));
+    }
+
+    #[test]
+    fn create_validation_node_allows_post_fix_smoke_context() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Fix large output replay",
+            "Inspect the current output replay behavior.",
+            true,
+        );
+
+        let (node_id, _) = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::SmokeTest,
+                "Run smoke test after fix".to_string(),
+                "Run the focused validation command after implementation edits.".to_string(),
+                vec!["node-1".to_string()],
+                false,
+            )
+            .expect("post-fix validation node remains allowed");
+
+        assert_eq!(node_id, "node-2");
+    }
+
+    #[test]
+    fn state_commit_rejects_detached_inspect_after_narrow_main_inspect() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, inspect_node_id, _) = start_test_task(
+            &mut state,
+            owner,
+            "Fix large output replay",
+            "Inspect the current output replay behavior.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "read tests/test_large_output_demo.py".to_string(),
+            )
+            .expect("read result records");
+        state
+            .finish_main_node(
+                owner,
+                &inspect_node_id,
+                "Narrow inspect done.".to_string(),
+                None,
+            )
+            .expect("inspect finishes");
+
+        let (outcome, _) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-detached-inspect".to_string(),
+                    nodes: vec![ActionMapStateCommitNodeInput {
+                        kind: NodeKind::InspectCodeContext,
+                        title: "Run emit_large_log diagnostic".to_string(),
+                        context_summary: "Detached follow-up diagnostic track.".to_string(),
+                        dependency_node_ids: vec![inspect_node_id],
+                        bind_current: false,
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect("state commit returns section outcome");
+
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Rejected);
+        assert_eq!(outcome.rejected_sections[0].section, "nodes");
+        assert!(
+            outcome.rejected_sections[0]
+                .message
+                .contains("completed narrow inspect pass")
+        );
+    }
+
+    #[test]
     fn completed_final_synthesis_rechecks_validation_after_edit_before_final_response() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -15213,7 +15416,7 @@ mod tests {
     }
 
     #[test]
-    fn subagent_plan_rejects_followup_after_narrow_main_inspect() {
+    fn detached_inspect_creation_rejects_followup_after_narrow_main_inspect() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
@@ -15242,7 +15445,7 @@ mod tests {
                 None,
             )
             .expect("inspect finishes");
-        let (followup_node_id, _) = state
+        let error = state
             .create_node_for_main_with_kind(
                 owner,
                 NodeKind::InspectCodeContext,
@@ -15251,26 +15454,10 @@ mod tests {
                 Vec::new(),
                 false,
             )
-            .expect("follow-up inspect node records");
-
-        let error = state
-            .record_subagent_plan_for_main(
-                owner,
-                ActionMapSubagentPlanInput {
-                    parent_node_id: followup_node_id,
-                    why_parallelizable: "Read tests independently.".to_string(),
-                    expected_artifact: "Test expectation summary.".to_string(),
-                    acceptance_check: "Parent validates test refs.".to_string(),
-                    max_scope: "Only tests.".to_string(),
-                    supports_questions: vec!["q-scope-node-1".to_string()],
-                    tests_hypotheses: Vec::new(),
-                    depends_on_results: Vec::new(),
-                },
-            )
             .expect_err("narrow main inspect keeps follow-up serial");
 
-        assert!(error.contains("already completed a narrow inspect pass"));
-        assert!(error.contains("Keep serial single-track investigation"));
+        assert!(error.contains("completed narrow inspect pass"));
+        assert!(error.contains("serial single-track investigation"));
     }
 
     #[test]
