@@ -166,6 +166,53 @@ Remaining Phase 1 work:
 - Rebuild/install Whale and rerun the Phase 1 live smoke against the gate fix.
 - If the model still does not use `state_commit`, strengthen the immediate TaskSpace activation prompt instead of relying only on the BaseMap cognitive protocol section.
 
+## 2026-06-17 Phase 1 live smoke gatefix and prompt guard
+
+Live smoke:
+
+```text
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev profile
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -PersistUserPath -BackupLegacyCopies
+Installed Whale hash: 518B30485B3C7940817048EC7E98DD1FA243DE1ACBB07DFB63F65FC5F30E6C2D
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario single-file-fast-fix -Repeats 1 -RunRoot target\v005-phase1-live-smoke-gatefix-518b -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-phase1-live-smoke-gatefix-518b\single-file-fast-fix\20260617-023002-976
+```
+
+Observed:
+
+- The previous repeated validation completion error did not dominate the run after the `validator_ref` gate fix.
+- `taskspace_control_count=0`, `state_commit_count=0`, and `taskspace_runtime_event_count=274`.
+- TaskSpace created 10 nodes and attempted 3 subagent spawns for a single-file fast fix.
+- Suite cost gate still failed: direct input/output ratio `36.481`, wall-time ratio `8.9677`, model request ratio `1`.
+
+Changed:
+
+- Immediate TaskSpace activation now directs multi-record contract/fact/source/success-criteria updates to `taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1)`.
+- Runtime developer context now states that small single-file fixes and one failing-test loops should stay on the main-agent path unless the user explicitly asks for multi-agent work or there are clearly independent evidence surfaces.
+- `spawn_agent` missing-plan feedback now tells the model to continue on the main agent for small single-file fixes instead of only suggesting `record_subagent_plan`.
+- Added prompt contract assertions so the small-task main-agent guard and state_commit guidance cannot silently disappear.
+
+Validation:
+
+```text
+cargo test -p codex-core create_seed_map_sets_active_map_context --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core spawn_assignment_requires_recorded_subagent_plan --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-promptguard-9a3f
+TaskSpace benchmark harness self-test: PASS
+```
+
+Remaining Phase 1 work:
+
+- Rebuild/install Whale and rerun live smoke with the prompt guard.
+- Pass criteria remain: nonzero `state_commit_count`, reduced runtime event expansion, no subagent warnings on `single-file-fast-fix`, and cost gate at least partial before moving to Phase 2.
+
 ## 2026-06-17 Phase 1 lifecycle state_commit sections
 
 Changed:

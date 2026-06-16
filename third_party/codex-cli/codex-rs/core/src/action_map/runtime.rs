@@ -4532,10 +4532,10 @@ preview:\n\
                 context.push_str(&base_map_metadata_prompt());
             }
             context.push_str(
-                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. spawn_agent can only claim ready nodes that already have an unused taskspace_control(action=record_subagent_plan) record; the plan must name the parent_node_id, why the work is parallelizable, expected_artifact, acceptance_check, and max_scope. Do not bind a node to the main agent and then hand it off. If a subagent should own work, create that node with bind_current=false or finish/block the current main node first, then record_subagent_plan before spawning. If more than one ready node exists, spawn_agent must include node_id for the intended node; if only one ready node exists, runtime may bind it automatically. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Node result context stays on the node; use it only when it is relevant to the next step. Do not spawn an agent merely because TaskSpace is active or because a node exists; spawn only when the node represents a bounded, independent track whose result the main agent will integrate. For inspect_code_context nodes, explorer spawn is for a parallel investigation group, not single-track outsourcing; create at least two ready independent inspect nodes before assigning explorer subagents.\n",
+                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. For small single-file fixes or one failing-test loops, prefer one main-agent path with inspect_code_context -> implement_solution -> smoke_test/regression_test nodes; do not create parallel inspect nodes or spawn subagents unless the user explicitly asks for multi-agent work or there are at least two independent evidence surfaces that can be reviewed separately. spawn_agent can only claim ready nodes that already have an unused taskspace_control(action=record_subagent_plan) record; the plan must name the parent_node_id, why the work is parallelizable, expected_artifact, acceptance_check, and max_scope. Do not bind a node to the main agent and then hand it off. If a subagent should own work, create that node with bind_current=false or finish/block the current main node first, then record_subagent_plan before spawning. If more than one ready node exists, spawn_agent must include node_id for the intended node; if only one ready node exists, runtime may bind it automatically. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Prefer taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) when recording multiple nodes, success criteria, fact sources, decisions, result validities, or adoptions in one checkpoint. Node result context stays on the node; use it only when it is relevant to the next step. Do not spawn an agent merely because TaskSpace is active or because a node exists; spawn only when the node represents a bounded, independent track whose result the main agent will integrate. For inspect_code_context nodes, explorer spawn is for a parallel investigation group, not single-track outsourcing; create at least two ready independent inspect nodes before assigning explorer subagents.\n",
             );
             context.push_str(
-                "When the task naturally separates into independent investigation tracks, proactively create separate inspect_code_context nodes and assign subagents instead of waiting for the user to ask for parallel work. If the current request names multiple areas such as parser/pricing/invoice/tests/config, this trigger is already satisfied; create at least two ready inspect nodes with distinct evidence surfaces before implementation. Keep dependency edges explicit: independent investigation nodes should not depend on each other, implementation nodes should depend on the investigation nodes they integrate, and validation/final nodes should depend on the implementation or validation predecessor they verify.\n",
+                "When the task naturally separates into independent investigation tracks, proactively create separate inspect_code_context nodes and assign subagents instead of waiting for the user to ask for parallel work. This trigger requires clearly distinct evidence surfaces such as different subsystems, packages, or files with separable ownership; a single file plus its tests is one track and should stay on the main agent. If the current request names multiple areas such as parser/pricing/invoice/tests/config, this trigger is already satisfied; create at least two ready inspect nodes with distinct evidence surfaces before implementation. Keep dependency edges explicit: independent investigation nodes should not depend on each other, implementation nodes should depend on the investigation nodes they integrate, and validation/final nodes should depend on the implementation or validation predecessor they verify.\n",
             );
         } else {
             context.push_str(
@@ -5596,7 +5596,7 @@ preview:\n\
         match plans.as_slice() {
             [plan_id] => Ok(plan_id.clone()),
             [] => Err(format!(
-                "TaskSpace blocked spawn_agent for node `{node_id}` because no unused subagent plan exists. Call taskspace_control(action=record_subagent_plan) with parent_node_id=`{node_id}`, expected_artifact, acceptance_check, and max_scope before spawning."
+                "TaskSpace blocked spawn_agent for node `{node_id}` because no unused subagent plan exists. If this is a small single-file fix, continue on the main agent instead. Only if the node is a bounded independent track, call taskspace_control(action=record_subagent_plan) with parent_node_id=`{node_id}`, why_parallelizable, expected_artifact, acceptance_check, and max_scope before spawning."
             )),
             _ => Err(format!(
                 "TaskSpace blocked spawn_agent for node `{node_id}` because multiple unused subagent plans exist: {}.",
@@ -8239,7 +8239,8 @@ fn transition_notice(previous_mode: MapRuntimeMode, current_mode: MapRuntimeMode
             "TaskSpace mode is now active.\n\
 Previous standard-mode conversation remains background context only.\n\
 Before taking multi-agent action, create or bind a task path and a ready node.\n\
-Before ordinary work or subagent spawn, record the active task's output contract and fact source through taskspace_control.\n\
+Before ordinary work or subagent spawn, record the active task's output contract, fact source, and first success criteria through taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) when more than one record is needed.\n\
+For a small single-file fix or a single failing test, keep the work on the main agent by default; do not create parallel inspect nodes or spawn subagents unless the user explicitly asks for multi-agent work or the task has truly independent evidence surfaces.\n\
 After a node-level result is recorded, mark its validity before relying on it or continuing ordinary work.\n\
 Accepted implementation results should include changed_artifacts for modified files.\n\
 Future subagent work must be task/node driven."
@@ -14503,6 +14504,8 @@ mod tests {
         assert!(context.contains("no records yet"));
         assert!(context.contains("result evidence packages: none recorded"));
         assert!(context.contains("Node kind selection rules"));
+        assert!(context.contains("For small single-file fixes or one failing-test loops"));
+        assert!(context.contains("taskspace_control(action=state_commit"));
         assert!(!context.contains("BaseMap metadata version"));
     }
 
@@ -14554,6 +14557,7 @@ mod tests {
             .expect_err("spawn must require pre-spawn plan");
 
         assert!(error.contains("record_subagent_plan"));
+        assert!(error.contains("small single-file fix"));
         let map = state.maps.get("map-1").expect("map");
         assert!(map.leases.is_empty());
         assert!(map.subagent_plans.is_empty());
