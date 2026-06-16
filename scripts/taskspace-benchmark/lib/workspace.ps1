@@ -277,6 +277,29 @@ print("hidden oracle passed")
         return
     }
 
+    if ($Strategy -eq "large-output-ref-v1") {
+        Write-Text $Path @'
+import pathlib
+import sys
+
+repo = pathlib.Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(repo / "src"))
+
+from large_output_demo import normalize_status
+
+assert normalize_status(" Ready ") == "ready"
+assert normalize_status("BLOCKED") == "blocked"
+try:
+    normalize_status("   ")
+except ValueError as exc:
+    assert "status" in str(exc).lower()
+else:
+    raise AssertionError("empty normalized status should fail")
+print("hidden oracle passed")
+'@
+        return
+    }
+
     if ($Strategy -eq "external-validator-v1") {
         Write-Text $Path @'
 print("external validator is recorded as public validation")

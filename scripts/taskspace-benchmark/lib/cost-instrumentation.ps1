@@ -195,7 +195,8 @@ function New-TaskspaceControlUsageSummary {
     $runtimeSourceStatus = "missing"
     if (-not [string]::IsNullOrWhiteSpace($ObservabilityJsonPath) -and (Test-Path -LiteralPath $ObservabilityJsonPath)) {
         try {
-            $obs = Get-Content -Raw -Encoding UTF8 -LiteralPath $ObservabilityJsonPath | ConvertFrom-Json
+            $obsText = Get-Content -Raw -Encoding UTF8 -LiteralPath $ObservabilityJsonPath
+            $obs = $obsText | ConvertFrom-Json
             $runtimeSourceStatus = "read"
             foreach ($event in @($obs.timeline | Where-Object { [string]$_.kind -notlike "tool:*" })) {
                 $kind = [string]$event.kind
@@ -209,6 +210,16 @@ function New-TaskspaceControlUsageSummary {
                 }
                 if ($updateKind -like "state_commit*") { $runtimeStateCommit++ }
             }
+            $observedCreatedRefs = New-Object 'System.Collections.Generic.HashSet[string]'
+            $observedSliceRefs = New-Object 'System.Collections.Generic.HashSet[string]'
+            foreach ($match in [regex]::Matches($obsText, "(?s)OutputReferenceV1:.*?artifact_ref:\s*(output-ref://sha256/[a-fA-F0-9]{64})")) {
+                [void]$observedCreatedRefs.Add([string]$match.Groups[1].Value)
+            }
+            foreach ($match in [regex]::Matches($obsText, "(?s)OutputSliceV1:.*?artifact_ref:\s*(output-ref://sha256/[a-fA-F0-9]{64})")) {
+                [void]$observedSliceRefs.Add([string]$match.Groups[1].Value)
+            }
+            $runtimeOutputRefCreated = [Math]::Max([int]$runtimeOutputRefCreated, [int]$observedCreatedRefs.Count)
+            $runtimeOutputRefSliceRead = [Math]::Max([int]$runtimeOutputRefSliceRead, [int]$observedSliceRefs.Count)
         } catch {
             $runtimeSourceStatus = "parse_error"
         }

@@ -28,6 +28,7 @@ use crate::tools::handlers::parse_arguments_with_base_path;
 use crate::tools::handlers::resolve_workdir_base_path;
 use crate::tools::hook_names::HookToolName;
 use crate::tools::orchestrator::ToolOrchestrator;
+use crate::tools::output_reference::write_output_artifact_for_rollout;
 use crate::tools::registry::PostToolUsePayload;
 use crate::tools::registry::PreToolUsePayload;
 use crate::tools::registry::ToolHandler;
@@ -586,12 +587,26 @@ impl ShellHandler {
             &call_id,
             /*turn_diff_tracker*/ None,
         );
+        let artifact_ref = match out.as_ref() {
+            Ok(output) => {
+                write_shell_output_artifact_and_trace(&session, &turn, &call_id, output).await
+            }
+            Err(_) => None,
+        };
         let post_tool_use_response = out
             .as_ref()
             .ok()
-            .map(|output| crate::tools::format_exec_output_str(output, turn.truncation_policy))
+            .map(|output| {
+                crate::tools::format_exec_output_str_with_ref(
+                    output,
+                    turn.truncation_policy,
+                    artifact_ref.as_deref(),
+                )
+            })
             .map(JsonValue::String);
-        let content = emitter.finish(event_ctx, out).await?;
+        let content = emitter
+            .finish(event_ctx, out, artifact_ref.as_deref())
+            .await?;
         Ok(FunctionToolOutput {
             body: vec![
                 codex_protocol::models::FunctionCallOutputContentItem::InputText { text: content },
@@ -600,6 +615,47 @@ impl ShellHandler {
             post_tool_use_response,
         })
     }
+}
+
+async fn write_shell_output_artifact_and_trace(
+    session: &Arc<crate::session::session::Session>,
+    turn: &Arc<TurnContext>,
+    call_id: &str,
+    output: &codex_protocol::exec_output::ExecToolCallOutput,
+) -> Option<String> {
+    let raw_output = output.aggregated_output.text.as_bytes();
+    let rollout_path = match session.current_rollout_path().await {
+        Ok(path) => path,
+        Err(err) => {
+            tracing::warn!("failed to resolve rollout path for shell output artifact: {err}");
+            return None;
+        }
+    };
+    let artifact_ref =
+        match write_output_artifact_for_rollout(rollout_path.as_deref(), raw_output).await {
+            Ok(artifact_ref) => artifact_ref,
+            Err(err) => {
+                tracing::warn!("failed to write shell output artifact: {err}");
+                return None;
+            }
+        };
+    if let Some(ref artifact_ref) = artifact_ref {
+        session
+            .record_action_map_output_ref_trace_event(
+                turn.as_ref(),
+                "output_ref.created",
+                Some(call_id.to_string()),
+                artifact_ref.clone(),
+                vec![
+                    "output_ref".to_string(),
+                    "created".to_string(),
+                    "shell_command".to_string(),
+                    format!("bytes:{}", raw_output.len()),
+                ],
+            )
+            .await;
+    }
+    artifact_ref
 }
 
 #[cfg(test)]

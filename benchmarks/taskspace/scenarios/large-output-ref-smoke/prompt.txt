@@ -1,0 +1,7 @@
+This small Python project has one failing test.
+
+Before editing code, run this diagnostic command exactly once:
+
+python scripts/emit_large_log.py
+
+Then inspect the README and tests, fix the implementation, and run the test suite.

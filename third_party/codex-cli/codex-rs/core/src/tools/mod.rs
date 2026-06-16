@@ -30,9 +30,10 @@ pub(crate) const TELEMETRY_PREVIEW_TRUNCATION_NOTICE: &str =
 
 /// Format the combined exec output for sending back to the model.
 /// Includes exit code and duration metadata; truncates large bodies safely.
-pub fn format_exec_output_for_model_structured(
+pub fn format_exec_output_for_model_structured_with_ref(
     exec_output: &ExecToolCallOutput,
     truncation_policy: TruncationPolicy,
+    artifact_ref: Option<&str>,
 ) -> String {
     let ExecToolCallOutput {
         exit_code,
@@ -55,7 +56,8 @@ pub fn format_exec_output_for_model_structured(
     // round to 1 decimal place
     let duration_seconds = ((duration.as_secs_f32()) * 10.0).round() / 10.0;
 
-    let formatted_output = format_exec_output_str(exec_output, truncation_policy);
+    let formatted_output =
+        format_exec_output_str_with_ref(exec_output, truncation_policy, artifact_ref);
 
     let payload = ExecOutput {
         output: &formatted_output,
@@ -69,9 +71,10 @@ pub fn format_exec_output_for_model_structured(
     serde_json::to_string(&payload).expect("serialize ExecOutput")
 }
 
-pub fn format_exec_output_for_model_freeform(
+pub fn format_exec_output_for_model_freeform_with_ref(
     exec_output: &ExecToolCallOutput,
     truncation_policy: TruncationPolicy,
+    artifact_ref: Option<&str>,
 ) -> String {
     // round to 1 decimal place
     let duration_seconds = ((exec_output.duration.as_secs_f32()) * 10.0).round() / 10.0;
@@ -80,7 +83,9 @@ pub fn format_exec_output_for_model_freeform(
 
     let total_lines = content.lines().count();
 
-    let formatted_output = truncate_text(&content, truncation_policy);
+    let formatted_output =
+        output_reference::reference_text_for_raw_output(content.as_bytes(), artifact_ref)
+            .unwrap_or_else(|| truncate_text(&content, truncation_policy));
 
     let mut sections = Vec::new();
 
@@ -100,7 +105,20 @@ pub fn format_exec_output_str(
     exec_output: &ExecToolCallOutput,
     truncation_policy: TruncationPolicy,
 ) -> String {
+    format_exec_output_str_with_ref(exec_output, truncation_policy, None)
+}
+
+pub fn format_exec_output_str_with_ref(
+    exec_output: &ExecToolCallOutput,
+    truncation_policy: TruncationPolicy,
+    artifact_ref: Option<&str>,
+) -> String {
     let content = build_content_with_timeout(exec_output);
+    if let Some(reference_text) =
+        output_reference::reference_text_for_raw_output(content.as_bytes(), artifact_ref)
+    {
+        return reference_text;
+    }
 
     // Truncate for model consumption before serialization.
     formatted_truncate_text(&content, truncation_policy)

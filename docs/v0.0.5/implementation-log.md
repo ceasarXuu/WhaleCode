@@ -135,6 +135,80 @@ Remaining Phase 1 work:
 
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
 
+## 2026-06-17 Phase 2 shell output references
+
+Changed:
+
+- Extended shell command handling to write large aggregated output through the TaskSpace output-reference artifact path.
+- The model-facing shell output now uses `OutputReferenceV1` for referenced large output instead of replaying the full raw payload.
+- Added output-reference-aware formatting helpers for structured and freeform exec output.
+- Added `large-output-ref-smoke` benchmark scenario with a 900-line diagnostic command and hidden oracle.
+- Added benchmark instrumentation fallback that counts unique `OutputReferenceV1` artifact refs observed in action-map observability, so metrics do not miss shell-path output refs when no explicit `output_ref.created` timeline event is bound.
+
+Validation:
+
+```text
+cargo fmt -p codex-core --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+ok
+
+cargo test -p codex-core tools::handlers::shell::tests::shell_command_pre_tool_use_payload_uses_raw_command --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core exec_command_tool_output_referenceizes_large_response --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core experiment_output_ref_records_structured_trace_without_raw_output --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core read_output_ref --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+passed
+
+cargo test -p codex-tools taskspace_control --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+passed
+
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-outputref-observability-fallback
+TaskSpace benchmark harness self-test: PASS
+```
+
+Installed smoke binary:
+
+```text
+C:\Users\77585\.whale\bin\whale.exe
+whale 0.1.0
+SHA256 626BB07FB599557258D37B128FDB46EAE348AA8FC618D8CC7C2590A5D07A404C
+```
+
+Live smoke evidence:
+
+```text
+RunDir: target\v005-phase2-live-smoke-outputref-shellfix-626b\large-output-ref-smoke\20260617-053550-698
+scenario: large-output-ref-smoke
+left business_success: True
+right business_success: True
+right large_output_replay_count: 0
+right raw_output_in_prompt_violation: False
+right observability contains OutputReferenceV1 for shell command call_00_PfOG4fhgwHCfpgqIhpzM5446
+right taskspace-control-usage.json after instrumentation fix: runtime_output_ref_created_count = 1
+```
+
+Failed / diagnostic smoke:
+
+```text
+RunDir: target\v005-phase2-live-smoke-outputref-metricsfix-626b\large-output-ref-smoke\20260617-054241-987
+right exec_exit_code: 124
+right business_success: False
+cause: TaskSpace side timed out before completing the scenario, with repeated blocked implementation nodes.
+use: negative reliability sample for routing/tool-budget behavior, not Phase 2 output-reference pass evidence.
+```
+
+Operational lesson:
+
+- Phase 2 output-reference validation must exercise `whale exec --json` shell-command flow, not only unified exec unit tests. The first failed smoke showed `runtime_output_ref_created_count = 0` even after unified exec tests passed, because the live path was `command_execution` / shell handling.
+- Metrics must use both explicit runtime events and observability-visible `OutputReferenceV1` refs. Otherwise shell-path referenceization can be model-visible but undercounted in `metrics.json`.
+
 ## 2026-06-17 Phase 2 output-ref trace events
 
 Changed:

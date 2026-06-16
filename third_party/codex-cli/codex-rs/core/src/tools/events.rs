@@ -290,12 +290,21 @@ impl ToolEmitter {
         &self,
         output: &ExecToolCallOutput,
         ctx: ToolEventCtx<'_>,
+        artifact_ref: Option<&str>,
     ) -> String {
         match self {
             Self::Shell { freeform: true, .. } => {
-                super::format_exec_output_for_model_freeform(output, ctx.turn.truncation_policy)
+                super::format_exec_output_for_model_freeform_with_ref(
+                    output,
+                    ctx.turn.truncation_policy,
+                    artifact_ref,
+                )
             }
-            _ => super::format_exec_output_for_model_structured(output, ctx.turn.truncation_policy),
+            _ => super::format_exec_output_for_model_structured_with_ref(
+                output,
+                ctx.turn.truncation_policy,
+                artifact_ref,
+            ),
         }
     }
 
@@ -303,10 +312,11 @@ impl ToolEmitter {
         &self,
         ctx: ToolEventCtx<'_>,
         out: Result<ExecToolCallOutput, ToolError>,
+        artifact_ref: Option<&str>,
     ) -> Result<String, FunctionCallError> {
         let (event, result) = match out {
             Ok(output) => {
-                let content = self.format_exec_output_for_model(&output, ctx);
+                let content = self.format_exec_output_for_model(&output, ctx, artifact_ref);
                 let exit_code = output.exit_code;
                 let event = ToolEventStage::Success(output);
                 let result = if exit_code == 0 {
@@ -318,7 +328,7 @@ impl ToolEmitter {
             }
             Err(ToolError::Codex(CodexErr::Sandbox(SandboxErr::Timeout { output })))
             | Err(ToolError::Codex(CodexErr::Sandbox(SandboxErr::Denied { output, .. }))) => {
-                let response = self.format_exec_output_for_model(&output, ctx);
+                let response = self.format_exec_output_for_model(&output, ctx, artifact_ref);
                 let event = ToolEventStage::Failure(ToolEventFailure::Output(*output));
                 let result = Err(FunctionCallError::RespondToModel(response));
                 (event, result)

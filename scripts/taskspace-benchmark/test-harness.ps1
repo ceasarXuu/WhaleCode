@@ -337,6 +337,17 @@ Assert-True ([int]$costArtifacts.taskspace_control_usage.runtime_event_counts.no
 Assert-True ([int]$costArtifacts.replay_summary.output_reference_count -eq 1) "output reference count was not parsed"
 Assert-True ([int]$costArtifacts.replay_summary.output_slice_count -eq 1) "output slice count was not parsed"
 Assert-True ([int]$costArtifacts.replay_summary.large_output_replay_count -eq 0) "output reference artifact was incorrectly treated as raw replay"
+$costObsFallback = Join-Path $costDir "observability-output-ref-fallback.json"
+[pscustomobject]@{
+    timeline = @(
+        [pscustomobject]@{
+            kind = "tool_result"
+            body = "OutputReferenceV1:`nartifact_ref: output-ref://sha256/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+    )
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $costObsFallback -Encoding UTF8
+$costFallbackArtifacts = Write-TaskspaceCostInstrumentationArtifacts (Join-Path $costDir "fallback") $costJsonl $costObsFallback
+Assert-True ([int]$costFallbackArtifacts.taskspace_control_usage.runtime_output_ref_created_count -eq 1) "runtime output_ref.created fallback was not inferred from observability OutputReferenceV1"
 $rawReplayDir = Join-Path $runDir "raw-replay-cost"
 New-Item -ItemType Directory -Path $rawReplayDir -Force | Out-Null
 @{ events = @(@{ text = ("middle-secret-marker`n" * 350) }) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $rawReplayDir "taskspace.graph.final.json") -Encoding UTF8
