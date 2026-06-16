@@ -267,6 +267,49 @@ Remaining Phase 1 work:
 - Rebuild/install Whale and rerun live smoke with the subagent yield gate.
 - If `state_commit_count` remains zero, add a stronger compatibility path: return runtime hints from legacy multi-record actions or make the benchmark usage parser count runtime `state_commit.*` events separately from model-visible tool calls.
 
+## 2026-06-17 Phase 1 yield gate live smoke
+
+Live smoke:
+
+```text
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev profile
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -PersistUserPath -BackupLegacyCopies
+Installed Whale hash: 476D5A7DA6E110ECDA9BB8EBFA1AE2F5EB79BB625A7331701C7A50D94ED36E0F
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario single-file-fast-fix -Repeats 1 -RunRoot target\v005-phase1-live-smoke-yieldref-476d -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-phase1-live-smoke-yieldref-476d\single-file-fast-fix\20260617-030215-242
+```
+
+Observed:
+
+- Scenario warnings cleared:
+  - nodes: `4`
+  - edges: `3`
+  - spawn_agent calls: `0`
+  - subagent results: `0`
+- Runtime expansion improved again:
+  - runtime events: `189 -> 112`
+  - direct input/output ratio: `26.9127 -> 13.6204`
+  - wall-time ratio: `7.2765 -> 4.1801`
+  - input tokens: `2,936,618 -> 1,259,244`
+- Cost gate still failed against Phase 0 thresholds:
+  - direct input/output threshold for partial: `3`
+  - wall-time threshold for partial: `3`
+- `state_commit_count` remained `0` in model-visible usage, while runtime still produced cognitive state updates.
+
+Conclusion:
+
+- The yield gate fixed the major Phase 1 subagent over-expansion bug for `single-file-fast-fix`.
+- Remaining overhead is no longer caused by subagent fan-out. The next bottleneck is TaskSpace prompt/context size and legacy multi-action update shape, which overlaps Phase 2 context projection/output referenceization work.
+- Before claiming Phase 1 complete, either `state_commit` adoption must be proven through model-visible usage or the metric must be corrected to distinguish model-visible tool calls from runtime-synthesized cognitive updates.
+
+Remaining Phase 1 work:
+
+- Add an explicit runtime/usage metric for state-commit adoption vs legacy cognitive updates, because current `taskspace_control_count=0` is insufficient when runtime events are synthesized outside model-visible `whale-exec.jsonl` tool-call records.
+- Decide whether to keep enforcing Phase 1 partial cost gate before Phase 2 or move context-size reduction into Phase 2 as the next necessary dependency.
+
 ## 2026-06-17 Phase 1 lifecycle state_commit sections
 
 Changed:
