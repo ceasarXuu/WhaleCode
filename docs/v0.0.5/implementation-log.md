@@ -360,6 +360,35 @@ Remaining Phase 1 work:
 
 - Rebuild/install Whale and rerun live smoke to verify whether preflight routing produces nonzero `state_commit_count` or `runtime_state_commit_count`.
 
+## 2026-06-17 Phase 1 state_commit output contracts
+
+Changed:
+
+- Added `output_contracts` as a transactional `state_commit` section.
+- `state_commit` can now satisfy the full problem preflight trio in one commit:
+  - `success_criteria`
+  - `output_contracts`
+  - `fact_sources`
+- Updated runtime prompt text, BaseMap guidance, JSON schema, implementation plan, correction contract, and the state commit example to include `output_contracts`.
+- Added regression coverage that a single state_commit can satisfy `validate_cognitive_preflight`.
+
+Validation:
+
+```text
+cargo test -p codex-core state_commit --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+4 passed
+
+Get-Content -Raw docs\v0.0.5\schemas\state_commit_v1.schema.json | ConvertFrom-Json | Out-Null
+schema json ok
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-outputcontracts-1d9a
+TaskSpace benchmark harness self-test: PASS
+```
+
+Reason:
+
+- The previous preflight remediation pointed at `state_commit`, but `state_commit` did not support output contracts. That made the recommended path incomplete and pushed the model back to legacy `record_output_contract`.
+
 ## 2026-06-17 Phase 1 lifecycle state_commit sections
 
 Changed:

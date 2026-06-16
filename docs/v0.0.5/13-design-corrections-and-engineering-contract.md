@@ -91,6 +91,22 @@ active_node_id
 sections
 ```
 
+Required Phase 1 sections:
+
+```text
+nodes
+finished_nodes
+blockers
+result_validities
+result_adoptions
+success_criteria
+output_contracts
+fact_sources
+facts
+decisions
+next_best_action
+```
+
 Required semantics:
 
 - idempotent replay by `commit_id`;

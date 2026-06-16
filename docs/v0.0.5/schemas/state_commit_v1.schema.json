@@ -2,81 +2,194 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "TaskSpace StateCommitV1",
   "type": "object",
-  "required": ["action", "active_node_id"],
+  "required": ["action", "commit_id", "schema_version"],
+  "additionalProperties": true,
   "properties": {
     "action": {"const": "state_commit"},
+    "commit_id": {"type": "string", "minLength": 1},
+    "schema_version": {"const": "taskspace-state-commit-v1"},
     "active_node_id": {"type": "string"},
-    "phase_summary": {"type": "string"},
-    "node_update": {
-      "type": "object",
-      "properties": {
-        "status": {"enum": ["running", "completed", "blocked", "deferred", "abandoned"]},
-        "summary": {"type": "string"},
-        "produced_artifacts": {"type": "array", "items": {"type": "string"}}
-      }
-    },
-    "result_updates": {
+    "nodes": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["result_id", "validity"],
-        "properties": {
-          "result_id": {"type": "string"},
-          "validity": {"enum": ["accepted", "rejected", "questioned", "deferred", "audit_only"]},
-          "adoption": {"enum": ["fact", "decision", "hypothesis", "criterion", "retained", "none"]},
-          "summary": {"type": "string"},
-          "reason": {"type": "string"},
-          "condition": {"type": "string"}
-        }
-      }
+      "items": {"$ref": "#/$defs/node"}
+    },
+    "finished_nodes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/finished_node"}
+    },
+    "blockers": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/blocker"}
+    },
+    "result_validities": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/result_validity"}
+    },
+    "result_adoptions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/result_adoption"}
+    },
+    "success_criteria": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/success_criterion"}
+    },
+    "output_contracts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/output_contract"}
+    },
+    "fact_sources": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/fact_source"}
     },
     "facts": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["fact_id", "statement"],
-        "properties": {
-          "fact_id": {"type": "string"},
-          "statement": {"type": "string"},
-          "evidence_refs": {"type": "array", "items": {"type": "string"}}
-        }
-      }
+      "items": {"$ref": "#/$defs/claim"}
     },
     "decisions": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["decision_id", "kind", "decision", "depends_on"],
-        "properties": {
-          "decision_id": {"type": "string"},
-          "kind": {"enum": ["routing", "diagnosis", "patch", "validation", "synthesis", "verification"]},
-          "decision": {"type": "string"},
-          "rationale": {"type": "string"},
-          "depends_on": {"type": "array", "items": {"type": "string"}},
-          "supports_criteria": {"type": "array", "items": {"type": "string"}},
-          "resolves_questions": {"type": "array", "items": {"type": "string"}}
-        }
-      }
+      "items": {"$ref": "#/$defs/decision"}
     },
-    "criteria_updates": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["criterion_id", "status"],
-        "properties": {
-          "criterion_id": {"type": "string"},
-          "status": {"enum": ["open", "satisfied", "questioned", "waived"]},
-          "evidence_refs": {"type": "array", "items": {"type": "string"}},
-          "reason": {"type": "string"}
-        }
-      }
-    },
-    "next_action": {
+    "next_best_action": {"$ref": "#/$defs/next_best_action"}
+  },
+  "$defs": {
+    "evidence_ref": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "kind": {"enum": ["tool", "state_commit", "validate", "patch", "synthesize", "escalate", "finish"]},
-        "summary": {"type": "string"},
-        "expected_artifact": {"type": "string"}
+        "result_id": {"type": "string"},
+        "claim_id": {"type": "string"},
+        "fact_source_id": {"type": "string"},
+        "trace_event_id": {"type": "string"},
+        "artifact_ref": {"type": "string"},
+        "validator_ref": {"type": "string"}
+      },
+      "minProperties": 1
+    },
+    "node": {
+      "type": "object",
+      "required": ["kind", "title", "context_summary"],
+      "properties": {
+        "kind": {"enum": ["inspect_code_context", "implement_solution", "smoke_test", "regression_test", "final_synthesis"]},
+        "title": {"type": "string"},
+        "context_summary": {"type": "string"},
+        "dependency_node_ids": {"type": "array", "items": {"type": "string"}},
+        "bind_current": {"type": "boolean"}
+      }
+    },
+    "finished_node": {
+      "type": "object",
+      "required": ["node_id", "result_summary"],
+      "properties": {
+        "node_id": {"type": "string"},
+        "result_summary": {"type": "string"},
+        "next_node_id": {"type": "string"},
+        "next_node_kind": {"enum": ["inspect_code_context", "implement_solution", "smoke_test", "regression_test", "final_synthesis"]},
+        "next_node_title": {"type": "string"},
+        "next_node_context_summary": {"type": "string"},
+        "next_dependency_node_ids": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "blocker": {
+      "type": "object",
+      "required": ["node_id", "blocker_summary"],
+      "properties": {
+        "node_id": {"type": "string"},
+        "blocker_summary": {"type": "string"}
+      }
+    },
+    "claim": {
+      "type": "object",
+      "required": ["claim_id", "statement"],
+      "properties": {
+        "claim_id": {"type": "string"},
+        "statement": {"type": "string"},
+        "evidence_refs": {"type": "array", "items": {"$ref": "#/$defs/evidence_ref"}}
+      }
+    },
+    "result_validity": {
+      "type": "object",
+      "required": ["result_id", "validity", "validity_reason"],
+      "properties": {
+        "result_id": {"type": "string"},
+        "validity": {"enum": ["accepted", "questioned", "invalid"]},
+        "validity_reason": {"type": "string"},
+        "claims": {"type": "array", "items": {"$ref": "#/$defs/claim"}},
+        "evidence_refs": {"type": "array", "items": {"$ref": "#/$defs/evidence_ref"}},
+        "changed_artifacts": {"type": "array", "items": {"type": "string"}},
+        "validator_refs": {"type": "array", "items": {"type": "string"}},
+        "remaining_uncertainty": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "result_adoption": {
+      "type": "object",
+      "required": ["result_id"],
+      "properties": {
+        "result_id": {"type": "string"},
+        "adopted_by_facts": {"type": "array", "items": {"type": "string"}},
+        "adopted_by_hypotheses": {"type": "array", "items": {"type": "string"}},
+        "adopted_by_decisions": {"type": "array", "items": {"type": "string"}},
+        "adopted_by_criteria": {"type": "array", "items": {"type": "string"}},
+        "adopted_by_nodes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "success_criterion": {
+      "type": "object",
+      "required": ["id", "kind", "description"],
+      "properties": {
+        "id": {"type": "string"},
+        "criterion_id": {"type": "string"},
+        "kind": {"type": "string"},
+        "description": {"type": "string"},
+        "status": {"enum": ["open", "satisfied", "questioned", "waived"]},
+        "evidence_refs": {"type": "array", "items": {"$ref": "#/$defs/evidence_ref"}}
+      }
+    },
+    "output_contract": {
+      "type": "object",
+      "required": ["output_contract_id", "output_contract_kind", "description"],
+      "properties": {
+        "output_contract_id": {"type": "string"},
+        "output_contract_kind": {"enum": ["artifact", "format", "encoding", "schema", "validator", "non_goal"]},
+        "kind": {"enum": ["artifact", "format", "encoding", "schema", "validator", "non_goal"]},
+        "description": {"type": "string"},
+        "evidence_refs": {"type": "array", "items": {"$ref": "#/$defs/evidence_ref"}}
+      }
+    },
+    "fact_source": {
+      "type": "object",
+      "required": ["fact_source_id", "provenance", "description"],
+      "properties": {
+        "fact_source_id": {"type": "string"},
+        "id": {"type": "string"},
+        "provenance": {"enum": ["observed_from_environment", "provided_by_user", "generated_for_test_only", "inferred", "unknown"]},
+        "description": {"type": "string"},
+        "evidence_refs": {"type": "array", "items": {"$ref": "#/$defs/evidence_ref"}}
+      }
+    },
+    "decision": {
+      "type": "object",
+      "required": ["decision_id", "decision_kind", "decision", "rationale"],
+      "properties": {
+        "decision_id": {"type": "string"},
+        "decision_kind": {"type": "string"},
+        "decision": {"type": "string"},
+        "rationale": {"type": "string"},
+        "depends_on_results": {"type": "array", "items": {"type": "string"}},
+        "depends_on_facts": {"type": "array", "items": {"type": "string"}},
+        "resolves_questions": {"type": "array", "items": {"type": "string"}},
+        "supports_criteria": {"type": "array", "items": {"type": "string"}},
+        "risks": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "next_best_action": {
+      "type": "object",
+      "required": ["action_summary", "reason"],
+      "properties": {
+        "node_id": {"type": "string"},
+        "action_summary": {"type": "string"},
+        "reason": {"type": "string"},
+        "expected_artifact": {"type": "string"},
+        "blocked_by": {"type": "array", "items": {"type": "string"}}
       }
     }
   }

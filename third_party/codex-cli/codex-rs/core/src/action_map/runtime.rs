@@ -275,6 +275,7 @@ pub(crate) struct ActionMapStateCommitInput {
     pub(crate) result_validities: Vec<ActionMapStateCommitResultValidityInput>,
     pub(crate) result_adoptions: Vec<ActionMapResultAdoptionInput>,
     pub(crate) success_criteria: Vec<ActionMapSuccessCriterionInput>,
+    pub(crate) output_contracts: Vec<ActionMapStateCommitOutputContractInput>,
     pub(crate) fact_sources: Vec<ActionMapStateCommitFactSourceInput>,
     pub(crate) facts: Vec<ActionMapCognitiveClaimInput>,
     pub(crate) decisions: Vec<ActionMapLedgerDecisionInput>,
@@ -320,6 +321,14 @@ pub(crate) struct ActionMapStateCommitResultValidityInput {
 pub(crate) struct ActionMapStateCommitFactSourceInput {
     pub(crate) id: String,
     pub(crate) provenance: String,
+    pub(crate) description: String,
+    pub(crate) evidence_refs: Vec<ActionMapEvidenceRefInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapStateCommitOutputContractInput {
+    pub(crate) id: String,
+    pub(crate) kind: String,
     pub(crate) description: String,
     pub(crate) evidence_refs: Vec<ActionMapEvidenceRefInput>,
 }
@@ -2921,6 +2930,28 @@ preview:\n\
             &commit_id,
             &task_id,
             &map_id,
+            "output_contracts",
+            !input.output_contracts.is_empty(),
+            |state| {
+                let mut section_events = Vec::new();
+                for contract in input.output_contracts {
+                    section_events.extend(state.record_output_contract_for_main(
+                        owner_session_id,
+                        &contract.id,
+                        &contract.kind,
+                        contract.description,
+                        contract.evidence_refs,
+                    )?);
+                }
+                Ok(section_events)
+            },
+            &mut outcome,
+            &mut events,
+        );
+        self.apply_state_commit_section(
+            &commit_id,
+            &task_id,
+            &map_id,
             "fact_sources",
             !input.fact_sources.is_empty(),
             |state| {
@@ -4541,7 +4572,7 @@ preview:\n\
                 context.push_str(&base_map_metadata_prompt());
             }
             context.push_str(
-                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. For small single-file fixes or one failing-test loops, prefer one main-agent path with inspect_code_context -> implement_solution -> smoke_test/regression_test nodes; do not create parallel inspect nodes or spawn subagents unless the user explicitly asks for multi-agent work or there are at least two independent evidence surfaces that can be reviewed separately. spawn_agent can only claim ready nodes that already have an unused taskspace_control(action=record_subagent_plan) record; the plan must name the parent_node_id, why the work is parallelizable, expected_artifact, acceptance_check, and max_scope. Do not bind a node to the main agent and then hand it off. If a subagent should own work, create that node with bind_current=false or finish/block the current main node first, then record_subagent_plan before spawning. If more than one ready node exists, spawn_agent must include node_id for the intended node; if only one ready node exists, runtime may bind it automatically. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Prefer taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) when recording multiple nodes, success criteria, fact sources, decisions, result validities, or adoptions in one checkpoint. Node result context stays on the node; use it only when it is relevant to the next step. Do not spawn an agent merely because TaskSpace is active or because a node exists; spawn only when the node represents a bounded, independent track whose result the main agent will integrate. For inspect_code_context nodes, explorer spawn is for a parallel investigation group, not single-track outsourcing; create at least two ready independent inspect nodes before assigning explorer subagents.\n",
+                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. For small single-file fixes or one failing-test loops, prefer one main-agent path with inspect_code_context -> implement_solution -> smoke_test/regression_test nodes; do not create parallel inspect nodes or spawn subagents unless the user explicitly asks for multi-agent work or there are at least two independent evidence surfaces that can be reviewed separately. spawn_agent can only claim ready nodes that already have an unused taskspace_control(action=record_subagent_plan) record; the plan must name the parent_node_id, why the work is parallelizable, expected_artifact, acceptance_check, and max_scope. Do not bind a node to the main agent and then hand it off. If a subagent should own work, create that node with bind_current=false or finish/block the current main node first, then record_subagent_plan before spawning. If more than one ready node exists, spawn_agent must include node_id for the intended node; if only one ready node exists, runtime may bind it automatically. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Prefer taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) when recording multiple nodes, success criteria, output contracts, fact sources, decisions, result validities, or adoptions in one checkpoint. Node result context stays on the node; use it only when it is relevant to the next step. Do not spawn an agent merely because TaskSpace is active or because a node exists; spawn only when the node represents a bounded, independent track whose result the main agent will integrate. For inspect_code_context nodes, explorer spawn is for a parallel investigation group, not single-track outsourcing; create at least two ready independent inspect nodes before assigning explorer subagents.\n",
             );
             context.push_str(
                 "When the task naturally separates into independent investigation tracks, proactively create separate inspect_code_context nodes and assign subagents instead of waiting for the user to ask for parallel work. This trigger requires clearly distinct evidence surfaces such as different subsystems, packages, or files with separable ownership; a single file plus its tests is one track and should stay on the main agent. If the current request names multiple areas such as parser/pricing/invoice/tests/config, this trigger is already satisfied; create at least two ready inspect nodes with distinct evidence surfaces before implementation. Keep dependency edges explicit: independent investigation nodes should not depend on each other, implementation nodes should depend on the investigation nodes they integrate, and validation/final nodes should depend on the implementation or validation predecessor they verify.\n",
@@ -4883,7 +4914,7 @@ preview:\n\
             return Ok(());
         }
         Err(format!(
-            "TaskSpace problem-state preflight is required before ordinary work or subagent spawn on task `{task_id}`. Missing: {}. Preferred fix: call taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) once with sections.success_criteria, sections.fact_sources, and any related facts/decisions/next_best_action that are ready. Use legacy taskspace_control(action=record_success_criteria), record_output_contract, or record_fact_source only for a focused single-record correction. Use evidence_refs such as artifact_ref for the current user request, README/test/source paths, or validator_ref for observed checks.",
+            "TaskSpace problem-state preflight is required before ordinary work or subagent spawn on task `{task_id}`. Missing: {}. Preferred fix: call taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) once with sections.success_criteria, sections.output_contracts, sections.fact_sources, and any related facts/decisions/next_best_action that are ready. Use legacy taskspace_control(action=record_success_criteria), record_output_contract, or record_fact_source only for a focused single-record correction. Use evidence_refs such as artifact_ref for the current user request, README/test/source paths, or validator_ref for observed checks.",
             missing.join(", ")
         ))
     }
@@ -8605,6 +8636,73 @@ mod tests {
             MapRuntimeEvent::CognitiveStateUpdated(event)
                 if event.update_kind == "state_commit.partial"
         )));
+    }
+
+    #[test]
+    fn state_commit_can_satisfy_problem_preflight_sections() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_unseeded_test_task(
+            &mut state,
+            owner,
+            "Fix tax",
+            "Fix one failing tax test",
+            true,
+        );
+
+        let evidence_refs = vec![ActionMapEvidenceRefInput {
+            artifact_ref: Some("test-fixture:user-request".to_string()),
+            ..Default::default()
+        }];
+        let (outcome, _) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-preflight".to_string(),
+                    success_criteria: vec![ActionMapSuccessCriterionInput {
+                        id: "sc-preflight".to_string(),
+                        kind: "test".to_string(),
+                        description: "focused test passes".to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: evidence_refs.clone(),
+                    }],
+                    output_contracts: vec![ActionMapStateCommitOutputContractInput {
+                        id: "oc-preflight".to_string(),
+                        kind: "artifact".to_string(),
+                        description: "updated source file".to_string(),
+                        evidence_refs: evidence_refs.clone(),
+                    }],
+                    fact_sources: vec![ActionMapStateCommitFactSourceInput {
+                        id: "fs-preflight".to_string(),
+                        provenance: "provided_by_user".to_string(),
+                        description: "user requested the failing test fix".to_string(),
+                        evidence_refs,
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect("state commit records preflight sections");
+
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
+        assert!(
+            outcome
+                .accepted_sections
+                .contains(&"success_criteria".to_string())
+        );
+        assert!(
+            outcome
+                .accepted_sections
+                .contains(&"output_contracts".to_string())
+        );
+        assert!(
+            outcome
+                .accepted_sections
+                .contains(&"fact_sources".to_string())
+        );
+        state
+            .validate_cognitive_preflight()
+            .expect("state_commit satisfies problem preflight");
     }
 
     #[test]

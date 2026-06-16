@@ -12,6 +12,7 @@ use crate::action_map::ActionMapStateCommitFinishNodeInput;
 use crate::action_map::ActionMapStateCommitInput;
 use crate::action_map::ActionMapStateCommitNextBestActionInput;
 use crate::action_map::ActionMapStateCommitNodeInput;
+use crate::action_map::ActionMapStateCommitOutputContractInput;
 use crate::action_map::ActionMapStateCommitResultValidityInput;
 use crate::action_map::ActionMapSubagentPlanInput;
 use crate::action_map::ActionMapSuccessCriterionInput;
@@ -206,6 +207,8 @@ enum TaskSpaceControlArgs {
         #[serde(default)]
         success_criteria: Vec<TaskSpaceSuccessCriterionArgs>,
         #[serde(default)]
+        output_contracts: Vec<TaskSpaceOutputContractArgs>,
+        #[serde(default)]
         fact_sources: Vec<TaskSpaceFactSourceArgs>,
         #[serde(default)]
         facts: Vec<TaskSpaceCognitiveClaimArgs>,
@@ -257,6 +260,17 @@ struct TaskSpaceFactSourceArgs {
     #[serde(alias = "fact_source_id")]
     id: String,
     provenance: String,
+    description: String,
+    #[serde(default)]
+    evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskSpaceOutputContractArgs {
+    #[serde(alias = "output_contract_id")]
+    id: String,
+    #[serde(alias = "output_contract_kind", alias = "kind")]
+    kind: String,
     description: String,
     #[serde(default)]
     evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
@@ -768,6 +782,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                 result_validities,
                 result_adoptions,
                 success_criteria,
+                output_contracts,
                 fact_sources,
                 facts,
                 decisions,
@@ -790,6 +805,9 @@ impl ToolHandler for TaskSpaceControlHandler {
                                 result_adoptions,
                             ),
                             success_criteria: convert_success_criteria(success_criteria),
+                            output_contracts: convert_state_commit_output_contracts(
+                                output_contracts,
+                            ),
                             fact_sources: convert_fact_sources(fact_sources),
                             facts: convert_claims(facts),
                             decisions: convert_decisions(decisions),
@@ -909,6 +927,20 @@ fn convert_fact_sources(
         .map(|input| ActionMapStateCommitFactSourceInput {
             id: input.id,
             provenance: input.provenance,
+            description: input.description,
+            evidence_refs: convert_evidence_refs(input.evidence_refs),
+        })
+        .collect()
+}
+
+fn convert_state_commit_output_contracts(
+    inputs: Vec<TaskSpaceOutputContractArgs>,
+) -> Vec<ActionMapStateCommitOutputContractInput> {
+    inputs
+        .into_iter()
+        .map(|input| ActionMapStateCommitOutputContractInput {
+            id: input.id,
+            kind: input.kind,
             description: input.description,
             evidence_refs: convert_evidence_refs(input.evidence_refs),
         })
@@ -1202,6 +1234,12 @@ mod tests {
                 "description": "self-test passes",
                 "evidence_refs": [{"artifact_ref": "user-request"}]
             }],
+            "output_contracts": [{
+                "output_contract_id": "oc-1",
+                "output_contract_kind": "artifact",
+                "description": "updated source file",
+                "evidence_refs": [{"artifact_ref": "user-request"}]
+            }],
             "fact_sources": [{
                 "fact_source_id": "source-1",
                 "provenance": "provided_by_user",
@@ -1248,6 +1286,7 @@ mod tests {
                 finished_nodes,
                 blockers,
                 success_criteria,
+                output_contracts,
                 fact_sources,
                 facts,
                 decisions,
@@ -1265,6 +1304,7 @@ mod tests {
                 );
                 assert_eq!(blockers[0].node_id, "node-2");
                 assert_eq!(success_criteria[0].id, "sc-1");
+                assert_eq!(output_contracts[0].id, "oc-1");
                 assert_eq!(fact_sources[0].id, "source-1");
                 assert_eq!(facts[0].claim_id, "fact-1");
                 assert_eq!(decisions[0].id, "decision-1");

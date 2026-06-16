@@ -164,7 +164,7 @@ Reduce protocol turns without weakening evidence integrity.
 - `schema_version`;
 - `commit_id` for idempotency;
 - `active_node_id`;
-- `sections` for node, results, facts, decisions, criteria, blockers, next action;
+- `sections` for nodes, result validity/adoption, success criteria, output contracts, fact sources, facts, decisions, blockers, and next action;
 - per-section validation result;
 - accepted sections mutate state;
 - rejected sections return structured errors and never partially mutate that section.
@@ -197,7 +197,7 @@ Reduce protocol turns without weakening evidence integrity.
 
 #### Exit Criteria
 
-- `state_commit` covers finish/validity/adoption/decision/criteria common path.
+- `state_commit` covers finish/validity/adoption/decision/criteria/output-contract/fact-source common path.
 - Legacy actions still pass tests.
 - Prompt and gate output reference `state_commit` as the preferred path.
 

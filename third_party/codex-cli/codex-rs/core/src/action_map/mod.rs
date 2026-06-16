@@ -24,6 +24,7 @@ pub(crate) use runtime::ActionMapStateCommitInput;
 pub(crate) use runtime::ActionMapStateCommitNextBestActionInput;
 pub(crate) use runtime::ActionMapStateCommitNodeInput;
 pub(crate) use runtime::ActionMapStateCommitOutcome;
+pub(crate) use runtime::ActionMapStateCommitOutputContractInput;
 pub(crate) use runtime::ActionMapStateCommitResultValidityInput;
 pub(crate) use runtime::ActionMapSubagentPlanInput;
 pub(crate) use runtime::ActionMapSuccessCriterionInput;

@@ -23,6 +23,9 @@ This can cost many model-visible turns.
 ```text
 shell_command or inspect action
 state_commit:
+  - record success criteria
+  - record output contract
+  - record fact source
   - close current node
   - adopt useful result
   - reject stale result
