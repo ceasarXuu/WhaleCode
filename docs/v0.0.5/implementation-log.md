@@ -276,6 +276,69 @@ Remaining:
 
 - The same live smoke still includes a final_synthesis blocker message: "TaskSpace runtime does not accept success criteria updates or waive for final_synthesis completion." Metrics remain business-successful with no open leaf nodes, but final synthesis closure still needs a focused follow-up.
 
+## 2026-06-17 Phase 2 final synthesis criteria tolerance
+
+Changed:
+
+- Added a final-synthesis-only success-criteria completion check.
+- Existing `satisfied` / `waived` criteria still require evidence.
+- Open `test` / `validator` criteria can be treated as complete for final synthesis only when the map has an accepted successful validation result.
+- Open `artifact` / `behavior` criteria can be treated as complete for final synthesis only when the map has both:
+  - an accepted implementation result with a successful edit action;
+  - an accepted successful validation result.
+- Open `performance` and other noncovered criterion kinds still block final synthesis.
+- The guard that rejects newly added open criteria during final synthesis remains active.
+
+Reason:
+
+- The previous live smoke `target\v005-phase2-live-smoke-singletrack-budget-52ff\large-output-ref-smoke\20260617-060336-086` completed the business task but left final_synthesis blocked because initial `test` / `behavior` / `artifact` criteria were not precisely rewritten to `satisfied` even though implementation and validation evidence existed.
+- The runtime should not require the model to re-state every initial criterion exactly at final time when typed accepted implementation and validation evidence already exists.
+
+Validation:
+
+```text
+cargo fmt -p codex-core --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+ok
+
+cargo test -p codex-core finish_final_synthesis --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+5 passed
+
+cargo test -p codex-core final_synthesis_rejects_new_open_success_criterion --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-finalcriterion-2
+TaskSpace benchmark harness self-test: PASS
+
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+passed
+```
+
+Diagnostic live smoke:
+
+```text
+RunDir: target\v005-phase2-live-smoke-finalcriterion-bfc9\large-output-ref-smoke\20260617-062058-221
+right business_success: True
+right exec_timed_out: False
+right large_output_replay_count: 0
+right raw_output_in_prompt_violation: False
+right nodes: 6
+right open_leaf_nodes: 0
+right blocked_node_ratio: 0.3333
+right runtime_output_ref_created_count: 0
+```
+
+Notes:
+
+- This smoke used an earlier build of the final-criteria tolerance and is not proof of the latest runtime patch.
+- It exposed two additional routing issues:
+  - the model sometimes creates a `smoke_test` node for the required pre-edit diagnostic command, but runtime correctly blocks non-test shell work there;
+  - the model redirected the large diagnostic output into `diagnostic_output.txt`, so no output-reference event was produced even though raw replay stayed clean.
+
+Remaining:
+
+- Rebuild/install and rerun a focused smoke after this patch if final_synthesis closure must be proven live.
+- Add routing guidance or gate recovery so pre-edit diagnostic commands stay in `inspect_code_context` unless they are actual validation tests.
+
 ## 2026-06-17 Phase 2 output-ref trace events
 
 Changed:

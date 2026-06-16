@@ -3317,7 +3317,7 @@ preview:\n\
                         "TaskSpace final_synthesis cannot be completed without an active task ledger."
                             .to_string()
                     })?;
-                if !task_success_criteria_complete(task) {
+                if !task_success_criteria_complete_for_final(task, map) {
                     return Err(format!(
                         "TaskSpace final_synthesis node `{node_id}` cannot be completed until every success criterion is satisfied or waived with evidence."
                     ));
@@ -8240,6 +8240,30 @@ fn task_success_criteria_complete(task: &TaskState) -> bool {
         })
 }
 
+fn task_success_criteria_complete_for_final(task: &TaskState, map: &ActionMapInstance) -> bool {
+    if task_success_criteria_complete(task) {
+        return true;
+    }
+    let criteria = &task.problem_ledger.success_criteria;
+    !criteria.is_empty()
+        && criteria.iter().all(|criterion| {
+            if matches!(criterion.status.as_str(), "satisfied" | "waived")
+                && !criterion.evidence_refs.is_empty()
+            {
+                return true;
+            }
+            matches!(criterion.kind.as_str(), "test" | "validator")
+                && criterion.status == "open"
+                && !criterion.evidence_refs.is_empty()
+                && map_has_accepted_successful_validation_result(map)
+                || matches!(criterion.kind.as_str(), "artifact" | "behavior")
+                    && criterion.status == "open"
+                    && !criterion.evidence_refs.is_empty()
+                    && map_has_accepted_implementation_result(map)
+                    && map_has_accepted_successful_validation_result(map)
+        })
+}
+
 fn task_open_blocking_question_id(task: &TaskState) -> Option<&str> {
     task.problem_ledger
         .open_questions
@@ -8311,6 +8335,37 @@ fn map_has_accepted_validation_result(map: &ActionMapInstance) -> bool {
                 })
             })
     })
+}
+
+fn map_has_accepted_successful_validation_result(map: &ActionMapInstance) -> bool {
+    map.nodes.values().any(|node| {
+        matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+            && node_has_successful_validation_action(map, node)
+            && node.result_context.iter().any(|result_ref| {
+                map.results.get(&result_ref.id).is_some_and(|result| {
+                    result.evidence_package.validity == ResultValidity::Accepted
+                        && result.kind != NodeResultKind::Blocker
+                })
+            })
+    })
+}
+
+fn map_has_accepted_implementation_result(map: &ActionMapInstance) -> bool {
+    map.nodes.values().any(|node| {
+        node.kind == NodeKind::ImplementSolution
+            && node_has_successful_action(map, node, ActionClass::Edit)
+            && node.result_context.iter().any(|result_ref| {
+                map.results.get(&result_ref.id).is_some_and(|result| {
+                    result.evidence_package.validity == ResultValidity::Accepted
+                        && result.kind != NodeResultKind::Blocker
+                })
+            })
+    })
+}
+
+fn node_has_successful_validation_action(map: &ActionMapInstance, node: &MapNode) -> bool {
+    node_has_successful_action(map, node, ActionClass::Test)
+        || node_has_successful_action(map, node, ActionClass::Build)
 }
 
 #[cfg(test)]
@@ -14309,30 +14364,6 @@ mod tests {
                     id: "second-contract".to_string(),
                     kind: "validator".to_string(),
                     description: "Second test fixture acceptance contract.".to_string(),
-                    status: "open".to_string(),
-                    evidence_refs: vec![ActionMapEvidenceRefInput {
-                        artifact_ref: Some("second-contract".to_string()),
-                        ..Default::default()
-                    }],
-                }],
-            )
-            .expect("second criterion records");
-        let open_criterion = state
-            .finish_main_node(
-                owner,
-                &node_id,
-                "Completed the requested work. Validation passed.".to_string(),
-                None,
-            )
-            .expect_err("final synthesis requires all criteria complete");
-        assert!(open_criterion.contains("every success criterion"));
-        state
-            .record_success_criteria_for_main(
-                owner,
-                vec![ActionMapSuccessCriterionInput {
-                    id: "second-contract".to_string(),
-                    kind: "validator".to_string(),
-                    description: "Second test fixture acceptance contract.".to_string(),
                     status: "waived".to_string(),
                     evidence_refs: vec![ActionMapEvidenceRefInput {
                         result_id: Some(result_id.clone()),
@@ -14387,6 +14418,241 @@ mod tests {
                 None,
             )
             .expect("final synthesis can finish after criteria and decision");
+    }
+
+    #[test]
+    fn finish_final_synthesis_accepts_open_validator_criterion_after_accepted_validation() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, smoke_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run final validation.",
+            "Smoke validation",
+            "Run pytest.",
+            true,
+        );
+        let (validation_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-pytest",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "2 passed".to_string(),
+            )
+            .expect("successful test result records")
+            .expect("test result id");
+        accept_test_result(&mut state, owner, &validation_result_id);
+        satisfy_test_criterion_with_result(&mut state, owner, &validation_result_id);
+        state
+            .record_success_criteria_for_main(
+                owner,
+                vec![ActionMapSuccessCriterionInput {
+                    id: "late-validator-contract".to_string(),
+                    kind: "validator".to_string(),
+                    description: "Validation must pass before final response.".to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        validator_ref: Some("pytest - 2 passed".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+            )
+            .expect("open validator criterion can exist before final synthesis");
+        let (smoke_outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &smoke_node_id,
+                "Validation passed.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::FinalSynthesis,
+                    title: "Final summary".to_string(),
+                    context_summary: "Summarize validated work.".to_string(),
+                    dependency_node_ids: vec![smoke_node_id.clone()],
+                }),
+            )
+            .expect("validation node finishes");
+        accept_test_result(&mut state, owner, &smoke_outcome.result_id);
+        record_test_decision_for_result(&mut state, owner, &validation_result_id);
+        state
+            .finish_main_node(
+                owner,
+                "node-2",
+                "Completed the requested fix. Validation passed.".to_string(),
+                None,
+            )
+            .expect("accepted validation evidence satisfies open validator criterion for final");
+    }
+
+    #[test]
+    fn finish_final_synthesis_still_rejects_open_performance_criterion() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, smoke_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run final validation.",
+            "Smoke validation",
+            "Run pytest.",
+            true,
+        );
+        let (validation_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-pytest",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "2 passed".to_string(),
+            )
+            .expect("successful test result records")
+            .expect("test result id");
+        accept_test_result(&mut state, owner, &validation_result_id);
+        satisfy_test_criterion_with_result(&mut state, owner, &validation_result_id);
+        state
+            .record_success_criteria_for_main(
+                owner,
+                vec![ActionMapSuccessCriterionInput {
+                    id: "open-performance-contract".to_string(),
+                    kind: "performance".to_string(),
+                    description: "Performance must be independently measured.".to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(validation_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+            )
+            .expect("open performance criterion records");
+        state
+            .finish_main_node_with_next(
+                owner,
+                &smoke_node_id,
+                "Validation passed.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::FinalSynthesis,
+                    title: "Final summary".to_string(),
+                    context_summary: "Summarize validated work.".to_string(),
+                    dependency_node_ids: vec![smoke_node_id.clone()],
+                }),
+            )
+            .expect("validation node finishes");
+        record_test_decision_for_result(&mut state, owner, &validation_result_id);
+        let error = state
+            .finish_main_node(
+                owner,
+                "node-2",
+                "Completed the requested work. Validation passed.".to_string(),
+                None,
+            )
+            .expect_err("performance open criterion still blocks final");
+        assert!(error.contains("every success criterion"));
+    }
+
+    #[test]
+    fn finish_final_synthesis_accepts_open_behavior_after_accepted_fix_and_validation() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Fix behavior",
+            "Patch implementation and validate.",
+            "Apply fix",
+            "Update implementation.",
+            true,
+        );
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "patched src/large_output_demo.py".to_string(),
+            )
+            .expect("edit result records")
+            .expect("edit result id");
+        accept_test_result(&mut state, owner, &edit_result_id);
+        state
+            .record_success_criteria_for_main(
+                owner,
+                vec![ActionMapSuccessCriterionInput {
+                    id: "behavior-contract".to_string(),
+                    kind: "behavior".to_string(),
+                    description: "Implementation matches documented behavior.".to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("README.md".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+            )
+            .expect("open behavior criterion records before final");
+        let (implementation_outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Implementation changed.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Smoke validation".to_string(),
+                    context_summary: "Run tests.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("implementation node finishes");
+        accept_test_result(&mut state, owner, &implementation_outcome.result_id);
+
+        let (validation_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-pytest",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "2 passed".to_string(),
+            )
+            .expect("successful validation result records")
+            .expect("validation result id");
+        accept_test_result(&mut state, owner, &validation_result_id);
+        satisfy_test_criterion_with_result(&mut state, owner, &validation_result_id);
+        let (validation_outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                "node-2",
+                "Validation passed.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::FinalSynthesis,
+                    title: "Final summary".to_string(),
+                    context_summary: "Summarize validated work.".to_string(),
+                    dependency_node_ids: vec!["node-2".to_string()],
+                }),
+            )
+            .expect("validation node finishes");
+        accept_test_result(&mut state, owner, &validation_outcome.result_id);
+        record_test_decision_for_result(&mut state, owner, &validation_result_id);
+        state
+            .finish_main_node(
+                owner,
+                "node-3",
+                "Completed the requested fix. Validation passed.".to_string(),
+                None,
+            )
+            .expect("accepted implementation and validation satisfy open behavior for final");
     }
 
     #[test]
