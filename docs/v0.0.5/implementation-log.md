@@ -184,6 +184,60 @@ Reason:
 - Phase 1 should reduce protocol-turn count. Treating a missing `commit_id` as a hard parse failure and pointing validation recovery at legacy single-record actions both work against that goal.
 - This does not remove explicit idempotency. It makes the common model-error recovery path cheap enough to keep the agent on the intended transactional protocol.
 
+## 2026-06-17 Phase 1 narrow inspect spawn guard
+
+Observed:
+
+- Installed live smoke with Whale hash `7F9732372CDAEFA58216FF405E2939B35FB859865DBEE6DE2CD64431FFA5AB4C` solved the task but regressed badly:
+  - RunDir: `target\v005-phase1-live-smoke-statecommit-recovery-7f97\single-file-fast-fix\20260617-034714-812`
+  - direct input+output ratio: 20.3256
+  - walltime ratio: 5.5428
+  - nodes: 8
+  - spawn_agent_calls: 2
+  - runtime_state_commit_count: 2
+- The missing-`commit_id` failure disappeared, so the previous recovery fix worked for that symptom.
+- The next root cause was a model escape around the spawn gate:
+  - runtime initially blocked `spawn_agent` because no subagent plan existed;
+  - model then created extra inspect nodes and subagent plans;
+  - once two ready inspect nodes existed, `validate_spawn_parallelism` allowed explorer spawn even though the task had already completed a narrow main-agent inspect pass.
+
+Changed:
+
+- Added `has_completed_narrow_inspect` as shared runtime graph-state detection.
+- `record_subagent_plan_for_main` now rejects inspect subagent plans after the main agent has already completed a narrow inspect pass.
+- Kept legitimate pre-planned subagent flow intact: the existing `subagent_plan_links_lease_child_result_and_snapshot` path still passes.
+
+Validation:
+
+```text
+cargo fmt -p codex-core
+ok
+
+cargo test -p codex-core subagent_plan_rejects_followup_after_narrow_main_inspect --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core spawn_assignment_requires_recorded_subagent_plan --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core subagent_plan_links_lease_child_result_and_snapshot --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core state_commit --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+5 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-narrowguard-5c6d
+TaskSpace benchmark harness self-test: PASS
+```
+
+Operational note:
+
+- Do not put treatment labels such as `subagent` in benchmark `RunRoot`; the harness correctly failed a first attempt with `left cwd contains treatment label` / `right cwd contains treatment label`.
+
+Remaining Phase 1 work:
+
+- Rebuild/install Whale and rerun live smoke to verify the narrow-inspect guard removes the late subagent expansion.
+- If final_synthesis still loops, the next likely fix is state_commit payload tolerance for `next_best_action.reason` and duplicate evidence-ref aliases.
+
 ## 2026-06-17 Phase 1 validation evidence gate hardening
 
 Changed:

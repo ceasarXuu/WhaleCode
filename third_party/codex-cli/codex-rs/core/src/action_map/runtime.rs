@@ -2704,6 +2704,11 @@ preview:\n\
                 "TaskSpace record_subagent_plan parent node `{parent_node_id}` is already held by an active lease."
             ));
         }
+        if node.kind == NodeKind::InspectCodeContext && Self::has_completed_narrow_inspect(map) {
+            return Err(format!(
+                "TaskSpace record_subagent_plan blocked for inspect node `{parent_node_id}` because the main agent already completed a narrow inspect pass. Keep serial single-track investigation on the main agent; only create inspect subagent plans before the first narrow inspect result when independent evidence tracks are known upfront."
+            ));
+        }
         if map.subagent_plans.values().any(|plan| {
             plan.parent_node_id == parent_node_id && plan.status == SubagentPlanStatus::Planned
         }) {
@@ -5704,20 +5709,24 @@ preview:\n\
                 "TaskSpace blocked spawn_agent for inspect node `{node_id}` because the main agent is already holding an inspect track and only one ready inspect track is available. The main agent should coordinate parallel inspect work, not own one track while a single explorer owns the other; finish the current inspect or create at least two ready independent inspect_code_context nodes before assigning explorer subagents."
             ));
         }
-        let has_completed_narrow_inspect = map.nodes.values().any(|node| {
-            let main_tool_results = count_node_results_of_kind(node, NodeResultKind::MainToolCall);
-            node.kind == NodeKind::InspectCodeContext
-                && node.status == NodeStatus::Completed
-                && main_tool_results > 0
-                && main_tool_results
-                    < contract_for(node.kind).max_main_tool_results_before_split_hint
-        });
+        let has_completed_narrow_inspect = Self::has_completed_narrow_inspect(map);
         if !has_completed_narrow_inspect {
             return Ok(());
         }
         Err(format!(
             "TaskSpace blocked spawn_agent for inspect node `{node_id}` because a completed narrow inspect node already exists and only one follow-up inspect track is available. Keep serial single-track investigation on the main agent; create at least two ready independent inspect_code_context nodes before assigning explorer subagents."
         ))
+    }
+
+    fn has_completed_narrow_inspect(map: &ActionMapInstance) -> bool {
+        map.nodes.values().any(|node| {
+            let main_tool_results = count_node_results_of_kind(node, NodeResultKind::MainToolCall);
+            node.kind == NodeKind::InspectCodeContext
+                && node.status == NodeStatus::Completed
+                && main_tool_results > 0
+                && main_tool_results
+                    < contract_for(node.kind).max_main_tool_results_before_split_hint
+        })
     }
 
     fn validate_requested_spawn_node(&self, map_id: &str, node_id: &str) -> Result<(), String> {
@@ -14673,6 +14682,67 @@ mod tests {
         assert!(map.leases.is_empty());
         assert!(map.subagent_plans.is_empty());
         assert_eq!(map.nodes["define_scope"].status, NodeStatus::Ready);
+    }
+
+    #[test]
+    fn subagent_plan_rejects_followup_after_narrow_main_inspect() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let owner = ThreadId::new();
+        let (_, _, inspect_node_id, _) = start_test_task(
+            &mut state,
+            owner,
+            "Fix one file",
+            "Inspect and patch one failing test.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "read src/tax_calc.py".to_string(),
+            )
+            .expect("read result records");
+        state
+            .finish_main_node(
+                owner,
+                &inspect_node_id,
+                "Narrow inspect done.".to_string(),
+                None,
+            )
+            .expect("inspect finishes");
+        let (followup_node_id, _) = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Inspect tests".to_string(),
+                "Read test expectations.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("follow-up inspect node records");
+
+        let error = state
+            .record_subagent_plan_for_main(
+                owner,
+                ActionMapSubagentPlanInput {
+                    parent_node_id: followup_node_id,
+                    why_parallelizable: "Read tests independently.".to_string(),
+                    expected_artifact: "Test expectation summary.".to_string(),
+                    acceptance_check: "Parent validates test refs.".to_string(),
+                    max_scope: "Only tests.".to_string(),
+                    supports_questions: vec!["q-scope-node-1".to_string()],
+                    tests_hypotheses: Vec::new(),
+                    depends_on_results: Vec::new(),
+                },
+            )
+            .expect_err("narrow main inspect keeps follow-up serial");
+
+        assert!(error.contains("already completed a narrow inspect pass"));
+        assert!(error.contains("Keep serial single-track investigation"));
     }
 
     #[test]
