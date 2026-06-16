@@ -6,9 +6,13 @@ use crate::action_map::ActionMapEvidenceRefInput;
 use crate::action_map::ActionMapLedgerDecisionInput;
 use crate::action_map::ActionMapNextNodeDraft;
 use crate::action_map::ActionMapResultAdoptionInput;
+use crate::action_map::ActionMapStateCommitBlockerInput;
 use crate::action_map::ActionMapStateCommitFactSourceInput;
+use crate::action_map::ActionMapStateCommitFinishNodeInput;
 use crate::action_map::ActionMapStateCommitInput;
 use crate::action_map::ActionMapStateCommitNextBestActionInput;
+use crate::action_map::ActionMapStateCommitNodeInput;
+use crate::action_map::ActionMapStateCommitResultValidityInput;
 use crate::action_map::ActionMapSubagentPlanInput;
 use crate::action_map::ActionMapSuccessCriterionInput;
 use crate::action_map::NodeKind;
@@ -190,6 +194,16 @@ enum TaskSpaceControlArgs {
         #[serde(default)]
         active_node_id: Option<String>,
         #[serde(default)]
+        nodes: Vec<TaskSpaceStateCommitNodeArgs>,
+        #[serde(default)]
+        finished_nodes: Vec<TaskSpaceStateCommitFinishNodeArgs>,
+        #[serde(default)]
+        blockers: Vec<TaskSpaceStateCommitBlockerArgs>,
+        #[serde(default)]
+        result_validities: Vec<TaskSpaceStateCommitResultValidityArgs>,
+        #[serde(default)]
+        result_adoptions: Vec<TaskSpaceStateCommitResultAdoptionArgs>,
+        #[serde(default)]
         success_criteria: Vec<TaskSpaceSuccessCriterionArgs>,
         #[serde(default)]
         fact_sources: Vec<TaskSpaceFactSourceArgs>,
@@ -277,6 +291,71 @@ struct TaskSpaceNextBestActionArgs {
     expected_artifact: Option<String>,
     #[serde(default)]
     blocked_by: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskSpaceStateCommitNodeArgs {
+    kind: String,
+    title: String,
+    context_summary: String,
+    #[serde(default)]
+    dependency_node_ids: Vec<String>,
+    #[serde(default)]
+    bind_current: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskSpaceStateCommitFinishNodeArgs {
+    node_id: String,
+    result_summary: String,
+    #[serde(default)]
+    next_node_id: Option<String>,
+    #[serde(default)]
+    next_node_kind: Option<String>,
+    #[serde(default)]
+    next_node_title: Option<String>,
+    #[serde(default)]
+    next_node_context_summary: Option<String>,
+    #[serde(default)]
+    next_dependency_node_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskSpaceStateCommitBlockerArgs {
+    node_id: String,
+    blocker_summary: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskSpaceStateCommitResultValidityArgs {
+    result_id: String,
+    validity: String,
+    validity_reason: String,
+    #[serde(default)]
+    claims: Vec<TaskSpaceCognitiveClaimArgs>,
+    #[serde(default)]
+    evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
+    #[serde(default)]
+    changed_artifacts: Vec<String>,
+    #[serde(default)]
+    validator_refs: Vec<String>,
+    #[serde(default)]
+    remaining_uncertainty: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskSpaceStateCommitResultAdoptionArgs {
+    result_id: String,
+    #[serde(default)]
+    adopted_by_facts: Vec<String>,
+    #[serde(default)]
+    adopted_by_hypotheses: Vec<String>,
+    #[serde(default)]
+    adopted_by_decisions: Vec<String>,
+    #[serde(default)]
+    adopted_by_criteria: Vec<String>,
+    #[serde(default)]
+    adopted_by_nodes: Vec<String>,
 }
 
 pub struct TaskSpaceControlOutput {
@@ -683,6 +762,11 @@ impl ToolHandler for TaskSpaceControlHandler {
                 commit_id,
                 schema_version,
                 active_node_id,
+                nodes,
+                finished_nodes,
+                blockers,
+                result_validities,
+                result_adoptions,
                 success_criteria,
                 fact_sources,
                 facts,
@@ -696,6 +780,15 @@ impl ToolHandler for TaskSpaceControlHandler {
                         ActionMapStateCommitInput {
                             commit_id: commit_id.clone(),
                             active_node_id,
+                            nodes: convert_state_commit_nodes(nodes)?,
+                            finished_nodes: convert_state_commit_finished_nodes(finished_nodes)?,
+                            blockers: convert_state_commit_blockers(blockers),
+                            result_validities: convert_state_commit_result_validities(
+                                result_validities,
+                            ),
+                            result_adoptions: convert_state_commit_result_adoptions(
+                                result_adoptions,
+                            ),
                             success_criteria: convert_success_criteria(success_criteria),
                             fact_sources: convert_fact_sources(fact_sources),
                             facts: convert_claims(facts),
@@ -851,6 +944,90 @@ fn convert_next_best_action(
     }
 }
 
+fn convert_state_commit_nodes(
+    inputs: Vec<TaskSpaceStateCommitNodeArgs>,
+) -> Result<Vec<ActionMapStateCommitNodeInput>, FunctionCallError> {
+    inputs
+        .into_iter()
+        .map(|input| {
+            Ok(ActionMapStateCommitNodeInput {
+                kind: parse_node_kind("nodes.kind", &input.kind)?,
+                title: input.title,
+                context_summary: input.context_summary,
+                dependency_node_ids: input.dependency_node_ids,
+                bind_current: input.bind_current,
+            })
+        })
+        .collect()
+}
+
+fn convert_state_commit_finished_nodes(
+    inputs: Vec<TaskSpaceStateCommitFinishNodeArgs>,
+) -> Result<Vec<ActionMapStateCommitFinishNodeInput>, FunctionCallError> {
+    inputs
+        .into_iter()
+        .map(|input| {
+            Ok(ActionMapStateCommitFinishNodeInput {
+                node_id: input.node_id,
+                result_summary: input.result_summary,
+                next_node_id: input.next_node_id,
+                next_node_draft: build_next_node_draft(
+                    input.next_node_kind,
+                    input.next_node_title,
+                    input.next_node_context_summary,
+                    input.next_dependency_node_ids,
+                )?,
+            })
+        })
+        .collect()
+}
+
+fn convert_state_commit_blockers(
+    inputs: Vec<TaskSpaceStateCommitBlockerArgs>,
+) -> Vec<ActionMapStateCommitBlockerInput> {
+    inputs
+        .into_iter()
+        .map(|input| ActionMapStateCommitBlockerInput {
+            node_id: input.node_id,
+            blocker_summary: input.blocker_summary,
+        })
+        .collect()
+}
+
+fn convert_state_commit_result_validities(
+    inputs: Vec<TaskSpaceStateCommitResultValidityArgs>,
+) -> Vec<ActionMapStateCommitResultValidityInput> {
+    inputs
+        .into_iter()
+        .map(|input| ActionMapStateCommitResultValidityInput {
+            result_id: input.result_id,
+            validity: input.validity,
+            validity_reason: input.validity_reason,
+            claims: convert_claims(input.claims),
+            evidence_refs: convert_evidence_refs(input.evidence_refs),
+            changed_artifacts: input.changed_artifacts,
+            validator_refs: input.validator_refs,
+            remaining_uncertainty: input.remaining_uncertainty,
+        })
+        .collect()
+}
+
+fn convert_state_commit_result_adoptions(
+    inputs: Vec<TaskSpaceStateCommitResultAdoptionArgs>,
+) -> Vec<ActionMapResultAdoptionInput> {
+    inputs
+        .into_iter()
+        .map(|input| ActionMapResultAdoptionInput {
+            result_id: input.result_id,
+            adopted_by_facts: input.adopted_by_facts,
+            adopted_by_hypotheses: input.adopted_by_hypotheses,
+            adopted_by_decisions: input.adopted_by_decisions,
+            adopted_by_criteria: input.adopted_by_criteria,
+            adopted_by_nodes: input.adopted_by_nodes,
+        })
+        .collect()
+}
+
 fn validate_state_commit_schema(schema_version: Option<&str>) -> Result<(), FunctionCallError> {
     if schema_version
         .map(|value| value.trim().is_empty() || value == "taskspace-state-commit-v1")
@@ -1002,6 +1179,23 @@ mod tests {
             "commit_id": "commit-1",
             "schema_version": "taskspace-state-commit-v1",
             "active_node_id": "node-1",
+            "nodes": [{
+                "kind": "smoke_test",
+                "title": "Smoke",
+                "context_summary": "Run smoke checks",
+                "dependency_node_ids": ["node-1"]
+            }],
+            "finished_nodes": [{
+                "node_id": "node-1",
+                "result_summary": "inspection complete",
+                "next_node_kind": "smoke_test",
+                "next_node_title": "Smoke",
+                "next_node_context_summary": "Run smoke checks"
+            }],
+            "blockers": [{
+                "node_id": "node-2",
+                "blocker_summary": "environment missing"
+            }],
             "success_criteria": [{
                 "id": "sc-1",
                 "kind": "validator",
@@ -1026,6 +1220,18 @@ mod tests {
                 "rationale": "prevents parallel state",
                 "depends_on_facts": ["fact-1"]
             }],
+            "result_validities": [{
+                "result_id": "result-1",
+                "validity": "accepted",
+                "validity_reason": "validator passed",
+                "claims": [{"claim_id": "claim-1", "statement": "result is valid"}],
+                "evidence_refs": [{"result_id": "result-1"}],
+                "changed_artifacts": ["src/lib.rs"]
+            }],
+            "result_adoptions": [{
+                "result_id": "result-1",
+                "adopted_by_facts": ["fact-1"]
+            }],
             "next_best_action": {
                 "node_id": "node-1",
                 "action_summary": "run focused tests",
@@ -1038,19 +1244,32 @@ mod tests {
             TaskSpaceControlArgs::StateCommit {
                 commit_id,
                 active_node_id,
+                nodes,
+                finished_nodes,
+                blockers,
                 success_criteria,
                 fact_sources,
                 facts,
                 decisions,
+                result_validities,
+                result_adoptions,
                 next_best_action,
                 ..
             } => {
                 assert_eq!(commit_id, "commit-1");
                 assert_eq!(active_node_id.as_deref(), Some("node-1"));
+                assert_eq!(nodes[0].kind, "smoke_test");
+                assert_eq!(
+                    finished_nodes[0].next_node_kind.as_deref(),
+                    Some("smoke_test")
+                );
+                assert_eq!(blockers[0].node_id, "node-2");
                 assert_eq!(success_criteria[0].id, "sc-1");
                 assert_eq!(fact_sources[0].id, "source-1");
                 assert_eq!(facts[0].claim_id, "fact-1");
                 assert_eq!(decisions[0].id, "decision-1");
+                assert_eq!(result_validities[0].result_id, "result-1");
+                assert_eq!(result_adoptions[0].adopted_by_facts, vec!["fact-1"]);
                 assert_eq!(
                     next_best_action.expect("next action").action_summary,
                     "run focused tests"

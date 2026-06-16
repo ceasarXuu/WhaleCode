@@ -269,11 +269,51 @@ pub(crate) struct ActionMapResultAdoptionInput {
 pub(crate) struct ActionMapStateCommitInput {
     pub(crate) commit_id: String,
     pub(crate) active_node_id: Option<String>,
+    pub(crate) nodes: Vec<ActionMapStateCommitNodeInput>,
+    pub(crate) finished_nodes: Vec<ActionMapStateCommitFinishNodeInput>,
+    pub(crate) blockers: Vec<ActionMapStateCommitBlockerInput>,
+    pub(crate) result_validities: Vec<ActionMapStateCommitResultValidityInput>,
+    pub(crate) result_adoptions: Vec<ActionMapResultAdoptionInput>,
     pub(crate) success_criteria: Vec<ActionMapSuccessCriterionInput>,
     pub(crate) fact_sources: Vec<ActionMapStateCommitFactSourceInput>,
     pub(crate) facts: Vec<ActionMapCognitiveClaimInput>,
     pub(crate) decisions: Vec<ActionMapLedgerDecisionInput>,
     pub(crate) next_best_action: Option<ActionMapStateCommitNextBestActionInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapStateCommitNodeInput {
+    pub(crate) kind: NodeKind,
+    pub(crate) title: String,
+    pub(crate) context_summary: String,
+    pub(crate) dependency_node_ids: Vec<String>,
+    pub(crate) bind_current: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapStateCommitFinishNodeInput {
+    pub(crate) node_id: String,
+    pub(crate) result_summary: String,
+    pub(crate) next_node_id: Option<String>,
+    pub(crate) next_node_draft: Option<ActionMapNextNodeDraft>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapStateCommitBlockerInput {
+    pub(crate) node_id: String,
+    pub(crate) blocker_summary: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapStateCommitResultValidityInput {
+    pub(crate) result_id: String,
+    pub(crate) validity: String,
+    pub(crate) validity_reason: String,
+    pub(crate) claims: Vec<ActionMapCognitiveClaimInput>,
+    pub(crate) evidence_refs: Vec<ActionMapEvidenceRefInput>,
+    pub(crate) changed_artifacts: Vec<String>,
+    pub(crate) validator_refs: Vec<String>,
+    pub(crate) remaining_uncertainty: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2747,7 +2787,116 @@ preview:\n\
         }
 
         self.apply_state_commit_section(
-            owner_session_id,
+            &commit_id,
+            &task_id,
+            &map_id,
+            "nodes",
+            !input.nodes.is_empty(),
+            |state| {
+                let mut section_events = Vec::new();
+                for node in input.nodes {
+                    let (_, node_events) = state.create_node_for_main_with_kind(
+                        owner_session_id,
+                        node.kind,
+                        node.title,
+                        node.context_summary,
+                        node.dependency_node_ids,
+                        node.bind_current,
+                    )?;
+                    section_events.extend(node_events);
+                }
+                Ok(section_events)
+            },
+            &mut outcome,
+            &mut events,
+        );
+        self.apply_state_commit_section(
+            &commit_id,
+            &task_id,
+            &map_id,
+            "finished_nodes",
+            !input.finished_nodes.is_empty(),
+            |state| {
+                let mut section_events = Vec::new();
+                for node in input.finished_nodes {
+                    let (_, node_events) = state.finish_main_node_with_next(
+                        owner_session_id,
+                        &node.node_id,
+                        node.result_summary,
+                        node.next_node_id,
+                        node.next_node_draft,
+                    )?;
+                    section_events.extend(node_events);
+                }
+                Ok(section_events)
+            },
+            &mut outcome,
+            &mut events,
+        );
+        self.apply_state_commit_section(
+            &commit_id,
+            &task_id,
+            &map_id,
+            "blockers",
+            !input.blockers.is_empty(),
+            |state| {
+                let mut section_events = Vec::new();
+                for blocker in input.blockers {
+                    let (_, blocker_events) = state.block_main_node(
+                        owner_session_id,
+                        &blocker.node_id,
+                        blocker.blocker_summary,
+                    )?;
+                    section_events.extend(blocker_events);
+                }
+                Ok(section_events)
+            },
+            &mut outcome,
+            &mut events,
+        );
+        self.apply_state_commit_section(
+            &commit_id,
+            &task_id,
+            &map_id,
+            "result_validities",
+            !input.result_validities.is_empty(),
+            |state| {
+                let mut section_events = Vec::new();
+                for validity in input.result_validities {
+                    section_events.extend(state.mark_result_validity_for_main(
+                        owner_session_id,
+                        &validity.result_id,
+                        &validity.validity,
+                        validity.validity_reason,
+                        validity.claims,
+                        validity.evidence_refs,
+                        validity.changed_artifacts,
+                        validity.validator_refs,
+                        validity.remaining_uncertainty,
+                    )?);
+                }
+                Ok(section_events)
+            },
+            &mut outcome,
+            &mut events,
+        );
+        self.apply_state_commit_section(
+            &commit_id,
+            &task_id,
+            &map_id,
+            "result_adoptions",
+            !input.result_adoptions.is_empty(),
+            |state| {
+                let mut section_events = Vec::new();
+                for adoption in input.result_adoptions {
+                    section_events.extend(state.adopt_result_for_main(owner_session_id, adoption)?);
+                }
+                Ok(section_events)
+            },
+            &mut outcome,
+            &mut events,
+        );
+        self.apply_state_commit_section(
             &commit_id,
             &task_id,
             &map_id,
@@ -2760,7 +2909,6 @@ preview:\n\
             &mut events,
         );
         self.apply_state_commit_section(
-            owner_session_id,
             &commit_id,
             &task_id,
             &map_id,
@@ -2783,7 +2931,6 @@ preview:\n\
             &mut events,
         );
         self.apply_state_commit_section(
-            owner_session_id,
             &commit_id,
             &task_id,
             &map_id,
@@ -2805,7 +2952,6 @@ preview:\n\
             &mut events,
         );
         self.apply_state_commit_section(
-            owner_session_id,
             &commit_id,
             &task_id,
             &map_id,
@@ -2823,7 +2969,6 @@ preview:\n\
             &mut events,
         );
         self.apply_state_commit_section(
-            owner_session_id,
             &commit_id,
             &task_id,
             &map_id,
@@ -5646,7 +5791,6 @@ preview:\n\
 
     fn apply_state_commit_section<F>(
         &mut self,
-        _owner_session_id: ThreadId,
         commit_id: &str,
         task_id: &str,
         map_id: &str,
@@ -8446,6 +8590,69 @@ mod tests {
             MapRuntimeEvent::CognitiveStateUpdated(event)
                 if event.update_kind == "state_commit.partial"
         )));
+    }
+
+    #[test]
+    fn state_commit_rolls_back_rejected_lifecycle_section() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_unseeded_test_task(&mut state, owner, "Audit", "Inspect code", true);
+
+        let (outcome, _) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-lifecycle".to_string(),
+                    nodes: vec![
+                        ActionMapStateCommitNodeInput {
+                            kind: NodeKind::SmokeTest,
+                            title: "Smoke".to_string(),
+                            context_summary: "Run a smoke check".to_string(),
+                            dependency_node_ids: Vec::new(),
+                            bind_current: false,
+                        },
+                        ActionMapStateCommitNodeInput {
+                            kind: NodeKind::RegressionTest,
+                            title: "Regression".to_string(),
+                            context_summary: "Run regression checks".to_string(),
+                            dependency_node_ids: vec!["missing-node".to_string()],
+                            bind_current: false,
+                        },
+                    ],
+                    success_criteria: vec![ActionMapSuccessCriterionInput {
+                        id: "sc-lifecycle".to_string(),
+                        kind: "validator".to_string(),
+                        description: "lifecycle commit remains partial".to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("test-fixture:lifecycle".to_string()),
+                            ..Default::default()
+                        }],
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect("state commit runs");
+
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Partial);
+        assert_eq!(outcome.accepted_sections, vec!["success_criteria"]);
+        assert_eq!(outcome.rejected_sections[0].section, "nodes");
+        let map = state.maps.get("map-1").expect("map");
+        assert_eq!(
+            map.nodes
+                .values()
+                .filter(|node| node.title == "Smoke")
+                .count(),
+            0
+        );
+        let task = state.tasks.get("task-1").expect("task");
+        assert!(
+            task.problem_ledger
+                .success_criteria
+                .iter()
+                .any(|criterion| criterion.id == "sc-lifecycle")
+        );
     }
 
     fn prepare_test_spawn_assignment(

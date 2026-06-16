@@ -133,5 +133,36 @@ Notes:
 
 Remaining Phase 1 work:
 
-- Extend `state_commit` to node/result/blocker lifecycle sections instead of only cognitive ledger sections.
+- Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
+
+## 2026-06-17 Phase 1 lifecycle state_commit sections
+
+Changed:
+
+- Extended `state_commit` beyond cognitive ledger sections to lifecycle sections:
+  - `nodes`
+  - `finished_nodes`
+  - `blockers`
+  - `result_validities`
+  - `result_adoptions`
+- Lifecycle sections reuse existing runtime validation and event paths for `create_node`, `finish_node`, `block_node`, `mark_result_validity`, and `adopt_result`.
+- Handler parser now accepts lifecycle state_commit payloads and validates node kinds / next node drafts before runtime execution.
+- Cognitive protocol prompt now describes the full `state_commit` section set.
+
+Validation:
+
+```text
+cargo test -p codex-core state_commit --manifest-path third_party/codex-cli/codex-rs/Cargo.toml
+3 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-lifecycle-4e6b
+TaskSpace benchmark harness self-test: PASS
+```
+
+Notes:
+
+- Lifecycle transaction coverage uses the same candidate-runtime rollback strategy as cognitive sections. A failing `nodes` section no longer leaves earlier node creations behind, while unrelated successful sections still land.
+
+Remaining Phase 1 work:
+
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
