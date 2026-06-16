@@ -5,6 +5,8 @@
 运行根目录：
 `D:\whalecode-alpha\target\e3-v004-proof-20260615\serial-clean-v1\suite-20260616-020714`
 
+综合结论：本次 v0.0.4 E3 运行的主要价值是终于取得了工程 clean 的可分析样本，证明 v0.0.4 在可审计、可诊断、区分工程污染与 agent 解题失败方面明显前进；但 TaskSpace 的产品收益仍未成立。原始结果只比 Standard 多解决 1/15 个 pair，却消耗约 5x agent time 和约 20x direct input+output tokens，并持续暴露 `high_unreviewed_result_ratio`、`high_blocked_node_ratio`、subagent 采纳不足等行为质量问题。下一阶段重点不应继续堆结构，而应转向 decision adoption、TaskSpace budget guardrails、task-shape routing，以及明确的 token/runtime budget 约束。
+
 ## 1. 范围与证据
 
 本报告分析 v0.0.4 在 Terminal-Bench 校准任务上的一次工程 clean 的 E3 串行运行。
