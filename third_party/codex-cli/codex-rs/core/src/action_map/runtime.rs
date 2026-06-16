@@ -2404,6 +2404,7 @@ preview:\n\
         if criteria.is_empty() {
             return Err("TaskSpace record_success_criteria criteria cannot be empty.".to_string());
         }
+        self.validate_success_criteria_update_allowed(&task_id, &map_id, &criteria)?;
         let mut events = Vec::new();
         let task = self
             .tasks
@@ -2423,6 +2424,49 @@ preview:\n\
             ));
         }
         Ok(events)
+    }
+
+    fn validate_success_criteria_update_allowed(
+        &self,
+        task_id: &str,
+        map_id: &str,
+        criteria: &[ProblemSuccessCriterion],
+    ) -> Result<(), String> {
+        let Some(current_node) = self
+            .current_main_node_id
+            .as_deref()
+            .and_then(|node_id| self.maps.get(map_id).and_then(|map| map.nodes.get(node_id)))
+        else {
+            return Ok(());
+        };
+        if current_node.kind != NodeKind::FinalSynthesis {
+            return Ok(());
+        }
+        let existing_ids = self
+            .tasks
+            .get(task_id)
+            .map(|task| {
+                task.problem_ledger
+                    .success_criteria
+                    .iter()
+                    .map(|criterion| criterion.id.as_str())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for criterion in criteria {
+            let is_new = !existing_ids
+                .iter()
+                .any(|existing| *existing == criterion.id);
+            let complete = matches!(criterion.status.as_str(), "satisfied" | "waived")
+                && !criterion.evidence_refs.is_empty();
+            if is_new && !complete {
+                return Err(format!(
+                    "TaskSpace final_synthesis cannot add new open success criterion `{}`. During final_synthesis, only update existing criteria or add a new criterion that is already satisfied/waived with evidence.",
+                    criterion.id
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn record_open_question_for_main(
@@ -13814,6 +13858,56 @@ mod tests {
         state
             .finish_main_node(owner, &node_id, "Tests passed.".to_string(), None)
             .expect("smoke test can finish with validator_ref evidence");
+    }
+
+    #[test]
+    fn final_synthesis_rejects_new_open_success_criterion() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::FinalSynthesis,
+            "Summarize fix",
+            "Summarize the completed fix.",
+            "Final summary",
+            "Write the final summary.",
+            true,
+        );
+
+        let error = state
+            .record_success_criteria_for_main(
+                owner,
+                vec![ActionMapSuccessCriterionInput {
+                    id: "sc-late-open".to_string(),
+                    kind: "test".to_string(),
+                    description: "late open criterion".to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("test-fixture:late".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+            )
+            .expect_err("final synthesis rejects new open criteria");
+        assert!(error.contains("cannot add new open success criterion"));
+
+        state
+            .record_success_criteria_for_main(
+                owner,
+                vec![ActionMapSuccessCriterionInput {
+                    id: "sc-late-satisfied".to_string(),
+                    kind: "test".to_string(),
+                    description: "late satisfied criterion".to_string(),
+                    status: "satisfied".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("test-fixture:late".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+            )
+            .expect("final synthesis accepts complete late criteria");
     }
 
     #[test]

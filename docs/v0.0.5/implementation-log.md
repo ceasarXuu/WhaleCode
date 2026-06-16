@@ -238,6 +238,56 @@ Remaining Phase 1 work:
 - Rebuild/install Whale and rerun live smoke to verify the narrow-inspect guard removes the late subagent expansion.
 - If final_synthesis still loops, the next likely fix is state_commit payload tolerance for `next_best_action.reason` and duplicate evidence-ref aliases.
 
+## 2026-06-17 Phase 1 final_synthesis criterion guard
+
+Observed:
+
+- Installed live smoke with Whale hash `0E7254679E7130DAE50B5C6133158E099A00525537AA51E61A53541134B85AB8` showed the narrow-inspect guard worked:
+  - RunDir: `target\v005-phase1-live-smoke-narrowguard-0e72\single-file-fast-fix\20260617-040427-282`
+  - scenario warnings: none
+  - spawn_agent_calls: 0
+  - subagent_results: 0
+  - nodes: 4
+  - runtime events: 79
+  - walltime ratio: 3.0415
+  - direct input+output ratio: 9.2833
+- Cost is still above the Phase 1/partial gate, but the previous subagent expansion root cause is closed for this smoke shape.
+- Remaining final-stage failure:
+  - smoke_test result was accepted;
+  - model entered final_synthesis;
+  - model then added/updated success criteria during final_synthesis, including a late `sc-2`, causing the final gate to keep reporting incomplete success criteria.
+
+Changed:
+
+- Added `validate_success_criteria_update_allowed`.
+- While the current main node is `final_synthesis`, `record_success_criteria` now rejects new open/questioned criteria.
+- Existing criteria can still be updated, and new criteria are allowed only if they are already `satisfied` or `waived` with evidence.
+- Because `state_commit.success_criteria` reuses `record_success_criteria_for_main`, the same guard applies to transactional commits.
+
+Validation:
+
+```text
+cargo fmt -p codex-core
+ok
+
+cargo test -p codex-core final_synthesis_rejects_new_open_success_criterion --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core finish_smoke_node_requires_successful_validation_evidence --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core state_commit --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+5 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-finalgate-8d2e
+TaskSpace benchmark harness self-test: PASS
+```
+
+Remaining Phase 1 work:
+
+- Rebuild/install Whale and rerun live smoke to verify final_synthesis no longer loops on late open success criteria.
+- If cost is still high with nodes=3/4 and spawn=0, the next dependency is likely Phase 2 prompt/context projection rather than more Phase 1 lifecycle gates.
+
 ## 2026-06-17 Phase 1 validation evidence gate hardening
 
 Changed:
