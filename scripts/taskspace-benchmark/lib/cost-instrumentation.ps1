@@ -141,7 +141,7 @@ function New-TaskspaceRequestSummary {
 }
 
 function New-TaskspaceControlUsageSummary {
-    param([string]$JsonlPath)
+    param([string]$JsonlPath, [string]$ObservabilityJsonPath = "")
     $parsed = Get-TaskspaceCostJsonlRows $JsonlPath
     $actions = @{}
     $total = 0
@@ -187,15 +187,35 @@ function New-TaskspaceControlUsageSummary {
     Remove-Variable -Name taskspaceCostActions -Scope Script -ErrorAction SilentlyContinue
     Remove-Variable -Name taskspaceCostControlTotal -Scope Script -ErrorAction SilentlyContinue
     Remove-Variable -Name taskspaceCostStateCommit -Scope Script -ErrorAction SilentlyContinue
+    $runtimeEventCounts = @{}
+    $runtimeEventTotal = 0
+    $runtimeSourceStatus = "missing"
+    if (-not [string]::IsNullOrWhiteSpace($ObservabilityJsonPath) -and (Test-Path -LiteralPath $ObservabilityJsonPath)) {
+        try {
+            $obs = Get-Content -Raw -Encoding UTF8 -LiteralPath $ObservabilityJsonPath | ConvertFrom-Json
+            $runtimeSourceStatus = "read"
+            foreach ($event in @($obs.timeline | Where-Object { [string]$_.kind -notlike "tool:*" })) {
+                $kind = [string]$event.kind
+                Add-TaskspaceCostCount $runtimeEventCounts $kind
+                $runtimeEventTotal++
+            }
+        } catch {
+            $runtimeSourceStatus = "parse_error"
+        }
+    }
     [pscustomobject]@{
         schema_version = "taskspace-control-usage-v1"
         source_path = $JsonlPath
+        observability_source_path = $ObservabilityJsonPath
         source_status = [string]$parsed.source_status
+        observability_source_status = $runtimeSourceStatus
         parse_errors = [int]$parsed.parse_errors
         availability = if ($parsed.source_status -eq "read") { "measured" } else { "source_missing" }
         taskspace_control_count = [int]$total
         state_commit_count = [int]$stateCommit
+        taskspace_runtime_event_count = [int]$runtimeEventTotal
         action_counts = Convert-TaskspaceCostTable $actions
+        runtime_event_counts = Convert-TaskspaceCostTable $runtimeEventCounts
     }
 }
 
@@ -227,14 +247,15 @@ function New-TaskspaceReplaySummary {
 function Write-TaskspaceCostInstrumentationArtifacts {
     param(
         [Parameter(Mandatory = $true)][string]$ArtifactDir,
-        [AllowEmptyString()][string]$JsonlPath = ""
+        [AllowEmptyString()][string]$JsonlPath = "",
+        [AllowEmptyString()][string]$ObservabilityJsonPath = ""
     )
     if (-not (Test-Path -LiteralPath $ArtifactDir)) {
         New-Item -ItemType Directory -Path $ArtifactDir -Force | Out-Null
     }
     $token = New-TaskspaceTokenSummary $JsonlPath
     $request = New-TaskspaceRequestSummary $JsonlPath $token
-    $control = New-TaskspaceControlUsageSummary $JsonlPath
+    $control = New-TaskspaceControlUsageSummary $JsonlPath $ObservabilityJsonPath
     $replay = New-TaskspaceReplaySummary $ArtifactDir
     $tokenPath = Join-Path $ArtifactDir "token-summary.json"
     $requestPath = Join-Path $ArtifactDir "request-summary.json"
@@ -285,6 +306,7 @@ function New-TaskspaceCostSideTotals {
         wall_time_ms = [double]0
         taskspace_control_count = [double]0
         state_commit_count = [double]0
+        taskspace_runtime_event_count = [double]0
         large_output_replay_count = [double]0
         missing_model_request_count = 0
         missing_input_tokens = 0
@@ -294,6 +316,7 @@ function New-TaskspaceCostSideTotals {
         missing_wall_time_ms = 0
         missing_taskspace_control_count = 0
         missing_state_commit_count = 0
+        missing_taskspace_runtime_event_count = 0
         missing_large_output_replay_count = 0
     }
 }
@@ -369,7 +392,7 @@ function Write-TaskspaceCostAggregateArtifacts {
         $totals = $byMode[$mode]
         $totals.side_count++
         if ([string]$metric.token_summary_availability -eq "measured") { $totals.complete_side_count++ }
-        foreach ($field in @("model_request_count", "input_tokens", "output_tokens", "cached_input_tokens", "uncached_input_tokens", "wall_time_ms", "taskspace_control_count", "state_commit_count", "large_output_replay_count")) {
+        foreach ($field in @("model_request_count", "input_tokens", "output_tokens", "cached_input_tokens", "uncached_input_tokens", "wall_time_ms", "taskspace_control_count", "state_commit_count", "taskspace_runtime_event_count", "large_output_replay_count")) {
             Add-TaskspaceCostMetricTotal $totals $metric $field
         }
     }
@@ -410,7 +433,9 @@ function Write-TaskspaceCostAggregateArtifacts {
         scope = $Scope
         taskspace_control_count = $byMode.taskspace.taskspace_control_count
         state_commit_count = $byMode.taskspace.state_commit_count
+        taskspace_runtime_event_count = $byMode.taskspace.taskspace_runtime_event_count
         standard_taskspace_control_count = $byMode.standard.taskspace_control_count
+        standard_taskspace_runtime_event_count = $byMode.standard.taskspace_runtime_event_count
     }
     $gate = New-TaskspaceCostGate $byMode.standard $byMode.taskspace
     $summary | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $tokenPath -Encoding UTF8

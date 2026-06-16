@@ -56,3 +56,45 @@ Remaining Phase 0 work:
 
 - Run a real focused E3 smoke pair and confirm the generated aggregate artifacts from live Whale execution JSONL.
 - Replace replay detection heuristics with model-visible prompt/history reconstruction once the active profile work starts.
+
+## 2026-06-17 Phase 0 live smoke
+
+Command:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario single-file-fast-fix -Repeats 1 -RunRoot target\v005-phase0-live-smoke-68ebc8a0 -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+```
+
+Result:
+
+- Run exited 0.
+- Run dir: `target\v005-phase0-live-smoke-68ebc8a0\single-file-fast-fix\20260617-012541-362`
+- Side `token-summary.json`, `request-summary.json`, `taskspace-control-usage.json`, and sample `suite-cost-gate.json` were generated from live Whale JSONL.
+- Usage parsing was measured for both sides.
+- `suite-cost-gate.json` failed correctly, not from missing data:
+  - direct input+output ratio: `5.1391`
+  - walltime ratio: `2.0234`
+  - model request count ratio: `1`
+- TaskSpace runtime was active: observability showed `tasks=1`, `maps=1`, `nodes=4`, and `mapRuntimeEvents=121`.
+
+Follow-up fix:
+
+- Live exec JSONL does not expose `taskspace_control` as model-visible tool calls in this path, so `taskspace_control_count=0` is accurate but insufficient for Phase 0 overhead analysis.
+- Added `taskspace_runtime_event_count` and `runtime_event_counts` from `action-map-observability.json`.
+- Reprocessing the live smoke right side produced:
+  - `taskspace_runtime_event_count=121`
+  - `snapshot_updated=39`
+  - `cognitive_state_updated=32`
+  - `node_result_recorded=13`
+  - `node_status_changed=12`
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-runtime-f8f4c39c
+TaskSpace benchmark harness self-test: PASS
+```
+
+Remaining Phase 0 work:
+
+- Replace replay detection heuristics with model-visible prompt/history reconstruction once the active profile work starts.

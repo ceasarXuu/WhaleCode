@@ -292,13 +292,21 @@ Assert-True (-not (@($thinGraphReport.warnings) -contains "thin_mode_violation")
 $costDir = Join-Path $runDir "cost-instrumentation"
 New-Item -ItemType Directory -Path $costDir -Force | Out-Null
 $costJsonl = Join-Path $costDir "exec.jsonl"
+$costObs = Join-Path $costDir "observability.json"
 @(
     (@{ type = "response.completed"; response = @{ usage = @{ input_tokens = 120; output_tokens = 30; input_tokens_details = @{ cached_tokens = 20 } } } } | ConvertTo-Json -Compress -Depth 8),
     (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"start_task","title":"x"}' } } | ConvertTo-Json -Compress -Depth 8),
     (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"finish_node","node_id":"node-1"}' } } | ConvertTo-Json -Compress -Depth 8),
     (@{ type = "response.completed"; response = @{ usage = @{ output_tokens = 7 } } } | ConvertTo-Json -Compress -Depth 8)
 ) | Set-Content -LiteralPath $costJsonl -Encoding UTF8
-$costArtifacts = Write-TaskspaceCostInstrumentationArtifacts $costDir $costJsonl
+[pscustomobject]@{
+    timeline = @(
+        [pscustomobject]@{ kind = "task_created" },
+        [pscustomobject]@{ kind = "node_status_changed" },
+        [pscustomobject]@{ kind = "tool:spawn_agent" }
+    )
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $costObs -Encoding UTF8
+$costArtifacts = Write-TaskspaceCostInstrumentationArtifacts $costDir $costJsonl $costObs
 Assert-True (Test-Path -LiteralPath $costArtifacts.token_summary_path) "token-summary.json was not written"
 Assert-True (Test-Path -LiteralPath $costArtifacts.request_summary_path) "request-summary.json was not written"
 Assert-True (Test-Path -LiteralPath $costArtifacts.taskspace_control_usage_path) "taskspace-control-usage.json was not written"
@@ -307,6 +315,8 @@ Assert-True ([int]$costArtifacts.request_summary.model_request_count -eq 2) "mod
 Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_control_count -eq 2) "taskspace_control count was not parsed"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.start_task -eq 1) "taskspace_control start_task action was not counted"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.finish_node -eq 1) "taskspace_control finish_node action was not counted"
+Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_runtime_event_count -eq 2) "taskspace runtime event count was not parsed from observability"
+Assert-True ([int]$costArtifacts.taskspace_control_usage.runtime_event_counts.node_status_changed -eq 1) "runtime event kind was not counted"
 $missingCostArtifacts = Write-TaskspaceCostInstrumentationArtifacts (Join-Path $runDir "missing-cost") ""
 Assert-True ([string]$missingCostArtifacts.token_summary.availability -eq "source_missing") "missing usage source was not marked source_missing"
 Assert-True ($null -eq $missingCostArtifacts.request_summary.model_request_count) "missing usage source was treated as zero requests"
@@ -322,6 +332,7 @@ New-Item -ItemType Directory -Path (Join-Path $costAggregateRoot "pair-001\right
     logical_mode = "taskspace"; token_summary_availability = "measured"; model_request_count = 20
     input_tokens = 1800; output_tokens = 500; cached_input_tokens = 300; uncached_input_tokens = 1500
     wall_time_ms = 1900; taskspace_control_count = 8; state_commit_count = 2; large_output_replay_count = 0
+    taskspace_runtime_event_count = 17
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $costAggregateRoot "pair-001\right\artifacts\metrics.json") -Encoding UTF8
 $aggregateCost = Write-TaskspaceCostAggregateArtifacts -RootDir $costAggregateRoot -Scope "sample"
 Assert-True (Test-Path -LiteralPath $aggregateCost.token_summary_path) "aggregate token-summary.json was not written"
@@ -329,6 +340,8 @@ Assert-True (Test-Path -LiteralPath $aggregateCost.request_summary_path) "aggreg
 Assert-True (Test-Path -LiteralPath $aggregateCost.taskspace_control_usage_path) "aggregate taskspace-control-usage.json was not written"
 Assert-True (Test-Path -LiteralPath $aggregateCost.suite_cost_gate_path) "suite-cost-gate.json was not written"
 Assert-True ([string]$aggregateCost.gate.status -eq "PASS") "cost gate did not pass when direct and walltime ratios were <= 2x"
+$aggregateControl = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregateCost.taskspace_control_usage_path | ConvertFrom-Json
+Assert-True ([int]$aggregateControl.taskspace_runtime_event_count -eq 17) "aggregate runtime event count was not summed"
 $partialMetricPath = Join-Path $costAggregateRoot "pair-001\right\artifacts\metrics.json"
 [pscustomobject]@{
     logical_mode = "taskspace"; token_summary_availability = "measured"; model_request_count = 24
