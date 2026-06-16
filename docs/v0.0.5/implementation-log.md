@@ -335,6 +335,31 @@ Conclusion:
 
 - The latest live smoke did not merely miss model-visible tool-call counting; it also had no runtime `state_commit.*` events. Phase 1 still needs stronger model/tool routing if `state_commit` adoption remains a gate.
 
+## 2026-06-17 Phase 1 preflight state_commit routing
+
+Changed:
+
+- Updated the cognitive preflight failure remediation to prefer one `taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1)` call with `sections.success_criteria`, `sections.fact_sources`, and related facts/decisions/next action.
+- Kept legacy `record_success_criteria`, `record_output_contract`, and `record_fact_source` in the error text only as focused single-record correction paths.
+- Updated the problem-ledger context hint for missing success criteria to point at `state_commit` instead of a legacy single-record action.
+
+Validation:
+
+```text
+cargo test -p codex-core cognitive_preflight_requires_problem_success_criteria --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core create_seed_map_sets_active_map_context --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-preflightcommit-6b2d
+TaskSpace benchmark harness self-test: PASS
+```
+
+Remaining Phase 1 work:
+
+- Rebuild/install Whale and rerun live smoke to verify whether preflight routing produces nonzero `state_commit_count` or `runtime_state_commit_count`.
+
 ## 2026-06-17 Phase 1 lifecycle state_commit sections
 
 Changed:

@@ -4883,7 +4883,7 @@ preview:\n\
             return Ok(());
         }
         Err(format!(
-            "TaskSpace problem-state preflight is required before ordinary work or subagent spawn on task `{task_id}`. Missing: {}. Call taskspace_control(action=record_success_criteria) for explicit completion standards, taskspace_control(action=record_output_contract) for the user-visible acceptance contract, and taskspace_control(action=record_fact_source) for user-provided or observed source facts. Use evidence_refs such as artifact_ref for the current user request, README/test/source paths, or validator_ref for observed checks.",
+            "TaskSpace problem-state preflight is required before ordinary work or subagent spawn on task `{task_id}`. Missing: {}. Preferred fix: call taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) once with sections.success_criteria, sections.fact_sources, and any related facts/decisions/next_best_action that are ready. Use legacy taskspace_control(action=record_success_criteria), record_output_contract, or record_fact_source only for a focused single-record correction. Use evidence_refs such as artifact_ref for the current user request, README/test/source paths, or validator_ref for observed checks.",
             missing.join(", ")
         ))
     }
@@ -6180,7 +6180,7 @@ fn append_problem_ledger_context(context: &mut String, ledger: &ProblemStateLedg
         context.push('\n');
     }
     if ledger.success_criteria.is_empty() {
-        context.push_str("- success criteria: missing; call taskspace_control(action=record_success_criteria) before ordinary work.\n");
+        context.push_str("- success criteria: missing; prefer taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) with sections.success_criteria plus fact_sources/output-contract records before ordinary work.\n");
     } else {
         context.push_str("- success criteria:\n");
         for criterion in ledger.success_criteria.iter().take(6) {
@@ -13273,6 +13273,7 @@ mod tests {
 
         assert!(error.contains("record_success_criteria"));
         assert!(error.contains("record_output_contract"));
+        assert!(error.contains("state_commit"));
     }
 
     #[test]
