@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TaskSpace OutputReferenceV1",
+  "type": "object",
+  "required": ["output_ref", "sha256", "bytes", "raw_output_elided"],
+  "properties": {
+    "output_ref": {"type": "string"},
+    "sha256": {"type": "string"},
+    "bytes": {"type": "integer"},
+    "summary": {"type": "string"},
+    "head": {"type": "string"},
+    "tail": {"type": "string"},
+    "raw_output_elided": {"type": "boolean"},
+    "suggested_slices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"},
+          "description": {"type": "string"},
+          "command_hint": {"type": "string"}
+        }
+      }
+    }
+  }
+}

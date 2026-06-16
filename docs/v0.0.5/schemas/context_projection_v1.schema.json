@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TaskSpace ContextProjectionV1",
+  "type": "object",
+  "required": ["projection_id", "task_id", "mode", "active_objective", "sections"],
+  "properties": {
+    "projection_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "mode": {"enum": ["thin", "default_compact", "verification_first", "subagent_assisted", "deep"]},
+    "active_objective": {"type": "string"},
+    "token_budget": {"type": "integer"},
+    "estimated_tokens": {"type": "integer"},
+    "sections": {
+      "type": "object",
+      "properties": {
+        "success_criteria": {"type": "array", "items": {"type": "string"}},
+        "current_node": {"type": "string"},
+        "blockers": {"type": "array", "items": {"type": "string"}},
+        "decisions": {"type": "array", "items": {"type": "string"}},
+        "facts": {"type": "array", "items": {"type": "string"}},
+        "validator_state": {"type": "string"},
+        "relevant_results": {"type": "array", "items": {"type": "string"}},
+        "next_valid_actions": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "hidden_refs_available": {"type": "array", "items": {"type": "string"}},
+    "elided_items": {"type": "array", "items": {"type": "string"}}
+  }
+}

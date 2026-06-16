@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TaskSpace StateCommitV1",
+  "type": "object",
+  "required": ["action", "active_node_id"],
+  "properties": {
+    "action": {"const": "state_commit"},
+    "active_node_id": {"type": "string"},
+    "phase_summary": {"type": "string"},
+    "node_update": {
+      "type": "object",
+      "properties": {
+        "status": {"enum": ["running", "completed", "blocked", "deferred", "abandoned"]},
+        "summary": {"type": "string"},
+        "produced_artifacts": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "result_updates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["result_id", "validity"],
+        "properties": {
+          "result_id": {"type": "string"},
+          "validity": {"enum": ["accepted", "rejected", "questioned", "deferred", "audit_only"]},
+          "adoption": {"enum": ["fact", "decision", "hypothesis", "criterion", "retained", "none"]},
+          "summary": {"type": "string"},
+          "reason": {"type": "string"},
+          "condition": {"type": "string"}
+        }
+      }
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["fact_id", "statement"],
+        "properties": {
+          "fact_id": {"type": "string"},
+          "statement": {"type": "string"},
+          "evidence_refs": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["decision_id", "kind", "decision", "depends_on"],
+        "properties": {
+          "decision_id": {"type": "string"},
+          "kind": {"enum": ["routing", "diagnosis", "patch", "validation", "synthesis", "verification"]},
+          "decision": {"type": "string"},
+          "rationale": {"type": "string"},
+          "depends_on": {"type": "array", "items": {"type": "string"}},
+          "supports_criteria": {"type": "array", "items": {"type": "string"}},
+          "resolves_questions": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "criteria_updates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["criterion_id", "status"],
+        "properties": {
+          "criterion_id": {"type": "string"},
+          "status": {"enum": ["open", "satisfied", "questioned", "waived"]},
+          "evidence_refs": {"type": "array", "items": {"type": "string"}},
+          "reason": {"type": "string"}
+        }
+      }
+    },
+    "next_action": {
+      "type": "object",
+      "properties": {
+        "kind": {"enum": ["tool", "state_commit", "validate", "patch", "synthesize", "escalate", "finish"]},
+        "summary": {"type": "string"},
+        "expected_artifact": {"type": "string"}
+      }
+    }
+  }
+}
