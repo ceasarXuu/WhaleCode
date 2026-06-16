@@ -828,6 +828,37 @@ $resumeAggregatePath = Join-Path (Split-Path -Parent $resumeClassifyPair) "aggre
 Write-TaskspaceAggregateReport -Path $resumeAggregatePath -Reports @([pscustomobject]@{ repeat = 1; pair_dir = $resumeClassifyPair; pair_report = (Join-Path $resumeClassifyPair "pair-report.md"); evidence = $resumeClassified.evidence })
 $resumeAggregate = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path (Split-Path -Parent $resumeClassifyPair) "aggregate.json") | ConvertFrom-Json
 Assert-True ([int]$resumeAggregate.valid_utility_pairs -eq 1) "resume aggregate did not include reclassified pair"
+
+$outputRefContractPair = New-Dir (Join-Path $runDir "output-ref-contract\pair-001")
+$outputRefManifest = $resumeResolved.PSObject.Copy()
+$outputRefManifest.scenario = "output-ref-contract"
+$outputRefManifest | Add-Member -NotePropertyName expected -NotePropertyValue ([pscustomobject]@{ min_taskspace_runtime_output_ref_created_count = 1 }) -Force
+Write-TaskspaceJson $outputRefManifest (Join-Path $outputRefContractPair "manifest.resolved.json")
+foreach ($side in @("left", "right")) {
+    New-Dir (Join-Path $outputRefContractPair "$side\repo") | Out-Null
+    New-Dir (Join-Path $outputRefContractPair "$side\artifacts") | Out-Null
+    Write-Text (Join-Path $outputRefContractPair "$side\artifacts\validation.stdout.log") ""
+    Write-Text (Join-Path $outputRefContractPair "$side\artifacts\validation.stderr.log") ""
+    Write-Text (Join-Path $outputRefContractPair "$side\artifacts\git-diff.patch") ""
+}
+$outputRefLeftMetrics = $resumeLeftMetrics.PSObject.Copy()
+$outputRefRightMetrics = $resumeRightMetrics.PSObject.Copy()
+$outputRefRightMetrics | Add-Member -NotePropertyName runtime_output_ref_created_count -NotePropertyValue 0 -Force
+$outputRefRightMetrics.metrics_taints = @()
+Write-TaskspaceJson $outputRefLeftMetrics (Join-Path $outputRefContractPair "left\artifacts\metrics.json")
+Write-TaskspaceJson $outputRefRightMetrics (Join-Path $outputRefContractPair "right\artifacts\metrics.json")
+$outputRefClassified = Get-TaskspacePairEvidenceFromArtifacts $outputRefContractPair 3 $promptGuardOk $true "" "E2"
+Assert-True (@($outputRefClassified.right_metrics.metrics_taints) -contains "scenario_expected_runtime_output_ref_created_count_not_met:0<1") "output-ref scenario contract did not taint taskspace metrics"
+Assert-True ([bool]$outputRefClassified.evidence.engineering_unclean) "output-ref scenario contract miss did not mark evidence engineering_unclean"
+$outputRefPairReport = Join-Path $outputRefContractPair "pair-report.md"
+$outputRefReportManifest = [pscustomobject]@{
+    Expected = $outputRefManifest.expected
+    EvidenceTarget = "E2"
+}
+Write-TaskspacePairReport $outputRefPairReport $outputRefReportManifest $promptGuardOk $outputRefClassified.variable_control $outputRefClassified.evidence $outputRefClassified.left_metrics $outputRefClassified.right_metrics $outputRefClassified.pair
+$outputRefPairReportText = Get-Content -Raw -Encoding UTF8 -LiteralPath $outputRefPairReport
+Assert-True ($outputRefPairReportText -match "taskspace_runtime_output_ref_created_count_below_expected: 0 < 1") "output-ref scenario warning missing from pair report"
+
 $e3ReportManifest = $manifest.PSObject.Copy()
 $e3ReportManifest.EvidenceTarget = "E3"
 $e3ReportManifest.SampleOrigin = $e3Origin

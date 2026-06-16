@@ -461,6 +461,27 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         Write-TaskspaceJson $metrics (Join-Path $side.ArtifactDir "metrics.json")
         $metricsBySide[$side.Name] = $metrics
     }
+    $taskspaceMetricSide = @($pair.Left, $pair.Right) | Where-Object { $_.LogicalMode -eq "taskspace" } | Select-Object -First 1
+    if ($taskspaceMetricSide -and
+        $manifest.Expected -and
+        $manifest.Expected.PSObject.Properties.Name -contains "min_taskspace_runtime_output_ref_created_count") {
+        $taskspaceMetrics = $metricsBySide[$taskspaceMetricSide.Name]
+        $expectedOutputRefs = [int]$manifest.Expected.min_taskspace_runtime_output_ref_created_count
+        $actualOutputRefs = if ($taskspaceMetrics.PSObject.Properties.Name -contains "runtime_output_ref_created_count") {
+            [int]$taskspaceMetrics.runtime_output_ref_created_count
+        } else {
+            0
+        }
+        if ($actualOutputRefs -lt $expectedOutputRefs) {
+            $existingTaints = @()
+            if ($taskspaceMetrics.PSObject.Properties.Name -contains "metrics_taints") {
+                $existingTaints = @($taskspaceMetrics.metrics_taints)
+            }
+            $taint = "scenario_expected_runtime_output_ref_created_count_not_met:$actualOutputRefs<$expectedOutputRefs"
+            $taskspaceMetrics | Add-Member -NotePropertyName metrics_taints -NotePropertyValue @(@($existingTaints) + $taint) -Force
+            Write-TaskspaceJson $taskspaceMetrics (Join-Path $taskspaceMetricSide.ArtifactDir "metrics.json")
+        }
+    }
     $variableControl = Compare-TaskspacePairVariables $manifestResolved $metricsBySide["left"] $metricsBySide["right"]
     $externalProof = New-TaskspaceExternalEvidenceProof $pair $manifest $metricsBySide $sourceGuard
     $oracleLevels = @($metricsBySide["left"].oracle_isolation_level, $metricsBySide["right"].oracle_isolation_level)

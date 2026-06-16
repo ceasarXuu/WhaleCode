@@ -79,6 +79,11 @@ function Get-TaskspaceEngineeringUncleanReasons {
             if ($text -eq "docker_run_failure" -and (Get-TaskspaceMetricBool $Metrics "tests_started_seen") -and (Get-TaskspaceMetricBool $Metrics "tests_completed_seen")) { continue }
             Add-TaskspaceFailureClass $reasons $text
         }
+        foreach ($taint in @(Get-TaskspaceMetricArray $Metrics "metrics_taints")) {
+            $text = [string]$taint
+            if ([string]::IsNullOrWhiteSpace($text)) { continue }
+            Add-TaskspaceFailureClass $reasons $text
+        }
         if (Get-TaskspaceMetricBool $Metrics "pretest_failure") {
             $signature = if ($Metrics.PSObject.Properties.Name -contains "infra_signature" -and $Metrics.infra_signature) { [string]$Metrics.infra_signature.stable_code } else { "validator_pretest_failure" }
             Add-TaskspaceFailureClass $reasons $signature

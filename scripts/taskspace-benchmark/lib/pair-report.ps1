@@ -389,6 +389,17 @@ function Write-TaskspacePairReport {
         if ($Manifest.Expected.max_taskspace_spawn_agent_calls -ne $null -and $taskspaceMetrics.spawn_agent_calls -gt [int]$Manifest.Expected.max_taskspace_spawn_agent_calls) {
             $warnings.Add("taskspace_spawn_agent_calls_exceeds_expected: $($taskspaceMetrics.spawn_agent_calls) > $($Manifest.Expected.max_taskspace_spawn_agent_calls)")
         }
+        if ($Manifest.Expected.PSObject.Properties.Name -contains "min_taskspace_runtime_output_ref_created_count") {
+            $expectedOutputRefs = [int]$Manifest.Expected.min_taskspace_runtime_output_ref_created_count
+            $actualOutputRefs = if ($taskspaceMetrics.PSObject.Properties.Name -contains "runtime_output_ref_created_count") {
+                [int]$taskspaceMetrics.runtime_output_ref_created_count
+            } else {
+                0
+            }
+            if ($actualOutputRefs -lt $expectedOutputRefs) {
+                $warnings.Add("taskspace_runtime_output_ref_created_count_below_expected: $actualOutputRefs < $expectedOutputRefs")
+            }
+        }
         if ($warnings.Count -eq 0) { $lines.Add("- none") } else { foreach ($warning in $warnings) { $lines.Add("- $warning") } }
     }
     $standardMetrics = @($LeftMetrics, $RightMetrics) | Where-Object { $_.logical_mode -eq "standard" } | Select-Object -First 1

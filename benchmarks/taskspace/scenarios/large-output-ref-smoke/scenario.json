@@ -22,7 +22,8 @@
     "standard_success": true,
     "taskspace_success": true,
     "max_taskspace_nodes": 4,
-    "max_taskspace_spawn_agent_calls": 0
+    "max_taskspace_spawn_agent_calls": 0,
+    "min_taskspace_runtime_output_ref_created_count": 1
   },
   "thresholds": {
     "taskspace_wall_time_ratio_warn": 3.0,

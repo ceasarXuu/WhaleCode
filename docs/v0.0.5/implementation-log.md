@@ -183,6 +183,40 @@ Remaining Phase 2 work:
 
 - This live smoke did not create a runtime output reference: `runtime_output_ref_created_count=0`. The model redirected the diagnostic output to `diagnostic_output.txt`, which kept `large_output_replay_count=0` and `raw_output_in_prompt_violation=false` but did not prove the output-reference path in this run. The next fix should prevent this bypass or add an oracle that requires direct large stdout capture.
 
+## 2026-06-17 Phase 2 output-ref scenario contract
+
+Changed:
+
+- Added `expected.min_taskspace_runtime_output_ref_created_count` to the benchmark scenario contract.
+- `large-output-ref-smoke` now requires at least one TaskSpace runtime output reference.
+- Pair reports now show `taskspace_runtime_output_ref_created_count_below_expected` when a scenario requires output refs but the taskspace side creates too few.
+- Resume/reclassification and live run paths both apply the scenario output-ref contract. Contract misses become metrics taints and therefore engineering-unclean evidence.
+- Added harness self-test coverage for the output-ref contract miss path.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-outputref-contract-livepath-2
+TaskSpace benchmark harness self-test: PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-phase2-live-smoke-outputref-contract-livepath-2 -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-phase2-live-smoke-outputref-contract-livepath-2\large-output-ref-smoke\20260617-072905-062
+```
+
+Live smoke evidence:
+
+- `runtime_output_ref_created_count=1`.
+- `large_output_replay_count=0`.
+- `raw_output_in_prompt_violation=false`.
+- `business_success=True`, `exec_exit_code=0`, `public_validation_exit_code=0`, `hidden_oracle_exit_code=0`.
+- `open_leaf_nodes=0`, `spawn_agent_calls=0`.
+- Remaining scenario warning: `taskspace_node_count_exceeds_expected: 9 > 4`.
+- Remaining engineering-clean blockers: `repeats_lt_3`, `cleanup_not_attempted_manifest_missing`, `no_tests_started_marker`.
+
+Remaining Phase 2 work:
+
+- Route expansion still regressed under the output-ref-positive live smoke: the graph completed but used 9 nodes against the scenario target of 4. The next fix should inspect the observability graph for the redundant node pattern and close that path without weakening output-ref enforcement.
+
 ## 2026-06-17 Phase 2 shell output references
 
 Changed:

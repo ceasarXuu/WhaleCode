@@ -41,6 +41,24 @@ function Get-TaskspacePairEvidenceFromArtifacts {
     }
     $standardMetrics = @($leftMetrics, $rightMetrics) | Where-Object { $_.logical_mode -eq "standard" } | Select-Object -First 1
     $taskspaceMetrics = @($leftMetrics, $rightMetrics) | Where-Object { $_.logical_mode -eq "taskspace" } | Select-Object -First 1
+    if ($taskspaceMetrics -and
+        $manifestResolved.expected -and
+        $manifestResolved.expected.PSObject.Properties.Name -contains "min_taskspace_runtime_output_ref_created_count") {
+        $expectedOutputRefs = [int]$manifestResolved.expected.min_taskspace_runtime_output_ref_created_count
+        $actualOutputRefs = if ($taskspaceMetrics.PSObject.Properties.Name -contains "runtime_output_ref_created_count") {
+            [int]$taskspaceMetrics.runtime_output_ref_created_count
+        } else {
+            0
+        }
+        if ($actualOutputRefs -lt $expectedOutputRefs) {
+            $existingTaints = @()
+            if ($taskspaceMetrics.PSObject.Properties.Name -contains "metrics_taints") {
+                $existingTaints = @($taskspaceMetrics.metrics_taints)
+            }
+            $taint = "scenario_expected_runtime_output_ref_created_count_not_met:$actualOutputRefs<$expectedOutputRefs"
+            $taskspaceMetrics | Add-Member -NotePropertyName metrics_taints -NotePropertyValue @(@($existingTaints) + $taint) -Force
+        }
+    }
     $sideOutcomes = [pscustomobject]@{
         standard_success = ($standardMetrics -and [bool]$standardMetrics.business_success)
         taskspace_success = ($taskspaceMetrics -and [bool]$taskspaceMetrics.business_success)
