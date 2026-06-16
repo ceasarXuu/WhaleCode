@@ -252,3 +252,176 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         replay_summary = $replay
     }
 }
+
+function Get-TaskspaceCostMetricNumber {
+    param($Metric, [string]$Name)
+    if ($Metric -and $Metric.PSObject.Properties.Name -contains $Name -and $null -ne $Metric.$Name) {
+        try { return [double]$Metric.$Name } catch { return $null }
+    }
+    $null
+}
+
+function Add-TaskspaceCostMetricTotal {
+    param([System.Collections.IDictionary]$Totals, $Metric, [string]$Field)
+    $value = Get-TaskspaceCostMetricNumber $Metric $Field
+    if ($null -eq $value) {
+        $Totals["missing_$Field"]++
+        return
+    }
+    $Totals[$Field] = [double]$Totals[$Field] + [double]$value
+}
+
+function New-TaskspaceCostSideTotals {
+    param([string]$Mode)
+    [ordered]@{
+        logical_mode = $Mode
+        side_count = 0
+        complete_side_count = 0
+        model_request_count = [double]0
+        input_tokens = [double]0
+        output_tokens = [double]0
+        cached_input_tokens = [double]0
+        uncached_input_tokens = [double]0
+        wall_time_ms = [double]0
+        taskspace_control_count = [double]0
+        state_commit_count = [double]0
+        large_output_replay_count = [double]0
+        missing_model_request_count = 0
+        missing_input_tokens = 0
+        missing_output_tokens = 0
+        missing_cached_input_tokens = 0
+        missing_uncached_input_tokens = 0
+        missing_wall_time_ms = 0
+        missing_taskspace_control_count = 0
+        missing_state_commit_count = 0
+        missing_large_output_replay_count = 0
+    }
+}
+
+function Get-TaskspaceCostRatio {
+    param($Numerator, $Denominator)
+    if ($null -eq $Numerator -or $null -eq $Denominator -or [double]$Denominator -le 0) { return $null }
+    [Math]::Round([double]$Numerator / [double]$Denominator, 4)
+}
+
+function New-TaskspaceCostGate {
+    param($Standard, $Taskspace)
+    $missing = New-Object System.Collections.Generic.List[string]
+    foreach ($field in @("model_request_count", "input_tokens", "output_tokens", "wall_time_ms")) {
+        if ($Standard["missing_$field"] -gt 0 -or $Taskspace["missing_$field"] -gt 0 -or [double]$Standard[$field] -le 0) {
+            $missing.Add($field)
+        }
+    }
+    $standardDirect = [double]$Standard.input_tokens + [double]$Standard.output_tokens
+    $taskspaceDirect = [double]$Taskspace.input_tokens + [double]$Taskspace.output_tokens
+    $directRatio = Get-TaskspaceCostRatio $taskspaceDirect $standardDirect
+    $wallRatio = Get-TaskspaceCostRatio $Taskspace.wall_time_ms $Standard.wall_time_ms
+    $requestRatio = Get-TaskspaceCostRatio $Taskspace.model_request_count $Standard.model_request_count
+    $status = "FAIL"
+    $reason = "cost_gate_failed"
+    if ($missing.Count -gt 0 -or $null -eq $directRatio -or $null -eq $wallRatio -or $null -eq $requestRatio) {
+        $status = "FAIL"
+        $reason = "missing_cost_data"
+    } elseif ($directRatio -le 2.0 -and $wallRatio -le 2.0) {
+        $status = "PASS"
+        $reason = "primary_cost_gate_passed"
+    } elseif ($directRatio -le 3.0 -and $wallRatio -le 3.0 -and $requestRatio -le 2.5) {
+        $status = "PARTIAL"
+        $reason = "engineering_partial_cost_gate_passed"
+    }
+    [pscustomobject]@{
+        schema_version = "taskspace-suite-cost-gate-v1"
+        status = $status
+        reason = $reason
+        missing_fields = @($missing.ToArray())
+        ratios = [pscustomobject]@{
+            direct_input_output_ratio = $directRatio
+            walltime_ratio = $wallRatio
+            model_request_count_ratio = $requestRatio
+        }
+        thresholds = [pscustomobject]@{
+            pass_direct_input_output_ratio = 2.0
+            pass_walltime_ratio = 2.0
+            partial_direct_input_output_ratio = 3.0
+            partial_walltime_ratio = 3.0
+            partial_model_request_count_ratio = 2.5
+        }
+    }
+}
+
+function Write-TaskspaceCostAggregateArtifacts {
+    param(
+        [Parameter(Mandatory = $true)][string]$RootDir,
+        [Parameter(Mandatory = $true)][ValidateSet("pair", "sample", "suite")][string]$Scope
+    )
+    if (-not (Test-Path -LiteralPath $RootDir)) { throw "Cost aggregate root does not exist: $RootDir" }
+    $metricFiles = @(Get-ChildItem -LiteralPath $RootDir -Filter "metrics.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName)
+    $parseErrors = New-Object System.Collections.Generic.List[string]
+    $byMode = @{
+        standard = New-TaskspaceCostSideTotals "standard"
+        taskspace = New-TaskspaceCostSideTotals "taskspace"
+        other = New-TaskspaceCostSideTotals "other"
+    }
+    foreach ($file in $metricFiles) {
+        try { $metric = Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json } catch { $parseErrors.Add($file.FullName); continue }
+        $mode = if ($metric.PSObject.Properties.Name -contains "logical_mode") { [string]$metric.logical_mode } else { "other" }
+        if (-not $byMode.ContainsKey($mode)) { $mode = "other" }
+        $totals = $byMode[$mode]
+        $totals.side_count++
+        if ([string]$metric.token_summary_availability -eq "measured") { $totals.complete_side_count++ }
+        foreach ($field in @("model_request_count", "input_tokens", "output_tokens", "cached_input_tokens", "uncached_input_tokens", "wall_time_ms", "taskspace_control_count", "state_commit_count", "large_output_replay_count")) {
+            Add-TaskspaceCostMetricTotal $totals $metric $field
+        }
+    }
+    $tokenPath = Join-Path $RootDir "token-summary.json"
+    $requestPath = Join-Path $RootDir "request-summary.json"
+    $controlPath = Join-Path $RootDir "taskspace-control-usage.json"
+    $gatePath = Join-Path $RootDir "suite-cost-gate.json"
+    $summary = [pscustomobject]@{
+        schema_version = "taskspace-cost-aggregate-v1"
+        scope = $Scope
+        root_dir = $RootDir
+        metric_file_count = @($metricFiles).Count
+        parse_error_count = $parseErrors.Count
+        parse_error_paths = @($parseErrors.ToArray())
+        modes = [pscustomobject]@{
+            standard = [pscustomobject]$byMode.standard
+            taskspace = [pscustomobject]$byMode.taskspace
+            other = [pscustomobject]$byMode.other
+        }
+        generated_at = (Get-Date).ToString("o")
+    }
+    $request = [pscustomobject]@{
+        schema_version = "taskspace-request-aggregate-v1"
+        scope = $Scope
+        standard = [pscustomobject]@{
+            model_request_count = $byMode.standard.model_request_count
+            avg_input_tokens_per_request = Get-TaskspaceCostRatio $byMode.standard.input_tokens $byMode.standard.model_request_count
+            avg_output_tokens_per_request = Get-TaskspaceCostRatio $byMode.standard.output_tokens $byMode.standard.model_request_count
+        }
+        taskspace = [pscustomobject]@{
+            model_request_count = $byMode.taskspace.model_request_count
+            avg_input_tokens_per_request = Get-TaskspaceCostRatio $byMode.taskspace.input_tokens $byMode.taskspace.model_request_count
+            avg_output_tokens_per_request = Get-TaskspaceCostRatio $byMode.taskspace.output_tokens $byMode.taskspace.model_request_count
+        }
+    }
+    $control = [pscustomobject]@{
+        schema_version = "taskspace-control-usage-aggregate-v1"
+        scope = $Scope
+        taskspace_control_count = $byMode.taskspace.taskspace_control_count
+        state_commit_count = $byMode.taskspace.state_commit_count
+        standard_taskspace_control_count = $byMode.standard.taskspace_control_count
+    }
+    $gate = New-TaskspaceCostGate $byMode.standard $byMode.taskspace
+    $summary | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $tokenPath -Encoding UTF8
+    $request | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $requestPath -Encoding UTF8
+    $control | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $controlPath -Encoding UTF8
+    $gate | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $gatePath -Encoding UTF8
+    [pscustomobject]@{
+        token_summary_path = $tokenPath
+        request_summary_path = $requestPath
+        taskspace_control_usage_path = $controlPath
+        suite_cost_gate_path = $gatePath
+        gate = $gate
+    }
+}

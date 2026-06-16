@@ -46,6 +46,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "lib\e3-identity.ps1")
 . (Join-Path $PSScriptRoot "lib\calibration-selection.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-start-gate.ps1")
+. (Join-Path $PSScriptRoot "lib\cost-instrumentation.ps1")
 if ($Repeats -lt 5) { throw "E3 suite requires Repeats >= 5." }
 if (-not (Test-Path -LiteralPath $TaskListPath)) { Write-Error "TaskListPath not found: $TaskListPath"; exit 4 }
 $scoreValidityEnforced = ($ScoringMode -or $RequireScoreValidity -or -not $PlanOnly)
@@ -137,9 +138,10 @@ function Write-SuiteEarlyAbortArtifacts {
         generated_at = (Get-Date).ToString("o")
     } | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $suiteHealthPath -Encoding UTF8
     $suiteTimingPath = Write-TaskspaceSuiteTiming -SuiteRoot $suiteRoot -SampleStatuses $statuses -TaskListHash $taskListHash -SourceVersion $SourceVersion -ProfileHash $profileHash
+    $suiteCost = Write-TaskspaceCostAggregateArtifacts -RootDir $suiteRoot -Scope "suite"
     $runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath $suiteTimingPath -ScoreValid $false
     $calibrationPath = Write-TaskspaceRuntimeCalibrationReport -TimingPath $suiteTimingPath -ScoreValid $false -CommandLine ([Environment]::CommandLine) -ParallelismPath $(if (Get-Variable -Name parallelismPath -Scope Script -ErrorAction SilentlyContinue) { $script:parallelismPath } else { "" })
-    [pscustomobject]@{ suite_timing_path = $suiteTimingPath; runtime_bottleneck_path = $runtimeBottleneckPath; runtime_calibration_path = $calibrationPath }
+    [pscustomobject]@{ suite_timing_path = $suiteTimingPath; suite_cost_gate_path = [string]$suiteCost.suite_cost_gate_path; runtime_bottleneck_path = $runtimeBottleneckPath; runtime_calibration_path = $calibrationPath }
 }
 
 if ($scoreValidityEnforced -and -not $PlanOnly -and -not $SkipStartGate) {
@@ -459,6 +461,7 @@ for ($index = 0; $index -lt $tasks.Count; ) {
 $statusText = if ($suiteAbort) { "invalid_harness" } else { "completed" }
 Write-SuiteHealth $statusText @($sampleStatuses.ToArray()) $signatureCounts $suiteAbort
 $suiteTimingPath = Write-TaskspaceSuiteTiming -SuiteRoot $suiteRoot -SampleStatuses @($sampleStatuses.ToArray()) -TaskListHash $taskListHash -SourceVersion $SourceVersion -ProfileHash $profileHash
+$suiteCost = Write-TaskspaceCostAggregateArtifacts -RootDir $suiteRoot -Scope "suite"
 $runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath $suiteTimingPath -ScoreValid (-not [bool]$suiteAbort)
 $gitCommit = ""
 try { $gitCommit = (& git -C (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path rev-parse HEAD 2>$null) } catch { $gitCommit = "" }
@@ -466,6 +469,7 @@ $calibrationPath = Write-TaskspaceRuntimeCalibrationReport -TimingPath $suiteTim
 Write-Host "SuiteRoot: $suiteRoot"
 Write-Host "SuiteHealth: $suiteHealthPath"
 Write-Host "SuiteTiming: $suiteTimingPath"
+Write-Host "SuiteCostGate: $($suiteCost.suite_cost_gate_path)"
 Write-Host "RuntimeBottleneck: $runtimeBottleneckPath"
 Write-Host "RuntimeCalibration: $calibrationPath"
 Write-Host "Parallelism: $parallelismPath"

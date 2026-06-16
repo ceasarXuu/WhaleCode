@@ -548,6 +548,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             }) $abortPath
             Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "sentinel_pair" ([string]$sentinel.reason) $sentinel.signature $abortPath $commandLine $repeat $repeat | Out-Null
             $sampleTimingPath = Write-TaskspaceSampleTiming -RunDir $runDir -SampleId $manifest.Id -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
+            Write-TaskspaceCostAggregateArtifacts -RootDir $runDir -Scope "sample" | Out-Null
             Write-TaskspaceRuntimeBottleneckReport -TimingPath $sampleTimingPath -ScoreValid $false | Out-Null
             Write-Host "RunDir: $runDir"
             Write-Host "PairAbort: $abortPath"
@@ -559,6 +560,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
 $runSummaryPath = Join-Path $runDir "run-summary.md"
 Write-TaskspaceRunSummary -Path $runSummaryPath -Reports @($pairReports.ToArray())
 $sampleTimingPath = Write-TaskspaceSampleTiming -RunDir $runDir -SampleId $manifest.Id -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
+Write-TaskspaceCostAggregateArtifacts -RootDir $runDir -Scope "sample" | Out-Null
 if ($EnableAggregate) {
     $aggregatePath = Join-Path $runDir "aggregate-report.md"
     Write-TaskspaceAggregateReport -Path $aggregatePath -Reports @($pairReports.ToArray())

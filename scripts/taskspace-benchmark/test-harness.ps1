@@ -310,6 +310,39 @@ Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.finish_no
 $missingCostArtifacts = Write-TaskspaceCostInstrumentationArtifacts (Join-Path $runDir "missing-cost") ""
 Assert-True ([string]$missingCostArtifacts.token_summary.availability -eq "source_missing") "missing usage source was not marked source_missing"
 Assert-True ($null -eq $missingCostArtifacts.request_summary.model_request_count) "missing usage source was treated as zero requests"
+$costAggregateRoot = Join-Path $runDir "cost-aggregate"
+New-Item -ItemType Directory -Path (Join-Path $costAggregateRoot "pair-001\left\artifacts") -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $costAggregateRoot "pair-001\right\artifacts") -Force | Out-Null
+[pscustomobject]@{
+    logical_mode = "standard"; token_summary_availability = "measured"; model_request_count = 10
+    input_tokens = 1000; output_tokens = 200; cached_input_tokens = 100; uncached_input_tokens = 900
+    wall_time_ms = 1000; taskspace_control_count = 0; state_commit_count = 0; large_output_replay_count = 0
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $costAggregateRoot "pair-001\left\artifacts\metrics.json") -Encoding UTF8
+[pscustomobject]@{
+    logical_mode = "taskspace"; token_summary_availability = "measured"; model_request_count = 20
+    input_tokens = 1800; output_tokens = 500; cached_input_tokens = 300; uncached_input_tokens = 1500
+    wall_time_ms = 1900; taskspace_control_count = 8; state_commit_count = 2; large_output_replay_count = 0
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $costAggregateRoot "pair-001\right\artifacts\metrics.json") -Encoding UTF8
+$aggregateCost = Write-TaskspaceCostAggregateArtifacts -RootDir $costAggregateRoot -Scope "sample"
+Assert-True (Test-Path -LiteralPath $aggregateCost.token_summary_path) "aggregate token-summary.json was not written"
+Assert-True (Test-Path -LiteralPath $aggregateCost.request_summary_path) "aggregate request-summary.json was not written"
+Assert-True (Test-Path -LiteralPath $aggregateCost.taskspace_control_usage_path) "aggregate taskspace-control-usage.json was not written"
+Assert-True (Test-Path -LiteralPath $aggregateCost.suite_cost_gate_path) "suite-cost-gate.json was not written"
+Assert-True ([string]$aggregateCost.gate.status -eq "PASS") "cost gate did not pass when direct and walltime ratios were <= 2x"
+$partialMetricPath = Join-Path $costAggregateRoot "pair-001\right\artifacts\metrics.json"
+[pscustomobject]@{
+    logical_mode = "taskspace"; token_summary_availability = "measured"; model_request_count = 24
+    input_tokens = 2600; output_tokens = 500; cached_input_tokens = 300; uncached_input_tokens = 2300
+    wall_time_ms = 2600; taskspace_control_count = 8; state_commit_count = 2; large_output_replay_count = 0
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $partialMetricPath -Encoding UTF8
+$partialGate = (Write-TaskspaceCostAggregateArtifacts -RootDir $costAggregateRoot -Scope "sample").gate
+Assert-True ([string]$partialGate.status -eq "PARTIAL") "cost gate did not return PARTIAL for engineering partial thresholds"
+[pscustomobject]@{
+    logical_mode = "taskspace"; token_summary_availability = "partial"; model_request_count = 30
+    output_tokens = 500; wall_time_ms = 4000; taskspace_control_count = 8; state_commit_count = 2; large_output_replay_count = 0
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $partialMetricPath -Encoding UTF8
+$missingGate = (Write-TaskspaceCostAggregateArtifacts -RootDir $costAggregateRoot -Scope "sample").gate
+Assert-True ([string]$missingGate.status -eq "FAIL" -and [string]$missingGate.reason -eq "missing_cost_data") "cost gate did not fail closed on missing input tokens"
 
 $standardArgv = New-TaskspaceWhaleArgv "standard" "model-x" "C:\neutral\left\repo" "C:\neutral\left\last.md"
 $taskspaceArgv = New-TaskspaceWhaleArgv "taskspace" "model-x" "C:\neutral\right\repo" "C:\neutral\right\last.md"

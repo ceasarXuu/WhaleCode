@@ -17,6 +17,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\report-summary.ps1")
 . (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\aggregate-report.ps1")
 . (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\timing.ps1")
+. (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\cost-instrumentation.ps1")
 
 function Read-JsonFile {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -76,6 +77,7 @@ $summaryPath = Join-Path $run "run-summary.md"
 Write-TaskspaceRunSummary -Path $summaryPath -Reports @($reports.ToArray())
 if ([string]::IsNullOrWhiteSpace($sampleId)) { $sampleId = Split-Path -Leaf $run }
 $sampleTimingPath = Write-TaskspaceSampleTiming $run $sampleId
+$costAggregate = Write-TaskspaceCostAggregateArtifacts -RootDir $run -Scope "sample"
 if ($EnableAggregate) { Write-TaskspaceAggregateReport -Path (Join-Path $run "aggregate-report.md") -Reports @($reports.ToArray()) }
 [pscustomobject]@{
     schema_version = 1
@@ -84,6 +86,7 @@ if ($EnableAggregate) { Write-TaskspaceAggregateReport -Path (Join-Path $run "ag
     hidden_oracle_rerun_allowed = $false
     pair_count = $reports.Count
     sample_timing_path = $sampleTimingPath
+    suite_cost_gate_path = [string]$costAggregate.suite_cost_gate_path
     generated_at = (Get-Date).ToString("o")
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $run "finalize-health.json") -Encoding UTF8
 Write-Host "RunSummary: $summaryPath"
