@@ -288,6 +288,50 @@ Remaining Phase 1 work:
 - Rebuild/install Whale and rerun live smoke to verify final_synthesis no longer loops on late open success criteria.
 - If cost is still high with nodes=3/4 and spawn=0, the next dependency is likely Phase 2 prompt/context projection rather than more Phase 1 lifecycle gates.
 
+## 2026-06-17 Phase 1 finalgate live smoke
+
+Installed:
+
+- Whale hash: `2F5F2AE947940FBED2375A703677AB220A9979E4E934FD189E4E9616EAFD0A4E`
+- Commit under test: `07ade7df4`
+
+Validation:
+
+```text
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev profile
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario single-file-fast-fix -Repeats 1 -RunRoot target\v005-phase1-live-smoke-finalgate-2f5f -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-phase1-live-smoke-finalgate-2f5f\single-file-fast-fix\20260617-041625-523
+```
+
+Result:
+
+- TaskSpace business success: True
+- public validation exit code: 0
+- hidden oracle exit code: 0
+- scenario warnings: none
+- nodes: 4
+- spawn_agent_calls: 0
+- subagent_results: 0
+- open_leaf_nodes: 0
+- runtime_state_commit_count: 3
+- taskspace runtime events: 86
+- direct input+output ratio: 6.4041
+- walltime ratio: 2.4078
+- model_request_count_ratio: 1
+
+Conclusion:
+
+- The final_synthesis late-criterion guard did not prevent successful closure; final_synthesis completed in the live smoke.
+- Phase 1 structural goals are now mostly true for this smoke shape: no late subagent expansion, no open leaf, final node closes, and runtime state_commit events are present.
+- Phase 1 cost remains above both release and partial token gates. With spawn eliminated and request-count ratio at 1, the remaining dominant issue is prompt/context size, which belongs to Phase 2 output referenceization and context projection rather than more lifecycle gates.
+
+Remaining:
+
+- Treat Phase 1 as functionally ready for Phase 2 dependency work, but not release-ready by itself.
+- Start Phase 2 with prompt/token source attribution and output referenceization.
+
 ## 2026-06-17 Phase 1 validation evidence gate hardening
 
 Changed:
