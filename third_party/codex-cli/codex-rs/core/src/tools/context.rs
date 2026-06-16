@@ -23,6 +23,8 @@ use codex_utils_output_truncation::formatted_truncate_text;
 use codex_utils_string::take_bytes_at_char_boundary;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
+use sha2::Digest;
+use sha2::Sha256;
 use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,6 +32,9 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 pub type SharedTurnDiffTracker = Arc<Mutex<TurnDiffTracker>>;
+
+const OUTPUT_REFERENCE_THRESHOLD_BYTES: usize = 50 * 1024;
+const OUTPUT_REFERENCE_SLICE_BYTES: usize = 2 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ToolCallSource {
@@ -481,10 +486,42 @@ impl ExecCommandToolOutput {
         }
 
         sections.push("Output:".to_string());
-        sections.push(self.truncated_output());
+        sections.push(self.model_visible_output());
 
         sections.join("\n")
     }
+
+    fn model_visible_output(&self) -> String {
+        if self.raw_output.len() <= OUTPUT_REFERENCE_THRESHOLD_BYTES {
+            return self.truncated_output();
+        }
+        output_reference_text(&self.raw_output)
+    }
+}
+
+fn output_reference_text(raw_output: &[u8]) -> String {
+    let text = String::from_utf8_lossy(raw_output);
+    let line_count = text.lines().count();
+    let sha256 = Sha256::digest(raw_output);
+    let head = take_bytes_at_char_boundary(&text, OUTPUT_REFERENCE_SLICE_BYTES).to_string();
+    let tail = take_tail_bytes_at_char_boundary(&text, OUTPUT_REFERENCE_SLICE_BYTES);
+    format!(
+        "OutputReferenceV1:\nsha256: {sha256:x}\nbytes: {}\nlines: {line_count}\npolicy: referenced_large_output\ninline_head_bytes: {}\ninline_tail_bytes: {}\n\n[head]\n{head}\n\n[tail]\n{tail}",
+        raw_output.len(),
+        head.len(),
+        tail.len(),
+    )
+}
+
+fn take_tail_bytes_at_char_boundary(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.to_string();
+    }
+    let start = text.len().saturating_sub(max_bytes);
+    let start = (start..=text.len())
+        .find(|idx| text.is_char_boundary(*idx))
+        .unwrap_or(text.len());
+    text[start..].to_string()
 }
 
 pub(crate) fn response_input_to_code_mode_result(response: ResponseInputItem) -> JsonValue {

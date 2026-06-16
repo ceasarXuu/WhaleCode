@@ -135,6 +135,43 @@ Remaining Phase 1 work:
 
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
 
+## 2026-06-17 Phase 2 large exec output first reference slice
+
+Changed:
+
+- Identified the model-visible exec output replay path:
+  - `ExecCommandToolOutput::to_response_item` builds the provider tool-output response item.
+  - `Session::drain_in_flight` records that response item into conversation history through `record_conversation_items`.
+- Added first-pass output referenceization for exec command outputs larger than 50KB.
+- Large exec output now keeps the required tool-call output item, but replaces the model-visible body with `OutputReferenceV1` metadata:
+  - `sha256`
+  - byte count
+  - line count
+  - policy marker
+  - bounded 2KB head and 2KB tail slices
+- Small output behavior is unchanged and still uses the existing truncation path.
+
+Validation:
+
+```text
+cargo test -p codex-core exec_command_tool_output_referenceizes_large_response --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core exec_command_tool_output_formats_truncated_response --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-outputref-neutral
+TaskSpace benchmark harness self-test: PASS
+```
+
+Limits:
+
+- This is not full Phase 2 completion.
+- Raw output artifact storage and bounded slice retrieval are still missing.
+- The 8KB-50KB summarized tier is still missing.
+- Code-mode result serialization still follows the existing `truncated_output` behavior.
+- Focused runtime evidence for `large_output_replay_count = 0` still needs an integration smoke with a large stdout followed by a model turn.
+
 ## 2026-06-17 Phase 1 state_commit recovery path
 
 Observed:

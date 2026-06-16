@@ -469,3 +469,47 @@ fn exec_command_tool_output_formats_truncated_response() {
         other => panic!("expected FunctionCallOutput, got {other:?}"),
     }
 }
+
+#[test]
+fn exec_command_tool_output_referenceizes_large_response() {
+    let payload = ToolPayload::Function {
+        arguments: "{}".to_string(),
+    };
+    let mut raw_output = Vec::new();
+    raw_output.extend_from_slice(b"head-visible\n");
+    raw_output.extend_from_slice("middle-secret-marker\n".repeat(4_000).as_bytes());
+    raw_output.extend_from_slice(b"tail-visible\n");
+
+    let response = ExecCommandToolOutput {
+        event_call_id: "call-large".to_string(),
+        chunk_id: "chunk-large".to_string(),
+        wall_time: std::time::Duration::from_millis(250),
+        raw_output,
+        max_output_tokens: Some(100_000),
+        process_id: None,
+        exit_code: Some(0),
+        original_token_count: Some(12_000),
+        hook_command: None,
+    }
+    .to_response_item("call-large", &payload);
+
+    match response {
+        ResponseInputItem::FunctionCallOutput { call_id, output } => {
+            assert_eq!(call_id, "call-large");
+            let text = output
+                .body
+                .to_text()
+                .expect("exec output should serialize as text");
+            assert!(text.contains("OutputReferenceV1:"));
+            assert!(text.contains("policy: referenced_large_output"));
+            assert!(text.contains("sha256:"));
+            assert!(text.contains("head-visible"));
+            assert!(text.contains("tail-visible"));
+            assert!(
+                text.matches("middle-secret-marker").count() < 300,
+                "large middle output should not replay inline"
+            );
+        }
+        other => panic!("expected FunctionCallOutput, got {other:?}"),
+    }
+}
