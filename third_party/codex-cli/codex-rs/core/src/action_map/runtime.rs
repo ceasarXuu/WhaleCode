@@ -5364,7 +5364,20 @@ preview:\n\
             .maintenance_barriers
             .get(map_id)
             .is_some_and(|barrier| barrier.node_id == finishing_node_id);
-        if !exhausted_budget && !barrier_active {
+        let has_broad_structural_result = completed_main_inspect_has_broad_accepted_result(
+            map,
+            finishing_node_id,
+            owner_session_id,
+        );
+        if !has_broad_structural_result
+            && matches!(
+                next_node_draft.map(|draft| draft.kind),
+                Some(NodeKind::ImplementSolution)
+            )
+        {
+            return Ok(());
+        }
+        if !exhausted_budget && !barrier_active && !has_broad_structural_result {
             return Ok(());
         }
         let related_subagent_inspects = related_completed_accepted_subagent_inspect_node_ids(
@@ -7982,9 +7995,18 @@ fn completed_main_inspect_has_broad_accepted_result(
 }
 
 fn accepted_result_has_broad_structural_evidence(result: &NodeResult) -> bool {
-    if result.evidence_package.claims.len() >= 3 {
+    let artifact_refs = accepted_result_artifact_refs(result);
+    let implementation_refs = artifact_refs
+        .iter()
+        .filter(|artifact_ref| is_implementation_surface_ref(artifact_ref))
+        .count();
+    if result.evidence_package.claims.len() >= 3 && implementation_refs >= 2 {
         return true;
     }
+    artifact_refs.len() >= 4 && implementation_refs >= 2
+}
+
+fn accepted_result_artifact_refs(result: &NodeResult) -> HashSet<String> {
     let mut artifact_refs = HashSet::new();
     for evidence_ref in &result.evidence_package.evidence_refs {
         if let Some(artifact_ref) = evidence_ref.artifact_ref.as_deref() {
@@ -8004,7 +8026,18 @@ fn accepted_result_has_broad_structural_evidence(result: &NodeResult) -> bool {
             }
         }
     }
-    artifact_refs.len() >= 4
+    artifact_refs
+}
+
+fn is_implementation_surface_ref(artifact_ref: &str) -> bool {
+    let normalized = artifact_ref.replace('\\', "/").to_ascii_lowercase();
+    if normalized == "readme.md" || normalized.starts_with("docs/") {
+        return false;
+    }
+    if normalized.starts_with("tests/") || normalized.contains("/tests/") {
+        return false;
+    }
+    normalized.contains('/')
 }
 
 fn related_completed_accepted_subagent_inspect_node_ids(
@@ -12899,7 +12932,7 @@ mod tests {
     }
 
     #[test]
-    fn broad_completed_inspect_blocks_direct_implementation_without_subagent_work() {
+    fn budget_exhausted_single_track_inspect_can_enter_direct_implementation() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -12911,7 +12944,7 @@ mod tests {
             true,
         );
         fill_main_tool_budget(&mut state, owner);
-        let error = state
+        let (outcome, events) = state
             .finish_main_node_with_next(
                 owner,
                 "node-1",
@@ -12924,10 +12957,31 @@ mod tests {
                     dependency_node_ids: vec!["node-1".to_string()],
                 }),
             )
-            .expect_err("broad inspect must be delegated before implementation");
-        assert!(error.contains("directly into implement_solution"));
-        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+            .expect("budget alone should not force delegation for a single-track inspect");
+        accept_test_result(&mut state, owner, &outcome.result_id);
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::MaintenanceBarrierCleared(event)
+                    if event.node_id == "node-1"
+            )
+        }));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+    }
 
+    #[test]
+    fn budget_exhausted_inspect_can_finish_without_binding_implementation() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Broad implementation",
+            "Inspect enough to identify follow-up work.",
+            true,
+        );
+        fill_main_tool_budget(&mut state, owner);
         let (outcome, events) = state
             .finish_main_node(
                 owner,

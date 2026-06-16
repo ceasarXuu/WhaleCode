@@ -209,6 +209,73 @@ Operational lesson:
 - Phase 2 output-reference validation must exercise `whale exec --json` shell-command flow, not only unified exec unit tests. The first failed smoke showed `runtime_output_ref_created_count = 0` even after unified exec tests passed, because the live path was `command_execution` / shell handling.
 - Metrics must use both explicit runtime events and observability-visible `OutputReferenceV1` refs. Otherwise shell-path referenceization can be model-visible but undercounted in `metrics.json`.
 
+## 2026-06-17 Phase 2 single-track inspect budget recovery
+
+Changed:
+
+- Relaxed broad-inspect delegation gates so tool-result budget exhaustion alone no longer forces subagent delegation before implementation.
+- Direct `inspect_code_context -> implement_solution` is now allowed when the inspect result is single-track, even if the inspect node hit the main-tool budget.
+- Broad protection remains active when an accepted inspect result contains multiple implementation surfaces.
+- Refined broad structural evidence detection to require at least two non-test implementation artifact refs, instead of treating any three claims as broad.
+
+Reason:
+
+- The previous live smoke `target\v005-phase2-live-smoke-outputref-metricsfix-626b\large-output-ref-smoke\20260617-054241-987` timed out because the runtime treated a single-file inspect as broad after ordinary read-tool budget pressure.
+- The model then repeatedly created/blocked implementation and inspect nodes instead of applying the one-file fix.
+- v0.0.5 design says budget is a guardrail, not the primary architecture. The runtime should require delegation only when the task shape actually has independent implementation surfaces.
+
+Validation:
+
+```text
+cargo fmt -p codex-core --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+ok
+
+cargo test -p codex-core budget_exhausted_single_track_inspect_can_enter_direct_implementation --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core broad_accepted_inspect_result_blocks_direct_implementation_without_subagents --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core inspect --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+16 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-singletrack-budget
+TaskSpace benchmark harness self-test: PASS
+
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+passed
+```
+
+Installed smoke binary:
+
+```text
+C:\Users\77585\.whale\bin\whale.exe
+whale 0.1.0
+SHA256 52FF6A5882455D2933C9353C1DE6C8C08FA67126B6FC63F62BC6D0E6EFB194D2
+```
+
+Live smoke:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-phase2-live-smoke-singletrack-budget-52ff -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+
+RunDir: target\v005-phase2-live-smoke-singletrack-budget-52ff\large-output-ref-smoke\20260617-060336-086
+right business_success: True
+right exec_exit_code: 0
+right exec_timed_out: False
+right tool_call_count: 8
+right nodes: 4
+right spawn_agent_calls: 0
+right open_leaf_nodes: 0
+right runtime_output_ref_created_count: 1
+right large_output_replay_count: 0
+right raw_output_in_prompt_violation: False
+```
+
+Remaining:
+
+- The same live smoke still includes a final_synthesis blocker message: "TaskSpace runtime does not accept success criteria updates or waive for final_synthesis completion." Metrics remain business-successful with no open leaf nodes, but final synthesis closure still needs a focused follow-up.
+
 ## 2026-06-17 Phase 2 output-ref trace events
 
 Changed:
