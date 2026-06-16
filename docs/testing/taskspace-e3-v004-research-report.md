@@ -200,6 +200,35 @@ Suite 级 timing：
 - TaskSpace cached input rate 约 98.7%；Standard cached input rate 约 92.7%。
 - 独立的嵌套 subagent JSONL 只额外增加约 0.69M tokens。这意味着 TaskSpace 的大部分 token 成本不在 standalone subagent 文件里，而在主 TaskSpace 执行上下文里。更可能的原因是 graph state、subagent summary、result、累积 context 被反复带入模型调用。
 
+### 6.1 Token 和耗时根因分解
+
+后续 COE 诊断已经把 20x token 和 5x time 从“现象”推进到“可解释根因”。核心不是 action map 摘要本身很大，而是 TaskSpace 当前把结构化记账和执行护栏实现成大量模型可见的工具轮次；每个轮次又携带 TaskSpace developer context、历史 function call/output、普通工具输出和当前任务状态继续请求模型。
+
+关键分解：
+
+| 因素 | Standard | TaskSpace | Ratio | 解释 |
+|---|---:|---:|---:|---|
+| 模型请求代理计数 | 132 | 1,229 | 9.31x | 用 `whale-exec.stderr.log` 中 `Model personality requested` 次数近似衡量；TaskSpace rollout 中也有 1,160 个 `token_count`。 |
+| 平均 input / 请求 | 约 19,126 | 约 41,318 | 2.16x | TaskSpace 每次请求携带更重的 TaskSpace 协议、状态和历史。 |
+| 总 input tokens | 2,524,627 | 50,780,045 | 20.11x | 9.31x 请求数 * 2.16x 单请求输入，基本解释 20x input 膨胀。 |
+| 平均 wall time / 请求 | 约 6.00s | 约 3.22s | 0.54x | TaskSpace 单请求平均不更慢；5x 总耗时主要来自请求数膨胀。 |
+| 总 agent wall time | 791.997s | 3,952.309s | 4.99x | 请求数、工具阻断、子 agent 等 orchestration 轮次共同导致。 |
+
+TaskSpace rollout 的控制面成本非常集中：
+
+- 15 个 TaskSpace run 里有 850 次 `taskspace_control`、68 次 `spawn_agent`、12 次 `wait_agent`。
+- `taskspace_control` 中最高频的是 `finish_node=209`、`mark_result_validity=149`、`record_success_criteria=114`、`bind_node=61`、`block_node=60`、`create_node=54`。
+- `turn.completed` 的 token 不是重复算错；它等于同一个用户 turn 内所有内部 `token_count.last_token_usage` 的累积。代码上 `session/turn.rs` 每次 `ResponseEvent::Completed` 更新 token，`tasks/mod.rs` 用 session 总 usage 减 turn 起点来生成最终 turn usage。
+
+局部 outlier 还有第二层放大。`analyze-access-logs pair-005` 的 TaskSpace run 先执行了完整 `Get-Content -Path W:\app\access_log`，产生 169,047 字节工具输出；在该输出进入历史前，单次请求 input 约 16,545 tokens，之后下一次请求直接升到 104,989 tokens，并在后续 `taskspace_control` / blocked tool / validity 轮次中持续重放。因此，大输出不是全局主因，但会在 TaskSpace 多轮协议下变成严重放大器。
+
+这意味着后续优化不能只谈“预算阈值”或“换更快 validator”。真正的产品修复面是：
+
+- 降低 TaskSpace 模型请求轮数：批量提交状态更新，减少一事一 `taskspace_control` 的协议形态。
+- 降低每请求输入：把常规 bookkeeping 移出模型可见历史，压缩或引用化 action map/state，而不是每轮自然语言重述。
+- 防止大工具输出重放：对超阈值 shell output 做自动摘要、引用化或二次确认，尤其是 `Get-Content` 无界读取。
+- 让简单任务走 thin path：单文件/单日志任务不应被 broad inspect budget、two-subagent requirement、validity bookkeeping 放大成百次模型请求。
+
 最大 token 异常点：
 
 | Task | Pair | Mode | Outcome | Tokens | Agent time |
@@ -293,25 +322,26 @@ Subagent 使用情况：
 
 > v0.0.4 TaskSpace 展现了 correctness signal，但成本效率不成立。它更像一个高上下文 orchestration 系统，偶尔带来可靠性收益，而不是一个稳定更强的 coding agent 模式。
 
-## 10. 瓶颈假设
+## 10. 瓶颈结论
 
-H1：Context bloat 是主要 token 瓶颈。
+H1：模型请求轮数膨胀 + 每请求上下文膨胀是主要 token 瓶颈。状态：已确认。
 
 - 证据：TaskSpace direct input+output 为 51.1M tokens，是 Standard 的 19.9x。
 - 证据：TaskSpace usage 中 cached input 占约 98.7%。
-- 推断：即使任务本身很小，graph/context/subagent state 也被反复纳入模型调用。
+- 证据：TaskSpace 模型请求代理计数约为 Standard 的 9.31x，平均 input/request 约为 Standard 的 2.16x，二者相乘解释 20.11x input token。
+- 结论：即使任务本身很小，TaskSpace protocol/context/control history 也被反复纳入模型调用；大工具输出进入历史后会进一步放大后续请求。
 
-H2：Decision adoption 是主要质量瓶颈。
+H2：Decision adoption 是主要质量瓶颈。状态：仍成立。
 
 - 证据：`high_unreviewed_result_ratio` 出现在 15/15 个 TaskSpace run。
 - 证据：`subagent_no_decision_yield` 出现在 7/15 个 run。
 - 推断：TaskSpace 产生中间结果的速度超过了验证和采纳这些结果的能力。
 
-H3：Task routing 过粗。
+H3：Task routing 过粗。状态：仍成立，并且是成本根因之一。
 
 - 证据：`count-call-stack` 没有使用 subagent，且 0/5。
 - 证据：`log-summary` 使用了很多 subagent，但只和 Standard 持平。
-- 推断：TaskSpace 还不能根据任务形态和已观察到的失败模式决定是否使用 subagent、何时停止或何时切换策略。
+- 推断：TaskSpace 还不能根据任务形态和已观察到的失败模式决定是否使用 subagent、何时停止或何时切换策略；简单任务被放大成大量结构化控制轮次，是本次 20x token 的直接来源之一。
 
 H4：Validation 仍是 suite 级速度瓶颈。
 
@@ -325,6 +355,7 @@ H4：Validation 仍是 suite 级速度瓶颈。
 - 在 pair、sample、suite 层持久化 `token-summary.json`。
 - 区分 direct agent usage 和 nested subagent usage。
 - 跟踪 input、cached input、uncached input、output、reasoning output 和 cost estimate。
+- 额外跟踪 `model_request_count`、`avg_input_per_request`、`max_input_per_request`、`taskspace_control_count`、`largest_tool_output_bytes`，否则无法区分“请求轮数膨胀”和“单请求上下文膨胀”。
 - 把 top-token outliers 写入 `suite-health.json` 或 companion report。
 
 2. 增加 TaskSpace budget guardrails。
@@ -332,6 +363,8 @@ H4：Validation 仍是 suite 级速度瓶颈。
 - 当 token ratio 超阈值但没有新增 accepted decisions 时，中断或降级 TaskSpace。
 - 建议初始阈值：
   - `taskspace_total_tokens > 10x standard_tokens` 且 N 步内没有新增 accepted decision。
+  - `model_request_count > 3x comparable standard` 或单个 run 内 `taskspace_control_count > 30` 且仍未产生成功 edit/test/final synthesis。
+  - 单次工具输出超过 50KB 进入模型历史前必须摘要化或引用化；超过 150KB 的原始输出默认阻断继续模型重放，除非任务显式要求全文处理。
   - 首次 synthesis checkpoint 后同时出现 `high_unreviewed_result_ratio` 和 `subagent_no_decision_yield`。
   - 接近 final answer 时出现 `synthesis_not_ready`，即使 validator 后续通过，也应标记为诊断可疑。
 

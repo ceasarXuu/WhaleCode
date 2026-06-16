@@ -1,0 +1,286 @@
+# Problem P-001: TaskSpace E3 token and time bloat root cause
+- Status: root_cause_confirmed
+- Created: 2026-06-16 16:50
+- Updated: 2026-06-16 16:50
+- Objective: Identify the evidence-backed root cause of the v0.0.4 E3 observation that TaskSpace used about 20x direct input+output tokens and about 5x agent time versus Standard, before designing budget or speed fixes.
+- Symptoms:
+  - Clean v0.0.4 E3 run reported Standard direct input+output tokens 2,564,355 versus TaskSpace 51,073,287.
+  - Clean v0.0.4 E3 run reported Standard agent time 791.9s versus TaskSpace 3952.2s.
+  - TaskSpace only improved public-validator raw solved count from 7/15 to 8/15.
+- Expected behavior:
+  - TaskSpace map/problem-state summaries should add bounded context overhead and should not multiply model input by around 20x unless a specific repeated payload, loop, or usage-accounting mechanism explains it.
+- Actual behavior:
+  - TaskSpace direct token and time cost are much larger than intuitive map-summary overhead.
+- Impact:
+  - The bloat blocks product work because budget guardrails and speed optimization are premature without knowing whether the cause is prompt/context duplication, model behavior, graph-state growth, subagent orchestration, harness accounting, or external latency.
+- Reproduction:
+  - Existing clean run root: `target/e3-v004-proof-20260615/serial-clean-v1/suite-20260616-020714`.
+  - Compare each pair's Standard and TaskSpace `whale-exec.jsonl`, `metrics.json`, `graph-health.json`, TaskSpace observability artifacts, and suite timing artifacts.
+- Environment:
+  - Repo: `D:\whalecode-alpha`
+  - Branch: `whalecode-alpha`
+  - Run date: 2026-06-16
+  - Model/profile from suite resume commands: `deepseek-v4-flash`, `model_reasoning_effort=max`
+- Known facts:
+  - The run is engineering clean at suite level according to `suite-health.json`.
+  - Existing research report records 20x direct token and 5x agent-time deltas.
+- Ruled out:
+  - Simple mode mapping or direct JSONL aggregation error is not the dominant explanation: direct `turn.completed` usage reconciles with rollout `token_count.last_token_usage` for TaskSpace, and TaskSpace/Standard side mapping matches `audit.json`.
+  - Visible `whale-exec.jsonl` transcript size or shell output volume alone is not the dominant explanation: TaskSpace direct JSONL bytes are only 1.59x Standard and direct command-output bytes are only 1.52x Standard while input tokens are 20.11x.
+- Fix criteria:
+  - Root cause must identify the dominant token/time growth mechanism with supporting artifact or code evidence.
+  - At least one diagnostic should separate usage-accounting artifact from real context/prompt growth.
+  - At least one diagnostic should separate TaskSpace behavior-loop cost from static prompt/context injection cost.
+  - Repair design must not start until a hypothesis is confirmed.
+- Current conclusion: Root cause is a multiplicative TaskSpace orchestration cost: TaskSpace creates about 9.31x more model request cycles than Standard, and each request carries about 2.16x more input on average due to TaskSpace developer context plus accumulated tool/control history. The product of those two factors explains the observed about 20x input-token growth. Time growth is primarily request-count driven. Large raw tool outputs, such as full-file `Get-Content`, are a secondary amplifier because they raise subsequent replayed request context from about 16k input tokens to about 105k+ input tokens in affected samples.
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+- Resolution basis:
+  - not satisfied
+- Close reason:
+  - not closed
+
+## Hypothesis H-001: Repeated TaskSpace context injection dominates token bloat
+- Status: confirmed
+- Parent: P-001
+- Claim: TaskSpace repeatedly injects large action-map/problem-ledger/observability context into model requests, causing real input-token growth that is much larger than the compact map summary intuition.
+- Layer: root-cause
+- Factor relation: any_of
+- Depends on:
+  - none
+- Rationale:
+  - TaskSpace direct input tokens are about 20x Standard while nested subagent JSONL adds only a small fraction, suggesting main TaskSpace turns may carry a repeated large prompt/context payload.
+- Falsifiable predictions:
+  - If true: TaskSpace `whale-exec.jsonl` will show either many more model turns with usage, much larger input per turn, or both; large input should correlate with TaskSpace context/prompt payload size or graph/result growth.
+  - If false: TaskSpace token growth will not be explained by model-turn count or input size, and usage accounting or non-context behavior must explain the delta.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: TaskSpace usage is concentrated in larger direct model input per turn or repeated turns.
+  - Signal: per JSONL event usage totals and count of usage-bearing events by pair/mode.
+  - Capture method: parse all direct `whale-exec.jsonl` files from the clean E3 run and summarize usage-bearing event counts, average input, max input, cached input, uncached input, and output.
+  - Event name or marker:
+    - `turn.completed`
+  - Correlation keys:
+    - sample id
+    - pair id
+    - logical mode
+  - Differentiates from:
+    - H-003
+  - Supports if:
+    - TaskSpace has much larger input per usage-bearing event or many more usage-bearing events, aligned with total bloat.
+  - Refutes if:
+    - Usage-bearing event count and per-turn input are comparable but totals differ, indicating accounting or aggregation error.
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-001
+  - E-002
+  - E-003
+  - E-004
+  - E-005
+- Conclusion: confirmed, with a narrower claim: the repeated cost is not just the compact action map text; it is repeated model requests over TaskSpace developer context plus accumulated function-call/function-output history, with large ordinary tool outputs replayed after they enter history.
+- Repair design readiness: ready for repair planning after H-002 cost drivers are considered.
+- Next step: design guardrails and architecture changes to batch/compress TaskSpace state updates and cap high-output replay.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-002: TaskSpace behavior loops dominate time and token bloat
+- Status: confirmed
+- Parent: P-001
+- Claim: TaskSpace causes the agent to spend more turns/tool cycles exploring, reviewing, synthesizing, or handling subagent output, and the resulting repeated reasoning/tool loop drives both 5x time and 20x tokens.
+- Layer: root-cause
+- Factor relation: any_of
+- Depends on:
+  - none
+- Rationale:
+  - Existing report shows TaskSpace has graph warnings such as high unreviewed result ratio and subagent no decision yield, which may indicate inefficient behavior rather than just static prompt overhead.
+- Falsifiable predictions:
+  - If true: high-token TaskSpace pairs should have more assistant/model turns, more tool calls, longer wall time, larger graph artifacts, more subagent results, or low decision yield relative to solved benefit.
+  - If false: high-token pairs should not correlate with tool/event/graph/subagent activity, pointing back to context injection or accounting.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: token/time outliers correlate with behavior-loop markers.
+  - Signal: per-pair tool_call_count, graph warnings, maps/nodes/edges, spawn_agent_calls, subagent_results, decision_count, accepted/unreviewed counts, and agent wall time.
+  - Capture method: parse side `metrics.json`, `graph-health.json`, and observability metadata for all pairs.
+  - Event name or marker:
+    - `metrics.json`
+    - `graph-health.json`
+  - Correlation keys:
+    - sample id
+    - pair id
+    - logical mode
+  - Differentiates from:
+    - H-001
+  - Supports if:
+    - Token/time growth tracks behavior activity, especially subagent/result/decision inefficiency.
+  - Refutes if:
+    - Token/time growth is high even when TaskSpace behavior markers are low or absent.
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-002
+  - E-003
+  - E-005
+- Conclusion: confirmed. TaskSpace generated 850 `taskspace_control` calls, 68 `spawn_agent` calls, 12 `wait_agent` calls, and 812 snapshot events across 15 tasks; these orchestration loops drove model request count far beyond the Standard mode loop.
+- Repair design readiness: ready for repair planning after choosing which protocol requirements should be batched, moved out of model-visible history, relaxed for simple tasks, or guarded by budget preflight.
+- Next step: define repair plan with measurable limits for model requests, TaskSpace control calls, context size, and large-output replay.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-003: The 20x token delta is partly or mainly a usage-accounting artifact
+- Status: refuted_as_dominant
+- Parent: P-001
+- Claim: The apparent 20x token delta is inflated by how `whale-exec.jsonl` usage is logged or aggregated, such as repeated cached input accounting, side/mode mapping mistakes, nested usage duplication, or turn-level cumulative usage being summed as incremental usage.
+- Layer: root-cause
+- Factor relation: any_of
+- Depends on:
+  - none
+- Rationale:
+  - The reported TaskSpace total is dominated by cached input. If usage events are cumulative rather than per-turn, or if cached prompt reuse is counted repeatedly, raw token totals may exaggerate marginal context cost.
+- Falsifiable predictions:
+  - If true: JSONL usage events will show cumulative counters, duplicated usage events, mode/side mismatches, or totals that do not reconcile with per-file final usage semantics.
+  - If false: usage events are incremental and correctly mapped, and 20x is a real model-billed/accounted workload signal even if much of it is cached.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: direct usage aggregation semantics are correct or incorrect.
+  - Signal: raw JSONL event order/types and usage fields from representative Standard and TaskSpace runs, plus side/mode mapping from `audit.json`.
+  - Capture method: inspect raw JSONL event schemas and recompute totals using alternative aggregation rules: sum all usage events, last usage event only, and usage-bearing event count.
+  - Event name or marker:
+    - `turn.completed`
+  - Correlation keys:
+    - sample id
+    - pair id
+    - side
+    - logical mode
+  - Differentiates from:
+    - H-001
+  - Supports if:
+    - Alternative correct aggregation materially reduces the TaskSpace/Standard ratio, or side/mode mapping errors are found.
+  - Refutes if:
+    - There is one usage-bearing event per direct file or usage is clearly incremental and side/mode mapping matches `audit.json`.
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-001
+  - E-002
+- Conclusion: refuted as the dominant cause. The final direct `turn.completed` token usage is the correct per-user-turn aggregate of many internal model requests, not a duplicate side/mode aggregation bug. The metric is expensive but valid for comparing total agent workload.
+- Repair design readiness: no accounting repair is indicated for the 20x headline, though reporting should expose model request count and per-request usage so future investigations do not rely only on direct JSONL size.
+- Next step: add observability/reporting fields for model request count, average input/request, max input/request, and largest visible output before considering future E3 runs clean for cost analysis.
+
+## Evidence E-001: Direct JSONL aggregate rules out visible-log-only and simple aggregation explanations
+- Status: accepted
+- Captured: 2026-06-16
+- Method: Parsed all direct `whale-exec.jsonl`, `audit.json`, and `metrics.json` under `target/e3-v004-proof-20260615/serial-clean-v1/suite-20260616-020714`.
+- Observations:
+  - Standard: input 2,524,627; cached input 2,339,584; uncached input 185,043; output 39,728; wall 791,997 ms; tool calls 103; direct JSONL bytes 607,403; direct command-output bytes 414,055.
+  - TaskSpace: input 50,780,045; cached input 50,119,296; uncached input 660,749; output 293,242; wall 3,952,309 ms; tool calls 124; direct JSONL bytes 967,959; direct command-output bytes 630,061.
+  - Ratios: input 20.11x, cached input 21.42x, uncached input 3.57x, output 7.38x, wall time 4.99x, tool calls 1.20x, direct JSONL bytes 1.59x, direct command-output bytes 1.52x.
+- Interpretation:
+  - The token increase is real workload/accounting growth, not explained by direct transcript size or shell output volume alone.
+  - Because direct tool calls only grow 1.20x while input grows 20.11x, the dominant mechanism must be hidden or compressed out of the direct exec view: repeated model requests, model-visible control history, or context replay.
+- Supports:
+  - H-001
+  - H-002
+- Refutes or weakens:
+  - H-003
+
+## Evidence E-002: TaskSpace rollout reconciles final token total to many internal model requests
+- Status: accepted
+- Captured: 2026-06-16
+- Method: Parsed TaskSpace `rollout.jsonl` files and summed every `event_msg` with `payload.type == token_count`, using `last_token_usage`.
+- Observations:
+  - TaskSpace rollout token-count events: 1,160.
+  - Sum of TaskSpace rollout `last_token_usage`: input 50,780,045; cached input 50,119,296; output 293,242; total input+output 51,073,287.
+  - These exactly reconcile with direct `whale-exec.jsonl` `turn.completed.usage`.
+  - Rollout also records 850 `taskspace_control` function calls, 244 `shell_command` function calls, 68 `spawn_agent` calls, 12 `wait_agent` calls, and 812 `snapshot_updated` events.
+- Interpretation:
+  - The direct `turn.completed` figure is the per-user-turn aggregate of internal model calls, not a duplicate JSONL summation bug.
+  - Direct `whale-exec.jsonl` hides much of the TaskSpace control loop; `rollout.jsonl` is required for cost root-cause analysis.
+- Supports:
+  - H-001
+  - H-002
+- Refutes or weakens:
+  - H-003
+
+## Evidence E-003: Request-count and per-request input decomposition explains the 20x token ratio
+- Status: accepted
+- Captured: 2026-06-16
+- Method: Counted `Model personality requested` occurrences in `whale-exec.stderr.log` as a model-request proxy for both modes, then compared against direct usage totals.
+- Observations:
+  - Standard model-request proxy count: 132.
+  - TaskSpace model-request proxy count: 1,229.
+  - Request-count ratio: 9.31x.
+  - Standard average input per request: about 19,126 tokens.
+  - TaskSpace average input per request: about 41,318 tokens.
+  - Average input/request ratio: about 2.16x.
+  - 9.31x request count multiplied by 2.16x input/request explains the observed 20.11x input-token ratio.
+  - Standard average wall time/request is about 6.00s; TaskSpace average wall time/request is about 3.22s, so 5x wall-time growth is still primarily request-count driven even though average request latency was lower in TaskSpace.
+- Interpretation:
+  - The 20x token problem is multiplicative: too many TaskSpace model turns times larger context per turn.
+  - Time bloat is not caused by slower single requests; it is caused by far more request cycles plus tool/orchestration pauses.
+- Supports:
+  - H-001
+  - H-002
+
+## Evidence E-004: Large ordinary tool output amplifies later TaskSpace context replay in outlier samples
+- Status: accepted
+- Captured: 2026-06-16
+- Method: Inspected `analyze-access-logs` `pair-005` TaskSpace rollout around the first large `shell_command` output.
+- Observations:
+  - Before full file output, the model request that selected `Get-Content -Path W:\app\access_log` used last input 16,545 tokens.
+  - The shell output was 169,047 bytes because it printed the full access log.
+  - The next model request after that output used last input 104,989 tokens; the following requests remained above 105k input tokens as TaskSpace continued control/validation loops.
+  - The same pair had TaskSpace total 12,993,596 tokens versus Standard total about 141,059 tokens, or 92.1x.
+- Interpretation:
+  - Full raw file reads are not the global root cause because command-output bytes only grew 1.52x overall, but they are a severe local amplifier once TaskSpace has many subsequent model/control turns.
+  - Guardrails must prevent raw high-volume outputs from entering repeatedly replayed model history.
+- Supports:
+  - H-001
+  - H-002
+
+## Evidence E-005: Code path confirms per-response token accumulation and TaskSpace-visible control protocol
+- Status: accepted
+- Captured: 2026-06-16
+- Code evidence:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs` handles every `ResponseEvent::Completed` by calling `sess.update_token_usage_info(...)`, which emits a `TokenCount` event for each model response.
+  - `third_party/codex-cli/codex-rs/core/src/session/mod.rs` `update_token_usage_info` updates session token totals and sends `EventMsg::TokenCount`.
+  - `third_party/codex-cli/codex-rs/core/src/tasks/mod.rs` computes turn usage from `total_token_usage - token_usage_at_turn_start`, so final user-turn usage intentionally includes all internal model requests in the turn.
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs` `build_developer_context` constructs model-visible TaskSpace protocol, task inventory, active task path, node list, current node contract, and collaboration guidance.
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs` enforces mark-result-validity before ordinary work and blocks broad inspect nodes without two accepted subagent inspect results.
+- Interpretation:
+  - The accounting semantics are coherent: each model response contributes to cumulative session usage, and `turn.completed` reports the delta for the whole user turn.
+  - TaskSpace protocol is currently modeled as frequent model-visible function/tool interactions rather than a compact out-of-band state machine, so each bookkeeping step costs a full model request over accumulated history.
+- Supports:
+  - H-001
+  - H-002
+- Refutes or weakens:
+  - H-003
+
+## Evidence E-006: TaskSpace control-call distribution identifies the highest-leverage repair surface
+- Status: accepted
+- Captured: 2026-06-16
+- Method: Counted TaskSpace rollout `function_call` names and `taskspace_control.action` values.
+- Observations:
+  - `taskspace_control` actions across 15 tasks: `finish_node` 209, `mark_result_validity` 149, `record_success_criteria` 114, `bind_node` 61, `block_node` 60, `create_node` 54, `record_output_contract` 30, `record_subagent_plan` 29, `record_fact_source` 28, `adopt_result` 22, `record_fact` 22, `record_decision` 31, plus smaller counts.
+  - High-cost examples:
+    - `analyze-access-logs pair-001`: 144 rollout token-count events, 118 `taskspace_control` calls, 98 snapshots, 5,439,623 tokens.
+    - `analyze-access-logs pair-005`: 112 rollout token-count events, 86 `taskspace_control` calls, 68 snapshots, 12,993,596 tokens.
+    - `log-summary pair-001`: 122 rollout token-count events, 100 `taskspace_control` calls, 96 snapshots, 4,152,217 tokens.
+- Interpretation:
+  - Repair should target protocol granularity first: batch state updates, make routine bookkeeping non-model-visible or auto-applied, relax simple-task validity/subagent requirements, and add request-count/context-size guardrails.
+  - Optimizing shell execution or Docker will not materially solve the 20x token problem unless the TaskSpace model-loop explosion is fixed.
+- Supports:
+  - H-002
+- Blocker:
+  - none
+- Close reason:
+  - not closed
