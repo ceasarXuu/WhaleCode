@@ -10,6 +10,7 @@ archive/deprecated/**/target/
 third_party/**/target/
 third_party/**/node_modules/
 third_party/**/dist/
+docs/testing/v0.0.4/testing/
 .whale/
 .env
 .env.*
