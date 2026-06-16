@@ -1027,6 +1027,29 @@ impl Session {
         }
     }
 
+    pub(crate) async fn record_action_map_output_ref_trace_event(
+        &self,
+        turn_context: &TurnContext,
+        kind: &str,
+        call_id: Option<String>,
+        artifact_ref: String,
+        tags: Vec<String>,
+    ) {
+        let events = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.record_output_ref_trace_event(
+                kind,
+                call_id,
+                artifact_ref,
+                tags,
+            )
+        };
+        if let Some(events) = events {
+            self.emit_action_map_events_for_turn(turn_context, events)
+                .await;
+        }
+    }
+
     pub(crate) async fn record_action_map_child_tool_result(
         &self,
         child_thread_id: ThreadId,

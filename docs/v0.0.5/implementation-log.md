@@ -135,6 +135,48 @@ Remaining Phase 1 work:
 
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
 
+## 2026-06-17 Phase 2 output-ref trace events
+
+Changed:
+
+- Added TaskSpace runtime trace events for output-reference lifecycle:
+  - `output_ref.created` when unified exec stores a large output artifact.
+  - `output_ref.slice_read` when `taskspace_control(action=read_output_ref)` returns a bounded slice.
+- Output-ref trace events store only `artifact_ref` plus metadata tags such as byte count and slice mode; they do not store raw stdout/stderr bodies.
+- Extended benchmark cost instrumentation with:
+  - `runtime_output_ref_created_count`
+  - `runtime_output_ref_slice_read_count`
+- Extended `metrics.json`, side summaries, and aggregate control summaries so output-ref event counts survive suite aggregation.
+
+Validation:
+
+```text
+cargo fmt -p codex-core --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+passed
+
+cargo test -p codex-core experiment_output_ref_records_structured_trace_without_raw_output --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core read_output_ref --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-tools taskspace_control --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+2 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-outputref-events-final-neutral
+TaskSpace benchmark harness self-test: PASS
+```
+
+Operational note:
+
+- Running several `cargo test` commands in parallel can block on Cargo package/artifact locks. The commands eventually completed, but sequential package-scoped test runs are easier to read when diagnosing compile errors.
+- PowerShell profile still emits conda `RequestsDependencyWarning`; using `powershell -NoProfile` keeps benchmark harness output focused.
+
+Remaining Phase 2 work:
+
+- Rebuild/install Whale and run a focused live smoke with large stdout followed by a model turn.
+- Phase 2 exit is not proven until that run shows `large_output_replay_count = 0`, nonzero `runtime_output_ref_created_count`, and no provider/tool-output protocol regression.
+
 ## 2026-06-17 Phase 2 large exec output first reference slice
 
 Changed:

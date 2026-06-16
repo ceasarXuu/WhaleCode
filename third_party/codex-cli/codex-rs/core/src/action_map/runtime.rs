@@ -1351,6 +1351,62 @@ preview:\n\
         Ok(Some((result_id, events)))
     }
 
+    pub(crate) fn record_output_ref_trace_event(
+        &mut self,
+        kind: &str,
+        call_id: Option<String>,
+        artifact_ref: String,
+        tags: Vec<String>,
+    ) -> Option<Vec<MapRuntimeEvent>> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return None;
+        }
+        let map_id = self.active_map_id.clone()?;
+        let node_id = self.current_main_node_id.clone().or_else(|| {
+            self.maps.get(&map_id).and_then(|map| {
+                map.nodes
+                    .iter()
+                    .filter(|(_, node)| node.status == NodeStatus::Ready)
+                    .min_by_key(|(id, _)| id.as_str())
+                    .map(|(id, _)| id.clone())
+            })
+        })?;
+        let task_id = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
+        let id = self.next_trace_event_id();
+        let created_at_ms = now_ms();
+        let event = TaskSpaceTraceEvent {
+            id: id.clone(),
+            kind: kind.to_string(),
+            task_id,
+            map_id,
+            node_id,
+            result_id: None,
+            call_id,
+            action_class: None,
+            tool_success: Some(true),
+            tags,
+            artifact_refs: vec![artifact_ref],
+            created_at_ms,
+        };
+        self.taskspace_trace_events.push(event.clone());
+        Some(vec![MapRuntimeEvent::TaskspaceTraceEventRecorded(
+            MapRuntimeTraceEventRecordedEvent {
+                trace_event_id: id,
+                kind: event.kind.clone(),
+                task_id: event.task_id.clone(),
+                map_id: event.map_id.clone(),
+                node_id: event.node_id.clone(),
+                result_id: event.result_id.clone(),
+                call_id: event.call_id.clone(),
+                action_class: None,
+                tool_success: event.tool_success,
+                tags: event.tags.clone(),
+                artifact_refs: event.artifact_refs.clone(),
+                created_at_ms: event.created_at_ms,
+            },
+        )])
+    }
+
     pub(crate) fn prepare_child_tool_call(
         &mut self,
         child_thread_id: ThreadId,
@@ -9847,6 +9903,64 @@ mod tests {
         let value = serde_json::to_value(warning).expect("warning serializes");
         assert!(value.get("preview").is_none());
         assert!(value.get("body").is_none());
+    }
+
+    #[test]
+    fn experiment_output_ref_records_structured_trace_without_raw_output() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (task_id, map_id, node_id, _) = start_test_task(
+            &mut state,
+            owner,
+            "Inspect large output",
+            "Referenceize large stdout before replay.",
+            true,
+        );
+
+        let events = state
+            .record_output_ref_trace_event(
+                "output_ref.created",
+                Some("call-large".to_string()),
+                "output-ref://sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_string(),
+                vec![
+                    "output_ref".to_string(),
+                    "created".to_string(),
+                    "bytes:65536".to_string(),
+                ],
+            )
+            .expect("output ref trace event records in experiment mode");
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.trace_summary.total_event_count, 1);
+        assert!(matches!(
+            &events[0],
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                if event.trace_event_id == "trace-1"
+                    && event.kind == "output_ref.created"
+                    && event.task_id.as_deref() == Some(task_id.as_str())
+                    && event.map_id == map_id
+                    && event.node_id == node_id
+                    && event.call_id.as_deref() == Some("call-large")
+                    && event.artifact_refs == vec![
+                        "output-ref://sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                            .to_string()
+                    ]
+                    && event.tags.contains(&"bytes:65536".to_string())
+                    && !event.tags.iter().any(|tag| tag.contains("middle-secret-marker"))
+        ));
+        let trace = snapshot
+            .trace_events
+            .first()
+            .expect("snapshot includes output ref trace");
+        assert_eq!(trace.kind, "output_ref.created");
+        assert!(
+            !trace
+                .tags
+                .iter()
+                .any(|tag| tag.contains("middle-secret-marker"))
+        );
     }
 
     #[test]

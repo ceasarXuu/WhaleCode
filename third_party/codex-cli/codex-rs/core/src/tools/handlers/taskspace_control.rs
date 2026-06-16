@@ -797,6 +797,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                 pattern,
                 max_bytes,
             } => {
+                let mode_tag = format!("mode:{mode}");
                 let request = OutputSliceRequest {
                     mode: parse_output_slice_mode(&mode, start_line, end_line, pattern)?,
                     max_bytes: max_bytes.unwrap_or(OUTPUT_SLICE_MAX_BYTES),
@@ -805,9 +806,25 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .current_rollout_path()
                     .await
                     .map_err(|err| FunctionCallError::RespondToModel(err.to_string()))?;
-                read_output_artifact_slice(rollout_path.as_deref(), &output_ref, request)
-                    .await
-                    .map_err(|err| FunctionCallError::RespondToModel(err.to_string()))?
+                let slice =
+                    read_output_artifact_slice(rollout_path.as_deref(), &output_ref, request)
+                        .await
+                        .map_err(|err| FunctionCallError::RespondToModel(err.to_string()))?;
+                session
+                    .record_action_map_output_ref_trace_event(
+                        &turn,
+                        "output_ref.slice_read",
+                        None,
+                        output_ref,
+                        vec![
+                            "output_ref".to_string(),
+                            "slice_read".to_string(),
+                            mode_tag,
+                            format!("bytes:{}", slice.len()),
+                        ],
+                    )
+                    .await;
+                slice
             }
             TaskSpaceControlArgs::StateCommit {
                 commit_id,
