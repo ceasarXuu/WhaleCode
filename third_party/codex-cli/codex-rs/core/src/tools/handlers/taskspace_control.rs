@@ -22,6 +22,10 @@ use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
 use crate::tools::handlers::parse_arguments;
+use crate::tools::output_reference::OUTPUT_SLICE_MAX_BYTES;
+use crate::tools::output_reference::OutputSliceMode;
+use crate::tools::output_reference::OutputSliceRequest;
+use crate::tools::output_reference::read_output_artifact_slice;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 use codex_protocol::models::FunctionCallOutputPayload;
@@ -187,6 +191,18 @@ enum TaskSpaceControlArgs {
         adopted_by_criteria: Vec<String>,
         #[serde(default)]
         adopted_by_nodes: Vec<String>,
+    },
+    ReadOutputRef {
+        output_ref: String,
+        mode: String,
+        #[serde(default)]
+        start_line: Option<usize>,
+        #[serde(default)]
+        end_line: Option<usize>,
+        #[serde(default)]
+        pattern: Option<String>,
+        #[serde(default)]
+        max_bytes: Option<usize>,
     },
     StateCommit {
         #[serde(default)]
@@ -773,6 +789,26 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .map_err(FunctionCallError::RespondToModel)?;
                 format!("TaskSpace result adoption recorded: {result_id}")
             }
+            TaskSpaceControlArgs::ReadOutputRef {
+                output_ref,
+                mode,
+                start_line,
+                end_line,
+                pattern,
+                max_bytes,
+            } => {
+                let request = OutputSliceRequest {
+                    mode: parse_output_slice_mode(&mode, start_line, end_line, pattern)?,
+                    max_bytes: max_bytes.unwrap_or(OUTPUT_SLICE_MAX_BYTES),
+                };
+                let rollout_path = session
+                    .current_rollout_path()
+                    .await
+                    .map_err(|err| FunctionCallError::RespondToModel(err.to_string()))?;
+                read_output_artifact_slice(rollout_path.as_deref(), &output_ref, request)
+                    .await
+                    .map_err(|err| FunctionCallError::RespondToModel(err.to_string()))?
+            }
             TaskSpaceControlArgs::StateCommit {
                 commit_id,
                 schema_version,
@@ -834,6 +870,41 @@ impl ToolHandler for TaskSpaceControlHandler {
             }
         };
         Ok(TaskSpaceControlOutput { message })
+    }
+}
+
+fn parse_output_slice_mode(
+    mode: &str,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+    pattern: Option<String>,
+) -> Result<OutputSliceMode, FunctionCallError> {
+    match mode {
+        "head" => Ok(OutputSliceMode::Head),
+        "tail" => Ok(OutputSliceMode::Tail),
+        "line_range" => Ok(OutputSliceMode::LineRange {
+            start_line: start_line.ok_or_else(|| {
+                FunctionCallError::RespondToModel(
+                    "taskspace_control read_output_ref line_range requires start_line.".to_string(),
+                )
+            })?,
+            end_line: end_line.ok_or_else(|| {
+                FunctionCallError::RespondToModel(
+                    "taskspace_control read_output_ref line_range requires end_line.".to_string(),
+                )
+            })?,
+        }),
+        "grep" => Ok(OutputSliceMode::Grep {
+            pattern: pattern.ok_or_else(|| {
+                FunctionCallError::RespondToModel(
+                    "taskspace_control read_output_ref grep requires pattern.".to_string(),
+                )
+            })?,
+        }),
+        _ => Err(FunctionCallError::RespondToModel(
+            "taskspace_control read_output_ref mode must be one of: head, tail, line_range, grep."
+                .to_string(),
+        )),
     }
 }
 
@@ -1356,6 +1427,34 @@ mod tests {
                 assert!(commit_id.is_none());
                 assert_eq!(success_criteria[0].id, "sc-1");
                 assert!(auto_state_commit_id_from_arguments(&arguments).starts_with("auto-"));
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn read_output_ref_parses_grep_request() {
+        let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
+            "action": "read_output_ref",
+            "output_ref": "output-ref://sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "mode": "grep",
+            "pattern": "needle",
+            "max_bytes": 128
+        }))
+        .expect("read_output_ref args parse");
+
+        match args {
+            TaskSpaceControlArgs::ReadOutputRef {
+                output_ref,
+                mode,
+                pattern,
+                max_bytes,
+                ..
+            } => {
+                assert!(output_ref.starts_with("output-ref://sha256/"));
+                assert_eq!(mode, "grep");
+                assert_eq!(pattern.as_deref(), Some("needle"));
+                assert_eq!(max_bytes, Some(128));
             }
             other => panic!("unexpected args: {other:?}"),
         }

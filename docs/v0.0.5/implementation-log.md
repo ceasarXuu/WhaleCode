@@ -254,6 +254,42 @@ Remaining Phase 2 work:
 - Add output-ref trace events and focused next-turn replay smoke.
 - Add sensitive-data scan before exposing summaries/slices.
 
+## 2026-06-17 Phase 2 output-ref slice retrieval
+
+Changed:
+
+- Added bounded output artifact slice retrieval for `output-ref://sha256/<sha256>`.
+- Added `taskspace_control(action=read_output_ref)` as the TaskSpace slice action.
+- Supported slice modes:
+  - `head`
+  - `tail`
+  - `line_range`
+  - `grep`
+- Slice output is capped by `max_bytes` and clamped to a 16KB hard maximum.
+- Invalid output refs must use the `output-ref://sha256/<64 hex>` form.
+
+Validation:
+
+```text
+cargo fmt -p codex-core --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+passed
+
+cargo test -p codex-core output_reference --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+5 passed
+
+cargo test -p codex-core read_output_ref --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-outputslice-neutral
+TaskSpace benchmark harness self-test: PASS
+```
+
+Remaining Phase 2 work:
+
+- Confirm model-visible tool schema exposes `read_output_ref` arguments in the active tool definition source.
+- Add output-ref trace events and focused next-turn replay smoke.
+- Add sensitive-data scan before exposing summaries/slices.
+
 ## 2026-06-17 Phase 1 state_commit recovery path
 
 Observed:
