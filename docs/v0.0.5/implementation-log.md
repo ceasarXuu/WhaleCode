@@ -1262,6 +1262,35 @@ Notes:
 - This closes the Phase 2 artifact gap recorded in `14-implementation-gap-audit.md` for `output-ref-events.jsonl`.
 - No real E3, live smoke, or Agent-invoking benchmark was run for this change.
 
+## 2026-06-18 Phase 5 routing mode completion
+
+Changed:
+
+- `TaskShapeRouterV1` now emits all planned v0.0.5 modes:
+  - `thin`
+  - `verification_first`
+  - `default_compact`
+  - `subagent_assisted`
+  - `deep`
+- Added routing logic for:
+  - `subagent_assisted` when the manifest exposes independent subagent budget
+  - `deep` for L3, long-horizon, ambiguity, repeated-failure, or cross-module task shapes
+- Added prompt constraints for `subagent_assisted` and `deep`.
+- Added benchmark harness fixture coverage for both new modes.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-routing-modes
+TaskSpace benchmark harness self-test: PASS
+```
+
+Notes:
+
+- This closes the missing-mode gap recorded in `14-implementation-gap-audit.md`.
+- Routing is still benchmark-controlled/report-only until the remaining active profile integration contract is closed.
+- No real E3, live smoke, or Agent-invoking benchmark was run for this change.
+
 ## 2026-06-18 Cost failure diagnostics
 
 Changed:

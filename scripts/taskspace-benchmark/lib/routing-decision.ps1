@@ -29,6 +29,7 @@ function New-TaskspaceRoutingDecision {
     $level = [string]$Manifest.Level
     $formatSensitive = $hiddenStrategy -match '(?i)(format|parser|stack|call-stack)'
     $largeOutput = $hiddenStrategy -match '(?i)large-output'
+    $deepSignal = $hiddenStrategy -match '(?i)(ambiguity|repeated-failure|long-horizon|multi-module|cross-module|deep)'
     $fileScope = if ($level -eq "L1" -or $maxNodes -le 4) {
         "small"
     } elseif ($level -eq "L2" -or $maxNodes -le 12) {
@@ -46,9 +47,15 @@ function New-TaskspaceRoutingDecision {
         $recommendedMode = "thin"
         $confidence = "high"
         [void]$reasons.Add("small_scope_validator_visible_no_spawn_expected")
-    } elseif ($maxSpawn -gt 0 -or $fileScope -eq "large") {
+    } elseif ($level -eq "L3" -or $deepSignal) {
+        $recommendedMode = "deep"
+        [void]$reasons.Add("deep_or_ambiguous_task_shape")
+    } elseif ($maxSpawn -gt 0) {
+        $recommendedMode = "subagent_assisted"
+        [void]$reasons.Add("independent_subagent_budget_present")
+    } elseif ($fileScope -eq "large") {
         $recommendedMode = "default_compact"
-        [void]$reasons.Add("multi_step_or_spawn_budget_present")
+        [void]$reasons.Add("large_scope_without_deep_signal")
     } else {
         [void]$reasons.Add("fallback_default_compact")
     }
@@ -83,10 +90,11 @@ function New-TaskspaceRoutingDecision {
         }
         initial_constraints = [pscustomobject]@{
             subagent_allowed = [bool]($recommendedMode -ne "thin" -and $maxSpawn -gt 0)
-            node_budget = $maxNodes
-            state_commit_budget = if ($recommendedMode -eq "thin") { 4 } else { 8 }
+            node_budget = if ($recommendedMode -eq "deep") { [Math]::Max($maxNodes, 16) } else { $maxNodes }
+            state_commit_budget = if ($recommendedMode -eq "thin") { 4 } elseif ($recommendedMode -eq "deep") { 12 } else { 8 }
             large_output_policy = if ($largeOutput) { "ref-only" } else { "standard" }
             must_read_validator_first = [bool]($recommendedMode -eq "verification_first")
+            escalation_allowed = [bool]($recommendedMode -in @("thin", "verification_first", "default_compact", "subagent_assisted"))
         }
         escalation_rules = @($escalationRules)
         stay_thin_policy = [pscustomobject]@{
@@ -122,6 +130,14 @@ function New-TaskspaceRoutingPrompt {
         [void]$lines.Add("- Thin rule: no subagents by default; stay on the main-agent path unless validation failure reveals a new independent track.")
         [void]$lines.Add("- Use at most three TaskSpace nodes for a clear single-file fix: inspect, implement, validate.")
         [void]$lines.Add("- After validation passes, avoid summary-only final_synthesis; answer directly.")
+    } elseif ($mode -eq "subagent_assisted") {
+        [void]$lines.Add("- Subagent-assisted rule: create explicit independent inspect_code_context nodes before spawning subagents.")
+        [void]$lines.Add("- Use subagents only for bounded evidence tracks with acceptance checks and expected artifacts.")
+        [void]$lines.Add("- The main agent must review subagent results before implementation or final validation.")
+    } elseif ($mode -eq "deep") {
+        [void]$lines.Add("- Deep rule: use a broader evidence plan, but keep output references and projection compact.")
+        [void]$lines.Add("- Record blockers, hypotheses, and decisions through state_commit checkpoints.")
+        [void]$lines.Add("- Escalate validation coverage before final synthesis; do not hide unresolved blockers.")
     } else {
         [void]$lines.Add("- Default compact rule: prefer state_commit checkpoints and avoid duplicate summary-only nodes.")
     }

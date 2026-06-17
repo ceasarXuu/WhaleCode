@@ -30,7 +30,7 @@ Therefore the project should stay in implementation mode. Real E3 validation mus
 | 4 Map self-management | Every map item has `retention_class`, `base_salience`, optional `protected_reason`, and no physical deletion. | `scripts/taskspace-benchmark/lib/map-management.ps1` computes managed items from observability after the run. Rust runtime state does not appear to own those fields. | Partial | Decide whether v0.0.5 requires runtime-owned fields. If yes, add them to runtime snapshots; if report-only is acceptable, update the contract explicitly. |
 | 4 Compaction | Emit `compaction-events.jsonl` and `map-management-summary.json`; track semantic replacement. | Benchmark script writes these artifacts from observability. | Partial | Add tests for artifact shape and ensure release decision treats missing source as unavailable, not pass. |
 | 5 Routing | `TaskShapeRouterV1` writes `routing-decision.json`; supports thin and verification-first constraints. | `scripts/taskspace-benchmark/lib/routing-decision.ps1` implements report-only routing and prompts. | Partial | Integrate routing mode into runtime/profile input path, or explicitly mark v0.0.5 routing as benchmark-controlled only. |
-| 5 Routing | Modes include thin, verification_first, default_compact, subagent_assisted, deep. | Script implements thin, verification_first, default_compact. Static search did not find `subagent_assisted` or `deep`. | Missing | Add missing modes or revise the v0.0.5 contract to remove them before release. |
+| 5 Routing | Modes include thin, verification_first, default_compact, subagent_assisted, deep. | Routing script now emits all five contract modes and harness fixtures cover `subagent_assisted` and `deep`. | Implemented | Keep routing mode fixture coverage in the required non-agent test set. |
 | 6 Validation | Focused E3 and release decision after implementation completion. | Prior live smokes were run before this audit and showed FAIL. User has now blocked real E3 until code-complete. | Blocked | Do not run real E3 or invoke agents. Resume only after all required implementation gaps are closed and user explicitly approves. |
 
 ## Non-Agent Completion Checklist
@@ -39,7 +39,6 @@ Before asking to run real E3:
 
 - Implement structured gate recovery fields.
 - Resolve the Phase 4 runtime-vs-report-only contract and make the code match it.
-- Resolve missing routing modes or correct the contract.
 - Run only non-agent tests: targeted Rust unit tests, benchmark harness self-tests, release-decision synthetic tests, and static artifact-shape tests.
 
 ## Execution Order
