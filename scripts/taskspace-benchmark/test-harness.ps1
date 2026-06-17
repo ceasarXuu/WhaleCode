@@ -403,7 +403,31 @@ Assert-True ([int]$costArtifacts.replay_summary.output_reference_count -eq 1) "o
 Assert-True ([int]$costArtifacts.replay_summary.output_slice_count -eq 1) "output slice count was not parsed"
 Assert-True ([int]$costArtifacts.replay_summary.large_output_replay_count -eq 0) "output reference artifact was incorrectly treated as raw replay"
 $projectionJsonl = Join-Path $costDir "projection-source.jsonl"
-$projectionBlock = @"
+$activeProjectionBlock = @"
+ContextProjectionV1 active replacement:
+- projection_id: projection-active-task-1-map-1
+- task_id: task-1
+- mode: default_compact
+- active_objective: Verify projection metrics.
+- sections:
+  success_criteria:
+    - projected criteria
+  current_node: node-1
+  blockers:
+    - none
+  decisions:
+    - decision: use active compact profile
+  facts:
+    - fact: output refs active
+  relevant_results:
+    - result:abc
+  next_valid_actions:
+    - inspect_code_context
+  hidden_refs_available:
+    - result:abc
+- estimated_tokens: 123
+"@
+$shadowProjectionBlock = @"
 ContextProjectionV1 shadow (not active replacement):
 - projection_id: projection-shadow-task-1-map-1
 - task_id: task-1
@@ -428,7 +452,7 @@ ContextProjectionV1 shadow (not active replacement):
 - estimated_tokens: 123
 "@
 @(
-    (@{ type = "response.created"; input = $projectionBlock } | ConvertTo-Json -Compress -Depth 8)
+    (@{ type = "response.created"; input = $activeProjectionBlock } | ConvertTo-Json -Compress -Depth 8)
 ) | Set-Content -LiteralPath $projectionJsonl -Encoding UTF8
 $projectionArtifacts = Write-TaskspaceCostInstrumentationArtifacts (Join-Path $costDir "projection") $projectionJsonl ""
 Assert-True ([string]$projectionArtifacts.context_projection_summary.availability -eq "measured") "context projection summary was not marked measured"
@@ -437,7 +461,17 @@ Assert-True ([int]$projectionArtifacts.context_projection_summary.projection_tok
 Assert-True ([int]$projectionArtifacts.context_projection_summary.protected_miss_count -eq 0) "context projection protected sections were reported missing"
 $projectionEventLine = Get-Content -LiteralPath $projectionArtifacts.projection_events_path -Encoding UTF8 | Select-Object -First 1
 $projectionEvent = $projectionEventLine | ConvertFrom-Json
-Assert-True ([string]$projectionEvent.projection_id -eq "projection-shadow-task-1-map-1") "projection event id was not parsed"
+Assert-True ([string]$projectionEvent.projection_id -eq "projection-active-task-1-map-1") "active projection event id was not parsed"
+Assert-True ([string]$projectionEvent.projection_kind -eq "active_replacement") "active projection kind was not parsed"
+$shadowProjectionJsonl = Join-Path $costDir "projection-shadow-source.jsonl"
+@(
+    (@{ type = "response.created"; input = $shadowProjectionBlock } | ConvertTo-Json -Compress -Depth 8)
+) | Set-Content -LiteralPath $shadowProjectionJsonl -Encoding UTF8
+$shadowProjectionArtifacts = Write-TaskspaceCostInstrumentationArtifacts (Join-Path $costDir "projection-shadow") $shadowProjectionJsonl ""
+Assert-True ([int]$shadowProjectionArtifacts.context_projection_summary.projection_count -eq 1) "legacy shadow projection block was not counted"
+$shadowProjectionEventLine = Get-Content -LiteralPath $shadowProjectionArtifacts.projection_events_path -Encoding UTF8 | Select-Object -First 1
+$shadowProjectionEvent = $shadowProjectionEventLine | ConvertFrom-Json
+Assert-True ([string]$shadowProjectionEvent.projection_kind -eq "shadow") "legacy shadow projection kind was not parsed"
 $costObsFallback = Join-Path $costDir "observability-output-ref-fallback.json"
 [pscustomobject]@{
     timeline = @(

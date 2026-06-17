@@ -433,9 +433,7 @@ pub(crate) async fn run_turn(
 
         if let Some(action_map_projection) = {
             let state = sess.state.lock().await;
-            state
-                .action_map_runtime
-                .build_context_projection_shadow_context()
+            state.action_map_runtime.build_developer_context()
         } && let Some(item) = crate::context_manager::updates::build_developer_update_item(vec![
             action_map_projection,
         ]) {

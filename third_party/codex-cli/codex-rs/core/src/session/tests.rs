@@ -1375,6 +1375,19 @@ async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() 
         developer_text.contains("taskspace_control(action=bind_node or create_node)"),
         "expected compact next valid action in steady-state context: {developer_text}"
     );
+    assert!(
+        !developer_text.contains("ContextProjectionV1 shadow (not active replacement):"),
+        "steady-state active profile should not inject shadow projection: {developer_text}"
+    );
+
+    let removed = session.remove_action_map_projection_history_items().await;
+    assert_eq!(removed, 1, "active projection update should be removable");
+    let history = session.clone_history().await;
+    let developer_text = developer_input_texts(history.raw_items()).join("\n");
+    assert!(
+        !developer_text.contains("projection-active-task-1-map-1"),
+        "active projection should be removed from history: {developer_text}"
+    );
 }
 
 #[tokio::test]

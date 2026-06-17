@@ -4923,6 +4923,7 @@ preview:\n\
         Some(context)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn build_context_projection_shadow_context(&self) -> Option<String> {
         if self.mode != MapRuntimeMode::Experiment {
             return None;
@@ -14854,9 +14855,9 @@ mod tests {
                     decision: "Stay on the narrow main-agent path.".to_string(),
                     rationale: "The task has one implementation surface.".to_string(),
                     depends_on_results: Vec::new(),
-                    depends_on_facts: Vec::new(),
+                    depends_on_facts: vec!["fs-user-request".to_string()],
                     resolves_questions: Vec::new(),
-                    supports_criteria: vec!["contract-test".to_string()],
+                    supports_criteria: Vec::new(),
                     risks: Vec::new(),
                 },
             )

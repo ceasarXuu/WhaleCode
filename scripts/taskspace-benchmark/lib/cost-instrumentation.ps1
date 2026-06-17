@@ -413,7 +413,7 @@ function Get-TaskspaceContextProjectionBlocks {
     }
     $blocks = New-Object System.Collections.Generic.List[string]
     foreach ($text in @($texts.ToArray())) {
-        foreach ($match in [regex]::Matches($text, "(?s)ContextProjectionV1 shadow \(not active replacement\):.*?- estimated_tokens:\s*\d+")) {
+        foreach ($match in [regex]::Matches($text, "(?s)ContextProjectionV1 (?:active replacement|shadow \(not active replacement\)):.*?- estimated_tokens:\s*\d+")) {
             $block = [string]$match.Value
             if (-not [string]::IsNullOrWhiteSpace($block)) { $blocks.Add($block) }
         }
@@ -437,6 +437,7 @@ function New-TaskspaceContextProjectionEvent {
     $projectionId = ""
     $taskId = ""
     $mode = ""
+    $projectionKind = if ($Block -match "ContextProjectionV1 active replacement:") { "active_replacement" } elseif ($Block -match "ContextProjectionV1 shadow \(not active replacement\):") { "shadow" } else { "unknown" }
     $estimatedTokens = $null
     $projectionMatch = [regex]::Match($Block, "(?m)^-\s*projection_id:\s*(.+?)\s*$")
     if ($projectionMatch.Success) { $projectionId = $projectionMatch.Groups[1].Value.Trim() }
@@ -451,6 +452,7 @@ function New-TaskspaceContextProjectionEvent {
         projection_id = $projectionId
         task_id = $taskId
         mode = if ([string]::IsNullOrWhiteSpace($mode)) { "unknown" } else { $mode }
+        projection_kind = $projectionKind
         estimated_tokens = $estimatedTokens
         protected_miss_count = [int]$missing.Count
         protected_missing_sections = @($missing)

@@ -4380,8 +4380,10 @@ fn is_action_map_projection_developer_item(item: &ResponseItem) -> bool {
         matches!(
             entry,
             ContentItem::InputText { text }
-                if text.contains("TaskSpace ContextProjectionV1 shadow update.")
-                    && text.contains("ContextProjectionV1 shadow (not active replacement):")
+                if (text.contains("TaskSpace ContextProjectionV1 shadow update.")
+                    && text.contains("ContextProjectionV1 shadow (not active replacement):"))
+                    || (text.contains("TaskSpace v0.0.5 active compact profile is enabled.")
+                        && text.contains("ContextProjectionV1 active replacement:"))
         )
     })
 }
