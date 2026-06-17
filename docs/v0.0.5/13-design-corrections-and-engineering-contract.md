@@ -238,7 +238,7 @@ Clean release requires cost, quality, output-ref, projection, map, and routing e
 
 ## 11. 2026-06-18 Correction: Phase 4 Map Management Ownership
 
-The v0.0.5 Phase 4 contract is snapshot-derived report management, not runtime-owned retention mutation.
+The v0.0.5 Phase 4 contract is a snapshot-derived report-only foundation, not runtime-owned retention mutation.
 
 Reason:
 
@@ -252,7 +252,7 @@ Corrected acceptance:
 - Every item reported in `map-management-summary.json` has retention and salience fields.
 - `compaction-events.jsonl` records semantic replacement / archive-to-audit decisions.
 - Missing observability source is `source_missing`, not pass.
-- Runtime-owned retention state is deferred until a later version proves that active projection needs durable salience mutation rather than deterministic snapshot-derived classification.
+- Runtime-owned active-memory retention state is not implemented in v0.0.5 and is deferred until a later version proves that active projection needs durable salience mutation rather than deterministic snapshot-derived classification.
 
 ## 12. 2026-06-18 Correction: Phase 5 Routing Ownership
 

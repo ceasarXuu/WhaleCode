@@ -9686,6 +9686,107 @@ mod tests {
     }
 
     #[test]
+    fn state_commit_replay_preserves_partial_outcome_until_new_commit_id() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_unseeded_test_task(&mut state, owner, "Audit", "Inspect code", true);
+
+        let partial = ActionMapStateCommitInput {
+            commit_id: "commit-partial-replay".to_string(),
+            success_criteria: vec![ActionMapSuccessCriterionInput {
+                id: "sc-partial-replay".to_string(),
+                kind: "validator".to_string(),
+                description: "new validator passes".to_string(),
+                status: "open".to_string(),
+                evidence_refs: vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("test-fixture:validator".to_string()),
+                    ..Default::default()
+                }],
+            }],
+            facts: vec![ActionMapCognitiveClaimInput {
+                id: "fact-invalid-replay".to_string(),
+                statement: "invalid fact".to_string(),
+                evidence_refs: Vec::new(),
+            }],
+            ..ActionMapStateCommitInput::default()
+        };
+        let (first, _) = state
+            .state_commit_for_main(owner, partial)
+            .expect("partial commit applies valid sections");
+        assert_eq!(first.status, ActionMapStateCommitStatus::Partial);
+
+        let corrected_same_id = ActionMapStateCommitInput {
+            commit_id: "commit-partial-replay".to_string(),
+            fact_sources: vec![ActionMapStateCommitFactSourceInput {
+                id: "fs-replay-correction".to_string(),
+                provenance: "provided_by_user".to_string(),
+                description: "corrected user-provided source".to_string(),
+                evidence_refs: vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("test-fixture:source".to_string()),
+                    ..Default::default()
+                }],
+            }],
+            facts: vec![ActionMapCognitiveClaimInput {
+                id: "fact-valid-replay".to_string(),
+                statement: "valid fact after correction".to_string(),
+                evidence_refs: vec![ActionMapEvidenceRefInput {
+                    fact_source_id: Some("fs-replay-correction".to_string()),
+                    ..Default::default()
+                }],
+            }],
+            ..ActionMapStateCommitInput::default()
+        };
+        let (replayed, _) = state
+            .state_commit_for_main(owner, corrected_same_id)
+            .expect("same commit id replays previous outcome");
+        assert!(replayed.replayed);
+        assert_eq!(replayed.status, ActionMapStateCommitStatus::Partial);
+        let task = state.tasks.get("task-1").expect("task");
+        assert!(
+            !task
+                .problem_ledger
+                .known_facts
+                .iter()
+                .any(|fact| fact.id == "fact-valid-replay"),
+            "same commit id must not mutate state with corrected payload"
+        );
+
+        let corrected_new_id = ActionMapStateCommitInput {
+            commit_id: "commit-partial-replay-correction".to_string(),
+            fact_sources: vec![ActionMapStateCommitFactSourceInput {
+                id: "fs-replay-correction".to_string(),
+                provenance: "provided_by_user".to_string(),
+                description: "corrected user-provided source".to_string(),
+                evidence_refs: vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("test-fixture:source".to_string()),
+                    ..Default::default()
+                }],
+            }],
+            facts: vec![ActionMapCognitiveClaimInput {
+                id: "fact-valid-replay".to_string(),
+                statement: "valid fact after correction".to_string(),
+                evidence_refs: vec![ActionMapEvidenceRefInput {
+                    fact_source_id: Some("fs-replay-correction".to_string()),
+                    ..Default::default()
+                }],
+            }],
+            ..ActionMapStateCommitInput::default()
+        };
+        let (corrected, _) = state
+            .state_commit_for_main(owner, corrected_new_id)
+            .expect("new commit id applies correction");
+        assert_eq!(corrected.status, ActionMapStateCommitStatus::Accepted);
+        let task = state.tasks.get("task-1").expect("task");
+        assert!(
+            task.problem_ledger
+                .known_facts
+                .iter()
+                .any(|fact| fact.id == "fact-valid-replay")
+        );
+    }
+
+    #[test]
     fn state_commit_dry_run_validates_without_mutating_state() {
         let owner = ThreadId::new();
         let mut state = ActionMapRuntimeState::default();
