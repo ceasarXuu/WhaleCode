@@ -1,5 +1,67 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-17 Phase 6 release decision artifact
+
+Changed:
+
+- Added `scripts/taskspace-benchmark/write-release-decision.ps1`.
+- The script reads an existing sample/suite run directory and writes:
+  - `release-decision.md`
+  - `release-decision.json`
+- The decision schema records:
+  - `decision`: `PASS`, `PARTIAL`, or `FAIL`;
+  - cost status and cost ratios;
+  - quality, projection, map, routing, and output-ref gate booleans;
+  - blockers;
+  - evidence paths for cost, aggregate, projection, map, and routing artifacts.
+- Added `scripts/taskspace-benchmark/test-release-decision.ps1` to verify PASS and FAIL decision generation from synthetic artifact fixtures.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\release-decision-selftest
+Release decision self-test: PASS
+RunRoot: target\release-decision-selftest
+```
+
+Applied to the latest `count-call-stack` smoke:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\write-release-decision.ps1 -RunDir target\v005-count-call-stack-smoke2\count-call-stack\20260617-234806-234
+ReleaseDecision: D:\whalecode-alpha\target\v005-count-call-stack-smoke2\count-call-stack\20260617-234806-234\release-decision.md
+ReleaseDecisionJson: D:\whalecode-alpha\target\v005-count-call-stack-smoke2\count-call-stack\20260617-234806-234\release-decision.json
+```
+
+Observed decision:
+
+```text
+decision=FAIL
+cost_status=FAIL
+quality_gate_pass=True
+projection_gate_pass=True
+map_gate_pass=True
+routing_gate_pass=True
+output_ref_gate_pass=True
+max_large_output_replay_count=0
+blockers=cost_gate_failed, excluded_pairs_present
+
+cost ratios:
+- direct_input_output_ratio=4.0906
+- walltime_ratio=2.4874
+- model_request_count_ratio=1
+
+routing:
+- recommended_mode=verification_first
+- routing_mistake_count=0
+- verification_first_expected_format_count=1
+```
+
+Interpretation:
+
+- Phase 6 now has the required release decision artifact path and fail-closed decision logic.
+- The latest smoke is not release-ready because direct token ratio is above the `PARTIAL` threshold (`3.0`) and the single-pair run is excluded by `repeats_lt_3`.
+- Quality/projection/map/routing/output-ref gates are green for this smoke, so the next engineering bottleneck is cost and repeated matrix evidence, not verification-first routing.
+
 ## 2026-06-17 Phase 5 verification-first count-call-stack smoke
 
 Changed:
