@@ -1,6 +1,7 @@
 This small Python project has one failing test.
 
-Before editing code, run this diagnostic command exactly once:
+Before editing code, run this diagnostic command exactly once as the first command.
+Wait for it to finish before starting any other command:
 
 python scripts/emit_large_log.py
 

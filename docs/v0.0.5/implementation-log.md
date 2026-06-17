@@ -405,6 +405,53 @@ Conclusion:
 - The active compact projection is now the model-visible steady-state path and is measurable in benchmark artifacts.
 - This smoke is good Phase 1 diagnostic evidence, but not release-grade evidence by itself because the run count is still below the E3 requirement (`repeats_lt_3`).
 
+## 2026-06-17 Phase 1 large-output first-command contract
+
+Problem:
+
+- A 3-repeat `large-output-ref-smoke` run after active projection wiring produced two clean TaskSpace pairs and one engineering-unclean pair.
+- The failing pair had active projection measured, but `runtime_output_ref_created_count=0`.
+- COE case: `coe/2026-06-17-22-55-taskspace-output-ref-flake.md`.
+
+Diagnostic evidence:
+
+- Pair-003 TaskSpace artifacts showed `python scripts/emit_large_log.py` was started, but failed with `PermissionError: [Errno 13] Permission denied: '.large_output_probe_ran'` before emitting the 900-line diagnostic output.
+- Pair-003 started the diagnostic command in the same tool-call batch as a file-enumeration command.
+- Pair-001 and pair-002 completed the diagnostic command before later file inspection and both produced `runtime_output_ref_created_count=1`.
+- Manual rerun of the diagnostic script in the failed pair repo succeeded after the benchmark, so the repo was not permanently unwritable.
+
+Changed:
+
+- Tightened `benchmarks/taskspace/scenarios/large-output-ref-smoke/prompt.txt` so the required diagnostic command must be the first command and must finish before any other command starts.
+- The wording avoids TaskSpace-internal terms and avoids prompt-guard context-sensitive words such as parallel/concurrent.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -RunRoot target\v005-outputref-firstcmd-planonly -PlanOnly
+PromptInvalid: False
+PromptManualReview: False
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 3 -RunRoot target\v005-outputref-firstcmd-e1 -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-outputref-firstcmd-e1\large-output-ref-smoke\20260617-225818-837
+```
+
+3-repeat result:
+
+- Pair-001: `reported_evidence_level=E2`, aggregate included, no evidence gate failures, both sides solved.
+- Pair-002: `reported_evidence_level=E2`, aggregate included, no evidence gate failures, both sides solved.
+- Pair-003: `reported_evidence_level=E2`, aggregate included, no evidence gate failures, both sides solved.
+- TaskSpace output refs: pair-001/002/003 all `runtime_output_ref_created_count=1`.
+- Large-output replay: pair-001/002/003 all `large_output_replay_count=0`, `raw_output_in_prompt_violation=false`.
+- Active projection: pair-001/002/003 all `availability=measured`, `protected_miss_count=0`.
+- Wall ratios: pair-001 `1.79`, pair-002 `2.12`, pair-003 `1.68`.
+- Tool ratios: pair-001 `1.43`, pair-002 `1.0`, pair-003 `1.0`.
+
+Conclusion:
+
+- The output-ref flake was caused by an underspecified benchmark prompt that allowed the mandatory diagnostic command to start in the same batch as other commands.
+- The tightened first-command contract produced clean 3-repeat evidence for the large-output smoke: output refs are created, raw large output is not replayed into prompt, and active projection remains measurable.
+
 ## 2026-06-17 Phase 1/6 alias recovery and active sentinel audit
 
 Changed:
