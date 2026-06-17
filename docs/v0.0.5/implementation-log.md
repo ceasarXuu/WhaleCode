@@ -135,6 +135,52 @@ Remaining Phase 1 work:
 
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
 
+## 2026-06-17 Phase 1/6 alias recovery and active sentinel audit
+
+Changed:
+
+- `taskspace_control` now normalizes `state_commit` recovery payloads that omit `evidence_refs` on `output_contracts` or `fact_sources` by attaching the original user request as provenance evidence.
+- `state_commit.fact_sources[*].provenance=file|filesystem|repo` now normalizes to `observed_from_environment`, matching the runtime schema.
+- Benchmark metrics now extract active sentinel warnings from observability snapshots:
+  - `active_sentinel_warning_count`
+  - `active_sentinel_warning_types`
+- Failure taxonomy marks any active sentinel warning as engineering-unclean, so failed validators cannot be hidden behind business success.
+- Runtime now clears active `validator_failure` sentinel warnings after a later successful validator trace in the same task/map. The warning remains in history with `status=cleared`, `cleared_at_ms`, and both trace ids.
+
+Validation:
+
+```text
+cargo test -p codex-core successful_validator_clears_active_validator_failure_sentinel --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core taskspace_control --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+12 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-sentinel-clear
+TaskSpace benchmark harness self-test: PASS
+```
+
+Live smoke evidence driving this fix:
+
+- `target\v005-alias-live-smoke\large-output-ref-smoke\20260617-190542-904`
+  - Standard and TaskSpace both solved.
+  - TaskSpace reached zero open leaves and no subagent calls.
+  - Cost gate still failed: direct token ratio `8.8288`, walltime ratio `3.1392`.
+  - Observability contained an active `validator_failure` sentinel, but the previous benchmark report did not mark the run engineering-unclean.
+- `target\v005-alias2-smoke\large-output-ref-smoke\20260617-194538-554`
+  - Initial preflight `state_commit` accepted `success_criteria`, `output_contracts`, and `fact_sources`.
+  - New sentinel audit correctly marked the run `engineering_unclean=True` with `active_sentinel_warning:validator_failure`.
+  - Cost gate still failed under debug install: direct token ratio `5.5948`, walltime ratio `3.4981`.
+
+Operational note:
+
+- Dist LTO builds for `whale` can outlive a 15 minute shell timeout. Before starting another build, check for lingering `cargo`, `rustc`, and `link` processes. Debug installs are acceptable for behavior smoke, but their walltime cannot be used as release-quality cost evidence.
+
+Remaining Phase 6 work:
+
+- Rebuild/install current code and rerun `large-output-ref-smoke`.
+- A clean gate requires no active sentinel warnings, no extra open leaf nodes, no large output replay, and cost ratios within the v0.0.5 threshold.
+
 ## 2026-06-17 Cost root-cause: provider input visibility
 
 Changed:

@@ -191,6 +191,11 @@ $dockerStdout = Join-Path $dockerProofDir "stdout.log"
 "docker_build_result_path=$dockerResultPath" | Set-Content -LiteralPath $dockerStdout -Encoding UTF8
 $dockerParsed = Get-TaskspaceDockerValidationResult ([pscustomobject]@{ stdout_path = $dockerStdout; stderr_path = "" })
 Assert-True (@($dockerParsed.classifications) -contains "docker_build_environment_failure") "docker result classification was not parsed"
+$activeSentinelReasons = @(Get-TaskspaceEngineeringUncleanReasons ([pscustomobject]@{
+            active_sentinel_warning_count = 1
+            active_sentinel_warning_types = @("validator_failure")
+        }))
+Assert-True ($activeSentinelReasons -contains "active_sentinel_warning:validator_failure") "active sentinel warning was not treated as engineering-unclean"
 $cleanupFailurePath = Join-Path $dockerProofDir "validation-cleanup-result.json"
 @{ classification = "docker_cleanup_container_failure"; container_name = "whale-tbench-0123456789abcdef" } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $cleanupFailurePath -Encoding UTF8
 $cleanupStdout = Join-Path $dockerProofDir "cleanup-stdout.log"

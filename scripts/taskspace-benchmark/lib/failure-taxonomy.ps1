@@ -84,6 +84,16 @@ function Get-TaskspaceEngineeringUncleanReasons {
             if ([string]::IsNullOrWhiteSpace($text)) { continue }
             Add-TaskspaceFailureClass $reasons $text
         }
+        if ($Metrics.PSObject.Properties.Name -contains "active_sentinel_warning_count" -and [int]$Metrics.active_sentinel_warning_count -gt 0) {
+            foreach ($sentinelType in @(Get-TaskspaceMetricArray $Metrics "active_sentinel_warning_types")) {
+                $text = [string]$sentinelType
+                if ([string]::IsNullOrWhiteSpace($text)) { $text = "unknown" }
+                Add-TaskspaceFailureClass $reasons "active_sentinel_warning:$text"
+            }
+            if (@(Get-TaskspaceMetricArray $Metrics "active_sentinel_warning_types").Count -eq 0) {
+                Add-TaskspaceFailureClass $reasons "active_sentinel_warning"
+            }
+        }
         if (Get-TaskspaceMetricBool $Metrics "pretest_failure") {
             $signature = if ($Metrics.PSObject.Properties.Name -contains "infra_signature" -and $Metrics.infra_signature) { [string]$Metrics.infra_signature.stable_code } else { "validator_pretest_failure" }
             Add-TaskspaceFailureClass $reasons $signature

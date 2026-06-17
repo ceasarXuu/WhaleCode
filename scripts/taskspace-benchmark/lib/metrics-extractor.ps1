@@ -258,6 +258,10 @@ function Get-TaskspaceBenchmarkMetrics {
             "metrics_critical_artifact_unhashed:$($_.path)"
         })
     $obs = if ($ObservabilityResult) { $ObservabilityResult.observability } else { $null }
+    $activeSentinelWarnings = @()
+    if ($obs -and $obs.PSObject.Properties.Name -contains "sentinelWarnings") {
+        $activeSentinelWarnings = @($obs.sentinelWarnings | Where-Object { [string]$_.status -eq "active" })
+    }
     $dockerResult = Get-TaskspaceDockerValidationResult $Validation
     $lifecycle = Get-TaskspaceValidationLifecycle $Validation
     $probeResult = Get-TaskspaceValidatorProbeResult $Validation
@@ -337,6 +341,8 @@ function Get-TaskspaceBenchmarkMetrics {
         runtime_output_ref_created_count = [int]$costInstrumentation.taskspace_control_usage.runtime_output_ref_created_count
         runtime_output_ref_slice_read_count = [int]$costInstrumentation.taskspace_control_usage.runtime_output_ref_slice_read_count
         taskspace_runtime_event_count = [int]$costInstrumentation.taskspace_control_usage.taskspace_runtime_event_count
+        active_sentinel_warning_count = [int]$activeSentinelWarnings.Count
+        active_sentinel_warning_types = @($activeSentinelWarnings | ForEach-Object { [string]$_.sentinelType } | Sort-Object -Unique)
         context_projection_availability = [string]$costInstrumentation.context_projection_summary.availability
         projection_count = [int]$costInstrumentation.context_projection_summary.projection_count
         projection_tokens = $costInstrumentation.context_projection_summary.projection_tokens_total

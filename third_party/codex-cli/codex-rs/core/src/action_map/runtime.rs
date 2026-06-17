@@ -6096,6 +6096,7 @@ preview:\n\
                 created_at_ms: event.created_at_ms,
             },
         )];
+        self.clear_validator_failure_sentinels_after_success(&event);
         for draft in warning_drafts_for_trace_event(&event) {
             let sentinel_id = self.next_sentinel_warning_id();
             let warning = TaskSpaceSentinelWarning {
@@ -6119,6 +6120,28 @@ preview:\n\
             ));
         }
         events
+    }
+
+    fn clear_validator_failure_sentinels_after_success(&mut self, event: &TaskSpaceTraceEvent) {
+        if !event.tags.iter().any(|tag| tag == "validator_success") {
+            return;
+        }
+        for warning in &mut self.sentinel_warnings {
+            if warning.warning_type != TaskSpaceSentinelWarningType::ValidatorFailure
+                || warning.status != TaskSpaceSentinelWarningStatus::Active
+                || warning.map_id != event.map_id
+            {
+                continue;
+            }
+            if warning.task_id != event.task_id {
+                continue;
+            }
+            warning.status = TaskSpaceSentinelWarningStatus::Cleared;
+            warning.cleared_at_ms = Some(event.created_at_ms);
+            if !warning.trace_event_ids.iter().any(|id| id == &event.id) {
+                warning.trace_event_ids.push(event.id.clone());
+            }
+        }
     }
 
     fn apply_state_commit_section<F>(
@@ -10392,6 +10415,78 @@ mod tests {
         let value = serde_json::to_value(warning).expect("warning serializes");
         assert!(value.get("preview").is_none());
         assert!(value.get("body").is_none());
+    }
+
+    #[test]
+    fn successful_validator_clears_active_validator_failure_sentinel() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, _node_id, _) = start_test_task(
+            &mut state,
+            owner,
+            "Run diagnostics",
+            "Collect failing test evidence.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest")
+                    .with_call_id("call-test-fail"),
+            )
+            .expect("diagnostic test is allowed");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "pytest failed".to_string(),
+            )
+            .expect("failed test result records")
+            .expect("failed result id");
+
+        let failed_snapshot = state.snapshot();
+        assert_eq!(failed_snapshot.sentinel_summary.total_warning_count, 1);
+        assert_eq!(failed_snapshot.sentinel_summary.active_warning_count, 1);
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest")
+                    .with_call_id("call-test-pass"),
+            )
+            .expect("follow-up diagnostic test is allowed");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-pass",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("successful test result records")
+            .expect("successful result id");
+
+        let recovered_snapshot = state.snapshot();
+        assert_eq!(recovered_snapshot.trace_summary.validator_failure_count, 1);
+        assert_eq!(recovered_snapshot.sentinel_summary.total_warning_count, 1);
+        assert_eq!(recovered_snapshot.sentinel_summary.active_warning_count, 0);
+        let warning = recovered_snapshot
+            .sentinel_warnings
+            .first()
+            .expect("sentinel warning remains auditable");
+        assert_eq!(warning.sentinel_type, "validator_failure");
+        assert_eq!(warning.status, "cleared");
+        assert_eq!(
+            warning.trace_event_ids,
+            vec!["trace-1".to_string(), "trace-2".to_string()]
+        );
+        assert!(warning.cleared_at_ms.is_some());
     }
 
     #[test]

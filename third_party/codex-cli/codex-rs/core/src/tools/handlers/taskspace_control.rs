@@ -1063,6 +1063,9 @@ fn normalize_taskspace_argument_aliases(root: &mut serde_json::Map<String, JsonV
             normalize_fact_source_provenance(root);
             normalize_evidence_refs(root);
         }
+        "state_commit" => {
+            normalize_state_commit_sections(root);
+        }
         _ => {}
     }
 }
@@ -1161,6 +1164,47 @@ fn normalize_evidence_refs(root: &mut serde_json::Map<String, JsonValue>) {
         .collect();
     if !evidence_refs.is_empty() {
         root.insert("evidence_refs".to_string(), JsonValue::Array(evidence_refs));
+    }
+}
+
+fn normalize_state_commit_sections(root: &mut serde_json::Map<String, JsonValue>) {
+    if let Some(criteria) = root.get_mut("success_criteria") {
+        normalize_success_criteria_value(criteria);
+    }
+    normalize_state_commit_evidence_array(root, "output_contracts");
+    normalize_state_commit_evidence_array(root, "fact_sources");
+    if let Some(JsonValue::Array(items)) = root.get_mut("fact_sources") {
+        for item in items {
+            let JsonValue::Object(object) = item else {
+                continue;
+            };
+            normalize_fact_source_provenance(object);
+        }
+    }
+}
+
+fn normalize_state_commit_evidence_array(
+    root: &mut serde_json::Map<String, JsonValue>,
+    field: &str,
+) {
+    let Some(JsonValue::Array(items)) = root.get_mut(field) else {
+        return;
+    };
+    for item in items {
+        let JsonValue::Object(object) = item else {
+            continue;
+        };
+        let needs_default = match object.get("evidence_refs") {
+            Some(JsonValue::Array(existing)) => existing.is_empty(),
+            Some(_) => false,
+            None => true,
+        };
+        if needs_default {
+            object.insert(
+                "evidence_refs".to_string(),
+                JsonValue::Array(vec![serde_json::json!({ "artifact_ref": "user-request" })]),
+            );
+        }
     }
 }
 
@@ -1780,6 +1824,46 @@ mod tests {
                 assert_eq!(provenance, "observed_from_environment");
                 assert!(description.contains("README.md"));
                 assert_eq!(evidence_refs.len(), 1);
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn state_commit_contract_and_source_evidence_defaults_normalize() {
+        let raw = serde_json::json!({
+            "action": "state_commit",
+            "schema_version": "taskspace-state-commit-v1",
+            "output_contracts": [{
+                "output_contract_id": "oc-1",
+                "output_contract_kind": "artifact",
+                "description": "Modified implementation files"
+            }],
+            "fact_sources": [{
+                "fact_source_id": "fs-1",
+                "provenance": "file",
+                "description": "README and tests"
+            }]
+        });
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("state_commit normalized args parse");
+
+        match args {
+            TaskSpaceControlArgs::StateCommit {
+                output_contracts,
+                fact_sources,
+                ..
+            } => {
+                assert_eq!(output_contracts.len(), 1);
+                assert_eq!(output_contracts[0].evidence_refs.len(), 1);
+                assert_eq!(
+                    output_contracts[0].evidence_refs[0].artifact_ref.as_deref(),
+                    Some("user-request")
+                );
+                assert_eq!(fact_sources.len(), 1);
+                assert_eq!(fact_sources[0].provenance, "observed_from_environment");
+                assert_eq!(fact_sources[0].evidence_refs.len(), 1);
             }
             other => panic!("unexpected args: {other:?}"),
         }
