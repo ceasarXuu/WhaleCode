@@ -268,6 +268,7 @@ pub(crate) struct ActionMapResultAdoptionInput {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ActionMapStateCommitInput {
     pub(crate) commit_id: String,
+    pub(crate) dry_run: bool,
     pub(crate) active_node_id: Option<String>,
     pub(crate) nodes: Vec<ActionMapStateCommitNodeInput>,
     pub(crate) finished_nodes: Vec<ActionMapStateCommitFinishNodeInput>,
@@ -348,6 +349,8 @@ pub(crate) struct ActionMapStateCommitOutcome {
     pub(crate) status: ActionMapStateCommitStatus,
     pub(crate) accepted_sections: Vec<String>,
     pub(crate) rejected_sections: Vec<ActionMapStateCommitSectionError>,
+    pub(crate) dry_run: bool,
+    pub(crate) replayed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -405,6 +408,7 @@ pub(crate) struct ActionMapRuntimeState {
     maintenance_barriers: HashMap<ActionMapId, ActionMapMaintenanceBarrier>,
     main_tool_reservations: HashMap<String, MainToolReservation>,
     child_tool_reservations: HashMap<String, ChildToolReservation>,
+    applied_state_commits: HashMap<String, ActionMapStateCommitOutcome>,
     tasks: HashMap<TaskId, TaskState>,
     maps: HashMap<ActionMapId, ActionMapInstance>,
     taskspace_trace_events: Vec<TaskSpaceTraceEvent>,
@@ -521,6 +525,7 @@ impl Default for ActionMapRuntimeState {
             maintenance_barriers: HashMap::new(),
             main_tool_reservations: HashMap::new(),
             child_tool_reservations: HashMap::new(),
+            applied_state_commits: HashMap::new(),
             tasks: HashMap::new(),
             maps: HashMap::new(),
             taskspace_trace_events: Vec::new(),
@@ -2966,8 +2971,32 @@ preview:\n\
         owner_session_id: ThreadId,
         input: ActionMapStateCommitInput,
     ) -> Result<(ActionMapStateCommitOutcome, Vec<MapRuntimeEvent>), String> {
+        if input.dry_run {
+            let mut candidate = self.clone();
+            let mut dry_input = input;
+            dry_input.dry_run = false;
+            let (mut outcome, _) = candidate.state_commit_for_main(owner_session_id, dry_input)?;
+            outcome.dry_run = true;
+            return Ok((outcome, Vec::new()));
+        }
+
         let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
         let commit_id = require_nonempty_owned("commit_id", input.commit_id)?;
+        if let Some(previous) = self.applied_state_commits.get(&commit_id) {
+            let mut outcome = previous.clone();
+            outcome.replayed = true;
+            return Ok((
+                outcome,
+                vec![MapRuntimeEvent::CognitiveStateUpdated(
+                    MapRuntimeCognitiveStateUpdatedEvent {
+                        task_id,
+                        map_id: Some(map_id),
+                        update_kind: "state_commit.replayed".to_string(),
+                        record_id: commit_id,
+                    },
+                )],
+            ));
+        }
         let mut outcome = ActionMapStateCommitOutcome {
             commit_id: commit_id.clone(),
             ..ActionMapStateCommitOutcome::default()
@@ -3223,6 +3252,8 @@ preview:\n\
                 record_id: commit_id,
             },
         ));
+        self.applied_state_commits
+            .insert(outcome.commit_id.clone(), outcome.clone());
         Ok((outcome, events))
     }
 
@@ -9541,6 +9572,107 @@ mod tests {
         state
             .validate_cognitive_preflight()
             .expect("state_commit satisfies problem preflight");
+    }
+
+    #[test]
+    fn state_commit_replay_by_commit_id_does_not_duplicate_state() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_unseeded_test_task(
+            &mut state,
+            owner,
+            "Fix tax",
+            "Fix one failing tax test",
+            true,
+        );
+
+        let input = ActionMapStateCommitInput {
+            commit_id: "commit-replay".to_string(),
+            success_criteria: vec![ActionMapSuccessCriterionInput {
+                id: "sc-replay".to_string(),
+                kind: "test".to_string(),
+                description: "focused test passes".to_string(),
+                status: "open".to_string(),
+                evidence_refs: vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("test-fixture:user-request".to_string()),
+                    ..Default::default()
+                }],
+            }],
+            ..ActionMapStateCommitInput::default()
+        };
+
+        let (first, _) = state
+            .state_commit_for_main(owner, input.clone())
+            .expect("first commit applies");
+        let (second, second_events) = state
+            .state_commit_for_main(owner, input)
+            .expect("replayed commit returns prior outcome");
+
+        assert_eq!(first.status, ActionMapStateCommitStatus::Accepted);
+        assert_eq!(second.status, ActionMapStateCommitStatus::Accepted);
+        assert!(second.replayed);
+        let task = state.tasks.get("task-1").expect("task");
+        let replay_count = task
+            .problem_ledger
+            .success_criteria
+            .iter()
+            .filter(|criterion| criterion.id == "sc-replay")
+            .count();
+        assert_eq!(replay_count, 1);
+        assert!(second_events.iter().any(|event| matches!(
+            event,
+            MapRuntimeEvent::CognitiveStateUpdated(event)
+                if event.update_kind == "state_commit.replayed"
+        )));
+    }
+
+    #[test]
+    fn state_commit_dry_run_validates_without_mutating_state() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_unseeded_test_task(
+            &mut state,
+            owner,
+            "Fix tax",
+            "Fix one failing tax test",
+            true,
+        );
+
+        let (outcome, events) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-dry-run".to_string(),
+                    dry_run: true,
+                    success_criteria: vec![ActionMapSuccessCriterionInput {
+                        id: "sc-dry-run".to_string(),
+                        kind: "test".to_string(),
+                        description: "focused test passes".to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("test-fixture:user-request".to_string()),
+                            ..Default::default()
+                        }],
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect("dry-run commit validates");
+
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
+        assert!(outcome.dry_run);
+        assert!(events.is_empty());
+        let task = state.tasks.get("task-1").expect("task");
+        assert!(
+            !task
+                .problem_ledger
+                .success_criteria
+                .iter()
+                .any(|criterion| criterion.id == "sc-dry-run")
+        );
+        assert!(!state.applied_state_commits.contains_key("commit-dry-run"));
     }
 
     #[test]

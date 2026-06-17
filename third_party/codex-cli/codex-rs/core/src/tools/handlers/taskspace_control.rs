@@ -214,6 +214,8 @@ enum TaskSpaceControlArgs {
         #[serde(default)]
         schema_version: Option<String>,
         #[serde(default)]
+        dry_run: bool,
+        #[serde(default)]
         active_node_id: Option<String>,
         #[serde(default)]
         nodes: Vec<TaskSpaceStateCommitNodeArgs>,
@@ -838,6 +840,7 @@ impl ToolHandler for TaskSpaceControlHandler {
             TaskSpaceControlArgs::StateCommit {
                 commit_id,
                 schema_version,
+                dry_run,
                 active_node_id,
                 nodes,
                 finished_nodes,
@@ -859,6 +862,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         &turn,
                         ActionMapStateCommitInput {
                             commit_id: commit_id.clone(),
+                            dry_run,
                             active_node_id,
                             nodes: convert_state_commit_nodes(nodes)?,
                             finished_nodes: convert_state_commit_finished_nodes(finished_nodes)?,
@@ -882,9 +886,11 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .await
                     .map_err(FunctionCallError::RespondToModel)?;
                 format!(
-                    "TaskSpace state_commit {}: status={} accepted_sections=[{}] rejected_sections=[{}]",
+                    "TaskSpace state_commit {}: status={} dry_run={} replayed={} accepted_sections=[{}] rejected_sections=[{}]",
                     outcome.commit_id,
                     outcome.status.as_str(),
+                    outcome.dry_run,
+                    outcome.replayed,
                     outcome.accepted_sections.join(","),
                     outcome
                         .rejected_sections
@@ -1627,6 +1633,7 @@ mod tests {
             "action": "state_commit",
             "commit_id": "commit-1",
             "schema_version": "taskspace-state-commit-v1",
+            "dry_run": true,
             "active_node_id": "node-1",
             "nodes": [{
                 "kind": "smoke_test",
@@ -1698,6 +1705,7 @@ mod tests {
         match args {
             TaskSpaceControlArgs::StateCommit {
                 commit_id,
+                dry_run,
                 active_node_id,
                 nodes,
                 finished_nodes,
@@ -1713,6 +1721,7 @@ mod tests {
                 ..
             } => {
                 assert_eq!(commit_id.as_deref(), Some("commit-1"));
+                assert!(dry_run);
                 assert_eq!(active_node_id.as_deref(), Some("node-1"));
                 assert_eq!(nodes[0].kind, "smoke_test");
                 assert_eq!(

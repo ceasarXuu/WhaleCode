@@ -1180,7 +1180,33 @@ Notes:
 
 Remaining Phase 1 work:
 
-- Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
+- Add non-agent runtime and harness coverage for any remaining `state_commit` contract gaps.
+- Live smoke / real E3 evidence is blocked until v0.0.5 planned code is complete and the user explicitly approves real Agent execution.
+
+## 2026-06-18 Phase 1 state_commit replay and dry-run
+
+Changed:
+
+- Added runtime-level `commit_id` replay protection for `state_commit`.
+- Replayed commits now return the recorded outcome with `replayed=true` and do not duplicate ledger, node, result, or cognitive-state records.
+- Added `dry_run` to the `state_commit` handler and runtime input.
+- Dry-run commits validate through the same section-level candidate-runtime path, return the validation outcome with `dry_run=true`, and emit no mutation events.
+- Updated the model-visible `state_commit` response to include `dry_run` and `replayed` flags.
+
+Validation:
+
+```text
+cargo fmt -p codex-core
+completed; rustfmt reported existing stable-channel import-granularity warnings
+
+cargo test -p codex-core state_commit -- --nocapture
+10 passed; 0 failed
+```
+
+Notes:
+
+- This closes the Phase 1 gaps recorded in `14-implementation-gap-audit.md` for idempotent replay and dry-run validation.
+- No real E3, live smoke, or Agent-invoking benchmark was run for this change.
 
 ## 2026-06-18 Cost failure diagnostics
 

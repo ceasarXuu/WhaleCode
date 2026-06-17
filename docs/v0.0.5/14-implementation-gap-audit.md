@@ -19,8 +19,8 @@ Therefore the project should stay in implementation mode. Real E3 validation mus
 | 0 Instrumentation | Distinguish Standard, v004 legacy TaskSpace, v005 shadow, and v005 active in reporting. | Cost instrumentation parses projection blocks and routing artifacts, but profile separation is mostly benchmark-side. | Partial | Add explicit profile labels and gate eligibility checks so shadow cannot satisfy active cost gates. |
 | 1 `state_commit` | Add compatible `state_commit` action with sections for nodes, finished nodes, blockers, validity, adoption, criteria, contracts, sources, facts, decisions, next action. | Rust handler and runtime contain `StateCommit` branch and section application in `action_map/runtime.rs` and `taskspace_control.rs`. | Implemented | Keep legacy compatibility tests in the required non-agent test set. |
 | 1 `state_commit` | Missing `commit_id` should derive auto id. | Handler derives `auto-*` id from normalized arguments. | Implemented | Add runtime-level test coverage if missing from focused test set. |
-| 1 `state_commit` | Idempotent replay by `commit_id`. | Static search did not find applied commit id storage or duplicate replay handling; runtime applies sections directly. | Missing | Add commit ledger in runtime state, return prior outcome on duplicate commit id, and test that replay does not duplicate state. |
-| 1 `state_commit` | Dry-run validation path. | Static search did not find `dry_run` / `dry-run` support in handler or runtime input. | Missing | Add `dry_run` argument to `state_commit`, validate sections against cloned runtime, return outcome, emit no mutation events, and test accepted/partial/rejected dry runs. |
+| 1 `state_commit` | Idempotent replay by `commit_id`. | Runtime now records applied `commit_id` outcomes and duplicate commits return `replayed=true` without duplicating state. | Implemented | Keep `state_commit_replay_by_commit_id_does_not_duplicate_state` in the required non-agent test set. |
+| 1 `state_commit` | Dry-run validation path. | Handler/runtime now accept `dry_run`; validation runs on cloned runtime state and returns `dry_run=true` without mutation events. | Implemented | Keep `state_commit_dry_run_validates_without_mutating_state` in the required non-agent test set. |
 | 1 Gate response | Gate failures should return structured recovery fields: `allowed`, `reason`, `blocking_items`, `next_valid_actions`, `missing_evidence`. | Projection text includes `next_valid_actions`; gate failures still mostly return prose strings. | Partial | Add structured gate response type and render both machine-readable and concise model-visible recovery. |
 | 2 Output references | Large outputs become `OutputReferenceV1` placeholders with hash, bytes, head/tail, `raw_output_elided=true`, suggested slices. | `tools/output_reference.rs`, shell/unified exec handlers, and tests exist. | Implemented | Keep large-output unit tests in non-agent validation set. |
 | 2 Output references | Slice-on-demand via bounded head/tail/line range/grep. | `taskspace_control(action=read_output_ref)` calls `read_output_artifact_slice`. | Implemented | Add validation that the slice action is model-visible only through bounded redacted content. |
@@ -37,8 +37,6 @@ Therefore the project should stay in implementation mode. Real E3 validation mus
 
 Before asking to run real E3:
 
-- Implement runtime idempotency for `state_commit`.
-- Implement `state_commit` dry-run validation.
 - Implement structured gate recovery fields.
 - Emit explicit `output-ref-events.jsonl`.
 - Resolve the Phase 4 runtime-vs-report-only contract and make the code match it.
