@@ -1138,8 +1138,27 @@ impl ActionMapRuntimeState {
             } else {
                 blocked_action_recovery_message(node, &descriptor, &reason)
             };
+            let recovery = gate_recovery_message(
+                &message,
+                &reason,
+                vec![format!("current_node:{}:{}", node.id, node.kind.as_str())],
+                vec![if node.kind == NodeKind::InspectCodeContext
+                    && descriptor.action_class == ActionClass::Edit
+                {
+                    format!(
+                        "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
+                        node.id
+                    )
+                } else {
+                    format!(
+                        "taskspace_control(action=finish_node, node_id=\"{}\")",
+                        node.id
+                    )
+                }],
+                Vec::new(),
+            );
             return Err(ActionMapGateError::new(
-                message,
+                recovery,
                 vec![MapRuntimeEvent::ToolActionBlocked(
                     MapRuntimeToolActionBlockedEvent {
                         map_id,
@@ -1168,13 +1187,25 @@ impl ActionMapRuntimeState {
                 events.push(maintenance_barrier_raised_event(&barrier));
                 self.maintenance_barriers.insert(map_id.clone(), barrier);
             }
-            return Err(ActionMapGateError::new(
-                format!(
-                    "TaskSpace blocked this tool call because current node `{}` already has {} recorded and {} in-flight tool results (budget {}). Finish this broad node or create a narrower follow-up node before retrying. If the remaining work contains independent investigation tracks, create separate ready inspect_code_context nodes and use spawn_agent for those nodes instead of continuing all investigation in the main node.",
-                    node_id, main_tool_result_count, reserved_tool_count, budget
-                ),
-                events,
-            ));
+            let message = format!(
+                "TaskSpace blocked this tool call because current node `{}` already has {} recorded and {} in-flight tool results (budget {}). Finish this broad node or create a narrower follow-up node before retrying. If the remaining work contains independent investigation tracks, create separate ready inspect_code_context nodes and use spawn_agent for those nodes instead of continuing all investigation in the main node.",
+                node_id, main_tool_result_count, reserved_tool_count, budget
+            );
+            let recovery = gate_recovery_message(
+                &message,
+                "node_tool_result_budget_exceeded",
+                vec![format!(
+                    "current_node:{node_id}:main_tool_results:{}:reserved:{}:budget:{budget}",
+                    main_tool_result_count, reserved_tool_count
+                )],
+                vec![
+                    format!("taskspace_control(action=finish_node, node_id=\"{node_id}\")"),
+                    "taskspace_control(action=create_node, node_kind=\"inspect_code_context\") for independent tracks".to_string(),
+                    "spawn_agent only after ready independent inspect nodes exist".to_string(),
+                ],
+                Vec::new(),
+            );
+            return Err(ActionMapGateError::new(recovery, events));
         }
         if descriptor.action_class != ActionClass::Control
             && let Some(call_id) = descriptor.call_id.as_deref()
@@ -6861,6 +6892,24 @@ fn blocked_action_recovery_message(
     )
 }
 
+fn gate_recovery_message(
+    message: &str,
+    reason: &str,
+    blocking_items: Vec<String>,
+    next_valid_actions: Vec<String>,
+    missing_evidence: Vec<String>,
+) -> String {
+    let recovery = serde_json::json!({
+        "schema_version": "TaskSpaceGateRecoveryV1",
+        "allowed": false,
+        "reason": reason,
+        "blocking_items": blocking_items,
+        "next_valid_actions": next_valid_actions,
+        "missing_evidence": missing_evidence,
+    });
+    format!("{message}\nTaskSpaceGateRecoveryV1: {recovery}")
+}
+
 fn projection_no_current_next_valid_actions(map: &ActionMapInstance) -> Vec<String> {
     let mut ready_validation_nodes = ordered_node_ids(map)
         .into_iter()
@@ -12399,6 +12448,11 @@ mod tests {
         assert!(
             message.contains("retry the edit only after the current node is implement_solution")
         );
+        assert!(message.contains("TaskSpaceGateRecoveryV1:"));
+        assert!(message.contains("\"allowed\":false"));
+        assert!(message.contains("\"blocking_items\""));
+        assert!(message.contains("\"next_valid_actions\""));
+        assert!(message.contains("\"missing_evidence\""));
         assert!(events.iter().any(|event| {
             matches!(
                 event,

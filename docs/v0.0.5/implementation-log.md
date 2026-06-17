@@ -1208,6 +1208,37 @@ Notes:
 - This closes the Phase 1 gaps recorded in `14-implementation-gap-audit.md` for idempotent replay and dry-run validation.
 - No real E3, live smoke, or Agent-invoking benchmark was run for this change.
 
+## 2026-06-18 Phase 1 structured main-tool gate recovery
+
+Changed:
+
+- Added `TaskSpaceGateRecoveryV1` JSON to main-agent ordinary tool gate failures for:
+  - node contract violations, such as edit attempts inside `inspect_code_context`
+  - broad-node main-tool result budget barriers
+- The structured block includes:
+  - `allowed`
+  - `reason`
+  - `blocking_items`
+  - `next_valid_actions`
+  - `missing_evidence`
+- Kept existing readable recovery prose so current string-only error display paths remain compatible.
+
+Validation:
+
+```text
+cargo fmt -p codex-core
+completed; rustfmt reported existing stable-channel import-granularity warnings
+
+cargo test -p codex-core node_contract_blocks_edit_inside_inspect_node -- --nocapture
+1 passed; 0 failed
+```
+
+Notes:
+
+- This is a first runtime-backed structured recovery implementation for the highest-impact ordinary-tool gate path.
+- Other gate categories still need the same structured contract before Phase 1 can be treated as fully complete.
+- No real E3, live smoke, or Agent-invoking benchmark was run for this change.
+
 ## 2026-06-18 Cost failure diagnostics
 
 Changed:
