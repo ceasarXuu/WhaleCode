@@ -235,3 +235,21 @@ release-decision.md
 ```
 
 Clean release requires cost, quality, output-ref, projection, map, and routing evidence. Partial release must state exactly which gate missed and why.
+
+## 11. 2026-06-18 Correction: Phase 4 Map Management Ownership
+
+The v0.0.5 Phase 4 contract is snapshot-derived report management, not runtime-owned retention mutation.
+
+Reason:
+
+- Runtime state remains the replayable source of task, map, node, result, evidence, and ledger facts.
+- `map-management-summary.json` and `compaction-events.jsonl` derive `retention_class`, `base_salience`, and `protected_reason` from that runtime observability snapshot.
+- v0.0.5 must not widen the runtime protocol surface just to persist report-only salience fields.
+- No physical deletion is permitted; archived and audit-only classifications are report/projection decisions, not destructive runtime GC.
+
+Corrected acceptance:
+
+- Every item reported in `map-management-summary.json` has retention and salience fields.
+- `compaction-events.jsonl` records semantic replacement / archive-to-audit decisions.
+- Missing observability source is `source_missing`, not pass.
+- Runtime-owned retention state is deferred until a later version proves that active projection needs durable salience mutation rather than deterministic snapshot-derived classification.

@@ -1291,6 +1291,32 @@ Notes:
 - Routing is still benchmark-controlled/report-only until the remaining active profile integration contract is closed.
 - No real E3, live smoke, or Agent-invoking benchmark was run for this change.
 
+## 2026-06-18 Phase 4 map-management ownership correction
+
+Changed:
+
+- Corrected the v0.0.5 Phase 4 contract to snapshot-derived report management.
+- `map-management-summary.json` and `compaction-events.jsonl` remain derived from runtime observability snapshots.
+- Runtime-owned durable retention/salience mutation is explicitly deferred to a later version.
+
+Reason:
+
+- The existing runtime state is already the replayable source for tasks, maps, nodes, results, evidence, and ledger facts.
+- Persisting report-only `retention_class` / `base_salience` fields in runtime would widen the protocol surface without proving active projection needs durable salience mutation.
+- The v0.0.5 target needs deterministic artifact evidence and non-destructive classification, not runtime GC.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-routing-modes
+TaskSpace benchmark harness self-test: PASS
+```
+
+Notes:
+
+- This closes the Phase 4 runtime-vs-report-only contract gap in `14-implementation-gap-audit.md` by correcting the version contract to match the actual architecture.
+- No real E3, live smoke, or Agent-invoking benchmark was run for this change.
+
 ## 2026-06-18 Cost failure diagnostics
 
 Changed:
