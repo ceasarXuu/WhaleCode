@@ -4673,6 +4673,12 @@ preview:\n\
                 .or(self.active_task_id.as_ref())
                 .and_then(|task_id| self.tasks.get(task_id))
             {
+                append_context_projection_shadow(
+                    &mut context,
+                    task,
+                    map,
+                    self.current_main_node_id.as_deref(),
+                );
                 append_task_cognitive_context(&mut context, task, map);
             }
             if let Some(node_id) = self.current_main_node_id.as_ref()
@@ -6354,6 +6360,169 @@ fn append_task_cognitive_context(context: &mut String, task: &TaskState, map: &A
         append_claim_preview_list(context, &cognitive.facts, 6);
     }
     append_result_evidence_context(context, map);
+}
+
+fn append_context_projection_shadow(
+    context: &mut String,
+    task: &TaskState,
+    map: &ActionMapInstance,
+    current_node_id: Option<&str>,
+) {
+    let projection_id = format!("projection-shadow-{}-{}", task.id, map.id);
+    let current_node = current_node_id
+        .and_then(|node_id| map.nodes.get(node_id))
+        .map(|node| {
+            format!(
+                "{} kind={} status={} title={}",
+                node.id,
+                node.kind.as_str(),
+                node.status.as_str(),
+                single_line_preview(&node.title, 120)
+            )
+        })
+        .unwrap_or_else(|| "none".to_string());
+    let success_criteria = task
+        .problem_ledger
+        .success_criteria
+        .iter()
+        .take(6)
+        .map(|criterion| {
+            format!(
+                "{} status={} {}",
+                criterion.id,
+                criterion.status,
+                single_line_preview(&criterion.description, 140)
+            )
+        })
+        .collect::<Vec<_>>();
+    let blockers = task
+        .problem_ledger
+        .blockers
+        .iter()
+        .take(4)
+        .map(|blocker| {
+            format!(
+                "{} {}",
+                blocker.id,
+                single_line_preview(&blocker.description, 140)
+            )
+        })
+        .collect::<Vec<_>>();
+    let decisions = task
+        .problem_ledger
+        .decisions
+        .iter()
+        .take(6)
+        .map(|decision| {
+            format!(
+                "{} kind={} {}",
+                decision.id,
+                decision.decision_kind,
+                single_line_preview(&decision.decision, 140)
+            )
+        })
+        .collect::<Vec<_>>();
+    let facts = task
+        .problem_ledger
+        .known_facts
+        .iter()
+        .take(6)
+        .map(|fact| format!("{} {}", fact.id, single_line_preview(&fact.statement, 140)))
+        .collect::<Vec<_>>();
+    let relevant_results = ordered_result_ids(map)
+        .into_iter()
+        .filter_map(|result_id| map.results.get(&result_id))
+        .filter(|result| result_has_evidence_package(result))
+        .take(6)
+        .map(|result| {
+            format!(
+                "{} node={} validity={} {}",
+                result.id,
+                result.node_id,
+                result.evidence_package.validity.as_str(),
+                single_line_preview(&result.body, 120)
+            )
+        })
+        .collect::<Vec<_>>();
+    let hidden_refs = map
+        .results
+        .keys()
+        .take(8)
+        .map(|result_id| format!("result:{result_id}"))
+        .collect::<Vec<_>>();
+    let next_valid_actions = projection_next_valid_actions(map, current_node_id);
+
+    let mut projection = String::new();
+    projection.push_str("\nContextProjectionV1 shadow (not active replacement):\n");
+    projection.push_str("- projection_id: ");
+    projection.push_str(&projection_id);
+    projection.push_str("\n- task_id: ");
+    projection.push_str(&task.id);
+    projection.push_str("\n- mode: default_compact\n- active_objective: ");
+    projection.push_str(&single_line_preview(&task.problem_ledger.objective, 220));
+    projection.push_str("\n- sections:\n");
+    append_projection_list(&mut projection, "success_criteria", &success_criteria);
+    projection.push_str("  current_node: ");
+    projection.push_str(&current_node);
+    projection.push('\n');
+    append_projection_list(&mut projection, "blockers", &blockers);
+    append_projection_list(&mut projection, "decisions", &decisions);
+    append_projection_list(&mut projection, "facts", &facts);
+    append_projection_list(&mut projection, "relevant_results", &relevant_results);
+    append_projection_list(&mut projection, "next_valid_actions", &next_valid_actions);
+    append_projection_list(&mut projection, "hidden_refs_available", &hidden_refs);
+    projection.push_str("- estimated_tokens: ");
+    projection.push_str(&approx_projection_tokens(&projection).to_string());
+    projection.push('\n');
+    context.push_str(&projection);
+}
+
+fn append_projection_list(context: &mut String, label: &str, values: &[String]) {
+    context.push_str("  ");
+    context.push_str(label);
+    context.push_str(":\n");
+    if values.is_empty() {
+        context.push_str("    - none\n");
+        return;
+    }
+    for value in values {
+        context.push_str("    - ");
+        context.push_str(value);
+        context.push('\n');
+    }
+}
+
+fn projection_next_valid_actions(
+    map: &ActionMapInstance,
+    current_node_id: Option<&str>,
+) -> Vec<String> {
+    let Some(node) = current_node_id.and_then(|node_id| map.nodes.get(node_id)) else {
+        return vec!["taskspace_control(action=bind_node or create_node)".to_string()];
+    };
+    match node.kind {
+        NodeKind::InspectCodeContext => vec![
+            "read/search/test diagnostic evidence".to_string(),
+            "taskspace_control(action=state_commit) for accepted findings".to_string(),
+            "taskspace_control(action=finish_node) into implement_solution".to_string(),
+        ],
+        NodeKind::ImplementSolution => vec![
+            "edit implementation artifacts".to_string(),
+            "taskspace_control(action=finish_node) into smoke_test/regression_test".to_string(),
+        ],
+        NodeKind::SmokeTest | NodeKind::RegressionTest => vec![
+            "run validator/test command".to_string(),
+            "taskspace_control(action=state_commit) with result_validities and success_criteria"
+                .to_string(),
+        ],
+        NodeKind::FinalSynthesis => {
+            vec!["final response only after accepted validation".to_string()]
+        }
+        NodeKind::Custom => vec!["choose concrete built-in node kind for follow-up".to_string()],
+    }
+}
+
+fn approx_projection_tokens(text: &str) -> usize {
+    text.len().div_ceil(4)
 }
 
 fn append_problem_ledger_context(context: &mut String, ledger: &ProblemStateLedger) {
@@ -13905,6 +14074,61 @@ mod tests {
         assert!(context.contains("success criteria"));
         assert!(context.contains("open questions"));
         assert!(context.contains("next best action"));
+    }
+
+    #[test]
+    fn developer_context_includes_shadow_context_projection_without_replacing_legacy_context() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task(
+            &mut state,
+            owner,
+            "Projection smoke",
+            "Verify ContextProjectionV1 shadow coverage.",
+            true,
+        );
+        state
+            .record_decision_for_main(
+                owner,
+                ActionMapLedgerDecisionInput {
+                    id: "d-1".to_string(),
+                    decision_kind: "route".to_string(),
+                    decision: "Stay on the narrow main-agent path.".to_string(),
+                    rationale: "The task has one implementation surface.".to_string(),
+                    depends_on_results: Vec::new(),
+                    depends_on_facts: Vec::new(),
+                    resolves_questions: Vec::new(),
+                    supports_criteria: vec!["contract-test".to_string()],
+                    risks: Vec::new(),
+                },
+            )
+            .expect("decision records");
+        state
+            .record_next_best_action_for_main(
+                owner,
+                Some(node_id),
+                "Read the target source file.".to_string(),
+                "The current node is an inspect node.".to_string(),
+                Some("source evidence".to_string()),
+                Vec::new(),
+            )
+            .expect("next best action records");
+
+        let context = state.build_developer_context().expect("context");
+
+        assert!(context.contains("ContextProjectionV1 shadow (not active replacement):"));
+        assert!(context.contains("projection_id: projection-shadow-task-1-map-1"));
+        assert!(context.contains("mode: default_compact"));
+        assert!(context.contains("active_objective: Verify ContextProjectionV1 shadow coverage."));
+        assert!(context.contains("success_criteria:"));
+        assert!(context.contains("current_node: node-1 kind=inspect_code_context"));
+        assert!(context.contains("decisions:"));
+        assert!(context.contains("Stay on the narrow main-agent path."));
+        assert!(context.contains("next_valid_actions:"));
+        assert!(context.contains("estimated_tokens:"));
+        assert!(context.contains("Active task path:"));
+        assert!(context.contains("Task cognitive state (MVP):"));
     }
 
     #[test]

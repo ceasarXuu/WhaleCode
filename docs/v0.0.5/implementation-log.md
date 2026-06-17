@@ -233,6 +233,46 @@ Remaining Phase 2 caveat:
 
 - The current redaction scanner is intentionally conservative pattern-based protection. It is sufficient for the v0.0.5 contract gate, but a later security pass should replace it with a shared, configurable secret detector if output artifacts become a broader platform surface.
 
+## 2026-06-17 Phase 3 ContextProjectionV1 shadow context
+
+Changed:
+
+- Added a shadow `ContextProjectionV1` section to TaskSpace developer context.
+- The shadow projection does not replace the legacy full TaskSpace context yet.
+- Projection currently includes:
+  - `projection_id`
+  - `task_id`
+  - `mode=default_compact`
+  - active objective
+  - success criteria
+  - current node
+  - blockers
+  - decisions
+  - facts
+  - relevant evidence-backed results
+  - next valid actions
+  - hidden refs available
+  - approximate projection token estimate
+
+Validation:
+
+```text
+cargo test -p codex-core developer_context_includes_shadow_context_projection_without_replacing_legacy_context --lib
+1 passed
+
+cargo test -p codex-core cognitive_preflight_requires_problem_success_criteria --lib
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-shadow-projection-context
+TaskSpace benchmark harness self-test: PASS
+```
+
+Remaining Phase 3 work:
+
+- Emit projection events/artifacts instead of only model-visible shadow text.
+- Add projection summary metrics, including `projection_tokens` and protected-miss counts.
+- Add active profile injection/rollback once shadow completeness is measurable.
+
 ## 2026-06-17 Phase 1 state_commit tool schema visibility and validator block guard
 
 Changed:
