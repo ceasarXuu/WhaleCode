@@ -238,6 +238,36 @@ Conclusion:
 - The next Phase 5 step is to aggregate route adherence from completed pair metrics:
   thin runs should keep `spawn_agent_calls=0`, stay within node budget, and avoid escalating unless validator ambiguity appears.
 
+Post-commit full smoke:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-routing-full-smoke -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-routing-full-smoke\large-output-ref-smoke\20260617-162351-263
+```
+
+Evidence:
+
+- `routing-decision.json` exists at the run root.
+- `recommended_mode=thin`
+- `subagent_allowed=false`
+- `large_output_policy=ref-only`
+- `run_score_ready=True`
+- `run_score_valid=True`
+- `engineering_unclean=False`
+- `failure_taxonomy=none`
+- `outcome_standard=solved`
+- `outcome_taskspace=solved`
+- right/taskspace `nodes=4`
+- right/taskspace `spawn_agent_calls=0`
+- right/taskspace `open_leaf_nodes=0`
+- pair `taskspace_tool_call_ratio=1.57`
+- pair `taskspace_wall_time_ratio=3.82`
+
+Follow-up:
+
+- Correctness, routing artifact emission, and thin graph adherence pass in this smoke.
+- Cost is still not converged: `taskspace_wall_time_ratio=3.82` exceeds the current partial threshold of `3.0`.
+
 ## 2026-06-17 Phase 3 context projection metrics artifacts
 
 Changed:
