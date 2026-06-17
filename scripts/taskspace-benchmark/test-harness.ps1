@@ -212,8 +212,9 @@ $graphObs = [pscustomobject]@{
             id = "node-1"; kind = "inspect_code_context"; status = "completed"; title = "Investigate"
             leases = @([pscustomobject]@{ agentThreadId = "agent-1" })
             results = @(
-                [pscustomobject]@{ resultId = "result-1"; validity = "accepted"; sourceThreadId = "agent-1"; evidencePackage = [pscustomobject]@{ adoptionState = "accepted_not_adopted" } },
-                [pscustomobject]@{ resultId = "result-2"; validity = "unreviewed"; sourceThreadId = "agent-1"; evidencePackage = [pscustomobject]@{} }
+                [pscustomobject]@{ resultId = "result-1"; kind = "result"; validity = "accepted"; sourceThreadId = "agent-1"; evidencePackage = [pscustomobject]@{ adoptionState = "accepted_not_adopted" } },
+                [pscustomobject]@{ resultId = "result-2"; kind = "main_tool_call"; validity = "unreviewed"; sourceThreadId = "agent-1"; evidencePackage = [pscustomobject]@{} },
+                [pscustomobject]@{ resultId = "result-3"; kind = "result"; validity = "unreviewed"; sourceThreadId = "agent-1"; evidencePackage = [pscustomobject]@{} }
             )
             events = @([pscustomobject]@{ to = "completed"; at = "2026-06-11T00:00:00Z" })
         },
@@ -232,10 +233,38 @@ $graphReport = New-TaskspaceGraphHealthReport $graphObs "right" "taskspace"
 Assert-True ([string]$graphReport.schema_version -eq "taskspace-graph-health-v1") "graph health report schema version missing"
 Assert-True ($graphReport.node_count -eq 2 -and $graphReport.edge_count -eq 1) "graph health report did not count nodes/edges"
 Assert-True (@($graphReport.warnings) -contains "high_unreviewed_result_ratio") "graph health did not flag high unreviewed result ratio"
+Assert-True ([int]$graphReport.reviewable_result_count -eq 2) "graph health did not isolate reviewable semantic results"
+Assert-True ([int]$graphReport.reviewable_unreviewed_result_count -eq 1) "graph health counted non-reviewable tool traces as reviewable"
 Assert-True (@($graphReport.warnings) -contains "subagent_no_adoption") "graph health did not flag unused subagent result"
 Assert-True (@($graphReport.warnings) -contains "subagent_no_decision_yield") "graph health did not flag missing subagent decision yield"
 Assert-True ([double]$graphReport.subagent_decision_yield -eq 0.0) "graph health counted ordinary adoption as decision yield"
 Assert-True ([string]$graphReport.metric_availability.result_adoption -eq "measured") "graph health did not expose result adoption metric availability"
+$nonReviewableObs = [pscustomobject]@{
+    nodes = @(
+        [pscustomobject]@{
+            id = "node-1"; kind = "inspect_code_context"; status = "completed"; title = "Investigate"
+            leases = @()
+            results = @(
+                [pscustomobject]@{ resultId = "result-1"; kind = "main_tool_call"; validity = "unreviewed"; evidencePackage = [pscustomobject]@{} }
+            )
+            events = @()
+        },
+        [pscustomobject]@{
+            id = "node-2"; kind = "final_synthesis"; status = "completed"; title = "Synthesize"
+            leases = @()
+            results = @(
+                [pscustomobject]@{ resultId = "result-2"; kind = "result"; validity = "unreviewed"; evidencePackage = [pscustomobject]@{} }
+            )
+            events = @()
+        }
+    )
+    edges = @([pscustomobject]@{ from = "node-1"; to = "node-2" })
+    toolCalls = @()
+    timeline = @()
+}
+$nonReviewableReport = New-TaskspaceGraphHealthReport $nonReviewableObs "right" "taskspace"
+Assert-True (-not (@($nonReviewableReport.warnings) -contains "high_unreviewed_result_ratio")) "graph health counted tool/final summary results as reviewable debt"
+Assert-True ([int]$nonReviewableReport.reviewable_result_count -eq 0) "graph health reviewable result count included tool/final summary results"
 $graphDecisionObs = [pscustomobject]@{
     nodes = @(
         [pscustomobject]@{

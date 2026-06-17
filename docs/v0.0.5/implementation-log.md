@@ -230,6 +230,104 @@ Remaining Phase 5 / Phase 6 work:
 - Promote more of `TaskShapeRouterV1` from report-only to active runtime constraints, at least for `subagent_allowed=false` and node budget.
 - Rerun `large-output-ref-smoke` after reinstall; expected improvement is no pseudo-subagent node, no open leaf, and lower request/token expansion.
 
+## 2026-06-17 Phase 5 thin guard live smoke
+
+Install:
+
+```text
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev profile
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -BackupLegacyCopies
+Installed Whale: C:\Users\77585\.whale\bin\whale.exe
+Hash: 477ECBA46C764DE0CC1C795ADFB5CC3FA4E0309F4B6DDF51D483EE529B58964F
+```
+
+Smoke:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-thin-guard-smoke -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-thin-guard-smoke\large-output-ref-smoke\20260617-201546-183
+```
+
+Result:
+
+- Correctness: Standard solved, TaskSpace solved.
+- Sentinel/audit: `engineering_unclean=False`, no active sentinel warning.
+- Shape improved:
+  - nodes `4`
+  - edges `3`
+  - `spawn_agent_calls=0`
+  - `open_leaf_nodes=0`
+  - scenario warnings: none
+- Output referenceization remains active:
+  - `runtime_output_ref_created_count=1`
+  - `large_output_replay_count=0`
+- Runtime event pressure improved:
+  - `taskspace_runtime_event_count` dropped from `140` to `108`
+  - `projection_tokens` dropped from `8744` to `6748`
+- Utility report says `both_success_cost_within_budget` for the pair diagnostic:
+  - tool-call ratio `0.71`
+  - walltime ratio `2.03`
+
+Remaining gate failure:
+
+- Suite cost gate still fails:
+  - `direct_input_output_ratio=3.5038`
+  - `walltime_ratio=2.0347`
+  - `model_request_count_ratio=1`
+- Remaining graph warning: `high_unreviewed_result_ratio`.
+
+Conclusion:
+
+- The pseudo-subagent node fix closed the open-leaf / node-budget regression for this smoke shape.
+- v0.0.5 is still not release-ready because direct token ratio is above even the partial threshold (`3.0`) and graph-health still reports too many unreviewed results.
+
+## 2026-06-17 Phase 4 graph-health reviewable result debt
+
+Finding:
+
+- The `v005-thin-guard-smoke` run had 16 total results:
+  - 12 unreviewed ordinary `main_tool_call` traces
+  - 3 accepted semantic node results
+  - 1 unreviewed `final_synthesis` summary result
+- Graph health counted every unreviewed tool trace in `high_unreviewed_result_ratio`, producing a false warning after the actual node-level results had been reviewed.
+- v0.0.5 lifecycle design requires review for evidence packages that the agent relies on, not every low-level read/edit/test trace.
+
+Changed:
+
+- Graph-health now distinguishes total result inventory from reviewable semantic result debt.
+- `high_unreviewed_result_ratio` is based only on non-`final_synthesis` semantic `kind=result` records.
+- Ordinary tool traces and final summary records remain counted in total `unreviewed_result_count` for diagnostics, but they no longer trigger the review-debt warning.
+- New fields:
+  - `reviewable_result_count`
+  - `reviewable_unreviewed_result_count`
+  - `reviewable_unreviewed_result_ratio`
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-reviewable-results
+TaskSpace benchmark harness self-test: PASS
+```
+
+Manual recomputation against `target\v005-thin-guard-smoke\large-output-ref-smoke\20260617-201546-183`:
+
+```text
+result_count=16
+unreviewed_result_count=12
+unreviewed_result_ratio=0.75
+reviewable_result_count=3
+reviewable_unreviewed_result_count=0
+reviewable_unreviewed_result_ratio=0
+warnings=[]
+```
+
+Remaining Phase 6 work:
+
+- Rerun the full benchmark artifact pipeline so pair reports consume the corrected graph-health warning semantics.
+- Cost gate remains the main blocker: direct token ratio was `3.5038` in the latest smoke.
+
 ## 2026-06-17 Cost root-cause: provider input visibility
 
 Changed:

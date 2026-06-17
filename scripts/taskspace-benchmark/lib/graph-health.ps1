@@ -73,10 +73,17 @@ function New-TaskspaceGraphHealthReport {
     $edges = if ($Observability) { @($Observability.edges) } else { @() }
     $toolCalls = if ($Observability) { @($Observability.toolCalls) } else { @() }
     $results = @($nodes | ForEach-Object { @($_.results) })
+    $reviewableResults = @($nodes | ForEach-Object {
+            $nodeKind = [string]$_.kind
+            @($_.results | Where-Object {
+                    [string]$_.kind -eq "result" -and $nodeKind -ne "final_synthesis"
+                })
+        })
     $legacyHealth = Get-TaskspaceGraphHealth $Observability
     $resultCount = @($results).Count
     $accepted = @($results | Where-Object { [string]$_.validity -eq "accepted" })
     $unreviewed = @($results | Where-Object { [string]$_.validity -eq "unreviewed" })
+    $reviewableUnreviewed = @($reviewableResults | Where-Object { [string]$_.validity -eq "unreviewed" })
     $questionedOrInvalid = @($results | Where-Object { [string]$_.validity -in @("questioned", "invalid") })
     $acceptedAdopted = @($accepted | Where-Object { (Get-TaskspaceResultAdoptionState $_) -in @("accepted_adopted", "adopted") })
     $acceptedWithAdoptionState = @($accepted | Where-Object { (Get-TaskspaceResultAdoptionState $_) -ne "legacy_unset" })
@@ -132,11 +139,12 @@ function New-TaskspaceGraphHealthReport {
     $decisionCount = @($decisionEvents).Count
     $warnings = New-Object System.Collections.Generic.List[string]
     $unreviewedRatio = Get-TaskspaceSafeRatio @($unreviewed).Count $resultCount
+    $reviewableUnreviewedRatio = Get-TaskspaceSafeRatio @($reviewableUnreviewed).Count @($reviewableResults).Count
     $adoptionRate = if ($adoptionMetricState -eq "unsupported_legacy") { $null } else { Get-TaskspaceSafeRatio @($acceptedAdopted).Count @($accepted).Count }
     $decisionDensity = Get-TaskspaceSafeRatio $decisionCount $nodeCount
     $blockedRatio = Get-TaskspaceSafeRatio @($blockedNodes).Count $nodeCount
     $nodeInflationRatio = if ($decisionCount -gt 0) { Get-TaskspaceSafeRatio $nodeCount $decisionCount } else { [double]$nodeCount }
-    if ($resultCount -gt 0 -and $unreviewedRatio -gt 0.3) { $warnings.Add("high_unreviewed_result_ratio") }
+    if (@($reviewableResults).Count -gt 0 -and $reviewableUnreviewedRatio -gt 0.3) { $warnings.Add("high_unreviewed_result_ratio") }
     if ($nodeCount -ge 4 -and $decisionDensity -lt 0.25) { $warnings.Add("low_decision_density") }
     if ($nodeCount -gt 0 -and $blockedRatio -gt 0.25) { $warnings.Add("high_blocked_node_ratio") }
     if ($nodeInflationRatio -gt 12) { $warnings.Add("node_inflation_high") }
@@ -156,6 +164,9 @@ function New-TaskspaceGraphHealthReport {
         unreviewed_result_count = @($unreviewed).Count
         questioned_or_invalid_result_count = @($questionedOrInvalid).Count
         unreviewed_result_ratio = $unreviewedRatio
+        reviewable_result_count = @($reviewableResults).Count
+        reviewable_unreviewed_result_count = @($reviewableUnreviewed).Count
+        reviewable_unreviewed_result_ratio = $reviewableUnreviewedRatio
         result_adoption_rate = $adoptionRate
         decision_density = $decisionDensity
         blocked_node_ratio = $blockedRatio
