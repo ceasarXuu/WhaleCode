@@ -236,6 +236,51 @@ Remaining Phase 3 work:
 - Rebuild/install Whale after this fix and rerun live smoke to prove nonzero real `projection_count`.
 - If projection becomes visible but fanout still regresses, fix routing/thin gates before active profile promotion.
 
+Follow-up live smoke after transient injection:
+
+```text
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -PersistUserPath -BackupLegacyCopies
+Installed hash: 787EA17FB0FA28778BD0D9C0B5807107AC04F036CB18304F7C76BE54333B01B6
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-phase3-live-smoke-request-projection -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-phase3-live-smoke-request-projection\large-output-ref-smoke\20260617-092246-237
+```
+
+Observed result:
+
+- `context_projection_availability = projection_unavailable`
+- `projection_count = 0`
+- `model_request_count = 1`
+- `nodes = 6`
+- `spawn_agent_calls = 0`
+- `open_leaf_nodes = 0`
+- `runtime_output_ref_created_count = 0`
+
+Follow-up root cause:
+
+- The transient projection update can be model-visible but is not captured by the benchmark's current JSONL/rollout artifact sources.
+- Phase 3 needs replayable audit evidence, so model-visible projection must also be persisted as a lightweight developer update.
+
+Changed:
+
+- The session now records the projection-only developer update into conversation history before building the next sampling request.
+- The persisted update contains only `ContextProjectionV1 shadow`, not the full legacy TaskSpace context.
+
+Validation:
+
+```text
+cargo fmt --all --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+completed with existing nightly-only rustfmt option warnings
+
+cargo test -p codex-core developer_context_includes_shadow_context_projection_without_replacing_legacy_context --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-persisted-request-projection
+TaskSpace benchmark harness self-test: PASS
+```
+
 ## 2026-06-17 Phase 2 narrow inspect budget gate
 
 Changed:
