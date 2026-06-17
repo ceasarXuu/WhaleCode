@@ -1,5 +1,95 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-17 Phase 5 verification-first count-call-stack smoke
+
+Changed:
+
+- Added local benchmark scenario `benchmarks/taskspace/scenarios/count-call-stack`.
+- The scenario exercises the format-sensitive path required by the v0.0.5 routing checklist:
+  - router trigger: `format_sensitive_validator_visible`;
+  - route: `verification_first`;
+  - exact output contract: `CALL_STACK_DEPTH=<positive integer>`;
+  - local checker: `scripts/validate.py`.
+- The public validator writes `expected-format-decision.json` during probe/validation when `TASKSPACE_VALIDATION_ARTIFACT_DIR` is available.
+- `routing-report.ps1` now records verification-first evidence:
+  - `expected_format_decision_present`;
+  - `expected_format_decision_path`;
+  - `expected_format`;
+  - `local_checker`;
+  - suite-level `verification_first_expected_format_count`.
+- Added hidden oracle generation for `count-call-stack-format-v1`.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-count-call-stack-rerun
+TaskSpace benchmark harness self-test: PASS
+RunRoot: D:\whalecode-alpha\target\paired-bench-selftest-v005-count-call-stack-rerun\single-file-fast-fix\20260617-234739-872
+```
+
+First live smoke exposed a scenario/oracle bug:
+
+```text
+target\v005-count-call-stack-smoke\count-call-stack\20260617-234309-628
+- routing recommended verification_first
+- expected-format artifact existed
+- public validator passed
+- hidden oracle failed because its CLI subprocess did not set PYTHONPATH
+```
+
+Fix:
+
+- The generated hidden oracle now sets `PYTHONPATH=<repo>/src` before invoking `python -m call_stack_counter`.
+- Lesson for future Python CLI benchmark scenarios: public validators and hidden oracles must both set the same module import environment before CLI subprocess checks.
+
+Clean live smoke:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario count-call-stack -Repeats 1 -RunRoot target\v005-count-call-stack-smoke2 -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: D:\whalecode-alpha\target\v005-count-call-stack-smoke2\count-call-stack\20260617-234806-234
+```
+
+Observed evidence:
+
+```text
+routing-decision.json
+- status=report_only
+- recommended_mode=verification_first
+- trigger_reasons=format_sensitive_validator_visible
+- must_read_validator_first=True
+
+suite-routing-summary.json
+- availability=measured
+- clean_pair_count=1
+- routing_mistake_count=0
+- verification_first_expected_format_count=1
+
+pair-001/pair-routing-report.md
+- taskspace_nodes=4
+- taskspace_spawn_agent_calls=0
+- taskspace_business_success=True
+- expected_format_decision_present=True
+- expected_format=CALL_STACK_DEPTH=<positive integer>
+- local_checker=scripts/validate.py
+- clean=True
+
+pair-report.md
+- reported_evidence_level=E2-candidate
+- evidence_gate_failures=repeats_lt_3
+- failure_taxonomy=none
+- engineering_unclean=False
+- outcome_standard=solved
+- outcome_taskspace=solved
+- utility outcome=both_success_cost_within_budget
+- taskspace_tool_call_ratio=1.25
+- taskspace_wall_time_ratio=2.49
+```
+
+Remaining:
+
+- This closes the focused verification-first artifact gap for `count-call-stack`, but it is still a single-pair smoke and not Phase 6 release evidence.
+- Router remains `report_only`; active routing requires repeated/broader E3 evidence.
+
 ## 2026-06-17 Phase 5 routing mistake report artifacts
 
 Changed:

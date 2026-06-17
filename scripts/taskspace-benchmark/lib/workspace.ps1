@@ -303,6 +303,40 @@ print("hidden oracle passed")
         return
     }
 
+    if ($Strategy -eq "count-call-stack-format-v1") {
+        Write-Text $Path @'
+import pathlib
+import re
+import os
+import subprocess
+import sys
+
+repo = pathlib.Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(repo / "src"))
+
+from call_stack_counter import count_stack_depth, format_depth
+
+assert count_stack_depth() > 0
+formatted = format_depth()
+assert re.fullmatch(r"CALL_STACK_DEPTH=[1-9][0-9]*", formatted), formatted
+env = dict(os.environ)
+env["PYTHONPATH"] = str(repo / "src") + os.pathsep + env.get("PYTHONPATH", "")
+completed = subprocess.run(
+    [sys.executable, "-m", "call_stack_counter"],
+    cwd=repo,
+    env=env,
+    text=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    check=False,
+)
+assert completed.returncode == 0, completed.stderr
+assert re.fullmatch(r"CALL_STACK_DEPTH=[1-9][0-9]*\n?", completed.stdout), completed.stdout
+print("hidden oracle passed")
+'@
+        return
+    }
+
     if ($Strategy -eq "external-validator-v1") {
         Write-Text $Path @'
 print("external validator is recorded as public validation")

@@ -1,0 +1,3 @@
+The small project has a command-line formatter bug.
+
+Read the README and tests first, then fix the implementation. The final command must print the call-stack depth in the exact format required by the validator. Run the local validation command before finishing.

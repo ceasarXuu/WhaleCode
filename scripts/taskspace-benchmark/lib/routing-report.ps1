@@ -32,6 +32,23 @@ function Get-TaskspaceRoutingMetricBool {
     $DefaultValue
 }
 
+function Get-TaskspaceVerificationFirstEvidence {
+    param([Parameter(Mandatory = $true)][string]$PairDir)
+    $candidates = @(Get-ChildItem -LiteralPath $PairDir -Filter "expected-format-decision.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName)
+    $decision = $null
+    $path = ""
+    if ($candidates.Count -gt 0) {
+        $path = [string]$candidates[0].FullName
+        try { $decision = Get-Content -Raw -Encoding UTF8 -LiteralPath $path | ConvertFrom-Json } catch { $decision = $null }
+    }
+    [pscustomobject]@{
+        expected_format_decision_path = $path
+        expected_format_decision_present = ($null -ne $decision)
+        expected_format = if ($decision -and $decision.PSObject.Properties.Name -contains "expected_format") { [string]$decision.expected_format } else { "" }
+        local_checker = if ($decision -and $decision.PSObject.Properties.Name -contains "local_checker") { [string]$decision.local_checker } else { "" }
+    }
+}
+
 function Write-TaskspacePairRoutingReport {
     param(
         [Parameter(Mandatory = $true)][string]$PairDir,
@@ -47,6 +64,11 @@ function Write-TaskspacePairRoutingReport {
     [void]$lines.Add("- taskspace_nodes: $($Assessment.taskspace_nodes)")
     [void]$lines.Add("- taskspace_spawn_agent_calls: $($Assessment.taskspace_spawn_agent_calls)")
     [void]$lines.Add("- taskspace_business_success: $($Assessment.taskspace_business_success)")
+    if ([string]$Assessment.recommended_mode -eq "verification_first") {
+        [void]$lines.Add("- expected_format_decision_present: $($Assessment.expected_format_decision_present)")
+        [void]$lines.Add("- expected_format: $($Assessment.expected_format)")
+        [void]$lines.Add("- local_checker: $($Assessment.local_checker)")
+    }
     [void]$lines.Add("- clean: $($Assessment.clean)")
     [void]$lines.Add("- routing_mistakes: $(@($Assessment.routing_mistakes) -join ', ')")
     $lines | Set-Content -LiteralPath $path -Encoding UTF8
@@ -100,6 +122,10 @@ function Write-TaskspaceSuiteRoutingSummary {
                 [void]$mistakes.Add("taskspace_not_business_success")
             }
         }
+        $verificationEvidence = Get-TaskspaceVerificationFirstEvidence -PairDir $pairDir
+        if ([string]$decisionObject.recommended_mode -eq "verification_first" -and -not [bool]$verificationEvidence.expected_format_decision_present) {
+            [void]$mistakes.Add("verification_first_expected_format_missing")
+        }
         $assessment = [pscustomobject]@{
             schema_version = "taskspace-pair-routing-assessment-v1"
             pair_dir = $pairDir
@@ -109,6 +135,10 @@ function Write-TaskspaceSuiteRoutingSummary {
             taskspace_nodes = if ($taskspace) { Get-TaskspaceRoutingMetricInt -Metrics $taskspace -Name "nodes" -DefaultValue 0 } else { $null }
             taskspace_spawn_agent_calls = if ($taskspace) { Get-TaskspaceRoutingMetricInt -Metrics $taskspace -Name "spawn_agent_calls" -DefaultValue 0 } else { $null }
             taskspace_business_success = if ($taskspace) { Get-TaskspaceRoutingMetricBool -Metrics $taskspace -Name "business_success" -DefaultValue $false } else { $false }
+            expected_format_decision_present = [bool]$verificationEvidence.expected_format_decision_present
+            expected_format_decision_path = [string]$verificationEvidence.expected_format_decision_path
+            expected_format = [string]$verificationEvidence.expected_format
+            local_checker = [string]$verificationEvidence.local_checker
             routing_mistakes = @($mistakes.ToArray())
             clean = ($mistakes.Count -eq 0)
         }
@@ -128,6 +158,7 @@ function Write-TaskspaceSuiteRoutingSummary {
         clean_pair_count = [int]@($assessments.ToArray() | Where-Object { [bool]$_.clean }).Count
         routing_mistake_count = [int]$allMistakes.Count
         routing_mistakes = @($allMistakes | Sort-Object -Unique)
+        verification_first_expected_format_count = [int]@($assessments.ToArray() | Where-Object { [bool]$_.expected_format_decision_present }).Count
         pairs = @($assessments.ToArray())
     }
     Write-TaskspaceJson $summary $summaryPath
