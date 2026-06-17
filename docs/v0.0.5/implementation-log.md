@@ -4275,3 +4275,52 @@ Conclusion:
 - The low-cost live path is operational: build, install, real agent execution, paired standard/taskspace run, validation, oracle, aggregation, and release-decision generation all ran end to end.
 - This is not formal E3 evidence. The run uses `EvidenceTarget=E2`, one repeat, and reports `E2-candidate`; the hardened release gate correctly refuses to turn it into PASS/PARTIAL release evidence.
 - The smoke does show that current v0.0.5 runtime artifacts are being generated on the TaskSpace side, including runtime state commits, context projection, and map-management summaries.
+
+## 2026-06-18 five-sample one-repeat live matrix smoke
+
+Scope:
+
+- User requested a lighter run with five samples and one repeat each.
+- This used the five built-in TaskSpace scenarios and stayed outside the formal E3 suite because formal E3 requires `Repeats >= 5`.
+
+Command:
+
+```text
+$scenarios = @('single-file-fast-fix','multi-file-order-pipeline','subscription-billing-repair','count-call-stack','large-output-ref-smoke')
+& .\scripts\taskspace-benchmark\run-taskspace-e2-matrix.ps1 -Scenarios $scenarios -Repeats 1 -RunRoot "target\v005-five-sample-one-repeat-20260618-061119" -TimeoutSeconds 600 -SandboxMode workspace-write -AllowNonE2Result
+
+MatrixReport: target\v005-five-sample-one-repeat-20260618-061119\e2-matrix-report.md
+Exit code: 0
+Elapsed wall time: about 30m 34s
+```
+
+Matrix summary:
+
+- `scenario_count=5`
+- `repeats_per_scenario=1`
+- `e2_evidence_readiness=false`
+- `e2_clean_readiness=false`
+- `e2_utility_clean_readiness=false`
+- `whale_sha256=fc8c5a9c2c59ff86bf1543d72613116a5d38ffe48b64b37608cd3aa7c02fce13`
+
+Per-sample outcome:
+
+| scenario | run status | completed pairs | evidence level | utility outcome |
+|---|---|---:|---|---|
+| `single-file-fast-fix` | `completed/valid/exit 0` | 1 | `E2-candidate` | `both_success_taskspace_cost_higher` |
+| `multi-file-order-pipeline` | `completed/valid/exit 0` | 1 | `E1` | `score_disabled` |
+| `subscription-billing-repair` | `completed/valid/exit 0` | 1 | `E2-candidate` | `both_success_taskspace_cost_higher` |
+| `count-call-stack` | `completed/valid/exit 0` | 1 | `E2-candidate` | `both_success_cost_within_budget` |
+| `large-output-ref-smoke` | `completed/valid/exit 0` | 1 | `E2-candidate` | `both_success_taskspace_cost_higher` |
+
+Interpretation:
+
+- The five-sample engineering path is operational: every sample launched, ran both sides, produced run status, and exited cleanly.
+- Readiness is intentionally false because one repeat cannot satisfy paired evidence thresholds; every sample had `excluded_pairs=1`.
+- `multi-file-order-pipeline` is the only mechanism-level concern in this run: it reported `E1/score_disabled` and `warning_pairs=1`.
+- Four of five samples solved on both sides but still show utility cost warnings except `count-call-stack`.
+
+Follow-up:
+
+- If the goal is formal evidence, rerun focused samples with enough repeats for the relevant evidence target.
+- If the goal is engineering diagnosis, inspect `multi-file-order-pipeline` first because it is the only sample that failed to reach `E2-candidate` in this smoke.
