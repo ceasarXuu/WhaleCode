@@ -485,6 +485,52 @@ Remaining Phase 3 / Phase 6 work:
 - Repeat at least 3 runs before treating utility ratios as E2/E3 evidence; current run is still `repeats_lt_3`.
 - Investigate why token summary reports `model_request_count = 1` with `input_tokens = 701019` despite 20 projection events. This may be provider aggregation behavior, but Phase 0/3 cost claims need stronger request-level attribution before release.
 
+## 2026-06-17 Benchmark direct-validator lifecycle and cleanup markers
+
+Root cause:
+
+- `large-output-ref-smoke` uses direct local validation: `python -m pytest tests -q`.
+- The benchmark cleanliness checks expected Terminal-Bench style lifecycle markers and Docker cleanup proof for every validator.
+- Direct validators have no Terminal-Bench runtime manifest and previously emitted no `validator_tests_started=true` / `validator_tests_completed=true` markers, so successful local pytest runs were marked:
+  - `no_tests_started_marker`
+  - `cleanup_not_attempted_manifest_missing`
+
+Changed:
+
+- Direct Python/Pytest validation commands now get harness lifecycle markers:
+  - `validator_lifecycle_stage=tests_started`
+  - `validator_tests_started=true`
+  - `validator_lifecycle_stage=tests_completed`
+  - `validator_tests_completed=true`
+- Cleanup without a Terminal-Bench runtime manifest is now classified as `ok` with detail `cleanup_not_required_no_runtime_manifest`.
+- Terminal-Bench wrapper/probe paths still rely on their own lifecycle markers and manifest-backed cleanup.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-oracle-runner-harness.ps1 -RunRoot target\oracle-runner-harness-v005-direct-validation-2
+TaskSpace oracle-runner self-test: PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-direct-validation-markers
+TaskSpace benchmark harness self-test: PASS
+```
+
+Non-evidence run:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-phase3-live-smoke-cleanmarkers -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+```
+
+- This attempt timed out externally before writing `pair-report.md`, `metrics.json`, or `run-summary.md`.
+- Inspection showed it was stuck in the left-side oracle-isolation probe `whale exec`, not in the direct validator marker path.
+- The residual benchmark process tree was terminated with `taskkill /T /F` for the run command and child `whale.exe`.
+- Do not use `target\v005-phase3-live-smoke-cleanmarkers\...` as Phase 3 gate evidence.
+
+Remaining Phase 3 / Phase 6 work:
+
+- Rerun `large-output-ref-smoke` in a fresh run root to verify the direct-validator clean markers in a complete pair report.
+- If the oracle-isolation probe repeats the hang, isolate probe timeout handling separately from TaskSpace runtime success.
+
 ## 2026-06-17 Phase 2 narrow inspect budget gate
 
 Changed:

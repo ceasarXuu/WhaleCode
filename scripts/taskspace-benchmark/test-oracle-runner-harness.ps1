@@ -115,6 +115,37 @@ if (@($testsReasons | Where-Object { [string]$_ -eq "public_validation_timeout" 
     exit 1
 }
 
+$directProofDir = New-Dir (Join-Path $artifactDir "direct-validation-proof")
+$directStdout = Join-Path $artifactDir "validation-direct.stdout.log"
+$directStderr = Join-Path $artifactDir "validation-direct.stderr.log"
+$directExit = Invoke-TaskspaceValidationCommand $repoDir ([pscustomobject]@{
+    command = "python"
+    args = @("-c", "print('direct validator ran')")
+}) $directStdout $directStderr 30 $directProofDir
+if ($directExit -ne 0) {
+    Write-Host "TaskSpace oracle-runner self-test: FAIL"
+    Write-Host "- direct validation command returned $directExit"
+    exit 1
+}
+$directCombined = (Get-Content -Raw -Encoding UTF8 -LiteralPath $directStdout) + "`n" + (Get-Content -Raw -Encoding UTF8 -LiteralPath $directStderr)
+if ($directCombined -notmatch "(?m)^validator_tests_started=true\s*$" -or $directCombined -notmatch "(?m)^validator_tests_completed=true\s*$") {
+    Write-Host "TaskSpace oracle-runner self-test: FAIL"
+    Write-Host "- direct validation command did not emit lifecycle markers"
+    exit 1
+}
+$directCleanupPath = Join-Path $directProofDir "validation-cleanup-result.json"
+if (-not (Test-Path -LiteralPath $directCleanupPath)) {
+    Write-Host "TaskSpace oracle-runner self-test: FAIL"
+    Write-Host "- direct validation cleanup result was not written"
+    exit 1
+}
+$directCleanup = Get-Content -Raw -Encoding UTF8 -LiteralPath $directCleanupPath | ConvertFrom-Json
+if ([string]$directCleanup.classification -ne "ok" -or [string]$directCleanup.detail -ne "cleanup_not_required_no_runtime_manifest") {
+    Write-Host "TaskSpace oracle-runner self-test: FAIL"
+    Write-Host "- direct validation cleanup without runtime manifest was not classified as ok/not-required"
+    exit 1
+}
+
 $fakeBin = New-Dir (Join-Path $runDir "fake-bin")
 $fakeDockerLog = Join-Path $artifactDir "fake-docker.log"
 $fakeDocker = Join-Path $fakeBin "docker.cmd"

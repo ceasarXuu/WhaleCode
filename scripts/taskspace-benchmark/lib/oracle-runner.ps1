@@ -15,10 +15,20 @@ function Invoke-TaskspaceValidationCommand {
     $exitCode = 0
     $timedOut = $false
     $timeoutPhase = ""
+    $directValidationMarkers = (
+        (@($ExtraArgs | Where-Object { [string]$_ -eq "-ProbeOnly" }).Count -eq 0) -and
+        ([string]$Validation.command -match '(?i)^(python|python\.exe|pytest|pytest\.exe)$')
+    )
+    $oldDirectMarkers = $env:TASKSPACE_VALIDATION_DIRECT_MARKERS
     try {
         if (-not [string]::IsNullOrWhiteSpace($ProofDir)) {
             New-Dir $ProofDir | Out-Null
             $env:TASKSPACE_VALIDATION_ARTIFACT_DIR = (Resolve-Path -LiteralPath $ProofDir).Path
+        }
+        if ($directValidationMarkers) {
+            $env:TASKSPACE_VALIDATION_DIRECT_MARKERS = "1"
+        } else {
+            Remove-Item Env:\TASKSPACE_VALIDATION_DIRECT_MARKERS -ErrorAction SilentlyContinue
         }
         $result = Invoke-TaskspaceValidationProcess ([string]$Validation.command) $args $RepoDir $StdoutPath $StderrPath $TimeoutSeconds $PretestTimeoutSeconds $TestTimeoutSeconds
         $exitCode = [int]$result.exit_code
@@ -32,6 +42,11 @@ function Invoke-TaskspaceValidationCommand {
             Remove-Item Env:\TASKSPACE_VALIDATION_ARTIFACT_DIR -ErrorAction SilentlyContinue
         } else {
             $env:TASKSPACE_VALIDATION_ARTIFACT_DIR = $oldProofDir
+        }
+        if ($null -eq $oldDirectMarkers) {
+            Remove-Item Env:\TASKSPACE_VALIDATION_DIRECT_MARKERS -ErrorAction SilentlyContinue
+        } else {
+            $env:TASKSPACE_VALIDATION_DIRECT_MARKERS = $oldDirectMarkers
         }
     }
 }
@@ -76,6 +91,11 @@ function Invoke-TaskspaceValidationProcess {
         [void]$process.Start()
         $processStartedAt = Get-Date
         $launchWaitMs = [int64](($processStartedAt - $launchStartedAt).TotalMilliseconds)
+        if ([string]$env:TASKSPACE_VALIDATION_DIRECT_MARKERS -eq "1") {
+            $testsStartedAt = $processStartedAt
+            Add-TaskspaceValidationLogLine $StdoutPath "validator_lifecycle_stage=tests_started" | Out-Null
+            Add-TaskspaceValidationLogLine $StdoutPath "validator_tests_started=true" | Out-Null
+        }
         if (-not [string]::IsNullOrWhiteSpace($env:TASKSPACE_VALIDATION_ARTIFACT_DIR)) {
             try {
                 New-Item -ItemType Directory -Force -Path $env:TASKSPACE_VALIDATION_ARTIFACT_DIR | Out-Null
@@ -129,6 +149,20 @@ function Invoke-TaskspaceValidationProcess {
             Add-TaskspaceValidationLogLine $StderrPath "Validation timed out during $timeoutPhase after $activeTimeout seconds: $FilePath $($ArgumentList -join ' ')" | Out-Null
             Add-TaskspaceValidationLogLine $StderrPath "taskspace_validation_timeout_phase=$timeoutPhase" | Out-Null
             return [pscustomobject]@{ exit_code = 124; timed_out = $true; timeout_phase = $timeoutPhase; process_launch_wait_ms = $launchWaitMs }
+        }
+        if ([string]$env:TASKSPACE_VALIDATION_DIRECT_MARKERS -eq "1" -and -not $testsStartedMarkerRecorded) {
+            $testsStartedAt = $processStartedAt
+            $testsStartedMarkerRecorded = $true
+            Add-TaskspaceValidationLogLine $StdoutPath "validator_lifecycle_stage=tests_started" | Out-Null
+            Add-TaskspaceValidationLogLine $StdoutPath "validator_tests_started=true" | Out-Null
+            Add-TaskspaceValidationLogLine $StdoutPath "taskspace_tests_started_at=$($testsStartedAt.ToString("o"))" | Out-Null
+        }
+        if ([string]$env:TASKSPACE_VALIDATION_DIRECT_MARKERS -eq "1" -and -not $testsCompletedMarkerRecorded) {
+            $testsCompletedAt = Get-Date
+            $testsCompletedMarkerRecorded = $true
+            Add-TaskspaceValidationLogLine $StdoutPath "validator_lifecycle_stage=tests_completed" | Out-Null
+            Add-TaskspaceValidationLogLine $StdoutPath "validator_tests_completed=true" | Out-Null
+            Add-TaskspaceValidationLogLine $StdoutPath "taskspace_tests_completed_at=$($testsCompletedAt.ToString("o"))" | Out-Null
         }
         [pscustomobject]@{ exit_code = [int]$process.ExitCode; timed_out = $false; timeout_phase = ""; process_launch_wait_ms = $launchWaitMs }
     } finally {
@@ -308,6 +342,7 @@ function Invoke-TaskspaceValidationCleanup {
     $runtimeManifestPath = Join-Path $ProofDir "terminal-bench-runtime-manifest.json"
     $cleanupResultPath = Join-Path $ProofDir "validation-cleanup-result.json"
     if (-not (Test-Path -LiteralPath $runtimeManifestPath)) {
+        $cleanupFinishedAt = Get-Date
         $result = [pscustomobject]@{
             schema_version = 1
             reason = $Reason
@@ -315,8 +350,12 @@ function Invoke-TaskspaceValidationCleanup {
             runtime_manifest_path = $runtimeManifestPath
             cleanup_attempted = $false
             identity_matched = $false
-            classification = "cleanup_not_attempted_manifest_missing"
-            timestamp = (Get-Date).ToString("o")
+            classification = "ok"
+            detail = "cleanup_not_required_no_runtime_manifest"
+            started_at = $cleanupStartedAt.ToString("o")
+            finished_at = $cleanupFinishedAt.ToString("o")
+            duration_ms = [int64](($cleanupFinishedAt - $cleanupStartedAt).TotalMilliseconds)
+            timestamp = $cleanupFinishedAt.ToString("o")
         }
         ($result | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $cleanupResultPath -Encoding UTF8
         if (-not [string]::IsNullOrWhiteSpace($StderrPath)) {
