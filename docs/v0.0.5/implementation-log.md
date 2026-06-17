@@ -181,6 +181,55 @@ Remaining Phase 6 work:
 - Rebuild/install current code and rerun `large-output-ref-smoke`.
 - A clean gate requires no active sentinel warnings, no extra open leaf nodes, no large output replay, and cost ratios within the v0.0.5 threshold.
 
+## 2026-06-17 Phase 5 thin guard after sentinel-clear smoke
+
+Live smoke:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-sentinel-clear-smoke -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-sentinel-clear-smoke\large-output-ref-smoke\20260617-200114-947
+```
+
+Result:
+
+- Sentinel audit now passes:
+  - `engineering_unclean=False`
+  - `active_sentinel_warning_count=0`
+  - `sentinel_warning_uncleared_for_final_artifact=True`
+- Correctness passes on both sides.
+- Output referenceization still works:
+  - `runtime_output_ref_created_count=1`
+  - `large_output_replay_count=0`
+- Cost/shape still fail:
+  - `direct_input_output_ratio=10.6827`
+  - `walltime_ratio=7.5806`
+  - TaskSpace nodes `5 > 4`
+  - `open_leaf_nodes=1`
+  - graph warnings: `high_unreviewed_result_ratio`, `low_decision_density`
+
+Root cause:
+
+- `routing-decision.json` correctly recommends `thin` with `subagent_allowed=false`, `node_budget=4`, and `state_commit_budget=4`, but the router is still `report_only`.
+- The model created ordinary nodes named `Subagent implementation of normalize_status fix` and `Subagent inspect: source code`, then attempted `spawn_agent` twice. Runtime blocked the actual spawns, but the pseudo-subagent nodes already expanded the graph and left one ready leaf open.
+
+Changed:
+
+- Live node validation now rejects node titles or context summaries that label a node as `subagent`, `sub-agent`, or `sub agent`.
+- The error tells the model to create a concrete evidence/implementation surface node and use `record_subagent_plan` only when a bounded independent track truly needs a subagent.
+- This keeps legitimate multi-agent work available while preventing thin tasks from encoding worker type as graph structure.
+
+Validation:
+
+```text
+cargo test -p codex-core subagent_labeled --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+2 passed
+```
+
+Remaining Phase 5 / Phase 6 work:
+
+- Promote more of `TaskShapeRouterV1` from report-only to active runtime constraints, at least for `subagent_allowed=false` and node budget.
+- Rerun `large-output-ref-smoke` after reinstall; expected improvement is no pseudo-subagent node, no open leaf, and lower request/token expansion.
+
 ## 2026-06-17 Cost root-cause: provider input visibility
 
 Changed:

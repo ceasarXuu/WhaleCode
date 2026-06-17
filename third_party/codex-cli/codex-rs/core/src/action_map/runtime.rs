@@ -7094,11 +7094,18 @@ fn validate_live_node_kind_context(
     title: &str,
     context_summary: &str,
 ) -> Result<(), String> {
+    let text = format!("{title}\n{context_summary}").to_ascii_lowercase();
+    if text.contains("subagent") || text.contains("sub-agent") || text.contains("sub agent") {
+        return Err(
+            "TaskSpace live node titles and context must describe the concrete evidence or implementation surface, not the worker type. Create a normal task node, then use taskspace_control(action=record_subagent_plan) only when a bounded independent track truly needs a subagent."
+                .to_string(),
+        );
+    }
+
     if !matches!(kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
         return Ok(());
     }
 
-    let text = format!("{title}\n{context_summary}").to_ascii_lowercase();
     let pre_fix_markers = [
         "pre-fix",
         "pre fix",
@@ -12801,6 +12808,36 @@ mod tests {
     }
 
     #[test]
+    fn create_node_rejects_subagent_labeled_live_node_without_mutating_map() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect first",
+            "Find the correct files.",
+            false,
+        );
+
+        let error = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Subagent inspect: source code".to_string(),
+                "Read source code as a subagent track.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect_err("subagent-labeled node should be rejected");
+
+        assert!(error.contains("concrete evidence or implementation surface"));
+        let map = state.active_map().expect("active map");
+        assert_eq!(map.nodes.len(), 1);
+        assert!(!map.nodes.contains_key("node-2"));
+    }
+
+    #[test]
     fn finish_node_rejects_custom_next_draft_without_finishing_current_node() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -12829,6 +12866,43 @@ mod tests {
             .expect_err("custom next draft is rejected before lifecycle mutation");
 
         assert!(error.contains("concrete node_kind"));
+        let map = state.active_map().expect("active map");
+        let first = map.nodes.get("node-1").expect("first node");
+        assert_eq!(first.status, NodeStatus::Running);
+        assert!(first.result_context.is_empty());
+        assert!(!map.nodes.contains_key("node-2"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+    }
+
+    #[test]
+    fn finish_node_rejects_subagent_labeled_next_draft_without_finishing_current_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect first",
+            "Find the correct files.",
+            true,
+        );
+
+        let error = state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "Inspected files and found target module.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Subagent implementation of normalize_status fix".to_string(),
+                    context_summary: "Subagent should patch the implementation.".to_string(),
+                    dependency_node_ids: vec!["node-1".to_string()],
+                }),
+            )
+            .expect_err("subagent-labeled next draft is rejected before lifecycle mutation");
+
+        assert!(error.contains("concrete evidence or implementation surface"));
         let map = state.active_map().expect("active map");
         let first = map.nodes.get("node-1").expect("first node");
         assert_eq!(first.status, NodeStatus::Running);
