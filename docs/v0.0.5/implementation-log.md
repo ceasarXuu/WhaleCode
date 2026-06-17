@@ -1,5 +1,122 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-18 Implement-to-validation recovery tightening
+
+Changed:
+
+- Tightened TaskSpace recovery guidance when a test command is attempted from an `implement_solution` node.
+- The blocked-action response now gives an exact `finish_node -> smoke_test` recovery path and explicitly says not to block the implementation node or create another inspect node.
+- `ContextProjectionV1` now handles `current_node: none` by prioritizing existing ready validation nodes:
+  - `taskspace_control(action=bind_node, node_id="<ready smoke/regression node>")`
+  - run the validator/test after binding
+  - do not create inspect nodes or spawn agents for thin validation recovery
+- If no ready validation node exists but a ready implementation node exists, projection similarly prioritizes binding that implementation node before creating new inspect work.
+
+Root-cause evidence:
+
+```text
+RunDir: target\v005-powershell-fullname-largeout-r1\large-output-ref-smoke\20260618-033117-791
+taskspace failed_tool_call_count=0
+tool_action_blocked=1
+taskspace_runtime_event_count=133
+runtime_state_commit_count=11
+rollout_trace_model_request_count=63
+```
+
+The run solved the task but expanded after a test command was attempted while the current node was still `implement_solution`. Runtime correctly blocked the action, but the recovery surface became too generic after the node was blocked:
+
+```text
+current_node: none
+next_valid_actions:
+  - taskspace_control(action=bind_node or create_node)
+```
+
+The model then reasoned about creating a new inspect node and spawning subagents even though this was a thin single-file fix with an existing validation step available.
+
+Validation:
+
+```text
+cargo fmt --manifest-path third_party\codex-cli\codex-rs\Cargo.toml --package codex-core
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core implement_node_allows_edit_but_blocks_test -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core projection_without_current_node_prioritizes_ready_validation_node -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core projection_prioritizes_inspect_to_implement_after_evidence -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core validation_node_allows_test_but_blocks_edit -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core state_commit -- --nocapture
+```
+
+Result:
+
+```text
+implement_node_allows_edit_but_blocks_test: 1 passed
+projection_without_current_node_prioritizes_ready_validation_node: 1 passed
+projection_prioritizes_inspect_to_implement_after_evidence: 1 passed
+validation_node_allows_test_but_blocks_edit: 1 passed
+state_commit: 8 passed
+```
+
+Remaining verification:
+
+- Completed with a mixed result.
+
+Installed local Whale:
+
+```text
+C:\Users\77585\.whale\bin\whale.exe
+version=whale 0.1.0
+sha256=FDE7F5806147A4C8D0424577C9CD37B6D95E3E323B6C80D492222DC7EAD164A2
+```
+
+Focused live smoke:
+
+```text
+RunDir: target\v005-implement-validation-recovery-largeout-r1\large-output-ref-smoke\20260618-035557-176
+outcome_standard=solved
+outcome_taskspace=solved
+engineering_unclean=False
+infra_signatures=none
+taskspace nodes=5
+taskspace tool_call_count=14
+taskspace failed_tool_call_count=1
+rollout_trace_model_request_count=35
+runtime_state_commit_count=7
+taskspace_runtime_event_count=117
+tool_action_blocked=2
+```
+
+Cost gate remains failed:
+
+```text
+suite_cost_status=FAIL
+direct_input_output_ratio=5.6972
+walltime_ratio=3.1985
+model_request_count_ratio=1
+```
+
+Interpretation:
+
+- Compared with the previous negative `v005-powershell-fullname-largeout-r1` sample, rollout internal model steps dropped from 63 to 35 and TaskSpace runtime events dropped from 133 to 117.
+- The previous spawn-oriented recovery did not recur.
+- The run still exceeded the node budget (`taskspace_node_count_exceeds_expected: 5 > 4`) because the first edit wrote malformed Python indentation:
+
+```text
+def normalize_status(value: str) -> str:
+stripped = value.strip().lower()
+if stripped == "":
+    raise ValueError("status must not be empty")
+return stripped
+```
+
+The first validation failed with:
+
+```text
+IndentationError: expected an indented block after function definition on line 1
+```
+
+Next blocker:
+
+- Prevent or rapidly recover from indentation-breaking edits in small Python single-file fixes. This is now a larger contributor than implement-to-validation recovery guidance for the focused smoke.
+- v0.0.5 remains incomplete until direct cost and wall-time gates pass.
+
 ## 2026-06-18 PowerShell FullName listing normalization
 
 Changed:

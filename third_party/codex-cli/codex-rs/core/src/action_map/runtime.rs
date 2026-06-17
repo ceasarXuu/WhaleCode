@@ -1131,14 +1131,7 @@ impl ActionMapRuntimeState {
                     node.id, descriptor.tool_name, reason, node.id, node.id, node.id
                 )
             } else {
-                format!(
-                    "TaskSpace blocked this tool call. Current node `{}` kind: {}. Requested tool `{}` action class: {}. Reason: {}. Call taskspace_control(action=finish_node) to finish the current node and bind or create a suitable node before retrying.",
-                    node.id,
-                    node.kind.as_str(),
-                    descriptor.tool_name,
-                    descriptor.action_class.as_str(),
-                    reason
-                )
+                blocked_action_recovery_message(node, &descriptor, &reason)
             };
             return Err(ActionMapGateError::new(
                 message,
@@ -6776,7 +6769,7 @@ fn projection_next_valid_actions(
     current_node_id: Option<&str>,
 ) -> Vec<String> {
     let Some(node) = current_node_id.and_then(|node_id| map.nodes.get(node_id)) else {
-        return vec!["taskspace_control(action=bind_node or create_node)".to_string()];
+        return projection_no_current_next_valid_actions(map);
     };
     match node.kind {
         NodeKind::InspectCodeContext => {
@@ -6813,6 +6806,74 @@ fn projection_next_valid_actions(
         }
         NodeKind::Custom => vec!["choose concrete built-in node kind for follow-up".to_string()],
     }
+}
+
+fn blocked_action_recovery_message(
+    node: &MapNode,
+    descriptor: &ToolActionDescriptor,
+    reason: &str,
+) -> String {
+    if node.kind == NodeKind::ImplementSolution && descriptor.action_class == ActionClass::Test {
+        return format!(
+            "TaskSpace blocked this tool call. Current node `{}` kind: implement_solution. Requested tool `{}` action class: test. Reason: {}. Do not block this implementation node or create another inspect node. First call taskspace_control(action=finish_node, node_id=\"{}\", result_summary=\"implementation edit is applied\", next_node_kind=\"smoke_test\", next_node_title=\"Run validation\", next_node_context_summary=\"Run tests for the implementation from {}\", next_dependency_node_ids=[\"{}\"]), then run the test only after current_node is smoke_test or regression_test.",
+            node.id, descriptor.tool_name, reason, node.id, node.id, node.id
+        );
+    }
+
+    format!(
+        "TaskSpace blocked this tool call. Current node `{}` kind: {}. Requested tool `{}` action class: {}. Reason: {}. Call taskspace_control(action=finish_node) to finish the current node and bind or create a suitable node before retrying.",
+        node.id,
+        node.kind.as_str(),
+        descriptor.tool_name,
+        descriptor.action_class.as_str(),
+        reason
+    )
+}
+
+fn projection_no_current_next_valid_actions(map: &ActionMapInstance) -> Vec<String> {
+    let mut ready_validation_nodes = ordered_node_ids(map)
+        .into_iter()
+        .filter_map(|node_id| map.nodes.get(&node_id))
+        .filter(|node| {
+            node.status == NodeStatus::Ready
+                && matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+        })
+        .map(|node| node.id.clone())
+        .collect::<Vec<_>>();
+    ready_validation_nodes.sort();
+
+    if let Some(node_id) = ready_validation_nodes.first() {
+        return vec![
+            format!(
+                "taskspace_control(action=bind_node, node_id=\"{}\") for the ready validation node",
+                node_id
+            ),
+            "run validator/test command after binding".to_string(),
+            "do not create inspect nodes or spawn agents for thin validation recovery".to_string(),
+        ];
+    }
+
+    let mut ready_implementation_nodes = ordered_node_ids(map)
+        .into_iter()
+        .filter_map(|node_id| map.nodes.get(&node_id))
+        .filter(|node| node.status == NodeStatus::Ready && node.kind == NodeKind::ImplementSolution)
+        .map(|node| node.id.clone())
+        .collect::<Vec<_>>();
+    ready_implementation_nodes.sort();
+
+    if let Some(node_id) = ready_implementation_nodes.first() {
+        return vec![
+            format!(
+                "taskspace_control(action=bind_node, node_id=\"{}\") for the ready implementation node",
+                node_id
+            ),
+            "edit implementation artifacts after binding".to_string(),
+            "do not create inspect nodes or spawn agents for thin implementation recovery"
+                .to_string(),
+        ];
+    }
+
+    vec!["taskspace_control(action=bind_node or create_node)".to_string()]
 }
 
 fn approx_projection_tokens(text: &str) -> usize {
@@ -12294,6 +12355,78 @@ mod tests {
 
         assert!(error.contains("implement_solution"));
         assert!(error.contains("test"));
+        assert!(error.contains("next_node_kind=\"smoke_test\""));
+        assert!(error.contains("Do not block this implementation node"));
+        assert!(error.contains("then run the test only after current_node is smoke_test"));
+    }
+
+    #[test]
+    fn projection_without_current_node_prioritizes_ready_validation_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Implement fix".to_string(),
+                "Apply the known fix.".to_string(),
+                "Patch code".to_string(),
+                "Modify the target files.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-call",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "edit ok".to_string(),
+            )
+            .expect("edit result records")
+            .expect("result id");
+        state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "Implementation applied.".to_string(),
+                None,
+                None,
+            )
+            .expect("implementation can finish");
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::SmokeTest,
+                "Run validation".to_string(),
+                "Run tests for the implementation.".to_string(),
+                vec!["node-1".to_string()],
+                false,
+            )
+            .expect("ready validation can be created");
+
+        let map = state.maps.get("map-1").expect("map");
+        assert_eq!(map.nodes["node-2"].status, NodeStatus::Ready);
+        let actions = projection_next_valid_actions(map, None);
+
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("bind_node, node_id=\"node-2\""))
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("run validator/test command"))
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("do not create inspect nodes or spawn agents"))
+        );
     }
 
     #[test]
