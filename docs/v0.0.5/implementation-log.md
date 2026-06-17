@@ -1239,6 +1239,29 @@ Notes:
 - Other gate categories still need the same structured contract before Phase 1 can be treated as fully complete.
 - No real E3, live smoke, or Agent-invoking benchmark was run for this change.
 
+## 2026-06-18 Phase 2 output-ref events artifact
+
+Changed:
+
+- Added explicit `output-ref-events.jsonl` generation to cost instrumentation.
+- Event extraction uses:
+  - observability timeline `output_ref.created` / `output_ref.slice_read` events
+  - fallback scans for `OutputReferenceV1` and `OutputSliceV1` artifact refs in observability text and graph artifacts
+- `Write-TaskspaceCostInstrumentationArtifacts` now returns `output_ref_events_path` and `output_ref_events`.
+- Benchmark harness fixture now asserts that `output-ref-events.jsonl` exists and contains both created and slice-read events.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-output-ref-events
+TaskSpace benchmark harness self-test: PASS
+```
+
+Notes:
+
+- This closes the Phase 2 artifact gap recorded in `14-implementation-gap-audit.md` for `output-ref-events.jsonl`.
+- No real E3, live smoke, or Agent-invoking benchmark was run for this change.
+
 ## 2026-06-18 Cost failure diagnostics
 
 Changed:

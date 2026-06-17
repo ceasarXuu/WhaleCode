@@ -398,6 +398,112 @@ function New-TaskspaceReplaySummary {
     }
 }
 
+function New-TaskspaceOutputRefEvents {
+    param(
+        [AllowEmptyString()][string]$ObservabilityJsonPath = "",
+        [AllowEmptyString()][string]$ArtifactDir = ""
+    )
+    $events = New-Object System.Collections.Generic.List[object]
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]'
+    if (-not [string]::IsNullOrWhiteSpace($ObservabilityJsonPath) -and (Test-Path -LiteralPath $ObservabilityJsonPath)) {
+        try {
+            $obsText = Get-Content -Raw -Encoding UTF8 -LiteralPath $ObservabilityJsonPath
+            $obs = $obsText | ConvertFrom-Json
+            foreach ($event in @($obs.timeline)) {
+                $kind = [string]$event.kind
+                if ($kind -notin @("output_ref.created", "output_ref.slice_read")) { continue }
+                $ref = [string](Get-TaskspaceCostProperty $event @("artifactRef", "artifact_ref", "outputRef", "output_ref"))
+                if ([string]::IsNullOrWhiteSpace($ref) -and $null -ne $event.details) {
+                    $ref = [string](Get-TaskspaceCostProperty $event.details @("artifactRef", "artifact_ref", "outputRef", "output_ref"))
+                }
+                $dedupe = "$kind|$ref|$($events.Count)"
+                if (-not $seen.Add($dedupe)) { continue }
+                $events.Add([pscustomobject]@{
+                    schema_version = "taskspace-output-ref-event-v1"
+                    source = "observability_timeline"
+                    kind = $kind
+                    artifact_ref = $ref
+                    call_id = [string](Get-TaskspaceCostProperty $event @("callId", "call_id"))
+                    timestamp_ms = Get-TaskspaceCostProperty $event @("timestampMs", "timestamp_ms", "createdAtMs", "created_at_ms")
+                })
+            }
+            foreach ($match in [regex]::Matches($obsText, "(?s)OutputReferenceV1:.*?artifact_ref:\s*(output-ref://sha256/[a-fA-F0-9]{64})")) {
+                $ref = [string]$match.Groups[1].Value
+                $dedupe = "output_ref.created|$ref|fallback"
+                if ($seen.Add($dedupe)) {
+                    $events.Add([pscustomobject]@{
+                        schema_version = "taskspace-output-ref-event-v1"
+                        source = "observability_text_fallback"
+                        kind = "output_ref.created"
+                        artifact_ref = $ref
+                        call_id = ""
+                        timestamp_ms = $null
+                    })
+                }
+            }
+            foreach ($match in [regex]::Matches($obsText, "(?s)OutputSliceV1:.*?artifact_ref:\s*(output-ref://sha256/[a-fA-F0-9]{64})")) {
+                $ref = [string]$match.Groups[1].Value
+                $dedupe = "output_ref.slice_read|$ref|fallback"
+                if ($seen.Add($dedupe)) {
+                    $events.Add([pscustomobject]@{
+                        schema_version = "taskspace-output-ref-event-v1"
+                        source = "observability_text_fallback"
+                        kind = "output_ref.slice_read"
+                        artifact_ref = $ref
+                        call_id = ""
+                        timestamp_ms = $null
+                    })
+                }
+            }
+        } catch {
+            $events.Add([pscustomobject]@{
+                schema_version = "taskspace-output-ref-event-v1"
+                source = "observability_parse_error"
+                kind = "output_ref.parse_error"
+                artifact_ref = ""
+                call_id = ""
+                timestamp_ms = $null
+            })
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ArtifactDir)) {
+        foreach ($name in @("taskspace.graph.final.json", "taskspace.graph.timeout.json", "graph-health.json")) {
+            $path = Join-Path $ArtifactDir $name
+            if (-not (Test-Path -LiteralPath $path)) { continue }
+            $text = Get-Content -Raw -Encoding UTF8 -LiteralPath $path
+            foreach ($match in [regex]::Matches($text, "(?s)OutputReferenceV1:.*?artifact_ref:\s*(output-ref://sha256/[a-fA-F0-9]{64})")) {
+                $ref = [string]$match.Groups[1].Value
+                $dedupe = "output_ref.created|$ref|artifact"
+                if ($seen.Add($dedupe)) {
+                    $events.Add([pscustomobject]@{
+                        schema_version = "taskspace-output-ref-event-v1"
+                        source = $name
+                        kind = "output_ref.created"
+                        artifact_ref = $ref
+                        call_id = ""
+                        timestamp_ms = $null
+                    })
+                }
+            }
+            foreach ($match in [regex]::Matches($text, "(?s)OutputSliceV1:.*?artifact_ref:\s*(output-ref://sha256/[a-fA-F0-9]{64})")) {
+                $ref = [string]$match.Groups[1].Value
+                $dedupe = "output_ref.slice_read|$ref|artifact"
+                if ($seen.Add($dedupe)) {
+                    $events.Add([pscustomobject]@{
+                        schema_version = "taskspace-output-ref-event-v1"
+                        source = $name
+                        kind = "output_ref.slice_read"
+                        artifact_ref = $ref
+                        call_id = ""
+                        timestamp_ms = $null
+                    })
+                }
+            }
+        }
+    }
+    @($events.ToArray())
+}
+
 function Get-TaskspaceContextProjectionBlocks {
     param(
         [AllowEmptyString()][string]$JsonlPath = "",
@@ -508,6 +614,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $visibility = New-TaskspaceProviderInputVisibilitySummary $JsonlPath $token
     $control = New-TaskspaceControlUsageSummary $JsonlPath $ObservabilityJsonPath
     $replay = New-TaskspaceReplaySummary $ArtifactDir
+    $outputRefEvents = @(New-TaskspaceOutputRefEvents $ObservabilityJsonPath $ArtifactDir)
     $projection = New-TaskspaceContextProjectionSummary $JsonlPath $ObservabilityJsonPath $rolloutJsonlPath
     $tokenPath = Join-Path $ArtifactDir "token-summary.json"
     $requestPath = Join-Path $ArtifactDir "request-summary.json"
@@ -515,6 +622,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $controlPath = Join-Path $ArtifactDir "taskspace-control-usage.json"
     $projectionPath = Join-Path $ArtifactDir "context-projection-summary.json"
     $projectionEventsPath = Join-Path $ArtifactDir "projection-events.jsonl"
+    $outputRefEventsPath = Join-Path $ArtifactDir "output-ref-events.jsonl"
     $token | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $tokenPath -Encoding UTF8
     $request | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $requestPath -Encoding UTF8
     $visibility | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $visibilityPath -Encoding UTF8
@@ -526,6 +634,12 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     } else {
         [System.IO.File]::WriteAllText($projectionEventsPath, "", [System.Text.UTF8Encoding]::new($false))
     }
+    $outputRefEventLines = @($outputRefEvents | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
+    if ($outputRefEventLines.Count -gt 0) {
+        $outputRefEventLines | Set-Content -LiteralPath $outputRefEventsPath -Encoding UTF8
+    } else {
+        [System.IO.File]::WriteAllText($outputRefEventsPath, "", [System.Text.UTF8Encoding]::new($false))
+    }
     [pscustomobject]@{
         token_summary_path = $tokenPath
         request_summary_path = $requestPath
@@ -533,11 +647,13 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         taskspace_control_usage_path = $controlPath
         context_projection_summary_path = $projectionPath
         projection_events_path = $projectionEventsPath
+        output_ref_events_path = $outputRefEventsPath
         token_summary = $token
         request_summary = $request
         provider_input_visibility = $visibility
         taskspace_control_usage = $control
         replay_summary = $replay
+        output_ref_events = $outputRefEvents
         context_projection_summary = $projection
     }
 }

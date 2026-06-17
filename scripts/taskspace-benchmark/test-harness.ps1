@@ -440,8 +440,8 @@ $costObs = Join-Path $costDir "observability.json"
     timeline = @(
         [pscustomobject]@{ kind = "task_created" },
         [pscustomobject]@{ kind = "cognitive_state_updated"; details = [pscustomobject]@{ updateKind = "state_commit.partial" } },
-        [pscustomobject]@{ kind = "output_ref.created" },
-        [pscustomobject]@{ kind = "output_ref.slice_read" },
+        [pscustomobject]@{ kind = "output_ref.created"; details = [pscustomobject]@{ artifact_ref = "output-ref://sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } },
+        [pscustomobject]@{ kind = "output_ref.slice_read"; details = [pscustomobject]@{ artifact_ref = "output-ref://sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } },
         [pscustomobject]@{ kind = "node_status_changed" },
         [pscustomobject]@{ kind = "tool:spawn_agent" }
     )
@@ -452,6 +452,10 @@ Assert-True (Test-Path -LiteralPath $costArtifacts.request_summary_path) "reques
 Assert-True (Test-Path -LiteralPath $costArtifacts.taskspace_control_usage_path) "taskspace-control-usage.json was not written"
 Assert-True (Test-Path -LiteralPath $costArtifacts.context_projection_summary_path) "context-projection-summary.json was not written"
 Assert-True (Test-Path -LiteralPath $costArtifacts.projection_events_path) "projection-events.jsonl was not written"
+Assert-True (Test-Path -LiteralPath $costArtifacts.output_ref_events_path) "output-ref-events.jsonl was not written"
+$outputRefEventLines = @(Get-Content -LiteralPath $costArtifacts.output_ref_events_path -Encoding UTF8)
+Assert-True (($outputRefEventLines -join "`n").Contains('"kind":"output_ref.created"')) "output-ref-events.jsonl omitted output_ref.created"
+Assert-True (($outputRefEventLines -join "`n").Contains('"kind":"output_ref.slice_read"')) "output-ref-events.jsonl omitted output_ref.slice_read"
 Assert-True ([string]$costArtifacts.token_summary.availability -eq "partial") "partial token usage was not marked partial"
 Assert-True ([int]$costArtifacts.request_summary.model_request_count -eq 2) "model request count did not come from usage events"
 Assert-True ([int]$costArtifacts.request_summary.max_input_tokens_per_request -eq 120) "max input tokens per request was not reported"
