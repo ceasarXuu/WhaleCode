@@ -4201,3 +4201,77 @@ Notes:
 Remaining Phase 1 work:
 
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
+
+## 2026-06-18 low-cost live E3 smoke
+
+Scope:
+
+- User explicitly approved a low-cost E3 smoke after the v0.0.5 adversarial review closure.
+- This run intentionally used one sample / one repeat to verify the engineering path, not to produce formal E3 release evidence.
+
+Build and install:
+
+```text
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev profile
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -PersistUserPath -BackupLegacyCopies
+Installed Whale: C:\Users\77585\.whale\bin\whale.exe
+Installed hash: FC8C5A9C2C59FF86BF1543D72613116A5D38FFE48B64B37608CD3AA7C02FCE13
+```
+
+Smoke command:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario single-file-fast-fix -Repeats 1 -RunRoot target\v005-lowcost-e3-smoke-20260618-054444 -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+
+RunDir: D:\whalecode-alpha\target\v005-lowcost-e3-smoke-20260618-054444\single-file-fast-fix\20260618-054445-343
+RunSummary: D:\whalecode-alpha\target\v005-lowcost-e3-smoke-20260618-054444\single-file-fast-fix\20260618-054445-343\run-summary.md
+PairReport: D:\whalecode-alpha\target\v005-lowcost-e3-smoke-20260618-054444\single-file-fast-fix\20260618-054445-343\pair-001\pair-report.md
+```
+
+Observed:
+
+- Harness completed with process exit code `0`.
+- `run-status.json`: `phase=completed`, `run_validity=valid`, `completed_pairs=1`, `final_aggregate_ready=true`.
+- `aggregate.json`: `score_valid=true`, `engineering_unclean_count=0`, `both_success=1`, `excluded_by_reason.repeats_lt_3=1`.
+- Pair report: `reported_evidence_level=E2-candidate`, `valid_pair=True`, `left_logical_mode=standard`, `right_logical_mode=taskspace`.
+- Both sides solved:
+  - standard: `exec_exit_code=0`, `public_validation_exit_code=0`, `hidden_oracle_exit_code=0`, `business_success=true`, `wall_time_ms=31225`, `tool_call_count=6`.
+  - taskspace: `exec_exit_code=0`, `public_validation_exit_code=0`, `hidden_oracle_exit_code=0`, `business_success=true`, `wall_time_ms=54272`, `tool_call_count=5`.
+- TaskSpace runtime observability was present on the taskspace side:
+  - `runtime_state_commit_count=3`
+  - `taskspace_runtime_event_count=56`
+  - `projection_count=11`
+  - `projection_protected_miss_count=0`
+  - `map_management_availability=measured`
+  - `map_retention_coverage_ratio=1`
+  - `map_salience_coverage_ratio=1`
+  - `map_archived_item_count=5`
+  - `map_semantic_replacement_rate=0.3333`
+
+Release gate check:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\write-release-decision.ps1 -RunDir target\v005-lowcost-e3-smoke-20260618-054444\single-file-fast-fix\20260618-054445-343
+Exit code: 1
+ReleaseDecisionJson: D:\whalecode-alpha\target\v005-lowcost-e3-smoke-20260618-054444\single-file-fast-fix\20260618-054445-343\release-decision.json
+```
+
+Release decision outcome:
+
+- `decision=FAIL`
+- `quality_gate_pass=true`
+- `map_gate_pass=true`
+- `routing_gate_pass=true`
+- `run_provenance_gate_pass=false`
+- Expected blockers included:
+  - `run_provenance_gate_failed`
+  - `excluded_pairs_present`
+  - missing root-level release artifacts such as `projection-events.jsonl`, `output-ref-events.jsonl`, `compaction-events.jsonl`
+
+Conclusion:
+
+- The low-cost live path is operational: build, install, real agent execution, paired standard/taskspace run, validation, oracle, aggregation, and release-decision generation all ran end to end.
+- This is not formal E3 evidence. The run uses `EvidenceTarget=E2`, one repeat, and reports `E2-candidate`; the hardened release gate correctly refuses to turn it into PASS/PARTIAL release evidence.
+- The smoke does show that current v0.0.5 runtime artifacts are being generated on the TaskSpace side, including runtime state commits, context projection, and map-management summaries.
