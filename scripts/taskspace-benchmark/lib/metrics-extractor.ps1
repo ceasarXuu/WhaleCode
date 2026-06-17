@@ -300,10 +300,14 @@ function Get-TaskspaceBenchmarkMetrics {
         failed_tool_call_count = $commandStats.Failed
         token_summary_path = [string]$costInstrumentation.token_summary_path
         request_summary_path = [string]$costInstrumentation.request_summary_path
+        provider_input_visibility_path = [string]$costInstrumentation.provider_input_visibility_path
         taskspace_control_usage_path = [string]$costInstrumentation.taskspace_control_usage_path
         context_projection_summary_path = [string]$costInstrumentation.context_projection_summary_path
         projection_events_path = [string]$costInstrumentation.projection_events_path
         token_summary_availability = [string]$costInstrumentation.token_summary.availability
+        jsonl_bytes = $costInstrumentation.provider_input_visibility.jsonl_bytes
+        provider_input_tokens_per_jsonl_kb = $costInstrumentation.provider_input_visibility.provider_input_tokens_per_jsonl_kb
+        provider_total_tokens_per_jsonl_kb = $costInstrumentation.provider_input_visibility.provider_total_tokens_per_jsonl_kb
         model_request_count = $costInstrumentation.request_summary.model_request_count
         input_tokens = $costInstrumentation.token_summary.input_tokens
         output_tokens = $costInstrumentation.token_summary.output_tokens

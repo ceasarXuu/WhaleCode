@@ -140,6 +140,35 @@ function New-TaskspaceRequestSummary {
     }
 }
 
+function New-TaskspaceProviderInputVisibilitySummary {
+    param([string]$JsonlPath, $TokenSummary)
+    $jsonlBytes = $null
+    if (-not [string]::IsNullOrWhiteSpace($JsonlPath) -and (Test-Path -LiteralPath $JsonlPath)) {
+        $jsonlBytes = [int64](Get-Item -LiteralPath $JsonlPath).Length
+    }
+    $jsonlKb = if ($null -ne $jsonlBytes -and [int64]$jsonlBytes -gt 0) {
+        [double]$jsonlBytes / 1024.0
+    } else {
+        $null
+    }
+    $inputTokens = if ($TokenSummary -and $TokenSummary.PSObject.Properties.Name -contains "input_tokens") { $TokenSummary.input_tokens } else { $null }
+    $outputTokens = if ($TokenSummary -and $TokenSummary.PSObject.Properties.Name -contains "output_tokens") { $TokenSummary.output_tokens } else { $null }
+    [pscustomobject]@{
+        schema_version = "taskspace-provider-input-visibility-v1"
+        source_path = $JsonlPath
+        jsonl_bytes = $jsonlBytes
+        input_tokens = $inputTokens
+        output_tokens = $outputTokens
+        provider_input_tokens_per_jsonl_kb = Get-TaskspaceCostRatio $inputTokens $jsonlKb
+        provider_total_tokens_per_jsonl_kb = if ($null -ne $inputTokens -and $null -ne $outputTokens) {
+            Get-TaskspaceCostRatio ([double]$inputTokens + [double]$outputTokens) $jsonlKb
+        } else {
+            $null
+        }
+        visibility_note = "Compares provider usage input tokens with local whale-exec JSONL byte size; high ratios indicate hidden provider-side request components or accounting outside the visible transcript."
+    }
+}
+
 function New-TaskspaceControlUsageSummary {
     param([string]$JsonlPath, [string]$ObservabilityJsonPath = "")
     $parsed = Get-TaskspaceCostJsonlRows $JsonlPath
@@ -388,16 +417,19 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     }
     $token = New-TaskspaceTokenSummary $JsonlPath
     $request = New-TaskspaceRequestSummary $JsonlPath $token
+    $visibility = New-TaskspaceProviderInputVisibilitySummary $JsonlPath $token
     $control = New-TaskspaceControlUsageSummary $JsonlPath $ObservabilityJsonPath
     $replay = New-TaskspaceReplaySummary $ArtifactDir
     $projection = New-TaskspaceContextProjectionSummary $JsonlPath $ObservabilityJsonPath (Join-Path $ArtifactDir "rollout.jsonl")
     $tokenPath = Join-Path $ArtifactDir "token-summary.json"
     $requestPath = Join-Path $ArtifactDir "request-summary.json"
+    $visibilityPath = Join-Path $ArtifactDir "provider-input-visibility.json"
     $controlPath = Join-Path $ArtifactDir "taskspace-control-usage.json"
     $projectionPath = Join-Path $ArtifactDir "context-projection-summary.json"
     $projectionEventsPath = Join-Path $ArtifactDir "projection-events.jsonl"
     $token | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $tokenPath -Encoding UTF8
     $request | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $requestPath -Encoding UTF8
+    $visibility | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $visibilityPath -Encoding UTF8
     $control | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $controlPath -Encoding UTF8
     $projection | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $projectionPath -Encoding UTF8
     $projectionEventLines = @($projection.events | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
@@ -409,11 +441,13 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     [pscustomobject]@{
         token_summary_path = $tokenPath
         request_summary_path = $requestPath
+        provider_input_visibility_path = $visibilityPath
         taskspace_control_usage_path = $controlPath
         context_projection_summary_path = $projectionPath
         projection_events_path = $projectionEventsPath
         token_summary = $token
         request_summary = $request
+        provider_input_visibility = $visibility
         taskspace_control_usage = $control
         replay_summary = $replay
         context_projection_summary = $projection
@@ -449,6 +483,9 @@ function New-TaskspaceCostSideTotals {
         output_tokens = [double]0
         cached_input_tokens = [double]0
         uncached_input_tokens = [double]0
+        jsonl_bytes = [double]0
+        provider_input_tokens_per_jsonl_kb = [double]0
+        provider_total_tokens_per_jsonl_kb = [double]0
         wall_time_ms = [double]0
         taskspace_control_count = [double]0
         state_commit_count = [double]0
@@ -465,6 +502,9 @@ function New-TaskspaceCostSideTotals {
         missing_output_tokens = 0
         missing_cached_input_tokens = 0
         missing_uncached_input_tokens = 0
+        missing_jsonl_bytes = 0
+        missing_provider_input_tokens_per_jsonl_kb = 0
+        missing_provider_total_tokens_per_jsonl_kb = 0
         missing_wall_time_ms = 0
         missing_taskspace_control_count = 0
         missing_state_commit_count = 0
@@ -550,7 +590,7 @@ function Write-TaskspaceCostAggregateArtifacts {
         $totals = $byMode[$mode]
         $totals.side_count++
         if ([string]$metric.token_summary_availability -eq "measured") { $totals.complete_side_count++ }
-        foreach ($field in @("model_request_count", "input_tokens", "output_tokens", "cached_input_tokens", "uncached_input_tokens", "wall_time_ms", "taskspace_control_count", "state_commit_count", "runtime_state_commit_count", "runtime_output_ref_created_count", "runtime_output_ref_slice_read_count", "taskspace_runtime_event_count", "large_output_replay_count", "projection_count", "projection_tokens", "projection_protected_miss_count")) {
+        foreach ($field in @("model_request_count", "input_tokens", "output_tokens", "cached_input_tokens", "uncached_input_tokens", "jsonl_bytes", "provider_input_tokens_per_jsonl_kb", "provider_total_tokens_per_jsonl_kb", "wall_time_ms", "taskspace_control_count", "state_commit_count", "runtime_state_commit_count", "runtime_output_ref_created_count", "runtime_output_ref_slice_read_count", "taskspace_runtime_event_count", "large_output_replay_count", "projection_count", "projection_tokens", "projection_protected_miss_count")) {
             Add-TaskspaceCostMetricTotal $totals $metric $field
         }
     }
@@ -580,11 +620,17 @@ function Write-TaskspaceCostAggregateArtifacts {
             model_request_count = $byMode.standard.model_request_count
             avg_input_tokens_per_request = Get-TaskspaceCostRatio $byMode.standard.input_tokens $byMode.standard.model_request_count
             avg_output_tokens_per_request = Get-TaskspaceCostRatio $byMode.standard.output_tokens $byMode.standard.model_request_count
+            jsonl_bytes = $byMode.standard.jsonl_bytes
+            provider_input_tokens_per_jsonl_kb = Get-TaskspaceCostRatio $byMode.standard.input_tokens ([double]$byMode.standard.jsonl_bytes / 1024.0)
+            provider_total_tokens_per_jsonl_kb = Get-TaskspaceCostRatio ([double]$byMode.standard.input_tokens + [double]$byMode.standard.output_tokens) ([double]$byMode.standard.jsonl_bytes / 1024.0)
         }
         taskspace = [pscustomobject]@{
             model_request_count = $byMode.taskspace.model_request_count
             avg_input_tokens_per_request = Get-TaskspaceCostRatio $byMode.taskspace.input_tokens $byMode.taskspace.model_request_count
             avg_output_tokens_per_request = Get-TaskspaceCostRatio $byMode.taskspace.output_tokens $byMode.taskspace.model_request_count
+            jsonl_bytes = $byMode.taskspace.jsonl_bytes
+            provider_input_tokens_per_jsonl_kb = Get-TaskspaceCostRatio $byMode.taskspace.input_tokens ([double]$byMode.taskspace.jsonl_bytes / 1024.0)
+            provider_total_tokens_per_jsonl_kb = Get-TaskspaceCostRatio ([double]$byMode.taskspace.input_tokens + [double]$byMode.taskspace.output_tokens) ([double]$byMode.taskspace.jsonl_bytes / 1024.0)
         }
     }
     $control = [pscustomobject]@{

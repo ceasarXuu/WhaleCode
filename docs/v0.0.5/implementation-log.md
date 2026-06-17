@@ -135,6 +135,50 @@ Remaining Phase 1 work:
 
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
 
+## 2026-06-17 Cost root-cause: provider input visibility
+
+Changed:
+
+- Added `provider-input-visibility.json` side artifacts from benchmark cost instrumentation.
+- Added `provider_input_visibility_path`, `jsonl_bytes`, `provider_input_tokens_per_jsonl_kb`, and `provider_total_tokens_per_jsonl_kb` to side `metrics.json`.
+- Added the same visibility fields to aggregate request summaries so cost failures can distinguish visible transcript growth from provider-side hidden request/accounting growth.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-provider-visibility
+TaskSpace benchmark harness self-test: PASS
+
+Write-TaskspaceCostInstrumentationArtifacts on:
+target\v005-compact-schema-smoke\large-output-ref-smoke\20260617-173706-025\pair-001\right\artifacts
+
+provider-input-visibility.json:
+jsonl_bytes: 84152
+input_tokens: 1349787
+output_tokens: 14165
+provider_input_tokens_per_jsonl_kb: 16424.8252
+provider_total_tokens_per_jsonl_kb: 16597.1914
+```
+
+Findings:
+
+- A direct compact/deferred `taskspace_control` schema experiment was rejected as an active fix. The deferred variant made the live smoke engineering-unclean: TaskSpace did not execute the required diagnostic command, `runtime_output_ref_created_count` stayed `0`, and hidden oracle failed.
+- A non-deferred compact schema restored business correctness, output reference creation, and `large_output_replay_count=0`, but provider input became worse in the focused smoke:
+  - standard input tokens: `66500`
+  - TaskSpace input tokens: `1349787`
+  - standard JSONL bytes: `81471`
+  - TaskSpace JSONL bytes: `84152`
+- The local visible transcript sizes are near-equal while provider usage differs by more than an order of magnitude. The next root-cause target is hidden provider request components or provider accounting for TaskSpace-specific tool/system surfaces, not repeated local history/projection text.
+
+Operational lesson:
+
+- Do not use RunRoot names containing neutral-path forbidden terms such as `node`; `Test-TaskspaceNeutralCwd` rejects paths containing `node`, `taskspace`, `standard`, `map`, or `subagent`.
+
+Remaining work:
+
+- Locate the actual request payload or provider-side tool/system component that accounts for the provider input delta.
+- Keep the active tool schema on the proven legacy path until a compact alternative passes both quality and cost evidence.
+
 ## 2026-06-17 Phase 3 current-install live smoke reconciliation
 
 Reason:

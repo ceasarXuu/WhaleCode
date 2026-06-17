@@ -442,7 +442,8 @@ impl ToolHandler for TaskSpaceControlHandler {
                 ));
             }
         };
-        let args: TaskSpaceControlArgs = parse_arguments(&arguments)?;
+        let normalized_arguments = normalize_taskspace_arguments(&arguments)?;
+        let args: TaskSpaceControlArgs = parse_arguments(&normalized_arguments)?;
         let message = match args {
             TaskSpaceControlArgs::StartTask {
                 task_title,
@@ -843,8 +844,8 @@ impl ToolHandler for TaskSpaceControlHandler {
                 next_best_action,
             } => {
                 validate_state_commit_schema(schema_version.as_deref())?;
-                let commit_id =
-                    commit_id.unwrap_or_else(|| auto_state_commit_id_from_arguments(&arguments));
+                let commit_id = commit_id
+                    .unwrap_or_else(|| auto_state_commit_id_from_arguments(&normalized_arguments));
                 let outcome = session
                     .state_commit_action_map(
                         &turn,
@@ -977,6 +978,31 @@ fn auto_state_commit_id_from_arguments(arguments: &str) -> String {
         hash = hash.wrapping_mul(0x100000001b3);
     }
     format!("auto-{hash:016x}")
+}
+
+fn normalize_taskspace_arguments(arguments: &str) -> Result<String, FunctionCallError> {
+    let mut value: JsonValue = parse_arguments(arguments)?;
+    let Some(root) = value.as_object_mut() else {
+        return Ok(arguments.to_string());
+    };
+    let Some(payload) = root.remove("payload") else {
+        return Ok(arguments.to_string());
+    };
+    let JsonValue::Object(payload) = payload else {
+        return Err(FunctionCallError::RespondToModel(
+            "taskspace_control payload must be a JSON object when provided.".to_string(),
+        ));
+    };
+
+    for (key, value) in payload {
+        root.entry(key).or_insert(value);
+    }
+
+    serde_json::to_string(&value).map_err(|err| {
+        FunctionCallError::RespondToModel(format!(
+            "failed to normalize taskspace_control arguments: {err}"
+        ))
+    })
 }
 
 fn convert_evidence_refs(inputs: Vec<TaskSpaceEvidenceRefArgs>) -> Vec<ActionMapEvidenceRefInput> {
@@ -1444,6 +1470,40 @@ mod tests {
                 assert!(commit_id.is_none());
                 assert_eq!(success_criteria[0].id, "sc-1");
                 assert!(auto_state_commit_id_from_arguments(&arguments).starts_with("auto-"));
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compact_payload_normalizes_to_legacy_arguments() {
+        let raw = serde_json::json!({
+            "action": "state_commit",
+            "payload": {
+                "schema_version": "taskspace-state-commit-v1",
+                "success_criteria": [{
+                    "id": "sc-1",
+                    "kind": "test",
+                    "description": "compact payload parses",
+                    "status": "open",
+                    "evidence_refs": []
+                }]
+            }
+        });
+        let normalized =
+            normalize_taskspace_arguments(&raw.to_string()).expect("payload normalizes");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("state_commit args parse");
+
+        match args {
+            TaskSpaceControlArgs::StateCommit {
+                schema_version,
+                success_criteria,
+                ..
+            } => {
+                assert_eq!(schema_version.as_deref(), Some("taskspace-state-commit-v1"));
+                assert_eq!(success_criteria.len(), 1);
+                assert_eq!(success_criteria[0].id, "sc-1");
             }
             other => panic!("unexpected args: {other:?}"),
         }
