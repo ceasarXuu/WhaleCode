@@ -7,6 +7,7 @@ param(
 . (Join-Path $RepoRoot "scripts\action-map-graph-health-lib.ps1")
 . (Join-Path $BenchmarkRoot "lib\scenario-manifest.ps1")
 . (Join-Path $BenchmarkRoot "lib\routing-decision.ps1")
+. (Join-Path $BenchmarkRoot "lib\routing-report.ps1")
 . (Join-Path $BenchmarkRoot "lib\prompt-guard.ps1")
 . (Join-Path $BenchmarkRoot "lib\workspace.ps1")
 . (Join-Path $BenchmarkRoot "lib\oracle-runner.ps1")

@@ -1,5 +1,78 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-17 Phase 5 routing mistake report artifacts
+
+Changed:
+
+- `routing-decision.json` now records structured `trigger_reasons`, `escalation_rules`, and `stay_thin_policy` in addition to the legacy string `reason`.
+- Added `scripts/taskspace-benchmark/lib/routing-report.ps1`.
+- Benchmark finalization now writes:
+  - `pair-*/pair-routing-report.md`
+  - `suite-routing-summary.json`
+- Routing summary correlates the report-only router recommendation with actual TaskSpace metrics:
+  - node count versus route budget;
+  - `spawn_agent_calls` versus thin no-spawn policy;
+  - TaskSpace business success;
+  - verification-first validation skips.
+- The summary flags concrete route mistakes such as `thin_spawned_subagent`, `thin_node_budget_exceeded`, `taskspace_metrics_missing`, and `taskspace_not_business_success`.
+- Fixed a latent PowerShell output-stream bug in `New-TaskspaceRoutingDecision`: `List.Add()` return values are now suppressed, so the function returns only the decision object.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-routing-report
+TaskSpace benchmark harness self-test: PASS
+RunRoot: D:\whalecode-alpha\target\paired-bench-selftest-v005-routing-report\single-file-fast-fix\20260617-233310-271
+```
+
+Live smoke:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-routing-report-smoke -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: D:\whalecode-alpha\target\v005-routing-report-smoke\large-output-ref-smoke\20260617-233341-025
+```
+
+Observed routing evidence:
+
+```text
+suite-routing-summary.json
+- availability=measured
+- router_status=report_only
+- recommended_mode=thin
+- confidence=high
+- trigger_reasons=small_scope_validator_visible_no_spawn_expected, large_output_ref_policy_required
+- escalation_rules=validator_failure_seen, missing_expected_artifact, ambiguity_increased, cross_module_dependency_seen
+- assessed_pair_count=1
+- clean_pair_count=1
+- routing_mistake_count=0
+
+pair-001/pair-routing-report.md
+- taskspace_nodes=3
+- taskspace_spawn_agent_calls=0
+- taskspace_business_success=True
+- clean=True
+```
+
+Other smoke evidence:
+
+```text
+pair reported_evidence_level=E2-candidate
+evidence_gate_failures=repeats_lt_3
+failure_taxonomy=none
+runtime_output_ref_created_count=1
+large_output_replay_count=0
+map_management_availability=measured
+map_retention_coverage_ratio=1
+map_protected_miss_count=0
+suite-map-management protected_miss_count=0
+```
+
+Remaining Phase 5 / release work:
+
+- Router remains `report_only`; this closes the mistake-report artifact gap but does not yet prove active routing.
+- Need repeated samples and the broader E3 matrix before enabling active routing or claiming release readiness.
+- `aggregate.json` is a structural aggregate artifact; the human-readable evidence for this run is in `aggregate-report.md`.
+
 ## 2026-06-17 Phase 5 thin broad-debt correction
 
 Changed:

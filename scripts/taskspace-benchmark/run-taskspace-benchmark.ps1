@@ -598,6 +598,7 @@ Write-TaskspaceRunSummary -Path $runSummaryPath -Reports @($pairReports.ToArray(
 $sampleTimingPath = Write-TaskspaceSampleTiming -RunDir $runDir -SampleId $manifest.Id -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
 Write-TaskspaceCostAggregateArtifacts -RootDir $runDir -Scope "sample" | Out-Null
 Write-TaskspaceSuiteMapManagementSummary -RootDir $runDir | Out-Null
+Write-TaskspaceSuiteRoutingSummary -RunDir $runDir | Out-Null
 if ($EnableAggregate) {
     $aggregatePath = Join-Path $runDir "aggregate-report.md"
     Write-TaskspaceAggregateReport -Path $aggregatePath -Reports @($pairReports.ToArray())

@@ -41,18 +41,24 @@ function New-TaskspaceRoutingDecision {
     $reasons = New-Object System.Collections.Generic.List[string]
     if ($formatSensitive -and $hasValidator) {
         $recommendedMode = "verification_first"
-        $reasons.Add("format_sensitive_validator_visible")
+        [void]$reasons.Add("format_sensitive_validator_visible")
     } elseif ($fileScope -eq "small" -and $hasValidator -and $maxSpawn -eq 0) {
         $recommendedMode = "thin"
         $confidence = "high"
-        $reasons.Add("small_scope_validator_visible_no_spawn_expected")
+        [void]$reasons.Add("small_scope_validator_visible_no_spawn_expected")
     } elseif ($maxSpawn -gt 0 -or $fileScope -eq "large") {
         $recommendedMode = "default_compact"
-        $reasons.Add("multi_step_or_spawn_budget_present")
+        [void]$reasons.Add("multi_step_or_spawn_budget_present")
     } else {
-        $reasons.Add("fallback_default_compact")
+        [void]$reasons.Add("fallback_default_compact")
     }
-    if ($largeOutput) { $reasons.Add("large_output_ref_policy_required") }
+    if ($largeOutput) { [void]$reasons.Add("large_output_ref_policy_required") }
+    $escalationRules = @(
+        "validator_failure_seen",
+        "missing_expected_artifact",
+        "ambiguity_increased",
+        "cross_module_dependency_seen"
+    )
     [pscustomobject]@{
         schema_version = "TaskShapeRouterV1"
         status = "report_only"
@@ -60,6 +66,7 @@ function New-TaskspaceRoutingDecision {
         recommended_mode = $recommendedMode
         confidence = $confidence
         reason = (@($reasons) -join ";")
+        trigger_reasons = @($reasons)
         task_prompt_features = [pscustomobject]@{
             file_scope = $fileScope
             output_artifact_required = $true
@@ -80,6 +87,12 @@ function New-TaskspaceRoutingDecision {
             state_commit_budget = if ($recommendedMode -eq "thin") { 4 } else { 8 }
             large_output_policy = if ($largeOutput) { "ref-only" } else { "standard" }
             must_read_validator_first = [bool]($recommendedMode -eq "verification_first")
+        }
+        escalation_rules = @($escalationRules)
+        stay_thin_policy = [pscustomobject]@{
+            enabled = [bool]($recommendedMode -eq "thin")
+            condition = "clear_patch_path_and_validator_visible"
+            disallow_default_subagent_spawn = [bool]($recommendedMode -eq "thin")
         }
     }
 }
