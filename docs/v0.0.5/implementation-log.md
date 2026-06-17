@@ -1,5 +1,67 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-18 Phase 6 cost root-cause correction
+
+Changed:
+
+- Corrected `scripts/taskspace-benchmark/write-cost-diagnostics.ps1` root-cause classification.
+- The previous diagnostic could classify a run as `active_profile_repeats_compact_taskspace_context_across_many_model_turns` by comparing TaskSpace rollout trace request count to Standard provider request count. That mixed two different counters.
+- New classification separates:
+  - provider request-count expansion: `provider_model_request_count_ratio`;
+  - rollout trace density: `rollout_trace_model_request_count_ratio`;
+  - fixed provider-visible TaskSpace surface: high `avg_provider_input_per_record_ratio` with low `projection_token_share_of_taskspace_input`.
+- Added self-test coverage for both root causes:
+  - `fixed_taskspace_provider_context_surface_too_large`;
+  - `active_profile_repeats_compact_taskspace_context_across_many_model_turns`.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-diagnostics.ps1 -RunRoot target\cost-diagnostics-selftest-rootcause-final
+TaskSpace cost diagnostics self-test: PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\release-decision-selftest-rootcause-final
+Release decision self-test: PASS
+RunRoot: target\release-decision-selftest-rootcause-final
+```
+
+Applied to the best current focused 3-repeat `count-call-stack` evidence:
+
+```text
+RunDir: target\v005-count-call-stack-activeprompt2-r3\count-call-stack\20260618-004703-679
+decision=PARTIAL
+cost_status=PARTIAL
+cost_root_cause=fixed_taskspace_provider_context_surface_too_large
+cost_drivers=rollout_request_count_over_partial_budget, fixed_taskspace_provider_context_surface_over_2x, uncached_input_over_3x
+
+ratios:
+- provider_direct_input_output_ratio=2.3727
+- walltime_ratio=1.7453
+- provider_model_request_count_ratio=1
+- rollout_trace_model_request_count_ratio=17.6667
+- avg_provider_input_per_record_ratio=2.373
+- projection_token_share_of_taskspace_input=0.0114
+```
+
+Negative experiment:
+
+- Tried compacting the `taskspace_control` provider schema by stripping field-level descriptions. Single repeat regressed badly:
+  - `target\v005-toolcompact-ccs-r1\count-call-stack\20260618-013123-239`
+  - `direct_input_output_ratio=7.1822`
+  - `walltime_ratio=3.3792`
+  - TaskSpace rollout trace requests: `38`
+- Tried keeping field descriptions but shortening only the top-level tool description. Single repeat still missed partial cost:
+  - `target\v005-tooldesc-ccs-r1\count-call-stack\20260618-013827-495`
+  - `direct_input_output_ratio=3.3623`
+  - `walltime_ratio=1.8486`
+  - TaskSpace rollout trace requests: `26`
+- Both code experiments were discarded. The field-level schema descriptions appear to be behaviorally important; blind provider-schema compression is not a safe route to v0.0.5 PASS.
+
+Interpretation:
+
+- The current best evidence remains an engineering `PARTIAL`, not release `PASS`.
+- The next cost target should be reducing fixed provider-visible TaskSpace surface without removing field contracts the model relies on. Candidate directions are profile-gated tool loading, narrower active-profile action sets, or moving rarely used legacy actions out of the always-loaded `taskspace_control` schema.
+
 ## 2026-06-17 Phase 6 release decision artifact
 
 Changed:

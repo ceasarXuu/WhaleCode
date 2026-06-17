@@ -101,6 +101,8 @@ $drivers = New-Object System.Collections.Generic.List[string]
 if ($providerDirectRatio -gt 3.0) { $drivers.Add("direct_tokens_over_partial_budget") }
 if ($wallRatio -gt 2.0) { $drivers.Add("walltime_over_release_budget") }
 if ($rolloutReqRatio -gt 2.5) { $drivers.Add("rollout_request_count_over_partial_budget") }
+if ($providerReqRatio -gt 2.5) { $drivers.Add("provider_request_count_over_partial_budget") }
+if ($avgProviderInputRatio -gt 2.0 -and $projectionTokenShare -lt 0.05) { $drivers.Add("fixed_taskspace_provider_context_surface_over_2x") }
 if ($avgProviderInputRatio -gt 3.0) { $drivers.Add("avg_input_per_provider_record_over_3x") }
 if ($uncachedRatio -gt 3.0) { $drivers.Add("uncached_input_over_3x") }
 if ((Get-Num $taskspace.large_output_replay_count) -gt 0) { $drivers.Add("large_output_replay_present") }
@@ -113,7 +115,9 @@ $rootCause = "unknown"
 $projectionShareForRoot = Get-Num $projectionTokenShare
 if ($costStatus -eq "PASS") {
     $rootCause = "none_cost_gate_passed"
-} elseif ($rolloutReqRatio -gt 2.5 -and $projectionShareForRoot -lt 0.05 -and (Get-Num $taskspace.large_output_replay_count) -eq 0) {
+} elseif ($providerReqRatio -le 1.2 -and $avgProviderInputRatio -gt 2.0 -and $projectionShareForRoot -lt 0.05 -and (Get-Num $taskspace.large_output_replay_count) -eq 0) {
+    $rootCause = "fixed_taskspace_provider_context_surface_too_large"
+} elseif ($providerReqRatio -gt 2.5 -and $rolloutReqRatio -gt 2.5 -and $projectionShareForRoot -lt 0.05 -and (Get-Num $taskspace.large_output_replay_count) -eq 0) {
     $rootCause = "active_profile_repeats_compact_taskspace_context_across_many_model_turns"
 } elseif ($avgProviderInputRatio -gt 3.0) {
     $rootCause = "provider_visible_base_context_too_large"

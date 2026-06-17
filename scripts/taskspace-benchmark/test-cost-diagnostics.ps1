@@ -61,9 +61,27 @@ $result = & (Join-Path $PSScriptRoot "write-cost-diagnostics.ps1") -RunRoot $Run
 Assert-True (Test-Path -LiteralPath $result.cost_diagnostics_path) "cost-diagnostics.json was not written"
 Assert-True (Test-Path -LiteralPath $result.cost_diagnostics_markdown_path) "cost-diagnostics.md was not written"
 $diag = Get-Content -Raw -Encoding UTF8 -LiteralPath $result.cost_diagnostics_path | ConvertFrom-Json
-Assert-True ([string]$diag.root_cause -eq "active_profile_repeats_compact_taskspace_context_across_many_model_turns") "unexpected root cause"
+Assert-True ([string]$diag.root_cause -eq "fixed_taskspace_provider_context_surface_too_large") "unexpected fixed-context root cause"
+Assert-True (@($diag.drivers) -contains "fixed_taskspace_provider_context_surface_over_2x") "fixed provider context driver missing"
 Assert-True (@($diag.drivers) -contains "rollout_request_count_over_partial_budget") "rollout request driver missing"
 Assert-True ([double]$diag.ratios.rollout_trace_model_request_count_ratio -eq 18) "rollout request ratio incorrect"
+
+$repeatRoot = Join-Path $RunRoot "provider-repeat"
+$repeatLeft = Join-Path $repeatRoot "pair-001\left\artifacts"
+$repeatRight = Join-Path $repeatRoot "pair-001\right\artifacts"
+New-Item -ItemType Directory -Path $repeatLeft, $repeatRight -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $left "metrics.json") -Destination (Join-Path $repeatLeft "metrics.json")
+$repeatTaskspace = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $right "metrics.json") | ConvertFrom-Json
+$repeatTaskspace.model_request_count = 4
+$repeatTaskspace.input_tokens = 1600000
+$repeatTaskspace.output_tokens = 20000
+$repeatTaskspace.rollout_trace_model_request_count = 20
+$repeatTaskspace | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $repeatRight "metrics.json") -Encoding UTF8
+[pscustomobject]@{ status = "FAIL" } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $repeatRoot "suite-cost-gate.json") -Encoding UTF8
+$repeatResult = & (Join-Path $PSScriptRoot "write-cost-diagnostics.ps1") -RunRoot $repeatRoot
+$repeatDiag = Get-Content -Raw -Encoding UTF8 -LiteralPath $repeatResult.cost_diagnostics_path | ConvertFrom-Json
+Assert-True ([string]$repeatDiag.root_cause -eq "active_profile_repeats_compact_taskspace_context_across_many_model_turns") "provider-repeat fixture did not report repeated context root cause"
+Assert-True (@($repeatDiag.drivers) -contains "provider_request_count_over_partial_budget") "provider request driver missing"
 
 $passRoot = Join-Path $RunRoot "pass"
 $passLeft = Join-Path $passRoot "pair-001\left\artifacts"
