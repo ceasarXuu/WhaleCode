@@ -985,24 +985,183 @@ fn normalize_taskspace_arguments(arguments: &str) -> Result<String, FunctionCall
     let Some(root) = value.as_object_mut() else {
         return Ok(arguments.to_string());
     };
-    let Some(payload) = root.remove("payload") else {
-        return Ok(arguments.to_string());
-    };
-    let JsonValue::Object(payload) = payload else {
-        return Err(FunctionCallError::RespondToModel(
-            "taskspace_control payload must be a JSON object when provided.".to_string(),
-        ));
-    };
+    if let Some(payload) = root.remove("payload") {
+        let JsonValue::Object(payload) = payload else {
+            return Err(FunctionCallError::RespondToModel(
+                "taskspace_control payload must be a JSON object when provided.".to_string(),
+            ));
+        };
 
-    for (key, value) in payload {
-        root.entry(key).or_insert(value);
+        for (key, value) in payload {
+            root.entry(key).or_insert(value);
+        }
     }
+    normalize_taskspace_argument_aliases(root);
 
     serde_json::to_string(&value).map_err(|err| {
         FunctionCallError::RespondToModel(format!(
             "failed to normalize taskspace_control arguments: {err}"
         ))
     })
+}
+
+fn normalize_taskspace_argument_aliases(root: &mut serde_json::Map<String, JsonValue>) {
+    let action = root
+        .get("action")
+        .and_then(JsonValue::as_str)
+        .unwrap_or_default()
+        .to_string();
+    match action.as_str() {
+        "start_task" => {
+            move_alias(root, "task_name", "task_title");
+            move_alias(root, "first_node", "node_title");
+            move_alias(root, "description", "node_context_summary");
+            root.entry("node_kind".to_string())
+                .or_insert_with(|| JsonValue::String("inspect_code_context".to_string()));
+        }
+        "create_node" => {
+            move_alias(root, "node_kind", "kind");
+            move_alias(root, "node_title", "title");
+            move_alias(root, "node_context_summary", "context_summary");
+        }
+        "record_success_criteria" => {
+            move_alias(root, "success_criteria", "criteria");
+            if let Some(criteria) = root.get_mut("criteria") {
+                normalize_success_criteria_value(criteria);
+            }
+        }
+        "record_output_contract" => {
+            if !root.contains_key("output_contract_id") {
+                if let Some(description) = summarize_string_array(root.remove("output_contracts")) {
+                    root.insert(
+                        "output_contract_id".to_string(),
+                        JsonValue::String("output-contract-1".to_string()),
+                    );
+                    root.insert(
+                        "output_contract_kind".to_string(),
+                        JsonValue::String("artifact".to_string()),
+                    );
+                    root.insert("description".to_string(), JsonValue::String(description));
+                }
+            }
+            normalize_evidence_refs(root);
+        }
+        "record_fact_source" => {
+            if !root.contains_key("fact_source_id") {
+                if let Some(description) = summarize_string_array(root.remove("fact_sources")) {
+                    root.insert(
+                        "fact_source_id".to_string(),
+                        JsonValue::String("fact-source-1".to_string()),
+                    );
+                    root.insert(
+                        "provenance".to_string(),
+                        JsonValue::String("observed_from_environment".to_string()),
+                    );
+                    root.insert("description".to_string(), JsonValue::String(description));
+                }
+            }
+            normalize_fact_source_provenance(root);
+            normalize_evidence_refs(root);
+        }
+        _ => {}
+    }
+}
+
+fn move_alias(root: &mut serde_json::Map<String, JsonValue>, alias: &str, target: &str) {
+    if root.contains_key(target) {
+        return;
+    }
+    if let Some(value) = root.remove(alias) {
+        root.insert(target.to_string(), value);
+    }
+}
+
+fn summarize_string_array(value: Option<JsonValue>) -> Option<String> {
+    let JsonValue::Array(items) = value? else {
+        return None;
+    };
+    let parts: Vec<String> = items
+        .into_iter()
+        .filter_map(|item| item.as_str().map(str::trim).map(str::to_string))
+        .filter(|item| !item.is_empty())
+        .collect();
+    (!parts.is_empty()).then(|| parts.join("; "))
+}
+
+fn normalize_success_criteria_value(value: &mut JsonValue) {
+    let JsonValue::Array(items) = value else {
+        return;
+    };
+    for (index, item) in items.iter_mut().enumerate() {
+        match item {
+            JsonValue::String(text) => {
+                let description = text.trim().to_string();
+                *item = serde_json::json!({
+                    "id": format!("criterion-{}", index + 1),
+                    "kind": "test",
+                    "description": description,
+                });
+            }
+            JsonValue::Object(object) => {
+                object
+                    .entry("id".to_string())
+                    .or_insert_with(|| JsonValue::String(format!("criterion-{}", index + 1)));
+                object
+                    .entry("kind".to_string())
+                    .or_insert_with(|| JsonValue::String("test".to_string()));
+                if let Some(kind) = object.get("kind").and_then(JsonValue::as_str) {
+                    let normalized = match kind {
+                        "test_pass" | "command_pass" => Some("test"),
+                        _ => None,
+                    };
+                    if let Some(normalized) = normalized {
+                        object.insert(
+                            "kind".to_string(),
+                            JsonValue::String(normalized.to_string()),
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn normalize_fact_source_provenance(root: &mut serde_json::Map<String, JsonValue>) {
+    let Some(value) = root.get_mut("provenance") else {
+        return;
+    };
+    let Some(provenance) = value.as_str() else {
+        return;
+    };
+    let normalized = match provenance {
+        "file" | "filesystem" | "repo" => Some("observed_from_environment"),
+        _ => None,
+    };
+    if let Some(normalized) = normalized {
+        *value = JsonValue::String(normalized.to_string());
+    }
+}
+
+fn normalize_evidence_refs(root: &mut serde_json::Map<String, JsonValue>) {
+    if root.contains_key("evidence_refs") {
+        return;
+    }
+    let Some(refs) = root.remove("refs") else {
+        return;
+    };
+    let JsonValue::Array(items) = refs else {
+        return;
+    };
+    let evidence_refs: Vec<JsonValue> = items
+        .into_iter()
+        .filter_map(|item| item.as_str().map(str::trim).map(str::to_string))
+        .filter(|item| !item.is_empty())
+        .map(|artifact_ref| serde_json::json!({ "artifact_ref": artifact_ref }))
+        .collect();
+    if !evidence_refs.is_empty() {
+        root.insert("evidence_refs".to_string(), JsonValue::Array(evidence_refs));
+    }
 }
 
 fn convert_evidence_refs(inputs: Vec<TaskSpaceEvidenceRefArgs>) -> Vec<ActionMapEvidenceRefInput> {
@@ -1504,6 +1663,123 @@ mod tests {
                 assert_eq!(schema_version.as_deref(), Some("taskspace-state-commit-v1"));
                 assert_eq!(success_criteria.len(), 1);
                 assert_eq!(success_criteria[0].id, "sc-1");
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn smoke_style_start_task_aliases_normalize() {
+        let raw = serde_json::json!({
+            "action": "start_task",
+            "payload": {
+                "task_name": "fix-failing-test",
+                "first_node": "diagnose-and-inspect",
+                "description": "Run diagnostic command, inspect README and tests."
+            }
+        });
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("start_task aliases parse");
+
+        match args {
+            TaskSpaceControlArgs::StartTask {
+                task_title,
+                node_kind,
+                node_title,
+                node_context_summary,
+                ..
+            } => {
+                assert_eq!(task_title, "fix-failing-test");
+                assert_eq!(node_kind, "inspect_code_context");
+                assert_eq!(node_title, "diagnose-and-inspect");
+                assert!(node_context_summary.contains("diagnostic command"));
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn smoke_style_success_criteria_aliases_normalize() {
+        let raw = serde_json::json!({
+            "action": "record_success_criteria",
+            "payload": {
+                "success_criteria": [
+                    "All tests pass",
+                    {"description": "Diagnostic script runs without error"},
+                    {"id": "diag-runs", "kind": "command_pass", "description": "Diagnostic runs"}
+                ]
+            }
+        });
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("success criteria aliases parse");
+
+        match args {
+            TaskSpaceControlArgs::RecordSuccessCriteria { criteria } => {
+                assert_eq!(criteria.len(), 3);
+                assert_eq!(criteria[0].id, "criterion-1");
+                assert_eq!(criteria[0].kind, "test");
+                assert_eq!(criteria[1].id, "criterion-2");
+                assert_eq!(criteria[1].kind, "test");
+                assert_eq!(criteria[2].id, "diag-runs");
+                assert_eq!(criteria[2].kind, "test");
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn smoke_style_contract_and_fact_source_aliases_normalize() {
+        let contract = serde_json::json!({
+            "action": "record_output_contract",
+            "payload": {
+                "output_contracts": ["Fixed source file", "Passing test suite"],
+                "refs": ["README.md", "tests/test_large_output_demo.py"]
+            }
+        });
+        let normalized_contract =
+            normalize_taskspace_arguments(&contract.to_string()).expect("normalize contract");
+        let contract_args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized_contract).expect("contract aliases parse");
+        match contract_args {
+            TaskSpaceControlArgs::RecordOutputContract {
+                output_contract_id,
+                output_contract_kind,
+                description,
+                evidence_refs,
+            } => {
+                assert_eq!(output_contract_id, "output-contract-1");
+                assert_eq!(output_contract_kind, "artifact");
+                assert!(description.contains("Passing test suite"));
+                assert_eq!(evidence_refs.len(), 2);
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+
+        let fact_source = serde_json::json!({
+            "action": "record_fact_source",
+            "payload": {
+                "fact_sources": ["README.md", "tests/"],
+                "provenance": "file",
+                "refs": ["README.md"]
+            }
+        });
+        let normalized_fact_source =
+            normalize_taskspace_arguments(&fact_source.to_string()).expect("normalize source");
+        let fact_source_args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized_fact_source).expect("source aliases parse");
+        match fact_source_args {
+            TaskSpaceControlArgs::RecordFactSource {
+                fact_source_id,
+                provenance,
+                description,
+                evidence_refs,
+            } => {
+                assert_eq!(fact_source_id, "fact-source-1");
+                assert_eq!(provenance, "observed_from_environment");
+                assert!(description.contains("README.md"));
+                assert_eq!(evidence_refs.len(), 1);
             }
             other => panic!("unexpected args: {other:?}"),
         }

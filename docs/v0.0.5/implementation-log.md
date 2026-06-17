@@ -213,6 +213,30 @@ Findings:
 - The focused smoke cost failure is now attributable to many moderately large requests, not one hidden 1.35M-token request.
 - Per-request input grows from `7826` to roughly `29K` tokens. The next engineering target is reducing TaskSpace turn count and repeated per-request system/tool/context surface, then proving that with the new rollout trace distribution fields.
 
+Follow-up fix:
+
+- The 75-request smoke had 70 `taskspace_control` calls, with repeated schema-repair loops around `start_task`, `record_success_criteria`, `record_output_contract`, `record_fact_source`, and `mark_result_validity`.
+- Added handler-side normalization for common smoke-observed aliases while preserving the strong runtime contract:
+  - `payload.task_name` -> `task_title`
+  - `payload.first_node` -> `node_title`
+  - `payload.description` -> `node_context_summary`
+  - default `start_task.node_kind` -> `inspect_code_context`
+  - `success_criteria` string/object arrays -> structured `criteria`
+  - `output_contracts` string arrays -> one artifact output contract
+  - `fact_sources` string arrays and `provenance=file` -> structured fact source
+  - `refs` string arrays -> `evidence_refs`
+- This is a cost fix, not a semantics downgrade: runtime still validates node kinds, evidence refs, result validity, and lifecycle gates after normalization.
+
+Validation:
+
+```text
+cargo test -p codex-core taskspace_control --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+11 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-handler-aliases
+TaskSpace benchmark harness self-test: PASS
+```
+
 ## 2026-06-17 Phase 3 current-install live smoke reconciliation
 
 Reason:
