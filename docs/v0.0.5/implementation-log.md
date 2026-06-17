@@ -418,6 +418,73 @@ Remaining Phase 3 work:
 - Rebuild/install Whale with the broad-gate fix and rerun `large-output-ref-smoke`.
 - Exit is still unproven until the smoke avoids subagent fanout, creates at least one runtime output ref, avoids raw large-output replay, finishes without timeout, and keeps projection metrics measured.
 
+## 2026-06-17 Phase 3 live smoke after single-file broad-gate fix
+
+Build/install:
+
+```text
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev build
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -PersistUserPath -BackupLegacyCopies
+Installed Whale: C:\Users\77585\.whale\bin\whale.exe
+Hash: 49F7F406623EA68CC4216D05933B4D033E69CD02DA3DAF5B38221023BD115F45
+```
+
+Live smoke:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-phase3-live-smoke-singlefile-broadgate -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-phase3-live-smoke-singlefile-broadgate\large-output-ref-smoke\20260617-101722-770
+```
+
+Core result:
+
+```text
+right_business_success = true
+right_exec_exit_code = 0
+right_exec_timed_out = false
+right_wall_time_ms = 104579
+taskspace_wall_time_ratio = 2.27
+taskspace_tool_call_ratio = 0.67
+maps = 1
+nodes = 4
+open_leaf_nodes = 0
+spawn_agent_calls = 0
+runtime_output_ref_created_count = 1
+large_output_replay_count = 0
+raw_output_in_prompt_violation = false
+context_projection_availability = measured
+projection_count = 20
+projection_tokens_total = 8002
+projection_tokens_max = 571
+projection_tokens_avg = 400.1
+projection_protected_miss_count = 0
+scenario_warnings = none
+```
+
+Assessment:
+
+- The single-file broad-gate fix closed the Phase 3 routing/thin regression for this smoke shape:
+  - no subagent fanout
+  - expected 4-node main path
+  - no open leaf
+  - no timeout
+- Output referenceization and projection are both proven together in the live path:
+  - one runtime output ref created
+  - no large output replay
+  - projection measured with zero protected misses
+- Pair scoring is still disabled by harness cleanliness markers:
+  - `cleanup_not_attempted_manifest_missing`
+  - `no_tests_started_marker`
+  These are validator/reporting cleanliness gaps, not the previous TaskSpace runtime regression.
+
+Remaining Phase 3 / Phase 6 work:
+
+- Add or fix cleanup/test-start lifecycle markers in the benchmark artifact contract so an otherwise successful smoke can become score-valid.
+- Repeat at least 3 runs before treating utility ratios as E2/E3 evidence; current run is still `repeats_lt_3`.
+- Investigate why token summary reports `model_request_count = 1` with `input_tokens = 701019` despite 20 projection events. This may be provider aggregation behavior, but Phase 0/3 cost claims need stronger request-level attribution before release.
+
 ## 2026-06-17 Phase 2 narrow inspect budget gate
 
 Changed:
