@@ -403,6 +403,63 @@ Expected effect:
 
 - Remove one rejected tool recovery turn in small patch tasks where the model already cites the modified file as evidence.
 
+## 2026-06-17 Phase 1 result-validity friction live smoke
+
+Install:
+
+```text
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev profile
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -BackupLegacyCopies
+Installed Whale: C:\Users\77585\.whale\bin\whale.exe
+Hash: 0DBDBFE7280B666FE2720C85A17FA1D224C214CF0CD0226616DD26E07F898C26
+```
+
+Smoke:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-infer-artifacts-smoke -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-infer-artifacts-smoke\large-output-ref-smoke\20260617-203440-687
+```
+
+Result:
+
+- Correctness and cleanliness remain green:
+  - Standard solved, TaskSpace solved
+  - `engineering_unclean=False`
+  - graph warnings: none
+  - scenario warnings: none
+- Shape:
+  - nodes `4`
+  - edges `3`
+  - `spawn_agent_calls=0`
+  - `open_leaf_nodes=0`
+- Output referenceization:
+  - `runtime_output_ref_created_count=1`
+  - `large_output_replay_count=0`
+- Request/cost movement compared with `v005-reviewable-graph-smoke`:
+  - rollout-trace requests `30 -> 26`
+  - TaskSpace input tokens `700604 -> 635748`
+  - direct ratio `3.8912 -> 3.0515`
+  - runtime state commits `11 -> 8`
+
+Remaining gate failure:
+
+```text
+suite-cost-gate: FAIL
+direct_input_output_ratio=3.0515
+walltime_ratio=2.6240
+model_request_count_ratio=1
+```
+
+Next likely cost source:
+
+- Startup/preflight still causes avoidable model turns:
+  - first ordinary diagnostic command is blocked because TaskSpace bootstrap is required;
+  - after `start_task`, the diagnostic command is blocked again because output contract and fact source scaffolding are missing.
+- The next structural fix should merge start-task scaffolding with required output contract / fact source setup, instead of relying on a rejected ordinary tool call to teach the model the preflight.
+
 ## 2026-06-17 Cost root-cause: provider input visibility
 
 Changed:
