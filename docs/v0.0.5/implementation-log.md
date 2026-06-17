@@ -1,5 +1,98 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-18 Inspect-to-implement recovery guidance
+
+Changed:
+
+- Tightened the runtime recovery path when the model tries to edit while still bound to an `inspect_code_context` node.
+- The blocked edit message now gives an exact `finish_node` call that creates/binds an `implement_solution` node with the inspect node as a dependency.
+- Active `ContextProjectionV1` `next_valid_actions` now prioritizes the same inspect-to-implement transition after the inspect node has at least one main tool evidence result.
+- The guidance explicitly tells the model not to create recovery/reborn inspect nodes, spawn agents, or retry the edit on the read-only inspect node.
+
+Root-cause evidence:
+
+```text
+RunDir: target\v005-current-largeout-smoke\large-output-ref-smoke\20260618-022718-276
+outcome_standard=solved
+outcome_taskspace=solved
+direct_input_output_ratio=7.7649
+walltime_ratio=3.1016
+taskspace rollout_trace_model_request_count=60
+runtime_state_commit_count=25
+runtime_output_ref_created_count=1
+large_output_replay_count=0
+tool_action_blocked=1
+```
+
+Interpretation:
+
+- Large output referenceization is working for this smoke (`large_output_replay_count=0`, `runtime_output_ref_created_count=1`).
+- The remaining overhead is dominated by recovery friction after the model attempts an edit from `inspect_code_context`.
+- Runtime correctly blocked the edit, but the generic recovery message allowed the model to create extra recovery/reborn nodes before reaching `implement_solution`.
+
+Validation:
+
+```text
+cargo fmt --manifest-path third_party\codex-cli\codex-rs\Cargo.toml --package codex-core
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core node_contract_blocks_edit_inside_inspect_node -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core projection_prioritizes_inspect_to_implement_after_evidence -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core taskspace -- --nocapture
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-inspect-recovery
+git diff --check
+```
+
+Installed local Whale for live smoke:
+
+```text
+C:\Users\77585\.whale\bin\whale.exe
+sha256=AE7B4F73435D17D78A1D45F156139525B823A37A34B63EE71F572914B3D0AA8F
+```
+
+Focused live smoke after the change:
+
+```text
+RunDir: target\v005-inspect-recovery-largeout-r1\large-output-ref-smoke\20260618-024710-354
+outcome_standard=solved
+outcome_taskspace=solved
+engineering_unclean=False
+pair_utility_outcome=both_success_cost_within_budget
+taskspace nodes=3
+taskspace edges=2
+taskspace open_leaf_nodes=1
+taskspace tool_call_count=13
+runtime_state_commit_count=4
+runtime_output_ref_created_count=1
+taskspace_runtime_event_count=83
+taskspace_projection_count=14
+taskspace_projection_tokens=5168
+taskspace_projection_protected_miss_count=0
+```
+
+Cost gate:
+
+```text
+suite_cost_status=FAIL
+direct_input_output_ratio=3.7211
+walltime_ratio=2.4982
+model_request_count_ratio=1
+standard input/output=115362/1570
+taskspace input/output=430410/4708
+standard avg_input_tokens_per_request=115362
+taskspace avg_input_tokens_per_request=430410
+```
+
+Interpretation after live smoke:
+
+- The inspect-to-implement recovery change fixed the local workflow expansion symptom for this smoke shape:
+  - previous current-install diagnostic: `nodes=5`, `runtime_state_commit_count=25`, `walltime_ratio=3.1016`, `direct_input_output_ratio=7.7649`;
+  - new focused smoke: `nodes=3`, `runtime_state_commit_count=4`, `walltime_ratio=2.4982`, `direct_input_output_ratio=3.7211`.
+- The run still fails the suite cost gate because the TaskSpace provider-visible fixed context remains too large (`430410` input tokens vs Standard `115362`).
+- Next cost work should target the fixed provider-visible TaskSpace surface, not more lifecycle recovery gates.
+
+Remaining Phase 6 work:
+
+- This is not release evidence until the fixed provider-visible context surface is reduced and the required E3 release decision gate passes.
+
 ## 2026-06-18 Compact TaskSpace control schema experiment
 
 Changed:

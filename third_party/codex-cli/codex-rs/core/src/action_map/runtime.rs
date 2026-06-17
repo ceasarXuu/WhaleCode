@@ -1123,14 +1123,23 @@ impl ActionMapRuntimeState {
                 node.kind.as_str(),
                 descriptor.action_class.as_str()
             );
-            let message = format!(
-                "TaskSpace blocked this tool call. Current node `{}` kind: {}. Requested tool `{}` action class: {}. Reason: {}. Call taskspace_control(action=finish_node) to finish the current node and bind or create a suitable node before retrying.",
-                node.id,
-                node.kind.as_str(),
-                descriptor.tool_name,
-                descriptor.action_class.as_str(),
-                reason
-            );
+            let message = if node.kind == NodeKind::InspectCodeContext
+                && descriptor.action_class == ActionClass::Edit
+            {
+                format!(
+                    "TaskSpace blocked this edit because current node `{}` kind: inspect_code_context is read-only. Requested tool `{}` action class: edit. Reason: {}. Do not create a recovery/reborn inspect node, spawn an agent, or retry the edit on this node. First call taskspace_control(action=finish_node, node_id=\"{}\", result_summary=\"concise finding and target file\", next_node_kind=\"implement_solution\", next_node_title=\"Apply inspected fix\", next_node_context_summary=\"Apply the narrow fix found by {}\", next_dependency_node_ids=[\"{}\"]), then retry the edit only after the current node is implement_solution.",
+                    node.id, descriptor.tool_name, reason, node.id, node.id, node.id
+                )
+            } else {
+                format!(
+                    "TaskSpace blocked this tool call. Current node `{}` kind: {}. Requested tool `{}` action class: {}. Reason: {}. Call taskspace_control(action=finish_node) to finish the current node and bind or create a suitable node before retrying.",
+                    node.id,
+                    node.kind.as_str(),
+                    descriptor.tool_name,
+                    descriptor.action_class.as_str(),
+                    reason
+                )
+            };
             return Err(ActionMapGateError::new(
                 message,
                 vec![MapRuntimeEvent::ToolActionBlocked(
@@ -6770,11 +6779,26 @@ fn projection_next_valid_actions(
         return vec!["taskspace_control(action=bind_node or create_node)".to_string()];
     };
     match node.kind {
-        NodeKind::InspectCodeContext => vec![
-            "read/search/test diagnostic evidence".to_string(),
-            "taskspace_control(action=state_commit) for accepted findings".to_string(),
-            "taskspace_control(action=finish_node) into implement_solution".to_string(),
-        ],
+        NodeKind::InspectCodeContext => {
+            let main_tool_result_count =
+                count_node_results_of_kind(node, NodeResultKind::MainToolCall);
+            if main_tool_result_count > 0 {
+                vec![
+                    "taskspace_control(action=state_commit) for accepted findings".to_string(),
+                    format!(
+                        "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\", next_node_title=\"Apply inspected fix\", next_node_context_summary=\"Apply the narrow fix found by {}\", next_dependency_node_ids=[\"{}\"])",
+                        node.id, node.id, node.id
+                    ),
+                    "retry edits only after current_node is implement_solution; do not create recovery/reborn inspect nodes".to_string(),
+                ]
+            } else {
+                vec![
+                    "read/search/test diagnostic evidence".to_string(),
+                    "taskspace_control(action=state_commit) for accepted findings".to_string(),
+                    "taskspace_control(action=finish_node) into implement_solution".to_string(),
+                ]
+            }
+        }
         NodeKind::ImplementSolution => vec![
             "edit implementation artifacts".to_string(),
             "taskspace_control(action=finish_node) into smoke_test/regression_test".to_string(),
@@ -12177,6 +12201,11 @@ mod tests {
 
         assert!(message.contains("inspect_code_context"));
         assert!(message.contains("edit"));
+        assert!(message.contains("next_node_kind=\"implement_solution\""));
+        assert!(message.contains("Do not create a recovery/reborn inspect node"));
+        assert!(
+            message.contains("retry the edit only after the current node is implement_solution")
+        );
         assert!(events.iter().any(|event| {
             matches!(
                 event,
@@ -12186,6 +12215,50 @@ mod tests {
                         && blocked.action_class == "edit"
             )
         }));
+    }
+
+    #[test]
+    fn projection_prioritizes_inspect_to_implement_after_evidence() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect before edit",
+            "Read context before editing.",
+            true,
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "inspect-read",
+                "read source",
+                Some(ActionClass::Read),
+                true,
+                "read ok".to_string(),
+            )
+            .expect("tool result records")
+            .expect("result id");
+        let map = state.maps.get("map-1").expect("map");
+        let actions = projection_next_valid_actions(map, Some("node-1"));
+
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("next_node_kind=\"implement_solution\""))
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("do not create recovery/reborn inspect nodes"))
+        );
+        assert!(
+            !actions
+                .iter()
+                .any(|action| action == "read/search/test diagnostic evidence")
+        );
     }
 
     #[test]
