@@ -281,6 +281,39 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 TaskSpace benchmark harness self-test: PASS
 ```
 
+Follow-up extraction fix:
+
+- The third live smoke proved projection was written to `rollout.jsonl`, but `context-projection-summary.json` still showed `projection_unavailable` because cost instrumentation only scanned `whale-exec.jsonl` and observability JSON.
+- Projection extraction now also scans side-local `rollout.jsonl`.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-projection-rollout-source
+TaskSpace benchmark harness self-test: PASS
+
+# Reprocessed existing live smoke artifacts:
+target\v005-phase3-live-smoke-persisted-projection\large-output-ref-smoke\20260617-093357-221\pair-001\right\artifacts
+context_projection_availability = measured
+projection_count = 38
+projection_tokens_total = 17612
+projection_tokens_max = 636
+projection_tokens_avg = 463.4737
+projection_protected_miss_count = 0
+runtime_output_ref_created_count = 1
+large_output_replay_count = 0
+raw_output_in_prompt_violation = false
+```
+
+Remaining Phase 3 / Phase 4 handoff:
+
+- Shadow projection is now model-visible and measurable, but it is persisted every sampling loop and contributed to high overhead in the live smoke:
+  - right side timed out at 600s
+  - `nodes = 12`
+  - `spawn_agent_calls = 2`
+  - `open_leaf_nodes = 1`
+- Next work should deduplicate or replace old projection updates, then address the remaining routing/thin gate that still creates unnecessary subagent paths before active projection promotion.
+
 ## 2026-06-17 Phase 2 narrow inspect budget gate
 
 Changed:

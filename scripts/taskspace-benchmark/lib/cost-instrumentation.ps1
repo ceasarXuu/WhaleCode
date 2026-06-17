@@ -287,10 +287,11 @@ function New-TaskspaceReplaySummary {
 function Get-TaskspaceContextProjectionBlocks {
     param(
         [AllowEmptyString()][string]$JsonlPath = "",
-        [AllowEmptyString()][string]$ObservabilityJsonPath = ""
+        [AllowEmptyString()][string]$ObservabilityJsonPath = "",
+        [AllowEmptyString()][string]$RolloutJsonlPath = ""
     )
     $texts = New-Object System.Collections.Generic.List[string]
-    foreach ($path in @($JsonlPath, $ObservabilityJsonPath)) {
+    foreach ($path in @($JsonlPath, $ObservabilityJsonPath, $RolloutJsonlPath)) {
         if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path)) { continue }
         $raw = Get-Content -Raw -Encoding UTF8 -LiteralPath $path
         $unescaped = $raw -replace "\\r\\n", "`n" -replace "\\n", "`n"
@@ -346,13 +347,14 @@ function New-TaskspaceContextProjectionEvent {
 function New-TaskspaceContextProjectionSummary {
     param(
         [AllowEmptyString()][string]$JsonlPath = "",
-        [AllowEmptyString()][string]$ObservabilityJsonPath = ""
+        [AllowEmptyString()][string]$ObservabilityJsonPath = "",
+        [AllowEmptyString()][string]$RolloutJsonlPath = ""
     )
     $sourcePresent = $false
-    foreach ($path in @($JsonlPath, $ObservabilityJsonPath)) {
+    foreach ($path in @($JsonlPath, $ObservabilityJsonPath, $RolloutJsonlPath)) {
         if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path -LiteralPath $path)) { $sourcePresent = $true }
     }
-    $events = @(Get-TaskspaceContextProjectionBlocks $JsonlPath $ObservabilityJsonPath | ForEach-Object {
+    $events = @(Get-TaskspaceContextProjectionBlocks $JsonlPath $ObservabilityJsonPath $RolloutJsonlPath | ForEach-Object {
             New-TaskspaceContextProjectionEvent $_
         })
     $tokenValues = @($events | Where-Object { $null -ne $_.estimated_tokens } | ForEach-Object { [int64]$_.estimated_tokens })
@@ -364,6 +366,7 @@ function New-TaskspaceContextProjectionSummary {
         schema_version = "taskspace-context-projection-summary-v1"
         source_path = $JsonlPath
         observability_source_path = $ObservabilityJsonPath
+        rollout_source_path = $RolloutJsonlPath
         availability = if ($events.Count -gt 0) { "measured" } elseif ($sourcePresent) { "projection_unavailable" } else { "source_missing" }
         projection_count = [int]$events.Count
         projection_tokens_total = if ($tokenValues.Count -gt 0) { $tokenTotal } else { $null }
@@ -387,7 +390,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $request = New-TaskspaceRequestSummary $JsonlPath $token
     $control = New-TaskspaceControlUsageSummary $JsonlPath $ObservabilityJsonPath
     $replay = New-TaskspaceReplaySummary $ArtifactDir
-    $projection = New-TaskspaceContextProjectionSummary $JsonlPath $ObservabilityJsonPath
+    $projection = New-TaskspaceContextProjectionSummary $JsonlPath $ObservabilityJsonPath (Join-Path $ArtifactDir "rollout.jsonl")
     $tokenPath = Join-Path $ArtifactDir "token-summary.json"
     $requestPath = Join-Path $ArtifactDir "request-summary.json"
     $controlPath = Join-Path $ArtifactDir "taskspace-control-usage.json"
