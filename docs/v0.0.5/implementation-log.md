@@ -135,6 +135,49 @@ Remaining Phase 1 work:
 
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
 
+## 2026-06-17 Phase 3 context projection metrics artifacts
+
+Changed:
+
+- Added benchmark extraction for model-visible `ContextProjectionV1 shadow` blocks.
+- Each side artifact directory now writes:
+  - `context-projection-summary.json`
+  - `projection-events.jsonl`
+- Side `metrics.json` now exposes:
+  - `context_projection_availability`
+  - `projection_count`
+  - `projection_tokens`
+  - `projection_tokens_max`
+  - `projection_protected_miss_count`
+- Suite/sample aggregate cost artifacts now write aggregate `context-projection-summary.json` with taskspace/standard projection totals and missing-field counters.
+- The projection parser validates protected section labels:
+  - `success_criteria`
+  - `current_node`
+  - `blockers`
+  - `decisions`
+  - `facts`
+  - `relevant_results`
+  - `next_valid_actions`
+  - `hidden_refs_available`
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1
+TaskSpace benchmark harness self-test: PASS
+RunRoot: D:\whalecode-alpha\target\paired-bench-selftest\single-file-fast-fix\20260617-090008-761
+```
+
+Reason:
+
+- Phase 3 previously injected shadow projection into developer context, but the benchmark/reporting layer could not prove per-request projection coverage, token size, or protected-section misses.
+- This change makes shadow projection measurable without replacing the legacy/full TaskSpace context yet.
+
+Remaining Phase 3 work:
+
+- Rebuild/install Whale and run a live TaskSpace smoke after the shadow projection binary is active.
+- Promote from shadow metrics to active projection only after live artifacts show nonzero `projection_count`, bounded `projection_tokens`, and `projection_protected_miss_count = 0`.
+
 ## 2026-06-17 Phase 2 narrow inspect budget gate
 
 Changed:

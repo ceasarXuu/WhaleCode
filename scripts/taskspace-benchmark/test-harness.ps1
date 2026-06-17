@@ -324,6 +324,8 @@ $costArtifacts = Write-TaskspaceCostInstrumentationArtifacts $costDir $costJsonl
 Assert-True (Test-Path -LiteralPath $costArtifacts.token_summary_path) "token-summary.json was not written"
 Assert-True (Test-Path -LiteralPath $costArtifacts.request_summary_path) "request-summary.json was not written"
 Assert-True (Test-Path -LiteralPath $costArtifacts.taskspace_control_usage_path) "taskspace-control-usage.json was not written"
+Assert-True (Test-Path -LiteralPath $costArtifacts.context_projection_summary_path) "context-projection-summary.json was not written"
+Assert-True (Test-Path -LiteralPath $costArtifacts.projection_events_path) "projection-events.jsonl was not written"
 Assert-True ([string]$costArtifacts.token_summary.availability -eq "partial") "partial token usage was not marked partial"
 Assert-True ([int]$costArtifacts.request_summary.model_request_count -eq 2) "model request count did not come from usage events"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_control_count -eq 2) "taskspace_control count was not parsed"
@@ -337,6 +339,42 @@ Assert-True ([int]$costArtifacts.taskspace_control_usage.runtime_event_counts.no
 Assert-True ([int]$costArtifacts.replay_summary.output_reference_count -eq 1) "output reference count was not parsed"
 Assert-True ([int]$costArtifacts.replay_summary.output_slice_count -eq 1) "output slice count was not parsed"
 Assert-True ([int]$costArtifacts.replay_summary.large_output_replay_count -eq 0) "output reference artifact was incorrectly treated as raw replay"
+$projectionJsonl = Join-Path $costDir "projection-source.jsonl"
+$projectionBlock = @"
+ContextProjectionV1 shadow (not active replacement):
+- projection_id: projection-shadow-task-1-map-1
+- task_id: task-1
+- mode: default_compact
+- active_objective: Verify projection metrics.
+- sections:
+  success_criteria:
+    - projected criteria
+  current_node: node-1
+  blockers:
+    - none
+  decisions:
+    - decision: keep shadow mode
+  facts:
+    - fact: output refs active
+  relevant_results:
+    - result:abc
+  next_valid_actions:
+    - inspect_code_context
+  hidden_refs_available:
+    - result:abc
+- estimated_tokens: 123
+"@
+@(
+    (@{ type = "response.created"; input = $projectionBlock } | ConvertTo-Json -Compress -Depth 8)
+) | Set-Content -LiteralPath $projectionJsonl -Encoding UTF8
+$projectionArtifacts = Write-TaskspaceCostInstrumentationArtifacts (Join-Path $costDir "projection") $projectionJsonl ""
+Assert-True ([string]$projectionArtifacts.context_projection_summary.availability -eq "measured") "context projection summary was not marked measured"
+Assert-True ([int]$projectionArtifacts.context_projection_summary.projection_count -eq 1) "context projection block was not counted"
+Assert-True ([int]$projectionArtifacts.context_projection_summary.projection_tokens_total -eq 123) "context projection tokens were not parsed"
+Assert-True ([int]$projectionArtifacts.context_projection_summary.protected_miss_count -eq 0) "context projection protected sections were reported missing"
+$projectionEventLine = Get-Content -LiteralPath $projectionArtifacts.projection_events_path -Encoding UTF8 | Select-Object -First 1
+$projectionEvent = $projectionEventLine | ConvertFrom-Json
+Assert-True ([string]$projectionEvent.projection_id -eq "projection-shadow-task-1-map-1") "projection event id was not parsed"
 $costObsFallback = Join-Path $costDir "observability-output-ref-fallback.json"
 [pscustomobject]@{
     timeline = @(
@@ -364,17 +402,20 @@ New-Item -ItemType Directory -Path (Join-Path $costAggregateRoot "pair-001\right
     logical_mode = "standard"; token_summary_availability = "measured"; model_request_count = 10
     input_tokens = 1000; output_tokens = 200; cached_input_tokens = 100; uncached_input_tokens = 900
     wall_time_ms = 1000; taskspace_control_count = 0; state_commit_count = 0; runtime_state_commit_count = 0; runtime_output_ref_created_count = 0; runtime_output_ref_slice_read_count = 0; large_output_replay_count = 0
+    projection_count = 0; projection_tokens = 0; projection_protected_miss_count = 0
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $costAggregateRoot "pair-001\left\artifacts\metrics.json") -Encoding UTF8
 [pscustomobject]@{
     logical_mode = "taskspace"; token_summary_availability = "measured"; model_request_count = 20
     input_tokens = 1800; output_tokens = 500; cached_input_tokens = 300; uncached_input_tokens = 1500
     wall_time_ms = 1900; taskspace_control_count = 8; state_commit_count = 2; runtime_state_commit_count = 3; runtime_output_ref_created_count = 4; runtime_output_ref_slice_read_count = 2; large_output_replay_count = 0
     taskspace_runtime_event_count = 17
+    projection_count = 3; projection_tokens = 240; projection_protected_miss_count = 0
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $costAggregateRoot "pair-001\right\artifacts\metrics.json") -Encoding UTF8
 $aggregateCost = Write-TaskspaceCostAggregateArtifacts -RootDir $costAggregateRoot -Scope "sample"
 Assert-True (Test-Path -LiteralPath $aggregateCost.token_summary_path) "aggregate token-summary.json was not written"
 Assert-True (Test-Path -LiteralPath $aggregateCost.request_summary_path) "aggregate request-summary.json was not written"
 Assert-True (Test-Path -LiteralPath $aggregateCost.taskspace_control_usage_path) "aggregate taskspace-control-usage.json was not written"
+Assert-True (Test-Path -LiteralPath $aggregateCost.context_projection_summary_path) "aggregate context-projection-summary.json was not written"
 Assert-True (Test-Path -LiteralPath $aggregateCost.suite_cost_gate_path) "suite-cost-gate.json was not written"
 Assert-True ([string]$aggregateCost.gate.status -eq "PASS") "cost gate did not pass when direct and walltime ratios were <= 2x"
 $aggregateControl = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregateCost.taskspace_control_usage_path | ConvertFrom-Json
@@ -382,11 +423,16 @@ Assert-True ([int]$aggregateControl.taskspace_runtime_event_count -eq 17) "aggre
 Assert-True ([int]$aggregateControl.runtime_state_commit_count -eq 3) "aggregate runtime state_commit count was not summed"
 Assert-True ([int]$aggregateControl.runtime_output_ref_created_count -eq 4) "aggregate runtime output_ref.created count was not summed"
 Assert-True ([int]$aggregateControl.runtime_output_ref_slice_read_count -eq 2) "aggregate runtime output_ref.slice_read count was not summed"
+$aggregateProjection = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregateCost.context_projection_summary_path | ConvertFrom-Json
+Assert-True ([int]$aggregateProjection.taskspace_projection_count -eq 3) "aggregate projection count was not summed"
+Assert-True ([int]$aggregateProjection.taskspace_projection_tokens -eq 240) "aggregate projection tokens were not summed"
+Assert-True ([int]$aggregateProjection.taskspace_projection_protected_miss_count -eq 0) "aggregate projection protected miss count was not summed"
 $partialMetricPath = Join-Path $costAggregateRoot "pair-001\right\artifacts\metrics.json"
 [pscustomobject]@{
     logical_mode = "taskspace"; token_summary_availability = "measured"; model_request_count = 24
     input_tokens = 2600; output_tokens = 500; cached_input_tokens = 300; uncached_input_tokens = 2300
     wall_time_ms = 2600; taskspace_control_count = 8; state_commit_count = 2; runtime_state_commit_count = 3; large_output_replay_count = 0
+    projection_count = 3; projection_tokens = 280; projection_protected_miss_count = 0
 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $partialMetricPath -Encoding UTF8
 $partialGate = (Write-TaskspaceCostAggregateArtifacts -RootDir $costAggregateRoot -Scope "sample").gate
 Assert-True ([string]$partialGate.status -eq "PARTIAL") "cost gate did not return PARTIAL for engineering partial thresholds"

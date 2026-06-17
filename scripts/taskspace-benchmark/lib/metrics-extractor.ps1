@@ -301,6 +301,8 @@ function Get-TaskspaceBenchmarkMetrics {
         token_summary_path = [string]$costInstrumentation.token_summary_path
         request_summary_path = [string]$costInstrumentation.request_summary_path
         taskspace_control_usage_path = [string]$costInstrumentation.taskspace_control_usage_path
+        context_projection_summary_path = [string]$costInstrumentation.context_projection_summary_path
+        projection_events_path = [string]$costInstrumentation.projection_events_path
         token_summary_availability = [string]$costInstrumentation.token_summary.availability
         model_request_count = $costInstrumentation.request_summary.model_request_count
         input_tokens = $costInstrumentation.token_summary.input_tokens
@@ -315,6 +317,11 @@ function Get-TaskspaceBenchmarkMetrics {
         runtime_output_ref_created_count = [int]$costInstrumentation.taskspace_control_usage.runtime_output_ref_created_count
         runtime_output_ref_slice_read_count = [int]$costInstrumentation.taskspace_control_usage.runtime_output_ref_slice_read_count
         taskspace_runtime_event_count = [int]$costInstrumentation.taskspace_control_usage.taskspace_runtime_event_count
+        context_projection_availability = [string]$costInstrumentation.context_projection_summary.availability
+        projection_count = [int]$costInstrumentation.context_projection_summary.projection_count
+        projection_tokens = $costInstrumentation.context_projection_summary.projection_tokens_total
+        projection_tokens_max = $costInstrumentation.context_projection_summary.projection_tokens_max
+        projection_protected_miss_count = [int]$costInstrumentation.context_projection_summary.protected_miss_count
         large_output_replay_count = [int]$costInstrumentation.replay_summary.large_output_replay_count
         largest_tool_output_bytes = [int64]$costInstrumentation.replay_summary.largest_tool_output_bytes
         raw_output_in_prompt_violation = [bool]$costInstrumentation.replay_summary.raw_output_in_prompt_violation
