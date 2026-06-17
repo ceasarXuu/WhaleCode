@@ -3242,7 +3242,15 @@ preview:\n\
                 validity.as_str()
             ));
         }
-        let changed_artifacts = normalize_string_vec(changed_artifacts);
+        let mut changed_artifacts = normalize_string_vec(changed_artifacts);
+        if validity == ResultValidity::Accepted && changed_artifacts.is_empty() {
+            changed_artifacts = self.infer_changed_artifacts_for_implementation_result(
+                &map_id,
+                &result_id,
+                &claims,
+                &evidence_refs,
+            );
+        }
         let validator_refs = normalize_string_vec(validator_refs);
         if validity == ResultValidity::Accepted {
             self.validate_accepted_result_evidence_by_node_kind(
@@ -3976,6 +3984,45 @@ preview:\n\
                 })
                 .map(|fact| fact.id.clone())
         })
+    }
+
+    fn infer_changed_artifacts_for_implementation_result(
+        &self,
+        map_id: &str,
+        result_id: &str,
+        claims: &[CognitiveClaim],
+        evidence_refs: &[EvidenceRef],
+    ) -> Vec<String> {
+        let Some(map) = self.maps.get(map_id) else {
+            return Vec::new();
+        };
+        let Some(result) = map.results.get(result_id) else {
+            return Vec::new();
+        };
+        let Some(node) = map.nodes.get(&result.node_id) else {
+            return Vec::new();
+        };
+        if node.kind != NodeKind::ImplementSolution {
+            return Vec::new();
+        }
+        let mut artifacts = Vec::new();
+        for artifact in evidence_refs
+            .iter()
+            .chain(claims.iter().flat_map(|claim| claim.evidence_refs.iter()))
+            .filter_map(|evidence_ref| evidence_ref.artifact_ref.as_deref())
+        {
+            let artifact = artifact.trim();
+            if artifact.is_empty()
+                || artifact.starts_with("user-request")
+                || artifact.starts_with("output-ref://")
+            {
+                continue;
+            }
+            if !artifacts.iter().any(|existing| existing == artifact) {
+                artifacts.push(artifact.to_string());
+            }
+        }
+        artifacts
     }
 
     fn validate_accepted_result_evidence_by_node_kind(
@@ -11449,6 +11496,69 @@ mod tests {
             )
             .expect_err("accepted implementation needs changed artifacts");
         assert!(error.contains("changed_artifacts"));
+    }
+
+    #[test]
+    fn accepted_implementation_result_infers_changed_artifacts_from_artifact_evidence() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Fix code",
+            "Modify output artifacts.",
+            "Implement fix",
+            "Patch a file.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "M src/lib.rs".to_string(),
+            )
+            .expect("edit result")
+            .expect("result id");
+
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &result_id,
+                "accepted",
+                "accepted edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit".to_string(),
+                    statement: "Edit changed implementation.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("src/lib.rs".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("src/lib.rs".to_string()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("artifact evidence infers changed_artifacts");
+
+        let result = state
+            .active_map()
+            .expect("active map")
+            .results
+            .get(&result_id)
+            .expect("result");
+        assert_eq!(
+            result.evidence_package.changed_artifacts,
+            vec!["src/lib.rs".to_string()]
+        );
     }
 
     #[test]

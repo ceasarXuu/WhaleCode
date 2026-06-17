@@ -369,6 +369,40 @@ Conclusion:
 - Shape, sentinel, graph-health, and output-reference gates are clean for this smoke.
 - Remaining v0.0.5 blocker is cost: token ratio is still above the partial threshold (`3.0`) and walltime remains slightly above pass threshold (`2.0`).
 
+## 2026-06-17 Phase 1 result-validity friction reduction
+
+Finding:
+
+- `target\v005-reviewable-graph-smoke\large-output-ref-smoke\20260617-202255-059` still used 30 rollout-trace model requests.
+- One avoidable recovery loop came from accepting an implementation result:
+  - first `mark_result_validity` included claims and artifact evidence for `src/large_output_demo.py`;
+  - runtime rejected it because `changed_artifacts` was omitted;
+  - the next model turn retried with `changed_artifacts`.
+- The gate was conceptually right, but the model had already supplied a concrete artifact evidence ref for the changed file.
+
+Changed:
+
+- For accepted `implement_solution` results only, runtime now infers `changed_artifacts` from result-level and claim-level `artifact_ref` evidence when `changed_artifacts` is omitted.
+- It ignores non-file sentinel refs such as `user-request` and `output-ref://...`.
+- It still rejects accepted implementation results that provide only `result_id` evidence and no concrete artifact path.
+
+Validation:
+
+```text
+cargo test -p codex-core accepted_implementation_result_requires_changed_artifacts --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core accepted_implementation_result_infers_changed_artifacts_from_artifact_evidence --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core mark_result_validity --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+3 passed
+```
+
+Expected effect:
+
+- Remove one rejected tool recovery turn in small patch tasks where the model already cites the modified file as evidence.
+
 ## 2026-06-17 Cost root-cause: provider input visibility
 
 Changed:
