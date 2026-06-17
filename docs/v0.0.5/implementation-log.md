@@ -571,6 +571,51 @@ Remaining Phase 1 work:
 
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
 
+## 2026-06-18 Cost failure diagnostics
+
+Changed:
+
+- Added `scripts/taskspace-benchmark/write-cost-diagnostics.ps1`.
+- Added `scripts/taskspace-benchmark/test-cost-diagnostics.ps1`.
+- `write-release-decision.ps1` now includes `cost-diagnostics.json` in evidence and preserves `cost_root_cause` / `cost_drivers`.
+
+Applied to the latest focused `count-call-stack` smoke:
+
+```text
+RunDir: target\v005-count-call-stack-smoke2\count-call-stack\20260617-234806-234
+cost_diagnostics_path: target\v005-count-call-stack-smoke2\count-call-stack\20260617-234806-234\cost-diagnostics.json
+release_decision_json: target\v005-count-call-stack-smoke2\count-call-stack\20260617-234806-234\release-decision.json
+```
+
+Observed:
+
+- release decision: `FAIL`
+- root cause: `active_profile_repeats_compact_taskspace_context_across_many_model_turns`
+- direct input+output ratio: `4.0906`
+- walltime ratio: `2.4874`
+- provider model request count ratio: `1`
+- rollout trace model request count ratio: `18`
+- uncached input ratio: `11.2465`
+- projection token share of TaskSpace input: `0.0087`
+- large output replay count: `0`
+- spawn agent calls: `0`
+
+Conclusion:
+
+- The current cost failure is not explained by raw large-output replay, projection bloat, or subagent fan-out.
+- The active profile is still paying repeated compact TaskSpace/base context across many model turns.
+- Next engineering target is to reduce active-profile model turn count and/or repeated provider-visible base context for verification-first/thin tasks.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-diagnostics.ps1 -RunRoot target\cost-diagnostics-selftest2
+TaskSpace cost diagnostics self-test: PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\release-decision-selftest-costdiag
+Release decision self-test: PASS
+```
+
 ## 2026-06-17 Phase 1 active context projection wiring
 
 Changed:

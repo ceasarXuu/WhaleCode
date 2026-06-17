@@ -49,11 +49,13 @@ $aggregatePath = Join-Path $runRoot "aggregate.json"
 $projectionPath = Join-Path $runRoot "context-projection-summary.json"
 $mapPath = Join-Path $runRoot "suite-map-management-summary.json"
 $routingPath = Join-Path $runRoot "suite-routing-summary.json"
+$costDiagnosticsPath = Join-Path $runRoot "cost-diagnostics.json"
 $cost = Read-ReleaseJson $costPath
 $aggregate = Read-ReleaseJson $aggregatePath
 $projection = Read-ReleaseJson $projectionPath
 $map = Read-ReleaseJson $mapPath
 $routing = Read-ReleaseJson $routingPath
+$costDiagnostics = Read-ReleaseJson $costDiagnosticsPath
 $metrics = @(Get-ChildItem -LiteralPath $runRoot -Filter "metrics.json" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Read-ReleaseJson $_.FullName } | Where-Object { $_ })
 
 $taskspaceMetrics = @($metrics | Where-Object { Get-ReleaseString $_ "logical_mode" -eq "taskspace" })
@@ -70,6 +72,7 @@ $evidence = [ordered]@{
     projection_summary_path = $projectionPath
     map_summary_path = $mapPath
     routing_summary_path = $routingPath
+    cost_diagnostics_path = $costDiagnosticsPath
 }
 $qualityPass = ($aggregate -and (Get-ReleaseBool $aggregate "score_valid") -and (Get-ReleaseString $aggregate "run_validity") -eq "valid")
 $costStatus = Get-ReleaseString $cost "status" "MISSING"
@@ -109,6 +112,8 @@ $summary = [pscustomobject]@{
     output_ref_gate_pass = [bool]$outputRefPass
     max_large_output_replay_count = [int]$maxLargeReplay
     runtime_output_ref_created_count = [int]$runtimeOutputRefs
+    cost_root_cause = Get-ReleaseString $costDiagnostics "root_cause" ""
+    cost_drivers = if ($costDiagnostics -and $costDiagnostics.PSObject.Properties.Name -contains "drivers") { @($costDiagnostics.drivers) } else { @() }
     blockers = @($blockers.ToArray())
     evidence = [pscustomobject]$evidence
 }
@@ -139,6 +144,13 @@ if ($cost) {
     Add-ReleaseLine $lines "- direct_input_output_ratio: $($cost.ratios.direct_input_output_ratio)"
     Add-ReleaseLine $lines "- walltime_ratio: $($cost.ratios.walltime_ratio)"
     Add-ReleaseLine $lines "- model_request_count_ratio: $($cost.ratios.model_request_count_ratio)"
+    if ($costDiagnostics) {
+        Add-ReleaseLine $lines "- root_cause: $($costDiagnostics.root_cause)"
+        Add-ReleaseLine $lines "- drivers: $(@($costDiagnostics.drivers) -join ', ')"
+        Add-ReleaseLine $lines "- rollout_trace_model_request_count_ratio: $($costDiagnostics.ratios.rollout_trace_model_request_count_ratio)"
+        Add-ReleaseLine $lines "- uncached_input_ratio: $($costDiagnostics.ratios.uncached_input_ratio)"
+        Add-ReleaseLine $lines "- projection_token_share_of_taskspace_input: $($costDiagnostics.ratios.projection_token_share_of_taskspace_input)"
+    }
 } else {
     Add-ReleaseLine $lines "- unavailable"
 }

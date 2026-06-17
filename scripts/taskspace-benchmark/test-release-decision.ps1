@@ -28,6 +28,16 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             }
         }) (Join-Path $dir "suite-cost-gate.json")
     Write-Json ([pscustomobject]@{
+            schema_version = "taskspace-cost-diagnostics-v1"
+            root_cause = "active_profile_repeats_compact_taskspace_context_across_many_model_turns"
+            drivers = @("rollout_request_count_over_partial_budget")
+            ratios = [pscustomobject]@{
+                rollout_trace_model_request_count_ratio = 18
+                uncached_input_ratio = 11.2
+                projection_token_share_of_taskspace_input = 0.0087
+            }
+        }) (Join-Path $dir "cost-diagnostics.json")
+    Write-Json ([pscustomobject]@{
             run_validity = "valid"
             score_valid = $ScoreValid
             both_success = 1
@@ -72,6 +82,9 @@ $failDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $failDir
 Assert-True ([string]$failDecision.decision -eq "FAIL") "FAIL fixture did not write FAIL decision"
 Assert-True (@($failDecision.blockers) -contains "cost_gate_failed") "FAIL fixture did not report cost blocker"
 Assert-True (@($failDecision.blockers) -contains "routing_gate_failed") "FAIL fixture did not report routing blocker"
+Assert-True ([string]$failDecision.cost_root_cause -eq "active_profile_repeats_compact_taskspace_context_across_many_model_turns") "FAIL fixture did not preserve cost root cause"
+$failMd = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $failDir "release-decision.md")
+Assert-True ($failMd.Contains("rollout_trace_model_request_count_ratio: 18")) "FAIL markdown did not include cost diagnostics"
 
 if ($failures.Count -gt 0) {
     Write-Error ("Release decision self-test failed: " + (@($failures.ToArray()) -join "; "))
