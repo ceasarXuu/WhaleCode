@@ -1,5 +1,87 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-18 Windows sandbox deny-read state recovery
+
+Changed:
+
+- Added corrupt-state recovery to `windows-sandbox-rs/src/deny_read_state.rs`.
+- When `deny_read_acl_state.json` exists but cannot be parsed, the runtime now preserves the original bytes in a sidecar file named `deny_read_acl_state.json.corrupt-<millis>` and rebuilds the in-memory state from default.
+- Missing state files still use the existing default-state path.
+- Non-NotFound read failures still fail hard; the repair is limited to malformed persistent state and does not hide filesystem access errors.
+- The normal sync path still writes the current state after ACL reconciliation, so a successful run replaces the corrupt main file.
+
+Root-cause evidence:
+
+```text
+RunDir: target\v005-powershell-cdand-largeout-r1\large-output-ref-smoke\20260618-030314-126
+error=windows sandbox: parse deny-read ACL state C:\Users\77585\.whale\.sandbox\deny_read_acl_state.json
+```
+
+Code inspection showed `load_state` returned `serde_json::from_slice` parse errors directly. Sibling file reads in the same live smoke batch succeeded, so the failure was not explained by benchmark file permissions.
+
+Validation:
+
+```text
+cargo fmt --manifest-path third_party\codex-cli\codex-rs\Cargo.toml --package codex-windows-sandbox
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-windows-sandbox deny_read_state -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-windows-sandbox load_state_recovers_corrupt_json_with_backup -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-windows-sandbox -- --nocapture
+```
+
+Result:
+
+```text
+codex-windows-sandbox: 83 passed, 0 failed, 2 ignored
+doc tests: 4 passed
+```
+
+Remaining verification:
+
+- Completed.
+
+Installed local Whale:
+
+```text
+C:\Users\77585\.whale\bin\whale.exe
+version=whale 0.1.0
+sha256=19E7A64505EC3C924588A9C08F151ADE0B4AA0E2D6753001D230FD85D7233373
+```
+
+Focused live smoke:
+
+```text
+RunDir: target\v005-denyread-state-recovery-largeout-r1\large-output-ref-smoke\20260618-031943-172
+outcome_standard=solved
+outcome_taskspace=solved
+engineering_unclean=False
+infra_signatures=none
+taskspace nodes=3
+runtime_output_ref_created_count=1
+runtime_state_commit_count=3
+taskspace_runtime_event_count=79
+```
+
+Search result:
+
+```text
+Select-String whale-exec.jsonl "parse deny-read ACL state|corrupt deny-read|deny_read_acl_state|execution error"
+no matches
+```
+
+Cost gate status remains failed:
+
+```text
+suite_cost_status=FAIL
+direct_input_output_ratio=4.7231
+walltime_ratio=3.0569
+model_request_count_ratio=1
+```
+
+Conclusion:
+
+- The sandbox parse-error reliability blocker is fixed for the focused live smoke.
+- This does not complete v0.0.5. The next remaining blocker is TaskSpace fixed context / multi-turn overhead, because the same smoke still fails the direct-cost and wall-time gates.
+
 ## 2026-06-18 Windows PowerShell cd-and compatibility
 
 Changed:
