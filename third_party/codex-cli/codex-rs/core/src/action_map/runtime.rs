@@ -4735,6 +4735,28 @@ preview:\n\
         Some(context)
     }
 
+    pub(crate) fn build_context_projection_shadow_context(&self) -> Option<String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return None;
+        }
+        let map = self.active_map()?;
+        let task = map
+            .task_id
+            .as_ref()
+            .or(self.active_task_id.as_ref())
+            .and_then(|task_id| self.tasks.get(task_id))?;
+        let mut context = String::from(
+            "TaskSpace ContextProjectionV1 shadow update. This is a compact model-visible projection only; legacy TaskSpace context remains authoritative until active profile rollout.\n",
+        );
+        append_context_projection_shadow(
+            &mut context,
+            task,
+            map,
+            self.current_main_node_id.as_deref(),
+        );
+        Some(context)
+    }
+
     pub(crate) fn timeout_summary_requested_event(
         target: &ActionMapTimeoutTarget,
     ) -> Option<MapRuntimeEvent> {

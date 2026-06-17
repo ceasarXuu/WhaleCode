@@ -432,11 +432,21 @@ pub(crate) async fn run_turn(
         }
 
         // Construct the input that we will send to the model.
-        let sampling_request_input: Vec<ResponseItem> = {
+        let mut sampling_request_input: Vec<ResponseItem> = {
             sess.clone_history()
                 .await
                 .for_prompt(&turn_context.model_info.input_modalities)
         };
+        if let Some(action_map_projection) = {
+            let state = sess.state.lock().await;
+            state
+                .action_map_runtime
+                .build_context_projection_shadow_context()
+        } && let Some(item) = crate::context_manager::updates::build_developer_update_item(vec![
+            action_map_projection,
+        ]) {
+            sampling_request_input.push(item);
+        }
 
         let sampling_request_input_messages = sampling_request_input
             .iter()

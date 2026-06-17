@@ -178,6 +178,64 @@ Remaining Phase 3 work:
 - Rebuild/install Whale and run a live TaskSpace smoke after the shadow projection binary is active.
 - Promote from shadow metrics to active projection only after live artifacts show nonzero `projection_count`, bounded `projection_tokens`, and `projection_protected_miss_count = 0`.
 
+## 2026-06-17 Phase 3 per-request projection injection
+
+Observed live smoke before the fix:
+
+```text
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -PersistUserPath -BackupLegacyCopies
+Installed hash: F07529D357CA11D3E6CE8A8F81220BC3D5823B31C231D59DD2A98B66B32787DD
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-phase3-live-smoke-projection-metrics -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-phase3-live-smoke-projection-metrics\large-output-ref-smoke\20260617-090334-267
+```
+
+Observed result:
+
+- `context_projection_availability = projection_unavailable`
+- `projection_count = 0`
+- `projection_tokens = null`
+- `projection_protected_miss_count = 0`
+- `runtime_output_ref_created_count = 0`
+- `large_output_replay_count = 0`
+- `raw_output_in_prompt_violation = false`
+- TaskSpace side timed out at 600s with `nodes=18`, `spawn_agent_calls=5`, `open_leaf_nodes=1`.
+
+Root cause:
+
+- `build_developer_context()` was only injected through initial/steady-state turn context paths.
+- The live smoke creates the TaskSpace task inside the same model turn after initial context is already recorded.
+- Therefore the shadow projection helper was covered by unit tests but never reached real mid-turn sampling requests.
+
+Changed:
+
+- Added `build_context_projection_shadow_context()` to build only the compact projection block.
+- During each sampling request, the session now appends this projection as a transient developer update after cloning prompt history.
+- This avoids repeatedly persisting the full legacy TaskSpace context while making projection model-visible once a task/map exists.
+
+Validation:
+
+```text
+cargo fmt --all --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+completed with existing nightly-only rustfmt option warnings
+
+cargo test -p codex-core developer_context_includes_shadow_context_projection_without_replacing_legacy_context --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core cognitive_preflight_requires_problem_success_criteria --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-request-projection
+TaskSpace benchmark harness self-test: PASS
+```
+
+Remaining Phase 3 work:
+
+- Rebuild/install Whale after this fix and rerun live smoke to prove nonzero real `projection_count`.
+- If projection becomes visible but fanout still regresses, fix routing/thin gates before active profile promotion.
+
 ## 2026-06-17 Phase 2 narrow inspect budget gate
 
 Changed:
