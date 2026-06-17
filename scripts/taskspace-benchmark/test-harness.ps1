@@ -558,6 +558,8 @@ Assert-True ([string]$projectionArtifacts.context_projection_summary.availabilit
 Assert-True ([int]$projectionArtifacts.context_projection_summary.projection_count -eq 1) "context projection block was not counted"
 Assert-True ([int]$projectionArtifacts.context_projection_summary.projection_tokens_total -eq 123) "context projection tokens were not parsed"
 Assert-True ([int]$projectionArtifacts.context_projection_summary.protected_miss_count -eq 0) "context projection protected sections were reported missing"
+Assert-True ([int]$projectionArtifacts.context_projection_summary.active_projection_count -eq 1) "active projection count was not reported"
+Assert-True ([int]$projectionArtifacts.context_projection_summary.shadow_projection_count -eq 0) "active projection fixture was counted as shadow"
 $projectionEventLine = Get-Content -LiteralPath $projectionArtifacts.projection_events_path -Encoding UTF8 | Select-Object -First 1
 $projectionEvent = $projectionEventLine | ConvertFrom-Json
 Assert-True ([string]$projectionEvent.projection_id -eq "projection-active-task-1-map-1") "active projection event id was not parsed"
@@ -568,6 +570,8 @@ $shadowProjectionJsonl = Join-Path $costDir "projection-shadow-source.jsonl"
 ) | Set-Content -LiteralPath $shadowProjectionJsonl -Encoding UTF8
 $shadowProjectionArtifacts = Write-TaskspaceCostInstrumentationArtifacts (Join-Path $costDir "projection-shadow") $shadowProjectionJsonl ""
 Assert-True ([int]$shadowProjectionArtifacts.context_projection_summary.projection_count -eq 1) "legacy shadow projection block was not counted"
+Assert-True ([int]$shadowProjectionArtifacts.context_projection_summary.active_projection_count -eq 0) "shadow projection fixture was counted as active"
+Assert-True ([int]$shadowProjectionArtifacts.context_projection_summary.shadow_projection_count -eq 1) "shadow projection count was not reported"
 $shadowProjectionEventLine = Get-Content -LiteralPath $shadowProjectionArtifacts.projection_events_path -Encoding UTF8 | Select-Object -First 1
 $shadowProjectionEvent = $shadowProjectionEventLine | ConvertFrom-Json
 Assert-True ([string]$shadowProjectionEvent.projection_kind -eq "shadow") "legacy shadow projection kind was not parsed"

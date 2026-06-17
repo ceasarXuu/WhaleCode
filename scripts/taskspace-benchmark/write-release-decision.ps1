@@ -88,7 +88,11 @@ $evidence = [ordered]@{
 }
 $qualityPass = ($aggregate -and (Get-ReleaseBool $aggregate "score_valid") -and (Get-ReleaseString $aggregate "run_validity") -eq "valid")
 $costStatus = Get-ReleaseString $cost "status" "MISSING"
-$projectionPass = ($projection -and (Get-ReleaseInt $projection "missing_taskspace_projection_count" 0) -eq 0 -and (Get-ReleaseInt $projection "taskspace_projection_protected_miss_count" 0) -eq 0)
+$projectionPass = ($projection `
+    -and (Get-ReleaseInt $projection "missing_taskspace_projection_count" 0) -eq 0 `
+    -and (Get-ReleaseInt $projection "taskspace_projection_protected_miss_count" 0) -eq 0 `
+    -and (Get-ReleaseInt $projection "active_projection_count" 0) -gt 0 `
+    -and (Get-ReleaseInt $projection "shadow_projection_count" 0) -eq 0)
 $mapPass = ($map -and (Get-ReleaseString $map "availability") -eq "measured" -and (Get-ReleaseInt $map "protected_miss_count" 0) -eq 0)
 $routingPass = ($routing -and (Get-ReleaseString $routing "availability") -eq "measured" -and (Get-ReleaseInt $routing "routing_mistake_count" 0) -eq 0)
 $outputRefPass = ($maxLargeReplay -eq 0)

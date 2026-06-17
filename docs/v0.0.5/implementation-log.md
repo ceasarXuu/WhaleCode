@@ -1372,6 +1372,31 @@ Notes:
 - This closes the artifact completeness portion of the Phase 0/4 release gate gaps in `14-implementation-gap-audit.md`.
 - No real E3, live smoke, or Agent-invoking benchmark was run for this change.
 
+## 2026-06-18 Phase 3 projection profile release gate
+
+Changed:
+
+- `context-projection-summary.json` now aggregates:
+  - `active_projection_count`
+  - `shadow_projection_count`
+- `write-release-decision.ps1` now requires active projection evidence and rejects shadow-projection-only clean release decisions.
+- Benchmark harness fixture coverage now verifies active and shadow projection counts.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-projection-profile
+TaskSpace benchmark harness self-test: PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\release-decision-selftest-projection-profile
+Release decision self-test: PASS
+```
+
+Notes:
+
+- This closes the profile-separation and projection-event release-gate gaps recorded in `14-implementation-gap-audit.md`.
+- No real E3, live smoke, or Agent-invoking benchmark was run for this change.
+
 ## 2026-06-18 Cost failure diagnostics
 
 Changed:

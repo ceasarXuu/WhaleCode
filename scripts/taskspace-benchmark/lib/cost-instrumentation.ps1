@@ -584,6 +584,8 @@ function New-TaskspaceContextProjectionSummary {
     foreach ($value in $tokenValues) { $tokenTotal += [int64]$value }
     $protectedMiss = 0
     foreach ($event in $events) { $protectedMiss += [int]$event.protected_miss_count }
+    $activeProjectionCount = @($events | Where-Object { [string]$_.projection_kind -eq "active_replacement" }).Count
+    $shadowProjectionCount = @($events | Where-Object { [string]$_.projection_kind -eq "shadow" }).Count
     [pscustomobject]@{
         schema_version = "taskspace-context-projection-summary-v1"
         source_path = $JsonlPath
@@ -595,6 +597,8 @@ function New-TaskspaceContextProjectionSummary {
         projection_tokens_max = if ($tokenValues.Count -gt 0) { ($tokenValues | Measure-Object -Maximum).Maximum } else { $null }
         projection_tokens_avg = if ($tokenValues.Count -gt 0) { [Math]::Round([double]$tokenTotal / [double]$tokenValues.Count, 4) } else { $null }
         protected_miss_count = [int]$protectedMiss
+        active_projection_count = [int]$activeProjectionCount
+        shadow_projection_count = [int]$shadowProjectionCount
         events = @($events)
     }
 }

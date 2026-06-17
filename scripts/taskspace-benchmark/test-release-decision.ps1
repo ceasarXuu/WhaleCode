@@ -60,6 +60,8 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             taskspace_projection_count = 1
             missing_taskspace_projection_count = 0
             taskspace_projection_protected_miss_count = 0
+            active_projection_count = 1
+            shadow_projection_count = 0
         }) (Join-Path $dir "context-projection-summary.json")
     Write-Json ([pscustomobject]@{
             availability = "measured"
