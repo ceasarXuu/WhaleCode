@@ -135,6 +135,61 @@ Remaining Phase 1 work:
 
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
 
+## 2026-06-17 Phase 3 current-install live smoke reconciliation
+
+Reason:
+
+- The previous clean `large-output-ref-smoke` run at
+  `target\v005-phase3-live-smoke-probe-timeout\large-output-ref-smoke\20260617-155601-444`
+  solved the task but produced `nodes=11` and `open_leaf_nodes=1`.
+- Current source-level regression tests show the single-file broad-inspect guard is already correct:
+  the accepted diagnostic result references only one implementation surface (`src/large_output_demo.py`),
+  so README/tests/output refs must not create broad delegation debt.
+- Rebuilt and reinstalled the current local `whale.exe` before rerunning the live smoke:
+  `C:\Users\77585\.whale\bin\whale.exe`
+  `sha256=49F7F406623EA68CC4216D05933B4D033E69CD02DA3DAF5B38221023BD115F45`.
+
+Validation:
+
+```text
+cargo test -p codex-core single_file_inspect_with_rich_evidence_does_not_create_broad_debt --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core broad_accepted_inspect_result_blocks_direct_implementation_without_subagents --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev build
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-phase3-live-smoke-current-install -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-phase3-live-smoke-current-install\large-output-ref-smoke\20260617-161430-353
+```
+
+Fresh smoke evidence:
+
+- `run_score_ready=True`
+- `run_score_valid=True`
+- `engineering_unclean=False`
+- `failure_taxonomy=none`
+- `outcome_standard=solved`
+- `outcome_taskspace=solved`
+- `left_validation_lifecycle_stage=tests_completed`
+- `right_validation_lifecycle_stage=tests_completed`
+- right/taskspace `business_success=True`
+- right/taskspace `exec_exit_code=0`
+- right/taskspace `nodes=4`
+- right/taskspace `spawn_agent_calls=0`
+- right/taskspace `open_leaf_nodes=0`
+- pair `taskspace_wall_time_ratio=2.6`
+- pair `taskspace_tool_call_ratio=0.9`
+
+Conclusion:
+
+- The `nodes=11` / `open_leaf_nodes=1` failure is not reproduced with the current installed binary.
+- Phase 3 routing/thin behavior for this smoke shape is back to the expected four-node path:
+  inspect -> implement -> regression test -> final synthesis.
+- The run is still E2-candidate only because `Repeats=1` leaves `repeats_lt_3`; it supports engineering reconciliation, not final release PASS.
+
 ## 2026-06-17 Phase 3 context projection metrics artifacts
 
 Changed:
