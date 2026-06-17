@@ -328,6 +328,47 @@ Remaining Phase 6 work:
 - Rerun the full benchmark artifact pipeline so pair reports consume the corrected graph-health warning semantics.
 - Cost gate remains the main blocker: direct token ratio was `3.5038` in the latest smoke.
 
+## 2026-06-17 Phase 4/6 reviewable graph-health live smoke
+
+Smoke:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-reviewable-graph-smoke -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-reviewable-graph-smoke\large-output-ref-smoke\20260617-202255-059
+```
+
+Result:
+
+- Correctness: Standard solved, TaskSpace solved.
+- Engineering cleanliness: `engineering_unclean=False`, `failure_taxonomy=none`.
+- Graph health:
+  - warnings: none
+  - nodes `3`
+  - edges `2`
+  - `spawn_agent_calls=0`
+  - `open_leaf_nodes=0`
+- Output referenceization:
+  - `runtime_output_ref_created_count=1`
+  - `large_output_replay_count=0`
+- Runtime pressure:
+  - `taskspace_runtime_event_count=95`
+  - `projection_count=16`
+  - `projection_tokens=4736`
+
+Remaining gate failure:
+
+```text
+suite-cost-gate: FAIL
+direct_input_output_ratio=3.8912
+walltime_ratio=2.1286
+model_request_count_ratio=1
+```
+
+Conclusion:
+
+- Shape, sentinel, graph-health, and output-reference gates are clean for this smoke.
+- Remaining v0.0.5 blocker is cost: token ratio is still above the partial threshold (`3.0`) and walltime remains slightly above pass threshold (`2.0`).
+
 ## 2026-06-17 Cost root-cause: provider input visibility
 
 Changed:
