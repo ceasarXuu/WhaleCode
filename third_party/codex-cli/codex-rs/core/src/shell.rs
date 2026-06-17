@@ -57,7 +57,7 @@ impl Shell {
                 }
 
                 args.push("-Command".to_string());
-                args.push(command.to_string());
+                args.push(normalize_powershell_command(command));
                 args
             }
             ShellType::Cmd => {
@@ -75,6 +75,50 @@ impl Shell {
     }
 }
 
+fn normalize_powershell_command(command: &str) -> String {
+    normalize_powershell_cd_and(command).unwrap_or_else(|| command.to_string())
+}
+
+fn normalize_powershell_cd_and(command: &str) -> Option<String> {
+    let leading_ws_len = command.len() - command.trim_start().len();
+    let leading_ws = &command[..leading_ws_len];
+    let trimmed = command.trim_start();
+    let after_cd = trimmed
+        .strip_prefix("cd ")
+        .or_else(|| trimmed.strip_prefix("CD "))?;
+    let after_cd = after_cd.trim_start();
+    let (path, rest_start) = parse_cd_path(after_cd)?;
+    let rest_candidate = after_cd[rest_start..].trim_start();
+    let rest = rest_candidate.strip_prefix("&&")?.trim_start();
+    if rest.is_empty() {
+        return None;
+    }
+
+    Some(format!(
+        "{leading_ws}Set-Location -LiteralPath '{}'; {rest}",
+        path.replace('\'', "''")
+    ))
+}
+
+fn parse_cd_path(value: &str) -> Option<(&str, usize)> {
+    let first = value.chars().next()?;
+    if first == '"' || first == '\'' {
+        let quote_len = first.len_utf8();
+        let path_start = quote_len;
+        let path_end = value[path_start..].find(first)? + path_start;
+        let rest_start = path_end + quote_len;
+        return Some((&value[path_start..path_end], rest_start));
+    }
+
+    let and_index = value.find("&&")?;
+    let path = value[..and_index].trim_end();
+    if path.is_empty() {
+        None
+    } else {
+        Some((path, and_index))
+    }
+}
+
 pub(crate) fn empty_shell_snapshot_receiver() -> watch::Receiver<Option<Arc<ShellSnapshot>>> {
     let (_tx, rx) = watch::channel(None);
     rx
@@ -87,6 +131,35 @@ impl PartialEq for Shell {
 }
 
 impl Eq for Shell {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn powershell_command_normalizes_cd_and_chain() {
+        assert_eq!(
+            normalize_powershell_command(
+                r#"cd "D:\repo path" && python scripts/emit_large_log.py"#
+            ),
+            r#"Set-Location -LiteralPath 'D:\repo path'; python scripts/emit_large_log.py"#
+        );
+    }
+
+    #[test]
+    fn powershell_command_normalizes_unquoted_cd_and_chain() {
+        assert_eq!(
+            normalize_powershell_command(r#"cd D:\repo && python -m pytest tests/ -v"#),
+            r#"Set-Location -LiteralPath 'D:\repo'; python -m pytest tests/ -v"#
+        );
+    }
+
+    #[test]
+    fn powershell_command_leaves_non_cd_chain_unchanged() {
+        let command = "python scripts/emit_large_log.py && echo done";
+        assert_eq!(normalize_powershell_command(command), command);
+    }
+}
 
 #[cfg(unix)]
 fn get_user_shell_path() -> Option<PathBuf> {

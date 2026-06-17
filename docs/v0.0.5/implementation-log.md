@@ -1,5 +1,98 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-18 Windows PowerShell cd-and compatibility
+
+Changed:
+
+- Added a narrow PowerShell command normalization in `Shell::derive_exec_args`.
+- For PowerShell sessions only, commands shaped like `cd "path" && <command>` or `cd path && <command>` are rewritten to `Set-Location -LiteralPath 'path'; <command>`.
+- This covers a common model-generated Windows command shape that works in POSIX shells and newer shells but fails in Windows PowerShell 5.
+
+Root-cause evidence:
+
+```text
+RunDir: target\v005-inspect-recovery-largeout-r1\large-output-ref-smoke\20260618-024710-354
+first TaskSpace command:
+"powershell.exe" -Command "cd \"...\right\repo\" && python scripts/emit_large_log.py"
+exit_code=1
+error=The token '&&' is not a valid statement separator in this version.
+```
+
+The same run then retried the diagnostic command and performed extra file enumeration, adding avoidable model/tool turns.
+
+Validation:
+
+```text
+cargo fmt --manifest-path third_party\codex-cli\codex-rs\Cargo.toml --package codex-core
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core powershell_command_normalizes -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core test_get_command_respects_explicit_powershell_shell -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core shell::tests -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core unified_exec::tests::test_get_command -- --nocapture
+git diff --check
+```
+
+Installed local Whale for live smoke:
+
+```text
+C:\Users\77585\.whale\bin\whale.exe
+sha256=3FE6CC5B027EFF16069A743DBDE30DE329AD423186738DA99B0D9F48F84E87BF
+```
+
+Focused live smoke after the change:
+
+```text
+RunDir: target\v005-powershell-cdand-largeout-r1\large-output-ref-smoke\20260618-030314-126
+outcome_standard=solved
+outcome_taskspace=solved
+engineering_unclean=False
+first TaskSpace command:
+"powershell.exe" -Command 'python scripts/emit_large_log.py'
+first diagnostic exit_code=0
+runtime_output_ref_created_count=1
+```
+
+Negative result / caveat:
+
+```text
+suite_cost_status=FAIL
+direct_input_output_ratio=17.6946
+walltime_ratio=7.6146
+taskspace nodes=7
+taskspace_runtime_event_count=163
+scenario_warning=taskspace_node_count_exceeds_expected: 7 > 4
+```
+
+- The first-command PowerShell syntax failure is closed.
+- This run is not useful cost evidence because a later read command failed with:
+
+```text
+windows sandbox: parse deny-read ACL state C:\Users\77585\.whale\.sandbox\deny_read_acl_state.json
+```
+
+- The sandbox ACL failure triggered recovery behavior and node expansion, so this run should be treated as a negative reliability sample, not a v0.0.5 cost gate sample.
+
+Compact schema recheck:
+
+```text
+RunDir: target\v005-inspect-recovery-compacttool-largeout-r1\large-output-ref-smoke\20260618-025240-203
+ConfigOverride:
+- model_reasoning_effort="max"
+- features.taskspace_compact_tool_schema=true
+
+suite_cost_status=FAIL
+direct_input_output_ratio=3.4896
+walltime_ratio=2.173
+model_request_count_ratio=1
+taskspace nodes=3
+runtime_state_commit_count=14
+```
+
+Interpretation:
+
+- Compact `taskspace_control` schema plus inspect-to-implement recovery still does not reach the partial direct-cost threshold for this smoke.
+- Do not promote the compact schema to default based on this evidence alone.
+- Next Phase 6 work should investigate Windows sandbox ACL reliability and continued fixed context / multi-turn overhead separately.
+
 ## 2026-06-18 Inspect-to-implement recovery guidance
 
 Changed:
