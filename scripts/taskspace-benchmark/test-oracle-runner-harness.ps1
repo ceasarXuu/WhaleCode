@@ -146,6 +146,23 @@ if ([string]$directCleanup.classification -ne "ok" -or [string]$directCleanup.de
     exit 1
 }
 
+$probeTimeoutStdout = Join-Path $artifactDir "oracle-probe-timeout.stdout.log"
+$probeTimeoutStderr = Join-Path $artifactDir "oracle-probe-timeout.stderr.log"
+$probeTimeoutStdin = Join-Path $artifactDir "oracle-probe-timeout.stdin.txt"
+Set-Content -LiteralPath $probeTimeoutStdin -Encoding UTF8 -Value "probe input"
+$probeTimeout = Invoke-TaskspaceProbeProcess "powershell" @("-NoProfile", "-Command", "Start-Sleep -Seconds 5") $repoDir $probeTimeoutStdout $probeTimeoutStderr $probeTimeoutStdin 1
+if ([int]$probeTimeout.exit_code -ne 124 -or -not [bool]$probeTimeout.timed_out) {
+    Write-Host "TaskSpace oracle-runner self-test: FAIL"
+    Write-Host "- oracle isolation probe timeout did not return structured 124 result"
+    exit 1
+}
+$probeTimeoutStderrText = Get-Content -Raw -Encoding UTF8 -LiteralPath $probeTimeoutStderr
+if ($probeTimeoutStderrText -notmatch "oracle isolation probe timed out after 1 seconds") {
+    Write-Host "TaskSpace oracle-runner self-test: FAIL"
+    Write-Host "- oracle isolation probe timeout stderr marker missing"
+    exit 1
+}
+
 $fakeBin = New-Dir (Join-Path $runDir "fake-bin")
 $fakeDockerLog = Join-Path $artifactDir "fake-docker.log"
 $fakeDocker = Join-Path $fakeBin "docker.cmd"

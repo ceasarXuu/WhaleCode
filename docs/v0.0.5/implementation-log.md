@@ -531,6 +531,90 @@ Remaining Phase 3 / Phase 6 work:
 - Rerun `large-output-ref-smoke` in a fresh run root to verify the direct-validator clean markers in a complete pair report.
 - If the oracle-isolation probe repeats the hang, isolate probe timeout handling separately from TaskSpace runtime success.
 
+## 2026-06-17 Oracle isolation probe timeout hardening and clean live report
+
+Root cause:
+
+- The fresh clean-marker smoke attempt got stuck in the left-side oracle isolation probe before writing `pair-report.md`.
+- The probe used `Invoke-RealProcess` directly for a model-backed `whale exec` call. If that call failed to return cleanly, the whole benchmark could stall before metrics/report generation.
+
+Changed:
+
+- Added a dedicated oracle probe process runner with:
+  - stdin support for the probe prompt
+  - explicit polling timeout
+  - `taskkill /T /F` on timeout
+  - structured `{ exit_code = 124, timed_out = true }` result
+  - stderr timeout marker
+- `Invoke-TaskspaceOracleIsolationProbe` now uses the dedicated probe runner and can always return a structured probe object.
+- Added harness coverage for probe timeout handling.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-oracle-runner-harness.ps1 -RunRoot target\oracle-runner-harness-v005-probe-timeout
+TaskSpace oracle-runner self-test: PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-probe-timeout
+TaskSpace benchmark harness self-test: PASS
+```
+
+Fresh live smoke:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-phase3-live-smoke-probe-timeout -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-phase3-live-smoke-probe-timeout\large-output-ref-smoke\20260617-155601-444
+```
+
+Cleanliness and probe result:
+
+```text
+run_score_ready = true
+run_score_valid = true
+engineering_unclean = false
+failure_taxonomy = none
+left_validation_lifecycle_stage = tests_completed
+right_validation_lifecycle_stage = tests_completed
+left_tests_started_seen = true
+right_tests_started_seen = true
+oracle_isolation_level = hard_deferred_materialization
+canary_leaked = false
+canary_materialized_during_probe = false
+```
+
+TaskSpace runtime result:
+
+```text
+right_business_success = true
+right_exec_exit_code = 0
+right_exec_timed_out = false
+runtime_output_ref_created_count = 1
+large_output_replay_count = 0
+raw_output_in_prompt_violation = false
+context_projection_availability = measured
+projection_count = 41
+projection_tokens_total = 18979
+projection_tokens_max = 687
+projection_protected_miss_count = 0
+maps = 1
+nodes = 11
+spawn_agent_calls = 0
+open_leaf_nodes = 1
+taskspace_wall_time_ratio = 8.54
+scenario_warning = taskspace_node_count_exceeds_expected: 11 > 4
+```
+
+Assessment:
+
+- The benchmark clean gate and oracle probe stall are fixed for this scenario.
+- Phase 3 is still not complete: the same scenario can pass cleanly but still violate the thin-map gate with 11 nodes and one open leaf.
+- Output referenceization and projection remain present in the live path, so the next bottleneck is lifecycle/routing convergence rather than output-ref or projection availability.
+
+Remaining Phase 3 work:
+
+- Inspect `target\v005-phase3-live-smoke-probe-timeout\large-output-ref-smoke\20260617-155601-444\pair-001\right\artifacts\rollout.jsonl` and observability to identify why the model created 11 nodes without subagent fanout.
+- Add a runtime or prompt gate that keeps this single-file smoke on the 4-node chain after implementation and validation.
+
 ## 2026-06-17 Phase 2 narrow inspect budget gate
 
 Changed:

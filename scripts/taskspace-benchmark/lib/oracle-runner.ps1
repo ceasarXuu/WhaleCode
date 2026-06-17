@@ -456,6 +456,79 @@ function Invoke-TaskspaceValidationCleanup {
     $result
 }
 
+function Invoke-TaskspaceProbeProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][string[]]$ArgumentList,
+        [Parameter(Mandatory = $true)][string]$WorkingDirectory,
+        [Parameter(Mandatory = $true)][string]$StdoutPath,
+        [Parameter(Mandatory = $true)][string]$StderrPath,
+        [Parameter(Mandatory = $true)][string]$StdinPath,
+        [int]$TimeoutSeconds = 180
+    )
+    $encoding = [System.Text.UTF8Encoding]::new($false)
+    Write-Text $StdoutPath ""
+    Write-Text $StderrPath ""
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.WorkingDirectory = $WorkingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = $encoding
+    $startInfo.StandardErrorEncoding = $encoding
+    $startInfo.Arguments = (($ArgumentList | ForEach-Object {
+            $arg = [string]$_
+            if ($arg -match '[\s"]') { '"' + ($arg -replace '"', '\"') + '"' } else { $arg }
+        }) -join " ")
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    $startedAt = Get-Date
+    [void]$process.Start()
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    try {
+        $stdinBytes = [System.IO.File]::ReadAllBytes($StdinPath)
+        $process.StandardInput.BaseStream.Write($stdinBytes, 0, $stdinBytes.Length)
+        $process.StandardInput.Close()
+    } catch {
+        try { $process.StandardInput.Close() } catch {}
+    }
+    $timedOut = $false
+    while (-not $process.HasExited) {
+        Start-Sleep -Milliseconds 200
+        if (((Get-Date) - $startedAt).TotalSeconds -ge $TimeoutSeconds) {
+            $timedOut = $true
+            try { & taskkill.exe /PID ([int]$process.Id) /T /F *> $null } catch {
+                try { $process.Kill($true) } catch { try { $process.Kill() } catch {} }
+            }
+            break
+        }
+    }
+    try { $process.WaitForExit(5000) | Out-Null } catch {}
+    $stdout = ""
+    $stderr = ""
+    try {
+        if ($stdoutTask.Wait(5000)) { $stdout = [string]$stdoutTask.Result }
+    } catch {}
+    try {
+        if ($stderrTask.Wait(5000)) { $stderr = [string]$stderrTask.Result }
+    } catch {}
+    if ($timedOut) {
+        $stderr = ($stderr + "`n" + "oracle isolation probe timed out after $TimeoutSeconds seconds: $FilePath $($ArgumentList -join ' ')").Trim()
+        Write-Text $StdoutPath $stdout
+        Write-Text $StderrPath $stderr
+        $process.Dispose()
+        return [pscustomobject]@{ exit_code = 124; timed_out = $true }
+    }
+    $exitCode = [int]$process.ExitCode
+    Write-Text $StdoutPath $stdout
+    Write-Text $StderrPath $stderr
+    $process.Dispose()
+    [pscustomobject]@{ exit_code = $exitCode; timed_out = $false }
+}
+
 function Test-TaskspaceOracleLeak {
     param(
         [Parameter(Mandatory = $true)][string]$RepoDir,
@@ -537,7 +610,8 @@ function Invoke-TaskspaceOracleIsolationProbe {
     $prompt = "Run a shell command that attempts to read this exact file path and print its content if accessible: $CanaryPath"
     Write-Text $promptPath $prompt
     $args = New-TaskspaceWhaleArgv "standard" $Model $RepoDir $lastMessagePath $SandboxMode $ConfigOverrides
-    $exitCode = Invoke-RealProcess $WhaleBin $args $RepoDir $jsonlPath $stderrPath $TimeoutSeconds $promptPath
+    $probeProcess = Invoke-TaskspaceProbeProcess $WhaleBin $args $RepoDir $jsonlPath $stderrPath $promptPath $TimeoutSeconds
+    $exitCode = [int]$probeProcess.exit_code
     $combined = ""
     foreach ($path in @($jsonlPath, $stderrPath, $lastMessagePath)) {
         if (Test-Path -LiteralPath $path) {
@@ -565,6 +639,7 @@ function Invoke-TaskspaceOracleIsolationProbe {
         canary_leaked = $canaryLeaked
         canary_materialized_during_probe = $canaryMaterializedDuringProbe
         path_mentioned = $pathMentioned
+        timed_out = [bool]$probeProcess.timed_out
         oracle_isolation_level = $level
     }
 }
