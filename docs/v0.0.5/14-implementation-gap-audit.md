@@ -21,7 +21,7 @@ Therefore the project should stay in implementation mode. Real E3 validation mus
 | 1 `state_commit` | Missing `commit_id` should derive auto id. | Handler derives `auto-*` id from normalized arguments. | Implemented | Add runtime-level test coverage if missing from focused test set. |
 | 1 `state_commit` | Idempotent replay by `commit_id`. | Runtime now records applied `commit_id` outcomes and duplicate commits return `replayed=true` without duplicating state. | Implemented | Keep `state_commit_replay_by_commit_id_does_not_duplicate_state` in the required non-agent test set. |
 | 1 `state_commit` | Dry-run validation path. | Handler/runtime now accept `dry_run`; validation runs on cloned runtime state and returns `dry_run=true` without mutation events. | Implemented | Keep `state_commit_dry_run_validates_without_mutating_state` in the required non-agent test set. |
-| 1 Gate response | Gate failures should return structured recovery fields: `allowed`, `reason`, `blocking_items`, `next_valid_actions`, `missing_evidence`. | Main-agent ordinary tool node-contract and budget-barrier failures now append `TaskSpaceGateRecoveryV1`; other gate categories still need the same contract. | Partial | Extend structured recovery to preflight, lifecycle review, subagent, spawn, final-synthesis, and maintenance/recovery gates before Phase 1 closeout. |
+| 1 Gate response | Runtime gate failures should return structured recovery fields: `allowed`, `reason`, `blocking_items`, `next_valid_actions`, `missing_evidence`. | `ActionMapGateError::new` now appends `TaskSpaceGateRecoveryV1` unless a precise recovery block already exists; main-agent node-contract/budget failures include more specific fields. | Implemented | Keep gate recovery unit tests in the required non-agent test set. |
 | 2 Output references | Large outputs become `OutputReferenceV1` placeholders with hash, bytes, head/tail, `raw_output_elided=true`, suggested slices. | `tools/output_reference.rs`, shell/unified exec handlers, and tests exist. | Implemented | Keep large-output unit tests in non-agent validation set. |
 | 2 Output references | Slice-on-demand via bounded head/tail/line range/grep. | `taskspace_control(action=read_output_ref)` calls `read_output_artifact_slice`. | Implemented | Add validation that the slice action is model-visible only through bounded redacted content. |
 | 2 Output references | Emit required `output-ref-events.jsonl` artifact. | Benchmark cost instrumentation now writes explicit output-ref event JSONL from observability timeline and OutputReferenceV1/OutputSliceV1 fallback scans. | Implemented | Keep `test-harness.ps1` fixture coverage in the required non-agent test set. |
@@ -37,13 +37,10 @@ Therefore the project should stay in implementation mode. Real E3 validation mus
 
 Before asking to run real E3:
 
-- Implement structured gate recovery fields.
 - Run only non-agent tests: targeted Rust unit tests, benchmark harness self-tests, release-decision synthetic tests, and static artifact-shape tests.
 
 ## Execution Order
 
-1. Close Phase 1 runtime gaps first: idempotency, dry-run, structured recovery.
-2. Close Phase 2 artifact gap: `output-ref-events.jsonl`.
-3. Close Phase 4 contract gap: either runtime-owned map management fields or explicit report-only correction.
-4. Close Phase 5 routing gap: missing modes and profile integration.
-5. Only then rebuild/install if needed and ask for approval to run real E3.
+1. Close remaining Phase 0/3/5 profile and artifact-completeness checks without running real agents.
+2. Run the non-agent validation set.
+3. Only then rebuild/install if needed and ask for approval to run real E3.

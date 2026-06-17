@@ -165,10 +165,19 @@ pub(crate) struct ActionMapGateError {
 
 impl ActionMapGateError {
     fn new(message: impl Into<String>, events: Vec<MapRuntimeEvent>) -> Self {
-        Self {
-            message: message.into(),
-            events,
-        }
+        let message = message.into();
+        let message = if message.contains("TaskSpaceGateRecoveryV1:") {
+            message
+        } else {
+            gate_recovery_message(
+                &message,
+                "taskspace_gate_blocked",
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+        };
+        Self { message, events }
     }
 
     pub(crate) fn into_parts(self) -> (String, Vec<MapRuntimeEvent>) {

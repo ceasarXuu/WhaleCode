@@ -1317,6 +1317,32 @@ Notes:
 - This closes the Phase 4 runtime-vs-report-only contract gap in `14-implementation-gap-audit.md` by correcting the version contract to match the actual architecture.
 - No real E3, live smoke, or Agent-invoking benchmark was run for this change.
 
+## 2026-06-18 Phase 1 structured gate recovery fallback
+
+Changed:
+
+- `ActionMapGateError::new` now appends a `TaskSpaceGateRecoveryV1` JSON block to runtime gate errors that do not already include one.
+- Existing precise recovery blocks are preserved without duplication.
+- Main-agent node-contract and budget-barrier gate failures still carry the more specific recovery actions added earlier.
+
+Validation:
+
+```text
+cargo fmt -p codex-core
+completed; rustfmt reported existing stable-channel import-granularity warnings
+
+cargo test -p codex-core node_contract_blocks_edit_inside_inspect_node -- --nocapture
+1 passed; 0 failed
+
+cargo test -p codex-core blocked_in_experiment_mode -- --nocapture
+2 passed; 0 failed
+```
+
+Notes:
+
+- This closes the runtime `ActionMapGateError` structured recovery gap recorded in `14-implementation-gap-audit.md`.
+- No real E3, live smoke, or Agent-invoking benchmark was run for this change.
+
 ## 2026-06-18 Cost failure diagnostics
 
 Changed:
