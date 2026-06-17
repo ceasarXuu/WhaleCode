@@ -7,9 +7,9 @@
 
 ## Current Finding
 
-The v0.0.5 implementation is not code-complete. Several major capabilities exist in partial form, but some plan requirements are implemented only in benchmark/reporting scripts, and some runtime contracts are still missing or incomplete.
+As of 2026-06-18, the planned v0.0.5 code, script, and corrected-contract work in this audit is complete enough to leave pure implementation mode.
 
-Therefore the project should stay in implementation mode. Real E3 validation must remain blocked until the gaps below are closed and non-agent tests pass.
+Real E3 validation is still blocked by user instruction. The next step is not to run E3 automatically; the next step is to ask for explicit approval before any real Agent-invoking validation.
 
 ## Gap Matrix
 
@@ -35,12 +35,20 @@ Therefore the project should stay in implementation mode. Real E3 validation mus
 
 ## Non-Agent Completion Checklist
 
-Before asking to run real E3:
+Completed before asking to run real E3:
 
 - Run only non-agent tests: targeted Rust unit tests, benchmark harness self-tests, release-decision synthetic tests, and static artifact-shape tests.
 
-## Execution Order
+## Completed Non-Agent Validation
 
-1. Close remaining Phase 0/3/5 profile and artifact-completeness checks without running real agents.
-2. Run the non-agent validation set.
-3. Only then rebuild/install if needed and ask for approval to run real E3.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-final-nonagent`
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\release-decision-selftest-v005-final-nonagent`
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-routing-verification-first.ps1 -RunRoot target\routing-verification-first-v005-final-nonagent`
+- `cargo test -p codex-core state_commit -- --nocapture`
+- `cargo test -p codex-core output_reference -- --nocapture`
+- `cargo test -p codex-core blocked_in_experiment_mode -- --nocapture`
+- `cargo test -p codex-core node_contract_blocks_edit_inside_inspect_node -- --nocapture`
+
+## Next Step
+
+Ask the user whether to run real E3 / live Agent validation. Do not run it without approval.

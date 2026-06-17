@@ -1419,6 +1419,43 @@ Notes:
 - This closes the remaining Phase 5 routing ownership gap in `14-implementation-gap-audit.md`.
 - No real E3, live smoke, or Agent-invoking benchmark was run for this change.
 
+## 2026-06-18 Final non-agent implementation validation
+
+Changed:
+
+- Updated `14-implementation-gap-audit.md` to mark the corrected v0.0.5 implementation work as complete enough to leave pure implementation mode.
+- Real E3 remains blocked until explicit user approval.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-final-nonagent
+TaskSpace benchmark harness self-test: PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\release-decision-selftest-v005-final-nonagent
+Release decision self-test: PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-routing-verification-first.ps1 -RunRoot target\routing-verification-first-v005-final-nonagent
+Verification-first routing self-test: PASS
+
+cargo test -p codex-core state_commit -- --nocapture
+10 passed; 0 failed
+
+cargo test -p codex-core output_reference -- --nocapture
+7 passed; 0 failed
+
+cargo test -p codex-core blocked_in_experiment_mode -- --nocapture
+2 passed; 0 failed
+
+cargo test -p codex-core node_contract_blocks_edit_inside_inspect_node -- --nocapture
+1 passed; 0 failed
+```
+
+Notes:
+
+- No real E3, live smoke, or Agent-invoking benchmark was run for this final validation.
+- The next step is to ask the user before running real E3.
+
 ## 2026-06-18 Cost failure diagnostics
 
 Changed:
