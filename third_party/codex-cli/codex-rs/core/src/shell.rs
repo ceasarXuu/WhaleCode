@@ -76,7 +76,8 @@ impl Shell {
 }
 
 fn normalize_powershell_command(command: &str) -> String {
-    normalize_powershell_cd_and(command).unwrap_or_else(|| command.to_string())
+    let command = normalize_powershell_cd_and(command).unwrap_or_else(|| command.to_string());
+    normalize_powershell_select_full_name(&command).unwrap_or(command)
 }
 
 fn normalize_powershell_cd_and(command: &str) -> Option<String> {
@@ -119,6 +120,24 @@ fn parse_cd_path(value: &str) -> Option<(&str, usize)> {
     }
 }
 
+fn normalize_powershell_select_full_name(command: &str) -> Option<String> {
+    for select in ["Select-Object", "select"] {
+        let suffix = format!("| {select} FullName");
+        if let Some(prefix) = command.strip_suffix(&suffix) {
+            return Some(format!("{prefix}| ForEach-Object {{ $_.FullName }}"));
+        }
+
+        let suffix = format!("| {select} FullName, Length");
+        if let Some(prefix) = command.strip_suffix(&suffix) {
+            return Some(format!(
+                r#"{prefix}| ForEach-Object {{ "$($_.FullName)`t$($_.Length)" }}"#
+            ));
+        }
+    }
+
+    None
+}
+
 pub(crate) fn empty_shell_snapshot_receiver() -> watch::Receiver<Option<Arc<ShellSnapshot>>> {
     let (_tx, rx) = watch::channel(None);
     rx
@@ -157,6 +176,48 @@ mod tests {
     #[test]
     fn powershell_command_leaves_non_cd_chain_unchanged() {
         let command = "python scripts/emit_large_log.py && echo done";
+        assert_eq!(normalize_powershell_command(command), command);
+    }
+
+    #[test]
+    fn powershell_command_normalizes_select_object_full_name() {
+        assert_eq!(
+            normalize_powershell_command("Get-ChildItem -Recurse -File | Select-Object FullName"),
+            "Get-ChildItem -Recurse -File | ForEach-Object { $_.FullName }"
+        );
+    }
+
+    #[test]
+    fn powershell_command_normalizes_select_full_name_alias() {
+        assert_eq!(
+            normalize_powershell_command("Get-ChildItem -File | select FullName"),
+            "Get-ChildItem -File | ForEach-Object { $_.FullName }"
+        );
+    }
+
+    #[test]
+    fn powershell_command_normalizes_select_full_name_and_length() {
+        assert_eq!(
+            normalize_powershell_command(
+                "Get-ChildItem -Recurse -File | Select-Object FullName, Length"
+            ),
+            r#"Get-ChildItem -Recurse -File | ForEach-Object { "$($_.FullName)`t$($_.Length)" }"#
+        );
+    }
+
+    #[test]
+    fn powershell_command_normalizes_cd_then_select_full_name() {
+        assert_eq!(
+            normalize_powershell_command(
+                r#"cd D:\repo && Get-ChildItem -Recurse -File | Select-Object FullName"#
+            ),
+            r#"Set-Location -LiteralPath 'D:\repo'; Get-ChildItem -Recurse -File | ForEach-Object { $_.FullName }"#
+        );
+    }
+
+    #[test]
+    fn powershell_command_leaves_multi_property_select_unchanged() {
+        let command = "Get-ChildItem -Recurse -File | Select-Object Name, Directory";
         assert_eq!(normalize_powershell_command(command), command);
     }
 }

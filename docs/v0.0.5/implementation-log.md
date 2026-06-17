@@ -1,5 +1,83 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-18 PowerShell FullName listing normalization
+
+Changed:
+
+- Extended PowerShell command normalization in `core/src/shell.rs`.
+- Commands ending in `| Select-Object FullName` or `| select FullName` are rewritten to `| ForEach-Object { $_.FullName }`.
+- Commands ending in `| Select-Object FullName, Length` or `| select FullName, Length` are rewritten to a tab-separated full-path/length line format.
+- The rule is intentionally narrow and leaves unrelated multi-property selections such as `Select-Object Name, Directory` unchanged.
+
+Root-cause evidence:
+
+```text
+RunDir: target\v005-denyread-state-recovery-largeout-r1\large-output-ref-smoke\20260618-031943-172
+right / TaskSpace:
+tool_call_count=12
+failed_tool_call_count=1
+rollout_trace_model_request_count=24
+direct_input_output_ratio=4.7231
+walltime_ratio=3.0569
+```
+
+TaskSpace used:
+
+```text
+Get-ChildItem -Recurse -File | Select-Object FullName
+Get-ChildItem -Recurse -File | Select-Object Name, Directory
+Get-Content large_output_demo.py
+```
+
+The first listing was formatted as a truncated PowerShell table, so the model did not see exact paths, repeated file discovery, and guessed `large_output_demo.py` at the repository root before correcting to `src/large_output_demo.py`.
+
+By contrast, the standard side used stable line output:
+
+```text
+Get-ChildItem -Recurse -File | ForEach-Object { $_.FullName }
+```
+
+Validation:
+
+```text
+cargo fmt --manifest-path third_party\codex-cli\codex-rs\Cargo.toml --package codex-core
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core powershell_command_normalizes -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core powershell_command_leaves -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core test_get_command_respects_explicit_powershell_shell -- --nocapture
+```
+
+Result:
+
+```text
+powershell_command_normalizes: 6 passed
+powershell_command_leaves: 2 passed
+test_get_command_respects_explicit_powershell_shell: 1 passed
+```
+
+First live-smoke result after the initial `FullName`-only rule:
+
+```text
+Installed Whale sha256=7760B404301C27B0501DF02C1FB4DA1AE837AA7D6C9C9C215F2E73E7E4F890ED
+RunDir: target\v005-powershell-fullname-largeout-r1\large-output-ref-smoke\20260618-033117-791
+outcome_standard=solved
+outcome_taskspace=solved
+engineering_unclean=False
+infra_signatures=none
+taskspace failed_tool_call_count=0
+taskspace tool_call_count=12
+taskspace rollout_trace_model_request_count=63
+suite_cost_status=FAIL
+direct_input_output_ratio=13.7793
+walltime_ratio=6.1805
+```
+
+Interpretation:
+
+- The root-level `Get-Content large_output_demo.py` miss disappeared, so exact-path visibility improved.
+- The run still failed the cost gate and got worse overall because the model used `Select-Object FullName, Length`, then continued a longer TaskSpace path with extra internal state updates and a spurious subagent-oriented message.
+- After this negative result, the normalization was extended to cover the exact `FullName, Length` listing shape. That second rule is covered by unit tests but has not yet produced a passing live cost gate.
+- v0.0.5 remains blocked by fixed context / multi-turn overhead, not by PowerShell file-list truncation alone.
+
 ## 2026-06-18 Windows sandbox deny-read state recovery
 
 Changed:
