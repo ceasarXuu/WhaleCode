@@ -268,6 +268,71 @@ Follow-up:
 - Correctness, routing artifact emission, and thin graph adherence pass in this smoke.
 - Cost is still not converged: `taskspace_wall_time_ratio=3.82` exceeds the current partial threshold of `3.0`.
 
+## 2026-06-17 Phase 3 active compact developer context
+
+Changed:
+
+- `build_developer_context()` now uses v0.0.5 active compact context once a TaskSpace task/map exists.
+- Active context emits `ContextProjectionV1 active replacement` plus only the compact node contract and essential TaskSpace control rules.
+- Shadow projection updates remain available through `build_context_projection_shadow_context()` for metrics, replay, and rollback evidence.
+- Bootstrap/no-active-map context was compacted to the minimum required `start_task` / `route_task` guidance and compact task inventory.
+
+Validation:
+
+```text
+cargo test -p codex-core developer_context_uses_active_projection_replacement_after_task_start --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core projection_shadow_context_remains_available_for_metrics_and_replay --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core record_context_updates_refreshes_taskspace_inventory_in_steady_state --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core real_user_input_sets_taskspace_routing_gate_and_snapshot --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core state_commit --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+6 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-active-compact-bootstrap
+TaskSpace benchmark harness self-test: PASS
+```
+
+Fresh smoke:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-active-bootstrap-compact-smoke -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-active-bootstrap-compact-smoke\large-output-ref-smoke\20260617-170010-019
+Installed whale sha256=27AE259330231D48BB6F285E40240CC57D4D1E3288FDEB525075B342EEEB153A
+```
+
+Evidence:
+
+- `run_score_ready=True`
+- `run_score_valid=True`
+- `engineering_unclean=False`
+- `failure_taxonomy=none`
+- `outcome_standard=solved`
+- `outcome_taskspace=solved`
+- right/taskspace `nodes=4`
+- right/taskspace `spawn_agent_calls=0`
+- right/taskspace `open_leaf_nodes=0`
+- right/taskspace `projection_count=18`
+- right/taskspace `projection_tokens=5647`
+- right/taskspace `projection_tokens_max=454`
+- right/taskspace `projection_protected_miss_count=0`
+- right/taskspace `large_output_replay_count=0`
+- pair `taskspace_tool_call_ratio=1.62`
+- pair `taskspace_wall_time_ratio=2.73`
+- direct token ratio from provider usage: `4.20`
+
+Cost finding:
+
+- The active compact context is visible in runtime tests and legacy context markers are absent from the TaskSpace `whale-exec.jsonl`.
+- Local request artifact size is similar between sides (`standard=82165 bytes`, `taskspace=89218 bytes`), but provider usage reports `standard_input_tokens=194108` and `taskspace_input_tokens=814066`.
+- Therefore the remaining direct-token overage is not explained by repeated model-visible developer context in the local JSONL. The next root-cause target is TaskSpace-specific tool/schema payload or provider-side accounting of hidden request components.
+
 ## 2026-06-17 Phase 3 context projection metrics artifacts
 
 Changed:

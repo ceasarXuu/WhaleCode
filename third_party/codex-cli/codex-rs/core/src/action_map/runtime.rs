@@ -4552,6 +4552,12 @@ preview:\n\
         if self.mode != MapRuntimeMode::Experiment {
             return None;
         }
+        if let Some(context) = self.build_active_projection_developer_context() {
+            return Some(context);
+        }
+        if self.active_map().is_none() {
+            return Some(self.build_bootstrap_compact_developer_context());
+        }
 
         let mut context = String::from("TaskSpace mode is active.\n");
         context.push_str(
@@ -4731,6 +4737,104 @@ preview:\n\
                 "No active task path exists. Before any ordinary tool call or subagent spawn, call taskspace_control(action=start_task) for a new semantic task or taskspace_control(action=route_task) for an existing listed task.\n",
             );
             context.push_str(&base_map_metadata_prompt());
+        }
+        Some(context)
+    }
+
+    fn build_bootstrap_compact_developer_context(&self) -> String {
+        let mut context = String::from(
+            "TaskSpace v0.0.5 active compact profile is enabled. Runtime state is authoritative; keep the model-visible TaskSpace surface compact.\n",
+        );
+        if self.tasks.is_empty() {
+            context.push_str(
+                "No TaskSpace task exists yet. Before ordinary tools or spawn_agent, call taskspace_control(action=start_task) with a concrete first node derived from the current user request.\n",
+            );
+        } else {
+            context.push_str(
+                "No active TaskSpace path is bound for this turn. Route to one listed task if it is the same semantic task, or start a new task if the user request is new.\n",
+            );
+            context.push_str("Task inventory compact:\n");
+            for task_id in ordered_task_ids(&self.tasks).into_iter().take(6) {
+                if let Some(task) = self.tasks.get(&task_id) {
+                    context.push_str("- ");
+                    context.push_str(&task.id);
+                    context.push_str(" [");
+                    context.push_str(task.status.as_str());
+                    context.push_str("] ");
+                    context.push_str(&single_line_preview(&task.title, 100));
+                    context.push_str(" objective=");
+                    context.push_str(&single_line_preview(&task.objective, 140));
+                    context.push('\n');
+                }
+            }
+            append_omitted_count(&mut context, self.tasks.len(), 6, "tasks");
+        }
+        context.push_str(
+            "Use the minimum sufficient map. Thin/single-file fixes should follow inspect_code_context -> implement_solution -> smoke_test/regression_test -> final_synthesis without subagents. Prefer state_commit for multi-section state updates.\n",
+        );
+        if self.reborn_requested {
+            context.push_str(
+                "A task reborn was requested; route or start a task before ordinary work and do not continue the old path unless the follow-up cancels the reborn request.\n",
+            );
+        }
+        context
+    }
+
+    fn build_active_projection_developer_context(&self) -> Option<String> {
+        let map = self.active_map()?;
+        let task = map
+            .task_id
+            .as_ref()
+            .or(self.active_task_id.as_ref())
+            .and_then(|task_id| self.tasks.get(task_id))?;
+        let mut context = String::from(
+            "TaskSpace v0.0.5 active compact profile is enabled. Use this compact projection as the model-visible TaskSpace surface; runtime state remains authoritative.\n",
+        );
+        context.push_str(
+            "Use taskspace_control for state changes. Prefer state_commit for multi-section updates. Keep simple fixes on the narrow path: inspect_code_context -> implement_solution -> smoke_test/regression_test -> final_synthesis. Do not spawn agents for thin/single-file work unless new evidence reveals independent tracks.\n",
+        );
+        if self.bootstrap_required {
+            context.push_str(
+                "Bootstrap is required now: create the first semantic task with taskspace_control(action=start_task) before ordinary tools or subagent spawn.\n",
+            );
+        } else if self.routing_required {
+            context.push_str(
+                "Task routing is required now: route to the active task or start a new semantic task before ordinary tools or subagent spawn.\n",
+            );
+        }
+        if let Some(barrier) = self.active_maintenance_barrier() {
+            context.push_str("Maintenance barrier:\n- map: ");
+            context.push_str(&barrier.map_id);
+            context.push_str("\n- node: ");
+            context.push_str(&barrier.node_id);
+            context.push_str("\n- reason: ");
+            context.push_str(barrier.reason.as_str());
+            context.push('\n');
+        }
+        append_context_projection_active(
+            &mut context,
+            task,
+            map,
+            self.current_main_node_id.as_deref(),
+        );
+        if let Some(node_id) = self.current_main_node_id.as_ref()
+            && let Some(node) = map.nodes.get(node_id)
+        {
+            let contract = contract_for(node.kind);
+            context.push_str("\nCurrent node contract:\n- node: ");
+            context.push_str(node_id);
+            context.push_str(" kind=");
+            context.push_str(node.kind.as_str());
+            context.push_str("\n- allowed action classes: ");
+            context.push_str(
+                &contract
+                    .allowed_actions
+                    .iter()
+                    .map(|action| action.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+            context.push('\n');
         }
         Some(context)
     }
@@ -6390,7 +6494,41 @@ fn append_context_projection_shadow(
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
 ) {
-    let projection_id = format!("projection-shadow-{}-{}", task.id, map.id);
+    append_context_projection_with_header(
+        context,
+        task,
+        map,
+        current_node_id,
+        "shadow",
+        "ContextProjectionV1 shadow (not active replacement):",
+    );
+}
+
+fn append_context_projection_active(
+    context: &mut String,
+    task: &TaskState,
+    map: &ActionMapInstance,
+    current_node_id: Option<&str>,
+) {
+    append_context_projection_with_header(
+        context,
+        task,
+        map,
+        current_node_id,
+        "active",
+        "ContextProjectionV1 active replacement:",
+    );
+}
+
+fn append_context_projection_with_header(
+    context: &mut String,
+    task: &TaskState,
+    map: &ActionMapInstance,
+    current_node_id: Option<&str>,
+    profile: &str,
+    header: &str,
+) {
+    let projection_id = format!("projection-{profile}-{}-{}", task.id, map.id);
     let current_node = current_node_id
         .and_then(|node_id| map.nodes.get(node_id))
         .map(|node| {
@@ -6475,7 +6613,9 @@ fn append_context_projection_shadow(
     let next_valid_actions = projection_next_valid_actions(map, current_node_id);
 
     let mut projection = String::new();
-    projection.push_str("\nContextProjectionV1 shadow (not active replacement):\n");
+    projection.push('\n');
+    projection.push_str(header);
+    projection.push('\n');
     projection.push_str("- projection_id: ");
     projection.push_str(&projection_id);
     projection.push_str("\n- task_id: ");
@@ -14181,7 +14321,7 @@ mod tests {
     }
 
     #[test]
-    fn developer_context_includes_shadow_context_projection_without_replacing_legacy_context() {
+    fn developer_context_uses_active_projection_replacement_after_task_start() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -14221,8 +14361,9 @@ mod tests {
 
         let context = state.build_developer_context().expect("context");
 
-        assert!(context.contains("ContextProjectionV1 shadow (not active replacement):"));
-        assert!(context.contains("projection_id: projection-shadow-task-1-map-1"));
+        assert!(context.contains("TaskSpace v0.0.5 active compact profile is enabled."));
+        assert!(context.contains("ContextProjectionV1 active replacement:"));
+        assert!(context.contains("projection_id: projection-active-task-1-map-1"));
         assert!(context.contains("mode: default_compact"));
         assert!(context.contains("active_objective: Verify ContextProjectionV1 shadow coverage."));
         assert!(context.contains("success_criteria:"));
@@ -14231,8 +14372,31 @@ mod tests {
         assert!(context.contains("Stay on the narrow main-agent path."));
         assert!(context.contains("next_valid_actions:"));
         assert!(context.contains("estimated_tokens:"));
-        assert!(context.contains("Active task path:"));
-        assert!(context.contains("Task cognitive state (MVP):"));
+        assert!(!context.contains("Active task path:"));
+        assert!(!context.contains("Task cognitive state (MVP):"));
+    }
+
+    #[test]
+    fn projection_shadow_context_remains_available_for_metrics_and_replay() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Projection smoke",
+            "Verify ContextProjectionV1 shadow coverage.",
+            true,
+        );
+
+        let context = state
+            .build_context_projection_shadow_context()
+            .expect("shadow context");
+
+        assert!(context.contains("TaskSpace ContextProjectionV1 shadow update."));
+        assert!(context.contains("ContextProjectionV1 shadow (not active replacement):"));
+        assert!(context.contains("projection_id: projection-shadow-task-1-map-1"));
+        assert!(context.contains("active_objective: Verify ContextProjectionV1 shadow coverage."));
     }
 
     #[test]

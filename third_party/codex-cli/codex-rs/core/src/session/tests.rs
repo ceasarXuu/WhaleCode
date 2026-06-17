@@ -1360,16 +1360,20 @@ async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() 
     let history = session.clone_history().await;
     let developer_text = developer_input_texts(history.raw_items()).join("\n");
     assert!(
-        developer_text.contains("Task inventory:"),
-        "expected TaskSpace inventory update in steady-state context: {developer_text}"
+        developer_text.contains("TaskSpace v0.0.5 active compact profile is enabled."),
+        "expected active compact TaskSpace update in steady-state context: {developer_text}"
     );
     assert!(
-        developer_text.contains("task-1 [active] Architecture review active_map=map-1"),
-        "expected latest task entry in steady-state context: {developer_text}"
+        developer_text.contains("projection_id: projection-active-task-1-map-1"),
+        "expected latest active projection in steady-state context: {developer_text}"
     );
     assert!(
-        developer_text.contains("taskspace_control(action=route_task)"),
-        "expected explicit routing instruction in steady-state context: {developer_text}"
+        developer_text.contains("active_objective: Find structure risks."),
+        "expected active objective in steady-state context: {developer_text}"
+    );
+    assert!(
+        developer_text.contains("taskspace_control(action=bind_node or create_node)"),
+        "expected compact next valid action in steady-state context: {developer_text}"
     );
 }
 
@@ -1393,6 +1397,43 @@ async fn action_map_final_gate_failure_records_developer_followup() {
                 true,
             )
             .expect("task starts");
+        let evidence_ref = crate::action_map::ActionMapEvidenceRefInput {
+            artifact_ref: Some("current user request".to_string()),
+            ..Default::default()
+        };
+        state
+            .action_map_runtime
+            .record_success_criteria_for_main(
+                session.conversation_id,
+                vec![crate::action_map::ActionMapSuccessCriterionInput {
+                    id: "sc-test".to_string(),
+                    kind: "test".to_string(),
+                    description: "Review scope is inspected.".to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![evidence_ref.clone()],
+                }],
+            )
+            .expect("success criteria records");
+        state
+            .action_map_runtime
+            .record_output_contract_for_main(
+                session.conversation_id,
+                "oc-test",
+                "artifact",
+                "A concise architecture risk summary.".to_string(),
+                vec![evidence_ref.clone()],
+            )
+            .expect("output contract records");
+        state
+            .action_map_runtime
+            .record_fact_source_for_main(
+                session.conversation_id,
+                "fs-test",
+                "provided_by_user",
+                "User asked to continue the architecture review.".to_string(),
+                vec![evidence_ref],
+            )
+            .expect("fact source records");
     }
     let source_evidence_refs = vec![crate::action_map::ActionMapEvidenceRefInput {
         artifact_ref: Some("test-fixture:user-request".to_string()),
@@ -1512,6 +1553,43 @@ async fn real_user_input_sets_taskspace_routing_gate_and_snapshot() {
                 true,
             )
             .expect("task starts");
+        let evidence_ref = crate::action_map::ActionMapEvidenceRefInput {
+            artifact_ref: Some("current user request".to_string()),
+            ..Default::default()
+        };
+        state
+            .action_map_runtime
+            .record_success_criteria_for_main(
+                session.conversation_id,
+                vec![crate::action_map::ActionMapSuccessCriterionInput {
+                    id: "sc-test".to_string(),
+                    kind: "test".to_string(),
+                    description: "Review scope is inspected.".to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![evidence_ref.clone()],
+                }],
+            )
+            .expect("success criteria records");
+        state
+            .action_map_runtime
+            .record_output_contract_for_main(
+                session.conversation_id,
+                "oc-test",
+                "artifact",
+                "A concise architecture risk summary.".to_string(),
+                vec![evidence_ref.clone()],
+            )
+            .expect("output contract records");
+        state
+            .action_map_runtime
+            .record_fact_source_for_main(
+                session.conversation_id,
+                "fs-test",
+                "provided_by_user",
+                "User asked to continue the architecture review.".to_string(),
+                vec![evidence_ref],
+            )
+            .expect("fact source records");
     }
     session
         .prepare_action_map_main_tool_call(turn_context.as_ref(), "shell")
