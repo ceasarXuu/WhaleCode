@@ -8264,10 +8264,7 @@ fn accepted_result_has_broad_structural_evidence(result: &NodeResult) -> bool {
         .iter()
         .filter(|artifact_ref| is_implementation_surface_ref(artifact_ref))
         .count();
-    if result.evidence_package.claims.len() >= 3 && implementation_refs >= 2 {
-        return true;
-    }
-    artifact_refs.len() >= 4 && implementation_refs >= 2
+    result.evidence_package.claims.len() >= 3 && implementation_refs >= 2
 }
 
 fn accepted_result_artifact_refs(result: &NodeResult) -> HashSet<String> {
@@ -13626,6 +13623,91 @@ mod tests {
             .prepare_main_tool_call(owner, "apply_patch")
             .expect_err("broad accepted inspection must require subagent tracks");
         assert!(error.contains("without two accepted subagent inspect results"));
+    }
+
+    #[test]
+    fn single_file_inspect_with_rich_evidence_does_not_create_broad_debt() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Single file status normalizer",
+            "Inspect README, tests, diagnostic script, and one source file.",
+            true,
+        );
+        let (outcome, _) = state
+            .finish_main_node(
+                owner,
+                "node-1",
+                "Found one implementation gap from several evidence files.".to_string(),
+                None,
+            )
+            .expect("finish inspect");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &outcome.result_id,
+                "accepted",
+                "Single-file inspection found one implementation target.".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-normalize-status".to_string(),
+                    statement:
+                        "normalize_status must strip whitespace, lowercase, and reject empty input."
+                            .to_string(),
+                    evidence_refs: vec![
+                        ActionMapEvidenceRefInput {
+                            artifact_ref: Some("src/large_output_demo.py".to_string()),
+                            ..Default::default()
+                        },
+                        ActionMapEvidenceRefInput {
+                            artifact_ref: Some("README.md".to_string()),
+                            ..Default::default()
+                        },
+                        ActionMapEvidenceRefInput {
+                            artifact_ref: Some("tests/test_large_output_demo.py".to_string()),
+                            ..Default::default()
+                        },
+                    ],
+                }],
+                vec![
+                    ActionMapEvidenceRefInput {
+                        artifact_ref: Some("README.md".to_string()),
+                        ..Default::default()
+                    },
+                    ActionMapEvidenceRefInput {
+                        artifact_ref: Some("src/large_output_demo.py".to_string()),
+                        ..Default::default()
+                    },
+                    ActionMapEvidenceRefInput {
+                        artifact_ref: Some("tests/test_large_output_demo.py".to_string()),
+                        ..Default::default()
+                    },
+                    ActionMapEvidenceRefInput {
+                        artifact_ref: Some("scripts/emit_large_log.py".to_string()),
+                        ..Default::default()
+                    },
+                ],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("single-file result accepted");
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Apply normalize_status fix".to_string(),
+                "Edit the one implementation file.".to_string(),
+                vec!["node-1".to_string()],
+                true,
+            )
+            .expect("implementation node can bind after single-file inspect");
+
+        state
+            .prepare_main_tool_call(owner, "apply_patch")
+            .expect("single-file rich evidence does not require subagent tracks");
     }
 
     #[test]

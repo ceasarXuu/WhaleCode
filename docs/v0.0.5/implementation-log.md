@@ -345,6 +345,79 @@ Remaining Phase 3 work:
 - Rebuild/install Whale and rerun `large-output-ref-smoke` to verify that projection remains measured while repeated prompt-history growth no longer drives input tokens or 600s timeouts.
 - After prompt-history growth is controlled, address the remaining routing/thin gate if the smoke still creates unnecessary subagent paths.
 
+## 2026-06-17 Phase 3 live smoke after projection history dedupe and single-file broad-gate fix
+
+Live smoke:
+
+```text
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev build
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -PersistUserPath -BackupLegacyCopies
+Installed Whale: C:\Users\77585\.whale\bin\whale.exe
+Hash: 1DED8A07A1B77D3C357FEBCB88339216D1D9842BAB1C02A6B05EF080E342F209
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-phase3-live-smoke-projection-history-dedupe -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-phase3-live-smoke-projection-history-dedupe\large-output-ref-smoke\20260617-095729-223
+```
+
+Observed result:
+
+```text
+context_projection_availability = measured
+projection_count = 41
+projection_tokens_total = 24422
+projection_tokens_max = 747
+projection_protected_miss_count = 0
+runtime_output_ref_created_count = 0
+large_output_replay_count = 0
+raw_output_in_prompt_violation = false
+right_exec_timed_out = true
+right_wall_time_ms = 600017
+nodes = 13
+spawn_agent_calls = 5
+open_leaf_nodes = 1
+taskspace_runtime_output_ref_created_count_below_expected = 0 < 1
+```
+
+Conclusion:
+
+- Projection remains measurable and protected-section coverage is intact.
+- Phase 3 is still not passed. The live failure is now dominated by routing/thin behavior, not projection availability.
+- Rollout showed the first inspect node found a single implementation target, but later `apply_patch` was blocked by the broad inspect delegation gate:
+  - `broad inspect_code_context node exhausted its main-tool budget without two accepted subagent inspect results`
+- The broad detector treated rich single-file evidence (`README.md`, `tests/test_large_output_demo.py`, `src/large_output_demo.py`, `scripts/emit_large_log.py`) as broad structural work because artifact count plus two implementation-like refs was enough.
+
+Changed:
+
+- Tightened broad structural evidence detection so it requires multiple claims plus multiple implementation surfaces.
+- Removed artifact-count-only broad promotion. README/tests/scripts evidence can support a single-file conclusion without forcing subagent delegation.
+- Added regression coverage for the live smoke shape: one implementation claim with README/tests/source/script evidence can proceed to implementation.
+
+Validation:
+
+```text
+cargo test -p codex-core single_file_inspect_with_rich_evidence_does_not_create_broad_debt --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core broad_accepted_inspect_result_blocks_direct_implementation_without_subagents --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core maintenance_barrier --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+6 passed
+
+cargo test -p codex-core narrow_inspect_budget --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-singlefile-broadgate
+TaskSpace benchmark harness self-test: PASS
+```
+
+Remaining Phase 3 work:
+
+- Rebuild/install Whale with the broad-gate fix and rerun `large-output-ref-smoke`.
+- Exit is still unproven until the smoke avoids subagent fanout, creates at least one runtime output ref, avoids raw large-output replay, finishes without timeout, and keeps projection metrics measured.
+
 ## 2026-06-17 Phase 2 narrow inspect budget gate
 
 Changed:
