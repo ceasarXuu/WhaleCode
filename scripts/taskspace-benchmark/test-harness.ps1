@@ -324,6 +324,10 @@ $costObs = Join-Path $costDir "observability.json"
     (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"finish_node","node_id":"node-1"}' } } | ConvertTo-Json -Compress -Depth 8),
     (@{ type = "response.completed"; response = @{ usage = @{ output_tokens = 7 } } } | ConvertTo-Json -Compress -Depth 8)
 ) | Set-Content -LiteralPath $costJsonl -Encoding UTF8
+@(
+    (@{ type = "event_msg"; payload = @{ type = "token_count"; info = @{ last_token_usage = @{ input_tokens = 100; cached_input_tokens = 10; output_tokens = 11 } } } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ type = "event_msg"; payload = @{ type = "token_count"; info = @{ last_token_usage = @{ input_tokens = 300; cached_input_tokens = 240; output_tokens = 21 } } } } | ConvertTo-Json -Compress -Depth 8)
+) | Set-Content -LiteralPath (Join-Path $costDir "rollout.jsonl") -Encoding UTF8
 [pscustomobject]@{
     timeline = @(
         [pscustomobject]@{ kind = "task_created" },
@@ -342,6 +346,17 @@ Assert-True (Test-Path -LiteralPath $costArtifacts.context_projection_summary_pa
 Assert-True (Test-Path -LiteralPath $costArtifacts.projection_events_path) "projection-events.jsonl was not written"
 Assert-True ([string]$costArtifacts.token_summary.availability -eq "partial") "partial token usage was not marked partial"
 Assert-True ([int]$costArtifacts.request_summary.model_request_count -eq 2) "model request count did not come from usage events"
+Assert-True ([int]$costArtifacts.request_summary.max_input_tokens_per_request -eq 120) "max input tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.p95_input_tokens_per_request -eq 120) "p95 input tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.first_input_tokens_per_request -eq 120) "first input tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.max_output_tokens_per_request -eq 30) "max output tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.p95_output_tokens_per_request -eq 30) "p95 output tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.last_output_tokens_per_request -eq 7) "last output tokens per request was not reported"
+Assert-True ([string]$costArtifacts.request_summary.rollout_trace.availability -eq "measured") "rollout request trace was not measured"
+Assert-True ([int]$costArtifacts.request_summary.rollout_trace.model_request_count -eq 2) "rollout request trace count was not parsed"
+Assert-True ([int]$costArtifacts.request_summary.rollout_trace.input_tokens -eq 400) "rollout request trace input tokens were not summed"
+Assert-True ([int]$costArtifacts.request_summary.rollout_trace.max_input_tokens_per_request -eq 300) "rollout max input tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.rollout_trace.last_input_tokens_per_request -eq 300) "rollout last input tokens per request was not reported"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_control_count -eq 2) "taskspace_control count was not parsed"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.start_task -eq 1) "taskspace_control start_task action was not counted"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.finish_node -eq 1) "taskspace_control finish_node action was not counted"

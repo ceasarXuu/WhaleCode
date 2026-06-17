@@ -179,6 +179,40 @@ Remaining work:
 - Locate the actual request payload or provider-side tool/system component that accounts for the provider input delta.
 - Keep the active tool schema on the proven legacy path until a compact alternative passes both quality and cost evidence.
 
+## 2026-06-17 Cost root-cause: rollout request distribution
+
+Changed:
+
+- `request-summary.json` now includes a `rollout_trace` section parsed from side-local `rollout.jsonl` token-count events.
+- Side `metrics.json` now carries rollout trace request availability, request count, summed input/output tokens, and first/last/max/p95 input-token request sizes.
+- This keeps provider aggregate usage and request-level distribution separate: `whale-exec.jsonl` may expose only one aggregate provider usage object, while `rollout.jsonl` exposes per-request `last_token_usage`.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-rollout-request-trace
+TaskSpace benchmark harness self-test: PASS
+
+Write-TaskspaceCostInstrumentationArtifacts on:
+target\v005-compact-schema-smoke\large-output-ref-smoke\20260617-173706-025\pair-001\right\artifacts
+
+request-summary.json rollout_trace:
+model_request_count: 75
+input_tokens: 1349787
+output_tokens: 14165
+cached_input_tokens: 995200
+first_input_tokens_per_request: 7826
+last_input_tokens_per_request: 29146
+max_input_tokens_per_request: 29146
+p95_input_tokens_per_request: 28560
+```
+
+Findings:
+
+- The earlier cost anomaly is not a cumulative-token parsing bug. Summing `last_token_usage.input_tokens` across 75 token-count events equals the final total input usage.
+- The focused smoke cost failure is now attributable to many moderately large requests, not one hidden 1.35M-token request.
+- Per-request input grows from `7826` to roughly `29K` tokens. The next engineering target is reducing TaskSpace turn count and repeated per-request system/tool/context surface, then proving that with the new rollout trace distribution fields.
+
 ## 2026-06-17 Phase 3 current-install live smoke reconciliation
 
 Reason:
