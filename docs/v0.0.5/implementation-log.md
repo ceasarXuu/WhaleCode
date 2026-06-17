@@ -1343,6 +1343,35 @@ Notes:
 - This closes the runtime `ActionMapGateError` structured recovery gap recorded in `14-implementation-gap-audit.md`.
 - No real E3, live smoke, or Agent-invoking benchmark was run for this change.
 
+## 2026-06-18 Phase 0 release artifact completeness gate
+
+Changed:
+
+- `write-release-decision.ps1` now treats missing required v0.0.5 artifacts as release blockers.
+- Required artifacts checked before a clean decision:
+  - `token-summary.json`
+  - `request-summary.json`
+  - `taskspace-control-usage.json`
+  - `projection-events.jsonl`
+  - `output-ref-events.jsonl`
+  - `compaction-events.jsonl`
+  - `routing-decision.json`
+  - `suite-cost-gate.json`
+  - `suite-map-management-summary.json`
+- Synthetic release-decision tests now include a missing-artifact fixture.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\release-decision-selftest-required-artifacts
+Release decision self-test: PASS
+```
+
+Notes:
+
+- This closes the artifact completeness portion of the Phase 0/4 release gate gaps in `14-implementation-gap-audit.md`.
+- No real E3, live smoke, or Agent-invoking benchmark was run for this change.
+
 ## 2026-06-18 Cost failure diagnostics
 
 Changed:

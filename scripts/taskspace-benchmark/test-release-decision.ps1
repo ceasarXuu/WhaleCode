@@ -27,6 +27,17 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
                 model_request_count_ratio = 1
             }
         }) (Join-Path $dir "suite-cost-gate.json")
+    Write-Json ([pscustomobject]@{ availability = "measured" }) (Join-Path $dir "token-summary.json")
+    Write-Json ([pscustomobject]@{ availability = "measured" }) (Join-Path $dir "request-summary.json")
+    Write-Json ([pscustomobject]@{ availability = "measured" }) (Join-Path $dir "taskspace-control-usage.json")
+    Set-Content -LiteralPath (Join-Path $dir "projection-events.jsonl") -Encoding UTF8 -Value "{}"
+    Set-Content -LiteralPath (Join-Path $dir "output-ref-events.jsonl") -Encoding UTF8 -Value "{}"
+    Set-Content -LiteralPath (Join-Path $dir "compaction-events.jsonl") -Encoding UTF8 -Value "{}"
+    Write-Json ([pscustomobject]@{
+            schema_version = "TaskShapeRouterV1"
+            recommended_mode = "thin"
+            status = "report_only"
+        }) (Join-Path $dir "routing-decision.json")
     Write-Json ([pscustomobject]@{
             schema_version = "taskspace-cost-diagnostics-v1"
             root_cause = "active_profile_repeats_compact_taskspace_context_across_many_model_turns"
@@ -85,6 +96,13 @@ Assert-True (@($failDecision.blockers) -contains "routing_gate_failed") "FAIL fi
 Assert-True ([string]$failDecision.cost_root_cause -eq "active_profile_repeats_compact_taskspace_context_across_many_model_turns") "FAIL fixture did not preserve cost root cause"
 $failMd = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $failDir "release-decision.md")
 Assert-True ($failMd.Contains("rollout_trace_model_request_count_ratio: 18")) "FAIL markdown did not include cost diagnostics"
+
+$missingArtifactDir = New-FixtureRun "missing-artifact" "PASS" $true 0
+Move-Item -LiteralPath (Join-Path $missingArtifactDir "output-ref-events.jsonl") -Destination (Join-Path $missingArtifactDir "output-ref-events.jsonl.bak") -Force
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $missingArtifactDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "missing artifact fixture did not exit 1"
+$missingArtifactDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingArtifactDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($missingArtifactDecision.blockers) -contains "required_artifact_missing:output-ref-events.jsonl") "missing artifact fixture did not report required artifact blocker"
 
 if ($failures.Count -gt 0) {
     Write-Error ("Release decision self-test failed: " + (@($failures.ToArray()) -join "; "))

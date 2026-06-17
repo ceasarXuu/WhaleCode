@@ -50,6 +50,17 @@ $projectionPath = Join-Path $runRoot "context-projection-summary.json"
 $mapPath = Join-Path $runRoot "suite-map-management-summary.json"
 $routingPath = Join-Path $runRoot "suite-routing-summary.json"
 $costDiagnosticsPath = Join-Path $runRoot "cost-diagnostics.json"
+$requiredArtifacts = @(
+    "token-summary.json",
+    "request-summary.json",
+    "taskspace-control-usage.json",
+    "projection-events.jsonl",
+    "output-ref-events.jsonl",
+    "compaction-events.jsonl",
+    "routing-decision.json",
+    "suite-cost-gate.json",
+    "suite-map-management-summary.json"
+)
 $cost = Read-ReleaseJson $costPath
 $aggregate = Read-ReleaseJson $aggregatePath
 $projection = Read-ReleaseJson $projectionPath
@@ -73,6 +84,7 @@ $evidence = [ordered]@{
     map_summary_path = $mapPath
     routing_summary_path = $routingPath
     cost_diagnostics_path = $costDiagnosticsPath
+    required_artifacts = @($requiredArtifacts)
 }
 $qualityPass = ($aggregate -and (Get-ReleaseBool $aggregate "score_valid") -and (Get-ReleaseString $aggregate "run_validity") -eq "valid")
 $costStatus = Get-ReleaseString $cost "status" "MISSING"
@@ -82,6 +94,11 @@ $routingPass = ($routing -and (Get-ReleaseString $routing "availability") -eq "m
 $outputRefPass = ($maxLargeReplay -eq 0)
 
 $blockers = New-Object System.Collections.Generic.List[string]
+foreach ($artifactName in $requiredArtifacts) {
+    if (-not (Test-Path -LiteralPath (Join-Path $runRoot $artifactName))) {
+        Add-ReleaseLine $blockers "required_artifact_missing:$artifactName"
+    }
+}
 if (-not $qualityPass) { Add-ReleaseLine $blockers "quality_gate_failed" }
 if ($costStatus -eq "MISSING") { Add-ReleaseLine $blockers "cost_gate_missing" }
 elseif ($costStatus -eq "FAIL") { Add-ReleaseLine $blockers "cost_gate_failed" }
