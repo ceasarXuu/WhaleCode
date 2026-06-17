@@ -190,6 +190,54 @@ Conclusion:
   inspect -> implement -> regression test -> final synthesis.
 - The run is still E2-candidate only because `Repeats=1` leaves `repeats_lt_3`; it supports engineering reconciliation, not final release PASS.
 
+## 2026-06-17 Phase 5 report-only routing-decision artifact
+
+Changed:
+
+- Added `TaskShapeRouterV1` report-only decision generation to the benchmark harness.
+- `run-taskspace-benchmark.ps1` now writes `routing-decision.json` during preflight for every run.
+- The decision includes:
+  - `recommended_mode`: `thin`, `verification_first`, or `default_compact`
+  - `confidence`
+  - prompt/runtime feature summary
+  - initial constraints such as `subagent_allowed`, `node_budget`, `state_commit_budget`, and `large_output_policy`
+- The router is intentionally `status=report_only`; this creates Phase 5 acceptance evidence without changing model behavior before the route quality is measured.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-routing-decision
+TaskSpace benchmark harness self-test: PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -RunRoot target\v005-routing-planonly -PlanOnly
+RunDir: target\v005-routing-planonly\large-output-ref-smoke\20260617-162236-925
+```
+
+Plan-only artifact evidence:
+
+```json
+{
+  "schema_version": "TaskShapeRouterV1",
+  "status": "report_only",
+  "scenario_id": "large-output-ref-smoke",
+  "recommended_mode": "thin",
+  "confidence": "high",
+  "initial_constraints": {
+    "subagent_allowed": false,
+    "node_budget": 4,
+    "state_commit_budget": 4,
+    "large_output_policy": "ref-only",
+    "must_read_validator_first": false
+  }
+}
+```
+
+Conclusion:
+
+- Phase 5 now has a concrete routing artifact path for every benchmark run.
+- The next Phase 5 step is to aggregate route adherence from completed pair metrics:
+  thin runs should keep `spawn_agent_calls=0`, stay within node budget, and avoid escalating unless validator ambiguity appears.
+
 ## 2026-06-17 Phase 3 context projection metrics artifacts
 
 Changed:

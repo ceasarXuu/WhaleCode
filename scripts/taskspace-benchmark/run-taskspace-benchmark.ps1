@@ -74,6 +74,10 @@ $promptCopy = Join-Path $runDir "prompt.txt"
 Write-Text $promptCopy $prompt
 Write-TaskspaceJson $promptGuard (Join-Path $runDir "prompt-guard.json")
 Write-TaskspaceRunEvent $runDir "prompt_guard_completed" @{ invalid_prompt = [bool]$promptGuard.invalid_prompt; manual_review_required = [bool]$promptGuard.manual_review_required }
+$routingDecision = New-TaskspaceRoutingDecision $manifest $prompt
+$routingDecisionPath = Join-Path $runDir "routing-decision.json"
+Write-TaskspaceJson $routingDecision $routingDecisionPath
+Write-TaskspaceRunEvent $runDir "routing_decision_completed" @{ mode = [string]$routingDecision.recommended_mode; confidence = [string]$routingDecision.confidence; status = [string]$routingDecision.status; path = $routingDecisionPath }
 $whaleVersion = if (Test-Path -LiteralPath $WhaleBin) { (& $WhaleBin --version 2>&1) -join " " } else { "" }
 $whaleSha = if (Test-Path -LiteralPath $WhaleBin) { Get-TaskspaceFileSha256 $WhaleBin } else { "" }
 $fixtureSha = Get-TaskspaceDirectorySha256 $manifest.FixtureDir

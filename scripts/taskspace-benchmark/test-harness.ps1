@@ -7,6 +7,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $repoRoot "scripts\action-map-real-user-e2e-lib.ps1")
 . (Join-Path $repoRoot "scripts\action-map-graph-health-lib.ps1")
 . (Join-Path $PSScriptRoot "lib\scenario-manifest.ps1")
+. (Join-Path $PSScriptRoot "lib\routing-decision.ps1")
 . (Join-Path $PSScriptRoot "lib\prompt-guard.ps1")
 . (Join-Path $PSScriptRoot "lib\workspace.ps1")
 . (Join-Path $PSScriptRoot "lib\oracle-runner.ps1")
@@ -41,6 +42,19 @@ $manifestByPath = Read-TaskspaceScenarioManifest $repoRoot "" $manifest.Scenario
 Assert-True ($manifestByPath.Id -eq $manifest.Id) "ScenarioPath manifest read did not preserve id"
 Assert-True ($manifestByPath.ScenarioRoot -eq $manifest.ScenarioRoot) "ScenarioPath manifest read resolved a different root"
 Assert-Throws { Assert-TaskspaceManifestField ([pscustomobject]@{ id = "x" }) "prompt_file" } "manifest validation did not reject missing field"
+$singleFileRouting = New-TaskspaceRoutingDecision $manifest "Fix the implementation and run tests."
+Assert-True ([string]$singleFileRouting.schema_version -eq "TaskShapeRouterV1") "routing decision schema version was not written"
+Assert-True ([string]$singleFileRouting.status -eq "report_only") "routing decision should be report-only"
+Assert-True ([string]$singleFileRouting.recommended_mode -eq "thin") "single-file scenario did not route to thin"
+Assert-True (-not [bool]$singleFileRouting.initial_constraints.subagent_allowed) "thin routing allowed subagents by default"
+$verificationManifest = [pscustomobject]@{
+    Id = "count-call-stack"; Level = "L1"; HiddenOracleStrategy = "count-call-stack-format-v1"
+    PublicValidation = [pscustomobject]@{ command = "python"; args = @("validator.py") }
+    Expected = [pscustomobject]@{ max_taskspace_nodes = 4; max_taskspace_spawn_agent_calls = 0 }
+}
+$verificationRouting = New-TaskspaceRoutingDecision $verificationManifest "Produce exact output format."
+Assert-True ([string]$verificationRouting.recommended_mode -eq "verification_first") "format-sensitive scenario did not route to verification_first"
+Assert-True ([bool]$verificationRouting.initial_constraints.must_read_validator_first) "verification_first did not require validator-first"
 
 $hardGuard = Invoke-TaskspacePromptGuard -PromptText "Enable taskspace and split the work across multiple agents."
 Assert-True ($hardGuard.invalid_prompt) "hard internal prompt token was not invalid"
