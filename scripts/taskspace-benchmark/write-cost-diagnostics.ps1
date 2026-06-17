@@ -72,8 +72,11 @@ if ((Get-Num $taskspace.projection_protected_miss_count) -gt 0) { $drivers.Add("
 if ((Get-Num $taskspace.spawn_agent_calls) -gt 0) { $drivers.Add("subagent_fanout_present") }
 if ((Get-Num $taskspace.runtime_state_commit_count) -eq 0) { $drivers.Add("state_commit_runtime_adoption_absent") }
 
+$costStatus = if ($costGate) { [string]$costGate.status } else { "MISSING" }
 $rootCause = "unknown"
-if ($rolloutReqRatio -gt 2.5 -and (Get-Num $taskspace.projection_tokens) -lt 10000 -and (Get-Num $taskspace.large_output_replay_count) -eq 0) {
+if ($costStatus -eq "PASS") {
+    $rootCause = "none_cost_gate_passed"
+} elseif ($rolloutReqRatio -gt 2.5 -and (Get-Num $taskspace.projection_tokens) -lt 10000 -and (Get-Num $taskspace.large_output_replay_count) -eq 0) {
     $rootCause = "active_profile_repeats_compact_taskspace_context_across_many_model_turns"
 } elseif ($avgProviderInputRatio -gt 3.0) {
     $rootCause = "provider_visible_base_context_too_large"
@@ -85,7 +88,7 @@ $diagnostics = [pscustomobject]@{
     schema_version = "taskspace-cost-diagnostics-v1"
     run_root = (Resolve-Path -LiteralPath $RunRoot).Path
     generated_at = (Get-Date).ToString("o")
-    cost_gate_status = if ($costGate) { [string]$costGate.status } else { "MISSING" }
+    cost_gate_status = $costStatus
     root_cause = $rootCause
     drivers = @($drivers.ToArray())
     ratios = [pscustomobject]@{

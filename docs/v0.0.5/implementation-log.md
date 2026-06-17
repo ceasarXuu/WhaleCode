@@ -616,6 +616,75 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 Release decision self-test: PASS
 ```
 
+## 2026-06-18 Thin direct-final prompt policy
+
+Changed:
+
+- Updated BaseMap and active projection developer context so thin/single-file work does not create `final_synthesis` only to summarize.
+- New compact-profile guidance is:
+  - `inspect_code_context -> implement_solution -> smoke_test/regression_test`
+  - record accepted validation evidence
+  - answer directly
+- `final_synthesis` remains available for unresolved synthesis across multiple accepted results; runtime gates for validation evidence and hidden orchestration terms were not relaxed.
+- Cost diagnostics now reports `root_cause=none_cost_gate_passed` when `suite-cost-gate.json` is `PASS`; high rollout/uncached ratios remain residual drivers rather than a failing root cause.
+
+Validation:
+
+```text
+cargo test -p codex-core --lib developer_context_uses_active_projection_replacement_after_task_start --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core --lib basemap_exposes_expected_candidate_nodes --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-directfinal
+TaskSpace benchmark harness self-test: PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-diagnostics.ps1 -RunRoot target\cost-diagnostics-selftest-passroot
+TaskSpace cost diagnostics self-test: PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\release-decision-selftest-costdiag2
+Release decision self-test: PASS
+```
+
+Build and install:
+
+```text
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev profile
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -PersistUserPath -BackupLegacyCopies
+Installed Whale: C:\Users\77585\.whale\bin\whale.exe
+Installed Whale hash: 2B424FD1731BA34A89544D8F8E483710C73DC8C027DE7BD6D441945CC98F059A
+```
+
+Focused smoke:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario count-call-stack -Repeats 1 -RunRoot target\v005-count-call-stack-directfinal-2b42 -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-count-call-stack-directfinal-2b42\count-call-stack\20260618-001617-525
+```
+
+Observed:
+
+- cost gate: `PASS`
+- direct input+output ratio: `1.5391`
+- walltime ratio: `1.2372`
+- provider model request count ratio: `1`
+- routing mode: `verification_first`
+- routing mistakes: `0`
+- expected format decision count: `1`
+- TaskSpace nodes: `3`
+- spawn agent calls: `0`
+- large output replay count: `0`
+- projection protected misses: `0`
+- release decision: `FAIL` only because this focused smoke uses `Repeats=1`, so `excluded_pairs_present` / `repeats_lt_3` remains a formal release-decision blocker.
+
+Conclusion:
+
+- The direct-final prompt policy moved the focused `count-call-stack` active profile from cost `FAIL` to cost `PASS`.
+- Residual diagnostics still show high rollout trace turns and uncached input ratio, so broader E3 remains necessary before release success can be claimed.
+
 ## 2026-06-17 Phase 1 active context projection wiring
 
 Changed:

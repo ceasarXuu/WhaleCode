@@ -4651,7 +4651,7 @@ preview:\n\
             "Before ordinary work, the agent must decide whether the user's current request belongs to an existing task or needs a new task. Runtime exposes task ids and validates structure only; the agent performs semantic task routing with taskspace_control(action=route_task) or taskspace_control(action=start_task).\n",
         );
         context.push_str(
-            "Use the minimum sufficient task map. For a simple single-file or single-failure task, prefer one main-agent chain: inspect_code_context -> implement_solution -> smoke_test/regression_test -> final_synthesis. Do not create extra ready inspect nodes or call spawn_agent for simple work unless new evidence shows independent tracks that would materially reduce risk or context load.\n",
+            "Use the minimum sufficient task map. For a simple single-file or single-failure task, prefer one main-agent chain: inspect_code_context -> implement_solution -> smoke_test/regression_test, then answer directly after accepted validation evidence is recorded. Do not create a final_synthesis node just to summarize thin work. Do not create extra ready inspect nodes or call spawn_agent for simple work unless new evidence shows independent tracks that would materially reduce risk or context load.\n",
         );
         context.push_str(
             "Complexity trigger for collaboration: if the user request already names or implies two or more distinct functional surfaces, modules, file groups, validators, or evidence classes, do not spend the initial main inspect node reading every surface. Use the main inspect node to identify the track boundaries, then finish it, create separate ready inspect_code_context nodes for at least two independent tracks, and call spawn_agent for each ready track. The main agent should then integrate accepted node results and create implementation/validation nodes from that model.\n",
@@ -4681,7 +4681,7 @@ preview:\n\
             "If a smoke_test or regression_test node reveals a failure that needs edits, record that test result on the test node, finish or block the test node, create or bind an implement_solution node for the fix, then finish that implementation node and create or bind a smoke_test/regression_test node to rerun validation. Do not enter final_synthesis while validation is missing or failing.\n",
         );
         context.push_str(
-            "final_synthesis is answer-only after accepted validation: do not edit, test, build, spawn agents, or call ordinary tools from final_synthesis. If more work is needed, create or bind the correct non-final node first. The final answer must describe user-visible phases, files, tests, and outcomes without internal TaskSpace terms such as task, map, node, subagent, spawn, lease, final_synthesis, or taskspace_control unless the user explicitly asks to debug TaskSpace. If the user asks how work was organized, describe visible phases, files, tests, and outcomes only; never mention hidden execution roles or words such as subagent, explorer, agent, delegated, parallel, evidence track, fan-out, or spawn. Collapse hidden orchestration into ordinary phrases such as investigation, implementation, and validation.\n",
+            "final_synthesis is optional synthesis work, not the default final step for thin tasks. Use it only when multiple accepted results still need answer-only synthesis. For thin/single-file work, record accepted validation and answer directly. If final_synthesis is used, do not edit, test, build, spawn agents, or call ordinary tools from it. If more work is needed, create or bind the correct non-final node first. The final answer must describe user-visible phases, files, tests, and outcomes without internal TaskSpace terms such as task, map, node, subagent, spawn, lease, final_synthesis, or taskspace_control unless the user explicitly asks to debug TaskSpace. If the user asks how work was organized, describe visible phases, files, tests, and outcomes only; never mention hidden execution roles or words such as subagent, explorer, agent, delegated, parallel, evidence track, fan-out, or spawn. Collapse hidden orchestration into ordinary phrases such as investigation, implementation, and validation.\n",
         );
         context.push_str(node_kind_selection_prompt());
         context.push('\n');
@@ -4854,7 +4854,7 @@ preview:\n\
             append_omitted_count(&mut context, self.tasks.len(), 6, "tasks");
         }
         context.push_str(
-            "Use the minimum sufficient map. Thin/single-file fixes should follow inspect_code_context -> implement_solution -> smoke_test/regression_test -> final_synthesis without subagents. Prefer state_commit for multi-section state updates.\n",
+                "Use the minimum sufficient map. Thin/single-file fixes should follow inspect_code_context -> implement_solution -> smoke_test/regression_test, then direct final answer after accepted validation, without subagents or a summary-only final_synthesis node. Prefer state_commit for multi-section state updates.\n",
         );
         if self.reborn_requested {
             context.push_str(
@@ -4875,7 +4875,7 @@ preview:\n\
             "TaskSpace v0.0.5 active compact profile is enabled. Use this compact projection as the model-visible TaskSpace surface; runtime state remains authoritative.\n",
         );
         context.push_str(
-            "Use taskspace_control for state changes. Prefer state_commit for multi-section updates. Keep simple fixes on the narrow path: inspect_code_context -> implement_solution -> smoke_test/regression_test -> final_synthesis. Do not spawn agents for thin/single-file work unless new evidence reveals independent tracks.\n",
+            "Use taskspace_control for state changes. Prefer state_commit for multi-section updates. Keep simple fixes on the narrow path: inspect_code_context -> implement_solution -> smoke_test/regression_test, then direct final answer after accepted validation. Do not create final_synthesis only to summarize thin work. Do not spawn agents for thin/single-file work unless new evidence reveals independent tracks.\n",
         );
         if self.bootstrap_required {
             context.push_str(
@@ -8479,11 +8479,7 @@ fn broad_completed_inspect_node_ids(
         .filter(|node| {
             node.kind == NodeKind::InspectCodeContext
                 && node.status == NodeStatus::Completed
-                && completed_main_inspect_has_broad_accepted_result(
-                    map,
-                    &node.id,
-                    owner_session_id,
-                )
+                && completed_main_inspect_has_broad_accepted_result(map, &node.id, owner_session_id)
         })
         .map(|node| node.id.clone())
         .collect::<Vec<_>>();
@@ -12138,6 +12134,13 @@ mod tests {
         let context = state.build_developer_context().expect("developer context");
 
         assert!(context.contains("TaskSpace v0.0.5 active compact profile is enabled."));
+        assert!(context.contains("then direct final answer after accepted validation"));
+        assert!(context.contains("Do not create final_synthesis only to summarize thin work"));
+        assert!(
+            !context.contains(
+                "inspect_code_context -> implement_solution -> smoke_test/regression_test -> final_synthesis"
+            )
+        );
         assert!(context.contains("ContextProjectionV1 active replacement:"));
         assert!(context.contains("Use taskspace_control for state changes."));
         assert!(!context.contains("promote_taskspace"));
@@ -14627,7 +14630,10 @@ mod tests {
         assert_eq!(task.problem_ledger.success_criteria.len(), 2);
         assert_eq!(task.problem_ledger.success_criteria[0].id, "sc-1");
         assert_eq!(task.problem_ledger.success_criteria[0].kind, "validator");
-        assert_eq!(task.problem_ledger.success_criteria[1].id, "oc-user-request");
+        assert_eq!(
+            task.problem_ledger.success_criteria[1].id,
+            "oc-user-request"
+        );
         assert_eq!(task.cognitive_state.output_contracts.len(), 1);
         assert_eq!(task.cognitive_state.fact_sources.len(), 1);
     }
@@ -14655,8 +14661,14 @@ mod tests {
             .expect("seeded scaffold satisfies preflight");
         let snapshot = state.snapshot();
         let task = snapshot.tasks.first().expect("task snapshot");
-        assert_eq!(task.problem_ledger.success_criteria[0].id, "sc-user-request");
-        assert_eq!(task.cognitive_state.output_contracts[0].id, "oc-user-request");
+        assert_eq!(
+            task.problem_ledger.success_criteria[0].id,
+            "sc-user-request"
+        );
+        assert_eq!(
+            task.cognitive_state.output_contracts[0].id,
+            "oc-user-request"
+        );
         assert_eq!(task.cognitive_state.fact_sources[0].id, "fs-user-request");
     }
 
@@ -15434,10 +15446,7 @@ mod tests {
             map.nodes.get("node-1").expect("validation node").status,
             NodeStatus::Completed
         );
-        assert_eq!(
-            state.current_main_node_id.as_deref(),
-            Some("node-2")
-        );
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
     }
 
     #[test]

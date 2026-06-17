@@ -65,4 +65,15 @@ Assert-True ([string]$diag.root_cause -eq "active_profile_repeats_compact_tasksp
 Assert-True (@($diag.drivers) -contains "rollout_request_count_over_partial_budget") "rollout request driver missing"
 Assert-True ([double]$diag.ratios.rollout_trace_model_request_count_ratio -eq 18) "rollout request ratio incorrect"
 
+$passRoot = Join-Path $RunRoot "pass"
+$passLeft = Join-Path $passRoot "pair-001\left\artifacts"
+$passRight = Join-Path $passRoot "pair-001\right\artifacts"
+New-Item -ItemType Directory -Path $passLeft, $passRight -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $left "metrics.json") -Destination (Join-Path $passLeft "metrics.json")
+Copy-Item -LiteralPath (Join-Path $right "metrics.json") -Destination (Join-Path $passRight "metrics.json")
+[pscustomobject]@{ status = "PASS" } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $passRoot "suite-cost-gate.json") -Encoding UTF8
+$passResult = & (Join-Path $PSScriptRoot "write-cost-diagnostics.ps1") -RunRoot $passRoot
+$passDiag = Get-Content -Raw -Encoding UTF8 -LiteralPath $passResult.cost_diagnostics_path | ConvertFrom-Json
+Assert-True ([string]$passDiag.root_cause -eq "none_cost_gate_passed") "PASS fixture reported a cost root cause"
+
 Write-Host "TaskSpace cost diagnostics self-test: PASS"
