@@ -197,6 +197,42 @@ Remaining issues:
 - Graph health still warns on `high_unreviewed_result_ratio`.
 - Wall-time ratio remains high at `3.82`; Phase 3 context projection/prompt-size work is still required before claiming cost improvement.
 
+## 2026-06-17 Phase 2 OutputReferenceV1 contract and redacted slices
+
+Changed:
+
+- Model-visible `OutputReferenceV1` now includes the schema/checklist fields:
+  - `output_ref`
+  - `sha256`
+  - `bytes`
+  - `summary`
+  - `raw_output_elided: true`
+  - `suggested_slices`
+- Kept `artifact_ref` as a compatibility alias for existing `read_output_ref` guidance and metrics.
+- Added `sensitive_data_scan: redacted_model_visible` to output references and output slices.
+- Redacts common model-visible secret patterns in head/tail/slice text, including bearer authorization headers and assignment-style `api_key`, `access_token`, `refresh_token`, `secret`, `password`, and `credential` values.
+- Raw artifact bytes and SHA-256 remain unchanged for auditability; only model-visible summaries and bounded slices are redacted.
+
+Validation:
+
+```text
+cargo test -p codex-core output_reference --lib
+7 passed
+
+cargo test -p codex-core read_output_ref --lib
+1 passed
+
+cargo test -p codex-core exec_command_tool_output_referenceizes_large_response --lib
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-outputref-redaction-contract
+TaskSpace benchmark harness self-test: PASS
+```
+
+Remaining Phase 2 caveat:
+
+- The current redaction scanner is intentionally conservative pattern-based protection. It is sufficient for the v0.0.5 contract gate, but a later security pass should replace it with a shared, configurable secret detector if output artifacts become a broader platform surface.
+
 ## 2026-06-17 Phase 1 state_commit tool schema visibility and validator block guard
 
 Changed:

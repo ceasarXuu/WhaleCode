@@ -51,17 +51,24 @@ impl OutputReferenceV1 {
             artifact_ref: None,
             bytes: raw_output.len(),
             lines: text.lines().count(),
-            head: take_bytes_at_char_boundary(&text, OUTPUT_REFERENCE_SLICE_BYTES).to_string(),
-            tail: take_tail_bytes_at_char_boundary(&text, OUTPUT_REFERENCE_SLICE_BYTES),
+            head: redact_sensitive_text(take_bytes_at_char_boundary(
+                &text,
+                OUTPUT_REFERENCE_SLICE_BYTES,
+            )),
+            tail: redact_sensitive_text(&take_tail_bytes_at_char_boundary(
+                &text,
+                OUTPUT_REFERENCE_SLICE_BYTES,
+            )),
         }
     }
 
     pub(crate) fn to_model_visible_text(&self) -> String {
-        let artifact_ref = self.artifact_ref.as_deref().unwrap_or("unavailable");
+        let output_ref = self.artifact_ref.as_deref().unwrap_or("unavailable");
         format!(
-            "OutputReferenceV1:\nsha256: {}\nartifact_ref: {}\nbytes: {}\nlines: {}\npolicy: {}\ninline_head_bytes: {}\ninline_tail_bytes: {}\n\n[head]\n{}\n\n[tail]\n{}",
+            "OutputReferenceV1:\noutput_ref: {}\nartifact_ref: {}\nsha256: {}\nbytes: {}\nlines: {}\npolicy: {}\nraw_output_elided: true\nsummary: Raw output is stored as an audit artifact and only bounded redacted slices are model-visible.\nsensitive_data_scan: redacted_model_visible\ninline_head_bytes: {}\ninline_tail_bytes: {}\nsuggested_slices:\n- mode=head max_bytes=4096\n- mode=tail max_bytes=4096\n- mode=line_range start_line=1 end_line=40 max_bytes=4096\n- mode=grep pattern=<literal> max_bytes=4096\n\n[head]\n{}\n\n[tail]\n{}",
+            output_ref,
+            output_ref,
             self.sha256,
-            artifact_ref,
             self.bytes,
             self.lines,
             self.policy.as_str(),
@@ -170,8 +177,9 @@ pub(crate) async fn read_output_artifact_slice(
         } => bounded_line_range(&text, start_line, end_line, max_bytes),
         OutputSliceMode::Grep { pattern } => bounded_grep(&text, &pattern, max_bytes),
     };
+    let slice = redact_sensitive_text(&slice);
     Ok(format!(
-        "OutputSliceV1:\nartifact_ref: {output_ref}\nsha256: {sha}\nbytes: {}\n\n{}",
+        "OutputSliceV1:\nartifact_ref: {output_ref}\nsha256: {sha}\nbytes: {}\nsensitive_data_scan: redacted_model_visible\n\n{}",
         slice.len(),
         slice
     ))
@@ -235,6 +243,54 @@ fn take_tail_bytes_at_char_boundary(text: &str, max_bytes: usize) -> String {
     text[start..].to_string()
 }
 
+fn redact_sensitive_text(text: &str) -> String {
+    text.lines()
+        .map(redact_sensitive_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn redact_sensitive_line(line: &str) -> String {
+    let trimmed = line.trim_start();
+    let lowercase = trimmed.to_ascii_lowercase();
+    if lowercase.starts_with("authorization: bearer ") {
+        let prefix_len = line.len() - trimmed.len() + "authorization: bearer ".len();
+        return format!("{}[REDACTED]", &line[..prefix_len]);
+    }
+    for key in [
+        "api_key",
+        "apikey",
+        "access_token",
+        "refresh_token",
+        "secret",
+        "password",
+        "credential",
+    ] {
+        if let Some(redacted) = redact_assignment_value(line, key) {
+            return redacted;
+        }
+    }
+    line.to_string()
+}
+
+fn redact_assignment_value(line: &str, key: &str) -> Option<String> {
+    let lowercase = line.to_ascii_lowercase();
+    let key_start = lowercase.find(key)?;
+    let after_key = &line[key_start + key.len()..];
+    let delimiter_offset = after_key.find(['=', ':'])?;
+    let value_start = key_start + key.len() + delimiter_offset + 1;
+    if line[value_start..].trim().is_empty() {
+        return None;
+    }
+    let value_indent = line[value_start..]
+        .chars()
+        .take_while(|ch| ch.is_whitespace())
+        .map(char::len_utf8)
+        .sum::<usize>();
+    let redaction_start = value_start + value_indent;
+    Some(format!("{}[REDACTED]", &line[..redaction_start]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,12 +322,32 @@ mod tests {
             .expect("large output should be referenceized");
 
         assert!(text.contains("OutputReferenceV1:"));
+        assert!(text.contains("output_ref: output-ref://sha256/test"));
         assert!(text.contains("policy: referenced_large_output"));
         assert!(text.contains("artifact_ref: output-ref://sha256/test"));
+        assert!(text.contains("raw_output_elided: true"));
+        assert!(text.contains("suggested_slices:"));
         assert!(text.contains("sha256:"));
         assert!(text.contains("head-visible"));
         assert!(text.contains("tail-visible"));
         assert!(text.matches("middle-secret-marker").count() < 300);
+    }
+
+    #[test]
+    fn reference_text_redacts_sensitive_head_and_tail_values() {
+        let mut raw_output = Vec::new();
+        raw_output.extend_from_slice(b"api_key = sk-live-secret\n");
+        raw_output.extend_from_slice("middle\n".repeat(20_000).as_bytes());
+        raw_output.extend_from_slice(b"Authorization: Bearer tail-secret-token\n");
+
+        let text = reference_text_for_raw_output(&raw_output, Some("output-ref://sha256/test"))
+            .expect("large output should be referenceized");
+
+        assert!(text.contains("api_key = [REDACTED]"));
+        assert!(text.contains("Authorization: Bearer [REDACTED]"));
+        assert!(!text.contains("sk-live-secret"));
+        assert!(!text.contains("tail-secret-token"));
+        assert!(text.contains("sensitive_data_scan: redacted_model_visible"));
     }
 
     #[tokio::test]
@@ -328,6 +404,34 @@ mod tests {
 
         assert!(slice.contains("OutputSliceV1:"));
         assert!(slice.contains("needle one"));
+        assert!(slice.contains("sensitive_data_scan: redacted_model_visible"));
         assert!(slice.len() < 512);
+    }
+
+    #[tokio::test]
+    async fn read_output_artifact_slice_redacts_sensitive_values() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let rollout_path = temp.path().join("rollout-test.jsonl");
+        let raw_output = "alpha\npassword: hunter2\nbeta\n".repeat(3000).into_bytes();
+        let artifact_ref = write_output_artifact_for_rollout(Some(&rollout_path), &raw_output)
+            .await
+            .expect("write artifact")
+            .expect("artifact ref");
+
+        let slice = read_output_artifact_slice(
+            Some(&rollout_path),
+            &artifact_ref,
+            OutputSliceRequest {
+                mode: OutputSliceMode::Grep {
+                    pattern: "password".to_string(),
+                },
+                max_bytes: 256,
+            },
+        )
+        .await
+        .expect("read slice");
+
+        assert!(slice.contains("password: [REDACTED]"));
+        assert!(!slice.contains("hunter2"));
     }
 }
