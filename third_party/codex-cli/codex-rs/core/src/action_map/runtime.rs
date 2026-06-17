@@ -1147,6 +1147,7 @@ impl ActionMapRuntimeState {
         }
         if descriptor.action_class != ActionClass::Control
             && main_tool_result_count + reserved_tool_count >= budget
+            && should_enforce_tool_budget_barrier(map, node, owner_session_id)
         {
             let barrier = ActionMapMaintenanceBarrier {
                 map_id: map_id.clone(),
@@ -1306,7 +1307,9 @@ preview:\n\
             let main_tool_result_count =
                 count_node_results_of_kind(node, NodeResultKind::MainToolCall);
             let budget = contract_for(node.kind).max_main_tool_results_before_split_hint;
-            let raised_barrier = if main_tool_result_count >= budget
+            let should_raise_barrier = node.kind != NodeKind::InspectCodeContext;
+            let raised_barrier = if should_raise_barrier
+                && main_tool_result_count >= budget
                 && !self.maintenance_barriers.contains_key(&map_id)
             {
                 Some(ActionMapMaintenanceBarrier {
@@ -8030,18 +8033,21 @@ fn broad_completed_inspect_node_ids(
         .filter(|node| {
             node.kind == NodeKind::InspectCodeContext
                 && node.status == NodeStatus::Completed
-                && (count_node_results_of_kind(node, NodeResultKind::MainToolCall)
-                    >= contract_for(node.kind).max_main_tool_results_before_split_hint
-                    || completed_main_inspect_has_broad_accepted_result(
-                        map,
-                        &node.id,
-                        owner_session_id,
-                    ))
+                && completed_main_inspect_has_broad_accepted_result(map, &node.id, owner_session_id)
         })
         .map(|node| node.id.clone())
         .collect::<Vec<_>>();
     node_ids.sort();
     node_ids
+}
+
+fn should_enforce_tool_budget_barrier(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    owner_session_id: ThreadId,
+) -> bool {
+    node.kind != NodeKind::InspectCodeContext
+        || completed_main_inspect_has_broad_accepted_result(map, &node.id, owner_session_id)
 }
 
 fn completed_main_inspect_has_broad_accepted_result(
@@ -10380,10 +10386,13 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        start_test_task(
+        start_test_task_with_kind(
             &mut state,
             owner,
+            NodeKind::ImplementSolution,
             "Barrier order",
+            "Fill the main tool budget.",
+            "Implementation node",
             "Fill the main tool budget.",
             true,
         );
@@ -12950,15 +12959,18 @@ mod tests {
     }
 
     #[test]
-    fn broad_main_node_hits_maintenance_barrier_after_tool_budget() {
+    fn implementation_node_hits_maintenance_barrier_after_tool_budget() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        let (_, _, node_id, _) = start_test_task(
+        let (_, _, node_id, _) = start_test_task_with_kind(
             &mut state,
             owner,
+            NodeKind::ImplementSolution,
             "Inspect architecture",
-            "Broad inspection node used by the regression fixture.",
+            "Implementation node used by the regression fixture.",
+            "Implementation budget",
+            "Implementation node used by the regression fixture.",
             true,
         );
 
@@ -12987,15 +12999,67 @@ mod tests {
     }
 
     #[test]
+    fn narrow_inspect_budget_exhaustion_can_finish_into_implementation() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, inspect_node_id, _) = start_test_task(
+            &mut state,
+            owner,
+            "Single file fix",
+            "Inspect one source file, one test file, and a diagnostic command.",
+            true,
+        );
+
+        fill_main_tool_budget(&mut state, owner);
+        state
+            .prepare_main_tool_call(owner, "shell")
+            .expect("narrow inspect can continue past the split hint");
+        let (result_id, _) = state
+            .record_main_tool_result(
+                owner,
+                "call-over-budget",
+                "shell",
+                true,
+                "read one more small file".to_string(),
+            )
+            .expect("over-budget narrow inspect result records")
+            .expect("result id");
+        accept_test_result(&mut state, owner, &result_id);
+        state
+            .finish_main_node_with_next(
+                owner,
+                &inspect_node_id,
+                "Narrow single-track inspection found the implementation target.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    title: "Fix single file".to_string(),
+                    kind: NodeKind::ImplementSolution,
+                    context_summary: "Apply the small single-file fix.".to_string(),
+                    dependency_node_ids: vec![inspect_node_id.clone()],
+                }),
+            )
+            .expect("narrow inspect can finish directly into implementation");
+
+        let snapshot = state.snapshot();
+        assert!(snapshot.maintenance_barriers.is_empty());
+        assert_eq!(snapshot.maps[0].nodes.len(), 2);
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+    }
+
+    #[test]
     fn maintenance_barrier_allows_subagent_on_different_ready_node() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        start_test_task(
+        start_test_task_with_kind(
             &mut state,
             owner,
+            NodeKind::ImplementSolution,
             "Broad inspection",
-            "A broad node that will hit the main tool budget.",
+            "An implementation node that will hit the main tool budget.",
+            "Budgeted implementation",
+            "An implementation node that will hit the main tool budget.",
             true,
         );
         state
@@ -13030,10 +13094,13 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        start_test_task(
+        start_test_task_with_kind(
             &mut state,
             owner,
+            NodeKind::ImplementSolution,
             "Parallel inspection",
+            "A node that receives many parallel read calls.",
+            "Parallel implementation",
             "A node that receives many parallel read calls.",
             true,
         );
@@ -13161,9 +13228,12 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        start_test_task(
+        start_test_task_with_kind(
             &mut state,
             owner,
+            NodeKind::ImplementSolution,
+            "Broad implementation",
+            "A broad node that should be split after budget pressure.",
             "Broad implementation",
             "A broad node that should be split after budget pressure.",
             true,
@@ -13236,13 +13306,11 @@ mod tests {
             )
             .expect("budget alone should not force delegation for a single-track inspect");
         accept_test_result(&mut state, owner, &outcome.result_id);
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::MaintenanceBarrierCleared(event)
-                    if event.node_id == "node-1"
-            )
-        }));
+        assert!(
+            !events
+                .iter()
+                .any(|event| { matches!(event, MapRuntimeEvent::MaintenanceBarrierCleared(_)) })
+        );
         assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
     }
 
@@ -13268,13 +13336,11 @@ mod tests {
             )
             .expect("broad inspect can finish without binding implementation");
         accept_test_result(&mut state, owner, &outcome.result_id);
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::MaintenanceBarrierCleared(event)
-                    if event.node_id == "node-1"
-            )
-        }));
+        assert!(
+            !events
+                .iter()
+                .any(|event| { matches!(event, MapRuntimeEvent::MaintenanceBarrierCleared(_)) })
+        );
         assert!(state.current_main_node_id.is_none());
     }
 
@@ -13455,8 +13521,9 @@ mod tests {
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         state
-            .start_task_for_main(
+            .start_task_for_main_with_kind(
                 owner,
+                NodeKind::ImplementSolution,
                 "Architecture audit".to_string(),
                 "Find architecture risks.".to_string(),
                 "Broad architecture audit".to_string(),
@@ -13519,8 +13586,9 @@ mod tests {
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         state
-            .start_task_for_main(
+            .start_task_for_main_with_kind(
                 owner,
+                NodeKind::ImplementSolution,
                 "Broad task".to_string(),
                 "Task that triggers the maintenance barrier.".to_string(),
                 "Broad node".to_string(),
@@ -13558,8 +13626,9 @@ mod tests {
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         state
-            .start_task_for_main(
+            .start_task_for_main_with_kind(
                 owner,
+                NodeKind::ImplementSolution,
                 "Broad task".to_string(),
                 "Task that triggers the maintenance barrier.".to_string(),
                 "Broad node".to_string(),
@@ -13604,10 +13673,13 @@ mod tests {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        start_test_task(
+        start_test_task_with_kind(
             &mut state,
             owner,
+            NodeKind::ImplementSolution,
             "Broad task",
+            "A node that has become too broad.",
+            "Broad node",
             "A node that has become too broad.",
             true,
         );

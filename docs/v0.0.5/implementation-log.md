@@ -135,6 +135,68 @@ Remaining Phase 1 work:
 
 - Add live smoke evidence showing the model uses fewer `taskspace_control` calls after prompt guidance.
 
+## 2026-06-17 Phase 2 narrow inspect budget gate
+
+Changed:
+
+- Narrow `inspect_code_context` nodes no longer create a hard maintenance barrier from tool-result count alone.
+- Non-inspect nodes still enforce the main-tool budget barrier.
+- Completed inspect nodes are treated as broad delegation debt only when they have accepted broad structural evidence, not merely because they crossed the split-hint count.
+- Added regression coverage proving a single-track inspect can exceed the split hint and still finish directly into an implementation node.
+
+Root cause:
+
+- The previous live smoke produced `maps=2` and `nodes=8` because a single-file inspect node hit the tool-count split hint after diagnostic/read/test evidence collection.
+- Runtime then blocked edit actions, the model retried three blocked implementation nodes, and finally started a second task map to finish the same single-file bug.
+- This contradicted the v0.0.5 thin/small-task contract: `large-output-ref-smoke` should stay on the main-agent chain and remain at or below 4 nodes.
+
+Validation:
+
+```text
+cargo test -p codex-core narrow_inspect_budget --lib
+1 passed
+
+cargo test -p codex-core maintenance_barrier --lib
+6 passed
+
+cargo test -p codex-core state_commit --lib
+6 passed
+
+cargo test -p codex-core finish_smoke_node --lib
+5 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-narrow-inspect-budget
+TaskSpace benchmark harness self-test: PASS
+
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev profile
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath D:\BuildCache\whalecode\cargo-target\debug\whale.exe -PersistUserPath -BackupLegacyCopies
+Installed Whale: C:\Users\77585\.whale\bin\whale.exe
+SHA256: 2A195C10A8CCC090C537B644CBF88E689F20705563697C87F0E138BFF9B4B673
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-phase2-live-smoke-narrow-inspect-budget -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-phase2-live-smoke-narrow-inspect-budget\large-output-ref-smoke\20260617-083731-263
+```
+
+Live smoke result:
+
+- Scenario warnings: none.
+- TaskSpace side business success: true.
+- `hidden_oracle_exit_code = 0`.
+- `runtime_output_ref_created_count = 1`.
+- `large_output_replay_count = 0`.
+- `raw_output_in_prompt_violation = false`.
+- `maps = 1`, `nodes = 4`, `edges = 3`.
+- `spawn_agent_calls = 0`, `open_leaf_nodes = 0`, `ordinary_before_binding = false`.
+- `decision_density = 1`, `blocked_node_ratio = 0`.
+
+Remaining issues:
+
+- The pair is still `engineering_unclean` because the harness reports `cleanup_not_attempted_manifest_missing` and `no_tests_started_marker`.
+- Graph health still warns on `high_unreviewed_result_ratio`.
+- Wall-time ratio remains high at `3.82`; Phase 3 context projection/prompt-size work is still required before claiming cost improvement.
+
 ## 2026-06-17 Phase 1 state_commit tool schema visibility and validator block guard
 
 Changed:
