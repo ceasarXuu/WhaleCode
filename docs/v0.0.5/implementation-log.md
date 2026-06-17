@@ -1397,6 +1397,28 @@ Notes:
 - This closes the profile-separation and projection-event release-gate gaps recorded in `14-implementation-gap-audit.md`.
 - No real E3, live smoke, or Agent-invoking benchmark was run for this change.
 
+## 2026-06-18 Phase 5 routing ownership correction
+
+Changed:
+
+- Corrected the v0.0.5 routing contract to benchmark-profile controlled routing.
+- Runtime autonomous task-shape classification is explicitly deferred.
+- The active profile contract is:
+  - benchmark writes `routing-decision.json`
+  - benchmark injects routing constraints into the TaskSpace prompt
+  - runtime gates enforce the resulting TaskSpace behavior
+  - suite routing reports route adherence and mistakes
+
+Reason:
+
+- The router depends on benchmark scenario metadata, visible validator availability, expected budgets, and hidden-oracle strategy labels.
+- Those are orchestration inputs, not generic runtime state.
+
+Notes:
+
+- This closes the remaining Phase 5 routing ownership gap in `14-implementation-gap-audit.md`.
+- No real E3, live smoke, or Agent-invoking benchmark was run for this change.
+
 ## 2026-06-18 Cost failure diagnostics
 
 Changed:

@@ -253,3 +253,21 @@ Corrected acceptance:
 - `compaction-events.jsonl` records semantic replacement / archive-to-audit decisions.
 - Missing observability source is `source_missing`, not pass.
 - Runtime-owned retention state is deferred until a later version proves that active projection needs durable salience mutation rather than deterministic snapshot-derived classification.
+
+## 12. 2026-06-18 Correction: Phase 5 Routing Ownership
+
+The v0.0.5 routing contract is benchmark-profile controlled routing, not autonomous Rust runtime routing.
+
+Reason:
+
+- `TaskShapeRouterV1` depends on scenario manifest fields, visible validators, expected task budgets, and benchmark-level hidden-oracle strategy labels.
+- Those inputs exist at benchmark/profile orchestration time, not inside the generic action-map runtime.
+- The runtime should enforce the resulting constraints through TaskSpace gates and prompt-visible profile constraints, not infer benchmark-specific task shape on its own.
+
+Corrected acceptance:
+
+- `routing-decision.json` is written for the active profile.
+- The TaskSpace prompt includes the selected routing constraints.
+- `suite-routing-summary.json` reports route adherence and concrete routing mistakes.
+- Thin/verification-first/subagent-assisted/deep modes are all representable by `TaskShapeRouterV1`.
+- Runtime autonomous routing is deferred until a later version has a product-level task classifier that is independent of benchmark fixtures.
