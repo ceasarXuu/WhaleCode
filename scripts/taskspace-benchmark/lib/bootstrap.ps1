@@ -26,3 +26,4 @@ param(
 . (Join-Path $BenchmarkRoot "lib\timing.ps1")
 . (Join-Path $BenchmarkRoot "lib\runtime-bottleneck-report.ps1")
 . (Join-Path $BenchmarkRoot "lib\score-validity.ps1")
+. (Join-Path $BenchmarkRoot "lib\map-management.ps1")

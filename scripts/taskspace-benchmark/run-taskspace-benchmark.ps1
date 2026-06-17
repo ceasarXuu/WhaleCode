@@ -442,6 +442,17 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $metrics | Add-Member -NotePropertyName public_validation_skip_reason -NotePropertyValue $(if ($skipValidationAfterExecTimeout) { "agent_exec_timeout" } else { "" }) -Force
         $metrics | Add-Member -NotePropertyName pre_agent_validator_probe_status -NotePropertyValue $(if ($probeStatus) { [string]$probeStatus.status } else { "" }) -Force
         $metrics | Add-Member -NotePropertyName pre_agent_validator_probe_hash -NotePropertyValue $(if ($probeStatus) { [string]$probeStatus.hash } else { "" }) -Force
+        $mapManagement = Write-TaskspaceMapManagementArtifacts -ArtifactDir $side.ArtifactDir -ObservabilityJsonPath ([string]$metrics.observability_json)
+        $metrics | Add-Member -NotePropertyName map_management_summary_path -NotePropertyValue (Join-Path $side.ArtifactDir "map-management-summary.json") -Force
+        $metrics | Add-Member -NotePropertyName compaction_events_path -NotePropertyValue (Join-Path $side.ArtifactDir "compaction-events.jsonl") -Force
+        $metrics | Add-Member -NotePropertyName map_management_availability -NotePropertyValue ([string]$mapManagement.availability) -Force
+        $metrics | Add-Member -NotePropertyName map_retention_coverage_ratio -NotePropertyValue $mapManagement.retention_coverage_ratio -Force
+        $metrics | Add-Member -NotePropertyName map_salience_coverage_ratio -NotePropertyValue $mapManagement.salience_coverage_ratio -Force
+        $metrics | Add-Member -NotePropertyName map_protected_miss_count -NotePropertyValue ([int]$mapManagement.protected_miss_count) -Force
+        $metrics | Add-Member -NotePropertyName map_archived_item_count -NotePropertyValue ([int]$mapManagement.archived_item_count) -Force
+        $metrics | Add-Member -NotePropertyName map_audit_only_item_count -NotePropertyValue ([int]$mapManagement.audit_only_item_count) -Force
+        $metrics | Add-Member -NotePropertyName map_semantic_replacement_rate -NotePropertyValue $mapManagement.semantic_replacement_rate -Force
+        $metrics | Add-Member -NotePropertyName map_compaction_event_count -NotePropertyValue ([int]$mapManagement.compaction_event_count) -Force
         $validationTimingBySide[$side.Name] = [pscustomobject]@{
             logical_mode = [string]$side.LogicalMode
             validation_started_at = $validationStartedAt
@@ -586,6 +597,7 @@ $runSummaryPath = Join-Path $runDir "run-summary.md"
 Write-TaskspaceRunSummary -Path $runSummaryPath -Reports @($pairReports.ToArray())
 $sampleTimingPath = Write-TaskspaceSampleTiming -RunDir $runDir -SampleId $manifest.Id -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
 Write-TaskspaceCostAggregateArtifacts -RootDir $runDir -Scope "sample" | Out-Null
+Write-TaskspaceSuiteMapManagementSummary -RootDir $runDir | Out-Null
 if ($EnableAggregate) {
     $aggregatePath = Join-Path $runDir "aggregate-report.md"
     Write-TaskspaceAggregateReport -Path $aggregatePath -Reports @($pairReports.ToArray())

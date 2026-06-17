@@ -19,6 +19,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\pair-artifact-classifier.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-proof.ps1")
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
+. (Join-Path $PSScriptRoot "lib\map-management.ps1")
 . (Join-Path $PSScriptRoot "lib\report-summary.ps1")
 . (Join-Path $PSScriptRoot "lib\aggregate-report.ps1")
 . (Join-Path $PSScriptRoot "lib\run-state.ps1")
@@ -239,6 +240,59 @@ Assert-True (@($graphReport.warnings) -contains "subagent_no_adoption") "graph h
 Assert-True (@($graphReport.warnings) -contains "subagent_no_decision_yield") "graph health did not flag missing subagent decision yield"
 Assert-True ([double]$graphReport.subagent_decision_yield -eq 0.0) "graph health counted ordinary adoption as decision yield"
 Assert-True ([string]$graphReport.metric_availability.result_adoption -eq "measured") "graph health did not expose result adoption metric availability"
+$mapMgmtDir = Join-Path $runDir "map-management"
+New-Item -ItemType Directory -Path $mapMgmtDir -Force | Out-Null
+$mapMgmtObsPath = Join-Path $mapMgmtDir "action-map-observability.json"
+$mapMgmtObs = [pscustomobject]@{
+    tasks = @(
+        [pscustomobject]@{
+            id = "task-1"; activeMapId = "map-1"; status = "active"
+            problemLedger = [pscustomobject]@{
+                successCriteria = @([pscustomobject]@{ id = "sc-1"; kind = "test"; status = "open"; evidenceRefs = @() })
+                knownFacts = @([pscustomobject]@{ id = "fact-1"; statement = "Accepted fact"; evidenceRefs = @([pscustomobject]@{ resultId = "result-accepted" }) })
+                decisions = @()
+            }
+            cognitiveState = [pscustomobject]@{
+                outputContracts = @([pscustomobject]@{ id = "oc-1"; kind = "artifact"; evidenceRefs = @([pscustomobject]@{ artifactRef = "src/app.py" }) })
+                factSources = @([pscustomobject]@{ id = "fs-1"; provenance = "observed"; evidenceRefs = @([pscustomobject]@{ artifactRef = "README.md" }) })
+                facts = @()
+            }
+        }
+    )
+    nodes = @(
+        [pscustomobject]@{
+            id = "node-1"; kind = "inspect_code_context"; status = "completed"
+            results = @(
+                [pscustomobject]@{
+                    resultId = "result-output"; mapId = "map-1"; taskId = "task-1"; kind = "main_tool_call"; validity = "unreviewed"; body = "OutputReferenceV1:`noutput_ref: output-ref://sha256/abc"; preview = ""
+                    evidencePackage = [pscustomobject]@{ evidenceRefs = @(); validatorRefs = @(); changedArtifacts = @() }
+                },
+                [pscustomobject]@{
+                    resultId = "result-accepted"; mapId = "map-1"; taskId = "task-1"; kind = "result"; validity = "accepted"; body = "Accepted evidence"; preview = ""
+                    evidencePackage = [pscustomobject]@{ evidenceRefs = @([pscustomobject]@{ artifactRef = "README.md" }); validatorRefs = @("pytest"); changedArtifacts = @() }
+                }
+            )
+        },
+        [pscustomobject]@{
+            id = "node-2"; kind = "smoke_test"; status = "running"
+            results = @()
+        }
+    )
+}
+$mapMgmtObs | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $mapMgmtObsPath -Encoding UTF8
+$mapMgmt = Write-TaskspaceMapManagementArtifacts -ArtifactDir $mapMgmtDir -ObservabilityJsonPath $mapMgmtObsPath
+Assert-True ([string]$mapMgmt.availability -eq "measured") "map management summary was not measured"
+Assert-True ([double]$mapMgmt.retention_coverage_ratio -eq 1.0) "map management retention coverage was not complete"
+Assert-True ([double]$mapMgmt.salience_coverage_ratio -eq 1.0) "map management salience coverage was not complete"
+Assert-True ([int]$mapMgmt.protected_miss_count -eq 0) "map management archived protected evidence"
+Assert-True ([int]$mapMgmt.audit_only_item_count -eq 1) "map management did not classify output refs as audit-only"
+Assert-True ([int]$mapMgmt.compaction_event_count -ge 1) "map management did not emit compaction events"
+Assert-True (Test-Path -LiteralPath (Join-Path $mapMgmtDir "compaction-events.jsonl")) "compaction-events.jsonl was not written"
+$suiteMapMgmt = Write-TaskspaceSuiteMapManagementSummary -RootDir $mapMgmtDir
+Assert-True ([string]$suiteMapMgmt.availability -eq "measured") "suite map management summary was not measured"
+Assert-True ([int]$suiteMapMgmt.source_summary_count -eq 1) "suite map management summary did not count side summaries"
+Assert-True ([int]$suiteMapMgmt.protected_miss_count -eq 0) "suite map management summary reported protected misses"
+Assert-True (Test-Path -LiteralPath (Join-Path $mapMgmtDir "suite-map-management-summary.json")) "suite-map-management-summary.json was not written"
 $nonReviewableObs = [pscustomobject]@{
     nodes = @(
         [pscustomobject]@{

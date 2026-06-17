@@ -452,6 +452,83 @@ Conclusion:
 - The output-ref flake was caused by an underspecified benchmark prompt that allowed the mandatory diagnostic command to start in the same batch as other commands.
 - The tightened first-command contract produced clean 3-repeat evidence for the large-output smoke: output refs are created, raw large output is not replayed into prompt, and active projection remains measurable.
 
+## 2026-06-17 Phase 4 map-management benchmark artifacts
+
+Changed:
+
+- Added `scripts/taskspace-benchmark/lib/map-management.ps1`.
+- Each benchmark side now emits:
+  - `map-management-summary.json`
+  - `compaction-events.jsonl`
+- Each run root now emits:
+  - `suite-map-management-summary.json`
+- `metrics.json` now includes map-management fields:
+  - `map_management_availability`
+  - `map_retention_coverage_ratio`
+  - `map_salience_coverage_ratio`
+  - `map_protected_miss_count`
+  - `map_archived_item_count`
+  - `map_audit_only_item_count`
+  - `map_semantic_replacement_rate`
+  - `map_compaction_event_count`
+- The implementation is deliberately benchmark-derived and audit-only for this step. It computes deterministic retention/salience/protected classifications from observability snapshots and writes compaction events, but it does not yet persist native Rust runtime retention fields or physically delete any state.
+
+Policy encoded:
+
+- Active ledger items, open/running/blocked nodes, accepted evidence, and negative/failed evidence are protected.
+- Raw large-output tool traces with `OutputReferenceV1` are classified as `audit_only`, not deleted.
+- Low-salience unprotected tool traces are classified as `archived`.
+- `physical_delete=false` is recorded on every compaction event.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-mapmgmt-suite
+TaskSpace benchmark harness self-test: PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-mapmgmt-smoke2 -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-mapmgmt-smoke2\large-output-ref-smoke\20260617-231939-017
+```
+
+Smoke result:
+
+- `reported_evidence_level`: `E2-candidate`
+- Evidence gate failure: `repeats_lt_3`
+- `failure_taxonomy`: `none`
+- `engineering_unclean`: `False`
+- `outcome_standard`: `solved`
+- `outcome_taskspace`: `solved`
+- `runtime_output_ref_created_count`: `1`
+- `large_output_replay_count`: `0`
+- `projection_count`: `13`
+- `projection_protected_miss_count`: `0`
+
+TaskSpace side map-management metrics:
+
+- `map_management_availability=measured`
+- `map_retention_coverage_ratio=1`
+- `map_salience_coverage_ratio=1`
+- `map_protected_miss_count=0`
+- `map_compaction_event_count=7`
+
+Suite map-management metrics:
+
+- `availability=measured`
+- `source_summary_count=1`
+- `total_item_count=18`
+- `min_retention_coverage_ratio=1`
+- `min_salience_coverage_ratio=1`
+- `protected_item_count=7`
+- `protected_miss_count=0`
+- `archived_item_count=6`
+- `audit_only_item_count=1`
+- `semantic_replacement_rate=0.3889`
+- `compaction_event_count=7`
+
+Remaining Phase 4 gap:
+
+- Native Rust runtime items still do not carry persisted `retention_class`, `base_salience`, or `protected_reason` fields. The current artifacts prove the classification and reporting contract, not full runtime-native map GC.
+
 ## 2026-06-17 Phase 1/6 alias recovery and active sentinel audit
 
 Changed:
