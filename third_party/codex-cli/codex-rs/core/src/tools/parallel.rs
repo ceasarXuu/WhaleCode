@@ -455,7 +455,8 @@ fn classify_shell_text(command: &str) -> ActionClass {
             "python -m unittest",
         ],
     ) || has_common_test_command(&command_words)
-        || runs_python_test_file(&command_words);
+        || runs_python_test_file(&command_words)
+        || runs_python_diagnostic_script(&command_words);
     let has_build_action = contains_any(
         &lower,
         &[
@@ -615,6 +616,15 @@ fn runs_python_test_file(words: &str) -> bool {
     })
 }
 
+fn runs_python_diagnostic_script(words: &str) -> bool {
+    let tokens = words.split_whitespace().collect::<Vec<_>>();
+    tokens.windows(2).any(|pair| {
+        matches!(pair[0], "python" | "python3" | "py")
+            && pair[1].ends_with(".py")
+            && !pair[1].starts_with('-')
+    })
+}
+
 fn has_file_redirection(command: &str) -> bool {
     command.char_indices().any(|(index, ch)| {
         if ch != '>' {
@@ -704,6 +714,14 @@ mod tests {
             ActionClass::Test
         );
         assert_eq!(
+            classify_shell_text("python scripts/emit_large_log.py"),
+            ActionClass::Test
+        );
+        assert_eq!(
+            classify_shell_text("py tools\\diagnose_failure.py"),
+            ActionClass::Test
+        );
+        assert_eq!(
             classify_shell_text("py tests\\test_pricing.py"),
             ActionClass::Test
         );
@@ -771,6 +789,10 @@ mod tests {
         );
         assert_eq!(
             classify_shell_text("python -c \"open('x','w').write('y')\"; pytest -q"),
+            ActionClass::Edit
+        );
+        assert_eq!(
+            classify_shell_text("python scripts/emit_large_log.py > out.log"),
             ActionClass::Edit
         );
         assert_eq!(classify_shell_text("git stash"), ActionClass::Edit);

@@ -185,6 +185,51 @@ Remaining Phase 1 / Phase 2 work:
 - Rebuild/install Whale and rerun the large-output-ref live smoke to confirm the model now sees and uses `state_commit` section fields instead of empty commits.
 - Exit for the current Phase 2 slice still needs live evidence with nonzero output refs, no large-output replay, no provider protocol regression, and node count at or below the scenario threshold.
 
+## 2026-06-17 Phase 2 large-output diagnostic oracle and classifier
+
+Live evidence before this fix:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario large-output-ref-smoke -Repeats 1 -RunRoot target\v005-phase2-live-smoke-statecommit-schema-blockguard
+RunDir: target\v005-phase2-live-smoke-statecommit-schema-blockguard\large-output-ref-smoke\20260617-075249-553
+```
+
+Observed:
+
+- `nodes = 4`, `spawn_agent_calls = 0`, `open_leaf_nodes = 0`.
+- `runtime_state_commit_count = 9`.
+- The model-visible schema fix worked: rollout showed real state_commit payloads with `success_criteria`, `result_validities`, and accepted sections.
+- `runtime_output_ref_created_count = 0`.
+- Root cause: the scenario prompt requested `python scripts/emit_large_log.py`, but the model only read the script instead of executing it. The hidden oracle did not catch that, so business success was true while the output-ref contract failed.
+
+Changed:
+
+- `large-output-ref-smoke` diagnostic script now writes `.large_output_probe_ran` before emitting the large output.
+- The hidden oracle for `large-output-ref-v1` now requires `.large_output_probe_ran` to exist and contain `ran`.
+- Added shell classifier support for plain `python/py/python3 <script>.py` diagnostic scripts as `ActionClass::Test`.
+- Kept mutating patterns higher priority: `python -c ...`, file redirection, and known mutating shell commands still classify as `edit`.
+
+Validation:
+
+```text
+cargo test -p codex-core shell_action_classifier_identifies_core_taskspace_classes --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core cognitive_preflight_runtime_snapshot_results_have_join_keys_for_audit --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-diagnostic-python-classifier
+TaskSpace benchmark harness self-test: PASS
+```
+
+Reason:
+
+- The v0.0.5 prompt says pre-fix diagnostic tests belong inside `inspect_code_context`, and runtime contracts already allow `ActionClass::Test` there. The gap was classification: a standalone Python diagnostic script fell through to `unknown`, causing inspect execution to be blocked and encouraging the model to read the script instead.
+
+Remaining Phase 2 work:
+
+- Rebuild/install Whale and rerun the large-output-ref smoke. Expected pass evidence is hidden oracle success, nonzero `runtime_output_ref_created_count`, `large_output_replay_count = 0`, and TaskSpace graph at or below 4 nodes.
+
 ## 2026-06-17 Phase 2 routing fanout hardening
 
 Changed:

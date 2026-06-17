@@ -287,6 +287,9 @@ sys.path.insert(0, str(repo / "src"))
 
 from large_output_demo import normalize_status
 
+marker = repo / ".large_output_probe_ran"
+assert marker.exists(), "diagnostic command was not executed"
+assert marker.read_text(encoding="utf-8").strip() == "ran"
 assert normalize_status(" Ready ") == "ready"
 assert normalize_status("BLOCKED") == "blocked"
 try:
