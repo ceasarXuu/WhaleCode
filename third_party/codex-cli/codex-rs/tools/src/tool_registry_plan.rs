@@ -7,6 +7,7 @@ use crate::SpawnAgentToolOptions;
 use crate::TOOL_SEARCH_DEFAULT_LIMIT;
 use crate::TOOL_SEARCH_TOOL_NAME;
 use crate::TOOL_SUGGEST_TOOL_NAME;
+use crate::TaskSpaceControlToolProfile;
 use crate::ToolHandlerKind;
 use crate::ToolName;
 use crate::ToolRegistryPlan;
@@ -49,7 +50,7 @@ use crate::create_shell_tool;
 use crate::create_spawn_agent_tool_v1;
 use crate::create_spawn_agent_tool_v2;
 use crate::create_spawn_agents_on_csv_tool;
-use crate::create_taskspace_control_tool;
+use crate::create_taskspace_control_tool_with_profile;
 use crate::create_test_sync_tool;
 use crate::create_tool_search_tool;
 use crate::create_tool_suggest_tool;
@@ -444,8 +445,13 @@ pub fn build_tool_registry_plan(
     }
 
     if config.collab_tools {
+        let taskspace_profile = if config.taskspace_control_compact_schema {
+            TaskSpaceControlToolProfile::Compact
+        } else {
+            TaskSpaceControlToolProfile::Full
+        };
         plan.push_spec(
-            create_taskspace_control_tool(),
+            create_taskspace_control_tool_with_profile(taskspace_profile),
             /*supports_parallel_tool_calls*/ false,
             config.code_mode_enabled,
         );

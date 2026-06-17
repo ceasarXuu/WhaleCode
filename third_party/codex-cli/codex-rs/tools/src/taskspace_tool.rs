@@ -26,6 +26,104 @@ fn output_contract_kind_values() -> Vec<serde_json::Value> {
     ]
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskSpaceControlToolProfile {
+    Full,
+    Compact,
+}
+
+fn action_values(profile: TaskSpaceControlToolProfile) -> Vec<serde_json::Value> {
+    match profile {
+        TaskSpaceControlToolProfile::Full => vec![
+            json!("start_task"),
+            json!("route_task"),
+            json!("create_node"),
+            json!("bind_node"),
+            json!("finish_node"),
+            json!("block_node"),
+            json!("record_output_contract"),
+            json!("record_fact_source"),
+            json!("record_fact"),
+            json!("record_success_criteria"),
+            json!("record_open_question"),
+            json!("close_open_question"),
+            json!("record_decision"),
+            json!("record_next_best_action"),
+            json!("mark_result_validity"),
+            json!("adopt_result"),
+            json!("read_output_ref"),
+            json!("state_commit"),
+        ],
+        TaskSpaceControlToolProfile::Compact => vec![
+            json!("start_task"),
+            json!("route_task"),
+            json!("create_node"),
+            json!("bind_node"),
+            json!("finish_node"),
+            json!("block_node"),
+            json!("read_output_ref"),
+            json!("state_commit"),
+        ],
+    }
+}
+
+fn action_description(profile: TaskSpaceControlToolProfile) -> &'static str {
+    match profile {
+        TaskSpaceControlToolProfile::Full => {
+            "One of: start_task, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, record_success_criteria, record_open_question, close_open_question, record_decision, record_next_best_action, mark_result_validity, adopt_result, read_output_ref, state_commit. Use only for TaskSpace runtime control."
+        }
+        TaskSpaceControlToolProfile::Compact => {
+            "Compact active-profile actions: start_task, route_task, create_node, bind_node, finish_node, block_node, read_output_ref, state_commit. Prefer state_commit for cognitive/lifecycle updates."
+        }
+    }
+}
+
+fn compact_top_level_fields() -> &'static [&'static str] {
+    &[
+        "action",
+        "commit_id",
+        "schema_version",
+        "active_node_id",
+        "nodes",
+        "finished_nodes",
+        "blockers",
+        "result_validities",
+        "result_adoptions",
+        "success_criteria",
+        "output_contracts",
+        "fact_sources",
+        "facts",
+        "decisions",
+        "next_best_action",
+        "task_id",
+        "task_title",
+        "task_objective",
+        "node_kind",
+        "node_title",
+        "node_context_summary",
+        "initial_success_criteria",
+        "kind",
+        "title",
+        "context_summary",
+        "dependency_node_ids",
+        "bind_current",
+        "node_id",
+        "result_summary",
+        "next_node_id",
+        "next_node_kind",
+        "next_node_title",
+        "next_node_context_summary",
+        "next_dependency_node_ids",
+        "blocker_summary",
+        "output_ref",
+        "mode",
+        "start_line",
+        "end_line",
+        "pattern",
+        "max_bytes",
+    ]
+}
+
 fn evidence_ref_schema() -> JsonSchema {
     JsonSchema::object(
         BTreeMap::from([
@@ -509,34 +607,18 @@ fn next_best_action_schema() -> JsonSchema {
 }
 
 pub fn create_taskspace_control_tool() -> ToolSpec {
-    let properties = BTreeMap::from([
+    create_taskspace_control_tool_with_profile(TaskSpaceControlToolProfile::Full)
+}
+
+pub fn create_taskspace_control_tool_with_profile(
+    profile: TaskSpaceControlToolProfile,
+) -> ToolSpec {
+    let mut properties = BTreeMap::from([
         (
             "action".to_string(),
             JsonSchema::string_enum(
-                vec![
-                    json!("start_task"),
-                    json!("route_task"),
-                    json!("create_node"),
-                    json!("bind_node"),
-                    json!("finish_node"),
-                    json!("block_node"),
-                    json!("record_output_contract"),
-                    json!("record_fact_source"),
-                    json!("record_fact"),
-                    json!("record_success_criteria"),
-                    json!("record_open_question"),
-                    json!("close_open_question"),
-                    json!("record_decision"),
-                    json!("record_next_best_action"),
-                    json!("mark_result_validity"),
-                    json!("adopt_result"),
-                    json!("read_output_ref"),
-                    json!("state_commit"),
-                ],
-                Some(
-                "One of: start_task, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, record_success_criteria, record_open_question, close_open_question, record_decision, record_next_best_action, mark_result_validity, adopt_result, read_output_ref, state_commit. Use only for TaskSpace runtime control."
-                    .to_string(),
-                ),
+                action_values(profile),
+                Some(action_description(profile).to_string()),
             ),
         ),
         (
@@ -1082,6 +1164,10 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
             )),
         ),
     ]);
+    if profile == TaskSpaceControlToolProfile::Compact {
+        let allowed = compact_top_level_fields();
+        properties.retain(|key, _| allowed.contains(&key.as_str()));
+    }
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".to_string(),
@@ -1277,6 +1363,51 @@ mod tests {
         assert_eq!(
             properties["finished_nodes"]["items"]["required"],
             serde_json::json!(["node_id", "result_summary"])
+        );
+    }
+
+    #[test]
+    fn compact_taskspace_control_schema_hides_legacy_single_record_actions() {
+        let value = serde_json::to_value(create_taskspace_control_tool_with_profile(
+            TaskSpaceControlToolProfile::Compact,
+        ))
+        .expect("taskspace tool serializes");
+        let action_enum = value["parameters"]["properties"]["action"]["enum"]
+            .as_array()
+            .expect("action enum");
+        let actions = action_enum
+            .iter()
+            .map(|value| value.as_str().expect("string enum"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            actions,
+            vec![
+                "start_task",
+                "route_task",
+                "create_node",
+                "bind_node",
+                "finish_node",
+                "block_node",
+                "read_output_ref",
+                "state_commit",
+            ]
+        );
+
+        let properties = value["parameters"]["properties"]
+            .as_object()
+            .expect("properties object");
+        assert!(properties.contains_key("schema_version"));
+        assert!(properties.contains_key("output_contracts"));
+        assert!(properties.contains_key("fact_sources"));
+        assert!(properties.contains_key("result_validities"));
+        assert!(properties.contains_key("initial_success_criteria"));
+        assert!(!properties.contains_key("record_success_criteria"));
+        assert!(!properties.contains_key("output_contract_id"));
+        assert!(!properties.contains_key("fact_source_id"));
+        assert!(!properties.contains_key("decision_id"));
+        assert_eq!(
+            properties["output_contracts"]["items"]["properties"]["output_contract_id"]["type"],
+            "string"
         );
     }
 }

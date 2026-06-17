@@ -1,5 +1,91 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-18 Compact TaskSpace control schema experiment
+
+Changed:
+
+- Added a feature-gated compact `taskspace_control` provider schema behind `features.taskspace_compact_tool_schema=true`.
+- The compact profile preserves field-level descriptions but narrows the action enum to active compact-path actions and removes legacy single-record top-level fields.
+- The feature is `UnderDevelopment` and disabled by default.
+
+Validation:
+
+```text
+cargo fmt --manifest-path third_party\codex-cli\codex-rs\Cargo.toml --package codex-features --package codex-tools
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-tools taskspace_control -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-tools taskspace_compact_tool_schema_feature_narrows_taskspace_control_schema -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-features taskspace_compact_tool_schema -- --nocapture
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-compacttool
+```
+
+Installed local Whale for live smoke:
+
+```text
+C:\Users\77585\.whale\bin\whale.exe
+sha256=503070CB0D2F489F460CD9ED275CF5439452F7B05DAD90411100CA4063254CDE
+```
+
+After discarding the hidden-control negative path, the final installed local Whale for this code state is:
+
+```text
+C:\Users\77585\.whale\bin\whale.exe
+sha256=DA30FA356B8C5CFCAB2323E4B441BED125F9154A2C3C59EFF04DAC574A6ABDBB
+```
+
+Live single-repeat evidence with the correct feature override syntax:
+
+```text
+RunDir: target\v005-compacttoolschema-ccs-r1b\count-call-stack\20260618-020208-936
+ConfigOverride:
+- model_reasoning_effort="max"
+- features.taskspace_compact_tool_schema=true
+
+outcome_standard=solved
+outcome_taskspace=solved
+direct_input_output_ratio=3.1562
+walltime_ratio=1.9642
+model_request_count_ratio=1
+standard input/output=106096/1525
+taskspace input/output=335005/4670
+taskspace rollout_trace_model_request_count=16
+taskspace projection_tokens_total=3861
+taskspace projection_tokens_max=464
+taskspace_control_count=0
+runtime_state_commit_count=12
+```
+
+Interpretation:
+
+- Compact schema preserved solve quality on this single repeat, but it did not reach the `PARTIAL` cost gate; direct provider cost stayed just above the 3x partial threshold.
+- The run shows `taskspace_control_count=0`; provider-visible schema size is not the only remaining cost driver. The active runtime still produces many internal rollout requests and carries a fixed TaskSpace provider-visible surface.
+- This evidence is diagnostic only. It is not v0.0.5 release evidence and does not justify enabling the compact schema by default.
+
+Negative follow-up:
+
+- Tried hiding provider-visible `taskspace_control` entirely while keeping the internal handler registered.
+- Installed local Whale hash for that run:
+
+```text
+sha256=7B0406CDFF766D959E047758036BA4E525E08A479DB39CA8A4EFB5E1E5B8E65E
+```
+
+- Single repeat regressed severely:
+
+```text
+RunDir: target\v005-compacthidecontrol-ccs-r1\count-call-stack\20260618-020908-868
+outcome_standard=solved
+outcome_taskspace=agent_exec_timeout
+walltime_ratio=19.621
+taskspace exec_exit_code=124
+taskspace exec_timed_out=True
+taskspace rollout_trace_model_request_count=229
+taskspace rollout_trace_input_tokens=8642382
+taskspace nodes=6
+taskspace open_leaf_nodes=3
+```
+
+- That code path was discarded. Removing the model-visible control surface breaks active TaskSpace convergence and causes runaway runtime/model loops.
+
 ## 2026-06-18 Phase 6 cost root-cause correction
 
 Changed:
