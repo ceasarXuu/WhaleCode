@@ -8478,12 +8478,11 @@ fn broad_completed_inspect_node_ids(
         .filter(|node| {
             node.kind == NodeKind::InspectCodeContext
                 && node.status == NodeStatus::Completed
-                && (completed_main_inspect_has_broad_accepted_result(
+                && completed_main_inspect_has_broad_accepted_result(
                     map,
                     &node.id,
                     owner_session_id,
-                ) || count_node_results_of_kind(node, NodeResultKind::MainToolCall)
-                    >= contract_for(node.kind).max_main_tool_results_before_split_hint)
+                )
         })
         .map(|node| node.id.clone())
         .collect::<Vec<_>>();
@@ -9595,6 +9594,65 @@ mod tests {
                 Vec::new(),
             )
             .expect("test result validity records");
+    }
+
+    fn accept_broad_inspect_result(
+        state: &mut ActionMapRuntimeState,
+        owner: ThreadId,
+        result_id: &str,
+    ) {
+        state
+            .mark_result_validity_for_main(
+                owner,
+                result_id,
+                "accepted",
+                "Test fixture accepted a broad inspect result with independent surfaces."
+                    .to_string(),
+                vec![
+                    ActionMapCognitiveClaimInput {
+                        id: format!("claim-{result_id}-parser"),
+                        statement: "Parser implementation needs follow-up.".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("src/pipeline/parser.py".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                    ActionMapCognitiveClaimInput {
+                        id: format!("claim-{result_id}-pricing"),
+                        statement: "Pricing implementation needs follow-up.".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("src/pipeline/pricing.py".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                    ActionMapCognitiveClaimInput {
+                        id: format!("claim-{result_id}-invoice"),
+                        statement: "Invoice validation needs follow-up.".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("tests/test_invoice.py".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                ],
+                vec![
+                    ActionMapEvidenceRefInput {
+                        artifact_ref: Some("src/pipeline/parser.py".to_string()),
+                        ..Default::default()
+                    },
+                    ActionMapEvidenceRefInput {
+                        artifact_ref: Some("src/pipeline/pricing.py".to_string()),
+                        ..Default::default()
+                    },
+                    ActionMapEvidenceRefInput {
+                        artifact_ref: Some("tests/test_invoice.py".to_string()),
+                        ..Default::default()
+                    },
+                ],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("broad inspect result validity records");
     }
 
     fn satisfy_test_criterion_with_result(
@@ -12808,7 +12866,7 @@ mod tests {
                 }),
             )
             .expect("finish into final synthesis is possible before final answer");
-        accept_test_result(&mut state, owner, &outcome.result_id);
+        accept_broad_inspect_result(&mut state, owner, &outcome.result_id);
 
         let error = state
             .record_main_final_response(owner, "Done.")
@@ -13292,7 +13350,7 @@ mod tests {
             .finish_main_node(owner, "node-1", "scope done".to_string(), None)
             .expect("finish narrow inspect");
         accept_test_result(&mut state, owner, &outcome.result_id);
-        state
+        let error = state
             .create_node_for_main_with_kind(
                 owner,
                 NodeKind::InspectCodeContext,
@@ -13301,15 +13359,11 @@ mod tests {
                 Vec::new(),
                 false,
             )
-            .expect("create serial follow-up inspect");
-
-        let error = state
-            .prepare_spawn_assignment(owner, "read known file", Some("node-2"))
             .expect_err("single inspect track should stay on the main agent");
 
         assert!(error.contains("completed narrow inspect"));
         let map = state.active_map().expect("active map");
-        assert_eq!(map.nodes["node-2"].status, NodeStatus::Ready);
+        assert!(!map.nodes.contains_key("node-2"));
         assert!(map.leases.is_empty());
     }
 
@@ -14146,11 +14200,12 @@ mod tests {
             "Inspect README, tests, diagnostic script, and one source file.",
             true,
         );
+        fill_main_tool_budget(&mut state, owner);
         let (outcome, _) = state
             .finish_main_node(
                 owner,
                 "node-1",
-                "Found one implementation gap from several evidence files.".to_string(),
+                "Found one implementation gap from several evidence files after reading the known single-file contract.".to_string(),
                 None,
             )
             .expect("finish inspect");
@@ -14240,7 +14295,7 @@ mod tests {
                 None,
             )
             .expect("finish broad inspect");
-        accept_test_result(&mut state, owner, &outcome.result_id);
+        accept_broad_inspect_result(&mut state, owner, &outcome.result_id);
         state
             .create_node_for_main_with_kind(
                 owner,
@@ -17706,7 +17761,7 @@ mod tests {
                 None,
             )
             .expect("finish broad inspect");
-        accept_test_result(&mut state, owner, &outcome.result_id);
+        accept_broad_inspect_result(&mut state, owner, &outcome.result_id);
 
         let error = state
             .start_task_for_main(
@@ -17764,7 +17819,7 @@ mod tests {
                 None,
             )
             .expect("finish broad inspect");
-        accept_test_result(&mut state, owner, &outcome.result_id);
+        accept_broad_inspect_result(&mut state, owner, &outcome.result_id);
 
         let error = state
             .route_task_for_main(owner, "task-2")

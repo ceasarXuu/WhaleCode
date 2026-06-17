@@ -979,7 +979,7 @@ async fn legacy_spawn_agent_requires_node_id_for_multiple_ready_nodes() {
         &session,
         &turn,
         "Review architecture",
-        "Subagent should review architecture.",
+        "Review architecture evidence.",
         false,
     )
     .await;
@@ -987,7 +987,7 @@ async fn legacy_spawn_agent_requires_node_id_for_multiple_ready_nodes() {
         .create_action_map_node_for_main(
             &turn,
             "Review tests".to_string(),
-            "Subagent should review tests.".to_string(),
+            "Review test evidence.".to_string(),
             Vec::new(),
             false,
         )
@@ -1042,7 +1042,7 @@ async fn legacy_spawn_agent_claims_explicit_node_id() {
         &session,
         &turn,
         "Review architecture",
-        "Subagent should review architecture.",
+        "Review architecture evidence.",
         false,
     )
     .await;
@@ -1050,12 +1050,29 @@ async fn legacy_spawn_agent_claims_explicit_node_id() {
         .create_action_map_node_for_main(
             &turn,
             "Review tests".to_string(),
-            "Subagent should review tests.".to_string(),
+            "Review test evidence.".to_string(),
             Vec::new(),
             false,
         )
         .await
         .expect("second ready node should be created");
+    session
+        .record_action_map_subagent_plan(
+            &turn,
+            crate::action_map::ActionMapSubagentPlanInput {
+                parent_node_id: "node-2".to_string(),
+                why_parallelizable: "Test review is a bounded independent evidence track."
+                    .to_string(),
+                expected_artifact: "Test review notes with claims and evidence.".to_string(),
+                acceptance_check: "Parent can inspect and accept the node result.".to_string(),
+                max_scope: "Only node-2.".to_string(),
+                supports_questions: vec!["q-review-tests".to_string()],
+                tests_hypotheses: Vec::new(),
+                depends_on_results: Vec::new(),
+            },
+        )
+        .await
+        .expect("subagent plan records before explicit node spawn");
 
     let output = SpawnAgentHandler
         .handle(invocation(

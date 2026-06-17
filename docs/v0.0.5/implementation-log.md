@@ -1,5 +1,77 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-17 Phase 5 thin broad-debt correction
+
+Changed:
+
+- Completed inspect nodes no longer become unresolved broad-delegation debt only because the main inspect node reached its tool-result budget.
+- Broad-delegation debt now requires accepted broad structural evidence: at least three accepted claims and at least two implementation surface refs.
+- The single-file README/tests/source diagnostic path stays on the thin main-agent chain even when the inspect node reads several files or reaches the inspect budget.
+- Updated adjacent spawn-agent fixtures to match current contracts:
+  - ready-node spawn tests use evidence-surface node titles instead of worker-type titles;
+  - explicit legacy spawn fixtures record a subagent plan before spawning;
+  - spawn-agent description tests include the current node-id disambiguation guidance.
+
+Validation:
+
+```text
+cargo test -p codex-core single_file_inspect_with_rich_evidence_does_not_create_broad_debt --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core broad_delegation --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+3 passed
+
+cargo test -p codex-core taskspace_control --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+13 passed
+
+cargo test -p codex-core spawn_agent --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+core library portion: 29 passed
+integration all.rs portion: 4 passed, 2 failed
+failed tests:
+- suite::subagent_notifications::spawn_agent_role_overrides_requested_model_and_reasoning_settings
+- suite::subagent_notifications::spawn_agent_requested_model_and_reasoning_override_inherited_settings_without_role
+observed failure: timed out waiting for spawned thread id
+
+git diff --check
+passed, with existing LF-to-CRLF working-copy warnings
+
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev profile
+```
+
+Installed debug binary:
+
+```text
+C:\Users\77585\.whale\bin\whale.exe
+sha256=41F8F39BB69A467C00CDED5C7DEC6C5771350EDAB86C051D6ABC334EA1B9A0D5
+```
+
+Live smoke evidence:
+
+```text
+target\v005-thin-broad-debt-smoke\large-output-ref-smoke\20260617-221004-008
+- valid_pair=True
+- engineering_unclean=False
+- failure_taxonomy=none
+- outcome_standard=solved
+- outcome_taskspace=solved
+- utility outcome=both_success_cost_within_budget
+- taskspace_wall_time_ratio=2.2
+- taskspace_tool_call_ratio=1.09
+- runtime_output_ref_created_count=1
+- large_output_replay_count=0
+- nodes=3, edges=2, spawn_agent_calls=0, subagent_results=0, open_leaf_nodes=0
+- scenario warnings: none
+```
+
+Remaining Phase 6 work:
+
+- This run is the first clean confirmation that the thin single-file path no longer enters subagent fanout after budget-heavy inspection.
+- It is not release evidence by itself because the evidence gate still reports `repeats_lt_3`.
+- Token overhead remains high in this sample: taskspace input tokens `525213` vs standard `142847`.
+- Investigate the two `subagent_notifications` integration tests separately; they fail in mock notification setup while core spawn/runtime tests pass.
+- Run the planned repeated E3 gate before claiming v0.0.5 complete.
+
 ## 2026-06-17 Phase 1 validation commit ordering
 
 Changed:
