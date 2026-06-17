@@ -439,6 +439,7 @@ pub(crate) async fn run_turn(
         } && let Some(item) = crate::context_manager::updates::build_developer_update_item(vec![
             action_map_projection,
         ]) {
+            sess.remove_action_map_projection_history_items().await;
             sess.record_conversation_items(&turn_context, &[item]).await;
         }
 

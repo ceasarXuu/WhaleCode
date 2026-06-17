@@ -314,6 +314,37 @@ Remaining Phase 3 / Phase 4 handoff:
   - `open_leaf_nodes = 1`
 - Next work should deduplicate or replace old projection updates, then address the remaining routing/thin gate that still creates unnecessary subagent paths before active projection promotion.
 
+## 2026-06-17 Phase 3 projection prompt-history dedupe
+
+Root cause:
+
+- Persisting projection-only developer updates made Phase 3 replayable, but each sampling loop accumulated another `ContextProjectionV1 shadow` item in prompt history.
+- This contradicted the projection goal: the model should see the latest compact projection, not an ever-growing archive of prior projections. The full audit trail belongs in rollout artifacts, not the active model prompt.
+
+Changed:
+
+- Added a history-level `remove_items_matching` operation and session wrapper.
+- Before recording a new projection-only developer update, the session removes previous TaskSpace projection developer items from in-memory prompt history.
+- Rollout/session event recording still captures each new projection update, so Phase 3 audit evidence remains replayable while active prompt history keeps only the newest projection.
+
+Validation:
+
+```text
+cargo test -p codex-core remove_items_matching_removes_only_matching_history_items --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core developer_context_includes_shadow_context_projection_without_replacing_legacy_context --lib --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-projection-history-dedupe
+TaskSpace benchmark harness self-test: PASS
+```
+
+Remaining Phase 3 work:
+
+- Rebuild/install Whale and rerun `large-output-ref-smoke` to verify that projection remains measured while repeated prompt-history growth no longer drives input tokens or 600s timeouts.
+- After prompt-history growth is controlled, address the remaining routing/thin gate if the smoke still creates unnecessary subagent paths.
+
 ## 2026-06-17 Phase 2 narrow inspect budget gate
 
 Changed:

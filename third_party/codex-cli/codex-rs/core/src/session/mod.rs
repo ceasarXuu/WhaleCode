@@ -3354,6 +3354,11 @@ impl Session {
         state.record_items(items.iter(), turn_context.truncation_policy);
     }
 
+    pub(crate) async fn remove_action_map_projection_history_items(&self) -> usize {
+        let mut state = self.state.lock().await;
+        state.remove_history_items_matching(is_action_map_projection_developer_item)
+    }
+
     pub(crate) async fn record_model_warning(&self, message: impl Into<String>, ctx: &TurnContext) {
         self.services
             .session_telemetry
@@ -4356,6 +4361,23 @@ fn errors_to_info(errors: &[SkillError]) -> Vec<SkillErrorInfo> {
             message: err.message.clone(),
         })
         .collect()
+}
+
+fn is_action_map_projection_developer_item(item: &ResponseItem) -> bool {
+    let ResponseItem::Message { role, content, .. } = item else {
+        return false;
+    };
+    if role != "developer" {
+        return false;
+    }
+    content.iter().any(|entry| {
+        matches!(
+            entry,
+            ContentItem::InputText { text }
+                if text.contains("TaskSpace ContextProjectionV1 shadow update.")
+                    && text.contains("ContextProjectionV1 shadow (not active replacement):")
+        )
+    })
 }
 
 use crate::memories::prompts::build_memory_tool_developer_instructions;
