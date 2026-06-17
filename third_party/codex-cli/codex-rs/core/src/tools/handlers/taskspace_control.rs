@@ -44,6 +44,10 @@ enum TaskSpaceControlArgs {
         node_kind: String,
         #[serde(default)]
         initial_success_criteria: Vec<TaskSpaceSuccessCriterionArgs>,
+        #[serde(default)]
+        initial_output_contracts: Vec<TaskSpaceOutputContractArgs>,
+        #[serde(default)]
+        initial_fact_sources: Vec<TaskSpaceFactSourceArgs>,
         node_title: String,
         node_context_summary: String,
         #[serde(default)]
@@ -450,6 +454,8 @@ impl ToolHandler for TaskSpaceControlHandler {
                 task_objective,
                 node_kind,
                 initial_success_criteria,
+                initial_output_contracts,
+                initial_fact_sources,
                 node_title,
                 node_context_summary,
                 bind_current,
@@ -462,6 +468,8 @@ impl ToolHandler for TaskSpaceControlHandler {
                         task_title,
                         task_objective,
                         convert_success_criteria(initial_success_criteria),
+                        convert_state_commit_output_contracts(initial_output_contracts),
+                        convert_fact_sources(initial_fact_sources),
                         node_title,
                         node_context_summary,
                         bind_current,
@@ -1016,8 +1024,12 @@ fn normalize_taskspace_argument_aliases(root: &mut serde_json::Map<String, JsonV
             move_alias(root, "task_name", "task_title");
             move_alias(root, "first_node", "node_title");
             move_alias(root, "description", "node_context_summary");
+            move_alias(root, "success_criteria", "initial_success_criteria");
+            move_alias(root, "output_contracts", "initial_output_contracts");
+            move_alias(root, "fact_sources", "initial_fact_sources");
             root.entry("node_kind".to_string())
                 .or_insert_with(|| JsonValue::String("inspect_code_context".to_string()));
+            normalize_start_task_initial_sections(root);
         }
         "create_node" => {
             move_alias(root, "node_kind", "kind");
@@ -1174,6 +1186,22 @@ fn normalize_state_commit_sections(root: &mut serde_json::Map<String, JsonValue>
     normalize_state_commit_evidence_array(root, "output_contracts");
     normalize_state_commit_evidence_array(root, "fact_sources");
     if let Some(JsonValue::Array(items)) = root.get_mut("fact_sources") {
+        for item in items {
+            let JsonValue::Object(object) = item else {
+                continue;
+            };
+            normalize_fact_source_provenance(object);
+        }
+    }
+}
+
+fn normalize_start_task_initial_sections(root: &mut serde_json::Map<String, JsonValue>) {
+    if let Some(criteria) = root.get_mut("initial_success_criteria") {
+        normalize_success_criteria_value(criteria);
+    }
+    normalize_state_commit_evidence_array(root, "initial_output_contracts");
+    normalize_state_commit_evidence_array(root, "initial_fact_sources");
+    if let Some(JsonValue::Array(items)) = root.get_mut("initial_fact_sources") {
         for item in items {
             let JsonValue::Object(object) = item else {
                 continue;
@@ -1458,6 +1486,66 @@ mod tests {
                 assert_eq!(initial_success_criteria.len(), 1);
                 assert_eq!(initial_success_criteria[0].id, "sc-1");
                 assert_eq!(initial_success_criteria[0].status, "open");
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn start_task_normalizes_initial_scaffold_aliases() {
+        let raw = serde_json::json!({
+            "action": "start_task",
+            "task_title": "Audit",
+            "task_objective": "Audit the codebase",
+            "success_criteria": ["Validator passes"],
+            "output_contracts": [{
+                "id": "oc-1",
+                "kind": "validator",
+                "description": "Final answer reports validator status"
+            }],
+            "fact_sources": [{
+                "id": "fs-1",
+                "provenance": "repo",
+                "description": "Repository state at task start",
+                "evidence_refs": []
+            }],
+            "node_title": "Inspect",
+            "node_context_summary": "Read the project shape"
+        })
+        .to_string();
+
+        let normalized =
+            normalize_taskspace_arguments(&raw).expect("start_task scaffold normalizes");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("start_task scaffold parses");
+
+        match args {
+            TaskSpaceControlArgs::StartTask {
+                initial_success_criteria,
+                initial_output_contracts,
+                initial_fact_sources,
+                ..
+            } => {
+                assert_eq!(initial_success_criteria.len(), 1);
+                assert_eq!(initial_success_criteria[0].id, "criterion-1");
+                assert_eq!(initial_output_contracts.len(), 1);
+                assert_eq!(
+                    initial_output_contracts[0].evidence_refs[0]
+                        .artifact_ref
+                        .as_deref(),
+                    Some("user-request")
+                );
+                assert_eq!(initial_fact_sources.len(), 1);
+                assert_eq!(
+                    initial_fact_sources[0].provenance,
+                    "observed_from_environment"
+                );
+                assert_eq!(
+                    initial_fact_sources[0].evidence_refs[0]
+                        .artifact_ref
+                        .as_deref(),
+                    Some("user-request")
+                );
             }
             other => panic!("unexpected args: {other:?}"),
         }

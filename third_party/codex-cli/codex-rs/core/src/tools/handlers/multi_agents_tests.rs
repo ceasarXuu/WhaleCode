@@ -922,6 +922,23 @@ async fn legacy_spawn_agent_claims_taskspace_node_after_start_task() {
     )
     .await;
     assert_eq!(node_id, "node-1");
+    session
+        .record_action_map_subagent_plan(
+            &turn,
+            crate::action_map::ActionMapSubagentPlanInput {
+                parent_node_id: node_id.clone(),
+                why_parallelizable: "Legacy spawn fixture prepares a bounded independent review."
+                    .to_string(),
+                expected_artifact: "Review notes with claims and evidence.".to_string(),
+                acceptance_check: "Parent can inspect and accept the node result.".to_string(),
+                max_scope: "Only node-1.".to_string(),
+                supports_questions: vec!["q-legacy-spawn-review".to_string()],
+                tests_hypotheses: Vec::new(),
+                depends_on_results: Vec::new(),
+            },
+        )
+        .await
+        .expect("subagent plan records before legacy spawn");
 
     let output = SpawnAgentHandler
         .handle(invocation(

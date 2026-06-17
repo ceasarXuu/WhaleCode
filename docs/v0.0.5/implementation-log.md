@@ -1,5 +1,84 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-17 Phase 1/6 start_task scaffold and recovery friction
+
+Changed:
+
+- `taskspace_control(action=start_task)` now accepts `initial_output_contracts` and `initial_fact_sources` alongside `initial_success_criteria`.
+- The handler normalizes `success_criteria`, `output_contracts`, and `fact_sources` aliases into the new start-task scaffold fields, defaulting missing/empty evidence refs to `artifact_ref=user-request` and normalizing fact-source provenance aliases such as `repo` to `observed_from_environment`.
+- Runtime start-task now seeds missing success criteria, output contract, and fact source records from the task objective when the model omits explicit scaffold fields. This keeps cognitive preflight auditable while avoiding a predictable start-then-preflight-recovery turn.
+- `mark_result_validity` now promotes claim-level evidence refs to result-level evidence refs when the result-level list is empty, reducing validator-result recovery turns when the model already supplied evidence on claims.
+- Broad inspect delegation debt detection now treats completed inspect nodes that exhausted the main-tool budget as debt even if the accepted result lacks explicit broad structural evidence.
+- Legacy spawn-agent test fixtures now record a required subagent plan before claiming a ready TaskSpace node.
+
+Validation:
+
+```text
+cargo test -p codex-core start_task --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+14 passed
+
+cargo test -p codex-core taskspace_control --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+13 passed
+
+cargo test -p codex-core cognitive_preflight --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+10 passed
+
+cargo test -p codex-core mark_result_validity --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+3 passed
+
+cargo test -p codex-core broad_delegation --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+3 passed
+
+cargo test -p codex-core sentinel --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+3 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-startscaffold
+TaskSpace benchmark harness self-test: PASS
+
+cargo build -p codex-cli --bin whale --locked --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+Finished dev profile
+```
+
+Installed debug binary:
+
+```text
+C:\Users\77585\.whale\bin\whale.exe
+sha256=7773CC76EECF0549DA00FF0C817D6997E6AA71320F66ACE137EFAE9A14CA9FA0
+```
+
+Live smoke evidence:
+
+```text
+target\v005-start-scaffold-smoke2\large-output-ref-smoke\20260617-211246-126
+- valid_pair=True
+- engineering_unclean=False
+- outcome_standard=solved
+- outcome_taskspace=solved
+- taskspace_wall_time_ratio=1.95
+- taskspace_tool_call_ratio=1.5
+- taskspace input_tokens=440323 vs standard input_tokens=151220
+- nodes=3, edges=2, spawn_agent_calls=0, open_leaf_nodes=0
+- runtime_output_ref_created_count=1
+- graph warnings: high_unreviewed_result_ratio=1
+```
+
+Negative smoke after runtime auto-scaffold:
+
+```text
+target\v005-start-scaffold-smoke3\large-output-ref-smoke\20260617-212438-991
+- startup preflight recovery was absent, confirming seeded scaffold works.
+- run is not pass evidence: engineering_unclean=True.
+- failure root: runtime_output_ref_created_count=0, hidden oracle failed, wall ratio=3.05.
+- graph warnings cleared.
+```
+
+Remaining Phase 6 work:
+
+- Keep the start-task scaffold/runtime seeding change, but do not claim v0.0.5 complete from the third smoke.
+- Fix the validation-node finish ordering friction: the model still attempts to finish validation before recording a result validity tied to the validation result.
+- Preserve the large-output diagnostic path so TaskSpace still creates `OutputReferenceV1` in `large-output-ref-smoke`.
+- Re-run a clean `large-output-ref-smoke` and then the planned repeated E3 gate before release claim.
+
 ## 2026-06-17 Phase 0 instrumentation baseline start
 
 Changed:

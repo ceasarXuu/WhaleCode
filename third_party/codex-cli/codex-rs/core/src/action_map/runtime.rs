@@ -1954,6 +1954,8 @@ preview:\n\
             task_title,
             task_objective,
             Vec::new(),
+            Vec::new(),
+            Vec::new(),
             node_title,
             node_context_summary,
             bind_current,
@@ -1967,6 +1969,8 @@ preview:\n\
         task_title: String,
         task_objective: String,
         initial_success_criteria: Vec<ActionMapSuccessCriterionInput>,
+        initial_output_contracts: Vec<ActionMapStateCommitOutputContractInput>,
+        initial_fact_sources: Vec<ActionMapStateCommitFactSourceInput>,
         node_title: String,
         node_context_summary: String,
         bind_current: bool,
@@ -2012,6 +2016,15 @@ preview:\n\
         } else {
             task_objective.to_string()
         };
+        let mut initial_success_criteria = initial_success_criteria;
+        let mut initial_output_contracts = initial_output_contracts;
+        let mut initial_fact_sources = initial_fact_sources;
+        seed_missing_start_task_scaffold(
+            &objective,
+            &mut initial_success_criteria,
+            &mut initial_output_contracts,
+            &mut initial_fact_sources,
+        );
         self.tasks.insert(
             task_id.clone(),
             TaskState {
@@ -2054,6 +2067,24 @@ preview:\n\
             events.extend(
                 self.record_success_criteria_for_main(owner_session_id, initial_success_criteria)?,
             );
+        }
+        for contract in initial_output_contracts {
+            events.extend(self.record_output_contract_for_main(
+                owner_session_id,
+                &contract.id,
+                &contract.kind,
+                contract.description,
+                contract.evidence_refs,
+            )?);
+        }
+        for source in initial_fact_sources {
+            events.extend(self.record_fact_source_for_main(
+                owner_session_id,
+                &source.id,
+                &source.provenance,
+                source.description,
+                source.evidence_refs,
+            )?);
         }
 
         let (node_id, mut node_events) = self.create_node_for_main_with_kind(
@@ -3221,14 +3252,20 @@ preview:\n\
                 "TaskSpace result `{result_id}` does not exist on active task path `{map_id}`."
             ));
         }
-        let evidence_refs =
+        let claims = self.normalize_claim_inputs_for_result(&map_id, &result_id, claims)?;
+        let mut evidence_refs =
             self.normalize_evidence_refs_for_result(&map_id, &result_id, evidence_refs)?;
+        if evidence_refs.is_empty() {
+            evidence_refs = claims
+                .iter()
+                .flat_map(|claim| claim.evidence_refs.iter().cloned())
+                .collect();
+        }
         if evidence_refs.is_empty() {
             return Err(
                 "TaskSpace mark_result_validity evidence_refs cannot be empty.".to_string(),
             );
         }
-        let claims = self.normalize_claim_inputs_for_result(&map_id, &result_id, claims)?;
         if validity == ResultValidity::Accepted && claims.is_empty() {
             return Err(
                 "TaskSpace mark_result_validity accepted result requires claims.".to_string(),
@@ -4664,7 +4701,7 @@ preview:\n\
         }
         if self.tasks.is_empty() {
             context.push_str(
-                "No TaskSpace tasks exist yet. Call taskspace_control(action=start_task) with a concrete first node derived from the user's current request before ordinary tools or subagent spawn.\n",
+                "No TaskSpace tasks exist yet. Call taskspace_control(action=start_task) with a concrete first node derived from the user's current request before ordinary tools or subagent spawn. Include initial_success_criteria, initial_output_contracts, and initial_fact_sources in the same start_task call when requirements are already known.\n",
             );
         } else {
             context.push_str("Task inventory:\n");
@@ -4781,7 +4818,7 @@ preview:\n\
             );
         } else {
             context.push_str(
-                "No active task path exists. Before any ordinary tool call or subagent spawn, call taskspace_control(action=start_task) for a new semantic task or taskspace_control(action=route_task) for an existing listed task.\n",
+                "No active task path exists. Before any ordinary tool call or subagent spawn, call taskspace_control(action=start_task) for a new semantic task or taskspace_control(action=route_task) for an existing listed task. Prefer start_task initial_success_criteria, initial_output_contracts, and initial_fact_sources over a separate immediate state_commit when starting a new task from a clear user request.\n",
             );
             context.push_str(&base_map_metadata_prompt());
         }
@@ -4794,7 +4831,7 @@ preview:\n\
         );
         if self.tasks.is_empty() {
             context.push_str(
-                "No TaskSpace task exists yet. Before ordinary tools or spawn_agent, call taskspace_control(action=start_task) with a concrete first node derived from the current user request.\n",
+                "No TaskSpace task exists yet. Before ordinary tools or spawn_agent, call taskspace_control(action=start_task) with a concrete first node derived from the current user request. Include initial_success_criteria, initial_output_contracts, and initial_fact_sources in that start_task call when the user request already supplies them.\n",
             );
         } else {
             context.push_str(
@@ -8441,7 +8478,12 @@ fn broad_completed_inspect_node_ids(
         .filter(|node| {
             node.kind == NodeKind::InspectCodeContext
                 && node.status == NodeStatus::Completed
-                && completed_main_inspect_has_broad_accepted_result(map, &node.id, owner_session_id)
+                && (completed_main_inspect_has_broad_accepted_result(
+                    map,
+                    &node.id,
+                    owner_session_id,
+                ) || count_node_results_of_kind(node, NodeResultKind::MainToolCall)
+                    >= contract_for(node.kind).max_main_tool_results_before_split_hint)
         })
         .map(|node| node.id.clone())
         .collect::<Vec<_>>();
@@ -8948,13 +8990,53 @@ fn now_ms() -> i64 {
         .unwrap_or_default()
 }
 
+fn seed_missing_start_task_scaffold(
+    objective: &str,
+    success_criteria: &mut Vec<ActionMapSuccessCriterionInput>,
+    output_contracts: &mut Vec<ActionMapStateCommitOutputContractInput>,
+    fact_sources: &mut Vec<ActionMapStateCommitFactSourceInput>,
+) {
+    let objective = single_line_preview(objective.trim(), 240);
+    let user_request_evidence = || {
+        vec![ActionMapEvidenceRefInput {
+            artifact_ref: Some("user-request".to_string()),
+            ..Default::default()
+        }]
+    };
+    if success_criteria.is_empty() {
+        success_criteria.push(ActionMapSuccessCriterionInput {
+            id: "sc-user-request".to_string(),
+            kind: "artifact".to_string(),
+            description: format!("Complete the user request: {objective}"),
+            status: "open".to_string(),
+            evidence_refs: user_request_evidence(),
+        });
+    }
+    if output_contracts.is_empty() {
+        output_contracts.push(ActionMapStateCommitOutputContractInput {
+            id: "oc-user-request".to_string(),
+            kind: "artifact".to_string(),
+            description: format!("User-visible result satisfies the task objective: {objective}"),
+            evidence_refs: user_request_evidence(),
+        });
+    }
+    if fact_sources.is_empty() {
+        fact_sources.push(ActionMapStateCommitFactSourceInput {
+            id: "fs-user-request".to_string(),
+            provenance: "provided_by_user".to_string(),
+            description: format!("Current user request and task objective: {objective}"),
+            evidence_refs: user_request_evidence(),
+        });
+    }
+}
+
 fn transition_notice(previous_mode: MapRuntimeMode, current_mode: MapRuntimeMode) -> String {
     match (previous_mode, current_mode) {
         (MapRuntimeMode::Standard, MapRuntimeMode::Experiment) => {
             "TaskSpace mode is now active.\n\
 Previous standard-mode conversation remains background context only.\n\
 Before taking multi-agent action, create or bind a task path and a ready node.\n\
-Before ordinary work or subagent spawn, record the active task's output contract, fact source, and first success criteria through taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) when more than one record is needed.\n\
+Before ordinary work or subagent spawn, the active task needs at least one success criterion, output contract, and fact source. For a new task with known requirements, include initial_success_criteria, initial_output_contracts, and initial_fact_sources directly in taskspace_control(action=start_task). For an existing/routed task or newly discovered requirements, use taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) when more than one record is needed.\n\
 For a small single-file fix or a single failing test, keep the work on the main agent by default; do not create parallel inspect nodes or spawn subagents unless the user explicitly asks for multi-agent work or the task has truly independent evidence surfaces.\n\
 After a node-level result is recorded, mark its validity before relying on it or continuing ordinary work.\n\
 Accepted implementation results should include changed_artifacts for modified files.\n\
@@ -11729,7 +11811,7 @@ mod tests {
             .expect_err("accepted validity must require claims");
         assert!(missing_claims.contains("accepted result requires claims"));
 
-        let missing_evidence = state
+        state
             .mark_result_validity_for_main(
                 owner,
                 &result_id,
@@ -11739,17 +11821,25 @@ mod tests {
                     id: "claim-1".to_string(),
                     statement: "Validator passed.".to_string(),
                     evidence_refs: vec![ActionMapEvidenceRefInput {
-                        trace_event_id: Some("trace-1".to_string()),
+                        validator_ref: Some("pytest".to_string()),
                         ..Default::default()
                     }],
                 }],
                 Vec::new(),
                 Vec::new(),
-                Vec::new(),
+                vec!["pytest".to_string()],
                 Vec::new(),
             )
-            .expect_err("accepted validity must require top-level evidence");
-        assert!(missing_evidence.contains("evidence_refs cannot be empty"));
+            .expect("claim evidence can supply result-level evidence");
+        let map = state.active_map().expect("active map");
+        let result = map.results.get(&result_id).expect("result");
+        assert_eq!(result.evidence_package.evidence_refs.len(), 1);
+        assert_eq!(
+            result.evidence_package.evidence_refs[0]
+                .validator_ref
+                .as_deref(),
+            Some("pytest")
+        );
     }
 
     #[test]
@@ -11988,9 +12078,9 @@ mod tests {
 
         let context = state.build_developer_context().expect("developer context");
 
-        assert!(context.contains("TaskSpace mode is active"));
-        assert!(context.contains("TaskSpace cognitive protocol (MVP)"));
-        assert!(context.contains("problem-state and model manager"));
+        assert!(context.contains("TaskSpace v0.0.5 active compact profile is enabled."));
+        assert!(context.contains("ContextProjectionV1 active replacement:"));
+        assert!(context.contains("Use taskspace_control for state changes."));
         assert!(!context.contains("promote_taskspace"));
         assert!(!context.contains("promotion_not_in_mvp"));
         assert!(!context.contains("collapsed-direct"));
@@ -14459,6 +14549,8 @@ mod tests {
                         ..Default::default()
                     }],
                 }],
+                Vec::new(),
+                Vec::new(),
                 "Inspect validator".to_string(),
                 "Read the validator and expected artifacts.".to_string(),
                 true,
@@ -14476,9 +14568,96 @@ mod tests {
             "Recover validator-visible log artifacts."
         );
         assert!(!task.problem_ledger.schema_incomplete);
-        assert_eq!(task.problem_ledger.success_criteria.len(), 1);
+        assert_eq!(task.problem_ledger.success_criteria.len(), 2);
         assert_eq!(task.problem_ledger.success_criteria[0].id, "sc-1");
         assert_eq!(task.problem_ledger.success_criteria[0].kind, "validator");
+        assert_eq!(task.problem_ledger.success_criteria[1].id, "oc-user-request");
+        assert_eq!(task.cognitive_state.output_contracts.len(), 1);
+        assert_eq!(task.cognitive_state.fact_sources.len(), 1);
+    }
+
+    #[test]
+    fn start_task_seeds_missing_scaffold_from_user_request() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Recover logs".to_string(),
+                "Recover validator-visible log artifacts.".to_string(),
+                "Inspect validator".to_string(),
+                "Read the validator and expected artifacts.".to_string(),
+                true,
+            )
+            .expect("task starts with seeded scaffold");
+
+        state
+            .validate_cognitive_preflight()
+            .expect("seeded scaffold satisfies preflight");
+        let snapshot = state.snapshot();
+        let task = snapshot.tasks.first().expect("task snapshot");
+        assert_eq!(task.problem_ledger.success_criteria[0].id, "sc-user-request");
+        assert_eq!(task.cognitive_state.output_contracts[0].id, "oc-user-request");
+        assert_eq!(task.cognitive_state.fact_sources[0].id, "fs-user-request");
+    }
+
+    #[test]
+    fn start_task_initial_scaffold_satisfies_problem_preflight() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+
+        state
+            .start_task_for_main_with_kind_and_criteria(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Recover logs".to_string(),
+                "Recover validator-visible log artifacts.".to_string(),
+                vec![ActionMapSuccessCriterionInput {
+                    id: "sc-1".to_string(),
+                    kind: "validator".to_string(),
+                    description: "Public validator exits with code 0.".to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapStateCommitOutputContractInput {
+                    id: "oc-1".to_string(),
+                    kind: "validator".to_string(),
+                    description: "Final answer cites the validator result.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapStateCommitFactSourceInput {
+                    id: "fs-1".to_string(),
+                    provenance: "provided_by_user".to_string(),
+                    description: "User requested the log recovery task.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                "Inspect validator".to_string(),
+                "Read the validator and expected artifacts.".to_string(),
+                true,
+            )
+            .expect("task starts with initial scaffold");
+
+        state
+            .validate_cognitive_preflight()
+            .expect("initial scaffold satisfies preflight");
+        let snapshot = state.snapshot();
+        let task = snapshot.tasks.first().expect("task snapshot");
+        assert_eq!(task.problem_ledger.success_criteria.len(), 2);
+        assert_eq!(task.cognitive_state.output_contracts.len(), 1);
+        assert_eq!(task.cognitive_state.fact_sources.len(), 1);
     }
 
     #[test]
@@ -14705,10 +14884,14 @@ mod tests {
                 }],
             )
             .expect("fact source records");
+        let task_id = state.active_task_id.clone().expect("active task");
+        let task = state.tasks.get_mut(&task_id).expect("active task state");
+        task.problem_ledger.success_criteria.clear();
+        task.cognitive_state.output_contracts.clear();
 
         let error = state
             .prepare_main_tool_call(owner, "shell")
-            .expect_err("missing success criteria should block ordinary work");
+            .expect_err("missing migrated problem-state should block ordinary work");
 
         assert!(error.contains("record_success_criteria"));
         assert!(error.contains("record_output_contract"));
