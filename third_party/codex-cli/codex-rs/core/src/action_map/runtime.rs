@@ -2982,53 +2982,6 @@ preview:\n\
             &commit_id,
             &task_id,
             &map_id,
-            "nodes",
-            !input.nodes.is_empty(),
-            |state| {
-                let mut section_events = Vec::new();
-                for node in input.nodes {
-                    let (_, node_events) = state.create_node_for_main_with_kind(
-                        owner_session_id,
-                        node.kind,
-                        node.title,
-                        node.context_summary,
-                        node.dependency_node_ids,
-                        node.bind_current,
-                    )?;
-                    section_events.extend(node_events);
-                }
-                Ok(section_events)
-            },
-            &mut outcome,
-            &mut events,
-        );
-        self.apply_state_commit_section(
-            &commit_id,
-            &task_id,
-            &map_id,
-            "finished_nodes",
-            !input.finished_nodes.is_empty(),
-            |state| {
-                let mut section_events = Vec::new();
-                for node in input.finished_nodes {
-                    let (_, node_events) = state.finish_main_node_with_next(
-                        owner_session_id,
-                        &node.node_id,
-                        node.result_summary,
-                        node.next_node_id,
-                        node.next_node_draft,
-                    )?;
-                    section_events.extend(node_events);
-                }
-                Ok(section_events)
-            },
-            &mut outcome,
-            &mut events,
-        );
-        self.apply_state_commit_section(
-            &commit_id,
-            &task_id,
-            &map_id,
             "blockers",
             !input.blockers.is_empty(),
             |state| {
@@ -3096,6 +3049,53 @@ preview:\n\
             !input.success_criteria.is_empty(),
             |state| {
                 state.record_success_criteria_for_main(owner_session_id, input.success_criteria)
+            },
+            &mut outcome,
+            &mut events,
+        );
+        self.apply_state_commit_section(
+            &commit_id,
+            &task_id,
+            &map_id,
+            "finished_nodes",
+            !input.finished_nodes.is_empty(),
+            |state| {
+                let mut section_events = Vec::new();
+                for node in input.finished_nodes {
+                    let (_, node_events) = state.finish_main_node_with_next(
+                        owner_session_id,
+                        &node.node_id,
+                        node.result_summary,
+                        node.next_node_id,
+                        node.next_node_draft,
+                    )?;
+                    section_events.extend(node_events);
+                }
+                Ok(section_events)
+            },
+            &mut outcome,
+            &mut events,
+        );
+        self.apply_state_commit_section(
+            &commit_id,
+            &task_id,
+            &map_id,
+            "nodes",
+            !input.nodes.is_empty(),
+            |state| {
+                let mut section_events = Vec::new();
+                for node in input.nodes {
+                    let (_, node_events) = state.create_node_for_main_with_kind(
+                        owner_session_id,
+                        node.kind,
+                        node.title,
+                        node.context_summary,
+                        node.dependency_node_ids,
+                        node.bind_current,
+                    )?;
+                    section_events.extend(node_events);
+                }
+                Ok(section_events)
             },
             &mut outcome,
             &mut events,
@@ -15281,6 +15281,107 @@ mod tests {
         state
             .finish_main_node(owner, &node_id, "Tests passed.".to_string(), None)
             .expect("smoke test can finish after successful validation");
+    }
+
+    #[test]
+    fn state_commit_accepts_validation_result_before_finishing_node_and_creating_next() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::RegressionTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run regression tests",
+            "Run pytest.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-pass",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("successful test result records")
+            .expect("test result id");
+
+        let (outcome, _) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-validation-finish".to_string(),
+                    result_validities: vec![ActionMapStateCommitResultValidityInput {
+                        result_id: result_id.clone(),
+                        validity: "accepted".to_string(),
+                        validity_reason: "pytest passed".to_string(),
+                        claims: vec![ActionMapCognitiveClaimInput {
+                            id: "claim-pytest-pass".to_string(),
+                            statement: "pytest passed.".to_string(),
+                            evidence_refs: vec![ActionMapEvidenceRefInput {
+                                validator_ref: Some("pytest".to_string()),
+                                ..Default::default()
+                            }],
+                        }],
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some(result_id),
+                            ..Default::default()
+                        }],
+                        changed_artifacts: Vec::new(),
+                        validator_refs: vec!["pytest".to_string()],
+                        remaining_uncertainty: Vec::new(),
+                    }],
+                    success_criteria: vec![ActionMapSuccessCriterionInput {
+                        id: "sc-validation".to_string(),
+                        kind: "test".to_string(),
+                        description: "pytest passes".to_string(),
+                        status: "satisfied".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            validator_ref: Some("pytest".to_string()),
+                            ..Default::default()
+                        }],
+                    }],
+                    finished_nodes: vec![ActionMapStateCommitFinishNodeInput {
+                        node_id: node_id.clone(),
+                        result_summary: "pytest passed".to_string(),
+                        next_node_id: None,
+                        next_node_draft: None,
+                    }],
+                    nodes: vec![ActionMapStateCommitNodeInput {
+                        kind: NodeKind::FinalSynthesis,
+                        title: "Final summary".to_string(),
+                        context_summary: "Summarize validation result.".to_string(),
+                        dependency_node_ids: vec![node_id],
+                        bind_current: true,
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect("state commit runs");
+
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
+        assert_eq!(
+            outcome.accepted_sections,
+            vec![
+                "result_validities",
+                "success_criteria",
+                "finished_nodes",
+                "nodes"
+            ]
+        );
+        let map = state.active_map().expect("active map");
+        assert_eq!(
+            map.nodes.get("node-1").expect("validation node").status,
+            NodeStatus::Completed
+        );
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some("node-2")
+        );
     }
 
     #[test]

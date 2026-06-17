@@ -1,5 +1,65 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-17 Phase 1 validation commit ordering
+
+Changed:
+
+- `state_commit` now applies `result_validities` and `success_criteria` before `finished_nodes` and `nodes`.
+- This lets a validation node accept the validator result, satisfy the criterion, finish the validation node, and create/bind the next node in a single transactional commit.
+- Added a regression test for the one-shot validation finish path.
+
+Validation:
+
+```text
+cargo test -p codex-core state_commit_accepts_validation_result_before_finishing_node_and_creating_next --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core finish_smoke_node --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+5 passed
+
+cargo test -p codex-core state_commit_can_satisfy_problem_preflight_sections --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+1 passed
+
+cargo test -p codex-core state_commit --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+8 passed
+
+cargo test -p codex-core taskspace_control --manifest-path third_party\codex-cli\codex-rs\Cargo.toml
+13 passed
+
+git diff --check
+passed, with existing LF-to-CRLF working-copy warnings
+```
+
+Installed debug binary:
+
+```text
+C:\Users\77585\.whale\bin\whale.exe
+sha256=9F2BA07A4ACC0D3CDFB5D832A71526A7CE0000E6DBE92FFF98053294FE91EF64
+```
+
+Live smoke evidence:
+
+```text
+target\v005-statecommit-order-smoke\large-output-ref-smoke\20260617-213832-346
+- valid_pair=True
+- engineering_unclean=False
+- outcome_standard=solved
+- outcome_taskspace=solved
+- runtime_output_ref_created_count=1
+- large_output_replay_count=0
+- failure_taxonomy=subagent_noise_or_unused
+- taskspace_wall_time_ratio=15.37
+- taskspace_tool_call_ratio=1
+- nodes=10, edges=10, spawn_agent_calls=4, subagent_results=21, open_leaf_nodes=0
+- graph warnings: high_blocked_node_ratio, low_decision_density, subagent_no_decision_yield
+```
+
+Remaining Phase 5 / Phase 6 work:
+
+- Treat this smoke as diagnostic only, not v0.0.5 pass evidence.
+- The validation ordering and output-reference path are repaired for this run shape.
+- The next blocker is thin-route fanout: `large-output-ref-smoke` should stay on the low-friction path and must not spawn subagents without a demonstrated need.
+
 ## 2026-06-17 Phase 1/6 start_task scaffold and recovery friction
 
 Changed:
