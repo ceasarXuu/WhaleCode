@@ -76,4 +76,20 @@ $passResult = & (Join-Path $PSScriptRoot "write-cost-diagnostics.ps1") -RunRoot 
 $passDiag = Get-Content -Raw -Encoding UTF8 -LiteralPath $passResult.cost_diagnostics_path | ConvertFrom-Json
 Assert-True ([string]$passDiag.root_cause -eq "none_cost_gate_passed") "PASS fixture reported a cost root cause"
 
+$aggregateRoot = Join-Path $RunRoot "aggregate"
+$aggLeft1 = Join-Path $aggregateRoot "pair-001\left\artifacts"
+$aggRight1 = Join-Path $aggregateRoot "pair-001\right\artifacts"
+$aggLeft2 = Join-Path $aggregateRoot "pair-002\left\artifacts"
+$aggRight2 = Join-Path $aggregateRoot "pair-002\right\artifacts"
+New-Item -ItemType Directory -Path $aggLeft1, $aggRight1, $aggLeft2, $aggRight2 -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $left "metrics.json") -Destination (Join-Path $aggLeft1 "metrics.json")
+Copy-Item -LiteralPath (Join-Path $right "metrics.json") -Destination (Join-Path $aggRight1 "metrics.json")
+Copy-Item -LiteralPath (Join-Path $left "metrics.json") -Destination (Join-Path $aggLeft2 "metrics.json")
+Copy-Item -LiteralPath (Join-Path $right "metrics.json") -Destination (Join-Path $aggRight2 "metrics.json")
+[pscustomobject]@{ status = "FAIL" } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $aggregateRoot "suite-cost-gate.json") -Encoding UTF8
+$aggregateResult = & (Join-Path $PSScriptRoot "write-cost-diagnostics.ps1") -RunRoot $aggregateRoot
+$aggregateDiag = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregateResult.cost_diagnostics_path | ConvertFrom-Json
+Assert-True ([double]$aggregateDiag.standard.input_tokens -eq 200000) "aggregate standard input tokens were not summed"
+Assert-True ([double]$aggregateDiag.taskspace.rollout_trace_model_request_count -eq 36) "aggregate rollout trace requests were not summed"
+
 Write-Host "TaskSpace cost diagnostics self-test: PASS"

@@ -60,6 +60,10 @@ $verificationManifest = [pscustomobject]@{
 $verificationRouting = New-TaskspaceRoutingDecision $verificationManifest "Produce exact output format."
 Assert-True ([string]$verificationRouting.recommended_mode -eq "verification_first") "format-sensitive scenario did not route to verification_first"
 Assert-True ([bool]$verificationRouting.initial_constraints.must_read_validator_first) "verification_first did not require validator-first"
+$verificationPrompt = New-TaskspaceRoutingPrompt $verificationRouting
+Assert-True ($verificationPrompt.Contains("recommended_mode: verification_first")) "verification prompt omitted mode"
+Assert-True ($verificationPrompt.Contains("Use at most three TaskSpace nodes")) "verification prompt omitted node budget guidance"
+Assert-True ($verificationPrompt.Contains("visible validator is the final format check")) "verification prompt omitted final validator guidance"
 
 $routingReportDir = Join-Path $RunRoot "routing-report-selftest"
 New-Item -ItemType Directory -Path (Join-Path $routingReportDir "pair-001\left\artifacts") -Force | Out-Null

@@ -32,12 +32,48 @@ function First-Metric {
     $null
 }
 
+function Sum-MetricsByMode {
+    param([object[]]$Metrics, [string]$Mode)
+    $selected = @($Metrics | Where-Object { [string]$_.logical_mode -eq $Mode })
+    if ($selected.Count -eq 0) { return $null }
+    $sumFields = @(
+        "model_request_count", "input_tokens", "output_tokens", "cached_input_tokens",
+        "uncached_input_tokens", "jsonl_bytes", "wall_time_ms",
+        "rollout_trace_model_request_count", "taskspace_runtime_event_count",
+        "runtime_state_commit_count", "projection_count", "projection_tokens",
+        "projection_protected_miss_count", "large_output_replay_count", "spawn_agent_calls"
+    )
+    $out = [ordered]@{ logical_mode = $Mode; side_count = $selected.Count }
+    foreach ($field in $sumFields) {
+        $total = [double]0
+        $seen = $false
+        foreach ($metric in $selected) {
+            if ($metric.PSObject.Properties.Name -contains $field -and $null -ne $metric.$field) {
+                $total += Get-Num $metric.$field
+                $seen = $true
+            }
+        }
+        $out[$field] = if ($seen) { $total } else { $null }
+    }
+    $maxProjection = @($selected | Where-Object {
+            $_.PSObject.Properties.Name -contains "projection_tokens_max" -and $null -ne $_.projection_tokens_max
+        } | ForEach-Object { Get-Num $_.projection_tokens_max } | Measure-Object -Maximum).Maximum
+    $out["projection_tokens_max"] = if ($null -ne $maxProjection) { [double]$maxProjection } else { $null }
+    $out["avg_input_tokens_per_request"] = if ((Get-Num $out.model_request_count) -gt 0) {
+        [Math]::Round((Get-Num $out.input_tokens) / (Get-Num $out.model_request_count), 4)
+    } else { $null }
+    $out["provider_input_tokens_per_jsonl_kb"] = if ((Get-Num $out.jsonl_bytes) -gt 0) {
+        [Math]::Round((Get-Num $out.input_tokens) / ((Get-Num $out.jsonl_bytes) / 1024.0), 4)
+    } else { $null }
+    [pscustomobject]$out
+}
+
 if (-not (Test-Path -LiteralPath $RunRoot)) { throw "RunRoot does not exist: $RunRoot" }
 
 $metricFiles = @(Get-ChildItem -LiteralPath $RunRoot -Filter "metrics.json" -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName)
 $metrics = @($metricFiles | ForEach-Object { Read-JsonFile $_.FullName } | Where-Object { $null -ne $_ })
-$standard = First-Metric $metrics "standard"
-$taskspace = First-Metric $metrics "taskspace"
+$standard = Sum-MetricsByMode $metrics "standard"
+$taskspace = Sum-MetricsByMode $metrics "taskspace"
 $tokenSummary = Read-JsonFile (Join-Path $RunRoot "token-summary.json")
 $requestSummary = Read-JsonFile (Join-Path $RunRoot "request-summary.json")
 $costGate = Read-JsonFile (Join-Path $RunRoot "suite-cost-gate.json")
@@ -74,9 +110,10 @@ if ((Get-Num $taskspace.runtime_state_commit_count) -eq 0) { $drivers.Add("state
 
 $costStatus = if ($costGate) { [string]$costGate.status } else { "MISSING" }
 $rootCause = "unknown"
+$projectionShareForRoot = Get-Num $projectionTokenShare
 if ($costStatus -eq "PASS") {
     $rootCause = "none_cost_gate_passed"
-} elseif ($rolloutReqRatio -gt 2.5 -and (Get-Num $taskspace.projection_tokens) -lt 10000 -and (Get-Num $taskspace.large_output_replay_count) -eq 0) {
+} elseif ($rolloutReqRatio -gt 2.5 -and $projectionShareForRoot -lt 0.05 -and (Get-Num $taskspace.large_output_replay_count) -eq 0) {
     $rootCause = "active_profile_repeats_compact_taskspace_context_across_many_model_turns"
 } elseif ($avgProviderInputRatio -gt 3.0) {
     $rootCause = "provider_visible_base_context_too_large"

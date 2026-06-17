@@ -75,6 +75,7 @@ Write-Text $promptCopy $prompt
 Write-TaskspaceJson $promptGuard (Join-Path $runDir "prompt-guard.json")
 Write-TaskspaceRunEvent $runDir "prompt_guard_completed" @{ invalid_prompt = [bool]$promptGuard.invalid_prompt; manual_review_required = [bool]$promptGuard.manual_review_required }
 $routingDecision = New-TaskspaceRoutingDecision $manifest $prompt
+$taskspacePrompt = $prompt + (New-TaskspaceRoutingPrompt $routingDecision)
 $routingDecisionPath = Join-Path $runDir "routing-decision.json"
 Write-TaskspaceJson $routingDecision $routingDecisionPath
 Write-TaskspaceRunEvent $runDir "routing_decision_completed" @{ mode = [string]$routingDecision.recommended_mode; confidence = [string]$routingDecision.confidence; status = [string]$routingDecision.status; path = $routingDecisionPath }
@@ -326,7 +327,8 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             $lastMessagePath = Join-Path $side.ArtifactDir "last-message.md"
             $processTimingPath = Join-Path $side.ArtifactDir "process-timing.json"
             $stdinPath = Join-Path $side.ArtifactDir "user-prompt.txt"
-            Write-Text $stdinPath $prompt
+            $sidePrompt = if ($side.LogicalMode -eq "taskspace") { $taskspacePrompt } else { $prompt }
+            Write-Text $stdinPath $sidePrompt
             $mount = $null
             try {
                 $mount = Mount-TaskspaceExecutionAlias $side

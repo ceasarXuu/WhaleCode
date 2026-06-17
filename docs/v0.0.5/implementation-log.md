@@ -685,6 +685,74 @@ Conclusion:
 - The direct-final prompt policy moved the focused `count-call-stack` active profile from cost `FAIL` to cost `PASS`.
 - Residual diagnostics still show high rollout trace turns and uncached input ratio, so broader E3 remains necessary before release success can be claimed.
 
+## 2026-06-18 Active verification-first prompt constraints
+
+Changed:
+
+- `run-taskspace-benchmark.ps1` now appends `TaskShapeRouterV1` active profile constraints to the TaskSpace side prompt only.
+- Standard still receives the original scenario prompt.
+- `verification_first` constraints now require:
+  - validator/test contract before editing
+  - at most three nodes unless validation fails
+  - no separate findings checkpoint after the expected format and target function are known
+  - no direct CLI-output check after the visible validator passes
+  - one final `state_commit` checkpoint, then direct answer
+- `write-cost-diagnostics.ps1` now aggregates all `metrics.json` files by mode instead of reading only the first pair. This fixed multi-repeat diagnostics so `cost-diagnostics.json` matches `suite-cost-gate.json`.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-routing-verification-first.ps1 -RunRoot target\routing-verification-activeprompt2-selftest
+Verification-first routing self-test: PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\paired-bench-selftest-v005-activeprompt2
+TaskSpace benchmark harness self-test: PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-diagnostics.ps1 -RunRoot target\cost-diagnostics-selftest-rootcause
+TaskSpace cost diagnostics self-test: PASS
+```
+
+Focused smoke:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-benchmark.ps1 -Scenario count-call-stack -Repeats 3 -RunRoot target\v005-count-call-stack-activeprompt2-r3 -TimeoutSeconds 600 -ValidationTimeoutSeconds 180 -ValidationPretestTimeoutSeconds 60 -ValidationTestTimeoutSeconds 180 -SandboxMode workspace-write -EnableAggregate -AllowNonE2Result
+RunDir: target\v005-count-call-stack-activeprompt2-r3\count-call-stack\20260618-004703-679
+```
+
+Observed:
+
+- release decision: `PARTIAL`
+- blockers: `none`
+- cost status: `PARTIAL`
+- direct input+output ratio: `2.3727`
+- walltime ratio: `1.7453`
+- model request count ratio: `1`
+- quality gate: `true`
+- projection gate: `true`
+- map gate: `true`
+- routing gate: `true`
+- output-ref gate: `true`
+- routing mistakes: `0`
+- verification-first expected format count: `3`
+- clean comparable pairs: `3`
+- both success: `3`
+- excluded pairs: `0`
+- TaskSpace spawn agent calls: `0`
+- large output replay count: `0`
+- projection protected misses: `0`
+
+Residual root cause:
+
+- `active_profile_repeats_compact_taskspace_context_across_many_model_turns`
+- rollout trace model request count ratio: `17.6667`
+- uncached input ratio: `12.4114`
+- projection token share of TaskSpace input: `0.0114`
+
+Conclusion:
+
+- The focused `count-call-stack` validation now satisfies the v0.0.5 engineering partial target: quality is clean, cost is within partial thresholds, model request ratio is within budget, no excluded pairs remain, and the remaining cost root cause is isolated.
+- This is not a release PASS because direct input+output ratio remains above the release threshold `<=2.0x`.
+
 ## 2026-06-17 Phase 1 active context projection wiring
 
 Changed:
