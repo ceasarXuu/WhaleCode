@@ -85,14 +85,14 @@ v0.0.5 收口矩阵还包含上面的 E1 冒烟样本，所以该组合运行是
 
 样本集标识：`terminal-bench-p0-comparable`
 
-| 样本 | 定义 | 状态 |
-|---|---|---|
-| `processing-pipeline` | Terminal-Bench processing pipeline 修复任务 | 当前可比 P0 样本。 |
-| `multi-source-data-merger` | Terminal-Bench 多源数据合并和冲突报告任务 | 当前可比 P0 样本。 |
-| `recover-accuracy-log` | Terminal-Bench recovery/accuracy log 任务 | 当前可比 P0 样本。 |
-| `query-optimize` | Terminal-Bench 查询优化任务，包含远程资产要求 | 在远程资产等价性证明前必须排除；只能记录封闭失败状态，不能统计为正确率通过或失败。 |
+| 样本 | 定义 | 计划重复策略 | 历史执行口径 | 状态 |
+|---|---|---:|---|---|
+| `processing-pipeline` | Terminal-Bench processing pipeline 修复任务 | 5 个 Standard/TaskSpace 配对 | v0.0.3/v0.0.4 P0 运行均执行 5 个配对 | 当前可比 P0 样本。 |
+| `multi-source-data-merger` | Terminal-Bench 多源数据合并和冲突报告任务 | 5 个 Standard/TaskSpace 配对 | v0.0.3/v0.0.4 P0 运行均执行 5 个配对 | 当前可比 P0 样本。 |
+| `recover-accuracy-log` | Terminal-Bench recovery/accuracy log 任务 | 5 个 Standard/TaskSpace 配对 | v0.0.3/v0.0.4 P0 运行均执行 5 个配对 | 当前可比 P0 样本。 |
+| `query-optimize` | Terminal-Bench 查询优化任务，包含远程资产要求 | 计划 5 个配对 | v0.0.3/v0.0.4 P0 运行均因远程资产等价性未证明而封闭失败，实际 0 个 agent 配对 | 在远程资产等价性证明前必须排除；只能记录封闭失败状态，不能统计为正确率通过或失败。 |
 
-这是 v0.0.3/v0.0.4 的主要 P0 可比范围。该样本集结果不能和 v0.0.5 内部测试夹具结果直接比较。
+这是 v0.0.3/v0.0.4 的主要 P0 可比范围。完整计划口径是 4 个样本 x 5 个配对；历史有效执行口径通常是前三个样本共 15 个配对，加上 `query-optimize` 的封闭失败预检记录。该样本集结果不能和 v0.0.5 内部测试夹具结果直接比较。
 
 ### 4.5 E3 候选：v0.0.4 clean 15-run 可比范围
 
