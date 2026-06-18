@@ -85,16 +85,15 @@ v0.0.5 收口矩阵还包含上面的 E1 冒烟样本，所以该组合运行是
 
 样本集标识：`terminal-bench-p0-comparable`
 
-此样本集的可执行样本数按 3 个计算。`query-optimize` 是 P0 候选清单中的预检项，因为远程资产等价性长期未证明，历史运行中没有进入 agent 执行，不能计入成功率、耗时或 token 的执行样本数。
+此样本集的可执行样本数按 3 个计算。`query-optimize` 不属于执行样本集；它只是历史 P0 运行中的封闭失败预检记录，不能计入成功率、耗时或 token 的执行样本数。
 
 | 样本 | 定义 | 计划重复策略 | 历史执行口径 | 统计处理 |
 |---|---|---:|---|---|
 | `processing-pipeline` | Terminal-Bench processing pipeline 修复任务 | 5 个 Standard/TaskSpace 配对 | v0.0.3/v0.0.4 P0 运行均执行 5 个配对 | 当前可比 P0 样本。 |
 | `multi-source-data-merger` | Terminal-Bench 多源数据合并和冲突报告任务 | 5 个 Standard/TaskSpace 配对 | v0.0.3/v0.0.4 P0 运行均执行 5 个配对 | 当前可比 P0 样本。 |
 | `recover-accuracy-log` | Terminal-Bench recovery/accuracy log 任务 | 5 个 Standard/TaskSpace 配对 | v0.0.3/v0.0.4 P0 运行均执行 5 个配对 | 当前可比 P0 样本。 |
-| `query-optimize` | Terminal-Bench 查询优化任务，包含远程资产要求 | 计划 5 个配对 | v0.0.3/v0.0.4 P0 运行均因远程资产等价性未证明而封闭失败，实际 0 个 agent 配对 | 只记录封闭失败预检，不计入执行样本数、正确率、耗时或 token 对比。 |
 
-这是 v0.0.3/v0.0.4 的主要 P0 可比范围。严格说，P0 候选清单是 4 个条目 x 5 个配对；用于 agent 能力统计的实际执行样本是 3 个，共 15 个配对，另加 `query-optimize` 的封闭失败预检记录。对外表述“跑了几个 sample”时应说 3 个执行样本；只有描述候选清单或预检覆盖时才说 4 个条目。该样本集结果不能和 v0.0.5 内部测试夹具结果直接比较。
+这是 v0.0.3/v0.0.4 的主要 P0 可比范围。用于 agent 能力统计的实际执行样本是 3 个，共 15 个配对。`query-optimize` 因远程资产等价性未证明，历史运行中只保留封闭失败预检记录，不进入该表，也不参与任何执行样本数、正确率、耗时或 token 对比。该样本集结果不能和 v0.0.5 内部测试夹具结果直接比较。
 
 ### 4.5 E3 候选：v0.0.4 clean 15-run 可比范围
 
