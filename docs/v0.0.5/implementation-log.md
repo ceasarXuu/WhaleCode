@@ -4324,3 +4324,64 @@ Follow-up:
 
 - If the goal is formal evidence, rerun focused samples with enough repeats for the relevant evidence target.
 - If the goal is engineering diagnosis, inspect `multi-file-order-pipeline` first because it is the only sample that failed to reach `E2-candidate` in this smoke.
+
+## 2026-06-18 five-sample five-repeat live matrix
+
+Scope:
+
+- User requested a complete run to validate the v0.0.5 "accuracy did not decline" claim before deciding whether to close v0.0.5 and defer cost optimization to the next version.
+- This run used the five built-in TaskSpace scenarios with five repeats each. It is the strongest internal repeated matrix run so far, but it is not the external `run-taskspace-e3-suite.ps1` Terminal-Bench/DeepSWE suite.
+
+Command:
+
+```text
+$scenarios = @('single-file-fast-fix','multi-file-order-pipeline','subscription-billing-repair','count-call-stack','large-output-ref-smoke')
+& .\scripts\taskspace-benchmark\run-taskspace-e2-matrix.ps1 -Scenarios $scenarios -Repeats 5 -RunRoot "target\v005-five-sample-five-repeat-20260618-065637" -TimeoutSeconds 900 -SandboxMode workspace-write -AllowNonE2Result
+
+MatrixReport: target\v005-five-sample-five-repeat-20260618-065637\e2-matrix-report.md
+Exit code: 0
+Elapsed wall time: about 2h 20m
+```
+
+Matrix summary:
+
+- `scenario_count=5`
+- `repeats_per_scenario=5`
+- child run-status: all five scenarios completed with `phase=completed`, `run_validity=valid`, `completed_pairs=5`, `exit_code=0`
+- matrix `e2_evidence_readiness=false`
+- matrix `e2_clean_readiness=false`
+- matrix `e2_utility_clean_readiness=false`
+- `whale_sha256=fc8c5a9c2c59ff86bf1543d72613116a5d38ffe48b64b37608cd3aa7c02fce13`
+
+Per-scenario aggregate:
+
+| scenario | valid utility pairs | excluded | both success | score valid | notable outcome |
+|---|---:|---:|---:|---|---|
+| `single-file-fast-fix` | 5 | 0 | 5 | true | 5/5 both success, TaskSpace cost higher |
+| `multi-file-order-pipeline` | 5 | 0 | 4 | false | 4/5 both success; 1 score-disabled engineering-cleanliness case though taskspace business success was true |
+| `subscription-billing-repair` | 4 | 1 | 4 | false | 4/5 both success; 1 TaskSpace timeout/validation/oracle failure |
+| `count-call-stack` | 5 | 0 | 5 | true | 5/5 both success; 4/5 cost within budget |
+| `large-output-ref-smoke` | 5 | 0 | 5 | true | 5/5 both success; 4/5 cost within budget |
+
+Accuracy readout:
+
+- Standard raw business success: `25/25`.
+- TaskSpace raw business success: `24/25`.
+- Score-valid both-success pairs: `23/25`.
+- The only clear TaskSpace correctness drop is:
+  - `subscription-billing-repair/pair-005`
+  - TaskSpace `exec_exit_code=124`
+  - public validation exit `1`
+  - hidden oracle exit `1`
+  - `reported_evidence_level=E1`
+  - failure taxonomy includes `taskspace_overhead_timeout`
+  - TaskSpace nodes `17`, spawn calls `5`
+- `multi-file-order-pipeline/pair-004` is not a raw correctness miss:
+  - standard and taskspace both had `business_success=true`
+  - score was disabled because of engineering cleanliness / active sentinel warning, so it still blocks clean readiness.
+
+Conclusion:
+
+- The repeated internal matrix substantially improves confidence over the one-repeat smoke, but it does not prove "accuracy did not decline" without qualification.
+- A conservative statement is: v0.0.5 has no broad correctness regression across the internal matrix, but one L3 repeat still shows a TaskSpace timeout/validation failure and must be documented as a residual correctness risk if v0.0.5 is closed now.
+- If v0.0.5 is closed now, the release note should say correctness is mostly preserved on the internal 5x5 matrix (`24/25` raw TaskSpace business success), with one known `subscription-billing-repair` timeout outlier; cost remains explicitly deferred to the next version.
