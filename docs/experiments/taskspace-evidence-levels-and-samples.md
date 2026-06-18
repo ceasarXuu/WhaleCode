@@ -1,159 +1,159 @@
-# TaskSpace Evidence Levels And Sample Sets
+# TaskSpace 证据等级与样本集
 
-- Status: Ready for use
-- Created: 2026-06-18
-- Updated: 2026-06-18
-- Scope: TaskSpace benchmark and release evidence governance
+- 状态：可执行
+- 创建日期：2026-06-18
+- 更新日期：2026-06-18
+- 范围：TaskSpace 基准测试与发布证据治理
 
-## 1. Purpose
+## 1. 目的
 
-This document fixes a process failure: the v0.0.5 closeout discussion used a near-100% internal matrix result in a way that could be mistaken for Terminal-Bench E3 accuracy. That is not acceptable for release judgment.
+本文档用于修复一次流程问题：v0.0.5 收口讨论中，内部矩阵接近 100% 的结果被表述成容易误解为 Terminal-Bench E3 正确率的结论。这种口径不能用于发布判断。
 
-From now on, every TaskSpace experiment must identify both:
+从现在开始，每一次 TaskSpace 实验都必须同时标明：
 
-1. The evidence level: E1, E2, E3, E4, or E5.
-2. The sample set: the exact registered task/scenario names used in the run.
+1. 证据等级：E1、E2、E3、E4 或 E5。
+2. 样本集：本次运行实际采用的、已经登记的任务或场景名称。
 
-Evidence level is not task difficulty. Difficulty labels like `L1`, `L2`, and `L3` describe scenario shape. Evidence labels like `E1`, `E2`, and `E3` describe how strong a claim the result can support.
+证据等级不是任务难度。`L1`、`L2`、`L3` 这类标签描述场景形态；`E1`、`E2`、`E3` 这类标签描述结果能够支撑多强的结论。
 
-## 2. Evidence Levels
+## 2. 证据等级
 
-| Level | Name | Source | Minimum gates | Allowed claim | Not allowed |
+| 等级 | 名称 | 来源 | 最低门禁 | 允许结论 | 禁止结论 |
 |---|---|---|---|---|---|
-| E1 | Mechanism smoke | Internal fixture or focused local scenario | Reproducible prompt, fixture, validator or deterministic manual check | A mechanism path can execute and produce artifacts | Version accuracy, utility, release, or external benchmark claims |
-| E2 | Internal engineering regression | Internal constructed scenarios | Paired Standard/TaskSpace run, repeats >= 3, prompt guard clean, provider params complete, aggregate enabled, oracle isolation not failed | Internal scenario utility and regression readiness for the named fixture set | Terminal-Bench, DeepSWE, external benchmark, or product-level accuracy claims |
-| E3-candidate | External utility candidate | External benchmark or sanitized historical Whale failure | E3 source metadata and paired artifacts exist, but at least one E3 gate is still pending | Engineering-clean external candidate awaiting audit or proof closure | Final E3 score, release pass, or public product claim |
-| E3 | External utility evidence | Terminal-Bench, DeepSWE, or audited historical Whale failure | Repeats >= 5, pinned source, original prompt checksum, validator checksum, official/equivalent validator proof, validator/source isolation proof, paired artifacts, completed audit review | External utility claim for the declared claim scope and sample set | General product claim outside the sample scope |
-| E4 | Release calibration evidence | Registered blend of E3 plus required internal regressions | Not implemented in the current runner; must include same-scope comparison to prior release, profile identity, cost gates, score validity, and explicit release decision | Version release readiness for the declared release profile | Any claim before E4 tooling and sample set are registered |
-| E5 | Product benchmark board | Frozen long-running benchmark board | Not implemented; must include independent review, recurring schedule, stable sample board, statistical thresholds, cost accounting, and competitor/baseline policy | Product-level benchmark trend or external positioning | Any current v0.0.x release claim |
+| E1 | 机制冒烟 | 内部测试夹具或聚焦本地场景 | 可复现提示词、测试夹具、验证器或确定性人工检查 | 某条机制路径可以执行并产出产物 | 版本正确率、效用、发布或外部基准测试结论 |
+| E2 | 内部工程回归 | 内部构造场景 | Standard/TaskSpace 成对运行、重复次数 >= 3、提示词门禁干净、模型 provider 参数完整、聚合统计已启用、判定器隔离未失败 | 指定内部测试夹具集上的效用和回归就绪判断 | Terminal-Bench、DeepSWE、外部基准测试或产品级正确率结论 |
+| E3-candidate | 外部效用候选 | 外部基准测试或脱敏历史 Whale 失败样本 | E3 源数据和成对产物已存在，但至少一个 E3 门禁仍未完成 | 工程 clean 的外部候选证据，等待审计或证明闭环 | 最终 E3 分数、发布通过或公开产品结论 |
+| E3 | 外部效用证据 | Terminal-Bench、DeepSWE 或已审计历史 Whale 失败样本 | 重复次数 >= 5、固定源版本、原始提示词校验和、验证器校验和、官方或等价验证器证明、验证器/源码隔离证明、成对产物、已完成人工审计 | 声明范围和样本集内的外部效用结论 | 超出样本范围的泛化产品结论 |
+| E4 | 发布校准证据 | E3 与必要内部回归的登记组合 | 当前运行器尚未实现；必须包含与上一发布版本的同口径对比、配置档身份、成本门禁、分数有效性和明确发布决策 | 指定发布配置档下的版本发布就绪判断 | 在 E4 工具和样本集登记前做任何 E4 结论 |
+| E5 | 产品基准测试看板 | 冻结的长期基准测试看板 | 当前尚未实现；必须包含独立审查、固定周期、稳定样本板、统计阈值、成本核算和竞品或基线策略 | 产品级基准测试趋势或外部定位结论 | 当前任何 v0.0.x 发布结论 |
 
-Current code implements `E1`, `E2`, `E2-candidate`, `E3-candidate`, and `E3`. `E4` and `E5` are governance definitions only until runner support and sample boards are added.
+当前代码实际实现了 `E1`、`E2`、`E2-candidate`、`E3-candidate` 和 `E3`。`E4`、`E5` 目前只是治理定义，必须等运行器支持和样本板登记完成后才能使用。
 
-## 3. Candidate Rules
+## 3. 候选证据规则
 
-Candidate evidence is intentionally lower than the target level.
+候选证据低于目标证据等级，不能偷换口径。
 
-| Reported level | Meaning | Can satisfy target |
+| 报告等级 | 含义 | 能否满足目标等级 |
 |---|---|---|
-| `E1` | Smoke or degraded evidence | E1 only |
-| `E2-candidate` | Internal utility candidate with unresolved E2 gate | No |
-| `E2` | Internal utility evidence | E2 |
-| `E3-candidate` | External utility candidate with pending E3 gate | No |
-| `E3` | Completed external utility evidence | E3 |
+| `E1` | 冒烟或降级证据 | 只能满足 E1 |
+| `E2-candidate` | 仍有 E2 门禁未解决的内部效用候选 | 不能满足 E2 |
+| `E2` | 内部效用证据 | 可以满足 E2 |
+| `E3-candidate` | 仍有 E3 门禁未解决的外部效用候选 | 不能满足 E3 |
+| `E3` | 已闭环的外部效用证据 | 可以满足 E3 |
 
-If a report says `requested_evidence_target: E3` but `reported_evidence_level: E3-candidate`, the result is not E3.
+如果报告里写着 `requested_evidence_target: E3`，但 `reported_evidence_level: E3-candidate`，这次结果就不是 E3。
 
-## 4. Registered Sample Sets
+## 4. 已登记样本集
 
-### 4.1 E1: Internal Smoke Set
+### 4.1 E1：内部冒烟集
 
-Sample set id: `taskspace-internal-smoke-v005`
+样本集标识：`taskspace-internal-smoke-v005`
 
-| Sample | Definition | Current manifest target | Purpose |
+| 样本 | 定义 | 当前清单目标 | 用途 |
 |---|---|---|---|
-| `count-call-stack` | Internal parser/format-sensitive fixture with `scripts/validate.py` oracle | E1 | Tests thin and verification-first behavior around exact output format. |
-| `large-output-ref-smoke` | Internal large-output replay fixture with pytest oracle | E1 | Tests output reference creation and large output replay control. |
+| `count-call-stack` | 内部解析器/格式敏感测试夹具，使用 `scripts/validate.py` 判定器 | E1 | 验证轻量路径和验证优先在精确输出格式任务上的行为。 |
+| `large-output-ref-smoke` | 内部大输出回放测试夹具，使用 pytest 判定器 | E1 | 验证输出引用创建和大输出回放控制。 |
 
-Allowed conclusion: these scenarios can show whether specific mechanisms run. They cannot establish TaskSpace utility or release readiness.
+允许结论：这些场景只能说明特定机制是否跑通，不能证明 TaskSpace 效用或发布就绪。
 
-### 4.2 E2: v0.0.5 Internal Regression Matrix
+### 4.2 E2：v0.0.5 内部回归矩阵
 
-Sample set id: `taskspace-internal-regression-v005`
+样本集标识：`taskspace-internal-regression-v005`
 
-| Sample | Definition | Scenario level | Current manifest target | Purpose |
+| 样本 | 定义 | 场景等级 | 当前清单目标 | 用途 |
 |---|---|---:|---|---|
-| `single-file-fast-fix` | Internal single-file Python tax calculation fix with pytest oracle | L1 | E2 | Ensures TaskSpace does not damage trivial deterministic fixes. |
-| `multi-file-order-pipeline` | Internal multi-file order processing repair with README/test conflict handling | L2 | E2 | Exercises multi-file reasoning and local regression validation. |
-| `subscription-billing-repair` | Internal subscription billing repair with wider code surface | L3 | E2 | Exercises broader edit scope and cost warning behavior. |
+| `single-file-fast-fix` | 内部单文件 Python 税费计算修复，使用 pytest 判定器 | L1 | E2 | 确认 TaskSpace 不会破坏简单确定性修复。 |
+| `multi-file-order-pipeline` | 内部多文件订单处理修复，覆盖 README/test 冲突处理 | L2 | E2 | 验证多文件推理和本地回归验证。 |
+| `subscription-billing-repair` | 内部订阅计费修复，编辑面更宽 | L3 | E2 | 验证更宽编辑范围和成本告警行为。 |
 
-The v0.0.5 closeout matrix also included the E1 smoke samples above, so the combined run was a mixed internal E1/E2 engineering matrix, not Terminal-Bench E3.
+v0.0.5 收口矩阵还包含上面的 E1 冒烟样本，所以该组合运行是内部 E1/E2 混合工程矩阵，不是 Terminal-Bench E3。
 
-### 4.3 E3 Candidate: Terminal-Bench Original Four
+### 4.3 E3 候选：Terminal-Bench 原始四样本
 
-Sample set id: `terminal-bench-original-4`
+样本集标识：`terminal-bench-original-4`
 
-| Sample | Definition | Historical use |
+| 样本 | 定义 | 历史用途 |
 |---|---|---|
-| `hello-world` | Terminal-Bench introductory file/task validation sample | Pre-version full benchmark and E3 harness proof work. |
-| `heterogeneous-dates` | Terminal-Bench data/date normalization task | Pre-version external utility exploration. |
-| `jsonl-aggregator` | Terminal-Bench JSONL aggregation task | Exposed TaskSpace node growth and cost amplification. |
-| `log-summary` | Terminal-Bench log summarization task | Exposed mixed TaskSpace utility and cost behavior. |
+| `hello-world` | Terminal-Bench 入门文件/任务验证样本 | 用于早期完整基准测试和 E3 测试框架证明。 |
+| `heterogeneous-dates` | Terminal-Bench 数据和日期规范化任务 | 用于早期外部效用探索。 |
+| `jsonl-aggregator` | Terminal-Bench JSONL 聚合任务 | 暴露过 TaskSpace 节点增长和成本放大问题。 |
+| `log-summary` | Terminal-Bench 日志摘要任务 | 暴露过 TaskSpace 效用与成本混合表现。 |
 
-This set can support E3 only when every included pair reports `E3`. Earlier runs with excluded or candidate pairs must be described as diagnostic or E3-candidate evidence.
+只有当该样本集内所有纳入统计的配对运行都报告为 `E3` 时，才可以支撑 E3 结论。早期存在被排除项或候选配对运行的结果，只能描述为诊断证据或 E3-candidate 证据。
 
-### 4.4 E3 Candidate: Terminal-Bench P0 Comparable Scope
+### 4.4 E3 候选：Terminal-Bench P0 可比范围
 
-Sample set id: `terminal-bench-p0-comparable`
+样本集标识：`terminal-bench-p0-comparable`
 
-| Sample | Definition | Status |
+| 样本 | 定义 | 状态 |
 |---|---|---|
-| `processing-pipeline` | Terminal-Bench processing pipeline repair task | Active comparable P0 sample. |
-| `multi-source-data-merger` | Terminal-Bench multi-source merge and conflict report task | Active comparable P0 sample. |
-| `recover-accuracy-log` | Terminal-Bench recovery/accuracy log task | Active comparable P0 sample. |
-| `query-optimize` | Terminal-Bench query optimization task with remote asset requirements | Excluded until remote asset equivalence is proven; use fail-closed status, not pass/fail accuracy. |
+| `processing-pipeline` | Terminal-Bench processing pipeline 修复任务 | 当前可比 P0 样本。 |
+| `multi-source-data-merger` | Terminal-Bench 多源数据合并和冲突报告任务 | 当前可比 P0 样本。 |
+| `recover-accuracy-log` | Terminal-Bench recovery/accuracy log 任务 | 当前可比 P0 样本。 |
+| `query-optimize` | Terminal-Bench 查询优化任务，包含远程资产要求 | 在远程资产等价性证明前必须排除；只能记录封闭失败状态，不能统计为正确率通过或失败。 |
 
-This was the main v0.0.3/v0.0.4 comparable P0 scope. Results from this set cannot be compared directly with v0.0.5 internal fixture results.
+这是 v0.0.3/v0.0.4 的主要 P0 可比范围。该样本集结果不能和 v0.0.5 内部测试夹具结果直接比较。
 
-### 4.5 E3 Candidate: v0.0.4 Clean 15-Run Comparable Scope
+### 4.5 E3 候选：v0.0.4 clean 15-run 可比范围
 
-Sample set id: `terminal-bench-v004-clean-15`
+样本集标识：`terminal-bench-v004-clean-15`
 
-| Sample | Definition | Repeat policy | Historical result |
+| 样本 | 定义 | 重复策略 | 历史结果 |
 |---|---|---:|---|
-| `analyze-access-logs` | Terminal-Bench access-log analysis task | 5 | v0.0.4 clean run: Standard 4/5, TaskSpace 5/5. |
-| `log-summary` | Terminal-Bench log summary task | 5 | v0.0.4 clean run: Standard 3/5, TaskSpace 3/5. |
-| `count-call-stack` | Terminal-Bench call-stack counting/format task | 5 | v0.0.4 clean run: Standard 0/5, TaskSpace 0/5. |
+| `analyze-access-logs` | Terminal-Bench access-log 分析任务 | 5 | v0.0.4 工程 clean 运行：Standard 4/5，TaskSpace 5/5。 |
+| `log-summary` | Terminal-Bench 日志摘要任务 | 5 | v0.0.4 工程 clean 运行：Standard 3/5，TaskSpace 3/5。 |
+| `count-call-stack` | Terminal-Bench call-stack 计数/格式任务 | 5 | v0.0.4 工程 clean 运行：Standard 0/5，TaskSpace 0/5。 |
 
-This is the required same-scope baseline if v0.0.5 needs to prove correctness did not regress against v0.0.4. Until audit reviews are completed and every pair reports `E3`, call it E3-candidate or clean public-validator evidence, not final E3.
+如果 v0.0.5 要证明相对 v0.0.4 正确率未下降，这是必须使用的同口径基线。除非审计完成且每个纳入配对运行都报告 `E3`，否则只能称为 E3-candidate 或“工程 clean 的公开验证器证据”，不能称为最终 E3。
 
-### 4.6 E3 Harness Proof: Audited Terminal-Bench Hello World
+### 4.6 E3 Harness Proof：已审计 Terminal-Bench Hello World
 
-Sample set id: `terminal-bench-hello-world-audited-proof`
+样本集标识：`terminal-bench-hello-world-audited-proof`
 
-| Sample | Definition | Use |
+| 样本 | 定义 | 用途 |
 |---|---|---|
-| `hello-world` | Single Terminal-Bench sample with completed audit review and no E3 gate failures in prior proof run | Proves harness closure on a simple external sample; does not prove broad TaskSpace utility. |
+| `hello-world` | 单个 Terminal-Bench 样本；历史证明运行已完成人工审计，且没有 E3 门禁失败 | 证明简单外部样本上的测试框架闭环，不证明广泛 TaskSpace 效用。 |
 
-### 4.7 Future E3: Historical Whale Failure Corpus
+### 4.7 未来 E3：历史 Whale 失败语料
 
-Sample set id: `historical-whale-failures`
+样本集标识：`historical-whale-failures`
 
-Definition: sanitized real Whale use cases, session failures, runtime failures, or product regressions. A sample must include original prompt hash, sanitized fixture, validator or audit path, privacy review, and artifact audit review.
+定义：脱敏后的真实 Whale 用例、会话失败、运行时失败或产品回归。样本必须包含原始提示词哈希、脱敏测试夹具、验证器或审计路径、隐私审查和产物审计。
 
-Current status: corpus rules exist, but no active sample names are registered here yet. It cannot support release conclusions until concrete sample ids are added to this document.
+当前状态：语料规则已经存在，但还没有在本文档中登记具体活跃样本名。在具体样本标识登记之前，该样本集不能支撑发布结论。
 
-### 4.8 Future E3: DeepSWE Adapter Scope
+### 4.8 未来 E3：DeepSWE Adapter 范围
 
-Sample set id: `deepswe-adapter-spike`
+样本集标识：`deepswe-adapter-spike`
 
-Definition: DeepSWE long-horizon software engineering task subset through the Whale external benchmark adapter.
+定义：通过 Whale 外部基准测试适配器接入的 DeepSWE 长程软件工程任务子集。
 
-Current status: adapter exists as a spike path, but no active sample names are registered here yet. It cannot support release conclusions until concrete sample ids and validator fidelity proof are registered.
+当前状态：适配器已有试验路径，但还没有在本文档中登记具体活跃样本名。在具体样本标识和验证器保真证明登记之前，该样本集不能支撑发布结论。
 
-## 5. E4 And E5 Registration Policy
+## 5. E4 与 E5 登记规则
 
-E4 and E5 are intentionally empty until the project adds the required tooling and freezes their sample boards.
+E4 和 E5 当前刻意留空，直到项目补齐必要工具并冻结样本板。
 
-| Level | Required sample registration before first run |
+| 等级 | 首次运行前必须登记的样本要求 |
 |---|---|
-| E4 | A release calibration set that names every included E3 sample set, every required E2 regression sample, prior-version baseline, profile hash policy, cost gates, and release-decision owner. |
-| E5 | A product benchmark board that names external benchmark families, sample selection policy, refresh cadence, statistical thresholds, competitor/baseline policy, and independent review process. |
+| E4 | 一个发布校准集，必须列出所有纳入的 E3 样本集、所有必需 E2 回归样本、上一版本基线、配置档哈希策略、成本门禁和发布决策负责人。 |
+| E5 | 一个产品基准测试看板，必须列出外部基准测试家族、样本选择策略、刷新节奏、统计阈值、竞品或基线策略和独立审查流程。 |
 
-Until those entries exist in this file, no document may claim E4 or E5 evidence.
+在这些条目登记到本文档之前，任何文档都不得宣称 E4 或 E5 证据。
 
-## 6. Allowed Version-Comparison Claims
+## 6. 允许的版本对比结论
 
-| Comparison | Allowed? | Required wording |
+| 对比 | 是否允许 | 必须使用的表述 |
 |---|---|---|
-| v0.0.5 internal E1/E2 matrix vs v0.0.4 Terminal-Bench E3 candidate | No | "Not same-scope; cannot compare accuracy." |
-| v0.0.5 rerun on `terminal-bench-v004-clean-15` vs v0.0.4 clean 15-run | Yes, if same profile and score validity are documented | "Same-scope Terminal-Bench clean 15-run comparison." |
-| v0.0.5 E2 matrix vs previous E2 matrix | Yes, if same internal sample set and repeats | "Internal engineering regression comparison." |
-| E3-candidate vs E3 | No | "Candidate evidence pending E3 gates." |
-| Any E1/E2 result as release readiness | No | "Engineering readiness only." |
+| v0.0.5 内部 E1/E2 矩阵 vs v0.0.4 Terminal-Bench E3 candidate | 不允许 | “不同口径，不能比较正确率。” |
+| v0.0.5 在 `terminal-bench-v004-clean-15` 上复跑 vs v0.0.4 clean 15-run | 允许，前提是同配置档和分数有效性都有记录 | “同口径 Terminal-Bench clean 15-run 对比。” |
+| v0.0.5 E2 矩阵 vs 之前的 E2 矩阵 | 允许，前提是内部样本集和重复次数相同 | “内部工程回归对比。” |
+| E3-candidate vs E3 | 不允许 | “候选证据仍在等待 E3 门禁。” |
+| 任何 E1/E2 结果作为发布就绪证据 | 不允许 | “仅代表工程就绪。” |
 
-## 7. Mandatory Run Record Fields
+## 7. 运行记录必填字段
 
-Every experiment report must include:
+每份实验报告都必须包含：
 
 ```text
 experiment_level:
@@ -177,33 +177,33 @@ allowed_claim:
 explicit_non_claims:
 ```
 
-If any field is missing, the result is `diagnostic-only` until corrected.
+任一字段缺失时，该结果只能标记为 `diagnostic-only`，直到补齐记录。
 
-## 8. Naming Rules
+## 8. 命名规则
 
-Use these terms precisely:
+以下术语必须精确使用：
 
-| Term | Meaning |
+| 术语 | 含义 |
 |---|---|
-| `internal matrix` | A run over `benchmarks/taskspace/scenarios/*` fixtures. Usually E1/E2. |
-| `Terminal-Bench E3` | A run through the external benchmark adapter with Terminal-Bench source metadata and E3 gates. |
-| `clean public-validator evidence` | A run with valid engineering harness and public validator results, but without final E3 audit closure. |
-| `full E3` | Only a run where included pairs report `E3`, audit is completed, and score validity is true. |
-| `same-scope comparison` | Same sample set id, same sample names, same repeat policy, and materially same runner profile. |
+| `internal matrix` | 基于 `benchmarks/taskspace/scenarios/*` 测试夹具的运行，通常是 E1/E2。 |
+| `Terminal-Bench E3` | 通过外部基准测试适配器执行，且具备 Terminal-Bench 源数据元信息和 E3 门禁的运行。 |
+| `clean public-validator evidence` | 工程测试框架有效且 public validator 结果可信，但尚未完成最终 E3 审计闭环的运行。 |
+| `full E3` | 只有纳入统计的配对运行都报告 `E3`，审计已完成，且分数有效性为 true 的运行。 |
+| `same-scope comparison` | 样本集标识、样本名、重复策略和运行器配置档实质相同的对比。 |
 
-## 9. v0.0.5 Correction
+## 9. v0.0.5 口径修正
 
-The v0.0.5 `24/25` result must be described as:
-
-```text
-v0.0.5 achieved 24/25 raw business success on a mixed internal E1/E2 engineering matrix:
-taskspace-internal-regression-v005 plus taskspace-internal-smoke-v005.
-```
-
-It must not be described as:
+v0.0.5 的 `24/25` 结果必须描述为：
 
 ```text
-v0.0.5 achieved near-100% Terminal-Bench E3 accuracy.
+v0.0.5 在内部 E1/E2 混合工程矩阵上取得 24/25 原始业务成功结果：
+taskspace-internal-regression-v005 加 taskspace-internal-smoke-v005。
 ```
 
-The correct next same-scope correctness check for v0.0.5 is to rerun `terminal-bench-v004-clean-15` under the v0.0.5 profile and compare it to the v0.0.4 clean 15-run.
+不得描述为：
+
+```text
+v0.0.5 取得了接近 100% 的 Terminal-Bench E3 正确率。
+```
+
+v0.0.5 下一步正确的同口径正确性检查，是在 v0.0.5 配置档下复跑 `terminal-bench-v004-clean-15`，并与 v0.0.4 clean 15-run 对比。

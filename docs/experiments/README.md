@@ -1,39 +1,39 @@
-# WhaleCode Experiment System
+# WhaleCode 实验制度
 
-- Status: Ready for use
-- Created: 2026-06-18
-- Owner: WhaleCode engineering
-- Scope: TaskSpace, E3, benchmark, smoke, release-gate, and version comparison evidence
+- 状态：可执行
+- 创建日期：2026-06-18
+- 负责人：WhaleCode 工程
+- 范围：TaskSpace、E3、基准测试、冒烟测试、发布门禁、版本对比证据
 
-This folder is the canonical entry point for experiment definitions. Historical files under `docs/testing/` remain evidence records, but they are not the source of truth for level definitions or sample-set names.
+本目录是实验定义的唯一入口。`docs/testing/` 下的历史文件继续作为证据记录保留，但不再作为实验等级定义、样本集命名和结论边界的权威来源。
 
-## Canonical Files
+## 权威文件
 
-| File | Purpose |
+| 文件 | 用途 |
 |---|---|
-| [taskspace-evidence-levels-and-samples.md](./taskspace-evidence-levels-and-samples.md) | Defines E1-E5, current sample sets, allowed claims, and reporting rules. |
+| [taskspace-evidence-levels-and-samples.md](./taskspace-evidence-levels-and-samples.md) | 定义 E1-E5、当前样本集、允许结论和报告规则。 |
 
-## Non-Negotiable Rules
+## 不可违反的规则
 
-1. Do not call a run "E3" unless its reported evidence level is `E3`, not `E3-candidate`, `E2`, `E2-candidate`, or `E1`.
-2. Every result summary must name the sample set, sample names, repeat count, runner command family, run root, score validity, and audit status.
-3. Internal fixture matrices can support engineering readiness claims only. They cannot support external benchmark accuracy claims.
-4. Version comparisons are valid only when the evidence level and sample set are the same, or the report explicitly says the comparison is not same-scope.
-5. Candidate evidence is not release evidence. `E3-candidate` means the run is waiting on required E3 gates, usually human audit or proof closure.
+1. 只有当报告等级明确为 `E3` 时，才能把一次运行称为 E3；`E3-candidate`、`E2`、`E2-candidate`、`E1` 都不能简称为 E3。
+2. 每份结果摘要都必须写清样本集、样本名、重复次数、运行器命令族、运行根目录、分数有效性和审计状态。
+3. 内部测试夹具矩阵只能支撑工程就绪结论，不能支撑外部基准测试正确率结论。
+4. 只有证据等级和样本集相同，版本对比才是同口径对比；否则报告必须明确写出“不同口径，不可直接比较”。
+5. 候选证据不是发布证据。`E3-candidate` 表示运行仍在等待必要 E3 门禁，通常是人工审计或证明闭环。
 
-## Required Result Header
+## 必填结果头
 
-Every future experiment result document should start with this block:
+后续每份实验结果文档都必须以这个信息块开头：
 
 ```text
 experiment_level: E1 | E2 | E3 | E3-candidate | E4 | E5
-sample_set_id: <registered id from docs/experiments>
-sample_names: <comma-separated names>
-repeats_per_sample: <number>
+sample_set_id: <docs/experiments 中登记的样本集 id>
+sample_names: <样本名列表>
+repeats_per_sample: <每个样本重复次数>
 runner_family: internal-matrix | terminal-bench | deepswe | historical-whale | release-calibration | product-benchmark
-runner_entrypoint: <script or command>
-run_root: <absolute path>
+runner_entrypoint: <脚本或命令>
+run_root: <绝对路径>
 score_valid: true | false | not_applicable
 human_audit_status: not_required | pending | completed | failed
-allowed_claim: <one sentence>
+allowed_claim: <一句中文允许结论>
 ```
