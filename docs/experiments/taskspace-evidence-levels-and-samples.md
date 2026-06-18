@@ -47,7 +47,7 @@
 
 ### 4.1 E1：内部冒烟集
 
-样本集标识：`taskspace-internal-smoke-v005`
+样本集标识：`taskspace-internal_E1-smoke_2_5`
 
 | 样本 | 定义 | 当前清单目标 | 用途 |
 |---|---|---|---|
@@ -58,7 +58,7 @@
 
 ### 4.2 E2：v0.0.5 内部回归矩阵
 
-样本集标识：`taskspace-internal-regression-v005`
+样本集标识：`taskspace-internal_E2-v005-regression_3_5`
 
 | 样本 | 定义 | 场景等级 | 当前清单目标 | 用途 |
 |---|---|---:|---|---|
@@ -70,7 +70,7 @@ v0.0.5 收口矩阵还包含上面的 E1 冒烟样本，所以该组合运行是
 
 ### 4.3 E3 候选：Terminal-Bench 原始四样本
 
-样本集标识：`terminal-bench-original-4`
+样本集标识：`terminal-bench_E3-original_4_5`
 
 | 样本 | 定义 | 历史用途 |
 |---|---|---|
@@ -83,7 +83,7 @@ v0.0.5 收口矩阵还包含上面的 E1 冒烟样本，所以该组合运行是
 
 ### 4.4 E3 候选：Terminal-Bench P0 可比范围
 
-样本集标识：`terminal-bench-p0-comparable`
+样本集标识：`terminal-bench_E3-P0_3_5`
 
 此样本集的可执行样本数按 3 个计算。`query-optimize` 不属于执行样本集；它只是历史 P0 运行中的封闭失败预检记录，不能计入成功率、耗时或 token 的执行样本数。
 
@@ -97,7 +97,7 @@ v0.0.5 收口矩阵还包含上面的 E1 冒烟样本，所以该组合运行是
 
 ### 4.5 E3 候选：v0.0.4 clean 15-run 可比范围
 
-样本集标识：`terminal-bench-v004-clean-15`
+样本集标识：`terminal-bench_E3-v004-clean_3_5`
 
 | 样本 | 定义 | 重复策略 | 历史结果 |
 |---|---|---:|---|
@@ -109,7 +109,7 @@ v0.0.5 收口矩阵还包含上面的 E1 冒烟样本，所以该组合运行是
 
 ### 4.6 E3 Harness Proof：已审计 Terminal-Bench Hello World
 
-样本集标识：`terminal-bench-hello-world-audited-proof`
+样本集标识：`terminal-bench_E3-hello-audited_1_5`
 
 | 样本 | 定义 | 用途 |
 |---|---|---|
@@ -117,7 +117,7 @@ v0.0.5 收口矩阵还包含上面的 E1 冒烟样本，所以该组合运行是
 
 ### 4.7 未来 E3：历史 Whale 失败语料
 
-样本集标识：`historical-whale-failures`
+样本集标识：`historical-whale_E3-failures_TBD_TBD`
 
 定义：脱敏后的真实 Whale 用例、会话失败、运行时失败或产品回归。样本必须包含原始提示词哈希、脱敏测试夹具、验证器或审计路径、隐私审查和产物审计。
 
@@ -125,7 +125,7 @@ v0.0.5 收口矩阵还包含上面的 E1 冒烟样本，所以该组合运行是
 
 ### 4.8 未来 E3：DeepSWE Adapter 范围
 
-样本集标识：`deepswe-adapter-spike`
+样本集标识：`deepswe_E3-adapter-spike_TBD_TBD`
 
 定义：通过 Whale 外部基准测试适配器接入的 DeepSWE 长程软件工程任务子集。
 
@@ -147,7 +147,7 @@ E4 和 E5 当前刻意留空，直到项目补齐必要工具并冻结样本板�
 | 对比 | 是否允许 | 必须使用的表述 |
 |---|---|---|
 | v0.0.5 内部 E1/E2 矩阵 vs v0.0.4 Terminal-Bench E3 candidate | 不允许 | “不同口径，不能比较正确率。” |
-| v0.0.5 在 `terminal-bench-v004-clean-15` 上复跑 vs v0.0.4 clean 15-run | 允许，前提是同配置档和分数有效性都有记录 | “同口径 Terminal-Bench clean 15-run 对比。” |
+| v0.0.5 在 `terminal-bench_E3-v004-clean_3_5` 上复跑 vs v0.0.4 clean 15-run | 允许，前提是同配置档和分数有效性都有记录 | “同口径 Terminal-Bench clean 15-run 对比。” |
 | v0.0.5 E2 矩阵 vs 之前的 E2 矩阵 | 允许，前提是内部样本集和重复次数相同 | “内部工程回归对比。” |
 | E3-candidate vs E3 | 不允许 | “候选证据仍在等待 E3 门禁。” |
 | 任何 E1/E2 结果作为发布就绪证据 | 不允许 | “仅代表工程就绪。” |
@@ -182,6 +182,27 @@ explicit_non_claims:
 
 ## 8. 命名规则
 
+实验样本集标识必须使用以下格式：
+
+```text
+数据集名称_子集名称_sample数量_repeats次数
+```
+
+示例：
+
+```text
+terminal-bench_E3-P0_3_5
+```
+
+字段规则：
+
+| 字段 | 规则 |
+|---|---|
+| 数据集名称 | 使用数据来源或 benchmark 家族名，例如 `terminal-bench`、`taskspace-internal`、`deepswe`。 |
+| 子集名称 | 使用证据等级和子集语义，例如 `E3-P0`、`E3-v004-clean`、`E2-v005-regression`。 |
+| sample数量 | 只统计实际进入 agent 执行并可用于能力统计的样本数；预检失败、资产不可用、未执行项不计入。 |
+| repeats次数 | 每个执行样本的配对重复次数；未登记或未来样本集使用 `TBD`。 |
+
 以下术语必须精确使用：
 
 | 术语 | 含义 |
@@ -198,7 +219,7 @@ v0.0.5 的 `24/25` 结果必须描述为：
 
 ```text
 v0.0.5 在内部 E1/E2 混合工程矩阵上取得 24/25 原始业务成功结果：
-taskspace-internal-regression-v005 加 taskspace-internal-smoke-v005。
+taskspace-internal_E2-v005-regression_3_5 加 taskspace-internal_E1-smoke_2_5。
 ```
 
 不得描述为：
@@ -207,4 +228,4 @@ taskspace-internal-regression-v005 加 taskspace-internal-smoke-v005。
 v0.0.5 取得了接近 100% 的 Terminal-Bench E3 正确率。
 ```
 
-v0.0.5 下一步正确的同口径正确性检查，是在 v0.0.5 配置档下复跑 `terminal-bench-v004-clean-15`，并与 v0.0.4 clean 15-run 对比。
+v0.0.5 下一步正确的同口径正确性检查，是在 v0.0.5 配置档下复跑 `terminal-bench_E3-v004-clean_3_5`，并与 v0.0.4 clean 15-run 对比。
