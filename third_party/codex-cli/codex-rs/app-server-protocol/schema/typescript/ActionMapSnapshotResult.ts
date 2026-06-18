@@ -4,4 +4,4 @@
 import type { ActionMapSnapshotResultEvidencePackage } from "./ActionMapSnapshotResultEvidencePackage";
 import type { ThreadId } from "./ThreadId";
 
-export type ActionMapSnapshotResult = { id: string, assignmentId: string, mapId: string, nodeId: string, kind: string, actionClass: string | null, toolSuccess: boolean | null, body: string, evidencePackage: ActionMapSnapshotResultEvidencePackage, sourceThreadId: ThreadId, createdAtMs: bigint, };
+export type ActionMapSnapshotResult = { id: string, assignmentId: string, mapId: string, nodeId: string, kind: string, actionClass: string | null, toolSuccess: boolean | null, body: string, evidencePackage: ActionMapSnapshotResultEvidencePackage, sourceThreadId: ThreadId, createdAtMs: bigint, subagentPlanId: string | null, };

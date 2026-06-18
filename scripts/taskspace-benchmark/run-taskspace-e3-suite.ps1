@@ -49,6 +49,10 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "lib\cost-instrumentation.ps1")
 if ($Repeats -lt 5) { throw "E3 suite requires Repeats >= 5." }
 if (-not (Test-Path -LiteralPath $TaskListPath)) { Write-Error "TaskListPath not found: $TaskListPath"; exit 4 }
+if ($SkipStartGate -and -not $PlanOnly -and ($ScoringMode -or $RequireScoreValidity)) {
+    [Console]::Error.WriteLine("SkipStartGate is not allowed for scoring or score-validity enforced E3 suite runs.")
+    exit 4
+}
 $scoreValidityEnforced = ($ScoringMode -or $RequireScoreValidity -or -not $PlanOnly)
 if (-not $RunRoot) { $RunRoot = Join-Path ([System.IO.Path]::GetTempPath()) "whale-e3-suite-runs" }
 $RunRoot = [System.IO.Path]::GetFullPath($RunRoot)

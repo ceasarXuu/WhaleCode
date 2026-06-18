@@ -413,6 +413,13 @@
         },
         "previousNodeStatus": {
           "type": "string"
+        },
+        "subagentPlanId": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -520,6 +527,13 @@
         },
         "status": {
           "type": "string"
+        },
+        "subagentPlans": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/ActionMapSnapshotSubagentPlan"
+          },
+          "type": "array"
         },
         "taskId": {
           "type": [
@@ -1036,6 +1050,13 @@
         "sourceThreadId": {
           "$ref": "#/definitions/ThreadId"
         },
+        "subagentPlanId": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "toolSuccess": {
           "default": null,
           "type": [
@@ -1262,6 +1283,106 @@
         "status",
         "traceEventIds"
       ],
+      "type": "object"
+    },
+    "ActionMapSnapshotSubagentPlan": {
+      "properties": {
+        "acceptanceCheck": {
+          "default": "",
+          "type": "string"
+        },
+        "childThreadId": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThreadId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "createdAtMs": {
+          "default": 0,
+          "format": "int64",
+          "type": "integer"
+        },
+        "dependsOnResults": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "expectedArtifact": {
+          "default": "",
+          "type": "string"
+        },
+        "id": {
+          "default": "",
+          "type": "string"
+        },
+        "leaseId": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mapId": {
+          "default": "",
+          "type": "string"
+        },
+        "maxScope": {
+          "default": "",
+          "type": "string"
+        },
+        "parentNodeId": {
+          "default": "",
+          "type": "string"
+        },
+        "resultIds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "status": {
+          "default": "",
+          "type": "string"
+        },
+        "supportsQuestions": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "taskId": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "testsHypotheses": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "updatedAtMs": {
+          "default": 0,
+          "format": "int64",
+          "type": "integer"
+        },
+        "whyParallelizable": {
+          "default": "",
+          "type": "string"
+        }
+      },
       "type": "object"
     },
     "ActionMapSnapshotTask": {
