@@ -3,7 +3,7 @@
 - 日期：2026-06-18
 - 范围：v0.0.5 版本阶段性收口
 - 主题：Protocol Compaction + Context Replay Control + Map Self-Management Foundation
-- 结论级别：阶段性成果成立，不能声明 2x 成本目标完全达成
+- 结论级别：阶段性成果成立，不能声明 2x 成本目标完全达成；内部 5x5 矩阵不能等同于正式 E3
 
 ## 1. 结论摘要
 
@@ -14,6 +14,7 @@ v0.0.5 相比 v0.0.4 取得了明确阶段性成果：
 - TaskSpace raw success 从 v0.0.4 的 `8/15` 提升到本轮 `24/25`。这说明正确性和工程稳定性明显改善。
 - 相比本轮 Standard 的 `25/25`，TaskSpace 为 `24/25`。因此不能无条件宣称“正确率未下降”，只能保守表述为“正确率基本守住，存在一个 L3 timeout outlier”。
 - v0.0.5 的结构性基建已经落地：token/request instrumentation、release-decision gate、state_commit、output reference、context projection、map-management report、routing decision、failure taxonomy 和矩阵报告均能产出证据。
+- 2026-06-18 复核确认：本轮 `24/25` 是内部自建 E2/E1 工程矩阵结果，不能与 v0.0.3/v0.0.4 的 Terminal-Bench/P0/E3 结果直接比较为“正确率大幅接近 100%”。
 
 推荐收口表述：
 
@@ -50,12 +51,12 @@ v0.0.5 的修正后目标分为两层：
 | 结构能力 | 80% | observability、projection、output-ref、routing、map report 基本齐备 |
 | 正确率目标 | 85% | 满足 `Standard - 1`，但未满足严格 parity |
 | 成本目标 | 50-60% | 相比 v0.0.4 大幅改善，但离 2x 仍远 |
-| 证据闭环 | 80% | 内部矩阵证据充分，外部 Terminal-Bench/DeepSWE E3 尚未执行 |
+| 证据闭环 | 75% | 内部矩阵证据充分；外部 Terminal-Bench/DeepSWE 正式 E3 尚未执行，本轮高正确率不可外推 |
 | 产品目标整体 | 约 70% | 可作为阶段性版本收口，不可作为成本成功版本收口 |
 
-## 3. E3 收口运行结果
+## 3. 内部收口矩阵运行结果
 
-本轮用户要求执行完整 E3 来坐实 v0.0.5 正确率结论。实际执行的是内部五场景、五次 repeat 的成对矩阵：
+本轮用户要求执行完整 E3 来坐实 v0.0.5 正确率结论。实际可执行并完成的是内部五场景、五次 repeat 的成对矩阵：
 
 ```powershell
 $scenarios = @(
@@ -81,7 +82,17 @@ $scenarios = @(
 - Matrix runner hash：`de9f0b7a746b5f3a0c777af45ca4cf09abd7dc1bfdfb63fea61970c73a9084f4`
 - 总耗时：约 2h20m
 
-说明：这轮是 v0.0.5 内部收口矩阵，覆盖 L1/L2/L3 内置 TaskSpace 场景，不是外部 `run-taskspace-e3-suite.ps1` 的 Terminal-Bench/DeepSWE 正式套件。它足以支撑 v0.0.5 内部工程收口判断，但不能替代后续外部 benchmark 证明。
+说明：这轮是 v0.0.5 内部收口矩阵，覆盖 L1/L2/L3 内置 TaskSpace 场景，不是外部 `run-taskspace-e3-suite.ps1` 的 Terminal-Bench/DeepSWE 正式套件。它足以支撑 v0.0.5 内部工程收口判断，但不能替代后续外部 benchmark 证明，也不能与 v0.0.3/v0.0.4 的 E3/P0 正确率直接横比。
+
+场景 manifest 级别也说明它不是正式 E3：
+
+| scenario | manifest evidence target | source |
+|---|---|---|
+| `single-file-fast-fix` | E2 | internal constructed fixture |
+| `multi-file-order-pipeline` | E2 | internal constructed fixture |
+| `subscription-billing-repair` | E2 | internal constructed fixture |
+| `count-call-stack` | E1 | internal constructed fixture |
+| `large-output-ref-smoke` | E1 | internal constructed fixture |
 
 ### 3.1 总体结果
 
@@ -134,7 +145,7 @@ Matrix readiness：
 | graph/result debt | high_unreviewed_result_ratio 15/15，blocked ratio 13/15 | warning 仍存在，但 taxonomy 和 readiness 可定位 | 从不可控债务变成可诊断债务 |
 | release decision | 缺少强证据闭环 | release-decision、matrix report、score validity、failure taxonomy | 证据工程明显增强 |
 
-需要强调：v0.0.4 与 v0.0.5 的样本集不完全相同，不能把 `8/15` 和 `24/25` 当作统计意义上的同一 benchmark 横向胜率。但从工程角度看，v0.0.5 在稳定性、诊断能力和成本收敛方向上均显著好于 v0.0.4。
+需要强调：v0.0.4 与 v0.0.5 的样本集和证据等级都不同，不能把 `8/15` 和 `24/25` 当作统计意义上的同一 benchmark 横向胜率。v0.0.5 的 `24/25` 只能证明内部自建矩阵在当前工程路径下基本通了；它不能证明正式 E3 正确率已经接近 100%。从工程角度看，v0.0.5 在稳定性、诊断能力和成本收敛方向上均显著好于 v0.0.4，但外部样本收益仍未被重新证明。
 
 ## 5. 每个更新模块的实际效用与反思
 
@@ -400,5 +411,65 @@ v0.0.5 可以收口，但收口性质必须准确：
 ```text
 TaskSpace v0.0.5 完成了从 v0.0.4 高成本结构化协议向可诊断、可投影、可引用化、可门禁的 TaskSpace compact foundation 的阶段迁移。
 本版本显著改善了 token/time 膨胀和正确性稳定性，但尚未达到 2x 成本目标。
-v0.0.5 按阶段性工程成果收口，保留一个 L3 timeout outlier 和复杂任务 fanout 成本失控作为下版本首要问题。
+内部 5x5 矩阵显示 TaskSpace raw success 为 24/25，但该矩阵不是正式外部 E3，不能外推为 E3 正确率接近 100%。
+v0.0.5 按阶段性工程成果收口，保留一个 L3 timeout outlier、复杂任务 fanout 成本失控、外部 E3 收益未复证作为下版本首要问题。
 ```
+
+## 11. 2026-06-18 疑点复核：为什么本轮正确率接近 100%
+
+复核结论：这是口径差异，不是可以直接宣称的真实 E3 正确率跃升。
+
+### 11.1 历史运行口径
+
+v0.0.3 和 v0.0.4 的低正确率来自外部或准外部 benchmark：
+
+| 版本 / 运行 | 样本来源 | 样本 | 结果摘要 |
+|---|---|---|---|
+| 2026-06-03 pre-version full benchmark | Terminal-Bench original tasks | `hello-world`, `heterogeneous-dates`, `jsonl-aggregator`, `log-summary` | valid E3 pairs 14/20；TaskSpace better 0，Standard better 5 |
+| v0.0.3 P0 E3 | Terminal-Bench P0 candidate | `processing-pipeline`, `multi-source-data-merger`, `recover-accuracy-log`; `query-optimize` fail-closed | diagnostic：TaskSpace better 0，Standard better 3，both success 5，both failed 7 |
+| v0.0.4 P0 E3 | same P0 comparable scope | same as v0.0.3 | score invalid / engineering-unclean；diagnostic pass 全部失败 |
+| v0.0.4 clean 15-run | Terminal-Bench calibrated clean set | `analyze-access-logs`, `log-summary`, `count-call-stack` | Standard 7/15，TaskSpace 8/15，time 4.99x，token 19.92x |
+
+这些运行的任务更接近外部 benchmark，验证器更重，样本更容易暴露泛化、环境、validator 和复杂任务策略问题。
+
+### 11.2 本轮 v0.0.5 口径
+
+v0.0.5 本轮 5x5 使用的是仓库自建 fixture：
+
+| scenario | 口径 | 设计目的 |
+|---|---|---|
+| `single-file-fast-fix` | E2/L1 | 验证简单单文件修复不被 TaskSpace 破坏 |
+| `multi-file-order-pipeline` | E2/L2 | 验证多文件规则修复和 README/test 冲突处理 |
+| `subscription-billing-repair` | E2/L3 | 验证较宽的订阅计费修复 |
+| `count-call-stack` | E1/L1 | 验证 thin/verification-first 对格式化任务的影响 |
+| `large-output-ref-smoke` | E1/L1 | 验证大输出引用化链路 |
+
+这些场景更像工程机制回归矩阵，而不是正式 E3。它们的 manifest 里还显式写了 `expected.standard_success=true` 和 `expected.taskspace_success=true`，说明场景本来就被设计成两边应当成功，用于观察机制开销、路由、output-ref、projection 和 graph health，而不是用于证明外部真实任务正确率。
+
+### 11.3 为什么会接近 100%
+
+原因组合：
+
+1. 样本换了：从 Terminal-Bench/P0/clean E3 外部样本，换成内部固定 fixture。
+2. 证据等级换了：本轮不是 E3；3 个 E2，2 个 E1。
+3. 目标换了：本轮主要验证 v0.0.5 工程机制是否跑通，场景 expected 就假设 Standard 和 TaskSpace 都应成功。
+4. 难度和环境噪声降低：内部 Python fixture 和本地 pytest/oracle 比 Terminal-Bench Docker/materialized 外部 validator 更可控。
+5. 计分口径不同：本轮报告 raw business success `24/25`，但 matrix readiness 仍然 false；历史 E3 对 clean utility、audit、engineering-clean 有更严格门槛。
+
+### 11.4 修正后的判断
+
+原先“v0.0.5 正确性明显提升”的说法需要限定范围：
+
+```text
+正确说法：
+v0.0.5 在内部自建 5x5 工程矩阵上达到 24/25 raw success，说明当前工程路径基本可用。
+
+不能说：
+v0.0.5 的正式 E3 正确率已经接近 100%。
+```
+
+后续若要真正证明 v0.0.5 对 v0.0.4 的 E3 正确率提升，必须至少跑同口径之一：
+
+1. v0.0.4 clean 15-run 同样本：`analyze-access-logs`、`log-summary`、`count-call-stack` x 5。
+2. v0.0.3/v0.0.4 P0 comparable scope：`processing-pipeline`、`multi-source-data-merger`、`recover-accuracy-log`，并处理 `query-optimize` fail-closed。
+3. 外部 `run-taskspace-e3-suite.ps1` Terminal-Bench/DeepSWE 正式路径，满足 audit 和 engineering-clean gate。
