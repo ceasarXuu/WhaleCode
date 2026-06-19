@@ -434,6 +434,35 @@ spawn/node budget pass
 required artifact pass
 ```
 
+Clean release 的 required artifacts 至少包括：
+
+```text
+provider-request-events.jsonl
+budget-events.jsonl
+request-phase-summary.json
+active-context-replacement-report.json
+exact-payload-scan-events.jsonl OR searchable provider payload artifact
+state-commit-displacement.json
+spawn-node-budget-summary.json
+v005-non-agent-gates.json
+```
+
+`write-release-decision.ps1` 不允许继续把 `context-projection-summary.json` 当作 active replacement proof。projection summary 只能作为诊断输入；release proof 必须来自 exact provider-visible payload artifact，或来自同一 `provider_payload_sha256` 上、redaction/hash-only fallback 之前生成的 exact payload scan event。
+
+任何以下情况都必须阻断 `release_pass`：
+
+```text
+provider request event missing
+budget event missing
+request phase attribution missing or below threshold
+runtime budget response missing
+active replacement proof hash-only without exact scan
+exact scan request_id/hash mismatch
+state_commit displacement missing
+spawn/node budget summary missing
+v005 non-agent gate artifact missing or stale
+```
+
 Release decision taxonomy 必须改为：
 
 | Decision | Meaning | Closeable |
@@ -851,8 +880,15 @@ spawn/node budget fixture PASS，release decision 能拒绝 budget exceeded run�
 - `write-release-decision.ps1` 接入新 gate。
 - 把 current `PASS/PARTIAL/FAIL` decision 改为 `release_pass/blocked_partial/fail`，并输出 `closeable` 字段；`blocked_partial.closeable=false`，markdown 必须明确不可用于 v0.0.5 收口。
 - `scripts/taskspace-benchmark/lib/e3-start-gate.ps1` 接入 v0.0.5 non-agent gates、code-complete marker 和用户批准 marker。缺任何一项时 `full_e3_allowed=false`，`next_allowed_command_category` 只能是 `fixture_tests`、`targeted_diagnostic` 或 `blocked`。
+- `run-taskspace-e3-suite.ps1` 必须暴露并转发 `V005NonAgentGatesPath`、`V005CodeCompleteMarkerPath`、`V005UserApprovalMarkerPath`；正式 scoring/full E3 模式下，如果 `gate_decision.full_e3_allowed=false`，即使 start gate `exit_code=0` 也必须在 sample scheduling 前中止。
+- v0.0.5 marker 不允许只是存在即通过。三类 marker 都必须是结构化 JSON，并绑定当前 `task_list_hash`、`profile_hash`、`source_version`、生成时间和 schema version。
+- `v005_non_agent_gates.json` 必须汇总 Phase 0A-5 的非 agent 证据，至少包含 provider hook、runtime budget response、active replacement exact scan、state_commit displacement、spawn/node budget、request phase attribution、release decision fixture、start gate fixture 的 pass/fail 和证据路径。
+- `v005_code_complete.json` 必须列出代码完成范围、git commit、未完成 P0 项为 empty、非 agent test command/output path；空文件或任意文本必须 fail。
+- `v005_user_approval.json` 必须记录 explicit approval source、approval timestamp、approved command category、approved sample set id、task_list_hash、profile_hash 和 source_version；不同样本、profile 或源码版本不得复用。
 - `test-release-decision.ps1` 增加 pass/fail fixture。
 - 增加 E3 start gate fixture：缺 v0.0.5 gate 时拒绝 formal E3；只有 non-agent gates PASS、code-complete marker 存在、用户批准 marker 存在时才允许 `full_e3`。
+- 增加 spoofed marker fixture：任意文本 marker、过期 marker、hash/profile/source 不匹配 marker 必须 fail。
+- 增加 suite runner fixture：complete calibration 但 `full_e3_allowed=false` 时不得 schedule samples。
 - 所有正式结果强制显示 dataset/subset/sample/repeats/runner/evidence level。
 
 #### Deliverables
@@ -870,6 +906,8 @@ spawn/node budget fixture PASS，release decision 能拒绝 budget exceeded run�
 | missing active gate | script test | clean release blocked |
 | blocked partial | script test | 3x engineering partial produces `blocked_partial`, closeable=false |
 | start gate formal E3 block | script test | missing v0.0.5 non-agent gates/code/user marker blocks `full_e3` |
+| start gate decision honored | script test | `full_e3_allowed=false` aborts before sample scheduling even when gate json exists |
+| marker schema | script test | arbitrary text / stale / mismatched hash marker fails |
 | hash-only active replacement | script test | hash-only payload proof cannot produce `release_pass` |
 | exact payload scan | script test | scan event can satisfy replacement proof only when request_id/hash match |
 | sample metadata | script test | 缺 metadata fails |
