@@ -129,6 +129,8 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             generated_at = "2026-06-19T00:00:00.0000000Z"
             git_commit = "fixture-head"
             profile_hash = $profileHash
+            task_list_hash = $taskListHash
+            source_version = $sourceVersion
             producer = "test-release-decision.ps1"
         }
     }
@@ -162,6 +164,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             approved_command_category = "full_e3"
             approved_sample_set_id = $sampleSetId
             approval_source = "fixture-user-approval"
+            approval_timestamp = (Get-Date).ToString("o")
             task_list_hash = $taskListHash
             source_version = $sourceVersion
             profile_hash = $profileHash
@@ -465,6 +468,15 @@ Write-Json ([pscustomobject]@{ status = "pass"; schema_version = 1 }) (Join-Path
 Assert-True ($LASTEXITCODE -eq 1) "weak non-agent gates fixture did not exit 1"
 $weakNonAgentDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $weakNonAgentDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($weakNonAgentDecision.blockers) -contains "v005_non_agent_gates_failed") "weak non-agent gates fixture did not report v005 gate blocker"
+
+$missingApprovalTimestampDir = New-FixtureRun "missing-approval-timestamp" "PASS" $true 0
+$missingApprovalMarker = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingApprovalTimestampDir "v005-user-approval.json") | ConvertFrom-Json
+$missingApprovalMarker.PSObject.Properties.Remove("approval_timestamp")
+$missingApprovalMarker | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $missingApprovalTimestampDir "v005-user-approval.json") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $missingApprovalTimestampDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "missing approval timestamp fixture did not exit 1"
+$missingApprovalTimestampDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingApprovalTimestampDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($missingApprovalTimestampDecision.blockers) -contains "v005_user_approval_marker_failed") "missing approval timestamp fixture did not report approval marker blocker"
 
 $emptyOutputRefDir = New-FixtureRun "empty-output-ref-events" "PASS" $true 0
 Set-Content -LiteralPath (Join-Path $emptyOutputRefDir "output-ref-events.jsonl") -Encoding UTF8 -Value "{}"

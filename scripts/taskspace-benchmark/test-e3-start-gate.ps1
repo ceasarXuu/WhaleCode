@@ -132,9 +132,24 @@ function New-V005MarkerFixtures {
         generated_at = $now
         producer = "test-e3-start-gate"
     }
+    $evidenceRoot = Join-Path $Root "evidence"
+    New-Item -ItemType Directory -Force -Path $evidenceRoot | Out-Null
     $gateObject = {
         param([string]$Name)
-        [pscustomobject]@{ status = "pass"; evidence_path = "selftest://$Name"; command = "selftest"; generated_at = $now }
+        $evidencePath = Join-Path $evidenceRoot "$Name.txt"
+        "selftest evidence for $Name" | Set-Content -LiteralPath $evidencePath -Encoding UTF8
+        [pscustomobject]@{
+            status = "pass"
+            evidence_path = $evidencePath
+            evidence_sha256 = (Get-FileHash -LiteralPath $evidencePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            command = "selftest"
+            exit_code = 0
+            generated_at = $now
+            git_commit = [string]$head
+            task_list_hash = $TaskListHash
+            source_version = $SourceVersion
+            profile_hash = $ProfileHash
+        }
     }
     [pscustomobject]($identity + @{
             gates = [pscustomobject]@{
@@ -150,7 +165,9 @@ function New-V005MarkerFixtures {
             }
         }) | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $nonAgentPath -Encoding UTF8
     [pscustomobject]($identity + @{
+            code_complete = $true
             git_commit = [string]$head
+            sample_set_id = "terminal-bench_E3-P0_3_5"
             unfinished_p0_items = @()
             test_outputs = @("selftest")
         }) | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $codeCompletePath -Encoding UTF8
@@ -222,6 +239,30 @@ try {
     $staleGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-stale-marker") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -V005NonAgentGatesPath $staleMarkers.non_agent_path -V005CodeCompleteMarkerPath $staleMarkers.code_complete_path -V005UserApprovalMarkerPath $staleMarkers.user_approval_path -AllowSkippedSelfTests -SelfTestCommands @()
     $staleDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $staleGate.gate_decision_path | ConvertFrom-Json
     Assert-True (-not [bool]$staleDecision.full_e3_allowed -and @($staleGate.gates | Where-Object { [string]$_.stable_code -eq "v005_code_complete_generated_at_stale" }).Count -eq 1) "start gate accepted stale v0.0.5 marker"
+    $weakEvidenceMarkers = New-V005MarkerFixtures (Join-Path $runDir "v005-weak-evidence-markers")
+    $weakNonAgent = Get-Content -Raw -Encoding UTF8 -LiteralPath $weakEvidenceMarkers.non_agent_path | ConvertFrom-Json
+    $weakNonAgent.gates.provider_request_hook.evidence_path = "selftest://provider_request_hook"
+    $weakNonAgent | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $weakEvidenceMarkers.non_agent_path -Encoding UTF8
+    $weakEvidenceGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-weak-evidence-marker") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -V005NonAgentGatesPath $weakEvidenceMarkers.non_agent_path -V005CodeCompleteMarkerPath $weakEvidenceMarkers.code_complete_path -V005UserApprovalMarkerPath $weakEvidenceMarkers.user_approval_path -AllowSkippedSelfTests -SelfTestCommands @()
+    Assert-True (-not [bool]$weakEvidenceGate.gate_decision.full_e3_allowed -and @($weakEvidenceGate.gates | Where-Object { [string]$_.stable_code -eq "v005_non_agent_gates_provider_request_hook_evidence_path_invalid" }).Count -eq 1) "start gate accepted non-local non-agent evidence path"
+    $missingHashMarkers = New-V005MarkerFixtures (Join-Path $runDir "v005-missing-hash-markers")
+    $missingHashNonAgent = Get-Content -Raw -Encoding UTF8 -LiteralPath $missingHashMarkers.non_agent_path | ConvertFrom-Json
+    $missingHashNonAgent.gates.provider_request_hook.evidence_sha256 = ""
+    $missingHashNonAgent | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $missingHashMarkers.non_agent_path -Encoding UTF8
+    $missingHashGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-missing-hash-marker") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -V005NonAgentGatesPath $missingHashMarkers.non_agent_path -V005CodeCompleteMarkerPath $missingHashMarkers.code_complete_path -V005UserApprovalMarkerPath $missingHashMarkers.user_approval_path -AllowSkippedSelfTests -SelfTestCommands @()
+    Assert-True (-not [bool]$missingHashGate.gate_decision.full_e3_allowed -and @($missingHashGate.gates | Where-Object { [string]$_.stable_code -eq "v005_non_agent_gates_provider_request_hook_evidence_sha256_missing" }).Count -eq 1) "start gate accepted non-agent evidence without sha256"
+    $missingCodeCompleteMarkers = New-V005MarkerFixtures (Join-Path $runDir "v005-missing-code-complete-markers")
+    $missingCodeMarker = Get-Content -Raw -Encoding UTF8 -LiteralPath $missingCodeCompleteMarkers.code_complete_path | ConvertFrom-Json
+    $missingCodeMarker.code_complete = $false
+    $missingCodeMarker | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $missingCodeCompleteMarkers.code_complete_path -Encoding UTF8
+    $missingCodeGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-missing-code-complete-marker") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -V005NonAgentGatesPath $missingCodeCompleteMarkers.non_agent_path -V005CodeCompleteMarkerPath $missingCodeCompleteMarkers.code_complete_path -V005UserApprovalMarkerPath $missingCodeCompleteMarkers.user_approval_path -AllowSkippedSelfTests -SelfTestCommands @()
+    Assert-True (-not [bool]$missingCodeGate.gate_decision.full_e3_allowed -and @($missingCodeGate.gates | Where-Object { [string]$_.stable_code -eq "v005_code_complete_code_complete_false" }).Count -eq 1) "start gate accepted code-complete marker without code_complete=true"
+    $missingApprovalTimestampMarkers = New-V005MarkerFixtures (Join-Path $runDir "v005-missing-approval-timestamp-markers")
+    $missingApproval = Get-Content -Raw -Encoding UTF8 -LiteralPath $missingApprovalTimestampMarkers.user_approval_path | ConvertFrom-Json
+    $missingApproval.PSObject.Properties.Remove("approval_timestamp")
+    $missingApproval | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $missingApprovalTimestampMarkers.user_approval_path -Encoding UTF8
+    $missingApprovalGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-missing-approval-timestamp") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -V005NonAgentGatesPath $missingApprovalTimestampMarkers.non_agent_path -V005CodeCompleteMarkerPath $missingApprovalTimestampMarkers.code_complete_path -V005UserApprovalMarkerPath $missingApprovalTimestampMarkers.user_approval_path -AllowSkippedSelfTests -SelfTestCommands @()
+    Assert-True (-not [bool]$missingApprovalGate.gate_decision.full_e3_allowed -and @($missingApprovalGate.gates | Where-Object { [string]$_.stable_code -eq "v005_user_approval_approval_timestamp_missing" }).Count -eq 1) "start gate accepted approval without approval_timestamp"
     $sampleSetMismatchMarkers = New-V005MarkerFixtures (Join-Path $runDir "v005-sample-set-mismatch-markers")
     $sampleSetMismatchApproval = Get-Content -Raw -Encoding UTF8 -LiteralPath $sampleSetMismatchMarkers.user_approval_path | ConvertFrom-Json
     $sampleSetMismatchApproval.approved_sample_set_id = "terminal-bench_E3-v004-clean_3_5"

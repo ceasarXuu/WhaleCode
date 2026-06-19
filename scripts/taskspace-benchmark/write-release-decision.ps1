@@ -358,7 +358,16 @@ $userApprovalMarkerPass = ($v005UserApprovalMarker `
     -and (Get-ReleaseString $v005UserApprovalMarker "task_list_hash") -eq $runTaskListHash `
     -and (Get-ReleaseString $v005UserApprovalMarker "source_version") -eq $runSourceVersion `
     -and (Get-ReleaseString $v005UserApprovalMarker "profile_hash") -eq $runRunnerProfileHash `
-    -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $v005UserApprovalMarker "approval_source")))
+    -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $v005UserApprovalMarker "approval_source")) `
+    -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $v005UserApprovalMarker "approval_timestamp")))
+if ($userApprovalMarkerPass) {
+    try {
+        $approvalTimestamp = [datetimeoffset]::Parse((Get-ReleaseString $v005UserApprovalMarker "approval_timestamp"))
+        if ($approvalTimestamp -lt (Get-Date).AddHours(-24)) { $userApprovalMarkerPass = $false }
+    } catch {
+        $userApprovalMarkerPass = $false
+    }
+}
 $actualApprovalMarkerSha256 = Get-ReleaseFileSha256 $v005UserApprovalMarkerPath
 $actualCodeCompleteMarkerSha256 = Get-ReleaseFileSha256 $v005CodeCompleteMarkerPath
 $suiteManifest = Read-ReleaseJson $runSuiteManifestPath
