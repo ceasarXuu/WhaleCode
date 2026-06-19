@@ -125,6 +125,7 @@ const TASKSPACE_ACTIVE_PROFILE_MARKER: &str = "TaskSpace v0.0.5 active compact p
 const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
 const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
     "ContextProjectionV1 shadow (not active replacement):";
+const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
 
 /// Takes a user message as input and runs a loop where, at each sampling request, the model
 /// replies with either:
@@ -1320,17 +1321,142 @@ pub(crate) async fn built_tools(
 }
 
 fn prepare_provider_visible_prompt_items(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
+    let composition = compose_provider_visible_history(items);
+    let omitted_count = composition
+        .decisions
+        .iter()
+        .filter(|decision| matches!(decision.action, ProviderVisibleHistoryAction::Omit(_)))
+        .count();
+    if omitted_count > 0 {
+        trace!(
+            target = "codex_core::taskspace",
+            omitted_count,
+            included_count = composition.items.len(),
+            "taskspace_active_provider_visible_history_composed"
+        );
+    }
+    composition.items
+}
+
+#[derive(Debug)]
+struct ProviderVisibleHistoryComposition {
+    items: Vec<ResponseItem>,
+    decisions: Vec<ProviderVisibleHistoryDecision>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ProviderVisibleHistoryDecision {
+    index: usize,
+    category: ProviderVisibleItemCategory,
+    action: ProviderVisibleHistoryAction,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ProviderVisibleHistoryAction {
+    Include,
+    Omit(&'static str),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ProviderVisibleItemCategory {
+    ActiveProjection,
+    ProtectedUserInput,
+    ProtectedDeveloperOrSystemInput,
+    ShadowProjection,
+    LegacyTaskspaceInstruction,
+    TaskspaceControlCall,
+    LegacyTaskspaceToolOutput,
+    LargeRawToolOutput,
+    Other,
+}
+
+fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisibleHistoryComposition {
     if !items.iter().any(is_active_context_projection_item) {
-        return items;
+        let decisions = items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| ProviderVisibleHistoryDecision {
+                index,
+                category: classify_provider_visible_item(item),
+                action: ProviderVisibleHistoryAction::Include,
+            })
+            .collect();
+        return ProviderVisibleHistoryComposition { items, decisions };
     }
 
-    items
-        .into_iter()
-        .filter(|item| {
-            is_active_context_projection_item(item)
-                || !is_legacy_taskspace_provider_visible_item(item)
-        })
-        .collect()
+    let mut prepared = Vec::with_capacity(items.len());
+    let mut decisions = Vec::with_capacity(items.len());
+    for (index, item) in items.into_iter().enumerate() {
+        let category = classify_provider_visible_item(&item);
+        let action = provider_visible_history_action(&category);
+        if matches!(action, ProviderVisibleHistoryAction::Include) {
+            prepared.push(item);
+        }
+        decisions.push(ProviderVisibleHistoryDecision {
+            index,
+            category,
+            action,
+        });
+    }
+
+    ProviderVisibleHistoryComposition {
+        items: prepared,
+        decisions,
+    }
+}
+
+fn provider_visible_history_action(
+    category: &ProviderVisibleItemCategory,
+) -> ProviderVisibleHistoryAction {
+    match category {
+        ProviderVisibleItemCategory::ShadowProjection => {
+            ProviderVisibleHistoryAction::Omit("shadow_projection_replaced_by_active_projection")
+        }
+        ProviderVisibleItemCategory::LegacyTaskspaceInstruction => {
+            ProviderVisibleHistoryAction::Omit("legacy_taskspace_instruction_replaced")
+        }
+        ProviderVisibleItemCategory::TaskspaceControlCall => {
+            ProviderVisibleHistoryAction::Omit("taskspace_control_call_not_provider_surface")
+        }
+        ProviderVisibleItemCategory::LegacyTaskspaceToolOutput => {
+            ProviderVisibleHistoryAction::Omit("legacy_taskspace_tool_output_replaced")
+        }
+        ProviderVisibleItemCategory::LargeRawToolOutput => {
+            ProviderVisibleHistoryAction::Omit("large_raw_tool_output_requires_output_reference")
+        }
+        ProviderVisibleItemCategory::ActiveProjection
+        | ProviderVisibleItemCategory::ProtectedUserInput
+        | ProviderVisibleItemCategory::ProtectedDeveloperOrSystemInput
+        | ProviderVisibleItemCategory::Other => ProviderVisibleHistoryAction::Include,
+    }
+}
+
+fn classify_provider_visible_item(item: &ResponseItem) -> ProviderVisibleItemCategory {
+    if is_active_context_projection_item(item) {
+        return ProviderVisibleItemCategory::ActiveProjection;
+    }
+    if response_item_text_contains(item, TASKSPACE_SHADOW_PROJECTION_MARKER) {
+        return ProviderVisibleItemCategory::ShadowProjection;
+    }
+    if is_taskspace_control_call(item) {
+        return ProviderVisibleItemCategory::TaskspaceControlCall;
+    }
+    if is_protected_user_input(item) {
+        return ProviderVisibleItemCategory::ProtectedUserInput;
+    }
+    if is_legacy_taskspace_instruction(item) {
+        return ProviderVisibleItemCategory::LegacyTaskspaceInstruction;
+    }
+    if is_protected_developer_or_system_input(item) {
+        return ProviderVisibleItemCategory::ProtectedDeveloperOrSystemInput;
+    }
+    if is_legacy_taskspace_tool_output(item) {
+        return ProviderVisibleItemCategory::LegacyTaskspaceToolOutput;
+    }
+    if is_large_raw_tool_output(item) {
+        return ProviderVisibleItemCategory::LargeRawToolOutput;
+    }
+    ProviderVisibleItemCategory::Other
 }
 
 fn is_active_context_projection_item(item: &ResponseItem) -> bool {
@@ -1338,25 +1464,114 @@ fn is_active_context_projection_item(item: &ResponseItem) -> bool {
         && response_item_text_contains(item, TASKSPACE_ACTIVE_PROJECTION_MARKER)
 }
 
-fn is_legacy_taskspace_provider_visible_item(item: &ResponseItem) -> bool {
-    if response_item_text_contains(item, TASKSPACE_SHADOW_PROJECTION_MARKER)
-        || response_item_text_contains(item, "TaskSpace mode is now active")
+fn is_protected_user_input(item: &ResponseItem) -> bool {
+    matches!(item, ResponseItem::Message { role, .. } if role == "user")
+}
+
+fn is_protected_developer_or_system_input(item: &ResponseItem) -> bool {
+    matches!(item, ResponseItem::Message { role, .. } if role == "developer" || role == "system")
+}
+
+fn is_legacy_taskspace_instruction(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, "TaskSpace mode is now active")
         || response_item_text_contains(item, "TaskSpace final answer gate rejected")
         || response_item_text_contains(item, "taskspace_control(")
+}
+
+fn is_taskspace_control_call(item: &ResponseItem) -> bool {
+    matches!(
+        item,
+        ResponseItem::FunctionCall { name, .. } | ResponseItem::CustomToolCall { name, .. }
+            if name == "taskspace_control"
+    )
+}
+
+fn is_legacy_taskspace_tool_output(item: &ResponseItem) -> bool {
+    matches!(
+        item,
+        ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. }
+    ) && (response_item_text_contains(item, "TaskSpace")
+        || response_item_text_contains(item, "ActionMap")
+        || response_item_text_contains(item, "taskspace_control"))
+}
+
+fn is_large_raw_tool_output(item: &ResponseItem) -> bool {
+    if !matches!(
+        item,
+        ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. }
+    ) || response_item_text_contains(item, "output-ref://")
+        || response_item_text_contains(item, "OutputReferenceV1")
     {
-        return true;
+        return false;
     }
 
+    response_item_text_len(item) > TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS
+}
+
+fn response_item_text_len(item: &ResponseItem) -> usize {
     match item {
-        ResponseItem::FunctionCall { name, .. } | ResponseItem::CustomToolCall { name, .. } => {
-            name == "taskspace_control"
+        ResponseItem::Message { role, content, .. } => {
+            role.len()
+                + content
+                    .iter()
+                    .map(|content_item| match content_item {
+                        ContentItem::InputText { text } | ContentItem::OutputText { text } => {
+                            text.len()
+                        }
+                        ContentItem::InputImage { image_url, .. } => image_url.len(),
+                    })
+                    .sum::<usize>()
         }
-        ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. } => {
-            response_item_text_contains(item, "TaskSpace")
-                || response_item_text_contains(item, "ActionMap")
-                || response_item_text_contains(item, "taskspace_control")
+        ResponseItem::FunctionCall {
+            name,
+            namespace,
+            arguments,
+            ..
+        } => name.len() + namespace.as_ref().map_or(0, |value| value.len()) + arguments.len(),
+        ResponseItem::CustomToolCall { name, input, .. } => name.len() + input.len(),
+        ResponseItem::FunctionCallOutput { output, .. }
+        | ResponseItem::CustomToolCallOutput { output, .. } => {
+            function_call_output_body_text_len(&output.body)
         }
-        _ => false,
+        ResponseItem::ToolSearchCall {
+            execution,
+            arguments,
+            ..
+        } => execution.len() + arguments.to_string().len(),
+        ResponseItem::ToolSearchOutput {
+            execution, tools, ..
+        } => {
+            execution.len()
+                + tools
+                    .iter()
+                    .map(|tool| tool.to_string().len())
+                    .sum::<usize>()
+        }
+        ResponseItem::LocalShellCall { .. }
+        | ResponseItem::Reasoning { .. }
+        | ResponseItem::WebSearchCall { .. }
+        | ResponseItem::ImageGenerationCall { .. }
+        | ResponseItem::GhostSnapshot { .. }
+        | ResponseItem::Compaction { .. }
+        | ResponseItem::Other => 0,
+    }
+}
+
+fn function_call_output_body_text_len(body: &FunctionCallOutputBody) -> usize {
+    match body {
+        FunctionCallOutputBody::Text(text) => text.len(),
+        FunctionCallOutputBody::ContentItems(items) => items
+            .iter()
+            .map(|item| match item {
+                codex_protocol::models::FunctionCallOutputContentItem::InputText { text } => {
+                    text.len()
+                }
+                codex_protocol::models::FunctionCallOutputContentItem::InputImage {
+                    image_url,
+                    ..
+                } => image_url.len(),
+            })
+            .sum(),
     }
 }
 
@@ -1534,6 +1749,81 @@ mod active_context_replacement_tests {
                 .iter()
                 .all(|item| !matches!(item, ResponseItem::FunctionCall { .. }))
         );
+    }
+
+    #[test]
+    fn active_context_replacement_preserves_user_text_that_mentions_taskspace() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let items = vec![
+            message("developer", &active_projection),
+            message(
+                "user",
+                "The bug report mentions TaskSpace, but this is user evidence.",
+            ),
+            tool_output("ActionMap node state from taskspace_control(action=create_node)"),
+        ];
+
+        let composition = compose_provider_visible_history(items);
+        let texts = item_texts(&composition.items);
+        let joined = texts.join("\n");
+
+        assert!(joined.contains("this is user evidence"));
+        assert!(!joined.contains("ActionMap node state"));
+        assert_eq!(
+            composition.decisions[1].category,
+            ProviderVisibleItemCategory::ProtectedUserInput
+        );
+        assert_eq!(
+            composition.decisions[1].action,
+            ProviderVisibleHistoryAction::Include
+        );
+    }
+
+    #[test]
+    fn active_context_replacement_omits_large_raw_tool_output() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let large_raw_output = "x".repeat(TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS + 1);
+        let items = vec![
+            message("developer", &active_projection),
+            tool_output(&large_raw_output),
+            message("user", "Keep the direct user requirement."),
+        ];
+
+        let composition = compose_provider_visible_history(items);
+        let texts = item_texts(&composition.items);
+        let joined = texts.join("\n");
+
+        assert!(!joined.contains(&large_raw_output));
+        assert!(joined.contains("Keep the direct user requirement."));
+        assert_eq!(
+            composition.decisions[1].category,
+            ProviderVisibleItemCategory::LargeRawToolOutput
+        );
+        assert_eq!(
+            composition.decisions[1].action,
+            ProviderVisibleHistoryAction::Omit("large_raw_tool_output_requires_output_reference")
+        );
+    }
+
+    #[test]
+    fn active_context_replacement_keeps_output_reference_payloads() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let referenced_output = format!("OutputReferenceV1 output-ref://sha256/{}", "a".repeat(64));
+        let items = vec![
+            message("developer", &active_projection),
+            tool_output(&referenced_output),
+        ];
+
+        let prepared = prepare_provider_visible_prompt_items(items);
+        let texts = item_texts(&prepared);
+
+        assert!(texts.join("\n").contains("OutputReferenceV1"));
     }
 }
 
