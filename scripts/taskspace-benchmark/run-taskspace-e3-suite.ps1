@@ -24,6 +24,9 @@ param(
     [string]$OnePairSmokeRoot = "",
     [string]$SerialCalibrationRoot = "",
     [string]$ParallelEquivalencePath = "",
+    [string]$V005NonAgentGatesPath = "",
+    [string]$V005CodeCompleteMarkerPath = "",
+    [string]$V005UserApprovalMarkerPath = "",
     [switch]$SkipStartGate,
     [switch]$AllowSkippedOnePairSmoke,
     [string]$RunnerPath = "",
@@ -162,6 +165,9 @@ if ($scoreValidityEnforced -and -not $PlanOnly -and -not $SkipStartGate) {
         -OnePairSmokeRoot $OnePairSmokeRoot `
         -SerialCalibrationRoot $SerialCalibrationRoot `
         -ParallelEquivalencePath $ParallelEquivalencePath `
+        -V005NonAgentGatesPath $V005NonAgentGatesPath `
+        -V005CodeCompleteMarkerPath $V005CodeCompleteMarkerPath `
+        -V005UserApprovalMarkerPath $V005UserApprovalMarkerPath `
         -RunSelfTests `
         -AllowSkippedPathContract `
         -AllowSkippedOnePairSmoke:$AllowSkippedOnePairSmoke
@@ -170,6 +176,15 @@ if ($scoreValidityEnforced -and -not $PlanOnly -and -not $SkipStartGate) {
     if ([int]$gate.exit_code -ne 0) {
         Write-SuiteStartGateAbortHealth $gate
         $early = Write-SuiteEarlyAbortArtifacts -Reason "e3_start_gate_failed/$($gate.first_failure_stable_code)" -Phase "e3_start_gate"
+        Write-Host "SuiteRoot: $suiteRoot"
+        Write-Host "SuiteHealth: $suiteHealthPath"
+        Write-Host "SuiteTiming: $($early.suite_timing_path)"
+        exit 3
+    }
+    if (-not [bool]$gate.gate_decision.full_e3_allowed) {
+        Write-SuiteStartGateAbortHealth $gate
+        $reason = "e3_start_gate_blocked/$($gate.gate_decision.next_allowed_command_category)"
+        $early = Write-SuiteEarlyAbortArtifacts -Reason $reason -Phase "e3_start_gate"
         Write-Host "SuiteRoot: $suiteRoot"
         Write-Host "SuiteHealth: $suiteHealthPath"
         Write-Host "SuiteTiming: $($early.suite_timing_path)"

@@ -120,12 +120,77 @@ function New-TaskspaceE3GateDecision {
 }
 
 function Get-TaskspaceV005MarkerGate {
-    param([string]$Name, [string]$Path, [string]$MissingCode)
+    param(
+        [string]$Name,
+        [string]$Path,
+        [string]$MissingCode,
+        [string]$ExpectedTaskListHash = "",
+        [string]$ExpectedSourceVersion = "",
+        [string]$ExpectedProfileHash = ""
+    )
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return New-TaskspaceE3GateRow $Name "blocked" "$Name path not set" $MissingCode "$Name marker path was not provided."
     }
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         return New-TaskspaceE3GateRow $Name "blocked" "$Name missing" $MissingCode "Marker not found: $Path"
+    }
+    try {
+        $marker = Get-Content -Raw -Encoding UTF8 -LiteralPath $Path | ConvertFrom-Json
+    } catch {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name malformed" "$Name`_malformed" "Marker is not valid JSON: $Path"
+    }
+    if ([string]$marker.status -ne "pass") {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name status is not pass" "$Name`_status_not_pass" "Marker status must be pass: $Path"
+    }
+    if ([int]$marker.schema_version -ne 1) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name schema_version invalid" "$Name`_schema_invalid" "Marker schema_version must be 1: $Path"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$marker.generated_at)) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name generated_at missing" "$Name`_generated_at_missing" "Marker generated_at is required: $Path"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedTaskListHash) -and [string]$marker.task_list_hash -ne $ExpectedTaskListHash) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name task_list_hash mismatch" "$Name`_task_list_hash_mismatch" "Marker task_list_hash does not match expected identity: $Path"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedSourceVersion) -and [string]$marker.source_version -ne $ExpectedSourceVersion) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name source_version mismatch" "$Name`_source_version_mismatch" "Marker source_version does not match expected identity: $Path"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedProfileHash) -and [string]$marker.profile_hash -ne $ExpectedProfileHash) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name profile_hash mismatch" "$Name`_profile_hash_mismatch" "Marker profile_hash does not match expected identity: $Path"
+    }
+    if ([string]$Name -eq "v005_non_agent_gates") {
+        $required = @(
+            "provider_request_hook",
+            "runtime_budget_response",
+            "active_context_replacement",
+            "state_commit_displacement",
+            "spawn_node_budget",
+            "request_phase_attribution",
+            "release_decision_fixture",
+            "start_gate_fixture"
+        )
+        foreach ($gateName in $required) {
+            $gateValue = $null
+            if ($marker.PSObject.Properties.Name -contains "gates") {
+                $gateValue = $marker.gates.$gateName
+            }
+            if ([string]$gateValue -ne "pass") {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName not pass" "$Name`_$gateName`_not_pass" "Non-agent gate $gateName must be pass: $Path"
+            }
+        }
+    } elseif ([string]$Name -eq "v005_code_complete") {
+        if ([string]::IsNullOrWhiteSpace([string]$marker.git_commit)) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name git_commit missing" "$Name`_git_commit_missing" "Code-complete marker must record git_commit: $Path"
+        }
+        if (@($marker.unfinished_p0_items).Count -gt 0) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name unfinished P0 items remain" "$Name`_unfinished_p0_items" "Code-complete marker still lists unfinished P0 items: $Path"
+        }
+    } elseif ([string]$Name -eq "v005_user_approval") {
+        if ([string]$marker.approved_command_category -ne "full_e3") {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name approved command is not full_e3" "$Name`_command_not_full_e3" "User approval must explicitly approve full_e3: $Path"
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$marker.approval_source)) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name approval_source missing" "$Name`_approval_source_missing" "User approval marker must record approval_source: $Path"
+        }
     }
     New-TaskspaceE3GateRow $Name "pass" "" "" $Path
 }
@@ -327,9 +392,9 @@ function Invoke-TaskspaceE3StartGate {
             $gates.Add((Convert-TaskspaceCalibrationGateRow $calibrationRow))
         }
     }
-    $gates.Add((Get-TaskspaceV005MarkerGate "v005_non_agent_gates" $V005NonAgentGatesPath "v005_non_agent_gates_missing"))
-    $gates.Add((Get-TaskspaceV005MarkerGate "v005_code_complete" $V005CodeCompleteMarkerPath "v005_code_complete_missing"))
-    $gates.Add((Get-TaskspaceV005MarkerGate "v005_user_approval" $V005UserApprovalMarkerPath "v005_user_approval_missing"))
+    $gates.Add((Get-TaskspaceV005MarkerGate "v005_non_agent_gates" $V005NonAgentGatesPath "v005_non_agent_gates_missing" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash))
+    $gates.Add((Get-TaskspaceV005MarkerGate "v005_code_complete" $V005CodeCompleteMarkerPath "v005_code_complete_missing" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash))
+    $gates.Add((Get-TaskspaceV005MarkerGate "v005_user_approval" $V005UserApprovalMarkerPath "v005_user_approval_missing" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash))
     $selfTests = @()
     $preSelfTestFailures = @($gates.ToArray() | Where-Object { [string]$_.status -eq "fail" })
     if ($RunSelfTests -and $preSelfTestFailures.Count -eq 0) {

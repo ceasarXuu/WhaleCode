@@ -40,6 +40,50 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         timestamp_ms = 1
     } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "output-ref-events.jsonl") -Encoding UTF8
     Set-Content -LiteralPath (Join-Path $dir "compaction-events.jsonl") -Encoding UTF8 -Value "{}"
+    ([pscustomobject]@{
+        schema_version = "taskspace-provider-request-event-v1"
+        request_id = "provider-request-1"
+        request_phase = "model_sampling"
+        task_id = "task-1"
+        map_id = "map-1"
+        node_id = "node-1"
+        status = "completed"
+    } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "provider-request-events.jsonl") -Encoding UTF8
+    ([pscustomobject]@{
+        schema_version = "taskspace-budget-event-v1"
+        status = "pass"
+        budget_response_action_taken = $true
+    } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "budget-events.jsonl") -Encoding UTF8
+    Write-Json ([pscustomobject]@{
+            provider_request_hook_coverage = 99
+            request_phase_attribution_coverage = 95
+            unknown_request_phase_ratio = 0
+        }) (Join-Path $dir "request-phase-summary.json")
+    ([pscustomobject]@{
+        schema_version = "taskspace-exact-payload-scan-event-v1"
+        scan_event_id = "scan-1"
+        request_id = "provider-request-1"
+        provider_payload_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        passed = $true
+    } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "exact-payload-scan-events.jsonl") -Encoding UTF8
+    Write-Json ([pscustomobject]@{
+            provider_payload_available = $true
+            provider_payload_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            exact_payload_scan_passed = $true
+            exact_payload_scan_event_id = "scan-1"
+            replacement_confirmed = $true
+            legacy_taskspace_history_present = $false
+            large_raw_output_tokens = 0
+            protected_items_present = $true
+        }) (Join-Path $dir "active-context-replacement-report.json")
+    Write-Json ([pscustomobject]@{
+            status = "pass"
+            legacy_state_action_count = 0
+            legacy_state_action_budget = 0
+            state_commit_count = 1
+        }) (Join-Path $dir "state-commit-displacement.json")
+    Write-Json ([pscustomobject]@{ status = "pass"; spawn_agent_call_count = 0; max_spawn_agent_calls = 0 }) (Join-Path $dir "spawn-node-budget-summary.json")
+    Write-Json ([pscustomobject]@{ status = "pass"; schema_version = 1 }) (Join-Path $dir "v005-non-agent-gates.json")
     Write-Json ([pscustomobject]@{
             schema_version = "TaskShapeRouterV1"
             recommended_mode = "thin"
@@ -151,6 +195,23 @@ Move-Item -LiteralPath (Join-Path $missingArtifactDir "output-ref-events.jsonl")
 Assert-True ($LASTEXITCODE -eq 1) "missing artifact fixture did not exit 1"
 $missingArtifactDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingArtifactDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($missingArtifactDecision.blockers) -contains "required_artifact_missing:output-ref-events.jsonl") "missing artifact fixture did not report required artifact blocker"
+
+$missingProviderEventDir = New-FixtureRun "missing-provider-event" "PASS" $true 0
+Move-Item -LiteralPath (Join-Path $missingProviderEventDir "provider-request-events.jsonl") -Destination (Join-Path $missingProviderEventDir "provider-request-events.jsonl.bak") -Force
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $missingProviderEventDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "missing provider event fixture did not exit 1"
+$missingProviderEventDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingProviderEventDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($missingProviderEventDecision.blockers) -contains "provider_request_event_missing") "missing provider event fixture did not report provider blocker"
+
+$hashOnlyReplacementDir = New-FixtureRun "hash-only-active-replacement" "PASS" $true 0
+$hashOnlyReplacement = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $hashOnlyReplacementDir "active-context-replacement-report.json") | ConvertFrom-Json
+$hashOnlyReplacement.exact_payload_scan_passed = $false
+$hashOnlyReplacement.exact_payload_scan_event_id = ""
+$hashOnlyReplacement | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $hashOnlyReplacementDir "active-context-replacement-report.json") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $hashOnlyReplacementDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "hash-only active replacement fixture did not exit 1"
+$hashOnlyReplacementDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $hashOnlyReplacementDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($hashOnlyReplacementDecision.blockers) -contains "active_context_replacement_gate_failed") "hash-only fixture did not report active replacement blocker"
 
 $emptyOutputRefDir = New-FixtureRun "empty-output-ref-events" "PASS" $true 0
 Set-Content -LiteralPath (Join-Path $emptyOutputRefDir "output-ref-events.jsonl") -Encoding UTF8 -Value "{}"

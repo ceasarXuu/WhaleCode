@@ -5,6 +5,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\scenario-manifest.ps1")
 . (Join-Path $PSScriptRoot "lib\harness-health.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-start-gate.ps1")
+. (Join-Path $PSScriptRoot "lib\e3-identity.ps1")
 . (Join-Path $PSScriptRoot "lib\runtime-reconstruction.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\e3-start-gate-selftest" }
@@ -114,6 +115,46 @@ function New-CalibrationFixtures {
     [pscustomobject]@{ one_pair_root = $onePairRoot; serial_root = $serialRoot; equivalence_path = $equivalencePath }
 }
 
+function New-V005MarkerFixtures {
+    param([string]$Root, [string]$TaskListHash = "task-list-a", [string]$SourceVersion = "source-a", [string]$ProfileHash = "profile-a")
+    New-Item -ItemType Directory -Force -Path $Root | Out-Null
+    $nonAgentPath = Join-Path $Root "non-agent-gates.json"
+    $codeCompletePath = Join-Path $Root "code-complete.json"
+    $userApprovalPath = Join-Path $Root "user-approval.json"
+    $identity = @{
+        schema_version = 1
+        status = "pass"
+        task_list_hash = $TaskListHash
+        source_version = $SourceVersion
+        profile_hash = $ProfileHash
+        generated_at = "2026-06-19T00:00:00.0000000Z"
+    }
+    [pscustomobject]($identity + @{
+            gates = [pscustomobject]@{
+                provider_request_hook = "pass"
+                runtime_budget_response = "pass"
+                active_context_replacement = "pass"
+                state_commit_displacement = "pass"
+                spawn_node_budget = "pass"
+                request_phase_attribution = "pass"
+                release_decision_fixture = "pass"
+                start_gate_fixture = "pass"
+            }
+        }) | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $nonAgentPath -Encoding UTF8
+    [pscustomobject]($identity + @{
+            git_commit = "selftest-commit"
+            unfinished_p0_items = @()
+            test_outputs = @("selftest")
+        }) | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $codeCompletePath -Encoding UTF8
+    [pscustomobject]($identity + @{
+            approved_command_category = "full_e3"
+            approved_sample_set_id = "terminal-bench_E3-P0_3_5"
+            approval_source = "selftest"
+            approval_timestamp = "2026-06-19T00:00:00.0000000Z"
+        }) | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $userApprovalPath -Encoding UTF8
+    [pscustomobject]@{ non_agent_path = $nonAgentPath; code_complete_path = $codeCompletePath; user_approval_path = $userApprovalPath }
+}
+
 $oldMinFreeBytes = $env:TASKSPACE_MIN_FREE_BYTES
 $oldMinFreeGib = $env:TASKSPACE_MIN_FREE_GIB
 try {
@@ -142,13 +183,10 @@ try {
 
     $calibration = New-CalibrationFixtures (Join-Path $runDir "calibration-fixtures")
     $v005MarkerRoot = Join-Path $runDir "v005-markers"
-    New-Item -ItemType Directory -Force -Path $v005MarkerRoot | Out-Null
-    $v005NonAgentPath = Join-Path $v005MarkerRoot "non-agent-gates.json"
-    $v005CodeCompletePath = Join-Path $v005MarkerRoot "code-complete.marker"
-    $v005UserApprovalPath = Join-Path $v005MarkerRoot "user-approval.marker"
-    [pscustomobject]@{ status = "pass"; generated_at = "2026-06-19T00:00:00.0000000Z" } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $v005NonAgentPath -Encoding UTF8
-    "code-complete" | Set-Content -LiteralPath $v005CodeCompletePath -Encoding UTF8
-    "user-approved" | Set-Content -LiteralPath $v005UserApprovalPath -Encoding UTF8
+    $v005Markers = New-V005MarkerFixtures $v005MarkerRoot
+    $v005NonAgentPath = $v005Markers.non_agent_path
+    $v005CodeCompletePath = $v005Markers.code_complete_path
+    $v005UserApprovalPath = $v005Markers.user_approval_path
     $calibratedGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-calibration-pass") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -AllowSkippedSelfTests -SelfTestCommands @()
     Assert-True ([string]$calibratedGate.status -eq "pass" -and @($calibratedGate.gates | Where-Object { [string]$_.name -eq "calibration_parallel_smoke" -and [string]$_.status -eq "pass" }).Count -eq 1) "start gate did not pass complete calibration evidence"
     Assert-True (Test-Path -LiteralPath $calibratedGate.gate_decision_path) "start gate did not write gate-decision artifact"
@@ -160,6 +198,15 @@ try {
     Assert-True ([string]$gateDecision.next_allowed_command_category -eq "full_e3" -and [bool]$gateDecision.full_e3_allowed -and [bool]$gateDecision.speed_claim_allowed -and [bool]$gateDecision.calibration_gate_passed -and [bool]$gateDecision.v005_markers_passed) "gate-decision did not authorize full E3 after complete calibration and v0.0.5 markers"
     $calibratedMarkdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $calibratedWithMarkersGate.markdown_path
     Assert-True ($calibratedMarkdown -match "next_allowed_command_category: full_e3" -and $calibratedMarkdown -match "full_e3_allowed: True" -and $calibratedMarkdown -match "speed_claim_allowed: True") "start gate markdown did not expose gate-decision summary"
+    $spoofedMarkerPath = Join-Path $v005MarkerRoot "spoofed-marker.json"
+    "user-approved" | Set-Content -LiteralPath $spoofedMarkerPath -Encoding UTF8
+    $spoofedGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-spoofed-marker") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -V005NonAgentGatesPath $v005NonAgentPath -V005CodeCompleteMarkerPath $spoofedMarkerPath -V005UserApprovalMarkerPath $v005UserApprovalPath -AllowSkippedSelfTests -SelfTestCommands @()
+    $spoofedDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $spoofedGate.gate_decision_path | ConvertFrom-Json
+    Assert-True (-not [bool]$spoofedDecision.full_e3_allowed -and @($spoofedGate.gates | Where-Object { [string]$_.name -eq "v005_code_complete" -and [string]$_.stable_code -eq "v005_code_complete_malformed" }).Count -eq 1) "start gate accepted spoofed arbitrary marker text"
+    $mismatchedMarkers = New-V005MarkerFixtures (Join-Path $runDir "v005-mismatched-markers") -TaskListHash "task-list-b"
+    $mismatchedGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-mismatched-marker") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -V005NonAgentGatesPath $mismatchedMarkers.non_agent_path -V005CodeCompleteMarkerPath $mismatchedMarkers.code_complete_path -V005UserApprovalMarkerPath $mismatchedMarkers.user_approval_path -AllowSkippedSelfTests -SelfTestCommands @()
+    $mismatchedDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $mismatchedGate.gate_decision_path | ConvertFrom-Json
+    Assert-True (-not [bool]$mismatchedDecision.full_e3_allowed -and @($mismatchedGate.gates | Where-Object { [string]$_.stable_code -like "*task_list_hash_mismatch" }).Count -gt 0) "start gate accepted mismatched marker identity"
     $skippedCalibrationDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $smokeGate.gate_decision_path | ConvertFrom-Json
     Assert-True ([string]$skippedCalibrationDecision.next_allowed_command_category -eq "targeted_diagnostic" -and -not [bool]$skippedCalibrationDecision.full_e3_allowed -and -not [bool]$skippedCalibrationDecision.speed_claim_allowed -and -not [bool]$skippedCalibrationDecision.v005_markers_passed) "gate-decision authorized full E3 when calibration or v0.0.5 markers were skipped"
     $blockedCalibration = New-CalibrationFixtures (Join-Path $runDir "calibration-speedup-evidence-fail")
@@ -276,6 +323,36 @@ try {
     $ErrorActionPreference = $oldErrorActionPreference
     Assert-True ($skipScoringExit -eq 4 -and ($skipScoringOutput -join "`n") -match "SkipStartGate is not allowed") "suite allowed SkipStartGate for ScoringMode run"
     Assert-True ($skipRequireExit -eq 4 -and ($skipRequireOutput -join "`n") -match "SkipStartGate is not allowed") "suite allowed SkipStartGate for RequireScoreValidity run"
+
+    $suiteTaskListHash = Get-TaskspaceFileSha256 $taskList
+    $suiteProfileIdentity = New-TaskspaceE3ProfileIdentity `
+        -Benchmark terminal-bench `
+        -SourceVersion selftest `
+        -Model "deepseek-v4-flash" `
+        -Repeats 5 `
+        -TimeoutSeconds 900 `
+        -ValidationTimeoutSeconds 420 `
+        -ValidationPretestTimeoutSeconds 120 `
+        -ValidationTestTimeoutSeconds 420 `
+        -SandboxMode "full-auto" `
+        -ConfigOverride @('model_reasoning_effort="max"') `
+        -EnableDockerImageCache $false `
+        -MaxParallelSamples 1 `
+        -MaxParallelPairsPerSample 1 `
+        -MaxParallelValidationsPerPair 1 `
+        -MaxDockerConcurrency 1 `
+        -MaxModelConcurrency 1
+    $suiteProfileHash = [string]$suiteProfileIdentity.profile_hash
+    $suiteCompleteCalibration = New-CalibrationFixtures (Join-Path $runDir "suite-complete-calibration-missing-markers") -TaskListHash $suiteTaskListHash -SourceVersion "selftest" -ProfileHash $suiteProfileHash
+    $suiteMissingMarkersRoot = Join-Path $runDir "suite-missing-v005-markers"
+    $suiteMissingMarkersOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1") -Benchmark terminal-bench -TaskListPath $taskList -SourceVersion selftest -Repeats 5 -RunRoot $suiteMissingMarkersRoot -ScoringMode -OnePairSmokeRoot $suiteCompleteCalibration.one_pair_root -SerialCalibrationRoot $suiteCompleteCalibration.serial_root -ParallelEquivalencePath $suiteCompleteCalibration.equivalence_path 2>&1
+    Assert-True ($LASTEXITCODE -eq 3) "suite runner scheduled full E3 when v0.0.5 markers were missing"
+    $suiteMissingMarkersRootLine = @($suiteMissingMarkersOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
+    $suiteMissingMarkersRunRoot = ([string]$suiteMissingMarkersRootLine) -replace "^SuiteRoot:\s*", ""
+    $suiteMissingMarkersStartGate = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suiteMissingMarkersRunRoot "start-gate\e3-start-gate.json") | ConvertFrom-Json
+    $suiteMissingMarkersSampleDirs = @(Get-ChildItem -LiteralPath (Join-Path $suiteMissingMarkersRunRoot "samples") -Directory -ErrorAction SilentlyContinue)
+    Assert-True ([bool]$suiteMissingMarkersStartGate.gate_decision.calibration_gate_passed -and -not [bool]$suiteMissingMarkersStartGate.gate_decision.v005_markers_passed -and -not [bool]$suiteMissingMarkersStartGate.gate_decision.full_e3_allowed) "suite missing-marker start gate did not preserve blocked full_e3 decision"
+    Assert-True ($suiteMissingMarkersSampleDirs.Count -eq 0) "suite runner created sample runs despite full_e3_allowed=false"
 
     $suiteCalibrationRoot = Join-Path $runDir "suite-calibration-gate"
     $suiteCalibrationOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1") -Benchmark terminal-bench -TaskListPath $taskList -SourceVersion selftest -Repeats 5 -RunRoot $suiteCalibrationRoot -ScoringMode -OnePairSmokeRoot $smokeRoot 2>&1

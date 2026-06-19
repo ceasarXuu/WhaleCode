@@ -104,6 +104,14 @@ $costDiagnosticsPath = Join-Path $runRoot "cost-diagnostics.json"
 $runStatusPath = Join-Path $runRoot "run-status.json"
 $eventsPath = Join-Path $runRoot "events.jsonl"
 $outputRefEventsPath = Join-Path $runRoot "output-ref-events.jsonl"
+$providerRequestEventsPath = Join-Path $runRoot "provider-request-events.jsonl"
+$budgetEventsPath = Join-Path $runRoot "budget-events.jsonl"
+$requestPhaseSummaryPath = Join-Path $runRoot "request-phase-summary.json"
+$activeReplacementPath = Join-Path $runRoot "active-context-replacement-report.json"
+$exactPayloadScanEventsPath = Join-Path $runRoot "exact-payload-scan-events.jsonl"
+$stateCommitDisplacementPath = Join-Path $runRoot "state-commit-displacement.json"
+$spawnNodeBudgetPath = Join-Path $runRoot "spawn-node-budget-summary.json"
+$v005NonAgentGatesPath = Join-Path $runRoot "v005-non-agent-gates.json"
 $requiredArtifacts = @(
     "token-summary.json",
     "request-summary.json",
@@ -113,7 +121,15 @@ $requiredArtifacts = @(
     "compaction-events.jsonl",
     "routing-decision.json",
     "suite-cost-gate.json",
-    "suite-map-management-summary.json"
+    "suite-map-management-summary.json",
+    "provider-request-events.jsonl",
+    "budget-events.jsonl",
+    "request-phase-summary.json",
+    "active-context-replacement-report.json",
+    "exact-payload-scan-events.jsonl",
+    "state-commit-displacement.json",
+    "spawn-node-budget-summary.json",
+    "v005-non-agent-gates.json"
 )
 $cost = Read-ReleaseJson $costPath
 $aggregate = Read-ReleaseJson $aggregatePath
@@ -124,6 +140,14 @@ $costDiagnostics = Read-ReleaseJson $costDiagnosticsPath
 $runStatus = Read-ReleaseJson $runStatusPath
 $runEvents = @(Read-ReleaseJsonl $eventsPath)
 $outputRefEvents = @(Read-ReleaseJsonl $outputRefEventsPath)
+$providerRequestEvents = @(Read-ReleaseJsonl $providerRequestEventsPath)
+$budgetEvents = @(Read-ReleaseJsonl $budgetEventsPath)
+$requestPhaseSummary = Read-ReleaseJson $requestPhaseSummaryPath
+$activeReplacement = Read-ReleaseJson $activeReplacementPath
+$exactPayloadScanEvents = @(Read-ReleaseJsonl $exactPayloadScanEventsPath)
+$stateCommitDisplacement = Read-ReleaseJson $stateCommitDisplacementPath
+$spawnNodeBudget = Read-ReleaseJson $spawnNodeBudgetPath
+$v005NonAgentGates = Read-ReleaseJson $v005NonAgentGatesPath
 $pairMetricPattern = '(?i)[\\/](pair-\d+)[\\/](left|right)[\\/]artifacts[\\/]metrics\.json$'
 $metricRecords = @(Get-ChildItem -LiteralPath $runRoot -Recurse -File -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -eq "metrics.json" -and $_.FullName -match $pairMetricPattern } |
@@ -253,6 +277,28 @@ $projectionPass = ($projection `
 $mapPass = ($map -and (Get-ReleaseString $map "availability") -eq "measured" -and (Get-ReleaseInt $map "protected_miss_count" 0) -eq 0)
 $routingPass = ($routing -and (Get-ReleaseString $routing "availability") -eq "measured" -and (Get-ReleaseInt $routing "routing_mistake_count" 0) -eq 0)
 $outputRefPass = ($maxLargeReplay -eq 0 -and $runtimeOutputRefs -gt 0 -and $validOutputRefCreatedEvents.Count -gt 0 -and $validOutputRefPairEvidence.Count -eq $completedPairs)
+$providerRequestPass = (@($providerRequestEvents | Where-Object { [string]$_.schema_version -eq "taskspace-provider-request-event-v1" -or [string]$_.schema_version -eq "taskspace-provider-request-budget-event-v1" }).Count -gt 0)
+$budgetResponsePass = (@($budgetEvents | Where-Object { [string]$_.schema_version -eq "taskspace-budget-event-v1" -and ([string]$_.status -eq "pass" -or [bool]$_.budget_response_action_taken) }).Count -gt 0)
+$requestPhasePass = ($requestPhaseSummary `
+    -and (Get-ReleaseInt $requestPhaseSummary "provider_request_hook_coverage" 0) -ge 99 `
+    -and (Get-ReleaseInt $requestPhaseSummary "request_phase_attribution_coverage" 0) -ge 95 `
+    -and (Get-ReleaseInt $requestPhaseSummary "unknown_request_phase_ratio" 100) -le 5)
+$exactScanPass = (@($exactPayloadScanEvents | Where-Object { [string]$_.schema_version -eq "taskspace-exact-payload-scan-event-v1" -and [bool]$_.passed -and -not [string]::IsNullOrWhiteSpace([string]$_.request_id) -and -not [string]::IsNullOrWhiteSpace([string]$_.provider_payload_sha256) }).Count -gt 0)
+$activeReplacementPass = ($activeReplacement `
+    -and (Get-ReleaseBool $activeReplacement "provider_payload_available") `
+    -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $activeReplacement "provider_payload_sha256")) `
+    -and (Get-ReleaseBool $activeReplacement "exact_payload_scan_passed") `
+    -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $activeReplacement "exact_payload_scan_event_id")) `
+    -and (Get-ReleaseBool $activeReplacement "replacement_confirmed") `
+    -and -not (Get-ReleaseBool $activeReplacement "legacy_taskspace_history_present" $true) `
+    -and (Get-ReleaseInt $activeReplacement "large_raw_output_tokens" 1) -eq 0 `
+    -and (Get-ReleaseBool $activeReplacement "protected_items_present") `
+    -and $exactScanPass)
+$stateCommitDisplacementPass = ($stateCommitDisplacement `
+    -and (Get-ReleaseString $stateCommitDisplacement "status") -eq "pass" `
+    -and (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_count" 999999) -le (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_budget" 0))
+$spawnNodeBudgetPass = ($spawnNodeBudget -and (Get-ReleaseString $spawnNodeBudget "status") -eq "pass")
+$v005NonAgentGatesPass = ($v005NonAgentGates -and (Get-ReleaseString $v005NonAgentGates "status") -eq "pass")
 
 $blockers = New-Object System.Collections.Generic.List[string]
 foreach ($artifactName in $requiredArtifacts) {
@@ -268,11 +314,18 @@ if (-not $mapPass) { Add-ReleaseLine $blockers "map_gate_failed" }
 if (-not $routingPass) { Add-ReleaseLine $blockers "routing_gate_failed" }
 if (-not $outputRefPass) { Add-ReleaseLine $blockers "output_ref_replay_failed" }
 if (-not $runProvenancePass) { Add-ReleaseLine $blockers "run_provenance_gate_failed" }
+if (-not $providerRequestPass) { Add-ReleaseLine $blockers "provider_request_event_missing" }
+if (-not $budgetResponsePass) { Add-ReleaseLine $blockers "runtime_budget_response_gate_failed" }
+if (-not $requestPhasePass) { Add-ReleaseLine $blockers "request_phase_attribution_missing" }
+if (-not $activeReplacementPass) { Add-ReleaseLine $blockers "active_context_replacement_gate_failed" }
+if (-not $stateCommitDisplacementPass) { Add-ReleaseLine $blockers "state_commit_displacement_gate_failed" }
+if (-not $spawnNodeBudgetPass) { Add-ReleaseLine $blockers "spawn_budget_gate_failed" }
+if (-not $v005NonAgentGatesPass) { Add-ReleaseLine $blockers "v005_non_agent_gates_failed" }
 if ($aggregate -and (Get-ReleaseInt $aggregate "excluded_pairs" 0) -gt 0) { Add-ReleaseLine $blockers "excluded_pairs_present" }
 
 $decision = "fail"
 $closeable = $false
-if ($qualityPass -and $projectionPass -and $mapPass -and $routingPass -and $outputRefPass -and $runProvenancePass) {
+if ($qualityPass -and $projectionPass -and $mapPass -and $routingPass -and $outputRefPass -and $runProvenancePass -and $providerRequestPass -and $budgetResponsePass -and $requestPhasePass -and $activeReplacementPass -and $stateCommitDisplacementPass -and $spawnNodeBudgetPass -and $v005NonAgentGatesPass) {
     if ($costStatus -eq "PASS" -and $blockers.Count -eq 0) {
         $decision = "release_pass"
         $closeable = $true
@@ -293,6 +346,13 @@ $summary = [pscustomobject]@{
     routing_gate_pass = [bool]$routingPass
     output_ref_gate_pass = [bool]$outputRefPass
     run_provenance_gate_pass = [bool]$runProvenancePass
+    provider_request_gate_pass = [bool]$providerRequestPass
+    budget_response_gate_pass = [bool]$budgetResponsePass
+    request_phase_gate_pass = [bool]$requestPhasePass
+    active_replacement_gate_pass = [bool]$activeReplacementPass
+    state_commit_displacement_gate_pass = [bool]$stateCommitDisplacementPass
+    spawn_node_budget_gate_pass = [bool]$spawnNodeBudgetPass
+    v005_non_agent_gates_pass = [bool]$v005NonAgentGatesPass
     max_large_output_replay_count = [int]$maxLargeReplay
     runtime_output_ref_created_count = [int]$runtimeOutputRefs
     valid_output_ref_created_event_count = [int]$validOutputRefCreatedEvents.Count
