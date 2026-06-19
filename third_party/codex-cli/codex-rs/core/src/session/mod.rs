@@ -1086,6 +1086,8 @@ impl Session {
                 output_tokens: event.output_tokens,
                 reasoning_output_tokens: event.reasoning_output_tokens,
                 total_tokens: event.total_tokens,
+                provider_payload_sha256: event.provider_payload_sha256,
+                provider_payload_bytes: event.provider_payload_bytes,
             })
             .collect::<Vec<_>>();
         let runtime_events = {

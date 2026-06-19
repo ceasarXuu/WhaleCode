@@ -428,6 +428,8 @@ pub(crate) struct ActionMapProviderRequestBudgetEventInput {
     pub(crate) output_tokens: Option<i64>,
     pub(crate) reasoning_output_tokens: Option<i64>,
     pub(crate) total_tokens: Option<i64>,
+    pub(crate) provider_payload_sha256: Option<String>,
+    pub(crate) provider_payload_bytes: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -1562,6 +1564,12 @@ preview:\n\
             }
             if let Some(total_tokens) = input.total_tokens {
                 tags.push(format!("total_tokens:{total_tokens}"));
+            }
+            if let Some(provider_payload_sha256) = input.provider_payload_sha256 {
+                tags.push(format!("provider_payload_sha256:{provider_payload_sha256}"));
+            }
+            if let Some(provider_payload_bytes) = input.provider_payload_bytes {
+                tags.push(format!("provider_payload_bytes:{provider_payload_bytes}"));
             }
             if input.status == "blocked" {
                 tags.push("budget_response_action_taken:true".to_string());
@@ -9561,6 +9569,8 @@ mod tests {
                         output_tokens: None,
                         reasoning_output_tokens: None,
                         total_tokens: None,
+                        provider_payload_sha256: None,
+                        provider_payload_bytes: None,
                     },
                     ActionMapProviderRequestBudgetEventInput {
                         request_id: "provider-request-2".to_string(),
@@ -9577,6 +9587,11 @@ mod tests {
                         output_tokens: Some(4),
                         reasoning_output_tokens: Some(1),
                         total_tokens: Some(14),
+                        provider_payload_sha256: Some(
+                            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                                .to_string(),
+                        ),
+                        provider_payload_bytes: Some(4321),
                     },
                 ],
             )
@@ -9606,6 +9621,14 @@ mod tests {
         );
         assert!(blocked.tags.iter().any(|tag| tag == "input_tokens:10"));
         assert!(blocked.tags.iter().any(|tag| tag == "latency_ms:0"));
+        assert!(blocked.tags.iter().any(|tag| tag
+            == "provider_payload_sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "provider_payload_bytes:4321")
+        );
         assert_eq!(
             state
                 .provider_request_budget_snapshot()

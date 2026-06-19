@@ -93,6 +93,8 @@ use http::HeaderMap as ApiHeaderMap;
 use http::HeaderValue;
 use http::StatusCode as HttpStatusCode;
 use reqwest::StatusCode;
+use sha2::Digest;
+use sha2::Sha256;
 use std::time::Duration;
 use std::time::Instant;
 use std::time::SystemTime;
@@ -166,6 +168,8 @@ pub(crate) struct ProviderRequestBudgetEvent {
     pub(crate) output_tokens: Option<i64>,
     pub(crate) reasoning_output_tokens: Option<i64>,
     pub(crate) total_tokens: Option<i64>,
+    pub(crate) provider_payload_sha256: Option<String>,
+    pub(crate) provider_payload_bytes: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -189,6 +193,8 @@ struct ProviderRequestBudgetActiveRequest {
     request_count_before: usize,
     request_count_after: usize,
     started_at_ms: i64,
+    provider_payload_sha256: Option<String>,
+    provider_payload_bytes: Option<usize>,
 }
 
 impl ProviderRequestBudgetContext {
@@ -238,6 +244,8 @@ impl ProviderRequestBudgetContext {
                 output_tokens: None,
                 reasoning_output_tokens: None,
                 total_tokens: None,
+                provider_payload_sha256: None,
+                provider_payload_bytes: None,
             });
             return Err(CodexErr::InvalidRequest(format!(
                 "TaskSpace blocked this provider request because the active provider request budget is exhausted ({before}/{}). Finish with a bounded final/abort response or record a compact state checkpoint before requesting another model turn.",
@@ -253,6 +261,8 @@ impl ProviderRequestBudgetContext {
             request_count_before: before,
             request_count_after: after,
             started_at_ms,
+            provider_payload_sha256: None,
+            provider_payload_bytes: None,
         };
         *self
             .state
@@ -274,6 +284,8 @@ impl ProviderRequestBudgetContext {
             output_tokens: None,
             reasoning_output_tokens: None,
             total_tokens: None,
+            provider_payload_sha256: None,
+            provider_payload_bytes: None,
         });
         Ok(ProviderRequestBudgetDispatch {
             context: Some(self.clone()),
@@ -295,6 +307,43 @@ impl ProviderRequestBudgetContext {
 
     pub(crate) fn record_cancelled(&self) {
         self.record_active_terminal_status("cancelled", None);
+    }
+
+    fn record_provider_payload(&self, payload_sha256: String, payload_bytes: usize) {
+        if !self.state.enabled {
+            return;
+        }
+        let active_request = {
+            let mut active_request = self
+                .state
+                .active_request
+                .lock()
+                .expect("provider request budget active mutex poisoned");
+            let Some(active_request) = active_request.as_mut() else {
+                return;
+            };
+            active_request.provider_payload_sha256 = Some(payload_sha256);
+            active_request.provider_payload_bytes = Some(payload_bytes);
+            active_request.clone()
+        };
+        self.push_event(ProviderRequestBudgetEvent {
+            request_id: active_request.request_id,
+            transport: active_request.transport,
+            status: "payload_captured".to_string(),
+            request_count_before: active_request.request_count_before,
+            request_count_after: active_request.request_count_after,
+            max_requests: self.state.max_requests,
+            started_at_ms: active_request.started_at_ms,
+            completed_at_ms: None,
+            latency_ms: None,
+            input_tokens: None,
+            cached_input_tokens: None,
+            output_tokens: None,
+            reasoning_output_tokens: None,
+            total_tokens: None,
+            provider_payload_sha256: active_request.provider_payload_sha256,
+            provider_payload_bytes: active_request.provider_payload_bytes,
+        });
     }
 
     fn record_active_terminal_status(&self, status: &str, token_usage: Option<&TokenUsage>) {
@@ -324,6 +373,8 @@ impl ProviderRequestBudgetContext {
                 output_tokens: token_usage.map(|usage| usage.output_tokens),
                 reasoning_output_tokens: token_usage.map(|usage| usage.reasoning_output_tokens),
                 total_tokens: token_usage.map(|usage| usage.total_tokens),
+                provider_payload_sha256: active_request.provider_payload_sha256,
+                provider_payload_bytes: active_request.provider_payload_bytes,
             });
         }
     }
@@ -343,6 +394,25 @@ impl ProviderRequestBudgetContext {
             .lock()
             .expect("provider request budget event mutex poisoned")
             .push(event);
+    }
+
+    fn active_payload_for_request(
+        &self,
+        request_id: &str,
+    ) -> Option<(Option<String>, Option<usize>)> {
+        let active_request = self
+            .state
+            .active_request
+            .lock()
+            .expect("provider request budget active mutex poisoned");
+        let active_request = active_request.as_ref()?;
+        if active_request.request_id != request_id {
+            return None;
+        }
+        Some((
+            active_request.provider_payload_sha256.clone(),
+            active_request.provider_payload_bytes,
+        ))
     }
 }
 
@@ -370,6 +440,9 @@ impl ProviderRequestBudgetDispatch {
 
     fn record_status(&self, status: &str) {
         if let Some(context) = &self.context {
+            let (provider_payload_sha256, provider_payload_bytes) = context
+                .active_payload_for_request(&self.request_id)
+                .unwrap_or((None, None));
             context.push_event(ProviderRequestBudgetEvent {
                 request_id: self.request_id.clone(),
                 transport: self.transport.clone(),
@@ -385,9 +458,25 @@ impl ProviderRequestBudgetDispatch {
                 output_tokens: None,
                 reasoning_output_tokens: None,
                 total_tokens: None,
+                provider_payload_sha256,
+                provider_payload_bytes,
             });
         }
     }
+
+    fn record_provider_payload(&self, payload_sha256: String, payload_bytes: usize) {
+        if let Some(context) = &self.context {
+            context.record_provider_payload(payload_sha256, payload_bytes);
+        }
+    }
+}
+
+fn provider_payload_digest<T: serde::Serialize>(payload: &T) -> Option<(String, usize)> {
+    let bytes = serde_json::to_vec(payload).ok()?;
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let digest = hasher.finalize();
+    Some((format!("{digest:x}"), bytes.len()))
 }
 
 fn provider_request_budget_now_ms() -> i64 {
@@ -1485,6 +1574,9 @@ impl ModelClientSession {
             )
             .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
             let budget_dispatch = provider_request_budget.before_dispatch("responses_http")?;
+            if let Some((payload_sha256, payload_bytes)) = provider_payload_digest(&request) {
+                budget_dispatch.record_provider_payload(payload_sha256, payload_bytes);
+            }
             let stream_result = client.stream_request(request, options).await;
 
             match stream_result {
@@ -1643,6 +1735,9 @@ impl ModelClientSession {
                         "websocket connection is unavailable".to_string(),
                     ))
                 })?;
+            if let Some((payload_sha256, payload_bytes)) = provider_payload_digest(&ws_request) {
+                budget_dispatch.record_provider_payload(payload_sha256, payload_bytes);
+            }
             let stream_result = websocket_connection
                 .stream_request(ws_request, self.websocket_session.connection_reused())
                 .await

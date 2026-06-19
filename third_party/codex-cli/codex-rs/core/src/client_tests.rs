@@ -110,15 +110,31 @@ fn provider_request_budget_records_started_and_terminal_status() {
     let dispatch = budget
         .before_dispatch("responses_websocket")
         .expect("first request should be within budget");
+    dispatch.record_provider_payload(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        1234,
+    );
     dispatch.record_status("stream_opened");
 
     let events = budget.drain_events();
-    assert_eq!(events.len(), 2);
+    assert_eq!(events.len(), 3);
     assert_eq!(events[0].status, "started");
-    assert_eq!(events[1].status, "stream_opened");
+    assert_eq!(events[1].status, "payload_captured");
+    assert_eq!(events[2].status, "stream_opened");
     assert_eq!(events[0].request_id, events[1].request_id);
+    assert_eq!(events[0].request_id, events[2].request_id);
     assert_eq!(events[0].request_count_after, 1);
-    assert_eq!(events[1].request_count_after, 1);
+    assert_eq!(events[2].request_count_after, 1);
+    assert_eq!(
+        events[1].provider_payload_sha256.as_deref(),
+        Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    );
+    assert_eq!(events[1].provider_payload_bytes, Some(1234));
+    assert_eq!(
+        events[2].provider_payload_sha256.as_deref(),
+        Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    );
+    assert_eq!(events[2].provider_payload_bytes, Some(1234));
 
     budget.record_response_completed(Some(&TokenUsage {
         input_tokens: 100,
@@ -136,6 +152,11 @@ fn provider_request_budget_records_started_and_terminal_status() {
     assert_eq!(terminal_events[0].output_tokens, Some(40));
     assert_eq!(terminal_events[0].reasoning_output_tokens, Some(7));
     assert_eq!(terminal_events[0].total_tokens, Some(140));
+    assert_eq!(
+        terminal_events[0].provider_payload_sha256.as_deref(),
+        Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    );
+    assert_eq!(terminal_events[0].provider_payload_bytes, Some(1234));
     assert!(terminal_events[0].completed_at_ms.is_some());
     assert!(terminal_events[0].latency_ms.is_some());
 }
