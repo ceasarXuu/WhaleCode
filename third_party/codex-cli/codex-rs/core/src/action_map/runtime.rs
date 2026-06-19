@@ -423,6 +423,9 @@ pub(crate) struct ActionMapProviderRequestBudgetEventInput {
     pub(crate) request_count_before: usize,
     pub(crate) request_count_after: usize,
     pub(crate) max_requests: usize,
+    pub(crate) budget_state_before: String,
+    pub(crate) budget_state_after: String,
+    pub(crate) budget_transition_reason: String,
     pub(crate) started_at_ms: i64,
     pub(crate) completed_at_ms: Option<i64>,
     pub(crate) latency_ms: Option<i64>,
@@ -1568,6 +1571,12 @@ preview:\n\
                 format!("request_count_before:{}", input.request_count_before),
                 format!("request_count_after:{}", input.request_count_after),
                 format!("max_requests:{}", input.max_requests),
+                format!("budget_state_before:{}", input.budget_state_before),
+                format!("budget_state_after:{}", input.budget_state_after),
+                format!(
+                    "budget_transition_reason:{}",
+                    input.budget_transition_reason
+                ),
                 format!("started_at_ms:{}", input.started_at_ms),
                 format!("request_phase:{request_phase}"),
                 format!("logical_request_id:{}", input.logical_request_id),
@@ -1684,6 +1693,12 @@ preview:\n\
                 format!("counter_name:provider_request_count"),
                 format!("counter_value:{}", input.request_count_after),
                 format!("counter_limit:{}", input.max_requests),
+                format!("budget_state_before:{}", input.budget_state_before),
+                format!("budget_state_after:{}", input.budget_state_after),
+                format!(
+                    "budget_transition_reason:{}",
+                    input.budget_transition_reason
+                ),
                 format!("request_phase:{request_phase}"),
                 format!("logical_request_id:{}", input.logical_request_id),
                 format!("attempt_seq:{}", input.attempt_seq),
@@ -9683,6 +9698,9 @@ mod tests {
                         request_count_before: 0,
                         request_count_after: 1,
                         max_requests: 1,
+                        budget_state_before: "normal".to_string(),
+                        budget_state_after: "hard_stopped".to_string(),
+                        budget_transition_reason: "provider_request_budget_reached".to_string(),
                         started_at_ms: 100,
                         completed_at_ms: None,
                         latency_ms: None,
@@ -9714,6 +9732,9 @@ mod tests {
                         request_count_before: 1,
                         request_count_after: 1,
                         max_requests: 1,
+                        budget_state_before: "hard_stopped".to_string(),
+                        budget_state_after: "hard_stopped".to_string(),
+                        budget_transition_reason: "provider_request_budget_exhausted".to_string(),
                         started_at_ms: 200,
                         completed_at_ms: Some(200),
                         latency_ms: Some(0),
@@ -9789,6 +9810,24 @@ mod tests {
             blocked
                 .tags
                 .iter()
+                .any(|tag| tag == "budget_state_before:hard_stopped")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "budget_state_after:hard_stopped")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "budget_transition_reason:provider_request_budget_exhausted")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
                 .any(|tag| tag == "request_phase:dispatch_phase")
         );
         assert!(
@@ -9852,6 +9891,18 @@ mod tests {
                 .tags
                 .iter()
                 .any(|tag| tag == "budget_action:hard_stop")
+        );
+        assert!(
+            quality
+                .tags
+                .iter()
+                .any(|tag| tag == "budget_state_before:hard_stopped")
+        );
+        assert!(
+            quality
+                .tags
+                .iter()
+                .any(|tag| tag == "budget_state_after:hard_stopped")
         );
         assert!(
             quality

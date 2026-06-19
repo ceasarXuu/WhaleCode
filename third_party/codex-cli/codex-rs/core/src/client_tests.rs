@@ -110,6 +110,12 @@ fn provider_request_budget_blocks_before_dispatch_when_exhausted() {
     assert_eq!(events[0].request_count_before, 1);
     assert_eq!(events[0].request_count_after, 1);
     assert_eq!(events[0].max_requests, 1);
+    assert_eq!(events[0].budget_state_before, "hard_stopped");
+    assert_eq!(events[0].budget_state_after, "hard_stopped");
+    assert_eq!(
+        events[0].budget_transition_reason,
+        "provider_request_budget_exhausted"
+    );
 }
 
 #[test]
@@ -146,6 +152,13 @@ fn provider_request_budget_records_started_and_terminal_status() {
     );
     assert_eq!(events[0].request_count_after, 1);
     assert_eq!(events[2].request_count_after, 1);
+    assert_eq!(events[0].budget_state_before, "normal");
+    assert_eq!(events[0].budget_state_after, "compact_checkpoint_required");
+    assert_eq!(
+        events[0].budget_transition_reason,
+        "provider_request_compact_checkpoint_required"
+    );
+    assert_eq!(events[2].budget_state_after, "compact_checkpoint_required");
     assert_eq!(
         events[1].provider_payload_sha256.as_deref(),
         Some(payload_sha256.as_str())

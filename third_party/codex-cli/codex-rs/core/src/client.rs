@@ -166,6 +166,9 @@ pub(crate) struct ProviderRequestBudgetEvent {
     pub(crate) request_count_before: usize,
     pub(crate) request_count_after: usize,
     pub(crate) max_requests: usize,
+    pub(crate) budget_state_before: String,
+    pub(crate) budget_state_after: String,
+    pub(crate) budget_transition_reason: String,
     pub(crate) started_at_ms: i64,
     pub(crate) completed_at_ms: Option<i64>,
     pub(crate) latency_ms: Option<i64>,
@@ -221,6 +224,9 @@ struct ProviderRequestBudgetActiveRequest {
     transport: String,
     request_count_before: usize,
     request_count_after: usize,
+    budget_state_before: String,
+    budget_state_after: String,
+    budget_transition_reason: String,
     started_at_ms: i64,
     provider_payload_sha256: Option<String>,
     provider_payload_bytes: Option<usize>,
@@ -248,6 +254,36 @@ struct ProviderRequestIdentity {
     request_id: String,
     logical_request_id: String,
     attempt_seq: usize,
+}
+
+fn provider_request_budget_state_for(count: usize, max_requests: usize) -> &'static str {
+    if max_requests == 0 || count >= max_requests {
+        return "hard_stopped";
+    }
+    let remaining = max_requests.saturating_sub(count);
+    if remaining <= 1 {
+        return "compact_checkpoint_required";
+    }
+    if count.saturating_mul(4) >= max_requests.saturating_mul(3) {
+        return "thin_downgraded";
+    }
+    if count.saturating_mul(2) >= max_requests {
+        return "warned";
+    }
+    "normal"
+}
+
+fn provider_request_budget_transition_reason(before: &str, after: &str) -> &'static str {
+    if before == after {
+        return "request_dispatched_without_state_change";
+    }
+    match after {
+        "warned" => "provider_request_warning_threshold_reached",
+        "thin_downgraded" => "provider_request_thin_threshold_reached",
+        "compact_checkpoint_required" => "provider_request_compact_checkpoint_required",
+        "hard_stopped" => "provider_request_budget_reached",
+        _ => "provider_request_state_transition",
+    }
 }
 
 impl ProviderRequestBudgetContext {
@@ -297,6 +333,7 @@ impl ProviderRequestBudgetContext {
         let before = self.state.count.load(Ordering::SeqCst);
         if before >= self.state.max_requests {
             let request_identity = self.build_request_identity(before + 1, 1);
+            let budget_state = provider_request_budget_state_for(before, self.state.max_requests);
             self.push_event(ProviderRequestBudgetEvent {
                 request_id: request_identity.request_id,
                 logical_request_id: request_identity.logical_request_id,
@@ -307,6 +344,9 @@ impl ProviderRequestBudgetContext {
                 request_count_before: before,
                 request_count_after: before,
                 max_requests: self.state.max_requests,
+                budget_state_before: budget_state.to_string(),
+                budget_state_after: budget_state.to_string(),
+                budget_transition_reason: "provider_request_budget_exhausted".to_string(),
                 started_at_ms: provider_request_budget_now_ms(),
                 completed_at_ms: Some(provider_request_budget_now_ms()),
                 latency_ms: Some(0),
@@ -334,6 +374,11 @@ impl ProviderRequestBudgetContext {
             )));
         }
         let after = self.state.count.fetch_add(1, Ordering::SeqCst) + 1;
+        let budget_state_before =
+            provider_request_budget_state_for(before, self.state.max_requests);
+        let budget_state_after = provider_request_budget_state_for(after, self.state.max_requests);
+        let budget_transition_reason =
+            provider_request_budget_transition_reason(budget_state_before, budget_state_after);
         let request_identity = self.build_request_identity(after, 1);
         let request_id = request_identity.request_id.clone();
         let started_at_ms = provider_request_budget_now_ms();
@@ -345,6 +390,9 @@ impl ProviderRequestBudgetContext {
             transport: transport.to_string(),
             request_count_before: before,
             request_count_after: after,
+            budget_state_before: budget_state_before.to_string(),
+            budget_state_after: budget_state_after.to_string(),
+            budget_transition_reason: budget_transition_reason.to_string(),
             started_at_ms,
             provider_payload_sha256: None,
             provider_payload_bytes: None,
@@ -365,6 +413,9 @@ impl ProviderRequestBudgetContext {
             request_count_before: before,
             request_count_after: after,
             max_requests: self.state.max_requests,
+            budget_state_before: budget_state_before.to_string(),
+            budget_state_after: budget_state_after.to_string(),
+            budget_transition_reason: budget_transition_reason.to_string(),
             started_at_ms,
             completed_at_ms: None,
             latency_ms: None,
@@ -396,6 +447,9 @@ impl ProviderRequestBudgetContext {
             request_count_before: before,
             request_count_after: after,
             started_at_ms,
+            budget_state_before: budget_state_before.to_string(),
+            budget_state_after: budget_state_after.to_string(),
+            budget_transition_reason: budget_transition_reason.to_string(),
         })
     }
 
@@ -440,6 +494,9 @@ impl ProviderRequestBudgetContext {
             request_count_before: active_request.request_count_before,
             request_count_after: active_request.request_count_after,
             max_requests: self.state.max_requests,
+            budget_state_before: active_request.budget_state_before,
+            budget_state_after: active_request.budget_state_after,
+            budget_transition_reason: active_request.budget_transition_reason,
             started_at_ms: active_request.started_at_ms,
             completed_at_ms: None,
             latency_ms: None,
@@ -487,6 +544,9 @@ impl ProviderRequestBudgetContext {
                 request_count_before: active_request.request_count_before,
                 request_count_after: active_request.request_count_after,
                 max_requests: self.state.max_requests,
+                budget_state_before: active_request.budget_state_before,
+                budget_state_after: active_request.budget_state_after,
+                budget_transition_reason: active_request.budget_transition_reason,
                 started_at_ms: active_request.started_at_ms,
                 completed_at_ms: Some(completed_at_ms),
                 latency_ms: Some(completed_at_ms.saturating_sub(active_request.started_at_ms)),
@@ -599,6 +659,9 @@ struct ProviderRequestBudgetDispatch {
     transport: String,
     request_count_before: usize,
     request_count_after: usize,
+    budget_state_before: String,
+    budget_state_after: String,
+    budget_transition_reason: String,
     started_at_ms: i64,
 }
 
@@ -613,6 +676,9 @@ impl ProviderRequestBudgetDispatch {
             transport: String::new(),
             request_count_before: 0,
             request_count_after: 0,
+            budget_state_before: String::new(),
+            budget_state_after: String::new(),
+            budget_transition_reason: String::new(),
             started_at_ms: 0,
         }
     }
@@ -632,6 +698,9 @@ impl ProviderRequestBudgetDispatch {
                 request_count_before: self.request_count_before,
                 request_count_after: self.request_count_after,
                 max_requests: context.state.max_requests,
+                budget_state_before: self.budget_state_before.clone(),
+                budget_state_after: self.budget_state_after.clone(),
+                budget_transition_reason: self.budget_transition_reason.clone(),
                 started_at_ms: self.started_at_ms,
                 completed_at_ms: None,
                 latency_ms: None,
