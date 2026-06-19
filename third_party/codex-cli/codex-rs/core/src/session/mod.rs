@@ -1088,6 +1088,10 @@ impl Session {
                 total_tokens: event.total_tokens,
                 provider_payload_sha256: event.provider_payload_sha256,
                 provider_payload_bytes: event.provider_payload_bytes,
+                task_id: event.task_id,
+                map_id: event.map_id,
+                node_id: event.node_id,
+                request_phase: event.request_phase,
             })
             .collect::<Vec<_>>();
         let runtime_events = {

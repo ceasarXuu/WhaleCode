@@ -7,6 +7,7 @@ use crate::SkillInjections;
 use crate::SkillLoadOutcome;
 use crate::build_skill_injections;
 use crate::client::ModelClientSession;
+use crate::client::ProviderRequestAttribution;
 use crate::client::ProviderRequestBudgetContext;
 use crate::client_common::Prompt;
 use crate::client_common::ResponseEvent;
@@ -1903,7 +1904,16 @@ async fn try_run_sampling_request(
     let provider_request_budget = provider_budget_snapshot
         .as_ref()
         .map(|snapshot| {
-            ProviderRequestBudgetContext::enabled(snapshot.request_count, snapshot.max_requests)
+            ProviderRequestBudgetContext::enabled_with_attribution(
+                snapshot.request_count,
+                snapshot.max_requests,
+                ProviderRequestAttribution {
+                    task_id: snapshot.task_id.as_ref().map(|id| id.to_string()),
+                    map_id: Some(snapshot.map_id.to_string()),
+                    node_id: Some(snapshot.node_id.to_string()),
+                    request_phase: Some("model_sampling".to_string()),
+                },
+            )
         })
         .unwrap_or_else(ProviderRequestBudgetContext::disabled);
     let stream_result = client_session

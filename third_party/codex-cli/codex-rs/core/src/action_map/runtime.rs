@@ -430,6 +430,10 @@ pub(crate) struct ActionMapProviderRequestBudgetEventInput {
     pub(crate) total_tokens: Option<i64>,
     pub(crate) provider_payload_sha256: Option<String>,
     pub(crate) provider_payload_bytes: Option<usize>,
+    pub(crate) task_id: Option<String>,
+    pub(crate) map_id: Option<String>,
+    pub(crate) node_id: Option<String>,
+    pub(crate) request_phase: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1528,6 +1532,19 @@ preview:\n\
         for input in inputs {
             self.provider_request_count =
                 self.provider_request_count.max(input.request_count_after);
+            let task_id = input.task_id.clone().or_else(|| snapshot.task_id.clone());
+            let map_id = input
+                .map_id
+                .clone()
+                .unwrap_or_else(|| snapshot.map_id.clone());
+            let node_id = input
+                .node_id
+                .clone()
+                .unwrap_or_else(|| snapshot.node_id.clone());
+            let request_phase = input
+                .request_phase
+                .clone()
+                .unwrap_or_else(|| "model_sampling".to_string());
             let id = self.next_trace_event_id();
             let created_at_ms = now_ms();
             let tool_success = Some(!matches!(
@@ -1542,7 +1559,7 @@ preview:\n\
                 format!("request_count_after:{}", input.request_count_after),
                 format!("max_requests:{}", input.max_requests),
                 format!("started_at_ms:{}", input.started_at_ms),
-                "request_phase:model_sampling".to_string(),
+                format!("request_phase:{request_phase}"),
             ];
             if let Some(completed_at_ms) = input.completed_at_ms {
                 tags.push(format!("completed_at_ms:{completed_at_ms}"));
@@ -1577,9 +1594,9 @@ preview:\n\
             let event = TaskSpaceTraceEvent {
                 id: id.clone(),
                 kind: "provider_request_budget".to_string(),
-                task_id: snapshot.task_id.clone(),
-                map_id: snapshot.map_id.clone(),
-                node_id: snapshot.node_id.clone(),
+                task_id,
+                map_id,
+                node_id,
                 result_id: None,
                 call_id: Some(input.request_id),
                 action_class: None,
@@ -9571,6 +9588,10 @@ mod tests {
                         total_tokens: None,
                         provider_payload_sha256: None,
                         provider_payload_bytes: None,
+                        task_id: None,
+                        map_id: None,
+                        node_id: None,
+                        request_phase: None,
                     },
                     ActionMapProviderRequestBudgetEventInput {
                         request_id: "provider-request-2".to_string(),
@@ -9592,6 +9613,10 @@ mod tests {
                                 .to_string(),
                         ),
                         provider_payload_bytes: Some(4321),
+                        task_id: Some("dispatch-task".to_string()),
+                        map_id: Some("dispatch-map".to_string()),
+                        node_id: Some("dispatch-node".to_string()),
+                        request_phase: Some("dispatch_phase".to_string()),
                     },
                 ],
             )
@@ -9604,7 +9629,9 @@ mod tests {
             panic!("expected provider budget trace event");
         };
         assert_eq!(blocked.kind, "provider_request_budget");
-        assert_eq!(blocked.node_id, node_id);
+        assert_eq!(blocked.task_id.as_deref(), Some("dispatch-task"));
+        assert_eq!(blocked.map_id, "dispatch-map");
+        assert_eq!(blocked.node_id, "dispatch-node");
         assert_eq!(blocked.call_id.as_deref(), Some("provider-request-2"));
         assert_eq!(blocked.tool_success, Some(false));
         assert!(
@@ -9621,6 +9648,12 @@ mod tests {
         );
         assert!(blocked.tags.iter().any(|tag| tag == "input_tokens:10"));
         assert!(blocked.tags.iter().any(|tag| tag == "latency_ms:0"));
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "request_phase:dispatch_phase")
+        );
         assert!(blocked.tags.iter().any(|tag| tag
             == "provider_payload_sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
         assert!(

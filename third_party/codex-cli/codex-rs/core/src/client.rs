@@ -170,6 +170,10 @@ pub(crate) struct ProviderRequestBudgetEvent {
     pub(crate) total_tokens: Option<i64>,
     pub(crate) provider_payload_sha256: Option<String>,
     pub(crate) provider_payload_bytes: Option<usize>,
+    pub(crate) task_id: Option<String>,
+    pub(crate) map_id: Option<String>,
+    pub(crate) node_id: Option<String>,
+    pub(crate) request_phase: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -177,11 +181,20 @@ pub(crate) struct ProviderRequestBudgetContext {
     state: Arc<ProviderRequestBudgetState>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ProviderRequestAttribution {
+    pub(crate) task_id: Option<String>,
+    pub(crate) map_id: Option<String>,
+    pub(crate) node_id: Option<String>,
+    pub(crate) request_phase: Option<String>,
+}
+
 #[derive(Debug)]
 struct ProviderRequestBudgetState {
     enabled: bool,
     count: AtomicUsize,
     max_requests: usize,
+    attribution: ProviderRequestAttribution,
     events: StdMutex<Vec<ProviderRequestBudgetEvent>>,
     active_request: StdMutex<Option<ProviderRequestBudgetActiveRequest>>,
 }
@@ -204,18 +217,33 @@ impl ProviderRequestBudgetContext {
                 enabled: false,
                 count: AtomicUsize::new(0),
                 max_requests: usize::MAX,
+                attribution: ProviderRequestAttribution::default(),
                 events: StdMutex::new(Vec::new()),
                 active_request: StdMutex::new(None),
             }),
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn enabled(starting_count: usize, max_requests: usize) -> Self {
+        Self::enabled_with_attribution(
+            starting_count,
+            max_requests,
+            ProviderRequestAttribution::default(),
+        )
+    }
+
+    pub(crate) fn enabled_with_attribution(
+        starting_count: usize,
+        max_requests: usize,
+        attribution: ProviderRequestAttribution,
+    ) -> Self {
         Self {
             state: Arc::new(ProviderRequestBudgetState {
                 enabled: true,
                 count: AtomicUsize::new(starting_count),
                 max_requests,
+                attribution,
                 events: StdMutex::new(Vec::new()),
                 active_request: StdMutex::new(None),
             }),
@@ -246,6 +274,10 @@ impl ProviderRequestBudgetContext {
                 total_tokens: None,
                 provider_payload_sha256: None,
                 provider_payload_bytes: None,
+                task_id: self.state.attribution.task_id.clone(),
+                map_id: self.state.attribution.map_id.clone(),
+                node_id: self.state.attribution.node_id.clone(),
+                request_phase: self.state.attribution.request_phase.clone(),
             });
             return Err(CodexErr::InvalidRequest(format!(
                 "TaskSpace blocked this provider request because the active provider request budget is exhausted ({before}/{}). Finish with a bounded final/abort response or record a compact state checkpoint before requesting another model turn.",
@@ -286,6 +318,10 @@ impl ProviderRequestBudgetContext {
             total_tokens: None,
             provider_payload_sha256: None,
             provider_payload_bytes: None,
+            task_id: self.state.attribution.task_id.clone(),
+            map_id: self.state.attribution.map_id.clone(),
+            node_id: self.state.attribution.node_id.clone(),
+            request_phase: self.state.attribution.request_phase.clone(),
         });
         Ok(ProviderRequestBudgetDispatch {
             context: Some(self.clone()),
@@ -343,6 +379,10 @@ impl ProviderRequestBudgetContext {
             total_tokens: None,
             provider_payload_sha256: active_request.provider_payload_sha256,
             provider_payload_bytes: active_request.provider_payload_bytes,
+            task_id: self.state.attribution.task_id.clone(),
+            map_id: self.state.attribution.map_id.clone(),
+            node_id: self.state.attribution.node_id.clone(),
+            request_phase: self.state.attribution.request_phase.clone(),
         });
     }
 
@@ -375,6 +415,10 @@ impl ProviderRequestBudgetContext {
                 total_tokens: token_usage.map(|usage| usage.total_tokens),
                 provider_payload_sha256: active_request.provider_payload_sha256,
                 provider_payload_bytes: active_request.provider_payload_bytes,
+                task_id: self.state.attribution.task_id.clone(),
+                map_id: self.state.attribution.map_id.clone(),
+                node_id: self.state.attribution.node_id.clone(),
+                request_phase: self.state.attribution.request_phase.clone(),
             });
         }
     }
@@ -460,6 +504,10 @@ impl ProviderRequestBudgetDispatch {
                 total_tokens: None,
                 provider_payload_sha256,
                 provider_payload_bytes,
+                task_id: context.state.attribution.task_id.clone(),
+                map_id: context.state.attribution.map_id.clone(),
+                node_id: context.state.attribution.node_id.clone(),
+                request_phase: context.state.attribution.request_phase.clone(),
             });
         }
     }
