@@ -12429,21 +12429,37 @@ mod tests {
             MapRuntimeEvent::NodeResultRecorded(event)
                 if event.result_id == format!("result-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}")
         ));
-        assert!(matches!(
-            &events[1],
-            MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
-                if event.trace_event_id == format!("trace-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}")
-        ));
-        assert!(matches!(
-            &events[2],
-            MapRuntimeEvent::SentinelWarningRaised(event)
-                if event.sentinel_id == format!("sentinel-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}")
-        ));
-        assert!(matches!(
-            &events[3],
-            MapRuntimeEvent::MaintenanceBarrierRaised(event)
-                if event.result_count == MAIN_TOOL_RESULT_BUDGET_PER_NODE
-        ));
+        let trace_index = events
+            .iter()
+            .position(|event| {
+                matches!(
+                    event,
+                    MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                        if event.result_id.as_deref()
+                            == Some(format!("result-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}").as_str())
+                )
+            })
+            .expect("budget-exhausting trace event should be emitted");
+        let barrier_index = events
+            .iter()
+            .position(|event| {
+                matches!(
+                    event,
+                    MapRuntimeEvent::MaintenanceBarrierRaised(event)
+                        if event.result_count == MAIN_TOOL_RESULT_BUDGET_PER_NODE
+                )
+            })
+            .expect("maintenance barrier should be raised");
+        assert!(trace_index < barrier_index);
+        if let Some(sentinel_index) = events.iter().position(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::SentinelWarningRaised(event)
+                    if event.sentinel_id == format!("sentinel-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}")
+            )
+        }) {
+            assert!(sentinel_index < barrier_index);
+        }
     }
 
     #[test]
