@@ -4448,3 +4448,50 @@ Result:
 
 - `provider_request_budget`: 4 passed.
 - `active_context_replacement`: 6 passed.
+
+## 2026-06-19 terminal-bench_E3-P0_3_1 diagnostic run
+
+Scope:
+
+- Ran the requested low-cost `terminal-bench_E3-P0_3_1` diagnostic candidate after closure review passed.
+- This was not a formal E3 run and not release proof.
+- The formal sample set remains `terminal-bench_E3-P0_3_5`.
+
+Command shape:
+
+```text
+scripts\taskspace-benchmark\run-taskspace-external-benchmark.ps1
+  -Benchmark terminal-bench
+  -TaskDir C:\w\terminal-bench-1a6ffa9674b571da0ed040c470cb40c4d85f9b9b\original-tasks\<sample>
+  -SourceVersion 1a6ffa9674b571da0ed040c470cb40c4d85f9b9b
+  -Repeats 1
+  -SampleSetId terminal-bench_E3-P0_3_1
+  -AllowDiagnosticNonTargetResult
+  -ScoringMode
+```
+
+Artifacts:
+
+- Run root: `D:\whalecode-alpha\target\terminal-bench_E3-P0_3_1-v005-20260619-diagnostic-4`
+- Report: `docs/v0.0.5/19-terminal-bench_E3-P0_3_1-diagnostic-run.md`
+
+Result:
+
+- `reported_evidence_level=diagnostic-only`
+- `not_release_proof=true`
+- `score_valid=false`
+- `engineering_clean=false`
+- Standard raw success: 2/3
+- TaskSpace raw success: 0/3
+- Standard agent wall time: 483,015 ms
+- TaskSpace agent wall time: 1,752,094 ms
+- Standard total tokens: 1,480,481
+- TaskSpace total tokens: 24,118,773
+- TaskSpace time ratio: 3.63x
+- TaskSpace token ratio: 16.29x
+- TaskSpace rollout requests: 435 total
+
+Conclusion:
+
+- The diagnostic path runs, but the result is negative for v0.0.5 cost-control and raw correctness goals.
+- Do not proceed to formal `terminal-bench_E3-P0_3_5` closure until TaskSpace raw success and token/request cost are improved on the diagnostic P0 path.
