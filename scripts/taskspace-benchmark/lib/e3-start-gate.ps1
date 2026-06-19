@@ -126,7 +126,8 @@ function Get-TaskspaceV005MarkerGate {
         [string]$MissingCode,
         [string]$ExpectedTaskListHash = "",
         [string]$ExpectedSourceVersion = "",
-        [string]$ExpectedProfileHash = ""
+        [string]$ExpectedProfileHash = "",
+        [string]$ExpectedSampleSetId = ""
     )
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return New-TaskspaceE3GateRow $Name "blocked" "$Name path not set" $MissingCode "$Name marker path was not provided."
@@ -207,6 +208,9 @@ function Get-TaskspaceV005MarkerGate {
     } elseif ([string]$Name -eq "v005_user_approval") {
         if ([string]$marker.approved_command_category -ne "full_e3") {
             return New-TaskspaceE3GateRow $Name "blocked" "$Name approved command is not full_e3" "$Name`_command_not_full_e3" "User approval must explicitly approve full_e3: $Path"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedSampleSetId) -and [string]$marker.approved_sample_set_id -ne $ExpectedSampleSetId) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name approved sample set mismatch" "$Name`_sample_set_mismatch" "User approval approved_sample_set_id does not match expected sample set: $Path"
         }
         if ([string]::IsNullOrWhiteSpace([string]$marker.approval_source)) {
             return New-TaskspaceE3GateRow $Name "blocked" "$Name approval_source missing" "$Name`_approval_source_missing" "User approval marker must record approval_source: $Path"
@@ -341,6 +345,7 @@ function Invoke-TaskspaceE3StartGate {
         [string]$V005NonAgentGatesPath = "",
         [string]$V005CodeCompleteMarkerPath = "",
         [string]$V005UserApprovalMarkerPath = "",
+        [string]$ExpectedSampleSetId = "terminal-bench_E3-P0_3_5",
         [switch]$RunSelfTests,
         [switch]$AllowSkippedPathContract,
         [switch]$AllowSkippedSelfTests,
@@ -412,9 +417,9 @@ function Invoke-TaskspaceE3StartGate {
             $gates.Add((Convert-TaskspaceCalibrationGateRow $calibrationRow))
         }
     }
-    $gates.Add((Get-TaskspaceV005MarkerGate "v005_non_agent_gates" $V005NonAgentGatesPath "v005_non_agent_gates_missing" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash))
-    $gates.Add((Get-TaskspaceV005MarkerGate "v005_code_complete" $V005CodeCompleteMarkerPath "v005_code_complete_missing" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash))
-    $gates.Add((Get-TaskspaceV005MarkerGate "v005_user_approval" $V005UserApprovalMarkerPath "v005_user_approval_missing" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash))
+    $gates.Add((Get-TaskspaceV005MarkerGate "v005_non_agent_gates" $V005NonAgentGatesPath "v005_non_agent_gates_missing" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash $ExpectedSampleSetId))
+    $gates.Add((Get-TaskspaceV005MarkerGate "v005_code_complete" $V005CodeCompleteMarkerPath "v005_code_complete_missing" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash $ExpectedSampleSetId))
+    $gates.Add((Get-TaskspaceV005MarkerGate "v005_user_approval" $V005UserApprovalMarkerPath "v005_user_approval_missing" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash $ExpectedSampleSetId))
     $selfTests = @()
     $preSelfTestFailures = @($gates.ToArray() | Where-Object { [string]$_.status -eq "fail" })
     if ($RunSelfTests -and $preSelfTestFailures.Count -eq 0) {

@@ -16,6 +16,10 @@ function Write-Json($Value, [string]$Path) {
     $Value | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
+function Get-FixtureSha256([string]$Path) {
+    (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
 function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [int]$RoutingMistakes) {
     $dir = Join-Path $RunRoot $Name
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
@@ -84,9 +88,28 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             state_commit_count = 1
         }) (Join-Path $dir "state-commit-displacement.json")
     Write-Json ([pscustomobject]@{ status = "pass"; spawn_agent_call_count = 0; max_spawn_agent_calls = 0 }) (Join-Path $dir "spawn-node-budget-summary.json")
+    $profileHash = "profile-fixture-hash"
+    $sourceVersion = "terminal-bench@fixture"
+    $taskListHash = "task-list-fixture-hash"
+    $sampleSetId = "terminal-bench_E3-P0_3_5"
+    $sampleNames = @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log")
+    $gateEvidenceDir = Join-Path $dir "non-agent-evidence"
+    New-Item -ItemType Directory -Path $gateEvidenceDir -Force | Out-Null
     $gateObject = {
         param([string]$Name)
-        [pscustomobject]@{ status = "pass"; evidence_path = "selftest://$Name"; command = "selftest"; generated_at = "2026-06-19T00:00:00.0000000Z" }
+        $evidencePath = Join-Path $gateEvidenceDir "$Name.txt"
+        Set-Content -LiteralPath $evidencePath -Encoding UTF8 -Value "$Name pass"
+        [pscustomobject]@{
+            status = "pass"
+            evidence_path = $evidencePath
+            evidence_sha256 = Get-FixtureSha256 $evidencePath
+            command = "selftest $Name"
+            exit_code = 0
+            generated_at = "2026-06-19T00:00:00.0000000Z"
+            git_commit = "fixture-head"
+            profile_hash = $profileHash
+            producer = "test-release-decision.ps1"
+        }
     }
     Write-Json ([pscustomobject]@{
             status = "pass"
@@ -117,6 +140,26 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
                 projection_token_share_of_taskspace_input = 0.0087
             }
         }) (Join-Path $dir "cost-diagnostics.json")
+    New-Item -ItemType Directory -Path (Join-Path $dir "start-gate") -Force | Out-Null
+    $gateDecision = [pscustomobject]@{
+        schema_version = 1
+        status = "pass"
+        next_allowed_command_category = "full_e3"
+        full_e3_allowed = $true
+        speed_claim_allowed = $true
+        calibration_gate_passed = $true
+        v005_markers_passed = $true
+        task_list_hash = $taskListHash
+        source_version = $sourceVersion
+        profile_hash = $profileHash
+        generated_at = "2026-06-19T00:00:00.0000000Z"
+    }
+    Write-Json $gateDecision (Join-Path $dir "start-gate\gate-decision.json")
+    Write-Json ([pscustomobject]@{
+            schema_version = 1
+            status = "pass"
+            gate_decision = $gateDecision
+        }) (Join-Path $dir "start-gate\e3-start-gate.json")
     Write-Json ([pscustomobject]@{
             run_validity = "valid"
             score_valid = $ScoreValid
@@ -143,39 +186,53 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             router_status = "report_only"
             verification_first_expected_format_count = 0
         }) (Join-Path $dir "suite-routing-summary.json")
-    Write-Json ([pscustomobject]@{
-            logical_mode = "standard"
-            large_output_replay_count = 0
-            runtime_output_ref_created_count = 0
-        }) (Join-Path $dir "pair-001\left\artifacts\metrics.json")
-    Write-Json ([pscustomobject]@{
-            logical_mode = "taskspace"
-            large_output_replay_count = 0
-            runtime_output_ref_created_count = 1
-        }) (Join-Path $dir "pair-001\right\artifacts\metrics.json")
-    ([pscustomobject]@{
-        schema_version = "taskspace-output-ref-event-v1"
-        source = "observability_timeline"
-        kind = "output_ref.created"
-        artifact_ref = "output-ref://sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        call_id = "call-fixture"
-        timestamp_ms = 1
-    } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "pair-001\right\artifacts\output-ref-events.jsonl") -Encoding UTF8
-    Set-Content -LiteralPath (Join-Path $dir "pair-001\pair-report.md") -Encoding UTF8 -Value "# Pair Report"
+    $pairEventRows = New-Object System.Collections.Generic.List[string]
+    $pairCount = 15
+    for ($pairIndex = 1; $pairIndex -le $pairCount; $pairIndex++) {
+        $pairName = "pair-{0:D3}" -f $pairIndex
+        Write-Json ([pscustomobject]@{
+                logical_mode = "standard"
+                large_output_replay_count = 0
+                runtime_output_ref_created_count = 0
+            }) (Join-Path $dir "$pairName\left\artifacts\metrics.json")
+        Write-Json ([pscustomobject]@{
+                logical_mode = "taskspace"
+                large_output_replay_count = 0
+                runtime_output_ref_created_count = 1
+            }) (Join-Path $dir "$pairName\right\artifacts\metrics.json")
+        ([pscustomobject]@{
+            schema_version = "taskspace-output-ref-event-v1"
+            source = "observability_timeline"
+            kind = "output_ref.created"
+            artifact_ref = "output-ref://sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            call_id = "call-fixture-$pairIndex"
+            timestamp_ms = $pairIndex
+        } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "$pairName\right\artifacts\output-ref-events.jsonl") -Encoding UTF8
+        $pairReportPath = Join-Path $dir "$pairName\pair-report.md"
+        Set-Content -LiteralPath $pairReportPath -Encoding UTF8 -Value "# Pair Report $pairIndex"
+        [void]$pairEventRows.Add(([pscustomobject]@{ event = "pair_completed"; schema_version = 1; timestamp = "2026-06-18T00:00:02.0000000Z"; repeat = $pairIndex; pair_report = $pairReportPath; reported_evidence_level = "E3" } | ConvertTo-Json -Compress -Depth 8))
+    }
     Write-Json ([pscustomobject]@{
             schema_version = 1
             evidence_target = "E3"
             run_validity = "valid"
             diagnostic_comparison_enabled = $true
             final_aggregate_ready = $true
-            completed_pairs = 1
+            completed_pairs = $pairCount
+            sample_set_id = $sampleSetId
+            sample_names = $sampleNames
+            benchmark_family = "terminal-bench"
+            runner_entrypoint = "run-taskspace-e3-suite.ps1"
+            runner_profile_hash = $profileHash
+            source_version = $sourceVersion
+            task_list_hash = $taskListHash
+            repeats_per_sample = 5
         }) (Join-Path $dir "run-status.json")
-    $pairReportPath = Join-Path $dir "pair-001\pair-report.md"
-    @(
-        ([pscustomobject]@{ event = "run_initialized"; schema_version = 1; timestamp = "2026-06-18T00:00:00.0000000Z"; scenario_id = "fixture"; repeats = 1; evidence_target = "E3" } | ConvertTo-Json -Compress -Depth 8),
-        ([pscustomobject]@{ event = "routing_decision_completed"; schema_version = 1; timestamp = "2026-06-18T00:00:01.0000000Z"; mode = "thin"; confidence = "high"; status = "report_only"; path = (Join-Path $dir "routing-decision.json") } | ConvertTo-Json -Compress -Depth 8),
-        ([pscustomobject]@{ event = "pair_completed"; schema_version = 1; timestamp = "2026-06-18T00:00:02.0000000Z"; repeat = 1; pair_report = $pairReportPath; reported_evidence_level = "E3" } | ConvertTo-Json -Compress -Depth 8)
-    ) | Set-Content -LiteralPath (Join-Path $dir "events.jsonl") -Encoding UTF8
+    $eventRows = New-Object System.Collections.Generic.List[string]
+    [void]$eventRows.Add(([pscustomobject]@{ event = "run_initialized"; schema_version = 1; timestamp = "2026-06-18T00:00:00.0000000Z"; scenario_id = "fixture"; repeats = 5; evidence_target = "E3" } | ConvertTo-Json -Compress -Depth 8))
+    [void]$eventRows.Add(([pscustomobject]@{ event = "routing_decision_completed"; schema_version = 1; timestamp = "2026-06-18T00:00:01.0000000Z"; mode = "thin"; confidence = "high"; status = "report_only"; path = (Join-Path $dir "routing-decision.json") } | ConvertTo-Json -Compress -Depth 8))
+    foreach ($row in @($pairEventRows.ToArray())) { [void]$eventRows.Add($row) }
+    $eventRows.ToArray() | Set-Content -LiteralPath (Join-Path $dir "events.jsonl") -Encoding UTF8
     $dir
 }
 
