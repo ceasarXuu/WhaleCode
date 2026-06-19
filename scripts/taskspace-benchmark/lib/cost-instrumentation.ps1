@@ -122,6 +122,12 @@ function New-TaskspaceBudgetArtifacts {
             budget_response_action_taken = Convert-TaskspaceTraceBool $tags.budget_response_action_taken $false
             provider_payload_sha256 = [string]$tags.provider_payload_sha256
             provider_payload_bytes = Convert-TaskspaceTraceInt $tags.provider_payload_bytes
+            exact_payload_scan_passed = Convert-TaskspaceTraceBool $tags.exact_payload_scan_passed $false
+            active_projection_present = Convert-TaskspaceTraceBool $tags.active_projection_present $false
+            legacy_taskspace_history_present = Convert-TaskspaceTraceBool $tags.legacy_taskspace_history_present $false
+            large_raw_output_tokens = Convert-TaskspaceTraceInt $tags.large_raw_output_tokens
+            protected_items_present = Convert-TaskspaceTraceBool $tags.protected_items_present $false
+            replacement_confirmed = Convert-TaskspaceTraceBool $tags.replacement_confirmed $false
         })
     }
     $qualityEvents = New-Object System.Collections.Generic.List[object]
@@ -175,6 +181,56 @@ function New-TaskspaceBudgetArtifacts {
         budget_events = @($budgetEvents.ToArray())
         budget_quality_impact_events = @($qualityEvents.ToArray())
         budget_quality_impact_summary = $summary
+    }
+}
+
+function New-TaskspaceActiveReplacementArtifacts {
+    param([object[]]$BudgetEvents)
+    $scanEvents = New-Object System.Collections.Generic.List[object]
+    foreach ($event in @($BudgetEvents)) {
+        if ([string]::IsNullOrWhiteSpace([string]$event.provider_payload_sha256)) { continue }
+        if (-not [bool]$event.active_projection_present -and -not [bool]$event.legacy_taskspace_history_present) { continue }
+        $scanId = "scan-$($event.trace_event_id)"
+        $passed = [bool]$event.exact_payload_scan_passed `
+            -and [bool]$event.replacement_confirmed `
+            -and -not [bool]$event.legacy_taskspace_history_present `
+            -and [int]$event.large_raw_output_tokens -eq 0 `
+            -and [bool]$event.protected_items_present
+        $scanEvents.Add([pscustomobject]@{
+            schema_version = "taskspace-exact-payload-scan-event-v1"
+            scan_event_id = $scanId
+            provider_budget_trace_event_id = [string]$event.trace_event_id
+            request_id = [string]$event.request_id
+            provider_payload_sha256 = [string]$event.provider_payload_sha256
+            provider_payload_bytes = [int]$event.provider_payload_bytes
+            passed = [bool]$passed
+            active_projection_present = [bool]$event.active_projection_present
+            legacy_taskspace_history_present = [bool]$event.legacy_taskspace_history_present
+            large_raw_output_tokens = [int]$event.large_raw_output_tokens
+            protected_items_present = [bool]$event.protected_items_present
+            replacement_confirmed = [bool]$event.replacement_confirmed
+        })
+    }
+    $selected = @($scanEvents.ToArray() | Where-Object { [bool]$_.passed } | Select-Object -First 1)
+    if ($selected.Count -eq 0) {
+        $selected = @($scanEvents.ToArray() | Select-Object -First 1)
+    }
+    $first = if ($selected.Count -gt 0) { $selected[0] } else { $null }
+    $report = [pscustomobject]@{
+        schema_version = "taskspace-active-context-replacement-report-v1"
+        provider_payload_available = ($null -ne $first -and -not [string]::IsNullOrWhiteSpace([string]$first.provider_payload_sha256))
+        request_id = if ($null -ne $first) { [string]$first.request_id } else { "" }
+        provider_payload_sha256 = if ($null -ne $first) { [string]$first.provider_payload_sha256 } else { "" }
+        exact_payload_scan_passed = if ($null -ne $first) { [bool]$first.passed } else { $false }
+        exact_payload_scan_event_id = if ($null -ne $first) { [string]$first.scan_event_id } else { "" }
+        replacement_confirmed = if ($null -ne $first) { [bool]$first.replacement_confirmed } else { $false }
+        legacy_taskspace_history_present = if ($null -ne $first) { [bool]$first.legacy_taskspace_history_present } else { $true }
+        large_raw_output_tokens = if ($null -ne $first) { [int]$first.large_raw_output_tokens } else { 0 }
+        protected_items_present = if ($null -ne $first) { [bool]$first.protected_items_present } else { $false }
+    }
+    [pscustomobject]@{
+        exact_payload_scan_events = @($scanEvents.ToArray())
+        active_context_replacement_report = $report
     }
 }
 
@@ -760,6 +816,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $outputRefEvents = @(New-TaskspaceOutputRefEvents $ObservabilityJsonPath $ArtifactDir)
     $projection = New-TaskspaceContextProjectionSummary $JsonlPath $ObservabilityJsonPath $rolloutJsonlPath
     $budget = New-TaskspaceBudgetArtifacts $ObservabilityJsonPath
+    $activeReplacement = New-TaskspaceActiveReplacementArtifacts $budget.budget_events
     $tokenPath = Join-Path $ArtifactDir "token-summary.json"
     $requestPath = Join-Path $ArtifactDir "request-summary.json"
     $visibilityPath = Join-Path $ArtifactDir "provider-input-visibility.json"
@@ -770,6 +827,8 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $budgetEventsPath = Join-Path $ArtifactDir "budget-events.jsonl"
     $budgetQualityImpactEventsPath = Join-Path $ArtifactDir "budget-quality-impact-events.jsonl"
     $budgetQualityImpactSummaryPath = Join-Path $ArtifactDir "budget-induced-quality-impact-summary.json"
+    $exactPayloadScanEventsPath = Join-Path $ArtifactDir "exact-payload-scan-events.jsonl"
+    $activeReplacementReportPath = Join-Path $ArtifactDir "active-context-replacement-report.json"
     $token | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $tokenPath -Encoding UTF8
     $request | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $requestPath -Encoding UTF8
     $visibility | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $visibilityPath -Encoding UTF8
@@ -800,6 +859,13 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         [System.IO.File]::WriteAllText($budgetQualityImpactEventsPath, "", [System.Text.UTF8Encoding]::new($false))
     }
     $budget.budget_quality_impact_summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $budgetQualityImpactSummaryPath -Encoding UTF8
+    $exactPayloadScanEventLines = @($activeReplacement.exact_payload_scan_events | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
+    if ($exactPayloadScanEventLines.Count -gt 0) {
+        $exactPayloadScanEventLines | Set-Content -LiteralPath $exactPayloadScanEventsPath -Encoding UTF8
+    } else {
+        [System.IO.File]::WriteAllText($exactPayloadScanEventsPath, "", [System.Text.UTF8Encoding]::new($false))
+    }
+    $activeReplacement.active_context_replacement_report | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $activeReplacementReportPath -Encoding UTF8
     [pscustomobject]@{
         token_summary_path = $tokenPath
         request_summary_path = $requestPath
@@ -811,6 +877,8 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         budget_events_path = $budgetEventsPath
         budget_quality_impact_events_path = $budgetQualityImpactEventsPath
         budget_quality_impact_summary_path = $budgetQualityImpactSummaryPath
+        exact_payload_scan_events_path = $exactPayloadScanEventsPath
+        active_context_replacement_report_path = $activeReplacementReportPath
         token_summary = $token
         request_summary = $request
         provider_input_visibility = $visibility
@@ -821,6 +889,8 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         budget_events = $budget.budget_events
         budget_quality_impact_events = $budget.budget_quality_impact_events
         budget_quality_impact_summary = $budget.budget_quality_impact_summary
+        exact_payload_scan_events = $activeReplacement.exact_payload_scan_events
+        active_context_replacement_report = $activeReplacement.active_context_replacement_report
     }
 }
 

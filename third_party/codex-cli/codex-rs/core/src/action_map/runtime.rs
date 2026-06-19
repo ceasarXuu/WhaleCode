@@ -430,6 +430,12 @@ pub(crate) struct ActionMapProviderRequestBudgetEventInput {
     pub(crate) total_tokens: Option<i64>,
     pub(crate) provider_payload_sha256: Option<String>,
     pub(crate) provider_payload_bytes: Option<usize>,
+    pub(crate) exact_payload_scan_passed: Option<bool>,
+    pub(crate) active_projection_present: Option<bool>,
+    pub(crate) legacy_taskspace_history_present: Option<bool>,
+    pub(crate) large_raw_output_tokens: Option<usize>,
+    pub(crate) protected_items_present: Option<bool>,
+    pub(crate) replacement_confirmed: Option<bool>,
     pub(crate) task_id: Option<String>,
     pub(crate) map_id: Option<String>,
     pub(crate) node_id: Option<String>,
@@ -1587,6 +1593,30 @@ preview:\n\
             }
             if let Some(provider_payload_bytes) = input.provider_payload_bytes {
                 tags.push(format!("provider_payload_bytes:{provider_payload_bytes}"));
+            }
+            if let Some(exact_payload_scan_passed) = input.exact_payload_scan_passed {
+                tags.push(format!(
+                    "exact_payload_scan_passed:{exact_payload_scan_passed}"
+                ));
+            }
+            if let Some(active_projection_present) = input.active_projection_present {
+                tags.push(format!(
+                    "active_projection_present:{active_projection_present}"
+                ));
+            }
+            if let Some(legacy_taskspace_history_present) = input.legacy_taskspace_history_present {
+                tags.push(format!(
+                    "legacy_taskspace_history_present:{legacy_taskspace_history_present}"
+                ));
+            }
+            if let Some(large_raw_output_tokens) = input.large_raw_output_tokens {
+                tags.push(format!("large_raw_output_tokens:{large_raw_output_tokens}"));
+            }
+            if let Some(protected_items_present) = input.protected_items_present {
+                tags.push(format!("protected_items_present:{protected_items_present}"));
+            }
+            if let Some(replacement_confirmed) = input.replacement_confirmed {
+                tags.push(format!("replacement_confirmed:{replacement_confirmed}"));
             }
             if input.status == "blocked" {
                 tags.push("budget_response_action_taken:true".to_string());
@@ -9646,6 +9676,12 @@ mod tests {
                         total_tokens: None,
                         provider_payload_sha256: None,
                         provider_payload_bytes: None,
+                        exact_payload_scan_passed: None,
+                        active_projection_present: None,
+                        legacy_taskspace_history_present: None,
+                        large_raw_output_tokens: None,
+                        protected_items_present: None,
+                        replacement_confirmed: None,
                         task_id: None,
                         map_id: None,
                         node_id: None,
@@ -9671,6 +9707,12 @@ mod tests {
                                 .to_string(),
                         ),
                         provider_payload_bytes: Some(4321),
+                        exact_payload_scan_passed: Some(true),
+                        active_projection_present: Some(true),
+                        legacy_taskspace_history_present: Some(false),
+                        large_raw_output_tokens: Some(0),
+                        protected_items_present: Some(true),
+                        replacement_confirmed: Some(true),
                         task_id: Some("dispatch-task".to_string()),
                         map_id: Some("dispatch-map".to_string()),
                         node_id: Some("dispatch-node".to_string()),
@@ -9719,6 +9761,24 @@ mod tests {
                 .tags
                 .iter()
                 .any(|tag| tag == "provider_payload_bytes:4321")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "exact_payload_scan_passed:true")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "legacy_taskspace_history_present:false")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "replacement_confirmed:true")
         );
         let MapRuntimeEvent::TaskspaceTraceEventRecorded(quality) =
             events.last().expect("last trace event")

@@ -36,7 +36,15 @@ $obs = [pscustomobject]@{
                 "request_count_before:0",
                 "request_count_after:1",
                 "max_requests:1",
-                "request_phase:model_sampling"
+                "request_phase:model_sampling",
+                "provider_payload_sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "provider_payload_bytes:4321",
+                "exact_payload_scan_passed:true",
+                "active_projection_present:true",
+                "legacy_taskspace_history_present:false",
+                "large_raw_output_tokens:0",
+                "protected_items_present:true",
+                "replacement_confirmed:true"
             )
         },
         [pscustomobject]@{
@@ -111,12 +119,18 @@ $instrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $art
 Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "budget-events.jsonl")) "budget-events.jsonl was not written"
 Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "budget-quality-impact-events.jsonl")) "budget-quality-impact-events.jsonl was not written"
 Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "budget-induced-quality-impact-summary.json")) "budget-induced-quality-impact-summary.json was not written"
+Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "exact-payload-scan-events.jsonl")) "exact-payload-scan-events.jsonl was not written"
+Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "active-context-replacement-report.json")) "active-context-replacement-report.json was not written"
 
 $budgetEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "budget-events.jsonl") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
 $qualityEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "budget-quality-impact-events.jsonl") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
+$scanEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "exact-payload-scan-events.jsonl") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
 $summary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "budget-induced-quality-impact-summary.json") | ConvertFrom-Json
+$replacement = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "active-context-replacement-report.json") | ConvertFrom-Json
 Assert-True ($budgetEvents.Count -eq 2) "budget event count was not extracted from runtime trace"
 Assert-True ($qualityEvents.Count -eq 2) "budget quality event count was not extracted from runtime trace"
+Assert-True ($scanEvents.Count -eq 1 -and [bool]$scanEvents[0].passed) "exact payload scan event was not derived from runtime payload trace"
+Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"
 Assert-True ([bool]$summary.budget_quality_impact_logged_for_every_budget_action) "budget action was not matched to quality impact"
 Assert-True ([int]$summary.budget_quality_impact_missing_count -eq 0) "budget quality impact missing count should be zero"
 Assert-True ([int]$summary.blocked_by_budget_samples_count -eq 1) "blocked budget quality impact was not summarized"

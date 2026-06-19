@@ -8,6 +8,7 @@ use super::X_CODEX_PARENT_THREAD_ID_HEADER;
 use super::X_CODEX_TURN_METADATA_HEADER;
 use super::X_CODEX_WINDOW_ID_HEADER;
 use super::X_OPENAI_SUBAGENT_HEADER;
+use super::provider_payload_digest;
 use codex_app_server_protocol::AuthMode;
 use codex_model_provider::BearerAuthProvider;
 use codex_model_provider_info::WireApi;
@@ -110,10 +111,13 @@ fn provider_request_budget_records_started_and_terminal_status() {
     let dispatch = budget
         .before_dispatch("responses_websocket")
         .expect("first request should be within budget");
-    dispatch.record_provider_payload(
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
-        1234,
-    );
+    let payload = provider_payload_digest(&json!({
+        "input": "ContextProjectionV1 active replacement:\n- protected"
+    }))
+    .expect("payload digest");
+    let payload_sha256 = payload.sha256.clone();
+    let payload_bytes = payload.bytes;
+    dispatch.record_provider_payload(payload);
     dispatch.record_status("stream_opened");
 
     let events = budget.drain_events();
@@ -127,14 +131,18 @@ fn provider_request_budget_records_started_and_terminal_status() {
     assert_eq!(events[2].request_count_after, 1);
     assert_eq!(
         events[1].provider_payload_sha256.as_deref(),
-        Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        Some(payload_sha256.as_str())
     );
-    assert_eq!(events[1].provider_payload_bytes, Some(1234));
+    assert_eq!(events[1].provider_payload_bytes, Some(payload_bytes));
+    assert_eq!(events[1].exact_payload_scan_passed, Some(true));
+    assert_eq!(events[1].active_projection_present, Some(true));
+    assert_eq!(events[1].legacy_taskspace_history_present, Some(false));
+    assert_eq!(events[1].replacement_confirmed, Some(true));
     assert_eq!(
         events[2].provider_payload_sha256.as_deref(),
-        Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        Some(payload_sha256.as_str())
     );
-    assert_eq!(events[2].provider_payload_bytes, Some(1234));
+    assert_eq!(events[2].provider_payload_bytes, Some(payload_bytes));
 
     budget.record_response_completed(Some(&TokenUsage {
         input_tokens: 100,
@@ -154,11 +162,35 @@ fn provider_request_budget_records_started_and_terminal_status() {
     assert_eq!(terminal_events[0].total_tokens, Some(140));
     assert_eq!(
         terminal_events[0].provider_payload_sha256.as_deref(),
-        Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        Some(payload_sha256.as_str())
     );
-    assert_eq!(terminal_events[0].provider_payload_bytes, Some(1234));
+    assert_eq!(
+        terminal_events[0].provider_payload_bytes,
+        Some(payload_bytes)
+    );
+    assert_eq!(terminal_events[0].exact_payload_scan_passed, Some(true));
+    assert_eq!(terminal_events[0].replacement_confirmed, Some(true));
     assert!(terminal_events[0].completed_at_ms.is_some());
     assert!(terminal_events[0].latency_ms.is_some());
+}
+
+#[test]
+fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
+    let active = provider_payload_digest(&json!({
+        "input": "ContextProjectionV1 active replacement:\n- protected"
+    }))
+    .expect("active payload digest");
+    assert!(active.scan.exact_payload_scan_passed);
+    assert!(active.scan.replacement_confirmed);
+
+    let legacy = provider_payload_digest(&json!({
+        "input": "ContextProjectionV1 active replacement:\n- protected\nContextProjectionV1 shadow (not active replacement):\ntaskspace_control"
+    }))
+    .expect("legacy payload digest");
+    assert!(legacy.scan.active_projection_present);
+    assert!(legacy.scan.legacy_taskspace_history_present);
+    assert!(!legacy.scan.exact_payload_scan_passed);
+    assert!(!legacy.scan.replacement_confirmed);
 }
 
 #[test]

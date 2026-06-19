@@ -144,6 +144,9 @@ pub const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
 const RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
 const RESPONSES_ENDPOINT: &str = "/responses";
 const RESPONSES_COMPACT_ENDPOINT: &str = "/responses/compact";
+const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
+const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
+    "ContextProjectionV1 shadow (not active replacement):";
 // `/responses/compact` is unary, so the timeout covers the full response rather than one idle
 // period between stream events.
 const COMPACT_REQUEST_TIMEOUT_IDLE_MULTIPLIER: u32 = 4;
@@ -170,6 +173,12 @@ pub(crate) struct ProviderRequestBudgetEvent {
     pub(crate) total_tokens: Option<i64>,
     pub(crate) provider_payload_sha256: Option<String>,
     pub(crate) provider_payload_bytes: Option<usize>,
+    pub(crate) exact_payload_scan_passed: Option<bool>,
+    pub(crate) active_projection_present: Option<bool>,
+    pub(crate) legacy_taskspace_history_present: Option<bool>,
+    pub(crate) large_raw_output_tokens: Option<usize>,
+    pub(crate) protected_items_present: Option<bool>,
+    pub(crate) replacement_confirmed: Option<bool>,
     pub(crate) task_id: Option<String>,
     pub(crate) map_id: Option<String>,
     pub(crate) node_id: Option<String>,
@@ -208,6 +217,24 @@ struct ProviderRequestBudgetActiveRequest {
     started_at_ms: i64,
     provider_payload_sha256: Option<String>,
     provider_payload_bytes: Option<usize>,
+    payload_scan: Option<ProviderPayloadScan>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProviderPayloadScan {
+    exact_payload_scan_passed: bool,
+    active_projection_present: bool,
+    legacy_taskspace_history_present: bool,
+    large_raw_output_tokens: usize,
+    protected_items_present: bool,
+    replacement_confirmed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProviderPayloadDigest {
+    sha256: String,
+    bytes: usize,
+    scan: ProviderPayloadScan,
 }
 
 impl ProviderRequestBudgetContext {
@@ -274,6 +301,12 @@ impl ProviderRequestBudgetContext {
                 total_tokens: None,
                 provider_payload_sha256: None,
                 provider_payload_bytes: None,
+                exact_payload_scan_passed: None,
+                active_projection_present: None,
+                legacy_taskspace_history_present: None,
+                large_raw_output_tokens: None,
+                protected_items_present: None,
+                replacement_confirmed: None,
                 task_id: self.state.attribution.task_id.clone(),
                 map_id: self.state.attribution.map_id.clone(),
                 node_id: self.state.attribution.node_id.clone(),
@@ -295,6 +328,7 @@ impl ProviderRequestBudgetContext {
             started_at_ms,
             provider_payload_sha256: None,
             provider_payload_bytes: None,
+            payload_scan: None,
         };
         *self
             .state
@@ -318,6 +352,12 @@ impl ProviderRequestBudgetContext {
             total_tokens: None,
             provider_payload_sha256: None,
             provider_payload_bytes: None,
+            exact_payload_scan_passed: None,
+            active_projection_present: None,
+            legacy_taskspace_history_present: None,
+            large_raw_output_tokens: None,
+            protected_items_present: None,
+            replacement_confirmed: None,
             task_id: self.state.attribution.task_id.clone(),
             map_id: self.state.attribution.map_id.clone(),
             node_id: self.state.attribution.node_id.clone(),
@@ -345,7 +385,7 @@ impl ProviderRequestBudgetContext {
         self.record_active_terminal_status("cancelled", None);
     }
 
-    fn record_provider_payload(&self, payload_sha256: String, payload_bytes: usize) {
+    fn record_provider_payload(&self, payload: ProviderPayloadDigest) {
         if !self.state.enabled {
             return;
         }
@@ -358,10 +398,12 @@ impl ProviderRequestBudgetContext {
             let Some(active_request) = active_request.as_mut() else {
                 return;
             };
-            active_request.provider_payload_sha256 = Some(payload_sha256);
-            active_request.provider_payload_bytes = Some(payload_bytes);
+            active_request.provider_payload_sha256 = Some(payload.sha256);
+            active_request.provider_payload_bytes = Some(payload.bytes);
+            active_request.payload_scan = Some(payload.scan);
             active_request.clone()
         };
+        let scan = active_request.payload_scan;
         self.push_event(ProviderRequestBudgetEvent {
             request_id: active_request.request_id,
             transport: active_request.transport,
@@ -379,6 +421,14 @@ impl ProviderRequestBudgetContext {
             total_tokens: None,
             provider_payload_sha256: active_request.provider_payload_sha256,
             provider_payload_bytes: active_request.provider_payload_bytes,
+            exact_payload_scan_passed: scan.as_ref().map(|scan| scan.exact_payload_scan_passed),
+            active_projection_present: scan.as_ref().map(|scan| scan.active_projection_present),
+            legacy_taskspace_history_present: scan
+                .as_ref()
+                .map(|scan| scan.legacy_taskspace_history_present),
+            large_raw_output_tokens: scan.as_ref().map(|scan| scan.large_raw_output_tokens),
+            protected_items_present: scan.as_ref().map(|scan| scan.protected_items_present),
+            replacement_confirmed: scan.as_ref().map(|scan| scan.replacement_confirmed),
             task_id: self.state.attribution.task_id.clone(),
             map_id: self.state.attribution.map_id.clone(),
             node_id: self.state.attribution.node_id.clone(),
@@ -415,6 +465,30 @@ impl ProviderRequestBudgetContext {
                 total_tokens: token_usage.map(|usage| usage.total_tokens),
                 provider_payload_sha256: active_request.provider_payload_sha256,
                 provider_payload_bytes: active_request.provider_payload_bytes,
+                exact_payload_scan_passed: active_request
+                    .payload_scan
+                    .as_ref()
+                    .map(|scan| scan.exact_payload_scan_passed),
+                active_projection_present: active_request
+                    .payload_scan
+                    .as_ref()
+                    .map(|scan| scan.active_projection_present),
+                legacy_taskspace_history_present: active_request
+                    .payload_scan
+                    .as_ref()
+                    .map(|scan| scan.legacy_taskspace_history_present),
+                large_raw_output_tokens: active_request
+                    .payload_scan
+                    .as_ref()
+                    .map(|scan| scan.large_raw_output_tokens),
+                protected_items_present: active_request
+                    .payload_scan
+                    .as_ref()
+                    .map(|scan| scan.protected_items_present),
+                replacement_confirmed: active_request
+                    .payload_scan
+                    .as_ref()
+                    .map(|scan| scan.replacement_confirmed),
                 task_id: self.state.attribution.task_id.clone(),
                 map_id: self.state.attribution.map_id.clone(),
                 node_id: self.state.attribution.node_id.clone(),
@@ -443,7 +517,7 @@ impl ProviderRequestBudgetContext {
     fn active_payload_for_request(
         &self,
         request_id: &str,
-    ) -> Option<(Option<String>, Option<usize>)> {
+    ) -> Option<(Option<String>, Option<usize>, Option<ProviderPayloadScan>)> {
         let active_request = self
             .state
             .active_request
@@ -456,6 +530,7 @@ impl ProviderRequestBudgetContext {
         Some((
             active_request.provider_payload_sha256.clone(),
             active_request.provider_payload_bytes,
+            active_request.payload_scan.clone(),
         ))
     }
 }
@@ -484,9 +559,9 @@ impl ProviderRequestBudgetDispatch {
 
     fn record_status(&self, status: &str) {
         if let Some(context) = &self.context {
-            let (provider_payload_sha256, provider_payload_bytes) = context
+            let (provider_payload_sha256, provider_payload_bytes, payload_scan) = context
                 .active_payload_for_request(&self.request_id)
-                .unwrap_or((None, None));
+                .unwrap_or((None, None, None));
             context.push_event(ProviderRequestBudgetEvent {
                 request_id: self.request_id.clone(),
                 transport: self.transport.clone(),
@@ -504,6 +579,22 @@ impl ProviderRequestBudgetDispatch {
                 total_tokens: None,
                 provider_payload_sha256,
                 provider_payload_bytes,
+                exact_payload_scan_passed: payload_scan
+                    .as_ref()
+                    .map(|scan| scan.exact_payload_scan_passed),
+                active_projection_present: payload_scan
+                    .as_ref()
+                    .map(|scan| scan.active_projection_present),
+                legacy_taskspace_history_present: payload_scan
+                    .as_ref()
+                    .map(|scan| scan.legacy_taskspace_history_present),
+                large_raw_output_tokens: payload_scan
+                    .as_ref()
+                    .map(|scan| scan.large_raw_output_tokens),
+                protected_items_present: payload_scan
+                    .as_ref()
+                    .map(|scan| scan.protected_items_present),
+                replacement_confirmed: payload_scan.as_ref().map(|scan| scan.replacement_confirmed),
                 task_id: context.state.attribution.task_id.clone(),
                 map_id: context.state.attribution.map_id.clone(),
                 node_id: context.state.attribution.node_id.clone(),
@@ -512,19 +603,38 @@ impl ProviderRequestBudgetDispatch {
         }
     }
 
-    fn record_provider_payload(&self, payload_sha256: String, payload_bytes: usize) {
+    fn record_provider_payload(&self, payload: ProviderPayloadDigest) {
         if let Some(context) = &self.context {
-            context.record_provider_payload(payload_sha256, payload_bytes);
+            context.record_provider_payload(payload);
         }
     }
 }
 
-fn provider_payload_digest<T: serde::Serialize>(payload: &T) -> Option<(String, usize)> {
+fn provider_payload_digest<T: serde::Serialize>(payload: &T) -> Option<ProviderPayloadDigest> {
     let bytes = serde_json::to_vec(payload).ok()?;
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
     let digest = hasher.finalize();
-    Some((format!("{digest:x}"), bytes.len()))
+    let text = String::from_utf8_lossy(&bytes);
+    let active_projection_present = text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER);
+    let legacy_taskspace_history_present = text.contains(TASKSPACE_SHADOW_PROJECTION_MARKER)
+        || text.contains("TaskSpace Bootstrap")
+        || text.contains("TaskSpace ContextProjectionV1 shadow update")
+        || text.contains("taskspace_control");
+    let protected_items_present = active_projection_present;
+    let replacement_confirmed = active_projection_present && !legacy_taskspace_history_present;
+    Some(ProviderPayloadDigest {
+        sha256: format!("{digest:x}"),
+        bytes: bytes.len(),
+        scan: ProviderPayloadScan {
+            exact_payload_scan_passed: replacement_confirmed,
+            active_projection_present,
+            legacy_taskspace_history_present,
+            large_raw_output_tokens: 0,
+            protected_items_present,
+            replacement_confirmed,
+        },
+    })
 }
 
 fn provider_request_budget_now_ms() -> i64 {
@@ -1622,8 +1732,8 @@ impl ModelClientSession {
             )
             .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
             let budget_dispatch = provider_request_budget.before_dispatch("responses_http")?;
-            if let Some((payload_sha256, payload_bytes)) = provider_payload_digest(&request) {
-                budget_dispatch.record_provider_payload(payload_sha256, payload_bytes);
+            if let Some(payload) = provider_payload_digest(&request) {
+                budget_dispatch.record_provider_payload(payload);
             }
             let stream_result = client.stream_request(request, options).await;
 
@@ -1783,8 +1893,8 @@ impl ModelClientSession {
                         "websocket connection is unavailable".to_string(),
                     ))
                 })?;
-            if let Some((payload_sha256, payload_bytes)) = provider_payload_digest(&ws_request) {
-                budget_dispatch.record_provider_payload(payload_sha256, payload_bytes);
+            if let Some(payload) = provider_payload_digest(&ws_request) {
+                budget_dispatch.record_provider_payload(payload);
             }
             let stream_result = websocket_connection
                 .stream_request(ws_request, self.websocket_session.connection_reused())
