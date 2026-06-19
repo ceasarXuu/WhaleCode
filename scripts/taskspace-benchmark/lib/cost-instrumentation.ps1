@@ -234,6 +234,93 @@ function New-TaskspaceActiveReplacementArtifacts {
     }
 }
 
+function New-TaskspaceProviderRequestArtifacts {
+    param([object[]]$BudgetEvents)
+    $events = New-Object System.Collections.Generic.List[object]
+    $phaseKnown = 0
+    foreach ($event in @($BudgetEvents)) {
+        if ([string]::IsNullOrWhiteSpace([string]$event.request_id)) { continue }
+        $phase = [string]$event.request_phase
+        if (-not [string]::IsNullOrWhiteSpace($phase) -and $phase -ne "unknown") { $phaseKnown++ }
+        $events.Add([pscustomobject]@{
+            schema_version = "taskspace-provider-request-budget-event-v1"
+            request_id = [string]$event.request_id
+            request_phase = if ([string]::IsNullOrWhiteSpace($phase)) { "unknown" } else { $phase }
+            task_id = [string]$event.task_id
+            map_id = [string]$event.map_id
+            node_id = [string]$event.node_id
+            status = [string]$event.status
+            transport = [string]$event.transport
+            trace_event_id = [string]$event.trace_event_id
+            provider_payload_sha256 = [string]$event.provider_payload_sha256
+        })
+    }
+    $count = [int]$events.Count
+    $coverage = if ($count -gt 0) { [int][Math]::Round(([double]$phaseKnown / [double]$count) * 100.0) } else { 0 }
+    $unknownRatio = if ($count -gt 0) { [int][Math]::Round((([double]$count - [double]$phaseKnown) / [double]$count) * 100.0) } else { 100 }
+    [pscustomobject]@{
+        provider_request_events = @($events.ToArray())
+        request_phase_summary = [pscustomobject]@{
+            schema_version = "taskspace-request-phase-summary-v1"
+            provider_request_hook_coverage = if ($count -gt 0) { 100 } else { 0 }
+            request_phase_attribution_coverage = $coverage
+            unknown_request_phase_ratio = $unknownRatio
+            provider_request_event_count = $count
+        }
+    }
+}
+
+function New-TaskspaceStateCommitDisplacementSummary {
+    param($Control)
+    $stateCommitCount = Convert-TaskspaceTraceInt (Get-TaskspaceCostProperty $Control @("state_commit_count"))
+    $taskspaceControlCount = Convert-TaskspaceTraceInt (Get-TaskspaceCostProperty $Control @("taskspace_control_count"))
+    $runtimeStateCommitCount = Convert-TaskspaceTraceInt (Get-TaskspaceCostProperty $Control @("runtime_state_commit_count"))
+    $legacyStateActionCount = [Math]::Max(0, $taskspaceControlCount - $stateCommitCount)
+    $legacyStateActionBudget = 0
+    [pscustomobject]@{
+        schema_version = "taskspace-state-commit-displacement-v1"
+        status = if ($legacyStateActionCount -le $legacyStateActionBudget) { "pass" } else { "fail" }
+        legacy_state_action_count = [int]$legacyStateActionCount
+        legacy_state_action_budget = [int]$legacyStateActionBudget
+        state_commit_count = [int]$stateCommitCount
+        runtime_state_commit_count = [int]$runtimeStateCommitCount
+        taskspace_control_count = [int]$taskspaceControlCount
+    }
+}
+
+function New-TaskspaceSpawnNodeBudgetSummary {
+    param([string]$ObservabilityJsonPath)
+    $spawnCount = 0
+    $nodeCount = 0
+    $sourceStatus = "missing"
+    if (-not [string]::IsNullOrWhiteSpace($ObservabilityJsonPath) -and (Test-Path -LiteralPath $ObservabilityJsonPath)) {
+        try {
+            $obs = (Get-Content -Raw -Encoding UTF8 -LiteralPath $ObservabilityJsonPath) | ConvertFrom-Json
+            $sourceStatus = "read"
+            $nodeCount = @($obs.nodes).Count
+            foreach ($toolCall in @($obs.toolCalls)) {
+                $tool = [string](Get-TaskspaceCostProperty $toolCall @("tool", "name"))
+                if ($tool -eq "spawn_agent") { $spawnCount++ }
+            }
+            foreach ($event in @($obs.timeline)) {
+                $tool = [string](Get-TaskspaceTraceField $event @("tool", "name"))
+                if ($tool -eq "spawn_agent") { $spawnCount++ }
+            }
+        } catch {
+            $sourceStatus = "parse_error"
+        }
+    }
+    $maxSpawnAgentCalls = 0
+    [pscustomobject]@{
+        schema_version = "taskspace-spawn-node-budget-summary-v1"
+        status = if ($sourceStatus -eq "read" -and $spawnCount -le $maxSpawnAgentCalls) { "pass" } else { "fail" }
+        source_status = $sourceStatus
+        spawn_agent_call_count = [int]$spawnCount
+        max_spawn_agent_calls = [int]$maxSpawnAgentCalls
+        node_count = [int]$nodeCount
+    }
+}
+
 function Get-TaskspaceTokenUsageObjects {
     param($Value)
     $found = New-Object System.Collections.Generic.List[object]
@@ -817,6 +904,9 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $projection = New-TaskspaceContextProjectionSummary $JsonlPath $ObservabilityJsonPath $rolloutJsonlPath
     $budget = New-TaskspaceBudgetArtifacts $ObservabilityJsonPath
     $activeReplacement = New-TaskspaceActiveReplacementArtifacts $budget.budget_events
+    $providerRequest = New-TaskspaceProviderRequestArtifacts $budget.budget_events
+    $stateCommitDisplacement = New-TaskspaceStateCommitDisplacementSummary $control
+    $spawnNodeBudget = New-TaskspaceSpawnNodeBudgetSummary $ObservabilityJsonPath
     $tokenPath = Join-Path $ArtifactDir "token-summary.json"
     $requestPath = Join-Path $ArtifactDir "request-summary.json"
     $visibilityPath = Join-Path $ArtifactDir "provider-input-visibility.json"
@@ -829,6 +919,10 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $budgetQualityImpactSummaryPath = Join-Path $ArtifactDir "budget-induced-quality-impact-summary.json"
     $exactPayloadScanEventsPath = Join-Path $ArtifactDir "exact-payload-scan-events.jsonl"
     $activeReplacementReportPath = Join-Path $ArtifactDir "active-context-replacement-report.json"
+    $providerRequestEventsPath = Join-Path $ArtifactDir "provider-request-events.jsonl"
+    $requestPhaseSummaryPath = Join-Path $ArtifactDir "request-phase-summary.json"
+    $stateCommitDisplacementPath = Join-Path $ArtifactDir "state-commit-displacement.json"
+    $spawnNodeBudgetPath = Join-Path $ArtifactDir "spawn-node-budget-summary.json"
     $token | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $tokenPath -Encoding UTF8
     $request | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $requestPath -Encoding UTF8
     $visibility | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $visibilityPath -Encoding UTF8
@@ -866,6 +960,15 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         [System.IO.File]::WriteAllText($exactPayloadScanEventsPath, "", [System.Text.UTF8Encoding]::new($false))
     }
     $activeReplacement.active_context_replacement_report | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $activeReplacementReportPath -Encoding UTF8
+    $providerRequestEventLines = @($providerRequest.provider_request_events | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
+    if ($providerRequestEventLines.Count -gt 0) {
+        $providerRequestEventLines | Set-Content -LiteralPath $providerRequestEventsPath -Encoding UTF8
+    } else {
+        [System.IO.File]::WriteAllText($providerRequestEventsPath, "", [System.Text.UTF8Encoding]::new($false))
+    }
+    $providerRequest.request_phase_summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $requestPhaseSummaryPath -Encoding UTF8
+    $stateCommitDisplacement | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $stateCommitDisplacementPath -Encoding UTF8
+    $spawnNodeBudget | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $spawnNodeBudgetPath -Encoding UTF8
     [pscustomobject]@{
         token_summary_path = $tokenPath
         request_summary_path = $requestPath
@@ -879,6 +982,10 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         budget_quality_impact_summary_path = $budgetQualityImpactSummaryPath
         exact_payload_scan_events_path = $exactPayloadScanEventsPath
         active_context_replacement_report_path = $activeReplacementReportPath
+        provider_request_events_path = $providerRequestEventsPath
+        request_phase_summary_path = $requestPhaseSummaryPath
+        state_commit_displacement_path = $stateCommitDisplacementPath
+        spawn_node_budget_path = $spawnNodeBudgetPath
         token_summary = $token
         request_summary = $request
         provider_input_visibility = $visibility
@@ -891,6 +998,10 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         budget_quality_impact_summary = $budget.budget_quality_impact_summary
         exact_payload_scan_events = $activeReplacement.exact_payload_scan_events
         active_context_replacement_report = $activeReplacement.active_context_replacement_report
+        provider_request_events = $providerRequest.provider_request_events
+        request_phase_summary = $providerRequest.request_phase_summary
+        state_commit_displacement = $stateCommitDisplacement
+        spawn_node_budget = $spawnNodeBudget
     }
 }
 
