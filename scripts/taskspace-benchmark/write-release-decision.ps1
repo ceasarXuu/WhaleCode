@@ -431,6 +431,23 @@ $outputRefPass = ($maxLargeReplay -eq 0 -and $runtimeOutputRefs -gt 0 -and $vali
 $providerRequestPass = (@($providerRequestEvents | Where-Object { [string]$_.schema_version -eq "taskspace-provider-request-event-v1" -or [string]$_.schema_version -eq "taskspace-provider-request-budget-event-v1" }).Count -gt 0)
 $budgetResponsePass = (@($budgetEvents | Where-Object { [string]$_.schema_version -eq "taskspace-budget-event-v1" -and ([string]$_.status -eq "pass" -or [bool]$_.budget_response_action_taken) }).Count -gt 0)
 $validBudgetQualityImpactEvents = @($budgetQualityImpactEvents | Where-Object { [string]$_.schema_version -eq "taskspace-budget-quality-impact-v1" })
+$derivedBudgetValidationSkipCount = @($validBudgetQualityImpactEvents | Where-Object {
+        (Get-ReleaseBool $_ "budget_induced_validation_skip") -or [string]$_.final_classification -eq "validation_skip"
+    }).Count
+$derivedBudgetScoreIneligibleSolvedCount = @($validBudgetQualityImpactEvents | Where-Object {
+        -not (Get-ReleaseBool $_ "score_eligible" $true) -and [string]$_.final_classification -eq "solved"
+    }).Count
+$derivedBlockedByBudgetCount = @($validBudgetQualityImpactEvents | Where-Object {
+        [string]$_.final_classification -eq "blocked_by_budget"
+    }).Count
+$derivedManualOverrideCount = @($validBudgetQualityImpactEvents | Where-Object {
+        Get-ReleaseBool $_ "manual_override_used"
+    }).Count
+$budgetQualityImpactSummaryMatchesEvents = ($budgetQualityImpactSummary `
+    -and (Get-ReleaseInt $budgetQualityImpactSummary "budget_induced_validation_skip_count" 0) -eq $derivedBudgetValidationSkipCount `
+    -and (Get-ReleaseInt $budgetQualityImpactSummary "budget_induced_score_ineligible_solved_count" 0) -eq $derivedBudgetScoreIneligibleSolvedCount `
+    -and (Get-ReleaseInt $budgetQualityImpactSummary "blocked_by_budget_samples_count" 0) -eq $derivedBlockedByBudgetCount `
+    -and (Get-ReleaseInt $budgetQualityImpactSummary "manual_override_used_count" 0) -eq $derivedManualOverrideCount)
 $budgetQualityImpactPass = ($budgetQualityImpactSummary `
     -and $validBudgetQualityImpactEvents.Count -gt 0 `
     -and (Get-ReleaseBool $budgetQualityImpactSummary "budget_quality_impact_logged_for_every_budget_action") `
@@ -438,7 +455,12 @@ $budgetQualityImpactPass = ($budgetQualityImpactSummary `
     -and (Get-ReleaseInt $budgetQualityImpactSummary "budget_induced_validation_skip_count" 0) -eq 0 `
     -and (Get-ReleaseInt $budgetQualityImpactSummary "budget_induced_score_ineligible_solved_count" 0) -eq 0 `
     -and (Get-ReleaseInt $budgetQualityImpactSummary "blocked_by_budget_samples_count" 0) -eq 0 `
-    -and (Get-ReleaseInt $budgetQualityImpactSummary "manual_override_used_count" 0) -eq 0)
+    -and (Get-ReleaseInt $budgetQualityImpactSummary "manual_override_used_count" 0) -eq 0 `
+    -and $budgetQualityImpactSummaryMatchesEvents `
+    -and $derivedBudgetValidationSkipCount -eq 0 `
+    -and $derivedBudgetScoreIneligibleSolvedCount -eq 0 `
+    -and $derivedBlockedByBudgetCount -eq 0 `
+    -and $derivedManualOverrideCount -eq 0)
 $requestPhasePass = ($requestPhaseSummary `
     -and (Get-ReleaseInt $requestPhaseSummary "provider_request_hook_coverage" 0) -ge 99 `
     -and (Get-ReleaseInt $requestPhaseSummary "request_phase_attribution_coverage" 0) -ge 95 `
@@ -584,6 +606,11 @@ $summary = [pscustomobject]@{
     budget_induced_score_ineligible_solved_count = Get-ReleaseInt $budgetQualityImpactSummary "budget_induced_score_ineligible_solved_count" 0
     blocked_by_budget_samples_count = Get-ReleaseInt $budgetQualityImpactSummary "blocked_by_budget_samples_count" 0
     manual_override_used_count = Get-ReleaseInt $budgetQualityImpactSummary "manual_override_used_count" 0
+    budget_quality_impact_summary_matches_events = [bool]$budgetQualityImpactSummaryMatchesEvents
+    derived_budget_induced_validation_skip_count = [int]$derivedBudgetValidationSkipCount
+    derived_budget_induced_score_ineligible_solved_count = [int]$derivedBudgetScoreIneligibleSolvedCount
+    derived_blocked_by_budget_count = [int]$derivedBlockedByBudgetCount
+    derived_manual_override_count = [int]$derivedManualOverrideCount
     request_phase_gate_pass = [bool]$requestPhasePass
     active_replacement_gate_pass = [bool]$activeReplacementPass
     state_commit_displacement_gate_pass = [bool]$stateCommitDisplacementPass

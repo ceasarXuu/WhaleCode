@@ -406,6 +406,32 @@ Assert-True ($LASTEXITCODE -eq 1) "budget quality validation skip fixture did no
 $qualityImpactSkipDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $qualityImpactSkipDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($qualityImpactSkipDecision.blockers) -contains "budget_quality_impact_gate_failed") "validation skip fixture did not report budget quality blocker"
 
+$qualityImpactMismatchDir = New-FixtureRun "budget-quality-summary-mismatch" "PASS" $true 0
+([pscustomobject]@{
+        schema_version = "taskspace-budget-quality-impact-v1"
+        sample_id = "processing-pipeline"
+        budget_action = "hard_stop"
+        final_classification = "blocked_by_budget"
+        score_eligible = $false
+        missing_evidence_count = 1
+        protected_item_miss_count = 0
+        manual_override_used = $false
+    } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $qualityImpactMismatchDir "budget-quality-impact-events.jsonl") -Encoding UTF8
+Write-Json ([pscustomobject]@{
+        budget_quality_impact_logged_for_every_budget_action = $true
+        budget_quality_impact_missing_count = 0
+        budget_induced_validation_skip_count = 0
+        budget_induced_score_ineligible_solved_count = 0
+        blocked_by_budget_samples_count = 0
+        manual_override_used_count = 0
+    }) (Join-Path $qualityImpactMismatchDir "budget_induced_quality_impact_summary.json")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $qualityImpactMismatchDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "budget quality summary mismatch fixture did not exit 1"
+$qualityImpactMismatchDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $qualityImpactMismatchDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($qualityImpactMismatchDecision.blockers) -contains "budget_quality_impact_gate_failed") "summary mismatch fixture did not report budget quality blocker"
+Assert-True (-not [bool]$qualityImpactMismatchDecision.budget_quality_impact_summary_matches_events) "summary mismatch fixture incorrectly matched derived event counts"
+Assert-True ([int]$qualityImpactMismatchDecision.derived_blocked_by_budget_count -eq 1) "summary mismatch fixture did not derive blocked_by_budget from events"
+
 $qualityImpactMissingDir = New-FixtureRun "missing-budget-quality-impact" "PASS" $true 0
 Move-Item -LiteralPath (Join-Path $qualityImpactMissingDir "budget-quality-impact-events.jsonl") -Destination (Join-Path $qualityImpactMissingDir "budget-quality-impact-events.jsonl.bak") -Force
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $qualityImpactMissingDir *> $null
