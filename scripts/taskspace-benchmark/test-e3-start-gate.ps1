@@ -314,6 +314,20 @@ try {
     $taskListGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-tasklist-pass") -TaskListPath $taskList -RunRoot (Join-Path $runDir "runs") -AllowSkippedPathContract -AllowSkippedSelfTests -AllowSkippedOnePairSmoke -AllowSkippedCalibrationGate -SelfTestCommands @()
     Assert-True ([string]$taskListGate.status -eq "pass" -and @($taskListGate.gates | Where-Object { [string]$_.name -eq "path_contract" -and [string]$_.status -eq "skipped_allowed" }).Count -eq 1) "start gate did not require explicit skipped path-contract allow"
 
+    $formalP0TaskList = Join-Path $runDir "formal-p0-tasks.jsonl"
+    @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log") | ForEach-Object {
+        ([pscustomobject]@{ sample_id = $_; task_dir = $scenarioDir; source_version = "fixture-source" } | ConvertTo-Json -Compress)
+    } | Set-Content -LiteralPath $formalP0TaskList -Encoding UTF8
+    $formalP0Gate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-formal-p0-tasklist-pass") -TaskListPath $formalP0TaskList -Benchmark terminal-bench -Repeats 5 -ExpectedSampleSetId "terminal-bench_E3-P0_3_5" -RunRoot (Join-Path $runDir "runs") -AllowSkippedPathContract -AllowSkippedSelfTests -AllowSkippedOnePairSmoke -AllowSkippedCalibrationGate -SelfTestCommands @()
+    Assert-True ([string]$formalP0Gate.status -eq "pass" -and @($formalP0Gate.gates | Where-Object { [string]$_.name -eq "task_list" -and [string]$_.status -eq "pass" }).Count -eq 1) "start gate did not accept the registered formal P0 task list"
+
+    $wrongFormalP0TaskList = Join-Path $runDir "wrong-formal-p0-tasks.jsonl"
+    @("processing-pipeline", "multi-source-data-merger", "hello-world") | ForEach-Object {
+        ([pscustomobject]@{ sample_id = $_; task_dir = $scenarioDir; source_version = "fixture-source" } | ConvertTo-Json -Compress)
+    } | Set-Content -LiteralPath $wrongFormalP0TaskList -Encoding UTF8
+    $wrongFormalP0Gate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-formal-p0-tasklist-fail") -TaskListPath $wrongFormalP0TaskList -Benchmark terminal-bench -Repeats 5 -ExpectedSampleSetId "terminal-bench_E3-P0_3_5" -RunRoot (Join-Path $runDir "runs") -AllowSkippedPathContract -AllowSkippedSelfTests -AllowSkippedOnePairSmoke -AllowSkippedCalibrationGate -SelfTestCommands @()
+    Assert-True ([string]$wrongFormalP0Gate.status -eq "fail" -and @($wrongFormalP0Gate.gates | Where-Object { [string]$_.name -eq "task_list" -and [string]$_.stable_code -eq "formal_p0_task_list_mismatch" }).Count -eq 1) "start gate accepted a mismatched formal P0 task list"
+
     $suiteGateRoot = Join-Path $runDir "suite-start-gate"
     $suiteGateOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1") -Benchmark terminal-bench -TaskListPath $taskList -SourceVersion selftest -Repeats 5 -RunRoot $suiteGateRoot -ScoringMode 2>&1
     Assert-True ($LASTEXITCODE -eq 3) "suite start gate did not fail closed before scoring run"
@@ -369,7 +383,7 @@ try {
         -RunnerScriptSha256 (Get-TaskspaceFileSha256 $suiteRunnerPath) `
         -ChildRunnerSha256 (Get-TaskspaceFileSha256 $suiteChildRunnerPath) `
         -TaskListSha256 (Get-TaskspaceFileSha256 $taskList) `
-        -SampleSetId "terminal-bench_E3-P0_3_5" `
+        -SampleSetId "terminal-bench_E3-custom_1_5" `
         -ScoringMode $true
     $suiteProfileHash = [string]$suiteProfileIdentity.profile_hash
     $suiteCompleteCalibration = New-CalibrationFixtures (Join-Path $runDir "suite-complete-calibration-missing-markers") -TaskListHash $suiteTaskListHash -SourceVersion "selftest" -ProfileHash $suiteProfileHash

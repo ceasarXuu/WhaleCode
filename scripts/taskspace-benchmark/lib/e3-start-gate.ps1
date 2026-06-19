@@ -1,5 +1,6 @@
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "calibration-gate.ps1")
+. (Join-Path $PSScriptRoot "e3-identity.ps1")
 
 function Invoke-TaskspaceGateCommand {
     param(
@@ -227,7 +228,13 @@ function Convert-TaskspaceCalibrationGateRow {
 }
 
 function Get-TaskspaceE3TaskListGate {
-    param([string]$TaskListPath, [string]$DefaultSourceVersion = "")
+    param(
+        [string]$TaskListPath,
+        [string]$DefaultSourceVersion = "",
+        [string]$Benchmark = "",
+        [int]$Repeats = 0,
+        [string]$ExpectedSampleSetId = ""
+    )
     if ([string]::IsNullOrWhiteSpace($TaskListPath)) { return New-TaskspaceE3GateRow "task_list" "skipped" "TaskListPath not set" "task_list_not_provided" "TaskListPath was not provided." }
     if (-not (Test-Path -LiteralPath $TaskListPath)) { return New-TaskspaceE3GateRow "task_list" "fail" "task_list_missing" "task_list_missing" "TaskListPath not found: $TaskListPath" }
     try {
@@ -248,6 +255,17 @@ function Get-TaskspaceE3TaskListGate {
         if (-not (Test-Path -LiteralPath $taskDir)) { return New-TaskspaceE3GateRow "task_list" "fail" "task_dir_missing" "task_dir_missing" "Task list task_dir not found: $taskDir" }
         if ([string]::IsNullOrWhiteSpace($sourceVersion) -and [string]::IsNullOrWhiteSpace($DefaultSourceVersion)) {
             return New-TaskspaceE3GateRow "task_list" "fail" "source_version_missing" "source_version_missing" "Task list sample is missing source_version and no default SourceVersion was provided."
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedSampleSetId) -and -not [string]::IsNullOrWhiteSpace($Benchmark) -and [int]$Repeats -gt 0) {
+        try {
+            $derivation = Get-TaskspaceE3SampleSetDerivation -Benchmark $Benchmark -TaskListPath $TaskListPath -Repeats $Repeats
+        } catch {
+            return New-TaskspaceE3GateRow "task_list" "fail" "sample_set_derivation_failed" "sample_set_derivation_failed" ([string]$_.Exception.Message)
+        }
+        if ([string]$derivation.sample_set_id -ne $ExpectedSampleSetId) {
+            $message = "Task list derives sample_set_id=$($derivation.sample_set_id), expected $ExpectedSampleSetId. samples=$(@($derivation.sample_names) -join ',')"
+            return New-TaskspaceE3GateRow "task_list" "fail" "formal sample set mismatch" "formal_p0_task_list_mismatch" $message
         }
     }
     New-TaskspaceE3GateRow "task_list" "pass"
@@ -340,6 +358,8 @@ function Invoke-TaskspaceE3StartGate {
         [string]$SourceVersion = "",
         [string]$ExpectedTaskListHash = "",
         [string]$ExpectedProfileHash = "",
+        [string]$Benchmark = "",
+        [int]$Repeats = 0,
         [string]$OnePairSmokeRoot = "",
         [string]$SerialCalibrationRoot = "",
         [string]$ParallelEquivalencePath = "",
@@ -392,7 +412,7 @@ function Invoke-TaskspaceE3StartGate {
     } else {
         $gates.Add((New-TaskspaceE3GateRow "path_contract" $(if ($AllowSkippedPathContract) { "skipped_allowed" } else { "fail" }) "no_scenario_manifest" "path_contract_not_checked"))
     }
-    $taskListGate = Get-TaskspaceE3TaskListGate $TaskListPath $SourceVersion
+    $taskListGate = Get-TaskspaceE3TaskListGate $TaskListPath $SourceVersion $Benchmark $Repeats $ExpectedSampleSetId
     if ([string]$taskListGate.status -ne "skipped") { $gates.Add($taskListGate) }
     $smokeGate = Get-TaskspaceE3OnePairSmokeGate $OnePairSmokeRoot
     if ([string]$smokeGate.status -eq "skipped" -and $AllowSkippedOnePairSmoke) {

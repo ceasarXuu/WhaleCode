@@ -76,7 +76,8 @@ $childRunnerSha256 = Get-TaskspaceFileSha256 $runner
 $taskListSha256 = Get-TaskspaceFileSha256 $TaskListPath
 $approvalMarkerSha256 = Get-TaskspaceFileSha256 $V005UserApprovalMarkerPath
 $codeCompleteMarkerSha256 = Get-TaskspaceFileSha256 $V005CodeCompleteMarkerPath
-$sampleSetId = if ($Benchmark -eq "terminal-bench" -and $Repeats -eq 5) { "terminal-bench_E3-P0_3_5" } else { "$Benchmark`_E3-custom_$Repeats" }
+$sampleSetDerivation = Get-TaskspaceE3SampleSetDerivation -Benchmark $Benchmark -TaskListPath $TaskListPath -Repeats $Repeats
+$sampleSetId = [string]$sampleSetDerivation.sample_set_id
 $profileIdentity = New-TaskspaceE3ProfileIdentity `
     -Benchmark $Benchmark `
     -SourceVersion $SourceVersion `
@@ -177,6 +178,9 @@ if ($scoreValidityEnforced -and -not $PlanOnly -and -not $SkipStartGate) {
         -SourceVersion $SourceVersion `
         -ExpectedTaskListHash $taskListHash `
         -ExpectedProfileHash $profileHash `
+        -Benchmark $Benchmark `
+        -Repeats $Repeats `
+        -ExpectedSampleSetId $sampleSetId `
         -OnePairSmokeRoot $OnePairSmokeRoot `
         -SerialCalibrationRoot $SerialCalibrationRoot `
         -ParallelEquivalencePath $ParallelEquivalencePath `

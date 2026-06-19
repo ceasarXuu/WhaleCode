@@ -74,3 +74,62 @@ function New-TaskspaceE3ProfileIdentity {
         profile_hash = Get-TaskspaceStableJsonHash $profile
     }
 }
+
+function Read-TaskspaceE3TaskList {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $raw = Get-Content -Raw -Encoding UTF8 -LiteralPath $Path
+    if ($raw.TrimStart().StartsWith("[")) { return @($raw | ConvertFrom-Json) }
+    @(Get-Content -Encoding UTF8 -LiteralPath $Path |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { $_ | ConvertFrom-Json })
+}
+
+function Get-TaskspaceE3TaskSampleName {
+    param($Task)
+    if ($Task.PSObject.Properties.Name -contains "sample_id" -and -not [string]::IsNullOrWhiteSpace([string]$Task.sample_id)) {
+        return [string]$Task.sample_id
+    }
+    if ($Task.PSObject.Properties.Name -contains "task_dir" -and -not [string]::IsNullOrWhiteSpace([string]$Task.task_dir)) {
+        return Split-Path -Leaf ([string]$Task.task_dir)
+    }
+    ""
+}
+
+function Get-TaskspaceE3SampleSetDerivation {
+    param(
+        [Parameter(Mandatory = $true)][string]$Benchmark,
+        [Parameter(Mandatory = $true)][string]$TaskListPath,
+        [int]$Repeats = 0
+    )
+    $tasks = @(Read-TaskspaceE3TaskList $TaskListPath)
+    $sampleNames = @($tasks | ForEach-Object { Get-TaskspaceE3TaskSampleName $_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $requiredP0 = @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log")
+    $actualSorted = @($sampleNames | Sort-Object)
+    $requiredSorted = @($requiredP0 | Sort-Object)
+    $isFormalP0 =
+        [string]$Benchmark -eq "terminal-bench" -and
+        [int]$Repeats -eq 5 -and
+        $sampleNames.Count -eq $requiredP0.Count -and
+        (@(Compare-Object -ReferenceObject $requiredSorted -DifferenceObject $actualSorted).Count -eq 0)
+    $sampleSetId = if ($isFormalP0) {
+        "terminal-bench_E3-P0_3_5"
+    } else {
+        "$Benchmark`_E3-custom_$($sampleNames.Count)_$Repeats"
+    }
+    $missing = @($requiredP0 | Where-Object { $_ -notin $sampleNames })
+    $unexpected = @($sampleNames | Where-Object { $_ -notin $requiredP0 })
+    [pscustomobject]@{
+        schema_version = 1
+        sample_set_id = $sampleSetId
+        formal_p0 = $isFormalP0
+        benchmark = $Benchmark
+        repeats = [int]$Repeats
+        sample_count = [int]$sampleNames.Count
+        sample_names = @($sampleNames)
+        required_sample_names = @($requiredP0)
+        missing_required_sample_names = @($missing)
+        unexpected_sample_names = @($unexpected)
+        derivation_method = "task_list_content"
+        stable_code = if ($isFormalP0) { "" } else { "formal_p0_task_list_mismatch" }
+    }
+}
