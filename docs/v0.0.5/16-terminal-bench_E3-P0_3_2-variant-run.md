@@ -41,13 +41,13 @@
 
 ## 执行结果总表
 
-| sample | pair | Standard success | TaskSpace success | Standard agent ms | TaskSpace agent ms | Standard tokens | TaskSpace tokens | pair total ms | validation ms | bottleneck |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| `processing-pipeline` | 001 | true | true | 199,823 | 715,257 | 687,253 | 7,415,722 | 1,151,962 | 184,127 | agent_bound |
-| `processing-pipeline` | 002 | true | true | 421,056 | 642,131 | 1,932,370 | 7,154,561 | 1,296,085 | 194,330 | agent_bound |
-| `multi-source-data-merger` | 001 | false | false | 93,651 | 878,250 | 178,289 | 11,516,871 | 1,247,650 | 241,590 | engineering_unclean_slow |
-| `recover-accuracy-log` | 001 | true | false | 60,658 | 613,674 | 173,329 | 8,116,214 | 1,104,584 | 382,910 | validator_bound |
-| `recover-accuracy-log` | 002 | true | true | 57,829 | 199,099 | 134,797 | 1,173,457 | 604,895 | 307,447 | validator_bound |
+| sample | pair | Standard success | Standard agent ms | Standard tokens | TaskSpace success | TaskSpace agent ms | TaskSpace tokens | TS/Std time | TS/Std token | pair total ms | validation ms | bottleneck |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `processing-pipeline` | 001 | true | 199,823 | 687,253 | true | 715,257 | 7,415,722 | 3.58x | 10.79x | 1,151,962 | 184,127 | agent_bound |
+| `processing-pipeline` | 002 | true | 421,056 | 1,932,370 | true | 642,131 | 7,154,561 | 1.53x | 3.70x | 1,296,085 | 194,330 | agent_bound |
+| `multi-source-data-merger` | 001 | false | 93,651 | 178,289 | false | 878,250 | 11,516,871 | 9.38x | 64.60x | 1,247,650 | 241,590 | engineering_unclean_slow |
+| `recover-accuracy-log` | 001 | true | 60,658 | 173,329 | false | 613,674 | 8,116,214 | 10.12x | 46.83x | 1,104,584 | 382,910 | validator_bound |
+| `recover-accuracy-log` | 002 | true | 57,829 | 134,797 | true | 199,099 | 1,173,457 | 3.44x | 8.70x | 604,895 | 307,447 | validator_bound |
 
 ## 样本状态
 
@@ -70,10 +70,10 @@ abort reasons：
 
 ## 成功率与成本汇总
 
-| mode | executed runs | success | success rate | agent wall ms | agent wall min | total tokens | input tokens | output tokens |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Standard | 5 | 4 | 80.0% | 833,017 | 13.88 | 3,106,038 | 3,052,762 | 53,276 |
-| TaskSpace | 5 | 3 | 60.0% | 3,048,411 | 50.81 | 35,376,825 | 35,139,365 | 237,460 |
+| mode | executed runs | success | success rate | agent wall ms | agent wall min | total tokens | input tokens | output tokens | vs Standard time | vs Standard token |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Standard | 5 | 4 | 80.0% | 833,017 | 13.88 | 3,106,038 | 3,052,762 | 53,276 | 1.00x | 1.00x |
+| TaskSpace | 5 | 3 | 60.0% | 3,048,411 | 50.81 | 35,376,825 | 35,139,365 | 237,460 | 3.66x | 11.39x |
 
 TaskSpace 相对 Standard：
 
