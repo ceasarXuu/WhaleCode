@@ -1,7 +1,7 @@
 # Problem P-001: v0.0.5 TaskSpace P0 diagnostic regression
-- Status: root cause identified
+- Status: fixed
 - Created: 2026-06-19 23:55
-- Updated: 2026-06-20 00:02
+- Updated: 2026-06-20 01:36
 - Objective: Determine why TaskSpace raw success dropped to 0/3 in `terminal-bench_E3-P0_3_1` after the v0.0.5 completion work.
 - Symptoms:
   - `terminal-bench_E3-P0_3_1` reports TaskSpace raw success 0/3 while Standard is 2/3.
@@ -36,21 +36,27 @@
   - E-008
   - E-009
   - E-010
+  - E-011
 - Ruled out:
   - H-003: provider attribution fallback removal is not the direct cause of the observed no-ready-node loop.
 - Fix criteria:
   - Root cause is confirmed against a regression sample where prior TaskSpace success becomes current TaskSpace failure.
   - A future fix must make `processing-pipeline` TaskSpace produce the expected edits and pass visible validation without broad gate loops.
   - A future fix must preserve gate evidence quality without introducing contradictory recovery requirements.
-- Current conclusion: The clean `processing-pipeline` regression is caused by an unreachable TaskSpace recovery path. A completed/broad inspect path creates unresolved delegation debt that blocks ordinary work, while the narrow-inspect fanout guard rejects the detached inspect nodes needed to satisfy that debt; generic gate wrapping then exposes an empty `TaskSpaceGateRecoveryV1`, so the model receives no executable recovery path and eventually falls into `/task-reborn`. Validator environment noise is a separate confound for `recover-accuracy-log`, but it does not explain the clean no-edit regression.
+- Current conclusion: Fixed in `third_party\codex-cli\codex-rs\core\src\action_map\runtime.rs` by making unresolved broad inspect delegation debt an explicit recovery state. In that state, runtime allows detached recovery `inspect_code_context` nodes, allows subagent plans and spawn assignment for those tracks, and returns non-empty structured `TaskSpaceGateRecoveryV1` actions. The ordinary completed-narrow-inspect fanout guard still applies when no broad debt exists.
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
 - Resolution basis:
-  - not satisfied
+  - H-001
+  - E-006
+  - E-007
+  - E-008
+  - E-010
+  - E-011
 - Close reason:
-  - not closed
+  - deterministic runtime regression test passes; targeted guard tests remain passing
 
 ## Hypothesis H-001: v0.0.5 gate hardening introduced an unreachable recovery path
 - Status: confirmed
@@ -96,10 +102,11 @@
   - E-007
   - E-008
   - E-010
+  - E-011
 - Evidence gate: satisfied
-- Conclusion: confirmed. The failure mechanism is a state-machine contradiction, not a task-domain failure: runtime asks for subagent inspect tracks, but the same state forbids creating detached inspect nodes after a completed narrow inspect pass and offers an empty structured recovery object.
-- Repair design readiness: ready for design; do not patch until the recovery invariant is specified.
-- Next step: Design a deterministic runtime unit/regression test that constructs this state without running real agents, then make the state either reachable to recovery or non-enterable.
+- Conclusion: fixed. The failure mechanism was a state-machine contradiction, not a task-domain failure: runtime asked for subagent inspect tracks, but the same state forbade creating detached inspect nodes after a completed narrow inspect pass and offered an empty structured recovery object. The repair adds a broad-debt recovery exception and a deterministic regression test.
+- Repair design readiness: implemented
+- Next step: Run a low-cost TaskSpace smoke only after the broader v0.0.5 codebase is ready for real agent execution again.
 - Blocker:
   - none
 - Close reason:
@@ -437,3 +444,35 @@
   ```
 - Interpretation: The natural-language blocker may mention a recovery path, but the machine-readable recovery contract gives the model no executable next action and does not encode the conflicting gate state.
 - Time: 2026-06-20 00:02
+
+## Evidence E-011: Fix validation for broad-debt recovery path
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `third_party\codex-cli\codex-rs\core\src\action_map\runtime.rs`
+- Prediction or plan link:
+  - H-001 next step: construct the state without running real agents, then make recovery reachable while preserving ordinary narrow-path guards.
+- Matched signal:
+  - Added `has_unresolved_broad_delegation_debt` and `broad_delegation_recovery_message`.
+  - `create_node_for_main_with_kind`, `record_subagent_plan_for_main`, and `validate_spawn_parallelism` now allow the recovery path only when unresolved broad delegation debt exists.
+  - Added deterministic test `broad_debt_after_narrow_inspect_allows_recovery_inspect_tracks`.
+  - Existing tests still pass for ordinary narrow fanout rejection and broad direct implementation blocking.
+- Correlation keys:
+  - `runtime.rs`
+  - test `action_map::runtime::tests::broad_debt_after_narrow_inspect_allows_recovery_inspect_tracks`
+  - test `action_map::runtime::tests::spawn_agent_rejects_serial_single_inspect_after_completed_narrow_inspect`
+  - test `action_map::runtime::tests::broad_accepted_inspect_result_blocks_direct_implementation_without_subagents`
+- Raw content:
+  ```text
+  cargo test -p codex-core action_map::runtime::tests::broad_debt_after_narrow_inspect_allows_recovery_inspect_tracks
+  result: ok. 1 passed.
+
+  cargo test -p codex-core action_map::runtime::tests::spawn_agent_rejects_serial_single_inspect_after_completed_narrow_inspect
+  result: ok. 1 passed.
+
+  cargo test -p codex-core action_map::runtime::tests::broad_accepted_inspect_result_blocks_direct_implementation_without_subagents
+  result: ok. 1 passed.
+  ```
+- Interpretation: The original unreachable recovery state is now reachable in a deterministic runtime test, and the adjacent safety gates still hold for non-broad-debt paths.
+- Time: 2026-06-20 01:36

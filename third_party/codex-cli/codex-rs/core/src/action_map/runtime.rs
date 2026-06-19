@@ -2288,6 +2288,7 @@ preview:\n\
             && ready
             && kind == NodeKind::InspectCodeContext
             && Self::has_completed_narrow_inspect(map)
+            && !has_unresolved_broad_delegation_debt(map, owner_session_id)
         {
             return Err(
                 "TaskSpace cannot create a detached inspect_code_context node after a completed narrow inspect pass. Keep serial single-track investigation on the main agent; pre-fix diagnostic or baseline commands belong inside the current inspect_code_context result, and follow-up implementation should use implement_solution."
@@ -3326,7 +3327,10 @@ preview:\n\
                 "TaskSpace record_subagent_plan parent node `{parent_node_id}` is already held by an active lease."
             ));
         }
-        if node.kind == NodeKind::InspectCodeContext && Self::has_completed_narrow_inspect(map) {
+        if node.kind == NodeKind::InspectCodeContext
+            && Self::has_completed_narrow_inspect(map)
+            && !has_unresolved_broad_delegation_debt(map, owner_session_id)
+        {
             return Err(format!(
                 "TaskSpace record_subagent_plan blocked for inspect node `{parent_node_id}` because the main agent already completed a narrow inspect pass. Keep serial single-track investigation on the main agent; only create inspect subagent plans before the first narrow inspect result when independent evidence tracks are known upfront."
             ));
@@ -4806,7 +4810,7 @@ preview:\n\
 
     pub(crate) fn prepare_spawn_assignment(
         &mut self,
-        _owner_session_id: ThreadId,
+        owner_session_id: ThreadId,
         _requested_task_name: &str,
         requested_node_id: Option<&str>,
     ) -> Result<(Option<ActionMapAssignment>, Vec<MapRuntimeEvent>), String> {
@@ -4895,7 +4899,7 @@ preview:\n\
             .map(str::trim)
             .filter(|node_id| !node_id.is_empty());
         let node_id = self.select_spawn_node_id(&map_id, requested_node_id)?;
-        self.validate_spawn_parallelism(&map_id, &node_id)?;
+        self.validate_spawn_parallelism(owner_session_id, &map_id, &node_id)?;
         self.validate_maintenance_barrier_for_node(&node_id)?;
         let subagent_plan_id = self.select_subagent_plan_id_for_node(&map_id, &node_id)?;
         let subagent_plan = self
@@ -6275,10 +6279,7 @@ preview:\n\
             .len()
                 < 2
         {
-            return Err(
-                "TaskSpace blocked ordinary main-agent work because a broad inspect_code_context node exhausted its main-tool budget without two accepted subagent inspect results on dependent investigation tracks. Delegate the remaining independent investigation tracks: create ready inspect_code_context nodes if needed, call spawn_agent with explicit node_id for each track, then mark the subagent results accepted before continuing ordinary tools."
-                    .to_string(),
-            );
+            return Err(broad_delegation_recovery_message(&broad_completed_inspects));
         }
         Ok(())
     }
@@ -6633,7 +6634,12 @@ preview:\n\
             .count()
     }
 
-    fn validate_spawn_parallelism(&self, map_id: &str, node_id: &str) -> Result<(), String> {
+    fn validate_spawn_parallelism(
+        &self,
+        owner_session_id: ThreadId,
+        map_id: &str,
+        node_id: &str,
+    ) -> Result<(), String> {
         let map = self
             .maps
             .get(map_id)
@@ -6668,7 +6674,9 @@ preview:\n\
             ));
         }
         let has_completed_narrow_inspect = Self::has_completed_narrow_inspect(map);
-        if !has_completed_narrow_inspect {
+        if !has_completed_narrow_inspect
+            || has_unresolved_broad_delegation_debt(map, owner_session_id)
+        {
             return Ok(());
         }
         Err(format!(
@@ -9176,6 +9184,42 @@ fn broad_completed_inspect_node_ids(
         .collect::<Vec<_>>();
     node_ids.sort();
     node_ids
+}
+
+fn has_unresolved_broad_delegation_debt(
+    map: &ActionMapInstance,
+    owner_session_id: ThreadId,
+) -> bool {
+    let broad_completed_inspects = broad_completed_inspect_node_ids(map, owner_session_id);
+    !broad_completed_inspects.is_empty()
+        && related_completed_accepted_subagent_inspect_node_ids(
+            map,
+            owner_session_id,
+            &broad_completed_inspects,
+        )
+        .len()
+            < 2
+}
+
+fn broad_delegation_recovery_message(broad_completed_inspects: &[String]) -> String {
+    let message = "TaskSpace blocked ordinary main-agent work because a broad inspect_code_context node exhausted its main-tool budget or produced broad structural findings without two accepted subagent inspect results on dependent investigation tracks. Delegate the remaining independent investigation tracks: create two ready inspect_code_context nodes if needed, record a subagent plan for each ready track, call spawn_agent with explicit node_id for each track, then mark the subagent results accepted before continuing ordinary tools.";
+    let blocking_items = broad_completed_inspects
+        .iter()
+        .map(|node_id| format!("broad_inspect_delegation_debt:{node_id}"))
+        .collect::<Vec<_>>();
+    gate_recovery_message(
+        message,
+        "broad_inspect_delegation_debt",
+        blocking_items,
+        vec![
+            "taskspace_control(action=create_node, node_kind=\"inspect_code_context\", bind_current=false) for first independent track".to_string(),
+            "taskspace_control(action=create_node, node_kind=\"inspect_code_context\", bind_current=false) for second independent track".to_string(),
+            "taskspace_control(action=record_subagent_plan, parent_node_id=\"<ready inspect node>\") for each track".to_string(),
+            "spawn_agent(node_id=\"<ready inspect node>\") for each planned track".to_string(),
+            "taskspace_control(action=mark_result_validity, status=\"accepted\") for two completed subagent inspect results".to_string(),
+        ],
+        vec!["two accepted subagent inspect results related to the broad inspect node".to_string()],
+    )
 }
 
 fn should_enforce_tool_budget_barrier(
@@ -15683,6 +15727,77 @@ mod tests {
             .prepare_main_tool_call(owner, "apply_patch")
             .expect_err("broad accepted inspection must require subagent tracks");
         assert!(error.contains("without two accepted subagent inspect results"));
+    }
+
+    #[test]
+    fn broad_debt_after_narrow_inspect_allows_recovery_inspect_tracks() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Pipeline audit",
+            "Inspect connected parser, pricing, and invoice behavior.",
+            true,
+        );
+        state
+            .record_main_tool_result(owner, "read-1", "shell", true, "read ok".to_string())
+            .expect("record main result")
+            .expect("result recorded");
+        let (outcome, _) = state
+            .finish_main_node(
+                owner,
+                "node-1",
+                "Found parser, pricing, and invoice mismatches.".to_string(),
+                None,
+            )
+            .expect("finish broad inspect");
+        accept_broad_inspect_result(&mut state, owner, &outcome.result_id);
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Implement pipeline fix".to_string(),
+                "Fix parser, pricing, and invoice mismatches.".to_string(),
+                vec!["node-1".to_string()],
+                true,
+            )
+            .expect("implementation node can be created for recovery");
+
+        let blocked = state
+            .prepare_main_tool_call(owner, "apply_patch")
+            .expect_err("broad debt blocks direct implementation");
+        let (message, _) = blocked.into_parts();
+        assert!(message.contains("broad_inspect_delegation_debt"));
+        assert!(message.contains("TaskSpaceGateRecoveryV1"));
+        assert!(message.contains("record_subagent_plan"));
+
+        for title in ["Parser investigation", "Pricing investigation"] {
+            state
+                .create_node_for_main_with_kind(
+                    owner,
+                    NodeKind::InspectCodeContext,
+                    title.to_string(),
+                    format!("{title} after the broad overview."),
+                    vec!["node-1".to_string()],
+                    false,
+                )
+                .expect("recovery inspect node can be created despite completed narrow inspect");
+        }
+
+        let first = prepare_test_spawn_assignment(&mut state, owner, "parser", Some("node-3"))
+            .expect("first recovery inspect can be assigned")
+            .0
+            .expect("first assignment");
+        assert_eq!(first.node_id, "node-3");
+        state.attach_agent_to_lease(&first.lease_id, ThreadId::new(), None);
+
+        let second = prepare_test_spawn_assignment(&mut state, owner, "pricing", Some("node-4"))
+            .expect("second recovery inspect can be assigned")
+            .0
+            .expect("second assignment");
+        assert_eq!(second.node_id, "node-4");
     }
 
     #[test]
