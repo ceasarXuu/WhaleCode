@@ -81,6 +81,33 @@ TaskSpace 相对 Standard：
 - agent wall time 约为 Standard 的 3.66 倍。
 - token 约为 Standard 的 11.39 倍。
 
+## 倍率归因
+
+这轮高倍率的直接原因不是最终 TaskSpace map 结构很大，而是 TaskSpace 在一次 benchmark 侧执行里展开了大量内部模型请求。`metrics.json` 顶层只看到 `whale exec` 外层请求，但 `request-summary.json.rollout_trace` 记录了 TaskSpace 内部请求数。
+
+| sample | pair | Standard requests | TaskSpace requests | request ratio | Standard input tokens | TaskSpace input tokens | TS/Std input | TaskSpace avg input/request |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `processing-pipeline` | 001 | 1 | 143 | 143.00x | 675,376 | 7,371,086 | 10.92x | 51,546 |
+| `processing-pipeline` | 002 | 1 | 142 | 142.00x | 1,907,469 | 7,111,337 | 3.73x | 50,080 |
+| `multi-source-data-merger` | 001 | 1 | 189 | 189.00x | 171,532 | 11,451,317 | 66.76x | 60,589 |
+| `recover-accuracy-log` | 001 | 1 | 135 | 135.00x | 168,526 | 8,050,159 | 47.77x | 59,631 |
+| `recover-accuracy-log` | 002 | 1 | 33 | 33.00x | 129,859 | 1,155,466 | 8.90x | 35,014 |
+| 合计 | - | 5 | 642 | 128.40x | 3,052,762 | 35,139,365 | 11.51x | 54,734 |
+
+因此，token 放大的主因是“请求次数 x 每次仍然不小的 TaskSpace 上下文”，不是单个最终 action map 太大。TaskSpace 侧 5 次执行合计：
+
+- 内部模型请求：642 次；Standard 为 5 次。
+- input tokens：35,139,365；Standard 为 3,052,762。
+- cached input tokens：26,947,968；Standard 为 2,982,784。
+- uncached input tokens：8,191,397；Standard 为 69,978。
+- TaskSpace runtime events：1,604。
+- TaskSpace map/nodes/edges：5 张 map、49 个节点、58 条边。
+- TaskSpace subagent results：46。
+
+这说明 v0.0.5 的 map 结构本身没有失控，但 TaskSpace runtime 的模型调用策略仍然太重：每次状态推进、节点更新、审计/投影、以及部分样本里的 subagent 结果处理都在形成可计费模型请求。`processing-pipeline/pair-001` 和 `multi-source-data-merger/pair-001` 还出现了 24/22 个 subagent results，对请求数和 wall time 有明显放大作用。
+
+时间倍率同源：TaskSpace 不是一次长请求，而是几十到近两百次内部请求串联/半串联推进；即使平均每次输入只有 35K-61K tokens，累计 latency、工具调度、状态提交、projection 和 subagent 汇总仍然把 agent wall time 拉高到 Standard 的 3.66 倍。
+
 ## 证据等级说明
 
 本次结果只能作为诊断证据，原因：
