@@ -107,12 +107,48 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 - TaskSpace 正确率是否相对 Standard / v0.0.4 clean 口径未下降，尚未由正式 E3 证明。
 - 后续真实 run 必须先由 start gate、code-complete marker、non-agent gate marker 和用户批准共同放行。
 
-## 5. 当前结论
+## 5. 2026-06-20 当前态复核
+
+本节记录在 commit `bf9471c26` 之后重新执行的当前态非 agent gate。该复核不包含真实 E3，不包含真实 agent benchmark sample。
+
+Rust focused tests：
+
+```text
+cargo test -p codex-core active_context_replacement -- --nocapture
+cargo test -p codex-core provider_request_budget -- --nocapture
+cargo test -p codex-core state_commit -- --nocapture
+cargo test -p codex-core output_reference -- --nocapture
+cargo test -p codex-core projection -- --nocapture
+cargo test -p codex-core budget -- --nocapture
+```
+
+结果：全部通过。
+
+PowerShell fixture gates：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\v005-current-release-selftest
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 -RunRoot target\v005-current-harness-selftest
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1 -RunRoot target\v005-current-start-gate-selftest
+```
+
+结果：全部通过。
+
+工作区状态：
+
+```text
+git status --short
+```
+
+结果：无未提交源码改动。
+
+## 6. 当前结论
 
 只看工程代码和非 agent gate：
 
 ```text
-v0.0.5 engineering implementation: CODE-COMPLETE CANDIDATE
+v0.0.5 engineering implementation: CODE-COMPLETE
 ```
 
 但从版本产品目标看：
