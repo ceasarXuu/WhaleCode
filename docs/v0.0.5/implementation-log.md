@@ -4385,3 +4385,41 @@ Conclusion:
 - The repeated internal matrix substantially improves confidence over the one-repeat smoke, but it does not prove "accuracy did not decline" without qualification.
 - A conservative statement is: v0.0.5 has no broad correctness regression across the internal matrix, but one L3 repeat still shows a TaskSpace timeout/validation failure and must be documented as a residual correctness risk if v0.0.5 is closed now.
 - If v0.0.5 is closed now, the release note should say correctness is mostly preserved on the internal 5x5 matrix (`24/25` raw TaskSpace business success), with one known `subscription-billing-repair` timeout outlier; cost remains explicitly deferred to the next version.
+
+## 2026-06-19 runtime budget and release-gate hardening
+
+Scope:
+
+- Continued v0.0.5 after adversarial review blocked the continuation scheme.
+- No real E3 or live agent benchmark was run in this step.
+- Fixed two evidence-quality problems before any further benchmark: weak `state_commit_displacement` proof and release/start gate producer-proof gaps.
+
+Changes:
+
+- Runtime now emits `state_commit_displacement` with a runtime-owned denominator: model-visible commit count, runtime-synthesized count, legacy-equivalent action attempts, and displaced action count.
+- Runtime now emits `spawn_node_budget` for allowed and blocked node/spawn budget decisions.
+- Cost instrumentation now separates spawn/node `within_budget_status` from `over_budget_enforcement_status`, so negative fixtures can prove a correct block without being mislabeled as failed instrumentation.
+- E3 start gate now has `blocked_for_full_e3` as a top-level state when v0.0.5 markers are missing or blocked, avoiding the misleading combination of `status=pass` and `full_e3_allowed=false`.
+- Suite runner attestation now includes a runner nonce and writes a `runner_attestation_generated` event into `suite-receipt.jsonl`; release decision requires the attestation hash, nonce, process id, command hash, and receipt pre-hash to join back to that receipt event.
+- Release decision now rechecks every `v005_non_agent_gates` child gate against `task_list_hash`, `source_version`, and `profile_hash`, and requires stronger `v005_code_complete` marker fields.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1 -RunRoot target\v005-runtime-budget-cost-selftest-4
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1 -RunRoot target\v005-start-gate-hardening-selftest-2
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\v005-release-hardening-selftest-2
+cargo test -p codex-core state_commit -- --nocapture
+cargo test -p codex-core provider_request_budget -- --nocapture
+git diff --check
+```
+
+Result:
+
+- All commands passed.
+- The first attempt to run multiple cargo tests in parallel timed out on target locks; rerunning the Rust tests serially or in smaller groups avoided the lock contention.
+
+Follow-up:
+
+- Still do not run real E3 until the remaining accepted blocking findings are fixed and closure review passes.
+- Remaining high-risk item: provider request attribution must not fallback from ActionMap ready/current node when explicit provider request context is missing.

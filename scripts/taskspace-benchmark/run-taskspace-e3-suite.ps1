@@ -105,6 +105,7 @@ $profileHash = [string]$profileIdentity.profile_hash
 $suiteManifestPath = Join-Path $suiteRoot "suite-manifest.json"
 $suiteRunnerAttestationPath = Join-Path $suiteRoot "suite-runner-attestation.json"
 $suiteReceiptPath = Join-Path $suiteRoot "suite-receipt.jsonl"
+$suiteRunnerNonce = [guid]::NewGuid().ToString("n")
 [pscustomobject]@{
     schema_version = 1
     artifact_origin = "real_suite"
@@ -139,6 +140,17 @@ function Get-SuiteReceiptEventHash {
     }
 }
 
+function Get-SuiteStableStringHash {
+    param([string]$Value)
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace "-", "").ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+    }
+}
+
 $suiteReceiptLastEventHash = ""
 function Write-SuiteReceiptEvent {
     param([string]$Event, [hashtable]$Fields = @{})
@@ -160,6 +172,7 @@ function Write-SuiteReceiptEvent {
         child_runner_sha256 = $childRunnerSha256
         task_list_sha256 = $taskListSha256
         profile_hash = $profileHash
+        runner_nonce = $suiteRunnerNonce
         timestamp = (Get-Date).ToString("o")
     }
     foreach ($key in $Fields.Keys) { $row[$key] = $Fields[$key] }
@@ -174,6 +187,9 @@ function Get-SuiteReceiptSha256 {
 }
 
 function Write-SuiteRunnerAttestation {
+    $receiptShaBeforeAttestation = Get-SuiteReceiptSha256
+    $receiptEventHashBeforeAttestation = $script:suiteReceiptLastEventHash
+    $commandLine = [Environment]::CommandLine
     $attestation = [ordered]@{
         schema_version = 1
         artifact_origin = "real_suite_runner"
@@ -183,20 +199,32 @@ function Write-SuiteRunnerAttestation {
         task_list_path = ([System.IO.Path]::GetFullPath($TaskListPath))
         task_list_sha256 = $taskListSha256
         suite_manifest_sha256 = (Get-FileHash -LiteralPath $suiteManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        suite_receipt_sha256 = Get-SuiteReceiptSha256
+        suite_receipt_sha256_before_attestation = $receiptShaBeforeAttestation
+        suite_receipt_event_hash_before_attestation = $receiptEventHashBeforeAttestation
         profile_hash = $profileHash
         sample_set_id = $sampleSetId
         suite_root = $suiteRoot
+        runner_nonce = $suiteRunnerNonce
         process_id = $PID
-        command_line = [Environment]::CommandLine
+        command_line = $commandLine
+        command_line_sha256 = Get-SuiteStableStringHash $commandLine
         generated_at = (Get-Date).ToString("o")
     }
     [pscustomobject]$attestation | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $suiteRunnerAttestationPath -Encoding UTF8
+    $attestationSha = (Get-FileHash -LiteralPath $suiteRunnerAttestationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Write-SuiteReceiptEvent "runner_attestation_generated" @{
+        runner_nonce = $suiteRunnerNonce
+        process_id = $PID
+        command_line_sha256 = Get-SuiteStableStringHash $commandLine
+        suite_runner_attestation_path = $suiteRunnerAttestationPath
+        suite_runner_attestation_sha256 = $attestationSha
+        suite_receipt_event_hash_before_attestation = $receiptEventHashBeforeAttestation
+    }
 }
 
 function Update-SampleRunReceiptFields {
-    $receiptSha = Get-SuiteReceiptSha256
     Write-SuiteRunnerAttestation
+    $receiptSha = Get-SuiteReceiptSha256
     $attestationSha = (Get-FileHash -LiteralPath $suiteRunnerAttestationPath -Algorithm SHA256).Hash.ToLowerInvariant()
     foreach ($statusPath in @(Get-ChildItem -LiteralPath $samplesRoot -Filter "run-status.json" -Recurse -ErrorAction SilentlyContinue)) {
         try {

@@ -533,13 +533,16 @@ function Invoke-TaskspaceE3StartGate {
         $gates.Add((New-TaskspaceE3GateRow "cheap_self_tests" $(if ($AllowSkippedSelfTests) { "skipped_allowed" } else { "fail" }) "RunSelfTests not set" "self_tests_not_run"))
     }
     $failed = @($gates.ToArray() | Where-Object { [string]$_.status -eq "fail" })
+    $blocked = @($gates.ToArray() | Where-Object { [string]$_.status -eq "blocked" })
     $firstFailure = @($failed | Select-Object -First 1)[0]
+    $firstBlocked = @($blocked | Select-Object -First 1)[0]
+    $topStatus = if ($failed.Count -gt 0) { "fail" } elseif ($blocked.Count -gt 0) { "blocked_for_full_e3" } else { "pass" }
     $jsonPath = Join-Path $OutputDir "e3-start-gate.json"
     $markdownPath = Join-Path $OutputDir "e3-start-gate.md"
     $gate = [pscustomobject]@{
         schema_version = 1
-        status = if ($failed.Count -eq 0) { "pass" } else { "fail" }
-        run_validity = if ($failed.Count -eq 0) { "valid" } else { "invalid_harness" }
+        status = $topStatus
+        run_validity = if ($failed.Count -gt 0) { "invalid_harness" } elseif ($blocked.Count -gt 0) { "blocked_for_full_e3" } else { "valid" }
         exit_code = if ($failed.Count -eq 0) { 0 } else { 3 }
         gates = @($gates.ToArray())
         self_tests = @($selfTests)
@@ -547,8 +550,8 @@ function Invoke-TaskspaceE3StartGate {
         manifest_health = $manifestHealth
         calibration_gate = $calibrationGate
         skipped_gate_policy = [pscustomobject]@{ allow_skipped_path_contract = [bool]$AllowSkippedPathContract; allow_skipped_self_tests = [bool]$AllowSkippedSelfTests; allow_skipped_one_pair_smoke = [bool]$AllowSkippedOnePairSmoke; allow_skipped_calibration_gate = [bool]$AllowSkippedCalibrationGate }
-        first_failure_gate = if ($firstFailure) { [string]$firstFailure.name } else { "" }
-        first_failure_stable_code = if ($firstFailure) { [string]$firstFailure.stable_code } else { "" }
+        first_failure_gate = if ($firstFailure) { [string]$firstFailure.name } elseif ($firstBlocked) { [string]$firstBlocked.name } else { "" }
+        first_failure_stable_code = if ($firstFailure) { [string]$firstFailure.stable_code } elseif ($firstBlocked) { [string]$firstBlocked.stable_code } else { "" }
         first_failure_message = if ($firstFailure) { [string]$firstFailure.message } else { "" }
         first_failure_command = if ($firstFailure -and [string]$firstFailure.name -eq "cheap_self_tests") { [string]$firstFailure.message } else { "" }
         first_failure_output_tail = if ($firstFailure -and [string]$firstFailure.name -eq "cheap_self_tests") { @($selfTests | Where-Object { [string]$_.command -eq [string]$firstFailure.message } | Select-Object -First 1 | ForEach-Object { @($_.output_tail) }) } else { @() }

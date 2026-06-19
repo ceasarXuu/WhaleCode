@@ -287,53 +287,115 @@ function New-TaskspaceProviderRequestArtifacts {
 }
 
 function New-TaskspaceStateCommitDisplacementSummary {
-    param($Control)
-    $stateCommitCount = Convert-TaskspaceTraceInt (Get-TaskspaceCostProperty $Control @("state_commit_count"))
-    $taskspaceControlCount = Convert-TaskspaceTraceInt (Get-TaskspaceCostProperty $Control @("taskspace_control_count"))
-    $runtimeStateCommitCount = Convert-TaskspaceTraceInt (Get-TaskspaceCostProperty $Control @("runtime_state_commit_count"))
-    $legacyStateActionCount = [Math]::Max(0, $taskspaceControlCount - $stateCommitCount)
-    $legacyStateActionBudget = 0
+    param([string]$ObservabilityJsonPath)
+    $events = New-Object System.Collections.Generic.List[object]
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("state_commit_displacement"))) {
+        $tags = Convert-TaskspaceTraceTags $event
+        if ([string]$tags.producer -ne "runtime") { continue }
+        $events.Add([pscustomobject]@{
+            trace_event_id = [string](Get-TaskspaceTraceField $event @("trace_event_id", "id"))
+            task_id = [string](Get-TaskspaceTraceField $event @("task_id"))
+            map_id = [string](Get-TaskspaceTraceField $event @("map_id"))
+            node_id = [string](Get-TaskspaceTraceField $event @("node_id"))
+            commit_id = [string]$tags.commit_id
+            status = [string]$tags.status
+            accepted_section_count = Convert-TaskspaceTraceInt $tags.accepted_section_count
+            rejected_section_count = Convert-TaskspaceTraceInt $tags.rejected_section_count
+            state_commit_count = Convert-TaskspaceTraceInt $tags.state_commit_count
+            model_visible_state_commit_count = Convert-TaskspaceTraceInt $tags.model_visible_state_commit_count
+            runtime_synthesized_state_commit_count = Convert-TaskspaceTraceInt $tags.runtime_synthesized_state_commit_count
+            legacy_state_action_attempt_count = Convert-TaskspaceTraceInt $tags.legacy_state_action_attempt_count
+            legacy_state_action_displaced_count = Convert-TaskspaceTraceInt $tags.legacy_state_action_displaced_count
+            legacy_state_action_count = Convert-TaskspaceTraceInt $tags.legacy_state_action_count
+            legacy_state_action_budget = Convert-TaskspaceTraceInt $tags.legacy_state_action_budget
+            producer = [string]$tags.producer
+        })
+    }
+    $stateCommitCount = [int](@($events.ToArray() | Measure-Object -Property state_commit_count -Sum).Sum)
+    $modelVisibleStateCommitCount = [int](@($events.ToArray() | Measure-Object -Property model_visible_state_commit_count -Sum).Sum)
+    $runtimeSynthesizedStateCommitCount = [int](@($events.ToArray() | Measure-Object -Property runtime_synthesized_state_commit_count -Sum).Sum)
+    $legacyStateActionAttemptCount = [int](@($events.ToArray() | Measure-Object -Property legacy_state_action_attempt_count -Sum).Sum)
+    $legacyStateActionDisplacedCount = [int](@($events.ToArray() | Measure-Object -Property legacy_state_action_displaced_count -Sum).Sum)
+    $legacyStateActionCount = [int](@($events.ToArray() | Measure-Object -Property legacy_state_action_count -Sum).Sum)
+    $legacyStateActionBudget = if ($events.Count -gt 0) { [int](@($events.ToArray() | Measure-Object -Property legacy_state_action_budget -Maximum).Maximum) } else { 0 }
+    $sourceStatus = if ($events.Count -gt 0) { "runtime" } else { "missing_runtime" }
+    $hasDisplacementDenominator = $legacyStateActionAttemptCount -gt 0
+    $displacementRate = if ($legacyStateActionAttemptCount -gt 0) {
+        [Math]::Round(($legacyStateActionDisplacedCount / [double]$legacyStateActionAttemptCount), 4)
+    } else {
+        [double]0
+    }
     [pscustomobject]@{
         schema_version = "taskspace-state-commit-displacement-v1"
-        status = if ($legacyStateActionCount -le $legacyStateActionBudget) { "pass" } else { "fail" }
+        status = if ($sourceStatus -eq "runtime" -and $stateCommitCount -gt 0 -and $hasDisplacementDenominator -and $legacyStateActionDisplacedCount -ge $legacyStateActionAttemptCount -and $legacyStateActionCount -le $legacyStateActionBudget) { "pass" } else { "fail" }
+        source_status = $sourceStatus
+        producer = "runtime"
+        has_displacement_denominator = [bool]$hasDisplacementDenominator
+        model_visible_state_commit_count = [int]$modelVisibleStateCommitCount
+        runtime_synthesized_state_commit_count = [int]$runtimeSynthesizedStateCommitCount
+        legacy_state_action_attempt_count = [int]$legacyStateActionAttemptCount
+        legacy_state_action_displaced_count = [int]$legacyStateActionDisplacedCount
+        legacy_state_action_displacement_rate = [double]$displacementRate
         legacy_state_action_count = [int]$legacyStateActionCount
         legacy_state_action_budget = [int]$legacyStateActionBudget
         state_commit_count = [int]$stateCommitCount
-        runtime_state_commit_count = [int]$runtimeStateCommitCount
-        taskspace_control_count = [int]$taskspaceControlCount
+        runtime_state_commit_count = [int]$stateCommitCount
+        taskspace_control_count = [int]$stateCommitCount
+        runtime_event_count = [int]$events.Count
+        runtime_events = @($events.ToArray())
     }
 }
 
 function New-TaskspaceSpawnNodeBudgetSummary {
     param([string]$ObservabilityJsonPath)
-    $spawnCount = 0
-    $nodeCount = 0
-    $sourceStatus = "missing"
-    if (-not [string]::IsNullOrWhiteSpace($ObservabilityJsonPath) -and (Test-Path -LiteralPath $ObservabilityJsonPath)) {
-        try {
-            $obs = (Get-Content -Raw -Encoding UTF8 -LiteralPath $ObservabilityJsonPath) | ConvertFrom-Json
-            $sourceStatus = "read"
-            $nodeCount = @($obs.nodes).Count
-            foreach ($toolCall in @($obs.toolCalls)) {
-                $tool = [string](Get-TaskspaceCostProperty $toolCall @("tool", "name"))
-                if ($tool -eq "spawn_agent") { $spawnCount++ }
-            }
-            foreach ($event in @($obs.timeline)) {
-                $tool = [string](Get-TaskspaceTraceField $event @("tool", "name"))
-                if ($tool -eq "spawn_agent") { $spawnCount++ }
-            }
-        } catch {
-            $sourceStatus = "parse_error"
-        }
+    $events = New-Object System.Collections.Generic.List[object]
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("spawn_node_budget"))) {
+        $tags = Convert-TaskspaceTraceTags $event
+        if ([string]$tags.producer -ne "runtime") { continue }
+        $events.Add([pscustomobject]@{
+            trace_event_id = [string](Get-TaskspaceTraceField $event @("trace_event_id", "id"))
+            task_id = [string](Get-TaskspaceTraceField $event @("task_id"))
+            map_id = [string](Get-TaskspaceTraceField $event @("map_id"))
+            node_id = [string](Get-TaskspaceTraceField $event @("node_id"))
+            budget_kind = [string]$tags.budget_kind
+            action = [string]$tags.action
+            status = [string]$tags.status
+            spawn_agent_call_count_after = Convert-TaskspaceTraceInt $tags.spawn_agent_call_count_after
+            max_spawn_agent_calls = Convert-TaskspaceTraceInt $tags.max_spawn_agent_calls
+            node_count = Convert-TaskspaceTraceInt $tags.node_count
+            node_count_after = Convert-TaskspaceTraceInt $tags.node_count_after
+            max_nodes = Convert-TaskspaceTraceInt $tags.max_nodes
+            budget_response_action_taken = Convert-TaskspaceTraceBool $tags.budget_response_action_taken
+            producer = [string]$tags.producer
+        })
     }
-    $maxSpawnAgentCalls = 0
+    $runtimeEvents = @($events.ToArray())
+    $spawnEvents = @($runtimeEvents | Where-Object { [string]$_.budget_kind -eq "spawn" })
+    $nodeEvents = @($runtimeEvents | Where-Object { [string]$_.budget_kind -eq "node" })
+    $blockedEvents = @($runtimeEvents | Where-Object { [string]$_.status -eq "blocked" })
+    $invalidBlockedEvents = @($blockedEvents | Where-Object { -not [bool]$_.budget_response_action_taken })
+    $spawnCount = if ($spawnEvents.Count -gt 0) { [int](@($spawnEvents | Measure-Object -Property spawn_agent_call_count_after -Maximum).Maximum) } else { 0 }
+    $maxSpawnAgentCalls = if ($spawnEvents.Count -gt 0) { [int](@($spawnEvents | Measure-Object -Property max_spawn_agent_calls -Maximum).Maximum) } else { 0 }
+    $nodeCountFromCreate = if ($nodeEvents.Count -gt 0) { [int](@($nodeEvents | Measure-Object -Property node_count_after -Maximum).Maximum) } else { 0 }
+    $nodeCountFromSpawn = if ($spawnEvents.Count -gt 0) { [int](@($spawnEvents | Measure-Object -Property node_count -Maximum).Maximum) } else { 0 }
+    $nodeCount = [Math]::Max($nodeCountFromCreate, $nodeCountFromSpawn)
+    $maxNodes = if ($runtimeEvents.Count -gt 0) { [int](@($runtimeEvents | Measure-Object -Property max_nodes -Maximum).Maximum) } else { 0 }
+    $sourceStatus = if ($runtimeEvents.Count -gt 0) { "runtime" } else { "missing_runtime" }
     [pscustomobject]@{
         schema_version = "taskspace-spawn-node-budget-summary-v1"
-        status = if ($sourceStatus -eq "read" -and $spawnCount -le $maxSpawnAgentCalls) { "pass" } else { "fail" }
+        status = if ($sourceStatus -eq "runtime" -and $spawnCount -le $maxSpawnAgentCalls -and $nodeCount -le $maxNodes -and $invalidBlockedEvents.Count -eq 0) { "pass" } else { "fail" }
+        within_budget_status = if ($sourceStatus -eq "runtime" -and $blockedEvents.Count -eq 0 -and $spawnCount -le $maxSpawnAgentCalls -and $nodeCount -le $maxNodes) { "pass" } else { "fail" }
+        over_budget_enforcement_status = if ($blockedEvents.Count -eq 0) { "not_observed" } elseif ($invalidBlockedEvents.Count -eq 0) { "pass" } else { "fail" }
         source_status = $sourceStatus
+        producer = "runtime"
         spawn_agent_call_count = [int]$spawnCount
         max_spawn_agent_calls = [int]$maxSpawnAgentCalls
         node_count = [int]$nodeCount
+        max_nodes = [int]$maxNodes
+        runtime_event_count = [int]$runtimeEvents.Count
+        blocked_budget_event_count = [int]$blockedEvents.Count
+        invalid_blocked_budget_event_count = [int]$invalidBlockedEvents.Count
+        runtime_events = @($runtimeEvents)
     }
 }
 
@@ -921,7 +983,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $budget = New-TaskspaceBudgetArtifacts $ObservabilityJsonPath
     $activeReplacement = New-TaskspaceActiveReplacementArtifacts $budget.budget_events
     $providerRequest = New-TaskspaceProviderRequestArtifacts $budget.budget_events $request
-    $stateCommitDisplacement = New-TaskspaceStateCommitDisplacementSummary $control
+    $stateCommitDisplacement = New-TaskspaceStateCommitDisplacementSummary $ObservabilityJsonPath
     $spawnNodeBudget = New-TaskspaceSpawnNodeBudgetSummary $ObservabilityJsonPath
     $tokenPath = Join-Path $ArtifactDir "token-summary.json"
     $requestPath = Join-Path $ArtifactDir "request-summary.json"

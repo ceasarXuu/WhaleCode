@@ -600,6 +600,8 @@ impl Default for ActionMapRuntimeState {
 
 impl ActionMapRuntimeState {
     pub(crate) const DEFAULT_PROVIDER_REQUEST_BUDGET_MAX: usize = 20;
+    pub(crate) const DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX: usize = 3;
+    pub(crate) const DEFAULT_ACTIVE_NODE_BUDGET_MAX: usize = 10;
 
     #[cfg(test)]
     pub(crate) fn mode(&self) -> MapRuntimeMode {
@@ -1506,6 +1508,49 @@ preview:\n\
         )])
     }
 
+    fn record_runtime_budget_trace_event(
+        &mut self,
+        kind: &str,
+        task_id: Option<TaskId>,
+        map_id: ActionMapId,
+        node_id: MapNodeId,
+        call_id: Option<String>,
+        tool_success: bool,
+        tags: Vec<String>,
+    ) -> MapRuntimeEvent {
+        let id = self.next_trace_event_id();
+        let created_at_ms = now_ms();
+        let event = TaskSpaceTraceEvent {
+            id: id.clone(),
+            kind: kind.to_string(),
+            task_id,
+            map_id,
+            node_id,
+            result_id: None,
+            call_id,
+            action_class: None,
+            tool_success: Some(tool_success),
+            tags,
+            artifact_refs: Vec::new(),
+            created_at_ms,
+        };
+        self.taskspace_trace_events.push(event.clone());
+        MapRuntimeEvent::TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent {
+            trace_event_id: id,
+            kind: event.kind.clone(),
+            task_id: event.task_id.clone(),
+            map_id: event.map_id.clone(),
+            node_id: event.node_id.clone(),
+            result_id: event.result_id.clone(),
+            call_id: event.call_id.clone(),
+            action_class: None,
+            tool_success: event.tool_success,
+            tags: event.tags.clone(),
+            artifact_refs: event.artifact_refs.clone(),
+            created_at_ms: event.created_at_ms,
+        })
+    }
+
     pub(crate) fn provider_request_budget_snapshot(
         &self,
     ) -> Option<ActionMapProviderRequestBudgetSnapshot> {
@@ -2139,6 +2184,46 @@ preview:\n\
             "TaskSpace mode is active but no active task path exists. Call taskspace_control(action=start_task) to create a new semantic task before creating extra nodes."
                 .to_string()
         })?;
+        let (task_id_for_budget, node_count_before, budget_trace_node_id) = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            (
+                map.task_id.clone(),
+                map.nodes.len(),
+                self.current_main_node_id
+                    .clone()
+                    .or_else(|| ordered_node_ids(map).into_iter().next())
+                    .unwrap_or_else(|| "node-budget".to_string()),
+            )
+        };
+        if node_count_before >= Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX {
+            let budget_event = self.record_runtime_budget_trace_event(
+                "spawn_node_budget",
+                task_id_for_budget,
+                map_id.clone(),
+                budget_trace_node_id,
+                None,
+                false,
+                vec![
+                    "schema:taskspace-spawn-node-budget-event-v1".to_string(),
+                    "producer:runtime".to_string(),
+                    "budget_kind:node".to_string(),
+                    "action:create_node".to_string(),
+                    "status:blocked".to_string(),
+                    format!("node_count_before:{node_count_before}"),
+                    format!("node_count_after:{node_count_before}"),
+                    format!("max_nodes:{}", Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX),
+                    "budget_response_action_taken:true".to_string(),
+                ],
+            );
+            events.push(budget_event);
+            return Err(format!(
+                "TaskSpace blocked create_node because active profile node budget is exhausted: {node_count_before}/{}.",
+                Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX
+            ));
+        }
         let node_id = self.next_node_id();
         let map = self
             .maps
@@ -2248,6 +2333,26 @@ preview:\n\
         if bind_current {
             events.extend(self.bind_main_node(owner_session_id, &node_id)?);
         }
+        let task_id_for_budget = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
+        events.push(self.record_runtime_budget_trace_event(
+            "spawn_node_budget",
+            task_id_for_budget,
+            map_id.clone(),
+            node_id.clone(),
+            None,
+            true,
+            vec![
+                "schema:taskspace-spawn-node-budget-event-v1".to_string(),
+                "producer:runtime".to_string(),
+                "budget_kind:node".to_string(),
+                "action:create_node".to_string(),
+                "status:allowed".to_string(),
+                format!("node_count_before:{node_count_before}"),
+                format!("node_count_after:{}", node_count_before + 1),
+                format!("max_nodes:{}", Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX),
+                "budget_response_action_taken:false".to_string(),
+            ],
+        ));
         Ok((node_id, events))
     }
 
@@ -3573,11 +3678,49 @@ preview:\n\
         };
         events.push(MapRuntimeEvent::CognitiveStateUpdated(
             MapRuntimeCognitiveStateUpdatedEvent {
-                task_id,
-                map_id: Some(map_id),
+                task_id: task_id.clone(),
+                map_id: Some(map_id.clone()),
                 update_kind: format!("state_commit.{}", outcome.status.as_str()),
-                record_id: commit_id,
+                record_id: commit_id.clone(),
             },
+        ));
+        let legacy_state_action_attempt_count =
+            outcome.accepted_sections.len() + outcome.rejected_sections.len();
+        let legacy_state_action_displaced_count = outcome.accepted_sections.len();
+        let trace_node_id = self
+            .current_main_node_id
+            .clone()
+            .or_else(|| {
+                self.maps
+                    .get(&map_id)
+                    .and_then(|map| ordered_node_ids(map).into_iter().next())
+            })
+            .unwrap_or_else(|| "state-commit".to_string());
+        events.push(self.record_runtime_budget_trace_event(
+            "state_commit_displacement",
+            Some(task_id.clone()),
+            map_id.clone(),
+            trace_node_id,
+            Some(outcome.commit_id.clone()),
+            outcome.status != ActionMapStateCommitStatus::Rejected,
+            vec![
+                "schema:taskspace-state-commit-displacement-event-v1".to_string(),
+                "producer:runtime".to_string(),
+                format!("status:{}", outcome.status.as_str()),
+                format!("commit_id:{}", outcome.commit_id),
+                format!("accepted_section_count:{}", outcome.accepted_sections.len()),
+                format!("rejected_section_count:{}", outcome.rejected_sections.len()),
+                "state_commit_count:1".to_string(),
+                "model_visible_state_commit_count:1".to_string(),
+                "runtime_synthesized_state_commit_count:0".to_string(),
+                format!("legacy_state_action_attempt_count:{legacy_state_action_attempt_count}"),
+                format!(
+                    "legacy_state_action_displaced_count:{legacy_state_action_displaced_count}"
+                ),
+                "legacy_state_action_count:0".to_string(),
+                "legacy_state_action_budget:0".to_string(),
+                "budget_response_action_taken:false".to_string(),
+            ],
         ));
         self.applied_state_commits
             .insert(outcome.commit_id.clone(), outcome.clone());
@@ -4667,6 +4810,54 @@ preview:\n\
                     .to_string(),
             );
         };
+        let (task_id_for_budget, spawn_count_before, node_count_for_budget, budget_trace_node_id) = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            (
+                map.task_id.clone(),
+                map.leases
+                    .values()
+                    .filter(|lease| lease.holder == LeaseHolder::SubAgent)
+                    .count(),
+                map.nodes.len(),
+                self.current_main_node_id
+                    .clone()
+                    .or_else(|| ordered_node_ids(map).into_iter().next())
+                    .unwrap_or_else(|| "spawn-budget".to_string()),
+            )
+        };
+        if spawn_count_before >= Self::DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX {
+            events.push(self.record_runtime_budget_trace_event(
+                "spawn_node_budget",
+                task_id_for_budget,
+                map_id.clone(),
+                budget_trace_node_id,
+                None,
+                false,
+                vec![
+                    "schema:taskspace-spawn-node-budget-event-v1".to_string(),
+                    "producer:runtime".to_string(),
+                    "budget_kind:spawn".to_string(),
+                    "action:spawn_agent".to_string(),
+                    "status:blocked".to_string(),
+                    format!("spawn_agent_call_count_before:{spawn_count_before}"),
+                    format!("spawn_agent_call_count_after:{spawn_count_before}"),
+                    format!(
+                        "max_spawn_agent_calls:{}",
+                        Self::DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX
+                    ),
+                    format!("node_count:{node_count_for_budget}"),
+                    format!("max_nodes:{}", Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX),
+                    "budget_response_action_taken:true".to_string(),
+                ],
+            ));
+            return Err(format!(
+                "TaskSpace blocked spawn_agent because active profile spawn budget is exhausted: {spawn_count_before}/{}.",
+                Self::DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX
+            ));
+        }
         if let Some(current_node_id) = self.current_main_node_id.as_deref() {
             let map = self
                 .maps
@@ -4750,6 +4941,31 @@ preview:\n\
             lease_id: lease_id.clone(),
             holder: LeaseHolder::SubAgent.as_str().to_string(),
         }));
+        let task_id_for_budget = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
+        events.push(self.record_runtime_budget_trace_event(
+            "spawn_node_budget",
+            task_id_for_budget,
+            map_id.clone(),
+            node_id.clone(),
+            Some(lease_id.clone()),
+            true,
+            vec![
+                "schema:taskspace-spawn-node-budget-event-v1".to_string(),
+                "producer:runtime".to_string(),
+                "budget_kind:spawn".to_string(),
+                "action:spawn_agent".to_string(),
+                "status:allowed".to_string(),
+                format!("spawn_agent_call_count_before:{spawn_count_before}"),
+                format!("spawn_agent_call_count_after:{}", spawn_count_before + 1),
+                format!(
+                    "max_spawn_agent_calls:{}",
+                    Self::DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX
+                ),
+                format!("node_count:{node_count_for_budget}"),
+                format!("max_nodes:{}", Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX),
+                "budget_response_action_taken:false".to_string(),
+            ],
+        ));
 
         Ok((
             Some(ActionMapAssignment {
@@ -10233,6 +10449,140 @@ mod tests {
             MapRuntimeEvent::CognitiveStateUpdated(event)
                 if event.update_kind == "state_commit.replayed"
         )));
+    }
+
+    #[test]
+    fn state_commit_records_runtime_displacement_trace() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_unseeded_test_task(
+            &mut state,
+            owner,
+            "Track state",
+            "Record state through state_commit",
+            true,
+        );
+
+        let (_outcome, events) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-runtime-trace".to_string(),
+                    success_criteria: vec![ActionMapSuccessCriterionInput {
+                        id: "sc-runtime-trace".to_string(),
+                        kind: "test".to_string(),
+                        description: "runtime trace exists".to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("test-fixture:trace".to_string()),
+                            ..Default::default()
+                        }],
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect("state commit records runtime trace");
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                if event.kind == "state_commit_displacement"
+                    && event.call_id.as_deref() == Some("commit-runtime-trace")
+                    && event.tags.iter().any(|tag| tag == "producer:runtime")
+                    && event
+                        .tags
+                        .iter()
+                        .any(|tag| tag == "legacy_state_action_attempt_count:1")
+                    && event
+                        .tags
+                        .iter()
+                        .any(|tag| tag == "legacy_state_action_displaced_count:1")
+                    && event.tags.iter().any(|tag| tag == "legacy_state_action_count:0")
+        )));
+    }
+
+    #[test]
+    fn create_node_records_runtime_node_budget_trace() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_unseeded_test_task(
+            &mut state,
+            owner,
+            "Track nodes",
+            "Record node budget through runtime",
+            true,
+        );
+
+        let (_node_id, events) = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Implement focused fix".to_string(),
+                "Small implementation node".to_string(),
+                vec![],
+                false,
+            )
+            .expect("node creation records budget trace");
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                if event.kind == "spawn_node_budget"
+                    && event.tags.iter().any(|tag| tag == "producer:runtime")
+                    && event.tags.iter().any(|tag| tag == "budget_kind:node")
+                    && event.tags.iter().any(|tag| tag == "status:allowed")
+                    && event.tags.iter().any(|tag| tag == "max_nodes:10")
+        )));
+    }
+
+    #[test]
+    fn create_node_blocks_when_runtime_node_budget_exhausted() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_unseeded_test_task(
+            &mut state,
+            owner,
+            "Track node cap",
+            "Block broad node expansion through runtime",
+            true,
+        );
+
+        for index in 1..ActionMapRuntimeState::DEFAULT_ACTIVE_NODE_BUDGET_MAX {
+            state
+                .create_node_for_main_with_kind(
+                    owner,
+                    NodeKind::ImplementSolution,
+                    format!("Budget node {index}"),
+                    "Budget fixture node".to_string(),
+                    vec![],
+                    false,
+                )
+                .expect("node within runtime budget");
+        }
+
+        let error = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Node over budget".to_string(),
+                "Budget fixture node".to_string(),
+                vec![],
+                false,
+            )
+            .expect_err("node budget should be exhausted");
+        assert!(error.contains("node budget is exhausted"));
+        assert!(state.taskspace_trace_events.iter().any(|event| {
+            event.kind == "spawn_node_budget"
+                && event.tags.iter().any(|tag| tag == "budget_kind:node")
+                && event.tags.iter().any(|tag| tag == "status:blocked")
+                && event
+                    .tags
+                    .iter()
+                    .any(|tag| tag == "budget_response_action_taken:true")
+        }));
     }
 
     #[test]

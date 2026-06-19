@@ -105,6 +105,17 @@ function Get-ReleaseStableObjectHash {
     }
 }
 
+function Get-ReleaseStringSha256 {
+    param([string]$Value)
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace "-", "").ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+    }
+}
+
 function Test-ReleaseReceiptHashChain {
     param([object[]]$Events)
     if ($Events.Count -eq 0) { return $false }
@@ -444,11 +455,16 @@ $startGatePass = ($startGate `
     -and (Get-ReleaseBool $startGate.gate_decision "calibration_gate_passed"))
 $codeCompleteMarkerPass = ($v005CodeCompleteMarker `
     -and [string]$v005CodeCompleteMarker.status -eq "pass" `
+    -and (Get-ReleaseInt $v005CodeCompleteMarker "schema_version" 0) -eq 1 `
     -and (Get-ReleaseBool $v005CodeCompleteMarker "code_complete") `
     -and (Get-ReleaseString $v005CodeCompleteMarker "task_list_hash") -eq $runTaskListHash `
     -and (Get-ReleaseString $v005CodeCompleteMarker "source_version") -eq $runSourceVersion `
     -and (Get-ReleaseString $v005CodeCompleteMarker "profile_hash") -eq $runRunnerProfileHash `
-    -and (Get-ReleaseString $v005CodeCompleteMarker "sample_set_id") -eq $expectedFormalSampleSetId)
+    -and (Get-ReleaseString $v005CodeCompleteMarker "sample_set_id") -eq $expectedFormalSampleSetId `
+    -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $v005CodeCompleteMarker "generated_at")) `
+    -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $v005CodeCompleteMarker "git_commit")) `
+    -and @($v005CodeCompleteMarker.test_outputs).Count -gt 0 `
+    -and @($v005CodeCompleteMarker.unfinished_p0_items).Count -eq 0)
 $userApprovalMarkerPass = ($v005UserApprovalMarker `
     -and [string]$v005UserApprovalMarker.status -eq "pass" `
     -and (Get-ReleaseString $v005UserApprovalMarker "approved_command_category") -eq "full_e3" `
@@ -495,6 +511,7 @@ $receiptRunInitialized = @($suiteReceiptEvents | Where-Object { [string]$_.event
 $receiptSampleScheduled = @($suiteReceiptEvents | Where-Object { [string]$_.event -eq "sample_scheduled" })
 $receiptSampleCompleted = @($suiteReceiptEvents | Where-Object { [string]$_.event -eq "sample_completed" })
 $receiptFinalized = @($suiteReceiptEvents | Where-Object { [string]$_.event -eq "suite_finalized" })
+$receiptRunnerAttestationGenerated = @($suiteReceiptEvents | Where-Object { [string]$_.event -eq "runner_attestation_generated" })
 $suiteReceiptHashChainPass = Test-ReleaseReceiptHashChain $suiteReceiptEvents
 $receiptScheduledSamples = New-Object 'System.Collections.Generic.HashSet[string]'
 foreach ($event in @($receiptSampleScheduled)) {
@@ -531,7 +548,10 @@ $suiteReceiptPass = ($suiteReceiptEvents.Count -gt 0 `
     -and (Get-ReleaseString $receiptRunInitialized[0] "profile_hash") -eq $runRunnerProfileHash)
 $actualSuiteRunnerAttestationSha256 = Get-ReleaseFileSha256 $suiteRunnerAttestationPath
 $attestationCommandLine = Get-ReleaseString $suiteRunnerAttestation "command_line"
+$attestationCommandLineSha256 = Get-ReleaseStringSha256 $attestationCommandLine
 $attestationSuiteRoot = Get-ReleaseString $suiteRunnerAttestation "suite_root"
+$attestationRunnerNonce = Get-ReleaseString $suiteRunnerAttestation "runner_nonce"
+$attestationReceiptEventHashBefore = Get-ReleaseString $suiteRunnerAttestation "suite_receipt_event_hash_before_attestation"
 $attestationCommandLinePass = ($attestationCommandLine -match 'run-taskspace-e3-suite\.ps1' `
     -and $attestationCommandLine -notmatch 'test-release-decision' `
     -and $attestationCommandLine -notmatch 'fixture')
@@ -545,6 +565,16 @@ if (-not [string]::IsNullOrWhiteSpace($attestationSuiteRoot)) {
         $attestationSuiteRootPass = $false
     }
 }
+$attestationReceiptEvents = @($receiptRunnerAttestationGenerated | Where-Object {
+        [string]$_.runner_nonce -eq $attestationRunnerNonce -and
+        [string]$_.suite_runner_attestation_sha256 -eq $actualSuiteRunnerAttestationSha256 -and
+        [string]$_.command_line_sha256 -eq $attestationCommandLineSha256 -and
+        [string]$_.suite_receipt_event_hash_before_attestation -eq $attestationReceiptEventHashBefore -and
+        (Get-ReleaseInt $_ "process_id" 0) -eq (Get-ReleaseInt $suiteRunnerAttestation "process_id" 0)
+    })
+$attestationReceiptChainPass = ($attestationReceiptEvents.Count -eq 1 `
+    -and -not [string]::IsNullOrWhiteSpace($attestationRunnerNonce) `
+    -and -not [string]::IsNullOrWhiteSpace($attestationReceiptEventHashBefore))
 $suiteRunnerAttestationPass = ($suiteRunnerAttestation `
     -and $runSuiteRunnerAttestationSha256 -match '^[a-fA-F0-9]{64}$' `
     -and $runSuiteRunnerAttestationSha256 -eq $actualSuiteRunnerAttestationSha256 `
@@ -555,11 +585,12 @@ $suiteRunnerAttestationPass = ($suiteRunnerAttestation `
     -and (Get-ReleaseString $suiteRunnerAttestation "child_runner_sha256") -eq $runChildRunnerSha256 `
     -and (Get-ReleaseString $suiteRunnerAttestation "task_list_sha256") -eq $runTaskListSha256 `
     -and (Get-ReleaseString $suiteRunnerAttestation "suite_manifest_sha256") -eq $runSuiteManifestSha256 `
-    -and (Get-ReleaseString $suiteRunnerAttestation "suite_receipt_sha256") -eq $runSuiteReceiptSha256 `
+    -and (Get-ReleaseString $suiteRunnerAttestation "suite_receipt_sha256_before_attestation") -match '^[a-fA-F0-9]{64}$' `
     -and (Get-ReleaseString $suiteRunnerAttestation "profile_hash") -eq $runRunnerProfileHash `
     -and (Get-ReleaseString $suiteRunnerAttestation "sample_set_id") -eq $runSampleSetId `
     -and $attestationCommandLinePass `
     -and $attestationSuiteRootPass `
+    -and $attestationReceiptChainPass `
     -and (Get-ReleaseInt $suiteRunnerAttestation "process_id" 0) -gt 0)
 $formalE3IdentityPass = ($runStatus `
     -and $runSampleSetId -eq $expectedFormalSampleSetId `
@@ -688,8 +719,11 @@ $activeReplacementPass = ($activeReplacement `
     -and $exactScanPass)
 $stateCommitDisplacementPass = ($stateCommitDisplacement `
     -and (Get-ReleaseString $stateCommitDisplacement "status") -eq "pass" `
+    -and (Get-ReleaseBool $stateCommitDisplacement "has_displacement_denominator") `
+    -and (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_attempt_count" 0) -gt 0 `
+    -and (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_displaced_count" 0) -ge (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_attempt_count" 0) `
     -and (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_count" 999999) -le (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_budget" 0))
-$spawnNodeBudgetPass = ($spawnNodeBudget -and (Get-ReleaseString $spawnNodeBudget "status") -eq "pass")
+$spawnNodeBudgetPass = ($spawnNodeBudget -and (Get-ReleaseString $spawnNodeBudget "status") -eq "pass" -and (Get-ReleaseString $spawnNodeBudget "within_budget_status") -eq "pass")
 $requiredV005NonAgentGates = @(
     "provider_request_hook",
     "runtime_budget_response",
@@ -716,12 +750,12 @@ if ($v005NonAgentGatesPass) {
             $v005NonAgentGatesPass = $false
             break
         }
-        if ([string]::IsNullOrWhiteSpace([string]$gateValue.command) -or (Get-ReleaseInt $gateValue "exit_code" -999) -ne 0 -or [string]::IsNullOrWhiteSpace([string]$gateValue.generated_at) -or [string]::IsNullOrWhiteSpace([string]$gateValue.git_commit) -or [string]::IsNullOrWhiteSpace([string]$gateValue.profile_hash) -or [string]::IsNullOrWhiteSpace([string]$gateValue.evidence_sha256)) {
+        if ([string]::IsNullOrWhiteSpace([string]$gateValue.command) -or (Get-ReleaseInt $gateValue "exit_code" -999) -ne 0 -or [string]::IsNullOrWhiteSpace([string]$gateValue.generated_at) -or [string]::IsNullOrWhiteSpace([string]$gateValue.git_commit) -or [string]::IsNullOrWhiteSpace([string]$gateValue.profile_hash) -or [string]::IsNullOrWhiteSpace([string]$gateValue.task_list_hash) -or [string]::IsNullOrWhiteSpace([string]$gateValue.source_version) -or [string]::IsNullOrWhiteSpace([string]$gateValue.evidence_sha256)) {
             $v005NonAgentGatesPass = $false
             break
         }
         $evidenceSha = Get-ReleaseFileSha256 ([string]$gateValue.evidence_path)
-        if ($evidenceSha -ne ([string]$gateValue.evidence_sha256).ToLowerInvariant() -or [string]$gateValue.profile_hash -ne $runRunnerProfileHash) {
+        if ($evidenceSha -ne ([string]$gateValue.evidence_sha256).ToLowerInvariant() -or [string]$gateValue.profile_hash -ne $runRunnerProfileHash -or [string]$gateValue.task_list_hash -ne $runTaskListHash -or [string]$gateValue.source_version -ne $runSourceVersion) {
             $v005NonAgentGatesPass = $false
             break
         }
@@ -796,6 +830,8 @@ $summary = [pscustomobject]@{
     suite_runner_attestation_gate_pass = [bool]$suiteRunnerAttestationPass
     suite_runner_attestation_command_line_pass = [bool]$attestationCommandLinePass
     suite_runner_attestation_suite_root_pass = [bool]$attestationSuiteRootPass
+    suite_runner_attestation_receipt_chain_pass = [bool]$attestationReceiptChainPass
+    suite_runner_attestation_receipt_event_count = [int]$attestationReceiptEvents.Count
     suite_runner_attestation_sha256 = $runSuiteRunnerAttestationSha256
     artifact_origin = $runArtifactOrigin
     sample_set_id = $runSampleSetId
@@ -887,6 +923,8 @@ Add-ReleaseLine $lines "- suite_receipt_hash_chain_pass: $suiteReceiptHashChainP
 Add-ReleaseLine $lines "- suite_runner_attestation_gate_pass: $suiteRunnerAttestationPass"
 Add-ReleaseLine $lines "- suite_runner_attestation_command_line_pass: $attestationCommandLinePass"
 Add-ReleaseLine $lines "- suite_runner_attestation_suite_root_pass: $attestationSuiteRootPass"
+Add-ReleaseLine $lines "- suite_runner_attestation_receipt_chain_pass: $attestationReceiptChainPass"
+Add-ReleaseLine $lines "- suite_runner_attestation_receipt_event_count: $($attestationReceiptEvents.Count)"
 Add-ReleaseLine $lines "- artifact_origin: $runArtifactOrigin"
 Add-ReleaseLine $lines "- sample_set_id: $runSampleSetId"
 Add-ReleaseLine $lines "- task_list_identity_source: $taskListIdentitySource"

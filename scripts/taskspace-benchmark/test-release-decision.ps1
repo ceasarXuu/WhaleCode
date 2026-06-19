@@ -131,11 +131,14 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         }) (Join-Path $dir "active-context-replacement-report.json")
     Write-Json ([pscustomobject]@{
             status = "pass"
+            has_displacement_denominator = $true
+            legacy_state_action_attempt_count = 1
+            legacy_state_action_displaced_count = 1
             legacy_state_action_count = 0
             legacy_state_action_budget = 0
             state_commit_count = 1
         }) (Join-Path $dir "state-commit-displacement.json")
-    Write-Json ([pscustomobject]@{ status = "pass"; spawn_agent_call_count = 0; max_spawn_agent_calls = 0 }) (Join-Path $dir "spawn-node-budget-summary.json")
+    Write-Json ([pscustomobject]@{ status = "pass"; within_budget_status = "pass"; over_budget_enforcement_status = "not_observed"; spawn_agent_call_count = 0; max_spawn_agent_calls = 0 }) (Join-Path $dir "spawn-node-budget-summary.json")
     $profileHash = "profile-fixture-hash"
     $sourceVersion = "terminal-bench@fixture"
     $taskListHash = "task-list-fixture-hash"
@@ -193,12 +196,17 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         }) (Join-Path $dir "v005-non-agent-gates.json")
     $codeCompletePath = Join-Path $dir "v005-code-complete.json"
     Write-Json ([pscustomobject]@{
+            schema_version = 1
             status = "pass"
             code_complete = $true
             task_list_hash = $taskListHash
             source_version = $sourceVersion
             profile_hash = $profileHash
             sample_set_id = $sampleSetId
+            generated_at = "2026-06-19T00:00:00.0000000Z"
+            git_commit = "fixture-head"
+            test_outputs = @("target/fixture/non-agent-gates.txt")
+            unfinished_p0_items = @()
         }) $codeCompletePath
     $userApprovalPath = Join-Path $dir "v005-user-approval.json"
     Write-Json ([pscustomobject]@{
@@ -712,6 +720,26 @@ Write-Json ([pscustomobject]@{ status = "pass"; schema_version = 1 }) (Join-Path
 Assert-True ($LASTEXITCODE -eq 1) "weak non-agent gates fixture did not exit 1"
 $weakNonAgentDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $weakNonAgentDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($weakNonAgentDecision.blockers) -contains "v005_non_agent_gates_failed") "weak non-agent gates fixture did not report v005 gate blocker"
+
+$mismatchedNonAgentIdentityDir = New-FixtureRun "mismatched-non-agent-identity" "PASS" $true 0
+$mismatchedNonAgent = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $mismatchedNonAgentIdentityDir "v005-non-agent-gates.json") | ConvertFrom-Json
+$mismatchedNonAgent.gates.provider_request_hook.task_list_hash = "different-task-list-hash"
+$mismatchedNonAgent.gates.request_phase_attribution.source_version = "different-source-version"
+$mismatchedNonAgent | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $mismatchedNonAgentIdentityDir "v005-non-agent-gates.json") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $mismatchedNonAgentIdentityDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "mismatched non-agent identity fixture did not exit 1"
+$mismatchedNonAgentIdentityDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $mismatchedNonAgentIdentityDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($mismatchedNonAgentIdentityDecision.blockers) -contains "v005_non_agent_gates_failed") "mismatched non-agent identity fixture did not report v005 gate blocker"
+
+$weakCodeCompleteDir = New-FixtureRun "weak-code-complete-marker" "PASS" $true 0
+$weakCodeComplete = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $weakCodeCompleteDir "v005-code-complete.json") | ConvertFrom-Json
+$weakCodeComplete.PSObject.Properties.Remove("test_outputs")
+$weakCodeComplete.unfinished_p0_items = @("provider_request_budget")
+$weakCodeComplete | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $weakCodeCompleteDir "v005-code-complete.json") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $weakCodeCompleteDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "weak code-complete marker fixture did not exit 1"
+$weakCodeCompleteDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $weakCodeCompleteDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($weakCodeCompleteDecision.blockers) -contains "v005_code_complete_marker_failed") "weak code-complete marker fixture did not report code-complete blocker"
 
 $missingApprovalTimestampDir = New-FixtureRun "missing-approval-timestamp" "PASS" $true 0
 $missingApprovalMarker = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingApprovalTimestampDir "v005-user-approval.json") | ConvertFrom-Json

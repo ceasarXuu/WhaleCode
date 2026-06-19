@@ -189,7 +189,7 @@ try {
     $scenarioDir = Join-Path $runDir "scenario-pass"
     New-GateScenario $scenarioDir
     $gate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-pass") -ScenarioPath $scenarioDir -RunRoot (Join-Path $runDir "runs") -AllowSkippedSelfTests -AllowSkippedOnePairSmoke -AllowSkippedCalibrationGate -SelfTestCommands @()
-    Assert-True ([string]$gate.status -eq "pass" -and [int]$gate.exit_code -eq 0) "start gate did not pass clean fixture"
+    Assert-True ([string]$gate.status -eq "blocked_for_full_e3" -and [int]$gate.exit_code -eq 0 -and -not [bool]$gate.gate_decision.full_e3_allowed) "start gate did not expose missing v0.0.5 markers as blocked_for_full_e3"
     Assert-True (Test-Path -LiteralPath $gate.json_path) "start gate did not write json artifact"
     Assert-True (Test-Path -LiteralPath $gate.markdown_path) "start gate did not write markdown artifact"
 
@@ -200,7 +200,7 @@ try {
     New-Item -ItemType Directory -Force -Path $smokeRoot | Out-Null
     [pscustomobject]@{ score_valid = $true; run_validity = "valid"; clean_comparable_pair_count = 1 } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $smokeRoot "aggregate.json") -Encoding UTF8
     $smokeGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-smoke-pass") -ScenarioPath $scenarioDir -OnePairSmokeRoot $smokeRoot -RunRoot (Join-Path $runDir "runs") -AllowSkippedSelfTests -AllowSkippedCalibrationGate -SelfTestCommands @()
-    Assert-True ([string]$smokeGate.status -eq "pass" -and @($smokeGate.gates | Where-Object { [string]$_.name -eq "one_pair_smoke" -and [string]$_.status -eq "pass" }).Count -eq 1) "start gate did not accept valid one-pair smoke artifact when calibration gate is explicitly skipped"
+    Assert-True ([string]$smokeGate.status -eq "blocked_for_full_e3" -and @($smokeGate.gates | Where-Object { [string]$_.name -eq "one_pair_smoke" -and [string]$_.status -eq "pass" }).Count -eq 1) "start gate did not accept valid one-pair smoke artifact while blocking missing v0.0.5 markers"
     $aggregateOnlyCalibrationGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-aggregate-only-calibration-fail") -ScenarioPath $scenarioDir -OnePairSmokeRoot $smokeRoot -RunRoot (Join-Path $runDir "runs") -AllowSkippedSelfTests -SelfTestCommands @()
     Assert-True ([string]$aggregateOnlyCalibrationGate.status -eq "fail" -and @($aggregateOnlyCalibrationGate.gates | Where-Object { [string]$_.name -eq "calibration_one_pair_smoke" -and [string]$_.status -eq "fail" }).Count -eq 1) "start gate allowed aggregate-only one-pair root without timing calibration artifacts"
     $aggregateOnlyDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregateOnlyCalibrationGate.gate_decision_path | ConvertFrom-Json
@@ -217,13 +217,14 @@ try {
         ([pscustomobject]@{ sample_id = $_; task_dir = $scenarioDir; source_version = "fixture-source" } | ConvertTo-Json -Compress)
     } | Set-Content -LiteralPath $earlyFormalP0TaskList -Encoding UTF8
     $calibratedGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-calibration-pass") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -AllowSkippedSelfTests -SelfTestCommands @()
-    Assert-True ([string]$calibratedGate.status -eq "pass" -and @($calibratedGate.gates | Where-Object { [string]$_.name -eq "calibration_parallel_smoke" -and [string]$_.status -eq "pass" }).Count -eq 1) "start gate did not pass complete calibration evidence"
+    Assert-True ([string]$calibratedGate.status -eq "blocked_for_full_e3" -and @($calibratedGate.gates | Where-Object { [string]$_.name -eq "calibration_parallel_smoke" -and [string]$_.status -eq "pass" }).Count -eq 1) "start gate did not preserve complete calibration evidence while blocking missing v0.0.5 markers"
     Assert-True (Test-Path -LiteralPath $calibratedGate.gate_decision_path) "start gate did not write gate-decision artifact"
     $gateDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $calibratedGate.gate_decision_path | ConvertFrom-Json
-    Assert-True ([string]$gateDecision.status -eq "pass" -and [string]$gateDecision.task_list_hash -eq "task-list-a" -and [string]$gateDecision.profile_hash -eq "profile-a") "gate-decision did not preserve expected identity"
-    Assert-True ([string]$gateDecision.next_allowed_command_category -eq "targeted_diagnostic" -and -not [bool]$gateDecision.full_e3_allowed -and -not [bool]$gateDecision.v005_markers_passed) "gate-decision authorized full E3 without v0.0.5 markers"
+    Assert-True ([string]$gateDecision.status -eq "blocked" -and [string]$gateDecision.task_list_hash -eq "task-list-a" -and [string]$gateDecision.profile_hash -eq "profile-a") "gate-decision did not preserve expected identity"
+    Assert-True ([string]$gateDecision.next_allowed_command_category -eq "fixture_tests" -and -not [bool]$gateDecision.full_e3_allowed -and -not [bool]$gateDecision.v005_markers_passed) "gate-decision authorized full E3 without v0.0.5 markers"
     $calibratedWithMarkersGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-calibration-markers-pass") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -TaskListPath $earlyFormalP0TaskList -Benchmark terminal-bench -Repeats 5 -V005NonAgentGatesPath $v005NonAgentPath -V005CodeCompleteMarkerPath $v005CodeCompletePath -V005UserApprovalMarkerPath $v005UserApprovalPath -AllowSkippedSelfTests -SelfTestCommands @()
     $gateDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $calibratedWithMarkersGate.gate_decision_path | ConvertFrom-Json
+    Assert-True ([string]$calibratedWithMarkersGate.status -eq "pass") "start gate did not pass after complete calibration and v0.0.5 markers"
     Assert-True ([string]$gateDecision.next_allowed_command_category -eq "full_e3" -and [bool]$gateDecision.full_e3_allowed -and [bool]$gateDecision.speed_claim_allowed -and [bool]$gateDecision.calibration_gate_passed -and [bool]$gateDecision.v005_markers_passed) "gate-decision did not authorize full E3 after complete calibration and v0.0.5 markers"
     $calibratedMarkdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $calibratedWithMarkersGate.markdown_path
     Assert-True ($calibratedMarkdown -match "next_allowed_command_category: full_e3" -and $calibratedMarkdown -match "full_e3_allowed: True" -and $calibratedMarkdown -match "speed_claim_allowed: True") "start gate markdown did not expose gate-decision summary"
@@ -276,7 +277,7 @@ try {
     $sampleSetMismatchGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-sample-set-mismatch") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -ExpectedSampleSetId "terminal-bench_E3-P0_3_5" -V005NonAgentGatesPath $sampleSetMismatchMarkers.non_agent_path -V005CodeCompleteMarkerPath $sampleSetMismatchMarkers.code_complete_path -V005UserApprovalMarkerPath $sampleSetMismatchMarkers.user_approval_path -AllowSkippedSelfTests -SelfTestCommands @()
     Assert-True (-not [bool]$sampleSetMismatchGate.gate_decision.full_e3_allowed -and @($sampleSetMismatchGate.gates | Where-Object { [string]$_.stable_code -eq "v005_user_approval_sample_set_mismatch" }).Count -eq 1) "start gate accepted user approval for a different sample set"
     $skippedCalibrationDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $smokeGate.gate_decision_path | ConvertFrom-Json
-    Assert-True ([string]$skippedCalibrationDecision.next_allowed_command_category -eq "targeted_diagnostic" -and -not [bool]$skippedCalibrationDecision.full_e3_allowed -and -not [bool]$skippedCalibrationDecision.speed_claim_allowed -and -not [bool]$skippedCalibrationDecision.v005_markers_passed) "gate-decision authorized full E3 when calibration or v0.0.5 markers were skipped"
+    Assert-True ([string]$skippedCalibrationDecision.next_allowed_command_category -eq "fixture_tests" -and -not [bool]$skippedCalibrationDecision.full_e3_allowed -and -not [bool]$skippedCalibrationDecision.speed_claim_allowed -and -not [bool]$skippedCalibrationDecision.v005_markers_passed) "gate-decision authorized full E3 when calibration or v0.0.5 markers were skipped"
     $blockedCalibration = New-CalibrationFixtures (Join-Path $runDir "calibration-speedup-evidence-fail")
     $blockedCalibrationReport = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $blockedCalibration.serial_root "runtime-calibration-report.json") | ConvertFrom-Json
     $blockedCalibrationReport.speedup_evidence_valid = $false
@@ -361,14 +362,14 @@ try {
     $taskList = Join-Path $runDir "tasks.jsonl"
     ([pscustomobject]@{ task_dir = $scenarioDir; source_version = "fixture-source" } | ConvertTo-Json -Compress) | Set-Content -LiteralPath $taskList -Encoding UTF8
     $taskListGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-tasklist-pass") -TaskListPath $taskList -RunRoot (Join-Path $runDir "runs") -AllowSkippedPathContract -AllowSkippedSelfTests -AllowSkippedOnePairSmoke -AllowSkippedCalibrationGate -SelfTestCommands @()
-    Assert-True ([string]$taskListGate.status -eq "pass" -and @($taskListGate.gates | Where-Object { [string]$_.name -eq "path_contract" -and [string]$_.status -eq "skipped_allowed" }).Count -eq 1) "start gate did not require explicit skipped path-contract allow"
+    Assert-True ([string]$taskListGate.status -eq "blocked_for_full_e3" -and @($taskListGate.gates | Where-Object { [string]$_.name -eq "path_contract" -and [string]$_.status -eq "skipped_allowed" }).Count -eq 1) "start gate did not require explicit skipped path-contract allow"
 
     $formalP0TaskList = Join-Path $runDir "formal-p0-tasks.jsonl"
     @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log") | ForEach-Object {
         ([pscustomobject]@{ sample_id = $_; task_dir = $scenarioDir; source_version = "fixture-source" } | ConvertTo-Json -Compress)
     } | Set-Content -LiteralPath $formalP0TaskList -Encoding UTF8
     $formalP0Gate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-formal-p0-tasklist-pass") -TaskListPath $formalP0TaskList -Benchmark terminal-bench -Repeats 5 -ExpectedSampleSetId "terminal-bench_E3-P0_3_5" -RunRoot (Join-Path $runDir "runs") -AllowSkippedPathContract -AllowSkippedSelfTests -AllowSkippedOnePairSmoke -AllowSkippedCalibrationGate -SelfTestCommands @()
-    Assert-True ([string]$formalP0Gate.status -eq "pass" -and @($formalP0Gate.gates | Where-Object { [string]$_.name -eq "task_list" -and [string]$_.status -eq "pass" }).Count -eq 1) "start gate did not accept the registered formal P0 task list"
+    Assert-True ([string]$formalP0Gate.status -eq "blocked_for_full_e3" -and @($formalP0Gate.gates | Where-Object { [string]$_.name -eq "task_list" -and [string]$_.status -eq "pass" }).Count -eq 1) "start gate did not accept the registered formal P0 task list"
 
     $wrongFormalP0TaskList = Join-Path $runDir "wrong-formal-p0-tasks.jsonl"
     @("processing-pipeline", "multi-source-data-merger", "hello-world") | ForEach-Object {

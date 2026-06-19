@@ -114,6 +114,66 @@ $obs = [pscustomobject]@{
                 "bounded_recovery_used:false",
                 "final_classification:blocked_by_budget"
             )
+        },
+        [pscustomobject]@{
+            kind = "state_commit_displacement"
+            trace_event_id = "trace-state-commit-1"
+            task_id = "task-1"
+            map_id = "map-1"
+            node_id = "node-1"
+            call_id = "commit-1"
+            tags = @(
+                "schema:taskspace-state-commit-displacement-event-v1",
+                "producer:runtime",
+                "status:accepted",
+                "commit_id:commit-1",
+                "accepted_section_count:2",
+                "rejected_section_count:0",
+                "state_commit_count:1",
+                "model_visible_state_commit_count:1",
+                "runtime_synthesized_state_commit_count:0",
+                "legacy_state_action_attempt_count:2",
+                "legacy_state_action_displaced_count:2",
+                "legacy_state_action_count:0",
+                "legacy_state_action_budget:0",
+                "budget_response_action_taken:false"
+            )
+        },
+        [pscustomobject]@{
+            kind = "spawn_node_budget"
+            trace_event_id = "trace-node-budget-1"
+            task_id = "task-1"
+            map_id = "map-1"
+            node_id = "node-1"
+            tags = @(
+                "schema:taskspace-spawn-node-budget-event-v1",
+                "producer:runtime",
+                "budget_kind:node",
+                "action:create_node",
+                "status:allowed",
+                "node_count_before:0",
+                "node_count_after:1",
+                "max_nodes:10",
+                "budget_response_action_taken:false"
+            )
+        },
+        [pscustomobject]@{
+            kind = "spawn_node_budget"
+            trace_event_id = "trace-node-budget-2"
+            task_id = "task-1"
+            map_id = "map-1"
+            node_id = "node-1"
+            tags = @(
+                "schema:taskspace-spawn-node-budget-event-v1",
+                "producer:runtime",
+                "budget_kind:node",
+                "action:create_node",
+                "status:blocked",
+                "node_count_before:10",
+                "node_count_after:10",
+                "max_nodes:10",
+                "budget_response_action_taken:true"
+            )
         }
     )
 }
@@ -147,8 +207,9 @@ Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provide
 Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"
 Assert-True ([int]$phaseSummary.provider_request_hook_coverage -eq 100 -and [int]$phaseSummary.request_phase_attribution_coverage -eq 100) "request phase summary did not reflect provider events"
 Assert-True ([int]$phaseSummary.provider_request_terminal_coverage -eq 100 -and [int]$phaseSummary.expected_model_request_count -eq 2 -and [int]$phaseSummary.provider_request_distinct_count -eq 2) "request phase summary did not use expected provider request denominator"
-Assert-True ([string]$stateCommit.status -eq "pass") "state commit displacement summary should pass with no legacy state actions"
-Assert-True ([string]$spawnBudget.status -eq "pass") "spawn/node budget should pass with no spawn calls"
+Assert-True ([string]$stateCommit.status -eq "pass" -and [string]$stateCommit.source_status -eq "runtime" -and [int]$stateCommit.runtime_event_count -eq 1 -and [bool]$stateCommit.has_displacement_denominator -and [int]$stateCommit.legacy_state_action_attempt_count -eq 2) "state commit displacement summary should pass with runtime denominator evidence"
+Assert-True ([string]$spawnBudget.status -eq "pass" -and [string]$spawnBudget.source_status -eq "runtime" -and [int]$spawnBudget.runtime_event_count -eq 2) "spawn/node budget should pass with runtime producer evidence"
+Assert-True ([string]$spawnBudget.within_budget_status -eq "fail" -and [string]$spawnBudget.over_budget_enforcement_status -eq "pass" -and [int]$spawnBudget.blocked_budget_event_count -eq 1) "spawn/node budget should split within-budget failure from successful over-budget enforcement"
 Assert-True ([bool]$summary.budget_quality_impact_logged_for_every_budget_action) "budget action was not matched to quality impact"
 Assert-True ([int]$summary.budget_quality_impact_missing_count -eq 0) "budget quality impact missing count should be zero"
 Assert-True ([int]$summary.blocked_by_budget_samples_count -eq 1) "blocked budget quality impact was not summarized"
