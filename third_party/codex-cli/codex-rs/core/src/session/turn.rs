@@ -83,6 +83,7 @@ use codex_protocol::items::UserMessageItem;
 use codex_protocol::items::build_hook_prompt_message;
 use codex_protocol::models::BaseInstructions;
 use codex_protocol::models::ContentItem;
+use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::MessagePhase;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
@@ -119,6 +120,11 @@ use tracing::instrument;
 use tracing::trace;
 use tracing::trace_span;
 use tracing::warn;
+
+const TASKSPACE_ACTIVE_PROFILE_MARKER: &str = "TaskSpace v0.0.5 active compact profile is enabled.";
+const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
+const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
+    "ContextProjectionV1 shadow (not active replacement):";
 
 /// Takes a user message as input and runs a loop where, at each sampling request, the model
 /// replies with either:
@@ -444,11 +450,11 @@ pub(crate) async fn run_turn(
         }
 
         // Construct the input that we will send to the model.
-        let sampling_request_input: Vec<ResponseItem> = {
+        let sampling_request_input: Vec<ResponseItem> = prepare_provider_visible_prompt_items(
             sess.clone_history()
                 .await
-                .for_prompt(&turn_context.model_info.input_modalities)
-        };
+                .for_prompt(&turn_context.model_info.input_modalities),
+        );
 
         let sampling_request_input_messages = sampling_request_input
             .iter()
@@ -1073,9 +1079,11 @@ async fn run_sampling_request(
         let prompt_input = if let Some(input) = initial_input.take() {
             input
         } else {
-            sess.clone_history()
-                .await
-                .for_prompt(&turn_context.model_info.input_modalities)
+            prepare_provider_visible_prompt_items(
+                sess.clone_history()
+                    .await
+                    .for_prompt(&turn_context.model_info.input_modalities),
+            )
         };
         let prompt = build_prompt(
             prompt_input,
@@ -1309,6 +1317,224 @@ pub(crate) async fn built_tools(
             dynamic_tools: turn_context.dynamic_tools.as_slice(),
         },
     )))
+}
+
+fn prepare_provider_visible_prompt_items(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
+    if !items.iter().any(is_active_context_projection_item) {
+        return items;
+    }
+
+    items
+        .into_iter()
+        .filter(|item| {
+            is_active_context_projection_item(item)
+                || !is_legacy_taskspace_provider_visible_item(item)
+        })
+        .collect()
+}
+
+fn is_active_context_projection_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_ACTIVE_PROFILE_MARKER)
+        && response_item_text_contains(item, TASKSPACE_ACTIVE_PROJECTION_MARKER)
+}
+
+fn is_legacy_taskspace_provider_visible_item(item: &ResponseItem) -> bool {
+    if response_item_text_contains(item, TASKSPACE_SHADOW_PROJECTION_MARKER)
+        || response_item_text_contains(item, "TaskSpace mode is now active")
+        || response_item_text_contains(item, "TaskSpace final answer gate rejected")
+        || response_item_text_contains(item, "taskspace_control(")
+    {
+        return true;
+    }
+
+    match item {
+        ResponseItem::FunctionCall { name, .. } | ResponseItem::CustomToolCall { name, .. } => {
+            name == "taskspace_control"
+        }
+        ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. } => {
+            response_item_text_contains(item, "TaskSpace")
+                || response_item_text_contains(item, "ActionMap")
+                || response_item_text_contains(item, "taskspace_control")
+        }
+        _ => false,
+    }
+}
+
+fn response_item_text_contains(item: &ResponseItem, needle: &str) -> bool {
+    response_item_texts_contain(item, &|text| text.contains(needle))
+}
+
+fn response_item_texts_contain(item: &ResponseItem, predicate: &dyn Fn(&str) -> bool) -> bool {
+    match item {
+        ResponseItem::Message { role, content, .. } => {
+            predicate(role)
+                || content.iter().any(|content_item| match content_item {
+                    ContentItem::InputText { text } | ContentItem::OutputText { text } => {
+                        predicate(text)
+                    }
+                    ContentItem::InputImage { image_url, .. } => predicate(image_url),
+                })
+        }
+        ResponseItem::FunctionCall {
+            name,
+            namespace,
+            arguments,
+            ..
+        } => predicate(name) || namespace.as_deref().is_some_and(predicate) || predicate(arguments),
+        ResponseItem::CustomToolCall { name, input, .. } => predicate(name) || predicate(input),
+        ResponseItem::FunctionCallOutput { output, .. }
+        | ResponseItem::CustomToolCallOutput { output, .. } => {
+            function_call_output_body_texts_contain(&output.body, predicate)
+        }
+        ResponseItem::ToolSearchCall {
+            execution,
+            arguments,
+            ..
+        } => predicate(execution) || predicate(&arguments.to_string()),
+        ResponseItem::ToolSearchOutput {
+            execution, tools, ..
+        } => predicate(execution) || tools.iter().any(|tool| predicate(&tool.to_string())),
+        ResponseItem::LocalShellCall { .. }
+        | ResponseItem::Reasoning { .. }
+        | ResponseItem::WebSearchCall { .. }
+        | ResponseItem::ImageGenerationCall { .. }
+        | ResponseItem::GhostSnapshot { .. }
+        | ResponseItem::Compaction { .. }
+        | ResponseItem::Other => false,
+    }
+}
+
+fn function_call_output_body_texts_contain(
+    body: &FunctionCallOutputBody,
+    predicate: &dyn Fn(&str) -> bool,
+) -> bool {
+    match body {
+        FunctionCallOutputBody::Text(text) => predicate(text),
+        FunctionCallOutputBody::ContentItems(items) => items.iter().any(|item| match item {
+            codex_protocol::models::FunctionCallOutputContentItem::InputText { text } => {
+                predicate(text)
+            }
+            codex_protocol::models::FunctionCallOutputContentItem::InputImage {
+                image_url, ..
+            } => predicate(image_url),
+        }),
+    }
+}
+
+#[cfg(test)]
+mod active_context_replacement_tests {
+    use super::*;
+    use codex_protocol::models::FunctionCallOutputPayload;
+
+    fn message(role: &str, text: &str) -> ResponseItem {
+        ResponseItem::Message {
+            id: None,
+            role: role.to_string(),
+            content: vec![ContentItem::InputText {
+                text: text.to_string(),
+            }],
+            end_turn: None,
+            phase: None,
+        }
+    }
+
+    fn tool_output(text: &str) -> ResponseItem {
+        ResponseItem::FunctionCallOutput {
+            call_id: "call-1".to_string(),
+            output: FunctionCallOutputPayload::from_text(text.to_string()),
+        }
+    }
+
+    fn item_texts(items: &[ResponseItem]) -> Vec<String> {
+        items
+            .iter()
+            .filter_map(|item| match item {
+                ResponseItem::Message { content, .. } => content.iter().find_map(|content| {
+                    if let ContentItem::InputText { text } = content {
+                        Some(text.clone())
+                    } else {
+                        None
+                    }
+                }),
+                ResponseItem::FunctionCallOutput { output, .. } => output.body.to_text(),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn active_context_replacement_is_noop_without_active_projection() {
+        let items = vec![
+            message(
+                "developer",
+                "TaskSpace mode is now active; call taskspace_control(...)",
+            ),
+            message("user", "Preserve this user requirement."),
+        ];
+
+        let prepared = prepare_provider_visible_prompt_items(items.clone());
+
+        assert_eq!(prepared, items);
+    }
+
+    #[test]
+    fn active_context_replacement_removes_legacy_taskspace_history() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let items = vec![
+            message(
+                "developer",
+                "TaskSpace mode is now active; call taskspace_control(...)",
+            ),
+            message("developer", &active_projection),
+            message(
+                "developer",
+                "TaskSpace ContextProjectionV1 shadow update.\nContextProjectionV1 shadow (not active replacement):",
+            ),
+            tool_output("ActionMap node state from taskspace_control(action=create_node)"),
+            message("user", "Preserve this user requirement."),
+        ];
+
+        let prepared = prepare_provider_visible_prompt_items(items);
+        let texts = item_texts(&prepared);
+        let joined = texts.join("\n");
+
+        assert_eq!(prepared.len(), 2);
+        assert!(joined.contains(TASKSPACE_ACTIVE_PROFILE_MARKER));
+        assert!(joined.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER));
+        assert!(joined.contains("Preserve this user requirement."));
+        assert!(!joined.contains("TaskSpace mode is now active"));
+        assert!(!joined.contains(TASKSPACE_SHADOW_PROJECTION_MARKER));
+        assert!(!joined.contains("ActionMap node state"));
+    }
+
+    #[test]
+    fn active_context_replacement_removes_taskspace_control_calls() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let items = vec![
+            message("developer", &active_projection),
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "taskspace_control".to_string(),
+                namespace: None,
+                arguments: r#"{"action":"state_commit"}"#.to_string(),
+                call_id: "call-1".to_string(),
+            },
+            message("user", "Keep the current task constraints."),
+        ];
+
+        let prepared = prepare_provider_visible_prompt_items(items);
+
+        assert_eq!(prepared.len(), 2);
+        assert!(
+            prepared
+                .iter()
+                .all(|item| !matches!(item, ResponseItem::FunctionCall { .. }))
+        );
+    }
 }
 
 #[derive(Debug)]
