@@ -1,7 +1,7 @@
 # Problem P-001: TaskSpace E3 run fails with invalid tool-call history
 - Status: open
 - Created: 2026-06-20 02:00
-- Updated: 2026-06-20 02:24
+- Updated: 2026-06-20 03:09
 - Objective: Identify the root cause of the TaskSpace-only `terminal-bench_E3-P0_3_1` failure before any repair design.
 - Symptoms:
   - `processing-pipeline` TaskSpace-only execution exits before editing files or running validation.
@@ -29,13 +29,13 @@
 - Fix criteria:
   - The original `processing-pipeline` TaskSpace-only reproduction no longer fails with invalid `tool_calls` history.
   - A targeted test or diagnostic replay proves that parallel command executions serialize into model messages with every assistant tool call immediately followed by its matching tool result.
-- Current conclusion: H-003 is confirmed. The v0.0.5 provider-visible TaskSpace compact-history filter omits a blocked `shell_command` tool output because it contains TaskSpace recovery text, while keeping the matching assistant `shell_command` tool call. The ChatCompletions adapter then serializes an assistant `tool_calls` message without the required following tool message, causing the provider rejection.
+- Current conclusion: H-003 is confirmed and the protocol-level repair is implemented in `third_party\codex-cli\codex-rs\core\src\session\turn.rs`. The v0.0.5 provider-visible TaskSpace compact-history filter now treats omitted tool calls and tool outputs as pairs, so a replaced output also removes the matching call and a replaced call also removes the matching output. Non-agent fix-validation passed in E-006. The original real-agent reproduction is intentionally not rerun yet because v0.0.5 code-complete is still in progress and real E3/agent task runs remain forbidden.
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
 - Resolution basis:
-  - H-003, E-002, E-003, E-004, E-005
+  - H-003, E-002, E-003, E-004, E-005, E-006
 - Close reason:
   - not closed
 
@@ -196,7 +196,7 @@
   - E-005
 - Conclusion: confirmed
 - Repair design readiness: ready
-- Next step: repair provider-visible history composition so it preserves model-valid tool-call/output pairs, either by retaining required outputs or removing paired calls and any adjacent assistant content as an atomic group.
+- Next step: continue v0.0.5 code-complete work on the remaining runtime budget, state_commit displacement, spawn/node budget, and release/start-gate gaps before any real E3 or real agent diagnostic run.
 - Blocker:
   - none
 - Close reason:
@@ -333,3 +333,30 @@
   ```
 - Interpretation: The provider error is the expected downstream effect of E-004. The final malformed object is not created by the manual harness, but by filtering a ResponseItem sequence without preserving tool protocol invariants.
 - Time: 2026-06-20 02:24
+
+## Evidence E-006: Provider-visible history repair preserves tool-call/output omission as an atomic pair
+- Related hypotheses:
+  - H-003
+- Direction: supports fix-validation
+- Type: fix-validation
+- Source: `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Prediction or plan link:
+  - H-003 fix criteria: a targeted test proves that provider-visible active context replacement does not leave an assistant tool call without the matching tool output, or a tool output without the matching assistant tool call.
+- Matched signal:
+  - The repair adds `omitted_provider_visible_tool_call_ids`, `provider_visible_history_pair_action`, and `response_item_tool_call_id`.
+  - If either side of a function-call pair is omitted by active replacement, the matching side receives `paired_tool_call_or_output_replaced_by_active_projection` and is omitted too.
+  - Focused non-agent tests passed:
+    - `active_context_replacement_omits_paired_call_when_tool_output_is_replaced`
+    - `active_context_replacement_omits_paired_output_when_tool_call_is_replaced`
+    - existing active context replacement tests remained green.
+- Correlation keys:
+  - `blocked-call`
+  - `control-call`
+  - `paired_tool_call_or_output_replaced_by_active_projection`
+- Raw content:
+  ```text
+  cargo test -p codex-core active_context_replacement -- --nocapture
+  test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 1848 filtered out; finished in 0.01s
+  ```
+- Interpretation: The confirmed protocol bug has a code-level repair and focused regression coverage. This does not by itself prove v0.0.5 E3 readiness, because the original `processing-pipeline` real-agent reproduction and the full E3 suite remain forbidden until code-complete and non-agent gates are finished.
+- Time: 2026-06-20 03:09

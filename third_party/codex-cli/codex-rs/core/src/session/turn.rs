@@ -1384,11 +1384,23 @@ fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisible
         return ProviderVisibleHistoryComposition { items, decisions };
     }
 
-    let mut prepared = Vec::with_capacity(items.len());
-    let mut decisions = Vec::with_capacity(items.len());
-    for (index, item) in items.into_iter().enumerate() {
-        let category = classify_provider_visible_item(&item);
-        let action = provider_visible_history_action(&category);
+    let classified_items = items
+        .into_iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let category = classify_provider_visible_item(&item);
+            let action = provider_visible_history_action(&category);
+            (index, item, category, action)
+        })
+        .collect::<Vec<_>>();
+    let paired_omitted_tool_call_ids =
+        omitted_provider_visible_tool_call_ids(classified_items.as_slice());
+
+    let mut prepared = Vec::with_capacity(classified_items.len());
+    let mut decisions = Vec::with_capacity(classified_items.len());
+    for (index, item, category, base_action) in classified_items {
+        let action =
+            provider_visible_history_pair_action(&item, base_action, &paired_omitted_tool_call_ids);
         if matches!(action, ProviderVisibleHistoryAction::Include) {
             prepared.push(item);
         }
@@ -1429,6 +1441,41 @@ fn provider_visible_history_action(
         | ProviderVisibleItemCategory::ProtectedDeveloperOrSystemInput
         | ProviderVisibleItemCategory::Other => ProviderVisibleHistoryAction::Include,
     }
+}
+
+fn omitted_provider_visible_tool_call_ids(
+    classified_items: &[(
+        usize,
+        ResponseItem,
+        ProviderVisibleItemCategory,
+        ProviderVisibleHistoryAction,
+    )],
+) -> HashSet<String> {
+    classified_items
+        .iter()
+        .filter_map(|(_, item, _, action)| {
+            matches!(action, ProviderVisibleHistoryAction::Omit(_))
+                .then(|| response_item_tool_call_id(item))
+                .flatten()
+                .map(str::to_string)
+        })
+        .collect()
+}
+
+fn provider_visible_history_pair_action(
+    item: &ResponseItem,
+    base_action: ProviderVisibleHistoryAction,
+    paired_omitted_tool_call_ids: &HashSet<String>,
+) -> ProviderVisibleHistoryAction {
+    if matches!(base_action, ProviderVisibleHistoryAction::Include)
+        && response_item_tool_call_id(item)
+            .is_some_and(|call_id| paired_omitted_tool_call_ids.contains(call_id))
+    {
+        return ProviderVisibleHistoryAction::Omit(
+            "paired_tool_call_or_output_replaced_by_active_projection",
+        );
+    }
+    base_action
 }
 
 fn classify_provider_visible_item(item: &ResponseItem) -> ProviderVisibleItemCategory {
@@ -1484,6 +1531,16 @@ fn is_taskspace_control_call(item: &ResponseItem) -> bool {
         ResponseItem::FunctionCall { name, .. } | ResponseItem::CustomToolCall { name, .. }
             if name == "taskspace_control"
     )
+}
+
+fn response_item_tool_call_id(item: &ResponseItem) -> Option<&str> {
+    match item {
+        ResponseItem::FunctionCall { call_id, .. }
+        | ResponseItem::CustomToolCall { call_id, .. }
+        | ResponseItem::FunctionCallOutput { call_id, .. }
+        | ResponseItem::CustomToolCallOutput { call_id, .. } => Some(call_id.as_str()),
+        _ => None,
+    }
 }
 
 fn is_legacy_taskspace_tool_output(item: &ResponseItem) -> bool {
@@ -1653,11 +1710,25 @@ mod active_context_replacement_tests {
         }
     }
 
-    fn tool_output(text: &str) -> ResponseItem {
+    fn tool_call(name: &str, call_id: &str) -> ResponseItem {
+        ResponseItem::FunctionCall {
+            id: None,
+            name: name.to_string(),
+            namespace: None,
+            arguments: "{}".to_string(),
+            call_id: call_id.to_string(),
+        }
+    }
+
+    fn tool_output_with_call_id(call_id: &str, text: &str) -> ResponseItem {
         ResponseItem::FunctionCallOutput {
-            call_id: "call-1".to_string(),
+            call_id: call_id.to_string(),
             output: FunctionCallOutputPayload::from_text(text.to_string()),
         }
+    }
+
+    fn tool_output(text: &str) -> ResponseItem {
+        tool_output_with_call_id("call-1", text)
     }
 
     fn item_texts(items: &[ResponseItem]) -> Vec<String> {
@@ -1731,13 +1802,7 @@ mod active_context_replacement_tests {
         );
         let items = vec![
             message("developer", &active_projection),
-            ResponseItem::FunctionCall {
-                id: None,
-                name: "taskspace_control".to_string(),
-                namespace: None,
-                arguments: r#"{"action":"state_commit"}"#.to_string(),
-                call_id: "call-1".to_string(),
-            },
+            tool_call("taskspace_control", "call-1"),
             message("user", "Keep the current task constraints."),
         ];
 
@@ -1748,6 +1813,77 @@ mod active_context_replacement_tests {
             prepared
                 .iter()
                 .all(|item| !matches!(item, ResponseItem::FunctionCall { .. }))
+        );
+    }
+
+    #[test]
+    fn active_context_replacement_omits_paired_call_when_tool_output_is_replaced() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let items = vec![
+            message("developer", &active_projection),
+            tool_call("shell_command", "blocked-call"),
+            tool_output_with_call_id(
+                "blocked-call",
+                "TaskSpace blocked this tool call.\nTaskSpaceGateRecoveryV1: retry with inspect_code_context",
+            ),
+            message("user", "Keep the direct user requirement."),
+        ];
+
+        let composition = compose_provider_visible_history(items);
+        let texts = item_texts(&composition.items);
+        let joined = texts.join("\n");
+
+        assert!(!composition.items.iter().any(|item| matches!(
+            item,
+            ResponseItem::FunctionCall { call_id, .. }
+                if call_id == "blocked-call"
+        )));
+        assert!(!joined.contains("TaskSpaceGateRecoveryV1"));
+        assert!(joined.contains("Keep the direct user requirement."));
+        assert_eq!(
+            composition.decisions[1].action,
+            ProviderVisibleHistoryAction::Omit(
+                "paired_tool_call_or_output_replaced_by_active_projection"
+            )
+        );
+        assert_eq!(
+            composition.decisions[2].action,
+            ProviderVisibleHistoryAction::Omit("legacy_taskspace_tool_output_replaced")
+        );
+    }
+
+    #[test]
+    fn active_context_replacement_omits_paired_output_when_tool_call_is_replaced() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let items = vec![
+            message("developer", &active_projection),
+            tool_call("taskspace_control", "control-call"),
+            tool_output_with_call_id("control-call", r#"{"status":"ok"}"#),
+            message("user", "Keep the direct user requirement."),
+        ];
+
+        let composition = compose_provider_visible_history(items);
+        let texts = item_texts(&composition.items);
+        let joined = texts.join("\n");
+
+        assert!(!composition.items.iter().any(|item| {
+            response_item_tool_call_id(item).is_some_and(|call_id| call_id == "control-call")
+        }));
+        assert!(!joined.contains(r#"{"status":"ok"}"#));
+        assert!(joined.contains("Keep the direct user requirement."));
+        assert_eq!(
+            composition.decisions[1].action,
+            ProviderVisibleHistoryAction::Omit("taskspace_control_call_not_provider_surface")
+        );
+        assert_eq!(
+            composition.decisions[2].action,
+            ProviderVisibleHistoryAction::Omit(
+                "paired_tool_call_or_output_replaced_by_active_projection"
+            )
         );
     }
 
