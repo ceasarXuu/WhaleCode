@@ -1073,6 +1073,9 @@ impl Session {
             .into_iter()
             .map(|event| ActionMapProviderRequestBudgetEventInput {
                 request_id: event.request_id,
+                logical_request_id: event.logical_request_id,
+                parent_request_id: event.parent_request_id,
+                attempt_seq: event.attempt_seq,
                 transport: event.transport,
                 status: event.status,
                 request_count_before: event.request_count_before,

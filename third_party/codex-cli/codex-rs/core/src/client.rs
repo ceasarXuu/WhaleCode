@@ -158,6 +158,9 @@ pub(crate) const WEBSOCKET_CONNECT_TIMEOUT: Duration =
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderRequestBudgetEvent {
     pub(crate) request_id: String,
+    pub(crate) logical_request_id: String,
+    pub(crate) parent_request_id: Option<String>,
+    pub(crate) attempt_seq: usize,
     pub(crate) transport: String,
     pub(crate) status: String,
     pub(crate) request_count_before: usize,
@@ -192,6 +195,7 @@ pub(crate) struct ProviderRequestBudgetContext {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ProviderRequestAttribution {
+    pub(crate) request_scope_id: Option<String>,
     pub(crate) task_id: Option<String>,
     pub(crate) map_id: Option<String>,
     pub(crate) node_id: Option<String>,
@@ -211,6 +215,9 @@ struct ProviderRequestBudgetState {
 #[derive(Debug, Clone)]
 struct ProviderRequestBudgetActiveRequest {
     request_id: String,
+    logical_request_id: String,
+    parent_request_id: Option<String>,
+    attempt_seq: usize,
     transport: String,
     request_count_before: usize,
     request_count_after: usize,
@@ -235,6 +242,12 @@ struct ProviderPayloadDigest {
     sha256: String,
     bytes: usize,
     scan: ProviderPayloadScan,
+}
+
+struct ProviderRequestIdentity {
+    request_id: String,
+    logical_request_id: String,
+    attempt_seq: usize,
 }
 
 impl ProviderRequestBudgetContext {
@@ -283,9 +296,12 @@ impl ProviderRequestBudgetContext {
         }
         let before = self.state.count.load(Ordering::SeqCst);
         if before >= self.state.max_requests {
-            let request_id = format!("provider-request-{}", before + 1);
+            let request_identity = self.build_request_identity(before + 1, 1);
             self.push_event(ProviderRequestBudgetEvent {
-                request_id,
+                request_id: request_identity.request_id,
+                logical_request_id: request_identity.logical_request_id,
+                parent_request_id: None,
+                attempt_seq: request_identity.attempt_seq,
                 transport: transport.to_string(),
                 status: "blocked".to_string(),
                 request_count_before: before,
@@ -318,10 +334,14 @@ impl ProviderRequestBudgetContext {
             )));
         }
         let after = self.state.count.fetch_add(1, Ordering::SeqCst) + 1;
-        let request_id = format!("provider-request-{after}");
+        let request_identity = self.build_request_identity(after, 1);
+        let request_id = request_identity.request_id.clone();
         let started_at_ms = provider_request_budget_now_ms();
         let active_request = ProviderRequestBudgetActiveRequest {
             request_id: request_id.clone(),
+            logical_request_id: request_identity.logical_request_id.clone(),
+            parent_request_id: None,
+            attempt_seq: request_identity.attempt_seq,
             transport: transport.to_string(),
             request_count_before: before,
             request_count_after: after,
@@ -337,6 +357,9 @@ impl ProviderRequestBudgetContext {
             .expect("provider request budget active mutex poisoned") = Some(active_request.clone());
         self.push_event(ProviderRequestBudgetEvent {
             request_id: request_id.clone(),
+            logical_request_id: request_identity.logical_request_id.clone(),
+            parent_request_id: None,
+            attempt_seq: request_identity.attempt_seq,
             transport: transport.to_string(),
             status: "started".to_string(),
             request_count_before: before,
@@ -366,6 +389,9 @@ impl ProviderRequestBudgetContext {
         Ok(ProviderRequestBudgetDispatch {
             context: Some(self.clone()),
             request_id,
+            logical_request_id: request_identity.logical_request_id,
+            parent_request_id: None,
+            attempt_seq: request_identity.attempt_seq,
             transport: transport.to_string(),
             request_count_before: before,
             request_count_after: after,
@@ -406,6 +432,9 @@ impl ProviderRequestBudgetContext {
         let scan = active_request.payload_scan;
         self.push_event(ProviderRequestBudgetEvent {
             request_id: active_request.request_id,
+            logical_request_id: active_request.logical_request_id,
+            parent_request_id: active_request.parent_request_id,
+            attempt_seq: active_request.attempt_seq,
             transport: active_request.transport,
             status: "payload_captured".to_string(),
             request_count_before: active_request.request_count_before,
@@ -450,6 +479,9 @@ impl ProviderRequestBudgetContext {
             let completed_at_ms = provider_request_budget_now_ms();
             self.push_event(ProviderRequestBudgetEvent {
                 request_id: active_request.request_id,
+                logical_request_id: active_request.logical_request_id,
+                parent_request_id: active_request.parent_request_id,
+                attempt_seq: active_request.attempt_seq,
                 transport: active_request.transport,
                 status: status.to_string(),
                 request_count_before: active_request.request_count_before,
@@ -514,6 +546,28 @@ impl ProviderRequestBudgetContext {
             .push(event);
     }
 
+    fn build_request_identity(
+        &self,
+        logical_request_seq: usize,
+        attempt_seq: usize,
+    ) -> ProviderRequestIdentity {
+        let scope = self
+            .state
+            .attribution
+            .request_scope_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("scope-unknown");
+        let scope = sanitize_provider_request_id_part(scope);
+        let logical_request_id = format!("provider-request:{scope}:logical-{logical_request_seq}");
+        let request_id = format!("{logical_request_id}:attempt-{attempt_seq}");
+        ProviderRequestIdentity {
+            request_id,
+            logical_request_id,
+            attempt_seq,
+        }
+    }
+
     fn active_payload_for_request(
         &self,
         request_id: &str,
@@ -539,6 +593,9 @@ impl ProviderRequestBudgetContext {
 struct ProviderRequestBudgetDispatch {
     context: Option<ProviderRequestBudgetContext>,
     request_id: String,
+    logical_request_id: String,
+    parent_request_id: Option<String>,
+    attempt_seq: usize,
     transport: String,
     request_count_before: usize,
     request_count_after: usize,
@@ -550,6 +607,9 @@ impl ProviderRequestBudgetDispatch {
         Self {
             context: None,
             request_id: String::new(),
+            logical_request_id: String::new(),
+            parent_request_id: None,
+            attempt_seq: 0,
             transport: String::new(),
             request_count_before: 0,
             request_count_after: 0,
@@ -564,6 +624,9 @@ impl ProviderRequestBudgetDispatch {
                 .unwrap_or((None, None, None));
             context.push_event(ProviderRequestBudgetEvent {
                 request_id: self.request_id.clone(),
+                logical_request_id: self.logical_request_id.clone(),
+                parent_request_id: self.parent_request_id.clone(),
+                attempt_seq: self.attempt_seq,
                 transport: self.transport.clone(),
                 status: status.to_string(),
                 request_count_before: self.request_count_before,
@@ -635,6 +698,24 @@ fn provider_payload_digest<T: serde::Serialize>(payload: &T) -> Option<ProviderP
             replacement_confirmed,
         },
     })
+}
+
+fn sanitize_provider_request_id_part(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    if sanitized.is_empty() {
+        "scope-unknown".to_string()
+    } else {
+        sanitized
+    }
 }
 
 fn provider_request_budget_now_ms() -> i64 {

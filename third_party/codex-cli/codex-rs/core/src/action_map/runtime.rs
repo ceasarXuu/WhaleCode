@@ -415,6 +415,9 @@ pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
 #[derive(Debug, Clone)]
 pub(crate) struct ActionMapProviderRequestBudgetEventInput {
     pub(crate) request_id: String,
+    pub(crate) logical_request_id: String,
+    pub(crate) parent_request_id: Option<String>,
+    pub(crate) attempt_seq: usize,
     pub(crate) transport: String,
     pub(crate) status: String,
     pub(crate) request_count_before: usize,
@@ -1550,7 +1553,8 @@ preview:\n\
             let request_phase = input
                 .request_phase
                 .clone()
-                .unwrap_or_else(|| "model_sampling".to_string());
+                .filter(|phase| !phase.trim().is_empty())
+                .unwrap_or_else(|| "unknown".to_string());
             let id = self.next_trace_event_id();
             let created_at_ms = now_ms();
             let tool_success = Some(!matches!(
@@ -1566,7 +1570,15 @@ preview:\n\
                 format!("max_requests:{}", input.max_requests),
                 format!("started_at_ms:{}", input.started_at_ms),
                 format!("request_phase:{request_phase}"),
+                format!("logical_request_id:{}", input.logical_request_id),
+                format!("attempt_seq:{}", input.attempt_seq),
             ];
+            if request_phase == "unknown" {
+                tags.push("request_phase_missing_reason:provider_context_missing".to_string());
+            }
+            if let Some(parent_request_id) = input.parent_request_id.as_ref() {
+                tags.push(format!("parent_request_id:{parent_request_id}"));
+            }
             if let Some(completed_at_ms) = input.completed_at_ms {
                 tags.push(format!("completed_at_ms:{completed_at_ms}"));
             }
@@ -1673,6 +1685,8 @@ preview:\n\
                 format!("counter_value:{}", input.request_count_after),
                 format!("counter_limit:{}", input.max_requests),
                 format!("request_phase:{request_phase}"),
+                format!("logical_request_id:{}", input.logical_request_id),
+                format!("attempt_seq:{}", input.attempt_seq),
                 format!("score_eligible:{score_eligible}"),
                 "budget_induced_validation_skip:false".to_string(),
                 "manual_override_used:false".to_string(),
@@ -9661,6 +9675,9 @@ mod tests {
                 vec![
                     ActionMapProviderRequestBudgetEventInput {
                         request_id: "provider-request-1".to_string(),
+                        logical_request_id: "provider-request:turn-a:logical-1".to_string(),
+                        parent_request_id: None,
+                        attempt_seq: 1,
                         transport: "responses_http".to_string(),
                         status: "started".to_string(),
                         request_count_before: 0,
@@ -9689,6 +9706,9 @@ mod tests {
                     },
                     ActionMapProviderRequestBudgetEventInput {
                         request_id: "provider-request-2".to_string(),
+                        logical_request_id: "provider-request:turn-a:logical-2".to_string(),
+                        parent_request_id: Some("provider-request:turn-a:logical-2".to_string()),
+                        attempt_seq: 1,
                         transport: "responses_http".to_string(),
                         status: "blocked".to_string(),
                         request_count_before: 1,
@@ -9723,6 +9743,23 @@ mod tests {
             .expect("provider budget trace events");
 
         assert_eq!(events.len(), 4);
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(started) =
+            events.first().expect("started provider trace event")
+        else {
+            panic!("expected provider budget trace event");
+        };
+        assert!(
+            started
+                .tags
+                .iter()
+                .any(|tag| tag == "request_phase:unknown")
+        );
+        assert!(
+            started
+                .tags
+                .iter()
+                .any(|tag| tag == "request_phase_missing_reason:provider_context_missing")
+        );
         let MapRuntimeEvent::TaskspaceTraceEventRecorded(blocked) =
             events.get(2).expect("blocked provider trace event")
         else {
@@ -9753,6 +9790,19 @@ mod tests {
                 .tags
                 .iter()
                 .any(|tag| tag == "request_phase:dispatch_phase")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "logical_request_id:provider-request:turn-a:logical-2")
+        );
+        assert!(blocked.tags.iter().any(|tag| tag == "attempt_seq:1"));
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "parent_request_id:provider-request:turn-a:logical-2")
         );
         assert!(blocked.tags.iter().any(|tag| tag
             == "provider_payload_sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));

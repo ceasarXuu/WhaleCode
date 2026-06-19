@@ -96,7 +96,15 @@ fn provider_request_budget_blocks_before_dispatch_when_exhausted() {
     );
     let events = budget.drain_events();
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].request_id, "provider-request-2");
+    assert_eq!(
+        events[0].request_id,
+        "provider-request:scope-unknown:logical-2:attempt-1"
+    );
+    assert_eq!(
+        events[0].logical_request_id,
+        "provider-request:scope-unknown:logical-2"
+    );
+    assert_eq!(events[0].attempt_seq, 1);
     assert_eq!(events[0].transport, "responses_http");
     assert_eq!(events[0].status, "blocked");
     assert_eq!(events[0].request_count_before, 1);
@@ -127,6 +135,15 @@ fn provider_request_budget_records_started_and_terminal_status() {
     assert_eq!(events[2].status, "stream_opened");
     assert_eq!(events[0].request_id, events[1].request_id);
     assert_eq!(events[0].request_id, events[2].request_id);
+    assert_eq!(events[0].logical_request_id, events[1].logical_request_id);
+    assert_eq!(events[0].logical_request_id, events[2].logical_request_id);
+    assert_eq!(events[0].attempt_seq, 1);
+    assert_eq!(events[0].parent_request_id, None);
+    assert!(
+        events[0]
+            .request_id
+            .starts_with("provider-request:scope-unknown:logical-1:attempt-1")
+    );
     assert_eq!(events[0].request_count_after, 1);
     assert_eq!(events[2].request_count_after, 1);
     assert_eq!(
