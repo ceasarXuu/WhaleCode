@@ -1,3 +1,9 @@
+function Test-TaskspaceReportedEvidenceLevelIsFormalE3 {
+    param($Evidence)
+    if (-not $Evidence) { return $false }
+    [string]$Evidence.reported_evidence_level -eq "E3"
+}
+
 function Write-TaskspaceRunSummary {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -9,7 +15,7 @@ function Write-TaskspaceRunSummary {
         $lines += "  - reported_evidence_level: $($report.evidence.reported_evidence_level)"
         $lines += "  - included_in_utility_aggregate: $($report.evidence.included_in_utility_aggregate)"
         $reportTarget = if ($report.PSObject.Properties.Name -contains "evidence_target") { [string]$report.evidence_target } else { "" }
-        if ($reportTarget -eq "E3" -or [string]$report.evidence.reported_evidence_level -like "E3*") {
+        if ($reportTarget -eq "E3" -or (Test-TaskspaceReportedEvidenceLevelIsFormalE3 $report.evidence)) {
             $lines += "  - included_in_e3_aggregate: $($report.evidence.included_in_e3_aggregate)"
         }
         $lines += "  - pair_report: $($report.pair_report)"
@@ -24,9 +30,9 @@ function Write-TaskspaceAggregateReport {
     )
     $all = @($Reports)
     $valid = @($all | Where-Object { $_.evidence.included_in_utility_aggregate })
-    $validE3 = @($all | Where-Object { $_.evidence.included_in_e3_aggregate })
+    $validE3 = @($all | Where-Object { $_.evidence.included_in_e3_aggregate -and (Test-TaskspaceReportedEvidenceLevelIsFormalE3 $_.evidence) })
     $included = @($all | Where-Object { $_.evidence.included_in_utility_aggregate -or $_.evidence.included_in_e3_aggregate })
-    $e3Rows = @($all | Where-Object { [string]$_.evidence.reported_evidence_level -like "E3*" })
+    $e3Rows = @($all | Where-Object { Test-TaskspaceReportedEvidenceLevelIsFormalE3 $_.evidence })
     $partialRows = @($all | Where-Object { [string]$_.evidence.reported_evidence_level -like "*candidate" })
     $environmentRows = @($all | Where-Object {
             (@($_.evidence.evidence_gate_failures) + @($_.evidence.e3_gate_failures)) -match "environment|remote_asset|docker_"
@@ -49,7 +55,7 @@ function Write-TaskspaceAggregateReport {
         "- eligible_pairs: $($all.Count - $environmentRows.Count)",
         "- environment_failed_pairs: $($environmentRows.Count)",
         "- partial_pairs: $($partialRows.Count)",
-        "- e3_candidate_pairs: $($e3Rows.Count)",
+        "- e3_candidate_pairs: $(@($all | Where-Object { [string]$_.evidence.reported_evidence_level -eq 'E3-candidate' }).Count)",
         "- audit_ready_pairs: $($auditReadyRows.Count)",
         "- e3_included_pairs: $($validE3.Count)",
         "- all_pairs: $($all.Count)",
@@ -73,14 +79,15 @@ function Write-TaskspaceAggregateReport {
         $lines += "- pair_report: $($report.pair_report)"
         $lines += "- reported_evidence_level: $($report.evidence.reported_evidence_level)"
         $lines += "- included_in_utility_aggregate: $($report.evidence.included_in_utility_aggregate)"
-        if ([string]$report.evidence.reported_evidence_level -like "E3*") {
+        $hasE3Diagnostics = (Test-TaskspaceReportedEvidenceLevelIsFormalE3 $report.evidence) -or @($report.evidence.e3_gate_failures).Count -gt 0
+        if ($hasE3Diagnostics) {
             $lines += "- included_in_e3_aggregate: $($report.evidence.included_in_e3_aggregate)"
             $lines += "- human_review_completed: $($report.evidence.human_review_completed)"
             $lines += "- human_review_decision: $($report.evidence.human_review_decision)"
             $lines += "- human_review_disagreement: $($report.evidence.human_review_disagreement)"
         }
         $lines += "- evidence_gate_failures: $(if (@($report.evidence.evidence_gate_failures).Count -eq 0) { 'none' } else { @($report.evidence.evidence_gate_failures) -join ', ' })"
-        if ([string]$report.evidence.reported_evidence_level -like "E3*") {
+        if ($hasE3Diagnostics) {
             $lines += "- e3_gate_failures: $(if (@($report.evidence.e3_gate_failures).Count -eq 0) { 'none' } else { @($report.evidence.e3_gate_failures) -join ', ' })"
         }
     }

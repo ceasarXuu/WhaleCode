@@ -930,7 +930,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $outputRefEventsPath = Join-Path $ArtifactDir "output-ref-events.jsonl"
     $budgetEventsPath = Join-Path $ArtifactDir "budget-events.jsonl"
     $budgetQualityImpactEventsPath = Join-Path $ArtifactDir "budget-quality-impact-events.jsonl"
-    $budgetQualityImpactSummaryPath = Join-Path $ArtifactDir "budget-induced-quality-impact-summary.json"
+    $budgetQualityImpactSummaryPath = Join-Path $ArtifactDir "budget_induced_quality_impact_summary.json"
     $exactPayloadScanEventsPath = Join-Path $ArtifactDir "exact-payload-scan-events.jsonl"
     $activeReplacementReportPath = Join-Path $ArtifactDir "active-context-replacement-report.json"
     $providerRequestEventsPath = Join-Path $ArtifactDir "provider-request-events.jsonl"

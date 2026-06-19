@@ -89,6 +89,8 @@ provider_request_hook_coverage >= 99%
 request_phase_attribution_coverage >= 95%
 rollout_trace_model_request_count_ratio <= 2.5x on targeted diagnostic
 avg_input_per_request_ratio <= 1.25x on targeted diagnostic
+agent_walltime_ratio <= 2.5x on targeted diagnostic
+walltime_phase_attribution_available = true
 spawn_agent_call_count <= route budget
 active_context_replacement_confirmed = true
 budget_response_action_taken when budget exceeds threshold
@@ -689,6 +691,9 @@ repeats_per_sample >= 5
 sample_names exactly match registered terminal-bench_E3-P0_3_5 executable samples
 run-status.evidence_target = E3
 pair_completed.reported_evidence_level = E3 for every counted pair
+pair_completed.sample_id/sample_repeat_index/standard_run_id/taskspace_run_id present for every counted pair
+formal P0 pair ledger proves exactly 3 samples x 5 repeats
+exact payload scan joins provider request event by request_id and provider_payload_sha256
 start_gate.full_e3_allowed = true
 start_gate.v005_markers_passed = true
 start_gate.calibration_gate_passed = true
@@ -1174,8 +1179,9 @@ spawn/node budget fixture PASS，release decision 能拒绝 budget exceeded run�
 | start gate decision honored | script test | `full_e3_allowed=false` aborts before sample scheduling even when gate json exists |
 | marker schema | script test | arbitrary text / stale / mismatched hash marker fails |
 | hash-only active replacement | script test | hash-only payload proof cannot produce `release_pass` |
-| exact payload scan | script test | scan event can satisfy replacement proof only when request_id/hash match |
-| sample metadata | script test | 缺 metadata fails |
+| exact payload scan | script test | scan event can satisfy replacement proof only when request_id/hash match a provider lifecycle event |
+| sample metadata | script test | 缺 sample_id/sample_repeat_index/standard_run_id/taskspace_run_id fails |
+| formal pair ledger | script test | 15 pairs from one sample cannot satisfy `terminal-bench_E3-P0_3_5` |
 
 #### Exit Criteria
 
@@ -1203,7 +1209,7 @@ Phase 6 必须拆成三个互不替代的证据轨道：
 
 | 轨道 | 样本集 | reported_evidence_level | 用途 | 是否允许 release_pass |
 |---|---|---|---|---|
-| targeted diagnostic | `terminal-bench_E3-P0_1_1` 或 `terminal-bench_E3-P0_3_1/_3_2` 变体 | `diagnostic-only` 或 `E3-candidate` | 低成本检查 request/token/spawn/budget 是否明显改善 | no |
+| targeted diagnostic | `terminal-bench_E3-P0_1_1` 或 `terminal-bench_E3-P0_3_1/_3_2` 变体 | `diagnostic-only` 或 `E3-candidate` | 低成本检查 request/token/spawn/budget/walltime 是否明显改善 | no |
 | formal P0 release proof | `terminal-bench_E3-P0_3_5` | `E3` | v0.0.5 当前 P0 成本/正确率收口判断 | yes, if all gates pass |
 | v0.0.4 clean comparison | `terminal-bench_E3-v004-clean_3_5` | `E3` only after full audit | 与 v0.0.4 clean 15-run 做同口径回归对比 | no, cannot replace P0 proof |
 
@@ -1211,7 +1217,7 @@ Phase 6 必须拆成三个互不替代的证据轨道：
 
 1. 先跑 diagnostic-only targeted diagnostic，默认首选 `processing-pipeline` 或当前最能暴露 request explosion 的 P0 样本。
 2. diagnostic 必须输出 `reported_evidence_level=diagnostic-only`、`sample_set_id`、`repeats_per_sample`、`runner_entrypoint` 和 `not_release_proof=true`。
-3. 只有 diagnostic 的 request/token/spawn/budget gate 达标，且 non-agent gates、code-complete marker、user approval marker 均有效，才允许跑 `terminal-bench_E3-P0_3_5`。
+3. 只有 diagnostic 的 request/token/spawn/budget/walltime gate 达标，且 non-agent gates、code-complete marker、user approval marker 均有效，才允许跑 `terminal-bench_E3-P0_3_5`。
 4. `terminal-bench_E3-v004-clean_3_5` 只能在 P0 release proof 之外补跑，用于说明相对 v0.0.4 clean 口径是否退化；不得替代 P0 结论。
 5. release report 必须分开列出 diagnostic、formal P0、v004 clean comparison，禁止混表或用内部 fixture success 补足正式 E3 success。
 
@@ -1229,7 +1235,7 @@ Phase 6 必须拆成三个互不替代的证据轨道：
 #### Execution Order
 
 1. 先跑 `terminal-bench_E3-P0_1_1` targeted diagnostic。
-2. 如果 request/token/spawn/budget gate 达标，再跑 `terminal-bench_E3-P0_3_5`。
+2. 如果 request/token/spawn/budget/walltime gate 达标，再跑 `terminal-bench_E3-P0_3_5`。
 3. 如果仍失败，先回到 Phase 0/1 做归因，不扩大样本。
 
 #### Passing Standard
@@ -1238,6 +1244,8 @@ Phase 6 必须拆成三个互不替代的证据轨道：
 targeted diagnostic:
   rollout_trace_model_request_count_ratio <= 2.5x
   avg_input_per_request_ratio <= 1.25x
+  agent_walltime_ratio <= 2.5x
+  walltime_phase_attribution_available = true
   spawn/node budget pass
   active replacement pass
 

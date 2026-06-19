@@ -275,11 +275,18 @@ $routingDecisionPass = ($latestRoutingDecisionEvent.Count -eq 1 `
     -and -not [string]::IsNullOrWhiteSpace([string]$latestRoutingDecisionEvent[0].status) `
     -and ([System.IO.Path]::GetFullPath([string]$latestRoutingDecisionEvent[0].path).Equals([System.IO.Path]::GetFullPath($routingDecisionPathExpected), [System.StringComparison]::OrdinalIgnoreCase)) `
     -and (Test-Path -LiteralPath $routingDecisionPathExpected -PathType Leaf))
+$expectedFormalSampleSetId = "terminal-bench_E3-P0_3_5"
+$expectedFormalSampleNames = @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log")
+$formalPairCount = $expectedFormalSampleNames.Count * 5
 $pairCompletedEvents = @($runEvents | Where-Object {
         [string]$_.event -eq "pair_completed" -and
         [int]$_.schema_version -eq 1 -and
         -not [string]::IsNullOrWhiteSpace([string]$_.timestamp) -and
         [int]$_.repeat -gt 0 -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.sample_id) -and
+        [int]$_.sample_repeat_index -gt 0 -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.standard_run_id) -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.taskspace_run_id) -and
         -not [string]::IsNullOrWhiteSpace([string]$_.pair_report) -and
         -not [string]::IsNullOrWhiteSpace([string]$_.reported_evidence_level)
     })
@@ -287,6 +294,9 @@ $completedPairs = Get-ReleaseInt $runStatus "completed_pairs" 0
 $validPairEvidence = New-Object System.Collections.Generic.List[object]
 $pairEvidenceKeys = New-Object 'System.Collections.Generic.HashSet[string]'
 $pairRepeatKeys = New-Object 'System.Collections.Generic.HashSet[string]'
+$pairSampleRepeatKeys = New-Object 'System.Collections.Generic.HashSet[string]'
+$formalPairCountsBySample = @{}
+foreach ($name in $expectedFormalSampleNames) { $formalPairCountsBySample[$name] = 0 }
 foreach ($event in $pairCompletedEvents) {
     $pairReport = [string]$event.pair_report
     if (-not (Test-ReleasePathUnderRoot $runRoot $pairReport)) { continue }
@@ -303,6 +313,13 @@ foreach ($event in $pairCompletedEvents) {
     $repeatKey = [string][int]$event.repeat
     if (-not $pairEvidenceKeys.Add($pairKey)) { continue }
     if (-not $pairRepeatKeys.Add($repeatKey)) { continue }
+    $sampleId = [string]$event.sample_id
+    if (-not ($expectedFormalSampleNames -contains $sampleId)) { continue }
+    $sampleRepeatIndex = [int]$event.sample_repeat_index
+    if ($sampleRepeatIndex -lt 1 -or $sampleRepeatIndex -gt 5) { continue }
+    $sampleRepeatKey = "$sampleId#$sampleRepeatIndex"
+    if (-not $pairSampleRepeatKeys.Add($sampleRepeatKey)) { continue }
+    $formalPairCountsBySample[$sampleId] = [int]$formalPairCountsBySample[$sampleId] + 1
     $leftMetricPath = Join-Path $pairDir "left\artifacts\metrics.json"
     $rightMetricPath = Join-Path $pairDir "right\artifacts\metrics.json"
     if (-not (Test-Path -LiteralPath $leftMetricPath) -or -not (Test-Path -LiteralPath $rightMetricPath)) { continue }
@@ -319,6 +336,10 @@ foreach ($event in $pairCompletedEvents) {
             pair_dir = $pairDir
             pair_report = $pairReport
             repeat = [int]$event.repeat
+            sample_id = $sampleId
+            sample_repeat_index = $sampleRepeatIndex
+            standard_run_id = [string]$event.standard_run_id
+            taskspace_run_id = [string]$event.taskspace_run_id
             taskspace_output_ref_events_path = $taskspaceOutputRefEventsPath
             taskspace_runtime_output_ref_created_count = [int]$taskspaceRuntimeOutputRefs
             taskspace_output_ref_created_event_count = [int]$taskspaceOutputRefEvents.Count
@@ -326,6 +347,12 @@ foreach ($event in $pairCompletedEvents) {
         })
 }
 $validOutputRefPairEvidence = @($validPairEvidence | Where-Object { [bool]$_.output_ref_correlated })
+$formalPairSampleLedgerPass = ($pairSampleRepeatKeys.Count -eq $formalPairCount)
+foreach ($name in $expectedFormalSampleNames) {
+    if (-not $formalPairCountsBySample.ContainsKey($name) -or [int]$formalPairCountsBySample[$name] -ne 5) {
+        $formalPairSampleLedgerPass = $false
+    }
+}
 $runProvenancePass = ($runStatus `
     -and (Get-ReleaseInt $runStatus "schema_version" 0) -eq 1 `
     -and (Get-ReleaseString $runStatus "run_validity") -eq "valid" `
@@ -339,10 +366,9 @@ $runProvenancePass = ($runStatus `
     -and $pairCompletedEvents.Count -eq $completedPairs `
     -and $validPairEvidence.Count -eq $completedPairs `
     -and $pairEvidenceKeys.Count -eq $completedPairs `
-    -and $pairRepeatKeys.Count -eq $completedPairs)
+    -and $pairRepeatKeys.Count -eq $completedPairs `
+    -and $formalPairSampleLedgerPass)
 
-$expectedFormalSampleSetId = "terminal-bench_E3-P0_3_5"
-$expectedFormalSampleNames = @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log")
 $runSampleSetId = Get-ReleaseString $runStatus "sample_set_id"
 $runBenchmarkFamily = Get-ReleaseString $runStatus "benchmark_family"
 $runRunnerEntrypoint = Get-ReleaseString $runStatus "runner_entrypoint"
@@ -373,7 +399,6 @@ if ($sampleNamesMatch) {
         }
     }
 }
-$formalPairCount = $expectedFormalSampleNames.Count * 5
 $suiteManifest = Read-ReleaseJson $runSuiteManifestPath
 $manifestTaskListPath = Get-ReleaseString $suiteManifest "task_list_path"
 $taskListIdentitySource = "missing"
@@ -621,7 +646,12 @@ $matchingExactScanEvents = @($exactPayloadScanEvents | Where-Object {
         [string]$_.provider_payload_sha256 -eq $activeReplacementPayloadHash -and
         (-not [string]::IsNullOrWhiteSpace($activeReplacementRequestId) -and [string]$_.request_id -eq $activeReplacementRequestId)
     })
-$exactScanPass = ($matchingExactScanEvents.Count -gt 0)
+$matchingProviderPayloadEvents = @($providerRequestEvents | Where-Object {
+        ([string]$_.schema_version -eq "taskspace-provider-request-event-v1" -or [string]$_.schema_version -eq "taskspace-provider-request-budget-event-v1") -and
+        [string]$_.request_id -eq $activeReplacementRequestId -and
+        [string]$_.provider_payload_sha256 -eq $activeReplacementPayloadHash
+    })
+$exactScanPass = ($matchingExactScanEvents.Count -gt 0 -and $matchingProviderPayloadEvents.Count -gt 0)
 $activeReplacementPass = ($activeReplacement `
     -and (Get-ReleaseBool $activeReplacement "provider_payload_available") `
     -and -not [string]::IsNullOrWhiteSpace($activeReplacementPayloadHash) `
@@ -732,6 +762,9 @@ $summary = [pscustomobject]@{
     output_ref_gate_pass = [bool]$outputRefPass
     run_provenance_gate_pass = [bool]$runProvenancePass
     formal_e3_identity_gate_pass = [bool]$formalE3IdentityPass
+    formal_e3_pair_sample_ledger_pass = [bool]$formalPairSampleLedgerPass
+    formal_e3_pair_sample_repeat_count = [int]$pairSampleRepeatKeys.Count
+    formal_e3_pair_counts_by_sample = [pscustomobject]$formalPairCountsBySample
     formal_e3_provenance_gate_pass = [bool]$suiteProvenancePass
     suite_receipt_gate_pass = [bool]$suiteReceiptPass
     suite_receipt_hash_chain_pass = [bool]$suiteReceiptHashChainPass
@@ -780,6 +813,8 @@ $summary = [pscustomobject]@{
     derived_manual_override_count = [int]$derivedManualOverrideCount
     request_phase_gate_pass = [bool]$requestPhasePass
     active_replacement_gate_pass = [bool]$activeReplacementPass
+    exact_payload_scan_gate_pass = [bool]$exactScanPass
+    exact_payload_scan_matching_provider_event_count = [int]$matchingProviderPayloadEvents.Count
     state_commit_displacement_gate_pass = [bool]$stateCommitDisplacementPass
     spawn_node_budget_gate_pass = [bool]$spawnNodeBudgetPass
     v005_non_agent_gates_pass = [bool]$v005NonAgentGatesPass

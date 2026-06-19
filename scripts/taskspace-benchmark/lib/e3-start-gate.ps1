@@ -348,7 +348,7 @@ function Get-TaskspaceE3OnePairSmokeGate {
                 return New-TaskspaceE3GateRow "one_pair_smoke" "pass" "" "" ([string]$aggregatePath.FullName)
             }
             if ($aggregate.PSObject.Properties.Name -contains "run_validity" -and [string]$aggregate.run_validity -eq "invalid_harness") {
-                return New-TaskspaceE3GateRow "one_pair_smoke" "pass" "classified_invalid_harness" "" ([string]$aggregatePath.FullName)
+                return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "classified_invalid_harness" "classified_invalid_harness_not_scoreable" ([string]$aggregatePath.FullName)
             }
             return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_score_invalid_unclassified" "one_pair_score_invalid_unclassified" ([string]$aggregatePath.FullName)
         } catch {
@@ -360,7 +360,7 @@ function Get-TaskspaceE3OnePairSmokeGate {
         try {
             $suiteHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteHealthPath.FullName | ConvertFrom-Json
             if ([string]$suiteHealth.status -eq "invalid_harness" -and -not [string]::IsNullOrWhiteSpace([string]$suiteHealth.suite_abort_reason)) {
-                return New-TaskspaceE3GateRow "one_pair_smoke" "pass" "classified_invalid_harness" "" ([string]$suiteHealthPath.FullName)
+                return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "classified_invalid_harness" "classified_invalid_harness_not_scoreable" ([string]$suiteHealthPath.FullName)
             }
             return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_suite_health_not_classified" "one_pair_suite_health_not_classified" ([string]$suiteHealthPath.FullName)
         } catch {
@@ -372,7 +372,7 @@ function Get-TaskspaceE3OnePairSmokeGate {
         try {
             $sampleStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $sampleStatusPath.FullName | ConvertFrom-Json
             if ([string]$sampleStatus.run_validity -eq "invalid_harness" -and -not [string]::IsNullOrWhiteSpace([string]$sampleStatus.abort_signature)) {
-                return New-TaskspaceE3GateRow "one_pair_smoke" "pass" "classified_invalid_harness" "" ([string]$sampleStatusPath.FullName)
+                return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "classified_invalid_harness" "classified_invalid_harness_not_scoreable" ([string]$sampleStatusPath.FullName)
             }
             return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_sample_status_not_classified" "one_pair_sample_status_not_classified" ([string]$sampleStatusPath.FullName)
         } catch {

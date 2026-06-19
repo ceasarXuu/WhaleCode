@@ -74,6 +74,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         task_id = "task-1"
         map_id = "map-1"
         node_id = "node-1"
+        provider_payload_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         status = "completed"
     } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "provider-request-events.jsonl") -Encoding UTF8
     ([pscustomobject]@{
@@ -356,6 +357,9 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
     $pairEventRows = New-Object System.Collections.Generic.List[string]
     $pairCount = 15
     for ($pairIndex = 1; $pairIndex -le $pairCount; $pairIndex++) {
+        $sampleIndex = [int][Math]::Floor(($pairIndex - 1) / 5)
+        $sampleId = $sampleNames[$sampleIndex]
+        $sampleRepeatIndex = (($pairIndex - 1) % 5) + 1
         $pairName = "pair-{0:D3}" -f $pairIndex
         Write-Json ([pscustomobject]@{
                 logical_mode = "standard"
@@ -377,7 +381,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "$pairName\right\artifacts\output-ref-events.jsonl") -Encoding UTF8
         $pairReportPath = Join-Path $dir "$pairName\pair-report.md"
         Set-Content -LiteralPath $pairReportPath -Encoding UTF8 -Value "# Pair Report $pairIndex"
-        [void]$pairEventRows.Add(([pscustomobject]@{ event = "pair_completed"; schema_version = 1; timestamp = "2026-06-18T00:00:02.0000000Z"; repeat = $pairIndex; pair_report = $pairReportPath; reported_evidence_level = "E3" } | ConvertTo-Json -Compress -Depth 8))
+        [void]$pairEventRows.Add(([pscustomobject]@{ event = "pair_completed"; schema_version = 1; timestamp = "2026-06-18T00:00:02.0000000Z"; repeat = $pairIndex; sample_id = $sampleId; sample_repeat_index = $sampleRepeatIndex; standard_run_id = "standard-$pairIndex"; taskspace_run_id = "taskspace-$pairIndex"; pair_report = $pairReportPath; reported_evidence_level = "E3" } | ConvertTo-Json -Compress -Depth 8))
     }
     Write-Json ([pscustomobject]@{
             schema_version = 1
@@ -636,6 +640,16 @@ Assert-True ($LASTEXITCODE -eq 1) "mismatched exact scan fixture did not exit 1"
 $mismatchedScanDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $mismatchedScanDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($mismatchedScanDecision.blockers) -contains "active_context_replacement_gate_failed") "mismatched scan fixture did not report active replacement blocker"
 
+$missingProviderPayloadJoinDir = New-FixtureRun "missing-provider-payload-join" "PASS" $true 0
+$providerRows = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $missingProviderPayloadJoinDir "provider-request-events.jsonl") | ForEach-Object { $_ | ConvertFrom-Json }
+$providerRows[0].provider_payload_sha256 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+($providerRows[0] | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $missingProviderPayloadJoinDir "provider-request-events.jsonl") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $missingProviderPayloadJoinDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "missing provider payload join fixture did not exit 1"
+$missingProviderPayloadJoinDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingProviderPayloadJoinDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($missingProviderPayloadJoinDecision.blockers) -contains "active_context_replacement_gate_failed") "missing provider payload join fixture did not report active replacement blocker"
+Assert-True ([int]$missingProviderPayloadJoinDecision.exact_payload_scan_matching_provider_event_count -eq 0) "missing provider payload join fixture still matched provider events"
+
 $weakNonAgentDir = New-FixtureRun "weak-non-agent-gates" "PASS" $true 0
 Write-Json ([pscustomobject]@{ status = "pass"; schema_version = 1 }) (Join-Path $weakNonAgentDir "v005-non-agent-gates.json")
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $weakNonAgentDir *> $null
@@ -749,6 +763,20 @@ $nonE3PairReportPath = Join-Path $nonE3PairDir "pair-001\pair-report.md"
 Assert-True ($LASTEXITCODE -eq 1) "non-E3 pair level fixture did not exit 1"
 $nonE3PairDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $nonE3PairDir "release-decision.json") | ConvertFrom-Json
 Assert-True (-not [bool]$nonE3PairDecision.run_provenance_gate_pass) "non-E3 pair level fixture incorrectly passed provenance gate"
+
+$sameSamplePairDir = New-FixtureRun "same-sample-pair-ledger" "PASS" $true 0
+$sameSampleEvents = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $sameSamplePairDir "events.jsonl") | ForEach-Object { $_ | ConvertFrom-Json }
+foreach ($event in @($sameSampleEvents | Where-Object { [string]$_.event -eq "pair_completed" })) {
+    $event.sample_id = "processing-pipeline"
+    $event.sample_repeat_index = [int]$event.repeat
+    if ([int]$event.sample_repeat_index -gt 5) { $event.sample_repeat_index = 5 }
+}
+@($sameSampleEvents | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 }) | Set-Content -LiteralPath (Join-Path $sameSamplePairDir "events.jsonl") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $sameSamplePairDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "same sample pair ledger fixture did not exit 1"
+$sameSamplePairDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $sameSamplePairDir "release-decision.json") | ConvertFrom-Json
+Assert-True (-not [bool]$sameSamplePairDecision.formal_e3_pair_sample_ledger_pass) "same sample pair ledger fixture incorrectly passed sample ledger gate"
+Assert-True (-not [bool]$sameSamplePairDecision.run_provenance_gate_pass) "same sample pair ledger fixture incorrectly passed provenance gate"
 
 $staleRoutingDir = New-FixtureRun "stale-routing-event" "PASS" $true 0
 Add-Content -LiteralPath (Join-Path $staleRoutingDir "events.jsonl") -Encoding UTF8 -Value (([pscustomobject]@{ event = "routing_decision_completed"; schema_version = 1; timestamp = "2026-06-18T00:00:03.0000000Z" } | ConvertTo-Json -Compress -Depth 8))
