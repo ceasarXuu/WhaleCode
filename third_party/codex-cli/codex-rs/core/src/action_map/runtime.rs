@@ -1608,7 +1608,7 @@ preview:\n\
             self.taskspace_trace_events.push(event.clone());
             events.push(MapRuntimeEvent::TaskspaceTraceEventRecorded(
                 MapRuntimeTraceEventRecordedEvent {
-                    trace_event_id: id,
+                    trace_event_id: id.clone(),
                     kind: event.kind.clone(),
                     task_id: event.task_id.clone(),
                     map_id: event.map_id.clone(),
@@ -1620,6 +1620,64 @@ preview:\n\
                     tags: event.tags.clone(),
                     artifact_refs: event.artifact_refs.clone(),
                     created_at_ms: event.created_at_ms,
+                },
+            ));
+            let quality_id = self.next_trace_event_id();
+            let budget_action = if input.status == "blocked" {
+                "hard_stop"
+            } else {
+                "observe"
+            };
+            let final_classification = if input.status == "blocked" {
+                "blocked_by_budget"
+            } else {
+                "score_eligible"
+            };
+            let score_eligible = input.status != "blocked";
+            let quality_tags = vec![
+                "schema:taskspace-budget-quality-impact-v1".to_string(),
+                format!("provider_request_budget_trace_event_id:{id}"),
+                format!("budget_action:{budget_action}"),
+                format!("provider_request_status:{}", input.status),
+                format!("counter_name:provider_request_count"),
+                format!("counter_value:{}", input.request_count_after),
+                format!("counter_limit:{}", input.max_requests),
+                format!("request_phase:{request_phase}"),
+                format!("score_eligible:{score_eligible}"),
+                "budget_induced_validation_skip:false".to_string(),
+                "manual_override_used:false".to_string(),
+                "bounded_recovery_used:false".to_string(),
+                format!("final_classification:{final_classification}"),
+            ];
+            let quality_event = TaskSpaceTraceEvent {
+                id: quality_id.clone(),
+                kind: "budget_quality_impact".to_string(),
+                task_id: event.task_id.clone(),
+                map_id: event.map_id.clone(),
+                node_id: event.node_id.clone(),
+                result_id: None,
+                call_id: event.call_id.clone(),
+                action_class: None,
+                tool_success: Some(score_eligible),
+                tags: quality_tags,
+                artifact_refs: Vec::new(),
+                created_at_ms,
+            };
+            self.taskspace_trace_events.push(quality_event.clone());
+            events.push(MapRuntimeEvent::TaskspaceTraceEventRecorded(
+                MapRuntimeTraceEventRecordedEvent {
+                    trace_event_id: quality_id,
+                    kind: quality_event.kind.clone(),
+                    task_id: quality_event.task_id.clone(),
+                    map_id: quality_event.map_id.clone(),
+                    node_id: quality_event.node_id.clone(),
+                    result_id: quality_event.result_id.clone(),
+                    call_id: quality_event.call_id.clone(),
+                    action_class: None,
+                    tool_success: quality_event.tool_success,
+                    tags: quality_event.tags.clone(),
+                    artifact_refs: quality_event.artifact_refs.clone(),
+                    created_at_ms: quality_event.created_at_ms,
                 },
             ));
         }
@@ -9622,9 +9680,9 @@ mod tests {
             )
             .expect("provider budget trace events");
 
-        assert_eq!(events.len(), 2);
+        assert_eq!(events.len(), 4);
         let MapRuntimeEvent::TaskspaceTraceEventRecorded(blocked) =
-            events.last().expect("last trace event")
+            events.get(2).expect("blocked provider trace event")
         else {
             panic!("expected provider budget trace event");
         };
@@ -9662,6 +9720,36 @@ mod tests {
                 .iter()
                 .any(|tag| tag == "provider_payload_bytes:4321")
         );
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(quality) =
+            events.last().expect("last trace event")
+        else {
+            panic!("expected budget quality trace event");
+        };
+        assert_eq!(quality.kind, "budget_quality_impact");
+        assert_eq!(quality.task_id.as_deref(), Some("dispatch-task"));
+        assert_eq!(quality.map_id, "dispatch-map");
+        assert_eq!(quality.node_id, "dispatch-node");
+        assert_eq!(quality.call_id.as_deref(), Some("provider-request-2"));
+        assert_eq!(quality.tool_success, Some(false));
+        assert!(
+            quality
+                .tags
+                .iter()
+                .any(|tag| tag == "schema:taskspace-budget-quality-impact-v1")
+        );
+        assert!(
+            quality
+                .tags
+                .iter()
+                .any(|tag| tag == "budget_action:hard_stop")
+        );
+        assert!(
+            quality
+                .tags
+                .iter()
+                .any(|tag| tag == "final_classification:blocked_by_budget")
+        );
+        assert!(quality.tags.iter().any(|tag| tag == "score_eligible:false"));
         assert_eq!(
             state
                 .provider_request_budget_snapshot()
