@@ -4,6 +4,7 @@
 - 状态：v0.0.5 继续开发，禁止按已收口版本处理
 - 依据：v0.0.5 目标文档、当前代码静态审查、`terminal-bench_E3-P0_3_2` 诊断变体结果
 - 本文不包含新的真实 E3 / Agent 调用
+- 详细工程设计：`18-unfinished-work-engineering-design.md`
 
 ## 1. 总结
 
@@ -466,3 +467,9 @@ v0.0.5 可以关闭并把成本优化全部放到下一版本。
 ```
 
 下一步应该继续实现 P0 成本控制闭环，且在代码完成前不再运行真实 E3。
+
+详细设计、代码落点、阶段门禁和非 agent 验证计划见：
+
+```text
+18-unfinished-work-engineering-design.md
+```

@@ -45,6 +45,7 @@ v0.0.5 围绕两个大目标展开：
 | `15-closeout-summary.md` | 历史阶段性收口总结，已被 2026-06-19 P0 诊断结果 supersede |
 | `16-terminal-bench_E3-P0_3_2-variant-run.md` | `terminal-bench_E3-P0_3_2` 低成本诊断变体运行记录 |
 | `17-unfinished-work-inventory.md` | 当前权威未完成工作盘点与继续开发顺序 |
+| `18-unfinished-work-engineering-design.md` | 未完成项继续开发的工程设计、代码落点、阶段门禁和验证方案 |
 | `TaskSpace-v0.0.5-Design-All-in-One.md` | 合并版设计文档 |
 | `schemas/*.json` | 核心结构示例 schema |
 | `examples/*.md` | 关键流程示例 |
@@ -76,6 +77,8 @@ checklists/acceptance-checklist.md
 工程拆分时读：
 
 ```text
+17-unfinished-work-inventory.md
+18-unfinished-work-engineering-design.md
 03-protocol-compaction.md
 04-context-projection-and-replay-control.md
 05-map-self-management.md
