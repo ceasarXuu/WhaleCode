@@ -166,6 +166,7 @@ $costDiagnosticsPath = Join-Path $runRoot "cost-diagnostics.json"
 $runStatusPath = Join-Path $runRoot "run-status.json"
 $eventsPath = Join-Path $runRoot "events.jsonl"
 $suiteReceiptPath = Join-Path $runRoot "suite-receipt.jsonl"
+$suiteRunnerAttestationPath = Join-Path $runRoot "suite-runner-attestation.json"
 $outputRefEventsPath = Join-Path $runRoot "output-ref-events.jsonl"
 $providerRequestEventsPath = Join-Path $runRoot "provider-request-events.jsonl"
 $budgetEventsPath = Join-Path $runRoot "budget-events.jsonl"
@@ -205,7 +206,8 @@ $requiredArtifacts = @(
     "v005-user-approval.json",
     "start-gate\e3-start-gate.json",
     "start-gate\gate-decision.json",
-    "suite-receipt.jsonl"
+    "suite-receipt.jsonl",
+    "suite-runner-attestation.json"
 )
 $cost = Read-ReleaseJson $costPath
 $aggregate = Read-ReleaseJson $aggregatePath
@@ -216,6 +218,7 @@ $costDiagnostics = Read-ReleaseJson $costDiagnosticsPath
 $runStatus = Read-ReleaseJson $runStatusPath
 $runEvents = @(Read-ReleaseJsonl $eventsPath)
 $suiteReceiptEvents = @(Read-ReleaseJsonl $suiteReceiptPath)
+$suiteRunnerAttestation = Read-ReleaseJson $suiteRunnerAttestationPath
 $outputRefEvents = @(Read-ReleaseJsonl $outputRefEventsPath)
 $providerRequestEvents = @(Read-ReleaseJsonl $providerRequestEventsPath)
 $budgetEvents = @(Read-ReleaseJsonl $budgetEventsPath)
@@ -355,6 +358,8 @@ $runSuiteManifestPath = Get-ReleaseString $runStatus "suite_manifest_path"
 $runSuiteManifestSha256 = Get-ReleaseString $runStatus "suite_manifest_sha256"
 $runSuiteReceiptPath = Get-ReleaseString $runStatus "suite_receipt_path"
 $runSuiteReceiptSha256 = Get-ReleaseString $runStatus "suite_receipt_sha256"
+$runSuiteRunnerAttestationPath = Get-ReleaseString $runStatus "suite_runner_attestation_path"
+$runSuiteRunnerAttestationSha256 = Get-ReleaseString $runStatus "suite_runner_attestation_sha256"
 $runApprovalMarkerSha256 = Get-ReleaseString $runStatus "approval_marker_sha256"
 $runCodeCompleteMarkerSha256 = Get-ReleaseString $runStatus "code_complete_marker_sha256"
 $runSampleNames = @(Get-ReleaseArrayStrings $runStatus "sample_names" | Sort-Object)
@@ -480,6 +485,22 @@ $suiteReceiptPass = ($suiteReceiptEvents.Count -gt 0 `
     -and (Get-ReleaseString $receiptRunInitialized[0] "child_runner_sha256") -eq $runChildRunnerSha256 `
     -and (Get-ReleaseString $receiptRunInitialized[0] "task_list_sha256") -eq $runTaskListSha256 `
     -and (Get-ReleaseString $receiptRunInitialized[0] "profile_hash") -eq $runRunnerProfileHash)
+$actualSuiteRunnerAttestationSha256 = Get-ReleaseFileSha256 $suiteRunnerAttestationPath
+$suiteRunnerAttestationPass = ($suiteRunnerAttestation `
+    -and $runSuiteRunnerAttestationSha256 -match '^[a-fA-F0-9]{64}$' `
+    -and $runSuiteRunnerAttestationSha256 -eq $actualSuiteRunnerAttestationSha256 `
+    -and (Test-ReleasePathUnderRoot $runRoot $runSuiteRunnerAttestationPath) `
+    -and (Get-ReleaseString $suiteRunnerAttestation "artifact_origin") -eq "real_suite_runner" `
+    -and (Get-ReleaseString $suiteRunnerAttestation "runner_entrypoint") -eq $runRunnerEntrypoint `
+    -and (Get-ReleaseString $suiteRunnerAttestation "runner_script_sha256") -eq $runRunnerScriptSha256 `
+    -and (Get-ReleaseString $suiteRunnerAttestation "child_runner_sha256") -eq $runChildRunnerSha256 `
+    -and (Get-ReleaseString $suiteRunnerAttestation "task_list_sha256") -eq $runTaskListSha256 `
+    -and (Get-ReleaseString $suiteRunnerAttestation "suite_manifest_sha256") -eq $runSuiteManifestSha256 `
+    -and (Get-ReleaseString $suiteRunnerAttestation "suite_receipt_sha256") -eq $runSuiteReceiptSha256 `
+    -and (Get-ReleaseString $suiteRunnerAttestation "profile_hash") -eq $runRunnerProfileHash `
+    -and (Get-ReleaseString $suiteRunnerAttestation "sample_set_id") -eq $runSampleSetId `
+    -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $suiteRunnerAttestation "command_line")) `
+    -and (Get-ReleaseInt $suiteRunnerAttestation "process_id" 0) -gt 0)
 $formalE3IdentityPass = ($runStatus `
     -and $runSampleSetId -eq $expectedFormalSampleSetId `
     -and $releaseTaskListDerivationPass `
@@ -507,6 +528,7 @@ $evidence = [ordered]@{
     cost_diagnostics_path = $costDiagnosticsPath
     run_status_path = $runStatusPath
     suite_manifest_path = $runSuiteManifestPath
+    suite_runner_attestation_path = $suiteRunnerAttestationPath
     events_path = $eventsPath
     output_ref_events_path = $outputRefEventsPath
     budget_quality_impact_events_path = $budgetQualityImpactEventsPath
@@ -665,13 +687,14 @@ if ($modelRequestCountRatio -gt 2.5) { Add-ReleaseLine $blockers "formal_p0_requ
 if (-not $suiteProvenancePass) { Add-ReleaseLine $blockers "formal_e3_provenance_gate_failed" }
 if (-not $suiteReceiptPass) { Add-ReleaseLine $blockers "suite_receipt_gate_failed" }
 if (-not $suiteReceiptHashChainPass) { Add-ReleaseLine $blockers "suite_receipt_hash_chain_failed" }
+if (-not $suiteRunnerAttestationPass) { Add-ReleaseLine $blockers "suite_runner_attestation_gate_failed" }
 if (-not $codeCompleteMarkerPass) { Add-ReleaseLine $blockers "v005_code_complete_marker_failed" }
 if (-not $userApprovalMarkerPass) { Add-ReleaseLine $blockers "v005_user_approval_marker_failed" }
 if ($aggregate -and (Get-ReleaseInt $aggregate "excluded_pairs" 0) -gt 0) { Add-ReleaseLine $blockers "excluded_pairs_present" }
 
 $decision = "fail"
 $closeable = $false
-if ($qualityPass -and $projectionPass -and $mapPass -and $routingPass -and $outputRefPass -and $runProvenancePass -and $formalE3IdentityPass -and $suiteProvenancePass -and $suiteReceiptPass -and $codeCompleteMarkerPass -and $userApprovalMarkerPass -and $providerRequestPass -and $budgetResponsePass -and $budgetQualityImpactPass -and $requestPhasePass -and $activeReplacementPass -and $stateCommitDisplacementPass -and $spawnNodeBudgetPass -and $v005NonAgentGatesPass) {
+if ($qualityPass -and $projectionPass -and $mapPass -and $routingPass -and $outputRefPass -and $runProvenancePass -and $formalE3IdentityPass -and $suiteProvenancePass -and $suiteReceiptPass -and $suiteRunnerAttestationPass -and $codeCompleteMarkerPass -and $userApprovalMarkerPass -and $providerRequestPass -and $budgetResponsePass -and $budgetQualityImpactPass -and $requestPhasePass -and $activeReplacementPass -and $stateCommitDisplacementPass -and $spawnNodeBudgetPass -and $v005NonAgentGatesPass) {
     if ($costStatus -eq "PASS" -and $formalP0CostCleanPass -and $blockers.Count -eq 0) {
         $decision = "release_pass"
         $closeable = $true
@@ -696,6 +719,8 @@ $summary = [pscustomobject]@{
     formal_e3_provenance_gate_pass = [bool]$suiteProvenancePass
     suite_receipt_gate_pass = [bool]$suiteReceiptPass
     suite_receipt_hash_chain_pass = [bool]$suiteReceiptHashChainPass
+    suite_runner_attestation_gate_pass = [bool]$suiteRunnerAttestationPass
+    suite_runner_attestation_sha256 = $runSuiteRunnerAttestationSha256
     artifact_origin = $runArtifactOrigin
     sample_set_id = $runSampleSetId
     sample_names = @($runSampleNames)
@@ -778,6 +803,7 @@ Add-ReleaseLine $lines "- formal_e3_identity_gate_pass: $formalE3IdentityPass"
 Add-ReleaseLine $lines "- formal_e3_provenance_gate_pass: $suiteProvenancePass"
 Add-ReleaseLine $lines "- suite_receipt_gate_pass: $suiteReceiptPass"
 Add-ReleaseLine $lines "- suite_receipt_hash_chain_pass: $suiteReceiptHashChainPass"
+Add-ReleaseLine $lines "- suite_runner_attestation_gate_pass: $suiteRunnerAttestationPass"
 Add-ReleaseLine $lines "- artifact_origin: $runArtifactOrigin"
 Add-ReleaseLine $lines "- sample_set_id: $runSampleSetId"
 Add-ReleaseLine $lines "- task_list_identity_source: $taskListIdentitySource"

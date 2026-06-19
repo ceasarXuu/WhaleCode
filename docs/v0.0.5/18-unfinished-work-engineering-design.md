@@ -1300,7 +1300,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 
 1. Provider request hook location is no longer open for v0.0.5 implementation: the authoritative hook is `third_party/codex-cli/codex-rs/core/src/client.rs` / `ModelClientSession` before provider dispatch and across stream lifecycle. `ActionMap` may provide request context and budget policy, but release evidence must not infer provider request phase/node from a later runtime snapshot.
 2. Active budget thresholds must be two-layered: Standard-baseline ratio gates decide `release_pass` / `blocked_partial`, while route fixed thresholds are only runtime safety caps. A run cannot close v0.0.5 merely because it stayed under an absolute route cap.
-3. Release decision must derive formal P0 identity from task-list content and verify suite receipt hash chain. A self-consistent copied JSON tree is not enough for `release_pass`.
+3. Release decision must derive formal P0 identity from task-list content, verify suite receipt hash chain, and require `suite-runner-attestation.json` produced by the suite runner path. A self-consistent copied JSON tree is not enough for `release_pass`.
 
 ## 13. Plan Quality Checklist
 

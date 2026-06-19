@@ -103,6 +103,7 @@ $profileIdentity = New-TaskspaceE3ProfileIdentity `
     -ScoringMode ([bool]$scoreValidityEnforced)
 $profileHash = [string]$profileIdentity.profile_hash
 $suiteManifestPath = Join-Path $suiteRoot "suite-manifest.json"
+$suiteRunnerAttestationPath = Join-Path $suiteRoot "suite-runner-attestation.json"
 $suiteReceiptPath = Join-Path $suiteRoot "suite-receipt.jsonl"
 [pscustomobject]@{
     schema_version = 1
@@ -172,15 +173,41 @@ function Get-SuiteReceiptSha256 {
     (Get-FileHash -LiteralPath $suiteReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Write-SuiteRunnerAttestation {
+    $attestation = [ordered]@{
+        schema_version = 1
+        artifact_origin = "real_suite_runner"
+        runner_entrypoint = "run-taskspace-e3-suite.ps1"
+        runner_script_sha256 = $runnerScriptSha256
+        child_runner_sha256 = $childRunnerSha256
+        task_list_path = ([System.IO.Path]::GetFullPath($TaskListPath))
+        task_list_sha256 = $taskListSha256
+        suite_manifest_sha256 = (Get-FileHash -LiteralPath $suiteManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        suite_receipt_sha256 = Get-SuiteReceiptSha256
+        profile_hash = $profileHash
+        sample_set_id = $sampleSetId
+        suite_root = $suiteRoot
+        process_id = $PID
+        command_line = [Environment]::CommandLine
+        generated_at = (Get-Date).ToString("o")
+    }
+    [pscustomobject]$attestation | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $suiteRunnerAttestationPath -Encoding UTF8
+}
+
 function Update-SampleRunReceiptFields {
     $receiptSha = Get-SuiteReceiptSha256
+    Write-SuiteRunnerAttestation
+    $attestationSha = (Get-FileHash -LiteralPath $suiteRunnerAttestationPath -Algorithm SHA256).Hash.ToLowerInvariant()
     foreach ($statusPath in @(Get-ChildItem -LiteralPath $samplesRoot -Filter "run-status.json" -Recurse -ErrorAction SilentlyContinue)) {
         try {
             Update-TaskspaceBenchmarkRunStatusFields (Split-Path -Parent $statusPath.FullName) @{
                 suite_receipt_path = Join-Path (Split-Path -Parent $statusPath.FullName) "suite-receipt.jsonl"
                 suite_receipt_sha256 = $receiptSha
+                suite_runner_attestation_path = Join-Path (Split-Path -Parent $statusPath.FullName) "suite-runner-attestation.json"
+                suite_runner_attestation_sha256 = $attestationSha
             } | Out-Null
             Copy-Item -LiteralPath $suiteReceiptPath -Destination (Join-Path (Split-Path -Parent $statusPath.FullName) "suite-receipt.jsonl") -Force
+            Copy-Item -LiteralPath $suiteRunnerAttestationPath -Destination (Join-Path (Split-Path -Parent $statusPath.FullName) "suite-runner-attestation.json") -Force
         } catch {}
     }
 }

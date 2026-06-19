@@ -43,7 +43,7 @@ function New-FixtureReceiptLines([object[]]$Rows) {
         })
 }
 
-function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [int]$RoutingMistakes, [double]$ModelRequestRatio = 1.0, [string[]]$TaskListSamples = @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log")) {
+function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [int]$RoutingMistakes, [double]$ModelRequestRatio = 1.0, [string[]]$TaskListSamples = @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log"), [bool]$Attested = $false) {
     $dir = Join-Path $RunRoot $Name
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     Write-Json ([pscustomobject]@{
@@ -270,6 +270,28 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         }
     ) | Set-Content -LiteralPath $suiteReceiptPath -Encoding UTF8
     $suiteReceiptSha256 = Get-FixtureSha256 $suiteReceiptPath
+    $suiteRunnerAttestationPath = Join-Path $dir "suite-runner-attestation.json"
+    $suiteRunnerAttestationSha256 = ""
+    if ($Attested) {
+        Write-Json ([pscustomobject]@{
+                schema_version = 1
+                artifact_origin = "real_suite_runner"
+                runner_entrypoint = "run-taskspace-e3-suite.ps1"
+                runner_script_sha256 = $runnerScriptSha256
+                child_runner_sha256 = $childRunnerSha256
+                task_list_path = $taskListPath
+                task_list_sha256 = $taskListSha256
+                suite_manifest_sha256 = $suiteManifestSha256
+                suite_receipt_sha256 = $suiteReceiptSha256
+                profile_hash = $profileHash
+                sample_set_id = $sampleSetId
+                suite_root = $dir
+                process_id = $PID
+                command_line = "powershell -File scripts\\taskspace-benchmark\\run-taskspace-e3-suite.ps1 -fixture"
+                generated_at = "2026-06-19T00:00:04.0000000Z"
+            }) $suiteRunnerAttestationPath
+        $suiteRunnerAttestationSha256 = Get-FixtureSha256 $suiteRunnerAttestationPath
+    }
     Write-Json ([pscustomobject]@{
             schema_version = "TaskShapeRouterV1"
             recommended_mode = "thin"
@@ -380,6 +402,8 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             suite_manifest_sha256 = $suiteManifestSha256
             suite_receipt_path = $suiteReceiptPath
             suite_receipt_sha256 = $suiteReceiptSha256
+            suite_runner_attestation_path = if ($Attested) { $suiteRunnerAttestationPath } else { "" }
+            suite_runner_attestation_sha256 = $suiteRunnerAttestationSha256
             approval_marker_sha256 = $approvalSha256
             code_complete_marker_sha256 = $codeCompleteSha256
         }) (Join-Path $dir "run-status.json")
@@ -393,10 +417,11 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
 
 $passDir = New-FixtureRun "pass" "PASS" $true 0
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $passDir *> $null
-Assert-True ($LASTEXITCODE -eq 0) "PASS fixture did not exit 0"
+Assert-True ($LASTEXITCODE -eq 1) "synthetic PASS fixture did not fail release decision"
 $passDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $passDir "release-decision.json") | ConvertFrom-Json
-Assert-True ([string]$passDecision.decision -eq "release_pass") "PASS fixture did not write release_pass decision"
-Assert-True ([bool]$passDecision.closeable) "PASS fixture did not write closeable=true"
+Assert-True ([string]$passDecision.decision -ne "release_pass") "synthetic PASS fixture incorrectly wrote release_pass decision"
+Assert-True (-not [bool]$passDecision.closeable) "synthetic PASS fixture incorrectly wrote closeable=true"
+Assert-True (@($passDecision.blockers) -contains "suite_runner_attestation_gate_failed") "synthetic PASS fixture did not report attestation blocker"
 Assert-True ([string]$passDecision.task_list_identity_source -eq "derived_from_task_list") "PASS fixture did not derive task list identity"
 Assert-True ([bool]$passDecision.task_list_derivation_gate_pass) "PASS fixture did not pass task list derivation"
 Assert-True ([bool]$passDecision.formal_p0_cost_clean_pass) "PASS fixture did not pass formal P0 clean cost gate"
@@ -486,7 +511,7 @@ $badEvidenceDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $
 Assert-True (@($badEvidenceDecision.blockers) -contains "v005_non_agent_gates_failed") "bad evidence hash fixture did not report v005 non-agent blocker"
 Assert-True ([string]$badEvidenceDecision.decision -ne "release_pass") "bad evidence hash fixture incorrectly wrote release_pass"
 
-$partialDir = New-FixtureRun "partial" "PARTIAL" $true 0
+$partialDir = New-FixtureRun "partial" "PARTIAL" $true 0 1 @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log") $true
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $partialDir *> $null
 Assert-True ($LASTEXITCODE -eq 2) "PARTIAL fixture did not exit 2"
 $partialDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $partialDir "release-decision.json") | ConvertFrom-Json
