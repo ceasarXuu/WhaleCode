@@ -80,6 +80,7 @@ use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
+use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::W3cTraceContext;
 use codex_rollout_trace::CompactionTraceContext;
 use codex_rollout_trace::InferenceTraceAttempt;
@@ -94,6 +95,8 @@ use http::StatusCode as HttpStatusCode;
 use reqwest::StatusCode;
 use std::time::Duration;
 use std::time::Instant;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
@@ -155,6 +158,14 @@ pub(crate) struct ProviderRequestBudgetEvent {
     pub(crate) request_count_before: usize,
     pub(crate) request_count_after: usize,
     pub(crate) max_requests: usize,
+    pub(crate) started_at_ms: i64,
+    pub(crate) completed_at_ms: Option<i64>,
+    pub(crate) latency_ms: Option<i64>,
+    pub(crate) input_tokens: Option<i64>,
+    pub(crate) cached_input_tokens: Option<i64>,
+    pub(crate) output_tokens: Option<i64>,
+    pub(crate) reasoning_output_tokens: Option<i64>,
+    pub(crate) total_tokens: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -168,6 +179,16 @@ struct ProviderRequestBudgetState {
     count: AtomicUsize,
     max_requests: usize,
     events: StdMutex<Vec<ProviderRequestBudgetEvent>>,
+    active_request: StdMutex<Option<ProviderRequestBudgetActiveRequest>>,
+}
+
+#[derive(Debug, Clone)]
+struct ProviderRequestBudgetActiveRequest {
+    request_id: String,
+    transport: String,
+    request_count_before: usize,
+    request_count_after: usize,
+    started_at_ms: i64,
 }
 
 impl ProviderRequestBudgetContext {
@@ -178,6 +199,7 @@ impl ProviderRequestBudgetContext {
                 count: AtomicUsize::new(0),
                 max_requests: usize::MAX,
                 events: StdMutex::new(Vec::new()),
+                active_request: StdMutex::new(None),
             }),
         }
     }
@@ -189,6 +211,7 @@ impl ProviderRequestBudgetContext {
                 count: AtomicUsize::new(starting_count),
                 max_requests,
                 events: StdMutex::new(Vec::new()),
+                active_request: StdMutex::new(None),
             }),
         }
     }
@@ -207,6 +230,14 @@ impl ProviderRequestBudgetContext {
                 request_count_before: before,
                 request_count_after: before,
                 max_requests: self.state.max_requests,
+                started_at_ms: provider_request_budget_now_ms(),
+                completed_at_ms: Some(provider_request_budget_now_ms()),
+                latency_ms: Some(0),
+                input_tokens: None,
+                cached_input_tokens: None,
+                output_tokens: None,
+                reasoning_output_tokens: None,
+                total_tokens: None,
             });
             return Err(CodexErr::InvalidRequest(format!(
                 "TaskSpace blocked this provider request because the active provider request budget is exhausted ({before}/{}). Finish with a bounded final/abort response or record a compact state checkpoint before requesting another model turn.",
@@ -215,6 +246,19 @@ impl ProviderRequestBudgetContext {
         }
         let after = self.state.count.fetch_add(1, Ordering::SeqCst) + 1;
         let request_id = format!("provider-request-{after}");
+        let started_at_ms = provider_request_budget_now_ms();
+        let active_request = ProviderRequestBudgetActiveRequest {
+            request_id: request_id.clone(),
+            transport: transport.to_string(),
+            request_count_before: before,
+            request_count_after: after,
+            started_at_ms,
+        };
+        *self
+            .state
+            .active_request
+            .lock()
+            .expect("provider request budget active mutex poisoned") = Some(active_request.clone());
         self.push_event(ProviderRequestBudgetEvent {
             request_id: request_id.clone(),
             transport: transport.to_string(),
@@ -222,12 +266,66 @@ impl ProviderRequestBudgetContext {
             request_count_before: before,
             request_count_after: after,
             max_requests: self.state.max_requests,
+            started_at_ms,
+            completed_at_ms: None,
+            latency_ms: None,
+            input_tokens: None,
+            cached_input_tokens: None,
+            output_tokens: None,
+            reasoning_output_tokens: None,
+            total_tokens: None,
         });
         Ok(ProviderRequestBudgetDispatch {
             context: Some(self.clone()),
             request_id,
             transport: transport.to_string(),
+            request_count_before: before,
+            request_count_after: after,
+            started_at_ms,
         })
+    }
+
+    pub(crate) fn record_response_completed(&self, token_usage: Option<&TokenUsage>) {
+        self.record_active_terminal_status("response_completed", token_usage);
+    }
+
+    pub(crate) fn record_response_failed(&self) {
+        self.record_active_terminal_status("response_failed", None);
+    }
+
+    pub(crate) fn record_cancelled(&self) {
+        self.record_active_terminal_status("cancelled", None);
+    }
+
+    fn record_active_terminal_status(&self, status: &str, token_usage: Option<&TokenUsage>) {
+        if !self.state.enabled {
+            return;
+        }
+        let active_request = self
+            .state
+            .active_request
+            .lock()
+            .expect("provider request budget active mutex poisoned")
+            .take();
+        if let Some(active_request) = active_request {
+            let completed_at_ms = provider_request_budget_now_ms();
+            self.push_event(ProviderRequestBudgetEvent {
+                request_id: active_request.request_id,
+                transport: active_request.transport,
+                status: status.to_string(),
+                request_count_before: active_request.request_count_before,
+                request_count_after: active_request.request_count_after,
+                max_requests: self.state.max_requests,
+                started_at_ms: active_request.started_at_ms,
+                completed_at_ms: Some(completed_at_ms),
+                latency_ms: Some(completed_at_ms.saturating_sub(active_request.started_at_ms)),
+                input_tokens: token_usage.map(|usage| usage.input_tokens),
+                cached_input_tokens: token_usage.map(|usage| usage.cached_input_tokens),
+                output_tokens: token_usage.map(|usage| usage.output_tokens),
+                reasoning_output_tokens: token_usage.map(|usage| usage.reasoning_output_tokens),
+                total_tokens: token_usage.map(|usage| usage.total_tokens),
+            });
+        }
     }
 
     pub(crate) fn drain_events(&self) -> Vec<ProviderRequestBudgetEvent> {
@@ -253,6 +351,9 @@ struct ProviderRequestBudgetDispatch {
     context: Option<ProviderRequestBudgetContext>,
     request_id: String,
     transport: String,
+    request_count_before: usize,
+    request_count_after: usize,
+    started_at_ms: i64,
 }
 
 impl ProviderRequestBudgetDispatch {
@@ -261,22 +362,39 @@ impl ProviderRequestBudgetDispatch {
             context: None,
             request_id: String::new(),
             transport: String::new(),
+            request_count_before: 0,
+            request_count_after: 0,
+            started_at_ms: 0,
         }
     }
 
     fn record_status(&self, status: &str) {
         if let Some(context) = &self.context {
-            let after = context.state.count.load(Ordering::SeqCst);
             context.push_event(ProviderRequestBudgetEvent {
                 request_id: self.request_id.clone(),
                 transport: self.transport.clone(),
                 status: status.to_string(),
-                request_count_before: after.saturating_sub(1),
-                request_count_after: after,
+                request_count_before: self.request_count_before,
+                request_count_after: self.request_count_after,
                 max_requests: context.state.max_requests,
+                started_at_ms: self.started_at_ms,
+                completed_at_ms: None,
+                latency_ms: None,
+                input_tokens: None,
+                cached_input_tokens: None,
+                output_tokens: None,
+                reasoning_output_tokens: None,
+                total_tokens: None,
             });
         }
     }
+}
+
+fn provider_request_budget_now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or_default()
 }
 
 /// Session-scoped state shared by all [`ModelClient`] clones.

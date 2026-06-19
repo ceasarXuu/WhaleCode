@@ -1921,10 +1921,14 @@ async fn try_run_sampling_request(
         .instrument(trace_span!("stream_request"))
         .or_cancel(&cancellation_token)
         .await;
-    if let Some(snapshot) = provider_budget_snapshot {
+    if let Some(snapshot) = provider_budget_snapshot.as_ref() {
         let events = provider_request_budget.drain_events();
-        sess.record_action_map_provider_request_budget_events(&turn_context, snapshot, events)
-            .await;
+        sess.record_action_map_provider_request_budget_events(
+            &turn_context,
+            snapshot.clone(),
+            events,
+        )
+        .await;
     }
     let mut stream = stream_result??;
     let mut in_flight: FuturesOrdered<BoxFuture<'static, CodexResult<ResponseInputItem>>> =
@@ -1957,13 +1961,47 @@ async fn try_run_sampling_request(
             .await
         {
             Ok(event) => event,
-            Err(codex_async_utils::CancelErr::Cancelled) => break Err(CodexErr::TurnAborted),
+            Err(codex_async_utils::CancelErr::Cancelled) => {
+                provider_request_budget.record_cancelled();
+                if let Some(snapshot) = provider_budget_snapshot.as_ref() {
+                    let events = provider_request_budget.drain_events();
+                    sess.record_action_map_provider_request_budget_events(
+                        &turn_context,
+                        snapshot.clone(),
+                        events,
+                    )
+                    .await;
+                }
+                break Err(CodexErr::TurnAborted);
+            }
         };
 
         let event = match event {
             Some(Ok(event)) => event,
-            Some(Err(err)) => break Err(err),
+            Some(Err(err)) => {
+                provider_request_budget.record_response_failed();
+                if let Some(snapshot) = provider_budget_snapshot.as_ref() {
+                    let events = provider_request_budget.drain_events();
+                    sess.record_action_map_provider_request_budget_events(
+                        &turn_context,
+                        snapshot.clone(),
+                        events,
+                    )
+                    .await;
+                }
+                break Err(err);
+            }
             None => {
+                provider_request_budget.record_response_failed();
+                if let Some(snapshot) = provider_budget_snapshot.as_ref() {
+                    let events = provider_request_budget.drain_events();
+                    sess.record_action_map_provider_request_budget_events(
+                        &turn_context,
+                        snapshot.clone(),
+                        events,
+                    )
+                    .await;
+                }
                 break Err(CodexErr::Stream(
                     "stream closed before response.completed".into(),
                     None,
@@ -2175,6 +2213,16 @@ async fn try_run_sampling_request(
                 .await;
                 sess.update_token_usage_info(&turn_context, token_usage.as_ref())
                     .await;
+                provider_request_budget.record_response_completed(token_usage.as_ref());
+                if let Some(snapshot) = provider_budget_snapshot.as_ref() {
+                    let events = provider_request_budget.drain_events();
+                    sess.record_action_map_provider_request_budget_events(
+                        &turn_context,
+                        snapshot.clone(),
+                        events,
+                    )
+                    .await;
+                }
                 should_emit_turn_diff = true;
                 if let Some(false) = end_turn {
                     needs_follow_up = true;

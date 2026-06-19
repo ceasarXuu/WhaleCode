@@ -17,6 +17,7 @@ use codex_protocol::ThreadId;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
+use codex_protocol::protocol::TokenUsage;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -118,6 +119,25 @@ fn provider_request_budget_records_started_and_terminal_status() {
     assert_eq!(events[0].request_id, events[1].request_id);
     assert_eq!(events[0].request_count_after, 1);
     assert_eq!(events[1].request_count_after, 1);
+
+    budget.record_response_completed(Some(&TokenUsage {
+        input_tokens: 100,
+        cached_input_tokens: 25,
+        output_tokens: 40,
+        reasoning_output_tokens: 7,
+        total_tokens: 140,
+    }));
+    let terminal_events = budget.drain_events();
+    assert_eq!(terminal_events.len(), 1);
+    assert_eq!(terminal_events[0].status, "response_completed");
+    assert_eq!(terminal_events[0].request_id, events[0].request_id);
+    assert_eq!(terminal_events[0].input_tokens, Some(100));
+    assert_eq!(terminal_events[0].cached_input_tokens, Some(25));
+    assert_eq!(terminal_events[0].output_tokens, Some(40));
+    assert_eq!(terminal_events[0].reasoning_output_tokens, Some(7));
+    assert_eq!(terminal_events[0].total_tokens, Some(140));
+    assert!(terminal_events[0].completed_at_ms.is_some());
+    assert!(terminal_events[0].latency_ms.is_some());
 }
 
 #[test]

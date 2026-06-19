@@ -1078,6 +1078,14 @@ impl Session {
                 request_count_before: event.request_count_before,
                 request_count_after: event.request_count_after,
                 max_requests: event.max_requests,
+                started_at_ms: event.started_at_ms,
+                completed_at_ms: event.completed_at_ms,
+                latency_ms: event.latency_ms,
+                input_tokens: event.input_tokens,
+                cached_input_tokens: event.cached_input_tokens,
+                output_tokens: event.output_tokens,
+                reasoning_output_tokens: event.reasoning_output_tokens,
+                total_tokens: event.total_tokens,
             })
             .collect::<Vec<_>>();
         let runtime_events = {

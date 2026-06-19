@@ -420,6 +420,14 @@ pub(crate) struct ActionMapProviderRequestBudgetEventInput {
     pub(crate) request_count_before: usize,
     pub(crate) request_count_after: usize,
     pub(crate) max_requests: usize,
+    pub(crate) started_at_ms: i64,
+    pub(crate) completed_at_ms: Option<i64>,
+    pub(crate) latency_ms: Option<i64>,
+    pub(crate) input_tokens: Option<i64>,
+    pub(crate) cached_input_tokens: Option<i64>,
+    pub(crate) output_tokens: Option<i64>,
+    pub(crate) reasoning_output_tokens: Option<i64>,
+    pub(crate) total_tokens: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -1520,7 +1528,10 @@ preview:\n\
                 self.provider_request_count.max(input.request_count_after);
             let id = self.next_trace_event_id();
             let created_at_ms = now_ms();
-            let tool_success = Some(!matches!(input.status.as_str(), "blocked" | "failed"));
+            let tool_success = Some(!matches!(
+                input.status.as_str(),
+                "blocked" | "failed" | "response_failed" | "cancelled"
+            ));
             let mut tags = vec![
                 "schema:taskspace-provider-request-budget-event-v1".to_string(),
                 format!("transport:{}", input.transport),
@@ -1528,8 +1539,30 @@ preview:\n\
                 format!("request_count_before:{}", input.request_count_before),
                 format!("request_count_after:{}", input.request_count_after),
                 format!("max_requests:{}", input.max_requests),
+                format!("started_at_ms:{}", input.started_at_ms),
                 "request_phase:model_sampling".to_string(),
             ];
+            if let Some(completed_at_ms) = input.completed_at_ms {
+                tags.push(format!("completed_at_ms:{completed_at_ms}"));
+            }
+            if let Some(latency_ms) = input.latency_ms {
+                tags.push(format!("latency_ms:{latency_ms}"));
+            }
+            if let Some(input_tokens) = input.input_tokens {
+                tags.push(format!("input_tokens:{input_tokens}"));
+            }
+            if let Some(cached_input_tokens) = input.cached_input_tokens {
+                tags.push(format!("cached_input_tokens:{cached_input_tokens}"));
+            }
+            if let Some(output_tokens) = input.output_tokens {
+                tags.push(format!("output_tokens:{output_tokens}"));
+            }
+            if let Some(reasoning_output_tokens) = input.reasoning_output_tokens {
+                tags.push(format!("reasoning_output_tokens:{reasoning_output_tokens}"));
+            }
+            if let Some(total_tokens) = input.total_tokens {
+                tags.push(format!("total_tokens:{total_tokens}"));
+            }
             if input.status == "blocked" {
                 tags.push("budget_response_action_taken:true".to_string());
             }
@@ -9520,6 +9553,14 @@ mod tests {
                         request_count_before: 0,
                         request_count_after: 1,
                         max_requests: 1,
+                        started_at_ms: 100,
+                        completed_at_ms: None,
+                        latency_ms: None,
+                        input_tokens: None,
+                        cached_input_tokens: None,
+                        output_tokens: None,
+                        reasoning_output_tokens: None,
+                        total_tokens: None,
                     },
                     ActionMapProviderRequestBudgetEventInput {
                         request_id: "provider-request-2".to_string(),
@@ -9528,6 +9569,14 @@ mod tests {
                         request_count_before: 1,
                         request_count_after: 1,
                         max_requests: 1,
+                        started_at_ms: 200,
+                        completed_at_ms: Some(200),
+                        latency_ms: Some(0),
+                        input_tokens: Some(10),
+                        cached_input_tokens: Some(3),
+                        output_tokens: Some(4),
+                        reasoning_output_tokens: Some(1),
+                        total_tokens: Some(14),
                     },
                 ],
             )
@@ -9555,6 +9604,8 @@ mod tests {
                 .iter()
                 .any(|tag| tag == "budget_response_action_taken:true")
         );
+        assert!(blocked.tags.iter().any(|tag| tag == "input_tokens:10"));
+        assert!(blocked.tags.iter().any(|tag| tag == "latency_ms:0"));
         assert_eq!(
             state
                 .provider_request_budget_snapshot()
