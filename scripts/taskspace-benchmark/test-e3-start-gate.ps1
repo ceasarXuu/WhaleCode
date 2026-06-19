@@ -8,6 +8,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\runtime-reconstruction.ps1")
 
 if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\e3-start-gate-selftest" }
+$RunRoot = [System.IO.Path]::GetFullPath($RunRoot)
 $runDir = Join-Path $RunRoot (Get-Date -Format "yyyyMMdd-HHmmss-fff")
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
 $failures = New-Object System.Collections.Generic.List[string]
@@ -140,22 +141,33 @@ try {
     Assert-True ([string]$aggregateOnlyDecision.status -eq "blocked" -and [string]$aggregateOnlyDecision.next_allowed_command_category -eq "serial_calibration") "gate-decision did not route missing calibration artifacts back to calibration"
 
     $calibration = New-CalibrationFixtures (Join-Path $runDir "calibration-fixtures")
+    $v005MarkerRoot = Join-Path $runDir "v005-markers"
+    New-Item -ItemType Directory -Force -Path $v005MarkerRoot | Out-Null
+    $v005NonAgentPath = Join-Path $v005MarkerRoot "non-agent-gates.json"
+    $v005CodeCompletePath = Join-Path $v005MarkerRoot "code-complete.marker"
+    $v005UserApprovalPath = Join-Path $v005MarkerRoot "user-approval.marker"
+    [pscustomobject]@{ status = "pass"; generated_at = "2026-06-19T00:00:00.0000000Z" } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $v005NonAgentPath -Encoding UTF8
+    "code-complete" | Set-Content -LiteralPath $v005CodeCompletePath -Encoding UTF8
+    "user-approved" | Set-Content -LiteralPath $v005UserApprovalPath -Encoding UTF8
     $calibratedGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-calibration-pass") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -AllowSkippedSelfTests -SelfTestCommands @()
     Assert-True ([string]$calibratedGate.status -eq "pass" -and @($calibratedGate.gates | Where-Object { [string]$_.name -eq "calibration_parallel_smoke" -and [string]$_.status -eq "pass" }).Count -eq 1) "start gate did not pass complete calibration evidence"
     Assert-True (Test-Path -LiteralPath $calibratedGate.gate_decision_path) "start gate did not write gate-decision artifact"
     $gateDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $calibratedGate.gate_decision_path | ConvertFrom-Json
     Assert-True ([string]$gateDecision.status -eq "pass" -and [string]$gateDecision.task_list_hash -eq "task-list-a" -and [string]$gateDecision.profile_hash -eq "profile-a") "gate-decision did not preserve expected identity"
-    Assert-True ([string]$gateDecision.next_allowed_command_category -eq "full_e3" -and [bool]$gateDecision.full_e3_allowed -and [bool]$gateDecision.speed_claim_allowed -and [bool]$gateDecision.calibration_gate_passed) "gate-decision did not authorize full E3 after complete calibration gate"
-    $calibratedMarkdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $calibratedGate.markdown_path
+    Assert-True ([string]$gateDecision.next_allowed_command_category -eq "targeted_diagnostic" -and -not [bool]$gateDecision.full_e3_allowed -and -not [bool]$gateDecision.v005_markers_passed) "gate-decision authorized full E3 without v0.0.5 markers"
+    $calibratedWithMarkersGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-calibration-markers-pass") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -V005NonAgentGatesPath $v005NonAgentPath -V005CodeCompleteMarkerPath $v005CodeCompletePath -V005UserApprovalMarkerPath $v005UserApprovalPath -AllowSkippedSelfTests -SelfTestCommands @()
+    $gateDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $calibratedWithMarkersGate.gate_decision_path | ConvertFrom-Json
+    Assert-True ([string]$gateDecision.next_allowed_command_category -eq "full_e3" -and [bool]$gateDecision.full_e3_allowed -and [bool]$gateDecision.speed_claim_allowed -and [bool]$gateDecision.calibration_gate_passed -and [bool]$gateDecision.v005_markers_passed) "gate-decision did not authorize full E3 after complete calibration and v0.0.5 markers"
+    $calibratedMarkdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $calibratedWithMarkersGate.markdown_path
     Assert-True ($calibratedMarkdown -match "next_allowed_command_category: full_e3" -and $calibratedMarkdown -match "full_e3_allowed: True" -and $calibratedMarkdown -match "speed_claim_allowed: True") "start gate markdown did not expose gate-decision summary"
     $skippedCalibrationDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $smokeGate.gate_decision_path | ConvertFrom-Json
-    Assert-True ([string]$skippedCalibrationDecision.next_allowed_command_category -eq "serial_calibration" -and -not [bool]$skippedCalibrationDecision.full_e3_allowed -and -not [bool]$skippedCalibrationDecision.speed_claim_allowed) "gate-decision authorized full E3 when calibration gate was skipped"
+    Assert-True ([string]$skippedCalibrationDecision.next_allowed_command_category -eq "targeted_diagnostic" -and -not [bool]$skippedCalibrationDecision.full_e3_allowed -and -not [bool]$skippedCalibrationDecision.speed_claim_allowed -and -not [bool]$skippedCalibrationDecision.v005_markers_passed) "gate-decision authorized full E3 when calibration or v0.0.5 markers were skipped"
     $blockedCalibration = New-CalibrationFixtures (Join-Path $runDir "calibration-speedup-evidence-fail")
     $blockedCalibrationReport = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $blockedCalibration.serial_root "runtime-calibration-report.json") | ConvertFrom-Json
     $blockedCalibrationReport.speedup_evidence_valid = $false
     $blockedCalibrationReport.speedup_decision = "speedup_blocked_instrumentation"
     $blockedCalibrationReport | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $blockedCalibration.serial_root "runtime-calibration-report.json") -Encoding UTF8
-    $blockedCalibrationGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-calibration-speedup-evidence-fail") -ScenarioPath $scenarioDir -OnePairSmokeRoot $blockedCalibration.one_pair_root -SerialCalibrationRoot $blockedCalibration.serial_root -ParallelEquivalencePath $blockedCalibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -AllowSkippedSelfTests -SelfTestCommands @()
+    $blockedCalibrationGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-calibration-speedup-evidence-fail") -ScenarioPath $scenarioDir -OnePairSmokeRoot $blockedCalibration.one_pair_root -SerialCalibrationRoot $blockedCalibration.serial_root -ParallelEquivalencePath $blockedCalibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -V005NonAgentGatesPath $v005NonAgentPath -V005CodeCompleteMarkerPath $v005CodeCompletePath -V005UserApprovalMarkerPath $v005UserApprovalPath -AllowSkippedSelfTests -SelfTestCommands @()
     Assert-True ([string]$blockedCalibrationGate.status -eq "pass" -and @($blockedCalibrationGate.gates | Where-Object { [string]$_.name -eq "calibration_serial_calibration" -and [string]$_.status -eq "pass" }).Count -eq 1) "start gate blocked full E3 on instrumentation-only speed evidence failure"
     $blockedCalibrationDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $blockedCalibrationGate.gate_decision_path | ConvertFrom-Json
     Assert-True ([string]$blockedCalibrationDecision.status -eq "pass" -and [bool]$blockedCalibrationDecision.full_e3_allowed -and -not [bool]$blockedCalibrationDecision.speed_claim_allowed) "gate-decision did not decouple speed claim from full E3 eligibility"
@@ -163,7 +175,7 @@ try {
     $blockedOnePairReport = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $blockedOnePairCalibration.one_pair_root "runtime-bottleneck.json") | ConvertFrom-Json
     $blockedOnePairReport.speedup_decision = "speedup_blocked_instrumentation"
     $blockedOnePairReport | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $blockedOnePairCalibration.one_pair_root "runtime-bottleneck.json") -Encoding UTF8
-    $blockedOnePairStartGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-calibration-one-pair-blocked-decision") -ScenarioPath $scenarioDir -OnePairSmokeRoot $blockedOnePairCalibration.one_pair_root -SerialCalibrationRoot $blockedOnePairCalibration.serial_root -ParallelEquivalencePath $blockedOnePairCalibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -AllowSkippedSelfTests -SelfTestCommands @()
+    $blockedOnePairStartGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-calibration-one-pair-blocked-decision") -ScenarioPath $scenarioDir -OnePairSmokeRoot $blockedOnePairCalibration.one_pair_root -SerialCalibrationRoot $blockedOnePairCalibration.serial_root -ParallelEquivalencePath $blockedOnePairCalibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -V005NonAgentGatesPath $v005NonAgentPath -V005CodeCompleteMarkerPath $v005CodeCompletePath -V005UserApprovalMarkerPath $v005UserApprovalPath -AllowSkippedSelfTests -SelfTestCommands @()
     Assert-True ([string]$blockedOnePairStartGate.status -eq "pass" -and @($blockedOnePairStartGate.gates | Where-Object { [string]$_.name -eq "calibration_one_pair_smoke" -and [string]$_.status -eq "pass" }).Count -eq 1) "start gate blocked full E3 on one-pair instrumentation-only speed decision"
     $blockedOnePairDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $blockedOnePairStartGate.gate_decision_path | ConvertFrom-Json
     Assert-True ([string]$blockedOnePairDecision.status -eq "pass" -and [bool]$blockedOnePairDecision.full_e3_allowed -and -not [bool]$blockedOnePairDecision.speed_claim_allowed) "gate-decision did not decouple one-pair speed claim from full E3 eligibility"

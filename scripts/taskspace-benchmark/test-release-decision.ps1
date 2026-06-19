@@ -121,13 +121,24 @@ $passDir = New-FixtureRun "pass" "PASS" $true 0
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $passDir *> $null
 Assert-True ($LASTEXITCODE -eq 0) "PASS fixture did not exit 0"
 $passDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $passDir "release-decision.json") | ConvertFrom-Json
-Assert-True ([string]$passDecision.decision -eq "PASS") "PASS fixture did not write PASS decision"
+Assert-True ([string]$passDecision.decision -eq "release_pass") "PASS fixture did not write release_pass decision"
+Assert-True ([bool]$passDecision.closeable) "PASS fixture did not write closeable=true"
+
+$partialDir = New-FixtureRun "partial" "PARTIAL" $true 0
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $partialDir *> $null
+Assert-True ($LASTEXITCODE -eq 2) "PARTIAL fixture did not exit 2"
+$partialDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $partialDir "release-decision.json") | ConvertFrom-Json
+Assert-True ([string]$partialDecision.decision -eq "blocked_partial") "PARTIAL fixture did not write blocked_partial decision"
+Assert-True (-not [bool]$partialDecision.closeable) "PARTIAL fixture incorrectly wrote closeable=true"
+$partialMd = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $partialDir "release-decision.md")
+Assert-True ($partialMd.Contains("cannot close v0.0.5")) "PARTIAL markdown did not mark blocked_partial as non-closeable"
 
 $failDir = New-FixtureRun "fail" "FAIL" $true 1
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $failDir *> $null
 Assert-True ($LASTEXITCODE -eq 1) "FAIL fixture did not exit 1"
 $failDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $failDir "release-decision.json") | ConvertFrom-Json
-Assert-True ([string]$failDecision.decision -eq "FAIL") "FAIL fixture did not write FAIL decision"
+Assert-True ([string]$failDecision.decision -eq "fail") "FAIL fixture did not write fail decision"
+Assert-True (-not [bool]$failDecision.closeable) "FAIL fixture incorrectly wrote closeable=true"
 Assert-True (@($failDecision.blockers) -contains "cost_gate_failed") "FAIL fixture did not report cost blocker"
 Assert-True (@($failDecision.blockers) -contains "routing_gate_failed") "FAIL fixture did not report routing blocker"
 Assert-True ([string]$failDecision.cost_root_cause -eq "active_profile_repeats_compact_taskspace_context_across_many_model_turns") "FAIL fixture did not preserve cost root cause"

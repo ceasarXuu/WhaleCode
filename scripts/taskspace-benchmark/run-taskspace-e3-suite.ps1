@@ -55,6 +55,11 @@ $RunRoot = [System.IO.Path]::GetFullPath($RunRoot)
 New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
 $suiteRoot = Join-Path $RunRoot ("suite-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
 New-Item -ItemType Directory -Path $suiteRoot -Force | Out-Null
+if ($scoreValidityEnforced -and -not $PlanOnly -and $SkipStartGate) {
+    Write-Host "SuiteRoot: $suiteRoot"
+    Write-Host "SkipStartGate is not allowed when score validity is enforced."
+    exit 4
+}
 $samplesRoot = Join-Path $suiteRoot "samples"
 New-Item -ItemType Directory -Path $samplesRoot -Force | Out-Null
 $suiteHealthPath = Join-Path $suiteRoot "suite-health.json"

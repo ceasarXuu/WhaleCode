@@ -270,18 +270,21 @@ if (-not $outputRefPass) { Add-ReleaseLine $blockers "output_ref_replay_failed" 
 if (-not $runProvenancePass) { Add-ReleaseLine $blockers "run_provenance_gate_failed" }
 if ($aggregate -and (Get-ReleaseInt $aggregate "excluded_pairs" 0) -gt 0) { Add-ReleaseLine $blockers "excluded_pairs_present" }
 
-$decision = "FAIL"
+$decision = "fail"
+$closeable = $false
 if ($qualityPass -and $projectionPass -and $mapPass -and $routingPass -and $outputRefPass -and $runProvenancePass) {
     if ($costStatus -eq "PASS" -and $blockers.Count -eq 0) {
-        $decision = "PASS"
+        $decision = "release_pass"
+        $closeable = $true
     } elseif ($costStatus -eq "PARTIAL" -and $blockers.Count -eq 0) {
-        $decision = "PARTIAL"
+        $decision = "blocked_partial"
     }
 }
 
 $summary = [pscustomobject]@{
     schema_version = "taskspace-v005-release-decision-v1"
     decision = $decision
+    closeable = [bool]$closeable
     run_dir = $runRoot
     cost_status = $costStatus
     quality_gate_pass = [bool]$qualityPass
@@ -315,6 +318,7 @@ $lines = New-Object System.Collections.Generic.List[string]
 Add-ReleaseLine $lines "# TaskSpace v0.0.5 Release Decision"
 Add-ReleaseLine $lines ""
 Add-ReleaseLine $lines "- decision: $decision"
+Add-ReleaseLine $lines "- closeable: $closeable"
 Add-ReleaseLine $lines "- run_dir: $runRoot"
 Add-ReleaseLine $lines "- cost_status: $costStatus"
 Add-ReleaseLine $lines "- quality_gate_pass: $qualityPass"
@@ -336,6 +340,9 @@ Add-ReleaseLine $lines "- routing_decision_event_count: $($routingDecisionEvents
 Add-ReleaseLine $lines "- latest_routing_decision_pass: $routingDecisionPass"
 Add-ReleaseLine $lines "- latest_routing_decision_path: $(if ($latestRoutingDecisionEvent.Count -eq 1) { [string]$latestRoutingDecisionEvent[0].path } else { '' })"
 Add-ReleaseLine $lines "- blockers: $(if ($blockers.Count -eq 0) { 'none' } else { @($blockers.ToArray()) -join ', ' })"
+if ($decision -eq "blocked_partial") {
+    Add-ReleaseLine $lines "- release_note: blocked_partial is engineering progress only and cannot close v0.0.5."
+}
 Add-ReleaseLine $lines ""
 Add-ReleaseLine $lines "## Evidence Paths"
 foreach ($entry in $evidence.GetEnumerator()) {
@@ -382,6 +389,6 @@ if ($routing) {
 $lines | Set-Content -LiteralPath $OutputPath -Encoding UTF8
 Write-Host "ReleaseDecision: $OutputPath"
 Write-Host "ReleaseDecisionJson: $jsonPath"
-if ($decision -eq "PASS") { exit 0 }
-if ($decision -eq "PARTIAL") { exit 2 }
+if ($decision -eq "release_pass") { exit 0 }
+if ($decision -eq "blocked_partial") { exit 2 }
 exit 1

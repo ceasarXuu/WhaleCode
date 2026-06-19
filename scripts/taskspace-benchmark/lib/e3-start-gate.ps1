@@ -82,15 +82,23 @@ function New-TaskspaceE3GateDecision {
         $speedClaimAllowed = $calibrationPass -and [bool]$Gate.calibration_gate.speed_claim_allowed
     }
     $calibrationFailed = $false
+    $v005MarkersPass = $true
     if ($Gate -and $Gate.gates) {
         $calibrationFailed = @($Gate.gates | Where-Object { [string]$_.status -eq "fail" -and [string]$_.name -like "calibration_*" }).Count -gt 0
+        $v005MarkerRows = @($Gate.gates | Where-Object { [string]$_.name -like "v005_*" })
+        if ($v005MarkerRows.Count -gt 0) {
+            $v005MarkersPass = @($v005MarkerRows | Where-Object { [string]$_.status -ne "pass" }).Count -eq 0
+        }
     }
+    $fullE3Allowed = $fullE3Allowed -and $v005MarkersPass
     $nextCategory = if (-not $passed -and $calibrationFailed) {
         "serial_calibration"
     } elseif (-not $passed) {
         "fixture_tests"
     } elseif ($fullE3Allowed) {
         "full_e3"
+    } elseif (-not $v005MarkersPass) {
+        "targeted_diagnostic"
     } else {
         "serial_calibration"
     }
@@ -102,12 +110,24 @@ function New-TaskspaceE3GateDecision {
         full_e3_allowed = $fullE3Allowed
         speed_claim_allowed = $speedClaimAllowed
         calibration_gate_passed = $calibrationPass
+        v005_markers_passed = $v005MarkersPass
         task_list_hash = $TaskListHash
         source_version = $SourceVersion
         profile_hash = $ProfileHash
         blocking_reasons = @(@($Gate.gates | Where-Object { [string]$_.status -eq "fail" } | ForEach-Object { [string]$_.stable_code }))
         generated_at = (Get-Date).ToString("o")
     }
+}
+
+function Get-TaskspaceV005MarkerGate {
+    param([string]$Name, [string]$Path, [string]$MissingCode)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name path not set" $MissingCode "$Name marker path was not provided."
+    }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name missing" $MissingCode "Marker not found: $Path"
+    }
+    New-TaskspaceE3GateRow $Name "pass" "" "" $Path
 }
 
 function Convert-TaskspaceCalibrationGateRow {
@@ -233,6 +253,9 @@ function Invoke-TaskspaceE3StartGate {
         [string]$OnePairSmokeRoot = "",
         [string]$SerialCalibrationRoot = "",
         [string]$ParallelEquivalencePath = "",
+        [string]$V005NonAgentGatesPath = "",
+        [string]$V005CodeCompleteMarkerPath = "",
+        [string]$V005UserApprovalMarkerPath = "",
         [switch]$RunSelfTests,
         [switch]$AllowSkippedPathContract,
         [switch]$AllowSkippedSelfTests,
@@ -304,6 +327,9 @@ function Invoke-TaskspaceE3StartGate {
             $gates.Add((Convert-TaskspaceCalibrationGateRow $calibrationRow))
         }
     }
+    $gates.Add((Get-TaskspaceV005MarkerGate "v005_non_agent_gates" $V005NonAgentGatesPath "v005_non_agent_gates_missing"))
+    $gates.Add((Get-TaskspaceV005MarkerGate "v005_code_complete" $V005CodeCompleteMarkerPath "v005_code_complete_missing"))
+    $gates.Add((Get-TaskspaceV005MarkerGate "v005_user_approval" $V005UserApprovalMarkerPath "v005_user_approval_missing"))
     $selfTests = @()
     $preSelfTestFailures = @($gates.ToArray() | Where-Object { [string]$_.status -eq "fail" })
     if ($RunSelfTests -and $preSelfTestFailures.Count -eq 0) {
