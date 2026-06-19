@@ -36,7 +36,13 @@ function New-TaskspaceE3ProfileIdentity {
         [int]$MaxParallelPairsPerSample = 1,
         [int]$MaxParallelValidationsPerPair = 1,
         [int]$MaxDockerConcurrency = 1,
-        [int]$MaxModelConcurrency = 1
+        [int]$MaxModelConcurrency = 1,
+        [string]$RunnerEntrypoint = "",
+        [string]$RunnerScriptSha256 = "",
+        [string]$ChildRunnerSha256 = "",
+        [string]$TaskListSha256 = "",
+        [string]$SampleSetId = "",
+        [bool]$ScoringMode = $false
     )
     $profile = [ordered]@{
         benchmark = $Benchmark
@@ -55,6 +61,12 @@ function New-TaskspaceE3ProfileIdentity {
         max_parallel_validations_per_pair = $MaxParallelValidationsPerPair
         max_docker_concurrency = $MaxDockerConcurrency
         max_model_concurrency = $MaxModelConcurrency
+        runner_entrypoint = $RunnerEntrypoint
+        runner_script_sha256 = $RunnerScriptSha256
+        child_runner_sha256 = $ChildRunnerSha256
+        task_list_sha256 = $TaskListSha256
+        sample_set_id = $SampleSetId
+        scoring_mode = $ScoringMode
     }
     [pscustomobject]@{
         schema_version = 1

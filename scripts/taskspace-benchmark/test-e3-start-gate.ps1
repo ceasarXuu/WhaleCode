@@ -346,6 +346,8 @@ try {
     Assert-True ($skipRequireExit -eq 4 -and ($skipRequireOutput -join "`n") -match "SkipStartGate is not allowed") "suite allowed SkipStartGate for RequireScoreValidity run"
 
     $suiteTaskListHash = Get-TaskspaceFileSha256 $taskList
+    $suiteRunnerPath = Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1"
+    $suiteChildRunnerPath = Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1"
     $suiteProfileIdentity = New-TaskspaceE3ProfileIdentity `
         -Benchmark terminal-bench `
         -SourceVersion selftest `
@@ -362,7 +364,13 @@ try {
         -MaxParallelPairsPerSample 1 `
         -MaxParallelValidationsPerPair 1 `
         -MaxDockerConcurrency 1 `
-        -MaxModelConcurrency 1
+        -MaxModelConcurrency 1 `
+        -RunnerEntrypoint "run-taskspace-e3-suite.ps1" `
+        -RunnerScriptSha256 (Get-TaskspaceFileSha256 $suiteRunnerPath) `
+        -ChildRunnerSha256 (Get-TaskspaceFileSha256 $suiteChildRunnerPath) `
+        -TaskListSha256 (Get-TaskspaceFileSha256 $taskList) `
+        -SampleSetId "terminal-bench_E3-P0_3_5" `
+        -ScoringMode $true
     $suiteProfileHash = [string]$suiteProfileIdentity.profile_hash
     $suiteCompleteCalibration = New-CalibrationFixtures (Join-Path $runDir "suite-complete-calibration-missing-markers") -TaskListHash $suiteTaskListHash -SourceVersion "selftest" -ProfileHash $suiteProfileHash
     $suiteMissingMarkersRoot = Join-Path $runDir "suite-missing-v005-markers"

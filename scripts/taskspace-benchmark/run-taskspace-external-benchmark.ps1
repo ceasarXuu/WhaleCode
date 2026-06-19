@@ -20,6 +20,18 @@ param(
     [string]$RunnerPath = "",
     [string]$TaskListHash = "",
     [string]$ProfileHash = "",
+    [string]$SampleSetId = "",
+    [string[]]$SampleNames = @(),
+    [string]$SuiteRunnerEntrypoint = "",
+    [string]$ArtifactOrigin = "",
+    [string]$RunnerScriptSha256 = "",
+    [string]$ChildRunnerSha256 = "",
+    [string]$TaskListSha256 = "",
+    [string]$ApprovalMarkerSha256 = "",
+    [string]$CodeCompleteMarkerSha256 = "",
+    [string]$V005NonAgentGatesPath = "",
+    [string]$V005CodeCompleteMarkerPath = "",
+    [string]$V005UserApprovalMarkerPath = "",
     [switch]$EnableAggregate,
     [switch]$AllowDiagnosticNonTargetResult,
     [switch]$ScoringMode,
@@ -137,6 +149,19 @@ $args = @(
 if (-not [string]::IsNullOrWhiteSpace($TaskListHash)) { $args += @("-TaskListHash", $TaskListHash) }
 $args += @("-SourceVersion", $SourceVersion)
 if (-not [string]::IsNullOrWhiteSpace($ProfileHash)) { $args += @("-ProfileHash", $ProfileHash) }
+if (-not [string]::IsNullOrWhiteSpace($SampleSetId)) { $args += @("-SampleSetId", $SampleSetId) }
+foreach ($sampleName in @($SampleNames)) { if (-not [string]::IsNullOrWhiteSpace($sampleName)) { $args += @("-SampleNames", $sampleName) } }
+$args += @("-BenchmarkFamily", $Benchmark)
+if (-not [string]::IsNullOrWhiteSpace($SuiteRunnerEntrypoint)) { $args += @("-RunnerEntrypoint", $SuiteRunnerEntrypoint) }
+if (-not [string]::IsNullOrWhiteSpace($ArtifactOrigin)) { $args += @("-ArtifactOrigin", $ArtifactOrigin) }
+if (-not [string]::IsNullOrWhiteSpace($RunnerScriptSha256)) { $args += @("-RunnerScriptSha256", $RunnerScriptSha256) }
+if (-not [string]::IsNullOrWhiteSpace($ChildRunnerSha256)) { $args += @("-ChildRunnerSha256", $ChildRunnerSha256) }
+if (-not [string]::IsNullOrWhiteSpace($TaskListSha256)) { $args += @("-TaskListSha256", $TaskListSha256) }
+if (-not [string]::IsNullOrWhiteSpace($ApprovalMarkerSha256)) { $args += @("-ApprovalMarkerSha256", $ApprovalMarkerSha256) }
+if (-not [string]::IsNullOrWhiteSpace($CodeCompleteMarkerSha256)) { $args += @("-CodeCompleteMarkerSha256", $CodeCompleteMarkerSha256) }
+if (-not [string]::IsNullOrWhiteSpace($V005NonAgentGatesPath)) { $args += @("-V005NonAgentGatesPath", $V005NonAgentGatesPath) }
+if (-not [string]::IsNullOrWhiteSpace($V005CodeCompleteMarkerPath)) { $args += @("-V005CodeCompleteMarkerPath", $V005CodeCompleteMarkerPath) }
+if (-not [string]::IsNullOrWhiteSpace($V005UserApprovalMarkerPath)) { $args += @("-V005UserApprovalMarkerPath", $V005UserApprovalMarkerPath) }
 foreach ($override in @($ConfigOverride)) { $args += @("-ConfigOverride", $override) }
 if (-not [string]::IsNullOrWhiteSpace($AuditReviewRoot)) { $args += @("-AuditReviewRoot", $AuditReviewRoot) }
 if ($EnableAggregate) { $args += "-EnableAggregate" }

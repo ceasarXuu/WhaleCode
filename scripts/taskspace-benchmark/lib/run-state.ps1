@@ -164,6 +164,29 @@ function Set-TaskspaceBenchmarkRunPhase {
     Write-TaskspaceRunEvent $RunDir "run_phase_changed" @{ phase = $Phase; attempted_pairs = $status["attempted_pairs"]; completed_pairs = $status["completed_pairs"] }
 }
 
+function Update-TaskspaceBenchmarkRunStatusFields {
+    param(
+        [Parameter(Mandatory = $true)][string]$RunDir,
+        [Parameter(Mandatory = $true)][hashtable]$Fields
+    )
+    $path = Join-Path $RunDir "run-status.json"
+    $status = if (Test-Path -LiteralPath $path) {
+        $existing = Get-Content -Raw -Encoding UTF8 -LiteralPath $path | ConvertFrom-Json
+        $map = [ordered]@{}
+        foreach ($prop in @($existing.PSObject.Properties)) { $map[$prop.Name] = $prop.Value }
+        $map
+    } else {
+        [ordered]@{ schema_version = 1; run_id = Split-Path -Leaf $RunDir; created_at = (Get-Date).ToString("o") }
+    }
+    foreach ($entry in @($Fields.GetEnumerator())) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$entry.Key) -and $null -ne $entry.Value) {
+            $status[[string]$entry.Key] = $entry.Value
+        }
+    }
+    $status["updated_at"] = (Get-Date).ToString("o")
+    Write-TaskspaceAtomicJson $status $path
+}
+
 function Set-TaskspaceSampleStatus {
     param(
         [Parameter(Mandatory = $true)][string]$RunDir,

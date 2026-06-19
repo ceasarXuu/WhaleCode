@@ -18,6 +18,19 @@ param(
     [string]$TaskListHash = "",
     [string]$SourceVersion = "",
     [string]$ProfileHash = "",
+    [string]$SampleSetId = "",
+    [string[]]$SampleNames = @(),
+    [string]$BenchmarkFamily = "",
+    [string]$RunnerEntrypoint = "",
+    [string]$ArtifactOrigin = "",
+    [string]$RunnerScriptSha256 = "",
+    [string]$ChildRunnerSha256 = "",
+    [string]$TaskListSha256 = "",
+    [string]$ApprovalMarkerSha256 = "",
+    [string]$CodeCompleteMarkerSha256 = "",
+    [string]$V005NonAgentGatesPath = "",
+    [string]$V005CodeCompleteMarkerPath = "",
+    [string]$V005UserApprovalMarkerPath = "",
     [switch]$ForceRerun,
     [switch]$PlanOnly
 )
@@ -70,6 +83,31 @@ if (-not $resuming) {
     }
     if ($stale) { Write-TaskspaceRunEvent $runDir "stale_lock_reclaimed" @{ previous_lock_owner = [string]$existingStatus.lock_owner } }
 }
+if (-not [string]::IsNullOrWhiteSpace($V005NonAgentGatesPath) -and (Test-Path -LiteralPath $V005NonAgentGatesPath -PathType Leaf)) {
+    Copy-Item -LiteralPath $V005NonAgentGatesPath -Destination (Join-Path $runDir "v005-non-agent-gates.json") -Force
+}
+if (-not [string]::IsNullOrWhiteSpace($V005CodeCompleteMarkerPath) -and (Test-Path -LiteralPath $V005CodeCompleteMarkerPath -PathType Leaf)) {
+    Copy-Item -LiteralPath $V005CodeCompleteMarkerPath -Destination (Join-Path $runDir "v005-code-complete.json") -Force
+}
+if (-not [string]::IsNullOrWhiteSpace($V005UserApprovalMarkerPath) -and (Test-Path -LiteralPath $V005UserApprovalMarkerPath -PathType Leaf)) {
+    Copy-Item -LiteralPath $V005UserApprovalMarkerPath -Destination (Join-Path $runDir "v005-user-approval.json") -Force
+}
+Update-TaskspaceBenchmarkRunStatusFields $runDir @{
+    sample_set_id = $SampleSetId
+    sample_names = @($SampleNames)
+    benchmark_family = $BenchmarkFamily
+    runner_entrypoint = $RunnerEntrypoint
+    runner_profile_hash = $ProfileHash
+    source_version = $SourceVersion
+    task_list_hash = $TaskListHash
+    repeats_per_sample = $Repeats
+    artifact_origin = $ArtifactOrigin
+    runner_script_sha256 = $RunnerScriptSha256
+    child_runner_sha256 = $ChildRunnerSha256
+    task_list_sha256 = $TaskListSha256
+    approval_marker_sha256 = $ApprovalMarkerSha256
+    code_complete_marker_sha256 = $CodeCompleteMarkerSha256
+} | Out-Null
 $promptCopy = Join-Path $runDir "prompt.txt"
 Write-Text $promptCopy $prompt
 Write-TaskspaceJson $promptGuard (Join-Path $runDir "prompt-guard.json")

@@ -68,6 +68,15 @@ New-Item -ItemType Directory -Path $samplesRoot -Force | Out-Null
 $suiteHealthPath = Join-Path $suiteRoot "suite-health.json"
 $skippedPath = Join-Path $suiteRoot "skipped-samples.jsonl"
 $taskListHash = Get-TaskspaceFileSha256 $TaskListPath
+$runner = if ([string]::IsNullOrWhiteSpace($RunnerPath)) { Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1" } else { [System.IO.Path]::GetFullPath($RunnerPath) }
+if (-not (Test-Path -LiteralPath $runner)) { Write-Error "RunnerPath not found: $runner"; exit 4 }
+$suiteRunnerPath = $MyInvocation.MyCommand.Path
+$runnerScriptSha256 = Get-TaskspaceFileSha256 $suiteRunnerPath
+$childRunnerSha256 = Get-TaskspaceFileSha256 $runner
+$taskListSha256 = Get-TaskspaceFileSha256 $TaskListPath
+$approvalMarkerSha256 = Get-TaskspaceFileSha256 $V005UserApprovalMarkerPath
+$codeCompleteMarkerSha256 = Get-TaskspaceFileSha256 $V005CodeCompleteMarkerPath
+$sampleSetId = if ($Benchmark -eq "terminal-bench" -and $Repeats -eq 5) { "terminal-bench_E3-P0_3_5" } else { "$Benchmark`_E3-custom_$Repeats" }
 $profileIdentity = New-TaskspaceE3ProfileIdentity `
     -Benchmark $Benchmark `
     -SourceVersion $SourceVersion `
@@ -84,7 +93,13 @@ $profileIdentity = New-TaskspaceE3ProfileIdentity `
     -MaxParallelPairsPerSample $MaxParallelPairsPerSample `
     -MaxParallelValidationsPerPair $MaxParallelValidationsPerPair `
     -MaxDockerConcurrency $MaxDockerConcurrency `
-    -MaxModelConcurrency $MaxModelConcurrency
+    -MaxModelConcurrency $MaxModelConcurrency `
+    -RunnerEntrypoint "run-taskspace-e3-suite.ps1" `
+    -RunnerScriptSha256 $runnerScriptSha256 `
+    -ChildRunnerSha256 $childRunnerSha256 `
+    -TaskListSha256 $taskListSha256 `
+    -SampleSetId $sampleSetId `
+    -ScoringMode ([bool]$scoreValidityEnforced)
 $profileHash = [string]$profileIdentity.profile_hash
 
 function Write-SuiteStartGateAbortHealth {
@@ -265,12 +280,14 @@ try {
     exit 4
 }
 if ($tasks.Count -eq 0) { Write-Error "TaskListPath contains no samples."; exit 4 }
+$suiteSampleNames = @($tasks | ForEach-Object {
+        if ($_.PSObject.Properties.Name -contains "sample_id" -and -not [string]::IsNullOrWhiteSpace([string]$_.sample_id)) { [string]$_.sample_id }
+        elseif ($_.PSObject.Properties.Name -contains "task_dir" -and -not [string]::IsNullOrWhiteSpace([string]$_.task_dir)) { Split-Path -Leaf ([string]$_.task_dir) }
+    })
 $calibrationSelectionPath = Join-Path $suiteRoot "calibration-selection.json"
 $calibrationSelection = New-TaskspaceCalibrationSelection -TaskListPath $TaskListPath -OutputPath $calibrationSelectionPath -Benchmark $Benchmark -SelectionCount 3
 Write-Host "CalibrationSelection: $calibrationSelectionPath"
 
-$runner = if ([string]::IsNullOrWhiteSpace($RunnerPath)) { Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1" } else { [System.IO.Path]::GetFullPath($RunnerPath) }
-if (-not (Test-Path -LiteralPath $runner)) { Write-Error "RunnerPath not found: $runner"; exit 4 }
 $sampleStatuses = New-Object System.Collections.Generic.List[object]
 $signatureCounts = @{}
 $suiteAbort = ""
@@ -357,8 +374,20 @@ function New-SuiteChildArgs {
         "-SandboxMode", $SandboxMode,
         "-TaskListHash", $taskListHash,
         "-ProfileHash", $profileHash,
+        "-SampleSetId", $sampleSetId,
+        "-SuiteRunnerEntrypoint", "run-taskspace-e3-suite.ps1",
+        "-ArtifactOrigin", "real_suite",
+        "-RunnerScriptSha256", $runnerScriptSha256,
+        "-ChildRunnerSha256", $childRunnerSha256,
+        "-TaskListSha256", $taskListSha256,
+        "-ApprovalMarkerSha256", $approvalMarkerSha256,
+        "-CodeCompleteMarkerSha256", $codeCompleteMarkerSha256,
+        "-V005NonAgentGatesPath", $V005NonAgentGatesPath,
+        "-V005CodeCompleteMarkerPath", $V005CodeCompleteMarkerPath,
+        "-V005UserApprovalMarkerPath", $V005UserApprovalMarkerPath,
         "-EnableAggregate"
     )
+    foreach ($sampleName in @($suiteSampleNames)) { if (-not [string]::IsNullOrWhiteSpace($sampleName)) { $childArgs += @("-SampleNames", $sampleName) } }
     foreach ($override in @($ConfigOverride)) { $childArgs += @("-ConfigOverride", $override) }
     if ($AuditReviewRoot) { $childArgs += @("-AuditReviewRoot", $AuditReviewRoot) }
     if ($PlanOnly) { $childArgs += "-PlanOnly" }
