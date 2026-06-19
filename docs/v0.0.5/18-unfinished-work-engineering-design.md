@@ -10,6 +10,19 @@
 - Risk Level: High
 - Plan Type: Full
 
+## 0. 本文档优先级和本轮审查修正
+
+本文档是 v0.0.5 未完成项继续开发的当前执行方案。若本文档与 `10-implementation-plan.md` 的 Phase 6 样本安排、PASS/PARTIAL/FAIL 发布口径、或 report-only routing 文字冲突，以本文档为准。
+
+本轮对抗性审查后，新增以下硬约束：
+
+1. v0.0.5 正式收口验证的主样本集必须是 `terminal-bench_E3-P0_3_5`。`terminal-bench_E3-v004-clean_3_5` 只能用于与 v0.0.4 clean 15-run 做同口径回归对比，不能替代 P0 成本/正确率结论。
+2. 低成本诊断不得命名或报告为正式 E3。`terminal-bench_E3-P0_1_1`、`terminal-bench_E3-P0_3_1`、`terminal-bench_E3-P0_3_2` 均属于 `reported_evidence_level=diagnostic-only` 或 `E3-candidate`，不得进入 release_pass。
+3. provider request lifecycle 的 canonical producer 是 `client.rs` / `ModelClientSession` provider dispatch 和 stream lifecycle。ActionMap 只能提供 request context 和预算策略，不能事后用 snapshot 推断 provider request 的 phase/node。
+4. active context replacement 必须落在 `session/turn.rs` provider-visible history composition 边界，先改变实际 request input，再由 payload scan 证明结果；不得只生成 projection/report artifact。
+5. release 和 E3 start gate 只能聚合 producer-owned typed artifacts；脚本不得成为事实来源。正式 release 必须绑定 sample set、repeats、runner、start-gate decision、user approval sample set 和 non-agent gate evidence。
+6. 成本 hard stop 必须带质量补偿策略。任何 budget-induced validation skip、early final、final abort、thin downgrade 或 no-spawn 必须记录质量影响和 bounded recovery/escalation 结果。
+
 ## 1. 背景
 
 v0.0.5 已经实现了若干基础模块：`state_commit`、output reference、context projection、map-management report、routing decision、cost instrumentation 和 release decision gate。但 `terminal-bench_E3-P0_3_2` 诊断变体显示，TaskSpace 仍然在真实 benchmark 路径上出现请求数、token 和 wall time 的数量级放大。
@@ -155,6 +168,36 @@ status
 
 request phase 必须由调用上下文显式传入；无法判断时填 `unknown` 并计入 coverage failure，不能默认为正常。
 
+#### 6.1.1 Canonical Provider Lifecycle Producer
+
+`TaskSpaceProviderRequestEventV1` 的唯一 canonical producer 是 provider request 生命周期本身：
+
+- `client.rs` / `ModelClientSession` 在 HTTP 和 WebSocket provider dispatch 前产生 `dispatch_started`。
+- 同一个 request id 必须贯穿 stream opened、response completed、provider error、cancellation、blocked、retry/fallback attempt。
+- terminal event 必须在 stream completion、stream error 或 cancellation 时产生，不能把 `stream_opened` 当作 `response_completed`。
+- terminal event 必须尽量携带 token usage、latency、provider/model、transport、status、attempt id、parent logical request id。
+- payload hash、payload artifact 或 exact pre-redaction scan event 必须在 request payload 构建后、redaction/hash-only fallback 前绑定到同一个 request id。
+
+ActionMap runtime 的职责：
+
+- 在 request construction 前提供 `TaskSpaceProviderRequestContextV1`，包括 `task_id`、`map_id`、`node_id`、`route_mode`、`request_phase`、budget policy 和 context selection reason。
+- 消费 provider lifecycle events 并补充 runtime budget state。
+- 不得在 event drain 时通过 `current_main_node_id`、ready node 或时间窗推断 provider request 的 node/phase。缺失时必须写 `provider_request_context_missing_reason`，并计入 coverage failure。
+
+request id 规则：
+
+```text
+provider_request_id = session_id + turn_id + logical_request_seq + attempt_seq
+parent_request_id = logical request id for retry/fallback attempts
+```
+
+`provider-request-{n}` 只能作为单 turn 内部调试 id，不满足 release-grade lifecycle evidence。
+
+WebSocket warmup / `generate=false` 请求必须二选一：
+
+- 作为 `request_phase=startup` / `warmup` 的 provider lifecycle event 记录，且不进入 inference cost denominator；
+- 或明确 excluded，并在 gate 中记录 exclusion reason。不得完全静默。
+
 ### 6.2 新增 TaskSpace Active Budget Contract
 
 新增 `TaskSpaceActiveBudgetV1`，作为 active profile 的 runtime contract。
@@ -257,7 +300,71 @@ missing_evidence
 
 hard stop 不能隐藏 correctness failure：如果 validation 已失败或未执行，final/abort 必须输出 blocked reason 和 missing validation evidence，不能伪装成成功 final。
 
-### 6.5 Active Context Replacement Proof
+#### 6.4.1 Budget-Induced Quality Protection
+
+预算动作不能用“少做任务”伪造成成本下降。任何 hard stop、thin downgrade、no-spawn、early final、final abort、validation skip 都必须产生 `BudgetQualityImpactV1`：
+
+```text
+schema_version
+sample_id optional
+request_id optional
+task_id optional
+map_id optional
+node_id optional
+budget_action
+validator_status_before
+validator_status_after
+missing_evidence_count
+protected_item_miss_count
+solve_risk
+bounded_recovery_allowed
+bounded_recovery_used
+route_escalation_allowed
+route_escalation_used
+final_classification
+reason
+```
+
+质量补偿规则：
+
+- `validation_required` 节点不得因普通 budget hard stop 被静默跳过。
+- 若预算导致验证证据缺失，必须进入 bounded recovery 或 `blocked_by_budget`，不得直接声明 solved。
+- 每个样本最多允许一次 bounded recovery request；该 request 必须标记 `request_phase=validation_recovery` 或 `budget_recovery`。
+- 若 recovery 后仍缺关键证据，样本结果必须显式标记为 unsolved / blocked，不能以低成本成功计入。
+- release report 必须按样本输出 `budget_induced_quality_impact_summary`，包括预算动作是否导致 solve loss。
+
+新增验收：
+
+```text
+budget_quality_impact_logged_for_every_budget_action = true
+budget_induced_validation_skip_count = 0
+blocked_by_budget_samples_count reported
+bounded_recovery_request_count <= sample_count
+```
+
+### 6.5 Active Context Replacement Implementation And Proof
+
+Active replacement 的实现入口必须是 provider-visible history composition，而不是 artifact 后处理。
+
+实现合同：
+
+- 在 `session/turn.rs` 的 request input / history assembly 边界新增 `build_active_provider_visible_history(...)`。
+- `taskspace-v005-active` 下，`clone_history().for_prompt(...)` 之前必须先应用 active projection replacement。
+- replacement policy 只允许保留当前用户约束、active projection、当前节点必要证据、失败验证证据、最终回答所需 protected items 和 bounded recovery 所需最小上下文。
+- 旧 TaskSpace control history、stale node history、rejected subagent body、大 raw output replay 不得进入 provider-visible request。
+- exact payload scan 必须扫描上述函数实际输出的 request payload，而不是扫描 projection artifact、summary artifact 或 post-run reconstructed text。
+- `active-context-replacement-report.json` 必须引用 `provider_request_id`、`provider_payload_sha256` 和 `exact_payload_scan_event_id`。
+
+对应测试：
+
+| Test | Requirement |
+|---|---|
+| composition boundary fixture | active profile 的 provider-visible history 不包含 raw TaskSpace history |
+| protected evidence fixture | protected items 仍可进入 prompt |
+| shadow artifact fixture | 只有 projection artifact、实际 payload 未替换时 release fail |
+| exact scan fixture | scan event 与 provider request id/hash 完全一致 |
+
+### 6.5.1 Active Context Replacement Proof
 
 新增 exact provider payload reconstruction 测试和 artifact：
 
@@ -463,6 +570,61 @@ spawn/node budget summary missing
 v005 non-agent gate artifact missing or stale
 ```
 
+#### 6.9.1 Formal E3 Identity Gate
+
+`release_pass` 的 required artifacts 还必须包括：
+
+```text
+start-gate/e3-start-gate.json
+start-gate/gate-decision.json
+```
+
+任何以下情况都必须阻断 `release_pass`：
+
+```text
+formal E3 identity missing or mismatched
+sample_set_id/repeats/runner/start_gate identity mismatch
+user approval sample set mismatch
+non-agent gate evidence path missing or not local/verifiable
+terminal-bench_E3-P0_1_1 / _3_1 / _3_2 diagnostic variant enters release_pass
+```
+
+Formal E3 identity gate:
+
+```text
+sample_set_id = terminal-bench_E3-P0_3_5
+benchmark_family = terminal-bench
+runner_entrypoint = run-taskspace-e3-suite.ps1
+repeats_per_sample >= 5
+sample_names exactly match registered terminal-bench_E3-P0_3_5 executable samples
+run-status.evidence_target = E3
+pair_completed.reported_evidence_level = E3 for every counted pair
+start_gate.full_e3_allowed = true
+start_gate.v005_markers_passed = true
+start_gate.calibration_gate_passed = true
+start_gate.task_list_hash/profile_hash/source_version match release artifacts
+user_approval.approved_sample_set_id = terminal-bench_E3-P0_3_5
+```
+
+`terminal-bench_E3-P0_1_1`、`terminal-bench_E3-P0_3_1` 和 `terminal-bench_E3-P0_3_2` 必须在 release decision 中降级为 diagnostic-only / E3-candidate；即使所有 pair 成功，也不得产生 `release_pass`。
+
+`v005-non-agent-gates.json` 中每个 gate 必须是 producer-owned structured gate：
+
+```text
+name
+status
+producer
+command
+exit_code
+generated_at
+git_commit
+profile_hash
+evidence_path
+evidence_sha256
+```
+
+`evidence_path` 必须指向存在的本地 artifact，且位于 run root、repo `target/`、或明确允许的 evidence 目录内。`selftest://`、空路径、任意文本路径不得满足 release gate。
+
 Release decision taxonomy 必须改为：
 
 | Decision | Meaning | Closeable |
@@ -489,6 +651,19 @@ Release decision taxonomy 必须改为：
 | Release decision | `scripts/taskspace-benchmark/write-release-decision.ps1` | 加新 gate 和 blockers |
 | E3 start gate | `scripts/taskspace-benchmark/lib/e3-start-gate.ps1` | formal E3 必须依赖 v0.0.5 non-agent gates、code-complete marker 和用户批准 marker；缺任何一项时禁止 `full_e3` |
 | Harness tests | `scripts/taskspace-benchmark/test-harness.ps1`、`test-release-decision.ps1` | 增加 synthetic pass/fail fixture |
+
+### 7.1 修正后的关键落点覆盖
+
+以下落点覆盖并收紧上表中仍然宽泛或待发现的条目：
+
+| 模块 | 文件 | 设计动作 |
+|---|---|---|
+| Provider lifecycle canonical producer | `third_party/codex-cli/codex-rs/core/src/client.rs`、`third_party/codex-cli/codex-rs/core/src/session/turn.rs` | client/session 负责 start/terminal lifecycle、token、latency、payload hash/scan request id；ActionMap 不再事后推断 provider request attribution |
+| Provider request context producer | `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`、session request construction path | 在 provider dispatch 前提供 `TaskSpaceProviderRequestContextV1`，包括 task/map/node/request_phase/context_selection_reason |
+| Provider-visible context composition | `third_party/codex-cli/codex-rs/core/src/session/turn.rs` history/request input assembly boundary, plus `action_map/runtime.rs` projection builder | active profile 下在 `for_prompt` 前替换 provider-visible history，省略 raw TaskSpace history、stale node history、rejected subagent body、large raw output；projection proof 只能证明，不是替换动作本身 |
+| Release formal identity gate | `scripts/taskspace-benchmark/write-release-decision.ps1` | 验证 sample_set_id、sample_names、repeats_per_sample、runner_entrypoint、runner_profile_hash、start gate decision、approval sample set 与 artifacts 一致 |
+| E3 start sample-set gate | `scripts/taskspace-benchmark/lib/e3-start-gate.ps1`、`scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1` | 接收 expected sample set id，校验 user approval 的 approved_sample_set_id，并在 sample scheduling 前阻断不匹配运行 |
+| Budget quality impact | runtime budget producer、metrics extractor、release decision | 对 hard stop / thin / no-spawn / validation skip / final abort 产出 `BudgetQualityImpactV1`，release report 按样本汇总 solve loss 风险 |
 
 ## 8. 阶段计划
 
@@ -931,6 +1106,24 @@ P0 samples 不会因为已知 eligibility/start marker 问题中途损失覆盖�
 非 agent harness tests PASS，P0 sample eligibility report clean。
 
 ### Phase 6: Targeted Diagnostic Then Formal E3
+
+#### Phase 6 修正规则
+
+Phase 6 必须拆成三个互不替代的证据轨道：
+
+| 轨道 | 样本集 | reported_evidence_level | 用途 | 是否允许 release_pass |
+|---|---|---|---|---|
+| targeted diagnostic | `terminal-bench_E3-P0_1_1` 或 `terminal-bench_E3-P0_3_1/_3_2` 变体 | `diagnostic-only` 或 `E3-candidate` | 低成本检查 request/token/spawn/budget 是否明显改善 | no |
+| formal P0 release proof | `terminal-bench_E3-P0_3_5` | `E3` | v0.0.5 当前 P0 成本/正确率收口判断 | yes, if all gates pass |
+| v0.0.4 clean comparison | `terminal-bench_E3-v004-clean_3_5` | `E3` only after full audit | 与 v0.0.4 clean 15-run 做同口径回归对比 | no, cannot replace P0 proof |
+
+执行顺序：
+
+1. 先跑 diagnostic-only targeted diagnostic，默认首选 `processing-pipeline` 或当前最能暴露 request explosion 的 P0 样本。
+2. diagnostic 必须输出 `reported_evidence_level=diagnostic-only`、`sample_set_id`、`repeats_per_sample`、`runner_entrypoint` 和 `not_release_proof=true`。
+3. 只有 diagnostic 的 request/token/spawn/budget gate 达标，且 non-agent gates、code-complete marker、user approval marker 均有效，才允许跑 `terminal-bench_E3-P0_3_5`。
+4. `terminal-bench_E3-v004-clean_3_5` 只能在 P0 release proof 之外补跑，用于说明相对 v0.0.4 clean 口径是否退化；不得替代 P0 结论。
+5. release report 必须分开列出 diagnostic、formal P0、v004 clean comparison，禁止混表或用内部 fixture success 补足正式 E3 success。
 
 #### Objective
 

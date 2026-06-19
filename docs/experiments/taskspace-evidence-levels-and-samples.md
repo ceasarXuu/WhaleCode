@@ -95,6 +95,37 @@ v0.0.5 收口矩阵还包含上面的 E1 冒烟样本，所以该组合运行是
 
 这是 v0.0.3/v0.0.4 的主要 P0 可比范围。用于 agent 能力统计的实际执行样本是 3 个，共 15 个配对。`query-optimize` 因远程资产等价性未证明，历史运行中只保留封闭失败预检记录，不进入该表，也不参与任何执行样本数、正确率、耗时或 token 对比。该样本集结果不能和 v0.0.5 内部测试夹具结果直接比较。
 
+### 4.4.1 Diagnostic-only：Terminal-Bench P0 低成本诊断变体
+
+样本集标识：
+
+```text
+terminal-bench_E3-P0_1_1
+terminal-bench_E3-P0_3_1
+terminal-bench_E3-P0_3_2
+```
+
+这些标识沿用数据集名称、子集名称、sample 数量和 repeats 次数的命名规范，但证据等级不是正式 E3。它们必须在所有报告和 release artifacts 中写明：
+
+```text
+reported_evidence_level = diagnostic-only
+not_release_proof = true
+formal_sample_set_id = terminal-bench_E3-P0_3_5
+```
+
+允许用途：
+
+- 在代码完成前后用最小成本检查 request/token/spawn/budget 是否还有数量级失控。
+- 选择正式 `terminal-bench_E3-P0_3_5` 前的工程健康检查。
+- 定位具体样本的 harness 或 runtime 问题。
+
+禁止用途：
+
+- 不得支撑 `release_pass`。
+- 不得声明“正确率未下降已经坐实”。
+- 不得与 `terminal-bench_E3-P0_3_5` 混表计算成功率、耗时或 token 倍率。
+- 不得用 `_1_1`、`_3_1` 或 `_3_2` 结果替代 3 samples x 5 repeats 的正式 P0 结论。
+
 ### 4.5 E3 候选：v0.0.4 clean 15-run 可比范围
 
 样本集标识：`terminal-bench_E3-v004-clean_3_5`
@@ -229,3 +260,5 @@ v0.0.5 取得了接近 100% 的 Terminal-Bench E3 正确率。
 ```
 
 v0.0.5 下一步正确的同口径正确性检查，是在 v0.0.5 配置档下复跑 `terminal-bench_E3-v004-clean_3_5`，并与 v0.0.4 clean 15-run 对比。
+
+该检查只回答“相对 v0.0.4 clean 15-run 是否退化”，不能替代 v0.0.5 当前 P0 成本/正确率收口所需的 `terminal-bench_E3-P0_3_5`。

@@ -6,6 +6,8 @@
 - Status: Corrected Draft
 - Owner / Responsible: WhaleCode core engineering
 - Related Systems: `action_map` runtime, `taskspace_control` handler, context history, protocol snapshot, E3 benchmark scripts
+
+> Supersession note (2026-06-19): v0.0.5 continuation work now follows `18-unfinished-work-engineering-design.md` for unfinished P0 engineering, formal E3 sample selection, release taxonomy, and E3 start/release gates. The Phase 6 sample list in this document is retained as historical design context only. It must not be used to replace the current formal P0 release proof `terminal-bench_E3-P0_3_5`.
 - Related Links: `00-executive-summary.md`, `03-protocol-compaction.md`, `04-context-projection-and-replay-control.md`, `13-design-corrections-and-engineering-contract.md`
 - Risk Level: High
 - Plan Type: Full
