@@ -1,687 +1,242 @@
-# Subagent VS Review: v0.0.5 Unfinished Engineering Plan
+﻿# Subagent VS Review: v0.0.5 unfinished engineering plan
 
-- Created: 2026-06-19T13:11:58+08:00
-- Updated: 2026-06-19T13:52:26+08:00
-- Task: 对 v0.0.5 未完成项工程方案执行对抗性审查，确认方案是否足以继续开发并避免再次误判 E3 / 成本控制结果。
+- Created: 2026-06-19T14:06:34+08:00
+- Updated: 2026-06-19T14:31:00+08:00
+- Task: 对 v0.0.5 未完成项方案执行对抗性审查，确认方案是否足以继续开发并避免再次误导实验结论。
 - Report path: `vs_review/2026-06-19-v005-unfinished-plan-review.md`
 - Review mode: fresh internal subagents
 - Source session policy: no inherited main-agent context
-- Status: passed
+- Status: blocked
 
-## Round 1: Plan Viability Review
+## Round 1: plan viability review
 
 ### Review Input
 
 #### Objective
-
-审查 v0.0.5 未完成项工程方案是否能真实支撑产品目标：在 v0.0.5 内完成实际成本控制，而不是只做可观测；代码完成前禁止真实 E3；最终需要在 `terminal-bench_E3-P0` 口径验证正确率不下降且成本进入门槛。
+审查 `docs/v0.0.5` 下的当前方案，重点判断 v0.0.5 是否已经把“实际成本控制”从可观测指标推进到可执行工程方案，并且是否能防止再次出现 E3 数据集、样本、repeat 或成功率口径误判。
 
 #### Review Target
-
-v0.0.5 未完成项工程设计、未完成项盘点、原实施计划、实验制度和相关门禁脚本。
+设计方案、实验制度、工程实施计划和门禁策略。
 
 #### Target Locations
-
+- `docs/v0.0.5/README.md`
 - `docs/v0.0.5/18-unfinished-work-engineering-design.md`
 - `docs/v0.0.5/17-unfinished-work-inventory.md`
+- `docs/v0.0.5/14-implementation-gap-audit.md`
+- `docs/v0.0.5/13-design-corrections-and-engineering-contract.md`
 - `docs/v0.0.5/10-implementation-plan.md`
+- `docs/v0.0.5/09-e3-validation-plan.md`
 - `docs/experiments/`
-- `third_party/codex-cli/codex-rs/core/src/client.rs`
-- `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
-- `third_party/codex-cli/codex-rs/core/src/session/mod.rs`
-- `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
-- `scripts/taskspace-benchmark/lib/e3-start-gate.ps1`
-- `scripts/taskspace-benchmark/write-release-decision.ps1`
-- `scripts/taskspace-benchmark/test-e3-start-gate.ps1`
-- `scripts/taskspace-benchmark/test-release-decision.ps1`
+- `vs_review/2026-06-19-v005-unfinished-plan-review.md`
 
 #### Change Introduction
-
-当前方案把 v0.0.5 从“收口候选”改回“继续开发”，要求先完成 provider request lifecycle hook、runtime budget hard stop、active provider-visible context replacement、state_commit displacement、fanout/node budget、E3 start gate 和 release decision gate，再允许真实 E3。方案还要求用 exact provider payload artifact 或 pre-redaction exact scan event 证明 active replacement，而不能用 projection summary 或 hash-only 证据替代。
+当前 v0.0.5 已经从早期“阶段性收口”改为“版本不能关闭，继续开发”。方案要求在真实 E3 前补齐成本控制相关代码、非 agent 门禁、预算影响质量判定、实验命名和样本制度，避免把非 terminal-bench 或口径不清的测试误当成 E3 结论。
 
 #### Risk Focus
-
-- 方案是否与 v0.0.5 的实际成本控制目标一致，而不是只加强可观测。
-- provider/client/session/action_map/runtime/release gate 的职责边界是否能落地。
-- active replacement 是否既有 proof，也有实际 provider-visible context composition 实现任务。
-- E3 targeted diagnostic 与 formal E3 顺序是否会再次误导判断。
-- marker、non-agent gates、release artifacts 是否能防止 forged/stale/shape-only 证据。
-- 成本 hard stop 是否有正确率补偿和 recovery 设计。
+- 方案是否仍然偏可观测，缺少真正减少 token/时间的控制闭环。
+- 是否有明确的 producer、artifact、gate、release blocker 和测试命令，而不是只写目标。
+- 是否能防止 `terminal-bench_E3-P0_3_5`、`_3_2`、`_3_1` 等变体混淆，尤其 sample 数和 repeats 数。
+- 是否有硬停止、预算跳过、验证跳过后仍算 solved 的质量风险定义。
+- 是否能按现有工程状态实际落地，而不是要求一个过大的版本重写。
+- 是否有遗漏的非 agent 测试、日志、回放和失败诊断基建。
 
 #### Verification Status
-
-- 本轮是方案审查，不运行真实 E3 / Agent benchmark。
-- 已有相关报告：
-  - `vs_review/2026-06-19-v005-continuation-plan-review.md`
-  - `vs_review/2026-06-19-v005-code-gates-review.md`
-- 当前已知代码门禁审查仍指出 provider lifecycle / payload proof 方向存在未闭合 blocker。
+- 本轮只审查方案，不执行 E3，不调用真实 agent benchmark。
+- 已知当前方案仍在开发前审查阶段，未声明 v0.0.5 可关闭。
+- 请只读检查，不修改文件。
 
 #### Reviewer Instructions
-
 - Fresh internal subagent session.
 - No inherited main-agent context.
 - Read target files directly.
 - Do not modify files.
 - Cite evidence paths and line numbers when possible.
+- 输出必须包含 summary、blocking findings、non-blocking risks、required fixes、missing tests、missing logs/observability、evidence。
 
 ### Reviewer Selection
 
 | Reviewer | Reason Selected | Risk Area |
 |---|---|---|
-| `product-logic-adversary` | v0.0.5 的核心争议是目标是否包含实际成本控制以及是否能防止再次误判。 | 产品目标、验收口径、正确率补偿 |
-| `architecture-adversary` | 方案跨 provider client、session、ActionMap runtime、脚本门禁和 artifacts，存在职责错配风险。 | 架构边界、生命周期、状态归因 |
-| `test-validity-adversary` | 此版本已经发生过内部 fixture / Terminal-Bench 口径混淆，需要专门挑战验证制度。 | 测试有效性、实验命名、marker freshness |
+| product-logic-adversary | v0.0.5 的产品目标曾被误收口，需要挑战目标是否真实覆盖成本控制和正确率不下降。 | 产品目标、范围、成功口径 |
+| architecture-adversary | 方案涉及 runtime、projection、budget、artifact、release gate 多模块，需要挑战边界和可维护性。 | 架构边界、职责、落地顺序 |
+| test-validity-adversary | 历史问题核心是 E3 口径误判，需要挑战实验制度和验证门禁。 | 实验有效性、测试自欺、门禁 |
 
 ### Reviewer Launch Records
 
 | Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
 |---|---|---|---|---|---|---|---|
-| `product-logic-adversary` | `multi_agent_v1.spawn_agent` explorer | `019ede4a-5458-7c61-a108-ba6f43394c6c` / Newton | spawn_agent result | no | Round 1 Review Input with product-logic focus | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
-| `architecture-adversary` | `multi_agent_v1.spawn_agent` explorer | `019ede4a-9099-76e2-b7e6-28c6e043d3c6` / Beauvoir | spawn_agent result | no | Round 1 Review Input with architecture focus | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
-| `test-validity-adversary` | `multi_agent_v1.spawn_agent` explorer | `019ede4a-cffc-7961-ad59-806d896a8284` / Epicurus | spawn_agent result | no | Round 1 Review Input with test-validity focus | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
+| product-logic-adversary | `multi_agent_v1.spawn_agent` explorer | `019ede7d-db65-7fe3-b75c-03911e708a3c` / Archimedes | spawn_agent result in current Codex thread | no | Round 1 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
+| architecture-adversary | `multi_agent_v1.spawn_agent` explorer | `019ede7e-1537-7d13-a3d3-36b5ca2c479f` / Hume | spawn_agent result in current Codex thread | no | Round 1 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
+| test-validity-adversary | `multi_agent_v1.spawn_agent` explorer | `019ede7e-4bdc-7d03-b82b-0120381a4c1a` / Boyle | spawn_agent result in current Codex thread | no | Round 1 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
 
 ### Reviewer Outputs
 
-#### product-logic-adversary / Newton
+#### product-logic-adversary / Archimedes
 
 ##### Summary
-
-方案总体方向正确：它承认 v0.0.5 不能收口，成本问题不是缺指标而是缺 runtime 执行控制，并且把正式 E3 放在代码完成、非 agent gate、targeted diagnostic 之后。主要阻塞是 Phase 6 正式验证样本口径仍可能跑偏，低成本诊断命名仍可能误导，以及成本收缩后的正确率补偿策略不足。
+当前方案已经把“实际成本控制”从观测指标推进到了可执行工程方案，但只是方案层成立，不能说明 v0.0.5 已达成。核心证据是 `18-unfinished-work-engineering-design.md` 明确要求 provider dispatch 前可阻断 budget hook、runtime budget state、active context replacement、spawn/node hard budget、release/start gate，并禁止在 code-complete、non-agent gates、user approval 前跑正式 E3。
 
 ##### Blocking Findings
-
-- Phase 6 仍可能跑错正式验证口径，不能证明用户指定的 P0 目标。`10-implementation-plan.md` Phase 6 使用 `analyze-access-logs`、`log-summary`、`count-call-stack`，这对应 `terminal-bench_E3-v004-clean_3_5`，不是当前目标 `terminal-bench_E3-P0_3_5`。
-- `terminal-bench_E3-P0_1_1` targeted diagnostic 命名仍有误导风险，必须显式登记为 diagnostic-only 或 E3-candidate。
-- 成本硬停后的质量补偿策略不足，缺少 bounded escalation、second-pass verification、manual blocked classification、sample-level retry budget 等产品层补偿验收。
+- 无针对当前 canonical 方案的 blocking finding。
+- 接近 blocking 的文档治理风险：旧文档仍保留较宽松口径。`09-e3-validation-plan.md:108-116` 仍写 “Engineering success but product partial ... acceptable for v0.0.5”，`10-implementation-plan.md:496-498` 仍有 PASS/PARTIAL/FAIL 旧分类。虽然 `README.md:23-25` 和 `18-unfinished-work-engineering-design.md:26-35` 已声明以 `18` 为准，但这些旧段落如果被单独引用，仍可能复活“partial 可收口”的误判。
 
 ##### Non-blocking Risks
-
-- `10-implementation-plan.md`、`17-unfinished-work-inventory.md`、`18-unfinished-work-engineering-design.md` 并存时，读者可能不知道当前优先级。
-- 旧 plan 中 report-only routing 文字容易和当前 active cost control 主线冲突。
-- P0 样本数、pair 数和 diagnostic 变体粒度容易继续混淆。
+- v0.0.5 范围很大：provider hook、session context replacement、runtime budget、spawn gate、release/start gate 都进 P0；实际实现风险高。
+- “成本下降且正确率不下降”的口径是可执行的，但仍是 focused P0 proof，不是广泛产品质量证明。
+- hard stop 可能降低正确率；实现时必须防止 budget-induced skip 被算 solved。
 
 ##### Required Fixes
-
-- 明确 `18-unfinished-work-engineering-design.md` supersedes `10-implementation-plan.md` 的 Phase 6。
-- 把正式 P0 release proof 和 v0.0.4 clean comparison 拆开。
-- 将 `_1_1/_3_1/_3_2` 诊断显式登记为 diagnostic-only / E3-candidate。
-- 增加预算收缩后的质量补偿 gate。
+- 给 `09`、`10` 的旧 PASS/PARTIAL 段落加醒目 superseded banner，或直接改成引用 `18` 的 `release_pass/blocked_partial/fail`。
+- release decision 必须强制校验 `sample_set_id=terminal-bench_E3-P0_3_5`、`repeats_per_sample>=5`、每个 counted pair 的 `reported_evidence_level=E3`。
+- 正式 E3 runner 必须在 sample scheduling 前阻断 `full_e3_allowed=false`，不能只让 start gate 产出警告。
 
 ##### Missing Tests
-
-- Phase 6 sample-set guard。
-- Diagnostic naming test。
-- Quality-under-budget tests。
+- provider hook：超预算 request 不发出网络请求。
+- runtime budget：normal/warn/downgrade/hard_stop、spawn blocked、legacy action budget。
+- active context replacement：synthetic history fixture 证明旧 TaskSpace history 不进 provider-visible input。
+- release/start gate negative fixtures：缺 marker、sample set 不匹配、`_3_2` 试图 release_pass、缺 metadata 均 fail。
 
 ##### Missing Logs / Observability
-
-- `budget-induced quality impact` summary。
-- Formal E3 start-gate decision fields: requested/actual sample set id、reported evidence level、approval marker、code-complete marker、non-agent gate artifact hash。
+- `provider-request-events.jsonl`、`budget-events.jsonl`、payload hash 或 exact pre-redaction scan event。
+- request phase attribution、top cost phase、runtime event 与 model request trace id join。
+- active replacement report：`legacy_taskspace_history_present`、`raw_output_replay_present`、`projection_over_budget`、`protected_item_missing`。
+- budget quality impact：hard stop/thin/no-spawn/validation skip/final abort 对 solve 风险的记录。
 
 ##### Evidence
+- `docs/v0.0.5/README.md:10-12` - 当前状态明确不能关闭。
+- `docs/v0.0.5/README.md:29-32` and `docs/experiments/taskspace-evidence-levels-and-samples.md:98-114` - 禁止误用 `_1_1/_3_1/_3_2`。
+- `docs/v0.0.5/17-unfinished-work-inventory.md:35-88` - 成本失控现状。
+- `docs/v0.0.5/18-unfinished-work-engineering-design.md:39-58`, `:759-803`, `:886-935` - 从观测转执行闭环。
+- `docs/v0.0.5/18-unfinished-work-engineering-design.md:48-66` and `docs/v0.0.5/13-design-corrections-and-engineering-contract.md:50-68` - 成功/失败定义。
 
-- `docs/v0.0.5/10-implementation-plan.md:477-489`
-- `docs/v0.0.5/17-unfinished-work-inventory.md:421-445`
-- `docs/experiments/taskspace-evidence-levels-and-samples.md:84-96`
-
-#### architecture-adversary / Beauvoir
+#### architecture-adversary / Hume
 
 ##### Summary
-
-工程方向正确，但还不是干净的 architecture contract。provider lifecycle 和 active context replacement 仍部分像 proof/reporting system；真正执行边界是 `session/turn.rs` history composition 和 `client.rs` provider dispatch。若不让这些边界成为结构化 lifecycle 和 replacement artifacts 的 producer，release/E3 gate 会变成与真实 model request 因果关系不足的脚本校验。
+`18-unfinished-work-engineering-design.md` 方向正确：它定位真实 provider dispatch path，拒绝事后脚本真相，要求 active context replacement 在 request composition 生效，并增加 release/start gate identity checks。但它还没有安全落到当前代码。最大架构缺口是当前 runtime 仍从 ActionMap snapshot 归因 provider request，而 provider lifecycle 真相在 `client.rs` / `ModelClientSession`。
 
 ##### Blocking Findings
-
-- Provider lifecycle contract 比当前 hook 更宽，但没有明确 terminal usage/latency/payload proof 的 owner。
-- ActionMap 当前通过 provider request 之外的 snapshot 归因，存在 node/phase 误归因风险。
-- Active context replacement 没有足够钉在实际 context composition 点上，容易只做 payload scan/report 而不改变 `clone_history().for_prompt(...)` 输入。
-- Release/E3 gates 仍依赖 marker 和 summary artifacts，而不是 producer-side schema guarantees。
-- Phase ordering 在 provider lifecycle 和 runtime budget state 上有循环依赖：到底 provider lifecycle 拥有 budget state，还是 ActionMap 拥有并传 context，需要先明确。
+- Provider request attribution 仍是 snapshot-derived，可能误归因 node/phase。`turn.rs` 在 dispatch 前取 `action_map_provider_request_budget_snapshot()`，之后把 drained provider events 都用同一 snapshot 记录；`runtime.rs` 从 `current_main_node_id` 或 first ready node 选 node，并给每个 event stamped `snapshot.node_id` 和硬编码 `request_phase:model_sampling`。除非 Phase 0A 在 provider request construction time 创建真实 `TaskSpaceProviderRequestContextV1`，否则违反目标。
+- Active context replacement 没有被当前 request composition 证明。`turn.rs` 先把 ActionMap developer context 写进 history，再发送 `clone_history().for_prompt(...)`；这只移除旧 projection item，不证明 raw TaskSpace history、大输出 replay 或 stale node history 已从 provider-visible input 中移除。
+- `14-implementation-gap-audit.md` 虽被 README supersede，但 stale 到有危险。它仍把 active compact projection 标成 Implemented，把 routing 标成 benchmark-profile contract；需要在文件内加醒目的 historical/stale banner。
+- Budget runtime state 太薄。当前只有 `provider_request_count` 和固定 max request，不代表计划里的 `normal -> warned -> compact_checkpoint_required -> thin_downgraded -> hard_stopped` 状态机，也没有 per-node/spawn/legacy/projection counters。
 
 ##### Non-blocking Risks
-
-- `provider-request-{n}` 不是 release-grade global request id。
-- WebSocket warmup bypass 必须明确 excluded 或单独 tracking。
-- request phase taxonomy 丰富但当前实现可能仍硬编码为 `model_sampling`。
+- WebSocket warmup 排除在 inference trace 和 budget dispatch 之外是合理的，但 artifacts 需要 explicit warmup exclusion records。
+- Release gate 形状正确，但仍是 script-mediated；producer-owned artifact 规则只有在 artifacts 来自 provider/request path 时才成立。
+- Phase 1 budget enforcement 和 Phase 2 active replacement 互相支撑；若先 hard-stop 而未证明 payload replacement，可能减少 request 数但不解决 `avg_input/request`。
 
 ##### Required Fixes
-
-- 定义 canonical provider lifecycle producer 在 `client.rs` / `ModelClientSession`。
-- ActionMap 作为 consumer/annotator，只在 request construction 前提供 context，不事后推断。
-- 增加显式 request context object。
-- 把 active replacement 放到 `session/turn.rs` composition boundary。
-- producer-side schema 先行，脚本只做 gate aggregation。
+- 把 request identity production 移到 provider-visible request boundary：在 `client_session.stream_with_provider_request_budget(...)` 之前产生 `provider_request_id`、`task_id`、`map_id`、`node_id`、`request_phase`、`route_mode`、budget state、context-selection reason。
+- 用 dispatch-time request-context object 替代 snapshot attribution；phase 来自 runtime intent，不再硬编码 `model_sampling`。
+- 在 provider request construction 内生成 exact payload scan 或 searchable payload artifact，并和 payload hash 绑定。
+- `taskspace-v005-active` 必须改变 `for_prompt` input composition，而不是只注入 developer context。
+- 在 `14-implementation-gap-audit.md` 文件内标记 historical/stale。
 
 ##### Missing Tests
-
-- lifecycle start/terminal exactly-once。
-- token usage joins terminal lifecycle event。
-- retry/fallback attempt id。
-- phase attribution fixture。
-- active composition fixture。
-- misattribution test。
+- Provider request attribution test：snapshot 后 `current_main_node_id` 改变，event 仍保留 dispatch-time context。
+- Negative active replacement fixture：projection 存在但 raw TaskSpace history 仍在 provider payload，release 必须 fail。
+- Hash-only payload fixture：没有 exact scan event 时 release 必须 fail。
+- Budget lifecycle fixture：覆盖 warn、compact-required、hard-stop、one allowed recovery request。
+- Start gate fixture：`full_e3_allowed=false` 必须在 sample scheduling 前 abort。
 
 ##### Missing Logs / Observability
-
-- terminal provider lifecycle event with latency/token usage。
-- payload hash/artifact/scan tied to dispatch path。
-- explicit dispatch failure / stream open / stream completion / provider error / cancellation status。
+- producer events 生成的 `request_phase_summary.json`。
+- `exact-payload-scan-events.jsonl` keyed by `provider_request_id` and `provider_payload_sha256`。
+- Budget state transition events：previous/new state、trigger、allowed recovery、quality impact。
+- Warmup/startup provider lifecycle events with explicit denominator exclusion。
 
 ##### Evidence
+- `third_party/codex-cli/codex-rs/core/src/session/turn.rs:1902-1908`, `:1924-1929`, `:2217-2224` - 当前 provider event 记录依赖 snapshot。
+- `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs:1493-1516`, `:1545`, `:1577-1584` - 当前 node/phase attribution 的弱点。
+- `third_party/codex-cli/codex-rs/core/src/session/turn.rs:435-450` - 当前 provider-visible input composition 边界。
+- `docs/v0.0.5/14-implementation-gap-audit.md:38`, `:42` - stale implemented 声明。
+- `docs/v0.0.5/18-unfinished-work-engineering-design.md:441`, `:497`, `:520`, `:642`, `:663-691`, `:1142-1149` - canonical 方案要求。
 
-- `third_party/codex-cli/codex-rs/core/src/client.rs`
-- `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
-- `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
-- `scripts/taskspace-benchmark/write-release-decision.ps1`
-- `scripts/taskspace-benchmark/lib/e3-start-gate.ps1`
-
-#### test-validity-adversary / Epicurus
+#### test-validity-adversary / Boyle
 
 ##### Summary
-
-验证制度方向变严，但仍不足以防止误判。主要问题集中在 `write-release-decision.ps1`：形状正确的合成 JSON、单 repeat、自称 E3 event 仍可能推到 `release_pass`，没有强制 formal E3 的 sample set、repeat、runner、start-gate identity 和真实 evidence path 绑定。
+当前方案已经在文档上明确区分：`terminal-bench_E3-P0_3_5` 是 formal release proof，`_1_1/_3_1/_3_2` 是 diagnostic-only，不能支撑 `release_pass`。脚本也有一部分硬门禁：`run-taskspace-e3-suite.ps1` 禁止 scoring 模式下 `-SkipStartGate`，并会在 `full_e3_allowed=false` 时调度样本前退出。但仍不足以防止 E3 误判，核心问题是 release decision 和 non-agent gates 仍过度依赖可伪造 JSON shape，而不是强绑定真实 runner 产物、真实用户批准和真实外部样本执行链路。
 
 ##### Blocking Findings
-
-- `write-release-decision.ps1` 没有强制 `repeats >= 5` 或样本集口径，单 pair fixture 可通过 `release_pass`。
-- release decision 可把 internal/synthetic fixture 当 formal E3，因为只信 `evidence_target=E3` 和 `reported_evidence_level=E3`，不验证 `sample_set_id`、`benchmark_family`、`runner_entrypoint`、`runner_profile_hash`。
-- `v005-non-agent-gates.json` 仍是 shape gate，测试 fixture 使用 `selftest://...` 而不是可验证 artifact。
-- release decision 没有绑定 start gate decision artifact。
-- user approval marker 没有校验 approved sample set。
+- `write-release-decision.ps1` 的 self-test 证明 synthetic fixture 可以产生 `release_pass`。`test-release-decision.ps1:258-263` 构造 `New-FixtureRun "pass"` 后断言输出 `release_pass`，该 fixture 是脚本内合成的 15 pair 文件和 JSON，不是真实 Terminal-Bench runner。
+- release identity gate 只校验 `run-status.json` 自报字段，未把 runner identity 绑定到实际 runner invocation。`write-release-decision.ps1:292-336` 校验的 `sample_set_id`、样本名、`runner_entrypoint`、`repeats_per_sample` 都来自 `run-status.json`；`lib/e3-identity.ps1:22-63` 的 profile hash 未包含 RunnerPath 或 runner file hash。
+- non-agent gates 仍主要是 shape gate。start gate 只要求各 gate `status=pass` 和 `evidence_path` 非空；release decision 虽要求 evidence path、command、exit_code、generated_at、git_commit、profile_hash、evidence_sha256 非空，但没有校验 `evidence_sha256` 等于文件实际 hash，也没有要求 gate-level profile/source/task hash 等于当前 run。
+- release decision 没有直接验证 user approval marker，而是信任可复制的 gate-decision artifact。
 
 ##### Non-blocking Risks
-
-- `terminal-bench_E3-P0_3_5` 文档定义清楚，但 diagnostic 变体未登记为 diagnostic-only。
-- start gate 有 freshness，release decision 对 non-agent gates 没有同等 freshness/commit/profile/task-list hash 校验。
+- `run-taskspace-e3-suite.ps1` 允许自定义 `RunnerPath`，但 release decision 只接受自报 `runner_entrypoint="run-taskspace-e3-suite.ps1"`，没有真实 child runner hash。
+- `docs/experiments/taskspace-evidence-levels-and-samples.md:80-104` 存在明显编码损坏/乱码，会降低人工审查可靠性。
+- `ExpectedSampleSetId` 在 start gate 默认是 `terminal-bench_E3-P0_3_5`，但 suite 没有显式从 task list 推导 sample set id；release 依赖后置 `run-status.json`。
 
 ##### Required Fixes
-
-- release decision 增加 formal E3 identity gate。
-- required artifacts 增加 start-gate outputs。
-- non-agent gate evidence_path 必须是存在的本地 artifact，并记录 command、exit_code、generated_at、git_commit、profile_hash。
-- user approval 校验 `approved_sample_set_id`。
-- release PASS fixture 改为 3 samples x 5 repeats 的 formal shape，单 pair fixture 只能测 blocked/diagnostic。
+- release decision 必须拒绝 synthetic/internal fixture：要求真实 suite manifest/run-status 由 `run-taskspace-e3-suite.ps1` 生成，并校验 command line、script path、script hash、child runner path/hash、task list hash、sample dirs 和 pair dirs 一一对应。
+- non-agent gates 从“字段存在”升级为“证据校验”：重算 `evidence_sha256`，并要求每个 gate 记录且匹配当前 `task_list_hash`、`source_version`、`profile_hash`、`sample_set_id`。
+- release decision 直接读取并校验 `v005_user_approval.json`、`v005_code_complete.json`、`v005_non_agent_gates.json`，不能只信任 `gate-decision.json`。
+- `runner_profile_hash` 应包含 runner entrypoint、runner file hash、task list path/hash、sample set id、source version、scoring flags。
+- `terminal-bench_E3-P0_3_5` 应由 task list 内容反推：必须恰好 3 个正式样本、每个 5 repeats、无 diagnostic-only 标记、无 skipped/excluded pairs。
 
 ##### Missing Tests
-
-- `repeats=1` 自称 E3 必须 fail。
-- forged internal runner family 必须 fail。
-- non-existent / `selftest://` evidence path 必须 fail。
-- 缺 start-gate decision artifact 必须 fail。
-- approval sample set mismatch 必须 fail。
-- `_3_1/_3_2` 诊断变体进入 release decision 必须 fail 或降级。
+- synthetic full-shape fixture must fail release decision unless explicitly marked `fixture_test`。
+- internal matrix artifacts with `sample_set_id=terminal-bench_E3-P0_3_5` must fail。
+- `_1_1/_3_1/_3_2` diagnostic-only run with all other gates passing must fail `release_pass`。
+- forged `gate-decision.json` without real approval marker must fail。
+- non-agent gate with wrong evidence hash must fail。
+- custom `RunnerPath` or changed runner file hash must fail formal E3 identity。
+- task list with 3 names but wrong source/task hash must fail。
 
 ##### Missing Logs / Observability
-
-- release decision 输出 sample_set_id、repeats_per_sample、runner_family、runner_profile_hash、start_gate_decision_path。
-- non-agent gate summary 输出 evidence hash、mtime/freshness、command exit code。
+- release decision should output `artifact_origin=real_suite|fixture|unknown`。
+- record `runner_script_sha256`, `child_runner_sha256`, `task_list_sha256`, `approval_marker_sha256`。
+- record `diagnostic_only_rejected_count` and rejected sample set ids。
+- record per gate hash verification status, not just pass/fail。
 
 ##### Evidence
-
-- `scripts/taskspace-benchmark/test-release-decision.ps1`
-- `scripts/taskspace-benchmark/write-release-decision.ps1`
-- `scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1`
-- `scripts/taskspace-benchmark/lib/e3-start-gate.ps1`
-- `docs/experiments/taskspace-evidence-levels-and-samples.md`
+- `docs/experiments/taskspace-evidence-levels-and-samples.md:86-104` - diagnostic-only docs boundary。
+- `docs/experiments/taskspace-evidence-levels-and-samples.md:190-200` - formal sample id docs。
+- `scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1:53-64` - suite forbids `SkipStartGate` with scoring。
+- `scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1:155-190` - suite blocks scheduling when `full_e3_allowed=false`。
+- `scripts/taskspace-benchmark/write-release-decision.ps1:292-336` - release formal identity gate。
+- `scripts/taskspace-benchmark/write-release-decision.ps1:463-471` - release pass condition。
+- `scripts/taskspace-benchmark/test-release-decision.ps1:258-263` - synthetic pass fixture。
 
 ### Main Agent Response
 
 | Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
 |---|---|---|---|---|---|---|
-| product-logic | Phase 6 may use v004 clean samples instead of P0 formal proof | blocking | accept | Old plan retained v004 clean samples; current target is P0 | Added supersession note and Phase 6 evidence tracks in `18`; added supersession note in `10` | Implement sample-set guard in scripts |
-| product-logic | `_1_1/_3_1/_3_2` diagnostic naming may mislead | blocking | accept | Diagnostic variants could be reported as E3 | Added diagnostic-only rule to `18`; registered diagnostic-only variants in experiments doc | Add release/start gate tests |
-| product-logic | Budget hard stop lacks quality compensation | blocking | accept | Cost gates alone can hide solve loss | Added `BudgetQualityImpactV1`, bounded recovery and validation-skip rules | Implement runtime event and release summary |
-| architecture | Provider lifecycle canonical producer unclear | blocking | accept | Current budget event is narrower than required lifecycle | Added `6.1.1 Canonical Provider Lifecycle Producer` and code landing table | Implement client/session lifecycle producer |
-| architecture | ActionMap snapshot can misattribute request | blocking | accept | Request phase/node inferred after request lifecycle | Defined ActionMap as context producer/consumer, not lifecycle producer | Refactor runtime bridge |
-| architecture | Active replacement not grounded at composition boundary | blocking | accept | Proof can exist without changing prompt input | Added active replacement implementation contract at `session/turn.rs` composition boundary | Implement `build_active_provider_visible_history` |
-| architecture | Gates rely on marker artifacts, not producer schemas | blocking | accept | Script layer cannot be source of truth | Added producer-owned structured gates and formal E3 identity gate | Harden scripts and fixtures |
-| architecture | Phase ordering circular around lifecycle/budget | blocking | accept | Partial budget exists, full lifecycle still missing | Clarified lifecycle producer owns request lifecycle; ActionMap supplies context/budget policy | Implement in that dependency order |
-| test-validity | Release accepts single-repeat synthetic E3 | blocking | accept | Existing fixture uses repeats=1 | Added formal E3 identity gate requiring `repeats_per_sample >= 5` and P0 sample set | Harden `write-release-decision.ps1` |
-| test-validity | Release does not validate runner/sample identity | blocking | accept | Current artifacts can self-label E3 | Added sample_set/benchmark/runner/profile/start-gate identity requirements | Add negative fixtures |
-| test-validity | non-agent gates are shape-only | blocking | accept | `selftest://` path could pass | Added local evidence path, command, exit_code, git_commit, evidence hash requirements | Implement path/hash checks |
-| test-validity | release not bound to start gate decision | blocking | accept | Release artifacts did not require start-gate outputs | Added start-gate required artifacts and identity matching | Implement required artifact check |
-| test-validity | user approval lacks sample-set binding | blocking | accept | Approval category alone is too broad | Added `approved_sample_set_id=terminal-bench_E3-P0_3_5` requirement | Add start gate parameter/test |
+| product-logic-adversary | `09`/`10` 仍保留旧 PASS/PARTIAL 口径，可能复活 partial 可收口误判。 | major | accept | 旧文档可能被单独引用；与当前 `18` canonical release taxonomy 存在治理风险。 | 本轮记录为必须修正文档治理项。 | 给 `09`、`10` 加 superseded banner 或改写旧 PASS/PARTIAL 段落。 |
+| product-logic-adversary | release decision 必须强制校验 formal P0 identity。 | major | accept | 历史误判根因就是样本、repeat、E3 口径混淆；方案要求必须落到脚本 gate。 | 保持为 Phase 5 实施项。 | 在 release/start gate 中补强 sample_set/repeats/reported evidence level 校验及 negative fixtures。 |
+| architecture-adversary | Provider request attribution 仍 snapshot-derived，可能误归因 node/phase。 | blocking | accept | 评审引用 `turn.rs` 和 `runtime.rs` 当前代码；这与 Phase 0A dispatch-time context 目标一致，是尚未完成的代码工作。 | 不关闭审查；列为实施 blocker。 | 实现 `TaskSpaceProviderRequestContextV1` dispatch-time context，替代 snapshot 归因，并补测试。 |
+| architecture-adversary | Active context replacement 没有被当前 request composition 证明。 | blocking | accept | 当前 `clone_history().for_prompt(...)` 边界仍可能 replay raw history；这正是 v0.0.5 成本根因之一。 | 不关闭审查；列为实施 blocker。 | 在 provider-visible composition 边界实现 active replacement，并以 exact payload scan 验证。 |
+| architecture-adversary | `14-implementation-gap-audit.md` stale implemented 声明危险。 | major | accept | README supersession 不足以防止读者直接打开 `14`。 | 列为文档治理修复。 | 给 `14` 加 historical/stale banner，避免作为当前执行依据。 |
+| architecture-adversary | Budget runtime state 太薄。 | blocking | accept | 当前 provider request count 不等于计划状态机和 per-node/spawn/legacy/projection counters。 | 不关闭审查；列为实施 blocker。 | 实现预算状态机、budget transition events、quality impact artifact。 |
+| test-validity-adversary | synthetic fixture 可以产生 `release_pass`。 | blocking | accept | 这会直接复现“形状完整 artifact 被误当正式结论”的风险。 | 不关闭审查；列为 release gate blocker。 | release decision 增加 artifact origin、real suite provenance、runner/script/task hashes；fixture 只能产生 fixture/test verdict。 |
+| test-validity-adversary | release identity gate 只信 `run-status.json` 自报字段。 | blocking | accept | 自报字段不足以证明真实 runner invocation 和 task list。 | 不关闭审查；列为 release gate blocker。 | profile hash 纳入 runner script hash、child runner hash、task list hash、source/scoring flags。 |
+| test-validity-adversary | non-agent gates 仍主要是 shape gate。 | blocking | accept | evidence hash 未重算，gate hash 未与当前 run 绑定。 | 不关闭审查；列为 non-agent gate blocker。 | 重算 evidence hash，要求 gate-level hash 与当前 run identity 一致。 |
+| test-validity-adversary | release decision 没有直接验证 user approval marker。 | blocking | accept | 只信任 gate-decision artifact 不足以防复制/归档误用。 | 不关闭审查；列为 release gate blocker。 | release decision 直接读取并校验 approval/code-complete/non-agent marker。 |
+| test-validity-adversary | experiments 文档局部乱码降低人工审查可靠性。 | minor | accept | 不直接破坏 gate，但影响审查和交接。 | 列为文档清理项。 | 修复 `docs/experiments/taskspace-evidence-levels-and-samples.md` 编码/乱码段落。 |
 
 ### Closure Status
 
 - Blocking findings found: yes
-- Accepted blocking findings fixed: yes, in plan documents
+- Accepted blocking findings fixed: no
 - Blocking re-review completed: no
 - Blocking re-review passed: no
 - Blocking re-review round links:
-  - Required before treating plan as closed, because all blocking findings were accepted and docs were changed.
+  - pending after fixes
 - Blocking re-review launch records:
-  - pending closure round
+  - pending after fixes
 - Rejected findings backed by evidence: n/a
 - Deferred findings documented: n/a
-- Allowed to proceed: no, closure re-review required
+- Allowed to proceed: no for formal E3/release closeout; yes for implementing the accepted fixes
 
 ## Final Conclusion
 
-Round 1 found accepted blocking issues. The plan was updated, and Round 2 closure review passed. 方案审查层面可以进入开发执行；代码层面仍必须完成 producer lifecycle、active replacement、release identity gate、non-agent tests 后，才能运行真实 E3。
-
-## Round 2: Closure Review
-
-### Review Input
-
-#### Objective
-
-检查 Round 1 中已接受的 blocking findings 是否已经在方案文档中被充分修正。
-
-#### Review Target
-
-文档修正后的 closure review。
-
-#### Target Locations
-
-- `docs/v0.0.5/18-unfinished-work-engineering-design.md`
-- `docs/v0.0.5/10-implementation-plan.md`
-- `docs/experiments/taskspace-evidence-levels-and-samples.md`
-- `vs_review/2026-06-19-v005-unfinished-plan-review.md`
-
-#### Risk Focus
-
-- `18` 是否明确 supersedes `10` 的 Phase 6 样本安排。
-- formal P0 proof 是否钉死为 `terminal-bench_E3-P0_3_5`。
-- diagnostic variants 是否不能 release_pass。
-- provider lifecycle、active replacement、release formal identity gate 和 budget quality compensation 是否闭合。
-
-#### Verification Status
-
-- 文档静态检查已确认关键条款可检索。
-- 未运行真实 E3。
-
-#### Reviewer Instructions
-
-- Fresh internal subagent session.
-- No inherited main-agent context.
-- Read target files directly.
-- Do not modify files.
-- Cite evidence paths and line numbers when possible.
-
-### Reviewer Selection
-
-| Reviewer | Reason Selected | Risk Area |
-|---|---|---|
-| documentation-skill-adversary + architecture/test-validity closure focus | Round 1 blocker 都是方案可执行性、文档优先级、架构边界和验证制度问题。 | closure review |
-
-### Reviewer Launch Records
-
-| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
-|---|---|---|---|---|---|---|---|
-| documentation-skill-adversary + architecture/test-validity closure focus | `multi_agent_v1.spawn_agent` explorer | `019ede51-3b7e-71e0-9821-6187b5c9642d` / Descartes | spawn_agent result | no | Round 2 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
-
-### Reviewer Outputs
-
-#### Descartes
-
-##### Summary
-
-Closure review scope only. The accepted Round 1 blocking findings are sufficiently closed at the plan-document level. `18-unfinished-work-engineering-design.md` now clearly supersedes old Phase 6 guidance in `10`, separates diagnostic/P0/v004 tracks, pins formal P0 proof to `terminal-bench_E3-P0_3_5`, moves provider lifecycle ownership to client/session, places active replacement at `session/turn.rs` composition, and adds formal identity plus quality-compensation gates.
-
-##### Blocking Findings
-
-- None found for closure scope.
-
-##### Non-blocking Risks
-
-- `docs/experiments/taskspace-evidence-levels-and-samples.md` still said the next same-scope correctness check is `terminal-bench_E3-v004-clean_3_5`; this could mislead readers unless it says the comparison cannot replace P0 release proof.
-- Several dense lines in `18` pack multiple must-rules into one physical line. Semantics are present, but reviewability is weak.
-
-##### Required Fixes
-
-- None required before treating Round 1 documentation blockers as closed.
-
-##### Missing Tests
-
-- Tests are specified but not implemented in this closure scope: release/start gate negative fixtures, provider lifecycle fixtures, payload proof fixtures, active replacement fixtures.
-
-##### Missing Logs / Observability
-
-- Specified, not yet implemented: `BudgetQualityImpactV1`, provider lifecycle token/latency/payload scan binding, release identity outputs and non-agent evidence constraints.
-
-##### Evidence
-
-- Supersession closed: `docs/v0.0.5/18-unfinished-work-engineering-design.md`, `docs/v0.0.5/10-implementation-plan.md`
-- Formal P0 proof pinned: `docs/v0.0.5/18-unfinished-work-engineering-design.md`, `docs/experiments/taskspace-evidence-levels-and-samples.md`
-- Diagnostic-only variants blocked from release pass: `docs/experiments/taskspace-evidence-levels-and-samples.md`, `docs/v0.0.5/18-unfinished-work-engineering-design.md`
-- Provider lifecycle producer fixed to client/session and ActionMap demoted to context/consumer: `docs/v0.0.5/18-unfinished-work-engineering-design.md`
-- Active replacement placed at `session/turn.rs` provider-visible composition boundary: `docs/v0.0.5/18-unfinished-work-engineering-design.md`
-- Release formal identity gate includes sample set, repeats, runner, start-gate decision, approval sample set, and local evidence constraints: `docs/v0.0.5/18-unfinished-work-engineering-design.md`
-
-##### Verdict
-
-pass. Round 1 accepted blocking findings are closed in the plan documents.
-
-### Main Agent Response
-
-| Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
-|---|---|---|---|---|---|---|
-| Descartes | No closure-scope blockers | n/a | accept | Closure review verdict pass | Mark report passed | Proceed to implementation only after user confirms; true E3 remains blocked until code/tests complete |
-| Descartes | v004 clean comparison wording could still mislead | minor | accept | Non-blocking but cheap to clarify | Added sentence to `docs/experiments/taskspace-evidence-levels-and-samples.md` that v004 clean comparison cannot replace P0 release proof | none |
-| Descartes | Dense lines reduce reviewability | minor | defer | Semantics are present; broad formatting pass is not needed for closure | Track as documentation polish, not implementation blocker | optional later cleanup |
-
-### Closure Status
-
-- Blocking findings found: no
-- Accepted blocking findings fixed: yes
-- Blocking re-review completed: yes
-- Blocking re-review passed: yes
-- Blocking re-review round links:
-  - Round 2
-- Blocking re-review launch records:
-  - Descartes / `019ede51-3b7e-71e0-9821-6187b5c9642d`
-- Rejected findings backed by evidence: n/a
-- Deferred findings documented: yes
-- Allowed to proceed: yes, for implementation planning/code work only; not for true E3 before code and non-agent gates complete.
-
-## Round 3: Fresh Executability Review After Design Refinement
-
-### Review Input
-
-#### Objective
-
-对当前完善后的 v0.0.5 未完成项工程方案执行 fresh 对抗性审查，确认方案是否足够可执行，是否仍会导致后续 agent 误跑/误报 E3，是否能防止“代码未完成就验证收口”，以及是否能支撑实际成本控制而不只做观测。
-
-#### Review Target
-
-v0.0.5 未完成项工程方案、实验命名与证据等级制度、旧方案 supersession 关系、formal E3 / diagnostic-only 边界、non-agent gates / code-complete / user approval / release gate 设计。
-
-#### Target Locations
-
-- `docs/v0.0.5/18-unfinished-work-engineering-design.md`
-- `docs/v0.0.5/17-unfinished-work-inventory.md`
-- `docs/v0.0.5/10-implementation-plan.md`
-- `docs/v0.0.5/README.md`
-- `docs/experiments/taskspace-evidence-levels-and-samples.md`
-- `vs_review/2026-06-19-v005-unfinished-plan-review.md`
-
-#### Change Introduction
-
-当前方案已经把 v0.0.5 从历史收口状态改回继续开发状态，并要求先完成 provider lifecycle、active context replacement、budget hard stop、state_commit displacement、spawn/node budget、formal E3 start/release gate 等工程代码和非 agent 证据，再允许真实 E3。此轮审查不验证代码实现，只攻击方案是否仍存在执行歧义、验收伪造路径或实验结论误导风险。
-
-#### Risk Focus
-
-- 文档优先级和执行入口是否足够清楚，fresh agent 是否会跟错旧计划。
-- Phase 0A-5 未完成项是否每项都有可执行代码落点、测试、artifact 和 release gate。
-- formal E3 与 diagnostic-only 的边界是否仍可能被混淆。
-- non-agent gates / code-complete / user approval / sample identity 是否还有伪造或过期复用风险。
-- provider lifecycle、active context replacement、budget hard stop、state_commit displacement、spawn/node budget 的职责边界是否可执行。
-- 成本控制是否会牺牲正确率且缺乏质量补偿。
-
-#### User-Perspective Review Focus
-
-- 后续 fresh agent 能否从文档中明确知道先做代码、再做非 agent gate、最后才可请求真实 E3。
-- 用户能否从方案和实验制度中区分 diagnostic、E3-candidate、formal E3 和 release proof。
-- 若 run 被 gate 阻止，报告是否能清楚说明缺什么、下一步只能做什么。
-
-#### Assumptions To Attack
-
-- 只要文档写了 supersession，后续执行者就不会读错旧计划。
-- marker/hash/profile/source 字段足够防止伪造或过期复用。
-- payload hash / scan / report 能证明 active replacement，而不会变成另一套 report-only 证据。
-- hard stop 能降低成本，同时不会把未验证样本错误计为 solved。
-- `_3_1/_3_2` 这类低成本变体不会被再次误称为 E3。
-
-#### Adversarial Lenses
-
-- documentation
-- comprehension
-- test validity
-- observability
-- release operations
-- maintenance
-
-#### Verification Status
-
-- 本轮是方案对抗性审查，不运行真实 E3 / agent benchmark。
-- 相关 release/start gate 代码已有部分实现和测试，但当前审查范围主要是方案是否可执行和不误导。
-- 代码实现仍未全部完成，真实 E3 仍应保持禁止状态。
-
-#### Reviewer Instructions
-
-- Fresh internal subagent session.
-- No inherited main-agent context.
-- Read target files directly.
-- Do not modify files.
-- Cite evidence paths and line numbers when possible.
-
-### Reviewer Timeout Policy
-
-| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
-|---|---:|---:|---:|---|
-| complex | 12 minutes | bounded extension if alive | 2 | accepted blocking findings require a fresh closure review |
-
-### Reviewer Selection
-
-| Reviewer | Reason Selected | Risk Area |
-|---|---|---|
-| `documentation-skill-adversary` | 本轮最高风险是方案文档和实验制度能否被 fresh agent 正确执行，避免再次把诊断结果误报为 E3 或在代码未完成前进入验证收口。 | 文档优先级、fresh-session 可执行性、实验命名、证据等级、验收路径 |
-
-### Reviewer Launch Records
-
-| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
-|---|---|---|---|---|---|---|---|
-| `documentation-skill-adversary` | `multi_agent_v1.spawn_agent` explorer | `019ede68-6fc3-73c3-9984-07c9067bdf0e` / Pauli | spawn_agent result | no | Round 3 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
-
-### Reviewer Timeout Records
-
-| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
-|---|---|---:|---|---:|---|---|---|
-| Pauli | `documentation-skill-adversary` | 1 | `019ede68-6fc3-73c3-9984-07c9067bdf0e` | ~12 minutes | completed | reviewer returned findings | completed |
-
-### Reviewer Outputs
-
-#### Pauli
-
-##### Summary
-
-当前方案比第一轮更可执行：`18-unfinished-work-engineering-design.md` 已把 v0.0.5 定义为继续开发，把 formal P0 proof 固定到 `terminal-bench_E3-P0_3_5`，并把 provider lifecycle、active replacement、non-agent gates、code-complete/user approval marker、diagnostic-only 边界写成工程合约。但还不能说后续 agent 不会误跑/误报。主要 blocker 是入口文档仍有旧入口冲突，以及质量补偿 / hard stop 的产品语义仍留为开放问题。
-
-##### Blocking Findings
-
-- README 入口仍可能把 fresh agent 带回旧计划链路。
-  - Broken assumption: 只要 `18` 写了 supersession，fresh agent 就会自然跟 `18`。
-  - Failure scenario: agent 从 README 进入，看到当前状态入口是 `17`，但修正说明仍说 2026-06-17 后工程执行以 `13`、`10`、acceptance checklist 为准；跑 E3 前读的是 `08/09/checklist`，没有强制先读 `18`。
-  - Trigger condition: fresh agent 只读 README 的修正说明 / 跑 E3 前读段落，或按 `10-implementation-plan.md` 执行历史 Phase 6。
-  - Impact: 仍可能跟错旧 plan、复用旧 Phase 6 或把旧 release gate 当当前入口，导致 premature E3 或错误 closeout。
-  - Proof needed: README 必须把 `18` 明确列为当前 canonical execution entry，并声明 `18` supersedes `10` 的 Phase 6、release taxonomy、report-only routing。
-
-- Budget hard stop 的质量语义仍未闭合，可能用省钱掩盖未完成。
-  - Broken assumption: hard stop + recovery whitelist 足以同时降成本和保持正确率。
-  - Failure scenario: runtime 为满足 2x 成本触发 thin/no-spawn/hard stop，跳过 validation 或提前 final synthesis；release 报告只看到成本改善和没有继续扩张，但实际样本未被充分验证。
-  - Trigger condition: budget threshold 被触发且任务仍需验证/修复；`final_synthesis` 走 partial failure 或 early final 路径。
-  - Impact: 可能把少做了工作报告成成本控制成功，牺牲正确率，尤其在 P0 样本上污染 formal E3 结论。
-  - Proof needed: 明确 `BudgetQualityImpactV1` 的字段、producer、release blocker 规则；定义 validation skip、early final、final abort、manual blocked、bounded escalation 后的计分语义。
-
-##### Non-blocking Risks
-
-- `18` 自身状态还是 Draft，可能让后续 agent 误判为不能实现或忽略审查状态。
-- Phase 0A-5 的落点足够具体，但仍多为待实现合约；真实 E3 禁止状态应保持。
-- diagnostic-only 边界文档已清楚，但命名仍带 E3，必须靠 gate 执行。
-
-##### User-Perspective Checks
-
-- 可用性：工程师能从 `18` 找到阶段、代码落点、测试和 gate，但从 README 进入仍有歧义。
-- 易用性：Phase 0A-5 每阶段都有 entry criteria、tasks、deliverables、tests、gate；缺少一张只按此顺序执行的短 checklist。
-- 易理解性：E3 taxonomy 已明显改善，但 README 的旧入口会削弱清晰度。
-
-##### Required Fixes
-
-- 更新 README：当前 canonical execution entry 应为 `18`，并明确 `18` supersedes `10` 的 Phase 6/release taxonomy/report-only routing。
-- 把 `18` 的 Draft 状态改成审查后可执行状态，或明确可开始 Phase 0A 实现但 formal E3 仍禁止。
-- 补全 `BudgetQualityImpactV1` contract：字段、producer、artifact path、release blocker/warning 规则、quality compensation 计分语义。
-- 明确 hard stop 产品行为：用户可见 blocked、partial final、manual approval override 各自何时允许，以及是否可纳入 solved。
-- 把 README 的跑 E3 前读列表加入 `18` 和 experiments evidence taxonomy。
-
-##### Missing Tests
-
-- README/canonical-entry lint。
-- Formal E3 start gate negative fixtures。
-- Diagnostic result cannot release-pass fixture。
-- Budget quality impact fixtures。
-- Active replacement negative fixture。
-- Provider lifecycle fixture。
-
-##### Missing Logs / Observability
-
-- `BudgetQualityImpactV1` event and per-sample summary。
-- Provider lifecycle terminal event with status、latency、token usage、payload hash/scan id、request id。
-- Start-gate decision artifact with requested/actual sample set、approval sample set、profile/source/task hash、next allowed command category。
-- Hard-stop reason chain。
-- Active replacement exact scan provenance。
-
-##### Evidence
-
-- `docs/v0.0.5/README.md:6-13`
-- `docs/v0.0.5/README.md:49-55`
-- `docs/v0.0.5/README.md:80-84`
-- `docs/v0.0.5/18-unfinished-work-engineering-design.md:13-16`
-- `docs/v0.0.5/18-unfinished-work-engineering-design.md:63-78`
-- `docs/v0.0.5/18-unfinished-work-engineering-design.md:666`
-- `docs/v0.0.5/18-unfinished-work-engineering-design.md:704`
-- `docs/v0.0.5/18-unfinished-work-engineering-design.md:1203`
-- `docs/experiments/taskspace-evidence-levels-and-samples.md:84-104`
-- `vs_review/2026-06-19-v005-unfinished-plan-review.md:336-338`
-
-### Main Agent Response
-
-| Reviewer | Finding | Broken Assumption / Failure Scenario | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
-|---|---|---|---|---|---|---|---|
-| Pauli | README 入口仍可能把 fresh agent 带回旧计划链路 | README 仍把 `13/10/checklist` 表述为执行依据，跑 E3 前读列表缺 `18` | blocking | accept | Reviewer evidence valid | Rewrote `docs/v0.0.5/README.md` in Chinese; made `18` the canonical execution entry; stated `18` supersedes old Phase 6/release taxonomy/report-only routing; added formal E3 prohibition and reading order | Closure review required |
-| Pauli | Budget hard stop 的质量语义仍未闭合 | hard stop 可能少做验证却被报告为成本成功 | blocking | accept | Reviewer evidence valid | Updated `docs/v0.0.5/18-unfinished-work-engineering-design.md`: status now implementation-approved with E3 still forbidden; added clarified `BudgetQualityImpactV1` producer/artifact/fields/release blocker rules; resolved hard-stop open question into scoring rule | Closure review required |
-| Pauli | `18` 状态还是 Draft | 后续 agent 可能误判执行授权 | non-blocking | accept | Status line was stale | Changed status to Phase 0A-5 implementation approved after adversarial review, formal E3 forbidden until gates pass | Closure review covers |
-| Pauli | Phase 0A-5 仍多为待实现合约 | 文档可执行不等于代码完成 | non-blocking | accept | This is intentionally true | Kept true E3 forbidden; README and `18` now explicitly restrict work to code/non-agent gates until code-complete | Track in implementation |
-| Pauli | diagnostic-only 命名仍带 E3 | Manual summary may mislabel diagnostic | non-blocking | accept | Needs gate enforcement | README now repeats diagnostic-only prohibition; existing release/start gate negative tests remain implementation requirement | Track in implementation |
-
-### Closure Status
-
-- Blocking findings found: yes
-- Accepted blocking findings fixed: yes, in plan documents
-- Blocking re-review completed: no
-- Blocking re-review passed: no
-- Blocking re-review round links:
-  - Round 4 required
-- Blocking re-review launch records:
-  - pending
-- Rejected findings backed by evidence: n/a
-- Deferred findings documented: n/a
-- Allowed to proceed: no, Round 4 closure review required before treating plan review as closed.
-
-## Round 4: Closure Review For Round 3 Fixes
-
-### Review Input
-
-#### Objective
-
-只验证 Round 3 的两个 accepted blocking findings 是否已在文档中闭合：
-
-1. README 入口可能把 fresh agent 带回旧计划链路。
-2. Budget hard stop / `BudgetQualityImpactV1` 质量语义未闭合，可能用省钱掩盖未完成。
-
-#### Review Target
-
-Round 3 修复后的文档闭环，不重新扩展全量方案审查。
-
-#### Target Locations
-
-- `docs/v0.0.5/README.md`
-- `docs/v0.0.5/18-unfinished-work-engineering-design.md`
-- `docs/experiments/taskspace-evidence-levels-and-samples.md`
-- `vs_review/2026-06-19-v005-unfinished-plan-review.md`
-
-#### Risk Focus
-
-- README 是否明确 `18-unfinished-work-engineering-design.md` 是当前 canonical execution entry，并说明它 supersedes `10` 的 Phase 6/release taxonomy/report-only routing。
-- README 的 E3 前置阅读和禁止误用是否能防止 premature E3 / diagnostic-only 误报。
-- `18` 的状态是否清楚允许 Phase 0A-5 实现但仍禁止 formal E3。
-- `BudgetQualityImpactV1` 是否有 producer、artifact path、字段、release blocker、hard stop 计分语义。
-- hard stop 用户可见 blocked / partial final / manual override 是否不会被算作 clean solved。
-
-#### Verification Status
-
-- 已修复 `docs/v0.0.5/README.md` 和 `docs/v0.0.5/18-unfinished-work-engineering-design.md`。
-- 未运行真实 E3。
-
-#### Reviewer Instructions
-
-- Fresh internal subagent session.
-- No inherited main-agent context.
-- Read target files directly.
-- Do not modify files.
-- Cite evidence paths and line numbers when possible.
-
-### Reviewer Timeout Policy
-
-| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
-|---|---:|---:|---:|---|
-| normal | 8 minutes | bounded extension if alive | 2 | cannot pass if review unavailable |
-
-### Reviewer Selection
-
-| Reviewer | Reason Selected | Risk Area |
-|---|---|---|
-| `documentation-skill-adversary` closure reviewer | Round 3 blockers are documentation executability and evidence-contract clarity issues. | closure validity |
-
-### Reviewer Launch Records
-
-| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
-|---|---|---|---|---|---|---|---|
-| `documentation-skill-adversary` closure reviewer | `multi_agent_v1.spawn_agent` explorer | `019ede6e-1d84-78b0-959a-12328b170cc4` / Ramanujan | spawn_agent result | no | Round 4 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
-
-### Reviewer Timeout Records
-
-| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
-|---|---|---:|---|---:|---|---|---|
-| Ramanujan | `documentation-skill-adversary` closure reviewer | 1 | `019ede6e-1d84-78b0-959a-12328b170cc4` | ~8 minutes | completed | closure reviewer returned pass | completed |
-
-### Reviewer Outputs
-
-#### Ramanujan
-
-##### Summary
-
-Read-only closure review completed for the two Round 3 accepted blocking findings. Both are closed at the documentation/plan level. The reviewer did not modify files.
-
-##### Closure Verdict
-
-pass
-
-##### Blocking Findings Remaining
-
-none
-
-##### Non-blocking Risks
-
-- The contracts are still documentation-level until implementation and gate fixtures exist. This does not block closure scope because Round 3 asked whether the docs now close the two accepted findings.
-- Diagnostic variants still contain `E3` in their names, so enforcement must come from the start/release gates when implemented.
-
-##### Evidence
-
-- README now makes `18-unfinished-work-engineering-design.md` the canonical execution entry and supersedes old paths: `docs/v0.0.5/README.md:16-25`.
-- README now prevents premature E3 / diagnostic-only misuse: `docs/v0.0.5/README.md:27-32`, `docs/v0.0.5/README.md:82-92`.
-- `18` clearly allows Phase 0A-5 implementation while forbidding formal E3: `docs/v0.0.5/18-unfinished-work-engineering-design.md:6`, `docs/v0.0.5/18-unfinished-work-engineering-design.md:13-21`.
-- Diagnostic-only taxonomy is reinforced: `docs/experiments/taskspace-evidence-levels-and-samples.md:108-126`, `docs/experiments/taskspace-evidence-levels-and-samples.md:262-264`.
-- `BudgetQualityImpactV1` now has producer, artifact paths, fields, release blockers, and hard-stop scoring semantics: `docs/v0.0.5/18-unfinished-work-engineering-design.md:318-325`, `docs/v0.0.5/18-unfinished-work-engineering-design.md:327-346`, `docs/v0.0.5/18-unfinished-work-engineering-design.md:360-376`, `docs/v0.0.5/18-unfinished-work-engineering-design.md:278-312`, `docs/v0.0.5/18-unfinished-work-engineering-design.md:1288`.
-
-### Main Agent Response
-
-| Reviewer | Finding | Broken Assumption / Failure Scenario | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
-|---|---|---|---|---|---|---|---|
-| Ramanujan | Round 3 blocking findings closed | n/a | n/a | accept | Closure verdict pass | Mark Round 3 closure passed | Proceed with implementation; true E3 remains forbidden until code and gates complete |
-| Ramanujan | Contracts still documentation-level until implementation | Implementation not complete | non-blocking | accept | This is expected current state | Keep true E3 forbidden; continue code implementation next | Track in implementation plan |
-| Ramanujan | Diagnostic names still include E3 | Manual reporting can still mislabel | non-blocking | accept | Naming convention intentionally includes evidence/subset field | Enforce through start/release gates and report fields | Track in gate implementation |
-
-### Closure Status
-
-- Blocking findings found: no
-- Accepted blocking findings fixed: yes
-- Blocking re-review completed: yes
-- Blocking re-review passed: yes
-- Blocking re-review round links:
-  - Round 4
-- Blocking re-review launch records:
-  - Ramanujan / `019ede6e-1d84-78b0-959a-12328b170cc4`
-- Rejected findings backed by evidence: n/a
-- Deferred findings documented: n/a
-- Allowed to proceed: yes, for implementation and non-agent verification only; not for true E3 before code-complete, non-agent gates, user approval, and start gate all pass.
+本轮对抗性审查没有通过收口。方案方向可继续开发，但不能把 v0.0.5 视为已完成，也不能运行或引用正式 E3 作为 release proof。
+
+必须先完成以下 blocker，再做 closure re-review：
+
+1. 文档治理：`09`、`10`、`14` 必须明确降级为 historical/superseded，避免旧 PASS/PARTIAL 和 implemented 声明复活。
+2. 架构落地：provider request identity/phase/node 归因必须从 dispatch-time request context 产生，不能依赖 ActionMap snapshot。
+3. 成本根因：active context replacement 必须在 provider-visible composition 边界生效，并用 exact payload scan 证明。
+4. 预算控制：实现 budget runtime state machine、per-node/spawn/legacy/projection counters 和 `BudgetQualityImpactV1`。
+5. 实验门禁：release decision 必须绑定真实 suite provenance、runner/script/task hashes、真实 approval/code-complete/non-agent markers，并拒绝 synthetic/internal/diagnostic-only artifact 进入 `release_pass`。
