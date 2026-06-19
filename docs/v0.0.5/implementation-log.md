@@ -4422,4 +4422,29 @@ Result:
 Follow-up:
 
 - Still do not run real E3 until the remaining accepted blocking findings are fixed and closure review passes.
-- Remaining high-risk item: provider request attribution must not fallback from ActionMap ready/current node when explicit provider request context is missing.
+- Remaining high-risk item at this point: provider request attribution must not fallback from ActionMap ready/current node when explicit provider request context is missing.
+
+## 2026-06-19 provider attribution fallback removal
+
+Scope:
+
+- Closed the accepted review finding that provider request attribution could fallback from ActionMap runtime state to a ready node.
+- No real E3 or live agent benchmark was run.
+
+Changes:
+
+- `provider_request_budget_snapshot` now only carries a node id when there is an explicit current main node.
+- If the current main node is missing, the snapshot records `provider_request_context_missing_reason=current_main_node_missing` instead of selecting an arbitrary ready node.
+- Provider lifecycle trace events generated from a missing-context snapshot now use `node_id=provider-context-missing` and carry `provider_request_context_missing_reason`, making attribution coverage fail loudly instead of producing false precision.
+
+Validation:
+
+```text
+cargo test -p codex-core provider_request_budget -- --nocapture
+cargo test -p codex-core active_context_replacement -- --nocapture
+```
+
+Result:
+
+- `provider_request_budget`: 4 passed.
+- `active_context_replacement`: 6 passed.

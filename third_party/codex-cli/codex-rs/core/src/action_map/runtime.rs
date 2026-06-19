@@ -407,7 +407,8 @@ pub(crate) struct ActionMapSubagentPlanInput {
 pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
     pub(crate) task_id: Option<TaskId>,
     pub(crate) map_id: ActionMapId,
-    pub(crate) node_id: MapNodeId,
+    pub(crate) node_id: Option<MapNodeId>,
+    pub(crate) provider_request_context_missing_reason: Option<String>,
     pub(crate) request_count: usize,
     pub(crate) max_requests: usize,
 }
@@ -1558,20 +1559,18 @@ preview:\n\
             return None;
         }
         let map_id = self.active_map_id.clone()?;
-        let node_id = self.current_main_node_id.clone().or_else(|| {
-            self.maps.get(&map_id).and_then(|map| {
-                map.nodes
-                    .iter()
-                    .filter(|(_, node)| node.status == NodeStatus::Ready)
-                    .min_by_key(|(id, _)| id.as_str())
-                    .map(|(id, _)| id.clone())
-            })
-        })?;
+        let node_id = self.current_main_node_id.clone();
+        let provider_request_context_missing_reason = if node_id.is_some() {
+            None
+        } else {
+            Some("current_main_node_missing".to_string())
+        };
         let task_id = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
         Some(ActionMapProviderRequestBudgetSnapshot {
             task_id,
             map_id,
             node_id,
+            provider_request_context_missing_reason,
             request_count: self.provider_request_count,
             max_requests: Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX,
         })
@@ -1597,7 +1596,17 @@ preview:\n\
             let node_id = input
                 .node_id
                 .clone()
-                .unwrap_or_else(|| snapshot.node_id.clone());
+                .or_else(|| snapshot.node_id.clone())
+                .unwrap_or_else(|| "provider-context-missing".to_string());
+            let provider_context_missing_reason =
+                if input.node_id.is_none() && snapshot.node_id.is_none() {
+                    snapshot
+                        .provider_request_context_missing_reason
+                        .as_deref()
+                        .unwrap_or("provider_context_missing")
+                } else {
+                    ""
+                };
             let request_phase = input
                 .request_phase
                 .clone()
@@ -1630,6 +1639,11 @@ preview:\n\
             ];
             if request_phase == "unknown" {
                 tags.push("request_phase_missing_reason:provider_context_missing".to_string());
+            }
+            if !provider_context_missing_reason.is_empty() {
+                tags.push(format!(
+                    "provider_request_context_missing_reason:{provider_context_missing_reason}"
+                ));
             }
             if let Some(parent_request_id) = input.parent_request_id.as_ref() {
                 tags.push(format!("parent_request_id:{parent_request_id}"));
@@ -9898,7 +9912,7 @@ mod tests {
         let snapshot = state
             .provider_request_budget_snapshot()
             .expect("active budget snapshot");
-        assert_eq!(snapshot.node_id, node_id);
+        assert_eq!(snapshot.node_id.as_deref(), Some(node_id.as_str()));
         assert_eq!(snapshot.request_count, 0);
 
         let events = state
@@ -10141,6 +10155,83 @@ mod tests {
                 .request_count,
             1
         );
+    }
+
+    #[test]
+    fn provider_request_budget_snapshot_does_not_fallback_to_ready_node() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main(
+                owner,
+                "budget attribution task".to_string(),
+                "verify provider attribution missing reason".to_string(),
+                "inspect".to_string(),
+                "inspect without current main node".to_string(),
+                true,
+            )
+            .expect("start task");
+        state.current_main_node_id = None;
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("active budget snapshot still exists");
+        assert!(snapshot.node_id.is_none());
+        assert_eq!(
+            snapshot.provider_request_context_missing_reason.as_deref(),
+            Some("current_main_node_missing")
+        );
+
+        let events = state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![ActionMapProviderRequestBudgetEventInput {
+                    request_id: "provider-request-missing-context".to_string(),
+                    logical_request_id: "provider-request:missing-context:logical-1".to_string(),
+                    parent_request_id: None,
+                    attempt_seq: 1,
+                    transport: "responses_http".to_string(),
+                    status: "started".to_string(),
+                    request_count_before: 0,
+                    request_count_after: 1,
+                    max_requests: 1,
+                    budget_state_before: "normal".to_string(),
+                    budget_state_after: "normal".to_string(),
+                    budget_transition_reason: "provider_request_started".to_string(),
+                    started_at_ms: 100,
+                    completed_at_ms: None,
+                    latency_ms: None,
+                    input_tokens: None,
+                    cached_input_tokens: None,
+                    output_tokens: None,
+                    reasoning_output_tokens: None,
+                    total_tokens: None,
+                    provider_payload_sha256: None,
+                    provider_payload_bytes: None,
+                    exact_payload_scan_passed: None,
+                    active_projection_present: None,
+                    legacy_taskspace_history_present: None,
+                    large_raw_output_tokens: None,
+                    protected_items_present: None,
+                    replacement_confirmed: None,
+                    task_id: None,
+                    map_id: None,
+                    node_id: None,
+                    request_phase: None,
+                }],
+            )
+            .expect("provider budget trace events");
+
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(event) =
+            events.first().expect("provider trace event")
+        else {
+            panic!("expected provider budget trace event");
+        };
+        assert_eq!(event.node_id, "provider-context-missing");
+        assert!(event.tags.iter().any(|tag| {
+            tag == "provider_request_context_missing_reason:current_main_node_missing"
+        }));
     }
 
     fn seed_test_map(state: &mut ActionMapRuntimeState, owner: ThreadId) {
