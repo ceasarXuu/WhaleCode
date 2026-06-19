@@ -103,6 +103,7 @@ $profileIdentity = New-TaskspaceE3ProfileIdentity `
     -ScoringMode ([bool]$scoreValidityEnforced)
 $profileHash = [string]$profileIdentity.profile_hash
 $suiteManifestPath = Join-Path $suiteRoot "suite-manifest.json"
+$suiteReceiptPath = Join-Path $suiteRoot "suite-receipt.jsonl"
 [pscustomobject]@{
     schema_version = 1
     artifact_origin = "real_suite"
@@ -124,6 +125,48 @@ $suiteManifestPath = Join-Path $suiteRoot "suite-manifest.json"
     scoring_mode = [bool]$scoreValidityEnforced
     generated_at = (Get-Date).ToString("o")
 } | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $suiteManifestPath -Encoding UTF8
+
+function Write-SuiteReceiptEvent {
+    param([string]$Event, [hashtable]$Fields = @{})
+    $row = [ordered]@{
+        schema_version = 1
+        event = $Event
+        suite_run_id = Split-Path -Leaf $suiteRoot
+        suite_root = $suiteRoot
+        sample_set_id = $sampleSetId
+        runner_entrypoint = "run-taskspace-e3-suite.ps1"
+        runner_script_sha256 = $runnerScriptSha256
+        child_runner_sha256 = $childRunnerSha256
+        task_list_sha256 = $taskListSha256
+        profile_hash = $profileHash
+        timestamp = (Get-Date).ToString("o")
+    }
+    foreach ($key in $Fields.Keys) { $row[$key] = $Fields[$key] }
+    ([pscustomobject]$row | ConvertTo-Json -Compress -Depth 20) | Add-Content -LiteralPath $suiteReceiptPath -Encoding UTF8
+}
+
+function Get-SuiteReceiptSha256 {
+    if (-not (Test-Path -LiteralPath $suiteReceiptPath -PathType Leaf)) { return "" }
+    (Get-FileHash -LiteralPath $suiteReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Update-SampleRunReceiptFields {
+    $receiptSha = Get-SuiteReceiptSha256
+    foreach ($statusPath in @(Get-ChildItem -LiteralPath $samplesRoot -Filter "run-status.json" -Recurse -ErrorAction SilentlyContinue)) {
+        try {
+            Update-TaskspaceBenchmarkRunStatusFields (Split-Path -Parent $statusPath.FullName) @{
+                suite_receipt_path = Join-Path (Split-Path -Parent $statusPath.FullName) "suite-receipt.jsonl"
+                suite_receipt_sha256 = $receiptSha
+            } | Out-Null
+            Copy-Item -LiteralPath $suiteReceiptPath -Destination (Join-Path (Split-Path -Parent $statusPath.FullName) "suite-receipt.jsonl") -Force
+        } catch {}
+    }
+}
+
+Write-SuiteReceiptEvent "run_initialized" @{
+    suite_manifest_path = $suiteManifestPath
+    suite_manifest_sha256 = (Get-FileHash -LiteralPath $suiteManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+}
 
 function Write-SuiteStartGateAbortHealth {
     param($Gate)
@@ -187,6 +230,18 @@ function Write-SuiteEarlyAbortArtifacts {
     $suiteCost = Write-TaskspaceCostAggregateArtifacts -RootDir $suiteRoot -Scope "suite"
     $runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath $suiteTimingPath -ScoreValid $false
     $calibrationPath = Write-TaskspaceRuntimeCalibrationReport -TimingPath $suiteTimingPath -ScoreValid $false -CommandLine ([Environment]::CommandLine) -ParallelismPath $(if (Get-Variable -Name parallelismPath -Scope Script -ErrorAction SilentlyContinue) { $script:parallelismPath } else { "" })
+    Write-SuiteReceiptEvent "suite_finalized" @{
+        status = "invalid_harness"
+        exit_code = 3
+        abort_reason = $Reason
+        phase = $Phase
+        suite_health_path = $suiteHealthPath
+        suite_timing_path = $suiteTimingPath
+        suite_cost_gate_path = $suiteCost.suite_cost_gate_path
+        runtime_bottleneck_path = $runtimeBottleneckPath
+        runtime_calibration_path = $calibrationPath
+        sample_status_count = @($statuses).Count
+    }
     [pscustomobject]@{ suite_timing_path = $suiteTimingPath; suite_cost_gate_path = [string]$suiteCost.suite_cost_gate_path; runtime_bottleneck_path = $runtimeBottleneckPath; runtime_calibration_path = $calibrationPath }
 }
 
@@ -407,6 +462,8 @@ function New-SuiteChildArgs {
         "-ChildRunnerSha256", $childRunnerSha256,
         "-TaskListSha256", $taskListSha256,
         "-SuiteManifestPath", $suiteManifestPath,
+        "-SuiteReceiptPath", $suiteReceiptPath,
+        "-SuiteReceiptSha256", (Get-SuiteReceiptSha256),
         "-ApprovalMarkerSha256", $approvalMarkerSha256,
         "-CodeCompleteMarkerSha256", $codeCompleteMarkerSha256,
         "-V005NonAgentGatesPath", $V005NonAgentGatesPath,
@@ -488,6 +545,12 @@ for ($index = 0; $index -lt $tasks.Count; ) {
     $batch = New-Object System.Collections.Generic.List[object]
     while ($index -lt $tasks.Count -and $batch.Count -lt $maxSampleWorkers) {
         $row = New-SuiteSampleRow $tasks[$index] $index
+        Write-SuiteReceiptEvent "sample_scheduled" @{
+            sample_id = [string]$row.sample_id
+            sample_index = [int]$row.index
+            sample_root = [string]$row.sample_root
+            task_dir = [string]$row.task_dir
+        }
         $batch.Add($row)
         $index++
     }
@@ -530,6 +593,14 @@ for ($index = 0; $index -lt $tasks.Count; ) {
         }
         $completed = Complete-SuiteSampleStatus $jobRow.row $childExit
         $sampleStatuses.Add($completed.status)
+        Write-SuiteReceiptEvent "sample_completed" @{
+            sample_id = [string]$jobRow.row.sample_id
+            sample_index = [int]$jobRow.row.index
+            sample_root = [string]$jobRow.row.sample_root
+            child_exit = [int]$completed.child_exit
+            run_validity = if ($completed.status.PSObject.Properties.Name -contains "run_validity") { [string]$completed.status.run_validity } else { "" }
+            completed_pairs = if ($completed.status.PSObject.Properties.Name -contains "completed_pairs") { [int]$completed.status.completed_pairs } else { 0 }
+        }
         Update-SuiteAbortFromStatus $completed.status ([int]$completed.child_exit) ([int]$jobRow.row.index)
     }
 }
@@ -542,6 +613,17 @@ $runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath $sui
 $gitCommit = ""
 try { $gitCommit = (& git -C (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path rev-parse HEAD 2>$null) } catch { $gitCommit = "" }
 $calibrationPath = Write-TaskspaceRuntimeCalibrationReport -TimingPath $suiteTimingPath -ScoreValid (-not [bool]$suiteAbort) -CommandLine ([Environment]::CommandLine) -GitCommit ([string]$gitCommit).Trim() -ParallelismPath $parallelismPath
+Write-SuiteReceiptEvent "suite_finalized" @{
+    status = $statusText
+    exit_code = $exitCode
+    suite_health_path = $suiteHealthPath
+    suite_timing_path = $suiteTimingPath
+    suite_cost_gate_path = $suiteCost.suite_cost_gate_path
+    runtime_bottleneck_path = $runtimeBottleneckPath
+    runtime_calibration_path = $calibrationPath
+    sample_status_count = @($sampleStatuses.ToArray()).Count
+}
+Update-SampleRunReceiptFields
 Write-Host "SuiteRoot: $suiteRoot"
 Write-Host "SuiteHealth: $suiteHealthPath"
 Write-Host "SuiteTiming: $suiteTimingPath"

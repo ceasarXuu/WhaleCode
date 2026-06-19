@@ -197,6 +197,43 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             }
         }) $suiteManifestPath
     $suiteManifestSha256 = Get-FixtureSha256 $suiteManifestPath
+    $suiteReceiptPath = Join-Path $dir "suite-receipt.jsonl"
+    @(
+        [pscustomobject]@{
+            schema_version = 1
+            event = "run_initialized"
+            sample_set_id = $sampleSetId
+            runner_script_sha256 = $runnerScriptSha256
+            child_runner_sha256 = $childRunnerSha256
+            task_list_sha256 = $taskListSha256
+            profile_hash = $profileHash
+            timestamp = "2026-06-19T00:00:00.0000000Z"
+        },
+        [pscustomobject]@{
+            schema_version = 1
+            event = "sample_scheduled"
+            sample_id = "processing-pipeline"
+            sample_index = 0
+            timestamp = "2026-06-19T00:00:01.0000000Z"
+        },
+        [pscustomobject]@{
+            schema_version = 1
+            event = "sample_completed"
+            sample_id = "processing-pipeline"
+            sample_index = 0
+            child_exit = 0
+            completed_pairs = 5
+            timestamp = "2026-06-19T00:00:02.0000000Z"
+        },
+        [pscustomobject]@{
+            schema_version = 1
+            event = "suite_finalized"
+            status = "completed"
+            exit_code = 0
+            timestamp = "2026-06-19T00:00:03.0000000Z"
+        }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $suiteReceiptPath -Encoding UTF8
+    $suiteReceiptSha256 = Get-FixtureSha256 $suiteReceiptPath
     Write-Json ([pscustomobject]@{
             schema_version = "TaskShapeRouterV1"
             recommended_mode = "thin"
@@ -305,6 +342,8 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             task_list_sha256 = $taskListSha256
             suite_manifest_path = $suiteManifestPath
             suite_manifest_sha256 = $suiteManifestSha256
+            suite_receipt_path = $suiteReceiptPath
+            suite_receipt_sha256 = $suiteReceiptSha256
             approval_marker_sha256 = $approvalSha256
             code_complete_marker_sha256 = $codeCompleteSha256
         }) (Join-Path $dir "run-status.json")
@@ -355,6 +394,18 @@ Write-Json $badSuiteManifestRunStatus $badSuiteManifestRunStatusPath
 Assert-True ($LASTEXITCODE -eq 1) "bad suite manifest hash fixture did not fail release decision"
 $badSuiteManifestDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $badSuiteManifestHashDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($badSuiteManifestDecision.blockers) -contains "formal_e3_provenance_gate_failed") "bad suite manifest hash fixture did not report provenance blocker"
+
+$missingReceiptDir = New-FixtureRun "missing-suite-receipt" "PASS" $true 0
+$missingReceiptRunStatusPath = Join-Path $missingReceiptDir "run-status.json"
+$missingReceiptRunStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $missingReceiptRunStatusPath | ConvertFrom-Json
+Remove-Item -LiteralPath (Join-Path $missingReceiptDir "suite-receipt.jsonl") -Force
+$missingReceiptRunStatus.suite_receipt_path = ""
+$missingReceiptRunStatus.suite_receipt_sha256 = ""
+Write-Json $missingReceiptRunStatus $missingReceiptRunStatusPath
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $missingReceiptDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "missing suite receipt fixture did not fail release decision"
+$missingReceiptDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingReceiptDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($missingReceiptDecision.blockers) -contains "suite_receipt_gate_failed") "missing suite receipt fixture did not report receipt blocker"
 
 $badEvidenceHashDir = New-FixtureRun "bad-evidence-hash" "PASS" $true 0
 $badEvidencePath = Join-Path $badEvidenceHashDir "non-agent-evidence\provider_request_hook.txt"

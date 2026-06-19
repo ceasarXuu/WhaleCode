@@ -27,6 +27,8 @@ param(
     [string]$ChildRunnerSha256 = "",
     [string]$TaskListSha256 = "",
     [string]$SuiteManifestPath = "",
+    [string]$SuiteReceiptPath = "",
+    [string]$SuiteReceiptSha256 = "",
     [string]$ApprovalMarkerSha256 = "",
     [string]$CodeCompleteMarkerSha256 = "",
     [string]$V005NonAgentGatesPath = "",
@@ -98,6 +100,11 @@ if (-not [string]::IsNullOrWhiteSpace($SuiteManifestPath) -and (Test-Path -Liter
     $suiteManifestCopyPath = Join-Path $runDir "suite-manifest.json"
     Copy-Item -LiteralPath $SuiteManifestPath -Destination $suiteManifestCopyPath -Force
 }
+$suiteReceiptCopyPath = ""
+if (-not [string]::IsNullOrWhiteSpace($SuiteReceiptPath) -and (Test-Path -LiteralPath $SuiteReceiptPath -PathType Leaf)) {
+    $suiteReceiptCopyPath = Join-Path $runDir "suite-receipt.jsonl"
+    Copy-Item -LiteralPath $SuiteReceiptPath -Destination $suiteReceiptCopyPath -Force
+}
 Update-TaskspaceBenchmarkRunStatusFields $runDir @{
     sample_set_id = $SampleSetId
     sample_names = @($SampleNames)
@@ -113,6 +120,8 @@ Update-TaskspaceBenchmarkRunStatusFields $runDir @{
     task_list_sha256 = $TaskListSha256
     suite_manifest_path = $suiteManifestCopyPath
     suite_manifest_sha256 = if ($suiteManifestCopyPath) { (Get-FileHash -Algorithm SHA256 -LiteralPath $suiteManifestCopyPath).Hash.ToLowerInvariant() } else { "" }
+    suite_receipt_path = $suiteReceiptCopyPath
+    suite_receipt_sha256 = if ($SuiteReceiptSha256) { $SuiteReceiptSha256 } elseif ($suiteReceiptCopyPath) { (Get-FileHash -Algorithm SHA256 -LiteralPath $suiteReceiptCopyPath).Hash.ToLowerInvariant() } else { "" }
     approval_marker_sha256 = $ApprovalMarkerSha256
     code_complete_marker_sha256 = $CodeCompleteMarkerSha256
 } | Out-Null
