@@ -4,6 +4,9 @@
 - 范围：v0.0.5 版本阶段性收口
 - 主题：Protocol Compaction + Context Replay Control + Map Self-Management Foundation
 - 结论级别：阶段性成果成立，不能声明 2x 成本目标完全达成；内部 5x5 矩阵不能等同于正式 E3
+- 当前状态：已被 2026-06-19 `terminal-bench_E3-P0_3_2` 诊断变体 supersede；v0.0.5 不能按本文关闭，当前权威状态见 `17-unfinished-work-inventory.md`
+
+> 2026-06-19 修正：本文保留为历史阶段性记录。后续 Terminal-Bench P0 诊断显示 TaskSpace 成功数、耗时和 token 成本均未支持 v0.0.5 收口，因此本文中的“可以收口”判断不再有效。
 
 ## 1. 结论摘要
 

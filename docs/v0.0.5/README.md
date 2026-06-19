@@ -4,6 +4,18 @@
 日期：2026-06-16  
 主题：Protocol Compaction & Map Self-Management
 
+## 当前状态
+
+v0.0.5 尚未收口，当前状态为继续开发。
+
+2026-06-19 的 `terminal-bench_E3-P0_3_2` 诊断变体显示，TaskSpace 在 P0 comparable 样本上的成本和正确率仍未达到 v0.0.5 目标：TaskSpace 成功数 `3/5`，Standard 成功数 `4/5`；TaskSpace agent wall time 为 `3.66x`，token 为 `11.39x`。因此，早先的收口总结只能作为历史阶段性记录，不能作为当前版本关闭依据。
+
+当前状态入口：
+
+```text
+17-unfinished-work-inventory.md
+```
+
 ## 设计目标
 
 v0.0.5 围绕两个大目标展开：
@@ -29,6 +41,10 @@ v0.0.5 围绕两个大目标展开：
 | `11-issue-backlog.md` | 可直接拆 issue 的 backlog |
 | `12-risks-and-open-questions.md` | 风险、取舍和后续讨论项 |
 | `13-design-corrections-and-engineering-contract.md` | 设计修正合同；与早期概念文档冲突时以此为准 |
+| `14-implementation-gap-audit.md` | 静态实现缺口审查，已被 2026-06-19 诊断结果 supersede |
+| `15-closeout-summary.md` | 历史阶段性收口总结，已被 2026-06-19 P0 诊断结果 supersede |
+| `16-terminal-bench_E3-P0_3_2-variant-run.md` | `terminal-bench_E3-P0_3_2` 低成本诊断变体运行记录 |
+| `17-unfinished-work-inventory.md` | 当前权威未完成工作盘点与继续开发顺序 |
 | `TaskSpace-v0.0.5-Design-All-in-One.md` | 合并版设计文档 |
 | `schemas/*.json` | 核心结构示例 schema |
 | `examples/*.md` | 关键流程示例 |
