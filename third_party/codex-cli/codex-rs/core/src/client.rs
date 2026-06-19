@@ -29,6 +29,7 @@ use std::sync::Mutex as StdMutex;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use codex_api::ApiError;
@@ -145,6 +146,138 @@ const MEMORIES_SUMMARIZE_ENDPOINT: &str = "/memories/trace_summarize";
 #[cfg(test)]
 pub(crate) const WEBSOCKET_CONNECT_TIMEOUT: Duration =
     Duration::from_millis(DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProviderRequestBudgetEvent {
+    pub(crate) request_id: String,
+    pub(crate) transport: String,
+    pub(crate) status: String,
+    pub(crate) request_count_before: usize,
+    pub(crate) request_count_after: usize,
+    pub(crate) max_requests: usize,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ProviderRequestBudgetContext {
+    state: Arc<ProviderRequestBudgetState>,
+}
+
+#[derive(Debug)]
+struct ProviderRequestBudgetState {
+    enabled: bool,
+    count: AtomicUsize,
+    max_requests: usize,
+    events: StdMutex<Vec<ProviderRequestBudgetEvent>>,
+}
+
+impl ProviderRequestBudgetContext {
+    pub(crate) fn disabled() -> Self {
+        Self {
+            state: Arc::new(ProviderRequestBudgetState {
+                enabled: false,
+                count: AtomicUsize::new(0),
+                max_requests: usize::MAX,
+                events: StdMutex::new(Vec::new()),
+            }),
+        }
+    }
+
+    pub(crate) fn enabled(starting_count: usize, max_requests: usize) -> Self {
+        Self {
+            state: Arc::new(ProviderRequestBudgetState {
+                enabled: true,
+                count: AtomicUsize::new(starting_count),
+                max_requests,
+                events: StdMutex::new(Vec::new()),
+            }),
+        }
+    }
+
+    fn before_dispatch(&self, transport: &str) -> Result<ProviderRequestBudgetDispatch> {
+        if !self.state.enabled {
+            return Ok(ProviderRequestBudgetDispatch::disabled());
+        }
+        let before = self.state.count.load(Ordering::SeqCst);
+        if before >= self.state.max_requests {
+            let request_id = format!("provider-request-{}", before + 1);
+            self.push_event(ProviderRequestBudgetEvent {
+                request_id,
+                transport: transport.to_string(),
+                status: "blocked".to_string(),
+                request_count_before: before,
+                request_count_after: before,
+                max_requests: self.state.max_requests,
+            });
+            return Err(CodexErr::InvalidRequest(format!(
+                "TaskSpace blocked this provider request because the active provider request budget is exhausted ({before}/{}). Finish with a bounded final/abort response or record a compact state checkpoint before requesting another model turn.",
+                self.state.max_requests
+            )));
+        }
+        let after = self.state.count.fetch_add(1, Ordering::SeqCst) + 1;
+        let request_id = format!("provider-request-{after}");
+        self.push_event(ProviderRequestBudgetEvent {
+            request_id: request_id.clone(),
+            transport: transport.to_string(),
+            status: "started".to_string(),
+            request_count_before: before,
+            request_count_after: after,
+            max_requests: self.state.max_requests,
+        });
+        Ok(ProviderRequestBudgetDispatch {
+            context: Some(self.clone()),
+            request_id,
+            transport: transport.to_string(),
+        })
+    }
+
+    pub(crate) fn drain_events(&self) -> Vec<ProviderRequestBudgetEvent> {
+        let mut events = self
+            .state
+            .events
+            .lock()
+            .expect("provider request budget event mutex poisoned");
+        std::mem::take(&mut *events)
+    }
+
+    fn push_event(&self, event: ProviderRequestBudgetEvent) {
+        self.state
+            .events
+            .lock()
+            .expect("provider request budget event mutex poisoned")
+            .push(event);
+    }
+}
+
+#[derive(Debug)]
+struct ProviderRequestBudgetDispatch {
+    context: Option<ProviderRequestBudgetContext>,
+    request_id: String,
+    transport: String,
+}
+
+impl ProviderRequestBudgetDispatch {
+    fn disabled() -> Self {
+        Self {
+            context: None,
+            request_id: String::new(),
+            transport: String::new(),
+        }
+    }
+
+    fn record_status(&self, status: &str) {
+        if let Some(context) = &self.context {
+            let after = context.state.count.load(Ordering::SeqCst);
+            context.push_event(ProviderRequestBudgetEvent {
+                request_id: self.request_id.clone(),
+                transport: self.transport.clone(),
+                status: status.to_string(),
+                request_count_before: after.saturating_sub(1),
+                request_count_after: after,
+                max_requests: context.state.max_requests,
+            });
+        }
+    }
+}
 
 /// Session-scoped state shared by all [`ModelClient`] clones.
 ///
@@ -1178,6 +1311,7 @@ impl ModelClientSession {
         service_tier: Option<ServiceTier>,
         turn_metadata_header: Option<&str>,
         inference_trace: &InferenceTraceContext,
+        provider_request_budget: &ProviderRequestBudgetContext,
     ) -> Result<ResponseStream> {
         if let Some(path) = &*CODEX_RS_SSE_FIXTURE {
             warn!(path, "Streaming from fixture");
@@ -1232,10 +1366,12 @@ impl ModelClientSession {
                 client_setup.api_auth,
             )
             .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
+            let budget_dispatch = provider_request_budget.before_dispatch("responses_http")?;
             let stream_result = client.stream_request(request, options).await;
 
             match stream_result {
                 Ok(stream) => {
+                    budget_dispatch.record_status("completed");
                     let (stream, _) = map_response_stream(
                         stream,
                         session_telemetry.clone(),
@@ -1246,6 +1382,7 @@ impl ModelClientSession {
                 Err(ApiError::Transport(
                     unauthorized_transport @ TransportError::Http { status, .. },
                 )) if status == StatusCode::UNAUTHORIZED => {
+                    budget_dispatch.record_status("retry_unauthorized");
                     inference_trace_attempt.record_failed(&unauthorized_transport);
                     pending_retry = PendingUnauthorizedRetry::from_recovery(
                         handle_unauthorized(
@@ -1259,6 +1396,7 @@ impl ModelClientSession {
                 }
                 Err(err) => {
                     let err = map_api_error(err);
+                    budget_dispatch.record_status("failed");
                     inference_trace_attempt.record_failed(&err);
                     return Err(err);
                 }
@@ -1293,6 +1431,7 @@ impl ModelClientSession {
         warmup: bool,
         request_trace: Option<W3cTraceContext>,
         inference_trace: &InferenceTraceContext,
+        provider_request_budget: &ProviderRequestBudgetContext,
     ) -> Result<WebsocketStreamOutcome> {
         let auth_manager = self.client.state.provider.auth_manager();
 
@@ -1381,14 +1520,21 @@ impl ModelClientSession {
                         "websocket connection is unavailable".to_string(),
                     ))
                 })?;
+            let budget_dispatch = if warmup {
+                ProviderRequestBudgetDispatch::disabled()
+            } else {
+                provider_request_budget.before_dispatch("responses_websocket")?
+            };
             let stream_result = websocket_connection
                 .stream_request(ws_request, self.websocket_session.connection_reused())
                 .await
                 .map_err(|err| {
                     let err = map_api_error(err);
+                    budget_dispatch.record_status("failed");
                     inference_trace_attempt.record_failed(&err);
                     err
                 })?;
+            budget_dispatch.record_status("completed");
             let (stream, last_request_rx) = map_response_stream(
                 stream_result,
                 session_telemetry.clone(),
@@ -1453,6 +1599,7 @@ impl ModelClientSession {
         }
 
         let disabled_trace = InferenceTraceContext::disabled();
+        let disabled_budget = ProviderRequestBudgetContext::disabled();
         match self
             .stream_responses_websocket(
                 prompt,
@@ -1465,6 +1612,7 @@ impl ModelClientSession {
                 /*warmup*/ true,
                 current_span_w3c_trace_context(),
                 &disabled_trace,
+                &disabled_budget,
             )
             .await
         {
@@ -1507,6 +1655,34 @@ impl ModelClientSession {
         turn_metadata_header: Option<&str>,
         inference_trace: &InferenceTraceContext,
     ) -> Result<ResponseStream> {
+        let provider_request_budget = ProviderRequestBudgetContext::disabled();
+        self.stream_with_provider_request_budget(
+            prompt,
+            model_info,
+            session_telemetry,
+            effort,
+            summary,
+            service_tier,
+            turn_metadata_header,
+            inference_trace,
+            &provider_request_budget,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn stream_with_provider_request_budget(
+        &mut self,
+        prompt: &Prompt,
+        model_info: &ModelInfo,
+        session_telemetry: &SessionTelemetry,
+        effort: Option<ReasoningEffortConfig>,
+        summary: ReasoningSummaryConfig,
+        service_tier: Option<ServiceTier>,
+        turn_metadata_header: Option<&str>,
+        inference_trace: &InferenceTraceContext,
+        provider_request_budget: &ProviderRequestBudgetContext,
+    ) -> Result<ResponseStream> {
         let wire_api = self.client.state.provider.info().wire_api;
         match wire_api {
             WireApi::Responses => {
@@ -1524,6 +1700,7 @@ impl ModelClientSession {
                             /*warmup*/ false,
                             request_trace,
                             inference_trace,
+                            provider_request_budget,
                         )
                         .await?
                     {
@@ -1543,6 +1720,7 @@ impl ModelClientSession {
                     service_tier,
                     turn_metadata_header,
                     inference_trace,
+                    provider_request_budget,
                 )
                 .await
             }
@@ -1556,6 +1734,7 @@ impl ModelClientSession {
                     service_tier,
                     turn_metadata_header,
                     inference_trace,
+                    provider_request_budget,
                 )
                 .await
             }

@@ -7,6 +7,7 @@ use crate::SkillInjections;
 use crate::SkillLoadOutcome;
 use crate::build_skill_injections;
 use crate::client::ModelClientSession;
+use crate::client::ProviderRequestBudgetContext;
 use crate::client_common::Prompt;
 use crate::client_common::ResponseEvent;
 use crate::collect_env_var_dependencies;
@@ -1898,8 +1899,15 @@ async fn try_run_sampling_request(
         turn_context.model_info.slug.as_str(),
         turn_context.provider.info().name.as_str(),
     );
-    let mut stream = client_session
-        .stream(
+    let provider_budget_snapshot = sess.action_map_provider_request_budget_snapshot().await;
+    let provider_request_budget = provider_budget_snapshot
+        .as_ref()
+        .map(|snapshot| {
+            ProviderRequestBudgetContext::enabled(snapshot.request_count, snapshot.max_requests)
+        })
+        .unwrap_or_else(ProviderRequestBudgetContext::disabled);
+    let stream_result = client_session
+        .stream_with_provider_request_budget(
             prompt,
             &turn_context.model_info,
             &turn_context.session_telemetry,
@@ -1908,10 +1916,17 @@ async fn try_run_sampling_request(
             turn_context.config.service_tier,
             turn_metadata_header,
             &inference_trace,
+            &provider_request_budget,
         )
         .instrument(trace_span!("stream_request"))
         .or_cancel(&cancellation_token)
-        .await??;
+        .await;
+    if let Some(snapshot) = provider_budget_snapshot {
+        let events = provider_request_budget.drain_events();
+        sess.record_action_map_provider_request_budget_events(&turn_context, snapshot, events)
+            .await;
+    }
+    let mut stream = stream_result??;
     let mut in_flight: FuturesOrdered<BoxFuture<'static, CodexResult<ResponseInputItem>>> =
         FuturesOrdered::new();
     let mut needs_follow_up = false;

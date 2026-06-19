@@ -14,6 +14,8 @@ use crate::action_map::ActionClass;
 use crate::action_map::ActionMapAssignment;
 use crate::action_map::ActionMapFinishNodeOutcome;
 use crate::action_map::ActionMapNextNodeDraft;
+use crate::action_map::ActionMapProviderRequestBudgetEventInput;
+use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::NodeKind;
 use crate::action_map::ToolActionDescriptor;
@@ -24,6 +26,7 @@ use crate::agent::MailboxReceiver;
 use crate::agent::agent_status_from_event;
 use crate::agent::status::is_final;
 use crate::build_available_skills;
+use crate::client::ProviderRequestBudgetEvent;
 use crate::commit_attribution::commit_message_trailer_instruction;
 use crate::compact;
 use crate::config::ManagedFeatures;
@@ -1046,6 +1049,45 @@ impl Session {
         };
         if let Some(events) = events {
             self.emit_action_map_events_for_turn(turn_context, events)
+                .await;
+        }
+    }
+
+    pub(crate) async fn action_map_provider_request_budget_snapshot(
+        &self,
+    ) -> Option<ActionMapProviderRequestBudgetSnapshot> {
+        let state = self.state.lock().await;
+        state.action_map_runtime.provider_request_budget_snapshot()
+    }
+
+    pub(crate) async fn record_action_map_provider_request_budget_events(
+        &self,
+        turn_context: &TurnContext,
+        snapshot: ActionMapProviderRequestBudgetSnapshot,
+        events: Vec<ProviderRequestBudgetEvent>,
+    ) {
+        if events.is_empty() {
+            return;
+        }
+        let inputs = events
+            .into_iter()
+            .map(|event| ActionMapProviderRequestBudgetEventInput {
+                request_id: event.request_id,
+                transport: event.transport,
+                status: event.status,
+                request_count_before: event.request_count_before,
+                request_count_after: event.request_count_after,
+                max_requests: event.max_requests,
+            })
+            .collect::<Vec<_>>();
+        let runtime_events = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .record_provider_request_budget_events(&snapshot, inputs)
+        };
+        if let Some(runtime_events) = runtime_events {
+            self.emit_action_map_events_for_turn(turn_context, runtime_events)
                 .await;
         }
     }

@@ -1,6 +1,7 @@
 use super::AuthRequestTelemetryContext;
 use super::ModelClient;
 use super::PendingUnauthorizedRetry;
+use super::ProviderRequestBudgetContext;
 use super::UnauthorizedRecoveryExecution;
 use super::X_CODEX_INSTALLATION_ID_HEADER;
 use super::X_CODEX_PARENT_THREAD_ID_HEADER;
@@ -77,6 +78,46 @@ fn test_session_telemetry() -> SessionTelemetry {
         "test-terminal".to_string(),
         SessionSource::Cli,
     )
+}
+
+#[test]
+fn provider_request_budget_blocks_before_dispatch_when_exhausted() {
+    let budget = ProviderRequestBudgetContext::enabled(1, 1);
+
+    let err = budget
+        .before_dispatch("responses_http")
+        .expect_err("exhausted budget should block before dispatch");
+
+    assert!(
+        err.to_string()
+            .contains("active provider request budget is exhausted")
+    );
+    let events = budget.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].request_id, "provider-request-2");
+    assert_eq!(events[0].transport, "responses_http");
+    assert_eq!(events[0].status, "blocked");
+    assert_eq!(events[0].request_count_before, 1);
+    assert_eq!(events[0].request_count_after, 1);
+    assert_eq!(events[0].max_requests, 1);
+}
+
+#[test]
+fn provider_request_budget_records_started_and_terminal_status() {
+    let budget = ProviderRequestBudgetContext::enabled(0, 2);
+
+    let dispatch = budget
+        .before_dispatch("responses_websocket")
+        .expect("first request should be within budget");
+    dispatch.record_status("completed");
+
+    let events = budget.drain_events();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].status, "started");
+    assert_eq!(events[1].status, "completed");
+    assert_eq!(events[0].request_id, events[1].request_id);
+    assert_eq!(events[0].request_count_after, 1);
+    assert_eq!(events[1].request_count_after, 1);
 }
 
 #[test]

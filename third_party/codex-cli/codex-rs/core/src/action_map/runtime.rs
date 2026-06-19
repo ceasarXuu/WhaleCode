@@ -404,6 +404,25 @@ pub(crate) struct ActionMapSubagentPlanInput {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
+    pub(crate) task_id: Option<TaskId>,
+    pub(crate) map_id: ActionMapId,
+    pub(crate) node_id: MapNodeId,
+    pub(crate) request_count: usize,
+    pub(crate) max_requests: usize,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ActionMapProviderRequestBudgetEventInput {
+    pub(crate) request_id: String,
+    pub(crate) transport: String,
+    pub(crate) status: String,
+    pub(crate) request_count_before: usize,
+    pub(crate) request_count_after: usize,
+    pub(crate) max_requests: usize,
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct ActionMapRuntimeState {
     mode: MapRuntimeMode,
     pending_transition_notice: Option<String>,
@@ -421,6 +440,7 @@ pub(crate) struct ActionMapRuntimeState {
     tasks: HashMap<TaskId, TaskState>,
     maps: HashMap<ActionMapId, ActionMapInstance>,
     taskspace_trace_events: Vec<TaskSpaceTraceEvent>,
+    provider_request_count: usize,
     sentinel_warnings: Vec<TaskSpaceSentinelWarning>,
     next_task_seq: u64,
     next_map_seq: u64,
@@ -538,6 +558,7 @@ impl Default for ActionMapRuntimeState {
             tasks: HashMap::new(),
             maps: HashMap::new(),
             taskspace_trace_events: Vec::new(),
+            provider_request_count: 0,
             sentinel_warnings: Vec::new(),
             next_task_seq: 1,
             next_map_seq: 1,
@@ -552,6 +573,8 @@ impl Default for ActionMapRuntimeState {
 }
 
 impl ActionMapRuntimeState {
+    pub(crate) const DEFAULT_PROVIDER_REQUEST_BUDGET_MAX: usize = 20;
+
     #[cfg(test)]
     pub(crate) fn mode(&self) -> MapRuntimeMode {
         self.mode
@@ -1455,6 +1478,94 @@ preview:\n\
                 created_at_ms: event.created_at_ms,
             },
         )])
+    }
+
+    pub(crate) fn provider_request_budget_snapshot(
+        &self,
+    ) -> Option<ActionMapProviderRequestBudgetSnapshot> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return None;
+        }
+        let map_id = self.active_map_id.clone()?;
+        let node_id = self.current_main_node_id.clone().or_else(|| {
+            self.maps.get(&map_id).and_then(|map| {
+                map.nodes
+                    .iter()
+                    .filter(|(_, node)| node.status == NodeStatus::Ready)
+                    .min_by_key(|(id, _)| id.as_str())
+                    .map(|(id, _)| id.clone())
+            })
+        })?;
+        let task_id = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
+        Some(ActionMapProviderRequestBudgetSnapshot {
+            task_id,
+            map_id,
+            node_id,
+            request_count: self.provider_request_count,
+            max_requests: Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX,
+        })
+    }
+
+    pub(crate) fn record_provider_request_budget_events(
+        &mut self,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        inputs: Vec<ActionMapProviderRequestBudgetEventInput>,
+    ) -> Option<Vec<MapRuntimeEvent>> {
+        if self.mode != MapRuntimeMode::Experiment || inputs.is_empty() {
+            return None;
+        }
+        let mut events = Vec::new();
+        for input in inputs {
+            self.provider_request_count =
+                self.provider_request_count.max(input.request_count_after);
+            let id = self.next_trace_event_id();
+            let created_at_ms = now_ms();
+            let tool_success = Some(!matches!(input.status.as_str(), "blocked" | "failed"));
+            let mut tags = vec![
+                "schema:taskspace-provider-request-budget-event-v1".to_string(),
+                format!("transport:{}", input.transport),
+                format!("status:{}", input.status),
+                format!("request_count_before:{}", input.request_count_before),
+                format!("request_count_after:{}", input.request_count_after),
+                format!("max_requests:{}", input.max_requests),
+                "request_phase:model_sampling".to_string(),
+            ];
+            if input.status == "blocked" {
+                tags.push("budget_response_action_taken:true".to_string());
+            }
+            let event = TaskSpaceTraceEvent {
+                id: id.clone(),
+                kind: "provider_request_budget".to_string(),
+                task_id: snapshot.task_id.clone(),
+                map_id: snapshot.map_id.clone(),
+                node_id: snapshot.node_id.clone(),
+                result_id: None,
+                call_id: Some(input.request_id),
+                action_class: None,
+                tool_success,
+                tags,
+                artifact_refs: Vec::new(),
+                created_at_ms,
+            };
+            self.taskspace_trace_events.push(event.clone());
+            events.push(MapRuntimeEvent::TaskspaceTraceEventRecorded(
+                MapRuntimeTraceEventRecordedEvent {
+                    trace_event_id: id,
+                    kind: event.kind.clone(),
+                    task_id: event.task_id.clone(),
+                    map_id: event.map_id.clone(),
+                    node_id: event.node_id.clone(),
+                    result_id: event.result_id.clone(),
+                    call_id: event.call_id.clone(),
+                    action_class: None,
+                    tool_success: event.tool_success,
+                    tags: event.tags.clone(),
+                    artifact_refs: event.artifact_refs.clone(),
+                    created_at_ms: event.created_at_ms,
+                },
+            ));
+        }
+        Some(events)
     }
 
     pub(crate) fn prepare_child_tool_call(
@@ -9375,6 +9486,82 @@ mod tests {
                 })
                 .unwrap_or(false)
         }
+    }
+
+    #[test]
+    fn provider_request_budget_events_record_replayable_trace() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_task_id, _map_id, node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "budget task".to_string(),
+                "verify provider budget event recording".to_string(),
+                "inspect".to_string(),
+                "inspect active provider budget".to_string(),
+                true,
+            )
+            .expect("start task");
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("active budget snapshot");
+        assert_eq!(snapshot.node_id, node_id);
+        assert_eq!(snapshot.request_count, 0);
+
+        let events = state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![
+                    ActionMapProviderRequestBudgetEventInput {
+                        request_id: "provider-request-1".to_string(),
+                        transport: "responses_http".to_string(),
+                        status: "started".to_string(),
+                        request_count_before: 0,
+                        request_count_after: 1,
+                        max_requests: 1,
+                    },
+                    ActionMapProviderRequestBudgetEventInput {
+                        request_id: "provider-request-2".to_string(),
+                        transport: "responses_http".to_string(),
+                        status: "blocked".to_string(),
+                        request_count_before: 1,
+                        request_count_after: 1,
+                        max_requests: 1,
+                    },
+                ],
+            )
+            .expect("provider budget trace events");
+
+        assert_eq!(events.len(), 2);
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(blocked) =
+            events.last().expect("last trace event")
+        else {
+            panic!("expected provider budget trace event");
+        };
+        assert_eq!(blocked.kind, "provider_request_budget");
+        assert_eq!(blocked.node_id, node_id);
+        assert_eq!(blocked.call_id.as_deref(), Some("provider-request-2"));
+        assert_eq!(blocked.tool_success, Some(false));
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "schema:taskspace-provider-request-budget-event-v1")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "budget_response_action_taken:true")
+        );
+        assert_eq!(
+            state
+                .provider_request_budget_snapshot()
+                .expect("snapshot after events")
+                .request_count,
+            1
+        );
     }
 
     fn seed_test_map(state: &mut ActionMapRuntimeState, owner: ThreadId) {
