@@ -235,9 +235,10 @@ function New-TaskspaceActiveReplacementArtifacts {
 }
 
 function New-TaskspaceProviderRequestArtifacts {
-    param([object[]]$BudgetEvents)
+    param([object[]]$BudgetEvents, $RequestSummary = $null)
     $events = New-Object System.Collections.Generic.List[object]
     $phaseKnown = 0
+    $terminalStatuses = @("response_completed", "response_failed", "cancelled", "blocked")
     foreach ($event in @($BudgetEvents)) {
         if ([string]::IsNullOrWhiteSpace([string]$event.request_id)) { continue }
         $phase = [string]$event.request_phase
@@ -245,6 +246,9 @@ function New-TaskspaceProviderRequestArtifacts {
         $events.Add([pscustomobject]@{
             schema_version = "taskspace-provider-request-budget-event-v1"
             request_id = [string]$event.request_id
+            logical_request_id = [string]$event.logical_request_id
+            parent_request_id = [string]$event.parent_request_id
+            attempt_seq = Convert-TaskspaceTraceInt $event.attempt_seq
             request_phase = if ([string]::IsNullOrWhiteSpace($phase)) { "unknown" } else { $phase }
             task_id = [string]$event.task_id
             map_id = [string]$event.map_id
@@ -256,16 +260,26 @@ function New-TaskspaceProviderRequestArtifacts {
         })
     }
     $count = [int]$events.Count
+    $distinctRequestCount = @($events.ToArray() | Select-Object -ExpandProperty request_id -Unique).Count
+    $terminalRequestCount = @($events.ToArray() | Where-Object { [string]$_.status -in $terminalStatuses } | Select-Object -ExpandProperty request_id -Unique).Count
+    $expectedRequestCount = Convert-TaskspaceTraceInt (Get-TaskspaceCostProperty $RequestSummary @("model_request_count"))
+    if ($expectedRequestCount -lt $distinctRequestCount) { $expectedRequestCount = $distinctRequestCount }
     $coverage = if ($count -gt 0) { [int][Math]::Round(([double]$phaseKnown / [double]$count) * 100.0) } else { 0 }
     $unknownRatio = if ($count -gt 0) { [int][Math]::Round((([double]$count - [double]$phaseKnown) / [double]$count) * 100.0) } else { 100 }
+    $hookCoverage = if ($expectedRequestCount -gt 0) { [int][Math]::Min(100, [Math]::Round(([double]$distinctRequestCount / [double]$expectedRequestCount) * 100.0)) } else { 0 }
+    $terminalCoverage = if ($expectedRequestCount -gt 0) { [int][Math]::Min(100, [Math]::Round(([double]$terminalRequestCount / [double]$expectedRequestCount) * 100.0)) } else { 0 }
     [pscustomobject]@{
         provider_request_events = @($events.ToArray())
         request_phase_summary = [pscustomobject]@{
             schema_version = "taskspace-request-phase-summary-v1"
-            provider_request_hook_coverage = if ($count -gt 0) { 100 } else { 0 }
+            provider_request_hook_coverage = $hookCoverage
+            provider_request_terminal_coverage = $terminalCoverage
             request_phase_attribution_coverage = $coverage
             unknown_request_phase_ratio = $unknownRatio
             provider_request_event_count = $count
+            provider_request_distinct_count = [int]$distinctRequestCount
+            provider_request_terminal_count = [int]$terminalRequestCount
+            expected_model_request_count = [int]$expectedRequestCount
         }
     }
 }
@@ -904,7 +918,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $projection = New-TaskspaceContextProjectionSummary $JsonlPath $ObservabilityJsonPath $rolloutJsonlPath
     $budget = New-TaskspaceBudgetArtifacts $ObservabilityJsonPath
     $activeReplacement = New-TaskspaceActiveReplacementArtifacts $budget.budget_events
-    $providerRequest = New-TaskspaceProviderRequestArtifacts $budget.budget_events
+    $providerRequest = New-TaskspaceProviderRequestArtifacts $budget.budget_events $request
     $stateCommitDisplacement = New-TaskspaceStateCommitDisplacementSummary $control
     $spawnNodeBudget = New-TaskspaceSpawnNodeBudgetSummary $ObservabilityJsonPath
     $tokenPath = Join-Path $ArtifactDir "token-summary.json"

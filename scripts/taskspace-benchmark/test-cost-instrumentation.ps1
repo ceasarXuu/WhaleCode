@@ -34,7 +34,7 @@ $obs = [pscustomobject]@{
             tags = @(
                 "schema:taskspace-provider-request-budget-event-v1",
                 "transport:responses_http",
-                "status:started",
+                "status:response_completed",
                 "request_count_before:0",
                 "request_count_after:1",
                 "max_requests:1",
@@ -60,7 +60,7 @@ $obs = [pscustomobject]@{
                 "schema:taskspace-budget-quality-impact-v1",
                 "provider_request_budget_trace_event_id:trace-budget-1",
                 "budget_action:observe",
-                "provider_request_status:started",
+                "provider_request_status:response_completed",
                 "counter_name:provider_request_count",
                 "counter_value:1",
                 "counter_limit:1",
@@ -143,6 +143,7 @@ Assert-True ($scanEvents.Count -eq 1 -and [bool]$scanEvents[0].passed) "exact pa
 Assert-True ($providerEvents.Count -eq 2 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
 Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"
 Assert-True ([int]$phaseSummary.provider_request_hook_coverage -eq 100 -and [int]$phaseSummary.request_phase_attribution_coverage -eq 100) "request phase summary did not reflect provider events"
+Assert-True ([int]$phaseSummary.provider_request_terminal_coverage -eq 100 -and [int]$phaseSummary.expected_model_request_count -eq 2 -and [int]$phaseSummary.provider_request_distinct_count -eq 2) "request phase summary did not use expected provider request denominator"
 Assert-True ([string]$stateCommit.status -eq "pass") "state commit displacement summary should pass with no legacy state actions"
 Assert-True ([string]$spawnBudget.status -eq "pass") "spawn/node budget should pass with no spawn calls"
 Assert-True ([bool]$summary.budget_quality_impact_logged_for_every_budget_action) "budget action was not matched to quality impact"

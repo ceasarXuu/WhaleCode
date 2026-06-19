@@ -472,8 +472,12 @@ $budgetQualityImpactPass = ($budgetQualityImpactSummary `
     -and $derivedManualOverrideCount -eq 0)
 $requestPhasePass = ($requestPhaseSummary `
     -and (Get-ReleaseInt $requestPhaseSummary "provider_request_hook_coverage" 0) -ge 99 `
+    -and (Get-ReleaseInt $requestPhaseSummary "provider_request_terminal_coverage" 0) -ge 99 `
     -and (Get-ReleaseInt $requestPhaseSummary "request_phase_attribution_coverage" 0) -ge 95 `
-    -and (Get-ReleaseInt $requestPhaseSummary "unknown_request_phase_ratio" 100) -le 5)
+    -and (Get-ReleaseInt $requestPhaseSummary "unknown_request_phase_ratio" 100) -le 5 `
+    -and (Get-ReleaseInt $requestPhaseSummary "expected_model_request_count" 0) -gt 0 `
+    -and (Get-ReleaseInt $requestPhaseSummary "provider_request_distinct_count" 0) -ge (Get-ReleaseInt $requestPhaseSummary "expected_model_request_count" 0) `
+    -and (Get-ReleaseInt $requestPhaseSummary "provider_request_terminal_count" 0) -ge (Get-ReleaseInt $requestPhaseSummary "expected_model_request_count" 0))
 $activeReplacementScanId = Get-ReleaseString $activeReplacement "exact_payload_scan_event_id"
 $activeReplacementRequestId = Get-ReleaseString $activeReplacement "request_id"
 $activeReplacementPayloadHash = Get-ReleaseString $activeReplacement "provider_payload_sha256"

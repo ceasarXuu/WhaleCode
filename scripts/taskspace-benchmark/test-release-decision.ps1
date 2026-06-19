@@ -32,7 +32,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             }
         }) (Join-Path $dir "suite-cost-gate.json")
     Write-Json ([pscustomobject]@{ availability = "measured" }) (Join-Path $dir "token-summary.json")
-    Write-Json ([pscustomobject]@{ availability = "measured" }) (Join-Path $dir "request-summary.json")
+    Write-Json ([pscustomobject]@{ availability = "measured"; model_request_count = 1 }) (Join-Path $dir "request-summary.json")
     Write-Json ([pscustomobject]@{ availability = "measured" }) (Join-Path $dir "taskspace-control-usage.json")
     Set-Content -LiteralPath (Join-Path $dir "projection-events.jsonl") -Encoding UTF8 -Value "{}"
     ([pscustomobject]@{
@@ -78,8 +78,13 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         }) (Join-Path $dir "budget_induced_quality_impact_summary.json")
     Write-Json ([pscustomobject]@{
             provider_request_hook_coverage = 99
+            provider_request_terminal_coverage = 100
             request_phase_attribution_coverage = 95
             unknown_request_phase_ratio = 0
+            provider_request_event_count = 1
+            provider_request_distinct_count = 1
+            provider_request_terminal_count = 1
+            expected_model_request_count = 1
         }) (Join-Path $dir "request-phase-summary.json")
     ([pscustomobject]@{
         schema_version = "taskspace-exact-payload-scan-event-v1"
@@ -394,6 +399,22 @@ Move-Item -LiteralPath (Join-Path $missingProviderEventDir "provider-request-eve
 Assert-True ($LASTEXITCODE -eq 1) "missing provider event fixture did not exit 1"
 $missingProviderEventDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingProviderEventDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($missingProviderEventDecision.blockers) -contains "provider_request_event_missing") "missing provider event fixture did not report provider blocker"
+
+$requestCoverageDir = New-FixtureRun "provider-request-coverage-gap" "PASS" $true 0
+Write-Json ([pscustomobject]@{
+        provider_request_hook_coverage = 50
+        provider_request_terminal_coverage = 50
+        request_phase_attribution_coverage = 95
+        unknown_request_phase_ratio = 0
+        provider_request_event_count = 1
+        provider_request_distinct_count = 1
+        provider_request_terminal_count = 1
+        expected_model_request_count = 2
+    }) (Join-Path $requestCoverageDir "request-phase-summary.json")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $requestCoverageDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "provider request coverage gap fixture did not exit 1"
+$requestCoverageDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $requestCoverageDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($requestCoverageDecision.blockers) -contains "request_phase_attribution_missing") "provider request coverage gap fixture did not report request phase blocker"
 
 $qualityImpactSkipDir = New-FixtureRun "budget-quality-validation-skip" "PASS" $true 0
 Write-Json ([pscustomobject]@{
