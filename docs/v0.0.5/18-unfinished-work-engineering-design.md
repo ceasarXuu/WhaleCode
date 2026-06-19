@@ -1230,7 +1230,7 @@ Phase 6 必须拆成三个互不替代的证据轨道：
 
 | Entry Criterion | Check Method | Evidence / Output | Owner |
 |---|---|---|---|
-| Phase 1-5 gates PASS | test summary | non-agent validation report | core engineering |
+| Phase 0A-5 non-agent gates PASS | `v005_non_agent_gates.json` plus focused test outputs | provider lifecycle hook, request phase attribution, active replacement exact scan, runtime budget response, state_commit displacement, spawn/node budget, release/start gate fixtures all pass | core engineering |
 | 用户批准真实 agent run | explicit instruction | chat record | user |
 
 #### Execution Order

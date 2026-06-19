@@ -1,52 +1,49 @@
-# Subagent VS Review: v0.0.5 Continuation Plan
+# Subagent VS Review: v0.0.5 continuation plan
 
-- Created: 2026-06-19T12:30:00+08:00
-- Updated: 2026-06-19T12:58:00+08:00
-- Task: 对 v0.0.5 继续开发方案执行对抗性审查，确认方案是否足以支撑实际成本控制、E3 门禁和版本收口判断。
+- Created: 2026-06-19T17:57:40+08:00
+- Updated: 2026-06-19T17:57:40+08:00
+- Task: 对 v0.0.5 未完成项工程方案执行对抗性审查，并修正发现的方案/gate 问题。
 - Report path: `vs_review/2026-06-19-v005-continuation-plan-review.md`
 - Review mode: fresh internal subagents
 - Source session policy: no inherited main-agent context
 - Status: blocked
 
-## Round 1: Plan Viability Review
+## Round 1: continuation design and gate review
 
 ### Review Input
 
 #### Objective
-确认 v0.0.5 继续开发方案是否能修正此前误判：v0.0.5 目标包含实际成本控制，不能只做可观测；正式 E3 只能在代码完整、非 agent 门禁通过、用户批准后运行；最终版本结论必须基于合格的 Terminal-Bench 证据。
+审查 v0.0.5 继续开发方案是否真实覆盖用户目标：不能只做观测，必须实际降低 terminal-bench E3 TaskSpace 相比 Standard 的时间/token/request 成本，同时保证正确率不下降；代码完成前禁止真实 E3。
 
 #### Review Target
-架构方案、实验制度、E3/release 门禁和当前实现落点。
+方案、实验制度、release/start gate、以及当前 runtime producer 现状。
 
 #### Target Locations
-- `docs/v0.0.5/17-unfinished-work-inventory.md`
 - `docs/v0.0.5/18-unfinished-work-engineering-design.md`
+- `docs/v0.0.5/17-unfinished-work-inventory.md`
+- `docs/v0.0.5/13-design-corrections-and-engineering-contract.md`
 - `docs/experiments/README.md`
 - `docs/experiments/taskspace-evidence-levels-and-samples.md`
+- `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
 - `scripts/taskspace-benchmark/lib/e3-start-gate.ps1`
-- `scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1`
 - `scripts/taskspace-benchmark/write-release-decision.ps1`
-- `scripts/taskspace-benchmark/test-e3-start-gate.ps1`
-- `scripts/taskspace-benchmark/test-release-decision.ps1`
-- `third_party/codex-cli/codex-rs/core/src/client.rs`
+- `scripts/taskspace-benchmark/lib/cost-instrumentation.ps1`
 
 #### Change Introduction
-方案把 v0.0.5 从“收口候选”改回“继续开发”，要求把成本治理从 artifact/report 推进到 active execution path。已先落地 release decision 和 E3 start gate 的部分脚本门禁；Rust provider request budget hook 正在实现中但尚未提交。
+当前方案把 v0.0.5 从错误收口状态拉回继续开发，并设计 Phase 0A-5 runtime/gate 补齐路径。本轮审查挑战其是否仍有可绕过的样本、receipt、producer、成本阈值和 runtime ownership 漏洞。
 
 #### Risk Focus
-- 方案是否仍然可能把 observability 当成成本控制，从而无法阻断真实 provider/model request。
-- Phase 0A/Phase 1 是否有足够明确的 runtime hook、budget state 和 recovery contract。
-- active context replacement proof 是否证明 provider-visible context 真正替换高成本历史，而不是只生成旁路证据。
-- E3/release 门禁是否能防止未完成代码、错误样本或候选证据被误当作正式 E3。
-- 方案是否有过度硬停导致正确率下降且缺少 recovery/final synthesis 路径。
-- 当前已落地脚本门禁和未提交 `client.rs` 改动是否暴露方案/实现不一致。
+- 是否把成本控制降级为可观测。
+- 是否允许用 diagnostic-only 或替代样本证明 v0.0.5 收口。
+- active provider-visible history composer 是否仍是字符串过滤。
+- spawn/node/state_commit budget 是否仍由脚本事后推断。
+- start gate / release decision 是否能防止错误 E3 再次误导项目判断。
 
 #### Verification Status
-- 已通过非 agent 脚本自测：
-  - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\v005-release-decision-selftest`
-  - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1 -RunRoot target\v005-e3-start-gate-selftest`
-- 当前仍未运行正式 E3；在代码完整和门禁通过前禁止运行真实 E3。
-- 当前工作区存在未提交 `third_party/codex-cli/codex-rs/core/src/client.rs` 改动，属于 provider request budget hook 的进行中实现。
+- 本轮审查前已有部分 release/start gate 加固。
+- 本轮审查后已补充文档口径和低成本 gate 修复。
+- 未运行真实 E3，未调用真实 agent benchmark。
 
 #### Reviewer Instructions
 - Fresh internal subagent session.
@@ -54,181 +51,166 @@
 - Read target files directly.
 - Do not modify files.
 - Cite evidence paths and line numbers when possible.
-- Produce blocking findings first; do not try to confirm the existing plan.
 
 ### Reviewer Selection
 
 | Reviewer | Reason Selected | Risk Area |
 |---|---|---|
-| architecture-adversary | 方案触及 client/session/runtime/action_map/benchmark gate 边界，风险是 hook 放错层或职责混乱。 | architecture, state flow, module boundaries |
-| test-validity-adversary | 此前出现过 E3 证据误判，当前最重要风险是测试/门禁再次允许错误结论。 | experiment validity, release gate, self-deceptive tests |
-| observability-adversary | 成本治理依赖 budget event、trace、artifact 和诊断闭环，风险是日志不能证明或不能诊断真实失控。 | logging, budget evidence, diagnostics |
+| product-logic-adversary | 检查 v0.0.5 是否仍满足用户产品目标和不收口约束。 | 产品目标、样本口径、成本/正确率结论 |
+| architecture-adversary | 检查方案与实际代码是否仍是文档/gate 补丁而非 runtime-owned 架构闭环。 | runtime producer、context composer、预算职责 |
+| test-validity-adversary | 检查 E3 实验制度是否还能被 weak smoke 或错误 receipt 绕过。 | start gate、release decision、样本/repeat/receipt |
 
 ### Reviewer Launch Records
 
 | Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
 |---|---|---|---|---|---|---|---|
-| architecture-adversary | `multi_agent_v1.spawn_agent` explorer | `019ede1f-10aa-7213-9e2d-2e3aa33fd65d` / Gauss | spawn tool result in current Codex session | no | Round 1 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
-| test-validity-adversary | `multi_agent_v1.spawn_agent` explorer | `019ede1f-807f-7fa1-9122-e79d1efc4c18` / Turing | spawn tool result in current Codex session | no | Round 1 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
-| observability-adversary | `multi_agent_v1.spawn_agent` explorer | `019ede1f-e73d-7b82-a360-ad26f32a3c72` / Avicenna | spawn tool result in current Codex session | no | Round 1 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
+| product-logic-adversary | `multi_agent_v1.spawn_agent` explorer | `019edf43-b293-7ff2-8c0a-52a13aeacd6b` | tool result and notification | no | Round 1 Review Input, product subset | main-agent history, reasoning, drafts, conclusions, full diff | yes |
+| architecture-adversary | `multi_agent_v1.spawn_agent` explorer | `019edf43-e623-7662-abd8-c2462e9f4e83` | tool result and notification | no | Round 1 Review Input, architecture/code subset | main-agent history, reasoning, drafts, conclusions, full diff | yes |
+| test-validity-adversary | `multi_agent_v1.spawn_agent` explorer | `019edf44-1c42-7543-95b3-e6398dbc142d` | tool result and notification | no | Round 1 Review Input, test/gate subset | main-agent history, reasoning, drafts, conclusions, full diff | yes |
 
 ### Reviewer Outputs
 
-#### architecture-adversary / Gauss
+#### product-logic-adversary
 
 ##### Summary
-方案方向正确，但 provider budget state、TaskSpace runtime state、request phase attribution 和 final/recovery policy 还没有完全接成一条可执行架构链。当前 `client.rs` 已开始的 budget context 代码仍是 standalone counter，尚未接入 dispatch 或 ActionMap/TaskSpace state。
+方案主线覆盖用户目标，没有整体把成本控制降级成可观测；但有两个阻塞口径漏洞会让后续执行者绕过关键 gate 或误用替代样本收口。
 
 ##### Blocking Findings
-- Provider request budget code exists but is currently orphaned. `ProviderRequestBudgetContext` and `before_dispatch` exist in `client.rs`, but HTTP/WebSocket dispatch still directly calls provider `stream_request`.
-- The plan puts budget state in `ActionMapRuntimeState`, but provider dispatch lacks a deliberate path to that state.
-- Current release gates can still pass report-only projection, not active replacement.
-- E3 start gate markers are too weak to prove runtime cost control.
-- Final synthesis and recovery are named, but the exact runtime owner and final/abort contract are not pinned.
+- Phase 6 entry gate 写成 `Phase 1-5 gates PASS`，与前文 Phase 0A-5 和 provider hook 前置要求冲突。
+- inventory 仍允许 `terminal-bench_E3-P0_3_5` 或同口径样本作为阶段性成本成功，口径不够硬。
 
 ##### Non-blocking Risks
-- Default budgets are plausible but arbitrary and need calibration fixtures.
-- Legacy action allowlist for focused correction is still under-specified.
-- WebSocket warmup accounting must be explicitly decided.
+- `Approved for Phase 0A-5 implementation` 可能被摘要误读成可收口。
+- 旧 closeout 文档仍需 supersede。
+- 已关闭的 provider hook 位置仍在开放问题区留下歧义。
 
 ##### Required Fixes
-- Wire provider budget enforcement at HTTP and WebSocket dispatch points before `stream_request`.
-- Pass TaskSpace/request budget context into `ModelClientSession::stream(...)` or equivalent request context.
-- Make release decision require active replacement, runtime budget response, state_commit displacement, spawn budget and request phase gates.
-- Replace marker-only E3 start checks with content validation of the non-agent gates artifact.
-- Define a single runtime owner for budget hard-stop recovery and final/abort behavior.
+- Phase 6 entry criteria 改为 Phase 0A-5 non-agent gates PASS。
+- 删除 inventory 中“或同口径样本”。
+- README/closeout 入口应指向 unfinished inventory。
 
 ##### Missing Tests
-- HTTP/WebSocket provider request budget blocks before dispatch.
-- Budget state shared across retries/transports.
-- Active payload scan fails when projection artifact exists but raw TaskSpace history remains in provider payload.
-- Start gate rejects stale/empty non-agent gate marker.
-- Hard stop produces blocked final/abort when validation evidence is missing.
+- start gate must abort before scheduling when `full_e3_allowed=false`.
+- marker spoofing fixture.
+- exact payload scan join fixture.
+- formal pair ledger fixture.
 
 ##### Missing Logs / Observability
-- `request_phase` on every provider request.
-- Same request id / trace id across provider event, rollout trace, runtime event and cost summary.
-- Budget state before/after, response action, grace count and post-budget request/spawn counts.
-- Active replacement proof tied to exact provider payload hash.
+- provider lifecycle canonical event.
+- runtime-produced `BudgetQualityImpactV1`.
+- request/walltime phase attribution.
+- experiment header with evidence level/sample set/runner/score validity.
 
 ##### Evidence
-- `third_party/codex-cli/codex-rs/core/src/client.rs` - reviewer found provider budget types but no dispatch callers.
-- `scripts/taskspace-benchmark/write-release-decision.ps1` - reviewer found projection summary still used as gate evidence.
-- `scripts/taskspace-benchmark/lib/e3-start-gate.ps1` - reviewer found marker existence path too weak for full E3.
+- `docs/v0.0.5/18-unfinished-work-engineering-design.md:19`
+- `docs/v0.0.5/18-unfinished-work-engineering-design.md:1233`
+- `docs/v0.0.5/17-unfinished-work-inventory.md:59`
+- `docs/experiments/taskspace-evidence-levels-and-samples.md:154`
 
-#### test-validity-adversary / Turing
+#### architecture-adversary
 
 ##### Summary
-文档已经识别“candidate evidence 被误判成 E3/release evidence”的历史错误，但当前脚本还没有强制执行该标准。友好 fixture 仍可产生 `release_pass`，E3 start gate 也可能在 v0.0.5 marker 缺失时让 suite 继续。
+方案方向正确，但当前实现仍未完全从文档性补丁/脚本门禁跨到 runtime-owned 架构闭环。关键阻塞是 active composer 仍是字符串过滤，spawn/node 和 state_commit displacement 仍是脚本聚合/推断事实源。
 
 ##### Blocking Findings
-- Missing v0.0.5 markers do not block suite execution because marker gates can be `blocked` while suite runner only checks start gate `exit_code`.
-- Suite runner does not expose or forward `V005NonAgentGatesPath`、`V005CodeCompleteMarkerPath`、`V005UserApprovalMarkerPath`.
-- Marker spoofing is trivial: current marker check only verifies file exists.
-- Release decision still accepts projection artifacts as active replacement proof.
-- Release decision lacks new P0 gates for runtime budget response, state_commit displacement, spawn/node budget and request phase attribution.
-- Invalid one-pair smoke can be treated as pass; it should route to harness repair, not formal E3.
+- `prepare_provider_visible_prompt_items` 仍是 marker/string filtering，不是结构化 provider-visible context composer。
+- spawn/node budget 仍由 `cost-instrumentation.ps1` 从 observability/tool calls 事后统计，不是 runtime hard budget。
+- state_commit displacement gate 仍由脚本从 taskspace_control usage count 推断，不能证明模型路径被协议压缩替代。
+- provider request budget 已有 runtime 事件层，但 `BudgetQualityImpactV1` 分类过粗，不能表达 thin/no-spawn/final-abort/validation-skip 的真实质量影响。
 
 ##### Non-blocking Risks
-- Sample identity is under-specified in release gating.
-- `score_valid` is trusted from aggregate JSON rather than recomputed from pair-level artifacts.
-- `blocked_partial` semantics exist but tests do not yet prove 3x partial vs 2x release thresholds.
+- release gate 绑定正式 E3 的逻辑强，但只能验证 artifact；如果上游 producer 弱，gate 会变成“强门禁 + 弱 producer”。
 
 ##### Required Fixes
-- Treat missing/invalid v0.0.5 markers as formal scoring/full E3 blockers, or make runner honor `gate_decision.full_e3_allowed=false` before scheduling samples.
-- Add marker path parameters to suite runner and validate marker schema/hash/source/profile/freshness/user approval provenance.
-- Replace projection-count release proof with exact payload scan/request hash matching.
-- Add release blockers/artifacts for runtime budget response, state_commit displacement, spawn/node budget and request phase attribution.
-- Make invalid harness smoke block formal E3 until clean smoke or explicit lower command category.
+- 将 provider-visible prompt 组装重构为 typed composer，输出 include/omit reason 和 protected invariant。
+- 在 runtime/taskspace_control/spawn/create_node 入口加入 active budget state 和 hard cap。
+- `spawn-node-budget-summary.json`、`state-commit-displacement.json` 改为消费 runtime producer events。
+- 扩展 `BudgetQualityImpactV1` 真实记录质量影响来源。
 
 ##### Missing Tests
-- Complete calibration but missing v005 markers must not schedule samples.
-- Spoofed arbitrary marker files must fail.
-- Projection artifact present but provider payload contains legacy history must fail release.
-- Hash-only active replacement must fail release.
-- Exact scan request_id/hash mismatch must fail release.
-- Duplicate or mismatched sample_set/source/profile metadata must fail.
+- typed composer fixture，含普通用户文本中出现 `TaskSpace` 的负例。
+- spawn/node runtime budget unit tests。
+- state_commit displacement runtime tests。
+- budget quality impact hard-stop / validation-skip / final-abort fixtures。
 
 ##### Missing Logs / Observability
-- Gate decision logs why `full_e3_allowed=false` and whether runner honored it.
-- Release decision emits per-gate evidence paths.
-- User approval marker records approval source, timestamp, command category, task list hash, source version and profile hash.
+- provider-visible composition decision log。
+- runtime spawn/node budget events。
+- state_commit displacement events。
+- quality impact fields must come from runtime path, not fixed defaults。
 
 ##### Evidence
-- `scripts/taskspace-benchmark/lib/e3-start-gate.ps1` - reviewer found marker checks and failure aggregation too weak.
-- `scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1` - reviewer found marker paths not forwarded and runner only checks exit code.
-- `scripts/taskspace-benchmark/write-release-decision.ps1` - reviewer found missing P0 blockers.
+- `third_party/codex-cli/codex-rs/core/src/session/turn.rs:1322`
+- `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs:1509`
+- `scripts/taskspace-benchmark/lib/cost-instrumentation.ps1:291`
+- `scripts/taskspace-benchmark/lib/cost-instrumentation.ps1:307`
 
-#### observability-adversary / Avicenna
+#### test-validity-adversary
 
 ##### Summary
-方案文档比当前脚本/代码更强。当前证据仍不足以做 release-grade claim，因为 provider-visible payload proof、request-to-runtime attribution、active budget enforcement 和 release gate 仍未全部接通。
+实验制度已明显降低错误 E3/弱 smoke 误判风险，但 start gate 库函数、suite receipt 完整性和 direct/walltime cost blocker 仍有制度缺口。
 
 ##### Blocking Findings
-- Provider request budget code exists but is not wired into dispatch.
-- Current budget event schema is too thin for the stated objective; it lacks task/map/node, phase, token, latency and payload proof fields.
-- Release gate still allows report-only success paths.
-- Provider-visible payload proof is specified but not available in current instrumentation.
-- Runtime state lacks active budget contract/counters.
+- `Invoke-TaskspaceE3StartGate` 未提供 `TaskListPath` 时可让 task list gate skipped，非 suite 直接调用可能绕过正式样本集约束。
+- suite receipt 只要求 `sample_scheduled >= 1` 和 `sample_completed >= 1`，不能证明 3 samples x 5 repeats 全部由 suite runner 调度完成。
 
 ##### Non-blocking Risks
-- Locally synthesized request ids may not join to provider response ids, rollout trace attempts or runtime events.
-- Failed, blocked, retried, unauthorized and cancelled requests need terminal accounting events, not only completed responses.
-- `unknown` request phase must be a thresholded failure.
+- `09-e3-validation-plan.md` 仍保留旧口径，虽然已被新文档取代。
+- one-pair smoke 仍偏弱，但不会直接授权 full E3。
 
 ##### Required Fixes
-- Wire budget checks directly before HTTP/WebSocket provider network dispatch and emit terminal events for success/failure/retry/blocked/cancelled/fallback.
-- Replace thin `ProviderRequestBudgetEvent` with schema close to `TaskSpaceProviderRequestEventV1`.
-- Add provider request events, budget events, request phase summary, active replacement report and exact payload scan events to release-required artifacts.
-- Make release fail on missing/partial/hash-only proof or attribution below threshold.
-- Add runtime `TaskSpaceActiveBudgetV1` counters/state into `ActionMapRuntimeState`.
+- formal/full E3 场景下缺 `TaskListPath`、`Benchmark=terminal-bench`、`Repeats=5` 必须 fail。
+- suite receipt gate 必须验证 scheduled/completed 覆盖 P0 三样本且每样本 5 pair。
+- direct input/output ratio 和 walltime ratio 超过 3x 时输出独立 blocker。
 
 ##### Missing Tests
-- Mock provider request blocked before network dispatch.
-- HTTP/WebSocket both emit start/end/blocked request events.
-- Failed/retried/unauthorized requests emit terminal status and preserve counters.
-- Active TaskSpace request event includes task_id/map_id/node_id/request_phase.
-- Exact payload scan proves old TaskSpace history and large raw output absent before redaction/hash fallback.
-- Release decision fails when provider request, budget, phase summary or exact payload artifacts are absent.
+- 完整 markers/calibration 但不传 `TaskListPath` 不得 full_e3。
+- receipt 只含 1 个 sample completed 但 events 有 15 pairs 必须 fail。
+- direct/walltime > 3x 且 correctness pass 时必须有 cost blocker。
 
 ##### Missing Logs / Observability
-- `request_phase` on every provider request.
-- Join key from provider request event to runtime event and rollout trace attempt.
-- Budget response action event and post-budget counts.
-- Latency split where available.
-- Context missing reason fields, not silent null/zero defaults.
+- markdown 输出 task list derivation details。
+- release summary 输出结构化 direct/walltime blockers。
 
 ##### Evidence
-- `third_party/codex-cli/codex-rs/core/src/client.rs` - reviewer found current event schema too thin and not wired.
-- `scripts/taskspace-benchmark/lib/cost-instrumentation.ps1` - reviewer found current diagnostics are post-run and heuristic, not exact payload proof.
-- `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs` - reviewer found no active budget fields yet.
+- `scripts/taskspace-benchmark/lib/e3-start-gate.ps1:299`
+- `scripts/taskspace-benchmark/lib/e3-start-gate.ps1:476`
+- `scripts/taskspace-benchmark/write-release-decision.ps1:495`
+- `scripts/taskspace-benchmark/write-release-decision.ps1:736`
 
 ### Main Agent Response
 
 | Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
 |---|---|---|---|---|---|---|
-| Gauss / Avicenna | Provider budget hook is currently orphaned and not wired to dispatch/runtime state | blocking | accept | Current worktree has in-progress `client.rs` code; it is not complete and must not be treated as implemented. | Keep implementation phase blocked until provider hook is wired before HTTP/WebSocket dispatch and bridged to ActionMap runtime. | Code implementation + post-code review required before E3. |
-| Gauss / Avicenna | Budget event schema too thin for release-grade evidence | blocking | accept | v0.0.5 requires task/map/node/phase/token/payload evidence. | `18-unfinished-work-engineering-design.md` already defines `TaskSpaceProviderRequestEventV1`; accepted as implementation contract, not optional. | Implementation must expand current Rust event before review closure. |
-| Gauss / Turing / Avicenna | Release gate can still accept report-only projection | blocking | accept | Reviewers found `write-release-decision.ps1` still relies on projection summary style gates. | Updated `18-unfinished-work-engineering-design.md` to list release-required artifacts and forbid projection summary as active replacement proof. | Script implementation must enforce these blockers. |
-| Turing | E3 start gate markers are weak and runner does not honor `full_e3_allowed=false` | blocking | accept | Runner currently forwards no marker paths and checks exit code only. | Updated Phase 5 design to require runner marker params, structured JSON markers, schema/hash/source/profile validation, and pre-scheduling abort on `full_e3_allowed=false`. | Script implementation must add tests for spoofed/stale/mismatched markers. |
-| Gauss | Final synthesis/recovery owner not pinned | blocking | accept | Hard-stop behavior is named but not sufficiently assigned to a runtime owner. | Keep as accepted blocker for implementation design: budget hard stop must map to explicit final/abort contract and no further non-recovery provider calls. | Add runtime owner and tests during Phase 1 implementation. |
-| Turing | Invalid one-pair smoke can satisfy preflight | blocking | accept | Classified invalid harness should not unlock formal E3. | Phase 5 design now requires invalid smoke to route to harness repair/lower category, not formal E3. | Implement in start gate/suite runner tests. |
-| Reviewers | Default budget thresholds need calibration | major | accept | The thresholds are engineering guardrails, not product proof. | Existing doc already states thresholds are not final product promises. | Keep calibration fixture before release. |
+| product-logic | Phase 6 omitted Phase 0A/0B gates | blocking | accept | `18` had Phase 1-5 wording only | Changed entry criterion to Phase 0A-5 non-agent gates with explicit producer/gate list | Covered by docs diff |
+| product-logic | inventory allowed substitute same-mouth sample | blocking | accept | `17` allowed “或同口径样本” | Removed substitute-sample release wording; only `terminal-bench_E3-P0_3_5` can prove P0 closeout | Covered by docs diff |
+| architecture | active composer still string filtering | blocking | accept | current `turn.rs` implementation remains weak | Not fixed in this review patch; remains P0 implementation blocker | Must be fixed before code-complete/E3 |
+| architecture | spawn/node budget not runtime-owned | blocking | accept | current cost summary consumes observability-derived counts | Not fixed in this review patch; remains P0 implementation blocker | Must be fixed before code-complete/E3 |
+| architecture | state_commit displacement not runtime-owned | blocking | accept | current cost summary derives from control usage counts | Not fixed in this review patch; remains P0 implementation blocker | Must be fixed before code-complete/E3 |
+| architecture | quality impact too coarse | blocking | accept | current runtime quality event lacks real thin/no-spawn/final-abort taxonomy | Not fixed in this review patch; remains P0 implementation blocker | Must be fixed before code-complete/E3 |
+| test-validity | missing formal TaskListPath can still allow full_e3 path | blocking | accept | start gate task list row was skipped and gate decision did not force `full_e3_allowed=false` on failed gate | Added formal task list hard fail and made `full_e3_allowed` depend on total gate pass; added test | `test-e3-start-gate.ps1` PASS |
+| test-validity | suite receipt did not prove full P0 scheduling | blocking | accept | receipt pass required only one scheduled/completed event | Added receipt formal sample coverage check: all P0 samples scheduled and >=5 completed pairs each; added test | `test-release-decision.ps1` PASS |
+| test-validity | direct/walltime over 3x lacks explicit blocker | major | accept | model request had blocker, direct/walltime did not | Added `formal_p0_direct_input_output_ratio_gate_failed` and `formal_p0_walltime_ratio_gate_failed`; added tests | `test-release-decision.ps1` PASS |
+
+### Validation
+
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1 -RunRoot target\v005-review-start-gate-selftest-2` -> PASS
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\v005-review-release-selftest-3` -> PASS
 
 ### Closure Status
 
 - Blocking findings found: yes
-- Accepted blocking findings fixed: partially at design-document level; code/script implementation still pending
+- Accepted blocking findings fixed: partial
 - Blocking re-review completed: no
 - Blocking re-review passed: no
 - Blocking re-review round links:
-  - Required after design/code/script fixes are implemented.
+  - n/a
 - Blocking re-review launch records:
-  - pending
+  - n/a
 - Rejected findings backed by evidence: n/a
 - Deferred findings documented: n/a
-- Allowed to proceed: no for E3; yes for implementing accepted fixes
+- Allowed to proceed: no
 
 ## Final Conclusion
 
-The continuation plan is directionally correct but not yet closed. It may proceed into implementation of the accepted fixes, but it is not allowed to proceed to formal E3 or v0.0.5 closeout. Accepted blockers require code/script implementation, validation, and a fresh closure review.
+本轮方案审查未通过关闭条件。已修复文档口径和低成本 gate 漏洞，但 v0.0.5 仍存在 runtime producer 阻塞：typed provider-visible composer、runtime-owned spawn/node budget、runtime-owned state_commit displacement、真实质量影响事件。代码完成前仍禁止真实 E3；当前只能继续做非 agent 实现和测试。

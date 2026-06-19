@@ -496,12 +496,31 @@ $receiptSampleScheduled = @($suiteReceiptEvents | Where-Object { [string]$_.even
 $receiptSampleCompleted = @($suiteReceiptEvents | Where-Object { [string]$_.event -eq "sample_completed" })
 $receiptFinalized = @($suiteReceiptEvents | Where-Object { [string]$_.event -eq "suite_finalized" })
 $suiteReceiptHashChainPass = Test-ReleaseReceiptHashChain $suiteReceiptEvents
+$receiptScheduledSamples = New-Object 'System.Collections.Generic.HashSet[string]'
+foreach ($event in @($receiptSampleScheduled)) {
+    $sampleId = Get-ReleaseString $event "sample_id"
+    if (-not [string]::IsNullOrWhiteSpace($sampleId)) { [void]$receiptScheduledSamples.Add($sampleId) }
+}
+$receiptCompletedPairsBySample = @{}
+foreach ($name in $expectedFormalSampleNames) { $receiptCompletedPairsBySample[$name] = 0 }
+foreach ($event in @($receiptSampleCompleted)) {
+    $sampleId = Get-ReleaseString $event "sample_id"
+    if ($receiptCompletedPairsBySample.ContainsKey($sampleId)) {
+        $receiptCompletedPairsBySample[$sampleId] = [int]$receiptCompletedPairsBySample[$sampleId] + (Get-ReleaseInt $event "completed_pairs" 0)
+    }
+}
+$suiteReceiptFormalSampleCoveragePass = $true
+foreach ($name in $expectedFormalSampleNames) {
+    if (-not $receiptScheduledSamples.Contains($name) -or [int]$receiptCompletedPairsBySample[$name] -lt 5) {
+        $suiteReceiptFormalSampleCoveragePass = $false
+        break
+    }
+}
 $suiteReceiptPass = ($suiteReceiptEvents.Count -gt 0 `
     -and $suiteReceiptHashChainPass `
     -and $receiptRunInitialized.Count -eq 1 `
     -and $receiptFinalized.Count -eq 1 `
-    -and $receiptSampleScheduled.Count -ge 1 `
-    -and $receiptSampleCompleted.Count -ge 1 `
+    -and $suiteReceiptFormalSampleCoveragePass `
     -and -not [string]::IsNullOrWhiteSpace($runSuiteReceiptSha256) `
     -and $runSuiteReceiptSha256 -eq $actualSuiteReceiptSha256 `
     -and (Test-ReleasePathUnderRoot $runRoot $runSuiteReceiptPath) `
@@ -733,6 +752,8 @@ if (-not $spawnNodeBudgetPass) { Add-ReleaseLine $blockers "spawn_budget_gate_fa
 if (-not $v005NonAgentGatesPass) { Add-ReleaseLine $blockers "v005_non_agent_gates_failed" }
 if (-not $formalE3IdentityPass) { Add-ReleaseLine $blockers "formal_e3_identity_gate_failed" }
 if (-not $releaseTaskListDerivationPass) { Add-ReleaseLine $blockers "formal_e3_task_list_derivation_failed" }
+if ($directInputOutputRatio -gt 3.0) { Add-ReleaseLine $blockers "formal_p0_direct_input_output_ratio_gate_failed" }
+if ($walltimeRatio -gt 3.0) { Add-ReleaseLine $blockers "formal_p0_walltime_ratio_gate_failed" }
 if ($modelRequestCountRatio -gt 2.5) { Add-ReleaseLine $blockers "formal_p0_request_ratio_gate_failed" }
 if (-not $suiteProvenancePass) { Add-ReleaseLine $blockers "formal_e3_provenance_gate_failed" }
 if (-not $suiteReceiptPass) { Add-ReleaseLine $blockers "suite_receipt_gate_failed" }
@@ -791,6 +812,9 @@ $summary = [pscustomobject]@{
     child_runner_sha256 = $runChildRunnerSha256
     task_list_sha256 = $runTaskListSha256
     suite_receipt_sha256 = $runSuiteReceiptSha256
+    suite_receipt_formal_sample_coverage_pass = [bool]$suiteReceiptFormalSampleCoveragePass
+    suite_receipt_scheduled_samples = @($receiptScheduledSamples)
+    suite_receipt_completed_pairs_by_sample = [pscustomobject]$receiptCompletedPairsBySample
     approval_marker_sha256 = $runApprovalMarkerSha256
     code_complete_marker_sha256 = $runCodeCompleteMarkerSha256
     start_gate_decision_path = $gateDecisionPath

@@ -236,8 +236,8 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         }) $suiteManifestPath
     $suiteManifestSha256 = Get-FixtureSha256 $suiteManifestPath
     $suiteReceiptPath = Join-Path $dir "suite-receipt.jsonl"
-    New-FixtureReceiptLines @(
-        [pscustomobject]@{
+    $receiptRows = New-Object System.Collections.Generic.List[object]
+    [void]$receiptRows.Add([pscustomobject]@{
             schema_version = 1
             event = "run_initialized"
             sample_set_id = $sampleSetId
@@ -246,31 +246,34 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             task_list_sha256 = $taskListSha256
             profile_hash = $profileHash
             timestamp = "2026-06-19T00:00:00.0000000Z"
-        },
-        [pscustomobject]@{
-            schema_version = 1
-            event = "sample_scheduled"
-            sample_id = "processing-pipeline"
-            sample_index = 0
-            timestamp = "2026-06-19T00:00:01.0000000Z"
-        },
-        [pscustomobject]@{
-            schema_version = 1
-            event = "sample_completed"
-            sample_id = "processing-pipeline"
-            sample_index = 0
-            child_exit = 0
-            completed_pairs = 5
-            timestamp = "2026-06-19T00:00:02.0000000Z"
-        },
-        [pscustomobject]@{
+        })
+    for ($sampleIndex = 0; $sampleIndex -lt $sampleNames.Count; $sampleIndex++) {
+        $sampleId = $sampleNames[$sampleIndex]
+        [void]$receiptRows.Add([pscustomobject]@{
+                schema_version = 1
+                event = "sample_scheduled"
+                sample_id = $sampleId
+                sample_index = $sampleIndex
+                timestamp = "2026-06-19T00:00:0$($sampleIndex + 1).0000000Z"
+            })
+        [void]$receiptRows.Add([pscustomobject]@{
+                schema_version = 1
+                event = "sample_completed"
+                sample_id = $sampleId
+                sample_index = $sampleIndex
+                child_exit = 0
+                completed_pairs = 5
+                timestamp = "2026-06-19T00:00:1$($sampleIndex + 1).0000000Z"
+            })
+    }
+    [void]$receiptRows.Add([pscustomobject]@{
             schema_version = 1
             event = "suite_finalized"
             status = "completed"
             exit_code = 0
-            timestamp = "2026-06-19T00:00:03.0000000Z"
-        }
-    ) | Set-Content -LiteralPath $suiteReceiptPath -Encoding UTF8
+            timestamp = "2026-06-19T00:00:20.0000000Z"
+        })
+    New-FixtureReceiptLines $receiptRows.ToArray() | Set-Content -LiteralPath $suiteReceiptPath -Encoding UTF8
     $suiteReceiptSha256 = Get-FixtureSha256 $suiteReceiptPath
     $suiteRunnerAttestationPath = Join-Path $dir "suite-runner-attestation.json"
     $suiteRunnerAttestationSha256 = ""
@@ -513,6 +516,48 @@ Assert-True ($LASTEXITCODE -eq 1) "broken suite receipt chain fixture did not fa
 $brokenReceiptDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $brokenReceiptDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($brokenReceiptDecision.blockers) -contains "suite_receipt_hash_chain_failed") "broken suite receipt chain fixture did not report hash-chain blocker"
 Assert-True ([string]$brokenReceiptDecision.decision -ne "release_pass") "broken suite receipt chain fixture incorrectly wrote release_pass"
+
+$incompleteReceiptDir = New-FixtureRun "incomplete-suite-receipt-coverage" "PASS" $true 0 1.0 @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log") $true
+$incompleteReceiptPath = Join-Path $incompleteReceiptDir "suite-receipt.jsonl"
+$receiptRows = Get-Content -Encoding UTF8 -LiteralPath $incompleteReceiptPath | ForEach-Object { $_ | ConvertFrom-Json }
+$reducedReceiptRows = @($receiptRows | Where-Object {
+        [string]$_.event -in @("run_initialized", "suite_finalized") -or
+        ([string]$_.sample_id -eq "processing-pipeline")
+    })
+New-FixtureReceiptLines @($reducedReceiptRows) | Set-Content -LiteralPath $incompleteReceiptPath -Encoding UTF8
+$incompleteStatusPath = Join-Path $incompleteReceiptDir "run-status.json"
+$incompleteStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $incompleteStatusPath | ConvertFrom-Json
+$incompleteStatus.suite_receipt_sha256 = Get-FixtureSha256 $incompleteReceiptPath
+Write-Json $incompleteStatus $incompleteStatusPath
+$incompleteAttestationPath = Join-Path $incompleteReceiptDir "suite-runner-attestation.json"
+$incompleteAttestation = Get-Content -Raw -Encoding UTF8 -LiteralPath $incompleteAttestationPath | ConvertFrom-Json
+$incompleteAttestation.suite_receipt_sha256 = Get-FixtureSha256 $incompleteReceiptPath
+Write-Json $incompleteAttestation $incompleteAttestationPath
+$incompleteStatus.suite_runner_attestation_sha256 = Get-FixtureSha256 $incompleteAttestationPath
+Write-Json $incompleteStatus $incompleteStatusPath
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $incompleteReceiptDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "incomplete suite receipt coverage fixture did not fail release decision"
+$incompleteReceiptDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $incompleteReceiptDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($incompleteReceiptDecision.blockers) -contains "suite_receipt_gate_failed") "incomplete suite receipt coverage fixture did not report receipt blocker"
+Assert-True (-not [bool]$incompleteReceiptDecision.suite_receipt_formal_sample_coverage_pass) "incomplete suite receipt coverage fixture incorrectly passed formal sample coverage"
+
+$highDirectCostDir = New-FixtureRun "high-direct-cost-ratio" "PASS" $true 0
+$highDirectCost = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $highDirectCostDir "suite-cost-gate.json") | ConvertFrom-Json
+$highDirectCost.ratios.direct_input_output_ratio = 3.5
+Write-Json $highDirectCost (Join-Path $highDirectCostDir "suite-cost-gate.json")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $highDirectCostDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "high direct cost fixture did not fail release decision"
+$highDirectCostDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $highDirectCostDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($highDirectCostDecision.blockers) -contains "formal_p0_direct_input_output_ratio_gate_failed") "high direct cost fixture did not report direct ratio blocker"
+
+$highWalltimeCostDir = New-FixtureRun "high-walltime-cost-ratio" "PASS" $true 0
+$highWalltimeCost = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $highWalltimeCostDir "suite-cost-gate.json") | ConvertFrom-Json
+$highWalltimeCost.ratios.walltime_ratio = 3.5
+Write-Json $highWalltimeCost (Join-Path $highWalltimeCostDir "suite-cost-gate.json")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $highWalltimeCostDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "high walltime fixture did not fail release decision"
+$highWalltimeCostDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $highWalltimeCostDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($highWalltimeCostDecision.blockers) -contains "formal_p0_walltime_ratio_gate_failed") "high walltime fixture did not report walltime ratio blocker"
 
 $badEvidenceHashDir = New-FixtureRun "bad-evidence-hash" "PASS" $true 0
 $badEvidencePath = Join-Path $badEvidenceHashDir "non-agent-evidence\provider_request_hook.txt"

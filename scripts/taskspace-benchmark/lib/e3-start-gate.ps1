@@ -103,7 +103,8 @@ function New-TaskspaceE3GateDecision {
             $v005MarkersPass = @($v005MarkerRows | Where-Object { [string]$_.status -ne "pass" }).Count -eq 0
         }
     }
-    $fullE3Allowed = $fullE3Allowed -and $v005MarkersPass
+    $fullE3Allowed = $passed -and $fullE3Allowed -and $v005MarkersPass
+    $speedClaimAllowed = $passed -and $speedClaimAllowed
     $nextCategory = if (-not $passed -and $calibrationFailed) {
         "serial_calibration"
     } elseif (-not $passed) {
@@ -296,7 +297,13 @@ function Get-TaskspaceE3TaskListGate {
         [int]$Repeats = 0,
         [string]$ExpectedSampleSetId = ""
     )
-    if ([string]::IsNullOrWhiteSpace($TaskListPath)) { return New-TaskspaceE3GateRow "task_list" "skipped" "TaskListPath not set" "task_list_not_provided" "TaskListPath was not provided." }
+    $requiresFormalTaskList = -not [string]::IsNullOrWhiteSpace($ExpectedSampleSetId)
+    if ([string]::IsNullOrWhiteSpace($TaskListPath)) {
+        if ($requiresFormalTaskList) {
+            return New-TaskspaceE3GateRow "task_list" "fail" "TaskListPath required for formal sample set" "formal_task_list_not_provided" "TaskListPath must be provided for expected sample set: $ExpectedSampleSetId"
+        }
+        return New-TaskspaceE3GateRow "task_list" "skipped" "TaskListPath not set" "task_list_not_provided" "TaskListPath was not provided."
+    }
     if (-not (Test-Path -LiteralPath $TaskListPath)) { return New-TaskspaceE3GateRow "task_list" "fail" "task_list_missing" "task_list_missing" "TaskListPath not found: $TaskListPath" }
     try {
         $raw = Get-Content -Raw -Encoding UTF8 -LiteralPath $TaskListPath
@@ -318,7 +325,13 @@ function Get-TaskspaceE3TaskListGate {
             return New-TaskspaceE3GateRow "task_list" "fail" "source_version_missing" "source_version_missing" "Task list sample is missing source_version and no default SourceVersion was provided."
         }
     }
-    if (-not [string]::IsNullOrWhiteSpace($ExpectedSampleSetId) -and -not [string]::IsNullOrWhiteSpace($Benchmark) -and [int]$Repeats -gt 0) {
+    if ($requiresFormalTaskList) {
+        if ([string]::IsNullOrWhiteSpace($Benchmark)) {
+            return New-TaskspaceE3GateRow "task_list" "fail" "Benchmark required for formal sample set" "formal_task_list_benchmark_missing" "Benchmark must be provided for expected sample set: $ExpectedSampleSetId"
+        }
+        if ([int]$Repeats -lt 1) {
+            return New-TaskspaceE3GateRow "task_list" "fail" "Repeats required for formal sample set" "formal_task_list_repeats_missing" "Repeats must be provided for expected sample set: $ExpectedSampleSetId"
+        }
         try {
             $derivation = Get-TaskspaceE3SampleSetDerivation -Benchmark $Benchmark -TaskListPath $TaskListPath -Repeats $Repeats
         } catch {
@@ -473,7 +486,13 @@ function Invoke-TaskspaceE3StartGate {
     } else {
         $gates.Add((New-TaskspaceE3GateRow "path_contract" $(if ($AllowSkippedPathContract) { "skipped_allowed" } else { "fail" }) "no_scenario_manifest" "path_contract_not_checked"))
     }
-    $taskListGate = Get-TaskspaceE3TaskListGate $TaskListPath $SourceVersion $Benchmark $Repeats $ExpectedSampleSetId
+    $formalTaskListRequested = (-not [string]::IsNullOrWhiteSpace($V005NonAgentGatesPath) `
+        -or -not [string]::IsNullOrWhiteSpace($V005CodeCompleteMarkerPath) `
+        -or -not [string]::IsNullOrWhiteSpace($V005UserApprovalMarkerPath) `
+        -or [string]$Benchmark -eq "terminal-bench" `
+        -or [int]$Repeats -ge 5)
+    $taskListExpectedSampleSetId = if ($formalTaskListRequested) { $ExpectedSampleSetId } else { "" }
+    $taskListGate = Get-TaskspaceE3TaskListGate $TaskListPath $SourceVersion $Benchmark $Repeats $taskListExpectedSampleSetId
     if ([string]$taskListGate.status -ne "skipped") { $gates.Add($taskListGate) }
     $smokeGate = Get-TaskspaceE3OnePairSmokeGate $OnePairSmokeRoot
     if ([string]$smokeGate.status -eq "skipped" -and $AllowSkippedOnePairSmoke) {

@@ -56,7 +56,7 @@ TaskSpace v005-active agent walltime ratio <= 2.0x Standard
 
 - 建立执行中成本预算，而不是只在事后报告。
 - 当 request count、spawn count、node count、projection tokens 或 agent walltime 超过 profile budget 时，必须触发降级或阻断。
-- 正式收口前，至少在 `terminal-bench_E3-P0_3_5` 或同口径样本上达到 partial gate，否则不能称为阶段性成本成功。
+- 正式收口前，必须在 `terminal-bench_E3-P0_3_5` 上达到 partial gate；其他同口径或诊断样本只能作为辅助归因，不能证明 v0.0.5 P0 成本/正确率收口。
 
 ### P0-2. 内部模型请求数失控
 
