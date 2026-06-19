@@ -202,3 +202,121 @@ Blocking issue: release decision gate can still be satisfied by an internally co
 ## Final Conclusion
 
 本轮对抗性审查阻塞通过。v0.0.5 方案方向正确，但必须先修正 formal P0 request ratio release gate、baseline-derived budget、provider hook 落点闭环、synthetic/copy artifact release pass 风险，以及 release-side task-list derivation。修复后需要新增一轮 fresh closure review。
+
+## Round 2: Closure Review After Release Gate Fixes
+
+### Review Input
+
+#### Objective
+
+复查 accepted blocking findings 是否已关闭，重点看 formal P0 request ratio gate、release-side task-list derivation、suite receipt hash chain、provider hook/budget 决策文档。
+
+#### Review Target
+
+- `docs/v0.0.5/18-unfinished-work-engineering-design.md`
+- `scripts/taskspace-benchmark/write-release-decision.ps1`
+- `scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1`
+- `scripts/taskspace-benchmark/test-release-decision.ps1`
+- `scripts/taskspace-benchmark/lib/e3-identity.ps1`
+
+#### Verification Status
+
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\v005-release-attestation-selftest` PASS
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1 -RunRoot target\v005-start-gate-attestation-selftest` PASS
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| Rawls | `multi_agent_v1.spawn_agent` explorer | `019edf0f-12ec-78c2-a13c-f62aa6de711a` | spawn_agent result in current Codex thread | no | Round 2 closure review packet | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
+
+### Reviewer Output
+
+Rawls concluded that request-ratio gating, task-list derivation, and receipt hash-chain verification were partially closed, but the synthetic/copy artifact blocker remained. The key remaining blocker was that `test-release-decision.ps1` could still generate an attested synthetic tree and, in principle, a clean `PASS` fixture could satisfy `release_pass`.
+
+### Main Agent Response
+
+| Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|
+| Rawls | Synthetic/copy artifact tree could still self-author an attestation | blocking | accept | Hash chain proved integrity but not runner-owned authenticity; self-test helper could generate attestation fields. | Added `suite-runner-attestation.json` gate requiring runner command-line shape and suite-root relationship; added `attested-synthetic-pass` negative fixture. | Round 3 focused closure review. |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: yes
+- Blocking re-review passed: see Round 3
+- Allowed to proceed: no, pending Round 3 at this point
+
+## Round 3: Focused Closure Review For Synthetic Attestation
+
+### Review Input
+
+#### Objective
+
+复查剩余 blocker：attested synthetic/copy artifact tree 是否仍可产生 `release_pass`。
+
+#### Review Target
+
+- `scripts/taskspace-benchmark/write-release-decision.ps1`
+- `scripts/taskspace-benchmark/test-release-decision.ps1`
+- `scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1`
+
+#### Verification Status
+
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\v005-release-attestation-command-selftest` PASS
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1 -RunRoot target\v005-start-gate-attestation-command-selftest` PASS
+- Local sanity: `target\v005-release-attestation-command-selftest\attested-synthetic-pass\release-decision.json` has `decision=fail`, `closeable=false`, `suite_runner_attestation_gate_pass=false`, blocker `suite_runner_attestation_gate_failed`.
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| Darwin | `multi_agent_v1.spawn_agent` explorer | `019edf1d-ce58-7910-8617-0b437d51e356` | spawn_agent result in current Codex thread | no | Round 3 focused closure review packet | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
+
+### Reviewer Output
+
+#### Darwin
+
+##### Summary
+
+Current HEAD closes the stated blocker for the reviewed scripts. The release decision now requires `suiteRunnerAttestationPass` before `release_pass`, and that gate includes command-line and suite-root checks. The synthetic PASS fixtures no longer assert `release_pass`; both default synthetic PASS and attested synthetic PASS assert failure with `suite_runner_attestation_gate_failed`.
+
+##### Closure Verdict
+
+PASS.
+
+##### Remaining Blocking Findings
+
+None found in the reviewed scope.
+
+##### Evidence
+
+- `scripts/taskspace-benchmark/write-release-decision.ps1` - command line must match `run-taskspace-e3-suite.ps1` and reject `test-release-decision` / `fixture`.
+- `scripts/taskspace-benchmark/write-release-decision.ps1` - suite-root gate requires `runRoot` to be under attested `suite_root`.
+- `scripts/taskspace-benchmark/write-release-decision.ps1` - `release_pass` path requires `$suiteRunnerAttestationPass`.
+- `scripts/taskspace-benchmark/test-release-decision.ps1` - default synthetic PASS must fail and report attestation blocker.
+- `scripts/taskspace-benchmark/test-release-decision.ps1` - attested synthetic PASS must fail and report attestation blocker.
+- `scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1` - real suite runner writes attestation with `artifact_origin=real_suite_runner`, `suite_root`, `process_id`, and command line.
+
+### Main Agent Response
+
+| Reviewer | Finding | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|
+| Darwin | No remaining blocking findings in focused scope | n/a | accept | Closure review passed; local self-tests also passed. | None. | Continue toward non-agent completion and then evaluate whether diagnostic `terminal-bench_E3-P0_3_1` is allowed by start gates. |
+
+### Closure Status
+
+- Blocking findings found: no
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: yes
+- Blocking re-review passed: yes
+- Blocking re-review round links:
+  - Round 3
+- Rejected findings backed by evidence: n/a
+- Deferred findings documented: n/a
+- Allowed to proceed: yes, for continued non-agent engineering and gate evaluation; real E3 still requires code-complete, non-agent gates, and user approval markers.
+
+## Updated Final Conclusion
+
+The accepted release-gate blockers from Round 1 are closed for the reviewed scope. This does not mean the overall v0.0.5 implementation is complete, and it does not authorize a real E3 run by itself. Continue with remaining v0.0.5 code-complete checks, non-agent gates, and only then evaluate whether `terminal-bench_E3-P0_3_1` can run as diagnostic-only.
