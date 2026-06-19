@@ -58,6 +58,24 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         status = "pass"
         budget_response_action_taken = $true
     } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "budget-events.jsonl") -Encoding UTF8
+    ([pscustomobject]@{
+        schema_version = "taskspace-budget-quality-impact-v1"
+        sample_id = "processing-pipeline"
+        budget_action = "within_budget"
+        final_classification = "solved"
+        score_eligible = $true
+        missing_evidence_count = 0
+        protected_item_miss_count = 0
+        manual_override_used = $false
+    } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "budget-quality-impact-events.jsonl") -Encoding UTF8
+    Write-Json ([pscustomobject]@{
+            budget_quality_impact_logged_for_every_budget_action = $true
+            budget_quality_impact_missing_count = 0
+            budget_induced_validation_skip_count = 0
+            budget_induced_score_ineligible_solved_count = 0
+            blocked_by_budget_samples_count = 0
+            manual_override_used_count = 0
+        }) (Join-Path $dir "budget_induced_quality_impact_summary.json")
     Write-Json ([pscustomobject]@{
             provider_request_hook_coverage = 99
             request_phase_attribution_coverage = 95
@@ -117,6 +135,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             gates = [pscustomobject]@{
                 provider_request_hook = (& $gateObject "provider_request_hook")
                 runtime_budget_response = (& $gateObject "runtime_budget_response")
+                budget_quality_impact = (& $gateObject "budget_quality_impact")
                 active_context_replacement = (& $gateObject "active_context_replacement")
                 state_commit_displacement = (& $gateObject "state_commit_displacement")
                 spawn_node_budget = (& $gateObject "spawn_node_budget")
@@ -277,6 +296,28 @@ Move-Item -LiteralPath (Join-Path $missingProviderEventDir "provider-request-eve
 Assert-True ($LASTEXITCODE -eq 1) "missing provider event fixture did not exit 1"
 $missingProviderEventDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingProviderEventDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($missingProviderEventDecision.blockers) -contains "provider_request_event_missing") "missing provider event fixture did not report provider blocker"
+
+$qualityImpactSkipDir = New-FixtureRun "budget-quality-validation-skip" "PASS" $true 0
+Write-Json ([pscustomobject]@{
+        budget_quality_impact_logged_for_every_budget_action = $true
+        budget_quality_impact_missing_count = 0
+        budget_induced_validation_skip_count = 1
+        budget_induced_score_ineligible_solved_count = 0
+        blocked_by_budget_samples_count = 0
+        manual_override_used_count = 0
+    }) (Join-Path $qualityImpactSkipDir "budget_induced_quality_impact_summary.json")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $qualityImpactSkipDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "budget quality validation skip fixture did not exit 1"
+$qualityImpactSkipDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $qualityImpactSkipDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($qualityImpactSkipDecision.blockers) -contains "budget_quality_impact_gate_failed") "validation skip fixture did not report budget quality blocker"
+
+$qualityImpactMissingDir = New-FixtureRun "missing-budget-quality-impact" "PASS" $true 0
+Move-Item -LiteralPath (Join-Path $qualityImpactMissingDir "budget-quality-impact-events.jsonl") -Destination (Join-Path $qualityImpactMissingDir "budget-quality-impact-events.jsonl.bak") -Force
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $qualityImpactMissingDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "missing budget quality event fixture did not exit 1"
+$qualityImpactMissingDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $qualityImpactMissingDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($qualityImpactMissingDecision.blockers) -contains "required_artifact_missing:budget-quality-impact-events.jsonl") "missing quality event fixture did not report required artifact blocker"
+Assert-True (@($qualityImpactMissingDecision.blockers) -contains "budget_quality_impact_gate_failed") "missing quality event fixture did not report budget quality blocker"
 
 $hashOnlyReplacementDir = New-FixtureRun "hash-only-active-replacement" "PASS" $true 0
 $hashOnlyReplacement = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $hashOnlyReplacementDir "active-context-replacement-report.json") | ConvertFrom-Json

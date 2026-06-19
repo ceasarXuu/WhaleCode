@@ -173,6 +173,7 @@ function Get-TaskspaceV005MarkerGate {
         $required = @(
             "provider_request_hook",
             "runtime_budget_response",
+            "budget_quality_impact",
             "active_context_replacement",
             "state_commit_displacement",
             "spawn_node_budget",

@@ -128,6 +128,8 @@ $eventsPath = Join-Path $runRoot "events.jsonl"
 $outputRefEventsPath = Join-Path $runRoot "output-ref-events.jsonl"
 $providerRequestEventsPath = Join-Path $runRoot "provider-request-events.jsonl"
 $budgetEventsPath = Join-Path $runRoot "budget-events.jsonl"
+$budgetQualityImpactEventsPath = Join-Path $runRoot "budget-quality-impact-events.jsonl"
+$budgetQualityImpactSummaryPath = Join-Path $runRoot "budget_induced_quality_impact_summary.json"
 $requestPhaseSummaryPath = Join-Path $runRoot "request-phase-summary.json"
 $activeReplacementPath = Join-Path $runRoot "active-context-replacement-report.json"
 $exactPayloadScanEventsPath = Join-Path $runRoot "exact-payload-scan-events.jsonl"
@@ -148,6 +150,8 @@ $requiredArtifacts = @(
     "suite-map-management-summary.json",
     "provider-request-events.jsonl",
     "budget-events.jsonl",
+    "budget-quality-impact-events.jsonl",
+    "budget_induced_quality_impact_summary.json",
     "request-phase-summary.json",
     "active-context-replacement-report.json",
     "exact-payload-scan-events.jsonl",
@@ -168,6 +172,8 @@ $runEvents = @(Read-ReleaseJsonl $eventsPath)
 $outputRefEvents = @(Read-ReleaseJsonl $outputRefEventsPath)
 $providerRequestEvents = @(Read-ReleaseJsonl $providerRequestEventsPath)
 $budgetEvents = @(Read-ReleaseJsonl $budgetEventsPath)
+$budgetQualityImpactEvents = @(Read-ReleaseJsonl $budgetQualityImpactEventsPath)
+$budgetQualityImpactSummary = Read-ReleaseJson $budgetQualityImpactSummaryPath
 $requestPhaseSummary = Read-ReleaseJson $requestPhaseSummaryPath
 $activeReplacement = Read-ReleaseJson $activeReplacementPath
 $exactPayloadScanEvents = @(Read-ReleaseJsonl $exactPayloadScanEventsPath)
@@ -339,6 +345,8 @@ $evidence = [ordered]@{
     run_status_path = $runStatusPath
     events_path = $eventsPath
     output_ref_events_path = $outputRefEventsPath
+    budget_quality_impact_events_path = $budgetQualityImpactEventsPath
+    budget_quality_impact_summary_path = $budgetQualityImpactSummaryPath
     required_artifacts = @($requiredArtifacts)
     start_gate_path = $startGatePath
     gate_decision_path = $gateDecisionPath
@@ -355,6 +363,15 @@ $routingPass = ($routing -and (Get-ReleaseString $routing "availability") -eq "m
 $outputRefPass = ($maxLargeReplay -eq 0 -and $runtimeOutputRefs -gt 0 -and $validOutputRefCreatedEvents.Count -gt 0 -and $validOutputRefPairEvidence.Count -eq $completedPairs)
 $providerRequestPass = (@($providerRequestEvents | Where-Object { [string]$_.schema_version -eq "taskspace-provider-request-event-v1" -or [string]$_.schema_version -eq "taskspace-provider-request-budget-event-v1" }).Count -gt 0)
 $budgetResponsePass = (@($budgetEvents | Where-Object { [string]$_.schema_version -eq "taskspace-budget-event-v1" -and ([string]$_.status -eq "pass" -or [bool]$_.budget_response_action_taken) }).Count -gt 0)
+$validBudgetQualityImpactEvents = @($budgetQualityImpactEvents | Where-Object { [string]$_.schema_version -eq "taskspace-budget-quality-impact-v1" })
+$budgetQualityImpactPass = ($budgetQualityImpactSummary `
+    -and $validBudgetQualityImpactEvents.Count -gt 0 `
+    -and (Get-ReleaseBool $budgetQualityImpactSummary "budget_quality_impact_logged_for_every_budget_action") `
+    -and (Get-ReleaseInt $budgetQualityImpactSummary "budget_quality_impact_missing_count" 0) -eq 0 `
+    -and (Get-ReleaseInt $budgetQualityImpactSummary "budget_induced_validation_skip_count" 0) -eq 0 `
+    -and (Get-ReleaseInt $budgetQualityImpactSummary "budget_induced_score_ineligible_solved_count" 0) -eq 0 `
+    -and (Get-ReleaseInt $budgetQualityImpactSummary "blocked_by_budget_samples_count" 0) -eq 0 `
+    -and (Get-ReleaseInt $budgetQualityImpactSummary "manual_override_used_count" 0) -eq 0)
 $requestPhasePass = ($requestPhaseSummary `
     -and (Get-ReleaseInt $requestPhaseSummary "provider_request_hook_coverage" 0) -ge 99 `
     -and (Get-ReleaseInt $requestPhaseSummary "request_phase_attribution_coverage" 0) -ge 95 `
@@ -388,6 +405,7 @@ $spawnNodeBudgetPass = ($spawnNodeBudget -and (Get-ReleaseString $spawnNodeBudge
 $requiredV005NonAgentGates = @(
     "provider_request_hook",
     "runtime_budget_response",
+    "budget_quality_impact",
     "active_context_replacement",
     "state_commit_displacement",
     "spawn_node_budget",
@@ -433,6 +451,7 @@ if (-not $outputRefPass) { Add-ReleaseLine $blockers "output_ref_replay_failed" 
 if (-not $runProvenancePass) { Add-ReleaseLine $blockers "run_provenance_gate_failed" }
 if (-not $providerRequestPass) { Add-ReleaseLine $blockers "provider_request_event_missing" }
 if (-not $budgetResponsePass) { Add-ReleaseLine $blockers "runtime_budget_response_gate_failed" }
+if (-not $budgetQualityImpactPass) { Add-ReleaseLine $blockers "budget_quality_impact_gate_failed" }
 if (-not $requestPhasePass) { Add-ReleaseLine $blockers "request_phase_attribution_missing" }
 if (-not $activeReplacementPass) { Add-ReleaseLine $blockers "active_context_replacement_gate_failed" }
 if (-not $stateCommitDisplacementPass) { Add-ReleaseLine $blockers "state_commit_displacement_gate_failed" }
@@ -443,7 +462,7 @@ if ($aggregate -and (Get-ReleaseInt $aggregate "excluded_pairs" 0) -gt 0) { Add-
 
 $decision = "fail"
 $closeable = $false
-if ($qualityPass -and $projectionPass -and $mapPass -and $routingPass -and $outputRefPass -and $runProvenancePass -and $formalE3IdentityPass -and $providerRequestPass -and $budgetResponsePass -and $requestPhasePass -and $activeReplacementPass -and $stateCommitDisplacementPass -and $spawnNodeBudgetPass -and $v005NonAgentGatesPass) {
+if ($qualityPass -and $projectionPass -and $mapPass -and $routingPass -and $outputRefPass -and $runProvenancePass -and $formalE3IdentityPass -and $providerRequestPass -and $budgetResponsePass -and $budgetQualityImpactPass -and $requestPhasePass -and $activeReplacementPass -and $stateCommitDisplacementPass -and $spawnNodeBudgetPass -and $v005NonAgentGatesPass) {
     if ($costStatus -eq "PASS" -and $blockers.Count -eq 0) {
         $decision = "release_pass"
         $closeable = $true
@@ -474,6 +493,13 @@ $summary = [pscustomobject]@{
     start_gate_decision_path = $gateDecisionPath
     provider_request_gate_pass = [bool]$providerRequestPass
     budget_response_gate_pass = [bool]$budgetResponsePass
+    budget_quality_impact_gate_pass = [bool]$budgetQualityImpactPass
+    budget_quality_impact_event_count = [int]$validBudgetQualityImpactEvents.Count
+    budget_quality_impact_missing_count = Get-ReleaseInt $budgetQualityImpactSummary "budget_quality_impact_missing_count" 0
+    budget_induced_validation_skip_count = Get-ReleaseInt $budgetQualityImpactSummary "budget_induced_validation_skip_count" 0
+    budget_induced_score_ineligible_solved_count = Get-ReleaseInt $budgetQualityImpactSummary "budget_induced_score_ineligible_solved_count" 0
+    blocked_by_budget_samples_count = Get-ReleaseInt $budgetQualityImpactSummary "blocked_by_budget_samples_count" 0
+    manual_override_used_count = Get-ReleaseInt $budgetQualityImpactSummary "manual_override_used_count" 0
     request_phase_gate_pass = [bool]$requestPhasePass
     active_replacement_gate_pass = [bool]$activeReplacementPass
     state_commit_displacement_gate_pass = [bool]$stateCommitDisplacementPass

@@ -140,6 +140,7 @@ function New-V005MarkerFixtures {
             gates = [pscustomobject]@{
                 provider_request_hook = (& $gateObject "provider_request_hook")
                 runtime_budget_response = (& $gateObject "runtime_budget_response")
+                budget_quality_impact = (& $gateObject "budget_quality_impact")
                 active_context_replacement = (& $gateObject "active_context_replacement")
                 state_commit_displacement = (& $gateObject "state_commit_displacement")
                 spawn_node_budget = (& $gateObject "spawn_node_budget")
