@@ -684,8 +684,19 @@ fn provider_payload_digest<T: serde::Serialize>(payload: &T) -> Option<ProviderP
         || text.contains("TaskSpace Bootstrap")
         || text.contains("TaskSpace ContextProjectionV1 shadow update")
         || text.contains("taskspace_control");
-    let protected_items_present = active_projection_present;
-    let replacement_confirmed = active_projection_present && !legacy_taskspace_history_present;
+    let active_projection_block = text
+        .split(TASKSPACE_ACTIVE_PROJECTION_MARKER)
+        .nth(1)
+        .unwrap_or_default();
+    let protected_items_present = active_projection_block.contains("- protected")
+        || active_projection_block.contains("protected_item")
+        || active_projection_block.contains("protected item")
+        || active_projection_block.contains("protected evidence");
+    let large_raw_output_tokens = estimate_large_raw_output_tokens(&text);
+    let replacement_confirmed = active_projection_present
+        && protected_items_present
+        && !legacy_taskspace_history_present
+        && large_raw_output_tokens == 0;
     Some(ProviderPayloadDigest {
         sha256: format!("{digest:x}"),
         bytes: bytes.len(),
@@ -693,11 +704,22 @@ fn provider_payload_digest<T: serde::Serialize>(payload: &T) -> Option<ProviderP
             exact_payload_scan_passed: replacement_confirmed,
             active_projection_present,
             legacy_taskspace_history_present,
-            large_raw_output_tokens: 0,
+            large_raw_output_tokens,
             protected_items_present,
             replacement_confirmed,
         },
     })
+}
+
+fn estimate_large_raw_output_tokens(text: &str) -> usize {
+    const LARGE_RAW_OUTPUT_BYTES: usize = 50 * 1024;
+    if text.len() <= LARGE_RAW_OUTPUT_BYTES {
+        return 0;
+    }
+    if text.contains("OutputReferenceV1:") && text.contains("raw_output_elided: true") {
+        return 0;
+    }
+    text.len() / 4
 }
 
 fn sanitize_provider_request_id_part(value: &str) -> String {
