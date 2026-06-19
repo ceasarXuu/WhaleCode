@@ -84,6 +84,12 @@ function Test-ReleaseEvidencePathAllowed {
     }
 }
 
+function Get-ReleaseFileSha256 {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return "" }
+    (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
 function Get-ReleaseArrayStrings {
     param($Object, [string]$Name)
     if ($Object -and $Object.PSObject.Properties.Name -contains $Name -and $null -ne $Object.$Name) {
@@ -136,6 +142,8 @@ $exactPayloadScanEventsPath = Join-Path $runRoot "exact-payload-scan-events.json
 $stateCommitDisplacementPath = Join-Path $runRoot "state-commit-displacement.json"
 $spawnNodeBudgetPath = Join-Path $runRoot "spawn-node-budget-summary.json"
 $v005NonAgentGatesPath = Join-Path $runRoot "v005-non-agent-gates.json"
+$v005CodeCompleteMarkerPath = Join-Path $runRoot "v005-code-complete.json"
+$v005UserApprovalMarkerPath = Join-Path $runRoot "v005-user-approval.json"
 $startGatePath = Join-Path $runRoot "start-gate\e3-start-gate.json"
 $gateDecisionPath = Join-Path $runRoot "start-gate\gate-decision.json"
 $requiredArtifacts = @(
@@ -158,6 +166,8 @@ $requiredArtifacts = @(
     "state-commit-displacement.json",
     "spawn-node-budget-summary.json",
     "v005-non-agent-gates.json",
+    "v005-code-complete.json",
+    "v005-user-approval.json",
     "start-gate\e3-start-gate.json",
     "start-gate\gate-decision.json"
 )
@@ -180,6 +190,8 @@ $exactPayloadScanEvents = @(Read-ReleaseJsonl $exactPayloadScanEventsPath)
 $stateCommitDisplacement = Read-ReleaseJson $stateCommitDisplacementPath
 $spawnNodeBudget = Read-ReleaseJson $spawnNodeBudgetPath
 $v005NonAgentGates = Read-ReleaseJson $v005NonAgentGatesPath
+$v005CodeCompleteMarker = Read-ReleaseJson $v005CodeCompleteMarkerPath
+$v005UserApprovalMarker = Read-ReleaseJson $v005UserApprovalMarkerPath
 $startGate = Read-ReleaseJson $startGatePath
 $gateDecision = Read-ReleaseJson $gateDecisionPath
 $pairMetricPattern = '(?i)[\\/](pair-\d+)[\\/](left|right)[\\/]artifacts[\\/]metrics\.json$'
@@ -298,6 +310,12 @@ $runRunnerProfileHash = Get-ReleaseString $runStatus "runner_profile_hash"
 $runSourceVersion = Get-ReleaseString $runStatus "source_version"
 $runTaskListHash = Get-ReleaseString $runStatus "task_list_hash"
 $runRepeatsPerSample = Get-ReleaseInt $runStatus "repeats_per_sample" 0
+$runArtifactOrigin = Get-ReleaseString $runStatus "artifact_origin"
+$runRunnerScriptSha256 = Get-ReleaseString $runStatus "runner_script_sha256"
+$runChildRunnerSha256 = Get-ReleaseString $runStatus "child_runner_sha256"
+$runTaskListSha256 = Get-ReleaseString $runStatus "task_list_sha256"
+$runApprovalMarkerSha256 = Get-ReleaseString $runStatus "approval_marker_sha256"
+$runCodeCompleteMarkerSha256 = Get-ReleaseString $runStatus "code_complete_marker_sha256"
 $runSampleNames = @(Get-ReleaseArrayStrings $runStatus "sample_names" | Sort-Object)
 $expectedSortedSampleNames = @($expectedFormalSampleNames | Sort-Object)
 $sampleNamesMatch = ($runSampleNames.Count -eq $expectedSortedSampleNames.Count)
@@ -323,6 +341,29 @@ $startGatePass = ($startGate `
     -and (Get-ReleaseBool $startGate.gate_decision "full_e3_allowed") `
     -and (Get-ReleaseBool $startGate.gate_decision "v005_markers_passed") `
     -and (Get-ReleaseBool $startGate.gate_decision "calibration_gate_passed"))
+$codeCompleteMarkerPass = ($v005CodeCompleteMarker `
+    -and [string]$v005CodeCompleteMarker.status -eq "pass" `
+    -and (Get-ReleaseBool $v005CodeCompleteMarker "code_complete") `
+    -and (Get-ReleaseString $v005CodeCompleteMarker "task_list_hash") -eq $runTaskListHash `
+    -and (Get-ReleaseString $v005CodeCompleteMarker "source_version") -eq $runSourceVersion `
+    -and (Get-ReleaseString $v005CodeCompleteMarker "profile_hash") -eq $runRunnerProfileHash `
+    -and (Get-ReleaseString $v005CodeCompleteMarker "sample_set_id") -eq $expectedFormalSampleSetId)
+$userApprovalMarkerPass = ($v005UserApprovalMarker `
+    -and [string]$v005UserApprovalMarker.status -eq "pass" `
+    -and (Get-ReleaseString $v005UserApprovalMarker "approved_command_category") -eq "full_e3" `
+    -and (Get-ReleaseString $v005UserApprovalMarker "approved_sample_set_id") -eq $expectedFormalSampleSetId `
+    -and (Get-ReleaseString $v005UserApprovalMarker "task_list_hash") -eq $runTaskListHash `
+    -and (Get-ReleaseString $v005UserApprovalMarker "source_version") -eq $runSourceVersion `
+    -and (Get-ReleaseString $v005UserApprovalMarker "profile_hash") -eq $runRunnerProfileHash `
+    -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $v005UserApprovalMarker "approval_source")))
+$actualApprovalMarkerSha256 = Get-ReleaseFileSha256 $v005UserApprovalMarkerPath
+$actualCodeCompleteMarkerSha256 = Get-ReleaseFileSha256 $v005CodeCompleteMarkerPath
+$suiteProvenancePass = ($runArtifactOrigin -eq "real_suite" `
+    -and $runRunnerScriptSha256 -match '^[a-fA-F0-9]{64}$' `
+    -and $runChildRunnerSha256 -match '^[a-fA-F0-9]{64}$' `
+    -and $runTaskListSha256 -match '^[a-fA-F0-9]{64}$' `
+    -and $runApprovalMarkerSha256 -eq $actualApprovalMarkerSha256 `
+    -and $runCodeCompleteMarkerSha256 -eq $actualCodeCompleteMarkerSha256)
 $formalE3IdentityPass = ($runStatus `
     -and $runSampleSetId -eq $expectedFormalSampleSetId `
     -and $runBenchmarkFamily -eq "terminal-bench" `
@@ -333,7 +374,10 @@ $formalE3IdentityPass = ($runStatus `
     -and [int]$runInitializedEvents[0].repeats -ge 5 `
     -and $sampleNamesMatch `
     -and $startGatePass `
-    -and $gateDecisionPass)
+    -and $gateDecisionPass `
+    -and $codeCompleteMarkerPass `
+    -and $userApprovalMarkerPass `
+    -and $suiteProvenancePass)
 
 $evidence = [ordered]@{
     cost_gate_path = $costPath
@@ -350,6 +394,8 @@ $evidence = [ordered]@{
     required_artifacts = @($requiredArtifacts)
     start_gate_path = $startGatePath
     gate_decision_path = $gateDecisionPath
+    code_complete_marker_path = $v005CodeCompleteMarkerPath
+    user_approval_marker_path = $v005UserApprovalMarkerPath
 }
 $qualityPass = ($aggregate -and (Get-ReleaseBool $aggregate "score_valid") -and (Get-ReleaseString $aggregate "run_validity") -eq "valid")
 $costStatus = Get-ReleaseString $cost "status" "MISSING"
@@ -432,6 +478,11 @@ if ($v005NonAgentGatesPass) {
             $v005NonAgentGatesPass = $false
             break
         }
+        $evidenceSha = Get-ReleaseFileSha256 ([string]$gateValue.evidence_path)
+        if ($evidenceSha -ne ([string]$gateValue.evidence_sha256).ToLowerInvariant() -or [string]$gateValue.profile_hash -ne $runRunnerProfileHash) {
+            $v005NonAgentGatesPass = $false
+            break
+        }
     }
 }
 
@@ -458,11 +509,14 @@ if (-not $stateCommitDisplacementPass) { Add-ReleaseLine $blockers "state_commit
 if (-not $spawnNodeBudgetPass) { Add-ReleaseLine $blockers "spawn_budget_gate_failed" }
 if (-not $v005NonAgentGatesPass) { Add-ReleaseLine $blockers "v005_non_agent_gates_failed" }
 if (-not $formalE3IdentityPass) { Add-ReleaseLine $blockers "formal_e3_identity_gate_failed" }
+if (-not $suiteProvenancePass) { Add-ReleaseLine $blockers "formal_e3_provenance_gate_failed" }
+if (-not $codeCompleteMarkerPass) { Add-ReleaseLine $blockers "v005_code_complete_marker_failed" }
+if (-not $userApprovalMarkerPass) { Add-ReleaseLine $blockers "v005_user_approval_marker_failed" }
 if ($aggregate -and (Get-ReleaseInt $aggregate "excluded_pairs" 0) -gt 0) { Add-ReleaseLine $blockers "excluded_pairs_present" }
 
 $decision = "fail"
 $closeable = $false
-if ($qualityPass -and $projectionPass -and $mapPass -and $routingPass -and $outputRefPass -and $runProvenancePass -and $formalE3IdentityPass -and $providerRequestPass -and $budgetResponsePass -and $budgetQualityImpactPass -and $requestPhasePass -and $activeReplacementPass -and $stateCommitDisplacementPass -and $spawnNodeBudgetPass -and $v005NonAgentGatesPass) {
+if ($qualityPass -and $projectionPass -and $mapPass -and $routingPass -and $outputRefPass -and $runProvenancePass -and $formalE3IdentityPass -and $suiteProvenancePass -and $codeCompleteMarkerPass -and $userApprovalMarkerPass -and $providerRequestPass -and $budgetResponsePass -and $budgetQualityImpactPass -and $requestPhasePass -and $activeReplacementPass -and $stateCommitDisplacementPass -and $spawnNodeBudgetPass -and $v005NonAgentGatesPass) {
     if ($costStatus -eq "PASS" -and $blockers.Count -eq 0) {
         $decision = "release_pass"
         $closeable = $true
@@ -484,13 +538,22 @@ $summary = [pscustomobject]@{
     output_ref_gate_pass = [bool]$outputRefPass
     run_provenance_gate_pass = [bool]$runProvenancePass
     formal_e3_identity_gate_pass = [bool]$formalE3IdentityPass
+    formal_e3_provenance_gate_pass = [bool]$suiteProvenancePass
+    artifact_origin = $runArtifactOrigin
     sample_set_id = $runSampleSetId
     sample_names = @($runSampleNames)
     repeats_per_sample = [int]$runRepeatsPerSample
     benchmark_family = $runBenchmarkFamily
     runner_entrypoint = $runRunnerEntrypoint
     runner_profile_hash = $runRunnerProfileHash
+    runner_script_sha256 = $runRunnerScriptSha256
+    child_runner_sha256 = $runChildRunnerSha256
+    task_list_sha256 = $runTaskListSha256
+    approval_marker_sha256 = $runApprovalMarkerSha256
+    code_complete_marker_sha256 = $runCodeCompleteMarkerSha256
     start_gate_decision_path = $gateDecisionPath
+    code_complete_marker_pass = [bool]$codeCompleteMarkerPass
+    user_approval_marker_pass = [bool]$userApprovalMarkerPass
     provider_request_gate_pass = [bool]$providerRequestPass
     budget_response_gate_pass = [bool]$budgetResponsePass
     budget_quality_impact_gate_pass = [bool]$budgetQualityImpactPass
@@ -540,10 +603,17 @@ Add-ReleaseLine $lines "- routing_gate_pass: $routingPass"
 Add-ReleaseLine $lines "- output_ref_gate_pass: $outputRefPass"
 Add-ReleaseLine $lines "- run_provenance_gate_pass: $runProvenancePass"
 Add-ReleaseLine $lines "- formal_e3_identity_gate_pass: $formalE3IdentityPass"
+Add-ReleaseLine $lines "- formal_e3_provenance_gate_pass: $suiteProvenancePass"
+Add-ReleaseLine $lines "- artifact_origin: $runArtifactOrigin"
 Add-ReleaseLine $lines "- sample_set_id: $runSampleSetId"
 Add-ReleaseLine $lines "- repeats_per_sample: $runRepeatsPerSample"
 Add-ReleaseLine $lines "- runner_entrypoint: $runRunnerEntrypoint"
 Add-ReleaseLine $lines "- runner_profile_hash: $runRunnerProfileHash"
+Add-ReleaseLine $lines "- runner_script_sha256: $runRunnerScriptSha256"
+Add-ReleaseLine $lines "- child_runner_sha256: $runChildRunnerSha256"
+Add-ReleaseLine $lines "- task_list_sha256: $runTaskListSha256"
+Add-ReleaseLine $lines "- code_complete_marker_pass: $codeCompleteMarkerPass"
+Add-ReleaseLine $lines "- user_approval_marker_pass: $userApprovalMarkerPass"
 Add-ReleaseLine $lines "- start_gate_decision_path: $gateDecisionPath"
 Add-ReleaseLine $lines "- max_large_output_replay_count: $maxLargeReplay"
 Add-ReleaseLine $lines "- runtime_output_ref_created_count: $runtimeOutputRefs"

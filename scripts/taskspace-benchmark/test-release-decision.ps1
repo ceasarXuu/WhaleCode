@@ -111,6 +111,9 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
     $taskListHash = "task-list-fixture-hash"
     $sampleSetId = "terminal-bench_E3-P0_3_5"
     $sampleNames = @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log")
+    $runnerScriptSha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    $childRunnerSha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    $taskListSha256 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
     $gateEvidenceDir = Join-Path $dir "non-agent-evidence"
     New-Item -ItemType Directory -Path $gateEvidenceDir -Force | Out-Null
     $gateObject = {
@@ -144,6 +147,27 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
                 start_gate_fixture = (& $gateObject "start_gate_fixture")
             }
         }) (Join-Path $dir "v005-non-agent-gates.json")
+    $codeCompletePath = Join-Path $dir "v005-code-complete.json"
+    Write-Json ([pscustomobject]@{
+            status = "pass"
+            code_complete = $true
+            task_list_hash = $taskListHash
+            source_version = $sourceVersion
+            profile_hash = $profileHash
+            sample_set_id = $sampleSetId
+        }) $codeCompletePath
+    $userApprovalPath = Join-Path $dir "v005-user-approval.json"
+    Write-Json ([pscustomobject]@{
+            status = "pass"
+            approved_command_category = "full_e3"
+            approved_sample_set_id = $sampleSetId
+            approval_source = "fixture-user-approval"
+            task_list_hash = $taskListHash
+            source_version = $sourceVersion
+            profile_hash = $profileHash
+        }) $userApprovalPath
+    $codeCompleteSha256 = Get-FixtureSha256 $codeCompletePath
+    $approvalSha256 = Get-FixtureSha256 $userApprovalPath
     Write-Json ([pscustomobject]@{
             schema_version = "TaskShapeRouterV1"
             recommended_mode = "thin"
@@ -246,6 +270,12 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             source_version = $sourceVersion
             task_list_hash = $taskListHash
             repeats_per_sample = 5
+            artifact_origin = "real_suite"
+            runner_script_sha256 = $runnerScriptSha256
+            child_runner_sha256 = $childRunnerSha256
+            task_list_sha256 = $taskListSha256
+            approval_marker_sha256 = $approvalSha256
+            code_complete_marker_sha256 = $codeCompleteSha256
         }) (Join-Path $dir "run-status.json")
     $eventRows = New-Object System.Collections.Generic.List[string]
     [void]$eventRows.Add(([pscustomobject]@{ event = "run_initialized"; schema_version = 1; timestamp = "2026-06-18T00:00:00.0000000Z"; scenario_id = "fixture"; repeats = 5; evidence_target = "E3" } | ConvertTo-Json -Compress -Depth 8))
@@ -261,6 +291,26 @@ Assert-True ($LASTEXITCODE -eq 0) "PASS fixture did not exit 0"
 $passDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $passDir "release-decision.json") | ConvertFrom-Json
 Assert-True ([string]$passDecision.decision -eq "release_pass") "PASS fixture did not write release_pass decision"
 Assert-True ([bool]$passDecision.closeable) "PASS fixture did not write closeable=true"
+
+$syntheticOriginDir = New-FixtureRun "synthetic-origin" "PASS" $true 0
+$syntheticRunStatusPath = Join-Path $syntheticOriginDir "run-status.json"
+$syntheticRunStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $syntheticRunStatusPath | ConvertFrom-Json
+$syntheticRunStatus.artifact_origin = "fixture_test"
+Write-Json $syntheticRunStatus $syntheticRunStatusPath
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $syntheticOriginDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "synthetic origin fixture did not fail release decision"
+$syntheticDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $syntheticOriginDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($syntheticDecision.blockers) -contains "formal_e3_provenance_gate_failed") "synthetic origin fixture did not report provenance blocker"
+Assert-True ([string]$syntheticDecision.decision -ne "release_pass") "synthetic origin fixture incorrectly wrote release_pass"
+
+$badEvidenceHashDir = New-FixtureRun "bad-evidence-hash" "PASS" $true 0
+$badEvidencePath = Join-Path $badEvidenceHashDir "non-agent-evidence\provider_request_hook.txt"
+Set-Content -LiteralPath $badEvidencePath -Encoding UTF8 -Value "tampered evidence"
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $badEvidenceHashDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "bad evidence hash fixture did not fail release decision"
+$badEvidenceDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $badEvidenceHashDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($badEvidenceDecision.blockers) -contains "v005_non_agent_gates_failed") "bad evidence hash fixture did not report v005 non-agent blocker"
+Assert-True ([string]$badEvidenceDecision.decision -ne "release_pass") "bad evidence hash fixture incorrectly wrote release_pass"
 
 $partialDir = New-FixtureRun "partial" "PARTIAL" $true 0
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $partialDir *> $null

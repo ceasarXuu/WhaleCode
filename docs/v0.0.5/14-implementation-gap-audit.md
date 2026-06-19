@@ -1,10 +1,16 @@
 # 14. v0.0.5 Implementation Gap Audit
 
 - Created: 2026-06-18
-- Superseded: 2026-06-19 by `17-unfinished-work-inventory.md`
+- Superseded: 2026-06-19 by `17-unfinished-work-inventory.md` and `18-unfinished-work-engineering-design.md`
 - Scope: static code and script audit only
 - Real E3 / live Agent calls: not run
 - Purpose: prevent validation closeout before the planned v0.0.5 implementation work is actually complete
+
+> 历史文档警告：本文的 Gap Matrix 是 2026-06-18 的静态审查快照。
+> 表格中 `Implemented` 或 `Implemented as benchmark-profile contract`
+> 不能作为当前 v0.0.5 完成证明。当前执行入口、未完成项、
+> release gate 和正式 E3 口径以 `18-unfinished-work-engineering-design.md`
+> 为准。
 
 ## Current Finding
 

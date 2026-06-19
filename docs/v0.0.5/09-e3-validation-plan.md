@@ -1,5 +1,12 @@
 # 09. E3 Validation Plan
 
+> 历史文档警告（2026-06-19）：本文已经被
+> `18-unfinished-work-engineering-design.md` 和 `docs/experiments/`
+> 的实验制度取代。本文中的旧 PASS/PARTIAL 口径、v004-clean 三样本安排、
+> “product partial acceptable” 表述均不得作为 v0.0.5 当前收口、
+> release decision 或正式 E3 依据。当前唯一 formal P0 release proof 是
+> `terminal-bench_E3-P0_3_5`；`_1_1`、`_3_1`、`_3_2` 只能是 diagnostic-only。
+
 ## 1. 验证目标
 
 v0.0.5 E3 不以“扩大样本”为目标。它验证两件事：
