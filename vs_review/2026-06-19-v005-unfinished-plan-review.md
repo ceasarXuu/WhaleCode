@@ -1,7 +1,7 @@
 # Subagent VS Review: v0.0.5 Unfinished Engineering Plan
 
 - Created: 2026-06-19T13:11:58+08:00
-- Updated: 2026-06-19T13:43:00+08:00
+- Updated: 2026-06-19T13:52:26+08:00
 - Task: 对 v0.0.5 未完成项工程方案执行对抗性审查，确认方案是否足以继续开发并避免再次误判 E3 / 成本控制结果。
 - Report path: `vs_review/2026-06-19-v005-unfinished-plan-review.md`
 - Review mode: fresh internal subagents
@@ -374,3 +374,314 @@ pass. Round 1 accepted blocking findings are closed in the plan documents.
 - Rejected findings backed by evidence: n/a
 - Deferred findings documented: yes
 - Allowed to proceed: yes, for implementation planning/code work only; not for true E3 before code and non-agent gates complete.
+
+## Round 3: Fresh Executability Review After Design Refinement
+
+### Review Input
+
+#### Objective
+
+对当前完善后的 v0.0.5 未完成项工程方案执行 fresh 对抗性审查，确认方案是否足够可执行，是否仍会导致后续 agent 误跑/误报 E3，是否能防止“代码未完成就验证收口”，以及是否能支撑实际成本控制而不只做观测。
+
+#### Review Target
+
+v0.0.5 未完成项工程方案、实验命名与证据等级制度、旧方案 supersession 关系、formal E3 / diagnostic-only 边界、non-agent gates / code-complete / user approval / release gate 设计。
+
+#### Target Locations
+
+- `docs/v0.0.5/18-unfinished-work-engineering-design.md`
+- `docs/v0.0.5/17-unfinished-work-inventory.md`
+- `docs/v0.0.5/10-implementation-plan.md`
+- `docs/v0.0.5/README.md`
+- `docs/experiments/taskspace-evidence-levels-and-samples.md`
+- `vs_review/2026-06-19-v005-unfinished-plan-review.md`
+
+#### Change Introduction
+
+当前方案已经把 v0.0.5 从历史收口状态改回继续开发状态，并要求先完成 provider lifecycle、active context replacement、budget hard stop、state_commit displacement、spawn/node budget、formal E3 start/release gate 等工程代码和非 agent 证据，再允许真实 E3。此轮审查不验证代码实现，只攻击方案是否仍存在执行歧义、验收伪造路径或实验结论误导风险。
+
+#### Risk Focus
+
+- 文档优先级和执行入口是否足够清楚，fresh agent 是否会跟错旧计划。
+- Phase 0A-5 未完成项是否每项都有可执行代码落点、测试、artifact 和 release gate。
+- formal E3 与 diagnostic-only 的边界是否仍可能被混淆。
+- non-agent gates / code-complete / user approval / sample identity 是否还有伪造或过期复用风险。
+- provider lifecycle、active context replacement、budget hard stop、state_commit displacement、spawn/node budget 的职责边界是否可执行。
+- 成本控制是否会牺牲正确率且缺乏质量补偿。
+
+#### User-Perspective Review Focus
+
+- 后续 fresh agent 能否从文档中明确知道先做代码、再做非 agent gate、最后才可请求真实 E3。
+- 用户能否从方案和实验制度中区分 diagnostic、E3-candidate、formal E3 和 release proof。
+- 若 run 被 gate 阻止，报告是否能清楚说明缺什么、下一步只能做什么。
+
+#### Assumptions To Attack
+
+- 只要文档写了 supersession，后续执行者就不会读错旧计划。
+- marker/hash/profile/source 字段足够防止伪造或过期复用。
+- payload hash / scan / report 能证明 active replacement，而不会变成另一套 report-only 证据。
+- hard stop 能降低成本，同时不会把未验证样本错误计为 solved。
+- `_3_1/_3_2` 这类低成本变体不会被再次误称为 E3。
+
+#### Adversarial Lenses
+
+- documentation
+- comprehension
+- test validity
+- observability
+- release operations
+- maintenance
+
+#### Verification Status
+
+- 本轮是方案对抗性审查，不运行真实 E3 / agent benchmark。
+- 相关 release/start gate 代码已有部分实现和测试，但当前审查范围主要是方案是否可执行和不误导。
+- 代码实现仍未全部完成，真实 E3 仍应保持禁止状态。
+
+#### Reviewer Instructions
+
+- Fresh internal subagent session.
+- No inherited main-agent context.
+- Read target files directly.
+- Do not modify files.
+- Cite evidence paths and line numbers when possible.
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| complex | 12 minutes | bounded extension if alive | 2 | accepted blocking findings require a fresh closure review |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| `documentation-skill-adversary` | 本轮最高风险是方案文档和实验制度能否被 fresh agent 正确执行，避免再次把诊断结果误报为 E3 或在代码未完成前进入验证收口。 | 文档优先级、fresh-session 可执行性、实验命名、证据等级、验收路径 |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| `documentation-skill-adversary` | `multi_agent_v1.spawn_agent` explorer | `019ede68-6fc3-73c3-9984-07c9067bdf0e` / Pauli | spawn_agent result | no | Round 3 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| Pauli | `documentation-skill-adversary` | 1 | `019ede68-6fc3-73c3-9984-07c9067bdf0e` | ~12 minutes | completed | reviewer returned findings | completed |
+
+### Reviewer Outputs
+
+#### Pauli
+
+##### Summary
+
+当前方案比第一轮更可执行：`18-unfinished-work-engineering-design.md` 已把 v0.0.5 定义为继续开发，把 formal P0 proof 固定到 `terminal-bench_E3-P0_3_5`，并把 provider lifecycle、active replacement、non-agent gates、code-complete/user approval marker、diagnostic-only 边界写成工程合约。但还不能说后续 agent 不会误跑/误报。主要 blocker 是入口文档仍有旧入口冲突，以及质量补偿 / hard stop 的产品语义仍留为开放问题。
+
+##### Blocking Findings
+
+- README 入口仍可能把 fresh agent 带回旧计划链路。
+  - Broken assumption: 只要 `18` 写了 supersession，fresh agent 就会自然跟 `18`。
+  - Failure scenario: agent 从 README 进入，看到当前状态入口是 `17`，但修正说明仍说 2026-06-17 后工程执行以 `13`、`10`、acceptance checklist 为准；跑 E3 前读的是 `08/09/checklist`，没有强制先读 `18`。
+  - Trigger condition: fresh agent 只读 README 的修正说明 / 跑 E3 前读段落，或按 `10-implementation-plan.md` 执行历史 Phase 6。
+  - Impact: 仍可能跟错旧 plan、复用旧 Phase 6 或把旧 release gate 当当前入口，导致 premature E3 或错误 closeout。
+  - Proof needed: README 必须把 `18` 明确列为当前 canonical execution entry，并声明 `18` supersedes `10` 的 Phase 6、release taxonomy、report-only routing。
+
+- Budget hard stop 的质量语义仍未闭合，可能用省钱掩盖未完成。
+  - Broken assumption: hard stop + recovery whitelist 足以同时降成本和保持正确率。
+  - Failure scenario: runtime 为满足 2x 成本触发 thin/no-spawn/hard stop，跳过 validation 或提前 final synthesis；release 报告只看到成本改善和没有继续扩张，但实际样本未被充分验证。
+  - Trigger condition: budget threshold 被触发且任务仍需验证/修复；`final_synthesis` 走 partial failure 或 early final 路径。
+  - Impact: 可能把少做了工作报告成成本控制成功，牺牲正确率，尤其在 P0 样本上污染 formal E3 结论。
+  - Proof needed: 明确 `BudgetQualityImpactV1` 的字段、producer、release blocker 规则；定义 validation skip、early final、final abort、manual blocked、bounded escalation 后的计分语义。
+
+##### Non-blocking Risks
+
+- `18` 自身状态还是 Draft，可能让后续 agent 误判为不能实现或忽略审查状态。
+- Phase 0A-5 的落点足够具体，但仍多为待实现合约；真实 E3 禁止状态应保持。
+- diagnostic-only 边界文档已清楚，但命名仍带 E3，必须靠 gate 执行。
+
+##### User-Perspective Checks
+
+- 可用性：工程师能从 `18` 找到阶段、代码落点、测试和 gate，但从 README 进入仍有歧义。
+- 易用性：Phase 0A-5 每阶段都有 entry criteria、tasks、deliverables、tests、gate；缺少一张只按此顺序执行的短 checklist。
+- 易理解性：E3 taxonomy 已明显改善，但 README 的旧入口会削弱清晰度。
+
+##### Required Fixes
+
+- 更新 README：当前 canonical execution entry 应为 `18`，并明确 `18` supersedes `10` 的 Phase 6/release taxonomy/report-only routing。
+- 把 `18` 的 Draft 状态改成审查后可执行状态，或明确可开始 Phase 0A 实现但 formal E3 仍禁止。
+- 补全 `BudgetQualityImpactV1` contract：字段、producer、artifact path、release blocker/warning 规则、quality compensation 计分语义。
+- 明确 hard stop 产品行为：用户可见 blocked、partial final、manual approval override 各自何时允许，以及是否可纳入 solved。
+- 把 README 的跑 E3 前读列表加入 `18` 和 experiments evidence taxonomy。
+
+##### Missing Tests
+
+- README/canonical-entry lint。
+- Formal E3 start gate negative fixtures。
+- Diagnostic result cannot release-pass fixture。
+- Budget quality impact fixtures。
+- Active replacement negative fixture。
+- Provider lifecycle fixture。
+
+##### Missing Logs / Observability
+
+- `BudgetQualityImpactV1` event and per-sample summary。
+- Provider lifecycle terminal event with status、latency、token usage、payload hash/scan id、request id。
+- Start-gate decision artifact with requested/actual sample set、approval sample set、profile/source/task hash、next allowed command category。
+- Hard-stop reason chain。
+- Active replacement exact scan provenance。
+
+##### Evidence
+
+- `docs/v0.0.5/README.md:6-13`
+- `docs/v0.0.5/README.md:49-55`
+- `docs/v0.0.5/README.md:80-84`
+- `docs/v0.0.5/18-unfinished-work-engineering-design.md:13-16`
+- `docs/v0.0.5/18-unfinished-work-engineering-design.md:63-78`
+- `docs/v0.0.5/18-unfinished-work-engineering-design.md:666`
+- `docs/v0.0.5/18-unfinished-work-engineering-design.md:704`
+- `docs/v0.0.5/18-unfinished-work-engineering-design.md:1203`
+- `docs/experiments/taskspace-evidence-levels-and-samples.md:84-104`
+- `vs_review/2026-06-19-v005-unfinished-plan-review.md:336-338`
+
+### Main Agent Response
+
+| Reviewer | Finding | Broken Assumption / Failure Scenario | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|---|
+| Pauli | README 入口仍可能把 fresh agent 带回旧计划链路 | README 仍把 `13/10/checklist` 表述为执行依据，跑 E3 前读列表缺 `18` | blocking | accept | Reviewer evidence valid | Rewrote `docs/v0.0.5/README.md` in Chinese; made `18` the canonical execution entry; stated `18` supersedes old Phase 6/release taxonomy/report-only routing; added formal E3 prohibition and reading order | Closure review required |
+| Pauli | Budget hard stop 的质量语义仍未闭合 | hard stop 可能少做验证却被报告为成本成功 | blocking | accept | Reviewer evidence valid | Updated `docs/v0.0.5/18-unfinished-work-engineering-design.md`: status now implementation-approved with E3 still forbidden; added clarified `BudgetQualityImpactV1` producer/artifact/fields/release blocker rules; resolved hard-stop open question into scoring rule | Closure review required |
+| Pauli | `18` 状态还是 Draft | 后续 agent 可能误判执行授权 | non-blocking | accept | Status line was stale | Changed status to Phase 0A-5 implementation approved after adversarial review, formal E3 forbidden until gates pass | Closure review covers |
+| Pauli | Phase 0A-5 仍多为待实现合约 | 文档可执行不等于代码完成 | non-blocking | accept | This is intentionally true | Kept true E3 forbidden; README and `18` now explicitly restrict work to code/non-agent gates until code-complete | Track in implementation |
+| Pauli | diagnostic-only 命名仍带 E3 | Manual summary may mislabel diagnostic | non-blocking | accept | Needs gate enforcement | README now repeats diagnostic-only prohibition; existing release/start gate negative tests remain implementation requirement | Track in implementation |
+
+### Closure Status
+
+- Blocking findings found: yes
+- Accepted blocking findings fixed: yes, in plan documents
+- Blocking re-review completed: no
+- Blocking re-review passed: no
+- Blocking re-review round links:
+  - Round 4 required
+- Blocking re-review launch records:
+  - pending
+- Rejected findings backed by evidence: n/a
+- Deferred findings documented: n/a
+- Allowed to proceed: no, Round 4 closure review required before treating plan review as closed.
+
+## Round 4: Closure Review For Round 3 Fixes
+
+### Review Input
+
+#### Objective
+
+只验证 Round 3 的两个 accepted blocking findings 是否已在文档中闭合：
+
+1. README 入口可能把 fresh agent 带回旧计划链路。
+2. Budget hard stop / `BudgetQualityImpactV1` 质量语义未闭合，可能用省钱掩盖未完成。
+
+#### Review Target
+
+Round 3 修复后的文档闭环，不重新扩展全量方案审查。
+
+#### Target Locations
+
+- `docs/v0.0.5/README.md`
+- `docs/v0.0.5/18-unfinished-work-engineering-design.md`
+- `docs/experiments/taskspace-evidence-levels-and-samples.md`
+- `vs_review/2026-06-19-v005-unfinished-plan-review.md`
+
+#### Risk Focus
+
+- README 是否明确 `18-unfinished-work-engineering-design.md` 是当前 canonical execution entry，并说明它 supersedes `10` 的 Phase 6/release taxonomy/report-only routing。
+- README 的 E3 前置阅读和禁止误用是否能防止 premature E3 / diagnostic-only 误报。
+- `18` 的状态是否清楚允许 Phase 0A-5 实现但仍禁止 formal E3。
+- `BudgetQualityImpactV1` 是否有 producer、artifact path、字段、release blocker、hard stop 计分语义。
+- hard stop 用户可见 blocked / partial final / manual override 是否不会被算作 clean solved。
+
+#### Verification Status
+
+- 已修复 `docs/v0.0.5/README.md` 和 `docs/v0.0.5/18-unfinished-work-engineering-design.md`。
+- 未运行真实 E3。
+
+#### Reviewer Instructions
+
+- Fresh internal subagent session.
+- No inherited main-agent context.
+- Read target files directly.
+- Do not modify files.
+- Cite evidence paths and line numbers when possible.
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| normal | 8 minutes | bounded extension if alive | 2 | cannot pass if review unavailable |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| `documentation-skill-adversary` closure reviewer | Round 3 blockers are documentation executability and evidence-contract clarity issues. | closure validity |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| `documentation-skill-adversary` closure reviewer | `multi_agent_v1.spawn_agent` explorer | `019ede6e-1d84-78b0-959a-12328b170cc4` / Ramanujan | spawn_agent result | no | Round 4 Review Input | main-agent history, reasoning, drafts, conclusions, full diff unless needed | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| Ramanujan | `documentation-skill-adversary` closure reviewer | 1 | `019ede6e-1d84-78b0-959a-12328b170cc4` | ~8 minutes | completed | closure reviewer returned pass | completed |
+
+### Reviewer Outputs
+
+#### Ramanujan
+
+##### Summary
+
+Read-only closure review completed for the two Round 3 accepted blocking findings. Both are closed at the documentation/plan level. The reviewer did not modify files.
+
+##### Closure Verdict
+
+pass
+
+##### Blocking Findings Remaining
+
+none
+
+##### Non-blocking Risks
+
+- The contracts are still documentation-level until implementation and gate fixtures exist. This does not block closure scope because Round 3 asked whether the docs now close the two accepted findings.
+- Diagnostic variants still contain `E3` in their names, so enforcement must come from the start/release gates when implemented.
+
+##### Evidence
+
+- README now makes `18-unfinished-work-engineering-design.md` the canonical execution entry and supersedes old paths: `docs/v0.0.5/README.md:16-25`.
+- README now prevents premature E3 / diagnostic-only misuse: `docs/v0.0.5/README.md:27-32`, `docs/v0.0.5/README.md:82-92`.
+- `18` clearly allows Phase 0A-5 implementation while forbidding formal E3: `docs/v0.0.5/18-unfinished-work-engineering-design.md:6`, `docs/v0.0.5/18-unfinished-work-engineering-design.md:13-21`.
+- Diagnostic-only taxonomy is reinforced: `docs/experiments/taskspace-evidence-levels-and-samples.md:108-126`, `docs/experiments/taskspace-evidence-levels-and-samples.md:262-264`.
+- `BudgetQualityImpactV1` now has producer, artifact paths, fields, release blockers, and hard-stop scoring semantics: `docs/v0.0.5/18-unfinished-work-engineering-design.md:318-325`, `docs/v0.0.5/18-unfinished-work-engineering-design.md:327-346`, `docs/v0.0.5/18-unfinished-work-engineering-design.md:360-376`, `docs/v0.0.5/18-unfinished-work-engineering-design.md:278-312`, `docs/v0.0.5/18-unfinished-work-engineering-design.md:1288`.
+
+### Main Agent Response
+
+| Reviewer | Finding | Broken Assumption / Failure Scenario | Severity | Decision | Evidence / Reason | Action Taken | Follow-up |
+|---|---|---|---|---|---|---|---|
+| Ramanujan | Round 3 blocking findings closed | n/a | n/a | accept | Closure verdict pass | Mark Round 3 closure passed | Proceed with implementation; true E3 remains forbidden until code and gates complete |
+| Ramanujan | Contracts still documentation-level until implementation | Implementation not complete | non-blocking | accept | This is expected current state | Keep true E3 forbidden; continue code implementation next | Track in implementation plan |
+| Ramanujan | Diagnostic names still include E3 | Manual reporting can still mislabel | non-blocking | accept | Naming convention intentionally includes evidence/subset field | Enforce through start/release gates and report fields | Track in gate implementation |
+
+### Closure Status
+
+- Blocking findings found: no
+- Accepted blocking findings fixed: yes
+- Blocking re-review completed: yes
+- Blocking re-review passed: yes
+- Blocking re-review round links:
+  - Round 4
+- Blocking re-review launch records:
+  - Ramanujan / `019ede6e-1d84-78b0-959a-12328b170cc4`
+- Rejected findings backed by evidence: n/a
+- Deferred findings documented: n/a
+- Allowed to proceed: yes, for implementation and non-agent verification only; not for true E3 before code-complete, non-agent gates, user approval, and start gate all pass.

@@ -3,12 +3,23 @@
 - Created: 2026-06-19
 - Updated: 2026-06-19
 - Version: v0.0.5-continuation-design
-- Status: Draft - not approved for implementation until adversarial closure review passes
+- Status: Approved for Phase 0A-5 implementation after adversarial review; formal E3 remains forbidden until code-complete, non-agent gates, user approval, and start gate all pass.
 - Owner / Responsible: WhaleCode core engineering
 - Related Systems: `action_map` runtime, `taskspace_control` handler, `spawn_agent` gates, TaskSpace context projection, benchmark cost/release scripts
 - Related Links: `17-unfinished-work-inventory.md`, `10-implementation-plan.md`, `13-design-corrections-and-engineering-contract.md`, `16-terminal-bench_E3-P0_3_2-variant-run.md`
 - Risk Level: High
 - Plan Type: Full
+
+## 0.1 当前可执行状态
+
+本文件已通过方案层对抗性审查，可作为 v0.0.5 Phase 0A-5 的工程实现入口。这里的“可执行”只允许进入代码实现、非 agent fixture、自测和 gate 建设；不允许把 v0.0.5 标记为可关闭，也不允许跳过 code-complete / non-agent gates / user approval / E3 start gate 去运行真实 E3。
+
+后续 fresh agent 必须按以下顺序执行：
+
+1. 先补齐 Phase 0A-5 的代码、producer-owned artifacts、negative fixtures 和 release/start gate。
+2. 再生成 `v005_non_agent_gates.json`、`v005_code_complete.json`、`v005_user_approval.json` 所需的真实证据。
+3. 只有 start gate 输出 `full_e3_allowed=true`，才允许运行 `terminal-bench_E3-P0_3_5`。
+4. 任何 diagnostic-only 变体只能用于工程健康检查，不能作为 release proof。
 
 ## 0. 本文档优先级和本轮审查修正
 
@@ -301,6 +312,80 @@ missing_evidence
 hard stop 不能隐藏 correctness failure：如果 validation 已失败或未执行，final/abort 必须输出 blocked reason 和 missing validation evidence，不能伪装成成功 final。
 
 #### 6.4.1 Budget-Induced Quality Protection
+
+Clarified contract after adversarial review:
+
+预算动作不能用“少做任务”伪造成成本下降。任何 hard stop、thin downgrade、no-spawn、early final、final abort、validation skip 都必须产生 `BudgetQualityImpactV1`。该事件的 canonical producer 是 runtime budget gate；metrics extractor 和 release decision 只能消费该事件，不能事后根据 summary 猜测质量影响。
+
+输出位置：
+
+```text
+budget-quality-impact-events.jsonl
+budget_induced_quality_impact_summary.json
+```
+
+`BudgetQualityImpactV1` 必须至少包含：
+
+```text
+schema_version
+sample_id optional
+request_id optional
+task_id optional
+map_id optional
+node_id optional
+budget_action
+budget_state_before
+budget_state_after
+counter_name
+counter_value
+counter_limit
+validator_status_before
+validator_status_after
+missing_evidence_count
+protected_item_miss_count
+solve_risk
+bounded_recovery_allowed
+bounded_recovery_used
+route_escalation_allowed
+route_escalation_used
+manual_override_allowed
+manual_override_used
+final_classification
+score_eligible
+reason
+```
+
+质量补偿和计分规则：
+
+- `validation_required` 节点不得因普通 budget hard stop 被静默跳过。
+- 如果预算动作导致 validator 未执行、关键证据缺失、protected item 缺失或 final synthesis 提前结束，该样本必须进入 `bounded_recovery` 或 `blocked_by_budget`，不得直接计为 solved。
+- 每个样本最多允许一次 bounded recovery request；该 request 必须标记 `request_phase=validation_recovery` 或 `budget_recovery`，并写回同一个 `sample_id` 的 quality impact summary。
+- bounded recovery 后仍缺关键证据时，`final_classification` 必须是 `unsolved`、`blocked_by_budget` 或 `invalid_harness`，`score_eligible=false`。
+- `early_final` 只有在 validator 已通过且 `missing_evidence_count=0` 时才允许 `score_eligible=true`；否则必须视为 `blocked_by_budget`。
+- `final_abort`、`validation_skip`、`protected_item_miss_count>0`、`manual_override_used=true` 均不得进入 `release_pass` 的 solved 计数。
+- human/manual override 只能把 run 标为 `accepted-risk` 或 diagnostic continuation，不能把 blocked sample 改写为 clean solved。
+- release report 必须按样本输出 `budget_induced_quality_impact_summary`，说明预算动作是否导致 solve loss、是否使用 recovery、是否仍可计分。
+
+release blocker 规则：
+
+```text
+budget_quality_impact_missing_count > 0 => release_pass blocked
+budget_induced_validation_skip_count > 0 => release_pass blocked
+budget_induced_score_ineligible_solved_count > 0 => release_pass blocked
+blocked_by_budget_samples_count > 0 => release_pass blocked_partial or fail
+manual_override_used_count > 0 => release_pass blocked
+```
+
+新增验收：
+
+```text
+budget_quality_impact_logged_for_every_budget_action = true
+budget_induced_validation_skip_count = 0
+blocked_by_budget_samples_count reported
+bounded_recovery_request_count <= sample_count
+budget_induced_score_ineligible_solved_count = 0
+manual_override_used_count = 0 for release_pass
+```
 
 预算动作不能用“少做任务”伪造成成本下降。任何 hard stop、thin downgrade、no-spawn、early final、final abort、validation skip 都必须产生 `BudgetQualityImpactV1`：
 
@@ -1200,7 +1285,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 
 1. provider request hook 的精确文件/函数位置在哪里？Phase 0A 必须回答后才能实现预算。
 2. active budget 的默认阈值是否按 route mode 固定，还是 benchmark scenario 可覆盖？
-3. budget hard stop 时应该返回用户可见中止，还是转 final_synthesis 输出 partial failure？
+3. 已决策：budget hard stop 可以返回用户可见 `blocked_by_budget`，也可以进入 `final_synthesis` 输出 partial failure；但只要 validator 未通过、关键证据缺失或 `score_eligible=false`，该样本不得计为 solved，也不得进入 `release_pass` 的 clean 成功统计。
 4. state_commit adoption gate 对不同任务复杂度是否需要不同阈值？
 5. `terminal-bench_E3-P0_1_1` targeted diagnostic 首选样本应是 `processing-pipeline` 还是 `recover-accuracy-log`？
 
