@@ -285,7 +285,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
                 suite_receipt_sha256 = $suiteReceiptSha256
                 profile_hash = $profileHash
                 sample_set_id = $sampleSetId
-                suite_root = $dir
+                suite_root = (Split-Path -Parent $dir)
                 process_id = $PID
                 command_line = "powershell -File scripts\\taskspace-benchmark\\run-taskspace-e3-suite.ps1 -fixture"
                 generated_at = "2026-06-19T00:00:04.0000000Z"
@@ -426,6 +426,13 @@ Assert-True ([string]$passDecision.task_list_identity_source -eq "derived_from_t
 Assert-True ([bool]$passDecision.task_list_derivation_gate_pass) "PASS fixture did not pass task list derivation"
 Assert-True ([bool]$passDecision.formal_p0_cost_clean_pass) "PASS fixture did not pass formal P0 clean cost gate"
 
+$attestedSyntheticPassDir = New-FixtureRun "attested-synthetic-pass" "PASS" $true 0 1 @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log") $true
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $attestedSyntheticPassDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "attested synthetic PASS fixture did not fail release decision"
+$attestedSyntheticPassDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $attestedSyntheticPassDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($attestedSyntheticPassDecision.blockers) -contains "suite_runner_attestation_gate_failed") "attested synthetic PASS fixture did not report attestation blocker"
+Assert-True ([string]$attestedSyntheticPassDecision.decision -ne "release_pass") "attested synthetic PASS fixture incorrectly wrote release_pass"
+
 $requestRatioDir = New-FixtureRun "request-ratio-high" "PASS" $true 0 10
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $requestRatioDir *> $null
 Assert-True ($LASTEXITCODE -eq 1) "request ratio fixture did not fail release decision"
@@ -513,12 +520,12 @@ Assert-True ([string]$badEvidenceDecision.decision -ne "release_pass") "bad evid
 
 $partialDir = New-FixtureRun "partial" "PARTIAL" $true 0 1 @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log") $true
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $partialDir *> $null
-Assert-True ($LASTEXITCODE -eq 2) "PARTIAL fixture did not exit 2"
+Assert-True ($LASTEXITCODE -eq 1) "synthetic PARTIAL fixture did not fail release decision"
 $partialDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $partialDir "release-decision.json") | ConvertFrom-Json
-Assert-True ([string]$partialDecision.decision -eq "blocked_partial") "PARTIAL fixture did not write blocked_partial decision"
-Assert-True (-not [bool]$partialDecision.closeable) "PARTIAL fixture incorrectly wrote closeable=true"
+Assert-True ([string]$partialDecision.decision -ne "release_pass") "synthetic PARTIAL fixture incorrectly wrote release_pass decision"
+Assert-True (@($partialDecision.blockers) -contains "suite_runner_attestation_gate_failed") "synthetic PARTIAL fixture did not report attestation blocker"
 $partialMd = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $partialDir "release-decision.md")
-Assert-True ($partialMd.Contains("cannot close v0.0.5")) "PARTIAL markdown did not mark blocked_partial as non-closeable"
+Assert-True ($partialMd.Contains("suite_runner_attestation_gate_failed")) "synthetic PARTIAL markdown did not include attestation blocker"
 
 $failDir = New-FixtureRun "fail" "FAIL" $true 1
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $failDir *> $null

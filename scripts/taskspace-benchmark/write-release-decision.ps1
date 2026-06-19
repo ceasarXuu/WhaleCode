@@ -486,6 +486,21 @@ $suiteReceiptPass = ($suiteReceiptEvents.Count -gt 0 `
     -and (Get-ReleaseString $receiptRunInitialized[0] "task_list_sha256") -eq $runTaskListSha256 `
     -and (Get-ReleaseString $receiptRunInitialized[0] "profile_hash") -eq $runRunnerProfileHash)
 $actualSuiteRunnerAttestationSha256 = Get-ReleaseFileSha256 $suiteRunnerAttestationPath
+$attestationCommandLine = Get-ReleaseString $suiteRunnerAttestation "command_line"
+$attestationSuiteRoot = Get-ReleaseString $suiteRunnerAttestation "suite_root"
+$attestationCommandLinePass = ($attestationCommandLine -match 'run-taskspace-e3-suite\.ps1' `
+    -and $attestationCommandLine -notmatch 'test-release-decision' `
+    -and $attestationCommandLine -notmatch 'fixture')
+$attestationSuiteRootPass = $false
+if (-not [string]::IsNullOrWhiteSpace($attestationSuiteRoot)) {
+    try {
+        $attestationSuiteRootFull = [System.IO.Path]::GetFullPath($attestationSuiteRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+        $runRootFullForAttestation = [System.IO.Path]::GetFullPath($runRoot)
+        $attestationSuiteRootPass = $runRootFullForAttestation.StartsWith($attestationSuiteRootFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)
+    } catch {
+        $attestationSuiteRootPass = $false
+    }
+}
 $suiteRunnerAttestationPass = ($suiteRunnerAttestation `
     -and $runSuiteRunnerAttestationSha256 -match '^[a-fA-F0-9]{64}$' `
     -and $runSuiteRunnerAttestationSha256 -eq $actualSuiteRunnerAttestationSha256 `
@@ -499,7 +514,8 @@ $suiteRunnerAttestationPass = ($suiteRunnerAttestation `
     -and (Get-ReleaseString $suiteRunnerAttestation "suite_receipt_sha256") -eq $runSuiteReceiptSha256 `
     -and (Get-ReleaseString $suiteRunnerAttestation "profile_hash") -eq $runRunnerProfileHash `
     -and (Get-ReleaseString $suiteRunnerAttestation "sample_set_id") -eq $runSampleSetId `
-    -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $suiteRunnerAttestation "command_line")) `
+    -and $attestationCommandLinePass `
+    -and $attestationSuiteRootPass `
     -and (Get-ReleaseInt $suiteRunnerAttestation "process_id" 0) -gt 0)
 $formalE3IdentityPass = ($runStatus `
     -and $runSampleSetId -eq $expectedFormalSampleSetId `
@@ -720,6 +736,8 @@ $summary = [pscustomobject]@{
     suite_receipt_gate_pass = [bool]$suiteReceiptPass
     suite_receipt_hash_chain_pass = [bool]$suiteReceiptHashChainPass
     suite_runner_attestation_gate_pass = [bool]$suiteRunnerAttestationPass
+    suite_runner_attestation_command_line_pass = [bool]$attestationCommandLinePass
+    suite_runner_attestation_suite_root_pass = [bool]$attestationSuiteRootPass
     suite_runner_attestation_sha256 = $runSuiteRunnerAttestationSha256
     artifact_origin = $runArtifactOrigin
     sample_set_id = $runSampleSetId
@@ -804,6 +822,8 @@ Add-ReleaseLine $lines "- formal_e3_provenance_gate_pass: $suiteProvenancePass"
 Add-ReleaseLine $lines "- suite_receipt_gate_pass: $suiteReceiptPass"
 Add-ReleaseLine $lines "- suite_receipt_hash_chain_pass: $suiteReceiptHashChainPass"
 Add-ReleaseLine $lines "- suite_runner_attestation_gate_pass: $suiteRunnerAttestationPass"
+Add-ReleaseLine $lines "- suite_runner_attestation_command_line_pass: $attestationCommandLinePass"
+Add-ReleaseLine $lines "- suite_runner_attestation_suite_root_pass: $attestationSuiteRootPass"
 Add-ReleaseLine $lines "- artifact_origin: $runArtifactOrigin"
 Add-ReleaseLine $lines "- sample_set_id: $runSampleSetId"
 Add-ReleaseLine $lines "- task_list_identity_source: $taskListIdentitySource"
