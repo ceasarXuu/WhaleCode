@@ -39,6 +39,7 @@ $obs = [pscustomobject]@{
                 "request_count_after:1",
                 "max_requests:1",
                 "request_phase:model_sampling",
+                "producer:provider_lifecycle",
                 "provider_payload_sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 "provider_payload_bytes:4321",
                 "exact_payload_scan_passed:true",
@@ -87,6 +88,7 @@ $obs = [pscustomobject]@{
                 "request_count_after:1",
                 "max_requests:1",
                 "request_phase:model_sampling",
+                "producer:provider_lifecycle",
                 "budget_response_action_taken:true"
             )
         },
@@ -141,6 +143,7 @@ Assert-True ($budgetEvents.Count -eq 2) "budget event count was not extracted fr
 Assert-True ($qualityEvents.Count -eq 2) "budget quality event count was not extracted from runtime trace"
 Assert-True ($scanEvents.Count -eq 1 -and [bool]$scanEvents[0].passed) "exact payload scan event was not derived from runtime payload trace"
 Assert-True ($providerEvents.Count -eq 2 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
+Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provider_lifecycle" }).Count -eq 2) "provider request events did not preserve provider_lifecycle producer"
 Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"
 Assert-True ([int]$phaseSummary.provider_request_hook_coverage -eq 100 -and [int]$phaseSummary.request_phase_attribution_coverage -eq 100) "request phase summary did not reflect provider events"
 Assert-True ([int]$phaseSummary.provider_request_terminal_coverage -eq 100 -and [int]$phaseSummary.expected_model_request_count -eq 2 -and [int]$phaseSummary.provider_request_distinct_count -eq 2) "request phase summary did not use expected provider request denominator"

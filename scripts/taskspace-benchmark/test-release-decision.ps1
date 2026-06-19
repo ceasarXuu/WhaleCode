@@ -74,6 +74,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         task_id = "task-1"
         map_id = "map-1"
         node_id = "node-1"
+        producer = "provider_lifecycle"
         provider_payload_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         status = "completed"
     } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "provider-request-events.jsonl") -Encoding UTF8
@@ -649,6 +650,16 @@ Assert-True ($LASTEXITCODE -eq 1) "missing provider payload join fixture did not
 $missingProviderPayloadJoinDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingProviderPayloadJoinDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($missingProviderPayloadJoinDecision.blockers) -contains "active_context_replacement_gate_failed") "missing provider payload join fixture did not report active replacement blocker"
 Assert-True ([int]$missingProviderPayloadJoinDecision.exact_payload_scan_matching_provider_event_count -eq 0) "missing provider payload join fixture still matched provider events"
+
+$missingProviderProducerDir = New-FixtureRun "missing-provider-producer" "PASS" $true 0
+$providerRows = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $missingProviderProducerDir "provider-request-events.jsonl") | ForEach-Object { $_ | ConvertFrom-Json }
+$providerRows[0].PSObject.Properties.Remove("producer")
+($providerRows[0] | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $missingProviderProducerDir "provider-request-events.jsonl") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $missingProviderProducerDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "missing provider producer fixture did not exit 1"
+$missingProviderProducerDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingProviderProducerDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($missingProviderProducerDecision.blockers) -contains "provider_request_event_missing") "missing provider producer fixture did not report provider request blocker"
+Assert-True (@($missingProviderProducerDecision.blockers) -contains "active_context_replacement_gate_failed") "missing provider producer fixture did not break active replacement join"
 
 $weakNonAgentDir = New-FixtureRun "weak-non-agent-gates" "PASS" $true 0
 Write-Json ([pscustomobject]@{ status = "pass"; schema_version = 1 }) (Join-Path $weakNonAgentDir "v005-non-agent-gates.json")

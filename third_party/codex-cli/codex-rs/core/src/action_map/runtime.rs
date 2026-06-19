@@ -1579,6 +1579,7 @@ preview:\n\
                 ),
                 format!("started_at_ms:{}", input.started_at_ms),
                 format!("request_phase:{request_phase}"),
+                "producer:provider_lifecycle".to_string(),
                 format!("logical_request_id:{}", input.logical_request_id),
                 format!("attempt_seq:{}", input.attempt_seq),
             ];
@@ -9797,6 +9798,12 @@ mod tests {
                 .tags
                 .iter()
                 .any(|tag| tag == "schema:taskspace-provider-request-budget-event-v1")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "producer:provider_lifecycle")
         );
         assert!(
             blocked

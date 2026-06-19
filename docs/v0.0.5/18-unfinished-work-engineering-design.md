@@ -694,6 +694,7 @@ pair_completed.reported_evidence_level = E3 for every counted pair
 pair_completed.sample_id/sample_repeat_index/standard_run_id/taskspace_run_id present for every counted pair
 formal P0 pair ledger proves exactly 3 samples x 5 repeats
 exact payload scan joins provider request event by request_id and provider_payload_sha256
+provider request event producer = provider_lifecycle
 start_gate.full_e3_allowed = true
 start_gate.v005_markers_passed = true
 start_gate.calibration_gate_passed = true

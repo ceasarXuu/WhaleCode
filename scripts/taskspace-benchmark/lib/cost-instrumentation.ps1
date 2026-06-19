@@ -116,6 +116,7 @@ function New-TaskspaceBudgetArtifacts {
             transport = [string]$tags.transport
             status = [string]$tags.status
             request_phase = [string]$tags.request_phase
+            producer = [string]$tags.producer
             request_count_before = Convert-TaskspaceTraceInt $tags.request_count_before
             request_count_after = Convert-TaskspaceTraceInt $tags.request_count_after
             max_requests = Convert-TaskspaceTraceInt $tags.max_requests
@@ -250,6 +251,7 @@ function New-TaskspaceProviderRequestArtifacts {
             parent_request_id = [string]$event.parent_request_id
             attempt_seq = Convert-TaskspaceTraceInt $event.attempt_seq
             request_phase = if ([string]::IsNullOrWhiteSpace($phase)) { "unknown" } else { $phase }
+            producer = [string]$event.producer
             task_id = [string]$event.task_id
             map_id = [string]$event.map_id
             node_id = [string]$event.node_id

@@ -595,7 +595,10 @@ $projectionPass = ($projection `
 $mapPass = ($map -and (Get-ReleaseString $map "availability") -eq "measured" -and (Get-ReleaseInt $map "protected_miss_count" 0) -eq 0)
 $routingPass = ($routing -and (Get-ReleaseString $routing "availability") -eq "measured" -and (Get-ReleaseInt $routing "routing_mistake_count" 0) -eq 0)
 $outputRefPass = ($maxLargeReplay -eq 0 -and $runtimeOutputRefs -gt 0 -and $validOutputRefCreatedEvents.Count -gt 0 -and $validOutputRefPairEvidence.Count -eq $completedPairs)
-$providerRequestPass = (@($providerRequestEvents | Where-Object { [string]$_.schema_version -eq "taskspace-provider-request-event-v1" -or [string]$_.schema_version -eq "taskspace-provider-request-budget-event-v1" }).Count -gt 0)
+$providerRequestPass = (@($providerRequestEvents | Where-Object {
+            ([string]$_.schema_version -eq "taskspace-provider-request-event-v1" -or [string]$_.schema_version -eq "taskspace-provider-request-budget-event-v1") -and
+            [string]$_.producer -eq "provider_lifecycle"
+        }).Count -gt 0)
 $budgetResponsePass = (@($budgetEvents | Where-Object { [string]$_.schema_version -eq "taskspace-budget-event-v1" -and ([string]$_.status -eq "pass" -or [bool]$_.budget_response_action_taken) }).Count -gt 0)
 $validBudgetQualityImpactEvents = @($budgetQualityImpactEvents | Where-Object { [string]$_.schema_version -eq "taskspace-budget-quality-impact-v1" })
 $derivedBudgetValidationSkipCount = @($validBudgetQualityImpactEvents | Where-Object {
@@ -648,6 +651,7 @@ $matchingExactScanEvents = @($exactPayloadScanEvents | Where-Object {
     })
 $matchingProviderPayloadEvents = @($providerRequestEvents | Where-Object {
         ([string]$_.schema_version -eq "taskspace-provider-request-event-v1" -or [string]$_.schema_version -eq "taskspace-provider-request-budget-event-v1") -and
+        [string]$_.producer -eq "provider_lifecycle" -and
         [string]$_.request_id -eq $activeReplacementRequestId -and
         [string]$_.provider_payload_sha256 -eq $activeReplacementPayloadHash
     })
