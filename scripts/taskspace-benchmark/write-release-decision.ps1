@@ -6,7 +6,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 function Read-ReleaseJson {
-    param([Parameter(Mandatory = $true)][string]$Path)
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
     try { Get-Content -Raw -Encoding UTF8 -LiteralPath $Path | ConvertFrom-Json } catch { $null }
 }
@@ -314,6 +315,8 @@ $runArtifactOrigin = Get-ReleaseString $runStatus "artifact_origin"
 $runRunnerScriptSha256 = Get-ReleaseString $runStatus "runner_script_sha256"
 $runChildRunnerSha256 = Get-ReleaseString $runStatus "child_runner_sha256"
 $runTaskListSha256 = Get-ReleaseString $runStatus "task_list_sha256"
+$runSuiteManifestPath = Get-ReleaseString $runStatus "suite_manifest_path"
+$runSuiteManifestSha256 = Get-ReleaseString $runStatus "suite_manifest_sha256"
 $runApprovalMarkerSha256 = Get-ReleaseString $runStatus "approval_marker_sha256"
 $runCodeCompleteMarkerSha256 = Get-ReleaseString $runStatus "code_complete_marker_sha256"
 $runSampleNames = @(Get-ReleaseArrayStrings $runStatus "sample_names" | Sort-Object)
@@ -358,10 +361,27 @@ $userApprovalMarkerPass = ($v005UserApprovalMarker `
     -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $v005UserApprovalMarker "approval_source")))
 $actualApprovalMarkerSha256 = Get-ReleaseFileSha256 $v005UserApprovalMarkerPath
 $actualCodeCompleteMarkerSha256 = Get-ReleaseFileSha256 $v005CodeCompleteMarkerPath
+$suiteManifest = Read-ReleaseJson $runSuiteManifestPath
+$actualSuiteManifestSha256 = Get-ReleaseFileSha256 $runSuiteManifestPath
+$suiteManifestPass = ($suiteManifest `
+    -and $runSuiteManifestSha256 -match '^[a-fA-F0-9]{64}$' `
+    -and $runSuiteManifestSha256 -eq $actualSuiteManifestSha256 `
+    -and (Get-ReleaseString $suiteManifest "artifact_origin") -eq "real_suite" `
+    -and (Get-ReleaseString $suiteManifest "sample_set_id") -eq $runSampleSetId `
+    -and (Get-ReleaseString $suiteManifest "benchmark") -eq $runBenchmarkFamily `
+    -and (Get-ReleaseString $suiteManifest "runner_entrypoint") -eq $runRunnerEntrypoint `
+    -and (Get-ReleaseString $suiteManifest "runner_script_sha256") -eq $runRunnerScriptSha256 `
+    -and (Get-ReleaseString $suiteManifest "child_runner_sha256") -eq $runChildRunnerSha256 `
+    -and (Get-ReleaseString $suiteManifest "task_list_sha256") -eq $runTaskListSha256 `
+    -and (Get-ReleaseString $suiteManifest "task_list_hash") -eq $runTaskListHash `
+    -and (Get-ReleaseString $suiteManifest "source_version") -eq $runSourceVersion `
+    -and (Get-ReleaseString $suiteManifest "profile_hash") -eq $runRunnerProfileHash `
+    -and (Get-ReleaseInt $suiteManifest "repeats" 0) -eq $runRepeatsPerSample)
 $suiteProvenancePass = ($runArtifactOrigin -eq "real_suite" `
     -and $runRunnerScriptSha256 -match '^[a-fA-F0-9]{64}$' `
     -and $runChildRunnerSha256 -match '^[a-fA-F0-9]{64}$' `
     -and $runTaskListSha256 -match '^[a-fA-F0-9]{64}$' `
+    -and $suiteManifestPass `
     -and $runApprovalMarkerSha256 -eq $actualApprovalMarkerSha256 `
     -and $runCodeCompleteMarkerSha256 -eq $actualCodeCompleteMarkerSha256)
 $formalE3IdentityPass = ($runStatus `
@@ -387,6 +407,7 @@ $evidence = [ordered]@{
     routing_summary_path = $routingPath
     cost_diagnostics_path = $costDiagnosticsPath
     run_status_path = $runStatusPath
+    suite_manifest_path = $runSuiteManifestPath
     events_path = $eventsPath
     output_ref_events_path = $outputRefEventsPath
     budget_quality_impact_events_path = $budgetQualityImpactEventsPath

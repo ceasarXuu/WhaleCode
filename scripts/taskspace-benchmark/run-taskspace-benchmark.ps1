@@ -26,6 +26,7 @@ param(
     [string]$RunnerScriptSha256 = "",
     [string]$ChildRunnerSha256 = "",
     [string]$TaskListSha256 = "",
+    [string]$SuiteManifestPath = "",
     [string]$ApprovalMarkerSha256 = "",
     [string]$CodeCompleteMarkerSha256 = "",
     [string]$V005NonAgentGatesPath = "",
@@ -92,6 +93,11 @@ if (-not [string]::IsNullOrWhiteSpace($V005CodeCompleteMarkerPath) -and (Test-Pa
 if (-not [string]::IsNullOrWhiteSpace($V005UserApprovalMarkerPath) -and (Test-Path -LiteralPath $V005UserApprovalMarkerPath -PathType Leaf)) {
     Copy-Item -LiteralPath $V005UserApprovalMarkerPath -Destination (Join-Path $runDir "v005-user-approval.json") -Force
 }
+$suiteManifestCopyPath = ""
+if (-not [string]::IsNullOrWhiteSpace($SuiteManifestPath) -and (Test-Path -LiteralPath $SuiteManifestPath -PathType Leaf)) {
+    $suiteManifestCopyPath = Join-Path $runDir "suite-manifest.json"
+    Copy-Item -LiteralPath $SuiteManifestPath -Destination $suiteManifestCopyPath -Force
+}
 Update-TaskspaceBenchmarkRunStatusFields $runDir @{
     sample_set_id = $SampleSetId
     sample_names = @($SampleNames)
@@ -105,6 +111,8 @@ Update-TaskspaceBenchmarkRunStatusFields $runDir @{
     runner_script_sha256 = $RunnerScriptSha256
     child_runner_sha256 = $ChildRunnerSha256
     task_list_sha256 = $TaskListSha256
+    suite_manifest_path = $suiteManifestCopyPath
+    suite_manifest_sha256 = if ($suiteManifestCopyPath) { (Get-FileHash -Algorithm SHA256 -LiteralPath $suiteManifestCopyPath).Hash.ToLowerInvariant() } else { "" }
     approval_marker_sha256 = $ApprovalMarkerSha256
     code_complete_marker_sha256 = $CodeCompleteMarkerSha256
 } | Out-Null

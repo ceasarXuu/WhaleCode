@@ -102,6 +102,28 @@ $profileIdentity = New-TaskspaceE3ProfileIdentity `
     -SampleSetId $sampleSetId `
     -ScoringMode ([bool]$scoreValidityEnforced)
 $profileHash = [string]$profileIdentity.profile_hash
+$suiteManifestPath = Join-Path $suiteRoot "suite-manifest.json"
+[pscustomobject]@{
+    schema_version = 1
+    artifact_origin = "real_suite"
+    suite_root = $suiteRoot
+    benchmark = $Benchmark
+    source_version = $SourceVersion
+    repeats = $Repeats
+    sample_set_id = $sampleSetId
+    sample_set_derivation = $sampleSetDerivation
+    runner_entrypoint = "run-taskspace-e3-suite.ps1"
+    runner_script_path = $suiteRunnerPath
+    runner_script_sha256 = $runnerScriptSha256
+    child_runner_path = $runner
+    child_runner_sha256 = $childRunnerSha256
+    task_list_path = ([System.IO.Path]::GetFullPath($TaskListPath))
+    task_list_hash = $taskListHash
+    task_list_sha256 = $taskListSha256
+    profile_hash = $profileHash
+    scoring_mode = [bool]$scoreValidityEnforced
+    generated_at = (Get-Date).ToString("o")
+} | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $suiteManifestPath -Encoding UTF8
 
 function Write-SuiteStartGateAbortHealth {
     param($Gate)
@@ -384,6 +406,7 @@ function New-SuiteChildArgs {
         "-RunnerScriptSha256", $runnerScriptSha256,
         "-ChildRunnerSha256", $childRunnerSha256,
         "-TaskListSha256", $taskListSha256,
+        "-SuiteManifestPath", $suiteManifestPath,
         "-ApprovalMarkerSha256", $approvalMarkerSha256,
         "-CodeCompleteMarkerSha256", $codeCompleteMarkerSha256,
         "-V005NonAgentGatesPath", $V005NonAgentGatesPath,

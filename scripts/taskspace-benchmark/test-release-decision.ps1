@@ -168,6 +168,27 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         }) $userApprovalPath
     $codeCompleteSha256 = Get-FixtureSha256 $codeCompletePath
     $approvalSha256 = Get-FixtureSha256 $userApprovalPath
+    $suiteManifestPath = Join-Path $dir "suite-manifest.json"
+    Write-Json ([pscustomobject]@{
+            schema_version = 1
+            artifact_origin = "real_suite"
+            benchmark = "terminal-bench"
+            source_version = $sourceVersion
+            repeats = 5
+            sample_set_id = $sampleSetId
+            runner_entrypoint = "run-taskspace-e3-suite.ps1"
+            runner_script_sha256 = $runnerScriptSha256
+            child_runner_sha256 = $childRunnerSha256
+            task_list_hash = $taskListHash
+            task_list_sha256 = $taskListSha256
+            profile_hash = $profileHash
+            sample_set_derivation = [pscustomobject]@{
+                formal_p0 = $true
+                derivation_method = "task_list_content"
+                sample_names = $sampleNames
+            }
+        }) $suiteManifestPath
+    $suiteManifestSha256 = Get-FixtureSha256 $suiteManifestPath
     Write-Json ([pscustomobject]@{
             schema_version = "TaskShapeRouterV1"
             recommended_mode = "thin"
@@ -274,6 +295,8 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             runner_script_sha256 = $runnerScriptSha256
             child_runner_sha256 = $childRunnerSha256
             task_list_sha256 = $taskListSha256
+            suite_manifest_path = $suiteManifestPath
+            suite_manifest_sha256 = $suiteManifestSha256
             approval_marker_sha256 = $approvalSha256
             code_complete_marker_sha256 = $codeCompleteSha256
         }) (Join-Path $dir "run-status.json")
@@ -302,6 +325,28 @@ Assert-True ($LASTEXITCODE -eq 1) "synthetic origin fixture did not fail release
 $syntheticDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $syntheticOriginDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($syntheticDecision.blockers) -contains "formal_e3_provenance_gate_failed") "synthetic origin fixture did not report provenance blocker"
 Assert-True ([string]$syntheticDecision.decision -ne "release_pass") "synthetic origin fixture incorrectly wrote release_pass"
+
+$missingSuiteManifestDir = New-FixtureRun "missing-suite-manifest" "PASS" $true 0
+$missingSuiteManifestRunStatusPath = Join-Path $missingSuiteManifestDir "run-status.json"
+$missingSuiteManifestRunStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $missingSuiteManifestRunStatusPath | ConvertFrom-Json
+Remove-Item -LiteralPath (Join-Path $missingSuiteManifestDir "suite-manifest.json") -Force
+$missingSuiteManifestRunStatus.suite_manifest_path = ""
+$missingSuiteManifestRunStatus.suite_manifest_sha256 = ""
+Write-Json $missingSuiteManifestRunStatus $missingSuiteManifestRunStatusPath
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $missingSuiteManifestDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "missing suite manifest fixture did not fail release decision"
+$missingSuiteManifestDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingSuiteManifestDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($missingSuiteManifestDecision.blockers) -contains "formal_e3_provenance_gate_failed") "missing suite manifest fixture did not report provenance blocker"
+
+$badSuiteManifestHashDir = New-FixtureRun "bad-suite-manifest-hash" "PASS" $true 0
+$badSuiteManifestRunStatusPath = Join-Path $badSuiteManifestHashDir "run-status.json"
+$badSuiteManifestRunStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $badSuiteManifestRunStatusPath | ConvertFrom-Json
+$badSuiteManifestRunStatus.suite_manifest_sha256 = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+Write-Json $badSuiteManifestRunStatus $badSuiteManifestRunStatusPath
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $badSuiteManifestHashDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "bad suite manifest hash fixture did not fail release decision"
+$badSuiteManifestDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $badSuiteManifestHashDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($badSuiteManifestDecision.blockers) -contains "formal_e3_provenance_gate_failed") "bad suite manifest hash fixture did not report provenance blocker"
 
 $badEvidenceHashDir = New-FixtureRun "bad-evidence-hash" "PASS" $true 0
 $badEvidencePath = Join-Path $badEvidenceHashDir "non-agent-evidence\provider_request_hook.txt"
