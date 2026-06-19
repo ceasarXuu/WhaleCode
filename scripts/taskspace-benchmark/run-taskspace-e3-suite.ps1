@@ -126,11 +126,31 @@ $suiteReceiptPath = Join-Path $suiteRoot "suite-receipt.jsonl"
     generated_at = (Get-Date).ToString("o")
 } | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $suiteManifestPath -Encoding UTF8
 
+function Get-SuiteReceiptEventHash {
+    param($Row)
+    $json = ([pscustomobject]$Row | ConvertTo-Json -Compress -Depth 30)
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace "-", "").ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+    }
+}
+
+$suiteReceiptLastEventHash = ""
 function Write-SuiteReceiptEvent {
     param([string]$Event, [hashtable]$Fields = @{})
+    $script:suiteReceiptLastEventHash = if (Test-Path -LiteralPath $suiteReceiptPath -PathType Leaf) {
+        $lastLine = @(Get-Content -Encoding UTF8 -LiteralPath $suiteReceiptPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 1)
+        if ($lastLine.Count -eq 1) {
+            try { [string](($lastLine[0] | ConvertFrom-Json).event_hash) } catch { "" }
+        } else { "" }
+    } else { "" }
     $row = [ordered]@{
         schema_version = 1
         event = $Event
+        previous_event_hash = $script:suiteReceiptLastEventHash
         suite_run_id = Split-Path -Leaf $suiteRoot
         suite_root = $suiteRoot
         sample_set_id = $sampleSetId
@@ -142,6 +162,8 @@ function Write-SuiteReceiptEvent {
         timestamp = (Get-Date).ToString("o")
     }
     foreach ($key in $Fields.Keys) { $row[$key] = $Fields[$key] }
+    $row["event_hash"] = Get-SuiteReceiptEventHash $row
+    $script:suiteReceiptLastEventHash = $row["event_hash"]
     ([pscustomobject]$row | ConvertTo-Json -Compress -Depth 20) | Add-Content -LiteralPath $suiteReceiptPath -Encoding UTF8
 }
 

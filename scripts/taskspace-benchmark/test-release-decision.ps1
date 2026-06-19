@@ -20,7 +20,30 @@ function Get-FixtureSha256([string]$Path) {
     (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
-function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [int]$RoutingMistakes) {
+function Get-FixtureStableObjectHash($Value) {
+    $json = $Value | ConvertTo-Json -Depth 30 -Compress
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace "-", "").ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+    }
+}
+
+function New-FixtureReceiptLines([object[]]$Rows) {
+    $previous = ""
+    @($Rows | ForEach-Object {
+            $row = [ordered]@{}
+            foreach ($property in $_.PSObject.Properties) { $row[$property.Name] = $property.Value }
+            $row["previous_event_hash"] = $previous
+            $row["event_hash"] = Get-FixtureStableObjectHash $row
+            $previous = $row["event_hash"]
+            [pscustomobject]$row | ConvertTo-Json -Compress -Depth 20
+        })
+}
+
+function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [int]$RoutingMistakes, [double]$ModelRequestRatio = 1.0, [string[]]$TaskListSamples = @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log")) {
     $dir = Join-Path $RunRoot $Name
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     Write-Json ([pscustomobject]@{
@@ -28,7 +51,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             ratios = [pscustomobject]@{
                 direct_input_output_ratio = 1.5
                 walltime_ratio = 1.2
-                model_request_count_ratio = 1
+                model_request_count_ratio = $ModelRequestRatio
             }
         }) (Join-Path $dir "suite-cost-gate.json")
     Write-Json ([pscustomobject]@{ availability = "measured" }) (Join-Path $dir "token-summary.json")
@@ -116,9 +139,21 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
     $taskListHash = "task-list-fixture-hash"
     $sampleSetId = "terminal-bench_E3-P0_3_5"
     $sampleNames = @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log")
+    $taskListPath = Join-Path $dir "task-list.jsonl"
+    $taskListRows = @($TaskListSamples | ForEach-Object {
+            [pscustomobject]@{
+                sample_id = $_
+                task_dir = (Join-Path $dir "tasks\$_")
+                source_version = $sourceVersion
+            } | ConvertTo-Json -Compress -Depth 8
+        })
+    foreach ($sample in $TaskListSamples) {
+        New-Item -ItemType Directory -Path (Join-Path $dir "tasks\$sample") -Force | Out-Null
+    }
+    $taskListRows | Set-Content -LiteralPath $taskListPath -Encoding UTF8
     $runnerScriptSha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
     $childRunnerSha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-    $taskListSha256 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    $taskListSha256 = Get-FixtureSha256 $taskListPath
     $gateEvidenceDir = Join-Path $dir "non-agent-evidence"
     New-Item -ItemType Directory -Path $gateEvidenceDir -Force | Out-Null
     $gateObject = {
@@ -185,6 +220,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             repeats = 5
             sample_set_id = $sampleSetId
             runner_entrypoint = "run-taskspace-e3-suite.ps1"
+            task_list_path = $taskListPath
             runner_script_sha256 = $runnerScriptSha256
             child_runner_sha256 = $childRunnerSha256
             task_list_hash = $taskListHash
@@ -198,7 +234,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         }) $suiteManifestPath
     $suiteManifestSha256 = Get-FixtureSha256 $suiteManifestPath
     $suiteReceiptPath = Join-Path $dir "suite-receipt.jsonl"
-    @(
+    New-FixtureReceiptLines @(
         [pscustomobject]@{
             schema_version = 1
             event = "run_initialized"
@@ -232,7 +268,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             exit_code = 0
             timestamp = "2026-06-19T00:00:03.0000000Z"
         }
-    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $suiteReceiptPath -Encoding UTF8
+    ) | Set-Content -LiteralPath $suiteReceiptPath -Encoding UTF8
     $suiteReceiptSha256 = Get-FixtureSha256 $suiteReceiptPath
     Write-Json ([pscustomobject]@{
             schema_version = "TaskShapeRouterV1"
@@ -361,6 +397,23 @@ Assert-True ($LASTEXITCODE -eq 0) "PASS fixture did not exit 0"
 $passDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $passDir "release-decision.json") | ConvertFrom-Json
 Assert-True ([string]$passDecision.decision -eq "release_pass") "PASS fixture did not write release_pass decision"
 Assert-True ([bool]$passDecision.closeable) "PASS fixture did not write closeable=true"
+Assert-True ([string]$passDecision.task_list_identity_source -eq "derived_from_task_list") "PASS fixture did not derive task list identity"
+Assert-True ([bool]$passDecision.task_list_derivation_gate_pass) "PASS fixture did not pass task list derivation"
+Assert-True ([bool]$passDecision.formal_p0_cost_clean_pass) "PASS fixture did not pass formal P0 clean cost gate"
+
+$requestRatioDir = New-FixtureRun "request-ratio-high" "PASS" $true 0 10
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $requestRatioDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "request ratio fixture did not fail release decision"
+$requestRatioDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $requestRatioDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($requestRatioDecision.blockers) -contains "formal_p0_request_ratio_gate_failed") "request ratio fixture did not report request ratio blocker"
+Assert-True ([string]$requestRatioDecision.decision -ne "release_pass") "request ratio fixture incorrectly wrote release_pass"
+
+$wrongTaskListDir = New-FixtureRun "wrong-task-list" "PASS" $true 0 1 @("processing-pipeline", "multi-source-data-merger", "hello-world")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $wrongTaskListDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "wrong task list fixture did not fail release decision"
+$wrongTaskListDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $wrongTaskListDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($wrongTaskListDecision.blockers) -contains "formal_e3_task_list_derivation_failed") "wrong task list fixture did not report task-list derivation blocker"
+Assert-True ([string]$wrongTaskListDecision.decision -ne "release_pass") "wrong task list fixture incorrectly wrote release_pass"
 
 $syntheticOriginDir = New-FixtureRun "synthetic-origin" "PASS" $true 0
 $syntheticRunStatusPath = Join-Path $syntheticOriginDir "run-status.json"
@@ -406,6 +459,23 @@ Write-Json $missingReceiptRunStatus $missingReceiptRunStatusPath
 Assert-True ($LASTEXITCODE -eq 1) "missing suite receipt fixture did not fail release decision"
 $missingReceiptDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingReceiptDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($missingReceiptDecision.blockers) -contains "suite_receipt_gate_failed") "missing suite receipt fixture did not report receipt blocker"
+
+$brokenReceiptDir = New-FixtureRun "broken-suite-receipt-chain" "PASS" $true 0
+$brokenReceiptPath = Join-Path $brokenReceiptDir "suite-receipt.jsonl"
+$brokenReceiptRows = @(Get-Content -Encoding UTF8 -LiteralPath $brokenReceiptPath)
+$brokenReceiptEvent = $brokenReceiptRows[1] | ConvertFrom-Json
+$brokenReceiptEvent.previous_event_hash = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+$brokenReceiptRows[1] = ($brokenReceiptEvent | ConvertTo-Json -Compress -Depth 20)
+$brokenReceiptRows | Set-Content -LiteralPath $brokenReceiptPath -Encoding UTF8
+$brokenStatusPath = Join-Path $brokenReceiptDir "run-status.json"
+$brokenStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $brokenStatusPath | ConvertFrom-Json
+$brokenStatus.suite_receipt_sha256 = Get-FixtureSha256 $brokenReceiptPath
+Write-Json $brokenStatus $brokenStatusPath
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $brokenReceiptDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "broken suite receipt chain fixture did not fail release decision"
+$brokenReceiptDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $brokenReceiptDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($brokenReceiptDecision.blockers) -contains "suite_receipt_hash_chain_failed") "broken suite receipt chain fixture did not report hash-chain blocker"
+Assert-True ([string]$brokenReceiptDecision.decision -ne "release_pass") "broken suite receipt chain fixture incorrectly wrote release_pass"
 
 $badEvidenceHashDir = New-FixtureRun "bad-evidence-hash" "PASS" $true 0
 $badEvidencePath = Join-Path $badEvidenceHashDir "non-agent-evidence\provider_request_hook.txt"

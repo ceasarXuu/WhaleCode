@@ -75,7 +75,10 @@ v0.0.5 已经实现了若干基础模块：`state_commit`、output reference、c
 TaskSpace solved >= Standard solved - 1
 TaskSpace direct input+output ratio <= 2.0x Standard
 TaskSpace agent walltime ratio <= 2.0x Standard
+TaskSpace model_request_count ratio <= 2.0x Standard
 ```
+
+`model_request_count_ratio <= 2.5x` 只能进入 `blocked_partial`，不得产生 `release_pass`。固定 route/request/spawn/node 上限只是 safety cap；正式 P0 release proof 必须同时计算 TaskSpace/Standard ratio。
 
 ### Engineering Re-entry Target
 
@@ -90,6 +93,8 @@ spawn_agent_call_count <= route budget
 active_context_replacement_confirmed = true
 budget_response_action_taken when budget exceeds threshold
 ```
+
+Re-entry 的 `2.5x` 是继续诊断或进入 formal P0 的工程门槛，不是 v0.0.5 clean release target。
 
 ### Diagnostic Target
 
@@ -1240,8 +1245,10 @@ formal P0:
   TaskSpace solved >= Standard solved - 1
   direct input+output <= 2x for release_pass
   walltime <= 2x for release_pass
+  model_request_count <= 2x for release_pass
   direct input+output <= 3x only for blocked_partial
   walltime <= 3x only for blocked_partial
+  model_request_count <= 2.5x only for blocked_partial
   no invalid_harness sample
 ```
 
@@ -1288,6 +1295,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 3. 已决策：budget hard stop 可以返回用户可见 `blocked_by_budget`，也可以进入 `final_synthesis` 输出 partial failure；但只要 validator 未通过、关键证据缺失或 `score_eligible=false`，该样本不得计为 solved，也不得进入 `release_pass` 的 clean 成功统计。
 4. state_commit adoption gate 对不同任务复杂度是否需要不同阈值？
 5. `terminal-bench_E3-P0_1_1` targeted diagnostic 首选样本应是 `processing-pipeline` 还是 `recover-accuracy-log`？
+
+## 12.1 Current Decisions For Accepted Review Blockers
+
+1. Provider request hook location is no longer open for v0.0.5 implementation: the authoritative hook is `third_party/codex-cli/codex-rs/core/src/client.rs` / `ModelClientSession` before provider dispatch and across stream lifecycle. `ActionMap` may provide request context and budget policy, but release evidence must not infer provider request phase/node from a later runtime snapshot.
+2. Active budget thresholds must be two-layered: Standard-baseline ratio gates decide `release_pass` / `blocked_partial`, while route fixed thresholds are only runtime safety caps. A run cannot close v0.0.5 merely because it stayed under an absolute route cap.
+3. Release decision must derive formal P0 identity from task-list content and verify suite receipt hash chain. A self-consistent copied JSON tree is not enough for `release_pass`.
 
 ## 13. Plan Quality Checklist
 

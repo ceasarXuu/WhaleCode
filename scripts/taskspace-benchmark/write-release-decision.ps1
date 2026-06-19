@@ -5,6 +5,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "lib\e3-identity.ps1")
+
 function Read-ReleaseJson {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
@@ -89,6 +91,37 @@ function Get-ReleaseFileSha256 {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return "" }
     (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Get-ReleaseStableObjectHash {
+    param($Value)
+    $json = $Value | ConvertTo-Json -Depth 30 -Compress
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        ([System.BitConverter]::ToString($sha.ComputeHash($bytes)) -replace "-", "").ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+    }
+}
+
+function Test-ReleaseReceiptHashChain {
+    param([object[]]$Events)
+    if ($Events.Count -eq 0) { return $false }
+    $previousHash = ""
+    foreach ($event in $Events) {
+        $eventHash = Get-ReleaseString $event "event_hash"
+        $declaredPrevious = Get-ReleaseString $event "previous_event_hash"
+        if ([string]::IsNullOrWhiteSpace($eventHash) -or $declaredPrevious -ne $previousHash) { return $false }
+        $copy = [ordered]@{}
+        foreach ($property in $event.PSObject.Properties) {
+            if ($property.Name -eq "event_hash") { continue }
+            $copy[$property.Name] = $property.Value
+        }
+        if ((Get-ReleaseStableObjectHash $copy) -ne $eventHash) { return $false }
+        $previousHash = $eventHash
+    }
+    $true
 }
 
 function Get-ReleaseArrayStrings {
@@ -336,6 +369,36 @@ if ($sampleNamesMatch) {
     }
 }
 $formalPairCount = $expectedFormalSampleNames.Count * 5
+$suiteManifest = Read-ReleaseJson $runSuiteManifestPath
+$manifestTaskListPath = Get-ReleaseString $suiteManifest "task_list_path"
+$taskListIdentitySource = "missing"
+$derivedSampleSetId = ""
+$derivedSampleNames = @()
+$releaseTaskListDerivationPass = $false
+if (-not [string]::IsNullOrWhiteSpace($manifestTaskListPath) -and (Test-Path -LiteralPath $manifestTaskListPath -PathType Leaf)) {
+    $actualTaskListSha256 = Get-ReleaseFileSha256 $manifestTaskListPath
+    try {
+        $taskListDerivation = Get-TaskspaceE3SampleSetDerivation -Benchmark $runBenchmarkFamily -TaskListPath $manifestTaskListPath -Repeats $runRepeatsPerSample
+        $derivedSampleSetId = Get-ReleaseString $taskListDerivation "sample_set_id"
+        $derivedSampleNames = @(Get-ReleaseArrayStrings $taskListDerivation "sample_names" | Sort-Object)
+        $taskListIdentitySource = "derived_from_task_list"
+        $releaseTaskListDerivationPass = ((Get-ReleaseBool $taskListDerivation "formal_p0") `
+            -and $derivedSampleSetId -eq $expectedFormalSampleSetId `
+            -and $actualTaskListSha256 -eq $runTaskListSha256 `
+            -and $actualTaskListSha256 -eq (Get-ReleaseString $suiteManifest "task_list_sha256"))
+    } catch {
+        $taskListIdentitySource = "derivation_failed"
+    }
+}
+$derivedSampleNamesMatch = ($derivedSampleNames.Count -eq $expectedSortedSampleNames.Count)
+if ($derivedSampleNamesMatch) {
+    for ($i = 0; $i -lt $derivedSampleNames.Count; $i++) {
+        if ($derivedSampleNames[$i] -ne $expectedSortedSampleNames[$i]) {
+            $derivedSampleNamesMatch = $false
+            break
+        }
+    }
+}
 $gateDecisionPass = ($gateDecision `
     -and (Get-ReleaseBool $gateDecision "full_e3_allowed") `
     -and (Get-ReleaseBool $gateDecision "v005_markers_passed") `
@@ -375,7 +438,6 @@ if ($userApprovalMarkerPass) {
 }
 $actualApprovalMarkerSha256 = Get-ReleaseFileSha256 $v005UserApprovalMarkerPath
 $actualCodeCompleteMarkerSha256 = Get-ReleaseFileSha256 $v005CodeCompleteMarkerPath
-$suiteManifest = Read-ReleaseJson $runSuiteManifestPath
 $actualSuiteManifestSha256 = Get-ReleaseFileSha256 $runSuiteManifestPath
 $suiteManifestPass = ($suiteManifest `
     -and $runSuiteManifestSha256 -match '^[a-fA-F0-9]{64}$' `
@@ -403,7 +465,9 @@ $receiptRunInitialized = @($suiteReceiptEvents | Where-Object { [string]$_.event
 $receiptSampleScheduled = @($suiteReceiptEvents | Where-Object { [string]$_.event -eq "sample_scheduled" })
 $receiptSampleCompleted = @($suiteReceiptEvents | Where-Object { [string]$_.event -eq "sample_completed" })
 $receiptFinalized = @($suiteReceiptEvents | Where-Object { [string]$_.event -eq "suite_finalized" })
+$suiteReceiptHashChainPass = Test-ReleaseReceiptHashChain $suiteReceiptEvents
 $suiteReceiptPass = ($suiteReceiptEvents.Count -gt 0 `
+    -and $suiteReceiptHashChainPass `
     -and $receiptRunInitialized.Count -eq 1 `
     -and $receiptFinalized.Count -eq 1 `
     -and $receiptSampleScheduled.Count -ge 1 `
@@ -418,6 +482,7 @@ $suiteReceiptPass = ($suiteReceiptEvents.Count -gt 0 `
     -and (Get-ReleaseString $receiptRunInitialized[0] "profile_hash") -eq $runRunnerProfileHash)
 $formalE3IdentityPass = ($runStatus `
     -and $runSampleSetId -eq $expectedFormalSampleSetId `
+    -and $releaseTaskListDerivationPass `
     -and $runBenchmarkFamily -eq "terminal-bench" `
     -and $runRunnerEntrypoint -eq "run-taskspace-e3-suite.ps1" `
     -and $runRepeatsPerSample -ge 5 `
@@ -425,6 +490,7 @@ $formalE3IdentityPass = ($runStatus `
     -and $runInitializedEvents.Count -gt 0 `
     -and [int]$runInitializedEvents[0].repeats -ge 5 `
     -and $sampleNamesMatch `
+    -and $derivedSampleNamesMatch `
     -and $startGatePass `
     -and $gateDecisionPass `
     -and $codeCompleteMarkerPass `
@@ -453,6 +519,11 @@ $evidence = [ordered]@{
 }
 $qualityPass = ($aggregate -and (Get-ReleaseBool $aggregate "score_valid") -and (Get-ReleaseString $aggregate "run_validity") -eq "valid")
 $costStatus = Get-ReleaseString $cost "status" "MISSING"
+$directInputOutputRatio = [double](Get-ReleaseString $cost.ratios "direct_input_output_ratio" "999")
+$walltimeRatio = [double](Get-ReleaseString $cost.ratios "walltime_ratio" "999")
+$modelRequestCountRatio = [double](Get-ReleaseString $cost.ratios "model_request_count_ratio" "999")
+$formalP0CostCleanPass = ($directInputOutputRatio -le 2.0 -and $walltimeRatio -le 2.0 -and $modelRequestCountRatio -le 2.0)
+$formalP0CostPartialPass = ($directInputOutputRatio -le 3.0 -and $walltimeRatio -le 3.0 -and $modelRequestCountRatio -le 2.5)
 $projectionPass = ($projection `
     -and (Get-ReleaseInt $projection "missing_taskspace_projection_count" 0) -eq 0 `
     -and (Get-ReleaseInt $projection "taskspace_projection_protected_miss_count" 0) -eq 0 `
@@ -589,8 +660,11 @@ if (-not $stateCommitDisplacementPass) { Add-ReleaseLine $blockers "state_commit
 if (-not $spawnNodeBudgetPass) { Add-ReleaseLine $blockers "spawn_budget_gate_failed" }
 if (-not $v005NonAgentGatesPass) { Add-ReleaseLine $blockers "v005_non_agent_gates_failed" }
 if (-not $formalE3IdentityPass) { Add-ReleaseLine $blockers "formal_e3_identity_gate_failed" }
+if (-not $releaseTaskListDerivationPass) { Add-ReleaseLine $blockers "formal_e3_task_list_derivation_failed" }
+if ($modelRequestCountRatio -gt 2.5) { Add-ReleaseLine $blockers "formal_p0_request_ratio_gate_failed" }
 if (-not $suiteProvenancePass) { Add-ReleaseLine $blockers "formal_e3_provenance_gate_failed" }
 if (-not $suiteReceiptPass) { Add-ReleaseLine $blockers "suite_receipt_gate_failed" }
+if (-not $suiteReceiptHashChainPass) { Add-ReleaseLine $blockers "suite_receipt_hash_chain_failed" }
 if (-not $codeCompleteMarkerPass) { Add-ReleaseLine $blockers "v005_code_complete_marker_failed" }
 if (-not $userApprovalMarkerPass) { Add-ReleaseLine $blockers "v005_user_approval_marker_failed" }
 if ($aggregate -and (Get-ReleaseInt $aggregate "excluded_pairs" 0) -gt 0) { Add-ReleaseLine $blockers "excluded_pairs_present" }
@@ -598,10 +672,10 @@ if ($aggregate -and (Get-ReleaseInt $aggregate "excluded_pairs" 0) -gt 0) { Add-
 $decision = "fail"
 $closeable = $false
 if ($qualityPass -and $projectionPass -and $mapPass -and $routingPass -and $outputRefPass -and $runProvenancePass -and $formalE3IdentityPass -and $suiteProvenancePass -and $suiteReceiptPass -and $codeCompleteMarkerPass -and $userApprovalMarkerPass -and $providerRequestPass -and $budgetResponsePass -and $budgetQualityImpactPass -and $requestPhasePass -and $activeReplacementPass -and $stateCommitDisplacementPass -and $spawnNodeBudgetPass -and $v005NonAgentGatesPass) {
-    if ($costStatus -eq "PASS" -and $blockers.Count -eq 0) {
+    if ($costStatus -eq "PASS" -and $formalP0CostCleanPass -and $blockers.Count -eq 0) {
         $decision = "release_pass"
         $closeable = $true
-    } elseif ($costStatus -eq "PARTIAL" -and $blockers.Count -eq 0) {
+    } elseif ($costStatus -in @("PASS", "PARTIAL") -and $formalP0CostPartialPass -and $blockers.Count -eq 0) {
         $decision = "blocked_partial"
     }
 }
@@ -621,9 +695,14 @@ $summary = [pscustomobject]@{
     formal_e3_identity_gate_pass = [bool]$formalE3IdentityPass
     formal_e3_provenance_gate_pass = [bool]$suiteProvenancePass
     suite_receipt_gate_pass = [bool]$suiteReceiptPass
+    suite_receipt_hash_chain_pass = [bool]$suiteReceiptHashChainPass
     artifact_origin = $runArtifactOrigin
     sample_set_id = $runSampleSetId
     sample_names = @($runSampleNames)
+    task_list_identity_source = $taskListIdentitySource
+    task_list_derivation_gate_pass = [bool]$releaseTaskListDerivationPass
+    derived_sample_set_id = $derivedSampleSetId
+    derived_sample_names = @($derivedSampleNames)
     repeats_per_sample = [int]$runRepeatsPerSample
     benchmark_family = $runBenchmarkFamily
     runner_entrypoint = $runRunnerEntrypoint
@@ -647,6 +726,11 @@ $summary = [pscustomobject]@{
     blocked_by_budget_samples_count = Get-ReleaseInt $budgetQualityImpactSummary "blocked_by_budget_samples_count" 0
     manual_override_used_count = Get-ReleaseInt $budgetQualityImpactSummary "manual_override_used_count" 0
     budget_quality_impact_summary_matches_events = [bool]$budgetQualityImpactSummaryMatchesEvents
+    formal_p0_cost_clean_pass = [bool]$formalP0CostCleanPass
+    formal_p0_cost_partial_pass = [bool]$formalP0CostPartialPass
+    direct_input_output_ratio = $directInputOutputRatio
+    walltime_ratio = $walltimeRatio
+    model_request_count_ratio = $modelRequestCountRatio
     derived_budget_induced_validation_skip_count = [int]$derivedBudgetValidationSkipCount
     derived_budget_induced_score_ineligible_solved_count = [int]$derivedBudgetScoreIneligibleSolvedCount
     derived_blocked_by_budget_count = [int]$derivedBlockedByBudgetCount
@@ -693,8 +777,12 @@ Add-ReleaseLine $lines "- run_provenance_gate_pass: $runProvenancePass"
 Add-ReleaseLine $lines "- formal_e3_identity_gate_pass: $formalE3IdentityPass"
 Add-ReleaseLine $lines "- formal_e3_provenance_gate_pass: $suiteProvenancePass"
 Add-ReleaseLine $lines "- suite_receipt_gate_pass: $suiteReceiptPass"
+Add-ReleaseLine $lines "- suite_receipt_hash_chain_pass: $suiteReceiptHashChainPass"
 Add-ReleaseLine $lines "- artifact_origin: $runArtifactOrigin"
 Add-ReleaseLine $lines "- sample_set_id: $runSampleSetId"
+Add-ReleaseLine $lines "- task_list_identity_source: $taskListIdentitySource"
+Add-ReleaseLine $lines "- task_list_derivation_gate_pass: $releaseTaskListDerivationPass"
+Add-ReleaseLine $lines "- derived_sample_set_id: $derivedSampleSetId"
 Add-ReleaseLine $lines "- repeats_per_sample: $runRepeatsPerSample"
 Add-ReleaseLine $lines "- runner_entrypoint: $runRunnerEntrypoint"
 Add-ReleaseLine $lines "- runner_profile_hash: $runRunnerProfileHash"
@@ -702,6 +790,8 @@ Add-ReleaseLine $lines "- runner_script_sha256: $runRunnerScriptSha256"
 Add-ReleaseLine $lines "- child_runner_sha256: $runChildRunnerSha256"
 Add-ReleaseLine $lines "- task_list_sha256: $runTaskListSha256"
 Add-ReleaseLine $lines "- suite_receipt_sha256: $runSuiteReceiptSha256"
+Add-ReleaseLine $lines "- formal_p0_cost_clean_pass: $formalP0CostCleanPass"
+Add-ReleaseLine $lines "- formal_p0_cost_partial_pass: $formalP0CostPartialPass"
 Add-ReleaseLine $lines "- code_complete_marker_pass: $codeCompleteMarkerPass"
 Add-ReleaseLine $lines "- user_approval_marker_pass: $userApprovalMarkerPass"
 Add-ReleaseLine $lines "- start_gate_decision_path: $gateDecisionPath"
