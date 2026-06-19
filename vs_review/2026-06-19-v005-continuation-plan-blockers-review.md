@@ -161,12 +161,50 @@ Correction:
 
 ## Closure Decision
 
-This review is not closed.
+Initial status: not closed.
 
-Accepted blocking findings require a design correction before implementation starts. After the design is corrected, run a fresh closure review focused only on these blockers:
+Accepted blocking findings required a design correction before implementation. After the design correction, a fresh closure review was run focused only on these blockers:
 
 1. E3 start gate is part of Phase 0/5 and blocks formal E3.
 2. provider request budget hook is not confused with rollout trace.
 3. active replacement includes actual provider-visible context composition changes.
 4. release decision taxonomy is corrected to non-closeable `blocked_partial`.
 
+## Round 2: Closure Review
+
+### Reviewer Launch Record
+
+- Reviewer role: closure reviewer
+- Mechanism: internal subagent
+- Agent id: `019ede0e-d7c9-71a0-ac6f-e87e69196c0f`
+- Nickname: `Copernicus`
+- Context mode: `fork_context=false`
+- Read-only instruction: yes
+- Explicitly excluded: main-agent chat history, implementation drafts, hidden reasoning
+- Review scope: only the four accepted blocking findings above
+
+### Closure Reviewer Verdict
+
+Verdict: pass.
+
+The reviewer found that the four prior blocking findings are closed at the engineering-plan level:
+
+- `docs/v0.0.5/18-unfinished-work-engineering-design.md` now makes `scripts/taskspace-benchmark/lib/e3-start-gate.ps1` a first-class P0 landing point and requires formal E3 to depend on v0.0.5 non-agent gates, code-complete marker, and user approval marker.
+- The plan now separates the real provider request budget hook in `client.rs` from best-effort rollout trace evidence.
+- Phase 2 now includes actual provider-visible context composition changes, not only scan/report artifacts.
+- Phase 5 now requires `release_pass` / `blocked_partial` / `fail` taxonomy and `blocked_partial.closeable=false`.
+
+### Residual Implementation Risks
+
+The closure pass is plan-level only. Current implementation still needs to catch up:
+
+- `scripts/taskspace-benchmark/lib/e3-start-gate.ps1` still derives `full_e3_allowed` from calibration only.
+- `scripts/taskspace-benchmark/write-release-decision.ps1` still emits `PASS/PARTIAL/FAIL`.
+- rollout trace remains best-effort evidence and cannot block provider dispatch.
+- `client.rs` still needs a real budget hook around HTTP/WebSocket provider dispatch.
+
+### Main-Agent Closure Response
+
+accept.
+
+The design blocker is closed. Implementation may proceed, but formal E3 remains forbidden until the implementation-level gates and review are complete.

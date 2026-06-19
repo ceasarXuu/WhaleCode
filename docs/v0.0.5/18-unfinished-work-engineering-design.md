@@ -448,15 +448,17 @@ Release decision taxonomy 必须改为：
 
 | 模块 | 文件 | 设计动作 |
 |---|---|---|
-| Provider request hook | provider client/session request path, exact file to be confirmed in Phase 0A | 记录 request id、phase、task/node context、budget before/after、payload hash |
+| Provider request budget hook | `third_party/codex-cli/codex-rs/core/src/client.rs` HTTP/WebSocket provider dispatch 前后 | 执行中阻断/放行 request，记录 request id、phase、task/node context、budget before/after、payload hash；不得把 best-effort rollout trace 当作控制 hook |
+| Provider request trace evidence | `third_party/codex-cli/codex-rs/rollout-trace/src/inference.rs`、`raw_event.rs` | 仅作为 exact payload / audit evidence 输入；不能负责预算阻断 |
 | Runtime budget state | `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs` | 增加 budget contract、counter、state machine、gate recovery |
 | TaskSpace handler | `third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control.rs` | 对 legacy actions 增加 active profile budget 和 `state_commit_required` recovery |
 | Tool schema/profile | `third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs`、`tool_config.rs`、`tool_registry_plan.rs` | 暴露 compact active profile，收窄 legacy action 诱导面 |
 | Spawn tool gating | `third_party/codex-cli/codex-rs/tools/src/agent_tool.rs`、runtime spawn checks | profile 下隐藏/限制 spawn，或 runtime 统一阻断 |
-| Context projection | `action_map/runtime.rs` projection builder | 增加 active replacement proof hooks、protected item report |
+| Provider-visible context composition | session/history/request input assembly path discovered in Phase 0A, plus `action_map/runtime.rs` projection builder | active profile 下省略 raw TaskSpace history、stale node history、rejected subagent body、large raw output；projection proof 只能证明，不是替换动作本身 |
 | Metrics extraction | `scripts/taskspace-benchmark/lib/metrics-extractor.ps1` | 解析新增 artifacts |
 | Cost instrumentation | `scripts/taskspace-benchmark/lib/cost-instrumentation.ps1` | 写 request phase、state commit displacement、active replacement |
 | Release decision | `scripts/taskspace-benchmark/write-release-decision.ps1` | 加新 gate 和 blockers |
+| E3 start gate | `scripts/taskspace-benchmark/lib/e3-start-gate.ps1` | formal E3 必须依赖 v0.0.5 non-agent gates、code-complete marker 和用户批准 marker；缺任何一项时禁止 `full_e3` |
 | Harness tests | `scripts/taskspace-benchmark/test-harness.ps1`、`test-release-decision.ps1` | 增加 synthetic pass/fail fixture |
 
 ## 8. 阶段计划
@@ -477,6 +479,8 @@ Release decision taxonomy 必须改为：
 #### Implementation Tasks
 
 - 定位 provider request dispatch 前后 hook。
+- 在 `client.rs` 的 HTTP `client.stream_request(...)` 和 WebSocket `websocket_connection.stream_request(...)` 前加入可阻断 budget check；响应/失败后更新 budget state。
+- 禁止把 `InferenceTraceAttempt::record_started` 作为阻断 hook：它是 best-effort trace writer，失败时不会阻止 provider request。
 - 增加 `TaskSpaceProviderRequestEventV1`。
 - request 开始前记录 request id、route mode、task/map/node context、budget state before。
 - request 完成后记录 token、latency、status、budget state after。
@@ -487,6 +491,7 @@ Release decision taxonomy 必须改为：
 
 - provider request event implementation
 - `provider-request-events.jsonl`
+- `budget-events.jsonl`
 - exact request payload artifact support or exact pre-redaction scan event support
 
 #### Testing And Validation
@@ -494,6 +499,7 @@ Release decision taxonomy 必须改为：
 | Validation Item | Method | Passing Standard |
 |---|---|---|
 | provider hook fires | non-agent fixture/mock provider request | every request emits start/end or terminal failed event |
+| provider hook blocks | mock provider request with exceeded budget | non-recovery provider request is not dispatched |
 | context propagation | fixture with active TaskSpace task/node | event has task_id/map_id/node_id |
 | payload proof | fixture request | searchable payload artifact present, or exact pre-redaction scan event present and tied to payload sha256 |
 | missing context | fixture without TaskSpace | explicit null/missing reason, not zero |
@@ -505,6 +511,7 @@ provider_request_hook_coverage >= 99%
 provider_request_context_missing_reason present for every missing context
 payload hash available for active TaskSpace requests
 payload artifact or exact pre-redaction scan event available for active replacement release proof
+provider request over hard budget is blocked before network dispatch
 ```
 
 #### Review Plan
@@ -653,12 +660,14 @@ budget gate 单测全部通过，且没有破坏现有 `state_commit` / node con
 
 #### Design Approach
 
-- 不直接改变业务语义；先增加 exact provider payload proof。
+- active replacement 的核心动作是改变 provider-visible context composition；exact provider payload proof 只能证明替换是否发生。
 - active profile 下发现旧历史叠加时，release gate 失败。
 - protected items missing 时，runtime gate 失败。
 
 #### Implementation Tasks
 
+- 定位并修改 request input/history assembly，使 `taskspace-v005-active` 的 provider request 只携带 active projection、当前必要用户约束、当前节点必要证据、失败验证证据和最终回答所需 protected items。
+- 在 active profile 中省略 raw TaskSpace control history、completed stale node history、rejected subagent body、large raw output replay。
 - 增加 active provider payload capture/reconstruction helper。
 - 输出 `active-context-replacement-report.json`。
 - 增加 protected item enumerator。
@@ -670,6 +679,7 @@ budget gate 单测全部通过，且没有破坏现有 `state_commit` / node con
 
 #### Deliverables
 
+- provider-visible context composition implementation
 - reconstruction helper
 - report artifact
 - release decision gate
@@ -679,6 +689,7 @@ budget gate 单测全部通过，且没有破坏现有 `state_commit` / node con
 | Validation Item | Method | Passing Standard |
 |---|---|---|
 | active replacement | synthetic prompt fixture |旧 TaskSpace history 不出现 |
+| actual context composition | synthetic history fixture | request input assembly omits raw TaskSpace history before scan |
 | fake projection artifact | fixture with projection event but legacy payload | release gate fails |
 | hash-only fallback | fixture with hash/size but no payload artifact or exact scan | release gate fails |
 | exact scan provenance | fixture with scan event | replacement fields point to same request_id and payload hash |
@@ -838,13 +849,16 @@ spawn/node budget fixture PASS，release decision 能拒绝 budget exceeded run�
 
 - 修 `multi-source-data-merger` validator eligibility/start marker/timeout 分类。
 - `write-release-decision.ps1` 接入新 gate。
-- 把 current `PARTIAL` decision 改为 `blocked_partial`，并确保 exit/report 文案明确不可收口。
+- 把 current `PASS/PARTIAL/FAIL` decision 改为 `release_pass/blocked_partial/fail`，并输出 `closeable` 字段；`blocked_partial.closeable=false`，markdown 必须明确不可用于 v0.0.5 收口。
+- `scripts/taskspace-benchmark/lib/e3-start-gate.ps1` 接入 v0.0.5 non-agent gates、code-complete marker 和用户批准 marker。缺任何一项时 `full_e3_allowed=false`，`next_allowed_command_category` 只能是 `fixture_tests`、`targeted_diagnostic` 或 `blocked`。
 - `test-release-decision.ps1` 增加 pass/fail fixture。
+- 增加 E3 start gate fixture：缺 v0.0.5 gate 时拒绝 formal E3；只有 non-agent gates PASS、code-complete marker 存在、用户批准 marker 存在时才允许 `full_e3`。
 - 所有正式结果强制显示 dataset/subset/sample/repeats/runner/evidence level。
 
 #### Deliverables
 
 - updated release decision
+- updated E3 start gate
 - updated harness tests
 - P0 sample eligibility report
 
@@ -855,6 +869,7 @@ spawn/node budget fixture PASS，release decision 能拒绝 budget exceeded run�
 | invalid harness fixture | script test | release fail reason 精确 |
 | missing active gate | script test | clean release blocked |
 | blocked partial | script test | 3x engineering partial produces `blocked_partial`, closeable=false |
+| start gate formal E3 block | script test | missing v0.0.5 non-agent gates/code/user marker blocks `full_e3` |
 | hash-only active replacement | script test | hash-only payload proof cannot produce `release_pass` |
 | exact payload scan | script test | scan event can satisfy replacement proof only when request_id/hash match |
 | sample metadata | script test | 缺 metadata fails |
