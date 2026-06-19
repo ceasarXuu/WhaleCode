@@ -283,12 +283,23 @@ $requestPhasePass = ($requestPhaseSummary `
     -and (Get-ReleaseInt $requestPhaseSummary "provider_request_hook_coverage" 0) -ge 99 `
     -and (Get-ReleaseInt $requestPhaseSummary "request_phase_attribution_coverage" 0) -ge 95 `
     -and (Get-ReleaseInt $requestPhaseSummary "unknown_request_phase_ratio" 100) -le 5)
-$exactScanPass = (@($exactPayloadScanEvents | Where-Object { [string]$_.schema_version -eq "taskspace-exact-payload-scan-event-v1" -and [bool]$_.passed -and -not [string]::IsNullOrWhiteSpace([string]$_.request_id) -and -not [string]::IsNullOrWhiteSpace([string]$_.provider_payload_sha256) }).Count -gt 0)
+$activeReplacementScanId = Get-ReleaseString $activeReplacement "exact_payload_scan_event_id"
+$activeReplacementRequestId = Get-ReleaseString $activeReplacement "request_id"
+$activeReplacementPayloadHash = Get-ReleaseString $activeReplacement "provider_payload_sha256"
+$matchingExactScanEvents = @($exactPayloadScanEvents | Where-Object {
+        [string]$_.schema_version -eq "taskspace-exact-payload-scan-event-v1" -and
+        [bool]$_.passed -and
+        [string]$_.scan_event_id -eq $activeReplacementScanId -and
+        [string]$_.provider_payload_sha256 -eq $activeReplacementPayloadHash -and
+        (-not [string]::IsNullOrWhiteSpace($activeReplacementRequestId) -and [string]$_.request_id -eq $activeReplacementRequestId)
+    })
+$exactScanPass = ($matchingExactScanEvents.Count -gt 0)
 $activeReplacementPass = ($activeReplacement `
     -and (Get-ReleaseBool $activeReplacement "provider_payload_available") `
-    -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $activeReplacement "provider_payload_sha256")) `
+    -and -not [string]::IsNullOrWhiteSpace($activeReplacementPayloadHash) `
+    -and -not [string]::IsNullOrWhiteSpace($activeReplacementRequestId) `
     -and (Get-ReleaseBool $activeReplacement "exact_payload_scan_passed") `
-    -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $activeReplacement "exact_payload_scan_event_id")) `
+    -and -not [string]::IsNullOrWhiteSpace($activeReplacementScanId) `
     -and (Get-ReleaseBool $activeReplacement "replacement_confirmed") `
     -and -not (Get-ReleaseBool $activeReplacement "legacy_taskspace_history_present" $true) `
     -and (Get-ReleaseInt $activeReplacement "large_raw_output_tokens" 1) -eq 0 `
@@ -298,7 +309,29 @@ $stateCommitDisplacementPass = ($stateCommitDisplacement `
     -and (Get-ReleaseString $stateCommitDisplacement "status") -eq "pass" `
     -and (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_count" 999999) -le (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_budget" 0))
 $spawnNodeBudgetPass = ($spawnNodeBudget -and (Get-ReleaseString $spawnNodeBudget "status") -eq "pass")
-$v005NonAgentGatesPass = ($v005NonAgentGates -and (Get-ReleaseString $v005NonAgentGates "status") -eq "pass")
+$requiredV005NonAgentGates = @(
+    "provider_request_hook",
+    "runtime_budget_response",
+    "active_context_replacement",
+    "state_commit_displacement",
+    "spawn_node_budget",
+    "request_phase_attribution",
+    "release_decision_fixture",
+    "start_gate_fixture"
+)
+$v005NonAgentGatesPass = ($v005NonAgentGates -and (Get-ReleaseString $v005NonAgentGates "status") -eq "pass" -and (Get-ReleaseInt $v005NonAgentGates "schema_version" 0) -eq 1)
+if ($v005NonAgentGatesPass) {
+    foreach ($gateName in $requiredV005NonAgentGates) {
+        $gateValue = $null
+        if ($v005NonAgentGates.PSObject.Properties.Name -contains "gates") {
+            $gateValue = $v005NonAgentGates.gates.$gateName
+        }
+        if (-not $gateValue -or [string]$gateValue.status -ne "pass" -or [string]::IsNullOrWhiteSpace([string]$gateValue.evidence_path)) {
+            $v005NonAgentGatesPass = $false
+            break
+        }
+    }
+}
 
 $blockers = New-Object System.Collections.Generic.List[string]
 foreach ($artifactName in $requiredArtifacts) {

@@ -109,12 +109,12 @@ fn provider_request_budget_records_started_and_terminal_status() {
     let dispatch = budget
         .before_dispatch("responses_websocket")
         .expect("first request should be within budget");
-    dispatch.record_status("completed");
+    dispatch.record_status("stream_opened");
 
     let events = budget.drain_events();
     assert_eq!(events.len(), 2);
     assert_eq!(events[0].status, "started");
-    assert_eq!(events[1].status, "completed");
+    assert_eq!(events[1].status, "stream_opened");
     assert_eq!(events[0].request_id, events[1].request_id);
     assert_eq!(events[0].request_count_after, 1);
     assert_eq!(events[1].request_count_after, 1);

@@ -148,6 +148,17 @@ function Get-TaskspaceV005MarkerGate {
     if ([string]::IsNullOrWhiteSpace([string]$marker.generated_at)) {
         return New-TaskspaceE3GateRow $Name "blocked" "$Name generated_at missing" "$Name`_generated_at_missing" "Marker generated_at is required: $Path"
     }
+    try {
+        $generatedAt = [datetimeoffset]::Parse([string]$marker.generated_at)
+    } catch {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name generated_at invalid" "$Name`_generated_at_invalid" "Marker generated_at must be parseable: $Path"
+    }
+    if ($generatedAt -lt (Get-Date).AddHours(-24)) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name generated_at stale" "$Name`_generated_at_stale" "Marker is older than 24 hours: $Path"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$marker.producer)) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name producer missing" "$Name`_producer_missing" "Marker producer is required: $Path"
+    }
     if (-not [string]::IsNullOrWhiteSpace($ExpectedTaskListHash) -and [string]$marker.task_list_hash -ne $ExpectedTaskListHash) {
         return New-TaskspaceE3GateRow $Name "blocked" "$Name task_list_hash mismatch" "$Name`_task_list_hash_mismatch" "Marker task_list_hash does not match expected identity: $Path"
     }
@@ -173,13 +184,22 @@ function Get-TaskspaceV005MarkerGate {
             if ($marker.PSObject.Properties.Name -contains "gates") {
                 $gateValue = $marker.gates.$gateName
             }
-            if ([string]$gateValue -ne "pass") {
+            $gateStatus = if ($gateValue -and $gateValue.PSObject.Properties.Name -contains "status") { [string]$gateValue.status } else { [string]$gateValue }
+            if ($gateStatus -ne "pass") {
                 return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName not pass" "$Name`_$gateName`_not_pass" "Non-agent gate $gateName must be pass: $Path"
+            }
+            if (-not ($gateValue -and $gateValue.PSObject.Properties.Name -contains "evidence_path") -or [string]::IsNullOrWhiteSpace([string]$gateValue.evidence_path)) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName evidence missing" "$Name`_$gateName`_evidence_missing" "Non-agent gate $gateName must include evidence_path: $Path"
             }
         }
     } elseif ([string]$Name -eq "v005_code_complete") {
         if ([string]::IsNullOrWhiteSpace([string]$marker.git_commit)) {
             return New-TaskspaceE3GateRow $Name "blocked" "$Name git_commit missing" "$Name`_git_commit_missing" "Code-complete marker must record git_commit: $Path"
+        }
+        $repoRootForMarker = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
+        $currentHead = (& git -C $repoRootForMarker rev-parse HEAD 2>$null)
+        if (-not [string]::IsNullOrWhiteSpace([string]$currentHead) -and [string]$marker.git_commit -ne [string]$currentHead) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name git_commit mismatch" "$Name`_git_commit_mismatch" "Code-complete marker git_commit does not match current HEAD: $Path"
         }
         if (@($marker.unfinished_p0_items).Count -gt 0) {
             return New-TaskspaceE3GateRow $Name "blocked" "$Name unfinished P0 items remain" "$Name`_unfinished_p0_items" "Code-complete marker still lists unfinished P0 items: $Path"

@@ -121,28 +121,35 @@ function New-V005MarkerFixtures {
     $nonAgentPath = Join-Path $Root "non-agent-gates.json"
     $codeCompletePath = Join-Path $Root "code-complete.json"
     $userApprovalPath = Join-Path $Root "user-approval.json"
+    $head = (& git -C $repoRoot rev-parse HEAD)
+    $now = (Get-Date).ToString("o")
     $identity = @{
         schema_version = 1
         status = "pass"
         task_list_hash = $TaskListHash
         source_version = $SourceVersion
         profile_hash = $ProfileHash
-        generated_at = "2026-06-19T00:00:00.0000000Z"
+        generated_at = $now
+        producer = "test-e3-start-gate"
+    }
+    $gateObject = {
+        param([string]$Name)
+        [pscustomobject]@{ status = "pass"; evidence_path = "selftest://$Name"; command = "selftest"; generated_at = $now }
     }
     [pscustomobject]($identity + @{
             gates = [pscustomobject]@{
-                provider_request_hook = "pass"
-                runtime_budget_response = "pass"
-                active_context_replacement = "pass"
-                state_commit_displacement = "pass"
-                spawn_node_budget = "pass"
-                request_phase_attribution = "pass"
-                release_decision_fixture = "pass"
-                start_gate_fixture = "pass"
+                provider_request_hook = (& $gateObject "provider_request_hook")
+                runtime_budget_response = (& $gateObject "runtime_budget_response")
+                active_context_replacement = (& $gateObject "active_context_replacement")
+                state_commit_displacement = (& $gateObject "state_commit_displacement")
+                spawn_node_budget = (& $gateObject "spawn_node_budget")
+                request_phase_attribution = (& $gateObject "request_phase_attribution")
+                release_decision_fixture = (& $gateObject "release_decision_fixture")
+                start_gate_fixture = (& $gateObject "start_gate_fixture")
             }
         }) | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $nonAgentPath -Encoding UTF8
     [pscustomobject]($identity + @{
-            git_commit = "selftest-commit"
+            git_commit = [string]$head
             unfinished_p0_items = @()
             test_outputs = @("selftest")
         }) | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $codeCompletePath -Encoding UTF8
@@ -150,7 +157,7 @@ function New-V005MarkerFixtures {
             approved_command_category = "full_e3"
             approved_sample_set_id = "terminal-bench_E3-P0_3_5"
             approval_source = "selftest"
-            approval_timestamp = "2026-06-19T00:00:00.0000000Z"
+            approval_timestamp = $now
         }) | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $userApprovalPath -Encoding UTF8
     [pscustomobject]@{ non_agent_path = $nonAgentPath; code_complete_path = $codeCompletePath; user_approval_path = $userApprovalPath }
 }
@@ -207,6 +214,13 @@ try {
     $mismatchedGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-mismatched-marker") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -V005NonAgentGatesPath $mismatchedMarkers.non_agent_path -V005CodeCompleteMarkerPath $mismatchedMarkers.code_complete_path -V005UserApprovalMarkerPath $mismatchedMarkers.user_approval_path -AllowSkippedSelfTests -SelfTestCommands @()
     $mismatchedDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $mismatchedGate.gate_decision_path | ConvertFrom-Json
     Assert-True (-not [bool]$mismatchedDecision.full_e3_allowed -and @($mismatchedGate.gates | Where-Object { [string]$_.stable_code -like "*task_list_hash_mismatch" }).Count -gt 0) "start gate accepted mismatched marker identity"
+    $staleMarkers = New-V005MarkerFixtures (Join-Path $runDir "v005-stale-markers")
+    $staleCodeMarker = Get-Content -Raw -Encoding UTF8 -LiteralPath $staleMarkers.code_complete_path | ConvertFrom-Json
+    $staleCodeMarker.generated_at = (Get-Date).AddDays(-3).ToString("o")
+    $staleCodeMarker | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $staleMarkers.code_complete_path -Encoding UTF8
+    $staleGate = Invoke-TaskspaceE3StartGate -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot -OutputDir (Join-Path $runDir "gate-stale-marker") -ScenarioPath $scenarioDir -OnePairSmokeRoot $calibration.one_pair_root -SerialCalibrationRoot $calibration.serial_root -ParallelEquivalencePath $calibration.equivalence_path -RunRoot (Join-Path $runDir "runs") -ExpectedTaskListHash "task-list-a" -SourceVersion "source-a" -ExpectedProfileHash "profile-a" -V005NonAgentGatesPath $staleMarkers.non_agent_path -V005CodeCompleteMarkerPath $staleMarkers.code_complete_path -V005UserApprovalMarkerPath $staleMarkers.user_approval_path -AllowSkippedSelfTests -SelfTestCommands @()
+    $staleDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $staleGate.gate_decision_path | ConvertFrom-Json
+    Assert-True (-not [bool]$staleDecision.full_e3_allowed -and @($staleGate.gates | Where-Object { [string]$_.stable_code -eq "v005_code_complete_generated_at_stale" }).Count -eq 1) "start gate accepted stale v0.0.5 marker"
     $skippedCalibrationDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath $smokeGate.gate_decision_path | ConvertFrom-Json
     Assert-True ([string]$skippedCalibrationDecision.next_allowed_command_category -eq "targeted_diagnostic" -and -not [bool]$skippedCalibrationDecision.full_e3_allowed -and -not [bool]$skippedCalibrationDecision.speed_claim_allowed -and -not [bool]$skippedCalibrationDecision.v005_markers_passed) "gate-decision authorized full E3 when calibration or v0.0.5 markers were skipped"
     $blockedCalibration = New-CalibrationFixtures (Join-Path $runDir "calibration-speedup-evidence-fail")

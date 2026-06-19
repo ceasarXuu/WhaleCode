@@ -1371,7 +1371,7 @@ impl ModelClientSession {
 
             match stream_result {
                 Ok(stream) => {
-                    budget_dispatch.record_status("completed");
+                    budget_dispatch.record_status("stream_opened");
                     let (stream, _) = map_response_stream(
                         stream,
                         session_telemetry.clone(),
@@ -1467,6 +1467,11 @@ impl ModelClientSession {
             if warmup {
                 ws_payload.generate = Some(false);
             }
+            let budget_dispatch = if warmup {
+                ProviderRequestBudgetDispatch::disabled()
+            } else {
+                provider_request_budget.before_dispatch("responses_websocket")?
+            };
 
             match self
                 .websocket_connection(WebsocketConnectParams {
@@ -1520,11 +1525,6 @@ impl ModelClientSession {
                         "websocket connection is unavailable".to_string(),
                     ))
                 })?;
-            let budget_dispatch = if warmup {
-                ProviderRequestBudgetDispatch::disabled()
-            } else {
-                provider_request_budget.before_dispatch("responses_websocket")?
-            };
             let stream_result = websocket_connection
                 .stream_request(ws_request, self.websocket_session.connection_reused())
                 .await
@@ -1534,7 +1534,7 @@ impl ModelClientSession {
                     inference_trace_attempt.record_failed(&err);
                     err
                 })?;
-            budget_dispatch.record_status("completed");
+            budget_dispatch.record_status("stream_opened");
             let (stream, last_request_rx) = map_response_stream(
                 stream_result,
                 session_telemetry.clone(),

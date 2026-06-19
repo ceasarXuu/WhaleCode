@@ -68,6 +68,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
     } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "exact-payload-scan-events.jsonl") -Encoding UTF8
     Write-Json ([pscustomobject]@{
             provider_payload_available = $true
+            request_id = "provider-request-1"
             provider_payload_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             exact_payload_scan_passed = $true
             exact_payload_scan_event_id = "scan-1"
@@ -83,7 +84,24 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             state_commit_count = 1
         }) (Join-Path $dir "state-commit-displacement.json")
     Write-Json ([pscustomobject]@{ status = "pass"; spawn_agent_call_count = 0; max_spawn_agent_calls = 0 }) (Join-Path $dir "spawn-node-budget-summary.json")
-    Write-Json ([pscustomobject]@{ status = "pass"; schema_version = 1 }) (Join-Path $dir "v005-non-agent-gates.json")
+    $gateObject = {
+        param([string]$Name)
+        [pscustomobject]@{ status = "pass"; evidence_path = "selftest://$Name"; command = "selftest"; generated_at = "2026-06-19T00:00:00.0000000Z" }
+    }
+    Write-Json ([pscustomobject]@{
+            status = "pass"
+            schema_version = 1
+            gates = [pscustomobject]@{
+                provider_request_hook = (& $gateObject "provider_request_hook")
+                runtime_budget_response = (& $gateObject "runtime_budget_response")
+                active_context_replacement = (& $gateObject "active_context_replacement")
+                state_commit_displacement = (& $gateObject "state_commit_displacement")
+                spawn_node_budget = (& $gateObject "spawn_node_budget")
+                request_phase_attribution = (& $gateObject "request_phase_attribution")
+                release_decision_fixture = (& $gateObject "release_decision_fixture")
+                start_gate_fixture = (& $gateObject "start_gate_fixture")
+            }
+        }) (Join-Path $dir "v005-non-agent-gates.json")
     Write-Json ([pscustomobject]@{
             schema_version = "TaskShapeRouterV1"
             recommended_mode = "thin"
@@ -212,6 +230,22 @@ $hashOnlyReplacement | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join
 Assert-True ($LASTEXITCODE -eq 1) "hash-only active replacement fixture did not exit 1"
 $hashOnlyReplacementDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $hashOnlyReplacementDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($hashOnlyReplacementDecision.blockers) -contains "active_context_replacement_gate_failed") "hash-only fixture did not report active replacement blocker"
+
+$mismatchedScanDir = New-FixtureRun "mismatched-exact-scan" "PASS" $true 0
+$scanRows = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $mismatchedScanDir "exact-payload-scan-events.jsonl") | ForEach-Object { $_ | ConvertFrom-Json }
+$scanRows[0].provider_payload_sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+($scanRows[0] | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $mismatchedScanDir "exact-payload-scan-events.jsonl") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $mismatchedScanDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "mismatched exact scan fixture did not exit 1"
+$mismatchedScanDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $mismatchedScanDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($mismatchedScanDecision.blockers) -contains "active_context_replacement_gate_failed") "mismatched scan fixture did not report active replacement blocker"
+
+$weakNonAgentDir = New-FixtureRun "weak-non-agent-gates" "PASS" $true 0
+Write-Json ([pscustomobject]@{ status = "pass"; schema_version = 1 }) (Join-Path $weakNonAgentDir "v005-non-agent-gates.json")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $weakNonAgentDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "weak non-agent gates fixture did not exit 1"
+$weakNonAgentDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $weakNonAgentDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($weakNonAgentDecision.blockers) -contains "v005_non_agent_gates_failed") "weak non-agent gates fixture did not report v005 gate blocker"
 
 $emptyOutputRefDir = New-FixtureRun "empty-output-ref-events" "PASS" $true 0
 Set-Content -LiteralPath (Join-Path $emptyOutputRefDir "output-ref-events.jsonl") -Encoding UTF8 -Value "{}"
