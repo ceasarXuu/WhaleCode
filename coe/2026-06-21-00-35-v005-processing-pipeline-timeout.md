@@ -1,7 +1,7 @@
 # Problem P-001: v0.0.5 processing-pipeline diagnostic stops on TaskSpace timeout
 - Status: root_cause_confirmed
 - Created: 2026-06-21 00:35
-- Updated: 2026-06-21 00:35
+- Updated: 2026-06-21 00:47
 - Objective: Explain why the 2026-06-21 `terminal-bench_E3-P0_3_1` diagnostic stopped after the first sample.
 - Symptoms:
   - Only `processing-pipeline` was executed.
@@ -29,13 +29,16 @@
   - E-003
   - E-004
   - E-005
+  - E-006
+  - E-007
+  - E-008
 - Ruled out:
   - Validator or Docker as the primary failure cause for this sample: TaskSpace validation did not start because the agent timed out first.
 - Fix criteria:
   - Rebuild/install current `whale.exe` before rerunning diagnostics.
   - Re-run a bounded single-sample TaskSpace diagnostic and verify provider budget/request events are present.
   - The same `processing-pipeline` sample must avoid uncontrolled spawn/wait expansion or terminate with a bounded budget reason before 900 seconds.
-- Current conclusion: The immediate run failure is caused by stale benchmark execution plus old TaskSpace orchestration behavior. The diagnostic did not exercise the latest v0.0.5 fixes. Within the executed binary, TaskSpace solved/changed files but then failed to close validation, repeatedly created smoke/regression/implementation nodes and spawned/waited for subagents until the harness killed the process.
+- Current conclusion: The immediate run failure is caused by stale benchmark execution plus old TaskSpace orchestration behavior. The stale-binary execution path is now guarded by an external benchmark preflight and the local installed binary has been rebuilt from current codex source. Within the previously executed stale binary, TaskSpace solved/changed files but then failed to close validation, repeatedly created smoke/regression/implementation nodes and spawned/waited for subagents until the harness killed the process.
 - Related hypotheses:
   - H-001
   - H-002
@@ -73,9 +76,12 @@
 - Related evidence:
   - E-001
   - E-003
+  - E-006
+  - E-007
+  - E-008
 - Conclusion: confirmed.
-- Repair design readiness: ready after user confirms rebuild/install and rerun.
-- Next step: rebuild/install `whale.exe` from current HEAD before any further benchmark run.
+- Repair design readiness: execution-environment repair implemented; current-code runtime reproduction is still required before TaskSpace design/runtime repair.
+- Next step: rerun a bounded single-sample TaskSpace diagnostic with the fresh binary; if reproduced, design a runtime fix around validation-node/subagent budget and main-path validation.
 - Blocker:
   - none
 - Close reason:
@@ -223,3 +229,53 @@
   - H-002
 - Refutes or weakens:
   - task-domain-only failure
+
+## Evidence E-006: External benchmark now rejects stale Whale binaries before materialization or agent execution
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Added `whale_binary_preflight` to `run-taskspace-external-benchmark.ps1` and ran non-agent self-tests.
+- Observations:
+  - `scripts\taskspace-benchmark\test-external-wrapper-harness.ps1` passed.
+  - A fake stale binary fixture exited with code `3`.
+  - The generated `sample-status.json` recorded `run_validity=invalid_harness`, `abort_phase=whale_binary_preflight`, and `abort_reason=whale_binary_stale_for_codex_source`.
+  - A live preflight against the previously installed binary also exited with code `3` and wrote `whale-binary-preflight-health.json`.
+- Interpretation:
+  - Future external E3 or diagnostic runs cannot silently use a binary older than the latest `third_party/codex-cli` source commit unless the operator explicitly opts into `-AllowStaleWhaleBin`.
+- Supports:
+  - H-001
+- Refutes or weakens:
+  - future conclusions based on accidentally stale installed binaries
+
+## Evidence E-007: Local installed Whale binary was rebuilt and passes freshness preflight
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Ran `cargo build -p codex-cli --bin whale --locked`, installed via `scripts\install-whale-local.ps1`, then ran non-agent preflight.
+- Observations:
+  - Build completed successfully in `D:\whalecode-alpha\third_party\codex-cli\codex-rs`.
+  - Installed binary: `C:\Users\77585\.whale\bin\whale.exe`.
+  - Installed SHA256: `5c99e4c72b1765ff5c6f0641e29025f2bc85d6495503fec24ecd0cde969acb40`.
+  - Installed `LastWriteTimeUtc`: `2026-06-20T16:46:34.0658113Z`.
+  - Latest `third_party/codex-cli` source commit: `f3d4d45e947934fceb7a4f9c52ca3575e6846420`, `2026-06-20T15:57:15Z`.
+  - `whale-binary-preflight-health.json` reported `status=pass`, `run_validity=valid`, and `stale_for_codex_source=false`.
+- Interpretation:
+  - The local benchmark default binary no longer predates the v0.0.5 runtime source currently under investigation.
+- Supports:
+  - H-001
+- Refutes or weakens:
+  - stale-binary as a blocker for the next current-code diagnostic
+
+## Evidence E-008: Direct runner no longer executes Whale before binary preflight
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Added a direct `run-taskspace-benchmark.ps1` fake stale binary fixture to the wrapper self-test.
+- Observations:
+  - Initial direct-runner fixture failed because `run-taskspace-benchmark.ps1` executed `$WhaleBin --version` before the newly added binary preflight.
+  - The runner now initializes `whaleVersion` and `whaleSha` without executing the binary before preflight.
+  - After `whale_binary_preflight` passes, the runner invokes `whale.exe exec --help` and `whale.exe --version`.
+  - `scripts\taskspace-benchmark\test-external-wrapper-harness.ps1` now passes with a direct fake stale binary fixture and records `abort_phase=whale_binary_preflight`.
+- Interpretation:
+  - Stale or invalid direct-runner binaries are classified as harness failures before any binary execution attempt.
+- Supports:
+  - H-001
+- Refutes or weakens:
+  - direct `run-taskspace-benchmark.ps1` as a remaining stale-binary bypass

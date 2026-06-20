@@ -38,6 +38,7 @@ param(
     [switch]$ScoringMode,
     [switch]$RequireScoreValidity,
     [switch]$EnableDockerImageCache,
+    [switch]$AllowStaleWhaleBin,
     [switch]$PlanOnly
 )
 
@@ -49,6 +50,20 @@ if (-not $RunRoot) { $RunRoot = Join-Path ([System.IO.Path]::GetTempPath()) "wha
 $RunRoot = [System.IO.Path]::GetFullPath($RunRoot)
 New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
 $scenarioRoot = Join-Path $RunRoot "materialized-scenarios"
+$binaryHealthPath = Join-Path $RunRoot "whale-binary-preflight-health.json"
+$binaryHealth = New-TaskspaceWhaleBinaryHealth $WhaleBin $repoRoot -AllowStale:$AllowStaleWhaleBin
+Write-TaskspaceHarnessHealth $binaryHealthPath $binaryHealth
+if ([string]$binaryHealth.status -eq "fail") {
+    $firstFinding = @($binaryHealth.findings | Where-Object { [string]$_.severity -eq "fail" } | Select-Object -First 1)[0]
+    $signature = New-TaskspaceInfraSignature "harness_materialization_failure" "whale_binary_preflight" ([string]$firstFinding.stable_code) ([string]$firstFinding.message) "" $binaryHealthPath
+    $abortSummaryPath = Join-Path $RunRoot "abort-summary.md"
+    New-TaskspaceHarnessAbortSummaryLines "TaskSpace Whale Binary Abort" "whale_binary_preflight" $firstFinding $signature $binaryHealthPath | Set-Content -LiteralPath $abortSummaryPath -Encoding UTF8
+    [pscustomobject]@{ schema_version = 1; phase = "invalid_harness"; run_validity = "invalid_harness"; diagnostic_comparison_enabled = $false; exit_code = 3; resume_allowed = $false; force_rerun_required = $true; invalid_run_reason = [string]$firstFinding.stable_code; first_failure_artifact = $binaryHealthPath } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $RunRoot "run-status.json") -Encoding UTF8
+    [pscustomobject]@{ schema_version = 1; sample_id = if ($SampleId) { $SampleId } else { Split-Path -Leaf $TaskDir }; phase = "invalid_harness"; run_validity = "invalid_harness"; diagnostic_comparison_enabled = $false; exit_code = 3; resume_allowed = $false; force_rerun_required = $true; abort_scope = "sample"; abort_phase = "whale_binary_preflight"; abort_signature = $signature.key; abort_reason = [string]$firstFinding.stable_code; first_failure_artifact = $binaryHealthPath } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $RunRoot "sample-status.json") -Encoding UTF8
+    Write-Host "WhaleBinaryHealth: $binaryHealthPath"
+    Write-Host "AbortSummary: $abortSummaryPath"
+    exit 3
+}
 $preMaterializationHealthPath = Join-Path $RunRoot "external-materialization-preflight-health.json"
 $preMaterializationHealth = New-TaskspaceDiskHealth @($RunRoot, $scenarioRoot, $TaskDir) "external_materialization_preflight"
 Write-TaskspaceHarnessHealth $preMaterializationHealthPath $preMaterializationHealth
@@ -171,6 +186,7 @@ if ($AllowDiagnosticNonTargetResult) { $args += "-AllowNonE2Result" }
 if ($ScoringMode) { $args += "-ScoringMode" }
 if ($RequireScoreValidity) { $args += "-RequireScoreValidity" }
 if ($EnableDockerImageCache) { $args += "-EnableDockerImageCache" }
+if ($AllowStaleWhaleBin) { $args += "-AllowStaleWhaleBin" }
 if ($PlanOnly) { $args += "-PlanOnly" }
 & powershell @args
 $exitCode = $LASTEXITCODE

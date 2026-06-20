@@ -4495,3 +4495,41 @@ Conclusion:
 
 - The diagnostic path runs, but the result is negative for v0.0.5 cost-control and raw correctness goals.
 - Do not proceed to formal `terminal-bench_E3-P0_3_5` closure until TaskSpace raw success and token/request cost are improved on the diagnostic P0 path.
+
+## 2026-06-21 stale Whale binary guard and reinstall
+
+Scope:
+
+- Fixed the non-design execution contamination where external benchmark runs could silently use an installed `whale.exe` older than the current v0.0.5 runtime source.
+- No real E3 or live agent benchmark was run.
+
+Changes:
+
+- Added `whale_binary_preflight` to `run-taskspace-external-benchmark.ps1`.
+- The preflight writes `whale-binary-preflight-health.json` with binary path, SHA256, LastWriteTimeUTC, current git HEAD, latest `third_party/codex-cli` source commit, and stale status.
+- A binary older than the latest `third_party/codex-cli` commit now exits `3` as `invalid_harness` before materialization or agent execution.
+- Added the same preflight to direct `run-taskspace-benchmark.ps1` execution before `whale.exe exec --help` or `whale.exe --version` can be invoked.
+- Added explicit `-AllowStaleWhaleBin` for forensic runs; this is not valid for formal scoring conclusions.
+- Updated external wrapper self-test to use controlled fake fresh/stale binaries instead of depending on the machine-installed binary.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-external-wrapper-harness.ps1
+cargo build -p codex-cli --bin whale --locked
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath "$env:CARGO_TARGET_DIR\debug\whale.exe" -PersistUserPath -BackupLegacyCopies
+```
+
+Result:
+
+- Wrapper self-test passed.
+- The old installed binary was classified as `invalid_harness` with `abort_reason=whale_binary_stale_for_codex_source`.
+- A direct runner fake stale binary fixture also exits `3` with `abort_phase=whale_binary_preflight`, proving the inner runner cannot execute stale binaries before classifying them.
+- Rebuilt installed binary: `C:\Users\77585\.whale\bin\whale.exe`.
+- Installed SHA256: `5c99e4c72b1765ff5c6f0641e29025f2bc85d6495503fec24ecd0cde969acb40`.
+- Fresh binary preflight passed with `stale_for_codex_source=false`.
+
+Reflection:
+
+- Before any live TaskSpace benchmark, run the external wrapper preflight or the suite start gate after rebuilding and reinstalling Whale.
+- Do not treat a benchmark result as current-code evidence unless `whale-binary-preflight-health.json` proves the installed binary is at least as fresh as the relevant `third_party/codex-cli` source.

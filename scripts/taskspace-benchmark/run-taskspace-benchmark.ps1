@@ -35,6 +35,7 @@ param(
     [string]$V005CodeCompleteMarkerPath = "",
     [string]$V005UserApprovalMarkerPath = "",
     [switch]$ForceRerun,
+    [switch]$AllowStaleWhaleBin,
     [switch]$PlanOnly
 )
 $ErrorActionPreference = "Stop"
@@ -134,8 +135,8 @@ $taskspacePrompt = $prompt + (New-TaskspaceRoutingPrompt $routingDecision)
 $routingDecisionPath = Join-Path $runDir "routing-decision.json"
 Write-TaskspaceJson $routingDecision $routingDecisionPath
 Write-TaskspaceRunEvent $runDir "routing_decision_completed" @{ mode = [string]$routingDecision.recommended_mode; confidence = [string]$routingDecision.confidence; status = [string]$routingDecision.status; path = $routingDecisionPath }
-$whaleVersion = if (Test-Path -LiteralPath $WhaleBin) { (& $WhaleBin --version 2>&1) -join " " } else { "" }
-$whaleSha = if (Test-Path -LiteralPath $WhaleBin) { Get-TaskspaceFileSha256 $WhaleBin } else { "" }
+$whaleVersion = ""
+$whaleSha = ""
 $fixtureSha = Get-TaskspaceDirectorySha256 $manifest.FixtureDir
 $promptSha = Get-TaskspaceFileSha256 $manifest.PromptPath
 $requiredProviderParams = @("model", "model_reasoning_effort", "sandbox_mode")
@@ -204,11 +205,28 @@ if ([string]$harnessHealth.status -eq "fail") {
     Write-Host "AbortSummary: $abortPath"
     exit 3
 }
+$binaryHealthPath = Join-Path $runDir "whale-binary-preflight-health.json"
+$binaryHealth = New-TaskspaceWhaleBinaryHealth $WhaleBin $repoRoot -AllowStale:$AllowStaleWhaleBin
+Write-TaskspaceHarnessHealth $binaryHealthPath $binaryHealth
+Write-TaskspaceRunEvent $runDir "whale_binary_preflight_completed" @{ status = [string]$binaryHealth.status; path = $binaryHealthPath; stale_for_codex_source = [bool]$binaryHealth.stale_for_codex_source }
+if ([string]$binaryHealth.status -eq "fail") {
+    $firstFinding = @($binaryHealth.findings | Where-Object { [string]$_.severity -eq "fail" } | Select-Object -First 1)[0]
+    $signature = New-TaskspaceInfraSignature "harness_materialization_failure" "whale_binary_preflight" ([string]$firstFinding.stable_code) ([string]$firstFinding.message) "" $binaryHealthPath
+    $abortPath = Join-Path $runDir "abort-summary.md"
+    New-TaskspaceHarnessAbortSummaryLines "TaskSpace Whale Binary Abort" "whale_binary_preflight" $firstFinding $signature $binaryHealthPath | Set-Content -LiteralPath $abortPath -Encoding UTF8
+    Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "whale_binary_preflight" ([string]$firstFinding.stable_code) $signature $binaryHealthPath $commandLine 0 0 | Out-Null
+    Write-Host "RunDir: $runDir"
+    Write-Host "WhaleBinaryHealth: $binaryHealthPath"
+    Write-Host "AbortSummary: $abortPath"
+    exit 3
+}
 if (-not (Test-Path -LiteralPath $WhaleBin)) { throw "Whale binary not found: $WhaleBin" }
 $helpText = & $WhaleBin exec --help 2>&1
 if (($helpText -join [Environment]::NewLine) -notmatch "--taskspace") {
     throw "Whale exec does not expose --taskspace."
 }
+$whaleVersion = (& $WhaleBin --version 2>&1) -join " "
+$whaleSha = [string]$binaryHealth.whale_binary_sha256
 
 $pairReports = New-Object System.Collections.Generic.List[object]
 $probe = $null

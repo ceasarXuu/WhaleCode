@@ -14,6 +14,7 @@ param(
     [string]$SandboxMode = "full-auto",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [string]$AuditReviewRoot = "",
+    [switch]$AllowStaleWhaleBin,
     [switch]$PlanOnly
 )
 
@@ -39,6 +40,7 @@ $args = @(
 if (-not [string]::IsNullOrWhiteSpace($SampleId)) { $args += @("-SampleId", $SampleId) }
 foreach ($override in @($ConfigOverride)) { $args += @("-ConfigOverride", $override) }
 if (-not [string]::IsNullOrWhiteSpace($AuditReviewRoot)) { $args += @("-AuditReviewRoot", $AuditReviewRoot) }
+if ($AllowStaleWhaleBin) { $args += "-AllowStaleWhaleBin" }
 if ($PlanOnly) { $args += "-PlanOnly" }
 
 Write-Host "E3ExternalMode: True"
