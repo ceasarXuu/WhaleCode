@@ -1,0 +1,225 @@
+# Problem P-001: v0.0.5 processing-pipeline diagnostic stops on TaskSpace timeout
+- Status: root_cause_confirmed
+- Created: 2026-06-21 00:35
+- Updated: 2026-06-21 00:35
+- Objective: Explain why the 2026-06-21 `terminal-bench_E3-P0_3_1` diagnostic stopped after the first sample.
+- Symptoms:
+  - Only `processing-pipeline` was executed.
+  - Standard solved the sample.
+  - TaskSpace exited with code 124 after 900 seconds.
+  - TaskSpace public validation and hidden oracle were skipped after agent timeout.
+- Expected behavior:
+  - The run should test the latest v0.0.5 code after the 2026-06-20/21 fixes.
+  - TaskSpace should either finish the sample or fail quickly with a bounded budget/gate reason.
+- Actual behavior:
+  - The benchmark invoked `C:\Users\77585\.whale\bin\whale.exe`, whose file timestamp is 2026-06-18 05:44:25, before the later v0.0.5 fixes.
+  - The old TaskSpace binary spent the whole budget in orchestration, validation delegation, and subagent wait loops.
+- Impact:
+  - The run does not validate current HEAD `f3d4d45e94` / `11c6e692c5` behavior.
+  - The failure still proves the installed benchmark binary is unsafe for v0.0.5 verification until rebuilt/installed.
+- Reproduction:
+  - Run root: `target\terminal-bench_E3-P0_3_1-v005-20260621-diagnostic\processing-pipeline\runs\terminal_bench__processing-pipeline\20260621-000213-625`.
+  - Pair report: `pair-001\pair-report.md`.
+- Environment:
+  - Repository: `D:\whalecode-alpha`
+  - Benchmark command used `C:\Users\77585\.whale\bin\whale.exe exec --json --taskspace ...`.
+- Known facts:
+  - E-001
+  - E-002
+  - E-003
+  - E-004
+  - E-005
+- Ruled out:
+  - Validator or Docker as the primary failure cause for this sample: TaskSpace validation did not start because the agent timed out first.
+- Fix criteria:
+  - Rebuild/install current `whale.exe` before rerunning diagnostics.
+  - Re-run a bounded single-sample TaskSpace diagnostic and verify provider budget/request events are present.
+  - The same `processing-pipeline` sample must avoid uncontrolled spawn/wait expansion or terminate with a bounded budget reason before 900 seconds.
+- Current conclusion: The immediate run failure is caused by stale benchmark execution plus old TaskSpace orchestration behavior. The diagnostic did not exercise the latest v0.0.5 fixes. Within the executed binary, TaskSpace solved/changed files but then failed to close validation, repeatedly created smoke/regression/implementation nodes and spawned/waited for subagents until the harness killed the process.
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+- Resolution basis:
+  - H-001
+  - H-002
+  - E-001
+  - E-002
+  - E-003
+  - E-004
+  - E-005
+- Close reason:
+  - analysis complete; repair not started
+
+## Hypothesis H-001: The diagnostic ran a stale Whale binary rather than current v0.0.5 code
+- Status: confirmed
+- Parent: P-001
+- Claim: The benchmark did not execute the newly committed v0.0.5 fixes because `run-taskspace-external-benchmark.ps1` used the installed `C:\Users\77585\.whale\bin\whale.exe`, which predates the fixes.
+- Layer: execution-environment
+- Factor relation: necessary
+- Depends on:
+  - none
+- Rationale:
+  - The benchmark command uses the installed user binary by default.
+  - Current HEAD after the fixes is 2026-06-21, but the binary timestamp is 2026-06-18.
+- Falsifiable predictions:
+  - If true: file metadata for `C:\Users\77585\.whale\bin\whale.exe` should predate commits `c517c135e`, `f3d4d45e`, and `11c6e692`.
+  - If true: artifacts may miss v0.0.5 provider budget/request evidence expected from the latest code.
+  - If false: the binary should be freshly built after those commits, or the benchmark should point to a build artifact from current source.
+- Diagnostic evidence plan:
+  - Capture installed binary metadata and benchmark command.
+  - Inspect artifacts for provider request/budget event availability.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-001
+  - E-003
+- Conclusion: confirmed.
+- Repair design readiness: ready after user confirms rebuild/install and rerun.
+- Next step: rebuild/install `whale.exe` from current HEAD before any further benchmark run.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-002: The executed TaskSpace runtime timed out because validation was delegated into subagent/node loops instead of finishing on the main path
+- Status: confirmed
+- Parent: P-001
+- Claim: After making task changes, the executed TaskSpace runtime repeatedly created validation nodes and attempted subagent validation work, hitting lease/plan/review gates and ending in a `wait_agent` call when the 900-second harness timeout killed the process.
+- Layer: runtime-behavior
+- Factor relation: sufficient_for_timeout
+- Depends on:
+  - H-001
+- Rationale:
+  - The pair report shows TaskSpace changed files but did not reach validation.
+  - The rollout shows many TaskSpace control/model cycles and final activity around `spawn_agent`/`wait_agent`.
+- Falsifiable predictions:
+  - If true: artifacts should show many `taskspace_control`, `spawn_agent`, and `wait_agent` calls; graph health should show many blocked validation nodes and subagent warning; final rollout events should be in validation delegation/wait state.
+  - If false: the timeout should occur in Docker, public validation, or a single long shell command rather than TaskSpace orchestration.
+- Diagnostic evidence plan:
+  - Parse `rollout.jsonl`, `graph-health.json`, `pair-timing.json`, and `pair-report.md`.
+  - Compare agent execution timing to validation timing.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-002
+  - E-004
+  - E-005
+- Conclusion: confirmed for the stale executed binary.
+- Repair design readiness: blocked until current binary is rebuilt and a current-code reproduction is collected.
+- Next step: rerun one sample with current binary; if reproduced, design a runtime fix around validation-node/subagent budget and main-path validation.
+- Blocker:
+  - stale binary prevents attributing this runtime behavior to current code
+- Close reason:
+  - not closed
+
+## Hypothesis H-003: The first-sample failure is primarily validator or Docker infrastructure failure
+- Status: refuted
+- Parent: P-001
+- Claim: `processing-pipeline` failed because Docker build/run or Terminal-Bench validation infrastructure failed.
+- Layer: harness
+- Factor relation: alternative
+- Depends on:
+  - none
+- Rationale:
+  - Prior P0 runs had harness/validator issues on some samples, especially `multi-source-data-merger`.
+- Falsifiable predictions:
+  - If true: pair timing and pair report should show public validation, Docker, or hidden oracle failure as the first failure.
+  - If false: TaskSpace should time out before validation begins.
+- Diagnostic evidence plan:
+  - Inspect pair timing and pair report lifecycle fields.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-002
+- Conclusion: refuted for this sample.
+- Repair design readiness: none
+- Next step: do not spend time on Docker/validator for this early-stop failure.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-001: The benchmark used an installed binary older than the v0.0.5 fixes
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Inspected `C:\Users\77585\.whale\bin\whale.exe` metadata and version after the run.
+- Observations:
+  - Path: `C:\Users\77585\.whale\bin\whale.exe`
+  - Version output: `whale 0.1.0`
+  - LastWriteTime: `2026/6/18 5:44:25`
+  - Size: `234189824`
+  - The benchmark stderr records this exact binary in the command that timed out.
+- Interpretation:
+  - The run cannot prove whether commits made on 2026-06-20/21 fixed or failed, because the executable predates them.
+- Supports:
+  - H-001
+- Refutes or weakens:
+  - any conclusion that current HEAD was validated
+
+## Evidence E-002: Pair report proves agent-timeout before validation
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Inspected `pair-001\pair-report.md` and `pair-001\pair-timing.json`.
+- Observations:
+  - Standard: `business_success=True`, `exec_exit_code=0`, `exec_timed_out=False`, `wall_time_ms=409997`, `outcome_standard=solved`.
+  - TaskSpace: `business_success=False`, `exec_exit_code=124`, `exec_timed_out=True`, `wall_time_ms=900029`, `outcome_taskspace=agent_exec_timeout`.
+  - TaskSpace validation lifecycle: `right_tests_started_seen=False`, `right_validation_lifecycle_stage=unknown`.
+  - Pair timing marks TaskSpace `agent_execution` as `duration_ms=900029`, `exit_code=124`, `timed_out=true`; `public_validation_skipped` reason is `agent_exec_timeout`.
+- Interpretation:
+  - The failure happens inside TaskSpace agent execution, before validator or hidden oracle can judge the output.
+- Supports:
+  - H-002
+- Refutes or weakens:
+  - H-003
+
+## Evidence E-003: Current run lacks provider budget/request event evidence
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Inspected right-side artifacts under `pair-001\right\artifacts`.
+- Observations:
+  - `provider-request-events.jsonl` is empty.
+  - `budget-events.jsonl` is empty.
+  - `budget-quality-impact-events.jsonl` is empty.
+  - `request-phase-summary.json` reports `provider_request_event_count=0`, `provider_request_distinct_count=0`, `provider_request_terminal_count=0`, and `unknown_request_phase_ratio=100`.
+  - `spawn-node-budget-summary.json` reports `status=fail`, `source_status=missing_runtime`, and `runtime_event_count=0`.
+- Interpretation:
+  - The diagnostic did not produce the runtime evidence required to prove current v0.0.5 provider-budget behavior.
+  - This aligns with stale binary execution or missing artifact collection and prevents treating the run as proof of the latest budget implementation.
+- Supports:
+  - H-001
+- Refutes or weakens:
+  - current-code validation claims
+
+## Evidence E-004: Rollout shows orchestration loop and expensive request expansion
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Parsed `pair-001\right\artifacts\rollout.jsonl`.
+- Observations:
+  - Total parsed rollout lines: 1575.
+  - `token_count` events: 191.
+  - Function calls: `taskspace_control=121`, `shell_command=83`, `spawn_agent=10`, `wait_agent=2`, `apply_patch=5`.
+  - Rollout token summary: `model_request_count=191`, `input_tokens=11,493,455`, `output_tokens=49,582`, `cached_input_tokens=9,212,032`.
+  - Input per request grew from `first_input_tokens=16,432` to `last_input_tokens=92,571`; `p95_input_tokens=89,369`.
+  - Final rollout activity included a `wait_agent` call with `timeout_ms=180000`.
+- Interpretation:
+  - The runtime was still spending model turns on orchestration and delegated validation near timeout.
+  - The cost issue is both request-count expansion and per-request context growth.
+- Supports:
+  - H-002
+- Refutes or weakens:
+  - single slow validation command as root cause
+
+## Evidence E-005: Graph health shows blocked validation-node proliferation and no useful subagent yield
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Parsed `graph-health.json` and `action-map-observability.json`.
+- Observations:
+  - Final node inventory includes multiple blocked validation nodes: `node-4`, `node-6`, `node-7`, `node-8`, `node-10`, `node-14`, `node-15`; `node-16` remains `running`.
+  - `graph-health.json` reports `node_count=15`, `blocked_node_ratio=0.5333`, `node_inflation_ratio=3`, `unreviewed_result_ratio=0.803`.
+  - `subagent_spawn_count=2`, `subagent_result_count=10`, `subagent_decision_yield=0`.
+  - Warnings include `high_blocked_node_ratio` and `subagent_no_decision_yield`.
+  - Observed spawn attempts repeatedly targeted pipeline validation and hit messages such as active lease, unreviewed result, or missing subagent plan.
+- Interpretation:
+  - The stale runtime did not converge after it had enough artifacts to attempt validation; it multiplied validation nodes and subagent attempts instead.
+- Supports:
+  - H-002
+- Refutes or weakens:
+  - task-domain-only failure
