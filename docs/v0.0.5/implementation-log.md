@@ -4617,3 +4617,64 @@ Harness note:
 
 - An invalid direct attempt at `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-023943` used `Copy-Item -LiteralPath <fixture>\*`, which does not expand wildcards in PowerShell. That attempt copied an empty app and is excluded from the sample conclusion.
 - For future direct fixture materialization, use `Copy-Item -Path (Join-Path $fixtureDir '*') ...` and assert expected public files before launching the agent.
+
+## 2026-06-21 processing-pipeline convergence hardening follow-up
+
+Scope:
+
+- 继续补 v0.0.5 `Budget Response Gate` / `Routing Thin` / `Verification-first` 的关键代码缺漏。
+- 目标不是跑完整 E3，而是只用 `processing-pipeline` 单样本确认工程路径是否从“诊断后不编辑、20/20 hard stop”向收束实现推进。
+
+Changes:
+
+- `session/turn.rs`
+  - 新增 `TaskSpaceProviderBudgetGuidanceV1` provider-visible developer guidance。
+  - 在 provider request 达到 50%、75%、最后一次 recovery slot 时，显式要求收窄路径、优先实现、进入验证节点后只跑窄验证。
+  - 新增 `TaskSpaceNoActionRecoveryV1` helper，用于 TaskSpace 下模型输出 follow-up 但没有 tool/control/final action 的恢复提示。
+- `action_map/runtime.rs`
+  - 新增 provider budget pressure tool gate：在 provider request 压力下，已有 read/search 证据后阻止继续 broad probe。
+  - 新增 inspect evidence pressure gate：`inspect_code_context` 达到半个主工具预算后，继续读/搜/未知 shell/测试/构建会被阻止，要求 finish 到 `implement_solution`。
+  - 保持 concrete edit 可执行，不把预算门禁做成禁止实现的死门。
+
+Focused validation:
+
+```text
+cargo fmt
+cargo test -p codex-core provider_budget_pressure -- --nocapture
+cargo test -p codex-core inspect_evidence_pressure -- --nocapture
+cargo test -p codex-core provider_budget_guidance -- --nocapture
+cargo test -p codex-core provider_request_budget -- --nocapture
+cargo test -p codex-core no_action_recovery -- --nocapture
+cargo build -p codex-cli --bin whale --locked
+scripts\install-whale-local.ps1
+```
+
+Focused test results:
+
+- `provider_budget_pressure`: `4 passed; 0 failed`
+- `inspect_evidence_pressure`: `1 passed; 0 failed`
+- `provider_budget_guidance`: `6 passed; 0 failed`
+- `provider_request_budget`: `7 passed; 0 failed`
+- `no_action_recovery`: `1 passed; 0 failed`
+- Build passed and installed final binary SHA256: `0EF243F8B0C9F52798AF558A30C4075ECC9A72BE8CDCE4548B406998E144C7C0`
+
+Direct TaskSpace smoke attempts:
+
+| Run root | Whale SHA256 | Wall time | File changes | Result |
+|---|---:|---:|---:|---|
+| `target\taskspace-processing-pipeline-single-20260621-042137` | `090CD3930ACC0E9E24291B490E08F2CEEA0A14ECDEF099EA1E764D692A3DB70C` | `133,606 ms` | `0` | `20/20 budget exhausted` |
+| `target\taskspace-processing-pipeline-single-20260621-043108` | `9D55A70DFE5AA683214EC8C3F063938E59C2225A64AAD7A7A0B08E1AA7B5C935` | `73,834 ms` | `0` | `20/20 budget exhausted` |
+| `target\taskspace-processing-pipeline-single-20260621-044307` | `B5B8E825353E2D92BE0598A95A00EEE535919CE9BD4425F97440E4F464A9C7D2` | `84,401 ms` | `0` | `20/20 budget exhausted` |
+| `target\taskspace-processing-pipeline-single-20260621-045601` | `0EF243F8B0C9F52798AF558A30C4075ECC9A72BE8CDCE4548B406998E144C7C0` | `71,455 ms` | `0` | `20/20 budget exhausted` |
+
+Interpretation:
+
+- 已完成的代码补全是工程真实实现，不是入口或 mock：provider guidance、runtime tool gate、inspect evidence gate、no-action recovery helper 都有 focused tests。
+- 但 `processing-pipeline` 仍未通过。当前失败已经从“工具探测无限扩散”收窄为“模型在识别问题后输出 commentary/no-action 或空 follow-up，继续消耗 provider request，最后 20/20 hard stop”。
+- 因此 v0.0.5 仍不能关闭，且不应继续跑真实完整 E3；下一步必须先把 provider-budget/no-action recovery 事件暴露到 JSONL/TaskSpace trace，并在 runtime 层把 no-action follow-up 变成可观测、可恢复或早停的状态机事件。
+
+Reflection:
+
+- 只靠 prompt guidance 不足以控制 DeepSeek 在 TaskSpace 中的收束行为。
+- 只靠 tool gate 也不足，因为失败路径可以发生在没有新工具调用的 provider turn。
+- 后续修复必须覆盖 provider response 层：`end_turn=false`、无 tool/control/final、空 completion、以及 final-response gate rejection 都必须记录成稳定事件，并且最多允许一次恢复，不能继续烧到 20/20。

@@ -125,6 +125,8 @@ const TASKSPACE_ACTIVE_PROFILE_MARKER: &str = "TaskSpace v0.0.5 active compact p
 const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
 const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
     "ContextProjectionV1 shadow (not active replacement):";
+const TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER: &str = "TaskSpaceProviderBudgetGuidanceV1:";
+const TASKSPACE_NO_ACTION_RECOVERY_MARKER: &str = "TaskSpaceNoActionRecoveryV1:";
 const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
 
 /// Takes a user message as input and runs a loop where, at each sampling request, the model
@@ -372,6 +374,7 @@ pub(crate) async fn run_turn(
         .await;
     let mut last_agent_message: Option<String> = None;
     let mut stop_hook_active = false;
+    let mut taskspace_no_action_recovery_count = 0usize;
     // Although from the perspective of codex.rs, TurnDiffTracker has the lifecycle of a Task which contains
     // many turns, from the perspective of the user, it is a single turn.
     let turn_diff_tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
@@ -483,8 +486,26 @@ pub(crate) async fn run_turn(
                 let SamplingRequestResult {
                     needs_follow_up: model_needs_follow_up,
                     last_agent_message: sampling_request_last_agent_message,
+                    taskspace_no_action_recovery_item,
                 } = sampling_request_output;
                 can_drain_pending_input = true;
+                if let Some(recovery_item) = taskspace_no_action_recovery_item {
+                    if taskspace_no_action_recovery_count >= 1 {
+                        sess.send_event(
+                            &turn_context,
+                            EventMsg::Error(ErrorEvent {
+                                message: "TaskSpace stopped this turn because the model produced a second non-action assistant message while requesting follow-up. It must emit a tool call, taskspace_control transition, or a final blocked_by_budget answer instead of commentary-only output.".to_string(),
+                                codex_error_info: None,
+                            }),
+                        )
+                        .await;
+                        return None;
+                    }
+                    taskspace_no_action_recovery_count += 1;
+                    sess.record_conversation_items(&turn_context, &[recovery_item])
+                        .await;
+                    continue;
+                }
                 let has_pending_input = sess.has_pending_input().await;
                 let needs_follow_up = model_needs_follow_up || has_pending_input;
                 let total_usage_tokens = sess.get_total_token_usage().await;
@@ -997,6 +1018,88 @@ pub(crate) fn build_prompt(
     }
 }
 
+fn build_taskspace_provider_budget_guidance_item(
+    request_count: usize,
+    max_requests: usize,
+    request_phase: Option<&str>,
+) -> Option<ResponseItem> {
+    if max_requests == 0 || request_count >= max_requests {
+        return None;
+    }
+    if request_phase == Some("final_synthesis") {
+        return None;
+    }
+
+    let remaining = max_requests.saturating_sub(request_count);
+    let guidance = if remaining <= 1 {
+        format!(
+            "{TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER} budget_recovery\n\
+request_count: {request_count}/{max_requests}\n\
+remaining_provider_requests: {remaining}\n\
+Required behavior for this response:\n\
+- This is the final provider request before hard budget stop.\n\
+- Do not spend it on broad exploration, shell/environment inventory, test discovery, or spawning agents.\n\
+- If edits are already complete, provide the final user-facing result now.\n\
+- If one concrete safe file edit remains and you can perform it immediately, make only that edit; otherwise answer blocked_by_budget with the exact missing evidence.\n\
+- Do not ask for another model turn."
+        )
+    } else if request_count.saturating_mul(4) >= max_requests.saturating_mul(3) {
+        format!(
+            "{TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER} thin_downgraded\n\
+request_count: {request_count}/{max_requests}\n\
+remaining_provider_requests: {remaining}\n\
+Required behavior for the next response:\n\
+- Budget pressure is active; stop broad investigation and avoid environment inventory or test discovery unless it directly enables an edit.\n\
+- If a concrete file-level fix is identified, implement it now before any further validation.\n\
+- After an edit, finish the implementation node into a validation node, run at most one narrow validation command, then finish.\n\
+- If no safe edit is identified, finish with blocked_by_budget and the smallest missing evidence."
+        )
+    } else if request_count.saturating_mul(2) >= max_requests {
+        format!(
+            "{TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER} warned\n\
+request_count: {request_count}/{max_requests}\n\
+remaining_provider_requests: {remaining}\n\
+Required behavior:\n\
+- Keep the remaining path narrow.\n\
+- Prefer implementation and validation over additional broad discovery."
+        )
+    } else {
+        return None;
+    };
+
+    Some(ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text: guidance }],
+        end_turn: None,
+        phase: None,
+    })
+}
+
+fn build_taskspace_no_action_recovery_item(last_message: Option<&str>) -> ResponseItem {
+    let previous = last_message
+        .filter(|message| !message.trim().is_empty())
+        .unwrap_or("(no assistant text was captured)");
+    let text = format!(
+        "{TASKSPACE_NO_ACTION_RECOVERY_MARKER}\n\
+The previous assistant message requested follow-up but did not emit any tool call, taskspace_control transition, or final response accepted by TaskSpace.\n\
+Previous assistant message: {previous}\n\
+Required behavior for the next response:\n\
+- Do not send commentary-only text such as \"let me check\".\n\
+- Emit exactly one actionable operation now: a tool call, a taskspace_control finish/transition/state_commit, or a final blocked_by_budget answer with the exact missing evidence.\n\
+- If inspect evidence is sufficient, finish the inspect node into implement_solution before more environment probing.\n\
+- If a concrete file edit is identified, apply it before further validation."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn filter_deferred_dynamic_tool_spec(
     spec: ToolSpec,
     deferred_dynamic_tools: &HashSet<ToolName>,
@@ -1077,7 +1180,7 @@ async fn run_sampling_request(
     let mut retries = 0;
     let mut initial_input = Some(input);
     loop {
-        let prompt_input = if let Some(input) = initial_input.take() {
+        let mut prompt_input = if let Some(input) = initial_input.take() {
             input
         } else {
             prepare_provider_visible_prompt_items(
@@ -1086,6 +1189,15 @@ async fn run_sampling_request(
                     .for_prompt(&turn_context.model_info.input_modalities),
             )
         };
+        if let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
+            && let Some(item) = build_taskspace_provider_budget_guidance_item(
+                snapshot.request_count,
+                snapshot.max_requests,
+                snapshot.request_phase.as_deref(),
+            )
+        {
+            prompt_input.push(item);
+        }
         let prompt = build_prompt(
             prompt_input,
             router.as_ref(),
@@ -1748,6 +1860,104 @@ mod active_context_replacement_tests {
             .collect()
     }
 
+    fn item_text(item: ResponseItem) -> String {
+        let ResponseItem::Message { content, .. } = item else {
+            panic!("expected message item");
+        };
+        content
+            .into_iter()
+            .find_map(|content| match content {
+                ContentItem::InputText { text } => Some(text),
+                _ => None,
+            })
+            .expect("expected input text")
+    }
+
+    #[test]
+    fn provider_budget_guidance_is_absent_before_warning_threshold() {
+        assert!(
+            build_taskspace_provider_budget_guidance_item(9, 20, Some("model_sampling")).is_none()
+        );
+    }
+
+    #[test]
+    fn provider_budget_guidance_warns_at_half_budget() {
+        let text = item_text(
+            build_taskspace_provider_budget_guidance_item(10, 20, Some("model_sampling"))
+                .expect("warning guidance"),
+        );
+
+        assert!(text.contains(TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER));
+        assert!(text.contains("warned"));
+        assert!(text.contains("Prefer implementation and validation"));
+    }
+
+    #[test]
+    fn provider_budget_guidance_forces_thin_implementation_priority() {
+        let text = item_text(
+            build_taskspace_provider_budget_guidance_item(15, 20, Some("model_sampling"))
+                .expect("thin guidance"),
+        );
+
+        assert!(text.contains("thin_downgraded"));
+        assert!(text.contains("implement it now before any further validation"));
+        assert!(text.contains("finish the implementation node into a validation node"));
+    }
+
+    #[test]
+    fn provider_budget_guidance_marks_last_dispatch_as_budget_recovery() {
+        let text = item_text(
+            build_taskspace_provider_budget_guidance_item(19, 20, Some("model_sampling"))
+                .expect("recovery guidance"),
+        );
+
+        assert!(text.contains("budget_recovery"));
+        assert!(text.contains("final provider request before hard budget stop"));
+        assert!(text.contains("Do not ask for another model turn"));
+    }
+
+    #[test]
+    fn provider_budget_guidance_does_not_override_final_synthesis() {
+        assert!(
+            build_taskspace_provider_budget_guidance_item(19, 20, Some("final_synthesis"))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn active_context_replacement_preserves_provider_budget_guidance() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let guidance =
+            build_taskspace_provider_budget_guidance_item(15, 20, Some("model_sampling"))
+                .expect("guidance item");
+        let items = vec![
+            message("developer", &active_projection),
+            guidance,
+            message("user", "Keep the direct user requirement."),
+        ];
+
+        let prepared = prepare_provider_visible_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER));
+        assert!(joined.contains("thin_downgraded"));
+        assert!(joined.contains("Keep the direct user requirement."));
+    }
+
+    #[test]
+    fn no_action_recovery_item_requires_actionable_taskspace_output() {
+        let text = item_text(build_taskspace_no_action_recovery_item(Some(
+            "Let me check the environment.",
+        )));
+
+        assert!(text.contains(TASKSPACE_NO_ACTION_RECOVERY_MARKER));
+        assert!(text.contains("did not emit any tool call"));
+        assert!(text.contains("Do not send commentary-only text"));
+        assert!(text.contains("finish the inspect node into implement_solution"));
+    }
+
     #[test]
     fn active_context_replacement_is_noop_without_active_projection() {
         let items = vec![
@@ -1967,6 +2177,7 @@ mod active_context_replacement_tests {
 struct SamplingRequestResult {
     needs_follow_up: bool,
     last_agent_message: Option<String>,
+    taskspace_no_action_recovery_item: Option<ResponseItem>,
 }
 
 /// Ephemeral per-response state for streaming a single proposed plan.
@@ -2598,6 +2809,7 @@ async fn try_run_sampling_request(
         FuturesOrdered::new();
     let mut needs_follow_up = false;
     let mut last_agent_message: Option<String> = None;
+    let mut saw_actionable_output = false;
     let mut active_item: Option<TurnItem> = None;
     let mut active_tool_argument_diff_consumer: Option<(
         String,
@@ -2748,6 +2960,7 @@ async fn try_run_sampling_request(
                         Err(err) => break Err(err),
                     };
                 if let Some(tool_future) = output_result.tool_future {
+                    saw_actionable_output = true;
                     in_flight.push_back(tool_future);
                 }
                 if let Some(agent_message) = output_result.last_agent_message {
@@ -2759,6 +2972,7 @@ async fn try_run_sampling_request(
                     break Ok(SamplingRequestResult {
                         needs_follow_up: true,
                         last_agent_message,
+                        taskspace_no_action_recovery_item: None,
                     });
                 }
             }
@@ -2890,6 +3104,19 @@ async fn try_run_sampling_request(
                 if let Some(false) = end_turn {
                     needs_follow_up = true;
                 }
+                let taskspace_no_action_recovery_item = if needs_follow_up
+                    && !saw_actionable_output
+                    && sess
+                        .action_map_provider_request_budget_snapshot()
+                        .await
+                        .is_some()
+                {
+                    Some(build_taskspace_no_action_recovery_item(
+                        last_agent_message.as_deref(),
+                    ))
+                } else {
+                    None
+                };
                 if !needs_follow_up
                     && let Some(message) = last_agent_message.as_deref()
                     && sess
@@ -2903,6 +3130,7 @@ async fn try_run_sampling_request(
                 break Ok(SamplingRequestResult {
                     needs_follow_up,
                     last_agent_message,
+                    taskspace_no_action_recovery_item,
                 });
             }
             ResponseEvent::OutputTextDelta(delta) => {

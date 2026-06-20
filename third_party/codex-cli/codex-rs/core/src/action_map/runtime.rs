@@ -1184,6 +1184,82 @@ impl ActionMapRuntimeState {
         let main_tool_result_count = count_node_results_of_kind(node, NodeResultKind::MainToolCall);
         let reserved_tool_count = self.reserved_tool_calls_for_node(&map_id, &node_id);
         let budget = contract.max_main_tool_results_before_split_hint;
+        let provider_budget_pressure =
+            provider_request_budget_pressure_active(self.provider_request_count);
+        let inspect_evidence_pressure = inspect_evidence_pressure_active(node, budget);
+        if descriptor.action_class != ActionClass::Control
+            && (provider_budget_pressure || inspect_evidence_pressure)
+            && should_block_budget_pressure_probe(map, node, descriptor.action_class)
+        {
+            let has_edit = node_has_successful_action(map, node, ActionClass::Edit);
+            let reason = if inspect_evidence_pressure && !provider_budget_pressure {
+                "inspect_evidence_pressure_requires_implementation_before_more_probe"
+            } else if has_edit {
+                "provider_request_budget_pressure_blocks_more_exploration_after_edit"
+            } else {
+                "provider_request_budget_pressure_requires_implementation_before_more_probe"
+            };
+            let next_action = if node.kind == NodeKind::InspectCodeContext && !has_edit {
+                format!(
+                    "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
+                    node.id
+                )
+            } else if has_edit {
+                "run one narrow validation command or finish final answer".to_string()
+            } else {
+                "make the smallest safe edit or finish blocked_by_budget".to_string()
+            };
+            let pressure_summary = if provider_budget_pressure {
+                format!(
+                    "provider request budget pressure is active ({}/{} used)",
+                    self.provider_request_count,
+                    Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX
+                )
+            } else {
+                format!(
+                    "inspect evidence pressure is active ({}/{} main tool results recorded)",
+                    main_tool_result_count, budget
+                )
+            };
+            let message = format!(
+                "TaskSpace blocked this tool call because {pressure_summary} and current node `{}` already has enough evidence for a convergence step. Requested tool `{}` action class: {}. Do not spend more provider requests on broad probing. {}.",
+                node.id,
+                descriptor.tool_name,
+                descriptor.action_class.as_str(),
+                next_action
+            );
+            let recovery = gate_recovery_message(
+                &message,
+                reason,
+                vec![
+                    format!("current_node:{}:{}", node.id, node.kind.as_str()),
+                    format!(
+                        "provider_request_count:{}/{}",
+                        self.provider_request_count,
+                        Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX
+                    ),
+                    format!(
+                        "requested_action_class:{}",
+                        descriptor.action_class.as_str()
+                    ),
+                ],
+                vec![next_action],
+                Vec::new(),
+            );
+            return Err(ActionMapGateError::new(
+                recovery,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: node.kind.as_str().to_string(),
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason: reason.to_string(),
+                    },
+                )],
+            ));
+        }
         if !contract.allows(descriptor.action_class) {
             let reason = format!(
                 "{} does not allow {}",
@@ -9252,6 +9328,46 @@ fn should_enforce_tool_budget_barrier(
         || completed_main_inspect_has_broad_accepted_result(map, &node.id, owner_session_id)
 }
 
+fn provider_request_budget_pressure_active(provider_request_count: usize) -> bool {
+    provider_request_count.saturating_mul(4)
+        >= ActionMapRuntimeState::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX.saturating_mul(3)
+}
+
+fn inspect_evidence_pressure_active(node: &MapNode, budget: usize) -> bool {
+    node.kind == NodeKind::InspectCodeContext
+        && count_node_results_of_kind(node, NodeResultKind::MainToolCall)
+            >= budget.saturating_add(1) / 2
+}
+
+fn should_block_budget_pressure_probe(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    action_class: ActionClass,
+) -> bool {
+    let has_read = node_has_successful_action(map, node, ActionClass::Read)
+        || node_has_successful_action(map, node, ActionClass::Search);
+    if !has_read {
+        return false;
+    }
+
+    let has_edit = node_has_successful_action(map, node, ActionClass::Edit);
+    if has_edit {
+        matches!(
+            action_class,
+            ActionClass::Read | ActionClass::Search | ActionClass::Unknown
+        )
+    } else {
+        matches!(
+            action_class,
+            ActionClass::Read
+                | ActionClass::Search
+                | ActionClass::Unknown
+                | ActionClass::Test
+                | ActionClass::Build
+        )
+    }
+}
+
 fn completed_main_inspect_has_broad_accepted_result(
     map: &ActionMapInstance,
     node_id: &str,
@@ -15350,6 +15466,228 @@ mod tests {
         let context = state.build_developer_context().expect("context");
         assert!(context.contains("Maintenance barrier"));
         assert!(context.contains("node_tool_result_budget_exceeded"));
+    }
+
+    #[test]
+    fn provider_budget_pressure_blocks_more_probe_after_read_without_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Budget pressure inspection",
+            "Read evidence then force implementation handoff under provider pressure.",
+            "Budget pressure inspection",
+            "Read evidence then force implementation handoff under provider pressure.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
+                    .with_call_id("read-1"),
+            )
+            .expect("initial read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-1",
+                "shell_command",
+                true,
+                "read useful evidence".to_string(),
+            )
+            .expect("read result records");
+        state.provider_request_count = 15;
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Unknown, "bash run")
+                    .with_call_id("probe-1"),
+            )
+            .expect_err("budget pressure should block another probe");
+        let (message, events) = error.into_parts();
+
+        assert!(message.contains("provider_request_budget_pressure_requires_implementation"));
+        assert!(message.contains("Do not spend more provider requests on broad probing"));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ToolActionBlocked(event)
+                    if event.reason == "provider_request_budget_pressure_requires_implementation_before_more_probe"
+                        && event.action_class == "unknown"
+            )
+        }));
+    }
+
+    #[test]
+    fn inspect_evidence_pressure_blocks_probe_before_provider_budget_pressure() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Evidence pressure inspection",
+            "Enough inspect evidence should force implementation handoff.",
+            "Evidence pressure inspection",
+            "Enough inspect evidence should force implementation handoff.",
+            true,
+        );
+        for index in 0..5 {
+            let call_id = format!("read-{index}");
+            state
+                .prepare_main_tool_call(
+                    owner,
+                    ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
+                        .with_call_id(&call_id),
+                )
+                .expect("read should be allowed before evidence pressure threshold is recorded");
+            state
+                .record_main_tool_result(
+                    owner,
+                    &call_id,
+                    "shell_command",
+                    true,
+                    format!("read useful evidence {index}"),
+                )
+                .expect("read result records");
+        }
+        state.provider_request_count = 8;
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
+                    .with_call_id("read-after-threshold"),
+            )
+            .expect_err("inspect evidence pressure should block more probing");
+        let (message, events) = error.into_parts();
+
+        assert!(message.contains("inspect_evidence_pressure_requires_implementation"));
+        assert!(message.contains("inspect evidence pressure is active"));
+        assert!(message.contains("next_node_kind=\"implement_solution\""));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ToolActionBlocked(event)
+                    if event.reason == "inspect_evidence_pressure_requires_implementation_before_more_probe"
+                        && event.action_class == "read"
+            )
+        }));
+    }
+
+    #[test]
+    fn provider_budget_pressure_blocks_validation_before_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Budget pressure edit",
+            "Read evidence then edit under provider pressure.",
+            "Budget pressure edit",
+            "Read evidence then edit under provider pressure.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
+                    .with_call_id("read-1"),
+            )
+            .expect("initial read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-1",
+                "shell_command",
+                true,
+                "read useful evidence".to_string(),
+            )
+            .expect("read result records");
+        state.provider_request_count = 15;
+
+        let test_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Build, "cargo test")
+                    .with_call_id("test-before-edit"),
+            )
+            .expect_err("validation before edit should be blocked under pressure");
+        assert!(test_error.contains("requires_implementation_before_more_probe"));
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
+                    .with_call_id("edit-1"),
+            )
+            .expect("budget pressure should still allow the concrete edit");
+    }
+
+    #[test]
+    fn provider_budget_pressure_blocks_more_read_after_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Budget pressure validation",
+            "Read and edit before narrow validation.",
+            "Budget pressure validation",
+            "Read and edit before narrow validation.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
+                    .with_call_id("read-1"),
+            )
+            .expect("initial read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-1",
+                "shell_command",
+                true,
+                "read useful evidence".to_string(),
+            )
+            .expect("read result records");
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
+                    .with_call_id("edit-1"),
+            )
+            .expect("edit should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "edit-1",
+                "apply_patch",
+                true,
+                "edited file".to_string(),
+            )
+            .expect("edit result records");
+        state.provider_request_count = 15;
+
+        let read_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
+                    .with_call_id("read-2"),
+            )
+            .expect_err("more read probing should be blocked after edit");
+        assert!(read_error.contains("blocks_more_exploration_after_edit"));
     }
 
     #[test]

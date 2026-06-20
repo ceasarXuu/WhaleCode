@@ -395,3 +395,81 @@
   - H-004 as fixed at the dispatch boundary
 - Refutes or weakens:
   - claims that the budget recovery repair made `processing-pipeline` pass
+
+## Hypothesis H-005: TaskSpace does not force convergence after sufficient inspect evidence
+- Status: supported, not fully fixed
+- Claim:
+  - After the compact-checkpoint dispatch bug was fixed, `processing-pipeline` still fails because TaskSpace allows the main agent to keep spending provider requests on inspect/environment discovery or commentary-only follow-up after enough file evidence exists to move into implementation.
+- Predictions:
+  - A run after the dispatch repair should no longer fail at `19/20 compact_checkpoint_required`, but should still show no file edits and hard stop at `20/20`.
+  - If a tool-level convergence gate is added, tool fan-out should drop, but the run can still fail if the model consumes provider requests without emitting tool/control/final actions.
+  - JSONL should show assistant text such as "let me check" or diagnosis text followed by no patch and a provider budget hard stop.
+- Diagnostic evidence plan:
+  - Add focused tests around provider budget guidance, inspect evidence pressure, and no-action recovery.
+  - Rebuild/install Whale and run only the `processing-pipeline` TaskSpace single sample until a clear new failure mode appears.
+
+## Evidence E-013: Provider-visible budget guidance and provider pressure tool gate were implemented and validated
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Added provider-visible budget guidance in `session/turn.rs`, added provider-budget-pressure tool gate in `action_map/runtime.rs`, formatted, ran focused tests, rebuilt, installed, and ran direct `processing-pipeline` smoke.
+- Observations:
+  - `TaskSpaceProviderBudgetGuidanceV1` is injected at half budget, 75% budget, and final recovery request, except during `final_synthesis`.
+  - Runtime gate blocks broad read/search/unknown/test/build probing under provider budget pressure after useful read/search evidence exists.
+  - Runtime gate still allows concrete edits before validation.
+  - Tests passed:
+    - `cargo test -p codex-core provider_budget_guidance -- --nocapture`: `6 passed`.
+    - `cargo test -p codex-core provider_budget_pressure -- --nocapture`: initially failed due test/contract mismatch, then passed after alignment.
+    - `cargo test -p codex-core provider_request_budget -- --nocapture`: `7 passed`.
+  - Installed binary SHA256 for this iteration: `090CD3930ACC0E9E24291B490E08F2CEEA0A14ECDEF099EA1E764D692A3DB70C`.
+  - Smoke run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-042137`.
+  - Smoke result: `timed_out=false`, wall `133,606 ms`, `changed_count=0`, `last-message.md` missing, final error `20/20 budget exhausted`.
+- Interpretation:
+  - Prompt guidance and provider-pressure tool gate are implemented and unit-tested, but do not solve the sample because the final failure path can occur without another gated tool call.
+- Supports:
+  - H-005
+- Refutes or weakens:
+  - claims that prompt guidance alone is enough
+
+## Evidence E-014: Inspect evidence pressure gate reduced tool fan-out but did not force edits
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Added inspect evidence pressure gate, which blocks further inspect probing once an `inspect_code_context` node reaches half its main-tool budget with useful evidence; rebuilt, installed, and reran direct smoke.
+- Observations:
+  - New helper: `inspect_evidence_pressure_active`.
+  - New test: `inspect_evidence_pressure_blocks_probe_before_provider_budget_pressure`.
+  - Focused tests passed:
+    - `cargo test -p codex-core provider_budget_pressure -- --nocapture`: `4 passed`.
+    - `cargo test -p codex-core inspect_evidence_pressure -- --nocapture`: `1 passed`.
+    - `cargo test -p codex-core provider_budget_guidance -- --nocapture`: `6 passed`.
+    - `cargo test -p codex-core provider_request_budget -- --nocapture`: `7 passed`.
+  - Installed binary SHA256: `9D55A70DFE5AA683214EC8C3F063938E59C2225A64AAD7A7A0B08E1AA7B5C935`.
+  - Smoke run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-043108`.
+  - Smoke result: wall `73,834 ms`, `changed_count=0`, `item.completed=6`, `item.started=5`, final error `20/20 budget exhausted`.
+  - JSONL showed five file-read tool results, then an assistant message: `Let me check what interpreters are available and understand the environment better.`
+- Interpretation:
+  - The gate reduced visible tool fan-out and runtime, but did not force implementation. The model can still consume provider turns through non-action or empty follow-up after enough evidence exists.
+- Supports:
+  - H-005
+- Refutes or weakens:
+  - "the problem is only too many tool calls"
+
+## Evidence E-015: No-action recovery was added but did not surface in JSONL or prevent hard stop
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Added `TaskSpaceNoActionRecoveryV1` developer recovery item for `end_turn=false` responses with no actionable output, added a one-retry cap, rebuilt, installed, and reran direct smoke.
+- Observations:
+  - New test `no_action_recovery_item_requires_actionable_taskspace_output` passed.
+  - `cargo test -p codex-core no_action_recovery -- --nocapture` passed.
+  - `cargo test -p codex-core provider_budget_guidance -- --nocapture` passed.
+  - Installed binary SHA256 after the final no-action recovery adjustment: `0EF243F8B0C9F52798AF558A30C4075ECC9A72BE8CDCE4548B406998E144C7C0`.
+  - Smoke run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-045601`.
+  - Smoke result: wall `71,455 ms`, `changed_count=0`, `item.completed=3`, `item.started=2`, final error `20/20 budget exhausted`.
+  - JSONL showed a broad file dump and then assistant text: `Let me check the environment and try running the pipeline.`
+  - `TaskSpaceNoActionRecoveryV1` did not appear in JSONL or stderr.
+- Interpretation:
+  - The recovery item helper and local tests compile, but the live failure path is still not captured strongly enough by the current no-action detector or it is inserted invisibly and ignored before budget exhaustion.
+  - Further real E3 runs should be blocked until provider-budget/no-action telemetry is exposed in the JSONL or the runtime can hard-stop no-action loops before 20/20.
+- Supports:
+  - H-005
+- Refutes or weakens:
+  - claims that the latest no-action recovery fully fixes `processing-pipeline`
