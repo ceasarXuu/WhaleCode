@@ -286,6 +286,15 @@ fn provider_request_budget_transition_reason(before: &str, after: &str) -> &'sta
     }
 }
 
+fn provider_request_budget_allows_compact_checkpoint_dispatch(
+    attribution: &ProviderRequestAttribution,
+) -> bool {
+    matches!(
+        attribution.request_phase.as_deref(),
+        Some("budget_recovery" | "final_synthesis" | "final_abort")
+    )
+}
+
 impl ProviderRequestBudgetContext {
     pub(crate) fn disabled() -> Self {
         Self {
@@ -331,9 +340,17 @@ impl ProviderRequestBudgetContext {
             return Ok(ProviderRequestBudgetDispatch::disabled());
         }
         let before = self.state.count.load(Ordering::SeqCst);
-        if before >= self.state.max_requests {
+        let budget_state_before =
+            provider_request_budget_state_for(before, self.state.max_requests);
+        let compact_checkpoint_required = budget_state_before == "compact_checkpoint_required"
+            && !provider_request_budget_allows_compact_checkpoint_dispatch(&self.state.attribution);
+        if before >= self.state.max_requests || compact_checkpoint_required {
             let request_identity = self.build_request_identity(before + 1, 1);
-            let budget_state = provider_request_budget_state_for(before, self.state.max_requests);
+            let blocked_reason = if compact_checkpoint_required {
+                "provider_request_compact_checkpoint_required"
+            } else {
+                "provider_request_budget_exhausted"
+            };
             self.push_event(ProviderRequestBudgetEvent {
                 request_id: request_identity.request_id,
                 logical_request_id: request_identity.logical_request_id,
@@ -344,9 +361,9 @@ impl ProviderRequestBudgetContext {
                 request_count_before: before,
                 request_count_after: before,
                 max_requests: self.state.max_requests,
-                budget_state_before: budget_state.to_string(),
-                budget_state_after: budget_state.to_string(),
-                budget_transition_reason: "provider_request_budget_exhausted".to_string(),
+                budget_state_before: budget_state_before.to_string(),
+                budget_state_after: budget_state_before.to_string(),
+                budget_transition_reason: blocked_reason.to_string(),
                 started_at_ms: provider_request_budget_now_ms(),
                 completed_at_ms: Some(provider_request_budget_now_ms()),
                 latency_ms: Some(0),
@@ -368,14 +385,20 @@ impl ProviderRequestBudgetContext {
                 node_id: self.state.attribution.node_id.clone(),
                 request_phase: self.state.attribution.request_phase.clone(),
             });
-            return Err(CodexErr::InvalidRequest(format!(
-                "TaskSpace blocked this provider request because the active provider request budget is exhausted ({before}/{}). Finish with a bounded final/abort response or record a compact state checkpoint before requesting another model turn.",
-                self.state.max_requests
-            )));
+            let message = if compact_checkpoint_required {
+                format!(
+                    "TaskSpace blocked this provider request because the active provider request budget requires a compact checkpoint or final response ({before}/{}). Finish with a bounded final/abort response or record a compact state checkpoint before requesting another model turn.",
+                    self.state.max_requests
+                )
+            } else {
+                format!(
+                    "TaskSpace blocked this provider request because the active provider request budget is exhausted ({before}/{}). Finish with a bounded final/abort response or record a compact state checkpoint before requesting another model turn.",
+                    self.state.max_requests
+                )
+            };
+            return Err(CodexErr::InvalidRequest(message));
         }
         let after = self.state.count.fetch_add(1, Ordering::SeqCst) + 1;
-        let budget_state_before =
-            provider_request_budget_state_for(before, self.state.max_requests);
         let budget_state_after = provider_request_budget_state_for(after, self.state.max_requests);
         let budget_transition_reason =
             provider_request_budget_transition_reason(budget_state_before, budget_state_after);

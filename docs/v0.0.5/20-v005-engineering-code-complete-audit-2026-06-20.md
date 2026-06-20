@@ -145,10 +145,38 @@ git status --short
 
 ## 6. 当前结论
 
-只看工程代码和非 agent gate：
+2026-06-20 对抗性审查发现 3 个 blocking 工程缺口：
+
+- active budget 只在 hard cap 阻断，compact checkpoint soft state 没有真实 dispatch response。
+- `state_commit` 仍不是 active profile 下 direct legacy state mutation 的强制替代路径。
+- non-agent gate subgate evidence 的 `git_commit` 没有强制绑定当前 HEAD。
+
+已在当前工作区补齐的修复：
+
+- provider request budget 在 `compact_checkpoint_required` 状态下会阻断普通 provider dispatch，只允许 `budget_recovery` / `final_synthesis` / `final_abort` 收敛请求继续。
+- `ActionMapProviderRequestBudgetSnapshot` 携带 runtime-derived `request_phase`，`turn.rs` 使用 snapshot phase，不再硬编码所有请求为 `model_sampling`；`FinalSynthesis` 节点会产生 `final_synthesis` phase。
+- `taskspace_control` handler 拒绝 direct legacy state mutation action，要求使用 `state_commit`；`start_task` 的 initial fields 和 `state_commit` 保持可用。
+- E3 start gate 和 release decision 均要求 non-agent subgate evidence 的 `git_commit` 等于当前 HEAD；code-complete marker 在 release decision 中也必须等于当前 HEAD。
+- start gate 和 release decision 均增加 stale code-complete `git_commit` 负向 fixture。
+
+修复后已通过：
 
 ```text
-v0.0.5 engineering implementation: CODE-COMPLETE
+cargo test -p codex-core provider_request_budget -- --nocapture
+cargo test -p codex-core provider_request_budget_snapshot_uses_final_synthesis_phase -- --nocapture
+cargo test -p codex-core active_profile_rejects_direct_legacy_state_action -- --nocapture
+cargo test -p codex-core active_profile_allows_state_commit_action -- --nocapture
+cargo test -p codex-core state_commit -- --nocapture
+cargo test -p codex-core budget -- --nocapture
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\v005-review-release-selftest
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1 -RunRoot target\v005-review-start-gate-selftest
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1
+```
+
+只看工程代码和非 agent gate，并结合 Round 3 对抗性闭环审查结果，修复后状态为：
+
+```text
+v0.0.5 engineering implementation: CODE-COMPLETE AFTER ADVERSARIAL CLOSURE REVIEW
 ```
 
 但从版本产品目标看：
@@ -158,3 +186,15 @@ v0.0.5 release closeout: NOT PROVEN
 ```
 
 下一步如果要进入真实样本验证，必须先生成与当前 commit 绑定的 code-complete / non-agent gates / user approval marker，然后由 E3 start gate 明确给出 `full_e3_allowed=true`。
+
+## 7. 2026-06-20 Round 3 对抗性闭环审查
+
+审查报告：`vs_review/2026-06-20-v005-engineering-completion-review.md`
+
+Round 3 使用新的只读 implementation-adversary 子审查会话，针对 Round 1 和 Round 2 的 accepted blocking findings 重新检查。结论：
+
+- active budget soft response：已关闭。`compact_checkpoint_required` 下普通 provider dispatch 会被阻断，`final_synthesis` 等收敛 phase 通过 runtime snapshot 进入真实 attribution。
+- `state_commit` active-profile path：已关闭。direct legacy state mutation action 在 handler 层被拒绝，`state_commit` 与 `start_task` 初始字段路径保留。
+- HEAD-bound non-agent gates：已关闭。E3 start gate 与 release decision 要求 non-agent evidence 和 code-complete marker 绑定当前 HEAD，并具备 stale commit 负向 fixture。
+
+剩余风险是非 blocking：尚无完整 streamed-turn integration test 覆盖 final-synthesis provider lifecycle attribution；当前证明来自 focused Rust tests 与 PowerShell fixture gates。

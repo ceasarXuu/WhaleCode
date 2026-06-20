@@ -408,6 +408,7 @@ pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
     pub(crate) task_id: Option<TaskId>,
     pub(crate) map_id: ActionMapId,
     pub(crate) node_id: Option<MapNodeId>,
+    pub(crate) request_phase: Option<String>,
     pub(crate) provider_request_context_missing_reason: Option<String>,
     pub(crate) request_count: usize,
     pub(crate) max_requests: usize,
@@ -1560,6 +1561,7 @@ preview:\n\
         }
         let map_id = self.active_map_id.clone()?;
         let node_id = self.current_main_node_id.clone();
+        let request_phase = self.provider_request_phase_for_node(&map_id, node_id.as_deref());
         let provider_request_context_missing_reason = if node_id.is_some() {
             None
         } else {
@@ -1570,10 +1572,25 @@ preview:\n\
             task_id,
             map_id,
             node_id,
+            request_phase,
             provider_request_context_missing_reason,
             request_count: self.provider_request_count,
             max_requests: Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX,
         })
+    }
+
+    fn provider_request_phase_for_node(
+        &self,
+        map_id: &str,
+        node_id: Option<&str>,
+    ) -> Option<String> {
+        let node = node_id
+            .and_then(|node_id| self.maps.get(map_id).and_then(|map| map.nodes.get(node_id)))?;
+        let phase = match node.kind {
+            NodeKind::FinalSynthesis => "final_synthesis",
+            _ => "model_sampling",
+        };
+        Some(phase.to_string())
     }
 
     pub(crate) fn record_provider_request_budget_events(
@@ -1734,7 +1751,11 @@ preview:\n\
                 },
             ));
             let quality_id = self.next_trace_event_id();
-            let budget_action = if input.status == "blocked" {
+            let budget_action = if input.status == "blocked"
+                && input.budget_transition_reason == "provider_request_compact_checkpoint_required"
+            {
+                "compact_checkpoint_required"
+            } else if input.status == "blocked" {
                 "hard_stop"
             } else {
                 "observe"
@@ -13623,6 +13644,31 @@ mod tests {
                         && blocked.action_class == "edit"
             )
         }));
+    }
+
+    #[test]
+    fn provider_request_budget_snapshot_uses_final_synthesis_phase() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::FinalSynthesis,
+                "budget final task".to_string(),
+                "verify final synthesis request phase".to_string(),
+                "final synthesis".to_string(),
+                "produce bounded final answer".to_string(),
+                true,
+            )
+            .expect("start final synthesis task");
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("active budget snapshot");
+
+        assert_eq!(snapshot.node_id.as_deref(), Some("node-1"));
+        assert_eq!(snapshot.request_phase.as_deref(), Some("final_synthesis"));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use super::AuthRequestTelemetryContext;
 use super::ModelClient;
 use super::PendingUnauthorizedRetry;
+use super::ProviderRequestAttribution;
 use super::ProviderRequestBudgetContext;
 use super::UnauthorizedRecoveryExecution;
 use super::X_CODEX_INSTALLATION_ID_HEADER;
@@ -115,6 +116,60 @@ fn provider_request_budget_blocks_before_dispatch_when_exhausted() {
     assert_eq!(
         events[0].budget_transition_reason,
         "provider_request_budget_exhausted"
+    );
+}
+
+#[test]
+fn provider_request_budget_blocks_regular_dispatch_at_compact_checkpoint() {
+    let budget = ProviderRequestBudgetContext::enabled(1, 2);
+
+    let err = budget
+        .before_dispatch("responses_http")
+        .expect_err("compact checkpoint state should block regular dispatch");
+
+    assert!(
+        err.to_string()
+            .contains("requires a compact checkpoint or final response")
+    );
+    let events = budget.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].status, "blocked");
+    assert_eq!(events[0].request_count_before, 1);
+    assert_eq!(events[0].request_count_after, 1);
+    assert_eq!(events[0].max_requests, 2);
+    assert_eq!(events[0].budget_state_before, "compact_checkpoint_required");
+    assert_eq!(events[0].budget_state_after, "compact_checkpoint_required");
+    assert_eq!(
+        events[0].budget_transition_reason,
+        "provider_request_compact_checkpoint_required"
+    );
+}
+
+#[test]
+fn provider_request_budget_allows_final_synthesis_at_compact_checkpoint() {
+    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
+        1,
+        2,
+        ProviderRequestAttribution {
+            request_phase: Some("final_synthesis".to_string()),
+            ..ProviderRequestAttribution::default()
+        },
+    );
+
+    let _dispatch = budget
+        .before_dispatch("responses_http")
+        .expect("final synthesis should be allowed at compact checkpoint");
+
+    budget.record_response_completed(None);
+    let events = budget.drain_events();
+    assert_eq!(events[0].status, "started");
+    assert_eq!(events[0].request_count_before, 1);
+    assert_eq!(events[0].request_count_after, 2);
+    assert_eq!(events[0].budget_state_before, "compact_checkpoint_required");
+    assert_eq!(events[0].budget_state_after, "hard_stopped");
+    assert_eq!(
+        events.last().expect("terminal event").status,
+        "response_completed"
     );
 }
 

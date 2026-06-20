@@ -46,6 +46,7 @@ function New-FixtureReceiptLines([object[]]$Rows) {
 function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [int]$RoutingMistakes, [double]$ModelRequestRatio = 1.0, [string[]]$TaskListSamples = @("processing-pipeline", "multi-source-data-merger", "recover-accuracy-log"), [bool]$Attested = $false) {
     $dir = Join-Path $RunRoot $Name
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    $head = (& git -C $RepoRoot rev-parse HEAD)
     Write-Json ([pscustomobject]@{
             status = $CostStatus
             ratios = [pscustomobject]@{
@@ -172,7 +173,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             command = "selftest $Name"
             exit_code = 0
             generated_at = "2026-06-19T00:00:00.0000000Z"
-            git_commit = "fixture-head"
+            git_commit = [string]$head
             profile_hash = $profileHash
             task_list_hash = $taskListHash
             source_version = $sourceVersion
@@ -204,7 +205,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             profile_hash = $profileHash
             sample_set_id = $sampleSetId
             generated_at = "2026-06-19T00:00:00.0000000Z"
-            git_commit = "fixture-head"
+            git_commit = [string]$head
             test_outputs = @("target/fixture/non-agent-gates.txt")
             unfinished_p0_items = @()
         }) $codeCompletePath
@@ -731,6 +732,15 @@ Assert-True ($LASTEXITCODE -eq 1) "mismatched non-agent identity fixture did not
 $mismatchedNonAgentIdentityDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $mismatchedNonAgentIdentityDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($mismatchedNonAgentIdentityDecision.blockers) -contains "v005_non_agent_gates_failed") "mismatched non-agent identity fixture did not report v005 gate blocker"
 
+$staleNonAgentCommitDir = New-FixtureRun "stale-non-agent-commit" "PASS" $true 0
+$staleNonAgentCommit = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $staleNonAgentCommitDir "v005-non-agent-gates.json") | ConvertFrom-Json
+$staleNonAgentCommit.gates.provider_request_hook.git_commit = "stale-non-agent-commit"
+$staleNonAgentCommit | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $staleNonAgentCommitDir "v005-non-agent-gates.json") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $staleNonAgentCommitDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "stale non-agent commit fixture did not exit 1"
+$staleNonAgentCommitDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $staleNonAgentCommitDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($staleNonAgentCommitDecision.blockers) -contains "v005_non_agent_gates_failed") "stale non-agent commit fixture did not report v005 gate blocker"
+
 $weakCodeCompleteDir = New-FixtureRun "weak-code-complete-marker" "PASS" $true 0
 $weakCodeComplete = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $weakCodeCompleteDir "v005-code-complete.json") | ConvertFrom-Json
 $weakCodeComplete.PSObject.Properties.Remove("test_outputs")
@@ -740,6 +750,15 @@ $weakCodeComplete | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Pa
 Assert-True ($LASTEXITCODE -eq 1) "weak code-complete marker fixture did not exit 1"
 $weakCodeCompleteDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $weakCodeCompleteDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($weakCodeCompleteDecision.blockers) -contains "v005_code_complete_marker_failed") "weak code-complete marker fixture did not report code-complete blocker"
+
+$staleCodeCompleteCommitDir = New-FixtureRun "stale-code-complete-commit" "PASS" $true 0
+$staleCodeCompleteCommit = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $staleCodeCompleteCommitDir "v005-code-complete.json") | ConvertFrom-Json
+$staleCodeCompleteCommit.git_commit = "stale-code-complete-commit"
+$staleCodeCompleteCommit | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $staleCodeCompleteCommitDir "v005-code-complete.json") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $staleCodeCompleteCommitDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "stale code-complete commit fixture did not exit 1"
+$staleCodeCompleteCommitDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $staleCodeCompleteCommitDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($staleCodeCompleteCommitDecision.blockers) -contains "v005_code_complete_marker_failed") "stale code-complete commit fixture did not report code-complete blocker"
 
 $missingApprovalTimestampDir = New-FixtureRun "missing-approval-timestamp" "PASS" $true 0
 $missingApprovalMarker = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingApprovalTimestampDir "v005-user-approval.json") | ConvertFrom-Json

@@ -167,6 +167,8 @@ function Get-ReleaseValidOutputRefCreatedEvents {
 $runRoot = (Resolve-Path -LiteralPath $RunDir).Path
 if (-not $OutputPath) { $OutputPath = Join-Path $runRoot "release-decision.md" }
 $jsonPath = [System.IO.Path]::ChangeExtension($OutputPath, ".json")
+$repoRootForRelease = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$currentHeadForRelease = (& git -C $repoRootForRelease rev-parse HEAD 2>$null)
 
 $costPath = Join-Path $runRoot "suite-cost-gate.json"
 $aggregatePath = Join-Path $runRoot "aggregate.json"
@@ -463,6 +465,8 @@ $codeCompleteMarkerPass = ($v005CodeCompleteMarker `
     -and (Get-ReleaseString $v005CodeCompleteMarker "sample_set_id") -eq $expectedFormalSampleSetId `
     -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $v005CodeCompleteMarker "generated_at")) `
     -and -not [string]::IsNullOrWhiteSpace((Get-ReleaseString $v005CodeCompleteMarker "git_commit")) `
+    -and -not [string]::IsNullOrWhiteSpace([string]$currentHeadForRelease) `
+    -and (Get-ReleaseString $v005CodeCompleteMarker "git_commit") -eq [string]$currentHeadForRelease `
     -and @($v005CodeCompleteMarker.test_outputs).Count -gt 0 `
     -and @($v005CodeCompleteMarker.unfinished_p0_items).Count -eq 0)
 $userApprovalMarkerPass = ($v005UserApprovalMarker `
@@ -751,6 +755,10 @@ if ($v005NonAgentGatesPass) {
             break
         }
         if ([string]::IsNullOrWhiteSpace([string]$gateValue.command) -or (Get-ReleaseInt $gateValue "exit_code" -999) -ne 0 -or [string]::IsNullOrWhiteSpace([string]$gateValue.generated_at) -or [string]::IsNullOrWhiteSpace([string]$gateValue.git_commit) -or [string]::IsNullOrWhiteSpace([string]$gateValue.profile_hash) -or [string]::IsNullOrWhiteSpace([string]$gateValue.task_list_hash) -or [string]::IsNullOrWhiteSpace([string]$gateValue.source_version) -or [string]::IsNullOrWhiteSpace([string]$gateValue.evidence_sha256)) {
+            $v005NonAgentGatesPass = $false
+            break
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$currentHeadForRelease) -or [string]$gateValue.git_commit -ne [string]$currentHeadForRelease) {
             $v005NonAgentGatesPass = $false
             break
         }

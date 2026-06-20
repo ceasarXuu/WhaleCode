@@ -2564,7 +2564,7 @@ async fn try_run_sampling_request(
                     task_id: snapshot.task_id.as_ref().map(|id| id.to_string()),
                     map_id: Some(snapshot.map_id.to_string()),
                     node_id: snapshot.node_id.as_ref().map(|id| id.to_string()),
-                    request_phase: Some("model_sampling".to_string()),
+                    request_phase: snapshot.request_phase.clone(),
                 },
             )
         })

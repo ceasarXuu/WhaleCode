@@ -183,6 +183,11 @@ function Get-TaskspaceV005MarkerGate {
     if (-not [string]::IsNullOrWhiteSpace($ExpectedProfileHash) -and [string]$marker.profile_hash -ne $ExpectedProfileHash) {
         return New-TaskspaceE3GateRow $Name "blocked" "$Name profile_hash mismatch" "$Name`_profile_hash_mismatch" "Marker profile_hash does not match expected identity: $Path"
     }
+    $repoRootForMarker = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
+    $currentHead = (& git -C $repoRootForMarker rev-parse HEAD 2>$null)
+    if ([string]::IsNullOrWhiteSpace([string]$currentHead)) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name current HEAD unavailable" "$Name`_current_head_unavailable" "Cannot bind marker to current git HEAD: $Path"
+    }
     if ([string]$Name -eq "v005_non_agent_gates") {
         $required = @(
             "provider_request_hook",
@@ -220,6 +225,9 @@ function Get-TaskspaceV005MarkerGate {
             if ([string]::IsNullOrWhiteSpace([string]$gateValue.git_commit)) {
                 return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName git_commit missing" "$Name`_$gateName`_git_commit_missing" "Non-agent gate $gateName must include git_commit: $Path"
             }
+            if ([string]$gateValue.git_commit -ne [string]$currentHead) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName git_commit mismatch" "$Name`_$gateName`_git_commit_mismatch" "Non-agent gate $gateName git_commit must match current HEAD: $Path"
+            }
             if ([string]::IsNullOrWhiteSpace([string]$gateValue.profile_hash) -or (-not [string]::IsNullOrWhiteSpace($ExpectedProfileHash) -and [string]$gateValue.profile_hash -ne $ExpectedProfileHash)) {
                 return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName profile_hash mismatch" "$Name`_$gateName`_profile_hash_mismatch" "Non-agent gate $gateName profile_hash must match expected identity: $Path"
             }
@@ -250,9 +258,7 @@ function Get-TaskspaceV005MarkerGate {
         if ([string]::IsNullOrWhiteSpace([string]$marker.git_commit)) {
             return New-TaskspaceE3GateRow $Name "blocked" "$Name git_commit missing" "$Name`_git_commit_missing" "Code-complete marker must record git_commit: $Path"
         }
-        $repoRootForMarker = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
-        $currentHead = (& git -C $repoRootForMarker rev-parse HEAD 2>$null)
-        if (-not [string]::IsNullOrWhiteSpace([string]$currentHead) -and [string]$marker.git_commit -ne [string]$currentHead) {
+        if ([string]$marker.git_commit -ne [string]$currentHead) {
             return New-TaskspaceE3GateRow $Name "blocked" "$Name git_commit mismatch" "$Name`_git_commit_mismatch" "Code-complete marker git_commit does not match current HEAD: $Path"
         }
         if (@($marker.unfinished_p0_items).Count -gt 0) {
