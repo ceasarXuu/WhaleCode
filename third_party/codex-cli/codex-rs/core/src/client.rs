@@ -228,6 +228,7 @@ struct ProviderRequestBudgetActiveRequest {
     budget_state_after: String,
     budget_transition_reason: String,
     started_at_ms: i64,
+    request_phase: Option<String>,
     provider_payload_sha256: Option<String>,
     provider_payload_bytes: Option<usize>,
     payload_scan: Option<ProviderPayloadScan>,
@@ -342,11 +343,17 @@ impl ProviderRequestBudgetContext {
         let before = self.state.count.load(Ordering::SeqCst);
         let budget_state_before =
             provider_request_budget_state_for(before, self.state.max_requests);
-        let compact_checkpoint_required = budget_state_before == "compact_checkpoint_required"
-            && !provider_request_budget_allows_compact_checkpoint_dispatch(&self.state.attribution);
-        if before >= self.state.max_requests || compact_checkpoint_required {
+        let compact_checkpoint_final_dispatch =
+            provider_request_budget_allows_compact_checkpoint_dispatch(&self.state.attribution);
+        let compact_checkpoint_recovery_slot = budget_state_before == "compact_checkpoint_required"
+            && before + 1 >= self.state.max_requests;
+        let compact_checkpoint_blocked = budget_state_before == "compact_checkpoint_required"
+            && !compact_checkpoint_final_dispatch;
+        let compact_checkpoint_blocked =
+            compact_checkpoint_blocked && !compact_checkpoint_recovery_slot;
+        if before >= self.state.max_requests || compact_checkpoint_blocked {
             let request_identity = self.build_request_identity(before + 1, 1);
-            let blocked_reason = if compact_checkpoint_required {
+            let blocked_reason = if compact_checkpoint_blocked {
                 "provider_request_compact_checkpoint_required"
             } else {
                 "provider_request_budget_exhausted"
@@ -385,7 +392,7 @@ impl ProviderRequestBudgetContext {
                 node_id: self.state.attribution.node_id.clone(),
                 request_phase: self.state.attribution.request_phase.clone(),
             });
-            let message = if compact_checkpoint_required {
+            let message = if compact_checkpoint_blocked {
                 format!(
                     "TaskSpace blocked this provider request because the active provider request budget requires a compact checkpoint or final synthesis response ({before}/{}). Enter final_synthesis or record a compact state checkpoint before requesting another model turn.",
                     self.state.max_requests
@@ -402,6 +409,14 @@ impl ProviderRequestBudgetContext {
         let budget_state_after = provider_request_budget_state_for(after, self.state.max_requests);
         let budget_transition_reason =
             provider_request_budget_transition_reason(budget_state_before, budget_state_after);
+        let request_phase = if budget_state_before == "compact_checkpoint_required"
+            && compact_checkpoint_recovery_slot
+            && !compact_checkpoint_final_dispatch
+        {
+            Some("budget_recovery".to_string())
+        } else {
+            self.state.attribution.request_phase.clone()
+        };
         let request_identity = self.build_request_identity(after, 1);
         let request_id = request_identity.request_id.clone();
         let started_at_ms = provider_request_budget_now_ms();
@@ -417,6 +432,7 @@ impl ProviderRequestBudgetContext {
             budget_state_after: budget_state_after.to_string(),
             budget_transition_reason: budget_transition_reason.to_string(),
             started_at_ms,
+            request_phase: request_phase.clone(),
             provider_payload_sha256: None,
             provider_payload_bytes: None,
             payload_scan: None,
@@ -458,7 +474,7 @@ impl ProviderRequestBudgetContext {
             task_id: self.state.attribution.task_id.clone(),
             map_id: self.state.attribution.map_id.clone(),
             node_id: self.state.attribution.node_id.clone(),
-            request_phase: self.state.attribution.request_phase.clone(),
+            request_phase: request_phase.clone(),
         });
         Ok(ProviderRequestBudgetDispatch {
             context: Some(self.clone()),
@@ -473,6 +489,7 @@ impl ProviderRequestBudgetContext {
             budget_state_before: budget_state_before.to_string(),
             budget_state_after: budget_state_after.to_string(),
             budget_transition_reason: budget_transition_reason.to_string(),
+            request_phase,
         })
     }
 
@@ -541,7 +558,7 @@ impl ProviderRequestBudgetContext {
             task_id: self.state.attribution.task_id.clone(),
             map_id: self.state.attribution.map_id.clone(),
             node_id: self.state.attribution.node_id.clone(),
-            request_phase: self.state.attribution.request_phase.clone(),
+            request_phase: active_request.request_phase,
         });
     }
 
@@ -607,7 +624,7 @@ impl ProviderRequestBudgetContext {
                 task_id: self.state.attribution.task_id.clone(),
                 map_id: self.state.attribution.map_id.clone(),
                 node_id: self.state.attribution.node_id.clone(),
-                request_phase: self.state.attribution.request_phase.clone(),
+                request_phase: active_request.request_phase,
             });
         }
     }
@@ -686,6 +703,7 @@ struct ProviderRequestBudgetDispatch {
     budget_state_after: String,
     budget_transition_reason: String,
     started_at_ms: i64,
+    request_phase: Option<String>,
 }
 
 impl ProviderRequestBudgetDispatch {
@@ -703,6 +721,7 @@ impl ProviderRequestBudgetDispatch {
             budget_state_after: String::new(),
             budget_transition_reason: String::new(),
             started_at_ms: 0,
+            request_phase: None,
         }
     }
 
@@ -753,7 +772,7 @@ impl ProviderRequestBudgetDispatch {
                 task_id: context.state.attribution.task_id.clone(),
                 map_id: context.state.attribution.map_id.clone(),
                 node_id: context.state.attribution.node_id.clone(),
-                request_phase: context.state.attribution.request_phase.clone(),
+                request_phase: self.request_phase.clone(),
             });
         }
     }

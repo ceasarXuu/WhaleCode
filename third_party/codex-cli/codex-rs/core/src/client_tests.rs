@@ -120,28 +120,46 @@ fn provider_request_budget_blocks_before_dispatch_when_exhausted() {
 }
 
 #[test]
-fn provider_request_budget_blocks_regular_dispatch_at_compact_checkpoint() {
+fn provider_request_budget_allows_bounded_recovery_at_compact_checkpoint() {
     let budget = ProviderRequestBudgetContext::enabled(1, 2);
+
+    let _dispatch = budget
+        .before_dispatch("responses_http")
+        .expect("compact checkpoint should allow one bounded recovery dispatch");
+
+    let events = budget.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].status, "started");
+    assert_eq!(events[0].request_count_before, 1);
+    assert_eq!(events[0].request_count_after, 2);
+    assert_eq!(events[0].max_requests, 2);
+    assert_eq!(events[0].budget_state_before, "compact_checkpoint_required");
+    assert_eq!(events[0].budget_state_after, "hard_stopped");
+    assert_eq!(
+        events[0].budget_transition_reason,
+        "provider_request_budget_reached"
+    );
+    assert_eq!(events[0].request_phase.as_deref(), Some("budget_recovery"));
+
+    budget.record_response_completed(None);
+    let terminal_events = budget.drain_events();
+    assert_eq!(terminal_events.len(), 1);
+    assert_eq!(
+        terminal_events[0].request_id,
+        "provider-request:scope-unknown:logical-2:attempt-1"
+    );
+    assert_eq!(terminal_events[0].status, "response_completed");
+    assert_eq!(
+        terminal_events[0].request_phase.as_deref(),
+        Some("budget_recovery")
+    );
 
     let err = budget
         .before_dispatch("responses_http")
-        .expect_err("compact checkpoint state should block regular dispatch");
-
+        .expect_err("budget should hard stop after bounded recovery is spent");
     assert!(
         err.to_string()
-            .contains("requires a compact checkpoint or final synthesis response")
-    );
-    let events = budget.drain_events();
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].status, "blocked");
-    assert_eq!(events[0].request_count_before, 1);
-    assert_eq!(events[0].request_count_after, 1);
-    assert_eq!(events[0].max_requests, 2);
-    assert_eq!(events[0].budget_state_before, "compact_checkpoint_required");
-    assert_eq!(events[0].budget_state_after, "compact_checkpoint_required");
-    assert_eq!(
-        events[0].budget_transition_reason,
-        "provider_request_compact_checkpoint_required"
+            .contains("active provider request budget is exhausted")
     );
 }
 
@@ -167,9 +185,18 @@ fn provider_request_budget_allows_final_synthesis_at_compact_checkpoint() {
     assert_eq!(events[0].request_count_after, 2);
     assert_eq!(events[0].budget_state_before, "compact_checkpoint_required");
     assert_eq!(events[0].budget_state_after, "hard_stopped");
+    assert_eq!(events[0].request_phase.as_deref(), Some("final_synthesis"));
     assert_eq!(
         events.last().expect("terminal event").status,
         "response_completed"
+    );
+    assert_eq!(
+        events
+            .last()
+            .expect("terminal event")
+            .request_phase
+            .as_deref(),
+        Some("final_synthesis")
     );
 }
 

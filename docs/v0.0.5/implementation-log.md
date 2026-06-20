@@ -4533,3 +4533,50 @@ Reflection:
 
 - Before any live TaskSpace benchmark, run the external wrapper preflight or the suite start gate after rebuilding and reinstalling Whale.
 - Do not treat a benchmark result as current-code evidence unless `whale-binary-preflight-health.json` proves the installed binary is at least as fresh as the relevant `third_party/codex-cli` source.
+
+## 2026-06-21 Budget Response Gate bounded recovery repair
+
+Scope:
+
+- 修复 v0.0.5 `Budget Response Gate` 的工程缺漏：当前 binary 下 `processing-pipeline` 不再表现为旧 binary 的 900 秒失控超时，但 TaskSpace 在 `19/20` provider request 时被 compact checkpoint gate 直接硬拒，模型没有机会用最后一次请求输出 `final_synthesis` / bounded failure。
+- 该问题属于 `docs/v0.0.5/18-unfinished-work-engineering-design.md` 的 `6.4 Budget Response Gate` 与 `6.4.1 Budget-Induced Quality Protection`，不是产品设计外的新需求。
+
+Root cause:
+
+- `provider_request_budget_state_for` 在剩余 1 次请求时进入 `compact_checkpoint_required`。
+- `ProviderRequestBudgetContext::before_dispatch` 对非 `final_synthesis` phase 的 compact checkpoint 请求立即返回 `CodexErr::InvalidRequest`。
+- 实际运行中，上层在发起下一次模型请求前还没有机会把 `request_phase` 改成 `final_synthesis`，因此 soft convergence gate 退化成 fatal `turn.failed`。
+
+Changes:
+
+- `before_dispatch` 现在允许 compact checkpoint 状态下的最后一次 provider request 作为 bounded recovery slot。
+- 非 `final_synthesis` attribution 使用该 slot 时，provider budget events 的 `request_phase` 会标记为 `budget_recovery`。
+- 该请求会把预算状态从 `compact_checkpoint_required` 推进到 `hard_stopped`，并记录 `provider_request_budget_reached`。
+- recovery slot 用完后，下一次 provider request 仍按 `provider_request_budget_exhausted` 硬停，不允许继续消耗预算。
+- 更新 `client_tests.rs`，把旧的“compact checkpoint 普通请求必须阻断”契约改为“允许一次 `budget_recovery`，随后 hard stop”。
+
+Validation:
+
+```text
+cargo fmt
+cargo test -p codex-core provider_request_budget -- --nocapture
+cargo build -p codex-cli --bin whale --locked
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath "$env:CARGO_TARGET_DIR\debug\whale.exe" -PersistUserPath -BackupLegacyCopies
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-external-wrapper-harness.ps1
+```
+
+Result:
+
+- `cargo fmt` completed; rustfmt printed the repository's existing nightly-only `imports_granularity` warnings.
+- Focused Rust test passed: `7 passed; 0 failed` for `provider_request_budget`.
+- `cargo build -p codex-cli --bin whale --locked` passed.
+- Installed binary: `C:\Users\77585\.whale\bin\whale.exe`.
+- Installed SHA256: `DBEBA2C7AD3DBAC777B7A93B5C8B2B8360D1F5740BFB43D14907534575A8B56F`.
+- Installed `LastWriteTimeUtc`: `2026-06-20T18:10:59Z`.
+- External wrapper self-test passed; run root `D:\whalecode-alpha\target\external-wrapper-selftest\20260621-021120-504`.
+- 未执行真实 E3；该修复只验证预算门禁工程语义和非 agent wrapper preflight。
+
+Reflection:
+
+- 预算门禁不能只在 action-map trace 中表达质量影响；dispatch 层也必须给模型一次受控收敛机会，否则“要求 final_synthesis”会变成模型无法执行的前置条件。
+- 该修复不承诺 `processing-pipeline` 通过，只排除“soft budget gate 无 recovery 通道”这个非设计层缺漏。

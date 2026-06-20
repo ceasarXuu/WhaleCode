@@ -1,5 +1,5 @@
 # Problem P-001: v0.0.5 processing-pipeline diagnostic stops on TaskSpace timeout
-- Status: root_cause_confirmed
+- Status: repair_in_progress
 - Created: 2026-06-21 00:35
 - Updated: 2026-06-21 00:47
 - Objective: Explain why the 2026-06-21 `terminal-bench_E3-P0_3_1` diagnostic stopped after the first sample.
@@ -38,11 +38,12 @@
   - Rebuild/install current `whale.exe` before rerunning diagnostics.
   - Re-run a bounded single-sample TaskSpace diagnostic and verify provider budget/request events are present.
   - The same `processing-pipeline` sample must avoid uncontrolled spawn/wait expansion or terminate with a bounded budget reason before 900 seconds.
-- Current conclusion: The immediate run failure is caused by stale benchmark execution plus old TaskSpace orchestration behavior. The stale-binary execution path is now guarded by an external benchmark preflight and the local installed binary has been rebuilt from current codex source. Within the previously executed stale binary, TaskSpace solved/changed files but then failed to close validation, repeatedly created smoke/regression/implementation nodes and spawned/waited for subagents until the harness killed the process.
+- Current conclusion: The immediate 900-second failure was caused by stale benchmark execution plus old TaskSpace orchestration behavior. The stale-binary execution path is now guarded by an external benchmark preflight and the local installed binary has been rebuilt from current codex source. A current-binary direct TaskSpace reproduction then exposed a separate v0.0.5 implementation gap: compact checkpoint budget handling blocked the `19/20` provider request before the model could use the final budget slot for bounded recovery or final synthesis. The dispatch-level budget gap is fixed and covered by focused unit tests; no real E3 rerun has been executed after this repair.
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
+  - H-004
 - Resolution basis:
   - H-001
   - H-002
@@ -52,7 +53,7 @@
   - E-004
   - E-005
 - Close reason:
-  - analysis complete; repair not started
+  - not closed
 
 ## Hypothesis H-001: The diagnostic ran a stale Whale binary rather than current v0.0.5 code
 - Status: confirmed
@@ -138,6 +139,39 @@
 - Conclusion: refuted for this sample.
 - Repair design readiness: none
 - Next step: do not spend time on Docker/validator for this early-stop failure.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-004: Compact checkpoint provider budget handling blocked the last recovery request
+- Status: confirmed
+- Parent: P-001
+- Claim: In current v0.0.5 code, `ProviderRequestBudgetContext::before_dispatch` treats the compact checkpoint state as a pre-dispatch hard error for non-`final_synthesis` attribution, so the model cannot use the last available provider request to produce final synthesis, compact checkpoint, or bounded failure output.
+- Layer: runtime-budget-gate
+- Factor relation: sufficient_for_current_binary_failure
+- Depends on:
+  - H-001
+- Rationale:
+  - The current-binary `processing-pipeline` reproduction stopped quickly with a provider budget error at `19/20`, not with the old 900-second timeout.
+  - The code path computes `compact_checkpoint_required` when one request remains, then rejects ordinary dispatch unless the existing attribution is already `final_synthesis`.
+  - The model cannot change the attribution to `final_synthesis` without receiving one more provider request.
+- Falsifiable predictions:
+  - If true: direct current-binary artifacts should contain `turn.failed` with the compact checkpoint budget message at `19/20`.
+  - If true: `client.rs` should block compact checkpoint before incrementing the provider request count when attribution is not `final_synthesis`.
+  - If fixed: a unit test starting at `1/2` budget should allow one `budget_recovery` dispatch to `2/2`, then block the next dispatch as exhausted.
+- Diagnostic evidence plan:
+  - Inspect current-binary direct TaskSpace JSONL for the exact provider budget failure.
+  - Inspect `client.rs` compact checkpoint branch and existing provider budget tests.
+  - Add a focused provider budget regression proving one `budget_recovery` dispatch is allowed and the next dispatch hard-stops.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-009
+  - E-010
+  - E-011
+- Conclusion: confirmed.
+- Repair design readiness: ready and authorized by the user's request to fill this missing v0.0.5 gap.
+- Next step: a future live TaskSpace smoke can verify whether `processing-pipeline` now reaches bounded final output or exposes the next runtime/design issue.
 - Blocker:
   - none
 - Close reason:
@@ -279,3 +313,58 @@
   - H-001
 - Refutes or weakens:
   - direct `run-taskspace-benchmark.ps1` as a remaining stale-binary bypass
+
+## Evidence E-009: Current-binary processing-pipeline stopped at compact checkpoint budget gate
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Ran a direct TaskSpace-only `processing-pipeline` reproduction with the freshly rebuilt installed binary.
+- Observations:
+  - Run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-010203`.
+  - App dir: `C:\w\taskspace-processing-pipeline-single-20260621-010203\app`.
+  - Wall time: `152,721 ms`.
+  - `last-message.md` was missing.
+  - JSONL events included `turn.failed=1` and `error=1`.
+  - Final error: `TaskSpace blocked this provider request because the active provider request budget requires a compact checkpoint or final synthesis response (19/20). Enter final_synthesis or record a compact state checkpoint before requesting another model turn.`
+  - File hashes for the task scripts were unchanged after the run.
+- Interpretation:
+  - The stale-binary timeout was removed from this reproduction, but the current runtime still failed before producing a bounded final result.
+  - The failure is a v0.0.5 budget response implementation gap, not a validator/Docker completion result.
+- Supports:
+  - H-004
+- Refutes or weakens:
+  - stale binary as the only remaining blocker
+
+## Evidence E-010: Provider budget code and tests encoded a pre-dispatch compact checkpoint hard block
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Inspected `third_party\codex-cli\codex-rs\core\src\client.rs` and `client_tests.rs`.
+- Observations:
+  - `provider_request_budget_state_for` returns `compact_checkpoint_required` when `remaining <= 1`.
+  - `before_dispatch` rejected compact checkpoint requests unless `request_phase=final_synthesis`.
+  - The existing test `provider_request_budget_blocks_regular_dispatch_at_compact_checkpoint` expected `ProviderRequestBudgetContext::enabled(1, 2)` to fail before dispatch.
+  - The repair changes this contract to allow one `budget_recovery` dispatch from `1/2` to `2/2`, then reject the next request as exhausted.
+- Interpretation:
+  - The bug is not just model behavior; the runtime encoded an impossible sequencing requirement for final synthesis attribution.
+- Supports:
+  - H-004
+- Refutes or weakens:
+  - prompt-only or task-domain-only explanations
+
+## Evidence E-011: Focused provider budget repair validation passed
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Changed `ProviderRequestBudgetContext::before_dispatch`, updated focused provider budget tests, formatted, tested, rebuilt, installed, and ran the non-agent wrapper self-test.
+- Observations:
+  - `before_dispatch` now allows compact checkpoint state to consume the final provider request as a bounded recovery slot.
+  - The updated test proves `ProviderRequestBudgetContext::enabled(1, 2)` dispatches from `1/2` to `2/2`, records `provider_request_budget_reached`, marks the event phase as `budget_recovery`, and then rejects the next request as exhausted.
+  - `cargo test -p codex-core provider_request_budget -- --nocapture` passed: `7 passed; 0 failed`.
+  - `cargo build -p codex-cli --bin whale --locked` passed.
+  - Installed binary SHA256: `DBEBA2C7AD3DBAC777B7A93B5C8B2B8360D1F5740BFB43D14907534575A8B56F`.
+  - `scripts\taskspace-benchmark\test-external-wrapper-harness.ps1` passed.
+- Interpretation:
+  - The impossible sequencing requirement at compact checkpoint is fixed at the dispatch layer.
+  - This validation does not prove `processing-pipeline` solves; it only proves the identified non-design budget gate bug is repaired and the installed binary includes the repair.
+- Supports:
+  - H-004
+- Refutes or weakens:
+  - claims that this repair already establishes E3 correctness
