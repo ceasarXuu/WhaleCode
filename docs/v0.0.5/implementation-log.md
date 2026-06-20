@@ -4580,3 +4580,40 @@ Reflection:
 
 - 预算门禁不能只在 action-map trace 中表达质量影响；dispatch 层也必须给模型一次受控收敛机会，否则“要求 final_synthesis”会变成模型无法执行的前置条件。
 - 该修复不承诺 `processing-pipeline` 通过，只排除“soft budget gate 无 recovery 通道”这个非设计层缺漏。
+
+## 2026-06-21 processing-pipeline single-sample TaskSpace smoke after budget recovery repair
+
+Scope:
+
+- 按用户要求，对此前定位用的 `processing-pipeline` 单 sample 再跑一轮轻量 TaskSpace-only smoke。
+- 未跑完整 E3，未跑 Standard 对照。
+- 使用 terminal-bench adapter 物化公开 fixture；有效运行的 app 目录只包含公开文件，不包含 `solution.sh` 或 `tests`。
+
+Artifacts:
+
+- Adapter root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-adapter-20260621-023830`
+- Valid run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-024159`
+- Valid app dir: `C:\w\taskspace-processing-pipeline-single-20260621-024159\app`
+- Whale SHA256: `DBEBA2C7AD3DBAC777B7A93B5C8B2B8360D1F5740BFB43D14907534575A8B56F`
+
+Result:
+
+- Timed out: `false`
+- Wall time: `109,216 ms`
+- `turn.completed`: `0`
+- `turn.failed`: `1`
+- Final error: `TaskSpace blocked this provider request because the active provider request budget is exhausted (20/20).`
+- `last-message.md`: missing
+- File changes: `0`; all public fixture hashes stayed unchanged.
+- Token usage: unavailable in this direct `whale exec --json` artifact; do not treat missing usage as zero.
+
+Interpretation:
+
+- The previous `19/20 compact_checkpoint_required` immediate block is gone; the run reached the hard limit at `20/20`, so the bounded recovery dispatch repair did take effect at the budget boundary.
+- The remaining failure is different: the model spent the available requests on file reads, shell/environment checks, and a plan to try Git Bash, but never executed a patch.
+- This is still not a passing sample and does not support v0.0.5 closure.
+
+Harness note:
+
+- An invalid direct attempt at `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-023943` used `Copy-Item -LiteralPath <fixture>\*`, which does not expand wildcards in PowerShell. That attempt copied an empty app and is excluded from the sample conclusion.
+- For future direct fixture materialization, use `Copy-Item -Path (Join-Path $fixtureDir '*') ...` and assert expected public files before launching the agent.

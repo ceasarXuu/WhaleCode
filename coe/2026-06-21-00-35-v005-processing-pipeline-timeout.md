@@ -38,7 +38,7 @@
   - Rebuild/install current `whale.exe` before rerunning diagnostics.
   - Re-run a bounded single-sample TaskSpace diagnostic and verify provider budget/request events are present.
   - The same `processing-pipeline` sample must avoid uncontrolled spawn/wait expansion or terminate with a bounded budget reason before 900 seconds.
-- Current conclusion: The immediate 900-second failure was caused by stale benchmark execution plus old TaskSpace orchestration behavior. The stale-binary execution path is now guarded by an external benchmark preflight and the local installed binary has been rebuilt from current codex source. A current-binary direct TaskSpace reproduction then exposed a separate v0.0.5 implementation gap: compact checkpoint budget handling blocked the `19/20` provider request before the model could use the final budget slot for bounded recovery or final synthesis. The dispatch-level budget gap is fixed and covered by focused unit tests; no real E3 rerun has been executed after this repair.
+- Current conclusion: The immediate 900-second failure was caused by stale benchmark execution plus old TaskSpace orchestration behavior. The stale-binary execution path is now guarded by an external benchmark preflight and the local installed binary has been rebuilt from current codex source. A current-binary direct TaskSpace reproduction then exposed a separate v0.0.5 implementation gap: compact checkpoint budget handling blocked the `19/20` provider request before the model could use the final budget slot for bounded recovery or final synthesis. The dispatch-level budget gap is fixed and covered by focused unit tests. A post-fix direct TaskSpace-only smoke reached `20/20` hard stop instead of `19/20` compact checkpoint block, but still failed without edits or final message.
 - Related hypotheses:
   - H-001
   - H-002
@@ -169,6 +169,7 @@
   - E-009
   - E-010
   - E-011
+  - E-012
 - Conclusion: confirmed.
 - Repair design readiness: ready and authorized by the user's request to fill this missing v0.0.5 gap.
 - Next step: a future live TaskSpace smoke can verify whether `processing-pipeline` now reaches bounded final output or exposes the next runtime/design issue.
@@ -368,3 +369,29 @@
   - H-004
 - Refutes or weakens:
   - claims that this repair already establishes E3 correctness
+
+## Evidence E-012: Post-repair processing-pipeline direct smoke reached 20/20 hard stop without edits
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Ran a TaskSpace-only direct `whale exec --json --taskspace` smoke on `processing-pipeline` after materializing the terminal-bench public fixture through the adapter.
+- Observations:
+  - Adapter root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-adapter-20260621-023830`.
+  - Valid run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-024159`.
+  - App dir: `C:\w\taskspace-processing-pipeline-single-20260621-024159\app`.
+  - Public fixture files copied: `collect_data.sh`, `docker-compose.yaml`, `Dockerfile`, `generate_report.sh`, `process_data.sh`, `run_pipeline.sh`, `task.yaml`.
+  - Timed out: `false`.
+  - Wall time: `109,216 ms`.
+  - JSONL event counts: `item.completed=14`, `item.started=11`, `turn.failed=1`, `error=1`.
+  - Final error: `TaskSpace blocked this provider request because the active provider request budget is exhausted (20/20).`
+  - `last-message.md` was missing.
+  - Hash comparison against the adapter fixture showed `0` file changes.
+  - Direct JSONL contained no token/usage fields.
+  - The readable trace shows the model read all relevant scripts, identified likely issues, checked shell availability, checked for tests, and then hit hard stop while preparing to run the pipeline with Git Bash.
+- Interpretation:
+  - The dispatch-level repair changed the failure from `19/20 compact_checkpoint_required` to `20/20 budget exhausted`, which supports that the bounded recovery slot is active.
+  - The sample remains failed because TaskSpace did not convert diagnosis into an edit before exhausting the request budget.
+  - This evidence does not support v0.0.5 closure; it exposes the next convergence issue.
+- Supports:
+  - H-004 as fixed at the dispatch boundary
+- Refutes or weakens:
+  - claims that the budget recovery repair made `processing-pipeline` pass
