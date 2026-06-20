@@ -153,7 +153,7 @@ git status --short
 
 已在当前工作区补齐的修复：
 
-- provider request budget 在 `compact_checkpoint_required` 状态下会阻断普通 provider dispatch，只允许 `budget_recovery` / `final_synthesis` / `final_abort` 收敛请求继续。
+- provider request budget 在 `compact_checkpoint_required` 状态下会阻断普通 provider dispatch；当前已实现并接入真实 runtime attribution 的收敛请求是 `final_synthesis`。
 - `ActionMapProviderRequestBudgetSnapshot` 携带 runtime-derived `request_phase`，`turn.rs` 使用 snapshot phase，不再硬编码所有请求为 `model_sampling`；`FinalSynthesis` 节点会产生 `final_synthesis` phase。
 - `taskspace_control` handler 拒绝 direct legacy state mutation action，要求使用 `state_commit`；`start_task` 的 initial fields 和 `state_commit` 保持可用。
 - E3 start gate 和 release decision 均要求 non-agent subgate evidence 的 `git_commit` 等于当前 HEAD；code-complete marker 在 release decision 中也必须等于当前 HEAD。
@@ -193,8 +193,14 @@ v0.0.5 release closeout: NOT PROVEN
 
 Round 3 使用新的只读 implementation-adversary 子审查会话，针对 Round 1 和 Round 2 的 accepted blocking findings 重新检查。结论：
 
-- active budget soft response：已关闭。`compact_checkpoint_required` 下普通 provider dispatch 会被阻断，`final_synthesis` 等收敛 phase 通过 runtime snapshot 进入真实 attribution。
+- active budget soft response：已关闭。`compact_checkpoint_required` 下普通 provider dispatch 会被阻断，`final_synthesis` 通过 runtime snapshot 进入真实 attribution。
 - `state_commit` active-profile path：已关闭。direct legacy state mutation action 在 handler 层被拒绝，`state_commit` 与 `start_task` 初始字段路径保留。
 - HEAD-bound non-agent gates：已关闭。E3 start gate 与 release decision 要求 non-agent evidence 和 code-complete marker 绑定当前 HEAD，并具备 stale commit 负向 fixture。
 
 剩余风险是非 blocking：尚无完整 streamed-turn integration test 覆盖 final-synthesis provider lifecycle attribution；当前证明来自 focused Rust tests 与 PowerShell fixture gates。
+
+Round 4 复查补充边界：
+
+- `budget_recovery` / `final_abort` 尚无 runtime producer，已从 compact checkpoint dispatch allowlist 和完成叙述中移除；当前只声明 `final_synthesis` 已接入。
+- `state_commit` 当前强制路径主要在 `taskspace_control` handler 层生效；session/runtime 层仍保留 crate-internal legacy state 方法，后续若新增非 handler 入口，需要继续下沉 guard 或收窄 API。
+- fixture-backed provider lifecycle evidence 不能替代真实 provider lifecycle proof；正式 E3/release 判断仍必须依赖真实 suite runner attestation、正式样本和 start gate。

@@ -129,7 +129,7 @@ fn provider_request_budget_blocks_regular_dispatch_at_compact_checkpoint() {
 
     assert!(
         err.to_string()
-            .contains("requires a compact checkpoint or final response")
+            .contains("requires a compact checkpoint or final synthesis response")
     );
     let events = budget.drain_events();
     assert_eq!(events.len(), 1);

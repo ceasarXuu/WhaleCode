@@ -291,7 +291,7 @@ fn provider_request_budget_allows_compact_checkpoint_dispatch(
 ) -> bool {
     matches!(
         attribution.request_phase.as_deref(),
-        Some("budget_recovery" | "final_synthesis" | "final_abort")
+        Some("final_synthesis")
     )
 }
 
@@ -387,12 +387,12 @@ impl ProviderRequestBudgetContext {
             });
             let message = if compact_checkpoint_required {
                 format!(
-                    "TaskSpace blocked this provider request because the active provider request budget requires a compact checkpoint or final response ({before}/{}). Finish with a bounded final/abort response or record a compact state checkpoint before requesting another model turn.",
+                    "TaskSpace blocked this provider request because the active provider request budget requires a compact checkpoint or final synthesis response ({before}/{}). Enter final_synthesis or record a compact state checkpoint before requesting another model turn.",
                     self.state.max_requests
                 )
             } else {
                 format!(
-                    "TaskSpace blocked this provider request because the active provider request budget is exhausted ({before}/{}). Finish with a bounded final/abort response or record a compact state checkpoint before requesting another model turn.",
+                    "TaskSpace blocked this provider request because the active provider request budget is exhausted ({before}/{}). Enter final_synthesis or record a compact state checkpoint before requesting another model turn.",
                     self.state.max_requests
                 )
             };
