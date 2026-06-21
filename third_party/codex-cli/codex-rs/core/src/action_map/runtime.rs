@@ -451,6 +451,16 @@ pub(crate) struct ActionMapProviderRequestBudgetEventInput {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct ActionMapProviderResponseActionabilityInput {
+    pub(crate) response_actionability: String,
+    pub(crate) end_turn: Option<bool>,
+    pub(crate) saw_actionable_output: bool,
+    pub(crate) assistant_message_present: bool,
+    pub(crate) recovery_action: String,
+    pub(crate) last_agent_message_preview: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct ActionMapRuntimeState {
     mode: MapRuntimeMode,
     pending_transition_notice: Option<String>,
@@ -1898,6 +1908,91 @@ preview:\n\
             ));
         }
         Some(events)
+    }
+
+    pub(crate) fn record_provider_response_actionability(
+        &mut self,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        input: ActionMapProviderResponseActionabilityInput,
+    ) -> Option<Vec<MapRuntimeEvent>> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return None;
+        }
+        let node_id = snapshot
+            .node_id
+            .clone()
+            .unwrap_or_else(|| "provider-context-missing".to_string());
+        let request_phase = snapshot
+            .request_phase
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        let id = self.next_trace_event_id();
+        let created_at_ms = now_ms();
+        let mut tags = vec![
+            "schema:taskspace-provider-response-actionability-v1".to_string(),
+            "producer:provider_response".to_string(),
+            format!("response_actionability:{}", input.response_actionability),
+            format!("request_phase:{request_phase}"),
+            format!("request_count:{}", snapshot.request_count),
+            format!("max_requests:{}", snapshot.max_requests),
+            format!("saw_actionable_output:{}", input.saw_actionable_output),
+            format!(
+                "assistant_message_present:{}",
+                input.assistant_message_present
+            ),
+            format!("recovery_action:{}", input.recovery_action),
+        ];
+        let end_turn_tag = input
+            .end_turn
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "missing".to_string());
+        tags.push(format!("end_turn:{end_turn_tag}"));
+        if let Some(reason) = snapshot.provider_request_context_missing_reason.as_deref() {
+            tags.push(format!("provider_request_context_missing_reason:{reason}"));
+        }
+        if let Some(preview) = input.last_agent_message_preview {
+            if !preview.trim().is_empty() {
+                tags.push(format!(
+                    "last_agent_message_preview:{}",
+                    sanitize_provider_response_trace_tag_value(&preview)
+                ));
+            }
+        }
+        let tool_success = Some(matches!(
+            input.response_actionability.as_str(),
+            "actionable" | "final_candidate"
+        ));
+        let event = TaskSpaceTraceEvent {
+            id: id.clone(),
+            kind: "provider_response_actionability".to_string(),
+            task_id: snapshot.task_id.clone(),
+            map_id: snapshot.map_id.clone(),
+            node_id,
+            result_id: None,
+            call_id: None,
+            action_class: None,
+            tool_success,
+            tags,
+            artifact_refs: Vec::new(),
+            created_at_ms,
+        };
+        self.taskspace_trace_events.push(event.clone());
+        Some(vec![MapRuntimeEvent::TaskspaceTraceEventRecorded(
+            MapRuntimeTraceEventRecordedEvent {
+                trace_event_id: id,
+                kind: event.kind,
+                task_id: event.task_id,
+                map_id: event.map_id,
+                node_id: event.node_id,
+                result_id: event.result_id,
+                call_id: event.call_id,
+                action_class: None,
+                tool_success: event.tool_success,
+                tags: event.tags,
+                artifact_refs: event.artifact_refs,
+                created_at_ms: event.created_at_ms,
+            },
+        )])
     }
 
     pub(crate) fn prepare_child_tool_call(
@@ -8985,6 +9080,17 @@ fn sanitize_trace_tags(tags: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+fn sanitize_provider_response_trace_tag_value(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            '\r' | '\n' | '\t' => ' ',
+            _ => ch,
+        })
+        .take(160)
+        .collect::<String>()
+}
+
 fn is_known_trace_tag(tag: &str) -> bool {
     matches!(
         tag,
@@ -10335,6 +10441,97 @@ mod tests {
                 .expect("snapshot after events")
                 .request_count,
             1
+        );
+    }
+
+    #[test]
+    fn provider_response_actionability_records_replayable_trace() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_task_id, _map_id, node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "response task".to_string(),
+                "verify provider response actionability".to_string(),
+                "inspect".to_string(),
+                "inspect active provider response".to_string(),
+                true,
+            )
+            .expect("start task");
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("active budget snapshot");
+        assert_eq!(snapshot.node_id.as_deref(), Some(node_id.as_str()));
+
+        let events = state
+            .record_provider_response_actionability(
+                &snapshot,
+                ActionMapProviderResponseActionabilityInput {
+                    response_actionability: "final_rejected".to_string(),
+                    end_turn: Some(true),
+                    saw_actionable_output: false,
+                    assistant_message_present: true,
+                    recovery_action: "developer_recovery".to_string(),
+                    last_agent_message_preview: Some(
+                        "Let me check the environment.\nNext line".to_string(),
+                    ),
+                },
+            )
+            .expect("provider response trace event");
+
+        assert_eq!(events.len(), 1);
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(event) =
+            events.first().expect("provider response trace event")
+        else {
+            panic!("expected provider response trace event");
+        };
+        assert_eq!(event.kind, "provider_response_actionability");
+        assert_eq!(event.tool_success, Some(false));
+        assert_eq!(event.node_id, node_id);
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "schema:taskspace-provider-response-actionability-v1")
+        );
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "producer:provider_response")
+        );
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "response_actionability:final_rejected")
+        );
+        assert!(event.tags.iter().any(|tag| tag == "end_turn:true"));
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "saw_actionable_output:false")
+        );
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "assistant_message_present:true")
+        );
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "recovery_action:developer_recovery")
+        );
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag
+                    == "last_agent_message_preview:Let me check the environment. Next line")
         );
     }
 

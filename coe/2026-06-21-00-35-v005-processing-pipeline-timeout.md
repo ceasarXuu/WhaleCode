@@ -1,7 +1,7 @@
 # Problem P-001: v0.0.5 processing-pipeline diagnostic stops on TaskSpace timeout
 - Status: repair_in_progress
 - Created: 2026-06-21 00:35
-- Updated: 2026-06-21 00:47
+- Updated: 2026-06-21 05:35
 - Objective: Explain why the 2026-06-21 `terminal-bench_E3-P0_3_1` diagnostic stopped after the first sample.
 - Symptoms:
   - Only `processing-pipeline` was executed.
@@ -38,7 +38,7 @@
   - Rebuild/install current `whale.exe` before rerunning diagnostics.
   - Re-run a bounded single-sample TaskSpace diagnostic and verify provider budget/request events are present.
   - The same `processing-pipeline` sample must avoid uncontrolled spawn/wait expansion or terminate with a bounded budget reason before 900 seconds.
-- Current conclusion: The immediate 900-second failure was caused by stale benchmark execution plus old TaskSpace orchestration behavior. The stale-binary execution path is now guarded by an external benchmark preflight and the local installed binary has been rebuilt from current codex source. A current-binary direct TaskSpace reproduction then exposed a separate v0.0.5 implementation gap: compact checkpoint budget handling blocked the `19/20` provider request before the model could use the final budget slot for bounded recovery or final synthesis. The dispatch-level budget gap is fixed and covered by focused unit tests. A post-fix direct TaskSpace-only smoke reached `20/20` hard stop instead of `19/20` compact checkpoint block, but still failed without edits or final message.
+- Current conclusion: The immediate 900-second failure was caused by stale benchmark execution plus old TaskSpace orchestration behavior. The stale-binary execution path is now guarded by an external benchmark preflight and the local installed binary has been rebuilt from current codex source. A current-binary direct TaskSpace reproduction then exposed a separate v0.0.5 implementation gap: compact checkpoint budget handling blocked the `19/20` provider request before the model could use the final budget slot for bounded recovery or final synthesis. The dispatch-level budget gap is fixed and covered by focused unit tests. A post-fix direct TaskSpace-only smoke reached `20/20` hard stop instead of `19/20` compact checkpoint block, but still failed without edits or final message. The next implementation gap was in the provider response layer: final-response gate rejection happened after the no-action recovery calculation, so commentary-only assistant text could be rejected but still avoid recovery. Provider response actionability is now recorded as a replayable trace event, final-gate rejection is classified before recovery, and the first recovery emits a JSONL-visible warning while the second non-action remains a hard stop.
 - Related hypotheses:
   - H-001
   - H-002
@@ -473,3 +473,59 @@
   - H-005
 - Refutes or weakens:
   - claims that the latest no-action recovery fully fixes `processing-pipeline`
+
+## Evidence E-016: Provider response actionability and final-gate rejection recovery were implemented
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Inspected and changed the provider response completion path in `session/turn.rs`, added replayable runtime trace support in `action_map/runtime.rs`, and ran focused Rust regressions.
+- Observations:
+  - Root cause in code: `taskspace_no_action_recovery_item` was computed before `record_action_map_main_final_response`. If an assistant message such as "Let me check..." reached `end_turn=true` and was rejected by the final-response gate, `needs_follow_up` became true only after the recovery calculation had already finished.
+  - New trace event kind: `provider_response_actionability`.
+  - New schema tag: `schema:taskspace-provider-response-actionability-v1`.
+  - Recorded tags include `response_actionability`, `end_turn`, `saw_actionable_output`, `assistant_message_present`, `recovery_action`, request count/max, request phase, and a short assistant preview.
+  - First recovery now sends a `WarningEvent` containing `TaskSpaceNoActionRecoveryV1`; this should be visible in `whale exec --json` output.
+  - A second non-action recovery still sends an `ErrorEvent` and hard-stops the turn.
+  - Focused tests passed:
+    - `provider_response_actionability`: `5 passed`
+    - `no_action_recovery`: `1 passed`
+    - `provider_request_budget`: `7 passed`
+    - `provider_budget_guidance`: `6 passed`
+    - `provider_budget_pressure`: `4 passed`
+- Interpretation:
+  - This closes the specific engineering gap where no-action/final-rejected provider responses were not observable and could bypass recovery.
+  - This has not yet proven that `processing-pipeline` passes; it only removes the known non-design implementation flaw before the next bounded smoke.
+- Supports:
+  - H-005
+- Refutes or weakens:
+  - claims that the previous no-action recovery implementation was complete
+
+## Evidence E-017: Final-budget follow-up work now hard-stops at provider response completion
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Added provider response classification `actionable_follow_up_at_hard_stop`, rebuilt/installed Whale, and reran bounded TaskSpace-only `processing-pipeline` direct smoke.
+- Observations:
+  - Before this fix, the direct smoke reached generic dispatch-level error: `TaskSpace blocked this provider request because the active provider request budget is exhausted (20/20)`.
+  - JSONL sequence showed a provider response with file-read tool calls and an assistant message: `Let me check the environment and try running the pipeline...`; because the response included tool calls, it was not a no-action response, but it still required another model turn after the provider budget was exhausted.
+  - New behavior classifies this as `actionable_follow_up_at_hard_stop`.
+  - New direct smoke:
+    - Run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-171502-provider-response`
+    - App dir: `C:\w\taskspace-processing-pipeline-single-20260621-171502-provider-response\app`
+    - Whale SHA256: `A65A0C46787DBE317A1178F05E67D1F27D3F7C3ED204383E5F1678EDBE32AEF3`
+    - Timed out: `false`
+    - Wall time: `85,662 ms`
+    - File changes: `0`
+    - Last message: missing
+    - Error: `TaskSpace stopped this turn because the final provider budget response produced tool/control work that requires another model turn, but the provider request budget is already exhausted.`
+  - Focused tests passed after this addition:
+    - `provider_response_actionability`: `5 passed`
+    - `no_action_recovery`: `1 passed`
+    - `provider_request_budget`: `7 passed`
+  - `cargo build -p codex-cli --bin whale --locked` passed and the installed binary was refreshed.
+- Interpretation:
+  - The provider response layer now hard-stops the exact live failure mode at response completion rather than letting the next provider dispatch fail generically.
+  - This is still not a solved `processing-pipeline` sample: TaskSpace still spends the final budget response on read/follow-up work and makes no edit.
+  - The remaining problem is convergence policy before the final budget response, not merely missing response-layer observability.
+- Supports:
+  - H-005
+- Refutes or weakens:
+  - claims that provider response observability alone is sufficient to make the sample pass

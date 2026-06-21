@@ -5,6 +5,7 @@ use std::sync::atomic::Ordering;
 
 use crate::SkillInjections;
 use crate::SkillLoadOutcome;
+use crate::action_map::ActionMapProviderResponseActionabilityInput;
 use crate::build_skill_injections;
 use crate::client::ModelClientSession;
 use crate::client::ProviderRequestAttribution;
@@ -128,6 +129,40 @@ const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
 const TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER: &str = "TaskSpaceProviderBudgetGuidanceV1:";
 const TASKSPACE_NO_ACTION_RECOVERY_MARKER: &str = "TaskSpaceNoActionRecoveryV1:";
 const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TaskspaceProviderResponseActionability {
+    Actionable,
+    ActionableFollowUpAtHardStop,
+    NoActionFollowUp,
+    EmptyFollowUp,
+    FinalCandidate,
+    FinalRejected,
+}
+
+impl TaskspaceProviderResponseActionability {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Actionable => "actionable",
+            Self::ActionableFollowUpAtHardStop => "actionable_follow_up_at_hard_stop",
+            Self::NoActionFollowUp => "no_action_follow_up",
+            Self::EmptyFollowUp => "empty_follow_up",
+            Self::FinalCandidate => "final_candidate",
+            Self::FinalRejected => "final_rejected",
+        }
+    }
+
+    fn needs_recovery(self) -> bool {
+        matches!(
+            self,
+            Self::NoActionFollowUp | Self::EmptyFollowUp | Self::FinalRejected
+        )
+    }
+
+    fn is_hard_stop(self) -> bool {
+        matches!(self, Self::ActionableFollowUpAtHardStop)
+    }
+}
 
 /// Takes a user message as input and runs a loop where, at each sampling request, the model
 /// replies with either:
@@ -502,6 +537,13 @@ pub(crate) async fn run_turn(
                         return None;
                     }
                     taskspace_no_action_recovery_count += 1;
+                    sess.send_event(
+                        &turn_context,
+                        EventMsg::Warning(WarningEvent {
+                            message: "TaskSpace inserted TaskSpaceNoActionRecoveryV1 because the provider response requested follow-up or was rejected by the final-response gate without an actionable tool/control/final result. One recovery attempt is allowed; a second non-action response hard-stops the turn.".to_string(),
+                        }),
+                    )
+                    .await;
                     sess.record_conversation_items(&turn_context, &[recovery_item])
                         .await;
                     continue;
@@ -1098,6 +1140,41 @@ Required behavior for the next response:\n\
         end_turn: None,
         phase: None,
     }
+}
+
+fn classify_taskspace_provider_response_actionability(
+    needs_follow_up: bool,
+    saw_actionable_output: bool,
+    assistant_message_present: bool,
+    final_response_rejected: bool,
+    provider_budget_exhausted_followup: bool,
+) -> TaskspaceProviderResponseActionability {
+    if provider_budget_exhausted_followup {
+        TaskspaceProviderResponseActionability::ActionableFollowUpAtHardStop
+    } else if saw_actionable_output {
+        TaskspaceProviderResponseActionability::Actionable
+    } else if final_response_rejected {
+        TaskspaceProviderResponseActionability::FinalRejected
+    } else if needs_follow_up && assistant_message_present {
+        TaskspaceProviderResponseActionability::NoActionFollowUp
+    } else if needs_follow_up {
+        TaskspaceProviderResponseActionability::EmptyFollowUp
+    } else {
+        TaskspaceProviderResponseActionability::FinalCandidate
+    }
+}
+
+fn taskspace_last_message_preview(message: Option<&str>) -> Option<String> {
+    let message = message?.trim();
+    if message.is_empty() {
+        return None;
+    }
+    let preview = message
+        .chars()
+        .take(160)
+        .collect::<String>()
+        .replace(['\r', '\n', '\t'], " ");
+    Some(preview)
 }
 
 fn filter_deferred_dynamic_tool_spec(
@@ -1956,6 +2033,57 @@ mod active_context_replacement_tests {
         assert!(text.contains("did not emit any tool call"));
         assert!(text.contains("Do not send commentary-only text"));
         assert!(text.contains("finish the inspect node into implement_solution"));
+    }
+
+    #[test]
+    fn provider_response_actionability_classifies_final_gate_rejection_as_recovery() {
+        let classification =
+            classify_taskspace_provider_response_actionability(true, false, true, true, false);
+
+        assert_eq!(
+            classification,
+            TaskspaceProviderResponseActionability::FinalRejected
+        );
+        assert!(classification.needs_recovery());
+        assert_eq!(classification.as_str(), "final_rejected");
+    }
+
+    #[test]
+    fn provider_response_actionability_classifies_no_action_follow_up() {
+        let classification =
+            classify_taskspace_provider_response_actionability(true, false, true, false, false);
+
+        assert_eq!(
+            classification,
+            TaskspaceProviderResponseActionability::NoActionFollowUp
+        );
+        assert!(classification.needs_recovery());
+    }
+
+    #[test]
+    fn provider_response_actionability_keeps_actionable_response_out_of_recovery() {
+        let classification =
+            classify_taskspace_provider_response_actionability(true, true, true, false, false);
+
+        assert_eq!(
+            classification,
+            TaskspaceProviderResponseActionability::Actionable
+        );
+        assert!(!classification.needs_recovery());
+    }
+
+    #[test]
+    fn provider_response_actionability_classifies_final_budget_followup_as_hard_stop() {
+        let classification =
+            classify_taskspace_provider_response_actionability(true, true, true, false, true);
+
+        assert_eq!(
+            classification,
+            TaskspaceProviderResponseActionability::ActionableFollowUpAtHardStop
+        );
+        assert!(classification.is_hard_stop());
+        assert!(!classification.needs_recovery());
+        assert_eq!(classification.as_str(), "actionable_follow_up_at_hard_stop");
     }
 
     #[test]
@@ -3104,19 +3232,11 @@ async fn try_run_sampling_request(
                 if let Some(false) = end_turn {
                     needs_follow_up = true;
                 }
-                let taskspace_no_action_recovery_item = if needs_follow_up
-                    && !saw_actionable_output
-                    && sess
-                        .action_map_provider_request_budget_snapshot()
-                        .await
-                        .is_some()
-                {
-                    Some(build_taskspace_no_action_recovery_item(
-                        last_agent_message.as_deref(),
-                    ))
-                } else {
-                    None
-                };
+                let assistant_message_present = last_agent_message
+                    .as_deref()
+                    .map(|message| !message.trim().is_empty())
+                    .unwrap_or(false);
+                let mut final_response_rejected = false;
                 if !needs_follow_up
                     && let Some(message) = last_agent_message.as_deref()
                     && sess
@@ -3125,6 +3245,67 @@ async fn try_run_sampling_request(
                         .is_err()
                 {
                     needs_follow_up = true;
+                    final_response_rejected = true;
+                }
+                let current_budget_snapshot =
+                    sess.action_map_provider_request_budget_snapshot().await;
+                let provider_budget_exhausted_followup = needs_follow_up
+                    && current_budget_snapshot
+                        .as_ref()
+                        .map(|snapshot| snapshot.request_count >= snapshot.max_requests)
+                        .unwrap_or(false);
+                let response_actionability = classify_taskspace_provider_response_actionability(
+                    needs_follow_up,
+                    saw_actionable_output,
+                    assistant_message_present,
+                    final_response_rejected,
+                    provider_budget_exhausted_followup,
+                );
+                let taskspace_no_action_recovery_item = if response_actionability.needs_recovery()
+                    && current_budget_snapshot.is_some()
+                {
+                    Some(build_taskspace_no_action_recovery_item(
+                        last_agent_message.as_deref(),
+                    ))
+                } else {
+                    None
+                };
+                if let Some(snapshot) = current_budget_snapshot {
+                    let recovery_action = if response_actionability.is_hard_stop() {
+                        "hard_stop"
+                    } else if taskspace_no_action_recovery_item.is_some() {
+                        "developer_recovery"
+                    } else {
+                        "none"
+                    };
+                    sess.record_action_map_provider_response_actionability(
+                        &turn_context,
+                        snapshot,
+                        ActionMapProviderResponseActionabilityInput {
+                            response_actionability: response_actionability.as_str().to_string(),
+                            end_turn,
+                            saw_actionable_output,
+                            assistant_message_present,
+                            recovery_action: recovery_action.to_string(),
+                            last_agent_message_preview: taskspace_last_message_preview(
+                                last_agent_message.as_deref(),
+                            ),
+                        },
+                    )
+                    .await;
+                }
+                if response_actionability.is_hard_stop() {
+                    let message = "TaskSpace stopped this turn because the final provider budget response produced tool/control work that requires another model turn, but the provider request budget is already exhausted. The final budget response must produce a final answer, a compact checkpoint, or a bounded blocked_by_budget result instead of follow-up-dependent work.".to_string();
+                    sess.send_event(
+                        &turn_context,
+                        EventMsg::Warning(WarningEvent {
+                            message: message.clone(),
+                        }),
+                    )
+                    .await;
+                    break Err(CodexErr::InvalidRequest(message));
+                }
+                if final_response_rejected {
                     last_agent_message = None;
                 }
                 break Ok(SamplingRequestResult {

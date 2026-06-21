@@ -1,5 +1,75 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-21 Provider response actionability observability and recovery
+
+Scope:
+
+- 补齐 v0.0.5 `Budget Response Gate` 在 provider response 层的缺漏。
+- 不跑完整 E3；本步骤先排除工程实现问题，避免在 response 层不可观测时继续消耗真实 agent 调用。
+
+Root cause:
+
+- 之前的 `TaskSpaceNoActionRecoveryV1` helper 是真实代码，但触发顺序不完整。
+- `try_run_sampling_request` 先计算 no-action recovery，再调用 `record_action_map_main_final_response`。
+- 因此如果 provider 输出 `end_turn=true` 的普通助手文本，且该文本被 TaskSpace final-response gate 拒绝，`needs_follow_up` 会在 recovery 计算之后才变成 `true`。
+- 结果是类似 `Let me check the environment...` 的 commentary/final-rejected response 既不是有效 final，也没有触发 recovery，后续继续烧 provider request 直到 `20/20` hard stop。
+
+Changes:
+
+- `action_map/runtime.rs`
+  - 新增 `ActionMapProviderResponseActionabilityInput`。
+  - 新增 replayable trace event：`provider_response_actionability`。
+  - 事件 schema：`taskspace-provider-response-actionability-v1`。
+  - 记录字段包括 `response_actionability`、`end_turn`、`saw_actionable_output`、`assistant_message_present`、`recovery_action`、`request_count/max_requests`、`request_phase`、`last_agent_message_preview`。
+- `session/mod.rs`
+  - 新增 `record_action_map_provider_response_actionability` wrapper，将 provider response 事件纳入 ActionMap runtime event 通道。
+- `session/turn.rs`
+  - 新增 provider response 分类：`actionable`、`no_action_follow_up`、`empty_follow_up`、`final_candidate`、`final_rejected`。
+  - 调整 Completed 分支顺序：先执行 final-response gate，再分类是否需要 recovery。
+  - `final_rejected`、`no_action_follow_up`、`empty_follow_up` 都会进入一次 `TaskSpaceNoActionRecoveryV1`。
+  - 第一次 recovery 现在发送 `WarningEvent`，使 `whale exec --json` 能看到 runtime 做了 recovery。
+  - 第二次 non-action response 仍然发送 `ErrorEvent` 并 hard-stop。
+
+Validation:
+
+```text
+cargo fmt --manifest-path third_party\codex-cli\codex-rs\Cargo.toml --package codex-core
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core provider_response_actionability -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core no_action_recovery -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core provider_request_budget -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core provider_budget_guidance -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core provider_budget_pressure -- --nocapture
+```
+
+Result:
+
+- `provider_response_actionability`: `5 passed`
+- `no_action_recovery`: `1 passed`
+- `provider_request_budget`: `7 passed`
+- `provider_budget_guidance`: `6 passed`
+- `provider_budget_pressure`: `4 passed`
+- 首次并行跑 cargo tests 时遇到 package cache lock 和编译失败；编译失败原因是误用不存在的单值 tag 清洗函数。已改为 provider-response 专用 preview 清洗函数，并串行复测通过。
+
+Interpretation:
+
+- 这次修的是明确的工程实现缺漏，不是设计变更。
+- provider response 层现在具备可观测性，final-gate rejected response 不再绕过 no-action recovery。
+- 这仍不证明 `processing-pipeline` 已通过；下一步需要 rebuild/install 后再跑 bounded single-sample TaskSpace smoke，看是否出现 `TaskSpaceNoActionRecoveryV1` warning、是否早停、是否转入 edit。
+
+Follow-up hard-stop repair and smoke:
+
+- Bounded smoke after the first provider-response repair still failed at `20/20`, with no recovery marker. JSONL showed why: the final provider response included read-file tool calls, so it was technically actionable, but those tool outputs required another model turn after the budget was already exhausted.
+- Added `actionable_follow_up_at_hard_stop` classification.
+- If `needs_follow_up=true` and the current provider request count is already at `max_requests`, the turn now hard-stops at provider response completion with a specific error instead of attempting the next provider dispatch.
+- Rebuilt and installed Whale SHA256 `A65A0C46787DBE317A1178F05E67D1F27D3F7C3ED204383E5F1678EDBE32AEF3`.
+- Direct TaskSpace-only smoke:
+  - Run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-171502-provider-response`
+  - Timed out: `false`
+  - Wall time: `85,662 ms`
+  - File changes: `0`
+  - Result: failed with provider response hard-stop: final provider budget response produced follow-up-dependent work after budget exhaustion.
+- Interpretation: provider response hard-stop is now active, but `processing-pipeline` remains unsolved. The remaining engineering target is earlier convergence: by the final budget response, TaskSpace must already force edit/final/blocked output instead of allowing more read/follow-up work.
+
 ## 2026-06-18 Implement-to-validation recovery tightening
 
 Changed:

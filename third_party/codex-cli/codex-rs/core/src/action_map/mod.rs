@@ -17,6 +17,7 @@ pub(crate) use runtime::ActionMapLedgerDecisionInput;
 pub(crate) use runtime::ActionMapNextNodeDraft;
 pub(crate) use runtime::ActionMapProviderRequestBudgetEventInput;
 pub(crate) use runtime::ActionMapProviderRequestBudgetSnapshot;
+pub(crate) use runtime::ActionMapProviderResponseActionabilityInput;
 pub(crate) use runtime::ActionMapResultAdoptionInput;
 pub(crate) use runtime::ActionMapRuntimeState;
 pub(crate) use runtime::ActionMapStateCommitBlockerInput;

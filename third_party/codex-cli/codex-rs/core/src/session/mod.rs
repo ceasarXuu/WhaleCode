@@ -16,6 +16,7 @@ use crate::action_map::ActionMapFinishNodeOutcome;
 use crate::action_map::ActionMapNextNodeDraft;
 use crate::action_map::ActionMapProviderRequestBudgetEventInput;
 use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
+use crate::action_map::ActionMapProviderResponseActionabilityInput;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::NodeKind;
 use crate::action_map::ToolActionDescriptor;
@@ -1111,6 +1112,24 @@ impl Session {
             state
                 .action_map_runtime
                 .record_provider_request_budget_events(&snapshot, inputs)
+        };
+        if let Some(runtime_events) = runtime_events {
+            self.emit_action_map_events_for_turn(turn_context, runtime_events)
+                .await;
+        }
+    }
+
+    pub(crate) async fn record_action_map_provider_response_actionability(
+        &self,
+        turn_context: &TurnContext,
+        snapshot: ActionMapProviderRequestBudgetSnapshot,
+        input: ActionMapProviderResponseActionabilityInput,
+    ) {
+        let runtime_events = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .record_provider_response_actionability(&snapshot, input)
         };
         if let Some(runtime_events) = runtime_events {
             self.emit_action_map_events_for_turn(turn_context, runtime_events)
