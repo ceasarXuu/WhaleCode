@@ -36,8 +36,8 @@ $obs = [pscustomobject]@{
                 "active_budget_source:runtime",
                 "profile_name:taskspace-v005-active",
                 "route_mode:thin",
-                "max_rollout_model_requests:4",
-                "max_model_requests_per_node:2",
+                "max_rollout_model_requests:8",
+                "max_model_requests_per_node:3",
                 "max_spawn_agent_calls:0",
                 "max_nodes:4",
                 "max_projection_tokens:12000"
@@ -61,7 +61,7 @@ $obs = [pscustomobject]@{
                 "route_mode:thin",
                 "profile_name:taskspace-v005-active",
                 "node_request_count:0",
-                "max_model_requests_per_node:2",
+                "max_model_requests_per_node:3",
                 "post_budget_grace_requests:1",
                 "runtime_budget_state:normal",
                 "request_phase:model_sampling",
@@ -117,7 +117,7 @@ $obs = [pscustomobject]@{
                 "route_mode:thin",
                 "profile_name:taskspace-v005-active",
                 "node_request_count:2",
-                "max_model_requests_per_node:2",
+                "max_model_requests_per_node:3",
                 "post_budget_grace_requests:1",
                 "runtime_budget_state:hard_stopped",
                 "request_phase:model_sampling",
@@ -242,8 +242,8 @@ $phaseSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifac
 $stateCommit = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "state-commit-displacement.json") | ConvertFrom-Json
 $spawnBudget = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "spawn-node-budget-summary.json") | ConvertFrom-Json
 Assert-True ($budgetEvents.Count -eq 2) "budget event count was not extracted from runtime trace"
-Assert-True ($activeBudgetEvents.Count -eq 1 -and [string]$activeBudgetEvents[0].route_mode -eq "thin" -and [int]$activeBudgetEvents[0].max_rollout_model_requests -eq 4) "active budget event was not extracted from runtime trace"
-Assert-True ([string]$budgetEvents[0].active_budget_source -eq "runtime" -and [string]$budgetEvents[0].route_mode -eq "thin" -and [int]$budgetEvents[0].max_model_requests_per_node -eq 2) "provider budget event did not preserve active budget fields"
+Assert-True ($activeBudgetEvents.Count -eq 1 -and [string]$activeBudgetEvents[0].route_mode -eq "thin" -and [int]$activeBudgetEvents[0].max_rollout_model_requests -eq 8) "active budget event was not extracted from runtime trace"
+Assert-True ([string]$budgetEvents[0].active_budget_source -eq "runtime" -and [string]$budgetEvents[0].route_mode -eq "thin" -and [int]$budgetEvents[0].max_model_requests_per_node -eq 3) "provider budget event did not preserve active budget fields"
 Assert-True ($qualityEvents.Count -eq 2) "budget quality event count was not extracted from runtime trace"
 Assert-True ($scanEvents.Count -eq 1 -and [bool]$scanEvents[0].passed) "exact payload scan event was not derived from runtime payload trace"
 Assert-True ($providerEvents.Count -eq 2 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
@@ -256,10 +256,133 @@ Assert-True ([string]$spawnBudget.status -eq "pass" -and [string]$spawnBudget.so
 Assert-True ([string]$spawnBudget.active_budget_source -eq "runtime" -and [string]$spawnBudget.route_mode -eq "thin" -and [int]$spawnBudget.max_nodes -eq 4) "spawn/node budget summary did not preserve active budget route fields"
 Assert-True ([string]$spawnBudget.within_budget_status -eq "fail" -and [string]$spawnBudget.over_budget_enforcement_status -eq "pass" -and [int]$spawnBudget.blocked_budget_event_count -eq 1) "spawn/node budget should split within-budget failure from successful over-budget enforcement"
 Assert-True ([bool]$summary.budget_quality_impact_logged_for_every_budget_action) "budget action was not matched to quality impact"
-Assert-True ([string]$summary.active_budget_source -eq "runtime" -and [string]$summary.route_mode -eq "thin" -and [int]$summary.max_rollout_model_requests -eq 4 -and [int]$summary.max_model_requests_per_node -eq 2) "budget quality summary did not expose active budget fields"
+Assert-True ([string]$summary.active_budget_source -eq "runtime" -and [string]$summary.route_mode -eq "thin" -and [int]$summary.max_rollout_model_requests -eq 8 -and [int]$summary.max_model_requests_per_node -eq 3) "budget quality summary did not expose active budget fields"
 Assert-True ([int]$summary.budget_quality_impact_missing_count -eq 0) "budget quality impact missing count should be zero"
 Assert-True ([int]$summary.blocked_by_budget_samples_count -eq 1) "blocked budget quality impact was not summarized"
 Assert-True ([int]$instrumentation.budget_quality_impact_summary.budget_action_count -eq 1) "returned instrumentation object omitted budget summary"
+
+$rolloutOnlyArtifactDir = Join-Path $RunRoot "rollout-only-artifacts"
+New-Item -ItemType Directory -Path $rolloutOnlyArtifactDir -Force | Out-Null
+$rolloutOnlyJsonl = Join-Path $RunRoot "rollout-only-whale-exec.jsonl"
+(@(
+    [pscustomobject]@{ type = "response.completed"; response = [pscustomobject]@{ usage = [pscustomobject]@{ input_tokens = 12; output_tokens = 6; cached_input_tokens = 3 } } }
+) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 }) | Set-Content -LiteralPath $rolloutOnlyJsonl -Encoding UTF8
+$rolloutOnlyPath = Join-Path $rolloutOnlyArtifactDir "rollout.jsonl"
+@(
+    [pscustomobject]@{
+        type = "event_msg"
+        payload = [pscustomobject]@{
+            kind = "active_budget"
+            traceEventId = "rollout-active-budget-1"
+            taskId = "task-rollout"
+            mapId = "map-rollout"
+            nodeId = "node-rollout"
+            tags = @(
+                "schema:taskspace-active-budget-v1",
+                "producer:runtime",
+                "active_budget_source:runtime",
+                "profile_name:taskspace-v005-thin",
+                "route_mode:thin",
+                "max_rollout_model_requests:8",
+                "max_model_requests_per_node:3",
+                "max_spawn_agent_calls:0",
+                "max_nodes:4",
+                "max_projection_tokens:12000"
+            )
+        }
+    },
+    [pscustomobject]@{
+        type = "event_msg"
+        payload = [pscustomobject]@{
+            kind = "provider_request_budget"
+            traceEventId = "rollout-budget-1"
+            taskId = "task-rollout"
+            mapId = "map-rollout"
+            nodeId = "node-rollout"
+            callId = "provider-request-rollout-1"
+            tags = @(
+                "schema:taskspace-provider-request-budget-event-v1",
+                "transport:responses_http",
+                "status:blocked",
+                "request_count_before:4",
+                "request_count_after:4",
+                "max_requests:4",
+                "active_budget_source:runtime",
+                "route_mode:thin",
+                "profile_name:taskspace-v005-thin",
+                "node_request_count:2",
+                "max_model_requests_per_node:3",
+                "post_budget_grace_requests:1",
+                "runtime_budget_state:hard_stopped",
+                "request_phase:model_sampling",
+                "producer:provider_lifecycle",
+                "budget_response_action_taken:true"
+            )
+        }
+    },
+    [pscustomobject]@{
+        type = "event_msg"
+        payload = [pscustomobject]@{
+            kind = "budget_quality_impact"
+            traceEventId = "rollout-quality-1"
+            taskId = "task-rollout"
+            mapId = "map-rollout"
+            nodeId = "node-rollout"
+            callId = "provider-request-rollout-1"
+            tags = @(
+                "schema:taskspace-budget-quality-impact-v1",
+                "provider_request_budget_trace_event_id:rollout-budget-1",
+                "budget_action:hard_stop",
+                "provider_request_status:blocked",
+                "counter_name:provider_request_count",
+                "counter_value:4",
+                "counter_limit:4",
+                "request_phase:model_sampling",
+                "score_eligible:false",
+                "budget_induced_validation_skip:false",
+                "manual_override_used:false",
+                "bounded_recovery_used:false",
+                "final_classification:blocked_by_budget"
+            )
+        }
+    },
+    [pscustomobject]@{
+        type = "event_msg"
+        payload = [pscustomobject]@{
+            kind = "spawn_node_budget"
+            traceEventId = "rollout-node-budget-1"
+            taskId = "task-rollout"
+            mapId = "map-rollout"
+            nodeId = "node-rollout"
+            tags = @(
+                "schema:taskspace-spawn-node-budget-event-v1",
+                "producer:runtime",
+                "budget_kind:node",
+                "action:create_node",
+                "status:allowed",
+                "active_budget_source:runtime",
+                "route_mode:thin",
+                "profile_name:taskspace-v005-thin",
+                "node_count_before:0",
+                "node_count_after:1",
+                "max_nodes:4",
+                "budget_response_action_taken:false"
+            )
+        }
+    }
+) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath $rolloutOnlyPath -Encoding UTF8
+$rolloutOnlyInstrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $rolloutOnlyArtifactDir -JsonlPath $rolloutOnlyJsonl -ObservabilityJsonPath ""
+$rolloutOnlyBudgetEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $rolloutOnlyArtifactDir "budget-events.jsonl") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
+$rolloutOnlyActiveEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $rolloutOnlyArtifactDir "active-budget-events.jsonl") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
+$rolloutOnlyQualityEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $rolloutOnlyArtifactDir "budget-quality-impact-events.jsonl") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
+$rolloutOnlySummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $rolloutOnlyArtifactDir "budget_induced_quality_impact_summary.json") | ConvertFrom-Json
+$rolloutOnlySpawn = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $rolloutOnlyArtifactDir "spawn-node-budget-summary.json") | ConvertFrom-Json
+Assert-True ($rolloutOnlyActiveEvents.Count -eq 1 -and [string]$rolloutOnlyActiveEvents[0].profile_name -eq "taskspace-v005-thin") "rollout-only active budget event was not extracted"
+Assert-True ($rolloutOnlyBudgetEvents.Count -eq 1 -and [string]$rolloutOnlyBudgetEvents[0].status -eq "blocked" -and [bool]$rolloutOnlyBudgetEvents[0].budget_response_action_taken) "rollout-only provider budget event was not extracted"
+Assert-True ($rolloutOnlyQualityEvents.Count -eq 1 -and [string]$rolloutOnlyQualityEvents[0].final_classification -eq "blocked_by_budget") "rollout-only quality impact event was not extracted"
+Assert-True ([int]$rolloutOnlySummary.budget_event_count -eq 1 -and [int]$rolloutOnlySummary.budget_quality_impact_event_count -eq 1 -and [string]$rolloutOnlySummary.route_mode -eq "thin") "rollout-only budget summary did not use rollout trace events"
+Assert-True ([string]$rolloutOnlySpawn.source_status -eq "runtime" -and [int]$rolloutOnlySpawn.runtime_event_count -eq 1) "rollout-only spawn/node budget summary did not use rollout trace events"
+Assert-True ([int]$rolloutOnlyInstrumentation.budget_quality_impact_summary.blocked_by_budget_samples_count -eq 1) "returned rollout-only instrumentation omitted budget quality impact"
 
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Error $_ }

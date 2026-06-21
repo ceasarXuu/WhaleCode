@@ -409,10 +409,15 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $lastMessagePath $SandboxMode $ConfigOverride
                 $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
                 Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace"); execution_alias = $mount }) (Join-Path $side.ArtifactDir "whale-argv.json")
+                $childEnvironment = @{}
+                if ($side.LogicalMode -eq "taskspace") {
+                    $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode
+                    $childEnvironment["WHALE_TASKSPACE_PROFILE_NAME"] = "taskspace-v005-$($routingDecision.recommended_mode)"
+                }
                 $started = Get-Date
                 $timedOut = $false
                 try {
-                    $exitCode = Invoke-RealProcess $WhaleBin $args $executionRepoDir $jsonlPath $stderrPath $TimeoutSeconds $stdinPath $processTimingPath
+                    $exitCode = Invoke-RealProcess $WhaleBin $args $executionRepoDir $jsonlPath $stderrPath $TimeoutSeconds $stdinPath $processTimingPath $childEnvironment
                 } catch {
                     if ([string]$_.Exception.Message -notmatch "^Process timed out after ") { throw }
                     $exitCode = 124

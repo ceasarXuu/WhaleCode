@@ -203,6 +203,7 @@ pub(crate) struct ProviderRequestBudgetLimits {
     pub(crate) node_request_count: usize,
     pub(crate) max_model_requests_per_node: usize,
     pub(crate) post_budget_grace_requests: usize,
+    pub(crate) post_budget_grace_request_count: usize,
     pub(crate) budget_state: String,
 }
 
@@ -339,6 +340,7 @@ impl ProviderRequestBudgetContext {
                 node_request_count: 0,
                 max_model_requests_per_node: usize::MAX,
                 post_budget_grace_requests: 1,
+                post_budget_grace_request_count: 0,
                 budget_state: provider_request_budget_state_for(starting_count, max_requests)
                     .to_string(),
             },
@@ -358,7 +360,7 @@ impl ProviderRequestBudgetContext {
                 node_count: AtomicUsize::new(limits.node_request_count),
                 max_model_requests_per_node: limits.max_model_requests_per_node,
                 post_budget_grace_requests: limits.post_budget_grace_requests,
-                post_budget_grace_count: AtomicUsize::new(0),
+                post_budget_grace_count: AtomicUsize::new(limits.post_budget_grace_request_count),
                 budget_state: limits.budget_state,
                 attribution,
                 events: StdMutex::new(Vec::new()),
@@ -380,22 +382,26 @@ impl ProviderRequestBudgetContext {
         };
         let compact_checkpoint_final_dispatch =
             provider_request_budget_allows_compact_checkpoint_dispatch(&self.state.attribution);
-        let budget_recovery_dispatch = matches!(
+        let explicit_budget_recovery_dispatch = matches!(
             self.state.attribution.request_phase.as_deref(),
             Some("budget_recovery")
         );
         let grace_before = self.state.post_budget_grace_count.load(Ordering::SeqCst);
-        let budget_recovery_grace_available =
-            budget_recovery_dispatch && grace_before < self.state.post_budget_grace_requests;
+        let node_limit_reached = node_before >= self.state.max_model_requests_per_node
+            && self.state.max_model_requests_per_node != usize::MAX;
+        let node_budget_recovery_dispatch = node_limit_reached
+            && !explicit_budget_recovery_dispatch
+            && grace_before < self.state.post_budget_grace_requests;
+        let budget_recovery_grace_available = (explicit_budget_recovery_dispatch
+            || node_budget_recovery_dispatch)
+            && grace_before < self.state.post_budget_grace_requests;
         let compact_checkpoint_recovery_slot = budget_state_before == "compact_checkpoint_required"
             && before + 1 >= self.state.max_requests;
         let compact_checkpoint_blocked = budget_state_before == "compact_checkpoint_required"
             && !compact_checkpoint_final_dispatch;
         let compact_checkpoint_blocked =
             compact_checkpoint_blocked && !compact_checkpoint_recovery_slot;
-        let node_budget_exhausted = node_before >= self.state.max_model_requests_per_node
-            && !budget_recovery_grace_available
-            && self.state.max_model_requests_per_node != usize::MAX;
+        let node_budget_exhausted = node_limit_reached && !budget_recovery_grace_available;
         if node_budget_exhausted || before >= self.state.max_requests || compact_checkpoint_blocked
         {
             let request_identity = self.build_request_identity(before + 1, 1);
@@ -472,6 +478,8 @@ impl ProviderRequestBudgetContext {
             && compact_checkpoint_recovery_slot
             && !compact_checkpoint_final_dispatch
         {
+            Some("budget_recovery".to_string())
+        } else if node_budget_recovery_dispatch {
             Some("budget_recovery".to_string())
         } else {
             self.state.attribution.request_phase.clone()
@@ -852,8 +860,7 @@ fn provider_payload_digest<T: serde::Serialize>(payload: &T) -> Option<ProviderP
     let active_projection_present = text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER);
     let legacy_taskspace_history_present = text.contains(TASKSPACE_SHADOW_PROJECTION_MARKER)
         || text.contains("TaskSpace Bootstrap")
-        || text.contains("TaskSpace ContextProjectionV1 shadow update")
-        || text.contains("taskspace_control");
+        || text.contains("TaskSpace ContextProjectionV1 shadow update");
     let active_projection_block = text
         .split(TASKSPACE_ACTIVE_PROJECTION_MARKER)
         .nth(1)
@@ -864,7 +871,6 @@ fn provider_payload_digest<T: serde::Serialize>(payload: &T) -> Option<ProviderP
         || active_projection_block.contains("protected evidence");
     let large_raw_output_tokens = estimate_large_raw_output_tokens(&text);
     let replacement_confirmed = active_projection_present
-        && protected_items_present
         && !legacy_taskspace_history_present
         && large_raw_output_tokens == 0;
     Some(ProviderPayloadDigest {

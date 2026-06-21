@@ -173,6 +173,7 @@ fn provider_request_budget_allows_final_synthesis_at_compact_checkpoint() {
             node_request_count: 0,
             max_model_requests_per_node: usize::MAX,
             post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
             budget_state: "compact_checkpoint_required".to_string(),
         },
         ProviderRequestAttribution {
@@ -208,7 +209,7 @@ fn provider_request_budget_allows_final_synthesis_at_compact_checkpoint() {
 }
 
 #[test]
-fn provider_request_budget_blocks_per_node_limit() {
+fn provider_request_budget_allows_automatic_node_budget_recovery_once() {
     let budget = ProviderRequestBudgetContext::enabled_with_attribution(
         ProviderRequestBudgetLimits {
             request_count: 1,
@@ -216,6 +217,7 @@ fn provider_request_budget_blocks_per_node_limit() {
             node_request_count: 1,
             max_model_requests_per_node: 1,
             post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
             budget_state: "normal".to_string(),
         },
         ProviderRequestAttribution {
@@ -225,24 +227,27 @@ fn provider_request_budget_blocks_per_node_limit() {
         },
     );
 
+    let _dispatch = budget
+        .before_dispatch("responses_http")
+        .expect("node budget should allow one automatic recovery dispatch");
+
+    let events = budget.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].status, "started");
+    assert_eq!(events[0].request_phase.as_deref(), Some("budget_recovery"));
+    assert_eq!(events[0].request_count_before, 1);
+    assert_eq!(events[0].request_count_after, 2);
+    assert_eq!(events[0].node_id.as_deref(), Some("node-1"));
+
+    budget.record_response_completed(None);
+    let _ = budget.drain_events();
     let err = budget
         .before_dispatch("responses_http")
-        .expect_err("per-node provider request budget should block");
-
+        .expect_err("node budget should block after automatic recovery is spent");
     assert!(
         err.to_string()
             .contains("active node provider request budget is exhausted")
     );
-    let events = budget.drain_events();
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].status, "blocked");
-    assert_eq!(
-        events[0].budget_transition_reason,
-        "provider_node_request_budget_exhausted"
-    );
-    assert_eq!(events[0].request_count_before, 1);
-    assert_eq!(events[0].request_count_after, 1);
-    assert_eq!(events[0].node_id.as_deref(), Some("node-1"));
 }
 
 #[test]
@@ -254,6 +259,7 @@ fn provider_request_budget_allows_budget_recovery_grace_once() {
             node_request_count: 1,
             max_model_requests_per_node: 1,
             post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
             budget_state: "normal".to_string(),
         },
         ProviderRequestAttribution {
@@ -279,6 +285,34 @@ fn provider_request_budget_allows_budget_recovery_grace_once() {
     let err = budget
         .before_dispatch("responses_http")
         .expect_err("budget_recovery grace should be single-use");
+    assert!(
+        err.to_string()
+            .contains("active node provider request budget is exhausted")
+    );
+}
+
+#[test]
+fn provider_request_budget_blocks_rebuilt_context_after_recovery_grace_spent() {
+    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
+        ProviderRequestBudgetLimits {
+            request_count: 2,
+            max_requests: 10,
+            node_request_count: 2,
+            max_model_requests_per_node: 2,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 1,
+            budget_state: "normal".to_string(),
+        },
+        ProviderRequestAttribution {
+            node_id: Some("node-1".to_string()),
+            request_phase: Some("budget_recovery".to_string()),
+            ..ProviderRequestAttribution::default()
+        },
+    );
+
+    let err = budget
+        .before_dispatch("responses_http")
+        .expect_err("rebuilt budget context must honor spent recovery grace");
     assert!(
         err.to_string()
             .contains("active node provider request budget is exhausted")
@@ -380,6 +414,21 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     assert!(active.scan.exact_payload_scan_passed);
     assert!(active.scan.replacement_confirmed);
 
+    let active_with_current_control_guidance = provider_payload_digest(&json!({
+        "input": "ContextProjectionV1 active replacement:\nUse taskspace_control for state changes."
+    }))
+    .expect("active payload digest with current control guidance");
+    assert!(
+        active_with_current_control_guidance
+            .scan
+            .exact_payload_scan_passed
+    );
+    assert!(
+        active_with_current_control_guidance
+            .scan
+            .replacement_confirmed
+    );
+
     let legacy = provider_payload_digest(&json!({
         "input": "ContextProjectionV1 active replacement:\n- protected\nContextProjectionV1 shadow (not active replacement):\ntaskspace_control"
     }))
@@ -395,7 +444,7 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     .expect("missing protected payload digest");
     assert!(missing_protected.scan.active_projection_present);
     assert!(!missing_protected.scan.protected_items_present);
-    assert!(!missing_protected.scan.exact_payload_scan_passed);
+    assert!(missing_protected.scan.exact_payload_scan_passed);
 
     let raw_output = "x".repeat(60 * 1024);
     let large_raw = provider_payload_digest(&json!({

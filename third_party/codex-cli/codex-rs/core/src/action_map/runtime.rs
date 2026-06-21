@@ -439,6 +439,7 @@ pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
     pub(crate) node_request_count: usize,
     pub(crate) max_model_requests_per_node: usize,
     pub(crate) post_budget_grace_requests: usize,
+    pub(crate) post_budget_grace_request_count: usize,
     pub(crate) budget_state: String,
 }
 
@@ -635,8 +636,8 @@ pub(crate) fn taskspace_active_budget_for_route(
     let mut budget = default_budget_common(profile_name, route_mode);
     match route_mode {
         TaskSpaceRouteMode::Thin => {
-            budget.max_rollout_model_requests = 4;
-            budget.max_model_requests_per_node = 2;
+            budget.max_rollout_model_requests = 8;
+            budget.max_model_requests_per_node = 3;
             budget.max_spawn_agent_calls = 0;
             budget.max_subagent_results = 0;
             budget.max_nodes = 4;
@@ -848,10 +849,15 @@ impl ActionMapRuntimeState {
 
     fn ensure_default_active_budget(&mut self) {
         if self.active_budget.is_none() {
-            let _ = self.activate_active_budget_for_route(
-                "taskspace-v005-active",
-                TaskSpaceRouteMode::DefaultCompact,
-            );
+            let route_mode = std::env::var("WHALE_TASKSPACE_ROUTE_MODE")
+                .ok()
+                .and_then(|value| TaskSpaceRouteMode::from_str(value.trim()))
+                .unwrap_or(TaskSpaceRouteMode::DefaultCompact);
+            let profile_name = std::env::var("WHALE_TASKSPACE_PROFILE_NAME")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "taskspace-v005-active".to_string());
+            let _ = self.activate_active_budget_for_route(profile_name.trim(), route_mode);
         }
     }
 
@@ -1791,9 +1797,10 @@ impl ActionMapRuntimeState {
         let reserved_tool_count = self.reserved_tool_calls_for_node(&map_id, &node_id);
         let budget = contract.max_main_tool_results_before_split_hint;
         let max_rollout_model_requests = self.max_rollout_model_requests();
-        let provider_budget_pressure = provider_request_budget_pressure_active(
+        let provider_budget_pressure = provider_request_budget_pressure_active_for_node(
             self.provider_request_count,
             max_rollout_model_requests,
+            node.kind,
         );
         let inspect_evidence_pressure = inspect_evidence_pressure_active(node, budget);
         if descriptor.action_class != ActionClass::Control
@@ -1922,6 +1929,8 @@ impl ActionMapRuntimeState {
                 node.kind.as_str(),
                 descriptor.action_class.as_str()
             );
+            let implement_has_edit = node.kind == NodeKind::ImplementSolution
+                && node_has_successful_action(map, node, ActionClass::Edit);
             let message = if node.kind == NodeKind::InspectCodeContext
                 && descriptor.action_class == ActionClass::Edit
             {
@@ -1930,25 +1939,31 @@ impl ActionMapRuntimeState {
                     node.id, descriptor.tool_name, reason, node.id, node.id, node.id
                 )
             } else {
-                blocked_action_recovery_message(node, &descriptor, &reason)
+                blocked_action_recovery_message(node, &descriptor, &reason, implement_has_edit)
+            };
+            let next_valid_action = if node.kind == NodeKind::InspectCodeContext
+                && descriptor.action_class == ActionClass::Edit
+            {
+                format!(
+                    "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
+                    node.id
+                )
+            } else if node.kind == NodeKind::ImplementSolution
+                && descriptor.action_class == ActionClass::Test
+                && !implement_has_edit
+            {
+                "call an edit-capable tool such as apply_patch before requesting tests".to_string()
+            } else {
+                format!(
+                    "taskspace_control(action=finish_node, node_id=\"{}\")",
+                    node.id
+                )
             };
             let recovery = gate_recovery_message(
                 &message,
                 &reason,
                 vec![format!("current_node:{}:{}", node.id, node.kind.as_str())],
-                vec![if node.kind == NodeKind::InspectCodeContext
-                    && descriptor.action_class == ActionClass::Edit
-                {
-                    format!(
-                        "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
-                        node.id
-                    )
-                } else {
-                    format!(
-                        "taskspace_control(action=finish_node, node_id=\"{}\")",
-                        node.id
-                    )
-                }],
+                vec![next_valid_action],
                 Vec::new(),
             );
             return Err(ActionMapGateError::new(
@@ -2330,6 +2345,7 @@ preview:\n\
             node_request_count,
             max_model_requests_per_node: budget.max_model_requests_per_node,
             post_budget_grace_requests: budget.post_budget_grace_requests,
+            post_budget_grace_request_count: self.budget_counters.post_budget_grace_request_count,
             budget_state: self.budget_state.as_str().to_string(),
         })
     }
@@ -2732,9 +2748,6 @@ preview:\n\
         if self.mode != MapRuntimeMode::Experiment {
             return Ok(None);
         }
-        if !provider_request_budget_pressure_active(snapshot.request_count, snapshot.max_requests) {
-            return Ok(None);
-        }
         let node_id = match snapshot.node_id.as_deref() {
             Some(node_id) => node_id,
             None => return Ok(None),
@@ -2752,6 +2765,13 @@ preview:\n\
             (map.task_id.clone(), node.kind)
         };
         if node_kind != NodeKind::InspectCodeContext {
+            return Ok(None);
+        }
+        if !provider_request_budget_pressure_active_for_node(
+            snapshot.request_count,
+            snapshot.max_requests,
+            node_kind,
+        ) {
             return Ok(None);
         }
         let result_summary = format!(
@@ -2773,6 +2793,13 @@ preview:\n\
             None,
             Some(next_node_draft),
         )?;
+        if let Some(event) = self.accept_forced_inspect_transition_result(
+            &map_id,
+            &outcome.result_id,
+            "runtime accepted forced inspect transition bridge result",
+        )? {
+            events.push(event);
+        }
         let id = self.next_trace_event_id();
         let created_at_ms = now_ms();
         let tags = vec![
@@ -2823,6 +2850,191 @@ preview:\n\
             },
         ));
         Ok(Some((outcome, events)))
+    }
+
+    pub(crate) fn force_finish_implement_for_provider_budget(
+        &mut self,
+        owner_session_id: ThreadId,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        trigger: &str,
+    ) -> Result<Option<(ActionMapFinishNodeOutcome, Vec<MapRuntimeEvent>)>, String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(None);
+        }
+        let node_id = match snapshot.node_id.as_deref() {
+            Some(node_id) => node_id,
+            None => return Ok(None),
+        };
+        let map_id = snapshot.map_id.clone();
+        let (task_id, node_kind, has_edit) = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            let node = map
+                .nodes
+                .get(node_id)
+                .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
+            (
+                map.task_id.clone(),
+                node.kind,
+                node_has_successful_action(map, node, ActionClass::Edit),
+            )
+        };
+        if node_kind != NodeKind::ImplementSolution || !has_edit {
+            return Ok(None);
+        }
+        if !provider_request_budget_pressure_active_for_node(
+            snapshot.request_count,
+            snapshot.max_requests,
+            node_kind,
+        ) {
+            return Ok(None);
+        }
+        let result_summary = format!(
+            "Provider request budget pressure forced implementation convergence at {}/{} after {trigger}; proceed to validation using the successful edit already recorded on this node.",
+            snapshot.request_count, snapshot.max_requests
+        );
+        let next_node_draft = ActionMapNextNodeDraft {
+            kind: NodeKind::SmokeTest,
+            title: "Run focused validation".to_string(),
+            context_summary:
+                "Run the focused validation command for the implementation edit from this node."
+                    .to_string(),
+            dependency_node_ids: vec![node_id.to_string()],
+        };
+        let (outcome, mut events) = self.finish_main_node_with_next(
+            owner_session_id,
+            node_id,
+            result_summary,
+            None,
+            Some(next_node_draft),
+        )?;
+        if let Some(event) = self.accept_forced_transition_result(
+            &map_id,
+            &outcome.result_id,
+            "Runtime forced implementation convergence into validation under provider budget pressure.",
+            "runtime accepted forced implementation transition bridge result",
+        )? {
+            events.push(event);
+        }
+        let id = self.next_trace_event_id();
+        let created_at_ms = now_ms();
+        let tags = vec![
+            "schema:taskspace-forced-implement-transition-v1".to_string(),
+            "producer:provider_response".to_string(),
+            format!("trigger:{trigger}"),
+            format!("request_count:{}", snapshot.request_count),
+            format!("max_requests:{}", snapshot.max_requests),
+            format!("source_node_kind:{}", NodeKind::ImplementSolution.as_str()),
+            format!("next_node_kind:{}", NodeKind::SmokeTest.as_str()),
+            format!("result_id:{}", outcome.result_id),
+            format!(
+                "bound_next_node_id:{}",
+                outcome.next_node_id.as_deref().unwrap_or("")
+            ),
+        ];
+        let trace_event = TaskSpaceTraceEvent {
+            id: id.clone(),
+            kind: "forced_implement_transition".to_string(),
+            task_id,
+            map_id,
+            node_id: node_id.to_string(),
+            result_id: Some(outcome.result_id.clone()),
+            call_id: None,
+            action_class: Some(ActionClass::Control),
+            tool_success: Some(true),
+            tags,
+            artifact_refs: Vec::new(),
+            created_at_ms,
+        };
+        self.taskspace_trace_events.push(trace_event.clone());
+        events.push(MapRuntimeEvent::TaskspaceTraceEventRecorded(
+            MapRuntimeTraceEventRecordedEvent {
+                trace_event_id: id,
+                kind: trace_event.kind,
+                task_id: trace_event.task_id,
+                map_id: trace_event.map_id,
+                node_id: trace_event.node_id,
+                result_id: trace_event.result_id,
+                call_id: trace_event.call_id,
+                action_class: trace_event
+                    .action_class
+                    .map(|action_class| action_class.as_str().to_string()),
+                tool_success: trace_event.tool_success,
+                tags: trace_event.tags,
+                artifact_refs: trace_event.artifact_refs,
+                created_at_ms: trace_event.created_at_ms,
+            },
+        ));
+        Ok(Some((outcome, events)))
+    }
+
+    fn accept_forced_transition_result(
+        &mut self,
+        map_id: &str,
+        result_id: &str,
+        claim_statement: &str,
+        validity_reason: &str,
+    ) -> Result<Option<MapRuntimeEvent>, String> {
+        let map = self
+            .maps
+            .get_mut(map_id)
+            .ok_or_else(|| format!("TaskSpace task path `{map_id}` is missing."))?;
+        let task_id = map.task_id.clone();
+        let result = map.results.get_mut(result_id).ok_or_else(|| {
+            format!("TaskSpace result `{result_id}` does not exist on task path `{map_id}`.")
+        })?;
+        if result.evidence_package.validity != ResultValidity::Unreviewed {
+            return Ok(None);
+        }
+        let mut adoption = NodeResultAdoption::default();
+        adoption.refresh_state(ResultValidity::Accepted);
+        let evidence_ref = EvidenceRef {
+            result_id: Some(result_id.to_string()),
+            claim_id: None,
+            fact_source_id: None,
+            trace_event_id: None,
+            artifact_ref: None,
+            validator_ref: None,
+        };
+        result.evidence_package = NodeResultEvidencePackage {
+            claims: vec![CognitiveClaim {
+                id: format!("claim-{result_id}-forced-transition"),
+                statement: claim_statement.to_string(),
+                evidence_refs: vec![evidence_ref.clone()],
+            }],
+            evidence_refs: vec![evidence_ref],
+            changed_artifacts: Vec::new(),
+            validator_refs: Vec::new(),
+            remaining_uncertainty: Vec::new(),
+            validity: ResultValidity::Accepted,
+            validity_reason: validity_reason.to_string(),
+            adoption,
+        };
+        Ok(Some(MapRuntimeEvent::ResultValidityChanged(
+            MapRuntimeResultValidityChangedEvent {
+                task_id,
+                map_id: map_id.to_string(),
+                node_id: result.node_id.clone(),
+                result_id: result_id.to_string(),
+                validity: ResultValidity::Accepted.as_str().to_string(),
+            },
+        )))
+    }
+
+    fn accept_forced_inspect_transition_result(
+        &mut self,
+        map_id: &str,
+        result_id: &str,
+        validity_reason: &str,
+    ) -> Result<Option<MapRuntimeEvent>, String> {
+        self.accept_forced_transition_result(
+            map_id,
+            result_id,
+            "Runtime forced inspect convergence into implementation under provider budget pressure.",
+            validity_reason,
+        )
     }
 
     pub(crate) fn prepare_child_tool_call(
@@ -8568,8 +8780,15 @@ fn blocked_action_recovery_message(
     node: &MapNode,
     descriptor: &ToolActionDescriptor,
     reason: &str,
+    implement_has_edit: bool,
 ) -> String {
     if node.kind == NodeKind::ImplementSolution && descriptor.action_class == ActionClass::Test {
+        if !implement_has_edit {
+            return format!(
+                "TaskSpace blocked this tool call. Current node `{}` kind: implement_solution. Requested tool `{}` action class: test. Reason: {}. This implementation node has no successful edit result yet. Do not finish the node, create another inspect node, or run validation now. First apply the smallest implementation edit with an edit-capable tool such as apply_patch; after the edit succeeds, finish this implementation node and create or bind a smoke_test or regression_test node for validation.",
+                node.id, descriptor.tool_name, reason
+            );
+        }
         return format!(
             "TaskSpace blocked this tool call. Current node `{}` kind: implement_solution. Requested tool `{}` action class: test. Reason: {}. Do not block this implementation node or create another inspect node. First call taskspace_control(action=finish_node, node_id=\"{}\", result_summary=\"implementation edit is applied\", next_node_kind=\"smoke_test\", next_node_title=\"Run validation\", next_node_context_summary=\"Run tests for the implementation from {}\", next_dependency_node_ids=[\"{}\"]), then run the test only after current_node is smoke_test or regression_test.",
             node.id, descriptor.tool_name, reason, node.id, node.id, node.id
@@ -10462,6 +10681,18 @@ fn provider_request_budget_pressure_active(
     provider_request_count.saturating_mul(4) >= max_requests.saturating_mul(3)
 }
 
+fn provider_request_budget_pressure_active_for_node(
+    provider_request_count: usize,
+    max_requests: usize,
+    node_kind: NodeKind,
+) -> bool {
+    if node_kind == NodeKind::InspectCodeContext {
+        provider_request_count.saturating_mul(2) >= max_requests
+    } else {
+        provider_request_budget_pressure_active(provider_request_count, max_requests)
+    }
+}
+
 fn budget_state_for_counter(counter_value: usize, counter_limit: usize) -> TaskSpaceBudgetState {
     if counter_limit == 0 || counter_value >= counter_limit {
         return TaskSpaceBudgetState::HardStopped;
@@ -11485,7 +11716,7 @@ mod tests {
     }
 
     #[test]
-    fn taskspace_active_budget_thin_route_uses_four_requests_and_no_spawn() {
+    fn taskspace_active_budget_thin_route_uses_eight_requests_and_no_spawn() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let events = state
@@ -11493,8 +11724,8 @@ mod tests {
 
         let budget = state.active_budget().expect("active budget");
         assert_eq!(budget.route_mode, TaskSpaceRouteMode::Thin);
-        assert_eq!(budget.max_rollout_model_requests, 4);
-        assert_eq!(budget.max_model_requests_per_node, 2);
+        assert_eq!(budget.max_rollout_model_requests, 8);
+        assert_eq!(budget.max_model_requests_per_node, 3);
         assert_eq!(budget.max_spawn_agent_calls, 0);
         assert_eq!(budget.max_nodes, 4);
         assert_eq!(events.len(), 1);
@@ -11536,8 +11767,8 @@ mod tests {
 
         assert_eq!(snapshot.route_mode.as_deref(), Some("thin"));
         assert_eq!(snapshot.profile_name.as_deref(), Some("thin-profile"));
-        assert_eq!(snapshot.max_requests, 4);
-        assert_eq!(snapshot.max_model_requests_per_node, 2);
+        assert_eq!(snapshot.max_requests, 8);
+        assert_eq!(snapshot.max_model_requests_per_node, 3);
         assert_ne!(snapshot.max_requests, 40);
     }
 
@@ -11561,7 +11792,7 @@ mod tests {
         state
             .budget_counters
             .model_request_count_by_node
-            .insert(node_id.clone(), 2);
+            .insert(node_id.clone(), 3);
 
         let snapshot = state
             .provider_request_budget_snapshot()
@@ -11570,9 +11801,9 @@ mod tests {
 
         assert_eq!(snapshot.map_id, map_id);
         assert_eq!(snapshot.request_count, 1);
-        assert_eq!(snapshot.max_requests, 4);
-        assert_eq!(snapshot.node_request_count, 2);
-        assert_eq!(snapshot.max_model_requests_per_node, 2);
+        assert_eq!(snapshot.max_requests, 8);
+        assert_eq!(snapshot.node_request_count, 3);
+        assert_eq!(snapshot.max_model_requests_per_node, 3);
         assert!(!decision.allowed);
         assert_eq!(decision.reason, "provider_node_request_budget_exhausted");
     }
@@ -11712,9 +11943,9 @@ mod tests {
                     attempt_seq: 1,
                     transport: "responses_http".to_string(),
                     status: "started".to_string(),
-                    request_count_before: 2,
-                    request_count_after: 3,
-                    max_requests: 4,
+                    request_count_before: 3,
+                    request_count_after: 4,
+                    max_requests: 8,
                     budget_state_before: "normal".to_string(),
                     budget_state_after: "normal".to_string(),
                     budget_transition_reason: "request_dispatched_without_state_change".to_string(),
@@ -11749,8 +11980,8 @@ mod tests {
             .provider_request_budget_snapshot()
             .expect("restored snapshot");
         assert_eq!(restored_snapshot.route_mode.as_deref(), Some("thin"));
-        assert_eq!(restored_snapshot.max_requests, 4);
-        assert_eq!(restored_snapshot.request_count, 3);
+        assert_eq!(restored_snapshot.max_requests, 8);
+        assert_eq!(restored_snapshot.request_count, 4);
         assert_eq!(restored_snapshot.node_request_count, 1);
         let error = restored
             .prepare_main_tool_call(
@@ -11763,11 +11994,11 @@ mod tests {
         assert!(
             message.contains("provider_request_budget_pressure_requires_inspect_node_transition")
         );
-        assert!(message.contains("3/4 used"));
+        assert!(message.contains("4/8 used"));
     }
 
     #[test]
-    fn taskspace_active_budget_thin_route_forces_inspect_pressure_at_three_of_four() {
+    fn taskspace_active_budget_thin_route_forces_inspect_pressure_at_four_of_eight() {
         let owner = ThreadId::new();
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -11782,8 +12013,8 @@ mod tests {
                 true,
             )
             .expect("start task");
-        state.provider_request_count = 3;
-        state.budget_counters.rollout_model_request_count = 3;
+        state.provider_request_count = 4;
+        state.budget_counters.rollout_model_request_count = 4;
         state
             .record_main_tool_result_with_class(
                 owner,
@@ -11796,26 +12027,33 @@ mod tests {
             .expect("read evidence records");
         let snapshot = ActionMapProviderRequestBudgetSnapshot {
             task_id: state.active_task_id.clone(),
-            map_id,
+            map_id: map_id.clone(),
             node_id: Some(node_id),
             node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
             route_mode: Some("thin".to_string()),
             profile_name: Some("thin-profile".to_string()),
             request_phase: Some("model_sampling".to_string()),
             provider_request_context_missing_reason: None,
-            request_count: 3,
-            max_requests: 4,
+            request_count: 4,
+            max_requests: 8,
             node_request_count: 1,
-            max_model_requests_per_node: 2,
+            max_model_requests_per_node: 3,
             post_budget_grace_requests: 1,
-            budget_state: "thin_downgraded".to_string(),
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
         };
 
         let outcome = state
             .force_finish_inspect_for_provider_budget(owner, &snapshot, "thin_pressure")
             .expect("force finish should be valid");
 
-        assert!(outcome.is_some());
+        let (outcome, _events) = outcome.expect("forced transition should finish inspect");
+        let result = state
+            .maps
+            .get(&map_id)
+            .and_then(|map| map.results.get(&outcome.result_id))
+            .expect("forced transition result should exist");
+        assert_eq!(result.evidence_package.validity, ResultValidity::Accepted);
     }
 
     #[test]
@@ -15460,6 +15698,16 @@ mod tests {
                 ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch"),
             )
             .expect("implementation nodes allow edit");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-call",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "patched target file".to_string(),
+            )
+            .expect("edit result records");
         let error = state
             .prepare_main_tool_call(
                 owner,
@@ -15472,6 +15720,37 @@ mod tests {
         assert!(error.contains("next_node_kind=\"smoke_test\""));
         assert!(error.contains("Do not block this implementation node"));
         assert!(error.contains("then run the test only after current_node is smoke_test"));
+    }
+
+    #[test]
+    fn implement_node_blocks_test_before_edit_with_edit_recovery() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Implement fix".to_string(),
+                "Apply the known fix.".to_string(),
+                "Patch code".to_string(),
+                "Modify the target files.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
+            )
+            .expect_err("implementation nodes require an edit before tests");
+
+        assert!(error.contains("has no successful edit result yet"));
+        assert!(error.contains("apply_patch"));
+        assert!(error.contains("Do not finish the node"));
+        assert!(!error.contains("result_summary=\"implementation edit is applied\""));
     }
 
     #[test]
@@ -17321,6 +17600,7 @@ mod tests {
             node_request_count: 0,
             max_model_requests_per_node: 3,
             post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
             budget_state: "hard_stopped".to_string(),
         };
 
@@ -17349,6 +17629,92 @@ mod tests {
                 event,
                 MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
                     if event.kind == "forced_inspect_transition"
+                        && event.node_id == node_id
+                        && event.tags.iter().any(|tag| tag == "trigger:budget_pressure_follow_up_intent")
+            )
+        }));
+    }
+
+    #[test]
+    fn provider_budget_follow_up_force_finishes_implementation_into_smoke_test_after_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Budget pressure implementation",
+            "Provider response follow-up should converge implementation into validation.",
+            "Budget pressure implementation",
+            "Provider response follow-up should converge implementation into validation.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
+                    .with_call_id("edit-1"),
+            )
+            .expect("edit should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "edit-1",
+                "apply_patch",
+                true,
+                "fixed src/tax_calc.py rounding precision".to_string(),
+            )
+            .expect("edit result records");
+        state.provider_request_count = 6;
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::ImplementSolution.as_str().to_string()),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 6,
+            max_requests: 8,
+            node_request_count: 3,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "active".to_string(),
+        };
+
+        let (outcome, events) = state
+            .force_finish_implement_for_provider_budget(
+                owner,
+                &snapshot,
+                "budget_pressure_follow_up_intent",
+            )
+            .expect("forced transition should be accepted")
+            .expect("forced transition should run");
+
+        let map = state.active_map().expect("active map");
+        let implement_node = map.nodes.get(&node_id).expect("implement node");
+        assert_eq!(implement_node.status, NodeStatus::Completed);
+        let next_node_id = outcome.next_node_id.expect("next validation node");
+        let next_node = map.nodes.get(&next_node_id).expect("next node");
+        assert_eq!(next_node.kind, NodeKind::SmokeTest);
+        assert_eq!(next_node.status, NodeStatus::Running);
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(next_node_id.as_str())
+        );
+        let bridge_result = map.results.get(&outcome.result_id).expect("bridge result");
+        assert_eq!(
+            bridge_result.evidence_package.validity,
+            ResultValidity::Accepted
+        );
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                    if event.kind == "forced_implement_transition"
                         && event.node_id == node_id
                         && event.tags.iter().any(|tag| tag == "trigger:budget_pressure_follow_up_intent")
             )
@@ -17389,7 +17755,7 @@ mod tests {
                 )
                 .expect("read result records");
         }
-        state.provider_request_count = 7;
+        state.provider_request_count = 2;
 
         let error = state
             .prepare_main_tool_call(

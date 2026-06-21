@@ -123,8 +123,8 @@ pub(crate) fn taskspace_active_budget_for_route(
         TaskSpaceRouteMode::Thin => TaskSpaceActiveBudgetV1 {
             profile_name: profile_name.to_string(),
             route_mode,
-            max_rollout_model_requests: 4,
-            max_model_requests_per_node: 2,
+            max_rollout_model_requests: 8,
+            max_model_requests_per_node: 3,
             max_spawn_agent_calls: 0,
             max_subagent_results: 0,
             max_nodes: 4,
@@ -321,7 +321,7 @@ Add Rust tests in `core/src/action_map/runtime.rs` tests or a dedicated module:
 
 ```rust
 #[test]
-fn thin_route_budget_uses_four_requests_and_no_spawn() { /* activate Thin; assert limits */ }
+fn thin_route_budget_uses_eight_requests_and_no_spawn() { /* activate Thin; assert limits */ }
 
 #[test]
 fn default_compact_budget_uses_ten_requests_and_two_spawn() { /* activate DefaultCompact */ }

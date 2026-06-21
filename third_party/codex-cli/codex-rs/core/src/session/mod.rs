@@ -1219,6 +1219,46 @@ impl Session {
         }
     }
 
+    pub(crate) async fn force_finish_action_map_implement_for_provider_budget(
+        &self,
+        turn_context: &TurnContext,
+        snapshot: ActionMapProviderRequestBudgetSnapshot,
+        trigger: &str,
+    ) -> Result<bool, String> {
+        let result = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .force_finish_implement_for_provider_budget(
+                    self.conversation_id,
+                    &snapshot,
+                    trigger,
+                )
+        }?;
+        if let Some((outcome, events)) = result {
+            self.send_event(
+                turn_context,
+                EventMsg::Warning(WarningEvent {
+                    message: format!(
+                        "TaskSpaceForcedImplementTransitionV1 trigger={} request_count={}/{} source_node_id={} next_node_id={} result_id={}",
+                        trigger,
+                        snapshot.request_count,
+                        snapshot.max_requests,
+                        snapshot.node_id.as_deref().unwrap_or("unknown"),
+                        outcome.next_node_id.as_deref().unwrap_or("none"),
+                        outcome.result_id,
+                    ),
+                }),
+            )
+            .await;
+            self.emit_action_map_events_for_turn(turn_context, events)
+                .await;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     pub(crate) async fn record_action_map_child_tool_result(
         &self,
         child_thread_id: ThreadId,

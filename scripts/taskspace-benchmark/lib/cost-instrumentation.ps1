@@ -71,16 +71,57 @@ function Get-TaskspaceTraceField {
 }
 
 function Get-TaskspaceTraceEvents {
-    param([string]$ObservabilityJsonPath, [string[]]$Kinds)
+    param(
+        [string]$ObservabilityJsonPath,
+        [string[]]$Kinds,
+        [AllowEmptyString()][string]$RolloutJsonlPath = ""
+    )
     $events = New-Object System.Collections.Generic.List[object]
-    if ([string]::IsNullOrWhiteSpace($ObservabilityJsonPath) -or -not (Test-Path -LiteralPath $ObservabilityJsonPath)) {
-        return @()
-    }
+    $seen = @{}
     try {
-        $obs = (Get-Content -Raw -Encoding UTF8 -LiteralPath $ObservabilityJsonPath) | ConvertFrom-Json
-        foreach ($event in @($obs.timeline)) {
-            $kind = [string](Get-TaskspaceTraceField $event @("kind"))
-            if ($Kinds -contains $kind) { $events.Add($event) }
+        if (-not [string]::IsNullOrWhiteSpace($ObservabilityJsonPath) -and (Test-Path -LiteralPath $ObservabilityJsonPath)) {
+            $obs = (Get-Content -Raw -Encoding UTF8 -LiteralPath $ObservabilityJsonPath) | ConvertFrom-Json
+            foreach ($event in @($obs.timeline)) {
+                $kind = [string](Get-TaskspaceTraceField $event @("kind"))
+                if ($Kinds -notcontains $kind) { continue }
+                $traceId = [string](Get-TaskspaceTraceField $event @("trace_event_id", "id"))
+                $dedupeKey = if ([string]::IsNullOrWhiteSpace($traceId)) { "obs:${kind}:$($events.Count)" } else { "${kind}:$traceId" }
+                if ($seen.ContainsKey($dedupeKey)) { continue }
+                $seen[$dedupeKey] = $true
+                $events.Add($event)
+            }
+        }
+    } catch {}
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($RolloutJsonlPath) -and (Test-Path -LiteralPath $RolloutJsonlPath)) {
+            foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $RolloutJsonlPath)) {
+                if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                $row = $null
+                try { $row = $line | ConvertFrom-Json } catch { continue }
+                if ([string]$row.type -ne "event_msg" -or $null -eq $row.payload) { continue }
+                $payload = $row.payload
+                $kind = [string]$payload.kind
+                if ($Kinds -notcontains $kind) { continue }
+                $traceId = [string]$payload.traceEventId
+                $dedupeKey = if ([string]::IsNullOrWhiteSpace($traceId)) { "rollout:${kind}:$($events.Count)" } else { "${kind}:$traceId" }
+                if ($seen.ContainsKey($dedupeKey)) { continue }
+                $seen[$dedupeKey] = $true
+                $events.Add([pscustomobject]@{
+                    id = $traceId
+                    trace_event_id = $traceId
+                    kind = $kind
+                    task_id = [string]$payload.taskId
+                    map_id = [string]$payload.mapId
+                    node_id = [string]$payload.nodeId
+                    result_id = [string]$payload.resultId
+                    call_id = [string]$payload.callId
+                    action_class = [string]$payload.actionClass
+                    tool_success = $payload.toolSuccess
+                    tags = @($payload.tags)
+                    artifact_refs = @($payload.artifactRefs)
+                    created_at_ms = $payload.createdAtMs
+                })
+            }
         }
     } catch {}
     @($events.ToArray())
@@ -102,9 +143,9 @@ function Convert-TaskspaceTraceBool {
 }
 
 function New-TaskspaceBudgetArtifacts {
-    param([string]$ObservabilityJsonPath)
+    param([string]$ObservabilityJsonPath, [AllowEmptyString()][string]$RolloutJsonlPath = "")
     $activeBudgetEvents = New-Object System.Collections.Generic.List[object]
-    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("active_budget"))) {
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("active_budget") $RolloutJsonlPath)) {
         $tags = Convert-TaskspaceTraceTags $event
         if ([string]$tags.producer -ne "runtime") { continue }
         $activeBudgetEvents.Add([pscustomobject]@{
@@ -121,7 +162,7 @@ function New-TaskspaceBudgetArtifacts {
         })
     }
     $budgetEvents = New-Object System.Collections.Generic.List[object]
-    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("provider_request_budget"))) {
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("provider_request_budget") $RolloutJsonlPath)) {
         $tags = Convert-TaskspaceTraceTags $event
         $budgetEvents.Add([pscustomobject]@{
             schema_version = "taskspace-budget-event-v1"
@@ -156,7 +197,7 @@ function New-TaskspaceBudgetArtifacts {
         })
     }
     $qualityEvents = New-Object System.Collections.Generic.List[object]
-    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("budget_quality_impact"))) {
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("budget_quality_impact") $RolloutJsonlPath)) {
         $tags = Convert-TaskspaceTraceTags $event
         $qualityEvents.Add([pscustomobject]@{
             schema_version = "taskspace-budget-quality-impact-v1"
@@ -376,9 +417,9 @@ function New-TaskspaceStateCommitDisplacementSummary {
 }
 
 function New-TaskspaceSpawnNodeBudgetSummary {
-    param([string]$ObservabilityJsonPath)
+    param([string]$ObservabilityJsonPath, [AllowEmptyString()][string]$RolloutJsonlPath = "")
     $events = New-Object System.Collections.Generic.List[object]
-    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("spawn_node_budget"))) {
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("spawn_node_budget") $RolloutJsonlPath)) {
         $tags = Convert-TaskspaceTraceTags $event
         if ([string]$tags.producer -ne "runtime") { continue }
         $events.Add([pscustomobject]@{
@@ -1014,11 +1055,11 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $replay = New-TaskspaceReplaySummary $ArtifactDir
     $outputRefEvents = @(New-TaskspaceOutputRefEvents $ObservabilityJsonPath $ArtifactDir)
     $projection = New-TaskspaceContextProjectionSummary $JsonlPath $ObservabilityJsonPath $rolloutJsonlPath
-    $budget = New-TaskspaceBudgetArtifacts $ObservabilityJsonPath
+    $budget = New-TaskspaceBudgetArtifacts $ObservabilityJsonPath $rolloutJsonlPath
     $activeReplacement = New-TaskspaceActiveReplacementArtifacts $budget.budget_events
     $providerRequest = New-TaskspaceProviderRequestArtifacts $budget.budget_events $request
     $stateCommitDisplacement = New-TaskspaceStateCommitDisplacementSummary $ObservabilityJsonPath
-    $spawnNodeBudget = New-TaskspaceSpawnNodeBudgetSummary $ObservabilityJsonPath
+    $spawnNodeBudget = New-TaskspaceSpawnNodeBudgetSummary $ObservabilityJsonPath $rolloutJsonlPath
     $tokenPath = Join-Path $ArtifactDir "token-summary.json"
     $requestPath = Join-Path $ArtifactDir "request-summary.json"
     $visibilityPath = Join-Path $ArtifactDir "provider-input-visibility.json"

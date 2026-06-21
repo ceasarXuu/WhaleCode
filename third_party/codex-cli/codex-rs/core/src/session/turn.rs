@@ -537,11 +537,20 @@ pub(crate) async fn run_turn(
                 if let Some(recovery_item) = taskspace_no_action_recovery_item {
                     let counts_against_no_action_cap =
                         is_taskspace_no_action_recovery_item(&recovery_item);
-                    if counts_against_no_action_cap && taskspace_no_action_recovery_count >= 1 {
+                    let no_action_recovery_cap = sess
+                        .action_map_provider_request_budget_snapshot()
+                        .await
+                        .and_then(|snapshot| snapshot.node_kind)
+                        .filter(|node_kind| node_kind == "implement_solution")
+                        .map(|_| 2usize)
+                        .unwrap_or(1usize);
+                    if counts_against_no_action_cap
+                        && taskspace_no_action_recovery_count >= no_action_recovery_cap
+                    {
                         sess.send_event(
                             &turn_context,
                             EventMsg::Error(ErrorEvent {
-                                message: "TaskSpace stopped this turn because the model produced a second non-action assistant message while requesting follow-up. It must emit a tool call, taskspace_control transition, or a final blocked_by_budget answer instead of commentary-only output.".to_string(),
+                                message: format!("TaskSpace stopped this turn because the model produced too many non-action assistant messages while requesting follow-up ({taskspace_no_action_recovery_count}/{no_action_recovery_cap} recoveries spent). It must emit a tool call, taskspace_control transition, or a final blocked_by_budget answer instead of commentary-only output."),
                                 codex_error_info: None,
                             }),
                         )
@@ -555,7 +564,7 @@ pub(crate) async fn run_turn(
                         &turn_context,
                         EventMsg::Warning(WarningEvent {
                             message: if counts_against_no_action_cap {
-                                "TaskSpace inserted TaskSpaceNoActionRecoveryV1 because the provider response requested follow-up or was rejected by the final-response gate without an actionable tool/control/final result. One recovery attempt is allowed; a second non-action response hard-stops the turn.".to_string()
+                                format!("TaskSpace inserted TaskSpaceNoActionRecoveryV1 because the provider response requested follow-up or was rejected by the final-response gate without an actionable tool/control/final result. Recovery attempt {}/{} is being used.", taskspace_no_action_recovery_count, no_action_recovery_cap)
                             } else {
                                 "TaskSpace inserted TaskSpaceForcedInspectTransitionRecoveryV1 after a provider-budget forced inspect transition. This guidance does not consume the no-action recovery allowance.".to_string()
                             },
@@ -1234,7 +1243,7 @@ Required behavior for the next response:\n\
 - Do not send commentary-only text such as \"let me check\".\n\
 - Emit exactly one actionable operation now: a tool call, a taskspace_control finish/transition/state_commit, or a final blocked_by_budget answer with the exact missing evidence.\n\
 - If inspect evidence is sufficient, finish the inspect node into implement_solution before more environment probing.\n\
-- If a concrete file edit is identified, apply it before further validation."
+- If a concrete file edit is identified, call apply_patch now before any further validation."
     );
 
     ResponseItem::Message {
@@ -1253,8 +1262,28 @@ TaskSpace already forced the previous inspect_code_context node into implement_s
 Current required behavior:\n\
 - Do not run more shell/environment checks, test discovery, Docker inspection, or broad reads.\n\
 - Do not emit commentary-only text such as \"let me check\".\n\
-- Emit exactly one implementation action now: edit the script files with the smallest concrete fix identified from inspect evidence.\n\
+- Emit exactly one implementation action now: call apply_patch with the smallest concrete fix identified from inspect evidence.\n\
 - If no safe edit can be made from the inspected evidence, answer blocked_by_budget with the exact missing evidence."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn build_taskspace_forced_implement_transition_recovery_item() -> ResponseItem {
+    let text = format!(
+        "{TASKSPACE_NO_ACTION_RECOVERY_MARKER}\n\
+TaskSpace already forced the previous implement_solution node into smoke_test because provider request budget pressure was active after a successful edit.\n\
+Current required behavior:\n\
+- Do not run more broad reads, environment discovery, or speculative edits.\n\
+- Do not emit commentary-only text such as \"let me run tests\".\n\
+- Emit exactly one focused validation tool call now.\n\
+- If validation fails, report the validator evidence and continue from that concrete failure."
     );
 
     ResponseItem::Message {
@@ -1276,18 +1305,49 @@ fn taskspace_budget_pressure_follow_up_intent(
     node_kind: Option<&str>,
     last_message: Option<&str>,
 ) -> bool {
-    if max_requests == 0
-        || !matches!(
-            node_kind,
-            Some("inspect_code_context") | Some("implement_solution")
-        )
-        || request_count.saturating_mul(4) < max_requests.saturating_mul(3)
-    {
+    if !taskspace_budget_pressure_active_for_node_kind(request_count, max_requests, node_kind) {
         return false;
     }
     let Some(message) = last_message else {
         return false;
     };
+    taskspace_budget_pressure_message_has_follow_up_intent(message)
+}
+
+fn taskspace_budget_pressure_silent_action_requires_transition(
+    request_count: usize,
+    max_requests: usize,
+    node_kind: Option<&str>,
+    assistant_message_present: bool,
+    saw_actionable_output: bool,
+) -> bool {
+    if !matches!(
+        node_kind,
+        Some("inspect_code_context" | "implement_solution")
+    ) || assistant_message_present
+        || !saw_actionable_output
+    {
+        return false;
+    }
+    taskspace_budget_pressure_active_for_node_kind(request_count, max_requests, node_kind)
+}
+
+fn taskspace_budget_pressure_active_for_node_kind(
+    request_count: usize,
+    max_requests: usize,
+    node_kind: Option<&str>,
+) -> bool {
+    if max_requests == 0 {
+        return false;
+    }
+    match node_kind {
+        Some("inspect_code_context") => request_count.saturating_mul(2) >= max_requests,
+        Some("implement_solution") => request_count.saturating_mul(2) >= max_requests,
+        _ => false,
+    }
+}
+
+fn taskspace_budget_pressure_message_has_follow_up_intent(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
     const FOLLOW_UP_MARKERS: &[&str] = &[
         "let me check",
@@ -1298,6 +1358,11 @@ fn taskspace_budget_pressure_follow_up_intent(
         "i need to check",
         "i should check",
         "try running",
+        "先跑",
+        "跑测试",
+        "运行测试",
+        "执行测试",
+        "确认当前失败",
     ];
     FOLLOW_UP_MARKERS
         .iter()
@@ -2348,7 +2413,7 @@ mod active_context_replacement_tests {
             Some("Let me check the environment and verify the exact problems."),
         ));
         assert!(!taskspace_budget_pressure_follow_up_intent(
-            20,
+            19,
             40,
             Some("implement_solution"),
             Some("Let me check the environment."),
@@ -2389,16 +2454,60 @@ mod active_context_replacement_tests {
             Some("Now I have enough context. Let me run the pipeline.")
         ));
         assert!(!taskspace_budget_pressure_follow_up_intent(
-            29,
+            19,
             40,
             Some("inspect_code_context"),
             Some("Let me run the pipeline.")
         ));
         assert!(!taskspace_budget_pressure_follow_up_intent(
-            30,
+            19,
             40,
             Some("implement_solution"),
             Some("Let me run the pipeline.")
+        ));
+    }
+
+    #[test]
+    fn budget_pressure_follow_up_intent_detects_chinese_test_intent() {
+        assert!(taskspace_budget_pressure_follow_up_intent(
+            3,
+            6,
+            Some("inspect_code_context"),
+            Some("我已经看到了问题所在。先跑测试确认当前失败。")
+        ));
+    }
+
+    #[test]
+    fn budget_pressure_silent_action_forces_inspect_transition() {
+        assert!(taskspace_budget_pressure_silent_action_requires_transition(
+            4,
+            8,
+            Some("inspect_code_context"),
+            false,
+            true
+        ));
+        assert!(
+            !taskspace_budget_pressure_silent_action_requires_transition(
+                3,
+                8,
+                Some("inspect_code_context"),
+                false,
+                true
+            )
+        );
+        assert!(taskspace_budget_pressure_silent_action_requires_transition(
+            4,
+            8,
+            Some("implement_solution"),
+            false,
+            true
+        ));
+        assert!(taskspace_budget_pressure_silent_action_requires_transition(
+            6,
+            8,
+            Some("implement_solution"),
+            false,
+            true
         ));
     }
 
@@ -3244,6 +3353,7 @@ async fn try_run_sampling_request(
                     node_request_count: snapshot.node_request_count,
                     max_model_requests_per_node: snapshot.max_model_requests_per_node,
                     post_budget_grace_requests: snapshot.post_budget_grace_requests,
+                    post_budget_grace_request_count: snapshot.post_budget_grace_request_count,
                     budget_state: snapshot.budget_state.clone(),
                 },
                 ProviderRequestAttribution {
@@ -3618,11 +3728,25 @@ async fn try_run_sampling_request(
                         )
                     })
                     .unwrap_or(false);
+                let budget_pressure_silent_action_transition = current_budget_snapshot
+                    .as_ref()
+                    .map(|snapshot| {
+                        taskspace_budget_pressure_silent_action_requires_transition(
+                            snapshot.request_count,
+                            snapshot.max_requests,
+                            snapshot.node_kind.as_deref(),
+                            assistant_message_present,
+                            saw_actionable_output,
+                        )
+                    })
+                    .unwrap_or(false);
                 let response_actionability = classify_taskspace_provider_response_actionability(
                     needs_follow_up,
                     saw_actionable_output,
                     assistant_message_present,
-                    final_response_rejected || budget_pressure_follow_up_intent,
+                    final_response_rejected
+                        || budget_pressure_follow_up_intent
+                        || budget_pressure_silent_action_transition,
                     provider_budget_exhausted_followup,
                 );
                 let mut taskspace_no_action_recovery_item =
@@ -3659,34 +3783,73 @@ async fn try_run_sampling_request(
                     .await;
                 }
                 if response_actionability.needs_recovery()
-                    && budget_pressure_follow_up_intent
+                    && (budget_pressure_follow_up_intent
+                        || budget_pressure_silent_action_transition)
                     && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
-                    && snapshot.node_kind.as_deref() == Some("inspect_code_context")
                 {
-                    match sess
-                        .force_finish_action_map_inspect_for_provider_budget(
-                            &turn_context,
-                            snapshot,
-                            "budget_pressure_follow_up_intent",
-                        )
-                        .await
-                    {
-                        Ok(true) => {
-                            taskspace_no_action_recovery_item =
-                                Some(build_taskspace_forced_inspect_transition_recovery_item());
+                    let trigger = if budget_pressure_silent_action_transition {
+                        "budget_pressure_silent_action"
+                    } else {
+                        "budget_pressure_follow_up_intent"
+                    };
+                    match snapshot.node_kind.as_deref() {
+                        Some("inspect_code_context") => {
+                            match sess
+                                .force_finish_action_map_inspect_for_provider_budget(
+                                    &turn_context,
+                                    snapshot,
+                                    trigger,
+                                )
+                                .await
+                            {
+                                Ok(true) => {
+                                    taskspace_no_action_recovery_item = Some(
+                                        build_taskspace_forced_inspect_transition_recovery_item(),
+                                    );
+                                }
+                                Ok(false) => {}
+                                Err(error) => {
+                                    sess.send_event(
+                                        &turn_context,
+                                        EventMsg::Warning(WarningEvent {
+                                            message: format!(
+                                                "TaskSpaceForcedInspectTransitionFailedV1 trigger={trigger} error={error}"
+                                            ),
+                                        }),
+                                    )
+                                    .await;
+                                }
+                            }
                         }
-                        Ok(false) => {}
-                        Err(error) => {
-                            sess.send_event(
-                                &turn_context,
-                                EventMsg::Warning(WarningEvent {
-                                    message: format!(
-                                        "TaskSpaceForcedInspectTransitionFailedV1 trigger=budget_pressure_follow_up_intent error={error}"
-                                    ),
-                                }),
-                            )
-                            .await;
+                        Some("implement_solution") => {
+                            match sess
+                                .force_finish_action_map_implement_for_provider_budget(
+                                    &turn_context,
+                                    snapshot,
+                                    trigger,
+                                )
+                                .await
+                            {
+                                Ok(true) => {
+                                    taskspace_no_action_recovery_item = Some(
+                                        build_taskspace_forced_implement_transition_recovery_item(),
+                                    );
+                                }
+                                Ok(false) => {}
+                                Err(error) => {
+                                    sess.send_event(
+                                        &turn_context,
+                                        EventMsg::Warning(WarningEvent {
+                                            message: format!(
+                                                "TaskSpaceForcedImplementTransitionFailedV1 trigger={trigger} error={error}"
+                                            ),
+                                        }),
+                                    )
+                                    .await;
+                                }
+                            }
                         }
+                        _ => {}
                     }
                 }
                 if response_actionability.is_hard_stop() {
