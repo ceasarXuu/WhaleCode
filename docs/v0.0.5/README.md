@@ -2,6 +2,7 @@
 
 - 版本：v0.0.5 continuation
 - 日期：2026-06-19
+- 最近更新：2026-06-21
 - 状态：继续开发中，不能关闭版本
 - 主题：Protocol Compaction、Map Self-Management、主动成本控制与正式 E3 治理
 
@@ -18,9 +19,10 @@ v0.0.5 尚未收口，当前状态为继续开发。
 ```text
 17-unfinished-work-inventory.md
 18-unfinished-work-engineering-design.md
+22-v005-completion-engineering-playbook.md
 ```
 
-其中 `18-unfinished-work-engineering-design.md` 是 v0.0.5 未完成项继续开发的 canonical execution entry。若它与 `10-implementation-plan.md`、`13-design-corrections-and-engineering-contract.md`、`09-e3-validation-plan.md`、`checklists/acceptance-checklist.md` 或 `TaskSpace-v0.0.5-Design-All-in-One.md` 在 Phase 6 样本安排、release taxonomy、report-only routing、formal E3 准入、成本门槛或收口规则上冲突，以 `18-unfinished-work-engineering-design.md` 为准。
+其中 `18-unfinished-work-engineering-design.md` 是 v0.0.5 未完成项继续开发的 canonical execution entry。`22-v005-completion-engineering-playbook.md` 是基于 `whalecode-alpha` 静态审查结果补充的工程级执行手册，用于把剩余缺口拆到模块、函数、artifact、测试和 gate。若 `22` 与 `18` 在 formal E3 准入、release taxonomy、成本门槛或收口规则上冲突，以 `18` 为准；若在具体代码落点、函数拆分或 fixture 设计上冲突，先按 `22` 执行并把冲突登记为设计修正项。
 
 `10-implementation-plan.md` 保留为历史 corrected plan 和早期阶段背景，不得单独作为当前 Phase 6 或 release closeout 执行依据。
 
@@ -54,10 +56,14 @@ v0.0.5 尚未收口，当前状态为继续开发。
 | `16-terminal-bench_E3-P0_3_2-variant-run.md` | 低成本诊断变体运行记录 |
 | `17-unfinished-work-inventory.md` | 当前权威未完成工作盘点与继续开发顺序 |
 | `18-unfinished-work-engineering-design.md` | 当前 canonical execution entry：未完成项工程设计、代码落点、阶段门禁和验证方案 |
+| `19-terminal-bench_E3-P0_3_1-diagnostic-run.md` | `_3_1` 低成本诊断记录，不能作为 release proof |
+| `20-v005-engineering-code-complete-audit-2026-06-20.md` | v0.0.5 工程 code-complete 审查记录 |
+| `21-terminal-bench_E3-P0_3_1-20260621-early-stop.md` | `_3_1` early-stop 诊断记录 |
+| `22-v005-completion-engineering-playbook.md` | 当前工程执行手册：把剩余缺口细化到模块、函数、artifact、fixture、gate 和 PR 拆分 |
 | `TaskSpace-v0.0.5-Design-All-in-One.md` | 合并版设计文档，对外分发前需要重新生成 |
 | `schemas/*.json` | 核心结构示例 schema |
 | `examples/*.md` | 关键流程示例 |
-| `checklists/*.md` | 历史实施与验收 checklist，当前验收以 `18` 和实验制度为准 |
+| `checklists/*.md` | 历史实施与验收 checklist，当前验收以 `18`、`22` 和实验制度为准 |
 
 ## 阅读建议
 
@@ -66,12 +72,14 @@ v0.0.5 尚未收口，当前状态为继续开发。
 ```text
 17-unfinished-work-inventory.md
 18-unfinished-work-engineering-design.md
+22-v005-completion-engineering-playbook.md
 docs/experiments/taskspace-evidence-levels-and-samples.md
 ```
 
 拆分工程实现时：
 
 ```text
+22-v005-completion-engineering-playbook.md
 18-unfinished-work-engineering-design.md
 03-protocol-compaction.md
 04-context-projection-and-replay-control.md
@@ -83,10 +91,11 @@ docs/experiments/taskspace-evidence-levels-and-samples.md
 
 ```text
 18-unfinished-work-engineering-design.md
+22-v005-completion-engineering-playbook.md
 docs/experiments/taskspace-evidence-levels-and-samples.md
 08-observability-and-budget-metrics.md
 09-e3-validation-plan.md
 checklists/acceptance-checklist.md
 ```
 
-如果这些文件之间出现冲突，先按 `18-unfinished-work-engineering-design.md` 和 `docs/experiments/taskspace-evidence-levels-and-samples.md` 执行，并把冲突记录为文档修复项。
+如果这些文件之间出现冲突，先按 `18-unfinished-work-engineering-design.md`、`22-v005-completion-engineering-playbook.md` 和 `docs/experiments/taskspace-evidence-levels-and-samples.md` 执行，并把冲突记录为文档修复项。
