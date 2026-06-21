@@ -3765,7 +3765,7 @@ impl Session {
             developer_sections.push(action_map_transition_notice);
         }
         if let Some(action_map_context) = {
-            let state = self.state.lock().await;
+            let mut state = self.state.lock().await;
             state.action_map_runtime.build_developer_context()
         } {
             developer_sections.push(action_map_context);
@@ -3956,7 +3956,7 @@ impl Session {
         };
         if !should_inject_full_context
             && let Some(action_map_context) = {
-                let state = self.state.lock().await;
+                let mut state = self.state.lock().await;
                 state.action_map_runtime.build_developer_context()
             }
             && let Some(item) = crate::context_manager::updates::build_developer_update_item(vec![

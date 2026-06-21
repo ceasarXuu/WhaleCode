@@ -3,6 +3,7 @@ use super::ModelClient;
 use super::PendingUnauthorizedRetry;
 use super::ProviderRequestAttribution;
 use super::ProviderRequestBudgetContext;
+use super::ProviderRequestBudgetLimits;
 use super::UnauthorizedRecoveryExecution;
 use super::X_CODEX_INSTALLATION_ID_HEADER;
 use super::X_CODEX_PARENT_THREAD_ID_HEADER;
@@ -166,8 +167,14 @@ fn provider_request_budget_allows_bounded_recovery_at_compact_checkpoint() {
 #[test]
 fn provider_request_budget_allows_final_synthesis_at_compact_checkpoint() {
     let budget = ProviderRequestBudgetContext::enabled_with_attribution(
-        1,
-        2,
+        ProviderRequestBudgetLimits {
+            request_count: 1,
+            max_requests: 2,
+            node_request_count: 0,
+            max_model_requests_per_node: usize::MAX,
+            post_budget_grace_requests: 1,
+            budget_state: "compact_checkpoint_required".to_string(),
+        },
         ProviderRequestAttribution {
             request_phase: Some("final_synthesis".to_string()),
             ..ProviderRequestAttribution::default()
@@ -197,6 +204,84 @@ fn provider_request_budget_allows_final_synthesis_at_compact_checkpoint() {
             .request_phase
             .as_deref(),
         Some("final_synthesis")
+    );
+}
+
+#[test]
+fn provider_request_budget_blocks_per_node_limit() {
+    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
+        ProviderRequestBudgetLimits {
+            request_count: 1,
+            max_requests: 10,
+            node_request_count: 1,
+            max_model_requests_per_node: 1,
+            post_budget_grace_requests: 1,
+            budget_state: "normal".to_string(),
+        },
+        ProviderRequestAttribution {
+            node_id: Some("node-1".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            ..ProviderRequestAttribution::default()
+        },
+    );
+
+    let err = budget
+        .before_dispatch("responses_http")
+        .expect_err("per-node provider request budget should block");
+
+    assert!(
+        err.to_string()
+            .contains("active node provider request budget is exhausted")
+    );
+    let events = budget.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].status, "blocked");
+    assert_eq!(
+        events[0].budget_transition_reason,
+        "provider_node_request_budget_exhausted"
+    );
+    assert_eq!(events[0].request_count_before, 1);
+    assert_eq!(events[0].request_count_after, 1);
+    assert_eq!(events[0].node_id.as_deref(), Some("node-1"));
+}
+
+#[test]
+fn provider_request_budget_allows_budget_recovery_grace_once() {
+    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
+        ProviderRequestBudgetLimits {
+            request_count: 1,
+            max_requests: 10,
+            node_request_count: 1,
+            max_model_requests_per_node: 1,
+            post_budget_grace_requests: 1,
+            budget_state: "normal".to_string(),
+        },
+        ProviderRequestAttribution {
+            node_id: Some("node-1".to_string()),
+            request_phase: Some("budget_recovery".to_string()),
+            ..ProviderRequestAttribution::default()
+        },
+    );
+
+    let _dispatch = budget
+        .before_dispatch("responses_http")
+        .expect("budget_recovery should bypass the node request budget");
+
+    let events = budget.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].status, "started");
+    assert_eq!(events[0].request_phase.as_deref(), Some("budget_recovery"));
+    assert_eq!(events[0].request_count_before, 1);
+    assert_eq!(events[0].request_count_after, 2);
+
+    budget.record_response_completed(None);
+    let _ = budget.drain_events();
+    let err = budget
+        .before_dispatch("responses_http")
+        .expect_err("budget_recovery grace should be single-use");
+    assert!(
+        err.to_string()
+            .contains("active node provider request budget is exhausted")
     );
 }
 

@@ -430,10 +430,16 @@ pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
     pub(crate) map_id: ActionMapId,
     pub(crate) node_id: Option<MapNodeId>,
     pub(crate) node_kind: Option<String>,
+    pub(crate) route_mode: Option<String>,
+    pub(crate) profile_name: Option<String>,
     pub(crate) request_phase: Option<String>,
     pub(crate) provider_request_context_missing_reason: Option<String>,
     pub(crate) request_count: usize,
     pub(crate) max_requests: usize,
+    pub(crate) node_request_count: usize,
+    pub(crate) max_model_requests_per_node: usize,
+    pub(crate) post_budget_grace_requests: usize,
+    pub(crate) budget_state: String,
 }
 
 #[derive(Debug, Clone)]
@@ -482,6 +488,199 @@ pub(crate) struct ActionMapProviderResponseActionabilityInput {
     pub(crate) last_agent_message_preview: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskSpaceRouteMode {
+    Thin,
+    VerificationFirst,
+    DefaultCompact,
+    SubagentAssisted,
+    Deep,
+}
+
+impl TaskSpaceRouteMode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            TaskSpaceRouteMode::Thin => "thin",
+            TaskSpaceRouteMode::VerificationFirst => "verification_first",
+            TaskSpaceRouteMode::DefaultCompact => "default_compact",
+            TaskSpaceRouteMode::SubagentAssisted => "subagent_assisted",
+            TaskSpaceRouteMode::Deep => "deep",
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "thin" => Some(TaskSpaceRouteMode::Thin),
+            "verification_first" => Some(TaskSpaceRouteMode::VerificationFirst),
+            "default_compact" => Some(TaskSpaceRouteMode::DefaultCompact),
+            "subagent_assisted" => Some(TaskSpaceRouteMode::SubagentAssisted),
+            "deep" => Some(TaskSpaceRouteMode::Deep),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskSpaceBudgetState {
+    Normal,
+    Warned,
+    CompactCheckpointRequired,
+    ThinDowngraded,
+    HardStopped,
+}
+
+impl TaskSpaceBudgetState {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            TaskSpaceBudgetState::Normal => "normal",
+            TaskSpaceBudgetState::Warned => "warned",
+            TaskSpaceBudgetState::CompactCheckpointRequired => "compact_checkpoint_required",
+            TaskSpaceBudgetState::ThinDowngraded => "thin_downgraded",
+            TaskSpaceBudgetState::HardStopped => "hard_stopped",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TaskSpaceBudgetResponsePolicy {
+    WarnCompactThinHardStop,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskSpaceActiveBudgetV1 {
+    pub(crate) schema_version: &'static str,
+    pub(crate) profile_name: String,
+    pub(crate) route_mode: TaskSpaceRouteMode,
+    pub(crate) max_rollout_model_requests: usize,
+    pub(crate) max_model_requests_per_node: usize,
+    pub(crate) max_spawn_agent_calls: usize,
+    pub(crate) max_subagent_results: usize,
+    pub(crate) max_nodes: usize,
+    pub(crate) max_open_leaf_nodes: usize,
+    pub(crate) max_legacy_state_actions: usize,
+    pub(crate) max_projection_tokens: usize,
+    pub(crate) max_avg_input_tokens_per_request: usize,
+    pub(crate) post_budget_grace_requests: usize,
+    pub(crate) budget_response_policy: TaskSpaceBudgetResponsePolicy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct TaskSpaceBudgetCounters {
+    pub(crate) rollout_model_request_count: usize,
+    pub(crate) model_request_count_by_node: HashMap<String, usize>,
+    pub(crate) spawn_agent_call_count: usize,
+    pub(crate) subagent_result_count: usize,
+    pub(crate) node_count: usize,
+    pub(crate) open_leaf_node_count: usize,
+    pub(crate) legacy_state_action_attempt_count: usize,
+    pub(crate) legacy_state_action_displaced_count: usize,
+    pub(crate) legacy_state_action_allowed_count: usize,
+    pub(crate) state_commit_count: usize,
+    pub(crate) projection_tokens_last: usize,
+    pub(crate) projection_tokens_max: usize,
+    pub(crate) post_budget_grace_request_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskSpaceBudgetViolation {
+    pub(crate) violation_id: String,
+    pub(crate) counter_name: String,
+    pub(crate) counter_value: usize,
+    pub(crate) counter_limit: usize,
+    pub(crate) state_before: TaskSpaceBudgetState,
+    pub(crate) state_after: TaskSpaceBudgetState,
+    pub(crate) action_taken: String,
+    pub(crate) created_at_ms: i64,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskSpaceBudgetGateDecision {
+    pub(crate) allowed: bool,
+    pub(crate) budget_state: TaskSpaceBudgetState,
+    pub(crate) reason: String,
+    pub(crate) blocking_items: Vec<String>,
+    pub(crate) next_valid_actions: Vec<String>,
+    pub(crate) recovery_request_phase: Option<String>,
+    pub(crate) quality_impact_required: bool,
+}
+
+fn default_budget_common(
+    profile_name: &str,
+    route_mode: TaskSpaceRouteMode,
+) -> TaskSpaceActiveBudgetV1 {
+    TaskSpaceActiveBudgetV1 {
+        schema_version: "taskspace-active-budget-v1",
+        profile_name: profile_name.to_string(),
+        route_mode,
+        max_rollout_model_requests: 10,
+        max_model_requests_per_node: 3,
+        max_spawn_agent_calls: 2,
+        max_subagent_results: 2,
+        max_nodes: 8,
+        max_open_leaf_nodes: 4,
+        max_legacy_state_actions: 1,
+        max_projection_tokens: 24_000,
+        max_avg_input_tokens_per_request: 16_000,
+        post_budget_grace_requests: 1,
+        budget_response_policy: TaskSpaceBudgetResponsePolicy::WarnCompactThinHardStop,
+    }
+}
+
+pub(crate) fn taskspace_active_budget_for_route(
+    profile_name: &str,
+    route_mode: TaskSpaceRouteMode,
+) -> TaskSpaceActiveBudgetV1 {
+    let mut budget = default_budget_common(profile_name, route_mode);
+    match route_mode {
+        TaskSpaceRouteMode::Thin => {
+            budget.max_rollout_model_requests = 4;
+            budget.max_model_requests_per_node = 2;
+            budget.max_spawn_agent_calls = 0;
+            budget.max_subagent_results = 0;
+            budget.max_nodes = 4;
+            budget.max_open_leaf_nodes = 2;
+            budget.max_legacy_state_actions = 0;
+            budget.max_projection_tokens = 12_000;
+            budget.max_avg_input_tokens_per_request = 12_000;
+            budget.post_budget_grace_requests = 1;
+        }
+        TaskSpaceRouteMode::VerificationFirst => {
+            budget.max_rollout_model_requests = 6;
+            budget.max_model_requests_per_node = 2;
+            budget.max_spawn_agent_calls = 0;
+            budget.max_subagent_results = 0;
+            budget.max_nodes = 5;
+            budget.max_open_leaf_nodes = 2;
+            budget.max_projection_tokens = 16_000;
+            budget.max_avg_input_tokens_per_request = 14_000;
+        }
+        TaskSpaceRouteMode::DefaultCompact => {}
+        TaskSpaceRouteMode::SubagentAssisted => {
+            budget.max_rollout_model_requests = 14;
+            budget.max_model_requests_per_node = 4;
+            budget.max_spawn_agent_calls = 3;
+            budget.max_subagent_results = 3;
+            budget.max_nodes = 10;
+            budget.max_open_leaf_nodes = 5;
+            budget.max_projection_tokens = 32_000;
+            budget.max_avg_input_tokens_per_request = 18_000;
+        }
+        TaskSpaceRouteMode::Deep => {
+            budget.max_rollout_model_requests = 20;
+            budget.max_model_requests_per_node = 5;
+            budget.max_spawn_agent_calls = 4;
+            budget.max_subagent_results = 4;
+            budget.max_nodes = 14;
+            budget.max_open_leaf_nodes = 7;
+            budget.max_projection_tokens = 48_000;
+            budget.max_avg_input_tokens_per_request = 24_000;
+        }
+    }
+    budget
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ActionMapRuntimeState {
     mode: MapRuntimeMode,
@@ -501,6 +700,10 @@ pub(crate) struct ActionMapRuntimeState {
     maps: HashMap<ActionMapId, ActionMapInstance>,
     taskspace_trace_events: Vec<TaskSpaceTraceEvent>,
     provider_request_count: usize,
+    active_budget: Option<TaskSpaceActiveBudgetV1>,
+    budget_counters: TaskSpaceBudgetCounters,
+    budget_state: TaskSpaceBudgetState,
+    budget_violations: Vec<TaskSpaceBudgetViolation>,
     sentinel_warnings: Vec<TaskSpaceSentinelWarning>,
     next_task_seq: u64,
     next_map_seq: u64,
@@ -619,6 +822,10 @@ impl Default for ActionMapRuntimeState {
             maps: HashMap::new(),
             taskspace_trace_events: Vec::new(),
             provider_request_count: 0,
+            active_budget: None,
+            budget_counters: TaskSpaceBudgetCounters::default(),
+            budget_state: TaskSpaceBudgetState::Normal,
+            budget_violations: Vec::new(),
             sentinel_warnings: Vec::new(),
             next_task_seq: 1,
             next_map_seq: 1,
@@ -633,9 +840,353 @@ impl Default for ActionMapRuntimeState {
 }
 
 impl ActionMapRuntimeState {
-    pub(crate) const DEFAULT_PROVIDER_REQUEST_BUDGET_MAX: usize = 40;
-    pub(crate) const DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX: usize = 3;
-    pub(crate) const DEFAULT_ACTIVE_NODE_BUDGET_MAX: usize = 10;
+    pub(crate) const DEFAULT_PROVIDER_REQUEST_BUDGET_MAX: usize = 10;
+    #[allow(dead_code)]
+    pub(crate) const DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX: usize = 2;
+    #[allow(dead_code)]
+    pub(crate) const DEFAULT_ACTIVE_NODE_BUDGET_MAX: usize = 8;
+
+    fn ensure_default_active_budget(&mut self) {
+        if self.active_budget.is_none() {
+            let _ = self.activate_active_budget_for_route(
+                "taskspace-v005-active",
+                TaskSpaceRouteMode::DefaultCompact,
+            );
+        }
+    }
+
+    pub(crate) fn activate_active_budget_for_route(
+        &mut self,
+        profile_name: &str,
+        route_mode: TaskSpaceRouteMode,
+    ) -> Vec<MapRuntimeEvent> {
+        let budget = taskspace_active_budget_for_route(profile_name, route_mode);
+        self.active_budget = Some(budget.clone());
+        self.budget_state = budget_state_for_counter(
+            self.budget_counters.rollout_model_request_count,
+            budget.max_rollout_model_requests,
+        );
+        let map_id = self
+            .active_map_id
+            .clone()
+            .unwrap_or_else(|| "budget-not-bound".to_string());
+        let node_id = self
+            .current_main_node_id
+            .clone()
+            .unwrap_or_else(|| "budget-not-bound".to_string());
+        let task_id = self.active_task_id.clone();
+        vec![self.record_runtime_budget_trace_event(
+            "active_budget",
+            task_id,
+            map_id,
+            node_id,
+            None,
+            true,
+            vec![
+                "schema:taskspace-active-budget-v1".to_string(),
+                "producer:runtime".to_string(),
+                "active_budget_source:runtime".to_string(),
+                format!("profile_name:{}", budget.profile_name),
+                format!("route_mode:{}", budget.route_mode.as_str()),
+                format!(
+                    "max_rollout_model_requests:{}",
+                    budget.max_rollout_model_requests
+                ),
+                format!(
+                    "max_model_requests_per_node:{}",
+                    budget.max_model_requests_per_node
+                ),
+                format!("max_spawn_agent_calls:{}", budget.max_spawn_agent_calls),
+                format!("max_subagent_results:{}", budget.max_subagent_results),
+                format!("max_nodes:{}", budget.max_nodes),
+                format!("max_open_leaf_nodes:{}", budget.max_open_leaf_nodes),
+                format!(
+                    "max_legacy_state_actions:{}",
+                    budget.max_legacy_state_actions
+                ),
+                format!("max_projection_tokens:{}", budget.max_projection_tokens),
+                format!(
+                    "max_avg_input_tokens_per_request:{}",
+                    budget.max_avg_input_tokens_per_request
+                ),
+                format!(
+                    "post_budget_grace_requests:{}",
+                    budget.post_budget_grace_requests
+                ),
+                format!("budget_state:{}", self.budget_state.as_str()),
+            ],
+        )]
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn active_budget(&self) -> Option<&TaskSpaceActiveBudgetV1> {
+        self.active_budget.as_ref()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn budget_counters(&self) -> &TaskSpaceBudgetCounters {
+        &self.budget_counters
+    }
+
+    fn max_rollout_model_requests(&self) -> usize {
+        self.active_budget
+            .as_ref()
+            .map(|budget| budget.max_rollout_model_requests)
+            .unwrap_or(Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn update_budget_state_for_counter(
+        &mut self,
+        counter_name: &str,
+        counter_value: usize,
+        counter_limit: usize,
+        action_context: &str,
+    ) -> Option<MapRuntimeEvent> {
+        let state_before = self.budget_state;
+        let state_after = budget_state_for_counter(counter_value, counter_limit);
+        self.budget_state = state_after;
+        if state_before == state_after {
+            return None;
+        }
+        let violation = TaskSpaceBudgetViolation {
+            violation_id: format!("budget-violation-{}", self.budget_violations.len() + 1),
+            counter_name: counter_name.to_string(),
+            counter_value,
+            counter_limit,
+            state_before,
+            state_after,
+            action_taken: action_context.to_string(),
+            created_at_ms: now_ms(),
+        };
+        self.budget_violations.push(violation.clone());
+        let map_id = self
+            .active_map_id
+            .clone()
+            .unwrap_or_else(|| "budget-not-bound".to_string());
+        let node_id = self
+            .current_main_node_id
+            .clone()
+            .unwrap_or_else(|| "budget-not-bound".to_string());
+        let task_id = self.active_task_id.clone();
+        Some(self.record_runtime_budget_trace_event(
+            "budget_state_transition",
+            task_id,
+            map_id,
+            node_id,
+            None,
+            true,
+            vec![
+                "schema:taskspace-budget-state-transition-v1".to_string(),
+                "producer:runtime".to_string(),
+                format!("counter_name:{counter_name}"),
+                format!("counter_value:{counter_value}"),
+                format!("counter_limit:{counter_limit}"),
+                format!("state_before:{}", state_before.as_str()),
+                format!("state_after:{}", state_after.as_str()),
+                format!("action_taken:{action_context}"),
+                format!("violation_id:{}", violation.violation_id),
+            ],
+        ))
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn gate_provider_request_pre_dispatch(
+        &mut self,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+    ) -> TaskSpaceBudgetGateDecision {
+        let allowed = snapshot.request_count < snapshot.max_requests
+            && snapshot.node_request_count < snapshot.max_model_requests_per_node;
+        TaskSpaceBudgetGateDecision {
+            allowed,
+            budget_state: self.budget_state,
+            reason: if allowed {
+                "provider_request_budget_available".to_string()
+            } else if snapshot.node_request_count >= snapshot.max_model_requests_per_node {
+                "provider_node_request_budget_exhausted".to_string()
+            } else {
+                "provider_request_budget_exhausted".to_string()
+            },
+            blocking_items: if allowed {
+                Vec::new()
+            } else {
+                vec!["provider_request".to_string()]
+            },
+            next_valid_actions: if allowed {
+                Vec::new()
+            } else {
+                vec!["record compact checkpoint or enter final_synthesis".to_string()]
+            },
+            recovery_request_phase: if allowed {
+                None
+            } else {
+                Some("budget_recovery".to_string())
+            },
+            quality_impact_required: !allowed,
+        }
+    }
+
+    pub(crate) fn gate_create_node_budget(
+        &mut self,
+        map_id: &str,
+        candidate_node_kind: NodeKind,
+    ) -> TaskSpaceBudgetGateDecision {
+        let budget = self.active_budget.as_ref();
+        let max_nodes = budget
+            .map(|budget| budget.max_nodes)
+            .unwrap_or(Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX);
+        let node_count = self
+            .maps
+            .get(map_id)
+            .map(|map| map.nodes.len())
+            .unwrap_or_default();
+        let allowed = node_count < max_nodes;
+        TaskSpaceBudgetGateDecision {
+            allowed,
+            budget_state: self.budget_state,
+            reason: if allowed {
+                "node_budget_available".to_string()
+            } else {
+                "node_budget_exhausted".to_string()
+            },
+            blocking_items: if allowed {
+                Vec::new()
+            } else {
+                vec![format!(
+                    "candidate_node_kind:{}",
+                    candidate_node_kind.as_str()
+                )]
+            },
+            next_valid_actions: if allowed {
+                Vec::new()
+            } else {
+                vec!["finish or reuse an existing open node".to_string()]
+            },
+            recovery_request_phase: None,
+            quality_impact_required: !allowed,
+        }
+    }
+
+    pub(crate) fn gate_spawn_budget(
+        &mut self,
+        _map_id: &str,
+        _parent_node_id: &str,
+    ) -> TaskSpaceBudgetGateDecision {
+        let budget = self.active_budget.as_ref();
+        let max_spawn = budget
+            .map(|budget| budget.max_spawn_agent_calls)
+            .unwrap_or(Self::DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX);
+        let spawn_count = self.budget_counters.spawn_agent_call_count;
+        let allowed = spawn_count < max_spawn;
+        TaskSpaceBudgetGateDecision {
+            allowed,
+            budget_state: self.budget_state,
+            reason: if allowed {
+                "spawn_budget_available".to_string()
+            } else if max_spawn == 0 {
+                "route_disallows_spawn".to_string()
+            } else {
+                "spawn_budget_exhausted".to_string()
+            },
+            blocking_items: if allowed {
+                Vec::new()
+            } else {
+                vec!["spawn_agent".to_string()]
+            },
+            next_valid_actions: if allowed {
+                Vec::new()
+            } else {
+                vec!["continue main-agent serial work".to_string()]
+            },
+            recovery_request_phase: None,
+            quality_impact_required: !allowed,
+        }
+    }
+
+    fn reconstruct_budget_state_from_trace_events(&mut self) {
+        let mut route_mode = None;
+        let mut profile_name = None;
+        let mut counters = TaskSpaceBudgetCounters::default();
+        for event in &self.taskspace_trace_events {
+            match event.kind.as_str() {
+                "active_budget" => {
+                    route_mode = trace_tag_value(&event.tags, "route_mode")
+                        .and_then(TaskSpaceRouteMode::from_str)
+                        .or(route_mode);
+                    profile_name = trace_tag_value(&event.tags, "profile_name")
+                        .map(str::to_string)
+                        .or(profile_name);
+                }
+                "provider_request_budget" => {
+                    let request_count_after =
+                        trace_tag_usize(&event.tags, "request_count_after").unwrap_or_default();
+                    counters.rollout_model_request_count = counters
+                        .rollout_model_request_count
+                        .max(request_count_after);
+                    if trace_tag_value(&event.tags, "status") == Some("started") {
+                        let node_count =
+                            trace_tag_usize(&event.tags, "node_request_count").unwrap_or_default();
+                        if !event.node_id.is_empty() && event.node_id != "provider-context-missing"
+                        {
+                            counters
+                                .model_request_count_by_node
+                                .insert(event.node_id.clone(), node_count);
+                        }
+                        if trace_tag_value(&event.tags, "request_phase") == Some("budget_recovery")
+                        {
+                            counters.post_budget_grace_request_count += 1;
+                        }
+                    }
+                }
+                "spawn_node_budget" => match trace_tag_value(&event.tags, "budget_kind") {
+                    Some("spawn") => {
+                        counters.spawn_agent_call_count = counters.spawn_agent_call_count.max(
+                            trace_tag_usize(&event.tags, "spawn_agent_call_count_after")
+                                .unwrap_or_default(),
+                        );
+                    }
+                    Some("node") => {
+                        counters.node_count = counters.node_count.max(
+                            trace_tag_usize(&event.tags, "node_count_after").unwrap_or_default(),
+                        );
+                    }
+                    _ => {}
+                },
+                "state_commit_displacement" => {
+                    counters.legacy_state_action_attempt_count +=
+                        trace_tag_usize(&event.tags, "legacy_state_action_attempt_count")
+                            .unwrap_or_default();
+                    counters.legacy_state_action_displaced_count +=
+                        trace_tag_usize(&event.tags, "legacy_state_action_displaced_count")
+                            .unwrap_or_default();
+                    counters.legacy_state_action_allowed_count +=
+                        trace_tag_usize(&event.tags, "legacy_state_action_count")
+                            .unwrap_or_default();
+                    counters.state_commit_count +=
+                        trace_tag_usize(&event.tags, "state_commit_count").unwrap_or_default();
+                }
+                "projection_budget" => {
+                    counters.projection_tokens_last =
+                        trace_tag_usize(&event.tags, "projection_tokens").unwrap_or_default();
+                    counters.projection_tokens_max = counters
+                        .projection_tokens_max
+                        .max(trace_tag_usize(&event.tags, "projection_tokens").unwrap_or_default());
+                }
+                _ => {}
+            }
+        }
+        let route_mode = route_mode.unwrap_or(TaskSpaceRouteMode::DefaultCompact);
+        let profile_name = profile_name.unwrap_or_else(|| "taskspace-v005-active".to_string());
+        self.active_budget = Some(taskspace_active_budget_for_route(&profile_name, route_mode));
+        self.budget_counters = counters;
+        self.provider_request_count = self.budget_counters.rollout_model_request_count;
+        if let Some(budget) = self.active_budget.as_ref() {
+            self.budget_state = budget_state_for_counter(
+                self.budget_counters.rollout_model_request_count,
+                budget.max_rollout_model_requests,
+            );
+        }
+    }
 
     #[cfg(test)]
     pub(crate) fn mode(&self) -> MapRuntimeMode {
@@ -654,7 +1205,14 @@ impl ActionMapRuntimeState {
                 self.routing_required = false;
                 self.bootstrap_required = false;
                 self.reborn_requested = false;
+                self.active_budget = None;
+                self.budget_counters = TaskSpaceBudgetCounters::default();
+                self.budget_state = TaskSpaceBudgetState::Normal;
+                self.budget_violations.clear();
             }
+        }
+        if self.mode == MapRuntimeMode::Experiment {
+            self.ensure_default_active_budget();
         }
         SetMapRuntimeModeOutcome {
             previous_mode,
@@ -668,13 +1226,19 @@ impl ActionMapRuntimeState {
         mode: MapRuntimeMode,
         _owner_session_id: ThreadId,
     ) -> (SetTaskSpaceModeOutcome, Vec<MapRuntimeEvent>) {
+        let trace_len_before = self.taskspace_trace_events.len();
         let mode_outcome = self.set_mode(mode);
+        let events = self.taskspace_trace_events[trace_len_before..]
+            .iter()
+            .cloned()
+            .map(map_runtime_event_from_trace_event)
+            .collect();
         (
             SetTaskSpaceModeOutcome {
                 mode: mode_outcome,
                 active_map_id: self.active_map_id.clone(),
             },
-            Vec::new(),
+            events,
         )
     }
 
@@ -1028,6 +1592,16 @@ impl ActionMapRuntimeState {
             self.bootstrap_required = self.bootstrap_required || self.tasks.is_empty();
             self.routing_required =
                 self.routing_required || self.bootstrap_required || self.active_task_id.is_none();
+            if self
+                .taskspace_trace_events
+                .iter()
+                .any(|event| event.kind == "active_budget")
+            {
+                self.reconstruct_budget_state_from_trace_events();
+            } else {
+                self.ensure_default_active_budget();
+                self.reconstruct_budget_state_from_trace_events();
+            }
         }
     }
 
@@ -1216,8 +1790,11 @@ impl ActionMapRuntimeState {
         let main_tool_result_count = count_node_results_of_kind(node, NodeResultKind::MainToolCall);
         let reserved_tool_count = self.reserved_tool_calls_for_node(&map_id, &node_id);
         let budget = contract.max_main_tool_results_before_split_hint;
-        let provider_budget_pressure =
-            provider_request_budget_pressure_active(self.provider_request_count);
+        let max_rollout_model_requests = self.max_rollout_model_requests();
+        let provider_budget_pressure = provider_request_budget_pressure_active(
+            self.provider_request_count,
+            max_rollout_model_requests,
+        );
         let inspect_evidence_pressure = inspect_evidence_pressure_active(node, budget);
         if descriptor.action_class != ActionClass::Control
             && provider_budget_pressure
@@ -1230,7 +1807,7 @@ impl ActionMapRuntimeState {
             let message = format!(
                 "TaskSpace blocked this tool call because provider request budget pressure is active ({}/{} used) and current node `{}` is still inspect_code_context. Requested tool `{}` action class: {}. Stop ordinary probing and transition the inspected finding into implementation with {}.",
                 self.provider_request_count,
-                Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX,
+                max_rollout_model_requests,
                 node.id,
                 descriptor.tool_name,
                 descriptor.action_class.as_str(),
@@ -1243,8 +1820,7 @@ impl ActionMapRuntimeState {
                     format!("current_node:{}:{}", node.id, node.kind.as_str()),
                     format!(
                         "provider_request_count:{}/{}",
-                        self.provider_request_count,
-                        Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX
+                        self.provider_request_count, max_rollout_model_requests
                     ),
                     format!(
                         "requested_action_class:{}",
@@ -1294,8 +1870,7 @@ impl ActionMapRuntimeState {
             let pressure_summary = if provider_budget_pressure {
                 format!(
                     "provider request budget pressure is active ({}/{} used)",
-                    self.provider_request_count,
-                    Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX
+                    self.provider_request_count, max_rollout_model_requests
                 )
             } else {
                 format!(
@@ -1317,8 +1892,7 @@ impl ActionMapRuntimeState {
                     format!("current_node:{}:{}", node.id, node.kind.as_str()),
                     format!(
                         "provider_request_count:{}/{}",
-                        self.provider_request_count,
-                        Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX
+                        self.provider_request_count, max_rollout_model_requests
                     ),
                     format!(
                         "requested_action_class:{}",
@@ -1717,6 +2291,7 @@ preview:\n\
         if self.mode != MapRuntimeMode::Experiment {
             return None;
         }
+        let budget = self.active_budget.as_ref()?;
         let map_id = self.active_map_id.clone()?;
         let node_id = self.current_main_node_id.clone();
         let request_phase = self.provider_request_phase_for_node(&map_id, node_id.as_deref());
@@ -1732,15 +2307,30 @@ preview:\n\
             Some("current_main_node_missing".to_string())
         };
         let task_id = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
+        let node_request_count = node_id
+            .as_ref()
+            .and_then(|node_id| {
+                self.budget_counters
+                    .model_request_count_by_node
+                    .get(node_id)
+                    .copied()
+            })
+            .unwrap_or(0);
         Some(ActionMapProviderRequestBudgetSnapshot {
             task_id,
             map_id,
             node_id,
             node_kind,
+            route_mode: Some(budget.route_mode.as_str().to_string()),
+            profile_name: Some(budget.profile_name.clone()),
             request_phase,
             provider_request_context_missing_reason,
-            request_count: self.provider_request_count,
-            max_requests: Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX,
+            request_count: self.budget_counters.rollout_model_request_count,
+            max_requests: budget.max_rollout_model_requests,
+            node_request_count,
+            max_model_requests_per_node: budget.max_model_requests_per_node,
+            post_budget_grace_requests: budget.post_budget_grace_requests,
+            budget_state: self.budget_state.as_str().to_string(),
         })
     }
 
@@ -1767,9 +2357,14 @@ preview:\n\
             return None;
         }
         let mut events = Vec::new();
+        let mut node_request_counts = self.budget_counters.model_request_count_by_node.clone();
         for input in inputs {
             self.provider_request_count =
                 self.provider_request_count.max(input.request_count_after);
+            self.budget_counters.rollout_model_request_count = self
+                .budget_counters
+                .rollout_model_request_count
+                .max(input.request_count_after);
             let task_id = input.task_id.clone().or_else(|| snapshot.task_id.clone());
             let map_id = input
                 .map_id
@@ -1780,6 +2375,28 @@ preview:\n\
                 .clone()
                 .or_else(|| snapshot.node_id.clone())
                 .unwrap_or_else(|| "provider-context-missing".to_string());
+            if input.status == "started" {
+                if node_id != "provider-context-missing" {
+                    let next_node_count = node_request_counts
+                        .get(&node_id)
+                        .copied()
+                        .unwrap_or(snapshot.node_request_count)
+                        + 1;
+                    node_request_counts.insert(node_id.clone(), next_node_count);
+                    self.budget_counters
+                        .model_request_count_by_node
+                        .insert(node_id.clone(), next_node_count);
+                }
+                if input.request_phase.as_deref() == Some("budget_recovery") {
+                    self.budget_counters.post_budget_grace_request_count += 1;
+                }
+            }
+            if let Some(budget) = self.active_budget.as_ref() {
+                self.budget_state = budget_state_for_counter(
+                    self.budget_counters.rollout_model_request_count,
+                    budget.max_rollout_model_requests,
+                );
+            }
             let provider_context_missing_reason =
                 if input.node_id.is_none() && snapshot.node_id.is_none() {
                     snapshot
@@ -1794,6 +2411,14 @@ preview:\n\
                 .clone()
                 .filter(|phase| !phase.trim().is_empty())
                 .unwrap_or_else(|| "unknown".to_string());
+            let effective_node_request_count = if node_id == "provider-context-missing" {
+                snapshot.node_request_count
+            } else {
+                node_request_counts
+                    .get(&node_id)
+                    .copied()
+                    .unwrap_or(snapshot.node_request_count)
+            };
             let id = self.next_trace_event_id();
             let created_at_ms = now_ms();
             let tool_success = Some(!matches!(
@@ -1807,6 +2432,25 @@ preview:\n\
                 format!("request_count_before:{}", input.request_count_before),
                 format!("request_count_after:{}", input.request_count_after),
                 format!("max_requests:{}", input.max_requests),
+                "active_budget_source:runtime".to_string(),
+                format!(
+                    "route_mode:{}",
+                    snapshot.route_mode.as_deref().unwrap_or("unknown")
+                ),
+                format!(
+                    "profile_name:{}",
+                    snapshot.profile_name.as_deref().unwrap_or("unknown")
+                ),
+                format!("node_request_count:{effective_node_request_count}"),
+                format!(
+                    "max_model_requests_per_node:{}",
+                    snapshot.max_model_requests_per_node
+                ),
+                format!(
+                    "post_budget_grace_requests:{}",
+                    snapshot.post_budget_grace_requests
+                ),
+                format!("runtime_budget_state:{}", self.budget_state.as_str()),
                 format!("budget_state_before:{}", input.budget_state_before),
                 format!("budget_state_after:{}", input.budget_state_after),
                 format!(
@@ -1939,6 +2583,11 @@ preview:\n\
                 format!("counter_name:provider_request_count"),
                 format!("counter_value:{}", input.request_count_after),
                 format!("counter_limit:{}", input.max_requests),
+                "active_budget_source:runtime".to_string(),
+                format!(
+                    "route_mode:{}",
+                    snapshot.route_mode.as_deref().unwrap_or("unknown")
+                ),
                 format!("budget_state_before:{}", input.budget_state_before),
                 format!("budget_state_after:{}", input.budget_state_after),
                 format!(
@@ -2083,7 +2732,7 @@ preview:\n\
         if self.mode != MapRuntimeMode::Experiment {
             return Ok(None);
         }
-        if !provider_request_budget_pressure_active(snapshot.request_count) {
+        if !provider_request_budget_pressure_active(snapshot.request_count, snapshot.max_requests) {
             return Ok(None);
         }
         let node_id = match snapshot.node_id.as_deref() {
@@ -2585,7 +3234,16 @@ preview:\n\
                     .unwrap_or_else(|| "node-budget".to_string()),
             )
         };
-        if node_count_before >= Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX {
+        let active_budget = self.active_budget.as_ref().cloned().unwrap_or_else(|| {
+            taskspace_active_budget_for_route(
+                "taskspace-v005-active",
+                TaskSpaceRouteMode::DefaultCompact,
+            )
+        });
+        self.budget_counters.node_count = node_count_before;
+        let max_nodes = active_budget.max_nodes;
+        let gate_decision = self.gate_create_node_budget(&map_id, kind);
+        if !gate_decision.allowed {
             let budget_event = self.record_runtime_budget_trace_event(
                 "spawn_node_budget",
                 task_id_for_budget,
@@ -2601,14 +3259,19 @@ preview:\n\
                     "status:blocked".to_string(),
                     format!("node_count_before:{node_count_before}"),
                     format!("node_count_after:{node_count_before}"),
-                    format!("max_nodes:{}", Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX),
+                    "active_budget_source:runtime".to_string(),
+                    format!("route_mode:{}", active_budget.route_mode.as_str()),
+                    format!("profile_name:{}", active_budget.profile_name.as_str()),
+                    format!("max_nodes:{max_nodes}"),
+                    format!("budget_state:{}", gate_decision.budget_state.as_str()),
+                    format!("budget_gate_reason:{}", gate_decision.reason),
                     "budget_response_action_taken:true".to_string(),
                 ],
             );
             events.push(budget_event);
             return Err(format!(
                 "TaskSpace blocked create_node because active profile node budget is exhausted: {node_count_before}/{}.",
-                Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX
+                max_nodes
             ));
         }
         let node_id = self.next_node_id();
@@ -2722,6 +3385,7 @@ preview:\n\
             events.extend(self.bind_main_node(owner_session_id, &node_id)?);
         }
         let task_id_for_budget = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
+        self.budget_counters.node_count = node_count_before + 1;
         events.push(self.record_runtime_budget_trace_event(
             "spawn_node_budget",
             task_id_for_budget,
@@ -2737,7 +3401,10 @@ preview:\n\
                 "status:allowed".to_string(),
                 format!("node_count_before:{node_count_before}"),
                 format!("node_count_after:{}", node_count_before + 1),
-                format!("max_nodes:{}", Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX),
+                "active_budget_source:runtime".to_string(),
+                format!("route_mode:{}", active_budget.route_mode.as_str()),
+                format!("profile_name:{}", active_budget.profile_name.as_str()),
+                format!("max_nodes:{max_nodes}"),
                 "budget_response_action_taken:false".to_string(),
             ],
         ));
@@ -4078,6 +4745,21 @@ preview:\n\
         let legacy_state_action_attempt_count =
             outcome.accepted_sections.len() + outcome.rejected_sections.len();
         let legacy_state_action_displaced_count = outcome.accepted_sections.len();
+        let legacy_state_action_budget = self
+            .active_budget
+            .as_ref()
+            .map(|budget| budget.max_legacy_state_actions)
+            .unwrap_or_else(|| {
+                taskspace_active_budget_for_route(
+                    "taskspace-v005-active",
+                    TaskSpaceRouteMode::DefaultCompact,
+                )
+                .max_legacy_state_actions
+            });
+        self.budget_counters.legacy_state_action_attempt_count += legacy_state_action_attempt_count;
+        self.budget_counters.legacy_state_action_displaced_count +=
+            legacy_state_action_displaced_count;
+        self.budget_counters.state_commit_count += 1;
         let trace_node_id = self
             .current_main_node_id
             .clone()
@@ -4109,7 +4791,8 @@ preview:\n\
                     "legacy_state_action_displaced_count:{legacy_state_action_displaced_count}"
                 ),
                 "legacy_state_action_count:0".to_string(),
-                "legacy_state_action_budget:0".to_string(),
+                "active_budget_source:runtime".to_string(),
+                format!("legacy_state_action_budget:{legacy_state_action_budget}"),
                 "budget_response_action_taken:false".to_string(),
             ],
         ));
@@ -5216,17 +5899,13 @@ preview:\n\
                     .to_string(),
             );
         };
-        let (task_id_for_budget, spawn_count_before, node_count_for_budget, budget_trace_node_id) = {
+        let (task_id_for_budget, node_count_for_budget, budget_trace_node_id) = {
             let map = self
                 .maps
                 .get(&map_id)
                 .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
             (
                 map.task_id.clone(),
-                map.leases
-                    .values()
-                    .filter(|lease| lease.holder == LeaseHolder::SubAgent)
-                    .count(),
                 map.nodes.len(),
                 self.current_main_node_id
                     .clone()
@@ -5234,7 +5913,18 @@ preview:\n\
                     .unwrap_or_else(|| "spawn-budget".to_string()),
             )
         };
-        if spawn_count_before >= Self::DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX {
+        let active_budget = self.active_budget.as_ref().cloned().unwrap_or_else(|| {
+            taskspace_active_budget_for_route(
+                "taskspace-v005-active",
+                TaskSpaceRouteMode::DefaultCompact,
+            )
+        });
+        self.budget_counters.node_count = node_count_for_budget;
+        let max_spawn_agent_calls = active_budget.max_spawn_agent_calls;
+        let max_nodes = active_budget.max_nodes;
+        let spawn_count_before = self.budget_counters.spawn_agent_call_count;
+        let gate_decision = self.gate_spawn_budget(&map_id, &budget_trace_node_id);
+        if !gate_decision.allowed {
             events.push(self.record_runtime_budget_trace_event(
                 "spawn_node_budget",
                 task_id_for_budget,
@@ -5250,18 +5940,20 @@ preview:\n\
                     "status:blocked".to_string(),
                     format!("spawn_agent_call_count_before:{spawn_count_before}"),
                     format!("spawn_agent_call_count_after:{spawn_count_before}"),
-                    format!(
-                        "max_spawn_agent_calls:{}",
-                        Self::DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX
-                    ),
+                    "active_budget_source:runtime".to_string(),
+                    format!("route_mode:{}", active_budget.route_mode.as_str()),
+                    format!("profile_name:{}", active_budget.profile_name.as_str()),
+                    format!("max_spawn_agent_calls:{max_spawn_agent_calls}"),
                     format!("node_count:{node_count_for_budget}"),
-                    format!("max_nodes:{}", Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX),
+                    format!("max_nodes:{max_nodes}"),
+                    format!("budget_state:{}", gate_decision.budget_state.as_str()),
+                    format!("budget_gate_reason:{}", gate_decision.reason),
                     "budget_response_action_taken:true".to_string(),
                 ],
             ));
             return Err(format!(
                 "TaskSpace blocked spawn_agent because active profile spawn budget is exhausted: {spawn_count_before}/{}.",
-                Self::DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX
+                max_spawn_agent_calls
             ));
         }
         if let Some(current_node_id) = self.current_main_node_id.as_deref() {
@@ -5348,6 +6040,7 @@ preview:\n\
             holder: LeaseHolder::SubAgent.as_str().to_string(),
         }));
         let task_id_for_budget = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
+        self.budget_counters.spawn_agent_call_count = spawn_count_before + 1;
         events.push(self.record_runtime_budget_trace_event(
             "spawn_node_budget",
             task_id_for_budget,
@@ -5363,12 +6056,12 @@ preview:\n\
                 "status:allowed".to_string(),
                 format!("spawn_agent_call_count_before:{spawn_count_before}"),
                 format!("spawn_agent_call_count_after:{}", spawn_count_before + 1),
-                format!(
-                    "max_spawn_agent_calls:{}",
-                    Self::DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX
-                ),
+                "active_budget_source:runtime".to_string(),
+                format!("route_mode:{}", active_budget.route_mode.as_str()),
+                format!("profile_name:{}", active_budget.profile_name.as_str()),
+                format!("max_spawn_agent_calls:{max_spawn_agent_calls}"),
                 format!("node_count:{node_count_for_budget}"),
-                format!("max_nodes:{}", Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX),
+                format!("max_nodes:{max_nodes}"),
                 "budget_response_action_taken:false".to_string(),
             ],
         ));
@@ -5614,7 +6307,7 @@ preview:\n\
             .unwrap_or_default()
     }
 
-    pub(crate) fn build_developer_context(&self) -> Option<String> {
+    pub(crate) fn build_developer_context(&mut self) -> Option<String> {
         if self.mode != MapRuntimeMode::Experiment {
             return None;
         }
@@ -5846,62 +6539,116 @@ preview:\n\
         context
     }
 
-    fn build_active_projection_developer_context(&self) -> Option<String> {
-        let map = self.active_map()?;
-        let task = map
-            .task_id
+    fn build_active_projection_developer_context(&mut self) -> Option<String> {
+        let map_id = self.active_map_id.clone()?;
+        let (task_id, current_node_id, context, estimated_tokens, max_projection_tokens) = {
+            let map = self.maps.get(&map_id)?;
+            let task = map
+                .task_id
+                .as_ref()
+                .or(self.active_task_id.as_ref())
+                .and_then(|task_id| self.tasks.get(task_id))?;
+            let mut context = String::from(
+                "TaskSpace v0.0.5 active compact profile is enabled. Use this compact projection as the model-visible TaskSpace surface; runtime state remains authoritative.\n",
+            );
+            context.push_str(
+                "Use taskspace_control for state changes. Prefer state_commit for multi-section updates. Keep simple fixes on the narrow path: inspect_code_context -> implement_solution -> smoke_test/regression_test, then direct final answer after accepted validation. Do not create final_synthesis only to summarize thin work. Do not spawn agents for thin/single-file work unless new evidence reveals independent tracks.\n",
+            );
+            if self.bootstrap_required {
+                context.push_str(
+                    "Bootstrap is required now: create the first semantic task with taskspace_control(action=start_task) before ordinary tools or subagent spawn.\n",
+                );
+            } else if self.routing_required {
+                context.push_str(
+                    "Task routing is required now: route to the active task or start a new semantic task before ordinary tools or subagent spawn.\n",
+                );
+            }
+            if let Some(barrier) = self.active_maintenance_barrier() {
+                context.push_str("Maintenance barrier:\n- map: ");
+                context.push_str(&barrier.map_id);
+                context.push_str("\n- node: ");
+                context.push_str(&barrier.node_id);
+                context.push_str("\n- reason: ");
+                context.push_str(barrier.reason.as_str());
+                context.push('\n');
+            }
+            let estimated_tokens = append_context_projection_active(
+                &mut context,
+                task,
+                map,
+                self.current_main_node_id.as_deref(),
+                self.active_budget.as_ref(),
+            );
+            if let Some(node_id) = self.current_main_node_id.as_ref()
+                && let Some(node) = map.nodes.get(node_id)
+            {
+                let contract = contract_for(node.kind);
+                context.push_str("\nCurrent node contract:\n- node: ");
+                context.push_str(node_id);
+                context.push_str(" kind=");
+                context.push_str(node.kind.as_str());
+                context.push_str("\n- allowed action classes: ");
+                context.push_str(
+                    &contract
+                        .allowed_actions
+                        .iter()
+                        .map(|action| action.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+                context.push('\n');
+            }
+            (
+                task.id.clone(),
+                self.current_main_node_id
+                    .clone()
+                    .unwrap_or_else(|| "projection".to_string()),
+                context,
+                estimated_tokens,
+                self.active_budget
+                    .as_ref()
+                    .map(|budget| budget.max_projection_tokens)
+                    .unwrap_or(usize::MAX),
+            )
+        };
+        self.budget_counters.projection_tokens_last = estimated_tokens;
+        self.budget_counters.projection_tokens_max = self
+            .budget_counters
+            .projection_tokens_max
+            .max(estimated_tokens);
+        let route_mode = self
+            .active_budget
             .as_ref()
-            .or(self.active_task_id.as_ref())
-            .and_then(|task_id| self.tasks.get(task_id))?;
-        let mut context = String::from(
-            "TaskSpace v0.0.5 active compact profile is enabled. Use this compact projection as the model-visible TaskSpace surface; runtime state remains authoritative.\n",
+            .map(|budget| budget.route_mode.as_str())
+            .unwrap_or("unknown");
+        let profile_name = self
+            .active_budget
+            .as_ref()
+            .map(|budget| budget.profile_name.as_str())
+            .unwrap_or("unknown");
+        let status = if estimated_tokens <= max_projection_tokens {
+            "within_budget"
+        } else {
+            "over_budget"
+        };
+        let _ = self.record_runtime_budget_trace_event(
+            "projection_budget",
+            Some(task_id),
+            map_id,
+            current_node_id,
+            None,
+            estimated_tokens <= max_projection_tokens,
+            vec![
+                "schema:taskspace-projection-budget-v1".to_string(),
+                "producer:runtime".to_string(),
+                "active_budget_source:runtime".to_string(),
+                format!("route_mode:{route_mode}"),
+                format!("profile_name:{profile_name}"),
+                format!("projection_tokens:{estimated_tokens}"),
+                format!("max_projection_tokens:{max_projection_tokens}"),
+                format!("status:{status}"),
+            ],
         );
-        context.push_str(
-            "Use taskspace_control for state changes. Prefer state_commit for multi-section updates. Keep simple fixes on the narrow path: inspect_code_context -> implement_solution -> smoke_test/regression_test, then direct final answer after accepted validation. Do not create final_synthesis only to summarize thin work. Do not spawn agents for thin/single-file work unless new evidence reveals independent tracks.\n",
-        );
-        if self.bootstrap_required {
-            context.push_str(
-                "Bootstrap is required now: create the first semantic task with taskspace_control(action=start_task) before ordinary tools or subagent spawn.\n",
-            );
-        } else if self.routing_required {
-            context.push_str(
-                "Task routing is required now: route to the active task or start a new semantic task before ordinary tools or subagent spawn.\n",
-            );
-        }
-        if let Some(barrier) = self.active_maintenance_barrier() {
-            context.push_str("Maintenance barrier:\n- map: ");
-            context.push_str(&barrier.map_id);
-            context.push_str("\n- node: ");
-            context.push_str(&barrier.node_id);
-            context.push_str("\n- reason: ");
-            context.push_str(barrier.reason.as_str());
-            context.push('\n');
-        }
-        append_context_projection_active(
-            &mut context,
-            task,
-            map,
-            self.current_main_node_id.as_deref(),
-        );
-        if let Some(node_id) = self.current_main_node_id.as_ref()
-            && let Some(node) = map.nodes.get(node_id)
-        {
-            let contract = contract_for(node.kind);
-            context.push_str("\nCurrent node contract:\n- node: ");
-            context.push_str(node_id);
-            context.push_str(" kind=");
-            context.push_str(node.kind.as_str());
-            context.push_str("\n- allowed action classes: ");
-            context.push_str(
-                &contract
-                    .allowed_actions
-                    .iter()
-                    .map(|action| action.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            );
-            context.push('\n');
-        }
         Some(context)
     }
 
@@ -7595,6 +8342,7 @@ fn append_context_projection_shadow(
         current_node_id,
         "shadow",
         "ContextProjectionV1 shadow (not active replacement):",
+        None,
     );
 }
 
@@ -7603,15 +8351,19 @@ fn append_context_projection_active(
     task: &TaskState,
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
-) {
+    active_budget: Option<&TaskSpaceActiveBudgetV1>,
+) -> usize {
     append_context_projection_with_header(
         context,
         task,
         map,
         current_node_id,
-        "active",
+        active_budget
+            .map(|budget| budget.route_mode.as_str())
+            .unwrap_or("active"),
         "ContextProjectionV1 active replacement:",
-    );
+        active_budget,
+    )
 }
 
 fn append_context_projection_with_header(
@@ -7621,7 +8373,8 @@ fn append_context_projection_with_header(
     current_node_id: Option<&str>,
     profile: &str,
     header: &str,
-) {
+    active_budget: Option<&TaskSpaceActiveBudgetV1>,
+) -> usize {
     let projection_id = format!("projection-{profile}-{}-{}", task.id, map.id);
     let current_node = current_node_id
         .and_then(|node_id| map.nodes.get(node_id))
@@ -7714,7 +8467,16 @@ fn append_context_projection_with_header(
     projection.push_str(&projection_id);
     projection.push_str("\n- task_id: ");
     projection.push_str(&task.id);
-    projection.push_str("\n- mode: default_compact\n- active_objective: ");
+    projection.push_str("\n- mode: ");
+    projection.push_str(profile);
+    if let Some(budget) = active_budget {
+        projection.push_str("\n- active_budget_source: runtime");
+        projection.push_str("\n- max_projection_tokens: ");
+        projection.push_str(&budget.max_projection_tokens.to_string());
+        projection.push_str("\n- max_avg_input_tokens_per_request: ");
+        projection.push_str(&budget.max_avg_input_tokens_per_request.to_string());
+    }
+    projection.push_str("\n- active_objective: ");
     projection.push_str(&single_line_preview(&task.problem_ledger.objective, 220));
     projection.push_str("\n- sections:\n");
     append_projection_list(&mut projection, "success_criteria", &success_criteria);
@@ -7728,9 +8490,19 @@ fn append_context_projection_with_header(
     append_projection_list(&mut projection, "next_valid_actions", &next_valid_actions);
     append_projection_list(&mut projection, "hidden_refs_available", &hidden_refs);
     projection.push_str("- estimated_tokens: ");
-    projection.push_str(&approx_projection_tokens(&projection).to_string());
+    let estimated_tokens = approx_projection_tokens(&projection);
+    projection.push_str(&estimated_tokens.to_string());
+    if let Some(budget) = active_budget {
+        projection.push_str("\n- projection_budget_status: ");
+        projection.push_str(if estimated_tokens <= budget.max_projection_tokens {
+            "within_budget"
+        } else {
+            "over_budget"
+        });
+    }
     projection.push('\n');
     context.push_str(&projection);
+    estimated_tokens
 }
 
 fn append_projection_list(context: &mut String, label: &str, values: &[String]) {
@@ -9276,6 +10048,33 @@ fn sanitize_trace_tags(tags: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+fn trace_tag_value<'a>(tags: &'a [String], key: &str) -> Option<&'a str> {
+    let prefix = format!("{key}:");
+    tags.iter()
+        .find_map(|tag| tag.strip_prefix(prefix.as_str()))
+}
+
+fn trace_tag_usize(tags: &[String], key: &str) -> Option<usize> {
+    trace_tag_value(tags, key).and_then(|value| value.parse::<usize>().ok())
+}
+
+fn map_runtime_event_from_trace_event(event: TaskSpaceTraceEvent) -> MapRuntimeEvent {
+    MapRuntimeEvent::TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent {
+        trace_event_id: event.id,
+        kind: event.kind,
+        task_id: event.task_id,
+        map_id: event.map_id,
+        node_id: event.node_id,
+        result_id: event.result_id,
+        call_id: event.call_id,
+        action_class: event.action_class.map(|action| action.as_str().to_string()),
+        tool_success: event.tool_success,
+        tags: event.tags,
+        artifact_refs: event.artifact_refs,
+        created_at_ms: event.created_at_ms,
+    })
+}
+
 fn sanitize_provider_response_trace_tag_value(value: &str) -> String {
     value
         .chars()
@@ -9296,7 +10095,33 @@ fn is_known_trace_tag(tag: &str) -> bool {
             | "validator_failure"
             | "unclassified_shell_action"
             | "unclassified_tool_action"
-    )
+    ) || tag.starts_with("schema:")
+        || tag.starts_with("producer:")
+        || tag.starts_with("active_budget_source:")
+        || tag.starts_with("profile_name:")
+        || tag.starts_with("route_mode:")
+        || tag.starts_with("status:")
+        || tag.starts_with("request_count_")
+        || tag.starts_with("max_rollout_model_requests:")
+        || tag.starts_with("max_requests:")
+        || tag.starts_with("node_request_count:")
+        || tag.starts_with("max_model_requests_per_node:")
+        || tag.starts_with("post_budget_grace_requests:")
+        || tag.starts_with("request_phase:")
+        || tag.starts_with("spawn_agent_call_count_")
+        || tag.starts_with("max_spawn_agent_calls:")
+        || tag.starts_with("max_subagent_results:")
+        || tag.starts_with("node_count")
+        || tag.starts_with("max_nodes:")
+        || tag.starts_with("max_open_leaf_nodes:")
+        || tag.starts_with("budget_kind:")
+        || tag.starts_with("action:")
+        || tag.starts_with("budget_state:")
+        || tag.starts_with("budget_gate_reason:")
+        || tag.starts_with("legacy_state_action_")
+        || tag.starts_with("state_commit_count:")
+        || tag.starts_with("projection_tokens")
+        || tag.starts_with("max_projection_tokens:")
 }
 
 fn looks_like_shell_tool(tool_name: &str) -> bool {
@@ -9630,9 +10455,28 @@ fn should_enforce_tool_budget_barrier(
         || completed_main_inspect_has_broad_accepted_result(map, &node.id, owner_session_id)
 }
 
-fn provider_request_budget_pressure_active(provider_request_count: usize) -> bool {
-    provider_request_count.saturating_mul(4)
-        >= ActionMapRuntimeState::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX.saturating_mul(3)
+fn provider_request_budget_pressure_active(
+    provider_request_count: usize,
+    max_requests: usize,
+) -> bool {
+    provider_request_count.saturating_mul(4) >= max_requests.saturating_mul(3)
+}
+
+fn budget_state_for_counter(counter_value: usize, counter_limit: usize) -> TaskSpaceBudgetState {
+    if counter_limit == 0 || counter_value >= counter_limit {
+        return TaskSpaceBudgetState::HardStopped;
+    }
+    let remaining = counter_limit.saturating_sub(counter_value);
+    if remaining <= 1 {
+        return TaskSpaceBudgetState::CompactCheckpointRequired;
+    }
+    if counter_value.saturating_mul(4) >= counter_limit.saturating_mul(3) {
+        return TaskSpaceBudgetState::ThinDowngraded;
+    }
+    if counter_value.saturating_mul(2) >= counter_limit {
+        return TaskSpaceBudgetState::Warned;
+    }
+    TaskSpaceBudgetState::Normal
 }
 
 fn inspect_evidence_pressure_active(node: &MapNode, budget: usize) -> bool {
@@ -10638,6 +11482,370 @@ mod tests {
                 .request_count,
             1
         );
+    }
+
+    #[test]
+    fn taskspace_active_budget_thin_route_uses_four_requests_and_no_spawn() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let events = state
+            .activate_active_budget_for_route("taskspace-v005-active", TaskSpaceRouteMode::Thin);
+
+        let budget = state.active_budget().expect("active budget");
+        assert_eq!(budget.route_mode, TaskSpaceRouteMode::Thin);
+        assert_eq!(budget.max_rollout_model_requests, 4);
+        assert_eq!(budget.max_model_requests_per_node, 2);
+        assert_eq!(budget.max_spawn_agent_calls, 0);
+        assert_eq!(budget.max_nodes, 4);
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn taskspace_active_budget_default_compact_uses_ten_requests_and_two_spawn() {
+        let budget = taskspace_active_budget_for_route(
+            "taskspace-v005-active",
+            TaskSpaceRouteMode::DefaultCompact,
+        );
+
+        assert_eq!(budget.max_rollout_model_requests, 10);
+        assert_eq!(budget.max_model_requests_per_node, 3);
+        assert_eq!(budget.max_spawn_agent_calls, 2);
+        assert_eq!(budget.max_nodes, 8);
+    }
+
+    #[test]
+    fn taskspace_active_budget_provider_snapshot_uses_active_budget_not_constants() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("thin-profile", TaskSpaceRouteMode::Thin);
+        let (_task_id, _map_id, _node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "thin budget task".to_string(),
+                "verify snapshot budget".to_string(),
+                "inspect".to_string(),
+                "inspect active budget snapshot".to_string(),
+                true,
+            )
+            .expect("start task");
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot should use active budget");
+
+        assert_eq!(snapshot.route_mode.as_deref(), Some("thin"));
+        assert_eq!(snapshot.profile_name.as_deref(), Some("thin-profile"));
+        assert_eq!(snapshot.max_requests, 4);
+        assert_eq!(snapshot.max_model_requests_per_node, 2);
+        assert_ne!(snapshot.max_requests, 40);
+    }
+
+    #[test]
+    fn taskspace_active_budget_node_request_gate_blocks_before_rollout_budget() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("thin-profile", TaskSpaceRouteMode::Thin);
+        let (_task_id, map_id, node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "thin budget task".to_string(),
+                "verify node budget gate".to_string(),
+                "inspect".to_string(),
+                "inspect active budget gate".to_string(),
+                true,
+            )
+            .expect("start task");
+        state.budget_counters.rollout_model_request_count = 1;
+        state
+            .budget_counters
+            .model_request_count_by_node
+            .insert(node_id.clone(), 2);
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot should use active budget");
+        let decision = state.gate_provider_request_pre_dispatch(&snapshot);
+
+        assert_eq!(snapshot.map_id, map_id);
+        assert_eq!(snapshot.request_count, 1);
+        assert_eq!(snapshot.max_requests, 4);
+        assert_eq!(snapshot.node_request_count, 2);
+        assert_eq!(snapshot.max_model_requests_per_node, 2);
+        assert!(!decision.allowed);
+        assert_eq!(decision.reason, "provider_node_request_budget_exhausted");
+    }
+
+    #[test]
+    fn taskspace_active_budget_provider_batch_counts_multiple_started_events() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("thin-profile", TaskSpaceRouteMode::Thin);
+        let (_task_id, _map_id, node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "batch budget task".to_string(),
+                "verify batch provider events".to_string(),
+                "inspect".to_string(),
+                "inspect provider batch accounting".to_string(),
+                true,
+            )
+            .expect("start task");
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot should exist");
+
+        state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![
+                    ActionMapProviderRequestBudgetEventInput {
+                        request_id: "provider-request-1".to_string(),
+                        logical_request_id: "provider-request:turn-a:logical-1".to_string(),
+                        parent_request_id: None,
+                        attempt_seq: 1,
+                        transport: "responses_http".to_string(),
+                        status: "started".to_string(),
+                        request_count_before: 0,
+                        request_count_after: 1,
+                        max_requests: 4,
+                        budget_state_before: "normal".to_string(),
+                        budget_state_after: "normal".to_string(),
+                        budget_transition_reason: "request_dispatched_without_state_change"
+                            .to_string(),
+                        started_at_ms: 100,
+                        completed_at_ms: None,
+                        latency_ms: None,
+                        input_tokens: None,
+                        cached_input_tokens: None,
+                        output_tokens: None,
+                        reasoning_output_tokens: None,
+                        total_tokens: None,
+                        provider_payload_sha256: None,
+                        provider_payload_bytes: None,
+                        exact_payload_scan_passed: None,
+                        active_projection_present: None,
+                        legacy_taskspace_history_present: None,
+                        large_raw_output_tokens: None,
+                        protected_items_present: None,
+                        replacement_confirmed: None,
+                        task_id: None,
+                        map_id: None,
+                        node_id: None,
+                        request_phase: Some("model_sampling".to_string()),
+                    },
+                    ActionMapProviderRequestBudgetEventInput {
+                        request_id: "provider-request-2".to_string(),
+                        logical_request_id: "provider-request:turn-a:logical-2".to_string(),
+                        parent_request_id: None,
+                        attempt_seq: 1,
+                        transport: "responses_http".to_string(),
+                        status: "started".to_string(),
+                        request_count_before: 1,
+                        request_count_after: 2,
+                        max_requests: 4,
+                        budget_state_before: "normal".to_string(),
+                        budget_state_after: "warned".to_string(),
+                        budget_transition_reason: "provider_request_warning_threshold_reached"
+                            .to_string(),
+                        started_at_ms: 200,
+                        completed_at_ms: None,
+                        latency_ms: None,
+                        input_tokens: None,
+                        cached_input_tokens: None,
+                        output_tokens: None,
+                        reasoning_output_tokens: None,
+                        total_tokens: None,
+                        provider_payload_sha256: None,
+                        provider_payload_bytes: None,
+                        exact_payload_scan_passed: None,
+                        active_projection_present: None,
+                        legacy_taskspace_history_present: None,
+                        large_raw_output_tokens: None,
+                        protected_items_present: None,
+                        replacement_confirmed: None,
+                        task_id: None,
+                        map_id: None,
+                        node_id: None,
+                        request_phase: Some("model_sampling".to_string()),
+                    },
+                ],
+            )
+            .expect("events recorded");
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot after events");
+        assert_eq!(snapshot.request_count, 2);
+        assert_eq!(snapshot.node_id.as_deref(), Some(node_id.as_str()));
+        assert_eq!(snapshot.node_request_count, 2);
+    }
+
+    #[test]
+    fn taskspace_active_budget_restore_reconstructs_provider_counters() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("thin-profile", TaskSpaceRouteMode::Thin);
+        let (_task_id, _map_id, _node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "restore budget task".to_string(),
+                "verify restored budget counters".to_string(),
+                "inspect".to_string(),
+                "inspect restored budget counters".to_string(),
+                true,
+            )
+            .expect("start task");
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot before event");
+        state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![ActionMapProviderRequestBudgetEventInput {
+                    request_id: "provider-request-1".to_string(),
+                    logical_request_id: "provider-request:turn-a:logical-1".to_string(),
+                    parent_request_id: None,
+                    attempt_seq: 1,
+                    transport: "responses_http".to_string(),
+                    status: "started".to_string(),
+                    request_count_before: 2,
+                    request_count_after: 3,
+                    max_requests: 4,
+                    budget_state_before: "normal".to_string(),
+                    budget_state_after: "normal".to_string(),
+                    budget_transition_reason: "request_dispatched_without_state_change".to_string(),
+                    started_at_ms: 100,
+                    completed_at_ms: None,
+                    latency_ms: None,
+                    input_tokens: None,
+                    cached_input_tokens: None,
+                    output_tokens: None,
+                    reasoning_output_tokens: None,
+                    total_tokens: None,
+                    provider_payload_sha256: None,
+                    provider_payload_bytes: None,
+                    exact_payload_scan_passed: None,
+                    active_projection_present: None,
+                    legacy_taskspace_history_present: None,
+                    large_raw_output_tokens: None,
+                    protected_items_present: None,
+                    replacement_confirmed: None,
+                    task_id: None,
+                    map_id: None,
+                    node_id: None,
+                    request_phase: Some("model_sampling".to_string()),
+                }],
+            )
+            .expect("event recorded");
+
+        let saved = state.snapshot();
+        let mut restored = ActionMapRuntimeState::default();
+        restored.restore_snapshot(saved);
+        let restored_snapshot = restored
+            .provider_request_budget_snapshot()
+            .expect("restored snapshot");
+        assert_eq!(restored_snapshot.route_mode.as_deref(), Some("thin"));
+        assert_eq!(restored_snapshot.max_requests, 4);
+        assert_eq!(restored_snapshot.request_count, 3);
+        assert_eq!(restored_snapshot.node_request_count, 1);
+        let error = restored
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Unknown, "probe")
+                    .with_call_id("restored-probe"),
+            )
+            .expect_err("restored provider pressure should block another inspect probe");
+        let (message, _events) = error.into_parts();
+        assert!(
+            message.contains("provider_request_budget_pressure_requires_inspect_node_transition")
+        );
+        assert!(message.contains("3/4 used"));
+    }
+
+    #[test]
+    fn taskspace_active_budget_thin_route_forces_inspect_pressure_at_three_of_four() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("thin-profile", TaskSpaceRouteMode::Thin);
+        let (_task_id, map_id, node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "thin pressure task".to_string(),
+                "verify thin route pressure".to_string(),
+                "inspect".to_string(),
+                "inspect thin pressure".to_string(),
+                true,
+            )
+            .expect("start task");
+        state.provider_request_count = 3;
+        state.budget_counters.rollout_model_request_count = 3;
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "thin-pressure-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "read active budget context".to_string(),
+            )
+            .expect("read evidence records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("thin-profile".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 3,
+            max_requests: 4,
+            node_request_count: 1,
+            max_model_requests_per_node: 2,
+            post_budget_grace_requests: 1,
+            budget_state: "thin_downgraded".to_string(),
+        };
+
+        let outcome = state
+            .force_finish_inspect_for_provider_budget(owner, &snapshot, "thin_pressure")
+            .expect("force finish should be valid");
+
+        assert!(outcome.is_some());
+    }
+
+    #[test]
+    fn taskspace_active_budget_projection_uses_route_budget_fields() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("thin-profile", TaskSpaceRouteMode::Thin);
+        start_test_task(
+            &mut state,
+            owner,
+            "Projection budget",
+            "Verify active projection budget fields.",
+            true,
+        );
+
+        let context = state.build_developer_context().expect("context");
+
+        assert!(context.contains("- mode: thin"));
+        assert!(context.contains("- active_budget_source: runtime"));
+        assert!(context.contains("- max_projection_tokens: 12000"));
+        assert!(context.contains("- projection_budget_status: within_budget"));
+        assert!(
+            state
+                .taskspace_trace_events
+                .iter()
+                .any(|event| event.kind == "projection_budget"
+                    && event.tags.iter().any(|tag| tag == "route_mode:thin"))
+        );
+        assert!(state.budget_counters.projection_tokens_last > 0);
     }
 
     #[test]
@@ -12062,7 +13270,11 @@ mod tests {
         assert!(outcome.mode.changed);
         assert!(outcome.active_map_id.is_none());
         assert!(state.active_map().is_none());
-        assert!(events.is_empty());
+        assert!(events.iter().any(|event| matches!(
+            event,
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
+                if recorded.kind == "active_budget"
+        )));
         assert!(state.current_main_node_id.is_none());
     }
 
@@ -16100,10 +17312,16 @@ mod tests {
             map_id: map_id.clone(),
             node_id: Some(node_id.clone()),
             node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            route_mode: Some("default_compact".to_string()),
+            profile_name: Some("taskspace-v005-active".to_string()),
             request_phase: Some("model_sampling".to_string()),
             provider_request_context_missing_reason: None,
             request_count: 34,
             max_requests: ActionMapRuntimeState::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX,
+            node_request_count: 0,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            budget_state: "hard_stopped".to_string(),
         };
 
         let (outcome, events) = state
@@ -16171,7 +17389,7 @@ mod tests {
                 )
                 .expect("read result records");
         }
-        state.provider_request_count = 8;
+        state.provider_request_count = 7;
 
         let error = state
             .prepare_main_tool_call(
@@ -19829,6 +21047,10 @@ mod tests {
             .expect("reclaimed assignment");
         assert_eq!(reclaimed.node_id, "define_scope");
         assert_eq!(reclaimed.lease_id, "lease-2");
+        state.release_lease(&reclaimed.lease_id, "test_release");
+        let third = prepare_test_spawn_assignment(&mut state, owner, "third", None)
+            .expect_err("spawn budget is cumulative, not concurrent");
+        assert!(third.contains("spawn budget is exhausted"));
     }
 
     #[test]

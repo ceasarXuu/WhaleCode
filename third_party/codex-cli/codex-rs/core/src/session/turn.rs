@@ -10,6 +10,7 @@ use crate::build_skill_injections;
 use crate::client::ModelClientSession;
 use crate::client::ProviderRequestAttribution;
 use crate::client::ProviderRequestBudgetContext;
+use crate::client::ProviderRequestBudgetLimits;
 use crate::client_common::Prompt;
 use crate::client_common::ResponseEvent;
 use crate::collect_env_var_dependencies;
@@ -488,7 +489,7 @@ pub(crate) async fn run_turn(
         }
 
         if let Some(action_map_projection) = {
-            let state = sess.state.lock().await;
+            let mut state = sess.state.lock().await;
             state.action_map_runtime.build_developer_context()
         } && let Some(item) = crate::context_manager::updates::build_developer_update_item(vec![
             action_map_projection,
@@ -3237,8 +3238,14 @@ async fn try_run_sampling_request(
         .as_ref()
         .map(|snapshot| {
             ProviderRequestBudgetContext::enabled_with_attribution(
-                snapshot.request_count,
-                snapshot.max_requests,
+                ProviderRequestBudgetLimits {
+                    request_count: snapshot.request_count,
+                    max_requests: snapshot.max_requests,
+                    node_request_count: snapshot.node_request_count,
+                    max_model_requests_per_node: snapshot.max_model_requests_per_node,
+                    post_budget_grace_requests: snapshot.post_budget_grace_requests,
+                    budget_state: snapshot.budget_state.clone(),
+                },
                 ProviderRequestAttribution {
                     request_scope_id: Some(turn_context.sub_id.to_string()),
                     task_id: snapshot.task_id.as_ref().map(|id| id.to_string()),

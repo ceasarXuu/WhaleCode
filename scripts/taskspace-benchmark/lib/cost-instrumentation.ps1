@@ -103,6 +103,23 @@ function Convert-TaskspaceTraceBool {
 
 function New-TaskspaceBudgetArtifacts {
     param([string]$ObservabilityJsonPath)
+    $activeBudgetEvents = New-Object System.Collections.Generic.List[object]
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("active_budget"))) {
+        $tags = Convert-TaskspaceTraceTags $event
+        if ([string]$tags.producer -ne "runtime") { continue }
+        $activeBudgetEvents.Add([pscustomobject]@{
+            schema_version = "taskspace-active-budget-v1"
+            trace_event_id = [string](Get-TaskspaceTraceField $event @("trace_event_id", "id"))
+            active_budget_source = [string]$tags.active_budget_source
+            profile_name = [string]$tags.profile_name
+            route_mode = [string]$tags.route_mode
+            max_rollout_model_requests = Convert-TaskspaceTraceInt $tags.max_rollout_model_requests
+            max_model_requests_per_node = Convert-TaskspaceTraceInt $tags.max_model_requests_per_node
+            max_spawn_agent_calls = Convert-TaskspaceTraceInt $tags.max_spawn_agent_calls
+            max_nodes = Convert-TaskspaceTraceInt $tags.max_nodes
+            max_projection_tokens = Convert-TaskspaceTraceInt $tags.max_projection_tokens
+        })
+    }
     $budgetEvents = New-Object System.Collections.Generic.List[object]
     foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("provider_request_budget"))) {
         $tags = Convert-TaskspaceTraceTags $event
@@ -120,6 +137,13 @@ function New-TaskspaceBudgetArtifacts {
             request_count_before = Convert-TaskspaceTraceInt $tags.request_count_before
             request_count_after = Convert-TaskspaceTraceInt $tags.request_count_after
             max_requests = Convert-TaskspaceTraceInt $tags.max_requests
+            active_budget_source = [string]$tags.active_budget_source
+            route_mode = [string]$tags.route_mode
+            profile_name = [string]$tags.profile_name
+            node_request_count = Convert-TaskspaceTraceInt $tags.node_request_count
+            max_model_requests_per_node = Convert-TaskspaceTraceInt $tags.max_model_requests_per_node
+            post_budget_grace_requests = Convert-TaskspaceTraceInt $tags.post_budget_grace_requests
+            runtime_budget_state = [string]$tags.runtime_budget_state
             budget_response_action_taken = Convert-TaskspaceTraceBool $tags.budget_response_action_taken $false
             provider_payload_sha256 = [string]$tags.provider_payload_sha256
             provider_payload_bytes = Convert-TaskspaceTraceInt $tags.provider_payload_bytes
@@ -169,6 +193,10 @@ function New-TaskspaceBudgetArtifacts {
     $summary = [pscustomobject]@{
         schema_version = "taskspace-budget-quality-impact-summary-v1"
         budget_event_count = [int]$budgetEvents.Count
+        active_budget_source = if ($activeBudgetEvents.Count -gt 0) { [string]$activeBudgetEvents[0].active_budget_source } else { [string](@($budgetEvents.ToArray() | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.active_budget_source) } | Select-Object -First 1).active_budget_source) }
+        route_mode = if ($activeBudgetEvents.Count -gt 0) { [string]$activeBudgetEvents[0].route_mode } else { [string](@($budgetEvents.ToArray() | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.route_mode) } | Select-Object -First 1).route_mode) }
+        max_rollout_model_requests = if ($activeBudgetEvents.Count -gt 0) { [int]$activeBudgetEvents[0].max_rollout_model_requests } elseif ($budgetEvents.Count -gt 0) { [int](@($budgetEvents.ToArray() | Measure-Object -Property max_requests -Maximum).Maximum) } else { 0 }
+        max_model_requests_per_node = if ($activeBudgetEvents.Count -gt 0) { [int]$activeBudgetEvents[0].max_model_requests_per_node } elseif ($budgetEvents.Count -gt 0) { [int](@($budgetEvents.ToArray() | Measure-Object -Property max_model_requests_per_node -Maximum).Maximum) } else { 0 }
         budget_quality_impact_event_count = [int]$qualityEvents.Count
         budget_action_count = [int]$budgetActions.Count
         budget_quality_impact_logged_for_every_budget_action = ($missing -eq 0)
@@ -180,6 +208,7 @@ function New-TaskspaceBudgetArtifacts {
     }
     [pscustomobject]@{
         budget_events = @($budgetEvents.ToArray())
+        active_budget_events = @($activeBudgetEvents.ToArray())
         budget_quality_impact_events = @($qualityEvents.ToArray())
         budget_quality_impact_summary = $summary
     }
@@ -360,6 +389,9 @@ function New-TaskspaceSpawnNodeBudgetSummary {
             budget_kind = [string]$tags.budget_kind
             action = [string]$tags.action
             status = [string]$tags.status
+            active_budget_source = [string]$tags.active_budget_source
+            route_mode = [string]$tags.route_mode
+            profile_name = [string]$tags.profile_name
             spawn_agent_call_count_after = Convert-TaskspaceTraceInt $tags.spawn_agent_call_count_after
             max_spawn_agent_calls = Convert-TaskspaceTraceInt $tags.max_spawn_agent_calls
             node_count = Convert-TaskspaceTraceInt $tags.node_count
@@ -388,6 +420,8 @@ function New-TaskspaceSpawnNodeBudgetSummary {
         over_budget_enforcement_status = if ($blockedEvents.Count -eq 0) { "not_observed" } elseif ($invalidBlockedEvents.Count -eq 0) { "pass" } else { "fail" }
         source_status = $sourceStatus
         producer = "runtime"
+        active_budget_source = [string](@($runtimeEvents | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.active_budget_source) } | Select-Object -First 1).active_budget_source)
+        route_mode = [string](@($runtimeEvents | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.route_mode) } | Select-Object -First 1).route_mode)
         spawn_agent_call_count = [int]$spawnCount
         max_spawn_agent_calls = [int]$maxSpawnAgentCalls
         node_count = [int]$nodeCount
@@ -1001,6 +1035,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $requestPhaseSummaryPath = Join-Path $ArtifactDir "request-phase-summary.json"
     $stateCommitDisplacementPath = Join-Path $ArtifactDir "state-commit-displacement.json"
     $spawnNodeBudgetPath = Join-Path $ArtifactDir "spawn-node-budget-summary.json"
+    $activeBudgetEventsPath = Join-Path $ArtifactDir "active-budget-events.jsonl"
     $token | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $tokenPath -Encoding UTF8
     $request | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $requestPath -Encoding UTF8
     $visibility | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $visibilityPath -Encoding UTF8
@@ -1023,6 +1058,12 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         $budgetEventLines | Set-Content -LiteralPath $budgetEventsPath -Encoding UTF8
     } else {
         [System.IO.File]::WriteAllText($budgetEventsPath, "", [System.Text.UTF8Encoding]::new($false))
+    }
+    $activeBudgetEventLines = @($budget.active_budget_events | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
+    if ($activeBudgetEventLines.Count -gt 0) {
+        $activeBudgetEventLines | Set-Content -LiteralPath $activeBudgetEventsPath -Encoding UTF8
+    } else {
+        [System.IO.File]::WriteAllText($activeBudgetEventsPath, "", [System.Text.UTF8Encoding]::new($false))
     }
     $budgetQualityImpactEventLines = @($budget.budget_quality_impact_events | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
     if ($budgetQualityImpactEventLines.Count -gt 0) {
@@ -1056,6 +1097,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         projection_events_path = $projectionEventsPath
         output_ref_events_path = $outputRefEventsPath
         budget_events_path = $budgetEventsPath
+        active_budget_events_path = $activeBudgetEventsPath
         budget_quality_impact_events_path = $budgetQualityImpactEventsPath
         budget_quality_impact_summary_path = $budgetQualityImpactSummaryPath
         exact_payload_scan_events_path = $exactPayloadScanEventsPath
@@ -1072,6 +1114,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         output_ref_events = $outputRefEvents
         context_projection_summary = $projection
         budget_events = $budget.budget_events
+        active_budget_events = $budget.active_budget_events
         budget_quality_impact_events = $budget.budget_quality_impact_events
         budget_quality_impact_summary = $budget.budget_quality_impact_summary
         exact_payload_scan_events = $activeReplacement.exact_payload_scan_events

@@ -196,6 +196,16 @@ pub(crate) struct ProviderRequestBudgetContext {
     state: Arc<ProviderRequestBudgetState>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProviderRequestBudgetLimits {
+    pub(crate) request_count: usize,
+    pub(crate) max_requests: usize,
+    pub(crate) node_request_count: usize,
+    pub(crate) max_model_requests_per_node: usize,
+    pub(crate) post_budget_grace_requests: usize,
+    pub(crate) budget_state: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ProviderRequestAttribution {
     pub(crate) request_scope_id: Option<String>,
@@ -210,6 +220,11 @@ struct ProviderRequestBudgetState {
     enabled: bool,
     count: AtomicUsize,
     max_requests: usize,
+    node_count: AtomicUsize,
+    max_model_requests_per_node: usize,
+    post_budget_grace_requests: usize,
+    post_budget_grace_count: AtomicUsize,
+    budget_state: String,
     attribution: ProviderRequestAttribution,
     events: StdMutex<Vec<ProviderRequestBudgetEvent>>,
     active_request: StdMutex<Option<ProviderRequestBudgetActiveRequest>>,
@@ -303,6 +318,11 @@ impl ProviderRequestBudgetContext {
                 enabled: false,
                 count: AtomicUsize::new(0),
                 max_requests: usize::MAX,
+                node_count: AtomicUsize::new(0),
+                max_model_requests_per_node: usize::MAX,
+                post_budget_grace_requests: 0,
+                post_budget_grace_count: AtomicUsize::new(0),
+                budget_state: "disabled".to_string(),
                 attribution: ProviderRequestAttribution::default(),
                 events: StdMutex::new(Vec::new()),
                 active_request: StdMutex::new(None),
@@ -313,22 +333,33 @@ impl ProviderRequestBudgetContext {
     #[cfg(test)]
     pub(crate) fn enabled(starting_count: usize, max_requests: usize) -> Self {
         Self::enabled_with_attribution(
-            starting_count,
-            max_requests,
+            ProviderRequestBudgetLimits {
+                request_count: starting_count,
+                max_requests,
+                node_request_count: 0,
+                max_model_requests_per_node: usize::MAX,
+                post_budget_grace_requests: 1,
+                budget_state: provider_request_budget_state_for(starting_count, max_requests)
+                    .to_string(),
+            },
             ProviderRequestAttribution::default(),
         )
     }
 
     pub(crate) fn enabled_with_attribution(
-        starting_count: usize,
-        max_requests: usize,
+        limits: ProviderRequestBudgetLimits,
         attribution: ProviderRequestAttribution,
     ) -> Self {
         Self {
             state: Arc::new(ProviderRequestBudgetState {
                 enabled: true,
-                count: AtomicUsize::new(starting_count),
-                max_requests,
+                count: AtomicUsize::new(limits.request_count),
+                max_requests: limits.max_requests,
+                node_count: AtomicUsize::new(limits.node_request_count),
+                max_model_requests_per_node: limits.max_model_requests_per_node,
+                post_budget_grace_requests: limits.post_budget_grace_requests,
+                post_budget_grace_count: AtomicUsize::new(0),
+                budget_state: limits.budget_state,
                 attribution,
                 events: StdMutex::new(Vec::new()),
                 active_request: StdMutex::new(None),
@@ -341,20 +372,37 @@ impl ProviderRequestBudgetContext {
             return Ok(ProviderRequestBudgetDispatch::disabled());
         }
         let before = self.state.count.load(Ordering::SeqCst);
-        let budget_state_before =
-            provider_request_budget_state_for(before, self.state.max_requests);
+        let node_before = self.state.node_count.load(Ordering::SeqCst);
+        let budget_state_before = if self.state.budget_state.trim().is_empty() {
+            provider_request_budget_state_for(before, self.state.max_requests).to_string()
+        } else {
+            self.state.budget_state.clone()
+        };
         let compact_checkpoint_final_dispatch =
             provider_request_budget_allows_compact_checkpoint_dispatch(&self.state.attribution);
+        let budget_recovery_dispatch = matches!(
+            self.state.attribution.request_phase.as_deref(),
+            Some("budget_recovery")
+        );
+        let grace_before = self.state.post_budget_grace_count.load(Ordering::SeqCst);
+        let budget_recovery_grace_available =
+            budget_recovery_dispatch && grace_before < self.state.post_budget_grace_requests;
         let compact_checkpoint_recovery_slot = budget_state_before == "compact_checkpoint_required"
             && before + 1 >= self.state.max_requests;
         let compact_checkpoint_blocked = budget_state_before == "compact_checkpoint_required"
             && !compact_checkpoint_final_dispatch;
         let compact_checkpoint_blocked =
             compact_checkpoint_blocked && !compact_checkpoint_recovery_slot;
-        if before >= self.state.max_requests || compact_checkpoint_blocked {
+        let node_budget_exhausted = node_before >= self.state.max_model_requests_per_node
+            && !budget_recovery_grace_available
+            && self.state.max_model_requests_per_node != usize::MAX;
+        if node_budget_exhausted || before >= self.state.max_requests || compact_checkpoint_blocked
+        {
             let request_identity = self.build_request_identity(before + 1, 1);
             let blocked_reason = if compact_checkpoint_blocked {
                 "provider_request_compact_checkpoint_required"
+            } else if node_budget_exhausted {
+                "provider_node_request_budget_exhausted"
             } else {
                 "provider_request_budget_exhausted"
             };
@@ -368,8 +416,8 @@ impl ProviderRequestBudgetContext {
                 request_count_before: before,
                 request_count_after: before,
                 max_requests: self.state.max_requests,
-                budget_state_before: budget_state_before.to_string(),
-                budget_state_after: budget_state_before.to_string(),
+                budget_state_before: budget_state_before.clone(),
+                budget_state_after: budget_state_before.clone(),
                 budget_transition_reason: blocked_reason.to_string(),
                 started_at_ms: provider_request_budget_now_ms(),
                 completed_at_ms: Some(provider_request_budget_now_ms()),
@@ -397,6 +445,11 @@ impl ProviderRequestBudgetContext {
                     "TaskSpace blocked this provider request because the active provider request budget requires a compact checkpoint or final synthesis response ({before}/{}). Enter final_synthesis or record a compact state checkpoint before requesting another model turn.",
                     self.state.max_requests
                 )
+            } else if node_budget_exhausted {
+                format!(
+                    "TaskSpace blocked this provider request because the active node provider request budget is exhausted ({node_before}/{}). Enter budget_recovery, final_synthesis, or bind a different node before requesting another model turn.",
+                    self.state.max_model_requests_per_node
+                )
             } else {
                 format!(
                     "TaskSpace blocked this provider request because the active provider request budget is exhausted ({before}/{}). Enter final_synthesis or record a compact state checkpoint before requesting another model turn.",
@@ -406,9 +459,15 @@ impl ProviderRequestBudgetContext {
             return Err(CodexErr::InvalidRequest(message));
         }
         let after = self.state.count.fetch_add(1, Ordering::SeqCst) + 1;
+        let _node_after = self.state.node_count.fetch_add(1, Ordering::SeqCst) + 1;
+        if budget_recovery_grace_available {
+            self.state
+                .post_budget_grace_count
+                .fetch_add(1, Ordering::SeqCst);
+        }
         let budget_state_after = provider_request_budget_state_for(after, self.state.max_requests);
         let budget_transition_reason =
-            provider_request_budget_transition_reason(budget_state_before, budget_state_after);
+            provider_request_budget_transition_reason(&budget_state_before, budget_state_after);
         let request_phase = if budget_state_before == "compact_checkpoint_required"
             && compact_checkpoint_recovery_slot
             && !compact_checkpoint_final_dispatch
@@ -428,7 +487,7 @@ impl ProviderRequestBudgetContext {
             transport: transport.to_string(),
             request_count_before: before,
             request_count_after: after,
-            budget_state_before: budget_state_before.to_string(),
+            budget_state_before: budget_state_before.clone(),
             budget_state_after: budget_state_after.to_string(),
             budget_transition_reason: budget_transition_reason.to_string(),
             started_at_ms,
@@ -452,7 +511,7 @@ impl ProviderRequestBudgetContext {
             request_count_before: before,
             request_count_after: after,
             max_requests: self.state.max_requests,
-            budget_state_before: budget_state_before.to_string(),
+            budget_state_before: budget_state_before.clone(),
             budget_state_after: budget_state_after.to_string(),
             budget_transition_reason: budget_transition_reason.to_string(),
             started_at_ms,
