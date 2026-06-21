@@ -1070,6 +1070,29 @@ impl Session {
         if events.is_empty() {
             return;
         }
+        for event in events.iter() {
+            if Self::should_emit_provider_budget_warning(event) {
+                self.send_event(
+                    turn_context,
+                    EventMsg::Warning(WarningEvent {
+                        message: format!(
+                            "TaskSpaceProviderRequestBudgetEventV1 status={} request_count={}->{} max={} state={}->{} phase={} node_kind={} transport={} reason={}",
+                            event.status,
+                            event.request_count_before,
+                            event.request_count_after,
+                            event.max_requests,
+                            event.budget_state_before,
+                            event.budget_state_after,
+                            event.request_phase.as_deref().unwrap_or("unknown"),
+                            snapshot.node_kind.as_deref().unwrap_or("unknown"),
+                            event.transport,
+                            event.budget_transition_reason,
+                        ),
+                    }),
+                )
+                .await;
+            }
+        }
         let inputs = events
             .into_iter()
             .map(|event| ActionMapProviderRequestBudgetEventInput {
@@ -1125,6 +1148,29 @@ impl Session {
         snapshot: ActionMapProviderRequestBudgetSnapshot,
         input: ActionMapProviderResponseActionabilityInput,
     ) {
+        if Self::should_emit_provider_response_actionability_warning(&snapshot, &input) {
+            self.send_event(
+                turn_context,
+                EventMsg::Warning(WarningEvent {
+                    message: format!(
+                        "TaskSpaceProviderResponseActionabilityV1 actionability={} recovery_action={} request_count={}/{} phase={} node_kind={} assistant_message_present={} saw_actionable_output={} end_turn={} preview={}",
+                        input.response_actionability,
+                        input.recovery_action,
+                        snapshot.request_count,
+                        snapshot.max_requests,
+                        snapshot.request_phase.as_deref().unwrap_or("unknown"),
+                        snapshot.node_kind.as_deref().unwrap_or("unknown"),
+                        input.assistant_message_present,
+                        input.saw_actionable_output,
+                        input.end_turn
+                            .map(|value| value.to_string())
+                            .unwrap_or_else(|| "unknown".to_string()),
+                        input.last_agent_message_preview.as_deref().unwrap_or(""),
+                    ),
+                }),
+            )
+            .await;
+        }
         let runtime_events = {
             let mut state = self.state.lock().await;
             state
@@ -1134,6 +1180,42 @@ impl Session {
         if let Some(runtime_events) = runtime_events {
             self.emit_action_map_events_for_turn(turn_context, runtime_events)
                 .await;
+        }
+    }
+
+    pub(crate) async fn force_finish_action_map_inspect_for_provider_budget(
+        &self,
+        turn_context: &TurnContext,
+        snapshot: ActionMapProviderRequestBudgetSnapshot,
+        trigger: &str,
+    ) -> Result<bool, String> {
+        let result = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .force_finish_inspect_for_provider_budget(self.conversation_id, &snapshot, trigger)
+        }?;
+        if let Some((outcome, events)) = result {
+            self.send_event(
+                turn_context,
+                EventMsg::Warning(WarningEvent {
+                    message: format!(
+                        "TaskSpaceForcedInspectTransitionV1 trigger={} request_count={}/{} source_node_id={} next_node_id={} result_id={}",
+                        trigger,
+                        snapshot.request_count,
+                        snapshot.max_requests,
+                        snapshot.node_id.as_deref().unwrap_or("unknown"),
+                        outcome.next_node_id.as_deref().unwrap_or("none"),
+                        outcome.result_id,
+                    ),
+                }),
+            )
+            .await;
+            self.emit_action_map_events_for_turn(turn_context, events)
+                .await;
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 
@@ -1887,6 +1969,24 @@ impl Session {
             )
             .await;
         }
+    }
+
+    fn should_emit_provider_budget_warning(event: &ProviderRequestBudgetEvent) -> bool {
+        matches!(
+            event.status.as_str(),
+            "blocked" | "failed" | "response_failed" | "cancelled"
+        ) || event.budget_state_before != "normal"
+            || event.budget_state_after != "normal"
+            || event.request_count_after.saturating_mul(2) >= event.max_requests
+    }
+
+    fn should_emit_provider_response_actionability_warning(
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        input: &ActionMapProviderResponseActionabilityInput,
+    ) -> bool {
+        input.recovery_action != "none"
+            || input.response_actionability != "final_candidate"
+            || snapshot.request_count.saturating_mul(2) >= snapshot.max_requests
     }
 
     async fn emit_action_map_snapshot_for_turn(&self, turn_context: &TurnContext) {

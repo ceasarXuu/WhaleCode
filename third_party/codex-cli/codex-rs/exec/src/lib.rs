@@ -1169,6 +1169,10 @@ fn should_process_notification(
 ) -> bool {
     match notification {
         ServerNotification::ConfigWarning(_) | ServerNotification::DeprecationNotice(_) => true,
+        ServerNotification::Warning(notification) => notification
+            .thread_id
+            .as_deref()
+            .is_some_and(|candidate| candidate == thread_id),
         ServerNotification::Error(notification) => {
             notification.thread_id == thread_id && notification.turn_id == turn_id
         }

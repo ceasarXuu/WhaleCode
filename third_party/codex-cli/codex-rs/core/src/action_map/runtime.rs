@@ -153,6 +153,27 @@ const FINAL_ANSWER_INTERNAL_ORCHESTRATION_TERMS: &[&str] = &[
 
 const FINAL_ANSWER_INTERNAL_ORCHESTRATION_ID_PREFIXES: &[&str] = &["map-", "node-", "task-"];
 
+const FINAL_ANSWER_INTERNAL_PROTOCOL_MARKERS: &[&str] = &[
+    "dsml",
+    "tool_calls",
+    "<｜｜",
+    "</｜｜",
+    "<||",
+    "</||",
+    "invoke name=",
+];
+
+const FINAL_ANSWER_FOLLOW_UP_INTENT_MARKERS: &[&str] = &[
+    "let me check",
+    "let me verify",
+    "let me read",
+    "let me run",
+    "let me try",
+    "i need to check",
+    "i should check",
+    "try running",
+];
+
 /// Test fixture budget for the default inspect-node contract.
 #[cfg(test)]
 pub(crate) const MAIN_TOOL_RESULT_BUDGET_PER_NODE: usize = 10;
@@ -408,6 +429,7 @@ pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
     pub(crate) task_id: Option<TaskId>,
     pub(crate) map_id: ActionMapId,
     pub(crate) node_id: Option<MapNodeId>,
+    pub(crate) node_kind: Option<String>,
     pub(crate) request_phase: Option<String>,
     pub(crate) provider_request_context_missing_reason: Option<String>,
     pub(crate) request_count: usize,
@@ -611,7 +633,7 @@ impl Default for ActionMapRuntimeState {
 }
 
 impl ActionMapRuntimeState {
-    pub(crate) const DEFAULT_PROVIDER_REQUEST_BUDGET_MAX: usize = 20;
+    pub(crate) const DEFAULT_PROVIDER_REQUEST_BUDGET_MAX: usize = 40;
     pub(crate) const DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX: usize = 3;
     pub(crate) const DEFAULT_ACTIVE_NODE_BUDGET_MAX: usize = 10;
 
@@ -1198,6 +1220,56 @@ impl ActionMapRuntimeState {
             provider_request_budget_pressure_active(self.provider_request_count);
         let inspect_evidence_pressure = inspect_evidence_pressure_active(node, budget);
         if descriptor.action_class != ActionClass::Control
+            && provider_budget_pressure
+            && node.kind == NodeKind::InspectCodeContext
+        {
+            let next_action = format!(
+                "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
+                node.id
+            );
+            let message = format!(
+                "TaskSpace blocked this tool call because provider request budget pressure is active ({}/{} used) and current node `{}` is still inspect_code_context. Requested tool `{}` action class: {}. Stop ordinary probing and transition the inspected finding into implementation with {}.",
+                self.provider_request_count,
+                Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX,
+                node.id,
+                descriptor.tool_name,
+                descriptor.action_class.as_str(),
+                next_action
+            );
+            let recovery = gate_recovery_message(
+                &message,
+                "provider_request_budget_pressure_requires_inspect_node_transition",
+                vec![
+                    format!("current_node:{}:{}", node.id, node.kind.as_str()),
+                    format!(
+                        "provider_request_count:{}/{}",
+                        self.provider_request_count,
+                        Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX
+                    ),
+                    format!(
+                        "requested_action_class:{}",
+                        descriptor.action_class.as_str()
+                    ),
+                ],
+                vec![next_action],
+                Vec::new(),
+            );
+            return Err(ActionMapGateError::new(
+                recovery,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: node.kind.as_str().to_string(),
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason: "provider_request_budget_pressure_requires_inspect_node_transition"
+                            .to_string(),
+                    },
+                )],
+            ));
+        }
+        if descriptor.action_class != ActionClass::Control
             && (provider_budget_pressure || inspect_evidence_pressure)
             && should_block_budget_pressure_probe(map, node, descriptor.action_class)
         {
@@ -1648,6 +1720,12 @@ preview:\n\
         let map_id = self.active_map_id.clone()?;
         let node_id = self.current_main_node_id.clone();
         let request_phase = self.provider_request_phase_for_node(&map_id, node_id.as_deref());
+        let node_kind = node_id.as_deref().and_then(|node_id| {
+            self.maps
+                .get(&map_id)
+                .and_then(|map| map.nodes.get(node_id))
+                .map(|node| node.kind.as_str().to_string())
+        });
         let provider_request_context_missing_reason = if node_id.is_some() {
             None
         } else {
@@ -1658,6 +1736,7 @@ preview:\n\
             task_id,
             map_id,
             node_id,
+            node_kind,
             request_phase,
             provider_request_context_missing_reason,
             request_count: self.provider_request_count,
@@ -1993,6 +2072,108 @@ preview:\n\
                 created_at_ms: event.created_at_ms,
             },
         )])
+    }
+
+    pub(crate) fn force_finish_inspect_for_provider_budget(
+        &mut self,
+        owner_session_id: ThreadId,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        trigger: &str,
+    ) -> Result<Option<(ActionMapFinishNodeOutcome, Vec<MapRuntimeEvent>)>, String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(None);
+        }
+        if !provider_request_budget_pressure_active(snapshot.request_count) {
+            return Ok(None);
+        }
+        let node_id = match snapshot.node_id.as_deref() {
+            Some(node_id) => node_id,
+            None => return Ok(None),
+        };
+        let map_id = snapshot.map_id.clone();
+        let (task_id, node_kind) = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            let node = map
+                .nodes
+                .get(node_id)
+                .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
+            (map.task_id.clone(), node.kind)
+        };
+        if node_kind != NodeKind::InspectCodeContext {
+            return Ok(None);
+        }
+        let result_summary = format!(
+            "Provider request budget pressure forced inspect convergence at {}/{} after {trigger}; proceed to implementation using the inspected evidence already recorded on this node.",
+            snapshot.request_count, snapshot.max_requests
+        );
+        let next_node_draft = ActionMapNextNodeDraft {
+            kind: NodeKind::ImplementSolution,
+            title: "Apply inspected fix".to_string(),
+            context_summary:
+                "Apply the narrow implementation change indicated by the inspected code evidence."
+                    .to_string(),
+            dependency_node_ids: vec![node_id.to_string()],
+        };
+        let (outcome, mut events) = self.finish_main_node_with_next(
+            owner_session_id,
+            node_id,
+            result_summary,
+            None,
+            Some(next_node_draft),
+        )?;
+        let id = self.next_trace_event_id();
+        let created_at_ms = now_ms();
+        let tags = vec![
+            "schema:taskspace-forced-inspect-transition-v1".to_string(),
+            "producer:provider_response".to_string(),
+            format!("trigger:{trigger}"),
+            format!("request_count:{}", snapshot.request_count),
+            format!("max_requests:{}", snapshot.max_requests),
+            format!("source_node_kind:{}", NodeKind::InspectCodeContext.as_str()),
+            format!("next_node_kind:{}", NodeKind::ImplementSolution.as_str()),
+            format!("result_id:{}", outcome.result_id),
+            format!(
+                "bound_next_node_id:{}",
+                outcome.next_node_id.as_deref().unwrap_or("")
+            ),
+        ];
+        let trace_event = TaskSpaceTraceEvent {
+            id: id.clone(),
+            kind: "forced_inspect_transition".to_string(),
+            task_id,
+            map_id,
+            node_id: node_id.to_string(),
+            result_id: Some(outcome.result_id.clone()),
+            call_id: None,
+            action_class: Some(ActionClass::Control),
+            tool_success: Some(true),
+            tags,
+            artifact_refs: Vec::new(),
+            created_at_ms,
+        };
+        self.taskspace_trace_events.push(trace_event.clone());
+        events.push(MapRuntimeEvent::TaskspaceTraceEventRecorded(
+            MapRuntimeTraceEventRecordedEvent {
+                trace_event_id: id,
+                kind: trace_event.kind,
+                task_id: trace_event.task_id,
+                map_id: trace_event.map_id,
+                node_id: trace_event.node_id,
+                result_id: trace_event.result_id,
+                call_id: trace_event.call_id,
+                action_class: trace_event
+                    .action_class
+                    .map(|action_class| action_class.as_str().to_string()),
+                tool_success: trace_event.tool_success,
+                tags: trace_event.tags,
+                artifact_refs: trace_event.artifact_refs,
+                created_at_ms: trace_event.created_at_ms,
+            },
+        ));
+        Ok(Some((outcome, events)))
     }
 
     pub(crate) fn prepare_child_tool_call(
@@ -4831,6 +5012,7 @@ preview:\n\
             .maps
             .get(&map_id)
             .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        self.validate_final_answer_no_internal_orchestration_terms(message)?;
         let has_completed_final_synthesis = map.nodes.values().any(|node| {
             node.kind == NodeKind::FinalSynthesis && node.status == NodeStatus::Completed
         });
@@ -4989,6 +5171,20 @@ preview:\n\
                 "TaskSpace final answer gate rejected hidden orchestration phrase `parallel agents`. Rewrite the final answer using user-visible phases, files, tests, and outcomes only."
                     .to_string(),
             );
+        }
+        for marker in FINAL_ANSWER_INTERNAL_PROTOCOL_MARKERS {
+            if normalized.contains(marker) {
+                return Err(format!(
+                    "TaskSpace final answer gate rejected hidden tool-call protocol marker `{marker}`. Rewrite the final answer as a user-visible result, validation status, or blocked_by_budget explanation only."
+                ));
+            }
+        }
+        for marker in FINAL_ANSWER_FOLLOW_UP_INTENT_MARKERS {
+            if normalized.contains(marker) {
+                return Err(format!(
+                    "TaskSpace final answer gate rejected non-final follow-up intent `{marker}`. Rewrite the final answer as a completed result, validation status, or blocked_by_budget explanation only."
+                ));
+            }
         }
         for term in FINAL_ANSWER_INTERNAL_ORCHESTRATION_TERMS {
             if contains_bounded_term(&normalized, term) {
@@ -14684,6 +14880,112 @@ mod tests {
     }
 
     #[test]
+    fn final_response_rejects_tool_call_protocol_markers() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::FinalSynthesis,
+                "Summarize outcome".to_string(),
+                "Write the final user-facing synthesis.".to_string(),
+                "Final synthesis".to_string(),
+                "Summarize completed work without new implementation.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
+
+        let error = state
+            .record_main_final_response(
+                owner,
+                "<｜｜DSML｜｜tool_calls>\n<｜｜DSML｜｜invoke name=\"shell_command\">",
+            )
+            .expect_err("tool-call protocol markers should be rejected");
+
+        assert!(error.contains("hidden tool-call protocol marker"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("final node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert!(map.results.is_empty());
+    }
+
+    #[test]
+    fn direct_final_response_rejects_tool_call_protocol_markers() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main(
+                owner,
+                "Fix pipeline".to_string(),
+                "Inspect and fix scripts.".to_string(),
+                "Inspect scripts".to_string(),
+                "Read the script files.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        let error = state
+            .record_main_final_response(
+                owner,
+                "<｜｜DSML｜｜tool_calls>\n<｜｜DSML｜｜invoke name=\"shell_command\">",
+            )
+            .expect_err("direct final text must reject tool-call protocol markers");
+
+        assert!(error.contains("hidden tool-call protocol marker"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("inspect node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert!(map.results.is_empty());
+    }
+
+    #[test]
+    fn direct_final_response_rejects_follow_up_intent() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main(
+                owner,
+                "Fix pipeline".to_string(),
+                "Inspect and fix scripts.".to_string(),
+                "Inspect scripts".to_string(),
+                "Read the script files.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        let error = state
+            .record_main_final_response(
+                owner,
+                "Let me check bash availability and try running the pipeline.",
+            )
+            .expect_err("direct final text must reject follow-up intent");
+
+        assert!(error.contains("non-final follow-up intent"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("inspect node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert!(map.results.is_empty());
+    }
+
+    #[test]
+    fn final_response_allows_completed_user_visible_check_summary() {
+        let state = ActionMapRuntimeState::default();
+
+        state
+            .validate_final_answer_no_internal_orchestration_terms(
+                "I checked the shell scripts and found that the remaining blocker is missing validation evidence.",
+            )
+            .expect("completed check summary should be allowed");
+    }
+
+    #[test]
     fn finish_final_synthesis_rejects_internal_orchestration_terms() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -15696,7 +15998,7 @@ mod tests {
                 "read useful evidence".to_string(),
             )
             .expect("read result records");
-        state.provider_request_count = 15;
+        state.provider_request_count = 30;
 
         let error = state
             .prepare_main_tool_call(
@@ -15707,14 +16009,130 @@ mod tests {
             .expect_err("budget pressure should block another probe");
         let (message, events) = error.into_parts();
 
-        assert!(message.contains("provider_request_budget_pressure_requires_implementation"));
-        assert!(message.contains("Do not spend more provider requests on broad probing"));
+        assert!(
+            message.contains("provider_request_budget_pressure_requires_inspect_node_transition")
+        );
+        assert!(message.contains("Stop ordinary probing"));
         assert!(events.iter().any(|event| {
             matches!(
                 event,
                 MapRuntimeEvent::ToolActionBlocked(event)
-                    if event.reason == "provider_request_budget_pressure_requires_implementation_before_more_probe"
+                    if event.reason == "provider_request_budget_pressure_requires_inspect_node_transition"
                         && event.action_class == "unknown"
+            )
+        }));
+    }
+
+    #[test]
+    fn provider_budget_pressure_forces_inspect_transition_without_read_accounting() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Budget pressure inspection",
+            "Provider pressure should force the inspect node into implementation.",
+            "Budget pressure inspection",
+            "Provider pressure should force the inspect node into implementation.",
+            true,
+        );
+        state.provider_request_count = 30;
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "bash run")
+                    .with_call_id("late-test"),
+            )
+            .expect_err(
+                "provider pressure should block inspect tools even without read accounting",
+            );
+        let (message, events) = error.into_parts();
+
+        assert!(message.contains("requires_inspect_node_transition"));
+        assert!(message.contains("next_node_kind=\"implement_solution\""));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ToolActionBlocked(event)
+                    if event.reason == "provider_request_budget_pressure_requires_inspect_node_transition"
+                        && event.action_class == "test"
+            )
+        }));
+    }
+
+    #[test]
+    fn provider_budget_follow_up_force_finishes_inspect_into_implementation() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Budget pressure inspection",
+            "Provider response follow-up should converge inspect into implementation.",
+            "Budget pressure inspection",
+            "Provider response follow-up should converge inspect into implementation.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
+                    .with_call_id("read-1"),
+            )
+            .expect("initial read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-1",
+                "shell_command",
+                true,
+                "read useful processing-pipeline evidence".to_string(),
+            )
+            .expect("read result records");
+        state.provider_request_count = 34;
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 34,
+            max_requests: ActionMapRuntimeState::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX,
+        };
+
+        let (outcome, events) = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "budget_pressure_follow_up_intent",
+            )
+            .expect("forced transition should be accepted")
+            .expect("forced transition should run");
+
+        let map = state.active_map().expect("active map");
+        let inspect_node = map.nodes.get(&node_id).expect("inspect node");
+        assert_eq!(inspect_node.status, NodeStatus::Completed);
+        let next_node_id = outcome.next_node_id.expect("next implementation node");
+        let next_node = map.nodes.get(&next_node_id).expect("next node");
+        assert_eq!(next_node.kind, NodeKind::ImplementSolution);
+        assert_eq!(next_node.status, NodeStatus::Running);
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(next_node_id.as_str())
+        );
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                    if event.kind == "forced_inspect_transition"
+                        && event.node_id == node_id
+                        && event.tags.iter().any(|tag| tag == "trigger:budget_pressure_follow_up_intent")
             )
         }));
     }
@@ -15808,7 +16226,7 @@ mod tests {
                 "read useful evidence".to_string(),
             )
             .expect("read result records");
-        state.provider_request_count = 15;
+        state.provider_request_count = 30;
 
         let test_error = state
             .prepare_main_tool_call(
@@ -15875,7 +16293,7 @@ mod tests {
                 "edited file".to_string(),
             )
             .expect("edit result records");
-        state.provider_request_count = 15;
+        state.provider_request_count = 30;
 
         let read_error = state
             .prepare_main_tool_call(

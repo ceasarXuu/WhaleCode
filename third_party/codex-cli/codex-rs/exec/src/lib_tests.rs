@@ -206,6 +206,26 @@ fn lagged_event_warning_message_is_explicit() {
     );
 }
 
+#[test]
+fn should_process_warning_notification_for_thread() {
+    let notification =
+        ServerNotification::Warning(codex_app_server_protocol::WarningNotification {
+            thread_id: Some("thread-1".to_string()),
+            message: "TaskSpaceProviderRequestBudgetEventV1 status=started".to_string(),
+        });
+
+    assert!(should_process_notification(
+        &notification,
+        "thread-1",
+        "turn-1"
+    ));
+    assert!(!should_process_notification(
+        &notification,
+        "other-thread",
+        "turn-1"
+    ));
+}
+
 #[tokio::test]
 async fn resume_lookup_model_providers_filters_only_last_lookup() {
     let codex_home = tempdir().expect("create temp codex home");
