@@ -414,3 +414,18 @@ Observation:
 
 Supports:
 - There is no locally verified replacement provider/model path available to complete B acceptance while DeepSeek remains out of balance.
+
+## Evidence E-016: Lightweight current-turn DeepSeek probe still returns the same account-balance blocker
+
+Type: environment
+
+Source:
+- Minimal probe: `whale exec --json -m deepseek-v4-flash -c model_reasoning_effort="low" -s read-only --skip-git-repo-check --ephemeral -`
+
+Observation:
+- The probe starts a thread and turn, then retries five times.
+- Each retry reports `unexpected status 402 Payment Required: Insufficient Balance, url: https://api.deepseek.com/chat/completions`.
+- The turn fails before any agent work can occur.
+
+Supports:
+- The B acceptance run remains externally blocked by DeepSeek account balance. Repeating the full B harness would consume time without exercising the Phase A runtime path.
