@@ -7,6 +7,7 @@
 - Owner / Responsible: WhaleCode v0.0.5 runtime
 - Related Systems: TaskSpace runtime, DeepSeek official ChatCompletions provider, provider request construction, action-map runtime, benchmark harness
 - Related Links:
+  - `docs/v0.0.5/缓存命中问题修复/01-detailed-repair-plan.md`
   - `coe/2026-06-22-15-24-taskspace-deepseek-cache-hit-rate.md`
   - `scripts/taskspace-benchmark/verify-deepseek-cache-fix.ps1`
   - `docs/v0.0.5/build-R2/00-overview-and-gates.md`
