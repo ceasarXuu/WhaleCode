@@ -1366,6 +1366,22 @@ async fn build_initial_context_keeps_stable_skills_before_taskspace_context() {
         skills_index < taskspace_index,
         "stable skills block should precede dynamic TaskSpace context for provider prefix caching: {first_developer_text}"
     );
+
+    let developer_texts = developer_input_texts(&initial_context);
+    let stable_developer_text = developer_texts
+        .iter()
+        .find(|text| text.contains("<skills_instructions>"))
+        .expect("expected stable developer item with skills instructions");
+    assert!(
+        !stable_developer_text.contains("TaskSpace mode is now active"),
+        "stable developer item must not contain legacy TaskSpace markers that provider filtering omits: {stable_developer_text}"
+    );
+    assert!(
+        developer_texts
+            .iter()
+            .any(|text| text.contains("TaskSpace mode is now active")),
+        "expected TaskSpace transition in a separate developer item: {developer_texts:?}"
+    );
 }
 
 #[tokio::test]

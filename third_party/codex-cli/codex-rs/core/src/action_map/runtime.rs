@@ -2947,11 +2947,7 @@ preview:\n\
         if node_kind != NodeKind::ImplementSolution || !has_edit {
             return Ok(None);
         }
-        if !provider_request_budget_pressure_active_for_node(
-            snapshot.request_count,
-            snapshot.max_requests,
-            node_kind,
-        ) {
+        if !provider_request_budget_snapshot_pressure_active_for_node(snapshot, node_kind) {
             return Ok(None);
         }
         let result_summary = format!(
@@ -5231,6 +5227,25 @@ preview:\n\
         let problem_state_progress =
             usize::from(task.is_some_and(|task| node_has_problem_state_effect(task, map, node)));
         Some(successful_main_tool_results + problem_state_progress)
+    }
+
+    pub(crate) fn current_main_node_has_successful_action(
+        &self,
+        action_class: ActionClass,
+    ) -> bool {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return false;
+        };
+        let Some(node_id) = self.current_main_node_id.as_deref() else {
+            return false;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return false;
+        };
+        let Some(node) = map.nodes.get(node_id) else {
+            return false;
+        };
+        node_has_successful_action(map, node, action_class)
     }
 
     fn validate_completion_evidence_for(&self, map_id: &str, node_id: &str) -> Result<(), String> {
@@ -10797,6 +10812,18 @@ fn provider_request_budget_pressure_active_for_node(
     } else {
         provider_request_budget_pressure_active(provider_request_count, max_requests)
     }
+}
+
+fn provider_request_budget_snapshot_pressure_active_for_node(
+    snapshot: &ActionMapProviderRequestBudgetSnapshot,
+    node_kind: NodeKind,
+) -> bool {
+    provider_request_budget_pressure_active_for_node(
+        snapshot.request_count,
+        snapshot.max_requests,
+        node_kind,
+    ) || snapshot.node_request_count >= snapshot.max_model_requests_per_node
+        || snapshot.request_phase.as_deref() == Some("budget_recovery")
 }
 
 fn budget_state_for_counter(counter_value: usize, counter_limit: usize) -> TaskSpaceBudgetState {
@@ -18434,7 +18461,7 @@ mod tests {
                 "fixed src/tax_calc.py rounding precision".to_string(),
             )
             .expect("edit result records");
-        state.provider_request_count = 6;
+        state.provider_request_count = 5;
         let snapshot = ActionMapProviderRequestBudgetSnapshot {
             task_id: state.active_task_id.clone(),
             map_id: map_id.clone(),
@@ -18444,8 +18471,8 @@ mod tests {
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
             provider_request_context_missing_reason: None,
-            request_count: 6,
-            max_requests: 8,
+            request_count: 5,
+            max_requests: 10,
             node_request_count: 3,
             max_model_requests_per_node: 3,
             post_budget_grace_requests: 1,
@@ -20177,6 +20204,48 @@ mod tests {
         state
             .finish_main_node(owner, &node_id, "Fixed rounding.".to_string(), None)
             .expect("implementation can finish after edit evidence");
+    }
+
+    #[test]
+    fn current_main_node_successful_action_query_reads_recorded_tool_results() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Fix rounding",
+            "Fix the tax rounding bug.",
+            "Apply code fix",
+            "Change calculate_tax rounding.",
+            true,
+        );
+
+        assert!(!state.current_main_node_has_successful_action(ActionClass::Edit));
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "read src/tax_calc.py".to_string(),
+            )
+            .expect("read result records");
+        assert!(!state.current_main_node_has_successful_action(ActionClass::Edit));
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "changed round(..., 1) to round(..., 2)".to_string(),
+            )
+            .expect("edit result records");
+
+        assert!(state.current_main_node_has_successful_action(ActionClass::Edit));
     }
 
     #[test]

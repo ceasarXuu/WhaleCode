@@ -35,6 +35,9 @@ pub struct Prompt {
     /// Whether parallel tool calls are permitted for this prompt.
     pub(crate) parallel_tool_calls: bool,
 
+    /// Tool choice policy for transports that support model-side tool forcing.
+    pub(crate) tool_choice: String,
+
     pub base_instructions: BaseInstructions,
 
     /// Optionally specify the personality of the model.
@@ -53,6 +56,7 @@ impl Default for Prompt {
             input: Vec::new(),
             tools: Vec::new(),
             parallel_tool_calls: false,
+            tool_choice: "auto".to_string(),
             base_instructions: BaseInstructions::default(),
             personality: None,
             output_schema: None,

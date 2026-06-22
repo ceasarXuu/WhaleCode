@@ -1,7 +1,7 @@
 # Problem P-001: TaskSpace DeepSeek official API cache hit rate is unexpectedly low
 - Status: root_cause_confirmed
 - Created: 2026-06-22 15:24
-- Updated: 2026-06-22 15:24
+- Updated: 2026-06-22 22:55
 - Objective: Identify why TaskSpace runs on DeepSeek official API show low prompt-cache hit rates, reportedly below 50%, despite the expectation that repeated agent prompts should reach 95%+ cached input.
 - Symptoms:
   - TaskSpace mode uses DeepSeek official API.
@@ -32,10 +32,10 @@
   - The conclusion must cite direct artifact, code, or provider documentation evidence.
   - If a code repair is needed, design it only after the causal mechanism is confirmed.
 - Current conclusion:
-  - Confirmed current root cause: the first TaskSpace developer message now places stable skills before TaskSpace text, but it still contains the legacy marker `TaskSpace mode is now active` in the same message as the large stable skills/apps/plugins surface. Once an active projection exists, `compose_provider_visible_history` classifies that entire first developer message as `LegacyTaskspaceInstruction` and omits it from later provider-visible input. The second and later TaskSpace requests therefore stop sharing the first request's large stable message prefix and shift the same stable tools behind a different early message sequence. DeepSeek official isolated probes confirm this shape: a warmed full request reached 99.81% cache hit, while the first same-nonce request that omitted the stable developer message had 0% cache hit; repeating that omitted shape then reached 99.69%.
+  - Confirmed current root cause: DeepSeek official prompt cache works for stable no-tool ChatCompletions prefixes, but TaskSpace's current provider transport sends repeated ChatCompletions requests with large tool schemas plus dynamic TaskSpace state. Official same-nonce probes show no-tool prefix-extension requests can reach about 98-99% hit rate, while the TaskSpace-like request shape with 24 tools falls to about 4-5% hit rate. Local repairs fixed real prompt-shape and runtime defects, but live verification still fails at about 11-12% TaskSpace hit rate. The complete cost fix requires a tool-free or tool-schema-separated TaskSpace transport, not another local prompt-order patch.
 - Resolution basis:
-  - H-005, E-010 through E-013.
-  - H-001/E-006 identified the original initial-order bug and the first repair fixed that structural ordering. E-011 through E-013 supersede the earlier root-cause wording by showing the remaining live failure is caused by whole-message legacy omission after active projection appears.
+  - H-006, E-014 through E-016.
+  - H-001/E-006 and H-005/E-011 through E-013 identified and repaired real prompt-shape defects, but E-014 through E-016 supersede them as the final cost root cause.
 
 ## Hypothesis H-001: Dynamic TaskSpace context appears before reusable prefix content and breaks DeepSeek prefix caching
 - Status: superseded_by_H-005
@@ -115,7 +115,7 @@
 - Conclusion: Refuted. The local `phase-a-benefit-B-rerun29` sample shows TaskSpace hit rate at 13.86%, well below the user's reported below-50% concern.
 
 ## Hypothesis H-005: Active-projection filtering omits the mixed stable developer message after the first request
-- Status: confirmed
+- Status: superseded_by_H-006
 - Parent: P-001
 - Claim: The remaining live low cache-hit rate is caused by provider-visible history filtering after active projection appears: the first developer message combines stable skills/apps/plugins text with legacy TaskSpace transition text, and `is_legacy_taskspace_instruction` matches `TaskSpace mode is now active`, so `compose_provider_visible_history` omits the whole mixed message from subsequent requests.
 - Rationale:
@@ -136,9 +136,33 @@
   - E-011
   - E-012
   - E-013
-- Conclusion: Confirmed. The current end-to-end low hit rate is not merely tail projection churn. It is caused by item-level legacy filtering deleting the entire mixed stable developer message from later provider-visible requests, creating a different early message sequence before the large reusable tool/schema surface.
+- Conclusion: Confirmed as a real defect, but superseded as the final root cause. Splitting stable and TaskSpace developer sections addresses this message-omission failure, while E-014 through E-016 show TaskSpace still misses the cache target because DeepSeek's ChatCompletions tool-schema request shape remains poorly cached.
 - Repair design direction:
   - Split stable developer sections and TaskSpace transition/context sections into separate history items, or make the legacy filter section-aware so it removes only TaskSpace legacy text and never drops stable skills/apps/plugins. The invariant to test is that active-projection provider-visible history keeps the first stable developer item before dynamic TaskSpace projection items.
+
+## Hypothesis H-006: DeepSeek ChatCompletions tool schemas prevent TaskSpace from reaching the target cache hit rate
+- Status: confirmed
+- Parent: P-001
+- Claim: The remaining low TaskSpace cache-hit rate is caused by TaskSpace's repeated DeepSeek ChatCompletions requests carrying large tool schemas and dynamic TaskSpace state. DeepSeek cache hits stay high for stable no-tool prefixes, but the current tool-bearing request shape does not achieve the desired 95%+ economics.
+- Rationale:
+  - TaskSpace is multi-turn by design, so even moderate per-request cache misses multiply quickly.
+  - Official DeepSeek cache fields prove the provider cache is functioning, but TaskSpace-like requests with tools remain low-hit under official API probes.
+- Falsifiable predictions:
+  - If true: no-tool official probes should hit cache at high rates on repeated or prefix-extension requests.
+  - If true: TaskSpace-like official probes with tools should remain low-hit even when logical content is controlled.
+  - If true: local prompt-order/runtime fixes can improve correctness but will not lift live TaskSpace hit rate to the acceptance threshold.
+  - If false: after stable developer splitting and tool filtering, live TaskSpace should reach the configured hit-rate threshold without changing the provider transport shape.
+- Diagnostic evidence plan:
+  - Compare no-tool official DeepSeek cache probe with same-nonce TaskSpace-like probes that include tools.
+  - Run the repository verification script after each transport/runtime change and inspect provider usage fields.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-014
+  - E-015
+  - E-016
+- Conclusion: Confirmed. The full fix should move TaskSpace toward a cache-friendly architecture: either provider-visible tool-free action contracts parsed by the runtime, a separate stable tool-schema warmup strategy if DeepSeek supports it, or a Responses-native provider path that proves tool schemas are cached before adoption.
+- Repair design direction:
+  - Do not depend on prompt-order patches alone. Build a TaskSpace transport mode where the stable provider prefix stays tool-free or where tool schemas are not resent in every model request, then validate with `usage.prompt_cache_hit_tokens` / `usage.prompt_cache_miss_tokens`.
 
 ## Evidence E-001: Recent nonzero usage artifact reproduces low TaskSpace cache hit rate
 - Status: accepted
@@ -327,3 +351,49 @@
   - DeepSeek official cache works for each stable request shape, but warming the full shape does not make the first omitted-stable-developer shape hit cache. This matches the Whale TaskSpace pattern where the first request includes the mixed developer item and later requests omit it.
 - Supports:
   - H-005
+
+## Evidence E-014: Official DeepSeek tool-schema probe reproduces severe cache loss with tools enabled
+- Status: accepted
+- Captured: 2026-06-22
+- Method: Ran the official DeepSeek cache probe variant saved at `target/deepseek-cache-fix-validation/taskspace-like-official-probe/append-vs-replace-with-tools.json`.
+- Observations:
+  - No-tools append request hit rate was about `0.9835`.
+  - With the same 24-tool schema, append hit rate was about `0.04864`.
+  - Replacing the prompt while keeping the same tools hit about `0.043886`.
+- Interpretation:
+  - DeepSeek official prompt cache works for plain stable ChatCompletions prefixes, but the TaskSpace-like ChatCompletions request shape with large tools schema does not preserve the expected 95%+ cache hit rate.
+  - This makes TaskSpace's current multi-turn tool-calling transport structurally expensive even after stable developer text is moved earlier.
+- Supports:
+  - H-006
+
+## Evidence E-015: Runtime fixes improve correctness scaffolding but do not restore TaskSpace cache target
+- Status: accepted
+- Captured: 2026-06-22
+- Method: Updated runtime and transport code, then ran targeted Rust tests and live DeepSeek verification.
+- Observations:
+  - Stable developer sections are now separated from TaskSpace dynamic developer sections in `session/mod.rs`.
+  - DeepSeek ChatCompletions bridge now maps Responses custom `apply_patch` to a function-shaped `apply_patch` tool.
+  - TaskSpace provider budget logic now exposes only essential coding tools for ordinary TaskSpace turns, keeps late inspect turns to `taskspace_control`, and can force-finish implementation after a successful edit at node-level budget pressure.
+  - Passing tests included `cargo test -p codex-core active_context_replacement_ --lib`, `cargo test -p codex-core provider_budget_ --lib`, `cargo test -p codex-core build_initial_context_ --lib`, `cargo test -p codex-api chat_completions_maps_custom_apply_patch_to_function_tool --lib`, and `cargo build -p codex-cli --bin whale`.
+- Interpretation:
+  - These fixes address confirmed local defects: mixed stable/dynamic developer context, missing custom apply_patch mapping, and implementation-node post-edit budget transition.
+  - They are not sufficient to make TaskSpace reach the DeepSeek cache target because the remaining dominant cause is the tool-bearing ChatCompletions request shape.
+- Supports:
+  - H-005
+  - H-006
+
+## Evidence E-016: Latest live verification still fails the TaskSpace cache acceptance threshold
+- Status: accepted
+- Captured: 2026-06-22
+- Method: Built and installed `whale.exe` with SHA256 `2DFCF94752E629C99DE3570CB1B271FFB67B88554E3C2567D6DFBD83301E6815`, then ran `scripts/taskspace-benchmark/verify-deepseek-cache-fix.ps1 -RunTaskspaceBenchmark`.
+- Observations:
+  - Report: `target/deepseek-cache-fix-validation/post-edit-drain-force/deepseek-cache-fix-verification.md`.
+  - Artifact: `target/deepseek-cache-fix-validation/benchmark-20260622-224423/single-file-fast-fix/20260622-224424-479`.
+  - Official probe still passed with second-request hit rate `0.998267`.
+  - TaskSpace hit rate was `0.118437`, with `15104` cached input tokens and `112424` uncached input tokens.
+  - TaskSpace validation status was `fail`; TaskSpace side still exited `1` after repeated no-edit implementation turns and node provider budget exhaustion.
+- Interpretation:
+  - The local fixes are not a complete fix for the user-visible cost issue.
+  - The verified root cause now points to an architecture mismatch: TaskSpace currently sends repeated DeepSeek ChatCompletions requests with tool schemas and dynamic state, while the desired 95%+ economics require a stable, cacheable provider prefix without the tool-schema churn.
+- Supports:
+  - H-006

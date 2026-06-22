@@ -1001,6 +1001,16 @@ impl Session {
             .current_main_node_progress_signature()
     }
 
+    pub(crate) async fn action_map_current_main_node_has_successful_action(
+        &self,
+        action_class: ActionClass,
+    ) -> bool {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .current_main_node_has_successful_action(action_class)
+    }
+
     pub(crate) async fn record_action_map_main_tool_result(
         &self,
         turn_context: &TurnContext,
@@ -3737,6 +3747,7 @@ impl Session {
         turn_context: &TurnContext,
     ) -> Vec<ResponseItem> {
         let mut developer_sections = Vec::<String>::with_capacity(8);
+        let mut taskspace_developer_sections = Vec::<String>::with_capacity(2);
         let mut contextual_user_sections = Vec::<String>::with_capacity(2);
         let shell = self.user_shell();
         let (
@@ -3891,13 +3902,13 @@ impl Session {
         {
             developer_sections.push(commit_message_instruction);
         }
-        // TaskSpace context changes frequently. Keep it behind stable developer
-        // sections so provider prefix caches can reuse the large fixed surface.
+        // TaskSpace context changes frequently. Keep it in a separate developer
+        // item so legacy TaskSpace filtering cannot drop stable developer text.
         if let Some(action_map_transition_notice) = action_map_transition_notice {
-            developer_sections.push(action_map_transition_notice);
+            taskspace_developer_sections.push(action_map_transition_notice);
         }
         if let Some(action_map_context) = action_map_context {
-            developer_sections.push(action_map_context);
+            taskspace_developer_sections.push(action_map_context);
         }
         if let Some(user_instructions) = turn_context.user_instructions.as_deref() {
             contextual_user_sections.push(
@@ -3921,11 +3932,18 @@ impl Session {
             );
         }
 
-        let mut items = Vec::with_capacity(3);
+        let mut items = Vec::with_capacity(4);
         if let Some(developer_message) =
             crate::context_manager::updates::build_developer_update_item(developer_sections)
         {
             items.push(developer_message);
+        }
+        if let Some(taskspace_developer_message) =
+            crate::context_manager::updates::build_developer_update_item(
+                taskspace_developer_sections,
+            )
+        {
+            items.push(taskspace_developer_message);
         }
         if let Some(contextual_user_message) =
             crate::context_manager::updates::build_contextual_user_message(contextual_user_sections)
