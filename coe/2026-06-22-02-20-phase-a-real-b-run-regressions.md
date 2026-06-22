@@ -383,3 +383,34 @@ Observation:
 
 Supports:
 - Current B acceptance cannot be revalidated until the DeepSeek provider balance is restored or the benchmark is configured to use an available provider/model.
+
+## Evidence E-014: Current-HEAD B rerun still fails before agent work because DeepSeek balance remains unavailable
+
+Type: reproduction
+
+Source:
+- `target/phase-a-benefit-B-rerun39/single-file-fast-fix/20260622-091144-235/pair-001/pair-report.md`
+- `target/phase-a-benefit-B-rerun39/single-file-fast-fix/20260622-091144-235/pair-001/right/artifacts/whale-exec.jsonl`
+
+Observation:
+- After rebuilding `D:\BuildCache\whalecode\cargo-target\debug\whale.exe` from current commit `39d871d26f932eb7d0ff444d26238f721c7aa933`, rerun39 passes whale-binary preflight and produces a valid harness run.
+- Both standard and TaskSpace sides fail before any useful tool execution with `tool_call_count: 0`.
+- The TaskSpace `whale-exec.jsonl` records five reconnect attempts followed by `unexpected status 402 Payment Required: Insufficient Balance, url: https://api.deepseek.com/chat/completions`.
+
+Supports:
+- The B acceptance blocker is still external DeepSeek account balance, not stale binary preflight and not the Phase A runtime patch.
+
+## Evidence E-015: No configured alternative provider is currently usable for the same B harness
+
+Type: environment
+
+Source:
+- Minimal probe: `whale exec --json -m gpt-5.4-mini -c model_provider="openai" -c model_reasoning_effort="low" -s read-only --skip-git-repo-check --ephemeral -`
+- Minimal probe with `WHALE_HOME=C:\Users\77585\.codex`
+
+Observation:
+- Explicit OpenAI provider probing fails with `401 Unauthorized: Missing bearer or basic authentication in header`.
+- Pointing `WHALE_HOME` at `C:\Users\77585\.codex` is rejected with `WHALE_HOME must not point at an official Codex state directory`.
+
+Supports:
+- There is no locally verified replacement provider/model path available to complete B acceptance while DeepSeek remains out of balance.
