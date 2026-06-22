@@ -3805,18 +3805,14 @@ impl Session {
         {
             developer_sections.push(collab_instructions.render());
         }
-        if let Some(action_map_transition_notice) = {
+        let action_map_transition_notice = {
             let mut state = self.state.lock().await;
             state.action_map_runtime.take_pending_transition_notice()
-        } {
-            developer_sections.push(action_map_transition_notice);
-        }
-        if let Some(action_map_context) = {
+        };
+        let action_map_context = {
             let mut state = self.state.lock().await;
             state.action_map_runtime.build_developer_context()
-        } {
-            developer_sections.push(action_map_context);
-        }
+        };
         if let Some(realtime_update) = crate::context_manager::updates::build_initial_realtime_item(
             reference_context_item.as_ref(),
             previous_turn_settings.as_ref(),
@@ -3894,6 +3890,14 @@ impl Session {
             )
         {
             developer_sections.push(commit_message_instruction);
+        }
+        // TaskSpace context changes frequently. Keep it behind stable developer
+        // sections so provider prefix caches can reuse the large fixed surface.
+        if let Some(action_map_transition_notice) = action_map_transition_notice {
+            developer_sections.push(action_map_transition_notice);
+        }
+        if let Some(action_map_context) = action_map_context {
+            developer_sections.push(action_map_context);
         }
         if let Some(user_instructions) = turn_context.user_instructions.as_deref() {
             contextual_user_sections.push(

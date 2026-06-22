@@ -1332,6 +1332,43 @@ async fn build_initial_context_consumes_action_map_transition_notice_once() {
 }
 
 #[tokio::test]
+async fn build_initial_context_keeps_stable_skills_before_taskspace_context() {
+    let (session, mut turn_context) = make_session_and_context().await;
+    let mut outcome = SkillLoadOutcome::default();
+    outcome.skills = vec![SkillMetadata {
+        name: "repo-skill".to_string(),
+        description: "stable skill metadata".to_string(),
+        short_description: None,
+        interface: None,
+        dependencies: None,
+        policy: None,
+        path_to_skills_md: test_path_buf("/tmp/repo-skill/SKILL.md").abs(),
+        scope: SkillScope::Repo,
+    }];
+    turn_context.turn_skills = TurnSkillsContext::new(Arc::new(outcome));
+    {
+        let mut state = session.state.lock().await;
+        state
+            .action_map_runtime
+            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
+    }
+
+    let initial_context = session.build_initial_context(&turn_context).await;
+    let first_developer_text = developer_input_texts(&initial_context).join("\n");
+    let skills_index = first_developer_text
+        .find("<skills_instructions>")
+        .unwrap_or_else(|| panic!("expected skills instructions: {first_developer_text}"));
+    let taskspace_index = first_developer_text
+        .find("TaskSpace mode is now active")
+        .unwrap_or_else(|| panic!("expected TaskSpace context: {first_developer_text}"));
+
+    assert!(
+        skills_index < taskspace_index,
+        "stable skills block should precede dynamic TaskSpace context for provider prefix caching: {first_developer_text}"
+    );
+}
+
+#[tokio::test]
 async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() {
     let (session, turn_context) = make_session_and_context().await;
     {

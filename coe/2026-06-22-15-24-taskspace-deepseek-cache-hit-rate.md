@@ -33,6 +33,8 @@
   - If a code repair is needed, design it only after the causal mechanism is confirmed.
 - Current conclusion:
   - Confirmed root cause: TaskSpace inserts dynamic TaskSpace developer context before the large stable skills/tool instruction surface and then rewrites TaskSpace projection developer items between model requests. DeepSeek official API context caching is prefix-based, so the large stable suffix after the changing TaskSpace prefix often cannot be reused. The recent `phase-a-benefit-B-rerun29` artifact reproduces this directly: TaskSpace cached only 18,944 of 136,638 input tokens, or 13.86%, while Standard cached 107,648 of 130,453 input tokens, or 82.52%.
+- Resolution basis:
+  - H-001, E-001 through E-008.
 
 ## Hypothesis H-001: Dynamic TaskSpace context appears before reusable prefix content and breaks DeepSeek prefix caching
 - Status: confirmed
@@ -55,6 +57,8 @@
   - E-005
   - E-006
 - Conclusion: Confirmed. TaskSpace's model-visible developer order places mutable TaskSpace state ahead of the large stable skills surface. Subsequent requests repeatedly replace or append TaskSpace projection/recovery developer items, producing different provider payload hashes and very low cache hits on most requests.
+- Repair design:
+  - Move initial TaskSpace transition/context developer sections after stable skills, apps, plugins, and related fixed developer sections so provider prefix caching can reuse the large stable prompt surface before TaskSpace state begins to vary.
 
 ## Hypothesis H-002: Cache hit rate is being calculated from the wrong aggregate denominator or field mapping
 - Status: refuted_for_current_artifact
@@ -187,5 +191,30 @@
   - `session/turn.rs` calls `remove_action_map_projection_history_items()` and records a fresh action-map projection before constructing `sampling_request_input`.
 - Interpretation:
   - The largest stable developer surface in this artifact, the skills list, is after dynamic TaskSpace context instead of before it. This directly breaks the desired DeepSeek prefix-cache shape.
+- Supports:
+  - H-001
+
+## Evidence E-007: Repair moves initial TaskSpace developer context behind stable developer sections
+- Status: accepted
+- Captured: 2026-06-22
+- Method: Changed `third_party/codex-cli/codex-rs/core/src/session/mod.rs`.
+- Observations:
+  - `action_map_transition_notice` and `action_map_context` are now collected early but appended after stable sections such as skills, apps, plugins, commit guidance, and other fixed developer content.
+  - The change keeps TaskSpace context in the same initial developer message but moves it later in the model-visible prefix.
+- Interpretation:
+  - This directly addresses H-001 by preserving a longer stable prefix before dynamic TaskSpace state appears.
+- Supports:
+  - H-001
+
+## Evidence E-008: Regression tests validate stable skills precede TaskSpace context and transition notice still works
+- Status: accepted
+- Captured: 2026-06-22
+- Method: Ran targeted Rust tests from `third_party/codex-cli/codex-rs`.
+- Observations:
+  - `cargo test -p codex-core build_initial_context_keeps_stable_skills_before_taskspace_context --lib` passed.
+  - `cargo test -p codex-core build_initial_context_consumes_action_map_transition_notice_once --lib` passed.
+  - `cargo test -p codex-core build_initial_context_ --lib` passed 10 tests.
+- Interpretation:
+  - The new cache-order invariant is covered, and existing initial-context behavior around one-time TaskSpace transition notices remains intact.
 - Supports:
   - H-001
