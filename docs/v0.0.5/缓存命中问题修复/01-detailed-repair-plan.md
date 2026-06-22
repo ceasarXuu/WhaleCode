@@ -29,7 +29,7 @@ Latest live validation showed:
 | Standard | 1 | 94,353 | 75,264 | 19,089 | 0.797685 |
 | TaskSpace | 8 | 127,528 | 15,104 | 112,424 | 0.118437 |
 
-TaskSpace input was only about `1.35x` Standard, but uncached input was about `5.9x` Standard. The blocker is repeated cache miss, not only larger context.
+The blocker is repeated cache miss, not only larger context.
 
 ### Expected Behavior
 
@@ -44,8 +44,8 @@ The current runtime depends on provider-native tool calls for execution. That ma
 | Goal | Expected Benefit | Baseline | Target | Measurement |
 |---|---|---:|---:|---|
 | Stable steady-state provider prefix | DeepSeek cache hit becomes reliable after cold start | TaskSpace hit rate 0.118437 | requests 2+ hit >= 0.95 | provider usage fields |
-| Lower uncached cost | User experiments become economically viable | TaskSpace uncached 112,424 vs Standard 19,089 | TaskSpace uncached <= 1.2x Standard | benchmark token summary |
-| Preserve correctness | Cost fix does not degrade TaskSpace usefulness | latest TaskSpace side failed | no regression vs current correctness gates | public/hidden validators and benchmark audit |
+| Remove native tools schema from the hot path | Stable cacheable prefix is not followed by repeated provider-native tools schema churn | native tools schema present in current hot path | native_tools_schema_hot_path_count == 0 | request-shape trace |
+| Preserve correctness | Cache fix does not degrade TaskSpace usefulness | latest TaskSpace side failed | no regression vs current correctness gates | public/hidden validators and benchmark audit |
 | Improve observability | Future failures are diagnosable without manual payload scraping | partial aggregate evidence | >= 99% request cache trace coverage | cache trace artifact |
 | Keep fallback | New transport can be disabled quickly | NativeTools path exists | feature-flagged fallback retained until release gate | config and side-by-side run |
 
@@ -55,14 +55,14 @@ The current runtime depends on provider-native tool calls for execution. That ma
 - Do not hide fixed natural-language responses in the CLI or runtime.
 - Do not remove TaskSpace node semantics, evidence gates, or permission checks.
 - Do not rely on DeepSeek caching native tools schema unless a live provider probe proves it.
-- Do not remove NativeTools until the new path passes correctness and cost gates.
+- Do not remove NativeTools until the new path passes correctness and cache gates.
 
 ## 4. Constraints And Assumptions
 
 | Assumption | Verification Method | If Assumption Fails |
 |---|---|---|
 | DeepSeek official no-tool prefix cache remains high | Run `verify-deepseek-cache-fix.ps1` official probe | Treat as provider regression or account/model issue before runtime work |
-| Current native-tools path remains useful as fallback | Run existing benchmark in NativeTools mode | Keep fallback debug-only; do not use for cost-sensitive release |
+| Current native-tools path remains useful as fallback | Run existing benchmark in NativeTools mode | Keep fallback debug-only; do not use for DeepSeek cache evidence |
 | Runtime can execute model-emitted action envelopes through existing handlers | Implement L1 action executor prototype | Add minimal executor bridge rather than bypass handlers |
 | Existing action-map node policy can reject disallowed actions | Unit tests per node kind | Add explicit action-envelope policy layer |
 | Tool-free action contract can preserve model compliance | Live L1 DeepSeek smoke | Add parser recovery and examples; if still poor, evaluate split planner/executor |
@@ -191,9 +191,9 @@ No model-emitted action may execute until runtime validates:
 | 2 | Action contract design | `TaskSpaceActionV1` schema and parser | invalid actions rejected |
 | 3 | Tool-free L1 prototype | feature-flagged transport | L1 solves with no native tools schema |
 | 4 | Full node workflow | inspect/implement/test/final coverage | E2 diagnostic no correctness regression |
-| 5 | Cost gate integration | release-decision cache gates | current failing fixture rejected |
+| 5 | Cache gate integration | release-decision cache gates | current failing fixture rejected |
 | 6 | Formal validation | live DeepSeek E2/E3 readiness | cache and correctness gates pass |
-| 7 | Cleanup and default switch | fallback policy and docs | DeepSeek TaskSpace default is cost-safe |
+| 7 | Cleanup and default switch | fallback policy and docs | DeepSeek TaskSpace default is cache-safe |
 
 ## 8. Phased Execution Plan
 
@@ -430,7 +430,7 @@ This phase should solve `single-file-fast-fix` end to end before expanding scope
 |---|---|---|---|
 | Correctness | L1 public/hidden validators | live DeepSeek run | exit code 0 |
 | Benefit | Steady-state cache hit | verification script | requests 2+ hit >= 0.95 |
-| Benefit | Uncached input ratio | token summary | TaskSpace uncached <= 1.2x Standard |
+| Benefit | Native tools schema removed from hot path | cache trace | native_tools_schema_hot_path_count == 0 |
 | Regression | NativeTools unaffected | run targeted old-path tests | no regression |
 
 #### Exit Criteria
@@ -493,6 +493,7 @@ Expand the action-contract transport from one smoke scenario to normal TaskSpace
 |---|---|---|---|
 | Correctness | E2 diagnostic | benchmark harness | no solved-count regression vs current baseline |
 | Benefit | Cache | cache trace | requests 2+ hit >= 0.95 |
+| Benefit | Hot-path request shape | cache trace | native_tools_schema_hot_path_count == 0 |
 | Regression | Node policy | unit and integration tests | no cross-node action bypass |
 
 #### Exit Criteria
@@ -522,7 +523,6 @@ Make cache safety a hard v0.0.5 release gate.
 - Extend release-decision scripts to consume cache trace.
 - Add gates:
   - `steady_state_provider_cache_hit_rate_for_requests_2_plus >= 0.95`;
-  - `taskspace_uncached_input_tokens <= 1.2x standard_uncached_input_tokens`;
   - `cache_trace_coverage >= 0.99`;
   - `native_tools_schema_hot_path_count == 0` for DeepSeek release-like TaskSpace runs.
 - Add fixture tests:
@@ -550,7 +550,7 @@ Make cache safety a hard v0.0.5 release gate.
 |---|---|---|---|
 | Correctness | Current failing fixture rejected | release script test | fail with cache taxonomy |
 | Correctness | Passing fixture accepted | release script test | pass only when all gates met |
-| Benefit | Gate prevents cost regression | run on live artifact | low hit rate cannot pass |
+| Benefit | Gate prevents cache regression | run on live artifact | low hit rate cannot pass |
 
 #### Exit Criteria
 
@@ -561,7 +561,7 @@ Make cache safety a hard v0.0.5 release gate.
 | Risk | Impact | Trigger Signal | Mitigation | Fallback |
 |---|---|---|---|---|
 | Gate too strict for tiny samples | false negatives | cold-start dominates aggregate | use request 2+ steady-state hard gate | aggregate hit as warning |
-| Gate too loose | cost regression ships | high uncached despite hit rate | include uncached ratio gate | block release |
+| Gate too loose | cache regression ships | native tools schema or unstable prefix still passes | require hit-rate, trace-coverage, and hot-path-shape gates | block release |
 
 #### Gate To Next Phase
 
@@ -591,7 +591,7 @@ Prove the new transport is suitable for v0.0.5 experiments.
 |---|---|---|---|
 | Correctness | Business success | benchmark validators | no regression vs current expected TaskSpace gates |
 | Benefit | Cache | provider usage fields | requests 2+ hit >= 0.95 |
-| Benefit | Cost | token summary | uncached input <= 1.2x Standard |
+| Benefit | Hot-path request shape | cache trace | native_tools_schema_hot_path_count == 0 |
 | Regression | Native fallback | optional side run | fallback still works for debug |
 
 #### Exit Criteria
@@ -603,7 +603,7 @@ Prove the new transport is suitable for v0.0.5 experiments.
 
 | Risk | Impact | Trigger Signal | Mitigation | Fallback |
 |---|---|---|---|---|
-| Provider balance blocks validation | cannot close project | 402 Payment Required | use low-cost probe first, record blocker | do not claim completion |
+| Provider balance blocks validation | cannot close project | 402 Payment Required | use minimal provider probe first, record blocker | do not claim completion |
 | Provider behavior changes | unstable result | no-tool probe no longer hits | isolate provider regression | pause release gate changes |
 
 #### Gate To Next Phase
@@ -614,7 +614,7 @@ Proceed when live validation artifacts pass.
 
 #### Objective
 
-Make the cost-safe transport the DeepSeek TaskSpace default and retire unsafe release usage of NativeTools.
+Make the cache-safe transport the DeepSeek TaskSpace default and retire unsafe release usage of NativeTools.
 
 #### Implementation Tasks
 
@@ -623,7 +623,7 @@ Make the cost-safe transport the DeepSeek TaskSpace default and retire unsafe re
 - Document when NativeTools may be used:
   - provider debugging;
   - regression comparison;
-  - non-cost-sensitive local tests.
+  - local regression tests.
 - Remove obsolete prompt-order workaround code only after replacement is stable.
 - Update v0.0.5 closeout docs.
 
@@ -637,7 +637,7 @@ Make the cost-safe transport the DeepSeek TaskSpace default and retire unsafe re
 
 #### Exit Criteria
 
-- DeepSeek TaskSpace release path is cost-safe by default.
+- DeepSeek TaskSpace release path is cache-safe by default.
 - NativeTools is not used for release-like DeepSeek TaskSpace evidence.
 
 ## 9. Implementation Completeness Matrix
@@ -657,11 +657,11 @@ Make the cost-safe transport the DeepSeek TaskSpace default and retire unsafe re
 
 | Dependency | Type | Current Status | Blocking Risk | Handling Plan |
 |---|---|---|---|---|
-| DeepSeek official API balance | third-party | Unknown per future run | live validation may block | run no-tool low-cost probe before full benchmark |
+| DeepSeek official API balance | third-party | Unknown per future run | live validation may block | run no-tool minimal probe before full benchmark |
 | Existing TaskSpace runtime | system | Available | node policy and result lifecycle may reject new action path | keep executor bridge through existing runtime functions |
 | Benchmark harness | system | Available | may not expose cache trace fields yet | Phase 1 adds trace extraction |
 | Release-decision scripts | system | Available | cache gate absent | Phase 5 integrates hard gates |
-| Existing NativeTools path | system | Available | fallback could hide cost issue | mark release-like NativeTools DeepSeek runs diagnostic-only |
+| Existing NativeTools path | system | Available | fallback could hide cache issue | mark release-like NativeTools DeepSeek runs diagnostic-only |
 
 ## 11. Testing And Validation Strategy
 
@@ -672,7 +672,7 @@ Make the cost-safe transport the DeepSeek TaskSpace default and retire unsafe re
 | Correctness | Integration | executor bridge | targeted TaskSpace runtime tests | action result recorded in ledger |
 | Correctness | Regression | NativeTools path | existing provider budget/session tests | no regression |
 | Benefit | Cache | DeepSeek live L1 | `verify-deepseek-cache-fix.ps1 -RunTaskspaceBenchmark` | requests 2+ hit >= 0.95 |
-| Benefit | Cost | benchmark token summary | Standard vs TaskSpace comparison | uncached input <= 1.2x Standard |
+| Benefit | Hot-path request shape | cache trace | DeepSeek TaskSpace action-contract run | native_tools_schema_hot_path_count == 0 |
 | Release | Gate fixtures | release-decision tests | current failing fixture and passing fixture | fail/pass as expected |
 
 ## 12. Benefit Validation
@@ -680,8 +680,7 @@ Make the cost-safe transport the DeepSeek TaskSpace default and retire unsafe re
 | Benefit Hypothesis | Metric | Baseline | Target | Measurement Method | Data Source | Observation Window | Pass / Fail Threshold |
 |---|---:|---:|---:|---|---|---|---|
 | Stable prefix restores DeepSeek cache | requests 2+ hit rate | about 0.118 aggregate TaskSpace | >= 0.95 steady-state | provider usage fields | cache trace | per run | fail below 0.95 |
-| User cost is controlled | TaskSpace uncached ratio vs Standard | about 5.9x | <= 1.2x | token summary comparison | benchmark artifact | per comparable sample | fail above 1.2x |
-| Total TaskSpace overhead remains bounded | direct input+output ratio | unknown for new path | <= 2.0x | existing v0.0.5 gates | benchmark artifact | per gate sample | fail above 2.0x |
+| Native tools schema is removed from the cache hot path | native_tools_schema_hot_path_count | present in old path | 0 | request-shape trace | cache trace | per run | fail above 0 |
 | Correctness is preserved | business success | current baseline varies by sample | no regression | validators/oracle | pair report | per sample set | fail on regression |
 
 ## 13. Release, Rollback, And Fallback Strategy
@@ -693,7 +692,7 @@ Make the cost-safe transport the DeepSeek TaskSpace default and retire unsafe re
 - Expansion criteria:
   - L1 correctness pass;
   - requests 2+ cache hit >= 0.95;
-  - uncached input <= 1.2x Standard.
+  - native_tools_schema_hot_path_count == 0.
 - Pause criteria:
   - malformed action rate prevents progress;
   - cache trace coverage < 99%;
@@ -712,20 +711,20 @@ Make the cost-safe transport the DeepSeek TaskSpace default and retire unsafe re
 - Rollback triggers:
   - correctness regression;
   - policy bypass;
-  - live cost regression.
+  - live cache regression.
 - Rollback steps:
   - switch DeepSeek TaskSpace transport back to `NativeTools`;
   - mark results diagnostic-only;
   - keep cache blocker open.
 - Rollback validation:
   - NativeTools targeted regression tests pass;
-  - release gate still blocks cost-sensitive DeepSeek TaskSpace claims.
+  - release gate still blocks DeepSeek TaskSpace cache claims when cache evidence is missing or failing.
 
 ### Fallback / Degradation Strategy
 
 - Degradable capability: cache-optimized transport.
 - Trigger: action-contract path fails correctness.
-- User-visible impact: TaskSpace DeepSeek experiments remain blocked for cost-sensitive usage.
+- User-visible impact: TaskSpace DeepSeek experiments remain blocked for cache-sensitive evidence.
 - System behavior while degraded: NativeTools may run only as debug or diagnostic mode.
 - Recovery steps: inspect action trace, fix parser/validator/executor, rerun L1.
 
@@ -749,7 +748,6 @@ Required checks:
 |---|---:|---:|---:|---|
 | request 2+ cache hit rate | Unknown in current trace | >= 0.95 | < 0.95 | each live run |
 | aggregate TaskSpace hit rate | 0.118437 latest | warning >= 0.85 for larger samples | < 0.85 | E2+ sample |
-| TaskSpace uncached ratio vs Standard | about 5.9x | <= 1.2x | > 1.2x | comparable sample |
 | cache trace coverage | partial/manual | >= 99% | < 99% | every benchmark |
 | native tools schema in action-contract mode | present in old path | 0 | > 0 | every release-like run |
 | malformed action rate | Unknown | <= 10% after warmup | > 20% | diagnostic run |

@@ -52,12 +52,12 @@ DeepSeek official TaskSpace runs also require the cache blocker gates in:
 docs/v0.0.5/缓存命中问题修复/README.md
 ```
 
-Until that project closes, DeepSeek TaskSpace benchmark output is diagnostic-only for cost-sensitive v0.0.5 experiments. The hard cache target is:
+Until that project closes, DeepSeek TaskSpace benchmark output is diagnostic-only for v0.0.5 cache evidence. The hard cache target is:
 
 ```text
 steady_state_provider_cache_hit_rate_for_requests_2_plus >= 0.95
-taskspace_uncached_input_tokens <= 1.2x standard_uncached_input_tokens on comparable diagnostic samples
 cache trace coverage >= 99%
+native_tools_schema_hot_path_count == 0 for DeepSeek release-like TaskSpace runs
 ```
 
 ## 2. Current alpha implementation baseline

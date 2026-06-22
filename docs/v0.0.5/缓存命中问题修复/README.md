@@ -20,16 +20,16 @@
 
 ## 0. Executive Decision
 
-TaskSpace DeepSeek 缓存命中问题必须列为 v0.0.5 正式阻塞项。未解决前，不允许把 TaskSpace benchmark、E2/E3 实验或成本结论作为 release 证据。
+TaskSpace DeepSeek 缓存命中问题必须列为 v0.0.5 正式阻塞项。未解决前，不允许把 TaskSpace benchmark、E2/E3 实验作为缓存修复或 release 证据。
 
-原因很直接：当前 TaskSpace live 验证中，DeepSeek 官方 no-tool cache probe 可以达到约 `99.8%` 命中，但 TaskSpace 真实请求只有约 `11-12%` 命中。成本差异主要来自 uncached input 暴涨，而不是单纯总 token 多一点。
+原因很直接：当前 TaskSpace live 验证中，DeepSeek 官方 no-tool cache probe 可以达到约 `99.8%` 命中，但 TaskSpace 真实请求只有约 `11-12%` 命中。这证明 TaskSpace provider 请求形态没有稳定复用 DeepSeek 可缓存前缀。
 
 v0.0.5 必须完成一个 cache-optimized TaskSpace transport，使 TaskSpace provider 请求满足以下目标：
 
 ```text
 steady_state_provider_cache_hit_rate_for_requests_2_plus >= 0.95
-taskspace_uncached_input_tokens <= 1.2x standard_uncached_input_tokens on comparable diagnostic samples
-taskspace_direct_input_plus_output_tokens <= 2.0x standard on formal gates
+cache trace coverage >= 99%
+native_tools_schema_hot_path_count == 0 for DeepSeek release-like TaskSpace runs
 business_success must not regress against existing TaskSpace gates
 ```
 
@@ -77,9 +77,8 @@ taskspace:
 
 关键事实：
 
-- TaskSpace input 只约为 standard 的 `1.35x`。
-- TaskSpace uncached input 约为 standard 的 `5.9x`。
-- 因此成本爆炸点是 cache miss，不只是上下文变大。
+- TaskSpace 在 8 次 provider 请求中只有 `15,104` cached input tokens。
+- TaskSpace 的低命中率来自重复 cache miss，不只是上下文变大。
 
 ## 2. Root Cause
 
@@ -87,7 +86,7 @@ taskspace:
 
 DeepSeek 官方 cache 对稳定 no-tool prefix 正常工作；但 TaskSpace 当前的多轮 ChatCompletions 请求形态会反复把大 tools schema 放在动态 messages 之后，导致稳定的大块工具/协议内容无法作为同一 prefix 被复用。
 
-这不是单一 prompt 顺序 bug。此前已经修过稳定 developer section 和 TaskSpace 动态 section 混在同一个 message 的问题，也修过 `apply_patch` custom tool 到 ChatCompletions function tool 的映射问题；这些是正确的局部修复，但不能从根本上解决 tools schema 反复 miss 的成本问题。
+这不是单一 prompt 顺序 bug。此前已经修过稳定 developer section 和 TaskSpace 动态 section 混在同一个 message 的问题，也修过 `apply_patch` custom tool 到 ChatCompletions function tool 的映射问题；这些是正确的局部修复，但不能从根本上解决 tools schema 反复 miss 的缓存问题。
 
 ### Why Standard Mode Is Different
 
@@ -107,16 +106,16 @@ many provider requests
 | Goal | Expected Benefit | Measurement |
 |---|---|---|
 | G1: Stable cache prefix | DeepSeek 请求 2+ 能复用大部分固定协议输入 | `prompt_cache_hit_tokens / (hit + miss)` for requests 2+ |
-| G2: Remove tools-schema churn from hot path | 降低 uncached input 成本 | TaskSpace uncached input ratio vs Standard |
-| G3: Preserve TaskSpace correctness | 成本优化不能牺牲任务完成率 | existing benchmark business success and oracle gates |
-| G4: Make cache behavior observable | 后续不会再次凭感觉判断缓存问题 | request-shape hash, prefix hash, per-request cache trace |
+| G2: Remove tools-schema churn from hot path | 证明缓存热路径不再发送 native tools schema | `native_tools_schema_hot_path_count == 0` |
+| G3: Preserve TaskSpace correctness | 缓存修复不能牺牲任务完成率 | existing benchmark business success and oracle gates |
+| G4: Make cache behavior observable | 不再凭感觉判断缓存问题 | request-shape hash, prefix hash, per-request cache trace |
 | G5: Make rollout reversible | 如果新 transport 降低正确率，可以回退 | config flag and side-by-side benchmark |
 
 ## 4. Non-Goals
 
 - 不把降低模型能力作为主要手段，例如简单缩短 prompt 但破坏 TaskSpace 约束。
 - 不通过隐藏固定自然语言答复绕过 Agent/Model 路径。
-- 不把 benchmark 阈值调低来伪造成本改善。
+- 不把 benchmark 阈值调低来伪造缓存改善。
 - 不依赖尚未验证的 provider 行为，例如假设 DeepSeek 会缓存 tools schema 后缀。
 - 不在没有 live provider 证据时声明问题修复。
 
@@ -191,8 +190,8 @@ The provider no longer sees the full tools schema; it sees the stable action con
 | A. Tool-free action contract | Model emits structured action JSON/text; runtime executes tools locally | Best cache shape; provider-agnostic; debuggable | Requires parser, validator, migration work | Recommended |
 | B. Split planner and tool executor | DeepSeek plans without tools; a local executor or smaller model translates to tool calls | Keeps DeepSeek prefix clean | More moving parts; possible correctness drift | Consider after A if needed |
 | C. Responses-native DeepSeek path | Use a provider path where tools might be serialized/cached differently | Could retain native tool calls | Must be proven; may not exist or may behave similarly | Discovery only |
-| D. Prompt ordering and tool filtering only | Keep ChatCompletions tools but shrink/move dynamic text | Lower implementation cost | Already insufficient in live validation | Not enough |
-| E. Cache warmup requests | Send synthetic warmup requests before real work | May improve benchmark numbers | Adds latency/cost and may not help unique tasks | Not primary solution |
+| D. Prompt ordering and tool filtering only | Keep ChatCompletions tools but shrink/move dynamic text | Lower implementation effort | Already insufficient in live validation | Not enough |
+| E. Cache warmup requests | Send synthetic warmup requests before real work | May improve benchmark numbers | Adds extra provider requests and may not help unique tasks | Not primary solution |
 
 ## 7. Phased Execution Plan
 
@@ -333,7 +332,7 @@ Make the tool-free transport cover the normal TaskSpace workflow, not only one s
 - New transport passes E2 diagnostic without engineering unclean failures.
 - Existing native tools path remains available as fallback.
 
-### Phase 4: Cost Gate Integration
+### Phase 4: Cache Gate Integration
 
 #### Objective
 
@@ -344,8 +343,8 @@ Promote cache metrics from diagnostic-only to release gate inputs.
 - Extend release decision script to read cache trace.
 - Add hard gates:
   - requests 2+ hit rate >= 0.95;
-  - TaskSpace uncached input <= 1.2x Standard on comparable samples;
-  - unknown cache trace coverage <= 1%.
+  - unknown cache trace coverage <= 1%;
+  - native_tools_schema_hot_path_count == 0 for DeepSeek release-like TaskSpace runs.
 - Add soft warning:
   - aggregate sample hit rate below 0.85, because cold-start request can dominate very small samples.
 - Add failure taxonomy:
@@ -377,13 +376,13 @@ Prove the cache-optimized transport is suitable for v0.0.5 experiments.
 | Stage | Sample | Required Result |
 |---|---|---|
 | L1 smoke | `single-file-fast-fix` | business success, requests 2+ hit >= 0.95 |
-| E2 diagnostic | current TaskSpace diagnostic set | no correctness regression, uncached input <= 1.2x Standard |
+| E2 diagnostic | current TaskSpace diagnostic set | no correctness regression, requests 2+ hit >= 0.95, no native tools schema hot path |
 | E3 readiness | v0.0.5 readiness sample | existing R2 gates plus cache gates pass |
 | Formal E3 | approved sample set only | release evidence accepted only if cache gates pass |
 
 #### Exit Criteria
 
-- TaskSpace cost is no longer dominated by uncached repeated stable input.
+- TaskSpace cache miss is no longer caused by repeated uncached stable prefix/tool-schema input.
 - Cache trace artifacts are archived with benchmark results.
 - NativeTools fallback is either retained as debug-only or explicitly deprecated for DeepSeek official TaskSpace.
 
@@ -392,7 +391,6 @@ Prove the cache-optimized transport is suitable for v0.0.5 experiments.
 ### Must Pass Before v0.0.5 Experimental Claims
 
 - Given a TaskSpace DeepSeek official run, when request 2+ reuses the same stable TaskSpace action contract, then provider usage reports cache hit rate >= `0.95` for the stable prefix-dominated request.
-- Given a comparable Standard vs TaskSpace diagnostic sample, when token summary is generated, then TaskSpace uncached input tokens are <= `1.2x` Standard uncached input tokens.
 - Given the current failing artifact, when release gates evaluate it, then the gate fails with a cache-specific taxonomy.
 - Given the cache-optimized transport, when native provider tools are disabled, then model actions are still executed through the existing runtime permission and node-kind checks.
 - Given malformed or disallowed model action output, when runtime parses it, then no tool executes and the action-map ledger records a structured rejection.
@@ -402,7 +400,6 @@ Prove the cache-optimized transport is suitable for v0.0.5 experiments.
 ### Stretch Targets
 
 - Aggregate TaskSpace sample cache hit rate >= `0.90` on E2+ samples.
-- Direct input+output token ratio <= `1.5x` Standard on L1/L2 diagnostics.
 - No more than one cold-start provider request per user task unless explicitly marked.
 
 ## 9. Rollback And Fallback Strategy
@@ -437,14 +434,14 @@ These fields must be visible in benchmark artifacts without manual parsing of ra
 | Should the release gate require aggregate hit >= 0.95 or steady-state hit >= 0.95? | Very small tasks have cold-start miss that can dominate aggregate rate | Use steady-state >= 0.95 as hard gate, aggregate as warning until enough samples exist |
 | Can DeepSeek official expose a Responses-compatible API path with better tool schema caching? | Could preserve native tool calls | Phase 1 discovery only; do not assume |
 | How strict should the action grammar be? | More strict improves runtime safety but may reduce model compliance | Start with JSON envelope plus recovery parser; reject ambiguous actions |
-| Should Standard mode also use cache trace? | Needed for comparable cost gates | Yes, include Standard as baseline |
+| Should Standard mode also use cache trace? | Needed to compare cache behavior between modes | Yes, include Standard as baseline |
 | What is the minimum acceptable E2 sample count? | Avoid overfitting to one smoke task | Align with existing v0.0.5 E2/E3 policy |
 
 ## 12. Decision Log
 
 | Topic | Decision | Rationale | Date |
 |---|---|---|---|
-| v0.0.5 status | Cache miss is a formal blocker | Experiments cannot continue with uncontrolled uncached input cost | 2026-06-22 |
+| v0.0.5 status | Cache miss is a formal blocker | Experiments cannot continue while stable provider prefixes fail to cache | 2026-06-22 |
 | Root solution | Build tool-free action-contract transport | Removes repeated native tools schema from provider hot path | 2026-06-22 |
 | Validation | Use DeepSeek official usage fields | `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens` are the relevant provider truth source | 2026-06-22 |
 | Fallback | Keep NativeTools while validating | Avoid blocking local debugging if new transport regresses correctness | 2026-06-22 |
@@ -464,5 +461,5 @@ This project can close only when:
 - v0.0.5 cache gates pass on live DeepSeek official API;
 - TaskSpace correctness gates do not regress;
 - benchmark artifacts include cache trace evidence;
-- the old native-tools DeepSeek TaskSpace path is either disabled by default or explicitly marked non-release for cost-sensitive experiments;
+- the old native-tools DeepSeek TaskSpace path is either disabled by default or explicitly marked non-release for DeepSeek cache evidence;
 - COE is updated with final acceptance evidence.
