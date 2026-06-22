@@ -32,13 +32,13 @@
   - The conclusion must cite direct artifact, code, or provider documentation evidence.
   - If a code repair is needed, design it only after the causal mechanism is confirmed.
 - Current conclusion:
-  - Confirmed root cause: TaskSpace inserts dynamic TaskSpace developer context before the large stable skills/tool instruction surface and then rewrites TaskSpace projection developer items between model requests. DeepSeek official API context caching is prefix-based, so the large stable suffix after the changing TaskSpace prefix often cannot be reused. The recent `phase-a-benefit-B-rerun29` artifact reproduces this directly: TaskSpace cached only 18,944 of 136,638 input tokens, or 13.86%, while Standard cached 107,648 of 130,453 input tokens, or 82.52%.
+  - Confirmed current root cause: the first TaskSpace developer message now places stable skills before TaskSpace text, but it still contains the legacy marker `TaskSpace mode is now active` in the same message as the large stable skills/apps/plugins surface. Once an active projection exists, `compose_provider_visible_history` classifies that entire first developer message as `LegacyTaskspaceInstruction` and omits it from later provider-visible input. The second and later TaskSpace requests therefore stop sharing the first request's large stable message prefix and shift the same stable tools behind a different early message sequence. DeepSeek official isolated probes confirm this shape: a warmed full request reached 99.81% cache hit, while the first same-nonce request that omitted the stable developer message had 0% cache hit; repeating that omitted shape then reached 99.69%.
 - Resolution basis:
-  - H-001, E-001 through E-010.
-  - Code and tests validate the structural initial-context prompt-order repair, but live DeepSeek validation shows the end-to-end TaskSpace cache-hit problem is not fixed yet.
+  - H-005, E-010 through E-013.
+  - H-001/E-006 identified the original initial-order bug and the first repair fixed that structural ordering. E-011 through E-013 supersede the earlier root-cause wording by showing the remaining live failure is caused by whole-message legacy omission after active projection appears.
 
 ## Hypothesis H-001: Dynamic TaskSpace context appears before reusable prefix content and breaks DeepSeek prefix caching
-- Status: confirmed
+- Status: superseded_by_H-005
 - Parent: P-001
 - Claim: TaskSpace request construction places changing task/map/history/control content early enough in the message prefix that subsequent requests diverge before most large reusable content, preventing DeepSeek from counting the later repeated content as cache hits.
 - Rationale:
@@ -57,7 +57,7 @@
   - E-004
   - E-005
   - E-006
-- Conclusion: Confirmed. TaskSpace's model-visible developer order places mutable TaskSpace state ahead of the large stable skills surface. Subsequent requests repeatedly replace or append TaskSpace projection/recovery developer items, producing different provider payload hashes and very low cache hits on most requests.
+- Conclusion: Confirmed for the pre-repair artifact, but superseded for the current live failure. The initial-order repair moved TaskSpace text behind stable skills inside the first developer message, yet H-005 shows that later provider-visible filtering omits that whole mixed message because it still contains the legacy TaskSpace transition marker.
 - Repair design:
   - Move initial TaskSpace transition/context developer sections after stable skills, apps, plugins, and related fixed developer sections so provider prefix caching can reuse the large stable prompt surface before TaskSpace state begins to vary.
 
@@ -113,6 +113,32 @@
   - E-001
   - E-002
 - Conclusion: Refuted. The local `phase-a-benefit-B-rerun29` sample shows TaskSpace hit rate at 13.86%, well below the user's reported below-50% concern.
+
+## Hypothesis H-005: Active-projection filtering omits the mixed stable developer message after the first request
+- Status: confirmed
+- Parent: P-001
+- Claim: The remaining live low cache-hit rate is caused by provider-visible history filtering after active projection appears: the first developer message combines stable skills/apps/plugins text with legacy TaskSpace transition text, and `is_legacy_taskspace_instruction` matches `TaskSpace mode is now active`, so `compose_provider_visible_history` omits the whole mixed message from subsequent requests.
+- Rationale:
+  - The initial-order repair placed stable skills before TaskSpace text but kept them in the same developer `ResponseItem`. Later filtering operates at item granularity, not section granularity.
+  - DeepSeek ChatCompletions serializes `request.instructions` first, then `messages`, then `tools`; if the second `messages` item changes from the mixed stable developer item to a user item, the stable tools and schemas are no longer part of the same previously warmed provider input shape.
+- Falsifiable predictions:
+  - If true: the live fixed artifact's first developer item will contain both `<skills_instructions>` and `TaskSpace mode is now active`, but not `ContextProjectionV1 active replacement:`.
+  - If true: code will classify any item containing `TaskSpace mode is now active` as `LegacyTaskspaceInstruction` once an active projection exists, before the generic developer/system protected category can include it.
+  - If true: an official DeepSeek isolated probe that warms a full request and then sends a first same-nonce request omitting the stable developer message will miss cache, while exact repeats of each shape will hit cache.
+  - If false: the first stable developer item remains provider-visible after active projection, or official isolated omitted-shape probes reuse the warmed full-shape cache.
+- Diagnostic evidence plan:
+  - Parse the live post-repair TaskSpace rollout for marker positions in the first developer item.
+  - Inspect `compose_provider_visible_history`, `classify_provider_visible_item`, and `is_legacy_taskspace_instruction`.
+  - Run a same-nonce official DeepSeek ChatCompletions probe that separates full-shape warming from the first omitted-stable-message request.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-010
+  - E-011
+  - E-012
+  - E-013
+- Conclusion: Confirmed. The current end-to-end low hit rate is not merely tail projection churn. It is caused by item-level legacy filtering deleting the entire mixed stable developer message from later provider-visible requests, creating a different early message sequence before the large reusable tool/schema surface.
+- Repair design direction:
+  - Split stable developer sections and TaskSpace transition/context sections into separate history items, or make the legacy filter section-aware so it removes only TaskSpace legacy text and never drops stable skills/apps/plugins. The invariant to test is that active-projection provider-visible history keeps the first stable developer item before dynamic TaskSpace projection items.
 
 ## Evidence E-001: Recent nonzero usage artifact reproduces low TaskSpace cache hit rate
 - Status: accepted
@@ -256,3 +282,48 @@
   - The remaining cause is likely later provider-visible prompt churn before the reusable stable prefix, such as per-turn projection replacement, recovery guidance insertion, or other dynamic developer/history items.
 - Supports:
   - H-001
+
+## Evidence E-011: Post-repair live artifact keeps stable skills and legacy TaskSpace marker in the same first developer item
+- Status: accepted
+- Captured: 2026-06-22
+- Method: Parsed line 5 of `target/deepseek-cache-fix-validation/benchmark-20260622-190411/single-file-fast-fix/20260622-190412-125/pair-001/right/artifacts/rollout.jsonl`.
+- Observations:
+  - The first developer item length was 11,180 chars.
+  - `<skills_instructions>` appeared at character index 650.
+  - `TaskSpace mode is now active` appeared at character index 9,247.
+  - `TaskSpace v0.0.5 active compact profile is enabled.` appeared at character index 10,410.
+  - `ContextProjectionV1 active replacement:` was not present in that first developer item.
+- Interpretation:
+  - The initial-order repair succeeded at putting stable skills before TaskSpace text, but it left stable skills and legacy TaskSpace transition text in one item. Any later item-level legacy omission of that item also removes the stable skills surface.
+- Supports:
+  - H-005
+
+## Evidence E-012: Provider-visible filtering classifies the mixed stable developer item as legacy once active projection exists
+- Status: accepted
+- Captured: 2026-06-22
+- Method: Inspected `third_party/codex-cli/codex-rs/core/src/session/turn.rs` and `third_party/codex-cli/codex-rs/core/src/session/mod.rs`.
+- Observations:
+  - `session/turn.rs` calls `compose_provider_visible_history` only after an active context projection item is present.
+  - `classify_provider_visible_item` checks `is_legacy_taskspace_instruction` before `is_protected_developer_or_system_input`.
+  - `is_legacy_taskspace_instruction` returns true for any item containing `TaskSpace mode is now active`.
+  - `provider_visible_history_action` omits `LegacyTaskspaceInstruction`.
+  - `session/mod.rs` `remove_action_map_projection_history_items` removes active replacement projection items, but not the mixed first developer item because it lacks `ContextProjectionV1 active replacement:`.
+  - `codex-api/src/endpoint/responses.rs` builds DeepSeek ChatCompletions messages by placing `request.instructions` first, then `request.input` messages, and only then the tools array.
+- Interpretation:
+  - The mixed first developer item remains in history but is omitted from provider-visible input after active projection appears. Because tools are serialized after messages, the changed early message sequence prevents the previous full request shape from being reused as the next TaskSpace request shape.
+- Supports:
+  - H-005
+
+## Evidence E-013: Official DeepSeek isolated same-nonce probe reproduces cache loss when stable developer message is first omitted
+- Status: accepted
+- Captured: 2026-06-22
+- Method: Sent official DeepSeek ChatCompletions requests with a unique nonce and identical model/tools, saved under `target/deepseek-cache-fix-validation/taskspace-like-official-probe/isolated-full-then-first-omit.json`.
+- Observations:
+  - Request 1 full shape, containing the stable developer message: `prompt_tokens=33214`, `cache_hit_tokens=0`, hit rate `0`.
+  - Request 2 exact full-shape repeat: `prompt_tokens=33214`, `cache_hit_tokens=33152`, hit rate `0.998133`.
+  - Request 3 first same-nonce omitted-stable-developer shape after full-shape warmup: `prompt_tokens=23626`, `cache_hit_tokens=0`, hit rate `0`.
+  - Request 4 exact omitted-shape repeat: `prompt_tokens=23626`, `cache_hit_tokens=23552`, hit rate `0.996868`.
+- Interpretation:
+  - DeepSeek official cache works for each stable request shape, but warming the full shape does not make the first omitted-stable-developer shape hit cache. This matches the Whale TaskSpace pattern where the first request includes the mixed developer item and later requests omit it.
+- Supports:
+  - H-005
