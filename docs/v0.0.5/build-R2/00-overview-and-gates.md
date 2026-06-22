@@ -46,6 +46,20 @@ agent_walltime_ratio <= 2.5x
 blocked_by_budget_samples_count = 0 for release-like claims
 ```
 
+DeepSeek official TaskSpace runs also require the cache blocker gates in:
+
+```text
+docs/v0.0.5/缓存命中问题修复/README.md
+```
+
+Until that project closes, DeepSeek TaskSpace benchmark output is diagnostic-only for cost-sensitive v0.0.5 experiments. The hard cache target is:
+
+```text
+steady_state_provider_cache_hit_rate_for_requests_2_plus >= 0.95
+taskspace_uncached_input_tokens <= 1.2x standard_uncached_input_tokens on comparable diagnostic samples
+cache trace coverage >= 99%
+```
+
 ## 2. Current alpha implementation baseline
 
 The alpha branch already has partial implementations in these areas:
