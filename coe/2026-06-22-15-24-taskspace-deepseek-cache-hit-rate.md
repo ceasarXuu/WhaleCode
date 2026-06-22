@@ -34,8 +34,8 @@
 - Current conclusion:
   - Confirmed root cause: TaskSpace inserts dynamic TaskSpace developer context before the large stable skills/tool instruction surface and then rewrites TaskSpace projection developer items between model requests. DeepSeek official API context caching is prefix-based, so the large stable suffix after the changing TaskSpace prefix often cannot be reused. The recent `phase-a-benefit-B-rerun29` artifact reproduces this directly: TaskSpace cached only 18,944 of 136,638 input tokens, or 13.86%, while Standard cached 107,648 of 130,453 input tokens, or 82.52%.
 - Resolution basis:
-  - H-001, E-001 through E-009.
-  - Code and tests validate the structural prompt-order repair. Live DeepSeek cache-hit validation remains pending until official API balance is available again.
+  - H-001, E-001 through E-010.
+  - Code and tests validate the structural initial-context prompt-order repair, but live DeepSeek validation shows the end-to-end TaskSpace cache-hit problem is not fixed yet.
 
 ## Hypothesis H-001: Dynamic TaskSpace context appears before reusable prefix content and breaks DeepSeek prefix caching
 - Status: confirmed
@@ -233,5 +233,26 @@
 - Interpretation:
   - The repair can be treated as structurally reviewed and locally tested.
   - The cache-hit-rate recovery claim must remain conditional on a post-balance live DeepSeek benchmark.
+- Supports:
+  - H-001
+
+## Evidence E-010: Live DeepSeek verification script proves official cache works but TaskSpace still misses
+- Status: accepted
+- Captured: 2026-06-22
+- Method:
+  - Added `scripts/taskspace-benchmark/verify-deepseek-cache-fix.ps1`.
+  - Ran official DeepSeek cache probe with three chat completion requests.
+  - Built and installed a fresh `whale.exe` from current source, then ran `single-file-fast-fix` through the verification script with `-RunTaskspaceBenchmark`.
+  - Re-analyzed the TaskSpace artifact through rollout-trace fallback because the TaskSpace side exited with budget exhaustion before `whale-exec.jsonl` exposed complete usage.
+- Observations:
+  - Official probe passed: second identical request had `prompt_cache_hit_tokens=8064`, `prompt_cache_miss_tokens=14`, hit rate `0.998267`; prefix-extension request had hit rate `0.996663`.
+  - Live TaskSpace artifact: `D:\whalecode-alpha\target\deepseek-cache-fix-validation\benchmark-20260622-190411\single-file-fast-fix\20260622-190412-125`.
+  - TaskSpace rollout trace had `model_request_count=8`, `input_tokens=134429`, `cached_input_tokens=3072`, `uncached_input_tokens=131357`, hit rate `0.022852`.
+  - Standard side in the same run had hit rate `0.826361`.
+  - TaskSpace side exhausted node provider request budget after repeated rejected/no-action recovery and exited with code `1`, while public validation/hidden oracle reached tests.
+- Interpretation:
+  - DeepSeek official cache and usage fields are working on this machine.
+  - The initial-context ordering repair is insufficient for end-to-end TaskSpace cache-hit recovery.
+  - The remaining cause is likely later provider-visible prompt churn before the reusable stable prefix, such as per-turn projection replacement, recovery guidance insertion, or other dynamic developer/history items.
 - Supports:
   - H-001
