@@ -34,7 +34,8 @@
 - Current conclusion:
   - Confirmed root cause: TaskSpace inserts dynamic TaskSpace developer context before the large stable skills/tool instruction surface and then rewrites TaskSpace projection developer items between model requests. DeepSeek official API context caching is prefix-based, so the large stable suffix after the changing TaskSpace prefix often cannot be reused. The recent `phase-a-benefit-B-rerun29` artifact reproduces this directly: TaskSpace cached only 18,944 of 136,638 input tokens, or 13.86%, while Standard cached 107,648 of 130,453 input tokens, or 82.52%.
 - Resolution basis:
-  - H-001, E-001 through E-008.
+  - H-001, E-001 through E-009.
+  - Code and tests validate the structural prompt-order repair. Live DeepSeek cache-hit validation remains pending until official API balance is available again.
 
 ## Hypothesis H-001: Dynamic TaskSpace context appears before reusable prefix content and breaks DeepSeek prefix caching
 - Status: confirmed
@@ -202,7 +203,8 @@
   - `action_map_transition_notice` and `action_map_context` are now collected early but appended after stable sections such as skills, apps, plugins, commit guidance, and other fixed developer content.
   - The change keeps TaskSpace context in the same initial developer message but moves it later in the model-visible prefix.
 - Interpretation:
-  - This directly addresses H-001 by preserving a longer stable prefix before dynamic TaskSpace state appears.
+  - This directly addresses the confirmed initial-context portion of H-001 by preserving a longer stable prefix before dynamic TaskSpace state appears.
+  - Steady-state TaskSpace projection churn still exists later in the prompt history and should be evaluated with a live provider rerun before claiming the end-to-end hit rate is restored.
 - Supports:
   - H-001
 
@@ -215,6 +217,21 @@
   - `cargo test -p codex-core build_initial_context_consumes_action_map_transition_notice_once --lib` passed.
   - `cargo test -p codex-core build_initial_context_ --lib` passed 10 tests.
 - Interpretation:
-  - The new cache-order invariant is covered, and existing initial-context behavior around one-time TaskSpace transition notices remains intact.
+  - The initial skills-before-TaskSpace ordering invariant is covered, and existing initial-context behavior around one-time TaskSpace transition notices remains intact.
+  - These tests prove prompt-shape structure, not live DeepSeek cache-hit recovery.
+- Supports:
+  - H-001
+
+## Evidence E-009: Adversarial review found no blocking issues and narrowed validation claims
+- Status: accepted
+- Captured: 2026-06-22
+- Method: Ran fresh internal subagent review and recorded the report in `vs_review/2026-06-22-taskspace-deepseek-cache-prefix-review.md`.
+- Observations:
+  - `architecture-adversary` found no blocking correctness regression.
+  - `test-validity-adversary` found no blocking code issue.
+  - Both reviewers identified the same non-blocking limitation: the unit tests validate structural initial-context ordering, while live DeepSeek cache-hit improvement remains unverified due to the provider `402 Payment Required` blocker.
+- Interpretation:
+  - The repair can be treated as structurally reviewed and locally tested.
+  - The cache-hit-rate recovery claim must remain conditional on a post-balance live DeepSeek benchmark.
 - Supports:
   - H-001
