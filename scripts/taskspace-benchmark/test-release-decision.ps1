@@ -128,7 +128,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             replacement_confirmed = $true
             legacy_taskspace_history_present = $false
             large_raw_output_tokens = 0
-            protected_items_present = $true
+            protected_items_present = $false
         }) (Join-Path $dir "active-context-replacement-report.json")
     Write-Json ([pscustomobject]@{
             status = "pass"

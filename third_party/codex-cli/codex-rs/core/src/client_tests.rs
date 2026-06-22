@@ -446,16 +446,46 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     assert!(!missing_protected.scan.protected_items_present);
     assert!(missing_protected.scan.exact_payload_scan_passed);
 
+    let large_instruction_text = "x".repeat(60 * 1024);
+    let large_active_instructions = provider_payload_digest(&json!({
+        "input": format!("ContextProjectionV1 active replacement:\n- protected\n{large_instruction_text}")
+    }))
+    .expect("large active instruction payload digest");
+    assert_eq!(large_active_instructions.scan.large_raw_output_tokens, 0);
+    assert!(large_active_instructions.scan.exact_payload_scan_passed);
+
     let raw_output = "x".repeat(60 * 1024);
     let large_raw = provider_payload_digest(&json!({
-        "input": format!("ContextProjectionV1 active replacement:\n- protected\n{raw_output}")
+        "input": [
+            {
+                "type": "message",
+                "role": "developer",
+                "content": "ContextProjectionV1 active replacement:\n- protected"
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call-1",
+                "output": raw_output
+            }
+        ]
     }))
     .expect("large raw payload digest");
     assert!(large_raw.scan.large_raw_output_tokens > 0);
     assert!(!large_raw.scan.exact_payload_scan_passed);
 
     let output_ref = provider_payload_digest(&json!({
-        "input": format!("ContextProjectionV1 active replacement:\n- protected\nOutputReferenceV1:\nraw_output_elided: true\n{raw_output}")
+        "input": [
+            {
+                "type": "message",
+                "role": "developer",
+                "content": "ContextProjectionV1 active replacement:\n- protected"
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call-1",
+                "output": format!("OutputReferenceV1:\nraw_output_elided: true\n{raw_output}")
+            }
+        ]
     }))
     .expect("output ref payload digest");
     assert_eq!(output_ref.scan.large_raw_output_tokens, 0);

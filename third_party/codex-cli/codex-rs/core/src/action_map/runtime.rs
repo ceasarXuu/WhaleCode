@@ -636,7 +636,7 @@ pub(crate) fn taskspace_active_budget_for_route(
     let mut budget = default_budget_common(profile_name, route_mode);
     match route_mode {
         TaskSpaceRouteMode::Thin => {
-            budget.max_rollout_model_requests = 8;
+            budget.max_rollout_model_requests = 10;
             budget.max_model_requests_per_node = 3;
             budget.max_spawn_agent_calls = 0;
             budget.max_subagent_results = 0;
@@ -1802,6 +1802,58 @@ impl ActionMapRuntimeState {
             max_rollout_model_requests,
             node.kind,
         );
+        if descriptor.action_class != ActionClass::Control
+            && matches!(
+                node.kind,
+                NodeKind::InspectCodeContext | NodeKind::ImplementSolution
+            )
+            && self
+                .active_budget
+                .as_ref()
+                .is_some_and(|budget| budget.route_mode == TaskSpaceRouteMode::Thin)
+            && is_broad_directory_listing_probe(&descriptor)
+        {
+            let message = format!(
+                "TaskSpace blocked this tool call because thin-route nodes must not spend context on broad or truncating directory listings. Requested tool `{}` preview: {}. Use `rg --files`, `Get-ChildItem -Name`, or direct narrow file reads for the likely source/test files instead.",
+                descriptor.tool_name, descriptor.preview
+            );
+            let recovery = gate_recovery_message(
+                &message,
+                "thin_route_blocks_broad_directory_listing",
+                vec![
+                    format!("current_node:{}:{}", node.id, node.kind.as_str()),
+                    format!("route_mode:{}", TaskSpaceRouteMode::Thin.as_str()),
+                    format!(
+                        "requested_action_class:{}",
+                        descriptor.action_class.as_str()
+                    ),
+                ],
+                vec![
+                    "rg --files".to_string(),
+                    "Get-ChildItem -Name src, tests".to_string(),
+                    "Get-Content <known source/test file>".to_string(),
+                    "avoid Format-Table for file discovery because long paths may be truncated"
+                        .to_string(),
+                ],
+                vec![
+                    "Avoid recursive, -Force, or truncating directory listings in thin nodes."
+                        .to_string(),
+                ],
+            );
+            return Err(ActionMapGateError::new(
+                recovery,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: node.kind.as_str().to_string(),
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason: "thin_route_blocks_broad_directory_listing".to_string(),
+                    },
+                )],
+            ));
+        }
         let inspect_evidence_pressure = inspect_evidence_pressure_active(node, budget);
         if descriptor.action_class != ActionClass::Control
             && provider_budget_pressure
@@ -2753,7 +2805,7 @@ preview:\n\
             None => return Ok(None),
         };
         let map_id = snapshot.map_id.clone();
-        let (task_id, node_kind) = {
+        let (task_id, node_kind, evidence_summary) = {
             let map = self
                 .maps
                 .get(&map_id)
@@ -2762,28 +2814,39 @@ preview:\n\
                 .nodes
                 .get(node_id)
                 .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
-            (map.task_id.clone(), node.kind)
+            (
+                map.task_id.clone(),
+                node.kind,
+                inspect_code_or_test_read_summary(map, node),
+            )
         };
         if node_kind != NodeKind::InspectCodeContext {
             return Ok(None);
         }
-        if !provider_request_budget_pressure_active_for_node(
-            snapshot.request_count,
-            snapshot.max_requests,
-            node_kind,
-        ) {
+        let evidence_driven_no_action_recovery = trigger == "inspect_no_action_with_evidence";
+        if !evidence_driven_no_action_recovery
+            && !provider_request_budget_pressure_active_for_node(
+                snapshot.request_count,
+                snapshot.max_requests,
+                node_kind,
+            )
+        {
+            return Ok(None);
+        }
+        if !self.inspect_node_has_successful_code_or_test_read(&map_id, node_id)? {
             return Ok(None);
         }
         let result_summary = format!(
-            "Provider request budget pressure forced inspect convergence at {}/{} after {trigger}; proceed to implementation using the inspected evidence already recorded on this node.",
-            snapshot.request_count, snapshot.max_requests
+            "Provider request budget pressure forced inspect convergence at {}/{} after {trigger}; proceed to implementation using this inspected evidence: {}",
+            snapshot.request_count, snapshot.max_requests, evidence_summary
+        );
+        let context_summary = format!(
+            "Apply the narrow implementation change indicated by this inspected code/test evidence: {evidence_summary}"
         );
         let next_node_draft = ActionMapNextNodeDraft {
             kind: NodeKind::ImplementSolution,
             title: "Apply inspected fix".to_string(),
-            context_summary:
-                "Apply the narrow implementation change indicated by the inspected code evidence."
-                    .to_string(),
+            context_summary,
             dependency_node_ids: vec![node_id.to_string()],
         };
         let (outcome, mut events) = self.finish_main_node_with_next(
@@ -5125,6 +5188,49 @@ preview:\n\
             "TaskSpace mode is active but no active task path exists.".to_string()
         })?;
         self.validate_completion_evidence_for(map_id, node_id)
+    }
+
+    pub(crate) fn current_main_node_progress_signature(&self) -> Option<usize> {
+        let map_id = self.active_map_id.as_ref()?;
+        let node_id = self.current_main_node_id.as_ref()?;
+        self.current_node_progress_signature(map_id, node_id)
+    }
+
+    fn inspect_node_has_successful_code_or_test_read(
+        &self,
+        map_id: &str,
+        node_id: &str,
+    ) -> Result<bool, String> {
+        let map = self
+            .maps
+            .get(map_id)
+            .ok_or_else(|| format!("TaskSpace task path `{map_id}` is missing."))?;
+        let node = map
+            .nodes
+            .get(node_id)
+            .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
+        Ok(node_has_successful_code_or_test_inspect_result(map, node))
+    }
+
+    fn current_node_progress_signature(&self, map_id: &str, node_id: &str) -> Option<usize> {
+        let map = self.maps.get(map_id)?;
+        let node = map.nodes.get(node_id)?;
+        let task = map
+            .task_id
+            .as_deref()
+            .and_then(|task_id| self.tasks.get(task_id));
+        let successful_main_tool_results = node
+            .result_context
+            .iter()
+            .filter(|result_ref| {
+                map.results.get(&result_ref.id).is_some_and(|result| {
+                    result.kind == NodeResultKind::MainToolCall && result.tool_success == Some(true)
+                })
+            })
+            .count();
+        let problem_state_progress =
+            usize::from(task.is_some_and(|task| node_has_problem_state_effect(task, map, node)));
+        Some(successful_main_tool_results + problem_state_progress)
     }
 
     fn validate_completion_evidence_for(&self, map_id: &str, node_id: &str) -> Result<(), String> {
@@ -10745,6 +10851,57 @@ fn should_block_budget_pressure_probe(
     }
 }
 
+fn is_broad_directory_listing_probe(descriptor: &ToolActionDescriptor) -> bool {
+    if !matches!(
+        descriptor.action_class,
+        ActionClass::Read | ActionClass::Search | ActionClass::Unknown
+    ) {
+        return false;
+    }
+    let preview = descriptor.preview.to_ascii_lowercase();
+    if preview.contains("rg --files") || preview.contains("ripgrep --files") {
+        return false;
+    }
+    let lists_directory = preview.contains("get-childitem")
+        || preview.contains("gci ")
+        || preview.contains("dir ")
+        || preview.contains("ls ");
+    if !lists_directory {
+        return false;
+    }
+    if preview.contains("format-table") || preview.contains(" ft ") {
+        return true;
+    }
+    let recursive = preview.contains("-recurse")
+        || preview.contains(" -r ")
+        || preview.contains(" /s")
+        || preview.contains(" **");
+    let forced_or_all =
+        preview.contains("-force") || preview.contains(" -force ") || preview.contains(" -a ");
+    let metadata_only_listing = preview.contains("select-object fullname")
+        || preview.contains("select fullname")
+        || preview.contains("select-object name")
+        || preview.contains("select name");
+    let untruncated_full_name_listing = preview.contains("-expandproperty fullname")
+        || preview.contains("select -expand fullname")
+        || preview.contains("select-object -expand fullname")
+        || preview.contains("select-object -expandproperty fullname");
+    if metadata_only_listing && !recursive {
+        return false;
+    }
+    if untruncated_full_name_listing && !forced_or_all {
+        return false;
+    }
+    if metadata_only_listing && recursive {
+        return true;
+    }
+    let bounded_shallow_depth = preview.contains("-depth 1") || preview.contains("-depth 2");
+    if bounded_shallow_depth && !forced_or_all {
+        return false;
+    }
+    recursive || forced_or_all
+}
+
 fn completed_main_inspect_has_broad_accepted_result(
     map: &ActionMapInstance,
     node_id: &str,
@@ -10948,6 +11105,62 @@ fn node_has_successful_action(
             && result.action_class == Some(action_class)
             && result.tool_success == Some(true)
     })
+}
+
+fn node_has_successful_code_or_test_inspect_result(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> bool {
+    node.result_context.iter().any(|result_ref| {
+        let Some(result) = map.results.get(&result_ref.id) else {
+            return false;
+        };
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(true)
+            || result.action_class != Some(ActionClass::Read)
+        {
+            return false;
+        }
+        code_or_test_read_body_has_content_signal(&result.body)
+    })
+}
+
+fn code_or_test_read_body_has_content_signal(body: &str) -> bool {
+    let body = body.to_ascii_lowercase();
+    body.contains("def ")
+        || body.contains("fn ")
+        || body.contains("function ")
+        || body.contains("return ")
+        || body.contains("import ")
+        || body.contains("const ")
+        || body.contains("let ")
+        || body.contains("class ")
+        || body.contains("assert ")
+        || body.contains("#[test]")
+        || body.contains("describe(")
+        || body.contains("it(")
+        || body.contains("test_")
+}
+
+fn inspect_code_or_test_read_summary(map: &ActionMapInstance, node: &MapNode) -> String {
+    let summaries: Vec<String> = node
+        .result_context
+        .iter()
+        .filter_map(|result_ref| map.results.get(&result_ref.id))
+        .filter(|result| {
+            result.kind == NodeResultKind::MainToolCall
+                && result.tool_success == Some(true)
+                && result.action_class == Some(ActionClass::Read)
+        })
+        .filter(|result| code_or_test_read_body_has_content_signal(&result.body))
+        .take(3)
+        .map(|result| format!("{}: {}", result.id, single_line_preview(&result.body, 240)))
+        .collect();
+    if summaries.is_empty() {
+        "successful code/test read evidence is recorded on the inspect node".to_string()
+    } else {
+        summaries.join(" | ")
+    }
 }
 
 fn node_has_problem_state_effect(
@@ -11716,7 +11929,7 @@ mod tests {
     }
 
     #[test]
-    fn taskspace_active_budget_thin_route_uses_eight_requests_and_no_spawn() {
+    fn taskspace_active_budget_thin_route_uses_ten_requests_and_no_spawn() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let events = state
@@ -11724,7 +11937,7 @@ mod tests {
 
         let budget = state.active_budget().expect("active budget");
         assert_eq!(budget.route_mode, TaskSpaceRouteMode::Thin);
-        assert_eq!(budget.max_rollout_model_requests, 8);
+        assert_eq!(budget.max_rollout_model_requests, 10);
         assert_eq!(budget.max_model_requests_per_node, 3);
         assert_eq!(budget.max_spawn_agent_calls, 0);
         assert_eq!(budget.max_nodes, 4);
@@ -12022,7 +12235,7 @@ mod tests {
                 "shell_command",
                 Some(ActionClass::Read),
                 true,
-                "read active budget context".to_string(),
+                "src/tax_calc.py:def calculate_tax(subtotal, region):".to_string(),
             )
             .expect("read evidence records");
         let snapshot = ActionMapProviderRequestBudgetSnapshot {
@@ -17555,6 +17768,359 @@ mod tests {
     }
 
     #[test]
+    fn thin_route_blocks_broad_recursive_directory_listing_in_inspect() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Thin inspect should avoid broad repository listing.",
+            "Thin inspect",
+            "Thin inspect should avoid broad repository listing.",
+            true,
+        );
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Recurse -Force",
+                )
+                .with_call_id("broad-list"),
+            )
+            .expect_err("thin inspect should block broad recursive listing");
+        let (message, events) = error.into_parts();
+
+        assert!(message.contains("thin_route_blocks_broad_directory_listing"));
+        assert!(message.contains("rg --files"));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ToolActionBlocked(event)
+                    if event.reason == "thin_route_blocks_broad_directory_listing"
+                        && event.action_class == "read"
+            )
+        }));
+    }
+
+    #[test]
+    fn thin_route_allows_narrow_file_discovery_in_inspect() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Thin inspect should allow narrow discovery.",
+            "Thin inspect",
+            "Thin inspect should allow narrow discovery.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "rg --files")
+                    .with_call_id("file-list"),
+            )
+            .expect("rg --files should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "file-list",
+                "shell_command",
+                true,
+                "src/tax_calc.py\ntests/test_tax_calc.py".to_string(),
+            )
+            .expect("file listing result records");
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-Content src/tax_calc.py",
+                )
+                .with_call_id("read-source"),
+            )
+            .expect("narrow source read should be allowed");
+    }
+
+    #[test]
+    fn thin_route_allows_bounded_shallow_directory_discovery_in_inspect() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Thin inspect should allow shallow structure discovery.",
+            "Thin inspect",
+            "Thin inspect should allow shallow structure discovery.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Recurse -Depth 2 -Name",
+                )
+                .with_call_id("shallow-list"),
+            )
+            .expect("bounded shallow listing should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "shallow-list",
+                "shell_command",
+                true,
+                "README.md\nsrc/tax_calc.py\ntests/test_tax_calc.py".to_string(),
+            )
+            .expect("shallow listing result records");
+
+        let forced_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Recurse -Depth 2 -Force",
+                )
+                .with_call_id("forced-shallow-list"),
+            )
+            .expect_err("forced shallow listing should remain blocked");
+        assert!(forced_error.contains("thin_route_blocks_broad_directory_listing"));
+    }
+
+    #[test]
+    fn thin_route_allows_metadata_only_recursive_listing_without_force() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Thin inspect should allow metadata-only file discovery.",
+            "Thin inspect",
+            "Thin inspect should allow metadata-only file discovery.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Recurse | Select-Object -ExpandProperty FullName",
+                )
+                .with_call_id("metadata-list"),
+            )
+            .expect("untruncated recursive full name listing without force should be allowed");
+
+        let forced_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Force -Recurse | Select-Object FullName",
+                )
+                .with_call_id("forced-metadata-list"),
+            )
+            .expect_err("forced metadata listing should remain blocked");
+        assert!(forced_error.contains("thin_route_blocks_broad_directory_listing"));
+    }
+
+    #[test]
+    fn thin_route_allows_shallow_force_metadata_listing() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Thin inspect should allow shallow metadata discovery.",
+            "Thin inspect",
+            "Thin inspect should allow shallow metadata discovery.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Force | Select-Object Name, Mode",
+                )
+                .with_call_id("shallow-force-metadata-list"),
+            )
+            .expect("shallow force metadata listing should be allowed");
+    }
+
+    #[test]
+    fn thin_route_blocks_truncating_format_table_discovery() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Thin inspect should block truncating discovery output.",
+            "Thin inspect",
+            "Thin inspect should block truncating discovery output.",
+            true,
+        );
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Recurse | Select-Object FullName, Length | Format-Table -AutoSize",
+                )
+                .with_call_id("truncating-list"),
+            )
+            .expect_err("format-table directory discovery should be blocked");
+        assert!(error.contains("thin_route_blocks_broad_directory_listing"));
+    }
+
+    #[test]
+    fn thin_route_blocks_recursive_select_object_table_discovery() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Thin inspect should block table-shaped recursive discovery output.",
+            "Thin inspect",
+            "Thin inspect should block table-shaped recursive discovery output.",
+            true,
+        );
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Recurse -Depth 2 | Select-Object FullName, Mode",
+                )
+                .with_call_id("table-list"),
+            )
+            .expect_err("recursive table-shaped discovery should be blocked");
+        assert!(error.contains("thin_route_blocks_broad_directory_listing"));
+    }
+
+    #[test]
+    fn thin_route_blocks_broad_directory_listing_in_implement() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Thin implement",
+            "Thin implement should edit known files without broad listing.",
+            "Thin implement",
+            "Thin implement should edit known files without broad listing.",
+            true,
+        );
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Recurse -Force | Select-Object FullName",
+                )
+                .with_call_id("implement-broad-list"),
+            )
+            .expect_err("broad listing should be blocked in implement");
+        assert!(error.contains("thin_route_blocks_broad_directory_listing"));
+    }
+
+    #[test]
+    fn forced_inspect_transition_skips_without_completion_progress() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "No evidence has been recorded yet.",
+            "Thin inspect",
+            "No evidence has been recorded yet.",
+            true,
+        );
+
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: Some("task-1".to_string()),
+            map_id: "map-1".to_string(),
+            node_id: Some("node-1".to_string()),
+            node_kind: Some("inspect_code_context".to_string()),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 4,
+            max_requests: 8,
+            node_request_count: 4,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
+        };
+        let forced = state
+            .force_finish_inspect_for_provider_budget(owner, &snapshot, "test")
+            .expect("missing inspect evidence should not error");
+
+        assert!(forced.is_none());
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some("node-1"),
+            "runtime should leave the inspect node active for recovery"
+        );
+    }
+
+    #[test]
     fn provider_budget_follow_up_force_finishes_inspect_into_implementation() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -17582,7 +18148,7 @@ mod tests {
                 "read-1",
                 "shell_command",
                 true,
-                "read useful processing-pipeline evidence".to_string(),
+                "src/tax_calc.py:def calculate_tax(subtotal, region):".to_string(),
             )
             .expect("read result records");
         state.provider_request_count = 34;
@@ -17633,6 +18199,208 @@ mod tests {
                         && event.tags.iter().any(|tag| tag == "trigger:budget_pressure_follow_up_intent")
             )
         }));
+    }
+
+    #[test]
+    fn inspect_no_action_with_code_evidence_force_finishes_before_rollout_pressure() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Inspect a single failing file.",
+            "Thin inspect",
+            "Inspect a single failing file.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "cat src/tax_calc.py",
+                )
+                .with_call_id("read-src"),
+            )
+            .expect("source read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-src",
+                "shell_command",
+                true,
+                "src/tax_calc.py:return round(subtotal * RATES[region], 1)".to_string(),
+            )
+            .expect("source read result records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 3,
+            max_requests: 10,
+            node_request_count: 3,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+
+        let (outcome, _) = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_no_action_with_evidence",
+            )
+            .expect("evidence-driven forced transition should be accepted")
+            .expect("forced transition should run before rollout pressure");
+
+        let map = state.active_map().expect("active map");
+        assert_eq!(
+            map.nodes.get(&node_id).expect("inspect node").status,
+            NodeStatus::Completed
+        );
+        let next_node = map
+            .nodes
+            .get(&outcome.next_node_id.expect("next node"))
+            .expect("implementation node");
+        assert_eq!(next_node.kind, NodeKind::ImplementSolution);
+    }
+
+    #[test]
+    fn inspect_no_action_with_file_listing_does_not_force_finish() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "File listing alone is not inspected code evidence.",
+            "Thin inspect",
+            "File listing alone is not inspected code evidence.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Search, "rg --files")
+                    .with_call_id("rg-files"),
+            )
+            .expect("file listing should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "rg-files",
+                "shell_command",
+                true,
+                "README.md\nsrc/tax_calc.py\ntests/test_tax_calc.py".to_string(),
+            )
+            .expect("file listing result records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 3,
+            max_requests: 10,
+            node_request_count: 3,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+
+        let forced = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_no_action_with_evidence",
+            )
+            .expect("file-listing-only recovery should not error");
+
+        assert!(forced.is_none());
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(node_id.as_str())
+        );
+    }
+
+    #[test]
+    fn forced_inspect_transition_skips_with_readme_only_evidence() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Budget pressure inspection",
+            "README-only evidence is not enough to implement.",
+            "Budget pressure inspection",
+            "README-only evidence is not enough to implement.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-Content README.md",
+                )
+                .with_call_id("readme"),
+            )
+            .expect("readme read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "readme",
+                "shell_command",
+                true,
+                "Product rules: calculate_tax returns the tax amount rounded to cents.".to_string(),
+            )
+            .expect("readme result records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 4,
+            max_requests: 8,
+            node_request_count: 4,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
+        };
+
+        let forced = state
+            .force_finish_inspect_for_provider_budget(owner, &snapshot, "test")
+            .expect("README-only inspect evidence should not error");
+
+        assert!(forced.is_none());
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(node_id.as_str())
+        );
     }
 
     #[test]

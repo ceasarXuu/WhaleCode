@@ -51,7 +51,7 @@ enum TaskSpaceControlArgs {
         node_title: String,
         node_context_summary: String,
         #[serde(default)]
-        bind_current: bool,
+        bind_current: Option<bool>,
     },
     RouteTask {
         task_id: String,
@@ -463,6 +463,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                 node_context_summary,
                 bind_current,
             } => {
+                let bind_current = bind_current.unwrap_or(true);
                 let node_kind = parse_node_kind("node_kind", &node_kind)?;
                 let (task_id, map_id, node_id) = session
                     .start_action_map_task_for_main_with_kind_and_criteria(
@@ -1484,6 +1485,26 @@ mod tests {
                 initial_success_criteria,
                 ..
             } => assert!(initial_success_criteria.is_empty()),
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn start_task_defaults_missing_bind_current_for_main_path() {
+        let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
+            "action": "start_task",
+            "task_title": "Fix test",
+            "task_objective": "Fix the failing test",
+            "node_kind": "inspect_code_context",
+            "node_title": "Inspect",
+            "node_context_summary": "Read the README and tests"
+        }))
+        .expect("start_task args parse");
+
+        match args {
+            TaskSpaceControlArgs::StartTask { bind_current, .. } => {
+                assert_eq!(bind_current.unwrap_or(true), true)
+            }
             other => panic!("unexpected args: {other:?}"),
         }
     }

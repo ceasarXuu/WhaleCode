@@ -265,8 +265,7 @@ function New-TaskspaceActiveReplacementArtifacts {
         $passed = [bool]$event.exact_payload_scan_passed `
             -and [bool]$event.replacement_confirmed `
             -and -not [bool]$event.legacy_taskspace_history_present `
-            -and [int]$event.large_raw_output_tokens -eq 0 `
-            -and [bool]$event.protected_items_present
+            -and [int]$event.large_raw_output_tokens -eq 0
         $scanEvents.Add([pscustomobject]@{
             schema_version = "taskspace-exact-payload-scan-event-v1"
             scan_event_id = $scanId

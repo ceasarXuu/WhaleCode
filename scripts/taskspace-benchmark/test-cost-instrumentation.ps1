@@ -72,7 +72,7 @@ $obs = [pscustomobject]@{
                 "active_projection_present:true",
                 "legacy_taskspace_history_present:false",
                 "large_raw_output_tokens:0",
-                "protected_items_present:true",
+                "protected_items_present:false",
                 "replacement_confirmed:true"
             )
         },
@@ -246,9 +246,11 @@ Assert-True ($activeBudgetEvents.Count -eq 1 -and [string]$activeBudgetEvents[0]
 Assert-True ([string]$budgetEvents[0].active_budget_source -eq "runtime" -and [string]$budgetEvents[0].route_mode -eq "thin" -and [int]$budgetEvents[0].max_model_requests_per_node -eq 3) "provider budget event did not preserve active budget fields"
 Assert-True ($qualityEvents.Count -eq 2) "budget quality event count was not extracted from runtime trace"
 Assert-True ($scanEvents.Count -eq 1 -and [bool]$scanEvents[0].passed) "exact payload scan event was not derived from runtime payload trace"
+Assert-True (-not [bool]$scanEvents[0].protected_items_present) "protected items should remain advisory for exact payload scan"
 Assert-True ($providerEvents.Count -eq 2 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
 Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provider_lifecycle" }).Count -eq 2) "provider request events did not preserve provider_lifecycle producer"
 Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"
+Assert-True (-not [bool]$replacement.protected_items_present) "active replacement report should preserve advisory protected-item absence"
 Assert-True ([int]$phaseSummary.provider_request_hook_coverage -eq 100 -and [int]$phaseSummary.request_phase_attribution_coverage -eq 100) "request phase summary did not reflect provider events"
 Assert-True ([int]$phaseSummary.provider_request_terminal_coverage -eq 100 -and [int]$phaseSummary.expected_model_request_count -eq 2 -and [int]$phaseSummary.provider_request_distinct_count -eq 2) "request phase summary did not use expected provider request denominator"
 Assert-True ([string]$stateCommit.status -eq "pass" -and [string]$stateCommit.source_status -eq "runtime" -and [int]$stateCommit.runtime_event_count -eq 1 -and [bool]$stateCommit.has_displacement_denominator -and [int]$stateCommit.legacy_state_action_attempt_count -eq 2) "state commit displacement summary should pass with runtime denominator evidence"

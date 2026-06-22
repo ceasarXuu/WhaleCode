@@ -324,3 +324,62 @@ Verification:
 - `cargo fmt --all -- --check`
 - `cargo build -p codex-cli --bin whale --locked`
 - B rerun12 verifies the new recovery telemetry, but B still fails because no `apply_patch` is emitted after both recovery attempts.
+
+## Hypothesis H-008: File edits completed during tool drain are not visible to ActionMap before no-action recovery is chosen
+
+Status: confirmed
+
+Rationale:
+- Apply-patch/file-change completion can occur while `drain_in_flight` is processing tool results.
+- The first synthetic edit recorder ran before drain, so the implement node still had no successful edit result when the no-action recovery item was selected.
+
+Predictions:
+- A failed B run can show a completed `file_change` and correct post-run validators, while `exec_exit_code` remains `1`.
+- The run should retain an open implement leaf because no edit evidence was recorded into the active map before provider-node budget exhaustion.
+
+## Evidence E-012: B rerun35 edited correctly and validators passed but lifecycle still failed
+
+Type: reproduction
+
+Source:
+- `target/phase-a-benefit-B-rerun35/single-file-fast-fix/20260622-085416-853/pair-001/pair-report.md`
+- `target/phase-a-benefit-B-rerun35/single-file-fast-fix/20260622-085416-853/pair-001/right/artifacts/whale-exec.jsonl`
+- `target/phase-a-benefit-B-rerun35/single-file-fast-fix/20260622-085416-853/pair-001/right/artifacts/graph-health.json`
+
+Observation:
+- Pair report shows `public_validation_exit_code: 0` and `hidden_oracle_exit_code: 0`, but `business_success: False` because `exec_exit_code: 1`.
+- `changed_paths` includes `src/tax_calc.py`.
+- `whale-exec.jsonl` records a completed `file_change`, then `TaskSpaceNoActionRecoveryV1`, then provider node budget exhaustion.
+- `graph-health.json` reports `OpenLeafNodeCount: 1`.
+
+Supports:
+- H-008 is confirmed. The business edit can happen, but the TaskSpace lifecycle misses it if edit evidence is recorded before tool drain.
+
+## Fix F-008: Record observed implement edits after tool drain before no-action recovery is emitted
+
+Implementation:
+- After `drain_in_flight`, if the selected recovery item is a no-action recovery on `implement_solution`, inspect the current turn diff.
+- When a diff exists, record it as a synthetic successful edit result and immediately retry forced implementation convergence into `smoke_test`.
+- The recovery item is replaced with `TaskSpaceForcedImplementTransitionRecoveryV1` when forced convergence succeeds, so it does not consume the no-action retry budget.
+
+Verification:
+- `cargo test -p codex-core no_action_recovery --locked`
+- `cargo test -p codex-core provider_budget_follow_up_force_finishes --locked`
+- `cargo fmt --all -- --check`
+- `cargo build -p codex-cli --bin whale --locked`
+
+## Evidence E-013: B rerun36 is blocked by external provider balance, not TaskSpace runtime logic
+
+Type: reproduction
+
+Source:
+- `target/phase-a-benefit-B-rerun36/single-file-fast-fix/20260622-090348-813/pair-001/pair-report.md`
+- `target/phase-a-benefit-B-rerun36/single-file-fast-fix/20260622-090348-813/pair-001/right/artifacts/whale-exec.jsonl`
+
+Observation:
+- Both standard and TaskSpace sides failed before useful tool execution with `tool_call_count: 0`.
+- `whale-exec.jsonl` reports `unexpected status 402 Payment Required: Insufficient Balance, url: https://api.deepseek.com/chat/completions`.
+- Pair report marks both public and hidden validation as failed because no agent patch ran.
+
+Supports:
+- Current B acceptance cannot be revalidated until the DeepSeek provider balance is restored or the benchmark is configured to use an available provider/model.

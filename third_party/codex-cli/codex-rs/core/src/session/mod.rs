@@ -994,6 +994,13 @@ impl Session {
         }
     }
 
+    pub(crate) async fn action_map_current_main_node_progress_signature(&self) -> Option<usize> {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .current_main_node_progress_signature()
+    }
+
     pub(crate) async fn record_action_map_main_tool_result(
         &self,
         turn_context: &TurnContext,

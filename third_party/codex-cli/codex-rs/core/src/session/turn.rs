@@ -5,6 +5,7 @@ use std::sync::atomic::Ordering;
 
 use crate::SkillInjections;
 use crate::SkillLoadOutcome;
+use crate::action_map::ActionClass;
 use crate::action_map::ActionMapProviderResponseActionabilityInput;
 use crate::build_skill_injections;
 use crate::client::ModelClientSession;
@@ -56,8 +57,10 @@ use crate::stream_events_utils::raw_assistant_output_text_from_item;
 use crate::stream_events_utils::record_completed_response_item;
 use crate::tools::ToolRouter;
 use crate::tools::context::SharedTurnDiffTracker;
+use crate::tools::context::ToolPayload;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::registry::ToolArgumentDiffConsumer;
+use crate::tools::router::ToolCall;
 use crate::tools::router::ToolRouterParams;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use crate::turn_timing::record_turn_ttft_metric;
@@ -131,6 +134,10 @@ const TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER: &str = "TaskSpaceProviderBudget
 const TASKSPACE_NO_ACTION_RECOVERY_MARKER: &str = "TaskSpaceNoActionRecoveryV1:";
 const TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER: &str =
     "TaskSpaceForcedInspectTransitionRecoveryV1:";
+const TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER: &str =
+    "TaskSpaceForcedImplementTransitionRecoveryV1:";
+const TASKSPACE_INSPECT_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-rg-files";
+const TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-pytest";
 const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -541,8 +548,8 @@ pub(crate) async fn run_turn(
                         .action_map_provider_request_budget_snapshot()
                         .await
                         .and_then(|snapshot| snapshot.node_kind)
-                        .filter(|node_kind| node_kind == "implement_solution")
-                        .map(|_| 2usize)
+                        .as_deref()
+                        .map(taskspace_no_action_recovery_cap_for_node_kind)
                         .unwrap_or(1usize);
                     if counts_against_no_action_cap
                         && taskspace_no_action_recovery_count >= no_action_recovery_cap
@@ -565,6 +572,11 @@ pub(crate) async fn run_turn(
                         EventMsg::Warning(WarningEvent {
                             message: if counts_against_no_action_cap {
                                 format!("TaskSpace inserted TaskSpaceNoActionRecoveryV1 because the provider response requested follow-up or was rejected by the final-response gate without an actionable tool/control/final result. Recovery attempt {}/{} is being used.", taskspace_no_action_recovery_count, no_action_recovery_cap)
+                            } else if response_item_text_contains(
+                                &recovery_item,
+                                TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER,
+                            ) {
+                                "TaskSpace inserted TaskSpaceForcedImplementTransitionRecoveryV1 after a provider-budget forced implement transition. This guidance does not consume the no-action recovery allowance.".to_string()
                             } else {
                                 "TaskSpace inserted TaskSpaceForcedInspectTransitionRecoveryV1 after a provider-budget forced inspect transition. This guidance does not consume the no-action recovery allowance.".to_string()
                             },
@@ -1237,12 +1249,14 @@ fn build_taskspace_no_action_recovery_item(last_message: Option<&str>) -> Respon
         .unwrap_or("(no assistant text was captured)");
     let text = format!(
         "{TASKSPACE_NO_ACTION_RECOVERY_MARKER}\n\
-The previous assistant message requested follow-up but did not emit any tool call, taskspace_control transition, or final response accepted by TaskSpace.\n\
+The previous assistant message requested follow-up but did not produce effective TaskSpace progress: no successful tool result, taskspace_control transition, or final response accepted by TaskSpace was recorded.\n\
 Previous assistant message: {previous}\n\
 Required behavior for the next response:\n\
 - Do not send commentary-only text such as \"let me check\".\n\
 - Emit exactly one actionable operation now: a tool call, a taskspace_control finish/transition/state_commit, or a final blocked_by_budget answer with the exact missing evidence.\n\
+- If the current node is inspect_code_context and no source/test evidence has been read yet, call shell_command with `rg --files` now.\n\
 - If inspect evidence is sufficient, finish the inspect node into implement_solution before more environment probing.\n\
+- If a tool was blocked, follow that tool output's recovery instructions instead of repeating the same blocked action.\n\
 - If a concrete file edit is identified, call apply_patch now before any further validation."
     );
 
@@ -1277,7 +1291,7 @@ Current required behavior:\n\
 
 fn build_taskspace_forced_implement_transition_recovery_item() -> ResponseItem {
     let text = format!(
-        "{TASKSPACE_NO_ACTION_RECOVERY_MARKER}\n\
+        "{TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER}\n\
 TaskSpace already forced the previous implement_solution node into smoke_test because provider request budget pressure was active after a successful edit.\n\
 Current required behavior:\n\
 - Do not run more broad reads, environment discovery, or speculative edits.\n\
@@ -1297,6 +1311,14 @@ Current required behavior:\n\
 
 fn is_taskspace_no_action_recovery_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_NO_ACTION_RECOVERY_MARKER)
+}
+
+fn taskspace_no_action_recovery_cap_for_node_kind(node_kind: &str) -> usize {
+    match node_kind {
+        "inspect_code_context" => 3,
+        "implement_solution" => 3,
+        _ => 1,
+    }
 }
 
 fn taskspace_budget_pressure_follow_up_intent(
@@ -1402,6 +1424,15 @@ fn taskspace_last_message_preview(message: Option<&str>) -> Option<String> {
         .collect::<String>()
         .replace(['\r', '\n', '\t'], " ");
     Some(preview)
+}
+
+fn taskspace_message_requests_validation(message: Option<&str>) -> bool {
+    let Some(message) = message else {
+        return false;
+    };
+    let message = message.to_ascii_lowercase();
+    (message.contains("run") || message.contains("execute"))
+        && (message.contains("test") || message.contains("pytest") || message.contains("confirm"))
 }
 
 fn filter_deferred_dynamic_tool_spec(
@@ -2389,8 +2420,10 @@ mod active_context_replacement_tests {
         )));
 
         assert!(text.contains(TASKSPACE_NO_ACTION_RECOVERY_MARKER));
-        assert!(text.contains("did not emit any tool call"));
+        assert!(text.contains("did not produce effective TaskSpace progress"));
+        assert!(text.contains("no successful tool result"));
         assert!(text.contains("Do not send commentary-only text"));
+        assert!(text.contains("call shell_command with `rg --files` now"));
         assert!(text.contains("finish the inspect node into implement_solution"));
     }
 
@@ -2402,6 +2435,22 @@ mod active_context_replacement_tests {
         assert!(text.contains(TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER));
         assert!(text.contains("Current required behavior"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
+    }
+
+    #[test]
+    fn no_action_recovery_cap_allows_inspect_and_implement_retries() {
+        assert_eq!(
+            taskspace_no_action_recovery_cap_for_node_kind("inspect_code_context"),
+            3
+        );
+        assert_eq!(
+            taskspace_no_action_recovery_cap_for_node_kind("implement_solution"),
+            3
+        );
+        assert_eq!(
+            taskspace_no_action_recovery_cap_for_node_kind("smoke_test"),
+            1
+        );
     }
 
     #[test]
@@ -3311,6 +3360,96 @@ async fn drain_in_flight(
     Ok(())
 }
 
+async fn run_taskspace_inspect_bootstrap(
+    tool_runtime: ToolCallRuntime,
+    sess: Arc<Session>,
+    turn_context: Arc<TurnContext>,
+    request_count: usize,
+    call_id_prefix: &str,
+    command: &str,
+    event_message: &str,
+    cancellation_token: CancellationToken,
+) -> CodexResult<()> {
+    let call_id = format!("{call_id_prefix}-{request_count}");
+    let arguments = serde_json::json!({
+        "command": command,
+        "timeout_ms": 10000,
+    })
+    .to_string();
+    let call_item = ResponseItem::FunctionCall {
+        id: None,
+        name: "shell_command".to_string(),
+        namespace: None,
+        arguments: arguments.clone(),
+        call_id: call_id.clone(),
+    };
+    record_completed_response_item(sess.as_ref(), turn_context.as_ref(), &call_item).await;
+    sess.send_event(
+        &turn_context,
+        EventMsg::Warning(WarningEvent {
+            message: event_message.to_string(),
+        }),
+    )
+    .await;
+
+    let response_input = tool_runtime
+        .handle_tool_call(
+            ToolCall {
+                tool_name: ToolName::plain("shell_command"),
+                call_id,
+                payload: ToolPayload::Function { arguments },
+            },
+            cancellation_token,
+        )
+        .await?;
+    let response_item: ResponseItem = response_input.into();
+    sess.record_conversation_items(&turn_context, std::slice::from_ref(&response_item))
+        .await;
+    mark_thread_memory_mode_polluted_if_external_context(
+        sess.as_ref(),
+        turn_context.as_ref(),
+        &response_item,
+    )
+    .await;
+    Ok(())
+}
+
+async fn record_taskspace_observed_implement_edit(
+    sess: &Arc<Session>,
+    turn_context: &Arc<TurnContext>,
+    turn_diff_tracker: &SharedTurnDiffTracker,
+    request_count: usize,
+) -> bool {
+    let unified_diff = {
+        let mut tracker = turn_diff_tracker.lock().await;
+        tracker.get_unified_diff().ok().flatten()
+    };
+    let Some(unified_diff) = unified_diff else {
+        return false;
+    };
+    if unified_diff.trim().is_empty() {
+        return false;
+    }
+    let preview = format!(
+        "TaskSpace observed implementation edit in turn diff: {}",
+        unified_diff
+            .lines()
+            .take(12)
+            .collect::<Vec<_>>()
+            .join("\\n")
+    );
+    sess.record_action_map_main_tool_result(
+        turn_context,
+        &format!("taskspace-observed-implement-edit-{request_count}"),
+        "apply_patch",
+        Some(ActionClass::Edit),
+        true,
+        preview,
+    )
+    .await;
+    true
+}
+
 #[allow(clippy::too_many_arguments)]
 #[instrument(level = "trace",
     skip_all,
@@ -3391,6 +3530,8 @@ async fn try_run_sampling_request(
         .await;
     }
     let mut stream = stream_result??;
+    let taskspace_progress_before_request =
+        sess.action_map_current_main_node_progress_signature().await;
     let mut in_flight: FuturesOrdered<BoxFuture<'static, CodexResult<ResponseInputItem>>> =
         FuturesOrdered::new();
     let mut needs_follow_up = false;
@@ -3406,7 +3547,7 @@ async fn try_run_sampling_request(
     let mut assistant_message_stream_parsers = AssistantMessageStreamParsers::new(plan_mode);
     let mut plan_mode_state = plan_mode.then(|| PlanModeStreamState::new(&turn_context.sub_id));
     let receiving_span = trace_span!("receiving_stream");
-    let outcome: CodexResult<SamplingRequestResult> = loop {
+    let mut outcome: CodexResult<SamplingRequestResult> = loop {
         let handle_responses = trace_span!(
             parent: &receiving_span,
             "handle_responses",
@@ -3822,6 +3963,13 @@ async fn try_run_sampling_request(
                             }
                         }
                         Some("implement_solution") => {
+                            record_taskspace_observed_implement_edit(
+                                &sess,
+                                &turn_context,
+                                &turn_diff_tracker,
+                                snapshot.request_count,
+                            )
+                            .await;
                             match sess
                                 .force_finish_action_map_implement_for_provider_budget(
                                     &turn_context,
@@ -3979,6 +4127,126 @@ async fn try_run_sampling_request(
     .await;
 
     drain_in_flight(&mut in_flight, sess.clone(), turn_context.clone()).await?;
+    if let Ok(result) = &mut outcome
+        && result
+            .taskspace_no_action_recovery_item
+            .as_ref()
+            .is_some_and(is_taskspace_no_action_recovery_item)
+        && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
+        && snapshot.node_kind.as_deref() == Some("implement_solution")
+    {
+        record_taskspace_observed_implement_edit(
+            &sess,
+            &turn_context,
+            &turn_diff_tracker,
+            snapshot.request_count,
+        )
+        .await;
+        match sess
+            .force_finish_action_map_implement_for_provider_budget(
+                &turn_context,
+                snapshot,
+                "implement_observed_edit_after_tool_drain",
+            )
+            .await
+        {
+            Ok(true) => {
+                result.taskspace_no_action_recovery_item =
+                    Some(build_taskspace_forced_implement_transition_recovery_item());
+            }
+            Ok(false) => {}
+            Err(error) => {
+                sess.send_event(
+                    &turn_context,
+                    EventMsg::Warning(WarningEvent {
+                        message: format!(
+                            "TaskSpaceForcedImplementTransitionFailedV1 trigger=implement_observed_edit_after_tool_drain error={error}"
+                        ),
+                    }),
+                )
+                .await;
+            }
+        }
+    }
+    if let Ok(result) = &mut outcome
+        && result.needs_follow_up
+        && result.taskspace_no_action_recovery_item.is_none()
+        && taskspace_progress_before_request.is_some()
+    {
+        let taskspace_progress_after_request =
+            sess.action_map_current_main_node_progress_signature().await;
+        if taskspace_progress_after_request == taskspace_progress_before_request {
+            let inspect_bootstrap = provider_budget_snapshot
+                .as_ref()
+                .filter(|snapshot| snapshot.node_kind.as_deref() == Some("inspect_code_context"))
+                .cloned();
+            if let Some(snapshot) = inspect_bootstrap {
+                if taskspace_message_requests_validation(result.last_agent_message.as_deref()) {
+                    run_taskspace_inspect_bootstrap(
+                        tool_runtime.clone(),
+                        sess.clone(),
+                        turn_context.clone(),
+                        snapshot.request_count,
+                        TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID,
+                        "python -m pytest -q",
+                        "TaskSpaceInspectTestBootstrapV1 executed `python -m pytest -q` after inspect_code_context requested validation but produced no tool call.",
+                        cancellation_token.child_token(),
+                    )
+                    .await?;
+                } else {
+                    let forced_transition = match sess
+                        .force_finish_action_map_inspect_for_provider_budget(
+                            &turn_context,
+                            snapshot.clone(),
+                            "inspect_no_action_with_evidence",
+                        )
+                        .await
+                    {
+                        Ok(true) => {
+                            result.taskspace_no_action_recovery_item =
+                                Some(build_taskspace_forced_inspect_transition_recovery_item());
+                            true
+                        }
+                        Ok(false) => false,
+                        Err(error) => {
+                            sess.send_event(
+                                &turn_context,
+                                EventMsg::Warning(WarningEvent {
+                                    message: format!(
+                                        "TaskSpaceForcedInspectTransitionFailedV1 trigger=inspect_no_action_with_evidence error={error}"
+                                    ),
+                                }),
+                            )
+                            .await;
+                            false
+                        }
+                    };
+                    if !forced_transition {
+                        let (call_id_prefix, command, event_message) = (
+                            TASKSPACE_INSPECT_BOOTSTRAP_CALL_ID,
+                            "rg --files",
+                            "TaskSpaceInspectBootstrapV1 executed `rg --files` after inspect_code_context produced no effective action.",
+                        );
+                        run_taskspace_inspect_bootstrap(
+                            tool_runtime.clone(),
+                            sess.clone(),
+                            turn_context.clone(),
+                            snapshot.request_count,
+                            call_id_prefix,
+                            command,
+                            event_message,
+                            cancellation_token.child_token(),
+                        )
+                        .await?;
+                    }
+                }
+            } else {
+                result.taskspace_no_action_recovery_item = Some(
+                    build_taskspace_no_action_recovery_item(result.last_agent_message.as_deref()),
+                );
+            }
+        }
+    }
 
     if cancellation_token.is_cancelled() {
         return Err(CodexErr::TurnAborted);

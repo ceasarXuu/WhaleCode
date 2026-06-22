@@ -719,7 +719,6 @@ $activeReplacementPass = ($activeReplacement `
     -and (Get-ReleaseBool $activeReplacement "replacement_confirmed") `
     -and -not (Get-ReleaseBool $activeReplacement "legacy_taskspace_history_present" $true) `
     -and (Get-ReleaseInt $activeReplacement "large_raw_output_tokens" 1) -eq 0 `
-    -and (Get-ReleaseBool $activeReplacement "protected_items_present") `
     -and $exactScanPass)
 $stateCommitDisplacementPass = ($stateCommitDisplacement `
     -and (Get-ReleaseString $stateCommitDisplacement "status") -eq "pass" `

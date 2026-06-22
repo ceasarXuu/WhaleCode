@@ -853,6 +853,7 @@ impl ProviderRequestBudgetDispatch {
 
 fn provider_payload_digest<T: serde::Serialize>(payload: &T) -> Option<ProviderPayloadDigest> {
     let bytes = serde_json::to_vec(payload).ok()?;
+    let value = serde_json::to_value(payload).ok()?;
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
     let digest = hasher.finalize();
@@ -869,7 +870,7 @@ fn provider_payload_digest<T: serde::Serialize>(payload: &T) -> Option<ProviderP
         || active_projection_block.contains("protected_item")
         || active_projection_block.contains("protected item")
         || active_projection_block.contains("protected evidence");
-    let large_raw_output_tokens = estimate_large_raw_output_tokens(&text);
+    let large_raw_output_tokens = estimate_large_raw_output_tokens(&value);
     let replacement_confirmed = active_projection_present
         && !legacy_taskspace_history_present
         && large_raw_output_tokens == 0;
@@ -887,15 +888,43 @@ fn provider_payload_digest<T: serde::Serialize>(payload: &T) -> Option<ProviderP
     })
 }
 
-fn estimate_large_raw_output_tokens(text: &str) -> usize {
+fn estimate_large_raw_output_tokens(value: &serde_json::Value) -> usize {
     const LARGE_RAW_OUTPUT_BYTES: usize = 50 * 1024;
-    if text.len() <= LARGE_RAW_OUTPUT_BYTES {
-        return 0;
+    fn walk(value: &serde_json::Value, inside_tool_output: bool, threshold: usize) -> usize {
+        match value {
+            serde_json::Value::Object(object) => {
+                let item_type = object
+                    .get("type")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default();
+                let is_tool_output = inside_tool_output
+                    || matches!(
+                        item_type,
+                        "function_call_output"
+                            | "custom_tool_call_output"
+                            | "tool_search_output"
+                            | "mcp_tool_call_output"
+                    );
+                object
+                    .values()
+                    .map(|value| walk(value, is_tool_output, threshold))
+                    .sum()
+            }
+            serde_json::Value::Array(items) => items
+                .iter()
+                .map(|value| walk(value, inside_tool_output, threshold))
+                .sum(),
+            serde_json::Value::String(text) if inside_tool_output && text.len() > threshold => {
+                if text.contains("OutputReferenceV1:") && text.contains("raw_output_elided: true") {
+                    0
+                } else {
+                    text.len() / 4
+                }
+            }
+            _ => 0,
+        }
     }
-    if text.contains("OutputReferenceV1:") && text.contains("raw_output_elided: true") {
-        return 0;
-    }
-    text.len() / 4
+    walk(value, false, LARGE_RAW_OUTPUT_BYTES)
 }
 
 fn sanitize_provider_request_id_part(value: &str) -> String {
