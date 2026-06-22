@@ -158,6 +158,31 @@ enum TaskspaceProviderToolVisibility {
     None,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TaskspaceProviderTransportMode {
+    NativeTools,
+    CacheOptimizedActionContract,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TaskspaceProviderTransportBudgetLimits {
+    max_requests: usize,
+    max_model_requests_per_node: usize,
+    post_budget_grace_requests: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+struct TaskSpaceActionV1 {
+    schema_version: String,
+    action: String,
+    #[serde(default)]
+    node_id: Option<String>,
+    #[serde(default)]
+    args: serde_json::Value,
+    #[serde(default)]
+    rationale: Option<String>,
+}
+
 impl TaskspaceProviderResponseActionability {
     fn as_str(self) -> &'static str {
         match self {
@@ -1154,6 +1179,99 @@ fn taskspace_provider_tool_visibility_for_budget(
     TaskspaceProviderToolVisibility::EssentialCoding
 }
 
+fn taskspace_provider_transport_mode(
+    turn_context: &TurnContext,
+    snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
+) -> TaskspaceProviderTransportMode {
+    if snapshot.is_none() {
+        return TaskspaceProviderTransportMode::NativeTools;
+    }
+    let configured = std::env::var("WHALE_TASKSPACE_PROVIDER_TRANSPORT")
+        .ok()
+        .or_else(|| std::env::var("TASKSPACE_PROVIDER_TRANSPORT").ok())
+        .unwrap_or_default();
+    if configured != "cache_optimized_action_contract" {
+        return TaskspaceProviderTransportMode::NativeTools;
+    }
+    let provider_info = turn_context.provider.info();
+    let provider_name = provider_info.name.to_ascii_lowercase();
+    let model = turn_context.model_info.slug.to_ascii_lowercase();
+    let deepseek_chat = provider_info.wire_api
+        == codex_model_provider_info::WireApi::ChatCompletions
+        && (provider_name.contains("deepseek") || model.contains("deepseek"));
+    if deepseek_chat {
+        TaskspaceProviderTransportMode::CacheOptimizedActionContract
+    } else {
+        TaskspaceProviderTransportMode::NativeTools
+    }
+}
+
+fn taskspace_transport_budget_limits(
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    transport_mode: TaskspaceProviderTransportMode,
+) -> TaskspaceProviderTransportBudgetLimits {
+    match transport_mode {
+        TaskspaceProviderTransportMode::NativeTools => TaskspaceProviderTransportBudgetLimits {
+            max_requests: snapshot.max_requests,
+            max_model_requests_per_node: snapshot.max_model_requests_per_node,
+            post_budget_grace_requests: snapshot.post_budget_grace_requests,
+        },
+        TaskspaceProviderTransportMode::CacheOptimizedActionContract => {
+            TaskspaceProviderTransportBudgetLimits {
+                max_requests: snapshot.max_requests.max(14),
+                max_model_requests_per_node: snapshot.max_model_requests_per_node.max(6),
+                post_budget_grace_requests: snapshot.post_budget_grace_requests.max(2),
+            }
+        }
+    }
+}
+
+fn taskspace_static_action_contract_instructions() -> &'static str {
+    "TaskSpaceActionContractV1:
+You are running in TaskSpace cache-optimized action-contract transport.
+Provider-native tools are intentionally disabled for this request.
+Return one taskspace-action-v1 JSON object as the assistant message body.
+Do not emit markdown fences, DSML tool calls, XML tags, prose before JSON, or prose after JSON.
+Required JSON shape:
+{\"schema_version\":\"taskspace-action-v1\",\"action\":\"<action>\",\"node_id\":\"<active node id>\",\"args\":{},\"rationale\":\"short reason\"}
+Allowed actions by active node kind:
+- inspect_code_context: list_files, search, read_file, taskspace_control, blocked
+- implement_solution: apply_patch, taskspace_control, blocked
+- smoke_test/regression_test: run_test, read_file, search, taskspace_control, blocked
+- final_synthesis: final_answer, taskspace_control, blocked
+Action argument rules:
+- list_files args: {\"path\":\".\"}
+- search args: {\"pattern\":\"literal or regex\",\"path\":\".\"}
+- read_file args: {\"path\":\"relative/path\"}
+- apply_patch args: {\"patch\":\"*** Begin Patch\\n...\\n*** End Patch\\n\"}
+- run_test args: {\"command\":\"test command\",\"timeout_ms\":120000}
+- taskspace_control args: use the existing taskspace_control arguments.
+- final_answer args: {\"message\":\"user-facing final answer\"}
+- blocked args: {\"reason\":\"exact missing evidence or blocker\"}
+Validation invariants:
+- Unknown actions or actions disallowed for the active node will be rejected and no tool will execute.
+- If provider-native tool-call markup appears after the JSON object, TaskSpace ignores that markup and executes only the JSON action."
+}
+
+fn taskspace_action_contract_state_item(
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> ResponseItem {
+    let node_id = snapshot.node_id.as_deref().unwrap_or("none");
+    let node_kind = snapshot.node_kind.as_deref().unwrap_or("unknown");
+    let text = format!(
+        "TaskSpaceActionContractStateV1:\n\
+Active node id: {node_id}\n\
+Active node kind: {node_kind}"
+    );
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn is_taskspace_essential_coding_tool_name(name: &str) -> bool {
     matches!(
         name,
@@ -1603,25 +1721,37 @@ async fn run_sampling_request(
             )
         };
         let provider_budget_snapshot = sess.action_map_provider_request_budget_snapshot().await;
+        let transport_mode = taskspace_provider_transport_mode(
+            turn_context.as_ref(),
+            provider_budget_snapshot.as_ref(),
+        );
         let tool_visibility = provider_budget_snapshot
             .as_ref()
             .map(|snapshot| {
+                let limits = taskspace_transport_budget_limits(snapshot, transport_mode);
                 taskspace_provider_tool_visibility_for_budget(
                     snapshot.request_count,
-                    snapshot.max_requests,
+                    limits.max_requests,
                     snapshot.node_request_count,
-                    snapshot.max_model_requests_per_node,
+                    limits.max_model_requests_per_node,
                     snapshot.request_phase.as_deref(),
                     snapshot.node_kind.as_deref(),
                 )
             })
             .unwrap_or(TaskspaceProviderToolVisibility::All);
+        let tool_visibility = match transport_mode {
+            TaskspaceProviderTransportMode::NativeTools => tool_visibility,
+            TaskspaceProviderTransportMode::CacheOptimizedActionContract => {
+                TaskspaceProviderToolVisibility::None
+            }
+        };
         if let Some(snapshot) = provider_budget_snapshot.as_ref()
             && let Some(item) = build_taskspace_provider_budget_guidance_item(
                 snapshot.request_count,
-                snapshot.max_requests,
+                taskspace_transport_budget_limits(snapshot, transport_mode).max_requests,
                 snapshot.node_request_count,
-                snapshot.max_model_requests_per_node,
+                taskspace_transport_budget_limits(snapshot, transport_mode)
+                    .max_model_requests_per_node,
                 snapshot.request_phase.as_deref(),
                 snapshot.node_kind.as_deref(),
                 snapshot.node_id.as_deref(),
@@ -1630,11 +1760,23 @@ async fn run_sampling_request(
         {
             prompt_input.push(item);
         }
+        if let Some(snapshot) = provider_budget_snapshot.as_ref()
+            && transport_mode == TaskspaceProviderTransportMode::CacheOptimizedActionContract
+        {
+            prompt_input.push(taskspace_action_contract_state_item(snapshot));
+        }
+        let mut prompt_base_instructions = base_instructions.clone();
+        if transport_mode == TaskspaceProviderTransportMode::CacheOptimizedActionContract {
+            prompt_base_instructions.text.push_str("\n\n");
+            prompt_base_instructions
+                .text
+                .push_str(taskspace_static_action_contract_instructions());
+        }
         let prompt = build_prompt_with_tool_visibility(
             prompt_input,
             router.as_ref(),
             turn_context.as_ref(),
-            base_instructions.clone(),
+            prompt_base_instructions,
             tool_visibility,
         );
         let err = match try_run_sampling_request(
@@ -2340,6 +2482,239 @@ mod active_context_replacement_tests {
             names,
             vec!["taskspace_control", "shell_command", "apply_patch"]
         );
+    }
+
+    fn provider_snapshot(
+        node_kind: &str,
+    ) -> crate::action_map::ActionMapProviderRequestBudgetSnapshot {
+        crate::action_map::ActionMapProviderRequestBudgetSnapshot {
+            task_id: Some("task-1".to_string()),
+            map_id: "map-1".to_string(),
+            node_id: Some("node-1".to_string()),
+            node_kind: Some(node_kind.to_string()),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-active".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 1,
+            max_requests: 8,
+            node_request_count: 0,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_accepts_strict_json() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"src/lib.rs"},"rationale":"inspect"}"#,
+        )
+        .expect("valid action");
+
+        assert_eq!(action.action, "read_file");
+        assert_eq!(action.node_id.as_deref(), Some("node-1"));
+        assert_eq!(
+            taskspace_action_arg_string(&action.args, "path").as_deref(),
+            Some("src/lib.rs")
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_transport_uses_serial_action_budget() {
+        let snapshot = provider_snapshot("inspect_code_context");
+        let limits = taskspace_transport_budget_limits(
+            &snapshot,
+            TaskspaceProviderTransportMode::CacheOptimizedActionContract,
+        );
+
+        assert_eq!(limits.max_requests, 14);
+        assert_eq!(limits.max_model_requests_per_node, 6);
+        assert_eq!(limits.post_budget_grace_requests, 2);
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_rejects_non_json_text() {
+        let err =
+            parse_taskspace_action_v1("```json\n{}\n```").expect_err("must reject fenced text");
+        assert_eq!(err, "action_contract_output_not_strict_json");
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_accepts_deepseek_dsml_suffix() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"README.md"}}
+
+<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="shell_command">
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>"#,
+        )
+        .expect("leading action json should be recoverable");
+
+        assert_eq!(action.action, "read_file");
+        assert_eq!(
+            taskspace_action_arg_string(&action.args, "path").as_deref(),
+            Some("README.md")
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_rejects_prose_suffix() {
+        let err = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"README.md"}}
+Then I will inspect the file."#,
+        )
+        .expect_err("non-DSML trailing prose remains invalid");
+        assert_eq!(err, "action_contract_output_not_strict_json");
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_recovers_json_after_prose_prefix() {
+        let action = parse_taskspace_action_v1(
+            r#"Let me read the key files.
+
+{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"README.md"}}
+
+<｜｜DSML｜｜tool_calls></｜｜DSML｜｜tool_calls>"#,
+        )
+        .expect("json after prose prefix should be recoverable");
+
+        assert_eq!(action.action, "read_file");
+        assert_eq!(
+            taskspace_action_arg_string(&action.args, "path").as_deref(),
+            Some("README.md")
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_recovers_pure_deepseek_dsml_read_file() {
+        let action = parse_taskspace_action_v1(
+            r#"<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="shell_command">
+<｜｜DSML｜｜parameter name="command" string="true">Get-Content -LiteralPath "tests/test_tax_calc.py" -TotalCount 100</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>"#,
+        )
+        .expect("known DSML read command should map to read_file");
+
+        assert_eq!(action.action, "read_file");
+        assert_eq!(
+            taskspace_action_arg_string(&action.args, "path").as_deref(),
+            Some("tests/test_tax_calc.py")
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_recovers_dsml_path_and_type_reads() {
+        let path_action = parse_taskspace_action_v1(
+            r#"<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="shell_command">
+<｜｜DSML｜｜parameter name="command" string="true">Get-Content -Path "README.md" -Raw</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>"#,
+        )
+        .expect("Get-Content -Path should map to read_file");
+        assert_eq!(
+            taskspace_action_arg_string(&path_action.args, "path").as_deref(),
+            Some("README.md")
+        );
+
+        let type_action = parse_taskspace_action_v1(
+            r#"<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="shell_command">
+<｜｜DSML｜｜parameter name="command" string="true">type src\tax_calc.py</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>"#,
+        )
+        .expect("type should map to read_file");
+        assert_eq!(
+            taskspace_action_arg_string(&type_action.args, "path").as_deref(),
+            Some("src\\tax_calc.py")
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_recovers_dsml_python_open_read() {
+        let action = parse_taskspace_action_v1(
+            r#"<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="shell_command">
+<｜｜DSML｜｜parameter name="command" string="true">python -c "with open('src/tax_calc.py', 'r') as f: print(f.read())"</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>"#,
+        )
+        .expect("python open read should map to read_file");
+
+        assert_eq!(
+            taskspace_action_arg_string(&action.args, "path").as_deref(),
+            Some("src/tax_calc.py")
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_policy_rejects_dsml_test_in_inspect_node() {
+        let action = parse_taskspace_action_v1(
+            r#"<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="shell_command">
+<｜｜DSML｜｜parameter name="command" string="true">python -m pytest tests/test_tax_calc.py -v</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>"#,
+        )
+        .expect("known DSML test command should map to run_test");
+        let err =
+            taskspace_action_to_tool_call(&action, &provider_snapshot("inspect_code_context"))
+                .expect_err("inspect nodes cannot run tests");
+
+        assert!(err.contains("node_policy_violation:inspect_code_context:run_test"));
+    }
+
+    #[test]
+    fn taskspace_action_contract_policy_rejects_tests_in_implementation_node() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"run_test","node_id":"node-1","args":{"command":"cargo test"}}"#,
+        )
+        .expect("valid json");
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("implement nodes cannot run tests");
+
+        assert!(err.contains("node_policy_violation:implement_solution:run_test"));
+    }
+
+    #[test]
+    fn taskspace_action_contract_apply_patch_uses_custom_payload() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** End Patch\n"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        assert_eq!(call.tool_name.name, "apply_patch");
+        assert!(matches!(call.payload, ToolPayload::Custom { .. }));
+        let response_item = response_item_for_taskspace_action_tool_call(&call);
+        assert!(matches!(response_item, ResponseItem::CustomToolCall { .. }));
+    }
+
+    #[test]
+    fn taskspace_action_contract_apply_patch_normalizes_unified_diff() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n--- a/src/tax_calc.py\n+++ b/src/tax_calc.py\n@@ -1 +1 @@\n-old\n+new\n*** End Patch\n"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: src/tax_calc.py"));
+                assert!(!input.contains("--- a/src/tax_calc.py"));
+                assert!(!input.contains("+++ b/src/tax_calc.py"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
     }
 
     #[test]
@@ -3602,6 +3977,372 @@ async fn run_taskspace_inspect_bootstrap(
     Ok(())
 }
 
+fn parse_taskspace_action_v1(text: &str) -> Result<TaskSpaceActionV1, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("empty_action_contract_output".to_string());
+    }
+    if trimmed.starts_with("```") {
+        return Err("action_contract_output_not_strict_json".to_string());
+    }
+    if !trimmed.starts_with('{') {
+        if let Some(json_start) = trimmed.find('{') {
+            return parse_taskspace_action_v1(&trimmed[json_start..]);
+        }
+        return taskspace_action_from_deepseek_dsml(trimmed)
+            .ok_or_else(|| "action_contract_output_not_strict_json".to_string());
+    }
+    let json_end = taskspace_leading_json_object_end(trimmed)
+        .ok_or_else(|| "malformed_action_json:unterminated_object".to_string())?;
+    let action = serde_json::from_str::<TaskSpaceActionV1>(&trimmed[..json_end])
+        .map_err(|err| format!("malformed_action_json:{err}"))?;
+    let suffix = trimmed[json_end..].trim();
+    if !suffix.is_empty() && !suffix.contains("DSML") {
+        return Err("action_contract_output_not_strict_json".to_string());
+    }
+    if action.schema_version != "taskspace-action-v1" {
+        return Err("unsupported_action_schema_version".to_string());
+    }
+    if action.action.trim().is_empty() {
+        return Err("missing_action".to_string());
+    }
+    Ok(action)
+}
+
+fn taskspace_action_from_deepseek_dsml(text: &str) -> Option<TaskSpaceActionV1> {
+    if !text.contains("DSML") || !text.contains("invoke name=\"shell_command\"") {
+        return None;
+    }
+    let command = taskspace_dsml_parameter(text, "command")?;
+    let command = command.trim();
+    let args = if command.starts_with("rg --files") {
+        let path = command
+            .strip_prefix("rg --files")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(".");
+        ("list_files", serde_json::json!({ "path": path }))
+    } else if command.starts_with("Get-Content") {
+        let path = taskspace_powershell_path_arg(command)?;
+        ("read_file", serde_json::json!({ "path": path }))
+    } else if let Some(path) = command.strip_prefix("cat ").map(str::trim) {
+        (
+            "read_file",
+            serde_json::json!({ "path": path.trim_matches('"') }),
+        )
+    } else if let Some(path) = command.strip_prefix("type ").map(str::trim) {
+        (
+            "read_file",
+            serde_json::json!({ "path": path.trim_matches('"') }),
+        )
+    } else if let Some(path) = taskspace_python_open_path(command) {
+        ("read_file", serde_json::json!({ "path": path }))
+    } else if command.starts_with("rg ") {
+        ("search", serde_json::json!({ "pattern": "", "path": "." }))
+    } else if command.contains("pytest") || command.contains("cargo test") {
+        (
+            "run_test",
+            serde_json::json!({ "command": command, "timeout_ms": 120000 }),
+        )
+    } else {
+        return None;
+    };
+    Some(TaskSpaceActionV1 {
+        schema_version: "taskspace-action-v1".to_string(),
+        action: args.0.to_string(),
+        node_id: None,
+        args: args.1,
+        rationale: Some("Recovered provider DSML shell command as TaskSpaceActionV1".to_string()),
+    })
+}
+
+fn taskspace_dsml_parameter(text: &str, name: &str) -> Option<String> {
+    let marker = format!("parameter name=\"{name}\"");
+    let start = text.find(&marker)?;
+    let after_marker = &text[start..];
+    let value_start = after_marker.find('>')? + 1;
+    let after_start = &after_marker[value_start..];
+    let value_end = after_start.find("</")?;
+    Some(after_start[..value_end].to_string())
+}
+
+fn taskspace_powershell_path_arg(command: &str) -> Option<String> {
+    let marker = if command.contains("-LiteralPath") {
+        "-LiteralPath"
+    } else {
+        "-Path"
+    };
+    let start = command.find(marker)? + marker.len();
+    let rest = command[start..].trim_start();
+    if let Some(rest) = rest.strip_prefix('"') {
+        let end = rest.find('"')?;
+        return Some(rest[..end].to_string());
+    }
+    let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+    Some(rest[..end].to_string())
+}
+
+fn taskspace_python_open_path(command: &str) -> Option<String> {
+    if !command.starts_with("python -c") || !command.contains("open(") {
+        return None;
+    }
+    let open_start = command.find("open(")? + "open(".len();
+    let rest = command[open_start..].trim_start();
+    let quote = rest.chars().next()?;
+    if quote != '\'' && quote != '"' {
+        return None;
+    }
+    let after_quote = &rest[quote.len_utf8()..];
+    let end = after_quote.find(quote)?;
+    Some(after_quote[..end].to_string())
+}
+
+fn taskspace_leading_json_object_end(text: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (idx, ch) in text.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '{' => depth = depth.saturating_add(1),
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(idx + ch.len_utf8());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn taskspace_action_allowed_for_node(action: &str, node_kind: Option<&str>) -> bool {
+    match node_kind {
+        Some("inspect_code_context") => matches!(
+            action,
+            "list_files" | "search" | "read_file" | "taskspace_control" | "blocked"
+        ),
+        Some("implement_solution") => matches!(
+            action,
+            "read_file" | "search" | "apply_patch" | "taskspace_control" | "blocked"
+        ),
+        Some("smoke_test" | "regression_test") => matches!(
+            action,
+            "run_test" | "read_file" | "search" | "taskspace_control" | "blocked"
+        ),
+        Some("final_synthesis") => {
+            matches!(action, "final_answer" | "taskspace_control" | "blocked")
+        }
+        _ => matches!(action, "taskspace_control" | "blocked"),
+    }
+}
+
+fn taskspace_action_arg_string(args: &serde_json::Value, name: &str) -> Option<String> {
+    args.get(name)
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn taskspace_action_arg_u64(args: &serde_json::Value, name: &str, default: u64) -> u64 {
+    args.get(name)
+        .and_then(|value| value.as_u64())
+        .unwrap_or(default)
+}
+
+fn normalize_taskspace_apply_patch(patch: &str) -> String {
+    let normalized = patch.replace("\r\n", "\n");
+    let lines = normalized.lines().collect::<Vec<_>>();
+    if lines.len() < 5
+        || lines.first() != Some(&"*** Begin Patch")
+        || lines.last() != Some(&"*** End Patch")
+        || !lines
+            .iter()
+            .any(|line| line.starts_with("*** Update File: "))
+    {
+        return normalized;
+    }
+    normalized
+}
+
+fn normalize_taskspace_unified_diff_patch(patch: &str) -> Option<String> {
+    let normalized = patch.replace("\r\n", "\n");
+    let lines = normalized.lines().collect::<Vec<_>>();
+    if lines.first() != Some(&"*** Begin Patch") || lines.last() != Some(&"*** End Patch") {
+        return None;
+    }
+    let old_idx = lines.iter().position(|line| line.starts_with("--- a/"))?;
+    let new_idx = lines.iter().position(|line| line.starts_with("+++ b/"))?;
+    if new_idx != old_idx + 1 {
+        return None;
+    }
+    let path = lines[new_idx].strip_prefix("+++ b/")?.trim();
+    if path.is_empty() {
+        return None;
+    }
+    let mut rewritten = Vec::with_capacity(lines.len());
+    rewritten.push("*** Begin Patch".to_string());
+    rewritten.push(format!("*** Update File: {path}"));
+    for line in lines
+        .iter()
+        .skip(new_idx + 1)
+        .take(lines.len().saturating_sub(new_idx + 2))
+    {
+        rewritten.push((*line).to_string());
+    }
+    rewritten.push("*** End Patch".to_string());
+    Some(rewritten.join("\n") + "\n")
+}
+
+fn taskspace_action_to_tool_call(
+    action: &TaskSpaceActionV1,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> Result<Option<ToolCall>, String> {
+    let action_name = action.action.as_str();
+    if !taskspace_action_allowed_for_node(action_name, snapshot.node_kind.as_deref()) {
+        return Err(format!(
+            "node_policy_violation:{}:{}",
+            snapshot.node_kind.as_deref().unwrap_or("unknown"),
+            action_name
+        ));
+    }
+    if let (Some(expected), Some(actual)) = (snapshot.node_id.as_deref(), action.node_id.as_deref())
+        && expected != actual
+    {
+        return Err("node_id_mismatch".to_string());
+    }
+    let args = &action.args;
+    let call_id = format!(
+        "taskspace-action-contract-{}-{}",
+        snapshot.request_count.saturating_add(1),
+        action_name
+    );
+    match action_name {
+        "list_files" => {
+            let path = taskspace_action_arg_string(args, "path").unwrap_or_else(|| ".".to_string());
+            let arguments = serde_json::json!({
+                "command": format!("rg --files {}", path),
+                "timeout_ms": 10000,
+            })
+            .to_string();
+            Ok(Some(ToolCall {
+                tool_name: ToolName::plain("shell_command"),
+                call_id,
+                payload: ToolPayload::Function { arguments },
+            }))
+        }
+        "search" => {
+            let pattern = taskspace_action_arg_string(args, "pattern")
+                .ok_or_else(|| "missing_search_pattern".to_string())?;
+            let path = taskspace_action_arg_string(args, "path").unwrap_or_else(|| ".".to_string());
+            let arguments = serde_json::json!({
+                "command": format!("rg --line-number --no-heading -- {:?} {}", pattern, path),
+                "timeout_ms": 10000,
+            })
+            .to_string();
+            Ok(Some(ToolCall {
+                tool_name: ToolName::plain("shell_command"),
+                call_id,
+                payload: ToolPayload::Function { arguments },
+            }))
+        }
+        "read_file" => {
+            let path = taskspace_action_arg_string(args, "path")
+                .ok_or_else(|| "missing_read_file_path".to_string())?;
+            let arguments = serde_json::json!({
+                "command": format!("Get-Content -LiteralPath {:?} -TotalCount 240", path),
+                "timeout_ms": 10000,
+            })
+            .to_string();
+            Ok(Some(ToolCall {
+                tool_name: ToolName::plain("shell_command"),
+                call_id,
+                payload: ToolPayload::Function { arguments },
+            }))
+        }
+        "apply_patch" => {
+            let patch = taskspace_action_arg_string(args, "patch")
+                .ok_or_else(|| "missing_apply_patch_patch".to_string())?;
+            let patch = normalize_taskspace_unified_diff_patch(&patch)
+                .unwrap_or_else(|| normalize_taskspace_apply_patch(&patch));
+            Ok(Some(ToolCall {
+                tool_name: ToolName::plain("apply_patch"),
+                call_id,
+                payload: ToolPayload::Custom { input: patch },
+            }))
+        }
+        "run_test" => {
+            let command = taskspace_action_arg_string(args, "command")
+                .ok_or_else(|| "missing_run_test_command".to_string())?;
+            let arguments = serde_json::json!({
+                "command": command,
+                "timeout_ms": taskspace_action_arg_u64(args, "timeout_ms", 120000),
+            })
+            .to_string();
+            Ok(Some(ToolCall {
+                tool_name: ToolName::plain("shell_command"),
+                call_id,
+                payload: ToolPayload::Function { arguments },
+            }))
+        }
+        "taskspace_control" => Ok(Some(ToolCall {
+            tool_name: ToolName::plain("taskspace_control"),
+            call_id,
+            payload: ToolPayload::Function {
+                arguments: args.to_string(),
+            },
+        })),
+        "final_answer" | "blocked" => Ok(None),
+        _ => Err(format!("unsupported_action:{action_name}")),
+    }
+}
+
+fn response_item_for_taskspace_action_tool_call(call: &ToolCall) -> ResponseItem {
+    match &call.payload {
+        ToolPayload::Custom { input } => ResponseItem::CustomToolCall {
+            id: None,
+            status: None,
+            call_id: call.call_id.clone(),
+            name: call.tool_name.name.clone(),
+            input: input.clone(),
+        },
+        ToolPayload::Function { arguments } => ResponseItem::FunctionCall {
+            id: None,
+            name: call.tool_name.name.clone(),
+            namespace: call.tool_name.namespace.clone(),
+            arguments: arguments.clone(),
+            call_id: call.call_id.clone(),
+        },
+        _ => ResponseItem::FunctionCall {
+            id: None,
+            name: call.tool_name.name.clone(),
+            namespace: call.tool_name.namespace.clone(),
+            arguments: call.payload.log_payload().into_owned(),
+            call_id: call.call_id.clone(),
+        },
+    }
+}
+
+fn taskspace_action_final_message(action: &TaskSpaceActionV1) -> Option<String> {
+    match action.action.as_str() {
+        "final_answer" => taskspace_action_arg_string(&action.args, "message"),
+        "blocked" => taskspace_action_arg_string(&action.args, "reason")
+            .map(|reason| format!("blocked_by_taskspace_action_contract: {reason}")),
+        _ => None,
+    }
+}
+
 async fn record_taskspace_observed_implement_edit(
     sess: &Arc<Session>,
     turn_context: &Arc<TurnContext>,
@@ -3673,15 +4414,21 @@ async fn try_run_sampling_request(
     let provider_request_budget = provider_budget_snapshot
         .as_ref()
         .map(|snapshot| {
+            let transport_mode = taskspace_provider_transport_mode(&turn_context, Some(snapshot));
+            let limits = taskspace_transport_budget_limits(snapshot, transport_mode);
+            let budget_state = match transport_mode {
+                TaskspaceProviderTransportMode::NativeTools => snapshot.budget_state.clone(),
+                TaskspaceProviderTransportMode::CacheOptimizedActionContract => String::new(),
+            };
             ProviderRequestBudgetContext::enabled_with_attribution(
                 ProviderRequestBudgetLimits {
                     request_count: snapshot.request_count,
-                    max_requests: snapshot.max_requests,
+                    max_requests: limits.max_requests,
                     node_request_count: snapshot.node_request_count,
-                    max_model_requests_per_node: snapshot.max_model_requests_per_node,
-                    post_budget_grace_requests: snapshot.post_budget_grace_requests,
+                    max_model_requests_per_node: limits.max_model_requests_per_node,
+                    post_budget_grace_requests: limits.post_budget_grace_requests,
                     post_budget_grace_request_count: snapshot.post_budget_grace_request_count,
-                    budget_state: snapshot.budget_state.clone(),
+                    budget_state,
                 },
                 ProviderRequestAttribution {
                     request_scope_id: Some(turn_context.sub_id.to_string()),
@@ -3881,10 +4628,55 @@ async fn try_run_sampling_request(
                 }
                 if let Some(agent_message) = output_result.last_agent_message {
                     last_agent_message = Some(agent_message);
-                } else if let Some(raw_text) = raw_assistant_text
+                } else if let Some(raw_text) = raw_assistant_text.as_deref()
                     && !raw_text.trim().is_empty()
                 {
-                    last_agent_message = Some(raw_text);
+                    last_agent_message = Some(raw_text.to_string());
+                }
+                if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                    && taskspace_provider_transport_mode(&turn_context, Some(snapshot))
+                        == TaskspaceProviderTransportMode::CacheOptimizedActionContract
+                    && let Some(raw_text) = raw_assistant_text.as_deref()
+                    && !raw_text.trim().is_empty()
+                {
+                    match parse_taskspace_action_v1(raw_text).and_then(|action| {
+                        let final_message = taskspace_action_final_message(&action);
+                        taskspace_action_to_tool_call(&action, snapshot)
+                            .map(|tool_call| (action, final_message, tool_call))
+                    }) {
+                        Ok((action, _final_message, Some(tool_call))) => {
+                            let call_item =
+                                response_item_for_taskspace_action_tool_call(&tool_call);
+                            record_completed_response_item(
+                                sess.as_ref(),
+                                turn_context.as_ref(),
+                                &call_item,
+                            )
+                            .await;
+                            saw_actionable_output = true;
+                            needs_follow_up = true;
+                            in_flight.push_back(Box::pin(
+                                tool_runtime
+                                    .clone()
+                                    .handle_tool_call(tool_call, cancellation_token.child_token()),
+                            ));
+                            if let Some(rationale) = action.rationale.as_deref()
+                                && !rationale.trim().is_empty()
+                            {
+                                last_agent_message = Some(rationale.to_string());
+                            }
+                        }
+                        Ok((_action, Some(final_message), None)) => {
+                            last_agent_message = Some(final_message);
+                        }
+                        Ok((_action, None, None)) => {}
+                        Err(reason) => {
+                            needs_follow_up = true;
+                            last_agent_message = Some(format!(
+                                "TaskSpaceActionV1 rejected: {reason}. Return exactly one valid taskspace-action-v1 JSON object."
+                            ));
+                        }
+                    }
                 }
                 needs_follow_up |= output_result.needs_follow_up;
                 // todo: remove before stabilizing multi-agent v2

@@ -418,3 +418,33 @@
   - This does not yet remove native tools schema from the hot path; it establishes the release-grade evidence needed to validate the upcoming transport fix.
 - Supports:
   - H-006
+
+## Evidence E-018: Opt-in tool-free action-contract transport removes tools schema but does not satisfy cache acceptance
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Added opt-in `WHALE_TASKSPACE_PROVIDER_TRANSPORT=cache_optimized_action_contract` support for DeepSeek ChatCompletions TaskSpace turns.
+  - The transport disables provider-native tools, moves the stable action contract into provider instructions, emits only a small dynamic node-state item, and maps `TaskSpaceActionV1` JSON into existing local tool calls.
+  - Added limited recovery for observed DeepSeek DSML residual output and common unified-diff `apply_patch` output.
+  - Ran targeted unit/build checks and repeated live DeepSeek verification attempts.
+- Observations:
+  - Local checks passed:
+    - `cargo test -p codex-core taskspace_action_contract --lib` passed 13 tests.
+    - `cargo check -p codex-core` passed.
+    - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1` passed earlier in the same implementation pass.
+    - `cargo build -p codex-cli --bin whale --locked` passed and installed `C:\Users\77585\.whale\bin\whale.exe` with SHA256 `A8BB93911D2EA412DEAD1BB62BFE41469BF678B48C98A986B48B006776EEECB3`.
+  - Live report: `target/deepseek-cache-fix-validation/action-contract-l5/deepseek-cache-fix-verification.md`.
+  - Live artifact: `target/deepseek-cache-fix-validation/benchmark-20260623-025852/single-file-fast-fix/20260623-025853-014`.
+  - Provider trace confirmed the hot path was tool-free: TaskSpace requests were classified as `tool_free_action_contract`.
+  - TaskSpace still failed validation: `business_success=false`, `exec_exit_code=1`, `model_request_count=11`.
+  - TaskSpace cache hit rate remained low: `cached_input_tokens=22912`, `uncached_input_tokens=65389`, hit rate `0.259476`.
+  - Failure moved from native tools schema to action-contract/runtime mismatch:
+    - DeepSeek continued to emit DSML residual tool markup even without provider tools.
+    - The serial action protocol consumed TaskSpace's rollout request budget before validation could complete.
+    - The stable cached prefix was about 3K tokens while dynamic conversation/history grew past 10K tokens, so 95% hit rate is impossible under this request shape.
+- Interpretation:
+  - Removing the native tools schema is necessary but not sufficient.
+  - The verified remaining root cause is architectural: TaskSpace still resends growing dynamic history through ChatCompletions, while DeepSeek cache only credits the shared prefix. A reliable fix requires a structured TaskSpace provider transport that keeps a large stable prefix and sends bounded state deltas, or a provider-side/session protocol that avoids replaying dynamic history as ordinary prompt tokens.
+  - The opt-in action-contract transport is useful evidence and scaffolding, but it is not the v0.0.5 cache-hit fix.
+- Supports:
+  - H-006

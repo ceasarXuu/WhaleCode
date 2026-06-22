@@ -8,6 +8,8 @@ param(
     [int]$Repeats = 1,
     [string]$WhaleBin = "$env:USERPROFILE\.whale\bin\whale.exe",
     [int]$BenchmarkTimeoutSeconds = 900,
+    [ValidateSet("native_tools", "cache_optimized_action_contract")]
+    [string]$TaskspaceProviderTransport = "native_tools",
     [double]$MinOfficialSecondHitRate = 0.50,
     [double]$MinTaskspaceHitRate = 0.80,
     [double]$BaselineTaskspaceHitRate = 0.1386,
@@ -202,16 +204,23 @@ function Invoke-TaskspaceBenchmarkRun {
     $oldGitConfigCount = $env:GIT_CONFIG_COUNT
     $oldGitConfigKey0 = $env:GIT_CONFIG_KEY_0
     $oldGitConfigValue0 = $env:GIT_CONFIG_VALUE_0
+    $oldTaskspaceProviderTransport = $env:WHALE_TASKSPACE_PROVIDER_TRANSPORT
     try {
         $env:GIT_CONFIG_COUNT = "1"
         $env:GIT_CONFIG_KEY_0 = "core.autocrlf"
         $env:GIT_CONFIG_VALUE_0 = "false"
+        if ($TaskspaceProviderTransport -eq "cache_optimized_action_contract") {
+            $env:WHALE_TASKSPACE_PROVIDER_TRANSPORT = "cache_optimized_action_contract"
+        } else {
+            Remove-Item Env:\WHALE_TASKSPACE_PROVIDER_TRANSPORT -ErrorAction SilentlyContinue
+        }
         & $runner @runnerParams *>&1 | Tee-Object -FilePath $logPath
         $exit = $LASTEXITCODE
     } finally {
         if ($null -eq $oldGitConfigCount) { Remove-Item Env:\GIT_CONFIG_COUNT -ErrorAction SilentlyContinue } else { $env:GIT_CONFIG_COUNT = $oldGitConfigCount }
         if ($null -eq $oldGitConfigKey0) { Remove-Item Env:\GIT_CONFIG_KEY_0 -ErrorAction SilentlyContinue } else { $env:GIT_CONFIG_KEY_0 = $oldGitConfigKey0 }
         if ($null -eq $oldGitConfigValue0) { Remove-Item Env:\GIT_CONFIG_VALUE_0 -ErrorAction SilentlyContinue } else { $env:GIT_CONFIG_VALUE_0 = $oldGitConfigValue0 }
+        if ($null -eq $oldTaskspaceProviderTransport) { Remove-Item Env:\WHALE_TASKSPACE_PROVIDER_TRANSPORT -ErrorAction SilentlyContinue } else { $env:WHALE_TASKSPACE_PROVIDER_TRANSPORT = $oldTaskspaceProviderTransport }
     }
     $latest = Get-ChildItem -LiteralPath (Join-Path $runRoot $Scenario) -Directory -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending |
@@ -359,6 +368,7 @@ function Write-MarkdownReport {
     $lines.Add("- generated_at: $($Result.generated_at)")
     $lines.Add("- status: $($Result.status)")
     $lines.Add("- model: $($Result.model)")
+    $lines.Add("- taskspace_provider_transport: $($Result.taskspace_provider_transport)")
     $lines.Add("- official_probe: $($Result.official_probe.status)")
     $lines.Add("- taskspace_validation: $($Result.taskspace_validation.status)")
     if ($Result.official_probe -and $Result.official_probe.identical_second_request) {
@@ -426,6 +436,7 @@ $result = [pscustomobject]@{
     generated_at = (Get-Date).ToString("o")
     repo_root = $repoRoot
     model = $Model
+    taskspace_provider_transport = $TaskspaceProviderTransport
     status = $status
     official_probe = $official
     benchmark_run = $benchmark
