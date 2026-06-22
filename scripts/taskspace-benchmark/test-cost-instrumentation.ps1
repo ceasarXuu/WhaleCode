@@ -66,8 +66,18 @@ $obs = [pscustomobject]@{
                 "runtime_budget_state:normal",
                 "request_phase:model_sampling",
                 "producer:provider_lifecycle",
+                "input_tokens:10",
+                "cached_input_tokens:2",
+                "output_tokens:5",
                 "provider_payload_sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 "provider_payload_bytes:4321",
+                "provider_wire_api:ChatCompletions",
+                "tools_count:24",
+                "tools_present:true",
+                "request_shape_classifier:native_tools_schema_hot_path",
+                "messages_hash:messages-hash",
+                "stable_prefix_hash:stable-prefix-hash",
+                "dynamic_suffix_hash:dynamic-suffix-hash",
                 "exact_payload_scan_passed:true",
                 "active_projection_present:true",
                 "legacy_taskspace_history_present:false",
@@ -228,6 +238,8 @@ Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "exact-payload-scan-
 Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "active-context-replacement-report.json")) "active-context-replacement-report.json was not written"
 Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "provider-request-events.jsonl")) "provider-request-events.jsonl was not written"
 Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "request-phase-summary.json")) "request-phase-summary.json was not written"
+Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "provider-cache-trace.jsonl")) "provider-cache-trace.jsonl was not written"
+Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "provider-cache-trace-summary.json")) "provider-cache-trace-summary.json was not written"
 Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "state-commit-displacement.json")) "state-commit-displacement.json was not written"
 Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "spawn-node-budget-summary.json")) "spawn-node-budget-summary.json was not written"
 
@@ -236,7 +248,9 @@ $activeBudgetEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $arti
 $qualityEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "budget-quality-impact-events.jsonl") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
 $scanEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "exact-payload-scan-events.jsonl") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
 $providerEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "provider-request-events.jsonl") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
+$cacheTraceEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "provider-cache-trace.jsonl") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
 $summary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "budget_induced_quality_impact_summary.json") | ConvertFrom-Json
+$cacheTraceSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "provider-cache-trace-summary.json") | ConvertFrom-Json
 $replacement = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "active-context-replacement-report.json") | ConvertFrom-Json
 $phaseSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "request-phase-summary.json") | ConvertFrom-Json
 $stateCommit = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "state-commit-displacement.json") | ConvertFrom-Json
@@ -249,6 +263,9 @@ Assert-True ($scanEvents.Count -eq 1 -and [bool]$scanEvents[0].passed) "exact pa
 Assert-True (-not [bool]$scanEvents[0].protected_items_present) "protected items should remain advisory for exact payload scan"
 Assert-True ($providerEvents.Count -eq 2 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
 Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provider_lifecycle" }).Count -eq 2) "provider request events did not preserve provider_lifecycle producer"
+Assert-True ([string]$providerEvents[0].provider_wire_api -eq "ChatCompletions" -and [int]$providerEvents[0].tools_count -eq 24 -and [string]$providerEvents[0].request_shape_classifier -eq "native_tools_schema_hot_path") "provider request events did not preserve cache request shape fields"
+Assert-True ($cacheTraceEvents.Count -eq 1 -and [string]$cacheTraceEvents[0].schema_version -eq "TaskSpaceProviderCacheTraceV1" -and [double]$cacheTraceEvents[0].hit_rate -eq 0.2) "provider cache trace event was not derived from terminal provider request"
+Assert-True ([int]$cacheTraceSummary.native_tools_schema_hot_path_count -eq 1 -and [double]$cacheTraceSummary.trace_coverage -eq 1.0) "provider cache trace summary did not classify native tools hot path"
 Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"
 Assert-True (-not [bool]$replacement.protected_items_present) "active replacement report should preserve advisory protected-item absence"
 Assert-True ([int]$phaseSummary.provider_request_hook_coverage -eq 100 -and [int]$phaseSummary.request_phase_attribution_coverage -eq 100) "request phase summary did not reflect provider events"

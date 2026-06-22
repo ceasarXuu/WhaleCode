@@ -467,6 +467,13 @@ pub(crate) struct ActionMapProviderRequestBudgetEventInput {
     pub(crate) total_tokens: Option<i64>,
     pub(crate) provider_payload_sha256: Option<String>,
     pub(crate) provider_payload_bytes: Option<usize>,
+    pub(crate) provider_wire_api: Option<String>,
+    pub(crate) tools_count: Option<usize>,
+    pub(crate) tools_present: Option<bool>,
+    pub(crate) request_shape_classifier: Option<String>,
+    pub(crate) messages_hash: Option<String>,
+    pub(crate) stable_prefix_hash: Option<String>,
+    pub(crate) dynamic_suffix_hash: Option<String>,
     pub(crate) exact_payload_scan_passed: Option<bool>,
     pub(crate) active_projection_present: Option<bool>,
     pub(crate) legacy_taskspace_history_present: Option<bool>,
@@ -2568,6 +2575,29 @@ preview:\n\
             }
             if let Some(provider_payload_bytes) = input.provider_payload_bytes {
                 tags.push(format!("provider_payload_bytes:{provider_payload_bytes}"));
+            }
+            if let Some(provider_wire_api) = input.provider_wire_api {
+                tags.push(format!("provider_wire_api:{provider_wire_api}"));
+            }
+            if let Some(tools_count) = input.tools_count {
+                tags.push(format!("tools_count:{tools_count}"));
+            }
+            if let Some(tools_present) = input.tools_present {
+                tags.push(format!("tools_present:{tools_present}"));
+            }
+            if let Some(request_shape_classifier) = input.request_shape_classifier {
+                tags.push(format!(
+                    "request_shape_classifier:{request_shape_classifier}"
+                ));
+            }
+            if let Some(messages_hash) = input.messages_hash {
+                tags.push(format!("messages_hash:{messages_hash}"));
+            }
+            if let Some(stable_prefix_hash) = input.stable_prefix_hash {
+                tags.push(format!("stable_prefix_hash:{stable_prefix_hash}"));
+            }
+            if let Some(dynamic_suffix_hash) = input.dynamic_suffix_hash {
+                tags.push(format!("dynamic_suffix_hash:{dynamic_suffix_hash}"));
             }
             if let Some(exact_payload_scan_passed) = input.exact_payload_scan_passed {
                 tags.push(format!(
@@ -11740,6 +11770,13 @@ mod tests {
                         total_tokens: None,
                         provider_payload_sha256: None,
                         provider_payload_bytes: None,
+                        provider_wire_api: None,
+                        tools_count: None,
+                        tools_present: None,
+                        request_shape_classifier: None,
+                        messages_hash: None,
+                        stable_prefix_hash: None,
+                        dynamic_suffix_hash: None,
                         exact_payload_scan_passed: None,
                         active_projection_present: None,
                         legacy_taskspace_history_present: None,
@@ -11777,6 +11814,13 @@ mod tests {
                                 .to_string(),
                         ),
                         provider_payload_bytes: Some(4321),
+                        provider_wire_api: Some("ChatCompletions".to_string()),
+                        tools_count: Some(24),
+                        tools_present: Some(true),
+                        request_shape_classifier: Some("native_tools_schema_hot_path".to_string()),
+                        messages_hash: Some("messages-hash".to_string()),
+                        stable_prefix_hash: Some("stable-prefix-hash".to_string()),
+                        dynamic_suffix_hash: Some("dynamic-suffix-hash".to_string()),
                         exact_payload_scan_passed: Some(true),
                         active_projection_present: Some(true),
                         legacy_taskspace_history_present: Some(false),
@@ -12096,6 +12140,13 @@ mod tests {
                         total_tokens: None,
                         provider_payload_sha256: None,
                         provider_payload_bytes: None,
+                        provider_wire_api: None,
+                        tools_count: None,
+                        tools_present: None,
+                        request_shape_classifier: None,
+                        messages_hash: None,
+                        stable_prefix_hash: None,
+                        dynamic_suffix_hash: None,
                         exact_payload_scan_passed: None,
                         active_projection_present: None,
                         legacy_taskspace_history_present: None,
@@ -12131,6 +12182,13 @@ mod tests {
                         total_tokens: None,
                         provider_payload_sha256: None,
                         provider_payload_bytes: None,
+                        provider_wire_api: None,
+                        tools_count: None,
+                        tools_present: None,
+                        request_shape_classifier: None,
+                        messages_hash: None,
+                        stable_prefix_hash: None,
+                        dynamic_suffix_hash: None,
                         exact_payload_scan_passed: None,
                         active_projection_present: None,
                         legacy_taskspace_history_present: None,
@@ -12199,6 +12257,13 @@ mod tests {
                     total_tokens: None,
                     provider_payload_sha256: None,
                     provider_payload_bytes: None,
+                    provider_wire_api: None,
+                    tools_count: None,
+                    tools_present: None,
+                    request_shape_classifier: None,
+                    messages_hash: None,
+                    stable_prefix_hash: None,
+                    dynamic_suffix_hash: None,
                     exact_payload_scan_passed: None,
                     active_projection_present: None,
                     legacy_taskspace_history_present: None,
@@ -12469,6 +12534,13 @@ mod tests {
                     total_tokens: None,
                     provider_payload_sha256: None,
                     provider_payload_bytes: None,
+                    provider_wire_api: None,
+                    tools_count: None,
+                    tools_present: None,
+                    request_shape_classifier: None,
+                    messages_hash: None,
+                    stable_prefix_hash: None,
+                    dynamic_suffix_hash: None,
                     exact_payload_scan_passed: None,
                     active_projection_present: None,
                     legacy_taskspace_history_present: None,

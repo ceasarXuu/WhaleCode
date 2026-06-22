@@ -397,3 +397,24 @@
   - The verified root cause now points to an architecture mismatch: TaskSpace currently sends repeated DeepSeek ChatCompletions requests with tool schemas and dynamic state, while the desired 95%+ economics require a stable, cacheable provider prefix without the tool-schema churn.
 - Supports:
   - H-006
+
+## Evidence E-017: Provider cache trace observability now records request shape and cache usage per provider request
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Added provider request shape metadata to the existing provider lifecycle trace path.
+  - Extended benchmark cost instrumentation to write `provider-cache-trace.jsonl` and `provider-cache-trace-summary.json`.
+  - Extended `verify-deepseek-cache-fix.ps1` to surface cache trace coverage, request 2+ hit rate, and native tools schema hot-path count.
+  - Ran targeted validation.
+- Observations:
+  - Runtime provider events now carry `provider_wire_api`, `tools_count`, `tools_present`, `request_shape_classifier`, `messages_hash`, `stable_prefix_hash`, and `dynamic_suffix_hash`.
+  - `TaskSpaceProviderCacheTraceV1` rows are emitted only for real provider terminal requests, not local budget-blocked attempts.
+  - The trace summary exposes `trace_coverage`, `native_tools_schema_hot_path_count`, `tool_free_action_contract_count`, `unknown_or_unclassified_count`, and `request_2_plus_hit_rate`.
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1` passed.
+  - `cargo test -p codex-core provider_request_budget --lib` passed 10 tests.
+  - `cargo check -p codex-core` passed.
+- Interpretation:
+  - Phase 1 observability is in place: future TaskSpace DeepSeek runs can prove whether the hot path still carries native tools schema and can compute the request 2+ cache gate from provider usage fields without manual rollout scraping.
+  - This does not yet remove native tools schema from the hot path; it establishes the release-grade evidence needed to validate the upcoming transport fix.
+- Supports:
+  - H-006

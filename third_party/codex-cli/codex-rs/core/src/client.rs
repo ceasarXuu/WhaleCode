@@ -179,6 +179,13 @@ pub(crate) struct ProviderRequestBudgetEvent {
     pub(crate) total_tokens: Option<i64>,
     pub(crate) provider_payload_sha256: Option<String>,
     pub(crate) provider_payload_bytes: Option<usize>,
+    pub(crate) provider_wire_api: Option<String>,
+    pub(crate) tools_count: Option<usize>,
+    pub(crate) tools_present: Option<bool>,
+    pub(crate) request_shape_classifier: Option<String>,
+    pub(crate) messages_hash: Option<String>,
+    pub(crate) stable_prefix_hash: Option<String>,
+    pub(crate) dynamic_suffix_hash: Option<String>,
     pub(crate) exact_payload_scan_passed: Option<bool>,
     pub(crate) active_projection_present: Option<bool>,
     pub(crate) legacy_taskspace_history_present: Option<bool>,
@@ -247,6 +254,13 @@ struct ProviderRequestBudgetActiveRequest {
     request_phase: Option<String>,
     provider_payload_sha256: Option<String>,
     provider_payload_bytes: Option<usize>,
+    provider_wire_api: Option<String>,
+    tools_count: Option<usize>,
+    tools_present: Option<bool>,
+    request_shape_classifier: Option<String>,
+    messages_hash: Option<String>,
+    stable_prefix_hash: Option<String>,
+    dynamic_suffix_hash: Option<String>,
     payload_scan: Option<ProviderPayloadScan>,
 }
 
@@ -264,6 +278,13 @@ struct ProviderPayloadScan {
 struct ProviderPayloadDigest {
     sha256: String,
     bytes: usize,
+    provider_wire_api: String,
+    tools_count: usize,
+    tools_present: bool,
+    request_shape_classifier: String,
+    messages_hash: String,
+    stable_prefix_hash: String,
+    dynamic_suffix_hash: String,
     scan: ProviderPayloadScan,
 }
 
@@ -435,6 +456,13 @@ impl ProviderRequestBudgetContext {
                 total_tokens: None,
                 provider_payload_sha256: None,
                 provider_payload_bytes: None,
+                provider_wire_api: None,
+                tools_count: None,
+                tools_present: None,
+                request_shape_classifier: None,
+                messages_hash: None,
+                stable_prefix_hash: None,
+                dynamic_suffix_hash: None,
                 exact_payload_scan_passed: None,
                 active_projection_present: None,
                 legacy_taskspace_history_present: None,
@@ -502,6 +530,13 @@ impl ProviderRequestBudgetContext {
             request_phase: request_phase.clone(),
             provider_payload_sha256: None,
             provider_payload_bytes: None,
+            provider_wire_api: None,
+            tools_count: None,
+            tools_present: None,
+            request_shape_classifier: None,
+            messages_hash: None,
+            stable_prefix_hash: None,
+            dynamic_suffix_hash: None,
             payload_scan: None,
         };
         *self
@@ -532,6 +567,13 @@ impl ProviderRequestBudgetContext {
             total_tokens: None,
             provider_payload_sha256: None,
             provider_payload_bytes: None,
+            provider_wire_api: None,
+            tools_count: None,
+            tools_present: None,
+            request_shape_classifier: None,
+            messages_hash: None,
+            stable_prefix_hash: None,
+            dynamic_suffix_hash: None,
             exact_payload_scan_passed: None,
             active_projection_present: None,
             legacy_taskspace_history_present: None,
@@ -587,6 +629,13 @@ impl ProviderRequestBudgetContext {
             };
             active_request.provider_payload_sha256 = Some(payload.sha256);
             active_request.provider_payload_bytes = Some(payload.bytes);
+            active_request.provider_wire_api = Some(payload.provider_wire_api);
+            active_request.tools_count = Some(payload.tools_count);
+            active_request.tools_present = Some(payload.tools_present);
+            active_request.request_shape_classifier = Some(payload.request_shape_classifier);
+            active_request.messages_hash = Some(payload.messages_hash);
+            active_request.stable_prefix_hash = Some(payload.stable_prefix_hash);
+            active_request.dynamic_suffix_hash = Some(payload.dynamic_suffix_hash);
             active_request.payload_scan = Some(payload.scan);
             active_request.clone()
         };
@@ -614,6 +663,13 @@ impl ProviderRequestBudgetContext {
             total_tokens: None,
             provider_payload_sha256: active_request.provider_payload_sha256,
             provider_payload_bytes: active_request.provider_payload_bytes,
+            provider_wire_api: active_request.provider_wire_api,
+            tools_count: active_request.tools_count,
+            tools_present: active_request.tools_present,
+            request_shape_classifier: active_request.request_shape_classifier,
+            messages_hash: active_request.messages_hash,
+            stable_prefix_hash: active_request.stable_prefix_hash,
+            dynamic_suffix_hash: active_request.dynamic_suffix_hash,
             exact_payload_scan_passed: scan.as_ref().map(|scan| scan.exact_payload_scan_passed),
             active_projection_present: scan.as_ref().map(|scan| scan.active_projection_present),
             legacy_taskspace_history_present: scan
@@ -664,6 +720,13 @@ impl ProviderRequestBudgetContext {
                 total_tokens: token_usage.map(|usage| usage.total_tokens),
                 provider_payload_sha256: active_request.provider_payload_sha256,
                 provider_payload_bytes: active_request.provider_payload_bytes,
+                provider_wire_api: active_request.provider_wire_api,
+                tools_count: active_request.tools_count,
+                tools_present: active_request.tools_present,
+                request_shape_classifier: active_request.request_shape_classifier,
+                messages_hash: active_request.messages_hash,
+                stable_prefix_hash: active_request.stable_prefix_hash,
+                dynamic_suffix_hash: active_request.dynamic_suffix_hash,
                 exact_payload_scan_passed: active_request
                     .payload_scan
                     .as_ref()
@@ -738,7 +801,7 @@ impl ProviderRequestBudgetContext {
     fn active_payload_for_request(
         &self,
         request_id: &str,
-    ) -> Option<(Option<String>, Option<usize>, Option<ProviderPayloadScan>)> {
+    ) -> Option<ProviderRequestBudgetActiveRequest> {
         let active_request = self
             .state
             .active_request
@@ -748,11 +811,7 @@ impl ProviderRequestBudgetContext {
         if active_request.request_id != request_id {
             return None;
         }
-        Some((
-            active_request.provider_payload_sha256.clone(),
-            active_request.provider_payload_bytes,
-            active_request.payload_scan.clone(),
-        ))
+        Some(active_request.clone())
     }
 }
 
@@ -794,9 +853,10 @@ impl ProviderRequestBudgetDispatch {
 
     fn record_status(&self, status: &str) {
         if let Some(context) = &self.context {
-            let (provider_payload_sha256, provider_payload_bytes, payload_scan) = context
-                .active_payload_for_request(&self.request_id)
-                .unwrap_or((None, None, None));
+            let active_payload = context.active_payload_for_request(&self.request_id);
+            let payload_scan = active_payload
+                .as_ref()
+                .and_then(|active| active.payload_scan.clone());
             context.push_event(ProviderRequestBudgetEvent {
                 request_id: self.request_id.clone(),
                 logical_request_id: self.logical_request_id.clone(),
@@ -818,8 +878,33 @@ impl ProviderRequestBudgetDispatch {
                 output_tokens: None,
                 reasoning_output_tokens: None,
                 total_tokens: None,
-                provider_payload_sha256,
-                provider_payload_bytes,
+                provider_payload_sha256: active_payload
+                    .as_ref()
+                    .and_then(|active| active.provider_payload_sha256.clone()),
+                provider_payload_bytes: active_payload
+                    .as_ref()
+                    .and_then(|active| active.provider_payload_bytes),
+                provider_wire_api: active_payload
+                    .as_ref()
+                    .and_then(|active| active.provider_wire_api.clone()),
+                tools_count: active_payload
+                    .as_ref()
+                    .and_then(|active| active.tools_count),
+                tools_present: active_payload
+                    .as_ref()
+                    .and_then(|active| active.tools_present),
+                request_shape_classifier: active_payload
+                    .as_ref()
+                    .and_then(|active| active.request_shape_classifier.clone()),
+                messages_hash: active_payload
+                    .as_ref()
+                    .and_then(|active| active.messages_hash.clone()),
+                stable_prefix_hash: active_payload
+                    .as_ref()
+                    .and_then(|active| active.stable_prefix_hash.clone()),
+                dynamic_suffix_hash: active_payload
+                    .as_ref()
+                    .and_then(|active| active.dynamic_suffix_hash.clone()),
                 exact_payload_scan_passed: payload_scan
                     .as_ref()
                     .map(|scan| scan.exact_payload_scan_passed),
@@ -851,13 +936,43 @@ impl ProviderRequestBudgetDispatch {
     }
 }
 
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+fn json_field_hash(value: &serde_json::Value, field: &str) -> String {
+    value
+        .get(field)
+        .and_then(|field_value| serde_json::to_vec(field_value).ok())
+        .map(|bytes| sha256_hex(&bytes))
+        .unwrap_or_else(|| sha256_hex(b"null"))
+}
+
+#[cfg(test)]
 fn provider_payload_digest<T: serde::Serialize>(payload: &T) -> Option<ProviderPayloadDigest> {
+    provider_payload_digest_for_wire(payload, codex_api::WireApi::Responses)
+}
+
+fn provider_payload_digest_for_wire<T: serde::Serialize>(
+    payload: &T,
+    provider_wire_api: codex_api::WireApi,
+) -> Option<ProviderPayloadDigest> {
     let bytes = serde_json::to_vec(payload).ok()?;
     let value = serde_json::to_value(payload).ok()?;
-    let mut hasher = Sha256::new();
-    hasher.update(&bytes);
-    let digest = hasher.finalize();
     let text = String::from_utf8_lossy(&bytes);
+    let tools_count = value
+        .get("tools")
+        .and_then(|tools| tools.as_array())
+        .map(|tools| tools.len())
+        .unwrap_or(0);
+    let tools_present = tools_count > 0;
+    let request_shape_classifier = if tools_present {
+        "native_tools_schema_hot_path"
+    } else {
+        "tool_free_action_contract"
+    };
     let active_projection_present = text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER);
     let legacy_taskspace_history_present = text.contains(TASKSPACE_SHADOW_PROJECTION_MARKER)
         || text.contains("TaskSpace Bootstrap")
@@ -875,8 +990,15 @@ fn provider_payload_digest<T: serde::Serialize>(payload: &T) -> Option<ProviderP
         && !legacy_taskspace_history_present
         && large_raw_output_tokens == 0;
     Some(ProviderPayloadDigest {
-        sha256: format!("{digest:x}"),
+        sha256: sha256_hex(&bytes),
         bytes: bytes.len(),
+        provider_wire_api: format!("{provider_wire_api:?}"),
+        tools_count,
+        tools_present,
+        request_shape_classifier: request_shape_classifier.to_string(),
+        messages_hash: json_field_hash(&value, "input"),
+        stable_prefix_hash: json_field_hash(&value, "instructions"),
+        dynamic_suffix_hash: json_field_hash(&value, "input"),
         scan: ProviderPayloadScan {
             exact_payload_scan_passed: replacement_confirmed,
             active_projection_present,
@@ -2041,6 +2163,7 @@ impl ModelClientSession {
             )?;
             let inference_trace_attempt = inference_trace.start_attempt();
             inference_trace_attempt.record_started(&request);
+            let provider_wire_api = client_setup.api_provider.wire_api;
             let client = ApiResponsesClient::new(
                 transport,
                 client_setup.api_provider,
@@ -2048,7 +2171,7 @@ impl ModelClientSession {
             )
             .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
             let budget_dispatch = provider_request_budget.before_dispatch("responses_http")?;
-            if let Some(payload) = provider_payload_digest(&request) {
+            if let Some(payload) = provider_payload_digest_for_wire(&request, provider_wire_api) {
                 budget_dispatch.record_provider_payload(payload);
             }
             let stream_result = client.stream_request(request, options).await;
@@ -2156,6 +2279,7 @@ impl ModelClientSession {
             } else {
                 provider_request_budget.before_dispatch("responses_websocket")?
             };
+            let provider_wire_api = client_setup.api_provider.wire_api;
 
             match self
                 .websocket_connection(WebsocketConnectParams {
@@ -2209,7 +2333,8 @@ impl ModelClientSession {
                         "websocket connection is unavailable".to_string(),
                     ))
                 })?;
-            if let Some(payload) = provider_payload_digest(&ws_request) {
+            if let Some(payload) = provider_payload_digest_for_wire(&ws_request, provider_wire_api)
+            {
                 budget_dispatch.record_provider_payload(payload);
             }
             let stream_result = websocket_connection

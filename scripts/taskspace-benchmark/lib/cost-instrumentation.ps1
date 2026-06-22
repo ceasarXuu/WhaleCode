@@ -186,8 +186,20 @@ function New-TaskspaceBudgetArtifacts {
             post_budget_grace_requests = Convert-TaskspaceTraceInt $tags.post_budget_grace_requests
             runtime_budget_state = [string]$tags.runtime_budget_state
             budget_response_action_taken = Convert-TaskspaceTraceBool $tags.budget_response_action_taken $false
+            input_tokens = Get-TaskspaceUsageNumber $tags @("input_tokens")
+            cached_input_tokens = Get-TaskspaceUsageNumber $tags @("cached_input_tokens")
+            output_tokens = Get-TaskspaceUsageNumber $tags @("output_tokens")
+            reasoning_output_tokens = Get-TaskspaceUsageNumber $tags @("reasoning_output_tokens")
+            total_tokens = Get-TaskspaceUsageNumber $tags @("total_tokens")
             provider_payload_sha256 = [string]$tags.provider_payload_sha256
             provider_payload_bytes = Convert-TaskspaceTraceInt $tags.provider_payload_bytes
+            provider_wire_api = [string]$tags.provider_wire_api
+            tools_count = Convert-TaskspaceTraceInt $tags.tools_count
+            tools_present = Convert-TaskspaceTraceBool $tags.tools_present $false
+            request_shape_classifier = [string]$tags.request_shape_classifier
+            messages_hash = [string]$tags.messages_hash
+            stable_prefix_hash = [string]$tags.stable_prefix_hash
+            dynamic_suffix_hash = [string]$tags.dynamic_suffix_hash
             exact_payload_scan_passed = Convert-TaskspaceTraceBool $tags.exact_payload_scan_passed $false
             active_projection_present = Convert-TaskspaceTraceBool $tags.active_projection_present $false
             legacy_taskspace_history_present = Convert-TaskspaceTraceBool $tags.legacy_taskspace_history_present $false
@@ -328,6 +340,13 @@ function New-TaskspaceProviderRequestArtifacts {
             transport = [string]$event.transport
             trace_event_id = [string]$event.trace_event_id
             provider_payload_sha256 = [string]$event.provider_payload_sha256
+            provider_wire_api = [string]$event.provider_wire_api
+            tools_count = [int]$event.tools_count
+            tools_present = [bool]$event.tools_present
+            request_shape_classifier = [string]$event.request_shape_classifier
+            messages_hash = [string]$event.messages_hash
+            stable_prefix_hash = [string]$event.stable_prefix_hash
+            dynamic_suffix_hash = [string]$event.dynamic_suffix_hash
         })
     }
     $count = [int]$events.Count
@@ -351,6 +370,94 @@ function New-TaskspaceProviderRequestArtifacts {
             provider_request_distinct_count = [int]$distinctRequestCount
             provider_request_terminal_count = [int]$terminalRequestCount
             expected_model_request_count = [int]$expectedRequestCount
+        }
+    }
+}
+
+function New-TaskspaceProviderCacheTraceArtifacts {
+    param([object[]]$BudgetEvents)
+    $terminalStatuses = @("response_completed", "response_failed", "cancelled")
+    $events = New-Object System.Collections.Generic.List[object]
+    $shapeCounts = @{}
+    $missingUsage = 0
+    $request2PlusHit = [int64]0
+    $request2PlusMiss = [int64]0
+    $request2PlusCount = 0
+    foreach ($event in @($BudgetEvents)) {
+        if ([string]$event.status -notin $terminalStatuses) { continue }
+        if ([string]::IsNullOrWhiteSpace([string]$event.request_id)) { continue }
+        $inputTokens = Get-TaskspaceCostProperty $event @("input_tokens")
+        $cachedTokens = Get-TaskspaceCostProperty $event @("cached_input_tokens")
+        $uncachedTokens = $null
+        if ($null -ne $inputTokens -and $null -ne $cachedTokens) {
+            $uncachedTokens = [Math]::Max(0, [int64]$inputTokens - [int64]$cachedTokens)
+        } else {
+            $missingUsage++
+        }
+        $hitRate = if ($null -ne $cachedTokens -and $null -ne $uncachedTokens -and ([double]$cachedTokens + [double]$uncachedTokens) -gt 0) {
+            [Math]::Round([double]$cachedTokens / ([double]$cachedTokens + [double]$uncachedTokens), 6)
+        } else {
+            $null
+        }
+        $shape = [string]$event.request_shape_classifier
+        if ([string]::IsNullOrWhiteSpace($shape)) {
+            $shape = if ([bool]$event.tools_present -or [int]$event.tools_count -gt 0) { "native_tools_schema_hot_path" } else { "unknown_or_unclassified" }
+        }
+        Add-TaskspaceCostCount $shapeCounts $shape
+        $attemptSeq = Convert-TaskspaceTraceInt $event.attempt_seq
+        $modelRequestIndex = Convert-TaskspaceTraceInt $event.request_count_after
+        if ($modelRequestIndex -ge 2 -and $null -ne $cachedTokens -and $null -ne $uncachedTokens) {
+            $request2PlusHit += [int64]$cachedTokens
+            $request2PlusMiss += [int64]$uncachedTokens
+            $request2PlusCount++
+        }
+        $events.Add([pscustomobject]@{
+            schema_version = "TaskSpaceProviderCacheTraceV1"
+            request_id = [string]$event.request_id
+            logical_request_id = [string]$event.logical_request_id
+            model_request_index = $modelRequestIndex
+            attempt_seq = $attemptSeq
+            request_phase = [string]$event.request_phase
+            task_id = [string]$event.task_id
+            map_id = [string]$event.map_id
+            node_id = [string]$event.node_id
+            provider_wire_api = [string]$event.provider_wire_api
+            transport = [string]$event.transport
+            tools_count = [int]$event.tools_count
+            tools_present = [bool]$event.tools_present
+            request_shape_classifier = $shape
+            stable_prefix_hash = [string]$event.stable_prefix_hash
+            dynamic_suffix_hash = [string]$event.dynamic_suffix_hash
+            messages_hash = [string]$event.messages_hash
+            provider_payload_sha256 = [string]$event.provider_payload_sha256
+            input_tokens = $inputTokens
+            cached_input_tokens = $cachedTokens
+            uncached_input_tokens = $uncachedTokens
+            hit_rate = $hitRate
+            status = [string]$event.status
+        })
+    }
+    $count = [int]$events.Count
+    $covered = @($events.ToArray() | Where-Object {
+        -not [string]::IsNullOrWhiteSpace([string]$_.request_shape_classifier) -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.provider_payload_sha256)
+    }).Count
+    $request2PlusDenominator = [double]$request2PlusHit + [double]$request2PlusMiss
+    [pscustomobject]@{
+        provider_cache_trace_events = @($events.ToArray())
+        provider_cache_trace_summary = [pscustomobject]@{
+            schema_version = "TaskSpaceProviderCacheTraceSummaryV1"
+            provider_request_count = $count
+            trace_coverage = if ($count -gt 0) { [Math]::Round([double]$covered / [double]$count, 6) } else { 0.0 }
+            cache_usage_missing_count = [int]$missingUsage
+            request_shape_counts = Convert-TaskspaceCostTable $shapeCounts
+            native_tools_schema_hot_path_count = if ($shapeCounts.ContainsKey("native_tools_schema_hot_path")) { [int]$shapeCounts["native_tools_schema_hot_path"] } else { 0 }
+            tool_free_action_contract_count = if ($shapeCounts.ContainsKey("tool_free_action_contract")) { [int]$shapeCounts["tool_free_action_contract"] } else { 0 }
+            unknown_or_unclassified_count = if ($shapeCounts.ContainsKey("unknown_or_unclassified")) { [int]$shapeCounts["unknown_or_unclassified"] } else { 0 }
+            request_2_plus_count = [int]$request2PlusCount
+            request_2_plus_cached_input_tokens = [int64]$request2PlusHit
+            request_2_plus_uncached_input_tokens = [int64]$request2PlusMiss
+            request_2_plus_hit_rate = if ($request2PlusDenominator -gt 0) { [Math]::Round([double]$request2PlusHit / $request2PlusDenominator, 6) } else { $null }
         }
     }
 }
@@ -1057,6 +1164,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $budget = New-TaskspaceBudgetArtifacts $ObservabilityJsonPath $rolloutJsonlPath
     $activeReplacement = New-TaskspaceActiveReplacementArtifacts $budget.budget_events
     $providerRequest = New-TaskspaceProviderRequestArtifacts $budget.budget_events $request
+    $providerCacheTrace = New-TaskspaceProviderCacheTraceArtifacts $budget.budget_events
     $stateCommitDisplacement = New-TaskspaceStateCommitDisplacementSummary $ObservabilityJsonPath
     $spawnNodeBudget = New-TaskspaceSpawnNodeBudgetSummary $ObservabilityJsonPath $rolloutJsonlPath
     $tokenPath = Join-Path $ArtifactDir "token-summary.json"
@@ -1073,6 +1181,8 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $activeReplacementReportPath = Join-Path $ArtifactDir "active-context-replacement-report.json"
     $providerRequestEventsPath = Join-Path $ArtifactDir "provider-request-events.jsonl"
     $requestPhaseSummaryPath = Join-Path $ArtifactDir "request-phase-summary.json"
+    $providerCacheTracePath = Join-Path $ArtifactDir "provider-cache-trace.jsonl"
+    $providerCacheTraceSummaryPath = Join-Path $ArtifactDir "provider-cache-trace-summary.json"
     $stateCommitDisplacementPath = Join-Path $ArtifactDir "state-commit-displacement.json"
     $spawnNodeBudgetPath = Join-Path $ArtifactDir "spawn-node-budget-summary.json"
     $activeBudgetEventsPath = Join-Path $ArtifactDir "active-budget-events.jsonl"
@@ -1126,6 +1236,13 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         [System.IO.File]::WriteAllText($providerRequestEventsPath, "", [System.Text.UTF8Encoding]::new($false))
     }
     $providerRequest.request_phase_summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $requestPhaseSummaryPath -Encoding UTF8
+    $providerCacheTraceEventLines = @($providerCacheTrace.provider_cache_trace_events | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
+    if ($providerCacheTraceEventLines.Count -gt 0) {
+        $providerCacheTraceEventLines | Set-Content -LiteralPath $providerCacheTracePath -Encoding UTF8
+    } else {
+        [System.IO.File]::WriteAllText($providerCacheTracePath, "", [System.Text.UTF8Encoding]::new($false))
+    }
+    $providerCacheTrace.provider_cache_trace_summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $providerCacheTraceSummaryPath -Encoding UTF8
     $stateCommitDisplacement | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $stateCommitDisplacementPath -Encoding UTF8
     $spawnNodeBudget | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $spawnNodeBudgetPath -Encoding UTF8
     [pscustomobject]@{
@@ -1144,6 +1261,8 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         active_context_replacement_report_path = $activeReplacementReportPath
         provider_request_events_path = $providerRequestEventsPath
         request_phase_summary_path = $requestPhaseSummaryPath
+        provider_cache_trace_path = $providerCacheTracePath
+        provider_cache_trace_summary_path = $providerCacheTraceSummaryPath
         state_commit_displacement_path = $stateCommitDisplacementPath
         spawn_node_budget_path = $spawnNodeBudgetPath
         token_summary = $token
@@ -1161,6 +1280,8 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         active_context_replacement_report = $activeReplacement.active_context_replacement_report
         provider_request_events = $providerRequest.provider_request_events
         request_phase_summary = $providerRequest.request_phase_summary
+        provider_cache_trace_events = $providerCacheTrace.provider_cache_trace_events
+        provider_cache_trace_summary = $providerCacheTrace.provider_cache_trace_summary
         state_commit_displacement = $stateCommitDisplacement
         spawn_node_budget = $spawnNodeBudget
     }

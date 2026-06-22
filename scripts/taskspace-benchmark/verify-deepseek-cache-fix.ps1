@@ -322,6 +322,8 @@ function Test-TaskspaceArtifact {
         $fallbackTaskspace = Get-SideRolloutHitRate $Dir "taskspace"
         if ($fallbackTaskspace) { $taskspace = $fallbackTaskspace }
     }
+    $cacheTraceSummaryPath = Join-Path $Dir "provider-cache-trace-summary.json"
+    $cacheTraceSummary = Read-JsonFile $cacheTraceSummaryPath
     $improvementRatio = if ($taskspace -and $null -ne $taskspace.hit_rate -and $BaselineTaskspaceHitRate -gt 0) {
         [Math]::Round([double]$taskspace.hit_rate / $BaselineTaskspaceHitRate, 4)
     } else {
@@ -343,6 +345,8 @@ function Test-TaskspaceArtifact {
         min_taskspace_improvement_ratio = $MinTaskspaceImprovementRatio
         standard = $standard
         taskspace = $taskspace
+        provider_cache_trace_summary_path = $cacheTraceSummaryPath
+        provider_cache_trace_summary = $cacheTraceSummary
         taskspace_improvement_ratio = $improvementRatio
     }
 }
@@ -367,6 +371,14 @@ function Write-MarkdownReport {
         $lines.Add("- taskspace_cached_input_tokens: $($Result.taskspace_validation.taskspace.cached_input_tokens)")
         $lines.Add("- taskspace_uncached_input_tokens: $($Result.taskspace_validation.taskspace.uncached_input_tokens)")
         $lines.Add("- taskspace_improvement_ratio: $($Result.taskspace_validation.taskspace_improvement_ratio)")
+    }
+    if ($Result.taskspace_validation -and $Result.taskspace_validation.provider_cache_trace_summary) {
+        $trace = $Result.taskspace_validation.provider_cache_trace_summary
+        $lines.Add("- cache_trace_coverage: $($trace.trace_coverage)")
+        $lines.Add("- request_2_plus_hit_rate: $($trace.request_2_plus_hit_rate)")
+        $lines.Add("- native_tools_schema_hot_path_count: $($trace.native_tools_schema_hot_path_count)")
+        $lines.Add("- tool_free_action_contract_count: $($trace.tool_free_action_contract_count)")
+        $lines.Add("- cache_trace_summary: $($Result.taskspace_validation.provider_cache_trace_summary_path)")
     }
     $lines.Add("")
     $lines.Add("## Interpretation")
