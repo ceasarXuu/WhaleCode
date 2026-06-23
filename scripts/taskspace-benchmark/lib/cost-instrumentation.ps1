@@ -462,6 +462,95 @@ function New-TaskspaceProviderCacheTraceArtifacts {
     }
 }
 
+function Test-TaskspaceProviderCacheTraceTaskspaceArtifact {
+    param([Parameter(Mandatory = $true)][string]$SummaryPath)
+    $artifactDir = Split-Path -Parent $SummaryPath
+    $metricsPath = Join-Path $artifactDir "metrics.json"
+    $metric = $null
+    if (Test-Path -LiteralPath $metricsPath) {
+        try { $metric = Get-Content -Raw -Encoding UTF8 -LiteralPath $metricsPath | ConvertFrom-Json } catch { $metric = $null }
+    }
+    if ($metric -and $metric.PSObject.Properties.Name -contains "logical_mode") {
+        return ([string]$metric.logical_mode -eq "taskspace")
+    }
+    return ($SummaryPath -match '(?i)[\\/]+right[\\/]+artifacts[\\/]+provider-cache-trace-summary\.json$')
+}
+
+function Add-TaskspaceProviderCacheShapeCounts {
+    param($ShapeCounts, $RequestShapeCounts)
+    if (-not $RequestShapeCounts) { return }
+    foreach ($property in @($RequestShapeCounts.PSObject.Properties)) {
+        $name = [string]$property.Name
+        if ([string]::IsNullOrWhiteSpace($name)) { continue }
+        if (-not $ShapeCounts.ContainsKey($name)) { $ShapeCounts[$name] = 0 }
+        $ShapeCounts[$name] = [int]$ShapeCounts[$name] + [int]$property.Value
+    }
+}
+
+function New-TaskspaceProviderCacheTraceAggregateArtifacts {
+    param([Parameter(Mandatory = $true)][string]$RootDir)
+    $rootSummaryPath = Join-Path $RootDir "provider-cache-trace-summary.json"
+    $rootTracePath = Join-Path $RootDir "provider-cache-trace.jsonl"
+    $summaryFiles = @(Get-ChildItem -LiteralPath $RootDir -Filter "provider-cache-trace-summary.json" -Recurse -ErrorAction SilentlyContinue |
+        Where-Object {
+            [System.IO.Path]::GetFullPath($_.FullName) -ne [System.IO.Path]::GetFullPath($rootSummaryPath) -and
+            (Test-TaskspaceProviderCacheTraceTaskspaceArtifact $_.FullName)
+        } |
+        Sort-Object FullName)
+    $shapeCounts = @{}
+    $providerRequestCount = 0
+    $coveredCount = 0
+    $missingUsage = 0
+    $request2PlusCount = 0
+    $request2PlusHit = [int64]0
+    $request2PlusMiss = [int64]0
+    $toolFreeCount = 0
+    $nativeToolsCount = 0
+    $unknownCount = 0
+    $eventLines = New-Object System.Collections.Generic.List[string]
+    foreach ($file in $summaryFiles) {
+        try { $summary = Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json } catch { continue }
+        $count = if ($summary.PSObject.Properties.Name -contains "provider_request_count") { [int]$summary.provider_request_count } else { 0 }
+        $providerRequestCount += $count
+        $coverage = if ($summary.PSObject.Properties.Name -contains "trace_coverage") { [double]$summary.trace_coverage } else { 0.0 }
+        $coveredCount += [int][Math]::Round($coverage * [double]$count)
+        if ($summary.PSObject.Properties.Name -contains "cache_usage_missing_count") { $missingUsage += [int]$summary.cache_usage_missing_count }
+        if ($summary.PSObject.Properties.Name -contains "request_2_plus_count") { $request2PlusCount += [int]$summary.request_2_plus_count }
+        if ($summary.PSObject.Properties.Name -contains "request_2_plus_cached_input_tokens") { $request2PlusHit += [int64]$summary.request_2_plus_cached_input_tokens }
+        if ($summary.PSObject.Properties.Name -contains "request_2_plus_uncached_input_tokens") { $request2PlusMiss += [int64]$summary.request_2_plus_uncached_input_tokens }
+        if ($summary.PSObject.Properties.Name -contains "native_tools_schema_hot_path_count") { $nativeToolsCount += [int]$summary.native_tools_schema_hot_path_count }
+        if ($summary.PSObject.Properties.Name -contains "tool_free_action_contract_count") { $toolFreeCount += [int]$summary.tool_free_action_contract_count }
+        if ($summary.PSObject.Properties.Name -contains "unknown_or_unclassified_count") { $unknownCount += [int]$summary.unknown_or_unclassified_count }
+        if ($summary.PSObject.Properties.Name -contains "request_shape_counts") {
+            Add-TaskspaceProviderCacheShapeCounts $shapeCounts $summary.request_shape_counts
+        }
+        $tracePath = Join-Path (Split-Path -Parent $file.FullName) "provider-cache-trace.jsonl"
+        if (Test-Path -LiteralPath $tracePath) {
+            foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $tracePath)) {
+                if (-not [string]::IsNullOrWhiteSpace($line)) { [void]$eventLines.Add($line) }
+            }
+        }
+    }
+    $denominator = [double]$request2PlusHit + [double]$request2PlusMiss
+    [pscustomobject]@{
+        provider_cache_trace_events = @($eventLines.ToArray())
+        provider_cache_trace_summary = [pscustomobject]@{
+            schema_version = "TaskSpaceProviderCacheTraceSummaryV1"
+            provider_request_count = [int]$providerRequestCount
+            trace_coverage = if ($providerRequestCount -gt 0) { [Math]::Round([double]$coveredCount / [double]$providerRequestCount, 6) } else { 0.0 }
+            cache_usage_missing_count = [int]$missingUsage
+            request_shape_counts = Convert-TaskspaceCostTable $shapeCounts
+            native_tools_schema_hot_path_count = [int]$nativeToolsCount
+            tool_free_action_contract_count = [int]$toolFreeCount
+            unknown_or_unclassified_count = [int]$unknownCount
+            request_2_plus_count = [int]$request2PlusCount
+            request_2_plus_cached_input_tokens = [int64]$request2PlusHit
+            request_2_plus_uncached_input_tokens = [int64]$request2PlusMiss
+            request_2_plus_hit_rate = if ($denominator -gt 0) { [Math]::Round([double]$request2PlusHit / $denominator, 6) } else { $null }
+        }
+    }
+}
+
 function New-TaskspaceStateCommitDisplacementSummary {
     param([string]$ObservabilityJsonPath)
     $events = New-Object System.Collections.Generic.List[object]
@@ -1431,7 +1520,10 @@ function Write-TaskspaceCostAggregateArtifacts {
     $requestPath = Join-Path $RootDir "request-summary.json"
     $controlPath = Join-Path $RootDir "taskspace-control-usage.json"
     $projectionPath = Join-Path $RootDir "context-projection-summary.json"
+    $providerCacheTracePath = Join-Path $RootDir "provider-cache-trace.jsonl"
+    $providerCacheTraceSummaryPath = Join-Path $RootDir "provider-cache-trace-summary.json"
     $gatePath = Join-Path $RootDir "suite-cost-gate.json"
+    $providerCacheTrace = New-TaskspaceProviderCacheTraceAggregateArtifacts $RootDir
     $summary = [pscustomobject]@{
         schema_version = "taskspace-cost-aggregate-v1"
         scope = $Scope
@@ -1499,13 +1591,23 @@ function Write-TaskspaceCostAggregateArtifacts {
     $request | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $requestPath -Encoding UTF8
     $control | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $controlPath -Encoding UTF8
     $projection | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $projectionPath -Encoding UTF8
+    $providerCacheTraceEventLines = @($providerCacheTrace.provider_cache_trace_events)
+    if ($providerCacheTraceEventLines.Count -gt 0) {
+        $providerCacheTraceEventLines | Set-Content -LiteralPath $providerCacheTracePath -Encoding UTF8
+    } else {
+        [System.IO.File]::WriteAllText($providerCacheTracePath, "", [System.Text.UTF8Encoding]::new($false))
+    }
+    $providerCacheTrace.provider_cache_trace_summary | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $providerCacheTraceSummaryPath -Encoding UTF8
     $gate | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $gatePath -Encoding UTF8
     [pscustomobject]@{
         token_summary_path = $tokenPath
         request_summary_path = $requestPath
         taskspace_control_usage_path = $controlPath
         context_projection_summary_path = $projectionPath
+        provider_cache_trace_path = $providerCacheTracePath
+        provider_cache_trace_summary_path = $providerCacheTraceSummaryPath
         suite_cost_gate_path = $gatePath
+        provider_cache_trace_summary = $providerCacheTrace.provider_cache_trace_summary
         gate = $gate
     }
 }

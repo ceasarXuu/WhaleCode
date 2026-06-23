@@ -69,6 +69,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
   - 使用 `provider_cache_trace_summary.request_2_plus_hit_rate` 作为 TaskSpace 稳态验收指标。
   - 同时要求 TaskSpace run success，防止任务失败时仅凭缓存指标通过。
 - Release decision gate
+  - `Write-TaskspaceCostAggregateArtifacts` 会从 TaskSpace/right artifacts 聚合 root 级 `provider-cache-trace-summary.json` 和 `provider-cache-trace.jsonl`。
   - `write-release-decision.ps1` 要求 `provider-cache-trace-summary.json` 存在。
   - release decision 必须满足 request 2+ hit rate、trace coverage、native tools schema hot path count 三个缓存门槛。
   - `test-release-decision.ps1` 覆盖低命中、有 native tools schema、缺失 cache trace 三个反例。
@@ -87,6 +88,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 - `cargo check -p codex-core`
 - `cargo build -p codex-cli --bin whale`
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1`
+- 对 live artifact `target/deepseek-cache-fix-validation/benchmark-20260623-115451/single-file-fast-fix/20260623-115451-777` 重新运行 `Write-TaskspaceCostAggregateArtifacts`，root summary 保持 `request_2_plus_hit_rate=0.989246`、`native_tools_schema_hot_path_count=0`。
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\verify-deepseek-cache-fix.ps1 ...`
 
 反向验证：

@@ -403,6 +403,51 @@ Assert-True ([int]$rolloutOnlySummary.budget_event_count -eq 1 -and [int]$rollou
 Assert-True ([string]$rolloutOnlySpawn.source_status -eq "runtime" -and [int]$rolloutOnlySpawn.runtime_event_count -eq 1) "rollout-only spawn/node budget summary did not use rollout trace events"
 Assert-True ([int]$rolloutOnlyInstrumentation.budget_quality_impact_summary.blocked_by_budget_samples_count -eq 1) "returned rollout-only instrumentation omitted budget quality impact"
 
+$aggregateCacheRoot = Join-Path $RunRoot "aggregate-cache-root"
+$leftArtifacts = Join-Path $aggregateCacheRoot "pair-001\left\artifacts"
+$rightArtifacts = Join-Path $aggregateCacheRoot "pair-001\right\artifacts"
+New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-Null
+([pscustomobject]@{ logical_mode = "standard"; model_request_count = 1 }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $leftArtifacts "metrics.json") -Encoding UTF8
+([pscustomobject]@{ logical_mode = "taskspace"; model_request_count = 2 }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $rightArtifacts "metrics.json") -Encoding UTF8
+([pscustomobject]@{
+    schema_version = "TaskSpaceProviderCacheTraceSummaryV1"
+    provider_request_count = 1
+    trace_coverage = 1.0
+    cache_usage_missing_count = 0
+    request_shape_counts = [pscustomobject]@{ native_tools_schema_hot_path = 1 }
+    native_tools_schema_hot_path_count = 1
+    tool_free_action_contract_count = 0
+    unknown_or_unclassified_count = 0
+    request_2_plus_count = 0
+    request_2_plus_cached_input_tokens = 0
+    request_2_plus_uncached_input_tokens = 0
+    request_2_plus_hit_rate = $null
+}) | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $leftArtifacts "provider-cache-trace-summary.json") -Encoding UTF8
+([pscustomobject]@{
+    schema_version = "TaskSpaceProviderCacheTraceSummaryV1"
+    provider_request_count = 2
+    trace_coverage = 1.0
+    cache_usage_missing_count = 0
+    request_shape_counts = [pscustomobject]@{ tool_free_action_contract = 2 }
+    native_tools_schema_hot_path_count = 0
+    tool_free_action_contract_count = 2
+    unknown_or_unclassified_count = 0
+    request_2_plus_count = 1
+    request_2_plus_cached_input_tokens = 950
+    request_2_plus_uncached_input_tokens = 50
+    request_2_plus_hit_rate = 0.95
+}) | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace-summary.json") -Encoding UTF8
+([pscustomobject]@{ schema_version = "TaskSpaceProviderCacheTraceV1"; request_id = "left-1"; request_shape_classifier = "native_tools_schema_hot_path" } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $leftArtifacts "provider-cache-trace.jsonl") -Encoding UTF8
+([pscustomobject]@{ schema_version = "TaskSpaceProviderCacheTraceV1"; request_id = "right-1"; request_shape_classifier = "tool_free_action_contract" } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace.jsonl") -Encoding UTF8
+$aggregateCache = Write-TaskspaceCostAggregateArtifacts -RootDir $aggregateCacheRoot -Scope "sample"
+$aggregateCacheSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $aggregateCacheRoot "provider-cache-trace-summary.json") | ConvertFrom-Json
+$aggregateCacheEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $aggregateCacheRoot "provider-cache-trace.jsonl") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
+Assert-True ([int]$aggregateCacheSummary.provider_request_count -eq 2) "aggregate provider cache trace should include only taskspace/right artifacts"
+Assert-True ([int]$aggregateCacheSummary.native_tools_schema_hot_path_count -eq 0) "aggregate provider cache trace included standard native tools hot path"
+Assert-True ([int]$aggregateCacheSummary.tool_free_action_contract_count -eq 2 -and [double]$aggregateCacheSummary.request_2_plus_hit_rate -eq 0.95) "aggregate provider cache trace did not preserve taskspace cache metrics"
+Assert-True ($aggregateCacheEvents.Count -eq 1 -and [string]$aggregateCacheEvents[0].request_id -eq "right-1") "aggregate provider cache trace events did not filter to taskspace/right artifacts"
+Assert-True ([string]$aggregateCache.provider_cache_trace_summary_path -eq (Join-Path $aggregateCacheRoot "provider-cache-trace-summary.json")) "aggregate return object omitted provider cache trace summary path"
+
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Error $_ }
     exit 1

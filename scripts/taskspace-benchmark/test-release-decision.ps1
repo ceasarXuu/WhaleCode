@@ -2,7 +2,7 @@ param([string]$RunRoot = "")
 
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot "target\release-decision-selftest" }
+if (-not $RunRoot) { $RunRoot = Join-Path $repoRoot ("target\release-decision-selftest\run-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff")) }
 New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
 $failures = New-Object System.Collections.Generic.List[string]
 

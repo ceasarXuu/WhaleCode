@@ -769,6 +769,7 @@ Required checks:
 | 2026-06-22 | Created detailed repair plan | Formalize v0.0.5 cache blocker execution path |
 | 2026-06-23 | L1 live acceptance passed | `cache_optimized_action_contract` reached request 2+ hit rate `0.989246` with no native tools schema in the DeepSeek TaskSpace hot path |
 | 2026-06-23 | Release gate and default switch landed | Release decision now blocks missing/low/native-tools cache trace; DeepSeek TaskSpace defaults to `CacheOptimizedActionContract` |
+| 2026-06-23 | Root cache-trace aggregation landed | Benchmark aggregate generation now writes root `provider-cache-trace-summary.json` from TaskSpace/right artifacts for release decision |
 
 ## 19. 2026-06-23 Implementation Result
 
@@ -804,14 +805,19 @@ Phase 5 and Phase 7 have code-level coverage for the cache-hit scope:
   - low request 2+ cache hit rate;
   - native tools schema present in the hot path;
   - missing provider cache trace summary.
+- `Write-TaskspaceCostAggregateArtifacts` writes root-level cache trace artifacts from TaskSpace/right provider cache traces:
+  - `provider-cache-trace-summary.json`;
+  - `provider-cache-trace.jsonl`.
 - DeepSeek ChatCompletions TaskSpace now defaults to `CacheOptimizedActionContract`.
 - `WHALE_TASKSPACE_PROVIDER_TRANSPORT=native_tools` remains the explicit debug fallback.
 
 Validation evidence:
 
 - `cargo test -p codex-core taskspace_provider_transport_defaults_deepseek_to_action_contract --lib`
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1`
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1`
 - `cargo check -p codex-core`
+- Live artifact aggregation check on `target/deepseek-cache-fix-validation/benchmark-20260623-115451/single-file-fast-fix/20260623-115451-777`: `request_2_plus_hit_rate=0.989246`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=10`
 
 ## 18. Plan Quality Checklist
 

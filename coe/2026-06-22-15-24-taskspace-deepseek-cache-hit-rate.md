@@ -516,3 +516,27 @@
   - The plan's Phase 7 default switch is in code: release-like DeepSeek TaskSpace requests use the cache-safe transport unless the debug fallback is explicitly selected.
 - Supports:
   - H-006
+
+## Evidence E-022: Benchmark aggregation now produces the root cache trace summary required by release decision
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Inspected the release-decision cache gate and benchmark aggregation path after E-021.
+  - Found that side artifacts wrote `provider-cache-trace-summary.json`, but `Write-TaskspaceCostAggregateArtifacts` did not yet produce the root-level `provider-cache-trace-summary.json` required by `write-release-decision.ps1`.
+  - Added TaskSpace/right-only provider cache trace aggregation to `scripts/taskspace-benchmark/lib/cost-instrumentation.ps1`.
+  - Added fixture coverage in `scripts/taskspace-benchmark/test-cost-instrumentation.ps1` proving Standard/left native-tools traces are not counted in the TaskSpace cache gate.
+  - Rebuilt the aggregate artifacts for the live DeepSeek artifact from E-020.
+- Observations:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1` passed.
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1` passed.
+  - Re-aggregating `target/deepseek-cache-fix-validation/benchmark-20260623-115451/single-file-fast-fix/20260623-115451-777` produced root cache trace summary values:
+    - `provider_request_count=10`;
+    - `trace_coverage=1`;
+    - `request_2_plus_hit_rate=0.989246`;
+    - `native_tools_schema_hot_path_count=0`;
+    - `tool_free_action_contract_count=10`.
+- Interpretation:
+  - The Phase 5 gate now has a real artifact production path in normal benchmark aggregation.
+  - The gate is scoped to TaskSpace/right artifacts, so Standard-mode provider request shape does not contaminate the TaskSpace DeepSeek cache-hit release gate.
+- Supports:
+  - H-006
