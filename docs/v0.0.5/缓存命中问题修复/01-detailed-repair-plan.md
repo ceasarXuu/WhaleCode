@@ -776,6 +776,7 @@ Required checks:
 | 2026-06-23 | Release gate and default switch landed | Release decision now blocks missing/low/native-tools cache trace; DeepSeek TaskSpace defaults to `CacheOptimizedActionContract` |
 | 2026-06-23 | Root cache-trace aggregation landed | Benchmark aggregate generation now writes root `provider-cache-trace-summary.json` from TaskSpace/right artifacts for release decision |
 | 2026-06-23 | Live artifact release-decision cache gate checked | `write-release-decision.ps1` consumed the live artifact root cache trace and reported `provider_cache_trace_gate_pass=True` |
+| 2026-06-23 | E2/L2 cache probe completed | `multi-file-order-pipeline` kept cache gate passing at request 2+ hit rate `0.990798`, but correctness readiness failed with `agent_patch_wrong` |
 
 ## 19. 2026-06-23 Implementation Result
 
@@ -825,6 +826,7 @@ Validation evidence:
 - `cargo check -p codex-core`
 - Live artifact aggregation check on `target/deepseek-cache-fix-validation/benchmark-20260623-115451/single-file-fast-fix/20260623-115451-777`: `request_2_plus_hit_rate=0.989246`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=10`
 - Live artifact release-decision check on the same artifact: overall decision is `fail` because the L1 artifact is not a complete v0.0.5/E3 release package, while the cache-specific gate is `provider_cache_trace_gate_pass=True` with `trace_coverage=1`, `request_2_plus_hit_rate=0.989246`, `native_tools_schema_hot_path_count=0`, and `tool_free_action_contract_count=10`.
+- E2/L2 probe on `target/deepseek-cache-fix-validation/e2-l2-probe-fresh`: `multi-file-order-pipeline` kept the cache-specific gate passing with `request_2_plus_hit_rate=0.990798`, `trace_coverage=1`, `native_tools_schema_hot_path_count=0`, and `tool_free_action_contract_count=10`; the run is not Phase 4 acceptance because correctness readiness failed with `agent_patch_wrong`.
 
 ## 18. Plan Quality Checklist
 

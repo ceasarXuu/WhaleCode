@@ -581,3 +581,30 @@
   - The cache-specific release gate passes on the live DeepSeek action-contract artifact; the generated overall release decision remains blocked by unrelated formal release-package gates that this L1 artifact was not designed to satisfy.
 - Supports:
   - H-006
+
+## Evidence E-025: E2/L2 probe keeps cache gate passing but exposes separate node-workflow correctness gap
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Attempted `multi-file-order-pipeline` through `run-taskspace-e2-matrix.ps1` with `WHALE_TASKSPACE_PROVIDER_TRANSPORT=cache_optimized_action_contract`.
+  - First attempt used run root `target\deepseek-cache-fix-validation\e2-l2-probe` and was blocked before model execution by whale binary preflight.
+  - Rebuilt `codex-cli --bin whale`, installed via `scripts\install-whale-local.ps1`, and reran with run root `target\deepseek-cache-fix-validation\e2-l2-probe-fresh`.
+- Observations:
+  - First attempt abort reason: `whale_binary_stale_for_codex_source`; installed binary SHA256 was `944b64f9f1a2397a16e8b5f21d784f23fbac18475b9f4df9983b0e880b374f94`, while latest `third_party/codex-cli` source commit was `d182a9cc074822a315580978a82a88cf87484377`.
+  - Refreshed installed binary SHA256: `347569790bd5cdf812eb296ff795a716853a76074005b1255051d8900fa47002`.
+  - Fresh E2/L2 probe runner exit: `0`.
+  - Fresh E2/L2 matrix readiness: `e2_evidence_readiness=False`, `valid_pairs=0`, `excluded_pairs=1`, `non_e2_reports=1`.
+  - Failure taxonomy: `engineering_unclean`, `agent_patch_wrong`.
+  - TaskSpace outcome: `business_success=False`, `public_validation_exit_code=1`, `hidden_oracle_exit_code=1`.
+  - Standard outcome: `business_success=True`.
+  - TaskSpace patch changed only `src/order_pipeline/pricing.py`; validation still failed parser and invoice tests.
+  - Cache trace summary for the TaskSpace side: `provider_request_count=10`, `trace_coverage=1`, `request_2_plus_hit_rate=0.990798`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=10`, `cache_usage_missing_count=0`.
+  - `taskspace_control_count=0`, `state_commit_count=0`, `spawn_agent_call_count=0`.
+  - Graph health reported `node_count=3`, `open_leaf_nodes=1`, `ImplementationDependsOnParserAndPricing=false`, `ParallelInspectTrackCount=0`.
+- Interpretation:
+  - The cache fix continues to hold on an L2 live probe: DeepSeek TaskSpace remains on the tool-free action-contract path and request 2+ cache hit rate stays above `0.95`.
+  - This E2/L2 run does not pass correctness readiness and must not be used as Phase 4 acceptance.
+  - The newly exposed gap is node-workflow completeness: action-contract mode preserved cache shape, but the TaskSpace workflow did not gather and bind enough independent parser/pricing evidence before implementation.
+  - Harness preflight correctly blocks stale installed binaries after `third_party/codex-cli` commits; rebuild and reinstall are required before live benchmark reruns after source changes.
+- Supports:
+  - H-006

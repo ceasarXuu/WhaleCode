@@ -94,6 +94,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\write-release-decision.ps1 -RunDir target\deepseek-cache-fix-validation\benchmark-20260623-115451\single-file-fast-fix\20260623-115451-777`
   - overall decision: `fail`, because this L1 artifact is not a complete v0.0.5/E3 release package.
   - cache gate: `provider_cache_trace_gate_pass=True`, `trace_coverage=1`, `request_2_plus_hit_rate=0.989246`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=10`.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-e2-matrix.ps1 -Scenarios multi-file-order-pipeline -RequiredLevels L2 -Repeats 1 -RunRoot target\deepseek-cache-fix-validation\e2-l2-probe-fresh ...`
+  - refreshed installed `whale.exe` first because the previous attempt was blocked by `whale_binary_stale_for_codex_source`.
+  - cache gate: `trace_coverage=1`, `request_2_plus_hit_rate=0.990798`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=10`.
+  - E2 readiness: not passed; TaskSpace changed only `src/order_pipeline/pricing.py` and failed parser/invoice validation with `agent_patch_wrong`.
 
 反向验证：
 
