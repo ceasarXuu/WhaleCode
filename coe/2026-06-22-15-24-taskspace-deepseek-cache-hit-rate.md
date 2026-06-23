@@ -561,3 +561,23 @@
   - This supports preserving TaskSpace node semantics while avoiding provider-native tool schema on the DeepSeek hot path.
 - Supports:
   - H-006
+
+## Evidence E-024: Release decision consumes live artifact cache trace and passes the cache gate
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Ran `scripts\taskspace-benchmark\write-release-decision.ps1` against the live DeepSeek L1 artifact `target\deepseek-cache-fix-validation\benchmark-20260623-115451\single-file-fast-fix\20260623-115451-777`.
+  - Inspected the generated `release-decision.json` for the cache-specific gate fields.
+- Observations:
+  - Overall release decision: `fail`.
+  - The overall failure is expected for this check because the L1 artifact is not a complete v0.0.5/E3 release package and is missing formal release artifacts such as projection, budget, provenance, suite receipt, and user approval markers.
+  - `provider_cache_trace_gate_pass=True`.
+  - `provider_cache_trace_coverage=1`.
+  - `provider_cache_request_2_plus_hit_rate=0.989246`.
+  - `provider_cache_native_tools_schema_hot_path_count=0`.
+  - `provider_cache_tool_free_action_contract_count=10`.
+- Interpretation:
+  - The live artifact's root cache trace is consumable by the release decision path.
+  - The cache-specific release gate passes on the live DeepSeek action-contract artifact; the generated overall release decision remains blocked by unrelated formal release-package gates that this L1 artifact was not designed to satisfy.
+- Supports:
+  - H-006

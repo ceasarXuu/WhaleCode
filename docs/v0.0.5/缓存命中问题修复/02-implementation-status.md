@@ -91,6 +91,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1`
 - 对 live artifact `target/deepseek-cache-fix-validation/benchmark-20260623-115451/single-file-fast-fix/20260623-115451-777` 重新运行 `Write-TaskspaceCostAggregateArtifacts`，root summary 保持 `request_2_plus_hit_rate=0.989246`、`native_tools_schema_hot_path_count=0`。
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\verify-deepseek-cache-fix.ps1 ...`
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\write-release-decision.ps1 -RunDir target\deepseek-cache-fix-validation\benchmark-20260623-115451\single-file-fast-fix\20260623-115451-777`
+  - overall decision: `fail`, because this L1 artifact is not a complete v0.0.5/E3 release package.
+  - cache gate: `provider_cache_trace_gate_pass=True`, `trace_coverage=1`, `request_2_plus_hit_rate=0.989246`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=10`.
 
 反向验证：
 
