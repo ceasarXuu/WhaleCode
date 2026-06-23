@@ -651,3 +651,21 @@
   - This is not a regression of the DeepSeek cache fix; it is a separate action-contract workflow completeness blocker for E2/L2 acceptance.
 - Supports:
   - H-006
+
+## Evidence E-028: Implementation nodes now allow read-only file listing in action-contract mode
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Inspected the E-027 action trace after late-inspect enforcement.
+  - Found that the model successfully emitted `taskspace_control finish_node`, then entered `implement_solution` and emitted `list_files`.
+  - The local validator rejected `list_files` with `node_policy_violation:implement_solution:list_files`, consuming the remaining recovery budget.
+  - Updated `TaskSpaceActionContractV1` static instructions and `taskspace_action_allowed_for_node` so `implement_solution` permits `list_files` alongside existing read-only `read_file` and `search`, while tests remain blocked.
+- Observations:
+  - `cargo test -p codex-core taskspace_action_contract_node_policy_matrix_blocks_cross_node_actions --lib` passed.
+  - `cargo test -p codex-core taskspace_action_contract_policy --lib` passed.
+  - `cargo check -p codex-core` passed.
+- Interpretation:
+  - The implementation node policy was internally inconsistent: it allowed read/search for implementation context completion but rejected the equivalent file-listing read action.
+  - This fix removes an avoidable recovery-budget sink in the E2/L2 action-contract path without weakening the validation boundary that keeps tests out of implementation nodes.
+- Supports:
+  - H-006

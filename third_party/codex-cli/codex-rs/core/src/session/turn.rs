@@ -1248,7 +1248,7 @@ Required JSON shape:
 Allowed actions by active node kind:
 - bootstrap/no active task: taskspace_control, blocked
 - inspect_code_context: list_files, search, read_file, taskspace_control, blocked
-- implement_solution: apply_patch, taskspace_control, blocked
+- implement_solution: list_files, search, read_file, apply_patch, taskspace_control, blocked
 - smoke_test/regression_test: run_test, read_file, search, taskspace_control, blocked
 - final_synthesis: final_answer, taskspace_control, blocked
 Action argument rules:
@@ -3138,6 +3138,18 @@ tax_calc.py\n\
         ));
 
         assert!(taskspace_action_allowed_for_node(
+            "list_files",
+            Some("implement_solution")
+        ));
+        assert!(taskspace_action_allowed_for_node(
+            "read_file",
+            Some("implement_solution")
+        ));
+        assert!(taskspace_action_allowed_for_node(
+            "search",
+            Some("implement_solution")
+        ));
+        assert!(taskspace_action_allowed_for_node(
             "apply_patch",
             Some("implement_solution")
         ));
@@ -4865,7 +4877,7 @@ fn taskspace_action_allowed_for_node(action: &str, node_kind: Option<&str>) -> b
         ),
         Some("implement_solution") => matches!(
             action,
-            "read_file" | "search" | "apply_patch" | "taskspace_control" | "blocked"
+            "list_files" | "read_file" | "search" | "apply_patch" | "taskspace_control" | "blocked"
         ),
         Some("smoke_test" | "regression_test") => matches!(
             action,

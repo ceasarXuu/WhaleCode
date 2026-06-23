@@ -779,6 +779,7 @@ Required checks:
 | 2026-06-23 | E2/L2 cache probe completed | `multi-file-order-pipeline` kept cache gate passing at request 2+ hit rate `0.990798`, but correctness readiness failed with `agent_patch_wrong` |
 | 2026-06-23 | Late-inspect action-contract enforcement landed | Budget transition guidance now reaches action-contract mode and the local validator rejects further inspect reads when a node transition is required |
 | 2026-06-23 | E2/L2 late-inspect rerun completed | Cache gate still passed at request 2+ hit rate `0.991693`; E2/L2 correctness still failed with `agent_patch_wrong` |
+| 2026-06-23 | Implementation node read-only listing allowed | `implement_solution` now permits `list_files` as read-only context completion while continuing to block tests |
 
 ## 19. 2026-06-23 Implementation Result
 
@@ -831,6 +832,7 @@ Validation evidence:
 - E2/L2 probe on `target/deepseek-cache-fix-validation/e2-l2-probe-fresh`: `multi-file-order-pipeline` kept the cache-specific gate passing with `request_2_plus_hit_rate=0.990798`, `trace_coverage=1`, `native_tools_schema_hot_path_count=0`, and `tool_free_action_contract_count=10`; the run is not Phase 4 acceptance because correctness readiness failed with `agent_patch_wrong`.
 - Late-inspect enforcement check: `cargo test -p codex-core action_contract_late_inspect_rejects_more_file_reads --lib`, `cargo test -p codex-core provider_budget --lib`, and `cargo check -p codex-core` passed.
 - E2/L2 rerun on `target/deepseek-cache-fix-validation/e2-l2-probe-late-inspect`: `run_validity=valid`, `request_2_plus_hit_rate=0.991693`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=9`; the run is still not Phase 4 acceptance because TaskSpace failed correctness with `agent_patch_wrong`.
+- Implementation-node policy check: `cargo test -p codex-core taskspace_action_contract_node_policy_matrix_blocks_cross_node_actions --lib`, `cargo test -p codex-core taskspace_action_contract_policy --lib`, and `cargo check -p codex-core` passed.
 
 ## 18. Plan Quality Checklist
 
