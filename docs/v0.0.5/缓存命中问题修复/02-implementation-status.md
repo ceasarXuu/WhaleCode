@@ -86,6 +86,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 - `cargo test -p codex-core taskspace_finish_node_detects_control_type_alias --lib`
 - `cargo test -p codex-core taskspace_provider_transport_defaults_deepseek_to_action_contract --lib`
 - `cargo test -p codex-core taskspace_action_contract_node_policy_matrix_blocks_cross_node_actions --lib`
+- `cargo test -p codex-core action_contract_late_inspect_rejects_more_file_reads --lib`
+- `cargo test -p codex-core provider_budget --lib`
 - `cargo check -p codex-core`
 - `cargo build -p codex-cli --bin whale`
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1`

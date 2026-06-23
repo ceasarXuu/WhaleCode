@@ -608,3 +608,22 @@
   - Harness preflight correctly blocks stale installed binaries after `third_party/codex-cli` commits; rebuild and reinstall are required before live benchmark reruns after source changes.
 - Supports:
   - H-006
+
+## Evidence E-026: Action-contract late-inspect budget enforcement now reaches the local validator
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Investigated the E2/L2 probe failure from E-025.
+  - Found that action-contract mode set provider-native tool visibility to `None`, and the prompt guidance path reused that provider-facing visibility instead of the budget-facing visibility.
+  - Found that the local `TaskSpaceActionV1` validator still allowed `read_file` in `inspect_code_context` after the late-inspect transition threshold.
+  - Updated `third_party/codex-cli/codex-rs/core/src/session/turn.rs` so budget guidance receives the budget-facing visibility and the action-contract validator rejects non-control actions when late inspect requires a node transition.
+- Observations:
+  - `cargo test -p codex-core action_contract_late_inspect_rejects_more_file_reads --lib` passed.
+  - `cargo test -p codex-core provider_budget --lib` passed.
+  - `cargo check -p codex-core` passed.
+  - The new regression test proves late inspect rejects `read_file` with `node_budget_transition_required` while still allowing `taskspace_control` to execute.
+- Interpretation:
+  - The E2/L2 correctness gap from E-025 had a concrete runtime enforcement component: action-contract execution did not mirror the late-inspect budget transition that native tool visibility already expressed.
+  - This fix makes the cache-optimized transport preserve the same node-budget pressure semantics locally, without reintroducing provider-native tool schemas.
+- Supports:
+  - H-006

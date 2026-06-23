@@ -1776,7 +1776,7 @@ async fn run_sampling_request(
                 prepare_taskspace_action_contract_prompt_items(prompt_source)
             }
         };
-        let tool_visibility = provider_budget_snapshot
+        let budget_tool_visibility = provider_budget_snapshot
             .as_ref()
             .map(|snapshot| {
                 let limits = taskspace_transport_budget_limits(snapshot, transport_mode);
@@ -1791,7 +1791,7 @@ async fn run_sampling_request(
             })
             .unwrap_or(TaskspaceProviderToolVisibility::All);
         let tool_visibility = match transport_mode {
-            TaskspaceProviderTransportMode::NativeTools => tool_visibility,
+            TaskspaceProviderTransportMode::NativeTools => budget_tool_visibility,
             TaskspaceProviderTransportMode::CacheOptimizedActionContract => {
                 TaskspaceProviderToolVisibility::None
             }
@@ -1806,7 +1806,7 @@ async fn run_sampling_request(
                 snapshot.request_phase.as_deref(),
                 snapshot.node_kind.as_deref(),
                 snapshot.node_id.as_deref(),
-                tool_visibility,
+                budget_tool_visibility,
             )
         {
             prompt_input.push(item);
@@ -3435,6 +3435,32 @@ tax_calc.py\n\
             ),
             TaskspaceProviderToolVisibility::TaskspaceControlOnly
         );
+    }
+
+    #[test]
+    fn action_contract_late_inspect_rejects_more_file_reads() {
+        let mut snapshot = provider_snapshot("inspect_code_context");
+        snapshot.request_count = 5;
+        snapshot.node_request_count = 5;
+        snapshot.max_requests = 14;
+        snapshot.max_model_requests_per_node = 4;
+        let read_file = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"README.md"}}"#,
+        )
+        .expect("valid action shape");
+
+        let err = taskspace_action_to_tool_call(&read_file, &snapshot)
+            .expect_err("late inspect should force taskspace_control transition");
+        assert!(err.contains("node_budget_transition_required:inspect_code_context:read_file"));
+
+        let finish_node = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"action":"finish_node","node_id":"node-1","result_summary":"Inspected README and tests.","next_node_kind":"implement_solution","next_node_title":"Apply fix","next_node_context_summary":"Apply fix from inspected evidence"}}"#,
+        )
+        .expect("valid control action");
+        let call = taskspace_action_to_tool_call(&finish_node, &snapshot)
+            .expect("finish_node remains allowed")
+            .expect("finish_node should execute taskspace_control");
+        assert_eq!(call.tool_name.name, "taskspace_control");
     }
 
     #[test]
@@ -5204,6 +5230,29 @@ fn taskspace_action_to_tool_call(
     if !taskspace_action_allowed_for_node(action_name, snapshot.node_kind.as_deref()) {
         return Err(format!(
             "node_policy_violation:{}:{}",
+            snapshot.node_kind.as_deref().unwrap_or("unknown"),
+            action_name
+        ));
+    }
+    let limits = taskspace_transport_budget_limits(
+        snapshot,
+        TaskspaceProviderTransportMode::CacheOptimizedActionContract,
+    );
+    let budget_visibility = taskspace_provider_tool_visibility_for_budget(
+        snapshot.request_count,
+        limits.max_requests,
+        snapshot.node_request_count,
+        limits.max_model_requests_per_node,
+        snapshot.request_phase.as_deref(),
+        snapshot.node_kind.as_deref(),
+    );
+    if matches!(
+        budget_visibility,
+        TaskspaceProviderToolVisibility::TaskspaceControlOnly
+    ) && !matches!(action_name, "taskspace_control" | "blocked")
+    {
+        return Err(format!(
+            "node_budget_transition_required:{}:{}",
             snapshot.node_kind.as_deref().unwrap_or("unknown"),
             action_name
         ));
