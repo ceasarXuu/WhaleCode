@@ -1,15 +1,31 @@
 # 14. v0.0.5 Implementation Gap Audit
 
 - Created: 2026-06-18
+- Superseded: 2026-06-19 by `17-unfinished-work-inventory.md` and `18-unfinished-work-engineering-design.md`
 - Scope: static code and script audit only
 - Real E3 / live Agent calls: not run
 - Purpose: prevent validation closeout before the planned v0.0.5 implementation work is actually complete
 
+> 历史文档警告：本文的 Gap Matrix 是 2026-06-18 的静态审查快照。
+> 表格中 `Implemented` 或 `Implemented as benchmark-profile contract`
+> 不能作为当前 v0.0.5 完成证明。当前执行入口、未完成项、
+> release gate 和正式 E3 口径以 `18-unfinished-work-engineering-design.md`
+> 为准。
+
 ## Current Finding
 
-As of 2026-06-18, the planned v0.0.5 code, script, and corrected-contract work in this audit is complete enough to leave pure implementation mode.
+This audit is no longer the current closure basis.
 
-Real E3 validation is still blocked by user instruction. The next step is not to run E3 automatically; the next step is to ask for explicit approval before any real Agent-invoking validation.
+It was a static implementation audit written before the `terminal-bench_E3-P0_3_2` diagnostic variant. That later diagnostic showed that the implemented modules do not yet deliver the v0.0.5 active cost-control objective:
+
+- Standard success: `4/5`; TaskSpace success: `3/5`.
+- TaskSpace agent wall time: `3.66x` Standard.
+- TaskSpace token total: `11.39x` Standard.
+- TaskSpace internal model requests: `642` vs Standard `5`.
+
+Therefore v0.0.5 must return to active development. Use `17-unfinished-work-inventory.md` as the current unfinished-work source of truth.
+
+Real E3 validation remains blocked until the P0 unfinished engineering items are closed and the user explicitly approves another real Agent-invoking run.
 
 ## Gap Matrix
 

@@ -432,6 +432,17 @@ impl EventProcessorWithJsonOutput {
                 }));
                 CodexStatus::Running
             }
+            ServerNotification::Warning(notification) => {
+                events.push(ThreadEvent::ItemCompleted(ItemCompletedEvent {
+                    item: ExecThreadItem {
+                        id: self.next_item_id(),
+                        details: ThreadItemDetails::Error(ErrorItem {
+                            message: notification.message,
+                        }),
+                    },
+                }));
+                CodexStatus::Running
+            }
             ServerNotification::Error(notification) => {
                 let message = match notification.error.additional_details {
                     Some(details) if !details.is_empty() => {

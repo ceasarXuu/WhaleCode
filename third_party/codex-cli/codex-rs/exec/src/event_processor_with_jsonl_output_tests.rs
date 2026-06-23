@@ -55,3 +55,29 @@ fn failed_turn_does_not_overwrite_output_last_message_file() {
         "keep existing contents"
     );
 }
+
+#[test]
+fn warning_notifications_are_emitted_in_json_output() {
+    let mut processor = EventProcessorWithJsonOutput::new(None);
+
+    let collected = processor.collect_thread_events(ServerNotification::Warning(
+        codex_app_server_protocol::WarningNotification {
+            thread_id: Some("thread-1".to_string()),
+            message: "TaskSpaceProviderRequestBudgetEventV1 status=started request_count=9->10"
+                .to_string(),
+        },
+    ));
+
+    assert_eq!(collected.status, CodexStatus::Running);
+    assert_eq!(collected.events.len(), 1);
+    let ThreadEvent::ItemCompleted(event) = &collected.events[0] else {
+        panic!("expected item completed event");
+    };
+    let ThreadItemDetails::Error(error) = &event.item.details else {
+        panic!("expected warning to map to an error/details item");
+    };
+    assert_eq!(
+        error.message,
+        "TaskSpaceProviderRequestBudgetEventV1 status=started request_count=9->10"
+    );
+}

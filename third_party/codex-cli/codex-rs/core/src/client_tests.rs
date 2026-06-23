@@ -1,12 +1,16 @@
 use super::AuthRequestTelemetryContext;
 use super::ModelClient;
 use super::PendingUnauthorizedRetry;
+use super::ProviderRequestAttribution;
+use super::ProviderRequestBudgetContext;
+use super::ProviderRequestBudgetLimits;
 use super::UnauthorizedRecoveryExecution;
 use super::X_CODEX_INSTALLATION_ID_HEADER;
 use super::X_CODEX_PARENT_THREAD_ID_HEADER;
 use super::X_CODEX_TURN_METADATA_HEADER;
 use super::X_CODEX_WINDOW_ID_HEADER;
 use super::X_OPENAI_SUBAGENT_HEADER;
+use super::provider_payload_digest;
 use codex_app_server_protocol::AuthMode;
 use codex_model_provider::BearerAuthProvider;
 use codex_model_provider_info::WireApi;
@@ -16,6 +20,7 @@ use codex_protocol::ThreadId;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
+use codex_protocol::protocol::TokenUsage;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -77,6 +82,414 @@ fn test_session_telemetry() -> SessionTelemetry {
         "test-terminal".to_string(),
         SessionSource::Cli,
     )
+}
+
+#[test]
+fn provider_request_budget_blocks_before_dispatch_when_exhausted() {
+    let budget = ProviderRequestBudgetContext::enabled(1, 1);
+
+    let err = budget
+        .before_dispatch("responses_http")
+        .expect_err("exhausted budget should block before dispatch");
+
+    assert!(
+        err.to_string()
+            .contains("active provider request budget is exhausted")
+    );
+    let events = budget.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].request_id,
+        "provider-request:scope-unknown:logical-2:attempt-1"
+    );
+    assert_eq!(
+        events[0].logical_request_id,
+        "provider-request:scope-unknown:logical-2"
+    );
+    assert_eq!(events[0].attempt_seq, 1);
+    assert_eq!(events[0].transport, "responses_http");
+    assert_eq!(events[0].status, "blocked");
+    assert_eq!(events[0].request_count_before, 1);
+    assert_eq!(events[0].request_count_after, 1);
+    assert_eq!(events[0].max_requests, 1);
+    assert_eq!(events[0].budget_state_before, "hard_stopped");
+    assert_eq!(events[0].budget_state_after, "hard_stopped");
+    assert_eq!(
+        events[0].budget_transition_reason,
+        "provider_request_budget_exhausted"
+    );
+}
+
+#[test]
+fn provider_request_budget_allows_bounded_recovery_at_compact_checkpoint() {
+    let budget = ProviderRequestBudgetContext::enabled(1, 2);
+
+    let _dispatch = budget
+        .before_dispatch("responses_http")
+        .expect("compact checkpoint should allow one bounded recovery dispatch");
+
+    let events = budget.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].status, "started");
+    assert_eq!(events[0].request_count_before, 1);
+    assert_eq!(events[0].request_count_after, 2);
+    assert_eq!(events[0].max_requests, 2);
+    assert_eq!(events[0].budget_state_before, "compact_checkpoint_required");
+    assert_eq!(events[0].budget_state_after, "hard_stopped");
+    assert_eq!(
+        events[0].budget_transition_reason,
+        "provider_request_budget_reached"
+    );
+    assert_eq!(events[0].request_phase.as_deref(), Some("budget_recovery"));
+
+    budget.record_response_completed(None);
+    let terminal_events = budget.drain_events();
+    assert_eq!(terminal_events.len(), 1);
+    assert_eq!(
+        terminal_events[0].request_id,
+        "provider-request:scope-unknown:logical-2:attempt-1"
+    );
+    assert_eq!(terminal_events[0].status, "response_completed");
+    assert_eq!(
+        terminal_events[0].request_phase.as_deref(),
+        Some("budget_recovery")
+    );
+
+    let err = budget
+        .before_dispatch("responses_http")
+        .expect_err("budget should hard stop after bounded recovery is spent");
+    assert!(
+        err.to_string()
+            .contains("active provider request budget is exhausted")
+    );
+}
+
+#[test]
+fn provider_request_budget_allows_final_synthesis_at_compact_checkpoint() {
+    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
+        ProviderRequestBudgetLimits {
+            request_count: 1,
+            max_requests: 2,
+            node_request_count: 0,
+            max_model_requests_per_node: usize::MAX,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "compact_checkpoint_required".to_string(),
+        },
+        ProviderRequestAttribution {
+            request_phase: Some("final_synthesis".to_string()),
+            ..ProviderRequestAttribution::default()
+        },
+    );
+
+    let _dispatch = budget
+        .before_dispatch("responses_http")
+        .expect("final synthesis should be allowed at compact checkpoint");
+
+    budget.record_response_completed(None);
+    let events = budget.drain_events();
+    assert_eq!(events[0].status, "started");
+    assert_eq!(events[0].request_count_before, 1);
+    assert_eq!(events[0].request_count_after, 2);
+    assert_eq!(events[0].budget_state_before, "compact_checkpoint_required");
+    assert_eq!(events[0].budget_state_after, "hard_stopped");
+    assert_eq!(events[0].request_phase.as_deref(), Some("final_synthesis"));
+    assert_eq!(
+        events.last().expect("terminal event").status,
+        "response_completed"
+    );
+    assert_eq!(
+        events
+            .last()
+            .expect("terminal event")
+            .request_phase
+            .as_deref(),
+        Some("final_synthesis")
+    );
+}
+
+#[test]
+fn provider_request_budget_allows_automatic_node_budget_recovery_once() {
+    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
+        ProviderRequestBudgetLimits {
+            request_count: 1,
+            max_requests: 10,
+            node_request_count: 1,
+            max_model_requests_per_node: 1,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        },
+        ProviderRequestAttribution {
+            node_id: Some("node-1".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            ..ProviderRequestAttribution::default()
+        },
+    );
+
+    let _dispatch = budget
+        .before_dispatch("responses_http")
+        .expect("node budget should allow one automatic recovery dispatch");
+
+    let events = budget.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].status, "started");
+    assert_eq!(events[0].request_phase.as_deref(), Some("budget_recovery"));
+    assert_eq!(events[0].request_count_before, 1);
+    assert_eq!(events[0].request_count_after, 2);
+    assert_eq!(events[0].node_id.as_deref(), Some("node-1"));
+
+    budget.record_response_completed(None);
+    let _ = budget.drain_events();
+    let err = budget
+        .before_dispatch("responses_http")
+        .expect_err("node budget should block after automatic recovery is spent");
+    assert!(
+        err.to_string()
+            .contains("active node provider request budget is exhausted")
+    );
+}
+
+#[test]
+fn provider_request_budget_allows_budget_recovery_grace_once() {
+    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
+        ProviderRequestBudgetLimits {
+            request_count: 1,
+            max_requests: 10,
+            node_request_count: 1,
+            max_model_requests_per_node: 1,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        },
+        ProviderRequestAttribution {
+            node_id: Some("node-1".to_string()),
+            request_phase: Some("budget_recovery".to_string()),
+            ..ProviderRequestAttribution::default()
+        },
+    );
+
+    let _dispatch = budget
+        .before_dispatch("responses_http")
+        .expect("budget_recovery should bypass the node request budget");
+
+    let events = budget.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].status, "started");
+    assert_eq!(events[0].request_phase.as_deref(), Some("budget_recovery"));
+    assert_eq!(events[0].request_count_before, 1);
+    assert_eq!(events[0].request_count_after, 2);
+
+    budget.record_response_completed(None);
+    let _ = budget.drain_events();
+    let err = budget
+        .before_dispatch("responses_http")
+        .expect_err("budget_recovery grace should be single-use");
+    assert!(
+        err.to_string()
+            .contains("active node provider request budget is exhausted")
+    );
+}
+
+#[test]
+fn provider_request_budget_blocks_rebuilt_context_after_recovery_grace_spent() {
+    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
+        ProviderRequestBudgetLimits {
+            request_count: 2,
+            max_requests: 10,
+            node_request_count: 2,
+            max_model_requests_per_node: 2,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 1,
+            budget_state: "normal".to_string(),
+        },
+        ProviderRequestAttribution {
+            node_id: Some("node-1".to_string()),
+            request_phase: Some("budget_recovery".to_string()),
+            ..ProviderRequestAttribution::default()
+        },
+    );
+
+    let err = budget
+        .before_dispatch("responses_http")
+        .expect_err("rebuilt budget context must honor spent recovery grace");
+    assert!(
+        err.to_string()
+            .contains("active node provider request budget is exhausted")
+    );
+}
+
+#[test]
+fn provider_request_budget_records_started_and_terminal_status() {
+    let budget = ProviderRequestBudgetContext::enabled(0, 2);
+
+    let dispatch = budget
+        .before_dispatch("responses_websocket")
+        .expect("first request should be within budget");
+    let payload = provider_payload_digest(&json!({
+        "input": "ContextProjectionV1 active replacement:\n- protected"
+    }))
+    .expect("payload digest");
+    let payload_sha256 = payload.sha256.clone();
+    let payload_bytes = payload.bytes;
+    dispatch.record_provider_payload(payload);
+    dispatch.record_status("stream_opened");
+
+    let events = budget.drain_events();
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[0].status, "started");
+    assert_eq!(events[1].status, "payload_captured");
+    assert_eq!(events[2].status, "stream_opened");
+    assert_eq!(events[0].request_id, events[1].request_id);
+    assert_eq!(events[0].request_id, events[2].request_id);
+    assert_eq!(events[0].logical_request_id, events[1].logical_request_id);
+    assert_eq!(events[0].logical_request_id, events[2].logical_request_id);
+    assert_eq!(events[0].attempt_seq, 1);
+    assert_eq!(events[0].parent_request_id, None);
+    assert!(
+        events[0]
+            .request_id
+            .starts_with("provider-request:scope-unknown:logical-1:attempt-1")
+    );
+    assert_eq!(events[0].request_count_after, 1);
+    assert_eq!(events[2].request_count_after, 1);
+    assert_eq!(events[0].budget_state_before, "normal");
+    assert_eq!(events[0].budget_state_after, "compact_checkpoint_required");
+    assert_eq!(
+        events[0].budget_transition_reason,
+        "provider_request_compact_checkpoint_required"
+    );
+    assert_eq!(events[2].budget_state_after, "compact_checkpoint_required");
+    assert_eq!(
+        events[1].provider_payload_sha256.as_deref(),
+        Some(payload_sha256.as_str())
+    );
+    assert_eq!(events[1].provider_payload_bytes, Some(payload_bytes));
+    assert_eq!(events[1].exact_payload_scan_passed, Some(true));
+    assert_eq!(events[1].active_projection_present, Some(true));
+    assert_eq!(events[1].legacy_taskspace_history_present, Some(false));
+    assert_eq!(events[1].replacement_confirmed, Some(true));
+    assert_eq!(
+        events[2].provider_payload_sha256.as_deref(),
+        Some(payload_sha256.as_str())
+    );
+    assert_eq!(events[2].provider_payload_bytes, Some(payload_bytes));
+
+    budget.record_response_completed(Some(&TokenUsage {
+        input_tokens: 100,
+        cached_input_tokens: 25,
+        output_tokens: 40,
+        reasoning_output_tokens: 7,
+        total_tokens: 140,
+    }));
+    let terminal_events = budget.drain_events();
+    assert_eq!(terminal_events.len(), 1);
+    assert_eq!(terminal_events[0].status, "response_completed");
+    assert_eq!(terminal_events[0].request_id, events[0].request_id);
+    assert_eq!(terminal_events[0].input_tokens, Some(100));
+    assert_eq!(terminal_events[0].cached_input_tokens, Some(25));
+    assert_eq!(terminal_events[0].output_tokens, Some(40));
+    assert_eq!(terminal_events[0].reasoning_output_tokens, Some(7));
+    assert_eq!(terminal_events[0].total_tokens, Some(140));
+    assert_eq!(
+        terminal_events[0].provider_payload_sha256.as_deref(),
+        Some(payload_sha256.as_str())
+    );
+    assert_eq!(
+        terminal_events[0].provider_payload_bytes,
+        Some(payload_bytes)
+    );
+    assert_eq!(terminal_events[0].exact_payload_scan_passed, Some(true));
+    assert_eq!(terminal_events[0].replacement_confirmed, Some(true));
+    assert!(terminal_events[0].completed_at_ms.is_some());
+    assert!(terminal_events[0].latency_ms.is_some());
+}
+
+#[test]
+fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
+    let active = provider_payload_digest(&json!({
+        "input": "ContextProjectionV1 active replacement:\n- protected"
+    }))
+    .expect("active payload digest");
+    assert!(active.scan.exact_payload_scan_passed);
+    assert!(active.scan.replacement_confirmed);
+
+    let active_with_current_control_guidance = provider_payload_digest(&json!({
+        "input": "ContextProjectionV1 active replacement:\nUse taskspace_control for state changes."
+    }))
+    .expect("active payload digest with current control guidance");
+    assert!(
+        active_with_current_control_guidance
+            .scan
+            .exact_payload_scan_passed
+    );
+    assert!(
+        active_with_current_control_guidance
+            .scan
+            .replacement_confirmed
+    );
+
+    let legacy = provider_payload_digest(&json!({
+        "input": "ContextProjectionV1 active replacement:\n- protected\nContextProjectionV1 shadow (not active replacement):\ntaskspace_control"
+    }))
+    .expect("legacy payload digest");
+    assert!(legacy.scan.active_projection_present);
+    assert!(legacy.scan.legacy_taskspace_history_present);
+    assert!(!legacy.scan.exact_payload_scan_passed);
+    assert!(!legacy.scan.replacement_confirmed);
+
+    let missing_protected = provider_payload_digest(&json!({
+        "input": "ContextProjectionV1 active replacement:\n- summary only"
+    }))
+    .expect("missing protected payload digest");
+    assert!(missing_protected.scan.active_projection_present);
+    assert!(!missing_protected.scan.protected_items_present);
+    assert!(missing_protected.scan.exact_payload_scan_passed);
+
+    let large_instruction_text = "x".repeat(60 * 1024);
+    let large_active_instructions = provider_payload_digest(&json!({
+        "input": format!("ContextProjectionV1 active replacement:\n- protected\n{large_instruction_text}")
+    }))
+    .expect("large active instruction payload digest");
+    assert_eq!(large_active_instructions.scan.large_raw_output_tokens, 0);
+    assert!(large_active_instructions.scan.exact_payload_scan_passed);
+
+    let raw_output = "x".repeat(60 * 1024);
+    let large_raw = provider_payload_digest(&json!({
+        "input": [
+            {
+                "type": "message",
+                "role": "developer",
+                "content": "ContextProjectionV1 active replacement:\n- protected"
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call-1",
+                "output": raw_output
+            }
+        ]
+    }))
+    .expect("large raw payload digest");
+    assert!(large_raw.scan.large_raw_output_tokens > 0);
+    assert!(!large_raw.scan.exact_payload_scan_passed);
+
+    let output_ref = provider_payload_digest(&json!({
+        "input": [
+            {
+                "type": "message",
+                "role": "developer",
+                "content": "ContextProjectionV1 active replacement:\n- protected"
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call-1",
+                "output": format!("OutputReferenceV1:\nraw_output_elided: true\n{raw_output}")
+            }
+        ]
+    }))
+    .expect("output ref payload digest");
+    assert_eq!(output_ref.scan.large_raw_output_tokens, 0);
+    assert!(output_ref.scan.exact_payload_scan_passed);
 }
 
 #[test]

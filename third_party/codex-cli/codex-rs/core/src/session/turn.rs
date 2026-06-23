@@ -1,12 +1,20 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use crate::SkillInjections;
 use crate::SkillLoadOutcome;
+use crate::action_map::ActionClass;
+use crate::action_map::ActionMapProviderResponseActionabilityInput;
 use crate::build_skill_injections;
 use crate::client::ModelClientSession;
+use crate::client::ProviderRequestAttribution;
+use crate::client::ProviderRequestBudgetContext;
+use crate::client::ProviderRequestBudgetLimits;
 use crate::client_common::Prompt;
 use crate::client_common::ResponseEvent;
 use crate::collect_env_var_dependencies;
@@ -52,8 +60,10 @@ use crate::stream_events_utils::raw_assistant_output_text_from_item;
 use crate::stream_events_utils::record_completed_response_item;
 use crate::tools::ToolRouter;
 use crate::tools::context::SharedTurnDiffTracker;
+use crate::tools::context::ToolPayload;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::registry::ToolArgumentDiffConsumer;
+use crate::tools::router::ToolCall;
 use crate::tools::router::ToolRouterParams;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use crate::turn_timing::record_turn_ttft_metric;
@@ -81,6 +91,7 @@ use codex_protocol::items::UserMessageItem;
 use codex_protocol::items::build_hook_prompt_message;
 use codex_protocol::models::BaseInstructions;
 use codex_protocol::models::ContentItem;
+use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::MessagePhase;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
@@ -117,6 +128,90 @@ use tracing::instrument;
 use tracing::trace;
 use tracing::trace_span;
 use tracing::warn;
+
+const TASKSPACE_ACTIVE_PROFILE_MARKER: &str = "TaskSpace v0.0.5 active compact profile is enabled.";
+const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
+const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
+    "ContextProjectionV1 shadow (not active replacement):";
+const TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_ITEMS: usize = 3;
+const TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS: usize = 2400;
+const TASKSPACE_DEEPSEEK_CACHE_ANCHOR_LINES: usize = 4200;
+const TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER: &str = "TaskSpaceProviderBudgetGuidanceV1:";
+const TASKSPACE_NO_ACTION_RECOVERY_MARKER: &str = "TaskSpaceNoActionRecoveryV1:";
+const TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER: &str =
+    "TaskSpaceForcedInspectTransitionRecoveryV1:";
+const TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER: &str =
+    "TaskSpaceForcedImplementTransitionRecoveryV1:";
+const TASKSPACE_INSPECT_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-rg-files";
+const TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-pytest";
+const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TaskspaceProviderResponseActionability {
+    Actionable,
+    ActionableFollowUpAtHardStop,
+    NoActionFollowUp,
+    EmptyFollowUp,
+    FinalCandidate,
+    FinalRejected,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TaskspaceProviderToolVisibility {
+    All,
+    EssentialCoding,
+    TaskspaceControlOnly,
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TaskspaceProviderTransportMode {
+    NativeTools,
+    CacheOptimizedActionContract,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TaskspaceProviderTransportBudgetLimits {
+    max_requests: usize,
+    max_model_requests_per_node: usize,
+    post_budget_grace_requests: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+struct TaskSpaceActionV1 {
+    schema_version: String,
+    action: String,
+    #[serde(default)]
+    node_id: Option<String>,
+    #[serde(default)]
+    args: serde_json::Value,
+    #[serde(default)]
+    rationale: Option<String>,
+}
+
+impl TaskspaceProviderResponseActionability {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Actionable => "actionable",
+            Self::ActionableFollowUpAtHardStop => "actionable_follow_up_at_hard_stop",
+            Self::NoActionFollowUp => "no_action_follow_up",
+            Self::EmptyFollowUp => "empty_follow_up",
+            Self::FinalCandidate => "final_candidate",
+            Self::FinalRejected => "final_rejected",
+        }
+    }
+
+    fn needs_recovery(self) -> bool {
+        matches!(
+            self,
+            Self::NoActionFollowUp | Self::EmptyFollowUp | Self::FinalRejected
+        )
+    }
+
+    fn is_hard_stop(self) -> bool {
+        matches!(self, Self::ActionableFollowUpAtHardStop)
+    }
+}
 
 /// Takes a user message as input and runs a loop where, at each sampling request, the model
 /// replies with either:
@@ -363,6 +458,7 @@ pub(crate) async fn run_turn(
         .await;
     let mut last_agent_message: Option<String> = None;
     let mut stop_hook_active = false;
+    let mut taskspace_no_action_recovery_count = 0usize;
     // Although from the perspective of codex.rs, TurnDiffTracker has the lifecycle of a Task which contains
     // many turns, from the perspective of the user, it is a single turn.
     let turn_diff_tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
@@ -432,7 +528,7 @@ pub(crate) async fn run_turn(
         }
 
         if let Some(action_map_projection) = {
-            let state = sess.state.lock().await;
+            let mut state = sess.state.lock().await;
             state.action_map_runtime.build_developer_context()
         } && let Some(item) = crate::context_manager::updates::build_developer_update_item(vec![
             action_map_projection,
@@ -442,11 +538,11 @@ pub(crate) async fn run_turn(
         }
 
         // Construct the input that we will send to the model.
-        let sampling_request_input: Vec<ResponseItem> = {
+        let sampling_request_input: Vec<ResponseItem> = prepare_provider_visible_prompt_items(
             sess.clone_history()
                 .await
-                .for_prompt(&turn_context.model_info.input_modalities)
-        };
+                .for_prompt(&turn_context.model_info.input_modalities),
+        );
 
         let sampling_request_input_messages = sampling_request_input
             .iter()
@@ -474,8 +570,55 @@ pub(crate) async fn run_turn(
                 let SamplingRequestResult {
                     needs_follow_up: model_needs_follow_up,
                     last_agent_message: sampling_request_last_agent_message,
+                    taskspace_no_action_recovery_item,
                 } = sampling_request_output;
                 can_drain_pending_input = true;
+                if let Some(recovery_item) = taskspace_no_action_recovery_item {
+                    let counts_against_no_action_cap =
+                        is_taskspace_no_action_recovery_item(&recovery_item);
+                    let no_action_recovery_cap = sess
+                        .action_map_provider_request_budget_snapshot()
+                        .await
+                        .and_then(|snapshot| snapshot.node_kind)
+                        .as_deref()
+                        .map(taskspace_no_action_recovery_cap_for_node_kind)
+                        .unwrap_or(1usize);
+                    if counts_against_no_action_cap
+                        && taskspace_no_action_recovery_count >= no_action_recovery_cap
+                    {
+                        sess.send_event(
+                            &turn_context,
+                            EventMsg::Error(ErrorEvent {
+                                message: format!("TaskSpace stopped this turn because the model produced too many non-action assistant messages while requesting follow-up ({taskspace_no_action_recovery_count}/{no_action_recovery_cap} recoveries spent). It must emit a tool call, taskspace_control transition, or a final blocked_by_budget answer instead of commentary-only output."),
+                                codex_error_info: None,
+                            }),
+                        )
+                        .await;
+                        return None;
+                    }
+                    if counts_against_no_action_cap {
+                        taskspace_no_action_recovery_count += 1;
+                    }
+                    sess.send_event(
+                        &turn_context,
+                        EventMsg::Warning(WarningEvent {
+                            message: if counts_against_no_action_cap {
+                                format!("TaskSpace inserted TaskSpaceNoActionRecoveryV1 because the provider response requested follow-up or was rejected by the final-response gate without an actionable tool/control/final result. Recovery attempt {}/{} is being used.", taskspace_no_action_recovery_count, no_action_recovery_cap)
+                            } else if response_item_text_contains(
+                                &recovery_item,
+                                TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER,
+                            ) {
+                                "TaskSpace inserted TaskSpaceForcedImplementTransitionRecoveryV1 after a provider-budget forced implement transition. This guidance does not consume the no-action recovery allowance.".to_string()
+                            } else {
+                                "TaskSpace inserted TaskSpaceForcedInspectTransitionRecoveryV1 after a provider-budget forced inspect transition. This guidance does not consume the no-action recovery allowance.".to_string()
+                            },
+                        }),
+                    )
+                    .await;
+                    sess.record_conversation_items(&turn_context, &[recovery_item])
+                        .await;
+                    continue;
+                }
                 let has_pending_input = sess.has_pending_input().await;
                 let needs_follow_up = model_needs_follow_up || has_pending_input;
                 let total_usage_tokens = sess.get_total_token_usage().await;
@@ -959,6 +1102,22 @@ pub(crate) fn build_prompt(
     turn_context: &TurnContext,
     base_instructions: BaseInstructions,
 ) -> Prompt {
+    build_prompt_with_tool_visibility(
+        input,
+        router,
+        turn_context,
+        base_instructions,
+        TaskspaceProviderToolVisibility::All,
+    )
+}
+
+fn build_prompt_with_tool_visibility(
+    input: Vec<ResponseItem>,
+    router: &ToolRouter,
+    turn_context: &TurnContext,
+    base_instructions: BaseInstructions,
+    tool_visibility: TaskspaceProviderToolVisibility,
+) -> Prompt {
     let deferred_dynamic_tools = turn_context
         .dynamic_tools
         .iter()
@@ -974,11 +1133,25 @@ pub(crate) fn build_prompt(
             .filter_map(|spec| filter_deferred_dynamic_tool_spec(spec, &deferred_dynamic_tools))
             .collect()
     };
+    let tools = match tool_visibility {
+        TaskspaceProviderToolVisibility::All => tools,
+        TaskspaceProviderToolVisibility::EssentialCoding => {
+            filter_taskspace_essential_coding_tool_specs(tools)
+        }
+        TaskspaceProviderToolVisibility::TaskspaceControlOnly => {
+            filter_taskspace_control_tool_specs(tools)
+        }
+        TaskspaceProviderToolVisibility::None => Vec::new(),
+    };
 
     Prompt {
         input,
         tools,
-        parallel_tool_calls: turn_context.model_info.supports_parallel_tool_calls,
+        parallel_tool_calls: matches!(
+            tool_visibility,
+            TaskspaceProviderToolVisibility::All | TaskspaceProviderToolVisibility::EssentialCoding
+        ) && turn_context.model_info.supports_parallel_tool_calls,
+        tool_choice: "auto".to_string(),
         base_instructions,
         personality: turn_context.personality,
         output_schema: turn_context.final_output_json_schema.clone(),
@@ -986,6 +1159,509 @@ pub(crate) fn build_prompt(
             &turn_context.session_source,
         ),
     }
+}
+
+fn taskspace_provider_tool_visibility_for_budget(
+    request_count: usize,
+    max_requests: usize,
+    node_request_count: usize,
+    max_model_requests_per_node: usize,
+    request_phase: Option<&str>,
+    node_kind: Option<&str>,
+) -> TaskspaceProviderToolVisibility {
+    if max_requests == 0 || request_phase == Some("final_synthesis") {
+        return TaskspaceProviderToolVisibility::All;
+    }
+    let global_remaining = max_requests.saturating_sub(request_count);
+    let node_remaining = max_model_requests_per_node.saturating_sub(node_request_count);
+    if global_remaining <= 1 {
+        return TaskspaceProviderToolVisibility::None;
+    }
+    if node_kind == Some("inspect_code_context")
+        && (request_phase == Some("budget_recovery") || node_remaining <= 1)
+    {
+        return TaskspaceProviderToolVisibility::TaskspaceControlOnly;
+    }
+    TaskspaceProviderToolVisibility::EssentialCoding
+}
+
+fn taskspace_provider_transport_mode(
+    turn_context: &TurnContext,
+    snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
+    taskspace_context_visible: bool,
+) -> TaskspaceProviderTransportMode {
+    if snapshot.is_none() && !taskspace_context_visible {
+        return TaskspaceProviderTransportMode::NativeTools;
+    }
+    let configured = std::env::var("WHALE_TASKSPACE_PROVIDER_TRANSPORT")
+        .ok()
+        .or_else(|| std::env::var("TASKSPACE_PROVIDER_TRANSPORT").ok())
+        .unwrap_or_default();
+    let provider_info = turn_context.provider.info();
+    let provider_name = provider_info.name.to_ascii_lowercase();
+    let model = turn_context.model_info.slug.to_ascii_lowercase();
+    let deepseek_chat = provider_info.wire_api
+        == codex_model_provider_info::WireApi::ChatCompletions
+        && (provider_name.contains("deepseek") || model.contains("deepseek"));
+    taskspace_provider_transport_mode_for_request(deepseek_chat, configured.as_str())
+}
+
+fn taskspace_provider_transport_mode_for_request(
+    deepseek_chat: bool,
+    configured: &str,
+) -> TaskspaceProviderTransportMode {
+    if !deepseek_chat || configured == "native_tools" {
+        TaskspaceProviderTransportMode::NativeTools
+    } else {
+        TaskspaceProviderTransportMode::CacheOptimizedActionContract
+    }
+}
+
+fn taskspace_transport_budget_limits(
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> TaskspaceProviderTransportBudgetLimits {
+    TaskspaceProviderTransportBudgetLimits {
+        max_requests: snapshot.max_requests,
+        max_model_requests_per_node: snapshot.max_model_requests_per_node,
+        post_budget_grace_requests: snapshot.post_budget_grace_requests,
+    }
+}
+
+fn taskspace_static_action_contract_instructions() -> &'static str {
+    "TaskSpaceActionContractV1:
+You are running in TaskSpace cache-optimized action-contract transport.
+Provider-native tools are intentionally disabled for this request.
+Return one taskspace-action-v1 JSON object as the assistant message body.
+Do not emit markdown fences, DSML tool calls, XML tags, prose before JSON, or prose after JSON.
+Required JSON shape:
+{\"schema_version\":\"taskspace-action-v1\",\"action\":\"<action>\",\"node_id\":\"<active node id or null>\",\"args\":{},\"rationale\":\"short reason\"}
+Allowed actions by active node kind:
+- bootstrap/no active task: taskspace_control, blocked
+- inspect_code_context: list_files, search, read_file, taskspace_control, blocked
+- implement_solution: list_files, search, read_file, apply_patch, taskspace_control, blocked
+- smoke_test/regression_test: run_test, read_file, search, taskspace_control, blocked
+- final_synthesis: final_answer, taskspace_control, blocked
+Action argument rules:
+- list_files args: {\"path\":\".\"}
+- search args: {\"pattern\":\"literal or regex\",\"path\":\".\"}
+- read_file args: {\"path\":\"relative/path\"}
+- apply_patch args: {\"patch\":\"*** Begin Patch\\n...\\n*** End Patch\\n\"}
+- run_test args: {\"command\":\"test command\",\"timeout_ms\":120000}
+- taskspace_control args: use the existing taskspace_control arguments.
+- final_answer args: {\"message\":\"user-facing final answer\"}
+- blocked args: {\"reason\":\"exact missing evidence or blocker\"}
+Validation invariants:
+- Unknown actions or actions disallowed for the active node will be rejected and no tool will execute.
+- If provider-native tool-call markup appears after the JSON object, TaskSpace ignores that markup and executes only the JSON action."
+}
+
+fn taskspace_deepseek_cache_anchor() -> String {
+    let mut text = String::from(
+        "TaskSpaceDeepSeekCacheAnchorV1:\n\
+This block is a provider-cache stability anchor for DeepSeek ChatCompletions.\n\
+It has no task semantics. Ignore every CACHE_ANCHOR_LINE when deciding actions.\n\
+The line content is intentionally byte-stable across TaskSpace requests.\n",
+    );
+    for index in 1..=TASKSPACE_DEEPSEEK_CACHE_ANCHOR_LINES {
+        text.push_str(&format!(
+            "CACHE_ANCHOR_LINE_{index:04}: stable TaskSpace DeepSeek prefix anchor; ignore for task reasoning and actions.\n"
+        ));
+    }
+    text.push_str("TaskSpaceDeepSeekCacheAnchorV1 end.\n");
+    text
+}
+
+fn taskspace_action_contract_state_item(
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> ResponseItem {
+    let node_id = snapshot.node_id.as_deref().unwrap_or("none");
+    let node_kind = snapshot.node_kind.as_deref().unwrap_or("unknown");
+    let text = format!(
+        "TaskSpaceActionContractStateV1:\n\
+Active node id: {node_id}\n\
+Active node kind: {node_kind}"
+    );
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn taskspace_action_contract_bootstrap_state_item() -> ResponseItem {
+    let text = "TaskSpaceActionContractStateV1:\n\
+Active node id: none\n\
+Active node kind: bootstrap\n\
+No active TaskSpace task exists yet. The next action must be taskspace_control with action=start_task or blocked."
+        .to_string();
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn is_taskspace_essential_coding_tool_name(name: &str) -> bool {
+    matches!(
+        name,
+        "taskspace_control" | "shell_command" | "apply_patch" | "local_shell" | "unified_exec"
+    )
+}
+
+fn filter_taskspace_essential_coding_tool_specs(tools: Vec<ToolSpec>) -> Vec<ToolSpec> {
+    tools
+        .into_iter()
+        .filter_map(|spec| match spec {
+            ToolSpec::Function(tool) if is_taskspace_essential_coding_tool_name(&tool.name) => {
+                Some(ToolSpec::Function(tool))
+            }
+            ToolSpec::Freeform(tool) if is_taskspace_essential_coding_tool_name(&tool.name) => {
+                Some(ToolSpec::Freeform(tool))
+            }
+            ToolSpec::Namespace(mut namespace) => {
+                namespace.tools.retain(|tool| match tool {
+                    ResponsesApiNamespaceTool::Function(tool) => {
+                        is_taskspace_essential_coding_tool_name(&tool.name)
+                    }
+                });
+                if namespace.tools.is_empty() {
+                    None
+                } else {
+                    Some(ToolSpec::Namespace(namespace))
+                }
+            }
+            ToolSpec::LocalShell {} => Some(ToolSpec::LocalShell {}),
+            _ => None,
+        })
+        .collect()
+}
+
+fn filter_taskspace_control_tool_specs(tools: Vec<ToolSpec>) -> Vec<ToolSpec> {
+    tools
+        .into_iter()
+        .filter_map(|spec| match spec {
+            ToolSpec::Function(tool) if tool.name == "taskspace_control" => {
+                Some(ToolSpec::Function(tool))
+            }
+            ToolSpec::Namespace(mut namespace) => {
+                namespace.tools.retain(|tool| match tool {
+                    ResponsesApiNamespaceTool::Function(tool) => tool.name == "taskspace_control",
+                });
+                if namespace.tools.is_empty() {
+                    None
+                } else {
+                    Some(ToolSpec::Namespace(namespace))
+                }
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn build_taskspace_provider_budget_guidance_item(
+    request_count: usize,
+    max_requests: usize,
+    node_request_count: usize,
+    max_model_requests_per_node: usize,
+    request_phase: Option<&str>,
+    node_kind: Option<&str>,
+    node_id: Option<&str>,
+    tool_visibility: TaskspaceProviderToolVisibility,
+) -> Option<ResponseItem> {
+    if max_requests == 0 || request_count >= max_requests {
+        return None;
+    }
+    if request_phase == Some("final_synthesis") {
+        return None;
+    }
+
+    let global_remaining = max_requests.saturating_sub(request_count);
+    let node_remaining = max_model_requests_per_node.saturating_sub(node_request_count);
+    let remaining = global_remaining.min(node_remaining);
+    let guidance = if global_remaining <= 1 {
+        format!(
+            "{TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER} budget_recovery\n\
+request_count: {request_count}/{max_requests}\n\
+remaining_provider_requests: {remaining}\n\
+Required behavior for this response:\n\
+- This is the final provider request before hard budget stop.\n\
+- Tools are intentionally not exposed on this request because any tool result would require another model turn.\n\
+- Do not attempt edits, broad exploration, shell/environment inventory, test discovery, or spawning agents.\n\
+- If edits are already complete, provide the final user-facing result now.\n\
+- Otherwise answer blocked_by_budget with the exact missing evidence and the smallest next action that would have been required.\n\
+- Do not ask for another model turn."
+        )
+    } else if node_kind == Some("implement_solution") {
+        format!(
+            "{TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER} implement_requires_edit\n\
+request_count: {request_count}/{max_requests}\n\
+remaining_provider_requests: {remaining}\n\
+Required behavior for the next response:\n\
+- Current node kind is implement_solution.\n\
+- If no edit tool result has succeeded in this node yet, the next action must be apply_patch with the smallest concrete fix from inspected evidence.\n\
+- Do not run tests, shell validation, environment checks, or more inspection before the edit succeeds.\n\
+- After a successful edit, finish this implementation node and create or bind a smoke_test/regression_test node for validation."
+        )
+    } else if node_kind == Some("inspect_code_context")
+        && matches!(
+            tool_visibility,
+            TaskspaceProviderToolVisibility::TaskspaceControlOnly
+        )
+    {
+        let node_ref = node_id.unwrap_or("<current inspect node>");
+        format!(
+            "{TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER} inspect_transition_required\n\
+request_count: {request_count}/{max_requests}\n\
+node_request_count: {node_request_count}/{max_model_requests_per_node}\n\
+remaining_provider_requests: {remaining}\n\
+Required behavior for the next response:\n\
+- Current node kind is inspect_code_context and only taskspace_control is exposed on this request.\n\
+- Do not attempt file edits, shell/environment checks, tests, or pseudo tool-call text in this response.\n\
+- Required next action: call taskspace_control(action=\"finish_node\", node_id=\"{node_ref}\", result_summary=\"concise inspected finding and target file\", next_node_kind=\"implement_solution\", next_node_title=\"Apply inspected fix\", next_node_context_summary=\"Apply the narrow fix identified from the inspected files\", next_dependency_node_ids=[\"{node_ref}\"])."
+        )
+    } else if request_count.saturating_mul(4) >= max_requests.saturating_mul(3) {
+        let constrained_inspect_next_action = if node_kind == Some("inspect_code_context")
+            && matches!(
+                tool_visibility,
+                TaskspaceProviderToolVisibility::TaskspaceControlOnly
+            ) {
+            let node_ref = node_id.unwrap_or("<current inspect node>");
+            format!(
+                "\n\
+Node/tool constraint:\n\
+- Current node kind is inspect_code_context and only taskspace_control is exposed on this request.\n\
+- Do not attempt file edits, shell/environment checks, tests, or pseudo tool-call text in this response.\n\
+- Required next action: call taskspace_control(action=\"finish_node\", node_id=\"{node_ref}\", result_summary=\"concise inspected finding and target file\", next_node_kind=\"implement_solution\", next_node_title=\"Apply inspected fix\", next_node_context_summary=\"Apply the narrow fix identified from the inspected files\", next_dependency_node_ids=[\"{node_ref}\"])."
+            )
+        } else {
+            String::new()
+        };
+        format!(
+            "{TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER} thin_downgraded\n\
+request_count: {request_count}/{max_requests}\n\
+remaining_provider_requests: {remaining}\n\
+Required behavior for the next response:\n\
+- Budget pressure is active; stop broad investigation and avoid environment inventory or test discovery unless it directly enables an edit.\n\
+- If a concrete file-level fix is identified, implement it now before any further validation.\n\
+- After an edit, finish the implementation node into a validation node, run at most one narrow validation command, then finish.\n\
+- If no safe edit is identified, finish with blocked_by_budget and the smallest missing evidence.{constrained_inspect_next_action}"
+        )
+    } else if request_count.saturating_mul(2) >= max_requests {
+        format!(
+            "{TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER} warned\n\
+request_count: {request_count}/{max_requests}\n\
+remaining_provider_requests: {remaining}\n\
+Required behavior:\n\
+- Keep the remaining path narrow.\n\
+- Prefer implementation and validation over additional broad discovery."
+        )
+    } else {
+        return None;
+    };
+
+    Some(ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text: guidance }],
+        end_turn: None,
+        phase: None,
+    })
+}
+
+fn build_taskspace_no_action_recovery_item(last_message: Option<&str>) -> ResponseItem {
+    let previous = last_message
+        .filter(|message| !message.trim().is_empty())
+        .unwrap_or("(no assistant text was captured)");
+    let text = format!(
+        "{TASKSPACE_NO_ACTION_RECOVERY_MARKER}\n\
+The previous assistant message requested follow-up but did not produce effective TaskSpace progress: no successful tool result, taskspace_control transition, or final response accepted by TaskSpace was recorded.\n\
+Previous assistant message: {previous}\n\
+Required behavior for the next response:\n\
+- Do not send commentary-only text such as \"let me check\".\n\
+- Emit exactly one actionable operation now: a tool call, a taskspace_control finish/transition/state_commit, or a final blocked_by_budget answer with the exact missing evidence.\n\
+- If the current node is inspect_code_context and no source/test evidence has been read yet, call shell_command with `rg --files` now.\n\
+- If inspect evidence is sufficient, finish the inspect node into implement_solution before more environment probing.\n\
+- If a tool was blocked, follow that tool output's recovery instructions instead of repeating the same blocked action.\n\
+- If a concrete file edit is identified, call apply_patch now before any further validation."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn build_taskspace_forced_inspect_transition_recovery_item() -> ResponseItem {
+    let text = format!(
+        "{TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER}\n\
+TaskSpace already forced the previous inspect_code_context node into implement_solution because provider request budget pressure was active.\n\
+Current required behavior:\n\
+- Do not run more shell/environment checks, test discovery, Docker inspection, or broad reads.\n\
+- Do not emit commentary-only text such as \"let me check\".\n\
+- Emit exactly one implementation action now: call apply_patch with the smallest concrete fix identified from inspect evidence.\n\
+- If no safe edit can be made from the inspected evidence, answer blocked_by_budget with the exact missing evidence."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn build_taskspace_forced_implement_transition_recovery_item() -> ResponseItem {
+    let text = format!(
+        "{TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER}\n\
+TaskSpace already forced the previous implement_solution node into smoke_test because provider request budget pressure was active after a successful edit.\n\
+Current required behavior:\n\
+- Do not run more broad reads, environment discovery, or speculative edits.\n\
+- Do not emit commentary-only text such as \"let me run tests\".\n\
+- Emit exactly one focused validation tool call now.\n\
+- If validation fails, report the validator evidence and continue from that concrete failure."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn is_taskspace_no_action_recovery_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_NO_ACTION_RECOVERY_MARKER)
+}
+
+fn taskspace_no_action_recovery_cap_for_node_kind(node_kind: &str) -> usize {
+    match node_kind {
+        "inspect_code_context" => 3,
+        "implement_solution" => 3,
+        _ => 1,
+    }
+}
+
+fn taskspace_budget_pressure_follow_up_intent(
+    request_count: usize,
+    max_requests: usize,
+    node_kind: Option<&str>,
+    last_message: Option<&str>,
+) -> bool {
+    if !taskspace_budget_pressure_active_for_node_kind(request_count, max_requests, node_kind) {
+        return false;
+    }
+    let Some(message) = last_message else {
+        return false;
+    };
+    taskspace_budget_pressure_message_has_follow_up_intent(message)
+}
+
+fn taskspace_budget_pressure_silent_action_requires_transition(
+    request_count: usize,
+    max_requests: usize,
+    node_kind: Option<&str>,
+    assistant_message_present: bool,
+    saw_actionable_output: bool,
+) -> bool {
+    if !matches!(
+        node_kind,
+        Some("inspect_code_context" | "implement_solution")
+    ) || assistant_message_present
+        || !saw_actionable_output
+    {
+        return false;
+    }
+    taskspace_budget_pressure_active_for_node_kind(request_count, max_requests, node_kind)
+}
+
+fn taskspace_budget_pressure_active_for_node_kind(
+    request_count: usize,
+    max_requests: usize,
+    node_kind: Option<&str>,
+) -> bool {
+    if max_requests == 0 {
+        return false;
+    }
+    match node_kind {
+        Some("inspect_code_context") => request_count.saturating_mul(2) >= max_requests,
+        Some("implement_solution") => request_count.saturating_mul(2) >= max_requests,
+        _ => false,
+    }
+}
+
+fn taskspace_budget_pressure_message_has_follow_up_intent(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    const FOLLOW_UP_MARKERS: &[&str] = &[
+        "let me check",
+        "let me verify",
+        "let me inspect",
+        "let me run",
+        "let me try",
+        "i need to check",
+        "i should check",
+        "try running",
+        "先跑",
+        "跑测试",
+        "运行测试",
+        "执行测试",
+        "确认当前失败",
+    ];
+    FOLLOW_UP_MARKERS
+        .iter()
+        .any(|marker| normalized.contains(marker))
+}
+
+fn classify_taskspace_provider_response_actionability(
+    needs_follow_up: bool,
+    saw_actionable_output: bool,
+    assistant_message_present: bool,
+    final_response_rejected: bool,
+    provider_budget_exhausted_followup: bool,
+) -> TaskspaceProviderResponseActionability {
+    if provider_budget_exhausted_followup {
+        TaskspaceProviderResponseActionability::ActionableFollowUpAtHardStop
+    } else if final_response_rejected {
+        TaskspaceProviderResponseActionability::FinalRejected
+    } else if saw_actionable_output {
+        TaskspaceProviderResponseActionability::Actionable
+    } else if needs_follow_up && assistant_message_present {
+        TaskspaceProviderResponseActionability::NoActionFollowUp
+    } else if needs_follow_up {
+        TaskspaceProviderResponseActionability::EmptyFollowUp
+    } else {
+        TaskspaceProviderResponseActionability::FinalCandidate
+    }
+}
+
+fn taskspace_last_message_preview(message: Option<&str>) -> Option<String> {
+    let message = message?.trim();
+    if message.is_empty() {
+        return None;
+    }
+    let preview = message
+        .chars()
+        .take(160)
+        .collect::<String>()
+        .replace(['\r', '\n', '\t'], " ");
+    Some(preview)
+}
+
+fn taskspace_message_requests_validation(message: Option<&str>) -> bool {
+    let Some(message) = message else {
+        return false;
+    };
+    let message = message.to_ascii_lowercase();
+    (message.contains("run") || message.contains("execute"))
+        && (message.contains("test") || message.contains("pytest") || message.contains("confirm"))
 }
 
 fn filter_deferred_dynamic_tool_spec(
@@ -1068,18 +1744,88 @@ async fn run_sampling_request(
     let mut retries = 0;
     let mut initial_input = Some(input);
     loop {
-        let prompt_input = if let Some(input) = initial_input.take() {
+        let provider_budget_snapshot = sess.action_map_provider_request_budget_snapshot().await;
+        let prompt_source = if let Some(input) = initial_input.take() {
             input
         } else {
             sess.clone_history()
                 .await
                 .for_prompt(&turn_context.model_info.input_modalities)
         };
-        let prompt = build_prompt(
+        let taskspace_context_visible = prompt_source.iter().any(is_taskspace_active_context_item);
+        let transport_mode = taskspace_provider_transport_mode(
+            turn_context.as_ref(),
+            provider_budget_snapshot.as_ref(),
+            taskspace_context_visible,
+        );
+        let mut prompt_input = match transport_mode {
+            TaskspaceProviderTransportMode::NativeTools => {
+                prepare_provider_visible_prompt_items(prompt_source)
+            }
+            TaskspaceProviderTransportMode::CacheOptimizedActionContract => {
+                prepare_taskspace_action_contract_prompt_items(prompt_source)
+            }
+        };
+        let budget_tool_visibility = provider_budget_snapshot
+            .as_ref()
+            .map(|snapshot| {
+                let limits = taskspace_transport_budget_limits(snapshot);
+                taskspace_provider_tool_visibility_for_budget(
+                    snapshot.request_count,
+                    limits.max_requests,
+                    snapshot.node_request_count,
+                    limits.max_model_requests_per_node,
+                    snapshot.request_phase.as_deref(),
+                    snapshot.node_kind.as_deref(),
+                )
+            })
+            .unwrap_or(TaskspaceProviderToolVisibility::All);
+        let tool_visibility = match transport_mode {
+            TaskspaceProviderTransportMode::NativeTools => budget_tool_visibility,
+            TaskspaceProviderTransportMode::CacheOptimizedActionContract => {
+                TaskspaceProviderToolVisibility::None
+            }
+        };
+        if let Some(snapshot) = provider_budget_snapshot.as_ref()
+            && let Some(item) = build_taskspace_provider_budget_guidance_item(
+                snapshot.request_count,
+                taskspace_transport_budget_limits(snapshot).max_requests,
+                snapshot.node_request_count,
+                taskspace_transport_budget_limits(snapshot).max_model_requests_per_node,
+                snapshot.request_phase.as_deref(),
+                snapshot.node_kind.as_deref(),
+                snapshot.node_id.as_deref(),
+                budget_tool_visibility,
+            )
+        {
+            prompt_input.push(item);
+        }
+        if let Some(snapshot) = provider_budget_snapshot.as_ref()
+            && transport_mode == TaskspaceProviderTransportMode::CacheOptimizedActionContract
+        {
+            prompt_input.push(taskspace_action_contract_state_item(snapshot));
+        } else if provider_budget_snapshot.is_none()
+            && transport_mode == TaskspaceProviderTransportMode::CacheOptimizedActionContract
+        {
+            prompt_input.push(taskspace_action_contract_bootstrap_state_item());
+        }
+        let mut prompt_base_instructions = base_instructions.clone();
+        if transport_mode == TaskspaceProviderTransportMode::CacheOptimizedActionContract {
+            prompt_base_instructions.text.push_str("\n\n");
+            prompt_base_instructions
+                .text
+                .push_str(&taskspace_deepseek_cache_anchor());
+            prompt_base_instructions.text.push_str("\n\n");
+            prompt_base_instructions
+                .text
+                .push_str(taskspace_static_action_contract_instructions());
+        }
+        let prompt = build_prompt_with_tool_visibility(
             prompt_input,
             router.as_ref(),
             turn_context.as_ref(),
-            base_instructions.clone(),
+            prompt_base_instructions,
+            tool_visibility,
         );
         let err = match try_run_sampling_request(
             tool_runtime.clone(),
@@ -1309,10 +2055,2101 @@ pub(crate) async fn built_tools(
     )))
 }
 
+fn prepare_provider_visible_prompt_items(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
+    let composition = compose_provider_visible_history(items);
+    let omitted_count = composition
+        .decisions
+        .iter()
+        .filter(|decision| matches!(decision.action, ProviderVisibleHistoryAction::Omit(_)))
+        .count();
+    if omitted_count > 0 {
+        trace!(
+            target = "codex_core::taskspace",
+            omitted_count,
+            included_count = composition.items.len(),
+            "taskspace_active_provider_visible_history_composed"
+        );
+    }
+    composition.items
+}
+
+fn prepare_taskspace_action_contract_prompt_items(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
+    let mut latest_user_input: Option<(usize, ResponseItem)> = None;
+    let mut latest_taskspace_context: Option<ResponseItem> = None;
+    let mut tool_outputs: Vec<(usize, ResponseItem)> = Vec::new();
+
+    for (index, item) in items.into_iter().enumerate() {
+        if is_taskspace_active_context_item(&item) {
+            latest_taskspace_context = Some(item);
+        } else if is_protected_user_input(&item) {
+            latest_user_input = Some((index, item));
+        } else if is_taskspace_action_contract_latest_tool_output_candidate(&item) {
+            tool_outputs.push((index, item));
+        }
+    }
+
+    let latest_user_index = latest_user_input
+        .as_ref()
+        .map(|(index, _)| *index)
+        .unwrap_or(0);
+    let mut prepared = Vec::with_capacity(3);
+    if let Some((_, item)) = latest_user_input {
+        prepared.push(item);
+    }
+    if let Some(item) = latest_taskspace_context {
+        prepared.push(item);
+    }
+    let post_user_outputs = tool_outputs
+        .into_iter()
+        .filter_map(|(index, item)| {
+            if index > latest_user_index {
+                Some(item)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    if let Some(item) = taskspace_action_contract_recent_tool_outputs_item(&post_user_outputs) {
+        prepared.push(item);
+    }
+    prepared
+}
+
+fn is_taskspace_active_context_item(item: &ResponseItem) -> bool {
+    is_active_context_projection_item(item)
+        || response_item_text_contains(item, TASKSPACE_ACTIVE_PROFILE_MARKER)
+        || response_item_text_contains(item, "TaskSpace mode is now active.")
+}
+
+fn prompt_contains_taskspace_active_context(prompt: &Prompt) -> bool {
+    prompt.input.iter().any(is_taskspace_active_context_item)
+}
+
+fn is_taskspace_action_contract_latest_tool_output_candidate(item: &ResponseItem) -> bool {
+    matches!(
+        item,
+        ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. }
+    ) && !is_legacy_taskspace_tool_output(item)
+}
+
+fn taskspace_action_contract_recent_tool_outputs_item(
+    items: &[ResponseItem],
+) -> Option<ResponseItem> {
+    let summaries = items
+        .iter()
+        .rev()
+        .filter_map(taskspace_action_contract_tool_output_summary)
+        .take(TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_ITEMS)
+        .collect::<Vec<_>>();
+    if summaries.is_empty() {
+        return None;
+    }
+    let edit_success_seen = summaries
+        .iter()
+        .any(|(_, text)| text.contains("Success. Updated the following files"));
+
+    let mut remaining_chars = TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS;
+    let mut sections = Vec::new();
+    for (call_id, text) in summaries.into_iter().rev() {
+        if remaining_chars == 0 {
+            break;
+        }
+        let char_count = text.chars().count();
+        let mut output = text.chars().take(remaining_chars).collect::<String>();
+        if char_count > remaining_chars {
+            output.push_str("\n[truncated]");
+            remaining_chars = 0;
+        } else {
+            remaining_chars = remaining_chars.saturating_sub(char_count);
+        }
+        sections.push(format!("call_id: {call_id}\noutput:\n{output}"));
+    }
+    if sections.is_empty() {
+        return None;
+    }
+
+    let progress_hint = if edit_success_seen {
+        "progress_hint: A file edit already succeeded. Do not repeat apply_patch, read_file, or search. Next action must be taskspace_control with action=finish_node for the current implementation node, then run validation in the next node.\n"
+    } else {
+        ""
+    };
+    let text = format!(
+        "TaskSpaceActionContractRecentToolOutputsV1:\n{progress_hint}{}",
+        sections.join("\n---\n")
+    );
+    Some(ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    })
+}
+
+fn taskspace_action_contract_tool_output_summary(item: &ResponseItem) -> Option<(String, String)> {
+    let (call_id, text) = match item {
+        ResponseItem::FunctionCallOutput {
+            call_id, output, ..
+        }
+        | ResponseItem::CustomToolCallOutput {
+            call_id, output, ..
+        } => (
+            call_id.as_str(),
+            function_call_output_body_text(&output.body),
+        ),
+        _ => return None,
+    };
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    Some((call_id.to_string(), text.to_string()))
+}
+
+#[derive(Debug)]
+struct ProviderVisibleHistoryComposition {
+    items: Vec<ResponseItem>,
+    decisions: Vec<ProviderVisibleHistoryDecision>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ProviderVisibleHistoryDecision {
+    index: usize,
+    category: ProviderVisibleItemCategory,
+    action: ProviderVisibleHistoryAction,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ProviderVisibleHistoryAction {
+    Include,
+    Omit(&'static str),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ProviderVisibleItemCategory {
+    ActiveProjection,
+    ProtectedUserInput,
+    ProtectedDeveloperOrSystemInput,
+    ShadowProjection,
+    LegacyTaskspaceInstruction,
+    TaskspaceControlCall,
+    LegacyTaskspaceToolOutput,
+    LargeRawToolOutput,
+    Other,
+}
+
+fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisibleHistoryComposition {
+    if !items.iter().any(is_active_context_projection_item) {
+        let decisions = items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| ProviderVisibleHistoryDecision {
+                index,
+                category: classify_provider_visible_item(item),
+                action: ProviderVisibleHistoryAction::Include,
+            })
+            .collect();
+        return ProviderVisibleHistoryComposition { items, decisions };
+    }
+
+    let classified_items = items
+        .into_iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let category = classify_provider_visible_item(&item);
+            let action = provider_visible_history_action(&category);
+            (index, item, category, action)
+        })
+        .collect::<Vec<_>>();
+    let paired_omitted_tool_call_ids =
+        omitted_provider_visible_tool_call_ids(classified_items.as_slice());
+
+    let mut prepared = Vec::with_capacity(classified_items.len());
+    let mut decisions = Vec::with_capacity(classified_items.len());
+    for (index, item, category, base_action) in classified_items {
+        let action =
+            provider_visible_history_pair_action(&item, base_action, &paired_omitted_tool_call_ids);
+        if matches!(action, ProviderVisibleHistoryAction::Include) {
+            prepared.push(item);
+        }
+        decisions.push(ProviderVisibleHistoryDecision {
+            index,
+            category,
+            action,
+        });
+    }
+
+    ProviderVisibleHistoryComposition {
+        items: prepared,
+        decisions,
+    }
+}
+
+fn provider_visible_history_action(
+    category: &ProviderVisibleItemCategory,
+) -> ProviderVisibleHistoryAction {
+    match category {
+        ProviderVisibleItemCategory::ShadowProjection => {
+            ProviderVisibleHistoryAction::Omit("shadow_projection_replaced_by_active_projection")
+        }
+        ProviderVisibleItemCategory::LegacyTaskspaceInstruction => {
+            ProviderVisibleHistoryAction::Omit("legacy_taskspace_instruction_replaced")
+        }
+        ProviderVisibleItemCategory::TaskspaceControlCall => {
+            ProviderVisibleHistoryAction::Omit("taskspace_control_call_not_provider_surface")
+        }
+        ProviderVisibleItemCategory::LegacyTaskspaceToolOutput => {
+            ProviderVisibleHistoryAction::Omit("legacy_taskspace_tool_output_replaced")
+        }
+        ProviderVisibleItemCategory::LargeRawToolOutput => {
+            ProviderVisibleHistoryAction::Omit("large_raw_tool_output_requires_output_reference")
+        }
+        ProviderVisibleItemCategory::ActiveProjection
+        | ProviderVisibleItemCategory::ProtectedUserInput
+        | ProviderVisibleItemCategory::ProtectedDeveloperOrSystemInput
+        | ProviderVisibleItemCategory::Other => ProviderVisibleHistoryAction::Include,
+    }
+}
+
+fn omitted_provider_visible_tool_call_ids(
+    classified_items: &[(
+        usize,
+        ResponseItem,
+        ProviderVisibleItemCategory,
+        ProviderVisibleHistoryAction,
+    )],
+) -> HashSet<String> {
+    classified_items
+        .iter()
+        .filter_map(|(_, item, _, action)| {
+            matches!(action, ProviderVisibleHistoryAction::Omit(_))
+                .then(|| response_item_tool_call_id(item))
+                .flatten()
+                .map(str::to_string)
+        })
+        .collect()
+}
+
+fn provider_visible_history_pair_action(
+    item: &ResponseItem,
+    base_action: ProviderVisibleHistoryAction,
+    paired_omitted_tool_call_ids: &HashSet<String>,
+) -> ProviderVisibleHistoryAction {
+    if matches!(base_action, ProviderVisibleHistoryAction::Include)
+        && response_item_tool_call_id(item)
+            .is_some_and(|call_id| paired_omitted_tool_call_ids.contains(call_id))
+    {
+        return ProviderVisibleHistoryAction::Omit(
+            "paired_tool_call_or_output_replaced_by_active_projection",
+        );
+    }
+    base_action
+}
+
+fn classify_provider_visible_item(item: &ResponseItem) -> ProviderVisibleItemCategory {
+    if is_active_context_projection_item(item) {
+        return ProviderVisibleItemCategory::ActiveProjection;
+    }
+    if response_item_text_contains(item, TASKSPACE_SHADOW_PROJECTION_MARKER) {
+        return ProviderVisibleItemCategory::ShadowProjection;
+    }
+    if is_taskspace_control_call(item) {
+        return ProviderVisibleItemCategory::TaskspaceControlCall;
+    }
+    if is_protected_user_input(item) {
+        return ProviderVisibleItemCategory::ProtectedUserInput;
+    }
+    if is_legacy_taskspace_instruction(item) {
+        return ProviderVisibleItemCategory::LegacyTaskspaceInstruction;
+    }
+    if is_protected_developer_or_system_input(item) {
+        return ProviderVisibleItemCategory::ProtectedDeveloperOrSystemInput;
+    }
+    if is_legacy_taskspace_tool_output(item) {
+        return ProviderVisibleItemCategory::LegacyTaskspaceToolOutput;
+    }
+    if is_large_raw_tool_output(item) {
+        return ProviderVisibleItemCategory::LargeRawToolOutput;
+    }
+    ProviderVisibleItemCategory::Other
+}
+
+fn is_active_context_projection_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_ACTIVE_PROFILE_MARKER)
+        && response_item_text_contains(item, TASKSPACE_ACTIVE_PROJECTION_MARKER)
+}
+
+fn is_protected_user_input(item: &ResponseItem) -> bool {
+    matches!(item, ResponseItem::Message { role, .. } if role == "user")
+}
+
+fn is_protected_developer_or_system_input(item: &ResponseItem) -> bool {
+    matches!(item, ResponseItem::Message { role, .. } if role == "developer" || role == "system")
+}
+
+fn is_legacy_taskspace_instruction(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, "TaskSpace mode is now active")
+        || response_item_text_contains(item, "TaskSpace final answer gate rejected")
+        || response_item_text_contains(item, "taskspace_control(")
+}
+
+fn is_taskspace_control_call(item: &ResponseItem) -> bool {
+    matches!(
+        item,
+        ResponseItem::FunctionCall { name, .. } | ResponseItem::CustomToolCall { name, .. }
+            if name == "taskspace_control"
+    )
+}
+
+fn response_item_tool_call_id(item: &ResponseItem) -> Option<&str> {
+    match item {
+        ResponseItem::FunctionCall { call_id, .. }
+        | ResponseItem::CustomToolCall { call_id, .. }
+        | ResponseItem::FunctionCallOutput { call_id, .. }
+        | ResponseItem::CustomToolCallOutput { call_id, .. } => Some(call_id.as_str()),
+        _ => None,
+    }
+}
+
+fn is_legacy_taskspace_tool_output(item: &ResponseItem) -> bool {
+    matches!(
+        item,
+        ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. }
+    ) && (response_item_text_contains(item, "TaskSpace")
+        || response_item_text_contains(item, "ActionMap")
+        || response_item_text_contains(item, "taskspace_control"))
+}
+
+fn is_large_raw_tool_output(item: &ResponseItem) -> bool {
+    if !matches!(
+        item,
+        ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. }
+    ) || response_item_text_contains(item, "output-ref://")
+        || response_item_text_contains(item, "OutputReferenceV1")
+    {
+        return false;
+    }
+
+    response_item_text_len(item) > TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS
+}
+
+fn response_item_text_len(item: &ResponseItem) -> usize {
+    match item {
+        ResponseItem::Message { role, content, .. } => {
+            role.len()
+                + content
+                    .iter()
+                    .map(|content_item| match content_item {
+                        ContentItem::InputText { text } | ContentItem::OutputText { text } => {
+                            text.len()
+                        }
+                        ContentItem::InputImage { image_url, .. } => image_url.len(),
+                    })
+                    .sum::<usize>()
+        }
+        ResponseItem::FunctionCall {
+            name,
+            namespace,
+            arguments,
+            ..
+        } => name.len() + namespace.as_ref().map_or(0, |value| value.len()) + arguments.len(),
+        ResponseItem::CustomToolCall { name, input, .. } => name.len() + input.len(),
+        ResponseItem::FunctionCallOutput { output, .. }
+        | ResponseItem::CustomToolCallOutput { output, .. } => {
+            function_call_output_body_text_len(&output.body)
+        }
+        ResponseItem::ToolSearchCall {
+            execution,
+            arguments,
+            ..
+        } => execution.len() + arguments.to_string().len(),
+        ResponseItem::ToolSearchOutput {
+            execution, tools, ..
+        } => {
+            execution.len()
+                + tools
+                    .iter()
+                    .map(|tool| tool.to_string().len())
+                    .sum::<usize>()
+        }
+        ResponseItem::LocalShellCall { .. }
+        | ResponseItem::Reasoning { .. }
+        | ResponseItem::WebSearchCall { .. }
+        | ResponseItem::ImageGenerationCall { .. }
+        | ResponseItem::GhostSnapshot { .. }
+        | ResponseItem::Compaction { .. }
+        | ResponseItem::Other => 0,
+    }
+}
+
+fn function_call_output_body_text_len(body: &FunctionCallOutputBody) -> usize {
+    match body {
+        FunctionCallOutputBody::Text(text) => text.len(),
+        FunctionCallOutputBody::ContentItems(items) => items
+            .iter()
+            .map(|item| match item {
+                codex_protocol::models::FunctionCallOutputContentItem::InputText { text } => {
+                    text.len()
+                }
+                codex_protocol::models::FunctionCallOutputContentItem::InputImage {
+                    image_url,
+                    ..
+                } => image_url.len(),
+            })
+            .sum(),
+    }
+}
+
+fn function_call_output_body_text(body: &FunctionCallOutputBody) -> String {
+    match body {
+        FunctionCallOutputBody::Text(text) => text.clone(),
+        FunctionCallOutputBody::ContentItems(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                codex_protocol::models::FunctionCallOutputContentItem::InputText { text } => {
+                    Some(text.as_str())
+                }
+                codex_protocol::models::FunctionCallOutputContentItem::InputImage { .. } => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    }
+}
+
+fn response_item_text_contains(item: &ResponseItem, needle: &str) -> bool {
+    response_item_texts_contain(item, &|text| text.contains(needle))
+}
+
+fn response_item_texts_contain(item: &ResponseItem, predicate: &dyn Fn(&str) -> bool) -> bool {
+    match item {
+        ResponseItem::Message { role, content, .. } => {
+            predicate(role)
+                || content.iter().any(|content_item| match content_item {
+                    ContentItem::InputText { text } | ContentItem::OutputText { text } => {
+                        predicate(text)
+                    }
+                    ContentItem::InputImage { image_url, .. } => predicate(image_url),
+                })
+        }
+        ResponseItem::FunctionCall {
+            name,
+            namespace,
+            arguments,
+            ..
+        } => predicate(name) || namespace.as_deref().is_some_and(predicate) || predicate(arguments),
+        ResponseItem::CustomToolCall { name, input, .. } => predicate(name) || predicate(input),
+        ResponseItem::FunctionCallOutput { output, .. }
+        | ResponseItem::CustomToolCallOutput { output, .. } => {
+            function_call_output_body_texts_contain(&output.body, predicate)
+        }
+        ResponseItem::ToolSearchCall {
+            execution,
+            arguments,
+            ..
+        } => predicate(execution) || predicate(&arguments.to_string()),
+        ResponseItem::ToolSearchOutput {
+            execution, tools, ..
+        } => predicate(execution) || tools.iter().any(|tool| predicate(&tool.to_string())),
+        ResponseItem::LocalShellCall { .. }
+        | ResponseItem::Reasoning { .. }
+        | ResponseItem::WebSearchCall { .. }
+        | ResponseItem::ImageGenerationCall { .. }
+        | ResponseItem::GhostSnapshot { .. }
+        | ResponseItem::Compaction { .. }
+        | ResponseItem::Other => false,
+    }
+}
+
+fn function_call_output_body_texts_contain(
+    body: &FunctionCallOutputBody,
+    predicate: &dyn Fn(&str) -> bool,
+) -> bool {
+    match body {
+        FunctionCallOutputBody::Text(text) => predicate(text),
+        FunctionCallOutputBody::ContentItems(items) => items.iter().any(|item| match item {
+            codex_protocol::models::FunctionCallOutputContentItem::InputText { text } => {
+                predicate(text)
+            }
+            codex_protocol::models::FunctionCallOutputContentItem::InputImage {
+                image_url, ..
+            } => predicate(image_url),
+        }),
+    }
+}
+
+#[cfg(test)]
+mod active_context_replacement_tests {
+    use super::*;
+    use codex_protocol::models::FunctionCallOutputPayload;
+
+    fn message(role: &str, text: &str) -> ResponseItem {
+        ResponseItem::Message {
+            id: None,
+            role: role.to_string(),
+            content: vec![ContentItem::InputText {
+                text: text.to_string(),
+            }],
+            end_turn: None,
+            phase: None,
+        }
+    }
+
+    fn tool_call(name: &str, call_id: &str) -> ResponseItem {
+        ResponseItem::FunctionCall {
+            id: None,
+            name: name.to_string(),
+            namespace: None,
+            arguments: "{}".to_string(),
+            call_id: call_id.to_string(),
+        }
+    }
+
+    fn tool_output_with_call_id(call_id: &str, text: &str) -> ResponseItem {
+        ResponseItem::FunctionCallOutput {
+            call_id: call_id.to_string(),
+            output: FunctionCallOutputPayload::from_text(text.to_string()),
+        }
+    }
+
+    fn tool_output(text: &str) -> ResponseItem {
+        tool_output_with_call_id("call-1", text)
+    }
+
+    fn item_texts(items: &[ResponseItem]) -> Vec<String> {
+        items
+            .iter()
+            .filter_map(|item| match item {
+                ResponseItem::Message { content, .. } => content.iter().find_map(|content| {
+                    if let ContentItem::InputText { text } = content {
+                        Some(text.clone())
+                    } else {
+                        None
+                    }
+                }),
+                ResponseItem::FunctionCallOutput { output, .. } => output.body.to_text(),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn item_text(item: ResponseItem) -> String {
+        let ResponseItem::Message { content, .. } = item else {
+            panic!("expected message item");
+        };
+        content
+            .into_iter()
+            .find_map(|content| match content {
+                ContentItem::InputText { text } => Some(text),
+                _ => None,
+            })
+            .expect("expected input text")
+    }
+
+    fn function_tool(name: &str) -> ToolSpec {
+        ToolSpec::Function(codex_tools::ResponsesApiTool {
+            name: name.to_string(),
+            description: format!("{name} description"),
+            strict: false,
+            defer_loading: None,
+            parameters: codex_tools::JsonSchema::default(),
+            output_schema: None,
+        })
+    }
+
+    #[test]
+    fn taskspace_essential_coding_tool_filter_keeps_only_required_coding_tools() {
+        let filtered = filter_taskspace_essential_coding_tool_specs(vec![
+            function_tool("taskspace_control"),
+            function_tool("shell_command"),
+            ToolSpec::Freeform(codex_tools::FreeformTool {
+                name: "apply_patch".to_string(),
+                description: "patch files".to_string(),
+                format: codex_tools::FreeformToolFormat {
+                    r#type: "grammar".to_string(),
+                    syntax: "lark".to_string(),
+                    definition: "start: /.+/".to_string(),
+                },
+            }),
+            function_tool("web_search"),
+            function_tool("notion_search"),
+        ]);
+        let names = filtered.iter().map(ToolSpec::name).collect::<Vec<_>>();
+
+        assert_eq!(
+            names,
+            vec!["taskspace_control", "shell_command", "apply_patch"]
+        );
+    }
+
+    fn provider_snapshot(
+        node_kind: &str,
+    ) -> crate::action_map::ActionMapProviderRequestBudgetSnapshot {
+        crate::action_map::ActionMapProviderRequestBudgetSnapshot {
+            task_id: Some("task-1".to_string()),
+            map_id: "map-1".to_string(),
+            node_id: Some("node-1".to_string()),
+            node_kind: Some(node_kind.to_string()),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-active".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 1,
+            max_requests: 8,
+            node_request_count: 0,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_accepts_strict_json() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"src/lib.rs"},"rationale":"inspect"}"#,
+        )
+        .expect("valid action");
+
+        assert_eq!(action.action, "read_file");
+        assert_eq!(action.node_id.as_deref(), Some("node-1"));
+        assert_eq!(
+            taskspace_action_arg_string(&action.args, "path").as_deref(),
+            Some("src/lib.rs")
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_bootstrap_state_requires_start_task() {
+        let text = item_text(taskspace_action_contract_bootstrap_state_item());
+
+        assert!(text.contains("Active node kind: bootstrap"));
+        assert!(text.contains("taskspace_control"));
+        assert!(text.contains("action=start_task"));
+    }
+
+    #[test]
+    fn taskspace_action_contract_bootstrap_allows_only_taskspace_control() {
+        let start_task = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action":"start_task","title":"Fix test","objective":"Fix the failing test"},"rationale":"bootstrap"}"#,
+        )
+        .expect("valid bootstrap action");
+        let call = taskspace_bootstrap_action_to_tool_call(&start_task)
+            .expect("taskspace control should be allowed")
+            .expect("taskspace control should execute");
+
+        assert_eq!(call.tool_name.name, "taskspace_control");
+
+        let read_file = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":null,"args":{"path":"README.md"}}"#,
+        )
+        .expect("valid action shape");
+        let err = taskspace_bootstrap_action_to_tool_call(&read_file)
+            .expect_err("bootstrap must not allow ordinary tools");
+        assert!(err.contains("bootstrap_policy_violation"));
+    }
+
+    #[test]
+    fn taskspace_action_contract_transport_preserves_existing_budget_limits() {
+        let snapshot = provider_snapshot("inspect_code_context");
+        let limits = taskspace_transport_budget_limits(&snapshot);
+
+        assert_eq!(limits.max_requests, snapshot.max_requests);
+        assert_eq!(
+            limits.max_model_requests_per_node,
+            snapshot.max_model_requests_per_node
+        );
+        assert_eq!(
+            limits.post_budget_grace_requests,
+            snapshot.post_budget_grace_requests
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_rejects_non_json_text() {
+        let err =
+            parse_taskspace_action_v1("```json\n{}\n```").expect_err("must reject fenced text");
+        assert_eq!(err, "action_contract_output_not_strict_json");
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_accepts_deepseek_dsml_suffix() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"README.md"}}
+
+<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="shell_command">
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>"#,
+        )
+        .expect("leading action json should be recoverable");
+
+        assert_eq!(action.action, "read_file");
+        assert_eq!(
+            taskspace_action_arg_string(&action.args, "path").as_deref(),
+            Some("README.md")
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_rejects_prose_suffix() {
+        let err = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"README.md"}}
+Then I will inspect the file."#,
+        )
+        .expect_err("non-DSML trailing prose remains invalid");
+        assert_eq!(err, "action_contract_output_not_strict_json");
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_recovers_json_after_prose_prefix() {
+        let action = parse_taskspace_action_v1(
+            r#"Let me read the key files.
+
+{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"README.md"}}
+
+<｜｜DSML｜｜tool_calls></｜｜DSML｜｜tool_calls>"#,
+        )
+        .expect("json after prose prefix should be recoverable");
+
+        assert_eq!(action.action, "read_file");
+        assert_eq!(
+            taskspace_action_arg_string(&action.args, "path").as_deref(),
+            Some("README.md")
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_recovers_pure_deepseek_dsml_read_file() {
+        let action = parse_taskspace_action_v1(
+            r#"<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="shell_command">
+<｜｜DSML｜｜parameter name="command" string="true">Get-Content -LiteralPath "tests/test_tax_calc.py" -TotalCount 100</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>"#,
+        )
+        .expect("known DSML read command should map to read_file");
+
+        assert_eq!(action.action, "read_file");
+        assert_eq!(
+            taskspace_action_arg_string(&action.args, "path").as_deref(),
+            Some("tests/test_tax_calc.py")
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_recovers_dsml_path_and_type_reads() {
+        let path_action = parse_taskspace_action_v1(
+            r#"<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="shell_command">
+<｜｜DSML｜｜parameter name="command" string="true">Get-Content -Path "README.md" -Raw</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>"#,
+        )
+        .expect("Get-Content -Path should map to read_file");
+        assert_eq!(
+            taskspace_action_arg_string(&path_action.args, "path").as_deref(),
+            Some("README.md")
+        );
+
+        let type_action = parse_taskspace_action_v1(
+            r#"<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="shell_command">
+<｜｜DSML｜｜parameter name="command" string="true">type src\tax_calc.py</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>"#,
+        )
+        .expect("type should map to read_file");
+        assert_eq!(
+            taskspace_action_arg_string(&type_action.args, "path").as_deref(),
+            Some("src\\tax_calc.py")
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_recovers_dsml_python_open_read() {
+        let action = parse_taskspace_action_v1(
+            r#"<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="shell_command">
+<｜｜DSML｜｜parameter name="command" string="true">python -c "with open('src/tax_calc.py', 'r') as f: print(f.read())"</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>"#,
+        )
+        .expect("python open read should map to read_file");
+
+        assert_eq!(
+            taskspace_action_arg_string(&action.args, "path").as_deref(),
+            Some("src/tax_calc.py")
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_policy_rejects_dsml_test_in_inspect_node() {
+        let action = parse_taskspace_action_v1(
+            r#"<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="shell_command">
+<｜｜DSML｜｜parameter name="command" string="true">python -m pytest tests/test_tax_calc.py -v</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>"#,
+        )
+        .expect("known DSML test command should map to run_test");
+        let err =
+            taskspace_action_to_tool_call(&action, &provider_snapshot("inspect_code_context"))
+                .expect_err("inspect nodes cannot run tests");
+
+        assert!(err.contains("node_policy_violation:inspect_code_context:run_test"));
+    }
+
+    #[test]
+    fn taskspace_action_contract_policy_rejects_tests_in_implementation_node() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"run_test","node_id":"node-1","args":{"command":"cargo test"}}"#,
+        )
+        .expect("valid json");
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("implement nodes cannot run tests");
+
+        assert!(err.contains("node_policy_violation:implement_solution:run_test"));
+    }
+
+    #[test]
+    fn taskspace_action_contract_final_answer_allowed_without_active_node() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"final_answer","node_id":null,"args":{"message":"All tests pass."}}"#,
+        )
+        .expect("valid json");
+        let mut snapshot = provider_snapshot("unknown");
+        snapshot.node_id = None;
+        snapshot.node_kind = None;
+
+        let call = taskspace_action_to_tool_call(&action, &snapshot)
+            .expect("final answer should bypass node tool policy");
+
+        assert!(call.is_none());
+    }
+
+    #[test]
+    fn taskspace_action_contract_final_answer_visible_text_uses_message() {
+        let text = taskspace_action_contract_visible_text(
+            r#"{"schema_version":"taskspace-action-v1","action":"final_answer","node_id":null,"args":{"message":"All tests pass."},"rationale":"done"}"#,
+        )
+        .expect("final answer message");
+
+        assert_eq!(text, "All tests pass.");
+    }
+
+    #[test]
+    fn taskspace_action_contract_run_test_prefixes_bare_pytest_file() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"run_test","node_id":"node-1","args":{"command":"pytest test_tax_calc.py -v"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("smoke_test"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(value["command"], "pytest tests/test_tax_calc.py -v");
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_finish_node_defaults_implementation_to_smoke_test() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"action":"finish_node","outcome":"success"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(value["node_id"], "node-1");
+                assert_eq!(value["next_node_kind"], "smoke_test");
+                assert_eq!(value["next_dependency_node_ids"][0], "node-1");
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_finish_node_completes_smoke_test_draft_metadata() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"action":"finish_node","next_node_kind":"smoke_test"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(value["node_id"], "node-1");
+                assert_eq!(value["next_node_kind"], "smoke_test");
+                assert_eq!(value["next_node_title"], "Run focused validation");
+                assert_eq!(value["next_dependency_node_ids"][0], "node-1");
+                assert!(
+                    value["next_node_context_summary"]
+                        .as_str()
+                        .expect("context")
+                        .contains("focused test command")
+                );
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_apply_patch_uses_custom_payload() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** End Patch\n"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        assert_eq!(call.tool_name.name, "apply_patch");
+        assert!(matches!(call.payload, ToolPayload::Custom { .. }));
+        let response_item = response_item_for_taskspace_action_tool_call(&call);
+        assert!(matches!(response_item, ResponseItem::CustomToolCall { .. }));
+    }
+
+    #[test]
+    fn taskspace_action_contract_apply_patch_normalizes_unified_diff() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n--- a/src/tax_calc.py\n+++ b/src/tax_calc.py\n@@ -1 +1 @@\n-old\n+new\n*** End Patch\n"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: src/tax_calc.py"));
+                assert!(!input.contains("--- a/src/tax_calc.py"));
+                assert!(!input.contains("+++ b/src/tax_calc.py"));
+                assert!(input.contains("@@"));
+                assert!(!input.contains("-1 +1"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_apply_patch_normalizes_plain_unified_diff() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n--- tax_calc.py\n+++ tax_calc.py\n@@ -1 +1 @@\n-old\n+new\n*** End Patch\n"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: src/tax_calc.py"));
+                assert!(!input.contains("--- tax_calc.py"));
+                assert!(!input.contains("+++ tax_calc.py"));
+                assert!(!input.contains("-1 +1"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_apply_patch_normalizes_bare_file_hunk() {
+        let patch = normalize_taskspace_apply_patch(
+            "*** Begin Patch\n\
+tax_calc.py\n\
+\n\
+ def calculate_tax(subtotal, region):\n\
+-    return round(subtotal * RATES[region], 1)\n\
++    return round(subtotal * RATES[region], 2)\n\
+*** End Patch\n",
+        );
+
+        assert_eq!(
+            patch,
+            "*** Begin Patch\n*** Update File: src/tax_calc.py\n@@\ndef calculate_tax(subtotal, region):\n-    return round(subtotal * RATES[region], 1)\n+    return round(subtotal * RATES[region], 2)\n*** End Patch\n"
+        );
+    }
+
+    #[test]
+    fn taskspace_finish_current_node_action_builds_control_finish() {
+        let action =
+            taskspace_finish_current_node_action(Some("node-2"), "Implementation edit succeeded.");
+
+        assert_eq!(action.action, "taskspace_control");
+        assert_eq!(action.node_id.as_deref(), Some("node-2"));
+        assert_eq!(action.args["action"], "finish_node");
+        assert_eq!(action.args["node_id"], "node-2");
+        assert!(taskspace_action_is_finish_node_control(&action));
+    }
+
+    #[test]
+    fn taskspace_provider_transport_defaults_deepseek_to_action_contract() {
+        assert_eq!(
+            taskspace_provider_transport_mode_for_request(true, ""),
+            TaskspaceProviderTransportMode::CacheOptimizedActionContract
+        );
+        assert_eq!(
+            taskspace_provider_transport_mode_for_request(true, "native_tools"),
+            TaskspaceProviderTransportMode::NativeTools
+        );
+        assert_eq!(
+            taskspace_provider_transport_mode_for_request(false, ""),
+            TaskspaceProviderTransportMode::NativeTools
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_node_policy_matrix_blocks_cross_node_actions() {
+        assert!(taskspace_action_allowed_for_node(
+            "read_file",
+            Some("inspect_code_context")
+        ));
+        assert!(taskspace_action_allowed_for_node(
+            "search",
+            Some("inspect_code_context")
+        ));
+        assert!(!taskspace_action_allowed_for_node(
+            "apply_patch",
+            Some("inspect_code_context")
+        ));
+        assert!(!taskspace_action_allowed_for_node(
+            "run_test",
+            Some("inspect_code_context")
+        ));
+
+        assert!(taskspace_action_allowed_for_node(
+            "list_files",
+            Some("implement_solution")
+        ));
+        assert!(taskspace_action_allowed_for_node(
+            "read_file",
+            Some("implement_solution")
+        ));
+        assert!(taskspace_action_allowed_for_node(
+            "search",
+            Some("implement_solution")
+        ));
+        assert!(taskspace_action_allowed_for_node(
+            "apply_patch",
+            Some("implement_solution")
+        ));
+        assert!(!taskspace_action_allowed_for_node(
+            "run_test",
+            Some("implement_solution")
+        ));
+
+        for validation_kind in ["smoke_test", "regression_test"] {
+            assert!(taskspace_action_allowed_for_node(
+                "run_test",
+                Some(validation_kind)
+            ));
+            assert!(!taskspace_action_allowed_for_node(
+                "apply_patch",
+                Some(validation_kind)
+            ));
+        }
+
+        assert!(taskspace_action_allowed_for_node(
+            "final_answer",
+            Some("final_synthesis")
+        ));
+        assert!(taskspace_action_allowed_for_node(
+            "taskspace_control",
+            Some("final_synthesis")
+        ));
+        assert!(!taskspace_action_allowed_for_node(
+            "read_file",
+            Some("final_synthesis")
+        ));
+        assert!(!taskspace_action_allowed_for_node(
+            "run_test",
+            Some("final_synthesis")
+        ));
+        assert!(!taskspace_action_allowed_for_node(
+            "apply_patch",
+            Some("final_synthesis")
+        ));
+
+        assert!(taskspace_action_allowed_for_node("blocked", None));
+        assert!(!taskspace_action_allowed_for_node("read_file", None));
+    }
+
+    #[test]
+    fn taskspace_finish_node_detects_control_type_alias() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-3","args":{"control_type":"finish_node","result_summary":"Tests passed."}}"#,
+        )
+        .expect("valid action");
+
+        assert!(taskspace_action_is_finish_node_control(&action));
+    }
+
+    #[test]
+    fn taskspace_control_create_final_synthesis_is_detected_for_direct_final() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","args":{"action":"create_node","node_kind":"final_synthesis","label":"Final summary"}}"#,
+        )
+        .expect("valid action");
+
+        assert!(taskspace_action_control_creates_final_synthesis(&action));
+        let final_action = taskspace_final_answer_action("done");
+        assert_eq!(final_action.action, "final_answer");
+        assert_eq!(
+            taskspace_action_final_message(&final_action).as_deref(),
+            Some("done")
+        );
+    }
+
+    #[test]
+    fn taskspace_control_create_final_synthesis_detects_control_action_alias() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","args":{"control_action":"create_node","node_kind":"final_synthesis","node_label":"Final summary"}}"#,
+        )
+        .expect("valid action");
+
+        assert!(taskspace_action_control_creates_final_synthesis(&action));
+    }
+
+    #[test]
+    fn taskspace_control_create_final_synthesis_detects_control_type_alias() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","args":{"control_type":"create_node","node_kind":"final_synthesis","node_label":"Final summary"}}"#,
+        )
+        .expect("valid action");
+
+        assert!(taskspace_action_control_creates_final_synthesis(&action));
+    }
+
+    #[test]
+    fn taskspace_control_create_validation_node_detects_slash_kind() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","args":{"action":"create_node","kind":"smoke_test/regression_test","label":"run tests"}}"#,
+        )
+        .expect("valid action");
+
+        assert!(taskspace_action_control_creates_validation_node(&action));
+    }
+
+    #[test]
+    fn taskspace_control_create_validation_node_detects_control_action_alias() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","args":{"control_action":"create_node","node_kind":"smoke_test","label":"run tests"}}"#,
+        )
+        .expect("valid action");
+
+        assert!(taskspace_action_control_creates_validation_node(&action));
+    }
+
+    #[test]
+    fn taskspace_apply_patch_resolves_unique_short_update_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(temp.path().join("src")).expect("mkdir");
+        fs::write(temp.path().join("src").join("tax_calc.py"), "old").expect("write");
+
+        let resolved = resolve_unique_existing_relative_path_from(temp.path(), "tax_calc.py");
+
+        assert_eq!(resolved.as_deref(), Some("src/tax_calc.py"));
+    }
+
+    #[test]
+    fn taskspace_apply_patch_keeps_ambiguous_short_update_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(temp.path().join("src")).expect("mkdir");
+        fs::create_dir_all(temp.path().join("tests")).expect("mkdir");
+        fs::write(temp.path().join("src").join("tax_calc.py"), "old").expect("write");
+        fs::write(temp.path().join("tests").join("tax_calc.py"), "old").expect("write");
+
+        let resolved = resolve_unique_existing_relative_path_from(temp.path(), "tax_calc.py");
+
+        assert_eq!(resolved, None);
+    }
+
+    #[test]
+    fn taskspace_apply_patch_falls_back_to_src_for_unresolved_short_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        let resolved = resolve_unique_existing_relative_path_from(temp.path(), "tax_calc.py");
+
+        assert_eq!(resolved.as_deref(), Some("src/tax_calc.py"));
+    }
+
+    #[test]
+    fn taskspace_apply_patch_resolves_unique_directory_suffix_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(temp.path().join("src").join("order_pipeline")).expect("mkdir");
+        fs::write(
+            temp.path()
+                .join("src")
+                .join("order_pipeline")
+                .join("pricing.py"),
+            "old",
+        )
+        .expect("write");
+
+        let resolved =
+            resolve_unique_existing_relative_path_from(temp.path(), "order_pipeline/pricing.py");
+
+        assert_eq!(resolved.as_deref(), Some("src/order_pipeline/pricing.py"));
+    }
+
+    #[test]
+    fn taskspace_apply_patch_keeps_ambiguous_directory_suffix_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(temp.path().join("pkg_a").join("order_pipeline")).expect("mkdir");
+        fs::create_dir_all(temp.path().join("pkg_b").join("order_pipeline")).expect("mkdir");
+        fs::write(
+            temp.path()
+                .join("pkg_a")
+                .join("order_pipeline")
+                .join("pricing.py"),
+            "old",
+        )
+        .expect("write");
+        fs::write(
+            temp.path()
+                .join("pkg_b")
+                .join("order_pipeline")
+                .join("pricing.py"),
+            "old",
+        )
+        .expect("write");
+
+        let resolved =
+            resolve_unique_existing_relative_path_from(temp.path(), "order_pipeline/pricing.py");
+
+        assert_eq!(resolved, None);
+    }
+
+    #[test]
+    fn provider_budget_guidance_is_absent_before_warning_threshold() {
+        assert!(
+            build_taskspace_provider_budget_guidance_item(
+                9,
+                20,
+                0,
+                3,
+                Some("model_sampling"),
+                None,
+                None,
+                TaskspaceProviderToolVisibility::All,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn provider_budget_guidance_warns_at_half_budget() {
+        let text = item_text(
+            build_taskspace_provider_budget_guidance_item(
+                10,
+                20,
+                0,
+                3,
+                Some("model_sampling"),
+                None,
+                None,
+                TaskspaceProviderToolVisibility::All,
+            )
+            .expect("warning guidance"),
+        );
+
+        assert!(text.contains(TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER));
+        assert!(text.contains("warned"));
+        assert!(text.contains("Prefer implementation and validation"));
+    }
+
+    #[test]
+    fn provider_budget_guidance_forces_thin_implementation_priority() {
+        let text = item_text(
+            build_taskspace_provider_budget_guidance_item(
+                15,
+                20,
+                0,
+                3,
+                Some("model_sampling"),
+                None,
+                None,
+                TaskspaceProviderToolVisibility::All,
+            )
+            .expect("thin guidance"),
+        );
+
+        assert!(text.contains("thin_downgraded"));
+        assert!(text.contains("implement it now before any further validation"));
+        assert!(text.contains("finish the implementation node into a validation node"));
+    }
+
+    #[test]
+    fn provider_budget_guidance_implementation_node_requires_patch_before_tests() {
+        let text = item_text(
+            build_taskspace_provider_budget_guidance_item(
+                4,
+                20,
+                0,
+                3,
+                Some("model_sampling"),
+                Some("implement_solution"),
+                Some("node-2"),
+                TaskspaceProviderToolVisibility::EssentialCoding,
+            )
+            .expect("implementation guidance"),
+        );
+
+        assert!(text.contains("implement_requires_edit"));
+        assert!(text.contains("next action must be apply_patch"));
+        assert!(text.contains("Do not run tests"));
+    }
+
+    #[test]
+    fn provider_budget_guidance_control_only_inspect_requires_finish_node() {
+        let text = item_text(
+            build_taskspace_provider_budget_guidance_item(
+                3,
+                20,
+                3,
+                3,
+                Some("budget_recovery"),
+                Some("inspect_code_context"),
+                Some("inspect_code_context"),
+                TaskspaceProviderToolVisibility::TaskspaceControlOnly,
+            )
+            .expect("inspect transition guidance"),
+        );
+
+        assert!(text.contains("inspect_transition_required"));
+        assert!(text.contains("only taskspace_control is exposed"));
+        assert!(text.contains("Do not attempt file edits"));
+        assert!(text.contains("taskspace_control(action=\"finish_node\""));
+        assert!(text.contains("next_node_kind=\"implement_solution\""));
+    }
+
+    #[test]
+    fn provider_budget_guidance_marks_last_dispatch_as_budget_recovery() {
+        let text = item_text(
+            build_taskspace_provider_budget_guidance_item(
+                19,
+                20,
+                0,
+                3,
+                Some("model_sampling"),
+                None,
+                None,
+                TaskspaceProviderToolVisibility::None,
+            )
+            .expect("recovery guidance"),
+        );
+
+        assert!(text.contains("budget_recovery"));
+        assert!(text.contains("final provider request before hard budget stop"));
+        assert!(text.contains("Tools are intentionally not exposed"));
+        assert!(text.contains("Otherwise answer blocked_by_budget"));
+        assert!(text.contains("Do not ask for another model turn"));
+    }
+
+    #[test]
+    fn provider_budget_hides_tools_on_final_non_synthesis_request() {
+        assert_eq!(
+            taskspace_provider_tool_visibility_for_budget(
+                19,
+                20,
+                0,
+                3,
+                Some("model_sampling"),
+                Some("inspect_code_context")
+            ),
+            TaskspaceProviderToolVisibility::None
+        );
+    }
+
+    #[test]
+    fn provider_budget_exposes_only_taskspace_control_for_late_inspect_request() {
+        assert_eq!(
+            taskspace_provider_tool_visibility_for_budget(
+                3,
+                20,
+                3,
+                3,
+                Some("budget_recovery"),
+                Some("inspect_code_context")
+            ),
+            TaskspaceProviderToolVisibility::TaskspaceControlOnly
+        );
+    }
+
+    #[test]
+    fn action_contract_late_inspect_rejects_more_file_reads() {
+        let mut snapshot = provider_snapshot("inspect_code_context");
+        snapshot.request_count = 5;
+        snapshot.node_request_count = 5;
+        snapshot.max_requests = 14;
+        snapshot.max_model_requests_per_node = 4;
+        let read_file = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"README.md"}}"#,
+        )
+        .expect("valid action shape");
+
+        let err = taskspace_action_to_tool_call(&read_file, &snapshot)
+            .expect_err("late inspect should force taskspace_control transition");
+        assert!(err.contains("node_budget_transition_required:inspect_code_context:read_file"));
+
+        let finish_node = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"action":"finish_node","node_id":"node-1","result_summary":"Inspected README and tests.","next_node_kind":"implement_solution","next_node_title":"Apply fix","next_node_context_summary":"Apply fix from inspected evidence"}}"#,
+        )
+        .expect("valid control action");
+        let call = taskspace_action_to_tool_call(&finish_node, &snapshot)
+            .expect("finish_node remains allowed")
+            .expect("finish_node should execute taskspace_control");
+        assert_eq!(call.tool_name.name, "taskspace_control");
+    }
+
+    #[test]
+    fn provider_budget_exposes_essential_tools_for_implementation_request() {
+        assert_eq!(
+            taskspace_provider_tool_visibility_for_budget(
+                15,
+                20,
+                0,
+                3,
+                Some("model_sampling"),
+                Some("implement_solution")
+            ),
+            TaskspaceProviderToolVisibility::EssentialCoding
+        );
+    }
+
+    #[test]
+    fn provider_budget_uses_essential_tools_for_normal_model_sampling() {
+        assert_eq!(
+            taskspace_provider_tool_visibility_for_budget(
+                1,
+                20,
+                0,
+                3,
+                Some("model_sampling"),
+                Some("inspect_code_context")
+            ),
+            TaskspaceProviderToolVisibility::EssentialCoding
+        );
+    }
+
+    #[test]
+    fn provider_budget_keeps_tools_for_final_synthesis() {
+        assert_eq!(
+            taskspace_provider_tool_visibility_for_budget(
+                19,
+                20,
+                0,
+                3,
+                Some("final_synthesis"),
+                Some("final_synthesis")
+            ),
+            TaskspaceProviderToolVisibility::All
+        );
+    }
+
+    #[test]
+    fn provider_budget_guidance_does_not_override_final_synthesis() {
+        assert!(
+            build_taskspace_provider_budget_guidance_item(
+                19,
+                20,
+                0,
+                3,
+                Some("final_synthesis"),
+                Some("final_synthesis"),
+                Some("final_synthesis"),
+                TaskspaceProviderToolVisibility::All,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn active_context_replacement_preserves_provider_budget_guidance() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let guidance = build_taskspace_provider_budget_guidance_item(
+            15,
+            20,
+            0,
+            3,
+            Some("model_sampling"),
+            None,
+            None,
+            TaskspaceProviderToolVisibility::All,
+        )
+        .expect("guidance item");
+        let items = vec![
+            message("developer", &active_projection),
+            guidance,
+            message("user", "Keep the direct user requirement."),
+        ];
+
+        let prepared = prepare_provider_visible_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER));
+        assert!(joined.contains("thin_downgraded"));
+        assert!(joined.contains("Keep the direct user requirement."));
+    }
+
+    #[test]
+    fn action_contract_prompt_uses_bounded_user_and_active_projection_only() {
+        let old_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: old"
+        );
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Old user turn"),
+            message("assistant", "Old assistant commentary that must not replay"),
+            tool_call("shell_command", "call-1"),
+            tool_output_with_call_id("call-1", "Large raw output that must not replay"),
+            message("developer", &old_active_projection),
+            message("user", "Current user turn"),
+            message("developer", &latest_active_projection),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert_eq!(prepared.len(), 2);
+        assert!(joined.contains("Current user turn"));
+        assert!(joined.contains("active_objective: latest"));
+        assert!(!joined.contains("Old user turn"));
+        assert!(!joined.contains("Old assistant commentary"));
+        assert!(!joined.contains("Large raw output"));
+        assert!(!joined.contains("active_objective: old"));
+    }
+
+    #[test]
+    fn action_contract_prompt_includes_recent_post_user_tool_output_summaries() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Fix the failing test"),
+            message("developer", &latest_active_projection),
+            tool_call("shell_command", "call-1"),
+            tool_output_with_call_id("call-1", ".\\README.md\n.\\tests\\test_tax_calc.py"),
+            tool_call("shell_command", "call-2"),
+            tool_output_with_call_id("call-2", "# Tax Calc\nProduct rules: CA tax rate is 7.25%"),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert_eq!(prepared.len(), 3);
+        assert!(joined.contains("TaskSpaceActionContractRecentToolOutputsV1"));
+        assert!(joined.contains(".\\tests\\test_tax_calc.py"));
+        assert!(joined.contains("call_id: call-1"));
+        assert!(joined.contains("CA tax rate is 7.25%"));
+        assert!(joined.contains("call_id: call-2"));
+    }
+
+    #[test]
+    fn action_contract_prompt_omits_pre_user_tool_output() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            tool_output_with_call_id("call-1", ".\\old-output.txt"),
+            message("user", "Current user turn"),
+            message("developer", &latest_active_projection),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert_eq!(prepared.len(), 2);
+        assert!(!joined.contains(".\\old-output.txt"));
+    }
+
+    #[test]
+    fn action_contract_prompt_limits_recent_tool_outputs() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Current user turn"),
+            message("developer", &latest_active_projection),
+            tool_output_with_call_id("call-1", "oldest output"),
+            tool_output_with_call_id("call-2", "recent output 2"),
+            tool_output_with_call_id("call-3", "recent output 3"),
+            tool_output_with_call_id("call-4", "recent output 4"),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert_eq!(prepared.len(), 3);
+        assert!(!joined.contains("oldest output"));
+        assert!(joined.contains("recent output 2"));
+        assert!(joined.contains("recent output 3"));
+        assert!(joined.contains("recent output 4"));
+    }
+
+    #[test]
+    fn action_contract_prompt_guides_after_successful_edit_output() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Fix the failing test"),
+            message("developer", &latest_active_projection),
+            tool_output_with_call_id(
+                "call-1",
+                "{\"output\":\"Success. Updated the following files:\\nM src/tax_calc.py\\n\"}",
+            ),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains("A file edit already succeeded"));
+        assert!(joined.contains("Next action must be taskspace_control with action=finish_node"));
+        assert!(joined.contains("Do not repeat apply_patch"));
+    }
+
+    #[test]
+    fn action_contract_prompt_keeps_bootstrap_taskspace_profile() {
+        let bootstrap_profile = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\nNo TaskSpace task exists yet. Before ordinary tools, call taskspace_control(action=start_task)."
+        );
+        let items = vec![
+            message("developer", "unrelated developer text"),
+            message("user", "Fix the failing test"),
+            message("developer", &bootstrap_profile),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert_eq!(prepared.len(), 2);
+        assert!(joined.contains("Fix the failing test"));
+        assert!(joined.contains(TASKSPACE_ACTIVE_PROFILE_MARKER));
+        assert!(joined.contains("action=start_task"));
+        assert!(!joined.contains("unrelated developer text"));
+    }
+
+    #[test]
+    fn no_action_recovery_item_requires_actionable_taskspace_output() {
+        let text = item_text(build_taskspace_no_action_recovery_item(Some(
+            "Let me check the environment.",
+        )));
+
+        assert!(text.contains(TASKSPACE_NO_ACTION_RECOVERY_MARKER));
+        assert!(text.contains("did not produce effective TaskSpace progress"));
+        assert!(text.contains("no successful tool result"));
+        assert!(text.contains("Do not send commentary-only text"));
+        assert!(text.contains("call shell_command with `rg --files` now"));
+        assert!(text.contains("finish the inspect node into implement_solution"));
+    }
+
+    #[test]
+    fn forced_transition_recovery_item_does_not_count_as_no_action_retry() {
+        let item = build_taskspace_forced_inspect_transition_recovery_item();
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER));
+        assert!(text.contains("Current required behavior"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+    }
+
+    #[test]
+    fn no_action_recovery_cap_allows_inspect_and_implement_retries() {
+        assert_eq!(
+            taskspace_no_action_recovery_cap_for_node_kind("inspect_code_context"),
+            3
+        );
+        assert_eq!(
+            taskspace_no_action_recovery_cap_for_node_kind("implement_solution"),
+            3
+        );
+        assert_eq!(
+            taskspace_no_action_recovery_cap_for_node_kind("smoke_test"),
+            1
+        );
+    }
+
+    #[test]
+    fn budget_pressure_follow_up_intent_applies_to_implementation_node() {
+        assert!(taskspace_budget_pressure_follow_up_intent(
+            32,
+            40,
+            Some("implement_solution"),
+            Some("Let me check the environment and verify the exact problems."),
+        ));
+        assert!(!taskspace_budget_pressure_follow_up_intent(
+            19,
+            40,
+            Some("implement_solution"),
+            Some("Let me check the environment."),
+        ));
+    }
+
+    #[test]
+    fn provider_response_actionability_classifies_final_gate_rejection_as_recovery() {
+        let classification =
+            classify_taskspace_provider_response_actionability(true, false, true, true, false);
+
+        assert_eq!(
+            classification,
+            TaskspaceProviderResponseActionability::FinalRejected
+        );
+        assert!(classification.needs_recovery());
+        assert_eq!(classification.as_str(), "final_rejected");
+    }
+
+    #[test]
+    fn provider_response_actionability_classifies_no_action_follow_up() {
+        let classification =
+            classify_taskspace_provider_response_actionability(true, false, true, false, false);
+
+        assert_eq!(
+            classification,
+            TaskspaceProviderResponseActionability::NoActionFollowUp
+        );
+        assert!(classification.needs_recovery());
+    }
+
+    #[test]
+    fn budget_pressure_follow_up_intent_requires_recovery() {
+        assert!(taskspace_budget_pressure_follow_up_intent(
+            30,
+            40,
+            Some("inspect_code_context"),
+            Some("Now I have enough context. Let me run the pipeline.")
+        ));
+        assert!(!taskspace_budget_pressure_follow_up_intent(
+            19,
+            40,
+            Some("inspect_code_context"),
+            Some("Let me run the pipeline.")
+        ));
+        assert!(!taskspace_budget_pressure_follow_up_intent(
+            19,
+            40,
+            Some("implement_solution"),
+            Some("Let me run the pipeline.")
+        ));
+    }
+
+    #[test]
+    fn budget_pressure_follow_up_intent_detects_chinese_test_intent() {
+        assert!(taskspace_budget_pressure_follow_up_intent(
+            3,
+            6,
+            Some("inspect_code_context"),
+            Some("我已经看到了问题所在。先跑测试确认当前失败。")
+        ));
+    }
+
+    #[test]
+    fn budget_pressure_silent_action_forces_inspect_transition() {
+        assert!(taskspace_budget_pressure_silent_action_requires_transition(
+            4,
+            8,
+            Some("inspect_code_context"),
+            false,
+            true
+        ));
+        assert!(
+            !taskspace_budget_pressure_silent_action_requires_transition(
+                3,
+                8,
+                Some("inspect_code_context"),
+                false,
+                true
+            )
+        );
+        assert!(taskspace_budget_pressure_silent_action_requires_transition(
+            4,
+            8,
+            Some("implement_solution"),
+            false,
+            true
+        ));
+        assert!(taskspace_budget_pressure_silent_action_requires_transition(
+            6,
+            8,
+            Some("implement_solution"),
+            false,
+            true
+        ));
+    }
+
+    #[test]
+    fn provider_response_actionability_keeps_actionable_response_out_of_recovery() {
+        let classification =
+            classify_taskspace_provider_response_actionability(true, true, true, false, false);
+
+        assert_eq!(
+            classification,
+            TaskspaceProviderResponseActionability::Actionable
+        );
+        assert!(!classification.needs_recovery());
+    }
+
+    #[test]
+    fn provider_response_actionability_classifies_final_budget_followup_as_hard_stop() {
+        let classification =
+            classify_taskspace_provider_response_actionability(true, true, true, false, true);
+
+        assert_eq!(
+            classification,
+            TaskspaceProviderResponseActionability::ActionableFollowUpAtHardStop
+        );
+        assert!(classification.is_hard_stop());
+        assert!(!classification.needs_recovery());
+        assert_eq!(classification.as_str(), "actionable_follow_up_at_hard_stop");
+    }
+
+    #[test]
+    fn active_context_replacement_is_noop_without_active_projection() {
+        let items = vec![
+            message(
+                "developer",
+                "<skills_instructions>stable skills surface</skills_instructions>",
+            ),
+            message(
+                "developer",
+                "TaskSpace mode is now active; call taskspace_control(...)",
+            ),
+            message("user", "Preserve this user requirement."),
+        ];
+
+        let prepared = prepare_provider_visible_prompt_items(items.clone());
+
+        assert_eq!(prepared, items);
+    }
+
+    #[test]
+    fn active_context_replacement_removes_legacy_taskspace_history() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let items = vec![
+            message(
+                "developer",
+                "<skills_instructions>stable skills surface</skills_instructions>",
+            ),
+            message(
+                "developer",
+                "TaskSpace mode is now active; call taskspace_control(...)",
+            ),
+            message("developer", &active_projection),
+            message(
+                "developer",
+                "TaskSpace ContextProjectionV1 shadow update.\nContextProjectionV1 shadow (not active replacement):",
+            ),
+            tool_output("ActionMap node state from taskspace_control(action=create_node)"),
+            message("user", "Preserve this user requirement."),
+        ];
+
+        let prepared = prepare_provider_visible_prompt_items(items);
+        let texts = item_texts(&prepared);
+        let joined = texts.join("\n");
+
+        assert_eq!(prepared.len(), 3);
+        assert!(
+            joined.contains("<skills_instructions>stable skills surface</skills_instructions>")
+        );
+        assert!(joined.contains(TASKSPACE_ACTIVE_PROFILE_MARKER));
+        assert!(joined.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER));
+        assert!(joined.contains("Preserve this user requirement."));
+        assert!(!joined.contains("TaskSpace mode is now active"));
+        assert!(!joined.contains(TASKSPACE_SHADOW_PROJECTION_MARKER));
+        assert!(!joined.contains("ActionMap node state"));
+    }
+
+    #[test]
+    fn active_context_replacement_removes_taskspace_control_calls() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let items = vec![
+            message("developer", &active_projection),
+            tool_call("taskspace_control", "call-1"),
+            message("user", "Keep the current task constraints."),
+        ];
+
+        let prepared = prepare_provider_visible_prompt_items(items);
+
+        assert_eq!(prepared.len(), 2);
+        assert!(
+            prepared
+                .iter()
+                .all(|item| !matches!(item, ResponseItem::FunctionCall { .. }))
+        );
+    }
+
+    #[test]
+    fn active_context_replacement_omits_paired_call_when_tool_output_is_replaced() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let items = vec![
+            message("developer", &active_projection),
+            tool_call("shell_command", "blocked-call"),
+            tool_output_with_call_id(
+                "blocked-call",
+                "TaskSpace blocked this tool call.\nTaskSpaceGateRecoveryV1: retry with inspect_code_context",
+            ),
+            message("user", "Keep the direct user requirement."),
+        ];
+
+        let composition = compose_provider_visible_history(items);
+        let texts = item_texts(&composition.items);
+        let joined = texts.join("\n");
+
+        assert!(!composition.items.iter().any(|item| matches!(
+            item,
+            ResponseItem::FunctionCall { call_id, .. }
+                if call_id == "blocked-call"
+        )));
+        assert!(!joined.contains("TaskSpaceGateRecoveryV1"));
+        assert!(joined.contains("Keep the direct user requirement."));
+        assert_eq!(
+            composition.decisions[1].action,
+            ProviderVisibleHistoryAction::Omit(
+                "paired_tool_call_or_output_replaced_by_active_projection"
+            )
+        );
+        assert_eq!(
+            composition.decisions[2].action,
+            ProviderVisibleHistoryAction::Omit("legacy_taskspace_tool_output_replaced")
+        );
+    }
+
+    #[test]
+    fn active_context_replacement_omits_paired_output_when_tool_call_is_replaced() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let items = vec![
+            message("developer", &active_projection),
+            tool_call("taskspace_control", "control-call"),
+            tool_output_with_call_id("control-call", r#"{"status":"ok"}"#),
+            message("user", "Keep the direct user requirement."),
+        ];
+
+        let composition = compose_provider_visible_history(items);
+        let texts = item_texts(&composition.items);
+        let joined = texts.join("\n");
+
+        assert!(!composition.items.iter().any(|item| {
+            response_item_tool_call_id(item).is_some_and(|call_id| call_id == "control-call")
+        }));
+        assert!(!joined.contains(r#"{"status":"ok"}"#));
+        assert!(joined.contains("Keep the direct user requirement."));
+        assert_eq!(
+            composition.decisions[1].action,
+            ProviderVisibleHistoryAction::Omit("taskspace_control_call_not_provider_surface")
+        );
+        assert_eq!(
+            composition.decisions[2].action,
+            ProviderVisibleHistoryAction::Omit(
+                "paired_tool_call_or_output_replaced_by_active_projection"
+            )
+        );
+    }
+
+    #[test]
+    fn active_context_replacement_preserves_user_text_that_mentions_taskspace() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let items = vec![
+            message("developer", &active_projection),
+            message(
+                "user",
+                "The bug report mentions TaskSpace, but this is user evidence.",
+            ),
+            tool_output("ActionMap node state from taskspace_control(action=create_node)"),
+        ];
+
+        let composition = compose_provider_visible_history(items);
+        let texts = item_texts(&composition.items);
+        let joined = texts.join("\n");
+
+        assert!(joined.contains("this is user evidence"));
+        assert!(!joined.contains("ActionMap node state"));
+        assert_eq!(
+            composition.decisions[1].category,
+            ProviderVisibleItemCategory::ProtectedUserInput
+        );
+        assert_eq!(
+            composition.decisions[1].action,
+            ProviderVisibleHistoryAction::Include
+        );
+    }
+
+    #[test]
+    fn active_context_replacement_omits_large_raw_tool_output() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let large_raw_output = "x".repeat(TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS + 1);
+        let items = vec![
+            message("developer", &active_projection),
+            tool_output(&large_raw_output),
+            message("user", "Keep the direct user requirement."),
+        ];
+
+        let composition = compose_provider_visible_history(items);
+        let texts = item_texts(&composition.items);
+        let joined = texts.join("\n");
+
+        assert!(!joined.contains(&large_raw_output));
+        assert!(joined.contains("Keep the direct user requirement."));
+        assert_eq!(
+            composition.decisions[1].category,
+            ProviderVisibleItemCategory::LargeRawToolOutput
+        );
+        assert_eq!(
+            composition.decisions[1].action,
+            ProviderVisibleHistoryAction::Omit("large_raw_tool_output_requires_output_reference")
+        );
+    }
+
+    #[test]
+    fn active_context_replacement_keeps_output_reference_payloads() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
+        );
+        let referenced_output = format!("OutputReferenceV1 output-ref://sha256/{}", "a".repeat(64));
+        let items = vec![
+            message("developer", &active_projection),
+            tool_output(&referenced_output),
+        ];
+
+        let prepared = prepare_provider_visible_prompt_items(items);
+        let texts = item_texts(&prepared);
+
+        assert!(texts.join("\n").contains("OutputReferenceV1"));
+    }
+}
+
 #[derive(Debug)]
 struct SamplingRequestResult {
     needs_follow_up: bool,
     last_agent_message: Option<String>,
+    taskspace_no_action_recovery_item: Option<ResponseItem>,
 }
 
 /// Ephemeral per-response state for streaming a single proposed plan.
@@ -1867,6 +4704,982 @@ async fn drain_in_flight(
     Ok(())
 }
 
+async fn run_taskspace_inspect_bootstrap(
+    tool_runtime: ToolCallRuntime,
+    sess: Arc<Session>,
+    turn_context: Arc<TurnContext>,
+    request_count: usize,
+    call_id_prefix: &str,
+    command: &str,
+    event_message: &str,
+    cancellation_token: CancellationToken,
+) -> CodexResult<()> {
+    let call_id = format!("{call_id_prefix}-{request_count}");
+    let arguments = serde_json::json!({
+        "command": command,
+        "timeout_ms": 10000,
+    })
+    .to_string();
+    let call_item = ResponseItem::FunctionCall {
+        id: None,
+        name: "shell_command".to_string(),
+        namespace: None,
+        arguments: arguments.clone(),
+        call_id: call_id.clone(),
+    };
+    record_completed_response_item(sess.as_ref(), turn_context.as_ref(), &call_item).await;
+    sess.send_event(
+        &turn_context,
+        EventMsg::Warning(WarningEvent {
+            message: event_message.to_string(),
+        }),
+    )
+    .await;
+
+    let response_input = tool_runtime
+        .handle_tool_call(
+            ToolCall {
+                tool_name: ToolName::plain("shell_command"),
+                call_id,
+                payload: ToolPayload::Function { arguments },
+            },
+            cancellation_token,
+        )
+        .await?;
+    let response_item: ResponseItem = response_input.into();
+    sess.record_conversation_items(&turn_context, std::slice::from_ref(&response_item))
+        .await;
+    mark_thread_memory_mode_polluted_if_external_context(
+        sess.as_ref(),
+        turn_context.as_ref(),
+        &response_item,
+    )
+    .await;
+    Ok(())
+}
+
+fn parse_taskspace_action_v1(text: &str) -> Result<TaskSpaceActionV1, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("empty_action_contract_output".to_string());
+    }
+    if trimmed.starts_with("```") {
+        return Err("action_contract_output_not_strict_json".to_string());
+    }
+    if !trimmed.starts_with('{') {
+        if let Some(json_start) = trimmed.find('{') {
+            return parse_taskspace_action_v1(&trimmed[json_start..]);
+        }
+        return taskspace_action_from_deepseek_dsml(trimmed)
+            .ok_or_else(|| "action_contract_output_not_strict_json".to_string());
+    }
+    let json_end = taskspace_leading_json_object_end(trimmed)
+        .ok_or_else(|| "malformed_action_json:unterminated_object".to_string())?;
+    let action = serde_json::from_str::<TaskSpaceActionV1>(&trimmed[..json_end])
+        .map_err(|err| format!("malformed_action_json:{err}"))?;
+    let suffix = trimmed[json_end..].trim();
+    if !suffix.is_empty() && !suffix.contains("DSML") {
+        return Err("action_contract_output_not_strict_json".to_string());
+    }
+    if action.schema_version != "taskspace-action-v1" {
+        return Err("unsupported_action_schema_version".to_string());
+    }
+    if action.action.trim().is_empty() {
+        return Err("missing_action".to_string());
+    }
+    Ok(action)
+}
+
+fn taskspace_action_from_deepseek_dsml(text: &str) -> Option<TaskSpaceActionV1> {
+    if !text.contains("DSML") || !text.contains("invoke name=\"shell_command\"") {
+        return None;
+    }
+    let command = taskspace_dsml_parameter(text, "command")?;
+    let command = command.trim();
+    let args = if command.starts_with("rg --files") {
+        let path = command
+            .strip_prefix("rg --files")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(".");
+        ("list_files", serde_json::json!({ "path": path }))
+    } else if command.starts_with("Get-Content") {
+        let path = taskspace_powershell_path_arg(command)?;
+        ("read_file", serde_json::json!({ "path": path }))
+    } else if let Some(path) = command.strip_prefix("cat ").map(str::trim) {
+        (
+            "read_file",
+            serde_json::json!({ "path": path.trim_matches('"') }),
+        )
+    } else if let Some(path) = command.strip_prefix("type ").map(str::trim) {
+        (
+            "read_file",
+            serde_json::json!({ "path": path.trim_matches('"') }),
+        )
+    } else if let Some(path) = taskspace_python_open_path(command) {
+        ("read_file", serde_json::json!({ "path": path }))
+    } else if command.starts_with("rg ") {
+        ("search", serde_json::json!({ "pattern": "", "path": "." }))
+    } else if command.contains("pytest") || command.contains("cargo test") {
+        (
+            "run_test",
+            serde_json::json!({ "command": command, "timeout_ms": 120000 }),
+        )
+    } else {
+        return None;
+    };
+    Some(TaskSpaceActionV1 {
+        schema_version: "taskspace-action-v1".to_string(),
+        action: args.0.to_string(),
+        node_id: None,
+        args: args.1,
+        rationale: Some("Recovered provider DSML shell command as TaskSpaceActionV1".to_string()),
+    })
+}
+
+fn taskspace_dsml_parameter(text: &str, name: &str) -> Option<String> {
+    let marker = format!("parameter name=\"{name}\"");
+    let start = text.find(&marker)?;
+    let after_marker = &text[start..];
+    let value_start = after_marker.find('>')? + 1;
+    let after_start = &after_marker[value_start..];
+    let value_end = after_start.find("</")?;
+    Some(after_start[..value_end].to_string())
+}
+
+fn taskspace_powershell_path_arg(command: &str) -> Option<String> {
+    let marker = if command.contains("-LiteralPath") {
+        "-LiteralPath"
+    } else {
+        "-Path"
+    };
+    let start = command.find(marker)? + marker.len();
+    let rest = command[start..].trim_start();
+    if let Some(rest) = rest.strip_prefix('"') {
+        let end = rest.find('"')?;
+        return Some(rest[..end].to_string());
+    }
+    let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+    Some(rest[..end].to_string())
+}
+
+fn taskspace_python_open_path(command: &str) -> Option<String> {
+    if !command.starts_with("python -c") || !command.contains("open(") {
+        return None;
+    }
+    let open_start = command.find("open(")? + "open(".len();
+    let rest = command[open_start..].trim_start();
+    let quote = rest.chars().next()?;
+    if quote != '\'' && quote != '"' {
+        return None;
+    }
+    let after_quote = &rest[quote.len_utf8()..];
+    let end = after_quote.find(quote)?;
+    Some(after_quote[..end].to_string())
+}
+
+fn taskspace_leading_json_object_end(text: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (idx, ch) in text.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '{' => depth = depth.saturating_add(1),
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(idx + ch.len_utf8());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn taskspace_action_allowed_for_node(action: &str, node_kind: Option<&str>) -> bool {
+    match node_kind {
+        Some("inspect_code_context") => matches!(
+            action,
+            "list_files" | "search" | "read_file" | "taskspace_control" | "blocked"
+        ),
+        Some("implement_solution") => matches!(
+            action,
+            "list_files" | "read_file" | "search" | "apply_patch" | "taskspace_control" | "blocked"
+        ),
+        Some("smoke_test" | "regression_test") => matches!(
+            action,
+            "run_test" | "read_file" | "search" | "taskspace_control" | "blocked"
+        ),
+        Some("final_synthesis") => {
+            matches!(action, "final_answer" | "taskspace_control" | "blocked")
+        }
+        _ => matches!(action, "taskspace_control" | "blocked"),
+    }
+}
+
+async fn should_finish_node_after_successful_required_action(
+    action: &TaskSpaceActionV1,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    sess: &Session,
+) -> bool {
+    if taskspace_action_is_finish_node_control(action) {
+        return false;
+    }
+    match snapshot.node_kind.as_deref() {
+        Some("implement_solution") => {
+            sess.action_map_current_main_node_has_successful_action(ActionClass::Edit)
+                .await
+        }
+        Some("smoke_test" | "regression_test") => {
+            sess.action_map_current_main_node_has_successful_action(ActionClass::Test)
+                .await
+                || sess
+                    .action_map_current_main_node_has_successful_action(ActionClass::Build)
+                    .await
+        }
+        _ => false,
+    }
+}
+
+async fn should_answer_after_successful_validation_redundant_node(
+    action: &TaskSpaceActionV1,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    sess: &Session,
+) -> bool {
+    if snapshot.node_id.is_some() {
+        return false;
+    }
+    if !taskspace_action_control_creates_validation_node(action) {
+        return false;
+    }
+    sess.action_map_has_accepted_successful_validation_result()
+        .await
+}
+
+async fn should_answer_after_successful_validation_finish_node(
+    action: &TaskSpaceActionV1,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    sess: &Session,
+) -> bool {
+    if !taskspace_action_is_finish_node_control(action) {
+        return false;
+    }
+    if !matches!(
+        snapshot.node_kind.as_deref(),
+        Some("smoke_test" | "regression_test")
+    ) {
+        return false;
+    }
+    sess.action_map_current_main_node_has_successful_action(ActionClass::Test)
+        .await
+        || sess
+            .action_map_current_main_node_has_successful_action(ActionClass::Build)
+            .await
+}
+
+fn taskspace_action_is_finish_node_control(action: &TaskSpaceActionV1) -> bool {
+    action.action == "taskspace_control"
+        && taskspace_action_control_action(action) == Some("finish_node")
+}
+
+fn taskspace_action_control_action(action: &TaskSpaceActionV1) -> Option<&str> {
+    action
+        .args
+        .get("action")
+        .or_else(|| action.args.get("control_type"))
+        .or_else(|| action.args.get("control_action"))
+        .and_then(serde_json::Value::as_str)
+}
+
+fn taskspace_action_control_creates_validation_node(action: &TaskSpaceActionV1) -> bool {
+    if action.action != "taskspace_control"
+        || taskspace_action_control_action(action) != Some("create_node")
+    {
+        return false;
+    }
+    let Some(kind) = action
+        .args
+        .get("node_kind")
+        .or_else(|| action.args.get("kind"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        return false;
+    };
+    kind.split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+        .any(|part| matches!(part, "smoke_test" | "regression_test"))
+}
+
+fn taskspace_action_control_creates_final_synthesis(action: &TaskSpaceActionV1) -> bool {
+    action.action == "taskspace_control"
+        && taskspace_action_control_action(action) == Some("create_node")
+        && action
+            .args
+            .get("node_kind")
+            .or_else(|| action.args.get("kind"))
+            .and_then(serde_json::Value::as_str)
+            == Some("final_synthesis")
+}
+
+fn taskspace_final_answer_action(message: &str) -> TaskSpaceActionV1 {
+    TaskSpaceActionV1 {
+        schema_version: "taskspace-action-v1".to_string(),
+        action: "final_answer".to_string(),
+        node_id: None,
+        args: serde_json::json!({ "message": message }),
+        rationale: Some("Thin TaskSpace path is complete after validation.".to_string()),
+    }
+}
+
+fn taskspace_finish_current_node_action(
+    node_id: Option<&str>,
+    result_summary: &str,
+) -> TaskSpaceActionV1 {
+    let mut args = serde_json::Map::new();
+    args.insert(
+        "action".to_string(),
+        serde_json::Value::String("finish_node".to_string()),
+    );
+    if let Some(node_id) = node_id.filter(|value| !value.trim().is_empty()) {
+        args.insert(
+            "node_id".to_string(),
+            serde_json::Value::String(node_id.to_string()),
+        );
+    }
+    args.insert(
+        "result_summary".to_string(),
+        serde_json::Value::String(result_summary.to_string()),
+    );
+    TaskSpaceActionV1 {
+        schema_version: "taskspace-action-v1".to_string(),
+        action: "taskspace_control".to_string(),
+        node_id: node_id.map(str::to_string),
+        args: serde_json::Value::Object(args),
+        rationale: Some("A successful implementation edit is already recorded.".to_string()),
+    }
+}
+
+fn taskspace_action_arg_string(args: &serde_json::Value, name: &str) -> Option<String> {
+    args.get(name)
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn taskspace_action_arg_u64(args: &serde_json::Value, name: &str, default: u64) -> u64 {
+    args.get(name)
+        .and_then(|value| value.as_u64())
+        .unwrap_or(default)
+}
+
+fn normalize_taskspace_apply_patch(patch: &str) -> String {
+    let normalized = patch.replace("\r\n", "\n");
+    if let Some(rewritten) = normalize_taskspace_bare_file_patch(&normalized) {
+        return rewritten;
+    }
+    let lines = normalized.lines().collect::<Vec<_>>();
+    if lines.len() < 5
+        || lines.first() != Some(&"*** Begin Patch")
+        || lines.last() != Some(&"*** End Patch")
+        || !lines
+            .iter()
+            .any(|line| line.starts_with("*** Update File: "))
+    {
+        return normalized;
+    }
+    rewrite_taskspace_apply_patch_unique_update_paths(&normalized)
+}
+
+fn normalize_taskspace_bare_file_patch(patch: &str) -> Option<String> {
+    let lines = patch.lines().collect::<Vec<_>>();
+    if lines.len() < 5 || lines.first() != Some(&"*** Begin Patch") {
+        return None;
+    }
+    if lines.last() != Some(&"*** End Patch") {
+        return None;
+    }
+    let raw_path = lines.get(1)?.trim();
+    if raw_path.is_empty()
+        || raw_path.starts_with("*** ")
+        || raw_path.starts_with("--- ")
+        || raw_path.starts_with("+++ ")
+        || raw_path.contains(char::is_whitespace)
+    {
+        return None;
+    }
+    if !lines
+        .iter()
+        .skip(2)
+        .any(|line| line.starts_with('-') || line.starts_with('+'))
+    {
+        return None;
+    }
+    let path =
+        resolve_unique_existing_relative_path(raw_path).unwrap_or_else(|| raw_path.to_string());
+    let mut rewritten = Vec::with_capacity(lines.len() + 1);
+    rewritten.push("*** Begin Patch".to_string());
+    rewritten.push(format!("*** Update File: {path}"));
+    rewritten.push("@@".to_string());
+    for line in lines.iter().skip(2).take(lines.len().saturating_sub(3)) {
+        if line.trim().is_empty() && rewritten.last().is_some_and(|last| last == "@@") {
+            continue;
+        }
+        rewritten.push((*line).to_string());
+    }
+    rewritten.push("*** End Patch".to_string());
+    Some(rewritten.join("\n") + "\n")
+}
+
+fn normalize_taskspace_unified_diff_patch(patch: &str) -> Option<String> {
+    let normalized = patch.replace("\r\n", "\n");
+    let lines = normalized.lines().collect::<Vec<_>>();
+    if lines.first() != Some(&"*** Begin Patch") || lines.last() != Some(&"*** End Patch") {
+        return None;
+    }
+    let old_idx = lines.iter().position(|line| line.starts_with("--- "))?;
+    let new_idx = lines.iter().position(|line| line.starts_with("+++ "))?;
+    if new_idx != old_idx + 1 {
+        return None;
+    }
+    let path = lines[new_idx].strip_prefix("+++ ")?.trim();
+    let path = path.strip_prefix("b/").unwrap_or(path);
+    if path.is_empty() {
+        return None;
+    }
+    let path = resolve_unique_existing_relative_path(path).unwrap_or_else(|| path.to_string());
+    let mut rewritten = Vec::with_capacity(lines.len());
+    rewritten.push("*** Begin Patch".to_string());
+    rewritten.push(format!("*** Update File: {path}"));
+    for line in lines
+        .iter()
+        .skip(new_idx + 1)
+        .take(lines.len().saturating_sub(new_idx + 2))
+    {
+        rewritten.push(normalize_taskspace_unified_hunk_line(line));
+    }
+    rewritten.push("*** End Patch".to_string());
+    Some(rewritten.join("\n") + "\n")
+}
+
+fn normalize_taskspace_unified_hunk_line(line: &str) -> String {
+    let Some(rest) = line.strip_prefix("@@") else {
+        return line.to_string();
+    };
+    let Some((_, trailing)) = rest.split_once("@@") else {
+        return "@@".to_string();
+    };
+    let trailing = trailing.trim();
+    if trailing.is_empty() {
+        "@@".to_string()
+    } else {
+        format!("@@ {trailing}")
+    }
+}
+
+fn rewrite_taskspace_apply_patch_unique_update_paths(patch: &str) -> String {
+    let lines = patch.lines().collect::<Vec<_>>();
+    let mut rewritten = Vec::with_capacity(lines.len());
+    let mut changed = false;
+    for line in lines {
+        let Some(path) = line.strip_prefix("*** Update File: ") else {
+            rewritten.push(line.to_string());
+            continue;
+        };
+        let candidate = resolve_unique_existing_relative_path(path.trim());
+        if let Some(candidate) = candidate {
+            rewritten.push(format!("*** Update File: {candidate}"));
+            changed = true;
+        } else {
+            rewritten.push(line.to_string());
+        }
+    }
+    if changed {
+        rewritten.join("\n") + "\n"
+    } else {
+        patch.to_string()
+    }
+}
+
+fn resolve_unique_existing_relative_path(path: &str) -> Option<String> {
+    resolve_unique_existing_relative_path_from(Path::new("."), path)
+}
+
+fn resolve_unique_existing_relative_path_from(root: &Path, path: &str) -> Option<String> {
+    if path.is_empty() || root.join(path).exists() {
+        return None;
+    }
+    if path.contains('/') || path.contains('\\') {
+        let normalized = path.trim().replace('\\', "/");
+        let src_prefixed = format!("src/{normalized}");
+        if root.join(&src_prefixed).exists() {
+            return Some(src_prefixed);
+        }
+        let mut matches = Vec::new();
+        collect_unique_suffix_matches(root, root, &normalized, &mut matches, 2_000);
+        if matches.len() != 1 {
+            return None;
+        }
+        let relative = matches.pop()?;
+        return relative.to_str().map(|value| value.replace('\\', "/"));
+    }
+    let mut matches = Vec::new();
+    collect_unique_basename_matches(root, root, path, &mut matches, 2_000);
+    if matches.len() != 1 {
+        if matches.is_empty() {
+            return Some(format!("src/{path}"));
+        }
+        return None;
+    }
+    let relative = matches.pop()?;
+    relative.to_str().map(|value| value.replace('\\', "/"))
+}
+
+fn collect_unique_basename_matches(
+    root: &Path,
+    dir: &Path,
+    basename: &str,
+    matches: &mut Vec<PathBuf>,
+    remaining: usize,
+) -> usize {
+    if remaining == 0 || matches.len() > 1 {
+        return remaining;
+    }
+    let mut remaining = remaining;
+    let Ok(entries) = fs::read_dir(dir) else {
+        return remaining;
+    };
+    for entry in entries.flatten() {
+        if remaining == 0 || matches.len() > 1 {
+            break;
+        }
+        remaining = remaining.saturating_sub(1);
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if file_name == ".git" || file_name == "target" || file_name == "node_modules" {
+            continue;
+        }
+        if path.is_dir() {
+            remaining = collect_unique_basename_matches(root, &path, basename, matches, remaining);
+        } else if file_name == basename
+            && let Ok(relative) = path.strip_prefix(root)
+        {
+            matches.push(relative.to_path_buf());
+        }
+    }
+    remaining
+}
+
+fn collect_unique_suffix_matches(
+    root: &Path,
+    dir: &Path,
+    suffix: &str,
+    matches: &mut Vec<PathBuf>,
+    remaining: usize,
+) -> usize {
+    if remaining == 0 || matches.len() > 1 {
+        return remaining;
+    }
+    let mut remaining = remaining;
+    let Ok(entries) = fs::read_dir(dir) else {
+        return remaining;
+    };
+    for entry in entries.flatten() {
+        if remaining == 0 || matches.len() > 1 {
+            break;
+        }
+        remaining = remaining.saturating_sub(1);
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if file_name == ".git" || file_name == "target" || file_name == "node_modules" {
+            continue;
+        }
+        if path.is_dir() {
+            remaining = collect_unique_suffix_matches(root, &path, suffix, matches, remaining);
+        } else if let Ok(relative) = path.strip_prefix(root) {
+            let relative_text = relative.to_string_lossy().replace('\\', "/");
+            if relative_text.ends_with(&format!("/{suffix}")) {
+                matches.push(relative.to_path_buf());
+            }
+        }
+    }
+    remaining
+}
+
+fn taskspace_action_to_tool_call(
+    action: &TaskSpaceActionV1,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> Result<Option<ToolCall>, String> {
+    let action_name = action.action.as_str();
+    if action_name == "final_answer" {
+        return Ok(None);
+    }
+    if !taskspace_action_allowed_for_node(action_name, snapshot.node_kind.as_deref()) {
+        return Err(format!(
+            "node_policy_violation:{}:{}",
+            snapshot.node_kind.as_deref().unwrap_or("unknown"),
+            action_name
+        ));
+    }
+    let limits = taskspace_transport_budget_limits(snapshot);
+    let budget_visibility = taskspace_provider_tool_visibility_for_budget(
+        snapshot.request_count,
+        limits.max_requests,
+        snapshot.node_request_count,
+        limits.max_model_requests_per_node,
+        snapshot.request_phase.as_deref(),
+        snapshot.node_kind.as_deref(),
+    );
+    if matches!(
+        budget_visibility,
+        TaskspaceProviderToolVisibility::TaskspaceControlOnly
+    ) && !matches!(action_name, "taskspace_control" | "blocked")
+    {
+        return Err(format!(
+            "node_budget_transition_required:{}:{}",
+            snapshot.node_kind.as_deref().unwrap_or("unknown"),
+            action_name
+        ));
+    }
+    if let (Some(expected), Some(actual)) = (snapshot.node_id.as_deref(), action.node_id.as_deref())
+        && expected != actual
+    {
+        return Err("node_id_mismatch".to_string());
+    }
+    let args = &action.args;
+    let call_id = format!(
+        "taskspace-action-contract-{}-{}",
+        snapshot.request_count.saturating_add(1),
+        action_name
+    );
+    match action_name {
+        "list_files" => {
+            let path = taskspace_action_arg_string(args, "path").unwrap_or_else(|| ".".to_string());
+            let arguments = serde_json::json!({
+                "command": format!("rg --files {}", path),
+                "timeout_ms": 10000,
+            })
+            .to_string();
+            Ok(Some(ToolCall {
+                tool_name: ToolName::plain("shell_command"),
+                call_id,
+                payload: ToolPayload::Function { arguments },
+            }))
+        }
+        "search" => {
+            let pattern = taskspace_action_arg_string(args, "pattern")
+                .ok_or_else(|| "missing_search_pattern".to_string())?;
+            let path = taskspace_action_arg_string(args, "path").unwrap_or_else(|| ".".to_string());
+            let arguments = serde_json::json!({
+                "command": format!("rg --line-number --no-heading -- {:?} {}", pattern, path),
+                "timeout_ms": 10000,
+            })
+            .to_string();
+            Ok(Some(ToolCall {
+                tool_name: ToolName::plain("shell_command"),
+                call_id,
+                payload: ToolPayload::Function { arguments },
+            }))
+        }
+        "read_file" => {
+            let path = taskspace_action_arg_string(args, "path")
+                .ok_or_else(|| "missing_read_file_path".to_string())?;
+            let arguments = serde_json::json!({
+                "command": format!("Get-Content -LiteralPath {:?} -TotalCount 240", path),
+                "timeout_ms": 10000,
+            })
+            .to_string();
+            Ok(Some(ToolCall {
+                tool_name: ToolName::plain("shell_command"),
+                call_id,
+                payload: ToolPayload::Function { arguments },
+            }))
+        }
+        "apply_patch" => {
+            let patch = taskspace_action_arg_string(args, "patch")
+                .ok_or_else(|| "missing_apply_patch_patch".to_string())?;
+            let patch = normalize_taskspace_unified_diff_patch(&patch)
+                .unwrap_or_else(|| normalize_taskspace_apply_patch(&patch));
+            Ok(Some(ToolCall {
+                tool_name: ToolName::plain("apply_patch"),
+                call_id,
+                payload: ToolPayload::Custom { input: patch },
+            }))
+        }
+        "run_test" => {
+            let command = taskspace_action_arg_string(args, "command")
+                .ok_or_else(|| "missing_run_test_command".to_string())?;
+            let command = normalize_taskspace_action_contract_test_command(&command);
+            let arguments = serde_json::json!({
+                "command": command,
+                "timeout_ms": taskspace_action_arg_u64(args, "timeout_ms", 120000),
+            })
+            .to_string();
+            Ok(Some(ToolCall {
+                tool_name: ToolName::plain("shell_command"),
+                call_id,
+                payload: ToolPayload::Function { arguments },
+            }))
+        }
+        "taskspace_control" => Ok(Some(ToolCall {
+            tool_name: ToolName::plain("taskspace_control"),
+            call_id,
+            payload: ToolPayload::Function {
+                arguments: normalize_taskspace_action_contract_control_args(args, snapshot)
+                    .to_string(),
+            },
+        })),
+        "blocked" => Ok(None),
+        _ => Err(format!("unsupported_action:{action_name}")),
+    }
+}
+
+fn taskspace_action_contract_visible_text(raw_text: &str) -> Option<String> {
+    let action = parse_taskspace_action_v1(raw_text).ok()?;
+    if action.action == "final_answer" {
+        return taskspace_action_final_message(&action);
+    }
+    None
+}
+
+fn normalize_taskspace_action_contract_control_args(
+    args: &serde_json::Value,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> serde_json::Value {
+    let mut normalized = args.clone();
+    let Some(root) = normalized.as_object_mut() else {
+        return normalized;
+    };
+    if !root.contains_key("action") {
+        if let Some(value) = root
+            .get("control_action")
+            .or_else(|| root.get("control_type"))
+            .cloned()
+        {
+            root.insert("action".to_string(), value);
+        }
+    }
+    let inner_action = root
+        .get("action")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    if inner_action != "finish_node" {
+        return normalized;
+    }
+    if !root.contains_key("node_id")
+        && let Some(node_id) = snapshot.node_id.as_deref()
+    {
+        root.insert(
+            "node_id".to_string(),
+            serde_json::Value::String(node_id.to_string()),
+        );
+    }
+    if snapshot.node_kind.as_deref() == Some("implement_solution") {
+        root.entry("next_node_kind".to_string())
+            .or_insert_with(|| serde_json::Value::String("smoke_test".to_string()));
+        if root
+            .get("next_node_kind")
+            .and_then(serde_json::Value::as_str)
+            == Some("smoke_test")
+        {
+            root.entry("next_node_title".to_string())
+                .or_insert_with(|| serde_json::Value::String("Run focused validation".to_string()));
+            root.entry("next_node_context_summary".to_string())
+                .or_insert_with(|| {
+                    serde_json::Value::String(
+                        "Run the focused test command after the implementation edit.".to_string(),
+                    )
+                });
+            if !root.contains_key("next_dependency_node_ids")
+                && let Some(node_id) = snapshot.node_id.as_deref()
+            {
+                root.insert(
+                    "next_dependency_node_ids".to_string(),
+                    serde_json::json!([node_id]),
+                );
+            }
+        }
+    }
+    normalized
+}
+
+fn normalize_taskspace_action_contract_test_command(command: &str) -> String {
+    let trimmed = command.trim();
+    for prefix in [
+        "pytest ",
+        "python -m pytest ",
+        "cd src && python -m pytest ",
+    ] {
+        let Some(rest) = trimmed.strip_prefix(prefix) else {
+            continue;
+        };
+        let rest = rest.trim();
+        let Some((file, suffix)) = split_first_shell_word(rest) else {
+            continue;
+        };
+        if file.ends_with(".py") && !file.contains('/') && !file.contains('\\') {
+            let suffix = suffix.trim();
+            return if suffix.is_empty() {
+                format!("pytest tests/{file}")
+            } else {
+                format!("pytest tests/{file} {suffix}")
+            };
+        }
+        if file.ends_with(".py")
+            && !Path::new(file).exists()
+            && let Some(resolved) = resolve_unique_test_file_for_missing_pytest_path(file)
+        {
+            let suffix = suffix.trim();
+            return if suffix.is_empty() {
+                format!("pytest {resolved}")
+            } else {
+                format!("pytest {resolved} {suffix}")
+            };
+        }
+    }
+    trimmed.to_string()
+}
+
+fn resolve_unique_test_file_for_missing_pytest_path(path: &str) -> Option<String> {
+    let normalized = path.replace('\\', "/");
+    if !normalized.starts_with("tests/") {
+        return None;
+    }
+    let entries = fs::read_dir("tests").ok()?;
+    let matches = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let file_name = path.file_name()?.to_str()?;
+            if path.is_file() && file_name.starts_with("test_") && file_name.ends_with(".py") {
+                Some(format!("tests/{file_name}"))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    if matches.len() == 1 {
+        matches.into_iter().next()
+    } else {
+        None
+    }
+}
+
+fn split_first_shell_word(value: &str) -> Option<(&str, &str)> {
+    let value = value.trim_start();
+    if value.is_empty() {
+        return None;
+    }
+    if let Some(index) = value.find(char::is_whitespace) {
+        Some((&value[..index], &value[index..]))
+    } else {
+        Some((value, ""))
+    }
+}
+
+fn taskspace_bootstrap_action_to_tool_call(
+    action: &TaskSpaceActionV1,
+) -> Result<Option<ToolCall>, String> {
+    let action_name = action.action.as_str();
+    if !taskspace_action_allowed_for_node(action_name, None) {
+        return Err(format!("bootstrap_policy_violation:{action_name}"));
+    }
+    match action_name {
+        "taskspace_control" => Ok(Some(ToolCall {
+            tool_name: ToolName::plain("taskspace_control"),
+            call_id: "taskspace-action-contract-bootstrap-taskspace_control".to_string(),
+            payload: ToolPayload::Function {
+                arguments: action.args.to_string(),
+            },
+        })),
+        "blocked" => Ok(None),
+        _ => Err(format!("unsupported_bootstrap_action:{action_name}")),
+    }
+}
+
+fn response_item_for_taskspace_action_tool_call(call: &ToolCall) -> ResponseItem {
+    match &call.payload {
+        ToolPayload::Custom { input } => ResponseItem::CustomToolCall {
+            id: None,
+            status: None,
+            call_id: call.call_id.clone(),
+            name: call.tool_name.name.clone(),
+            input: input.clone(),
+        },
+        ToolPayload::Function { arguments } => ResponseItem::FunctionCall {
+            id: None,
+            name: call.tool_name.name.clone(),
+            namespace: call.tool_name.namespace.clone(),
+            arguments: arguments.clone(),
+            call_id: call.call_id.clone(),
+        },
+        _ => ResponseItem::FunctionCall {
+            id: None,
+            name: call.tool_name.name.clone(),
+            namespace: call.tool_name.namespace.clone(),
+            arguments: call.payload.log_payload().into_owned(),
+            call_id: call.call_id.clone(),
+        },
+    }
+}
+
+fn taskspace_action_final_message(action: &TaskSpaceActionV1) -> Option<String> {
+    match action.action.as_str() {
+        "final_answer" => taskspace_action_arg_string(&action.args, "message"),
+        "blocked" => taskspace_action_arg_string(&action.args, "reason")
+            .map(|reason| format!("blocked_by_taskspace_action_contract: {reason}")),
+        _ => None,
+    }
+}
+
+async fn record_taskspace_observed_implement_edit(
+    sess: &Arc<Session>,
+    turn_context: &Arc<TurnContext>,
+    turn_diff_tracker: &SharedTurnDiffTracker,
+    request_count: usize,
+) -> bool {
+    let unified_diff = {
+        let mut tracker = turn_diff_tracker.lock().await;
+        tracker.get_unified_diff().ok().flatten()
+    };
+    let Some(unified_diff) = unified_diff else {
+        return false;
+    };
+    if unified_diff.trim().is_empty() {
+        return false;
+    }
+    let preview = format!(
+        "TaskSpace observed implementation edit in turn diff: {}",
+        unified_diff
+            .lines()
+            .take(12)
+            .collect::<Vec<_>>()
+            .join("\\n")
+    );
+    sess.record_action_map_main_tool_result(
+        turn_context,
+        &format!("taskspace-observed-implement-edit-{request_count}"),
+        "apply_patch",
+        Some(ActionClass::Edit),
+        true,
+        preview,
+    )
+    .await;
+    true
+}
+
 #[allow(clippy::too_many_arguments)]
 #[instrument(level = "trace",
     skip_all,
@@ -1898,8 +5711,44 @@ async fn try_run_sampling_request(
         turn_context.model_info.slug.as_str(),
         turn_context.provider.info().name.as_str(),
     );
-    let mut stream = client_session
-        .stream(
+    let provider_budget_snapshot = sess.action_map_provider_request_budget_snapshot().await;
+    let provider_request_budget = provider_budget_snapshot
+        .as_ref()
+        .map(|snapshot| {
+            let transport_mode =
+                taskspace_provider_transport_mode(&turn_context, Some(snapshot), true);
+            let limits = taskspace_transport_budget_limits(snapshot);
+            let budget_state = match transport_mode {
+                TaskspaceProviderTransportMode::NativeTools => snapshot.budget_state.clone(),
+                TaskspaceProviderTransportMode::CacheOptimizedActionContract => String::new(),
+            };
+            ProviderRequestBudgetContext::enabled_with_attribution(
+                ProviderRequestBudgetLimits {
+                    request_count: snapshot.request_count,
+                    max_requests: limits.max_requests,
+                    node_request_count: snapshot.node_request_count,
+                    max_model_requests_per_node: limits.max_model_requests_per_node,
+                    post_budget_grace_requests: limits.post_budget_grace_requests,
+                    post_budget_grace_request_count: snapshot.post_budget_grace_request_count,
+                    budget_state,
+                },
+                ProviderRequestAttribution {
+                    request_scope_id: Some(turn_context.sub_id.to_string()),
+                    task_id: snapshot.task_id.as_ref().map(|id| id.to_string()),
+                    map_id: Some(snapshot.map_id.to_string()),
+                    node_id: snapshot.node_id.as_ref().map(|id| id.to_string()),
+                    request_phase: snapshot.request_phase.clone(),
+                },
+            )
+        })
+        .unwrap_or_else(ProviderRequestBudgetContext::disabled);
+    let action_contract_mode = taskspace_provider_transport_mode(
+        &turn_context,
+        provider_budget_snapshot.as_ref(),
+        prompt_contains_taskspace_active_context(prompt),
+    ) == TaskspaceProviderTransportMode::CacheOptimizedActionContract;
+    let stream_result = client_session
+        .stream_with_provider_request_budget(
             prompt,
             &turn_context.model_info,
             &turn_context.session_telemetry,
@@ -1908,14 +5757,28 @@ async fn try_run_sampling_request(
             turn_context.config.service_tier,
             turn_metadata_header,
             &inference_trace,
+            &provider_request_budget,
         )
         .instrument(trace_span!("stream_request"))
         .or_cancel(&cancellation_token)
-        .await??;
+        .await;
+    if let Some(snapshot) = provider_budget_snapshot.as_ref() {
+        let events = provider_request_budget.drain_events();
+        sess.record_action_map_provider_request_budget_events(
+            &turn_context,
+            snapshot.clone(),
+            events,
+        )
+        .await;
+    }
+    let mut stream = stream_result??;
+    let taskspace_progress_before_request =
+        sess.action_map_current_main_node_progress_signature().await;
     let mut in_flight: FuturesOrdered<BoxFuture<'static, CodexResult<ResponseInputItem>>> =
         FuturesOrdered::new();
     let mut needs_follow_up = false;
     let mut last_agent_message: Option<String> = None;
+    let mut saw_actionable_output = false;
     let mut active_item: Option<TurnItem> = None;
     let mut active_tool_argument_diff_consumer: Option<(
         String,
@@ -1926,7 +5789,7 @@ async fn try_run_sampling_request(
     let mut assistant_message_stream_parsers = AssistantMessageStreamParsers::new(plan_mode);
     let mut plan_mode_state = plan_mode.then(|| PlanModeStreamState::new(&turn_context.sub_id));
     let receiving_span = trace_span!("receiving_stream");
-    let outcome: CodexResult<SamplingRequestResult> = loop {
+    let mut outcome: CodexResult<SamplingRequestResult> = loop {
         let handle_responses = trace_span!(
             parent: &receiving_span,
             "handle_responses",
@@ -1942,13 +5805,47 @@ async fn try_run_sampling_request(
             .await
         {
             Ok(event) => event,
-            Err(codex_async_utils::CancelErr::Cancelled) => break Err(CodexErr::TurnAborted),
+            Err(codex_async_utils::CancelErr::Cancelled) => {
+                provider_request_budget.record_cancelled();
+                if let Some(snapshot) = provider_budget_snapshot.as_ref() {
+                    let events = provider_request_budget.drain_events();
+                    sess.record_action_map_provider_request_budget_events(
+                        &turn_context,
+                        snapshot.clone(),
+                        events,
+                    )
+                    .await;
+                }
+                break Err(CodexErr::TurnAborted);
+            }
         };
 
         let event = match event {
             Some(Ok(event)) => event,
-            Some(Err(err)) => break Err(err),
+            Some(Err(err)) => {
+                provider_request_budget.record_response_failed();
+                if let Some(snapshot) = provider_budget_snapshot.as_ref() {
+                    let events = provider_request_budget.drain_events();
+                    sess.record_action_map_provider_request_budget_events(
+                        &turn_context,
+                        snapshot.clone(),
+                        events,
+                    )
+                    .await;
+                }
+                break Err(err);
+            }
             None => {
+                provider_request_budget.record_response_failed();
+                if let Some(snapshot) = provider_budget_snapshot.as_ref() {
+                    let events = provider_request_budget.drain_events();
+                    sess.record_action_map_provider_request_budget_events(
+                        &turn_context,
+                        snapshot.clone(),
+                        events,
+                    )
+                    .await;
+                }
                 break Err(CodexErr::Stream(
                     "stream closed before response.completed".into(),
                     None,
@@ -2023,6 +5920,7 @@ async fn try_run_sampling_request(
                     | ResponseItem::Other => false,
                 };
 
+                let raw_assistant_text = raw_assistant_output_text_from_item(&item);
                 let output_result =
                     match handle_output_item_done(&mut ctx, item, previously_active_item)
                         .instrument(handle_responses)
@@ -2032,10 +5930,112 @@ async fn try_run_sampling_request(
                         Err(err) => break Err(err),
                     };
                 if let Some(tool_future) = output_result.tool_future {
+                    saw_actionable_output = true;
                     in_flight.push_back(tool_future);
                 }
                 if let Some(agent_message) = output_result.last_agent_message {
                     last_agent_message = Some(agent_message);
+                } else if let Some(raw_text) = raw_assistant_text.as_deref()
+                    && !raw_text.trim().is_empty()
+                {
+                    last_agent_message = Some(raw_text.to_string());
+                }
+                if action_contract_mode
+                    && let Some(raw_text) = raw_assistant_text.as_deref()
+                    && !raw_text.trim().is_empty()
+                {
+                    let parsed_action = match parse_taskspace_action_v1(raw_text) {
+                        Ok(action) => Ok(action),
+                        Err(reason) => Err(reason),
+                    };
+                    let action_result = match parsed_action {
+                        Ok(action) => {
+                            let action = if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                                && should_finish_node_after_successful_required_action(
+                                    &action,
+                                    snapshot,
+                                    sess.as_ref(),
+                                )
+                                .await
+                            {
+                                taskspace_finish_current_node_action(
+                                    snapshot.node_id.as_deref(),
+                                    "Required node work already succeeded; finishing node.",
+                                )
+                            } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                                && should_answer_after_successful_validation_redundant_node(
+                                    &action,
+                                    snapshot,
+                                    sess.as_ref(),
+                                )
+                                .await
+                            {
+                                taskspace_final_answer_action(
+                                    "Validation passed; final result is ready.",
+                                )
+                            } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                                && should_answer_after_successful_validation_finish_node(
+                                    &action,
+                                    snapshot,
+                                    sess.as_ref(),
+                                )
+                                .await
+                            {
+                                taskspace_final_answer_action(
+                                    "Validation passed; final result is ready.",
+                                )
+                            } else if taskspace_action_control_creates_final_synthesis(&action) {
+                                taskspace_final_answer_action(
+                                    "Validation passed; final result is ready.",
+                                )
+                            } else {
+                                action
+                            };
+                            let final_message = taskspace_action_final_message(&action);
+                            let tool_call =
+                                if let Some(snapshot) = provider_budget_snapshot.as_ref() {
+                                    taskspace_action_to_tool_call(&action, snapshot)
+                                } else {
+                                    taskspace_bootstrap_action_to_tool_call(&action)
+                                };
+                            tool_call.map(|tool_call| (action, final_message, tool_call))
+                        }
+                        Err(reason) => Err(reason),
+                    };
+                    match action_result {
+                        Ok((action, _final_message, Some(tool_call))) => {
+                            let call_item =
+                                response_item_for_taskspace_action_tool_call(&tool_call);
+                            record_completed_response_item(
+                                sess.as_ref(),
+                                turn_context.as_ref(),
+                                &call_item,
+                            )
+                            .await;
+                            saw_actionable_output = true;
+                            needs_follow_up = true;
+                            in_flight.push_back(Box::pin(
+                                tool_runtime
+                                    .clone()
+                                    .handle_tool_call(tool_call, cancellation_token.child_token()),
+                            ));
+                            if let Some(rationale) = action.rationale.as_deref()
+                                && !rationale.trim().is_empty()
+                            {
+                                last_agent_message = Some(rationale.to_string());
+                            }
+                        }
+                        Ok((_action, Some(final_message), None)) => {
+                            last_agent_message = Some(final_message);
+                        }
+                        Ok((_action, None, None)) => {}
+                        Err(reason) => {
+                            needs_follow_up = true;
+                            last_agent_message = Some(format!(
+                                "TaskSpaceActionV1 rejected: {reason}. Return exactly one valid taskspace-action-v1 JSON object."
+                            ));
+                        }
+                    }
                 }
                 needs_follow_up |= output_result.needs_follow_up;
                 // todo: remove before stabilizing multi-agent v2
@@ -2043,6 +6043,7 @@ async fn try_run_sampling_request(
                     break Ok(SamplingRequestResult {
                         needs_follow_up: true,
                         last_agent_message,
+                        taskspace_no_action_recovery_item: None,
                     });
                 }
             }
@@ -2070,8 +6071,14 @@ async fn try_run_sampling_request(
                         && let Some(raw_text) = raw_assistant_output_text_from_item(&item)
                     {
                         let item_id = turn_item.id();
-                        let mut seeded =
-                            assistant_message_stream_parsers.seed_item_text(&item_id, &raw_text);
+                        let visible_source_text = if action_contract_mode {
+                            taskspace_action_contract_visible_text(&raw_text)
+                                .unwrap_or_else(|| raw_text.clone())
+                        } else {
+                            raw_text.clone()
+                        };
+                        let mut seeded = assistant_message_stream_parsers
+                            .seed_item_text(&item_id, &visible_source_text);
                         if let TurnItem::AgentMessage(agent_message) = &mut turn_item {
                             agent_message.content =
                                 vec![codex_protocol::items::AgentMessageContent::Text {
@@ -2160,10 +6167,25 @@ async fn try_run_sampling_request(
                 .await;
                 sess.update_token_usage_info(&turn_context, token_usage.as_ref())
                     .await;
+                provider_request_budget.record_response_completed(token_usage.as_ref());
+                if let Some(snapshot) = provider_budget_snapshot.as_ref() {
+                    let events = provider_request_budget.drain_events();
+                    sess.record_action_map_provider_request_budget_events(
+                        &turn_context,
+                        snapshot.clone(),
+                        events,
+                    )
+                    .await;
+                }
                 should_emit_turn_diff = true;
                 if let Some(false) = end_turn {
                     needs_follow_up = true;
                 }
+                let assistant_message_present = last_agent_message
+                    .as_deref()
+                    .map(|message| !message.trim().is_empty())
+                    .unwrap_or(false);
+                let mut final_response_rejected = false;
                 if !needs_follow_up
                     && let Some(message) = last_agent_message.as_deref()
                     && sess
@@ -2172,11 +6194,175 @@ async fn try_run_sampling_request(
                         .is_err()
                 {
                     needs_follow_up = true;
+                    final_response_rejected = true;
+                }
+                let current_budget_snapshot =
+                    sess.action_map_provider_request_budget_snapshot().await;
+                let provider_budget_exhausted_followup = needs_follow_up
+                    && current_budget_snapshot
+                        .as_ref()
+                        .map(|snapshot| snapshot.request_count >= snapshot.max_requests)
+                        .unwrap_or(false);
+                let budget_pressure_follow_up_intent = current_budget_snapshot
+                    .as_ref()
+                    .map(|snapshot| {
+                        taskspace_budget_pressure_follow_up_intent(
+                            snapshot.request_count,
+                            snapshot.max_requests,
+                            snapshot.node_kind.as_deref(),
+                            last_agent_message.as_deref(),
+                        )
+                    })
+                    .unwrap_or(false);
+                let budget_pressure_silent_action_transition = current_budget_snapshot
+                    .as_ref()
+                    .map(|snapshot| {
+                        taskspace_budget_pressure_silent_action_requires_transition(
+                            snapshot.request_count,
+                            snapshot.max_requests,
+                            snapshot.node_kind.as_deref(),
+                            assistant_message_present,
+                            saw_actionable_output,
+                        )
+                    })
+                    .unwrap_or(false);
+                let response_actionability = classify_taskspace_provider_response_actionability(
+                    needs_follow_up,
+                    saw_actionable_output,
+                    assistant_message_present,
+                    final_response_rejected
+                        || budget_pressure_follow_up_intent
+                        || budget_pressure_silent_action_transition,
+                    provider_budget_exhausted_followup,
+                );
+                let mut taskspace_no_action_recovery_item =
+                    if response_actionability.needs_recovery() && current_budget_snapshot.is_some()
+                    {
+                        Some(build_taskspace_no_action_recovery_item(
+                            last_agent_message.as_deref(),
+                        ))
+                    } else {
+                        None
+                    };
+                if let Some(snapshot) = current_budget_snapshot {
+                    let recovery_action = if response_actionability.is_hard_stop() {
+                        "hard_stop"
+                    } else if taskspace_no_action_recovery_item.is_some() {
+                        "developer_recovery"
+                    } else {
+                        "none"
+                    };
+                    sess.record_action_map_provider_response_actionability(
+                        &turn_context,
+                        snapshot,
+                        ActionMapProviderResponseActionabilityInput {
+                            response_actionability: response_actionability.as_str().to_string(),
+                            end_turn,
+                            saw_actionable_output,
+                            assistant_message_present,
+                            recovery_action: recovery_action.to_string(),
+                            last_agent_message_preview: taskspace_last_message_preview(
+                                last_agent_message.as_deref(),
+                            ),
+                        },
+                    )
+                    .await;
+                }
+                if response_actionability.needs_recovery()
+                    && (budget_pressure_follow_up_intent
+                        || budget_pressure_silent_action_transition)
+                    && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
+                {
+                    let trigger = if budget_pressure_silent_action_transition {
+                        "budget_pressure_silent_action"
+                    } else {
+                        "budget_pressure_follow_up_intent"
+                    };
+                    match snapshot.node_kind.as_deref() {
+                        Some("inspect_code_context") => {
+                            match sess
+                                .force_finish_action_map_inspect_for_provider_budget(
+                                    &turn_context,
+                                    snapshot,
+                                    trigger,
+                                )
+                                .await
+                            {
+                                Ok(true) => {
+                                    taskspace_no_action_recovery_item = Some(
+                                        build_taskspace_forced_inspect_transition_recovery_item(),
+                                    );
+                                }
+                                Ok(false) => {}
+                                Err(error) => {
+                                    sess.send_event(
+                                        &turn_context,
+                                        EventMsg::Warning(WarningEvent {
+                                            message: format!(
+                                                "TaskSpaceForcedInspectTransitionFailedV1 trigger={trigger} error={error}"
+                                            ),
+                                        }),
+                                    )
+                                    .await;
+                                }
+                            }
+                        }
+                        Some("implement_solution") => {
+                            record_taskspace_observed_implement_edit(
+                                &sess,
+                                &turn_context,
+                                &turn_diff_tracker,
+                                snapshot.request_count,
+                            )
+                            .await;
+                            match sess
+                                .force_finish_action_map_implement_for_provider_budget(
+                                    &turn_context,
+                                    snapshot,
+                                    trigger,
+                                )
+                                .await
+                            {
+                                Ok(true) => {
+                                    taskspace_no_action_recovery_item = Some(
+                                        build_taskspace_forced_implement_transition_recovery_item(),
+                                    );
+                                }
+                                Ok(false) => {}
+                                Err(error) => {
+                                    sess.send_event(
+                                        &turn_context,
+                                        EventMsg::Warning(WarningEvent {
+                                            message: format!(
+                                                "TaskSpaceForcedImplementTransitionFailedV1 trigger={trigger} error={error}"
+                                            ),
+                                        }),
+                                    )
+                                    .await;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if response_actionability.is_hard_stop() {
+                    let message = "TaskSpace stopped this turn because the final provider budget response produced tool/control work that requires another model turn, but the provider request budget is already exhausted. The final budget response must produce a final answer, a compact checkpoint, or a bounded blocked_by_budget result instead of follow-up-dependent work.".to_string();
+                    sess.send_event(
+                        &turn_context,
+                        EventMsg::Warning(WarningEvent {
+                            message: message.clone(),
+                        }),
+                    )
+                    .await;
+                    break Err(CodexErr::InvalidRequest(message));
+                }
+                if final_response_rejected {
                     last_agent_message = None;
                 }
                 break Ok(SamplingRequestResult {
                     needs_follow_up,
                     last_agent_message,
+                    taskspace_no_action_recovery_item,
                 });
             }
             ResponseEvent::OutputTextDelta(delta) => {
@@ -2286,6 +6472,128 @@ async fn try_run_sampling_request(
     .await;
 
     drain_in_flight(&mut in_flight, sess.clone(), turn_context.clone()).await?;
+    if let Ok(result) = &mut outcome
+        && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
+        && snapshot.node_kind.as_deref() == Some("implement_solution")
+    {
+        let recorded_diff_edit = record_taskspace_observed_implement_edit(
+            &sess,
+            &turn_context,
+            &turn_diff_tracker,
+            snapshot.request_count,
+        )
+        .await;
+        let has_successful_edit = recorded_diff_edit
+            || sess
+                .action_map_current_main_node_has_successful_action(ActionClass::Edit)
+                .await;
+        if has_successful_edit {
+            match sess
+                .force_finish_action_map_implement_for_provider_budget(
+                    &turn_context,
+                    snapshot,
+                    "implement_observed_edit_after_tool_drain",
+                )
+                .await
+            {
+                Ok(true) => {
+                    result.taskspace_no_action_recovery_item =
+                        Some(build_taskspace_forced_implement_transition_recovery_item());
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    sess.send_event(
+                        &turn_context,
+                        EventMsg::Warning(WarningEvent {
+                            message: format!(
+                                "TaskSpaceForcedImplementTransitionFailedV1 trigger=implement_observed_edit_after_tool_drain error={error}"
+                            ),
+                        }),
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+    if let Ok(result) = &mut outcome
+        && result.needs_follow_up
+        && result.taskspace_no_action_recovery_item.is_none()
+        && taskspace_progress_before_request.is_some()
+    {
+        let taskspace_progress_after_request =
+            sess.action_map_current_main_node_progress_signature().await;
+        if taskspace_progress_after_request == taskspace_progress_before_request {
+            let inspect_bootstrap = provider_budget_snapshot
+                .as_ref()
+                .filter(|snapshot| snapshot.node_kind.as_deref() == Some("inspect_code_context"))
+                .cloned();
+            if let Some(snapshot) = inspect_bootstrap {
+                if taskspace_message_requests_validation(result.last_agent_message.as_deref()) {
+                    run_taskspace_inspect_bootstrap(
+                        tool_runtime.clone(),
+                        sess.clone(),
+                        turn_context.clone(),
+                        snapshot.request_count,
+                        TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID,
+                        "python -m pytest -q",
+                        "TaskSpaceInspectTestBootstrapV1 executed `python -m pytest -q` after inspect_code_context requested validation but produced no tool call.",
+                        cancellation_token.child_token(),
+                    )
+                    .await?;
+                } else {
+                    let forced_transition = match sess
+                        .force_finish_action_map_inspect_for_provider_budget(
+                            &turn_context,
+                            snapshot.clone(),
+                            "inspect_no_action_with_evidence",
+                        )
+                        .await
+                    {
+                        Ok(true) => {
+                            result.taskspace_no_action_recovery_item =
+                                Some(build_taskspace_forced_inspect_transition_recovery_item());
+                            true
+                        }
+                        Ok(false) => false,
+                        Err(error) => {
+                            sess.send_event(
+                                &turn_context,
+                                EventMsg::Warning(WarningEvent {
+                                    message: format!(
+                                        "TaskSpaceForcedInspectTransitionFailedV1 trigger=inspect_no_action_with_evidence error={error}"
+                                    ),
+                                }),
+                            )
+                            .await;
+                            false
+                        }
+                    };
+                    if !forced_transition {
+                        let (call_id_prefix, command, event_message) = (
+                            TASKSPACE_INSPECT_BOOTSTRAP_CALL_ID,
+                            "rg --files",
+                            "TaskSpaceInspectBootstrapV1 executed `rg --files` after inspect_code_context produced no effective action.",
+                        );
+                        run_taskspace_inspect_bootstrap(
+                            tool_runtime.clone(),
+                            sess.clone(),
+                            turn_context.clone(),
+                            snapshot.request_count,
+                            call_id_prefix,
+                            command,
+                            event_message,
+                            cancellation_token.child_token(),
+                        )
+                        .await?;
+                    }
+                }
+            } else {
+                result.taskspace_no_action_recovery_item = Some(
+                    build_taskspace_no_action_recovery_item(result.last_agent_message.as_deref()),
+                );
+            }
+        }
+    }
 
     if cancellation_token.is_cancelled() {
         return Err(CodexErr::TurnAborted);

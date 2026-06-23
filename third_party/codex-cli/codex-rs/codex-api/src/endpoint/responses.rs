@@ -227,7 +227,7 @@ fn build_chat_completions_body(request: ResponsesApiRequest) -> Value {
     let tools = chat_tools_from_responses_tools(&request.tools);
     if !tools.is_empty() {
         body.insert("tools".to_string(), Value::Array(tools));
-        if request.tool_choice == "none" || request.tool_choice == "auto" {
+        if matches!(request.tool_choice.as_str(), "none" | "auto" | "required") {
             body.insert(
                 "tool_choice".to_string(),
                 Value::String(request.tool_choice),
@@ -272,6 +272,11 @@ fn chat_tools_from_responses_tools(tools: &[Value]) -> Vec<Value> {
             if object.get("type").and_then(Value::as_str) == Some("web_search") {
                 return Some(chat_web_search_function_tool());
             }
+            if object.get("type").and_then(Value::as_str) == Some("custom")
+                && object.get("name").and_then(Value::as_str) == Some("apply_patch")
+            {
+                return Some(chat_apply_patch_function_tool(object));
+            }
             if object.get("type").and_then(Value::as_str) != Some("function") {
                 return None;
             }
@@ -293,6 +298,31 @@ fn chat_tools_from_responses_tools(tools: &[Value]) -> Vec<Value> {
             }))
         })
         .collect()
+}
+
+fn chat_apply_patch_function_tool(object: &serde_json::Map<String, Value>) -> Value {
+    let description = object
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("Use apply_patch to edit files. Pass the entire patch text in input.");
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "apply_patch",
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "input": {
+                        "type": "string",
+                        "description": "The entire contents of the apply_patch command."
+                    }
+                },
+                "required": ["input"],
+                "additionalProperties": false
+            }
+        }
+    })
 }
 
 fn chat_web_search_function_tool() -> Value {
@@ -433,5 +463,51 @@ mod tests {
             body["tools"][0]["function"]["parameters"]["required"],
             json!(["query"])
         );
+    }
+
+    #[test]
+    fn chat_completions_maps_custom_apply_patch_to_function_tool() {
+        let mut request = chat_request(None);
+        request.tools = vec![json!({
+            "type": "custom",
+            "name": "apply_patch",
+            "description": "Edit files with a patch",
+            "format": {
+                "type": "grammar",
+                "syntax": "lark",
+                "definition": "start: /.+/"
+            }
+        })];
+
+        let body = build_chat_completions_body(request);
+
+        assert_eq!(body["tools"][0]["type"], json!("function"));
+        assert_eq!(body["tools"][0]["function"]["name"], json!("apply_patch"));
+        assert_eq!(
+            body["tools"][0]["function"]["parameters"]["required"],
+            json!(["input"])
+        );
+    }
+
+    #[test]
+    fn chat_completions_body_preserves_required_tool_choice() {
+        let mut request = chat_request(None);
+        request.tool_choice = "required".to_string();
+        request.tools = vec![json!({
+            "type": "function",
+            "name": "shell_command",
+            "description": "Run shell command",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string" }
+                },
+                "required": ["command"]
+            }
+        })];
+
+        let body = build_chat_completions_body(request);
+
+        assert_eq!(body["tool_choice"], json!("required"));
     }
 }

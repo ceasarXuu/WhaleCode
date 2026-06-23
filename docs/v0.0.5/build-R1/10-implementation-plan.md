@@ -6,6 +6,10 @@
 - Status: Corrected Draft
 - Owner / Responsible: WhaleCode core engineering
 - Related Systems: `action_map` runtime, `taskspace_control` handler, context history, protocol snapshot, E3 benchmark scripts
+
+> Supersession note (2026-06-19): v0.0.5 continuation work now follows `18-unfinished-work-engineering-design.md` for unfinished P0 engineering, formal E3 sample selection, release taxonomy, and E3 start/release gates. The Phase 6 sample list in this document is retained as historical design context only. It must not be used to replace the current formal P0 release proof `terminal-bench_E3-P0_3_5`.
+>
+> Current release taxonomy: old PASS/PARTIAL/FAIL text in this document is historical only. Current v0.0.5 closure uses `release_pass`, `blocked_partial`, and `fail` as defined by `18-unfinished-work-engineering-design.md` and `write-release-decision.ps1`. A PARTIAL cost result cannot close v0.0.5.
 - Related Links: `00-executive-summary.md`, `03-protocol-compaction.md`, `04-context-projection-and-replay-control.md`, `13-design-corrections-and-engineering-contract.md`
 - Risk Level: High
 - Plan Type: Full
@@ -478,22 +482,22 @@ Decide whether v0.0.5 is a clean release, engineering partial, or failed experim
 - Generate pair, sample, and suite cost reports.
 - Generate map-management summary.
 - Generate routing mistake report.
-- Write release decision note with PASS/PARTIAL/FAIL.
+- Historical only: write a release decision note. Current v0.0.5 decisions must use `release_pass`, `blocked_partial`, or `fail`.
 
 #### Testing And Validation
 
 | Validation Item | Method | Passing Standard |
 |---|---|---|
 | Engineering clean. | E3 harness. | `engineering_clean = true`. |
-| Cost gate. | suite cost report. | PASS or documented PARTIAL. |
+| Cost gate. | suite cost report. | Historical only; current closure requires `release_pass`, and any partial-cost outcome is `blocked_partial` with `closeable=false`. |
 | Quality gate. | public/hidden oracle results. | TaskSpace solved >= Standard solved - 1. |
 | Map gate. | map summary. | Retention/projection/GC metrics present. |
 
 #### Exit Criteria
 
-- PASS: primary cost and quality gates pass.
-- PARTIAL: engineering partial target passes, root cause is isolated, and quality gate does not fail.
-- FAIL: cost remains >5x, request ratio remains >5x, or quality gate fails.
+- Historical strong-cost result: primary cost and quality gates pass.
+- Historical engineering-only result: engineering partial target passes, root cause is isolated, and quality gate does not fail. Current v0.0.5 closure must record this as `blocked_partial`, not as a closeable release.
+- Historical failed-cost result: cost remains >5x, request ratio remains >5x, or quality gate fails.
 
 #### Risks And Fallback
 
@@ -520,7 +524,7 @@ Do not call v0.0.5 release-ready unless the release decision note includes cost,
 
 - Release method: profile-gated runtime behavior.
 - Canary scope: focused E3 first, then local/manual TaskSpace runs.
-- Expansion criteria: PASS cost and quality gates, no protected evidence loss.
+- Expansion criteria: current `release_pass` decision, no protected evidence loss.
 - Pause criteria: missing token summaries, prompt raw output >50KB, quality regression, projection missing protected evidence.
 - Owner: Unknown.
 - Release window: Unknown.
@@ -545,9 +549,9 @@ Do not call v0.0.5 release-ready unless the release decision note includes cost,
 
 | Metric | Current Baseline | Target | Alert Threshold | Observation Window |
 |---|---:|---:|---:|---|
-| direct input+output ratio | v0.0.4 approx 20x | <=2x PASS, <=3x PARTIAL | >5x | focused E3 suite |
-| agent walltime ratio | v0.0.4 approx 5x | <=2x PASS, <=3x PARTIAL | >5x | focused E3 suite |
-| model_request_count_ratio | v0.0.4 approx 9.31x | <=2.0x PASS, <=2.5x PARTIAL | >5x | focused E3 suite |
+| direct input+output ratio | v0.0.4 approx 20x | <=2x for current `release_pass`; <=3x is engineering-only `blocked_partial` | >5x | focused E3 suite |
+| agent walltime ratio | v0.0.4 approx 5x | <=2x for current `release_pass`; <=3x is engineering-only `blocked_partial` | >5x | focused E3 suite |
+| model_request_count_ratio | v0.0.4 approx 9.31x | <=2.0x for current `release_pass`; <=2.5x is engineering-only `blocked_partial` | >5x | focused E3 suite |
 | avg_input_per_request_ratio | v0.0.4 approx 2.16x | <=1.25x | >2x | focused E3 suite |
 | large_output_replay_count | Unknown | 0 | >0 | every active run |
 | projection protected-miss count | Unknown | 0 | >0 | every active run |

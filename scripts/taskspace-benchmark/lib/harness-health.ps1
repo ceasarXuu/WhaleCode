@@ -220,6 +220,95 @@ function New-TaskspaceHarnessAbortSummaryLines {
     $lines
 }
 
+function Get-TaskspaceRepoPathLatestCommitInfo {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$PathSpec
+    )
+    try {
+        $hash = (& git -C $RepoRoot log -1 --format=%H -- $PathSpec 2>$null)
+        $epochText = (& git -C $RepoRoot log -1 --format=%ct -- $PathSpec 2>$null)
+        if ([string]::IsNullOrWhiteSpace([string]$hash) -or [string]::IsNullOrWhiteSpace([string]$epochText)) {
+            return $null
+        }
+        $epoch = [int64]([string]$epochText).Trim()
+        [pscustomobject]@{
+            hash = ([string]$hash).Trim()
+            epoch = $epoch
+            time_utc = ([DateTimeOffset]::FromUnixTimeSeconds($epoch).UtcDateTime.ToString("o"))
+            pathspec = $PathSpec
+        }
+    } catch {
+        $null
+    }
+}
+
+function New-TaskspaceWhaleBinaryHealth {
+    param(
+        [Parameter(Mandatory = $true)][string]$WhaleBin,
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [switch]$AllowStale
+    )
+    $findings = New-Object System.Collections.Generic.List[object]
+    $resolvedPath = ""
+    $exists = Test-Path -LiteralPath $WhaleBin -PathType Leaf
+    $binaryEpoch = 0L
+    $binarySha256 = ""
+    $binaryLastWriteUtc = ""
+    if ($exists) {
+        $item = Get-Item -LiteralPath $WhaleBin
+        $resolvedPath = $item.FullName
+        $binaryEpoch = [DateTimeOffset]$item.LastWriteTimeUtc.ToUniversalTime()
+        $binaryEpoch = $binaryEpoch.ToUnixTimeSeconds()
+        $binaryLastWriteUtc = $item.LastWriteTimeUtc.ToUniversalTime().ToString("o")
+        try { $binarySha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $item.FullName).Hash.ToLowerInvariant() } catch { $binarySha256 = "" }
+    } else {
+        $findings.Add([pscustomobject]@{
+                severity = "fail"
+                stable_code = "whale_binary_missing"
+                message = "Whale binary does not exist: $WhaleBin"
+                path = $WhaleBin
+                stage = "whale_binary_preflight"
+            })
+    }
+    $sourceInfo = Get-TaskspaceRepoPathLatestCommitInfo $RepoRoot "third_party/codex-cli"
+    $headHash = ""
+    try { $headHash = ((& git -C $RepoRoot rev-parse HEAD 2>$null) | Select-Object -First 1).Trim() } catch { $headHash = "" }
+    $stale = $false
+    if ($exists -and $sourceInfo -and $binaryEpoch -lt [int64]$sourceInfo.epoch) {
+        $stale = $true
+        $severity = if ($AllowStale) { "warn" } else { "fail" }
+        $findings.Add([pscustomobject]@{
+                severity = $severity
+                stable_code = "whale_binary_stale_for_codex_source"
+                message = "Whale binary is older than the latest codex source commit for third_party/codex-cli."
+                path = $resolvedPath
+                stage = "whale_binary_preflight"
+                binary_last_write_utc = $binaryLastWriteUtc
+                source_commit = [string]$sourceInfo.hash
+                source_commit_time_utc = [string]$sourceInfo.time_utc
+            })
+    }
+    $hardFindings = @($findings.ToArray() | Where-Object { [string]$_.severity -eq "fail" })
+    [pscustomobject]@{
+        schema_version = 1
+        status = if ($hardFindings.Count -gt 0) { "fail" } else { "pass" }
+        run_validity = if ($hardFindings.Count -gt 0) { "invalid_harness" } else { "valid" }
+        whale_bin_requested = $WhaleBin
+        whale_bin_resolved = $resolvedPath
+        whale_binary_exists = $exists
+        whale_binary_last_write_utc = $binaryLastWriteUtc
+        whale_binary_sha256 = $binarySha256
+        whale_binary_epoch = $binaryEpoch
+        current_git_head = $headHash
+        codex_source_latest_commit = $sourceInfo
+        stale_for_codex_source = $stale
+        stale_allowed = [bool]$AllowStale
+        findings = @($findings.ToArray())
+        generated_at = (Get-Date).ToString("o")
+    }
+}
+
 function Get-TaskspaceHarnessTextSignature {
     param(
         [AllowEmptyString()][string]$Text = "",

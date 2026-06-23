@@ -26,7 +26,8 @@ function Invoke-RealProcess {
         [string]$StderrPath,
         [int]$TimeoutSeconds,
         [string]$StdinPath = "",
-        [string]$TimingPath = ""
+        [string]$TimingPath = "",
+        [hashtable]$Environment = @{}
     )
     $encoding = [System.Text.UTF8Encoding]::new($false)
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -37,6 +38,10 @@ function Invoke-RealProcess {
     $startInfo.RedirectStandardError = $true
     $startInfo.StandardOutputEncoding = $encoding
     $startInfo.StandardErrorEncoding = $encoding
+    foreach ($key in @($Environment.Keys)) {
+        if ([string]::IsNullOrWhiteSpace([string]$key)) { continue }
+        $startInfo.Environment[[string]$key] = [string]$Environment[$key]
+    }
     if ($StdinPath) { $startInfo.RedirectStandardInput = $true }
     $startInfo.Arguments = (($ArgumentList | ForEach-Object {
         $arg = [string]$_

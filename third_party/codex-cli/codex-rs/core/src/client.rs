@@ -29,6 +29,7 @@ use std::sync::Mutex as StdMutex;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use codex_api::ApiError;
@@ -79,6 +80,7 @@ use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
+use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::W3cTraceContext;
 use codex_rollout_trace::CompactionTraceContext;
 use codex_rollout_trace::InferenceTraceAttempt;
@@ -91,8 +93,12 @@ use http::HeaderMap as ApiHeaderMap;
 use http::HeaderValue;
 use http::StatusCode as HttpStatusCode;
 use reqwest::StatusCode;
+use sha2::Digest;
+use sha2::Sha256;
 use std::time::Duration;
 use std::time::Instant;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
@@ -138,6 +144,9 @@ pub const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
 const RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
 const RESPONSES_ENDPOINT: &str = "/responses";
 const RESPONSES_COMPACT_ENDPOINT: &str = "/responses/compact";
+const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
+const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
+    "ContextProjectionV1 shadow (not active replacement):";
 // `/responses/compact` is unary, so the timeout covers the full response rather than one idle
 // period between stream events.
 const COMPACT_REQUEST_TIMEOUT_IDLE_MULTIPLIER: u32 = 4;
@@ -145,6 +154,925 @@ const MEMORIES_SUMMARIZE_ENDPOINT: &str = "/memories/trace_summarize";
 #[cfg(test)]
 pub(crate) const WEBSOCKET_CONNECT_TIMEOUT: Duration =
     Duration::from_millis(DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProviderRequestBudgetEvent {
+    pub(crate) request_id: String,
+    pub(crate) logical_request_id: String,
+    pub(crate) parent_request_id: Option<String>,
+    pub(crate) attempt_seq: usize,
+    pub(crate) transport: String,
+    pub(crate) status: String,
+    pub(crate) request_count_before: usize,
+    pub(crate) request_count_after: usize,
+    pub(crate) max_requests: usize,
+    pub(crate) budget_state_before: String,
+    pub(crate) budget_state_after: String,
+    pub(crate) budget_transition_reason: String,
+    pub(crate) started_at_ms: i64,
+    pub(crate) completed_at_ms: Option<i64>,
+    pub(crate) latency_ms: Option<i64>,
+    pub(crate) input_tokens: Option<i64>,
+    pub(crate) cached_input_tokens: Option<i64>,
+    pub(crate) output_tokens: Option<i64>,
+    pub(crate) reasoning_output_tokens: Option<i64>,
+    pub(crate) total_tokens: Option<i64>,
+    pub(crate) provider_payload_sha256: Option<String>,
+    pub(crate) provider_payload_bytes: Option<usize>,
+    pub(crate) provider_wire_api: Option<String>,
+    pub(crate) tools_count: Option<usize>,
+    pub(crate) tools_present: Option<bool>,
+    pub(crate) request_shape_classifier: Option<String>,
+    pub(crate) messages_hash: Option<String>,
+    pub(crate) stable_prefix_hash: Option<String>,
+    pub(crate) dynamic_suffix_hash: Option<String>,
+    pub(crate) exact_payload_scan_passed: Option<bool>,
+    pub(crate) active_projection_present: Option<bool>,
+    pub(crate) legacy_taskspace_history_present: Option<bool>,
+    pub(crate) large_raw_output_tokens: Option<usize>,
+    pub(crate) protected_items_present: Option<bool>,
+    pub(crate) replacement_confirmed: Option<bool>,
+    pub(crate) task_id: Option<String>,
+    pub(crate) map_id: Option<String>,
+    pub(crate) node_id: Option<String>,
+    pub(crate) request_phase: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ProviderRequestBudgetContext {
+    state: Arc<ProviderRequestBudgetState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProviderRequestBudgetLimits {
+    pub(crate) request_count: usize,
+    pub(crate) max_requests: usize,
+    pub(crate) node_request_count: usize,
+    pub(crate) max_model_requests_per_node: usize,
+    pub(crate) post_budget_grace_requests: usize,
+    pub(crate) post_budget_grace_request_count: usize,
+    pub(crate) budget_state: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ProviderRequestAttribution {
+    pub(crate) request_scope_id: Option<String>,
+    pub(crate) task_id: Option<String>,
+    pub(crate) map_id: Option<String>,
+    pub(crate) node_id: Option<String>,
+    pub(crate) request_phase: Option<String>,
+}
+
+#[derive(Debug)]
+struct ProviderRequestBudgetState {
+    enabled: bool,
+    count: AtomicUsize,
+    max_requests: usize,
+    node_count: AtomicUsize,
+    max_model_requests_per_node: usize,
+    post_budget_grace_requests: usize,
+    post_budget_grace_count: AtomicUsize,
+    budget_state: String,
+    attribution: ProviderRequestAttribution,
+    events: StdMutex<Vec<ProviderRequestBudgetEvent>>,
+    active_request: StdMutex<Option<ProviderRequestBudgetActiveRequest>>,
+}
+
+#[derive(Debug, Clone)]
+struct ProviderRequestBudgetActiveRequest {
+    request_id: String,
+    logical_request_id: String,
+    parent_request_id: Option<String>,
+    attempt_seq: usize,
+    transport: String,
+    request_count_before: usize,
+    request_count_after: usize,
+    budget_state_before: String,
+    budget_state_after: String,
+    budget_transition_reason: String,
+    started_at_ms: i64,
+    request_phase: Option<String>,
+    provider_payload_sha256: Option<String>,
+    provider_payload_bytes: Option<usize>,
+    provider_wire_api: Option<String>,
+    tools_count: Option<usize>,
+    tools_present: Option<bool>,
+    request_shape_classifier: Option<String>,
+    messages_hash: Option<String>,
+    stable_prefix_hash: Option<String>,
+    dynamic_suffix_hash: Option<String>,
+    payload_scan: Option<ProviderPayloadScan>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProviderPayloadScan {
+    exact_payload_scan_passed: bool,
+    active_projection_present: bool,
+    legacy_taskspace_history_present: bool,
+    large_raw_output_tokens: usize,
+    protected_items_present: bool,
+    replacement_confirmed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProviderPayloadDigest {
+    sha256: String,
+    bytes: usize,
+    provider_wire_api: String,
+    tools_count: usize,
+    tools_present: bool,
+    request_shape_classifier: String,
+    messages_hash: String,
+    stable_prefix_hash: String,
+    dynamic_suffix_hash: String,
+    scan: ProviderPayloadScan,
+}
+
+struct ProviderRequestIdentity {
+    request_id: String,
+    logical_request_id: String,
+    attempt_seq: usize,
+}
+
+fn provider_request_budget_state_for(count: usize, max_requests: usize) -> &'static str {
+    if max_requests == 0 || count >= max_requests {
+        return "hard_stopped";
+    }
+    let remaining = max_requests.saturating_sub(count);
+    if remaining <= 1 {
+        return "compact_checkpoint_required";
+    }
+    if count.saturating_mul(4) >= max_requests.saturating_mul(3) {
+        return "thin_downgraded";
+    }
+    if count.saturating_mul(2) >= max_requests {
+        return "warned";
+    }
+    "normal"
+}
+
+fn provider_request_budget_transition_reason(before: &str, after: &str) -> &'static str {
+    if before == after {
+        return "request_dispatched_without_state_change";
+    }
+    match after {
+        "warned" => "provider_request_warning_threshold_reached",
+        "thin_downgraded" => "provider_request_thin_threshold_reached",
+        "compact_checkpoint_required" => "provider_request_compact_checkpoint_required",
+        "hard_stopped" => "provider_request_budget_reached",
+        _ => "provider_request_state_transition",
+    }
+}
+
+fn provider_request_budget_allows_compact_checkpoint_dispatch(
+    attribution: &ProviderRequestAttribution,
+) -> bool {
+    matches!(
+        attribution.request_phase.as_deref(),
+        Some("final_synthesis")
+    )
+}
+
+impl ProviderRequestBudgetContext {
+    pub(crate) fn disabled() -> Self {
+        Self {
+            state: Arc::new(ProviderRequestBudgetState {
+                enabled: false,
+                count: AtomicUsize::new(0),
+                max_requests: usize::MAX,
+                node_count: AtomicUsize::new(0),
+                max_model_requests_per_node: usize::MAX,
+                post_budget_grace_requests: 0,
+                post_budget_grace_count: AtomicUsize::new(0),
+                budget_state: "disabled".to_string(),
+                attribution: ProviderRequestAttribution::default(),
+                events: StdMutex::new(Vec::new()),
+                active_request: StdMutex::new(None),
+            }),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn enabled(starting_count: usize, max_requests: usize) -> Self {
+        Self::enabled_with_attribution(
+            ProviderRequestBudgetLimits {
+                request_count: starting_count,
+                max_requests,
+                node_request_count: 0,
+                max_model_requests_per_node: usize::MAX,
+                post_budget_grace_requests: 1,
+                post_budget_grace_request_count: 0,
+                budget_state: provider_request_budget_state_for(starting_count, max_requests)
+                    .to_string(),
+            },
+            ProviderRequestAttribution::default(),
+        )
+    }
+
+    pub(crate) fn enabled_with_attribution(
+        limits: ProviderRequestBudgetLimits,
+        attribution: ProviderRequestAttribution,
+    ) -> Self {
+        Self {
+            state: Arc::new(ProviderRequestBudgetState {
+                enabled: true,
+                count: AtomicUsize::new(limits.request_count),
+                max_requests: limits.max_requests,
+                node_count: AtomicUsize::new(limits.node_request_count),
+                max_model_requests_per_node: limits.max_model_requests_per_node,
+                post_budget_grace_requests: limits.post_budget_grace_requests,
+                post_budget_grace_count: AtomicUsize::new(limits.post_budget_grace_request_count),
+                budget_state: limits.budget_state,
+                attribution,
+                events: StdMutex::new(Vec::new()),
+                active_request: StdMutex::new(None),
+            }),
+        }
+    }
+
+    fn before_dispatch(&self, transport: &str) -> Result<ProviderRequestBudgetDispatch> {
+        if !self.state.enabled {
+            return Ok(ProviderRequestBudgetDispatch::disabled());
+        }
+        let before = self.state.count.load(Ordering::SeqCst);
+        let node_before = self.state.node_count.load(Ordering::SeqCst);
+        let budget_state_before = if self.state.budget_state.trim().is_empty() {
+            provider_request_budget_state_for(before, self.state.max_requests).to_string()
+        } else {
+            self.state.budget_state.clone()
+        };
+        let compact_checkpoint_final_dispatch =
+            provider_request_budget_allows_compact_checkpoint_dispatch(&self.state.attribution);
+        let explicit_budget_recovery_dispatch = matches!(
+            self.state.attribution.request_phase.as_deref(),
+            Some("budget_recovery")
+        );
+        let grace_before = self.state.post_budget_grace_count.load(Ordering::SeqCst);
+        let node_limit_reached = node_before >= self.state.max_model_requests_per_node
+            && self.state.max_model_requests_per_node != usize::MAX;
+        let node_budget_recovery_dispatch = node_limit_reached
+            && !explicit_budget_recovery_dispatch
+            && grace_before < self.state.post_budget_grace_requests;
+        let budget_recovery_grace_available = (explicit_budget_recovery_dispatch
+            || node_budget_recovery_dispatch)
+            && grace_before < self.state.post_budget_grace_requests;
+        let compact_checkpoint_recovery_slot = budget_state_before == "compact_checkpoint_required"
+            && before + 1 >= self.state.max_requests;
+        let compact_checkpoint_blocked = budget_state_before == "compact_checkpoint_required"
+            && !compact_checkpoint_final_dispatch;
+        let compact_checkpoint_blocked =
+            compact_checkpoint_blocked && !compact_checkpoint_recovery_slot;
+        let node_budget_exhausted = node_limit_reached && !budget_recovery_grace_available;
+        if node_budget_exhausted || before >= self.state.max_requests || compact_checkpoint_blocked
+        {
+            let request_identity = self.build_request_identity(before + 1, 1);
+            let blocked_reason = if compact_checkpoint_blocked {
+                "provider_request_compact_checkpoint_required"
+            } else if node_budget_exhausted {
+                "provider_node_request_budget_exhausted"
+            } else {
+                "provider_request_budget_exhausted"
+            };
+            self.push_event(ProviderRequestBudgetEvent {
+                request_id: request_identity.request_id,
+                logical_request_id: request_identity.logical_request_id,
+                parent_request_id: None,
+                attempt_seq: request_identity.attempt_seq,
+                transport: transport.to_string(),
+                status: "blocked".to_string(),
+                request_count_before: before,
+                request_count_after: before,
+                max_requests: self.state.max_requests,
+                budget_state_before: budget_state_before.clone(),
+                budget_state_after: budget_state_before.clone(),
+                budget_transition_reason: blocked_reason.to_string(),
+                started_at_ms: provider_request_budget_now_ms(),
+                completed_at_ms: Some(provider_request_budget_now_ms()),
+                latency_ms: Some(0),
+                input_tokens: None,
+                cached_input_tokens: None,
+                output_tokens: None,
+                reasoning_output_tokens: None,
+                total_tokens: None,
+                provider_payload_sha256: None,
+                provider_payload_bytes: None,
+                provider_wire_api: None,
+                tools_count: None,
+                tools_present: None,
+                request_shape_classifier: None,
+                messages_hash: None,
+                stable_prefix_hash: None,
+                dynamic_suffix_hash: None,
+                exact_payload_scan_passed: None,
+                active_projection_present: None,
+                legacy_taskspace_history_present: None,
+                large_raw_output_tokens: None,
+                protected_items_present: None,
+                replacement_confirmed: None,
+                task_id: self.state.attribution.task_id.clone(),
+                map_id: self.state.attribution.map_id.clone(),
+                node_id: self.state.attribution.node_id.clone(),
+                request_phase: self.state.attribution.request_phase.clone(),
+            });
+            let message = if compact_checkpoint_blocked {
+                format!(
+                    "TaskSpace blocked this provider request because the active provider request budget requires a compact checkpoint or final synthesis response ({before}/{}). Enter final_synthesis or record a compact state checkpoint before requesting another model turn.",
+                    self.state.max_requests
+                )
+            } else if node_budget_exhausted {
+                format!(
+                    "TaskSpace blocked this provider request because the active node provider request budget is exhausted ({node_before}/{}). Enter budget_recovery, final_synthesis, or bind a different node before requesting another model turn.",
+                    self.state.max_model_requests_per_node
+                )
+            } else {
+                format!(
+                    "TaskSpace blocked this provider request because the active provider request budget is exhausted ({before}/{}). Enter final_synthesis or record a compact state checkpoint before requesting another model turn.",
+                    self.state.max_requests
+                )
+            };
+            return Err(CodexErr::InvalidRequest(message));
+        }
+        let after = self.state.count.fetch_add(1, Ordering::SeqCst) + 1;
+        let _node_after = self.state.node_count.fetch_add(1, Ordering::SeqCst) + 1;
+        if budget_recovery_grace_available {
+            self.state
+                .post_budget_grace_count
+                .fetch_add(1, Ordering::SeqCst);
+        }
+        let budget_state_after = provider_request_budget_state_for(after, self.state.max_requests);
+        let budget_transition_reason =
+            provider_request_budget_transition_reason(&budget_state_before, budget_state_after);
+        let request_phase = if budget_state_before == "compact_checkpoint_required"
+            && compact_checkpoint_recovery_slot
+            && !compact_checkpoint_final_dispatch
+        {
+            Some("budget_recovery".to_string())
+        } else if node_budget_recovery_dispatch {
+            Some("budget_recovery".to_string())
+        } else {
+            self.state.attribution.request_phase.clone()
+        };
+        let request_identity = self.build_request_identity(after, 1);
+        let request_id = request_identity.request_id.clone();
+        let started_at_ms = provider_request_budget_now_ms();
+        let active_request = ProviderRequestBudgetActiveRequest {
+            request_id: request_id.clone(),
+            logical_request_id: request_identity.logical_request_id.clone(),
+            parent_request_id: None,
+            attempt_seq: request_identity.attempt_seq,
+            transport: transport.to_string(),
+            request_count_before: before,
+            request_count_after: after,
+            budget_state_before: budget_state_before.clone(),
+            budget_state_after: budget_state_after.to_string(),
+            budget_transition_reason: budget_transition_reason.to_string(),
+            started_at_ms,
+            request_phase: request_phase.clone(),
+            provider_payload_sha256: None,
+            provider_payload_bytes: None,
+            provider_wire_api: None,
+            tools_count: None,
+            tools_present: None,
+            request_shape_classifier: None,
+            messages_hash: None,
+            stable_prefix_hash: None,
+            dynamic_suffix_hash: None,
+            payload_scan: None,
+        };
+        *self
+            .state
+            .active_request
+            .lock()
+            .expect("provider request budget active mutex poisoned") = Some(active_request.clone());
+        self.push_event(ProviderRequestBudgetEvent {
+            request_id: request_id.clone(),
+            logical_request_id: request_identity.logical_request_id.clone(),
+            parent_request_id: None,
+            attempt_seq: request_identity.attempt_seq,
+            transport: transport.to_string(),
+            status: "started".to_string(),
+            request_count_before: before,
+            request_count_after: after,
+            max_requests: self.state.max_requests,
+            budget_state_before: budget_state_before.clone(),
+            budget_state_after: budget_state_after.to_string(),
+            budget_transition_reason: budget_transition_reason.to_string(),
+            started_at_ms,
+            completed_at_ms: None,
+            latency_ms: None,
+            input_tokens: None,
+            cached_input_tokens: None,
+            output_tokens: None,
+            reasoning_output_tokens: None,
+            total_tokens: None,
+            provider_payload_sha256: None,
+            provider_payload_bytes: None,
+            provider_wire_api: None,
+            tools_count: None,
+            tools_present: None,
+            request_shape_classifier: None,
+            messages_hash: None,
+            stable_prefix_hash: None,
+            dynamic_suffix_hash: None,
+            exact_payload_scan_passed: None,
+            active_projection_present: None,
+            legacy_taskspace_history_present: None,
+            large_raw_output_tokens: None,
+            protected_items_present: None,
+            replacement_confirmed: None,
+            task_id: self.state.attribution.task_id.clone(),
+            map_id: self.state.attribution.map_id.clone(),
+            node_id: self.state.attribution.node_id.clone(),
+            request_phase: request_phase.clone(),
+        });
+        Ok(ProviderRequestBudgetDispatch {
+            context: Some(self.clone()),
+            request_id,
+            logical_request_id: request_identity.logical_request_id,
+            parent_request_id: None,
+            attempt_seq: request_identity.attempt_seq,
+            transport: transport.to_string(),
+            request_count_before: before,
+            request_count_after: after,
+            started_at_ms,
+            budget_state_before: budget_state_before.to_string(),
+            budget_state_after: budget_state_after.to_string(),
+            budget_transition_reason: budget_transition_reason.to_string(),
+            request_phase,
+        })
+    }
+
+    pub(crate) fn record_response_completed(&self, token_usage: Option<&TokenUsage>) {
+        self.record_active_terminal_status("response_completed", token_usage);
+    }
+
+    pub(crate) fn record_response_failed(&self) {
+        self.record_active_terminal_status("response_failed", None);
+    }
+
+    pub(crate) fn record_cancelled(&self) {
+        self.record_active_terminal_status("cancelled", None);
+    }
+
+    fn record_provider_payload(&self, payload: ProviderPayloadDigest) {
+        if !self.state.enabled {
+            return;
+        }
+        let active_request = {
+            let mut active_request = self
+                .state
+                .active_request
+                .lock()
+                .expect("provider request budget active mutex poisoned");
+            let Some(active_request) = active_request.as_mut() else {
+                return;
+            };
+            active_request.provider_payload_sha256 = Some(payload.sha256);
+            active_request.provider_payload_bytes = Some(payload.bytes);
+            active_request.provider_wire_api = Some(payload.provider_wire_api);
+            active_request.tools_count = Some(payload.tools_count);
+            active_request.tools_present = Some(payload.tools_present);
+            active_request.request_shape_classifier = Some(payload.request_shape_classifier);
+            active_request.messages_hash = Some(payload.messages_hash);
+            active_request.stable_prefix_hash = Some(payload.stable_prefix_hash);
+            active_request.dynamic_suffix_hash = Some(payload.dynamic_suffix_hash);
+            active_request.payload_scan = Some(payload.scan);
+            active_request.clone()
+        };
+        let scan = active_request.payload_scan;
+        self.push_event(ProviderRequestBudgetEvent {
+            request_id: active_request.request_id,
+            logical_request_id: active_request.logical_request_id,
+            parent_request_id: active_request.parent_request_id,
+            attempt_seq: active_request.attempt_seq,
+            transport: active_request.transport,
+            status: "payload_captured".to_string(),
+            request_count_before: active_request.request_count_before,
+            request_count_after: active_request.request_count_after,
+            max_requests: self.state.max_requests,
+            budget_state_before: active_request.budget_state_before,
+            budget_state_after: active_request.budget_state_after,
+            budget_transition_reason: active_request.budget_transition_reason,
+            started_at_ms: active_request.started_at_ms,
+            completed_at_ms: None,
+            latency_ms: None,
+            input_tokens: None,
+            cached_input_tokens: None,
+            output_tokens: None,
+            reasoning_output_tokens: None,
+            total_tokens: None,
+            provider_payload_sha256: active_request.provider_payload_sha256,
+            provider_payload_bytes: active_request.provider_payload_bytes,
+            provider_wire_api: active_request.provider_wire_api,
+            tools_count: active_request.tools_count,
+            tools_present: active_request.tools_present,
+            request_shape_classifier: active_request.request_shape_classifier,
+            messages_hash: active_request.messages_hash,
+            stable_prefix_hash: active_request.stable_prefix_hash,
+            dynamic_suffix_hash: active_request.dynamic_suffix_hash,
+            exact_payload_scan_passed: scan.as_ref().map(|scan| scan.exact_payload_scan_passed),
+            active_projection_present: scan.as_ref().map(|scan| scan.active_projection_present),
+            legacy_taskspace_history_present: scan
+                .as_ref()
+                .map(|scan| scan.legacy_taskspace_history_present),
+            large_raw_output_tokens: scan.as_ref().map(|scan| scan.large_raw_output_tokens),
+            protected_items_present: scan.as_ref().map(|scan| scan.protected_items_present),
+            replacement_confirmed: scan.as_ref().map(|scan| scan.replacement_confirmed),
+            task_id: self.state.attribution.task_id.clone(),
+            map_id: self.state.attribution.map_id.clone(),
+            node_id: self.state.attribution.node_id.clone(),
+            request_phase: active_request.request_phase,
+        });
+    }
+
+    fn record_active_terminal_status(&self, status: &str, token_usage: Option<&TokenUsage>) {
+        if !self.state.enabled {
+            return;
+        }
+        let active_request = self
+            .state
+            .active_request
+            .lock()
+            .expect("provider request budget active mutex poisoned")
+            .take();
+        if let Some(active_request) = active_request {
+            let completed_at_ms = provider_request_budget_now_ms();
+            self.push_event(ProviderRequestBudgetEvent {
+                request_id: active_request.request_id,
+                logical_request_id: active_request.logical_request_id,
+                parent_request_id: active_request.parent_request_id,
+                attempt_seq: active_request.attempt_seq,
+                transport: active_request.transport,
+                status: status.to_string(),
+                request_count_before: active_request.request_count_before,
+                request_count_after: active_request.request_count_after,
+                max_requests: self.state.max_requests,
+                budget_state_before: active_request.budget_state_before,
+                budget_state_after: active_request.budget_state_after,
+                budget_transition_reason: active_request.budget_transition_reason,
+                started_at_ms: active_request.started_at_ms,
+                completed_at_ms: Some(completed_at_ms),
+                latency_ms: Some(completed_at_ms.saturating_sub(active_request.started_at_ms)),
+                input_tokens: token_usage.map(|usage| usage.input_tokens),
+                cached_input_tokens: token_usage.map(|usage| usage.cached_input_tokens),
+                output_tokens: token_usage.map(|usage| usage.output_tokens),
+                reasoning_output_tokens: token_usage.map(|usage| usage.reasoning_output_tokens),
+                total_tokens: token_usage.map(|usage| usage.total_tokens),
+                provider_payload_sha256: active_request.provider_payload_sha256,
+                provider_payload_bytes: active_request.provider_payload_bytes,
+                provider_wire_api: active_request.provider_wire_api,
+                tools_count: active_request.tools_count,
+                tools_present: active_request.tools_present,
+                request_shape_classifier: active_request.request_shape_classifier,
+                messages_hash: active_request.messages_hash,
+                stable_prefix_hash: active_request.stable_prefix_hash,
+                dynamic_suffix_hash: active_request.dynamic_suffix_hash,
+                exact_payload_scan_passed: active_request
+                    .payload_scan
+                    .as_ref()
+                    .map(|scan| scan.exact_payload_scan_passed),
+                active_projection_present: active_request
+                    .payload_scan
+                    .as_ref()
+                    .map(|scan| scan.active_projection_present),
+                legacy_taskspace_history_present: active_request
+                    .payload_scan
+                    .as_ref()
+                    .map(|scan| scan.legacy_taskspace_history_present),
+                large_raw_output_tokens: active_request
+                    .payload_scan
+                    .as_ref()
+                    .map(|scan| scan.large_raw_output_tokens),
+                protected_items_present: active_request
+                    .payload_scan
+                    .as_ref()
+                    .map(|scan| scan.protected_items_present),
+                replacement_confirmed: active_request
+                    .payload_scan
+                    .as_ref()
+                    .map(|scan| scan.replacement_confirmed),
+                task_id: self.state.attribution.task_id.clone(),
+                map_id: self.state.attribution.map_id.clone(),
+                node_id: self.state.attribution.node_id.clone(),
+                request_phase: active_request.request_phase,
+            });
+        }
+    }
+
+    pub(crate) fn drain_events(&self) -> Vec<ProviderRequestBudgetEvent> {
+        let mut events = self
+            .state
+            .events
+            .lock()
+            .expect("provider request budget event mutex poisoned");
+        std::mem::take(&mut *events)
+    }
+
+    fn push_event(&self, event: ProviderRequestBudgetEvent) {
+        self.state
+            .events
+            .lock()
+            .expect("provider request budget event mutex poisoned")
+            .push(event);
+    }
+
+    fn build_request_identity(
+        &self,
+        logical_request_seq: usize,
+        attempt_seq: usize,
+    ) -> ProviderRequestIdentity {
+        let scope = self
+            .state
+            .attribution
+            .request_scope_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("scope-unknown");
+        let scope = sanitize_provider_request_id_part(scope);
+        let logical_request_id = format!("provider-request:{scope}:logical-{logical_request_seq}");
+        let request_id = format!("{logical_request_id}:attempt-{attempt_seq}");
+        ProviderRequestIdentity {
+            request_id,
+            logical_request_id,
+            attempt_seq,
+        }
+    }
+
+    fn active_payload_for_request(
+        &self,
+        request_id: &str,
+    ) -> Option<ProviderRequestBudgetActiveRequest> {
+        let active_request = self
+            .state
+            .active_request
+            .lock()
+            .expect("provider request budget active mutex poisoned");
+        let active_request = active_request.as_ref()?;
+        if active_request.request_id != request_id {
+            return None;
+        }
+        Some(active_request.clone())
+    }
+}
+
+#[derive(Debug)]
+struct ProviderRequestBudgetDispatch {
+    context: Option<ProviderRequestBudgetContext>,
+    request_id: String,
+    logical_request_id: String,
+    parent_request_id: Option<String>,
+    attempt_seq: usize,
+    transport: String,
+    request_count_before: usize,
+    request_count_after: usize,
+    budget_state_before: String,
+    budget_state_after: String,
+    budget_transition_reason: String,
+    started_at_ms: i64,
+    request_phase: Option<String>,
+}
+
+impl ProviderRequestBudgetDispatch {
+    fn disabled() -> Self {
+        Self {
+            context: None,
+            request_id: String::new(),
+            logical_request_id: String::new(),
+            parent_request_id: None,
+            attempt_seq: 0,
+            transport: String::new(),
+            request_count_before: 0,
+            request_count_after: 0,
+            budget_state_before: String::new(),
+            budget_state_after: String::new(),
+            budget_transition_reason: String::new(),
+            started_at_ms: 0,
+            request_phase: None,
+        }
+    }
+
+    fn record_status(&self, status: &str) {
+        if let Some(context) = &self.context {
+            let active_payload = context.active_payload_for_request(&self.request_id);
+            let payload_scan = active_payload
+                .as_ref()
+                .and_then(|active| active.payload_scan.clone());
+            context.push_event(ProviderRequestBudgetEvent {
+                request_id: self.request_id.clone(),
+                logical_request_id: self.logical_request_id.clone(),
+                parent_request_id: self.parent_request_id.clone(),
+                attempt_seq: self.attempt_seq,
+                transport: self.transport.clone(),
+                status: status.to_string(),
+                request_count_before: self.request_count_before,
+                request_count_after: self.request_count_after,
+                max_requests: context.state.max_requests,
+                budget_state_before: self.budget_state_before.clone(),
+                budget_state_after: self.budget_state_after.clone(),
+                budget_transition_reason: self.budget_transition_reason.clone(),
+                started_at_ms: self.started_at_ms,
+                completed_at_ms: None,
+                latency_ms: None,
+                input_tokens: None,
+                cached_input_tokens: None,
+                output_tokens: None,
+                reasoning_output_tokens: None,
+                total_tokens: None,
+                provider_payload_sha256: active_payload
+                    .as_ref()
+                    .and_then(|active| active.provider_payload_sha256.clone()),
+                provider_payload_bytes: active_payload
+                    .as_ref()
+                    .and_then(|active| active.provider_payload_bytes),
+                provider_wire_api: active_payload
+                    .as_ref()
+                    .and_then(|active| active.provider_wire_api.clone()),
+                tools_count: active_payload
+                    .as_ref()
+                    .and_then(|active| active.tools_count),
+                tools_present: active_payload
+                    .as_ref()
+                    .and_then(|active| active.tools_present),
+                request_shape_classifier: active_payload
+                    .as_ref()
+                    .and_then(|active| active.request_shape_classifier.clone()),
+                messages_hash: active_payload
+                    .as_ref()
+                    .and_then(|active| active.messages_hash.clone()),
+                stable_prefix_hash: active_payload
+                    .as_ref()
+                    .and_then(|active| active.stable_prefix_hash.clone()),
+                dynamic_suffix_hash: active_payload
+                    .as_ref()
+                    .and_then(|active| active.dynamic_suffix_hash.clone()),
+                exact_payload_scan_passed: payload_scan
+                    .as_ref()
+                    .map(|scan| scan.exact_payload_scan_passed),
+                active_projection_present: payload_scan
+                    .as_ref()
+                    .map(|scan| scan.active_projection_present),
+                legacy_taskspace_history_present: payload_scan
+                    .as_ref()
+                    .map(|scan| scan.legacy_taskspace_history_present),
+                large_raw_output_tokens: payload_scan
+                    .as_ref()
+                    .map(|scan| scan.large_raw_output_tokens),
+                protected_items_present: payload_scan
+                    .as_ref()
+                    .map(|scan| scan.protected_items_present),
+                replacement_confirmed: payload_scan.as_ref().map(|scan| scan.replacement_confirmed),
+                task_id: context.state.attribution.task_id.clone(),
+                map_id: context.state.attribution.map_id.clone(),
+                node_id: context.state.attribution.node_id.clone(),
+                request_phase: self.request_phase.clone(),
+            });
+        }
+    }
+
+    fn record_provider_payload(&self, payload: ProviderPayloadDigest) {
+        if let Some(context) = &self.context {
+            context.record_provider_payload(payload);
+        }
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+fn json_field_hash(value: &serde_json::Value, field: &str) -> String {
+    value
+        .get(field)
+        .and_then(|field_value| serde_json::to_vec(field_value).ok())
+        .map(|bytes| sha256_hex(&bytes))
+        .unwrap_or_else(|| sha256_hex(b"null"))
+}
+
+#[cfg(test)]
+fn provider_payload_digest<T: serde::Serialize>(payload: &T) -> Option<ProviderPayloadDigest> {
+    provider_payload_digest_for_wire(payload, codex_api::WireApi::Responses)
+}
+
+fn provider_payload_digest_for_wire<T: serde::Serialize>(
+    payload: &T,
+    provider_wire_api: codex_api::WireApi,
+) -> Option<ProviderPayloadDigest> {
+    let bytes = serde_json::to_vec(payload).ok()?;
+    let value = serde_json::to_value(payload).ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    let tools_count = value
+        .get("tools")
+        .and_then(|tools| tools.as_array())
+        .map(|tools| tools.len())
+        .unwrap_or(0);
+    let tools_present = tools_count > 0;
+    let request_shape_classifier = if tools_present {
+        "native_tools_schema_hot_path"
+    } else {
+        "tool_free_action_contract"
+    };
+    let active_projection_present = text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER);
+    let legacy_taskspace_history_present = text.contains(TASKSPACE_SHADOW_PROJECTION_MARKER)
+        || text.contains("TaskSpace Bootstrap")
+        || text.contains("TaskSpace ContextProjectionV1 shadow update");
+    let active_projection_block = text
+        .split(TASKSPACE_ACTIVE_PROJECTION_MARKER)
+        .nth(1)
+        .unwrap_or_default();
+    let protected_items_present = active_projection_block.contains("- protected")
+        || active_projection_block.contains("protected_item")
+        || active_projection_block.contains("protected item")
+        || active_projection_block.contains("protected evidence");
+    let large_raw_output_tokens = estimate_large_raw_output_tokens(&value);
+    let replacement_confirmed = active_projection_present
+        && !legacy_taskspace_history_present
+        && large_raw_output_tokens == 0;
+    Some(ProviderPayloadDigest {
+        sha256: sha256_hex(&bytes),
+        bytes: bytes.len(),
+        provider_wire_api: format!("{provider_wire_api:?}"),
+        tools_count,
+        tools_present,
+        request_shape_classifier: request_shape_classifier.to_string(),
+        messages_hash: json_field_hash(&value, "input"),
+        stable_prefix_hash: json_field_hash(&value, "instructions"),
+        dynamic_suffix_hash: json_field_hash(&value, "input"),
+        scan: ProviderPayloadScan {
+            exact_payload_scan_passed: replacement_confirmed,
+            active_projection_present,
+            legacy_taskspace_history_present,
+            large_raw_output_tokens,
+            protected_items_present,
+            replacement_confirmed,
+        },
+    })
+}
+
+fn estimate_large_raw_output_tokens(value: &serde_json::Value) -> usize {
+    const LARGE_RAW_OUTPUT_BYTES: usize = 50 * 1024;
+    fn walk(value: &serde_json::Value, inside_tool_output: bool, threshold: usize) -> usize {
+        match value {
+            serde_json::Value::Object(object) => {
+                let item_type = object
+                    .get("type")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default();
+                let is_tool_output = inside_tool_output
+                    || matches!(
+                        item_type,
+                        "function_call_output"
+                            | "custom_tool_call_output"
+                            | "tool_search_output"
+                            | "mcp_tool_call_output"
+                    );
+                object
+                    .values()
+                    .map(|value| walk(value, is_tool_output, threshold))
+                    .sum()
+            }
+            serde_json::Value::Array(items) => items
+                .iter()
+                .map(|value| walk(value, inside_tool_output, threshold))
+                .sum(),
+            serde_json::Value::String(text) if inside_tool_output && text.len() > threshold => {
+                if text.contains("OutputReferenceV1:") && text.contains("raw_output_elided: true") {
+                    0
+                } else {
+                    text.len() / 4
+                }
+            }
+            _ => 0,
+        }
+    }
+    walk(value, false, LARGE_RAW_OUTPUT_BYTES)
+}
+
+fn sanitize_provider_request_id_part(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    if sanitized.is_empty() {
+        "scope-unknown".to_string()
+    } else {
+        sanitized
+    }
+}
+
+fn provider_request_budget_now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or_default()
+}
 
 /// Session-scoped state shared by all [`ModelClient`] clones.
 ///
@@ -846,7 +1774,7 @@ impl ModelClientSession {
         let input = prompt.get_formatted_input();
         let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let default_reasoning_effort = model_info.default_reasoning_level;
-        let reasoning = if model_info.supports_reasoning_summaries {
+        let mut reasoning = if model_info.supports_reasoning_summaries {
             Some(Reasoning {
                 effort: effort.or(default_reasoning_effort),
                 summary: if summary == ReasoningSummaryConfig::None {
@@ -865,6 +1793,14 @@ impl ModelClientSession {
         } else {
             None
         };
+        if provider.wire_api == codex_api::WireApi::ChatCompletions
+            && prompt.tool_choice == "required"
+        {
+            reasoning = Some(Reasoning {
+                effort: Some(ReasoningEffortConfig::None),
+                summary: None,
+            });
+        }
         let include = if model_info.supports_reasoning_summaries && reasoning.is_some() {
             vec!["reasoning.encrypted_content".to_string()]
         } else {
@@ -895,7 +1831,7 @@ impl ModelClientSession {
             instructions: instructions.clone(),
             input,
             tools,
-            tool_choice: "auto".to_string(),
+            tool_choice: prompt.tool_choice.clone(),
             parallel_tool_calls: prompt.parallel_tool_calls,
             reasoning,
             store: provider.is_azure_responses_endpoint(),
@@ -1178,6 +2114,7 @@ impl ModelClientSession {
         service_tier: Option<ServiceTier>,
         turn_metadata_header: Option<&str>,
         inference_trace: &InferenceTraceContext,
+        provider_request_budget: &ProviderRequestBudgetContext,
     ) -> Result<ResponseStream> {
         if let Some(path) = &*CODEX_RS_SSE_FIXTURE {
             warn!(path, "Streaming from fixture");
@@ -1226,16 +2163,22 @@ impl ModelClientSession {
             )?;
             let inference_trace_attempt = inference_trace.start_attempt();
             inference_trace_attempt.record_started(&request);
+            let provider_wire_api = client_setup.api_provider.wire_api;
             let client = ApiResponsesClient::new(
                 transport,
                 client_setup.api_provider,
                 client_setup.api_auth,
             )
             .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
+            let budget_dispatch = provider_request_budget.before_dispatch("responses_http")?;
+            if let Some(payload) = provider_payload_digest_for_wire(&request, provider_wire_api) {
+                budget_dispatch.record_provider_payload(payload);
+            }
             let stream_result = client.stream_request(request, options).await;
 
             match stream_result {
                 Ok(stream) => {
+                    budget_dispatch.record_status("stream_opened");
                     let (stream, _) = map_response_stream(
                         stream,
                         session_telemetry.clone(),
@@ -1246,6 +2189,7 @@ impl ModelClientSession {
                 Err(ApiError::Transport(
                     unauthorized_transport @ TransportError::Http { status, .. },
                 )) if status == StatusCode::UNAUTHORIZED => {
+                    budget_dispatch.record_status("retry_unauthorized");
                     inference_trace_attempt.record_failed(&unauthorized_transport);
                     pending_retry = PendingUnauthorizedRetry::from_recovery(
                         handle_unauthorized(
@@ -1259,6 +2203,7 @@ impl ModelClientSession {
                 }
                 Err(err) => {
                     let err = map_api_error(err);
+                    budget_dispatch.record_status("failed");
                     inference_trace_attempt.record_failed(&err);
                     return Err(err);
                 }
@@ -1293,6 +2238,7 @@ impl ModelClientSession {
         warmup: bool,
         request_trace: Option<W3cTraceContext>,
         inference_trace: &InferenceTraceContext,
+        provider_request_budget: &ProviderRequestBudgetContext,
     ) -> Result<WebsocketStreamOutcome> {
         let auth_manager = self.client.state.provider.auth_manager();
 
@@ -1328,6 +2274,12 @@ impl ModelClientSession {
             if warmup {
                 ws_payload.generate = Some(false);
             }
+            let budget_dispatch = if warmup {
+                ProviderRequestBudgetDispatch::disabled()
+            } else {
+                provider_request_budget.before_dispatch("responses_websocket")?
+            };
+            let provider_wire_api = client_setup.api_provider.wire_api;
 
             match self
                 .websocket_connection(WebsocketConnectParams {
@@ -1381,14 +2333,20 @@ impl ModelClientSession {
                         "websocket connection is unavailable".to_string(),
                     ))
                 })?;
+            if let Some(payload) = provider_payload_digest_for_wire(&ws_request, provider_wire_api)
+            {
+                budget_dispatch.record_provider_payload(payload);
+            }
             let stream_result = websocket_connection
                 .stream_request(ws_request, self.websocket_session.connection_reused())
                 .await
                 .map_err(|err| {
                     let err = map_api_error(err);
+                    budget_dispatch.record_status("failed");
                     inference_trace_attempt.record_failed(&err);
                     err
                 })?;
+            budget_dispatch.record_status("stream_opened");
             let (stream, last_request_rx) = map_response_stream(
                 stream_result,
                 session_telemetry.clone(),
@@ -1453,6 +2411,7 @@ impl ModelClientSession {
         }
 
         let disabled_trace = InferenceTraceContext::disabled();
+        let disabled_budget = ProviderRequestBudgetContext::disabled();
         match self
             .stream_responses_websocket(
                 prompt,
@@ -1465,6 +2424,7 @@ impl ModelClientSession {
                 /*warmup*/ true,
                 current_span_w3c_trace_context(),
                 &disabled_trace,
+                &disabled_budget,
             )
             .await
         {
@@ -1507,6 +2467,34 @@ impl ModelClientSession {
         turn_metadata_header: Option<&str>,
         inference_trace: &InferenceTraceContext,
     ) -> Result<ResponseStream> {
+        let provider_request_budget = ProviderRequestBudgetContext::disabled();
+        self.stream_with_provider_request_budget(
+            prompt,
+            model_info,
+            session_telemetry,
+            effort,
+            summary,
+            service_tier,
+            turn_metadata_header,
+            inference_trace,
+            &provider_request_budget,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn stream_with_provider_request_budget(
+        &mut self,
+        prompt: &Prompt,
+        model_info: &ModelInfo,
+        session_telemetry: &SessionTelemetry,
+        effort: Option<ReasoningEffortConfig>,
+        summary: ReasoningSummaryConfig,
+        service_tier: Option<ServiceTier>,
+        turn_metadata_header: Option<&str>,
+        inference_trace: &InferenceTraceContext,
+        provider_request_budget: &ProviderRequestBudgetContext,
+    ) -> Result<ResponseStream> {
         let wire_api = self.client.state.provider.info().wire_api;
         match wire_api {
             WireApi::Responses => {
@@ -1524,6 +2512,7 @@ impl ModelClientSession {
                             /*warmup*/ false,
                             request_trace,
                             inference_trace,
+                            provider_request_budget,
                         )
                         .await?
                     {
@@ -1543,6 +2532,7 @@ impl ModelClientSession {
                     service_tier,
                     turn_metadata_header,
                     inference_trace,
+                    provider_request_budget,
                 )
                 .await
             }
@@ -1556,6 +2546,7 @@ impl ModelClientSession {
                     service_tier,
                     turn_metadata_header,
                     inference_trace,
+                    provider_request_budget,
                 )
                 .await
             }

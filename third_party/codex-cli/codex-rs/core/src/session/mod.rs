@@ -14,6 +14,9 @@ use crate::action_map::ActionClass;
 use crate::action_map::ActionMapAssignment;
 use crate::action_map::ActionMapFinishNodeOutcome;
 use crate::action_map::ActionMapNextNodeDraft;
+use crate::action_map::ActionMapProviderRequestBudgetEventInput;
+use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
+use crate::action_map::ActionMapProviderResponseActionabilityInput;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::NodeKind;
 use crate::action_map::ToolActionDescriptor;
@@ -24,6 +27,7 @@ use crate::agent::MailboxReceiver;
 use crate::agent::agent_status_from_event;
 use crate::agent::status::is_final;
 use crate::build_available_skills;
+use crate::client::ProviderRequestBudgetEvent;
 use crate::commit_attribution::commit_message_trailer_instruction;
 use crate::compact;
 use crate::config::ManagedFeatures;
@@ -990,6 +994,30 @@ impl Session {
         }
     }
 
+    pub(crate) async fn action_map_current_main_node_progress_signature(&self) -> Option<usize> {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .current_main_node_progress_signature()
+    }
+
+    pub(crate) async fn action_map_current_main_node_has_successful_action(
+        &self,
+        action_class: ActionClass,
+    ) -> bool {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .current_main_node_has_successful_action(action_class)
+    }
+
+    pub(crate) async fn action_map_has_accepted_successful_validation_result(&self) -> bool {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .active_map_has_accepted_successful_validation_result()
+    }
+
     pub(crate) async fn record_action_map_main_tool_result(
         &self,
         turn_context: &TurnContext,
@@ -1047,6 +1075,218 @@ impl Session {
         if let Some(events) = events {
             self.emit_action_map_events_for_turn(turn_context, events)
                 .await;
+        }
+    }
+
+    pub(crate) async fn action_map_provider_request_budget_snapshot(
+        &self,
+    ) -> Option<ActionMapProviderRequestBudgetSnapshot> {
+        let state = self.state.lock().await;
+        state.action_map_runtime.provider_request_budget_snapshot()
+    }
+
+    pub(crate) async fn record_action_map_provider_request_budget_events(
+        &self,
+        turn_context: &TurnContext,
+        snapshot: ActionMapProviderRequestBudgetSnapshot,
+        events: Vec<ProviderRequestBudgetEvent>,
+    ) {
+        if events.is_empty() {
+            return;
+        }
+        for event in events.iter() {
+            if Self::should_emit_provider_budget_warning(event) {
+                self.send_event(
+                    turn_context,
+                    EventMsg::Warning(WarningEvent {
+                        message: format!(
+                            "TaskSpaceProviderRequestBudgetEventV1 status={} request_count={}->{} max={} state={}->{} phase={} node_kind={} transport={} reason={}",
+                            event.status,
+                            event.request_count_before,
+                            event.request_count_after,
+                            event.max_requests,
+                            event.budget_state_before,
+                            event.budget_state_after,
+                            event.request_phase.as_deref().unwrap_or("unknown"),
+                            snapshot.node_kind.as_deref().unwrap_or("unknown"),
+                            event.transport,
+                            event.budget_transition_reason,
+                        ),
+                    }),
+                )
+                .await;
+            }
+        }
+        let inputs = events
+            .into_iter()
+            .map(|event| ActionMapProviderRequestBudgetEventInput {
+                request_id: event.request_id,
+                logical_request_id: event.logical_request_id,
+                parent_request_id: event.parent_request_id,
+                attempt_seq: event.attempt_seq,
+                transport: event.transport,
+                status: event.status,
+                request_count_before: event.request_count_before,
+                request_count_after: event.request_count_after,
+                max_requests: event.max_requests,
+                budget_state_before: event.budget_state_before,
+                budget_state_after: event.budget_state_after,
+                budget_transition_reason: event.budget_transition_reason,
+                started_at_ms: event.started_at_ms,
+                completed_at_ms: event.completed_at_ms,
+                latency_ms: event.latency_ms,
+                input_tokens: event.input_tokens,
+                cached_input_tokens: event.cached_input_tokens,
+                output_tokens: event.output_tokens,
+                reasoning_output_tokens: event.reasoning_output_tokens,
+                total_tokens: event.total_tokens,
+                provider_payload_sha256: event.provider_payload_sha256,
+                provider_payload_bytes: event.provider_payload_bytes,
+                provider_wire_api: event.provider_wire_api,
+                tools_count: event.tools_count,
+                tools_present: event.tools_present,
+                request_shape_classifier: event.request_shape_classifier,
+                messages_hash: event.messages_hash,
+                stable_prefix_hash: event.stable_prefix_hash,
+                dynamic_suffix_hash: event.dynamic_suffix_hash,
+                exact_payload_scan_passed: event.exact_payload_scan_passed,
+                active_projection_present: event.active_projection_present,
+                legacy_taskspace_history_present: event.legacy_taskspace_history_present,
+                large_raw_output_tokens: event.large_raw_output_tokens,
+                protected_items_present: event.protected_items_present,
+                replacement_confirmed: event.replacement_confirmed,
+                task_id: event.task_id,
+                map_id: event.map_id,
+                node_id: event.node_id,
+                request_phase: event.request_phase,
+            })
+            .collect::<Vec<_>>();
+        let runtime_events = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .record_provider_request_budget_events(&snapshot, inputs)
+        };
+        if let Some(runtime_events) = runtime_events {
+            self.emit_action_map_events_for_turn(turn_context, runtime_events)
+                .await;
+        }
+    }
+
+    pub(crate) async fn record_action_map_provider_response_actionability(
+        &self,
+        turn_context: &TurnContext,
+        snapshot: ActionMapProviderRequestBudgetSnapshot,
+        input: ActionMapProviderResponseActionabilityInput,
+    ) {
+        if Self::should_emit_provider_response_actionability_warning(&snapshot, &input) {
+            self.send_event(
+                turn_context,
+                EventMsg::Warning(WarningEvent {
+                    message: format!(
+                        "TaskSpaceProviderResponseActionabilityV1 actionability={} recovery_action={} request_count={}/{} phase={} node_kind={} assistant_message_present={} saw_actionable_output={} end_turn={} preview={}",
+                        input.response_actionability,
+                        input.recovery_action,
+                        snapshot.request_count,
+                        snapshot.max_requests,
+                        snapshot.request_phase.as_deref().unwrap_or("unknown"),
+                        snapshot.node_kind.as_deref().unwrap_or("unknown"),
+                        input.assistant_message_present,
+                        input.saw_actionable_output,
+                        input.end_turn
+                            .map(|value| value.to_string())
+                            .unwrap_or_else(|| "unknown".to_string()),
+                        input.last_agent_message_preview.as_deref().unwrap_or(""),
+                    ),
+                }),
+            )
+            .await;
+        }
+        let runtime_events = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .record_provider_response_actionability(&snapshot, input)
+        };
+        if let Some(runtime_events) = runtime_events {
+            self.emit_action_map_events_for_turn(turn_context, runtime_events)
+                .await;
+        }
+    }
+
+    pub(crate) async fn force_finish_action_map_inspect_for_provider_budget(
+        &self,
+        turn_context: &TurnContext,
+        snapshot: ActionMapProviderRequestBudgetSnapshot,
+        trigger: &str,
+    ) -> Result<bool, String> {
+        let result = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .force_finish_inspect_for_provider_budget(self.conversation_id, &snapshot, trigger)
+        }?;
+        if let Some((outcome, events)) = result {
+            self.send_event(
+                turn_context,
+                EventMsg::Warning(WarningEvent {
+                    message: format!(
+                        "TaskSpaceForcedInspectTransitionV1 trigger={} request_count={}/{} source_node_id={} next_node_id={} result_id={}",
+                        trigger,
+                        snapshot.request_count,
+                        snapshot.max_requests,
+                        snapshot.node_id.as_deref().unwrap_or("unknown"),
+                        outcome.next_node_id.as_deref().unwrap_or("none"),
+                        outcome.result_id,
+                    ),
+                }),
+            )
+            .await;
+            self.emit_action_map_events_for_turn(turn_context, events)
+                .await;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    pub(crate) async fn force_finish_action_map_implement_for_provider_budget(
+        &self,
+        turn_context: &TurnContext,
+        snapshot: ActionMapProviderRequestBudgetSnapshot,
+        trigger: &str,
+    ) -> Result<bool, String> {
+        let result = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .force_finish_implement_for_provider_budget(
+                    self.conversation_id,
+                    &snapshot,
+                    trigger,
+                )
+        }?;
+        if let Some((outcome, events)) = result {
+            self.send_event(
+                turn_context,
+                EventMsg::Warning(WarningEvent {
+                    message: format!(
+                        "TaskSpaceForcedImplementTransitionV1 trigger={} request_count={}/{} source_node_id={} next_node_id={} result_id={}",
+                        trigger,
+                        snapshot.request_count,
+                        snapshot.max_requests,
+                        snapshot.node_id.as_deref().unwrap_or("unknown"),
+                        outcome.next_node_id.as_deref().unwrap_or("none"),
+                        outcome.result_id,
+                    ),
+                }),
+            )
+            .await;
+            self.emit_action_map_events_for_turn(turn_context, events)
+                .await;
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 
@@ -1800,6 +2040,24 @@ impl Session {
             )
             .await;
         }
+    }
+
+    fn should_emit_provider_budget_warning(event: &ProviderRequestBudgetEvent) -> bool {
+        matches!(
+            event.status.as_str(),
+            "blocked" | "failed" | "response_failed" | "cancelled"
+        ) || event.budget_state_before != "normal"
+            || event.budget_state_after != "normal"
+            || event.request_count_after.saturating_mul(2) >= event.max_requests
+    }
+
+    fn should_emit_provider_response_actionability_warning(
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        input: &ActionMapProviderResponseActionabilityInput,
+    ) -> bool {
+        input.recovery_action != "none"
+            || input.response_actionability != "final_candidate"
+            || snapshot.request_count.saturating_mul(2) >= snapshot.max_requests
     }
 
     async fn emit_action_map_snapshot_for_turn(&self, turn_context: &TurnContext) {
@@ -3503,6 +3761,7 @@ impl Session {
         turn_context: &TurnContext,
     ) -> Vec<ResponseItem> {
         let mut developer_sections = Vec::<String>::with_capacity(8);
+        let mut taskspace_developer_sections = Vec::<String>::with_capacity(2);
         let mut contextual_user_sections = Vec::<String>::with_capacity(2);
         let shell = self.user_shell();
         let (
@@ -3571,18 +3830,14 @@ impl Session {
         {
             developer_sections.push(collab_instructions.render());
         }
-        if let Some(action_map_transition_notice) = {
+        let action_map_transition_notice = {
             let mut state = self.state.lock().await;
             state.action_map_runtime.take_pending_transition_notice()
-        } {
-            developer_sections.push(action_map_transition_notice);
-        }
-        if let Some(action_map_context) = {
-            let state = self.state.lock().await;
+        };
+        let action_map_context = {
+            let mut state = self.state.lock().await;
             state.action_map_runtime.build_developer_context()
-        } {
-            developer_sections.push(action_map_context);
-        }
+        };
         if let Some(realtime_update) = crate::context_manager::updates::build_initial_realtime_item(
             reference_context_item.as_ref(),
             previous_turn_settings.as_ref(),
@@ -3661,6 +3916,14 @@ impl Session {
         {
             developer_sections.push(commit_message_instruction);
         }
+        // TaskSpace context changes frequently. Keep it in a separate developer
+        // item so legacy TaskSpace filtering cannot drop stable developer text.
+        if let Some(action_map_transition_notice) = action_map_transition_notice {
+            taskspace_developer_sections.push(action_map_transition_notice);
+        }
+        if let Some(action_map_context) = action_map_context {
+            taskspace_developer_sections.push(action_map_context);
+        }
         if let Some(user_instructions) = turn_context.user_instructions.as_deref() {
             contextual_user_sections.push(
                 UserInstructions {
@@ -3683,11 +3946,18 @@ impl Session {
             );
         }
 
-        let mut items = Vec::with_capacity(3);
+        let mut items = Vec::with_capacity(4);
         if let Some(developer_message) =
             crate::context_manager::updates::build_developer_update_item(developer_sections)
         {
             items.push(developer_message);
+        }
+        if let Some(taskspace_developer_message) =
+            crate::context_manager::updates::build_developer_update_item(
+                taskspace_developer_sections,
+            )
+        {
+            items.push(taskspace_developer_message);
         }
         if let Some(contextual_user_message) =
             crate::context_manager::updates::build_contextual_user_message(contextual_user_sections)
@@ -3769,7 +4039,7 @@ impl Session {
         };
         if !should_inject_full_context
             && let Some(action_map_context) = {
-                let state = self.state.lock().await;
+                let mut state = self.state.lock().await;
                 state.action_map_runtime.build_developer_context()
             }
             && let Some(item) = crate::context_manager::updates::build_developer_update_item(vec![

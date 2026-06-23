@@ -27,7 +27,7 @@
 
 ```text
 experiment_level: E1 | E2 | E3 | E3-candidate | E4 | E5
-sample_set_id: <docs/experiments 中登记的样本集 id>
+sample_set_id: <数据集名称_子集名称_sample数量_repeats次数>
 sample_names: <样本名列表>
 repeats_per_sample: <每个样本重复次数>
 runner_family: internal-matrix | terminal-bench | deepswe | historical-whale | release-calibration | product-benchmark

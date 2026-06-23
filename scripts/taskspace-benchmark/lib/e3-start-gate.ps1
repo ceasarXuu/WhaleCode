@@ -1,5 +1,6 @@
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "calibration-gate.ps1")
+. (Join-Path $PSScriptRoot "e3-identity.ps1")
 
 function Invoke-TaskspaceGateCommand {
     param(
@@ -70,6 +71,18 @@ function New-TaskspaceE3GateRow {
     [pscustomobject]@{ name = $Name; status = $Status; reason = $Reason; stable_code = $StableCode; message = $Message }
 }
 
+function Get-TaskspaceStartGateFileSha256 {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return "" }
+    (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Test-TaskspaceStartGateEvidencePath {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path) -or $Path -like "*://*") { return $false }
+    Test-Path -LiteralPath $Path -PathType Leaf
+}
+
 function New-TaskspaceE3GateDecision {
     param($Gate, [string]$Phase = "R1", [string]$TaskListHash = "", [string]$SourceVersion = "", [string]$ProfileHash = "")
     $passed = ($Gate -and [string]$Gate.status -eq "pass")
@@ -82,15 +95,24 @@ function New-TaskspaceE3GateDecision {
         $speedClaimAllowed = $calibrationPass -and [bool]$Gate.calibration_gate.speed_claim_allowed
     }
     $calibrationFailed = $false
+    $v005MarkersPass = $true
     if ($Gate -and $Gate.gates) {
         $calibrationFailed = @($Gate.gates | Where-Object { [string]$_.status -eq "fail" -and [string]$_.name -like "calibration_*" }).Count -gt 0
+        $v005MarkerRows = @($Gate.gates | Where-Object { [string]$_.name -like "v005_*" })
+        if ($v005MarkerRows.Count -gt 0) {
+            $v005MarkersPass = @($v005MarkerRows | Where-Object { [string]$_.status -ne "pass" }).Count -eq 0
+        }
     }
+    $fullE3Allowed = $passed -and $fullE3Allowed -and $v005MarkersPass
+    $speedClaimAllowed = $passed -and $speedClaimAllowed
     $nextCategory = if (-not $passed -and $calibrationFailed) {
         "serial_calibration"
     } elseif (-not $passed) {
         "fixture_tests"
     } elseif ($fullE3Allowed) {
         "full_e3"
+    } elseif (-not $v005MarkersPass) {
+        "targeted_diagnostic"
     } else {
         "serial_calibration"
     }
@@ -102,12 +124,169 @@ function New-TaskspaceE3GateDecision {
         full_e3_allowed = $fullE3Allowed
         speed_claim_allowed = $speedClaimAllowed
         calibration_gate_passed = $calibrationPass
+        v005_markers_passed = $v005MarkersPass
         task_list_hash = $TaskListHash
         source_version = $SourceVersion
         profile_hash = $ProfileHash
         blocking_reasons = @(@($Gate.gates | Where-Object { [string]$_.status -eq "fail" } | ForEach-Object { [string]$_.stable_code }))
         generated_at = (Get-Date).ToString("o")
     }
+}
+
+function Get-TaskspaceV005MarkerGate {
+    param(
+        [string]$Name,
+        [string]$Path,
+        [string]$MissingCode,
+        [string]$ExpectedTaskListHash = "",
+        [string]$ExpectedSourceVersion = "",
+        [string]$ExpectedProfileHash = "",
+        [string]$ExpectedSampleSetId = ""
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name path not set" $MissingCode "$Name marker path was not provided."
+    }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name missing" $MissingCode "Marker not found: $Path"
+    }
+    try {
+        $marker = Get-Content -Raw -Encoding UTF8 -LiteralPath $Path | ConvertFrom-Json
+    } catch {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name malformed" "$Name`_malformed" "Marker is not valid JSON: $Path"
+    }
+    if ([string]$marker.status -ne "pass") {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name status is not pass" "$Name`_status_not_pass" "Marker status must be pass: $Path"
+    }
+    if ([int]$marker.schema_version -ne 1) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name schema_version invalid" "$Name`_schema_invalid" "Marker schema_version must be 1: $Path"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$marker.generated_at)) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name generated_at missing" "$Name`_generated_at_missing" "Marker generated_at is required: $Path"
+    }
+    try {
+        $generatedAt = [datetimeoffset]::Parse([string]$marker.generated_at)
+    } catch {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name generated_at invalid" "$Name`_generated_at_invalid" "Marker generated_at must be parseable: $Path"
+    }
+    if ($generatedAt -lt (Get-Date).AddHours(-24)) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name generated_at stale" "$Name`_generated_at_stale" "Marker is older than 24 hours: $Path"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$marker.producer)) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name producer missing" "$Name`_producer_missing" "Marker producer is required: $Path"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedTaskListHash) -and [string]$marker.task_list_hash -ne $ExpectedTaskListHash) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name task_list_hash mismatch" "$Name`_task_list_hash_mismatch" "Marker task_list_hash does not match expected identity: $Path"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedSourceVersion) -and [string]$marker.source_version -ne $ExpectedSourceVersion) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name source_version mismatch" "$Name`_source_version_mismatch" "Marker source_version does not match expected identity: $Path"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedProfileHash) -and [string]$marker.profile_hash -ne $ExpectedProfileHash) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name profile_hash mismatch" "$Name`_profile_hash_mismatch" "Marker profile_hash does not match expected identity: $Path"
+    }
+    $repoRootForMarker = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
+    $currentHead = (& git -C $repoRootForMarker rev-parse HEAD 2>$null)
+    if ([string]::IsNullOrWhiteSpace([string]$currentHead)) {
+        return New-TaskspaceE3GateRow $Name "blocked" "$Name current HEAD unavailable" "$Name`_current_head_unavailable" "Cannot bind marker to current git HEAD: $Path"
+    }
+    if ([string]$Name -eq "v005_non_agent_gates") {
+        $required = @(
+            "provider_request_hook",
+            "runtime_budget_response",
+            "budget_quality_impact",
+            "active_context_replacement",
+            "state_commit_displacement",
+            "spawn_node_budget",
+            "request_phase_attribution",
+            "release_decision_fixture",
+            "start_gate_fixture"
+        )
+        foreach ($gateName in $required) {
+            $gateValue = $null
+            if ($marker.PSObject.Properties.Name -contains "gates") {
+                $gateValue = $marker.gates.$gateName
+            }
+            $gateStatus = if ($gateValue -and $gateValue.PSObject.Properties.Name -contains "status") { [string]$gateValue.status } else { [string]$gateValue }
+            if ($gateStatus -ne "pass") {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName not pass" "$Name`_$gateName`_not_pass" "Non-agent gate $gateName must be pass: $Path"
+            }
+            if (-not ($gateValue -and $gateValue.PSObject.Properties.Name -contains "evidence_path") -or [string]::IsNullOrWhiteSpace([string]$gateValue.evidence_path)) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName evidence missing" "$Name`_$gateName`_evidence_missing" "Non-agent gate $gateName must include evidence_path: $Path"
+            }
+            if (-not (Test-TaskspaceStartGateEvidencePath ([string]$gateValue.evidence_path))) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName evidence path invalid" "$Name`_$gateName`_evidence_path_invalid" "Non-agent gate $gateName evidence_path must be a local file: $Path"
+            }
+            $gateExitCode = if ($gateValue.PSObject.Properties.Name -contains "exit_code") { [int]$gateValue.exit_code } else { -999 }
+            if ($gateExitCode -ne 0) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName exit_code not zero" "$Name`_$gateName`_exit_code_nonzero" "Non-agent gate $gateName must include exit_code=0: $Path"
+            }
+            if ([string]::IsNullOrWhiteSpace([string]$gateValue.command)) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName command missing" "$Name`_$gateName`_command_missing" "Non-agent gate $gateName must include command: $Path"
+            }
+            if ([string]::IsNullOrWhiteSpace([string]$gateValue.git_commit)) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName git_commit missing" "$Name`_$gateName`_git_commit_missing" "Non-agent gate $gateName must include git_commit: $Path"
+            }
+            if ([string]$gateValue.git_commit -ne [string]$currentHead) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName git_commit mismatch" "$Name`_$gateName`_git_commit_mismatch" "Non-agent gate $gateName git_commit must match current HEAD: $Path"
+            }
+            if ([string]::IsNullOrWhiteSpace([string]$gateValue.profile_hash) -or (-not [string]::IsNullOrWhiteSpace($ExpectedProfileHash) -and [string]$gateValue.profile_hash -ne $ExpectedProfileHash)) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName profile_hash mismatch" "$Name`_$gateName`_profile_hash_mismatch" "Non-agent gate $gateName profile_hash must match expected identity: $Path"
+            }
+            if ([string]::IsNullOrWhiteSpace([string]$gateValue.task_list_hash) -or (-not [string]::IsNullOrWhiteSpace($ExpectedTaskListHash) -and [string]$gateValue.task_list_hash -ne $ExpectedTaskListHash)) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName task_list_hash mismatch" "$Name`_$gateName`_task_list_hash_mismatch" "Non-agent gate $gateName task_list_hash must match expected identity: $Path"
+            }
+            if ([string]::IsNullOrWhiteSpace([string]$gateValue.source_version) -or (-not [string]::IsNullOrWhiteSpace($ExpectedSourceVersion) -and [string]$gateValue.source_version -ne $ExpectedSourceVersion)) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName source_version mismatch" "$Name`_$gateName`_source_version_mismatch" "Non-agent gate $gateName source_version must match expected identity: $Path"
+            }
+            if ([string]::IsNullOrWhiteSpace([string]$gateValue.evidence_sha256)) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName evidence_sha256 missing" "$Name`_$gateName`_evidence_sha256_missing" "Non-agent gate $gateName must include evidence_sha256: $Path"
+            }
+            $actualEvidenceSha = Get-TaskspaceStartGateFileSha256 ([string]$gateValue.evidence_path)
+            if ($actualEvidenceSha -ne ([string]$gateValue.evidence_sha256).ToLowerInvariant()) {
+                return New-TaskspaceE3GateRow $Name "blocked" "$Name gate $gateName evidence_sha256 mismatch" "$Name`_$gateName`_evidence_sha256_mismatch" "Non-agent gate $gateName evidence_sha256 must match local file: $Path"
+            }
+        }
+    } elseif ([string]$Name -eq "v005_code_complete") {
+        if (-not [bool]$marker.code_complete) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name code_complete false" "$Name`_code_complete_false" "Code-complete marker must set code_complete=true: $Path"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedSampleSetId) -and [string]$marker.sample_set_id -ne $ExpectedSampleSetId) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name sample_set_id mismatch" "$Name`_sample_set_mismatch" "Code-complete marker sample_set_id does not match expected sample set: $Path"
+        }
+        if (@($marker.test_outputs).Count -eq 0) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name test_outputs missing" "$Name`_test_outputs_missing" "Code-complete marker must record non-agent test outputs: $Path"
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$marker.git_commit)) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name git_commit missing" "$Name`_git_commit_missing" "Code-complete marker must record git_commit: $Path"
+        }
+        if ([string]$marker.git_commit -ne [string]$currentHead) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name git_commit mismatch" "$Name`_git_commit_mismatch" "Code-complete marker git_commit does not match current HEAD: $Path"
+        }
+        if (@($marker.unfinished_p0_items).Count -gt 0) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name unfinished P0 items remain" "$Name`_unfinished_p0_items" "Code-complete marker still lists unfinished P0 items: $Path"
+        }
+    } elseif ([string]$Name -eq "v005_user_approval") {
+        if ([string]$marker.approved_command_category -ne "full_e3") {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name approved command is not full_e3" "$Name`_command_not_full_e3" "User approval must explicitly approve full_e3: $Path"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedSampleSetId) -and [string]$marker.approved_sample_set_id -ne $ExpectedSampleSetId) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name approved sample set mismatch" "$Name`_sample_set_mismatch" "User approval approved_sample_set_id does not match expected sample set: $Path"
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$marker.approval_source)) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name approval_source missing" "$Name`_approval_source_missing" "User approval marker must record approval_source: $Path"
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$marker.approval_timestamp)) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name approval_timestamp missing" "$Name`_approval_timestamp_missing" "User approval marker must record approval_timestamp: $Path"
+        }
+        try {
+            $approvalTimestamp = [datetimeoffset]::Parse([string]$marker.approval_timestamp)
+        } catch {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name approval_timestamp invalid" "$Name`_approval_timestamp_invalid" "User approval approval_timestamp must be parseable: $Path"
+        }
+        if ($approvalTimestamp -lt (Get-Date).AddHours(-24)) {
+            return New-TaskspaceE3GateRow $Name "blocked" "$Name approval_timestamp stale" "$Name`_approval_timestamp_stale" "User approval is older than 24 hours: $Path"
+        }
+    }
+    New-TaskspaceE3GateRow $Name "pass" "" "" $Path
 }
 
 function Convert-TaskspaceCalibrationGateRow {
@@ -117,8 +296,20 @@ function Convert-TaskspaceCalibrationGateRow {
 }
 
 function Get-TaskspaceE3TaskListGate {
-    param([string]$TaskListPath, [string]$DefaultSourceVersion = "")
-    if ([string]::IsNullOrWhiteSpace($TaskListPath)) { return New-TaskspaceE3GateRow "task_list" "skipped" "TaskListPath not set" "task_list_not_provided" "TaskListPath was not provided." }
+    param(
+        [string]$TaskListPath,
+        [string]$DefaultSourceVersion = "",
+        [string]$Benchmark = "",
+        [int]$Repeats = 0,
+        [string]$ExpectedSampleSetId = ""
+    )
+    $requiresFormalTaskList = -not [string]::IsNullOrWhiteSpace($ExpectedSampleSetId)
+    if ([string]::IsNullOrWhiteSpace($TaskListPath)) {
+        if ($requiresFormalTaskList) {
+            return New-TaskspaceE3GateRow "task_list" "fail" "TaskListPath required for formal sample set" "formal_task_list_not_provided" "TaskListPath must be provided for expected sample set: $ExpectedSampleSetId"
+        }
+        return New-TaskspaceE3GateRow "task_list" "skipped" "TaskListPath not set" "task_list_not_provided" "TaskListPath was not provided."
+    }
     if (-not (Test-Path -LiteralPath $TaskListPath)) { return New-TaskspaceE3GateRow "task_list" "fail" "task_list_missing" "task_list_missing" "TaskListPath not found: $TaskListPath" }
     try {
         $raw = Get-Content -Raw -Encoding UTF8 -LiteralPath $TaskListPath
@@ -140,6 +331,23 @@ function Get-TaskspaceE3TaskListGate {
             return New-TaskspaceE3GateRow "task_list" "fail" "source_version_missing" "source_version_missing" "Task list sample is missing source_version and no default SourceVersion was provided."
         }
     }
+    if ($requiresFormalTaskList) {
+        if ([string]::IsNullOrWhiteSpace($Benchmark)) {
+            return New-TaskspaceE3GateRow "task_list" "fail" "Benchmark required for formal sample set" "formal_task_list_benchmark_missing" "Benchmark must be provided for expected sample set: $ExpectedSampleSetId"
+        }
+        if ([int]$Repeats -lt 1) {
+            return New-TaskspaceE3GateRow "task_list" "fail" "Repeats required for formal sample set" "formal_task_list_repeats_missing" "Repeats must be provided for expected sample set: $ExpectedSampleSetId"
+        }
+        try {
+            $derivation = Get-TaskspaceE3SampleSetDerivation -Benchmark $Benchmark -TaskListPath $TaskListPath -Repeats $Repeats
+        } catch {
+            return New-TaskspaceE3GateRow "task_list" "fail" "sample_set_derivation_failed" "sample_set_derivation_failed" ([string]$_.Exception.Message)
+        }
+        if ([string]$derivation.sample_set_id -ne $ExpectedSampleSetId) {
+            $message = "Task list derives sample_set_id=$($derivation.sample_set_id), expected $ExpectedSampleSetId. samples=$(@($derivation.sample_names) -join ',')"
+            return New-TaskspaceE3GateRow "task_list" "fail" "formal sample set mismatch" "formal_p0_task_list_mismatch" $message
+        }
+    }
     New-TaskspaceE3GateRow "task_list" "pass"
 }
 
@@ -159,7 +367,7 @@ function Get-TaskspaceE3OnePairSmokeGate {
                 return New-TaskspaceE3GateRow "one_pair_smoke" "pass" "" "" ([string]$aggregatePath.FullName)
             }
             if ($aggregate.PSObject.Properties.Name -contains "run_validity" -and [string]$aggregate.run_validity -eq "invalid_harness") {
-                return New-TaskspaceE3GateRow "one_pair_smoke" "pass" "classified_invalid_harness" "" ([string]$aggregatePath.FullName)
+                return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "classified_invalid_harness" "classified_invalid_harness_not_scoreable" ([string]$aggregatePath.FullName)
             }
             return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_score_invalid_unclassified" "one_pair_score_invalid_unclassified" ([string]$aggregatePath.FullName)
         } catch {
@@ -171,7 +379,7 @@ function Get-TaskspaceE3OnePairSmokeGate {
         try {
             $suiteHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteHealthPath.FullName | ConvertFrom-Json
             if ([string]$suiteHealth.status -eq "invalid_harness" -and -not [string]::IsNullOrWhiteSpace([string]$suiteHealth.suite_abort_reason)) {
-                return New-TaskspaceE3GateRow "one_pair_smoke" "pass" "classified_invalid_harness" "" ([string]$suiteHealthPath.FullName)
+                return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "classified_invalid_harness" "classified_invalid_harness_not_scoreable" ([string]$suiteHealthPath.FullName)
             }
             return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_suite_health_not_classified" "one_pair_suite_health_not_classified" ([string]$suiteHealthPath.FullName)
         } catch {
@@ -183,7 +391,7 @@ function Get-TaskspaceE3OnePairSmokeGate {
         try {
             $sampleStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $sampleStatusPath.FullName | ConvertFrom-Json
             if ([string]$sampleStatus.run_validity -eq "invalid_harness" -and -not [string]::IsNullOrWhiteSpace([string]$sampleStatus.abort_signature)) {
-                return New-TaskspaceE3GateRow "one_pair_smoke" "pass" "classified_invalid_harness" "" ([string]$sampleStatusPath.FullName)
+                return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "classified_invalid_harness" "classified_invalid_harness_not_scoreable" ([string]$sampleStatusPath.FullName)
             }
             return New-TaskspaceE3GateRow "one_pair_smoke" "fail" "one_pair_sample_status_not_classified" "one_pair_sample_status_not_classified" ([string]$sampleStatusPath.FullName)
         } catch {
@@ -230,9 +438,15 @@ function Invoke-TaskspaceE3StartGate {
         [string]$SourceVersion = "",
         [string]$ExpectedTaskListHash = "",
         [string]$ExpectedProfileHash = "",
+        [string]$Benchmark = "",
+        [int]$Repeats = 0,
         [string]$OnePairSmokeRoot = "",
         [string]$SerialCalibrationRoot = "",
         [string]$ParallelEquivalencePath = "",
+        [string]$V005NonAgentGatesPath = "",
+        [string]$V005CodeCompleteMarkerPath = "",
+        [string]$V005UserApprovalMarkerPath = "",
+        [string]$ExpectedSampleSetId = "terminal-bench_E3-P0_3_5",
         [switch]$RunSelfTests,
         [switch]$AllowSkippedPathContract,
         [switch]$AllowSkippedSelfTests,
@@ -278,7 +492,13 @@ function Invoke-TaskspaceE3StartGate {
     } else {
         $gates.Add((New-TaskspaceE3GateRow "path_contract" $(if ($AllowSkippedPathContract) { "skipped_allowed" } else { "fail" }) "no_scenario_manifest" "path_contract_not_checked"))
     }
-    $taskListGate = Get-TaskspaceE3TaskListGate $TaskListPath $SourceVersion
+    $formalTaskListRequested = (-not [string]::IsNullOrWhiteSpace($V005NonAgentGatesPath) `
+        -or -not [string]::IsNullOrWhiteSpace($V005CodeCompleteMarkerPath) `
+        -or -not [string]::IsNullOrWhiteSpace($V005UserApprovalMarkerPath) `
+        -or [string]$Benchmark -eq "terminal-bench" `
+        -or [int]$Repeats -ge 5)
+    $taskListExpectedSampleSetId = if ($formalTaskListRequested) { $ExpectedSampleSetId } else { "" }
+    $taskListGate = Get-TaskspaceE3TaskListGate $TaskListPath $SourceVersion $Benchmark $Repeats $taskListExpectedSampleSetId
     if ([string]$taskListGate.status -ne "skipped") { $gates.Add($taskListGate) }
     $smokeGate = Get-TaskspaceE3OnePairSmokeGate $OnePairSmokeRoot
     if ([string]$smokeGate.status -eq "skipped" -and $AllowSkippedOnePairSmoke) {
@@ -304,6 +524,9 @@ function Invoke-TaskspaceE3StartGate {
             $gates.Add((Convert-TaskspaceCalibrationGateRow $calibrationRow))
         }
     }
+    $gates.Add((Get-TaskspaceV005MarkerGate "v005_non_agent_gates" $V005NonAgentGatesPath "v005_non_agent_gates_missing" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash $ExpectedSampleSetId))
+    $gates.Add((Get-TaskspaceV005MarkerGate "v005_code_complete" $V005CodeCompleteMarkerPath "v005_code_complete_missing" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash $ExpectedSampleSetId))
+    $gates.Add((Get-TaskspaceV005MarkerGate "v005_user_approval" $V005UserApprovalMarkerPath "v005_user_approval_missing" $ExpectedTaskListHash $SourceVersion $ExpectedProfileHash $ExpectedSampleSetId))
     $selfTests = @()
     $preSelfTestFailures = @($gates.ToArray() | Where-Object { [string]$_.status -eq "fail" })
     if ($RunSelfTests -and $preSelfTestFailures.Count -eq 0) {
@@ -316,13 +539,16 @@ function Invoke-TaskspaceE3StartGate {
         $gates.Add((New-TaskspaceE3GateRow "cheap_self_tests" $(if ($AllowSkippedSelfTests) { "skipped_allowed" } else { "fail" }) "RunSelfTests not set" "self_tests_not_run"))
     }
     $failed = @($gates.ToArray() | Where-Object { [string]$_.status -eq "fail" })
+    $blocked = @($gates.ToArray() | Where-Object { [string]$_.status -eq "blocked" })
     $firstFailure = @($failed | Select-Object -First 1)[0]
+    $firstBlocked = @($blocked | Select-Object -First 1)[0]
+    $topStatus = if ($failed.Count -gt 0) { "fail" } elseif ($blocked.Count -gt 0) { "blocked_for_full_e3" } else { "pass" }
     $jsonPath = Join-Path $OutputDir "e3-start-gate.json"
     $markdownPath = Join-Path $OutputDir "e3-start-gate.md"
     $gate = [pscustomobject]@{
         schema_version = 1
-        status = if ($failed.Count -eq 0) { "pass" } else { "fail" }
-        run_validity = if ($failed.Count -eq 0) { "valid" } else { "invalid_harness" }
+        status = $topStatus
+        run_validity = if ($failed.Count -gt 0) { "invalid_harness" } elseif ($blocked.Count -gt 0) { "blocked_for_full_e3" } else { "valid" }
         exit_code = if ($failed.Count -eq 0) { 0 } else { 3 }
         gates = @($gates.ToArray())
         self_tests = @($selfTests)
@@ -330,8 +556,8 @@ function Invoke-TaskspaceE3StartGate {
         manifest_health = $manifestHealth
         calibration_gate = $calibrationGate
         skipped_gate_policy = [pscustomobject]@{ allow_skipped_path_contract = [bool]$AllowSkippedPathContract; allow_skipped_self_tests = [bool]$AllowSkippedSelfTests; allow_skipped_one_pair_smoke = [bool]$AllowSkippedOnePairSmoke; allow_skipped_calibration_gate = [bool]$AllowSkippedCalibrationGate }
-        first_failure_gate = if ($firstFailure) { [string]$firstFailure.name } else { "" }
-        first_failure_stable_code = if ($firstFailure) { [string]$firstFailure.stable_code } else { "" }
+        first_failure_gate = if ($firstFailure) { [string]$firstFailure.name } elseif ($firstBlocked) { [string]$firstBlocked.name } else { "" }
+        first_failure_stable_code = if ($firstFailure) { [string]$firstFailure.stable_code } elseif ($firstBlocked) { [string]$firstBlocked.stable_code } else { "" }
         first_failure_message = if ($firstFailure) { [string]$firstFailure.message } else { "" }
         first_failure_command = if ($firstFailure -and [string]$firstFailure.name -eq "cheap_self_tests") { [string]$firstFailure.message } else { "" }
         first_failure_output_tail = if ($firstFailure -and [string]$firstFailure.name -eq "cheap_self_tests") { @($selfTests | Where-Object { [string]$_.command -eq [string]$firstFailure.message } | Select-Object -First 1 | ForEach-Object { @($_.output_tail) }) } else { @() }

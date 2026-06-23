@@ -153,6 +153,27 @@ const FINAL_ANSWER_INTERNAL_ORCHESTRATION_TERMS: &[&str] = &[
 
 const FINAL_ANSWER_INTERNAL_ORCHESTRATION_ID_PREFIXES: &[&str] = &["map-", "node-", "task-"];
 
+const FINAL_ANSWER_INTERNAL_PROTOCOL_MARKERS: &[&str] = &[
+    "dsml",
+    "tool_calls",
+    "<｜｜",
+    "</｜｜",
+    "<||",
+    "</||",
+    "invoke name=",
+];
+
+const FINAL_ANSWER_FOLLOW_UP_INTENT_MARKERS: &[&str] = &[
+    "let me check",
+    "let me verify",
+    "let me read",
+    "let me run",
+    "let me try",
+    "i need to check",
+    "i should check",
+    "try running",
+];
+
 /// Test fixture budget for the default inspect-node contract.
 #[cfg(test)]
 pub(crate) const MAIN_TOOL_RESULT_BUDGET_PER_NODE: usize = 10;
@@ -404,6 +425,271 @@ pub(crate) struct ActionMapSubagentPlanInput {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
+    pub(crate) task_id: Option<TaskId>,
+    pub(crate) map_id: ActionMapId,
+    pub(crate) node_id: Option<MapNodeId>,
+    pub(crate) node_kind: Option<String>,
+    pub(crate) route_mode: Option<String>,
+    pub(crate) profile_name: Option<String>,
+    pub(crate) request_phase: Option<String>,
+    pub(crate) provider_request_context_missing_reason: Option<String>,
+    pub(crate) request_count: usize,
+    pub(crate) max_requests: usize,
+    pub(crate) node_request_count: usize,
+    pub(crate) max_model_requests_per_node: usize,
+    pub(crate) post_budget_grace_requests: usize,
+    pub(crate) post_budget_grace_request_count: usize,
+    pub(crate) budget_state: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ActionMapProviderRequestBudgetEventInput {
+    pub(crate) request_id: String,
+    pub(crate) logical_request_id: String,
+    pub(crate) parent_request_id: Option<String>,
+    pub(crate) attempt_seq: usize,
+    pub(crate) transport: String,
+    pub(crate) status: String,
+    pub(crate) request_count_before: usize,
+    pub(crate) request_count_after: usize,
+    pub(crate) max_requests: usize,
+    pub(crate) budget_state_before: String,
+    pub(crate) budget_state_after: String,
+    pub(crate) budget_transition_reason: String,
+    pub(crate) started_at_ms: i64,
+    pub(crate) completed_at_ms: Option<i64>,
+    pub(crate) latency_ms: Option<i64>,
+    pub(crate) input_tokens: Option<i64>,
+    pub(crate) cached_input_tokens: Option<i64>,
+    pub(crate) output_tokens: Option<i64>,
+    pub(crate) reasoning_output_tokens: Option<i64>,
+    pub(crate) total_tokens: Option<i64>,
+    pub(crate) provider_payload_sha256: Option<String>,
+    pub(crate) provider_payload_bytes: Option<usize>,
+    pub(crate) provider_wire_api: Option<String>,
+    pub(crate) tools_count: Option<usize>,
+    pub(crate) tools_present: Option<bool>,
+    pub(crate) request_shape_classifier: Option<String>,
+    pub(crate) messages_hash: Option<String>,
+    pub(crate) stable_prefix_hash: Option<String>,
+    pub(crate) dynamic_suffix_hash: Option<String>,
+    pub(crate) exact_payload_scan_passed: Option<bool>,
+    pub(crate) active_projection_present: Option<bool>,
+    pub(crate) legacy_taskspace_history_present: Option<bool>,
+    pub(crate) large_raw_output_tokens: Option<usize>,
+    pub(crate) protected_items_present: Option<bool>,
+    pub(crate) replacement_confirmed: Option<bool>,
+    pub(crate) task_id: Option<String>,
+    pub(crate) map_id: Option<String>,
+    pub(crate) node_id: Option<String>,
+    pub(crate) request_phase: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ActionMapProviderResponseActionabilityInput {
+    pub(crate) response_actionability: String,
+    pub(crate) end_turn: Option<bool>,
+    pub(crate) saw_actionable_output: bool,
+    pub(crate) assistant_message_present: bool,
+    pub(crate) recovery_action: String,
+    pub(crate) last_agent_message_preview: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskSpaceRouteMode {
+    Thin,
+    VerificationFirst,
+    DefaultCompact,
+    SubagentAssisted,
+    Deep,
+}
+
+impl TaskSpaceRouteMode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            TaskSpaceRouteMode::Thin => "thin",
+            TaskSpaceRouteMode::VerificationFirst => "verification_first",
+            TaskSpaceRouteMode::DefaultCompact => "default_compact",
+            TaskSpaceRouteMode::SubagentAssisted => "subagent_assisted",
+            TaskSpaceRouteMode::Deep => "deep",
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "thin" => Some(TaskSpaceRouteMode::Thin),
+            "verification_first" => Some(TaskSpaceRouteMode::VerificationFirst),
+            "default_compact" => Some(TaskSpaceRouteMode::DefaultCompact),
+            "subagent_assisted" => Some(TaskSpaceRouteMode::SubagentAssisted),
+            "deep" => Some(TaskSpaceRouteMode::Deep),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskSpaceBudgetState {
+    Normal,
+    Warned,
+    CompactCheckpointRequired,
+    ThinDowngraded,
+    HardStopped,
+}
+
+impl TaskSpaceBudgetState {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            TaskSpaceBudgetState::Normal => "normal",
+            TaskSpaceBudgetState::Warned => "warned",
+            TaskSpaceBudgetState::CompactCheckpointRequired => "compact_checkpoint_required",
+            TaskSpaceBudgetState::ThinDowngraded => "thin_downgraded",
+            TaskSpaceBudgetState::HardStopped => "hard_stopped",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TaskSpaceBudgetResponsePolicy {
+    WarnCompactThinHardStop,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskSpaceActiveBudgetV1 {
+    pub(crate) schema_version: &'static str,
+    pub(crate) profile_name: String,
+    pub(crate) route_mode: TaskSpaceRouteMode,
+    pub(crate) max_rollout_model_requests: usize,
+    pub(crate) max_model_requests_per_node: usize,
+    pub(crate) max_spawn_agent_calls: usize,
+    pub(crate) max_subagent_results: usize,
+    pub(crate) max_nodes: usize,
+    pub(crate) max_open_leaf_nodes: usize,
+    pub(crate) max_legacy_state_actions: usize,
+    pub(crate) max_projection_tokens: usize,
+    pub(crate) max_avg_input_tokens_per_request: usize,
+    pub(crate) post_budget_grace_requests: usize,
+    pub(crate) budget_response_policy: TaskSpaceBudgetResponsePolicy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct TaskSpaceBudgetCounters {
+    pub(crate) rollout_model_request_count: usize,
+    pub(crate) model_request_count_by_node: HashMap<String, usize>,
+    pub(crate) spawn_agent_call_count: usize,
+    pub(crate) subagent_result_count: usize,
+    pub(crate) node_count: usize,
+    pub(crate) open_leaf_node_count: usize,
+    pub(crate) legacy_state_action_attempt_count: usize,
+    pub(crate) legacy_state_action_displaced_count: usize,
+    pub(crate) legacy_state_action_allowed_count: usize,
+    pub(crate) state_commit_count: usize,
+    pub(crate) projection_tokens_last: usize,
+    pub(crate) projection_tokens_max: usize,
+    pub(crate) post_budget_grace_request_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskSpaceBudgetViolation {
+    pub(crate) violation_id: String,
+    pub(crate) counter_name: String,
+    pub(crate) counter_value: usize,
+    pub(crate) counter_limit: usize,
+    pub(crate) state_before: TaskSpaceBudgetState,
+    pub(crate) state_after: TaskSpaceBudgetState,
+    pub(crate) action_taken: String,
+    pub(crate) created_at_ms: i64,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskSpaceBudgetGateDecision {
+    pub(crate) allowed: bool,
+    pub(crate) budget_state: TaskSpaceBudgetState,
+    pub(crate) reason: String,
+    pub(crate) blocking_items: Vec<String>,
+    pub(crate) next_valid_actions: Vec<String>,
+    pub(crate) recovery_request_phase: Option<String>,
+    pub(crate) quality_impact_required: bool,
+}
+
+fn default_budget_common(
+    profile_name: &str,
+    route_mode: TaskSpaceRouteMode,
+) -> TaskSpaceActiveBudgetV1 {
+    TaskSpaceActiveBudgetV1 {
+        schema_version: "taskspace-active-budget-v1",
+        profile_name: profile_name.to_string(),
+        route_mode,
+        max_rollout_model_requests: 10,
+        max_model_requests_per_node: 3,
+        max_spawn_agent_calls: 2,
+        max_subagent_results: 2,
+        max_nodes: 8,
+        max_open_leaf_nodes: 4,
+        max_legacy_state_actions: 1,
+        max_projection_tokens: 24_000,
+        max_avg_input_tokens_per_request: 16_000,
+        post_budget_grace_requests: 1,
+        budget_response_policy: TaskSpaceBudgetResponsePolicy::WarnCompactThinHardStop,
+    }
+}
+
+pub(crate) fn taskspace_active_budget_for_route(
+    profile_name: &str,
+    route_mode: TaskSpaceRouteMode,
+) -> TaskSpaceActiveBudgetV1 {
+    let mut budget = default_budget_common(profile_name, route_mode);
+    match route_mode {
+        TaskSpaceRouteMode::Thin => {
+            budget.max_rollout_model_requests = 10;
+            budget.max_model_requests_per_node = 3;
+            budget.max_spawn_agent_calls = 0;
+            budget.max_subagent_results = 0;
+            budget.max_nodes = 4;
+            budget.max_open_leaf_nodes = 2;
+            budget.max_legacy_state_actions = 0;
+            budget.max_projection_tokens = 12_000;
+            budget.max_avg_input_tokens_per_request = 12_000;
+            budget.post_budget_grace_requests = 1;
+        }
+        TaskSpaceRouteMode::VerificationFirst => {
+            budget.max_rollout_model_requests = 6;
+            budget.max_model_requests_per_node = 2;
+            budget.max_spawn_agent_calls = 0;
+            budget.max_subagent_results = 0;
+            budget.max_nodes = 5;
+            budget.max_open_leaf_nodes = 2;
+            budget.max_projection_tokens = 16_000;
+            budget.max_avg_input_tokens_per_request = 14_000;
+        }
+        TaskSpaceRouteMode::DefaultCompact => {}
+        TaskSpaceRouteMode::SubagentAssisted => {
+            budget.max_rollout_model_requests = 14;
+            budget.max_model_requests_per_node = 4;
+            budget.max_spawn_agent_calls = 3;
+            budget.max_subagent_results = 3;
+            budget.max_nodes = 10;
+            budget.max_open_leaf_nodes = 5;
+            budget.max_projection_tokens = 32_000;
+            budget.max_avg_input_tokens_per_request = 18_000;
+        }
+        TaskSpaceRouteMode::Deep => {
+            budget.max_rollout_model_requests = 20;
+            budget.max_model_requests_per_node = 5;
+            budget.max_spawn_agent_calls = 4;
+            budget.max_subagent_results = 4;
+            budget.max_nodes = 14;
+            budget.max_open_leaf_nodes = 7;
+            budget.max_projection_tokens = 48_000;
+            budget.max_avg_input_tokens_per_request = 24_000;
+        }
+    }
+    budget
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct ActionMapRuntimeState {
     mode: MapRuntimeMode,
     pending_transition_notice: Option<String>,
@@ -421,6 +707,11 @@ pub(crate) struct ActionMapRuntimeState {
     tasks: HashMap<TaskId, TaskState>,
     maps: HashMap<ActionMapId, ActionMapInstance>,
     taskspace_trace_events: Vec<TaskSpaceTraceEvent>,
+    provider_request_count: usize,
+    active_budget: Option<TaskSpaceActiveBudgetV1>,
+    budget_counters: TaskSpaceBudgetCounters,
+    budget_state: TaskSpaceBudgetState,
+    budget_violations: Vec<TaskSpaceBudgetViolation>,
     sentinel_warnings: Vec<TaskSpaceSentinelWarning>,
     next_task_seq: u64,
     next_map_seq: u64,
@@ -461,6 +752,7 @@ struct MainToolTraceDraft {
     tool_name: String,
     action_class: Option<ActionClass>,
     tool_success: bool,
+    artifact_refs: Vec<String>,
     created_at_ms: i64,
 }
 
@@ -538,6 +830,11 @@ impl Default for ActionMapRuntimeState {
             tasks: HashMap::new(),
             maps: HashMap::new(),
             taskspace_trace_events: Vec::new(),
+            provider_request_count: 0,
+            active_budget: None,
+            budget_counters: TaskSpaceBudgetCounters::default(),
+            budget_state: TaskSpaceBudgetState::Normal,
+            budget_violations: Vec::new(),
             sentinel_warnings: Vec::new(),
             next_task_seq: 1,
             next_map_seq: 1,
@@ -552,6 +849,359 @@ impl Default for ActionMapRuntimeState {
 }
 
 impl ActionMapRuntimeState {
+    pub(crate) const DEFAULT_PROVIDER_REQUEST_BUDGET_MAX: usize = 10;
+    #[allow(dead_code)]
+    pub(crate) const DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX: usize = 2;
+    #[allow(dead_code)]
+    pub(crate) const DEFAULT_ACTIVE_NODE_BUDGET_MAX: usize = 8;
+
+    fn ensure_default_active_budget(&mut self) {
+        if self.active_budget.is_none() {
+            let route_mode = std::env::var("WHALE_TASKSPACE_ROUTE_MODE")
+                .ok()
+                .and_then(|value| TaskSpaceRouteMode::from_str(value.trim()))
+                .unwrap_or(TaskSpaceRouteMode::DefaultCompact);
+            let profile_name = std::env::var("WHALE_TASKSPACE_PROFILE_NAME")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "taskspace-v005-active".to_string());
+            let _ = self.activate_active_budget_for_route(profile_name.trim(), route_mode);
+        }
+    }
+
+    pub(crate) fn activate_active_budget_for_route(
+        &mut self,
+        profile_name: &str,
+        route_mode: TaskSpaceRouteMode,
+    ) -> Vec<MapRuntimeEvent> {
+        let budget = taskspace_active_budget_for_route(profile_name, route_mode);
+        self.active_budget = Some(budget.clone());
+        self.budget_state = budget_state_for_counter(
+            self.budget_counters.rollout_model_request_count,
+            budget.max_rollout_model_requests,
+        );
+        let map_id = self
+            .active_map_id
+            .clone()
+            .unwrap_or_else(|| "budget-not-bound".to_string());
+        let node_id = self
+            .current_main_node_id
+            .clone()
+            .unwrap_or_else(|| "budget-not-bound".to_string());
+        let task_id = self.active_task_id.clone();
+        vec![self.record_runtime_budget_trace_event(
+            "active_budget",
+            task_id,
+            map_id,
+            node_id,
+            None,
+            true,
+            vec![
+                "schema:taskspace-active-budget-v1".to_string(),
+                "producer:runtime".to_string(),
+                "active_budget_source:runtime".to_string(),
+                format!("profile_name:{}", budget.profile_name),
+                format!("route_mode:{}", budget.route_mode.as_str()),
+                format!(
+                    "max_rollout_model_requests:{}",
+                    budget.max_rollout_model_requests
+                ),
+                format!(
+                    "max_model_requests_per_node:{}",
+                    budget.max_model_requests_per_node
+                ),
+                format!("max_spawn_agent_calls:{}", budget.max_spawn_agent_calls),
+                format!("max_subagent_results:{}", budget.max_subagent_results),
+                format!("max_nodes:{}", budget.max_nodes),
+                format!("max_open_leaf_nodes:{}", budget.max_open_leaf_nodes),
+                format!(
+                    "max_legacy_state_actions:{}",
+                    budget.max_legacy_state_actions
+                ),
+                format!("max_projection_tokens:{}", budget.max_projection_tokens),
+                format!(
+                    "max_avg_input_tokens_per_request:{}",
+                    budget.max_avg_input_tokens_per_request
+                ),
+                format!(
+                    "post_budget_grace_requests:{}",
+                    budget.post_budget_grace_requests
+                ),
+                format!("budget_state:{}", self.budget_state.as_str()),
+            ],
+        )]
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn active_budget(&self) -> Option<&TaskSpaceActiveBudgetV1> {
+        self.active_budget.as_ref()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn budget_counters(&self) -> &TaskSpaceBudgetCounters {
+        &self.budget_counters
+    }
+
+    fn max_rollout_model_requests(&self) -> usize {
+        self.active_budget
+            .as_ref()
+            .map(|budget| budget.max_rollout_model_requests)
+            .unwrap_or(Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn update_budget_state_for_counter(
+        &mut self,
+        counter_name: &str,
+        counter_value: usize,
+        counter_limit: usize,
+        action_context: &str,
+    ) -> Option<MapRuntimeEvent> {
+        let state_before = self.budget_state;
+        let state_after = budget_state_for_counter(counter_value, counter_limit);
+        self.budget_state = state_after;
+        if state_before == state_after {
+            return None;
+        }
+        let violation = TaskSpaceBudgetViolation {
+            violation_id: format!("budget-violation-{}", self.budget_violations.len() + 1),
+            counter_name: counter_name.to_string(),
+            counter_value,
+            counter_limit,
+            state_before,
+            state_after,
+            action_taken: action_context.to_string(),
+            created_at_ms: now_ms(),
+        };
+        self.budget_violations.push(violation.clone());
+        let map_id = self
+            .active_map_id
+            .clone()
+            .unwrap_or_else(|| "budget-not-bound".to_string());
+        let node_id = self
+            .current_main_node_id
+            .clone()
+            .unwrap_or_else(|| "budget-not-bound".to_string());
+        let task_id = self.active_task_id.clone();
+        Some(self.record_runtime_budget_trace_event(
+            "budget_state_transition",
+            task_id,
+            map_id,
+            node_id,
+            None,
+            true,
+            vec![
+                "schema:taskspace-budget-state-transition-v1".to_string(),
+                "producer:runtime".to_string(),
+                format!("counter_name:{counter_name}"),
+                format!("counter_value:{counter_value}"),
+                format!("counter_limit:{counter_limit}"),
+                format!("state_before:{}", state_before.as_str()),
+                format!("state_after:{}", state_after.as_str()),
+                format!("action_taken:{action_context}"),
+                format!("violation_id:{}", violation.violation_id),
+            ],
+        ))
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn gate_provider_request_pre_dispatch(
+        &mut self,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+    ) -> TaskSpaceBudgetGateDecision {
+        let allowed = snapshot.request_count < snapshot.max_requests
+            && snapshot.node_request_count < snapshot.max_model_requests_per_node;
+        TaskSpaceBudgetGateDecision {
+            allowed,
+            budget_state: self.budget_state,
+            reason: if allowed {
+                "provider_request_budget_available".to_string()
+            } else if snapshot.node_request_count >= snapshot.max_model_requests_per_node {
+                "provider_node_request_budget_exhausted".to_string()
+            } else {
+                "provider_request_budget_exhausted".to_string()
+            },
+            blocking_items: if allowed {
+                Vec::new()
+            } else {
+                vec!["provider_request".to_string()]
+            },
+            next_valid_actions: if allowed {
+                Vec::new()
+            } else {
+                vec!["record compact checkpoint or enter final_synthesis".to_string()]
+            },
+            recovery_request_phase: if allowed {
+                None
+            } else {
+                Some("budget_recovery".to_string())
+            },
+            quality_impact_required: !allowed,
+        }
+    }
+
+    pub(crate) fn gate_create_node_budget(
+        &mut self,
+        map_id: &str,
+        candidate_node_kind: NodeKind,
+    ) -> TaskSpaceBudgetGateDecision {
+        let budget = self.active_budget.as_ref();
+        let max_nodes = budget
+            .map(|budget| budget.max_nodes)
+            .unwrap_or(Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX);
+        let node_count = self
+            .maps
+            .get(map_id)
+            .map(|map| map.nodes.len())
+            .unwrap_or_default();
+        let allowed = node_count < max_nodes;
+        TaskSpaceBudgetGateDecision {
+            allowed,
+            budget_state: self.budget_state,
+            reason: if allowed {
+                "node_budget_available".to_string()
+            } else {
+                "node_budget_exhausted".to_string()
+            },
+            blocking_items: if allowed {
+                Vec::new()
+            } else {
+                vec![format!(
+                    "candidate_node_kind:{}",
+                    candidate_node_kind.as_str()
+                )]
+            },
+            next_valid_actions: if allowed {
+                Vec::new()
+            } else {
+                vec!["finish or reuse an existing open node".to_string()]
+            },
+            recovery_request_phase: None,
+            quality_impact_required: !allowed,
+        }
+    }
+
+    pub(crate) fn gate_spawn_budget(
+        &mut self,
+        _map_id: &str,
+        _parent_node_id: &str,
+    ) -> TaskSpaceBudgetGateDecision {
+        let budget = self.active_budget.as_ref();
+        let max_spawn = budget
+            .map(|budget| budget.max_spawn_agent_calls)
+            .unwrap_or(Self::DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX);
+        let spawn_count = self.budget_counters.spawn_agent_call_count;
+        let allowed = spawn_count < max_spawn;
+        TaskSpaceBudgetGateDecision {
+            allowed,
+            budget_state: self.budget_state,
+            reason: if allowed {
+                "spawn_budget_available".to_string()
+            } else if max_spawn == 0 {
+                "route_disallows_spawn".to_string()
+            } else {
+                "spawn_budget_exhausted".to_string()
+            },
+            blocking_items: if allowed {
+                Vec::new()
+            } else {
+                vec!["spawn_agent".to_string()]
+            },
+            next_valid_actions: if allowed {
+                Vec::new()
+            } else {
+                vec!["continue main-agent serial work".to_string()]
+            },
+            recovery_request_phase: None,
+            quality_impact_required: !allowed,
+        }
+    }
+
+    fn reconstruct_budget_state_from_trace_events(&mut self) {
+        let mut route_mode = None;
+        let mut profile_name = None;
+        let mut counters = TaskSpaceBudgetCounters::default();
+        for event in &self.taskspace_trace_events {
+            match event.kind.as_str() {
+                "active_budget" => {
+                    route_mode = trace_tag_value(&event.tags, "route_mode")
+                        .and_then(TaskSpaceRouteMode::from_str)
+                        .or(route_mode);
+                    profile_name = trace_tag_value(&event.tags, "profile_name")
+                        .map(str::to_string)
+                        .or(profile_name);
+                }
+                "provider_request_budget" => {
+                    let request_count_after =
+                        trace_tag_usize(&event.tags, "request_count_after").unwrap_or_default();
+                    counters.rollout_model_request_count = counters
+                        .rollout_model_request_count
+                        .max(request_count_after);
+                    if trace_tag_value(&event.tags, "status") == Some("started") {
+                        let node_count =
+                            trace_tag_usize(&event.tags, "node_request_count").unwrap_or_default();
+                        if !event.node_id.is_empty() && event.node_id != "provider-context-missing"
+                        {
+                            counters
+                                .model_request_count_by_node
+                                .insert(event.node_id.clone(), node_count);
+                        }
+                        if trace_tag_value(&event.tags, "request_phase") == Some("budget_recovery")
+                        {
+                            counters.post_budget_grace_request_count += 1;
+                        }
+                    }
+                }
+                "spawn_node_budget" => match trace_tag_value(&event.tags, "budget_kind") {
+                    Some("spawn") => {
+                        counters.spawn_agent_call_count = counters.spawn_agent_call_count.max(
+                            trace_tag_usize(&event.tags, "spawn_agent_call_count_after")
+                                .unwrap_or_default(),
+                        );
+                    }
+                    Some("node") => {
+                        counters.node_count = counters.node_count.max(
+                            trace_tag_usize(&event.tags, "node_count_after").unwrap_or_default(),
+                        );
+                    }
+                    _ => {}
+                },
+                "state_commit_displacement" => {
+                    counters.legacy_state_action_attempt_count +=
+                        trace_tag_usize(&event.tags, "legacy_state_action_attempt_count")
+                            .unwrap_or_default();
+                    counters.legacy_state_action_displaced_count +=
+                        trace_tag_usize(&event.tags, "legacy_state_action_displaced_count")
+                            .unwrap_or_default();
+                    counters.legacy_state_action_allowed_count +=
+                        trace_tag_usize(&event.tags, "legacy_state_action_count")
+                            .unwrap_or_default();
+                    counters.state_commit_count +=
+                        trace_tag_usize(&event.tags, "state_commit_count").unwrap_or_default();
+                }
+                "projection_budget" => {
+                    counters.projection_tokens_last =
+                        trace_tag_usize(&event.tags, "projection_tokens").unwrap_or_default();
+                    counters.projection_tokens_max = counters
+                        .projection_tokens_max
+                        .max(trace_tag_usize(&event.tags, "projection_tokens").unwrap_or_default());
+                }
+                _ => {}
+            }
+        }
+        let route_mode = route_mode.unwrap_or(TaskSpaceRouteMode::DefaultCompact);
+        let profile_name = profile_name.unwrap_or_else(|| "taskspace-v005-active".to_string());
+        self.active_budget = Some(taskspace_active_budget_for_route(&profile_name, route_mode));
+        self.budget_counters = counters;
+        self.provider_request_count = self.budget_counters.rollout_model_request_count;
+        if let Some(budget) = self.active_budget.as_ref() {
+            self.budget_state = budget_state_for_counter(
+                self.budget_counters.rollout_model_request_count,
+                budget.max_rollout_model_requests,
+            );
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn mode(&self) -> MapRuntimeMode {
         self.mode
@@ -569,7 +1219,14 @@ impl ActionMapRuntimeState {
                 self.routing_required = false;
                 self.bootstrap_required = false;
                 self.reborn_requested = false;
+                self.active_budget = None;
+                self.budget_counters = TaskSpaceBudgetCounters::default();
+                self.budget_state = TaskSpaceBudgetState::Normal;
+                self.budget_violations.clear();
             }
+        }
+        if self.mode == MapRuntimeMode::Experiment {
+            self.ensure_default_active_budget();
         }
         SetMapRuntimeModeOutcome {
             previous_mode,
@@ -583,13 +1240,19 @@ impl ActionMapRuntimeState {
         mode: MapRuntimeMode,
         _owner_session_id: ThreadId,
     ) -> (SetTaskSpaceModeOutcome, Vec<MapRuntimeEvent>) {
+        let trace_len_before = self.taskspace_trace_events.len();
         let mode_outcome = self.set_mode(mode);
+        let events = self.taskspace_trace_events[trace_len_before..]
+            .iter()
+            .cloned()
+            .map(map_runtime_event_from_trace_event)
+            .collect();
         (
             SetTaskSpaceModeOutcome {
                 mode: mode_outcome,
                 active_map_id: self.active_map_id.clone(),
             },
-            Vec::new(),
+            events,
         )
     }
 
@@ -943,6 +1606,16 @@ impl ActionMapRuntimeState {
             self.bootstrap_required = self.bootstrap_required || self.tasks.is_empty();
             self.routing_required =
                 self.routing_required || self.bootstrap_required || self.active_task_id.is_none();
+            if self
+                .taskspace_trace_events
+                .iter()
+                .any(|event| event.kind == "active_budget")
+            {
+                self.reconstruct_budget_state_from_trace_events();
+            } else {
+                self.ensure_default_active_budget();
+                self.reconstruct_budget_state_from_trace_events();
+            }
         }
     }
 
@@ -1131,12 +1804,193 @@ impl ActionMapRuntimeState {
         let main_tool_result_count = count_node_results_of_kind(node, NodeResultKind::MainToolCall);
         let reserved_tool_count = self.reserved_tool_calls_for_node(&map_id, &node_id);
         let budget = contract.max_main_tool_results_before_split_hint;
+        let max_rollout_model_requests = self.max_rollout_model_requests();
+        let provider_budget_pressure = provider_request_budget_pressure_active_for_node(
+            self.provider_request_count,
+            max_rollout_model_requests,
+            node.kind,
+        );
+        if descriptor.action_class != ActionClass::Control
+            && matches!(
+                node.kind,
+                NodeKind::InspectCodeContext | NodeKind::ImplementSolution
+            )
+            && self
+                .active_budget
+                .as_ref()
+                .is_some_and(|budget| budget.route_mode == TaskSpaceRouteMode::Thin)
+            && is_broad_directory_listing_probe(&descriptor)
+        {
+            let message = format!(
+                "TaskSpace blocked this tool call because thin-route nodes must not spend context on broad or truncating directory listings. Requested tool `{}` preview: {}. Use `rg --files`, `Get-ChildItem -Name`, or direct narrow file reads for the likely source/test files instead.",
+                descriptor.tool_name, descriptor.preview
+            );
+            let recovery = gate_recovery_message(
+                &message,
+                "thin_route_blocks_broad_directory_listing",
+                vec![
+                    format!("current_node:{}:{}", node.id, node.kind.as_str()),
+                    format!("route_mode:{}", TaskSpaceRouteMode::Thin.as_str()),
+                    format!(
+                        "requested_action_class:{}",
+                        descriptor.action_class.as_str()
+                    ),
+                ],
+                vec![
+                    "rg --files".to_string(),
+                    "Get-ChildItem -Name src, tests".to_string(),
+                    "Get-Content <known source/test file>".to_string(),
+                    "avoid Format-Table for file discovery because long paths may be truncated"
+                        .to_string(),
+                ],
+                vec![
+                    "Avoid recursive, -Force, or truncating directory listings in thin nodes."
+                        .to_string(),
+                ],
+            );
+            return Err(ActionMapGateError::new(
+                recovery,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: node.kind.as_str().to_string(),
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason: "thin_route_blocks_broad_directory_listing".to_string(),
+                    },
+                )],
+            ));
+        }
+        let inspect_evidence_pressure = inspect_evidence_pressure_active(node, budget);
+        if descriptor.action_class != ActionClass::Control
+            && provider_budget_pressure
+            && node.kind == NodeKind::InspectCodeContext
+        {
+            let next_action = format!(
+                "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
+                node.id
+            );
+            let message = format!(
+                "TaskSpace blocked this tool call because provider request budget pressure is active ({}/{} used) and current node `{}` is still inspect_code_context. Requested tool `{}` action class: {}. Stop ordinary probing and transition the inspected finding into implementation with {}.",
+                self.provider_request_count,
+                max_rollout_model_requests,
+                node.id,
+                descriptor.tool_name,
+                descriptor.action_class.as_str(),
+                next_action
+            );
+            let recovery = gate_recovery_message(
+                &message,
+                "provider_request_budget_pressure_requires_inspect_node_transition",
+                vec![
+                    format!("current_node:{}:{}", node.id, node.kind.as_str()),
+                    format!(
+                        "provider_request_count:{}/{}",
+                        self.provider_request_count, max_rollout_model_requests
+                    ),
+                    format!(
+                        "requested_action_class:{}",
+                        descriptor.action_class.as_str()
+                    ),
+                ],
+                vec![next_action],
+                Vec::new(),
+            );
+            return Err(ActionMapGateError::new(
+                recovery,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: node.kind.as_str().to_string(),
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason: "provider_request_budget_pressure_requires_inspect_node_transition"
+                            .to_string(),
+                    },
+                )],
+            ));
+        }
+        if descriptor.action_class != ActionClass::Control
+            && (provider_budget_pressure || inspect_evidence_pressure)
+            && should_block_budget_pressure_probe(map, node, descriptor.action_class)
+        {
+            let has_edit = node_has_successful_action(map, node, ActionClass::Edit);
+            let reason = if inspect_evidence_pressure && !provider_budget_pressure {
+                "inspect_evidence_pressure_requires_implementation_before_more_probe"
+            } else if has_edit {
+                "provider_request_budget_pressure_blocks_more_exploration_after_edit"
+            } else {
+                "provider_request_budget_pressure_requires_implementation_before_more_probe"
+            };
+            let next_action = if node.kind == NodeKind::InspectCodeContext && !has_edit {
+                format!(
+                    "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
+                    node.id
+                )
+            } else if has_edit {
+                "run one narrow validation command or finish final answer".to_string()
+            } else {
+                "make the smallest safe edit or finish blocked_by_budget".to_string()
+            };
+            let pressure_summary = if provider_budget_pressure {
+                format!(
+                    "provider request budget pressure is active ({}/{} used)",
+                    self.provider_request_count, max_rollout_model_requests
+                )
+            } else {
+                format!(
+                    "inspect evidence pressure is active ({}/{} main tool results recorded)",
+                    main_tool_result_count, budget
+                )
+            };
+            let message = format!(
+                "TaskSpace blocked this tool call because {pressure_summary} and current node `{}` already has enough evidence for a convergence step. Requested tool `{}` action class: {}. Do not spend more provider requests on broad probing. {}.",
+                node.id,
+                descriptor.tool_name,
+                descriptor.action_class.as_str(),
+                next_action
+            );
+            let recovery = gate_recovery_message(
+                &message,
+                reason,
+                vec![
+                    format!("current_node:{}:{}", node.id, node.kind.as_str()),
+                    format!(
+                        "provider_request_count:{}/{}",
+                        self.provider_request_count, max_rollout_model_requests
+                    ),
+                    format!(
+                        "requested_action_class:{}",
+                        descriptor.action_class.as_str()
+                    ),
+                ],
+                vec![next_action],
+                Vec::new(),
+            );
+            return Err(ActionMapGateError::new(
+                recovery,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: node.kind.as_str().to_string(),
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason: reason.to_string(),
+                    },
+                )],
+            ));
+        }
         if !contract.allows(descriptor.action_class) {
             let reason = format!(
                 "{} does not allow {}",
                 node.kind.as_str(),
                 descriptor.action_class.as_str()
             );
+            let implement_has_edit = node.kind == NodeKind::ImplementSolution
+                && node_has_successful_action(map, node, ActionClass::Edit);
             let message = if node.kind == NodeKind::InspectCodeContext
                 && descriptor.action_class == ActionClass::Edit
             {
@@ -1145,25 +1999,31 @@ impl ActionMapRuntimeState {
                     node.id, descriptor.tool_name, reason, node.id, node.id, node.id
                 )
             } else {
-                blocked_action_recovery_message(node, &descriptor, &reason)
+                blocked_action_recovery_message(node, &descriptor, &reason, implement_has_edit)
+            };
+            let next_valid_action = if node.kind == NodeKind::InspectCodeContext
+                && descriptor.action_class == ActionClass::Edit
+            {
+                format!(
+                    "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
+                    node.id
+                )
+            } else if node.kind == NodeKind::ImplementSolution
+                && descriptor.action_class == ActionClass::Test
+                && !implement_has_edit
+            {
+                "call an edit-capable tool such as apply_patch before requesting tests".to_string()
+            } else {
+                format!(
+                    "taskspace_control(action=finish_node, node_id=\"{}\")",
+                    node.id
+                )
             };
             let recovery = gate_recovery_message(
                 &message,
                 &reason,
                 vec![format!("current_node:{}:{}", node.id, node.kind.as_str())],
-                vec![if node.kind == NodeKind::InspectCodeContext
-                    && descriptor.action_class == ActionClass::Edit
-                {
-                    format!(
-                        "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
-                        node.id
-                    )
-                } else {
-                    format!(
-                        "taskspace_control(action=finish_node, node_id=\"{}\")",
-                        node.id
-                    )
-                }],
+                vec![next_valid_action],
                 Vec::new(),
             );
             return Err(ActionMapGateError::new(
@@ -1321,6 +2181,10 @@ preview:\n\
                 .map(ActionClass::as_str)
                 .unwrap_or("unspecified")
         );
+        let artifact_refs = match (recorded_action_class, success) {
+            (Some(ActionClass::Edit), true) => extract_edit_changed_artifacts_from_tool_body(&body),
+            _ => Vec::new(),
+        };
         let (task_id, raised_barrier) = {
             let map = self
                 .maps
@@ -1380,6 +2244,7 @@ preview:\n\
             tool_name: recorded_tool_name,
             action_class: recorded_action_class,
             tool_success: success,
+            artifact_refs,
             created_at_ms,
         });
         let mut events = vec![MapRuntimeEvent::NodeResultRecorded(
@@ -1455,6 +2320,816 @@ preview:\n\
                 created_at_ms: event.created_at_ms,
             },
         )])
+    }
+
+    fn record_runtime_budget_trace_event(
+        &mut self,
+        kind: &str,
+        task_id: Option<TaskId>,
+        map_id: ActionMapId,
+        node_id: MapNodeId,
+        call_id: Option<String>,
+        tool_success: bool,
+        tags: Vec<String>,
+    ) -> MapRuntimeEvent {
+        let id = self.next_trace_event_id();
+        let created_at_ms = now_ms();
+        let event = TaskSpaceTraceEvent {
+            id: id.clone(),
+            kind: kind.to_string(),
+            task_id,
+            map_id,
+            node_id,
+            result_id: None,
+            call_id,
+            action_class: None,
+            tool_success: Some(tool_success),
+            tags,
+            artifact_refs: Vec::new(),
+            created_at_ms,
+        };
+        self.taskspace_trace_events.push(event.clone());
+        MapRuntimeEvent::TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent {
+            trace_event_id: id,
+            kind: event.kind.clone(),
+            task_id: event.task_id.clone(),
+            map_id: event.map_id.clone(),
+            node_id: event.node_id.clone(),
+            result_id: event.result_id.clone(),
+            call_id: event.call_id.clone(),
+            action_class: None,
+            tool_success: event.tool_success,
+            tags: event.tags.clone(),
+            artifact_refs: event.artifact_refs.clone(),
+            created_at_ms: event.created_at_ms,
+        })
+    }
+
+    pub(crate) fn provider_request_budget_snapshot(
+        &self,
+    ) -> Option<ActionMapProviderRequestBudgetSnapshot> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return None;
+        }
+        let budget = self.active_budget.as_ref()?;
+        let map_id = self.active_map_id.clone()?;
+        let node_id = self.current_main_node_id.clone();
+        let request_phase = self.provider_request_phase_for_node(&map_id, node_id.as_deref());
+        let node_kind = node_id.as_deref().and_then(|node_id| {
+            self.maps
+                .get(&map_id)
+                .and_then(|map| map.nodes.get(node_id))
+                .map(|node| node.kind.as_str().to_string())
+        });
+        let provider_request_context_missing_reason = if node_id.is_some() {
+            None
+        } else {
+            Some("current_main_node_missing".to_string())
+        };
+        let task_id = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
+        let node_request_count = node_id
+            .as_ref()
+            .and_then(|node_id| {
+                self.budget_counters
+                    .model_request_count_by_node
+                    .get(node_id)
+                    .copied()
+            })
+            .unwrap_or(0);
+        Some(ActionMapProviderRequestBudgetSnapshot {
+            task_id,
+            map_id,
+            node_id,
+            node_kind,
+            route_mode: Some(budget.route_mode.as_str().to_string()),
+            profile_name: Some(budget.profile_name.clone()),
+            request_phase,
+            provider_request_context_missing_reason,
+            request_count: self.budget_counters.rollout_model_request_count,
+            max_requests: budget.max_rollout_model_requests,
+            node_request_count,
+            max_model_requests_per_node: budget.max_model_requests_per_node,
+            post_budget_grace_requests: budget.post_budget_grace_requests,
+            post_budget_grace_request_count: self.budget_counters.post_budget_grace_request_count,
+            budget_state: self.budget_state.as_str().to_string(),
+        })
+    }
+
+    fn provider_request_phase_for_node(
+        &self,
+        map_id: &str,
+        node_id: Option<&str>,
+    ) -> Option<String> {
+        let node = node_id
+            .and_then(|node_id| self.maps.get(map_id).and_then(|map| map.nodes.get(node_id)))?;
+        let phase = match node.kind {
+            NodeKind::FinalSynthesis => "final_synthesis",
+            _ => "model_sampling",
+        };
+        Some(phase.to_string())
+    }
+
+    pub(crate) fn record_provider_request_budget_events(
+        &mut self,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        inputs: Vec<ActionMapProviderRequestBudgetEventInput>,
+    ) -> Option<Vec<MapRuntimeEvent>> {
+        if self.mode != MapRuntimeMode::Experiment || inputs.is_empty() {
+            return None;
+        }
+        let mut events = Vec::new();
+        let mut node_request_counts = self.budget_counters.model_request_count_by_node.clone();
+        for input in inputs {
+            self.provider_request_count =
+                self.provider_request_count.max(input.request_count_after);
+            self.budget_counters.rollout_model_request_count = self
+                .budget_counters
+                .rollout_model_request_count
+                .max(input.request_count_after);
+            let task_id = input.task_id.clone().or_else(|| snapshot.task_id.clone());
+            let map_id = input
+                .map_id
+                .clone()
+                .unwrap_or_else(|| snapshot.map_id.clone());
+            let node_id = input
+                .node_id
+                .clone()
+                .or_else(|| snapshot.node_id.clone())
+                .unwrap_or_else(|| "provider-context-missing".to_string());
+            if input.status == "started" {
+                if node_id != "provider-context-missing" {
+                    let next_node_count = node_request_counts
+                        .get(&node_id)
+                        .copied()
+                        .unwrap_or(snapshot.node_request_count)
+                        + 1;
+                    node_request_counts.insert(node_id.clone(), next_node_count);
+                    self.budget_counters
+                        .model_request_count_by_node
+                        .insert(node_id.clone(), next_node_count);
+                }
+                if input.request_phase.as_deref() == Some("budget_recovery") {
+                    self.budget_counters.post_budget_grace_request_count += 1;
+                }
+            }
+            if let Some(budget) = self.active_budget.as_ref() {
+                self.budget_state = budget_state_for_counter(
+                    self.budget_counters.rollout_model_request_count,
+                    budget.max_rollout_model_requests,
+                );
+            }
+            let provider_context_missing_reason =
+                if input.node_id.is_none() && snapshot.node_id.is_none() {
+                    snapshot
+                        .provider_request_context_missing_reason
+                        .as_deref()
+                        .unwrap_or("provider_context_missing")
+                } else {
+                    ""
+                };
+            let request_phase = input
+                .request_phase
+                .clone()
+                .filter(|phase| !phase.trim().is_empty())
+                .unwrap_or_else(|| "unknown".to_string());
+            let effective_node_request_count = if node_id == "provider-context-missing" {
+                snapshot.node_request_count
+            } else {
+                node_request_counts
+                    .get(&node_id)
+                    .copied()
+                    .unwrap_or(snapshot.node_request_count)
+            };
+            let id = self.next_trace_event_id();
+            let created_at_ms = now_ms();
+            let tool_success = Some(!matches!(
+                input.status.as_str(),
+                "blocked" | "failed" | "response_failed" | "cancelled"
+            ));
+            let mut tags = vec![
+                "schema:taskspace-provider-request-budget-event-v1".to_string(),
+                format!("transport:{}", input.transport),
+                format!("status:{}", input.status),
+                format!("request_count_before:{}", input.request_count_before),
+                format!("request_count_after:{}", input.request_count_after),
+                format!("max_requests:{}", input.max_requests),
+                "active_budget_source:runtime".to_string(),
+                format!(
+                    "route_mode:{}",
+                    snapshot.route_mode.as_deref().unwrap_or("unknown")
+                ),
+                format!(
+                    "profile_name:{}",
+                    snapshot.profile_name.as_deref().unwrap_or("unknown")
+                ),
+                format!("node_request_count:{effective_node_request_count}"),
+                format!(
+                    "max_model_requests_per_node:{}",
+                    snapshot.max_model_requests_per_node
+                ),
+                format!(
+                    "post_budget_grace_requests:{}",
+                    snapshot.post_budget_grace_requests
+                ),
+                format!("runtime_budget_state:{}", self.budget_state.as_str()),
+                format!("budget_state_before:{}", input.budget_state_before),
+                format!("budget_state_after:{}", input.budget_state_after),
+                format!(
+                    "budget_transition_reason:{}",
+                    input.budget_transition_reason
+                ),
+                format!("started_at_ms:{}", input.started_at_ms),
+                format!("request_phase:{request_phase}"),
+                "producer:provider_lifecycle".to_string(),
+                format!("logical_request_id:{}", input.logical_request_id),
+                format!("attempt_seq:{}", input.attempt_seq),
+            ];
+            if request_phase == "unknown" {
+                tags.push("request_phase_missing_reason:provider_context_missing".to_string());
+            }
+            if !provider_context_missing_reason.is_empty() {
+                tags.push(format!(
+                    "provider_request_context_missing_reason:{provider_context_missing_reason}"
+                ));
+            }
+            if let Some(parent_request_id) = input.parent_request_id.as_ref() {
+                tags.push(format!("parent_request_id:{parent_request_id}"));
+            }
+            if let Some(completed_at_ms) = input.completed_at_ms {
+                tags.push(format!("completed_at_ms:{completed_at_ms}"));
+            }
+            if let Some(latency_ms) = input.latency_ms {
+                tags.push(format!("latency_ms:{latency_ms}"));
+            }
+            if let Some(input_tokens) = input.input_tokens {
+                tags.push(format!("input_tokens:{input_tokens}"));
+            }
+            if let Some(cached_input_tokens) = input.cached_input_tokens {
+                tags.push(format!("cached_input_tokens:{cached_input_tokens}"));
+            }
+            if let Some(output_tokens) = input.output_tokens {
+                tags.push(format!("output_tokens:{output_tokens}"));
+            }
+            if let Some(reasoning_output_tokens) = input.reasoning_output_tokens {
+                tags.push(format!("reasoning_output_tokens:{reasoning_output_tokens}"));
+            }
+            if let Some(total_tokens) = input.total_tokens {
+                tags.push(format!("total_tokens:{total_tokens}"));
+            }
+            if let Some(provider_payload_sha256) = input.provider_payload_sha256 {
+                tags.push(format!("provider_payload_sha256:{provider_payload_sha256}"));
+            }
+            if let Some(provider_payload_bytes) = input.provider_payload_bytes {
+                tags.push(format!("provider_payload_bytes:{provider_payload_bytes}"));
+            }
+            if let Some(provider_wire_api) = input.provider_wire_api {
+                tags.push(format!("provider_wire_api:{provider_wire_api}"));
+            }
+            if let Some(tools_count) = input.tools_count {
+                tags.push(format!("tools_count:{tools_count}"));
+            }
+            if let Some(tools_present) = input.tools_present {
+                tags.push(format!("tools_present:{tools_present}"));
+            }
+            if let Some(request_shape_classifier) = input.request_shape_classifier {
+                tags.push(format!(
+                    "request_shape_classifier:{request_shape_classifier}"
+                ));
+            }
+            if let Some(messages_hash) = input.messages_hash {
+                tags.push(format!("messages_hash:{messages_hash}"));
+            }
+            if let Some(stable_prefix_hash) = input.stable_prefix_hash {
+                tags.push(format!("stable_prefix_hash:{stable_prefix_hash}"));
+            }
+            if let Some(dynamic_suffix_hash) = input.dynamic_suffix_hash {
+                tags.push(format!("dynamic_suffix_hash:{dynamic_suffix_hash}"));
+            }
+            if let Some(exact_payload_scan_passed) = input.exact_payload_scan_passed {
+                tags.push(format!(
+                    "exact_payload_scan_passed:{exact_payload_scan_passed}"
+                ));
+            }
+            if let Some(active_projection_present) = input.active_projection_present {
+                tags.push(format!(
+                    "active_projection_present:{active_projection_present}"
+                ));
+            }
+            if let Some(legacy_taskspace_history_present) = input.legacy_taskspace_history_present {
+                tags.push(format!(
+                    "legacy_taskspace_history_present:{legacy_taskspace_history_present}"
+                ));
+            }
+            if let Some(large_raw_output_tokens) = input.large_raw_output_tokens {
+                tags.push(format!("large_raw_output_tokens:{large_raw_output_tokens}"));
+            }
+            if let Some(protected_items_present) = input.protected_items_present {
+                tags.push(format!("protected_items_present:{protected_items_present}"));
+            }
+            if let Some(replacement_confirmed) = input.replacement_confirmed {
+                tags.push(format!("replacement_confirmed:{replacement_confirmed}"));
+            }
+            if input.status == "blocked" {
+                tags.push("budget_response_action_taken:true".to_string());
+            }
+            let event = TaskSpaceTraceEvent {
+                id: id.clone(),
+                kind: "provider_request_budget".to_string(),
+                task_id,
+                map_id,
+                node_id,
+                result_id: None,
+                call_id: Some(input.request_id),
+                action_class: None,
+                tool_success,
+                tags,
+                artifact_refs: Vec::new(),
+                created_at_ms,
+            };
+            self.taskspace_trace_events.push(event.clone());
+            events.push(MapRuntimeEvent::TaskspaceTraceEventRecorded(
+                MapRuntimeTraceEventRecordedEvent {
+                    trace_event_id: id.clone(),
+                    kind: event.kind.clone(),
+                    task_id: event.task_id.clone(),
+                    map_id: event.map_id.clone(),
+                    node_id: event.node_id.clone(),
+                    result_id: event.result_id.clone(),
+                    call_id: event.call_id.clone(),
+                    action_class: None,
+                    tool_success: event.tool_success,
+                    tags: event.tags.clone(),
+                    artifact_refs: event.artifact_refs.clone(),
+                    created_at_ms: event.created_at_ms,
+                },
+            ));
+            let quality_id = self.next_trace_event_id();
+            let budget_action = if input.status == "blocked"
+                && input.budget_transition_reason == "provider_request_compact_checkpoint_required"
+            {
+                "compact_checkpoint_required"
+            } else if input.status == "blocked" {
+                "hard_stop"
+            } else {
+                "observe"
+            };
+            let final_classification = if input.status == "blocked" {
+                "blocked_by_budget"
+            } else {
+                "score_eligible"
+            };
+            let score_eligible = input.status != "blocked";
+            let quality_tags = vec![
+                "schema:taskspace-budget-quality-impact-v1".to_string(),
+                format!("provider_request_budget_trace_event_id:{id}"),
+                format!("budget_action:{budget_action}"),
+                format!("provider_request_status:{}", input.status),
+                format!("counter_name:provider_request_count"),
+                format!("counter_value:{}", input.request_count_after),
+                format!("counter_limit:{}", input.max_requests),
+                "active_budget_source:runtime".to_string(),
+                format!(
+                    "route_mode:{}",
+                    snapshot.route_mode.as_deref().unwrap_or("unknown")
+                ),
+                format!("budget_state_before:{}", input.budget_state_before),
+                format!("budget_state_after:{}", input.budget_state_after),
+                format!(
+                    "budget_transition_reason:{}",
+                    input.budget_transition_reason
+                ),
+                format!("request_phase:{request_phase}"),
+                format!("logical_request_id:{}", input.logical_request_id),
+                format!("attempt_seq:{}", input.attempt_seq),
+                format!("score_eligible:{score_eligible}"),
+                "budget_induced_validation_skip:false".to_string(),
+                "manual_override_used:false".to_string(),
+                "bounded_recovery_used:false".to_string(),
+                format!("final_classification:{final_classification}"),
+            ];
+            let quality_event = TaskSpaceTraceEvent {
+                id: quality_id.clone(),
+                kind: "budget_quality_impact".to_string(),
+                task_id: event.task_id.clone(),
+                map_id: event.map_id.clone(),
+                node_id: event.node_id.clone(),
+                result_id: None,
+                call_id: event.call_id.clone(),
+                action_class: None,
+                tool_success: Some(score_eligible),
+                tags: quality_tags,
+                artifact_refs: Vec::new(),
+                created_at_ms,
+            };
+            self.taskspace_trace_events.push(quality_event.clone());
+            events.push(MapRuntimeEvent::TaskspaceTraceEventRecorded(
+                MapRuntimeTraceEventRecordedEvent {
+                    trace_event_id: quality_id,
+                    kind: quality_event.kind.clone(),
+                    task_id: quality_event.task_id.clone(),
+                    map_id: quality_event.map_id.clone(),
+                    node_id: quality_event.node_id.clone(),
+                    result_id: quality_event.result_id.clone(),
+                    call_id: quality_event.call_id.clone(),
+                    action_class: None,
+                    tool_success: quality_event.tool_success,
+                    tags: quality_event.tags.clone(),
+                    artifact_refs: quality_event.artifact_refs.clone(),
+                    created_at_ms: quality_event.created_at_ms,
+                },
+            ));
+        }
+        Some(events)
+    }
+
+    pub(crate) fn record_provider_response_actionability(
+        &mut self,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        input: ActionMapProviderResponseActionabilityInput,
+    ) -> Option<Vec<MapRuntimeEvent>> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return None;
+        }
+        let node_id = snapshot
+            .node_id
+            .clone()
+            .unwrap_or_else(|| "provider-context-missing".to_string());
+        let request_phase = snapshot
+            .request_phase
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        let id = self.next_trace_event_id();
+        let created_at_ms = now_ms();
+        let mut tags = vec![
+            "schema:taskspace-provider-response-actionability-v1".to_string(),
+            "producer:provider_response".to_string(),
+            format!("response_actionability:{}", input.response_actionability),
+            format!("request_phase:{request_phase}"),
+            format!("request_count:{}", snapshot.request_count),
+            format!("max_requests:{}", snapshot.max_requests),
+            format!("saw_actionable_output:{}", input.saw_actionable_output),
+            format!(
+                "assistant_message_present:{}",
+                input.assistant_message_present
+            ),
+            format!("recovery_action:{}", input.recovery_action),
+        ];
+        let end_turn_tag = input
+            .end_turn
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "missing".to_string());
+        tags.push(format!("end_turn:{end_turn_tag}"));
+        if let Some(reason) = snapshot.provider_request_context_missing_reason.as_deref() {
+            tags.push(format!("provider_request_context_missing_reason:{reason}"));
+        }
+        if let Some(preview) = input.last_agent_message_preview {
+            if !preview.trim().is_empty() {
+                tags.push(format!(
+                    "last_agent_message_preview:{}",
+                    sanitize_provider_response_trace_tag_value(&preview)
+                ));
+            }
+        }
+        let tool_success = Some(matches!(
+            input.response_actionability.as_str(),
+            "actionable" | "final_candidate"
+        ));
+        let event = TaskSpaceTraceEvent {
+            id: id.clone(),
+            kind: "provider_response_actionability".to_string(),
+            task_id: snapshot.task_id.clone(),
+            map_id: snapshot.map_id.clone(),
+            node_id,
+            result_id: None,
+            call_id: None,
+            action_class: None,
+            tool_success,
+            tags,
+            artifact_refs: Vec::new(),
+            created_at_ms,
+        };
+        self.taskspace_trace_events.push(event.clone());
+        Some(vec![MapRuntimeEvent::TaskspaceTraceEventRecorded(
+            MapRuntimeTraceEventRecordedEvent {
+                trace_event_id: id,
+                kind: event.kind,
+                task_id: event.task_id,
+                map_id: event.map_id,
+                node_id: event.node_id,
+                result_id: event.result_id,
+                call_id: event.call_id,
+                action_class: None,
+                tool_success: event.tool_success,
+                tags: event.tags,
+                artifact_refs: event.artifact_refs,
+                created_at_ms: event.created_at_ms,
+            },
+        )])
+    }
+
+    pub(crate) fn force_finish_inspect_for_provider_budget(
+        &mut self,
+        owner_session_id: ThreadId,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        trigger: &str,
+    ) -> Result<Option<(ActionMapFinishNodeOutcome, Vec<MapRuntimeEvent>)>, String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(None);
+        }
+        let node_id = match snapshot.node_id.as_deref() {
+            Some(node_id) => node_id,
+            None => return Ok(None),
+        };
+        let map_id = snapshot.map_id.clone();
+        let (task_id, node_kind, evidence_summary) = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            let node = map
+                .nodes
+                .get(node_id)
+                .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
+            (
+                map.task_id.clone(),
+                node.kind,
+                inspect_code_or_test_read_summary(map, node),
+            )
+        };
+        if node_kind != NodeKind::InspectCodeContext {
+            return Ok(None);
+        }
+        let evidence_driven_no_action_recovery = trigger == "inspect_no_action_with_evidence";
+        if !evidence_driven_no_action_recovery
+            && !provider_request_budget_pressure_active_for_node(
+                snapshot.request_count,
+                snapshot.max_requests,
+                node_kind,
+            )
+        {
+            return Ok(None);
+        }
+        if !self.inspect_node_has_successful_code_or_test_read(&map_id, node_id)? {
+            return Ok(None);
+        }
+        let result_summary = format!(
+            "Provider request budget pressure forced inspect convergence at {}/{} after {trigger}; proceed to implementation using this inspected evidence: {}",
+            snapshot.request_count, snapshot.max_requests, evidence_summary
+        );
+        let context_summary = format!(
+            "Apply the narrow implementation change indicated by this inspected code/test evidence: {evidence_summary}"
+        );
+        let next_node_draft = ActionMapNextNodeDraft {
+            kind: NodeKind::ImplementSolution,
+            title: "Apply inspected fix".to_string(),
+            context_summary,
+            dependency_node_ids: vec![node_id.to_string()],
+        };
+        let (outcome, mut events) = self.finish_main_node_with_next(
+            owner_session_id,
+            node_id,
+            result_summary,
+            None,
+            Some(next_node_draft),
+        )?;
+        if let Some(event) = self.accept_forced_inspect_transition_result(
+            &map_id,
+            &outcome.result_id,
+            "runtime accepted forced inspect transition bridge result",
+        )? {
+            events.push(event);
+        }
+        let id = self.next_trace_event_id();
+        let created_at_ms = now_ms();
+        let tags = vec![
+            "schema:taskspace-forced-inspect-transition-v1".to_string(),
+            "producer:provider_response".to_string(),
+            format!("trigger:{trigger}"),
+            format!("request_count:{}", snapshot.request_count),
+            format!("max_requests:{}", snapshot.max_requests),
+            format!("source_node_kind:{}", NodeKind::InspectCodeContext.as_str()),
+            format!("next_node_kind:{}", NodeKind::ImplementSolution.as_str()),
+            format!("result_id:{}", outcome.result_id),
+            format!(
+                "bound_next_node_id:{}",
+                outcome.next_node_id.as_deref().unwrap_or("")
+            ),
+        ];
+        let trace_event = TaskSpaceTraceEvent {
+            id: id.clone(),
+            kind: "forced_inspect_transition".to_string(),
+            task_id,
+            map_id,
+            node_id: node_id.to_string(),
+            result_id: Some(outcome.result_id.clone()),
+            call_id: None,
+            action_class: Some(ActionClass::Control),
+            tool_success: Some(true),
+            tags,
+            artifact_refs: Vec::new(),
+            created_at_ms,
+        };
+        self.taskspace_trace_events.push(trace_event.clone());
+        events.push(MapRuntimeEvent::TaskspaceTraceEventRecorded(
+            MapRuntimeTraceEventRecordedEvent {
+                trace_event_id: id,
+                kind: trace_event.kind,
+                task_id: trace_event.task_id,
+                map_id: trace_event.map_id,
+                node_id: trace_event.node_id,
+                result_id: trace_event.result_id,
+                call_id: trace_event.call_id,
+                action_class: trace_event
+                    .action_class
+                    .map(|action_class| action_class.as_str().to_string()),
+                tool_success: trace_event.tool_success,
+                tags: trace_event.tags,
+                artifact_refs: trace_event.artifact_refs,
+                created_at_ms: trace_event.created_at_ms,
+            },
+        ));
+        Ok(Some((outcome, events)))
+    }
+
+    pub(crate) fn force_finish_implement_for_provider_budget(
+        &mut self,
+        owner_session_id: ThreadId,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        trigger: &str,
+    ) -> Result<Option<(ActionMapFinishNodeOutcome, Vec<MapRuntimeEvent>)>, String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(None);
+        }
+        let node_id = match snapshot.node_id.as_deref() {
+            Some(node_id) => node_id,
+            None => return Ok(None),
+        };
+        let map_id = snapshot.map_id.clone();
+        let (task_id, node_kind, has_edit) = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            let node = map
+                .nodes
+                .get(node_id)
+                .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
+            (
+                map.task_id.clone(),
+                node.kind,
+                node_has_successful_action(map, node, ActionClass::Edit),
+            )
+        };
+        if node_kind != NodeKind::ImplementSolution || !has_edit {
+            return Ok(None);
+        }
+        if !provider_request_budget_snapshot_pressure_active_for_node(snapshot, node_kind) {
+            return Ok(None);
+        }
+        let result_summary = format!(
+            "Provider request budget pressure forced implementation convergence at {}/{} after {trigger}; proceed to validation using the successful edit already recorded on this node.",
+            snapshot.request_count, snapshot.max_requests
+        );
+        let next_node_draft = ActionMapNextNodeDraft {
+            kind: NodeKind::SmokeTest,
+            title: "Run focused validation".to_string(),
+            context_summary:
+                "Run the focused validation command for the implementation edit from this node."
+                    .to_string(),
+            dependency_node_ids: vec![node_id.to_string()],
+        };
+        let (outcome, mut events) = self.finish_main_node_with_next(
+            owner_session_id,
+            node_id,
+            result_summary,
+            None,
+            Some(next_node_draft),
+        )?;
+        if let Some(event) = self.accept_forced_transition_result(
+            &map_id,
+            &outcome.result_id,
+            "Runtime forced implementation convergence into validation under provider budget pressure.",
+            "runtime accepted forced implementation transition bridge result",
+        )? {
+            events.push(event);
+        }
+        let id = self.next_trace_event_id();
+        let created_at_ms = now_ms();
+        let tags = vec![
+            "schema:taskspace-forced-implement-transition-v1".to_string(),
+            "producer:provider_response".to_string(),
+            format!("trigger:{trigger}"),
+            format!("request_count:{}", snapshot.request_count),
+            format!("max_requests:{}", snapshot.max_requests),
+            format!("source_node_kind:{}", NodeKind::ImplementSolution.as_str()),
+            format!("next_node_kind:{}", NodeKind::SmokeTest.as_str()),
+            format!("result_id:{}", outcome.result_id),
+            format!(
+                "bound_next_node_id:{}",
+                outcome.next_node_id.as_deref().unwrap_or("")
+            ),
+        ];
+        let trace_event = TaskSpaceTraceEvent {
+            id: id.clone(),
+            kind: "forced_implement_transition".to_string(),
+            task_id,
+            map_id,
+            node_id: node_id.to_string(),
+            result_id: Some(outcome.result_id.clone()),
+            call_id: None,
+            action_class: Some(ActionClass::Control),
+            tool_success: Some(true),
+            tags,
+            artifact_refs: Vec::new(),
+            created_at_ms,
+        };
+        self.taskspace_trace_events.push(trace_event.clone());
+        events.push(MapRuntimeEvent::TaskspaceTraceEventRecorded(
+            MapRuntimeTraceEventRecordedEvent {
+                trace_event_id: id,
+                kind: trace_event.kind,
+                task_id: trace_event.task_id,
+                map_id: trace_event.map_id,
+                node_id: trace_event.node_id,
+                result_id: trace_event.result_id,
+                call_id: trace_event.call_id,
+                action_class: trace_event
+                    .action_class
+                    .map(|action_class| action_class.as_str().to_string()),
+                tool_success: trace_event.tool_success,
+                tags: trace_event.tags,
+                artifact_refs: trace_event.artifact_refs,
+                created_at_ms: trace_event.created_at_ms,
+            },
+        ));
+        Ok(Some((outcome, events)))
+    }
+
+    fn accept_forced_transition_result(
+        &mut self,
+        map_id: &str,
+        result_id: &str,
+        claim_statement: &str,
+        validity_reason: &str,
+    ) -> Result<Option<MapRuntimeEvent>, String> {
+        let map = self
+            .maps
+            .get_mut(map_id)
+            .ok_or_else(|| format!("TaskSpace task path `{map_id}` is missing."))?;
+        let task_id = map.task_id.clone();
+        let result = map.results.get_mut(result_id).ok_or_else(|| {
+            format!("TaskSpace result `{result_id}` does not exist on task path `{map_id}`.")
+        })?;
+        if result.evidence_package.validity != ResultValidity::Unreviewed {
+            return Ok(None);
+        }
+        let mut adoption = NodeResultAdoption::default();
+        adoption.refresh_state(ResultValidity::Accepted);
+        let evidence_ref = EvidenceRef {
+            result_id: Some(result_id.to_string()),
+            claim_id: None,
+            fact_source_id: None,
+            trace_event_id: None,
+            artifact_ref: None,
+            validator_ref: None,
+        };
+        result.evidence_package = NodeResultEvidencePackage {
+            claims: vec![CognitiveClaim {
+                id: format!("claim-{result_id}-forced-transition"),
+                statement: claim_statement.to_string(),
+                evidence_refs: vec![evidence_ref.clone()],
+            }],
+            evidence_refs: vec![evidence_ref],
+            changed_artifacts: Vec::new(),
+            validator_refs: Vec::new(),
+            remaining_uncertainty: Vec::new(),
+            validity: ResultValidity::Accepted,
+            validity_reason: validity_reason.to_string(),
+            adoption,
+        };
+        Ok(Some(MapRuntimeEvent::ResultValidityChanged(
+            MapRuntimeResultValidityChangedEvent {
+                task_id,
+                map_id: map_id.to_string(),
+                node_id: result.node_id.clone(),
+                result_id: result_id.to_string(),
+                validity: ResultValidity::Accepted.as_str().to_string(),
+            },
+        )))
+    }
+
+    fn accept_forced_inspect_transition_result(
+        &mut self,
+        map_id: &str,
+        result_id: &str,
+        validity_reason: &str,
+    ) -> Result<Option<MapRuntimeEvent>, String> {
+        self.accept_forced_transition_result(
+            map_id,
+            result_id,
+            "Runtime forced inspect convergence into implementation under provider budget pressure.",
+            validity_reason,
+        )
     }
 
     pub(crate) fn prepare_child_tool_call(
@@ -1852,6 +3527,60 @@ preview:\n\
             "TaskSpace mode is active but no active task path exists. Call taskspace_control(action=start_task) to create a new semantic task before creating extra nodes."
                 .to_string()
         })?;
+        let (task_id_for_budget, node_count_before, budget_trace_node_id) = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            (
+                map.task_id.clone(),
+                map.nodes.len(),
+                self.current_main_node_id
+                    .clone()
+                    .or_else(|| ordered_node_ids(map).into_iter().next())
+                    .unwrap_or_else(|| "node-budget".to_string()),
+            )
+        };
+        let active_budget = self.active_budget.as_ref().cloned().unwrap_or_else(|| {
+            taskspace_active_budget_for_route(
+                "taskspace-v005-active",
+                TaskSpaceRouteMode::DefaultCompact,
+            )
+        });
+        self.budget_counters.node_count = node_count_before;
+        let max_nodes = active_budget.max_nodes;
+        let gate_decision = self.gate_create_node_budget(&map_id, kind);
+        if !gate_decision.allowed {
+            let budget_event = self.record_runtime_budget_trace_event(
+                "spawn_node_budget",
+                task_id_for_budget,
+                map_id.clone(),
+                budget_trace_node_id,
+                None,
+                false,
+                vec![
+                    "schema:taskspace-spawn-node-budget-event-v1".to_string(),
+                    "producer:runtime".to_string(),
+                    "budget_kind:node".to_string(),
+                    "action:create_node".to_string(),
+                    "status:blocked".to_string(),
+                    format!("node_count_before:{node_count_before}"),
+                    format!("node_count_after:{node_count_before}"),
+                    "active_budget_source:runtime".to_string(),
+                    format!("route_mode:{}", active_budget.route_mode.as_str()),
+                    format!("profile_name:{}", active_budget.profile_name.as_str()),
+                    format!("max_nodes:{max_nodes}"),
+                    format!("budget_state:{}", gate_decision.budget_state.as_str()),
+                    format!("budget_gate_reason:{}", gate_decision.reason),
+                    "budget_response_action_taken:true".to_string(),
+                ],
+            );
+            events.push(budget_event);
+            return Err(format!(
+                "TaskSpace blocked create_node because active profile node budget is exhausted: {node_count_before}/{}.",
+                max_nodes
+            ));
+        }
         let node_id = self.next_node_id();
         let map = self
             .maps
@@ -1902,6 +3631,7 @@ preview:\n\
             && ready
             && kind == NodeKind::InspectCodeContext
             && Self::has_completed_narrow_inspect(map)
+            && !has_unresolved_broad_delegation_debt(map, owner_session_id)
         {
             return Err(
                 "TaskSpace cannot create a detached inspect_code_context node after a completed narrow inspect pass. Keep serial single-track investigation on the main agent; pre-fix diagnostic or baseline commands belong inside the current inspect_code_context result, and follow-up implementation should use implement_solution."
@@ -1961,6 +3691,30 @@ preview:\n\
         if bind_current {
             events.extend(self.bind_main_node(owner_session_id, &node_id)?);
         }
+        let task_id_for_budget = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
+        self.budget_counters.node_count = node_count_before + 1;
+        events.push(self.record_runtime_budget_trace_event(
+            "spawn_node_budget",
+            task_id_for_budget,
+            map_id.clone(),
+            node_id.clone(),
+            None,
+            true,
+            vec![
+                "schema:taskspace-spawn-node-budget-event-v1".to_string(),
+                "producer:runtime".to_string(),
+                "budget_kind:node".to_string(),
+                "action:create_node".to_string(),
+                "status:allowed".to_string(),
+                format!("node_count_before:{node_count_before}"),
+                format!("node_count_after:{}", node_count_before + 1),
+                "active_budget_source:runtime".to_string(),
+                format!("route_mode:{}", active_budget.route_mode.as_str()),
+                format!("profile_name:{}", active_budget.profile_name.as_str()),
+                format!("max_nodes:{max_nodes}"),
+                "budget_response_action_taken:false".to_string(),
+            ],
+        ));
         Ok((node_id, events))
     }
 
@@ -2311,6 +4065,11 @@ preview:\n\
             next_node_id,
             next_node_draft.as_ref(),
         )?;
+        let mut validation_events = self.auto_accept_validation_result_for_finish(
+            owner_session_id,
+            node_id,
+            result_summary,
+        )?;
         self.validate_completion_evidence(node_id)?;
         if self.active_node_kind(node_id)? == NodeKind::FinalSynthesis {
             self.validate_final_response_ready(owner_session_id, result_summary, false)?;
@@ -2323,6 +4082,8 @@ preview:\n\
             NodeStatus::Completed,
             true,
         )?;
+        validation_events.append(&mut events);
+        let mut events = validation_events;
         let mut bound_next_node_id = None;
         if let Some(next_node_id) = next_node_id {
             let bind_events = self.bind_main_node(owner_session_id, next_node_id)?;
@@ -2352,6 +4113,92 @@ preview:\n\
             },
             events,
         ))
+    }
+
+    fn auto_accept_validation_result_for_finish(
+        &mut self,
+        owner_session_id: ThreadId,
+        node_id: &str,
+        result_summary: &str,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let Some(map_id) = self.active_map_id.clone() else {
+            return Ok(Vec::new());
+        };
+        let Some((node_kind, result_id, result_already_accepted, criterion_already_satisfied)) =
+            self.maps.get(&map_id).and_then(|map| {
+                let node = map.nodes.get(node_id)?;
+                if !matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
+                    return None;
+                }
+                let result_id = latest_successful_validation_result_id(map, node)?;
+                let result_already_accepted = map.results.get(&result_id).is_some_and(|result| {
+                    result.evidence_package.validity == ResultValidity::Accepted
+                });
+                let criterion_already_satisfied = map
+                    .task_id
+                    .as_deref()
+                    .and_then(|task_id| self.tasks.get(task_id))
+                    .is_some_and(|task| {
+                        node_satisfies_success_criterion_with_validation_result(task, map, node)
+                    });
+                Some((
+                    node.kind,
+                    result_id,
+                    result_already_accepted,
+                    criterion_already_satisfied,
+                ))
+            })
+        else {
+            return Ok(Vec::new());
+        };
+
+        let mut events = Vec::new();
+        if !result_already_accepted {
+            events.extend(self.mark_result_validity_for_main(
+                owner_session_id,
+                &result_id,
+                "accepted",
+                format!("{} succeeded before node finish.", node_kind.as_str()),
+                vec![ActionMapCognitiveClaimInput {
+                    id: format!("claim-{result_id}-validation-pass"),
+                    statement: format!(
+                        "{} passed: {}",
+                        node_kind.as_str(),
+                        single_line_preview(result_summary, 160)
+                    ),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.clone()),
+                        validator_ref: Some(node_kind.as_str().to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    validator_ref: Some(node_kind.as_str().to_string()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                vec![node_kind.as_str().to_string()],
+                Vec::new(),
+            )?);
+        }
+        if !criterion_already_satisfied {
+            events.extend(self.record_success_criteria_for_main(
+                owner_session_id,
+                vec![ActionMapSuccessCriterionInput {
+                    id: format!("sc-{node_id}-validation-pass"),
+                    kind: "test".to_string(),
+                    description: format!("{} passed before node finish.", node_kind.as_str()),
+                    status: "satisfied".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id),
+                        validator_ref: Some(node_kind.as_str().to_string()),
+                        ..Default::default()
+                    }],
+                }],
+            )?);
+        }
+        Ok(events)
     }
 
     pub(crate) fn block_main_node(
@@ -2920,7 +4767,10 @@ preview:\n\
                 "TaskSpace record_subagent_plan parent node `{parent_node_id}` is already held by an active lease."
             ));
         }
-        if node.kind == NodeKind::InspectCodeContext && Self::has_completed_narrow_inspect(map) {
+        if node.kind == NodeKind::InspectCodeContext
+            && Self::has_completed_narrow_inspect(map)
+            && !has_unresolved_broad_delegation_debt(map, owner_session_id)
+        {
             return Err(format!(
                 "TaskSpace record_subagent_plan blocked for inspect node `{parent_node_id}` because the main agent already completed a narrow inspect pass. Keep serial single-track investigation on the main agent; only create inspect subagent plans before the first narrow inspect result when independent evidence tracks are known upfront."
             ));
@@ -3021,6 +4871,7 @@ preview:\n\
         }
 
         let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        self.validate_state_commit_validation_failure_rework(&map_id, &input)?;
         let commit_id = require_nonempty_owned("commit_id", input.commit_id)?;
         if let Some(previous) = self.applied_state_commits.get(&commit_id) {
             let mut outcome = previous.clone();
@@ -3286,15 +5137,118 @@ preview:\n\
         };
         events.push(MapRuntimeEvent::CognitiveStateUpdated(
             MapRuntimeCognitiveStateUpdatedEvent {
-                task_id,
-                map_id: Some(map_id),
+                task_id: task_id.clone(),
+                map_id: Some(map_id.clone()),
                 update_kind: format!("state_commit.{}", outcome.status.as_str()),
-                record_id: commit_id,
+                record_id: commit_id.clone(),
             },
+        ));
+        let legacy_state_action_attempt_count =
+            outcome.accepted_sections.len() + outcome.rejected_sections.len();
+        let legacy_state_action_displaced_count = outcome.accepted_sections.len();
+        let legacy_state_action_budget = self
+            .active_budget
+            .as_ref()
+            .map(|budget| budget.max_legacy_state_actions)
+            .unwrap_or_else(|| {
+                taskspace_active_budget_for_route(
+                    "taskspace-v005-active",
+                    TaskSpaceRouteMode::DefaultCompact,
+                )
+                .max_legacy_state_actions
+            });
+        self.budget_counters.legacy_state_action_attempt_count += legacy_state_action_attempt_count;
+        self.budget_counters.legacy_state_action_displaced_count +=
+            legacy_state_action_displaced_count;
+        self.budget_counters.state_commit_count += 1;
+        let trace_node_id = self
+            .current_main_node_id
+            .clone()
+            .or_else(|| {
+                self.maps
+                    .get(&map_id)
+                    .and_then(|map| ordered_node_ids(map).into_iter().next())
+            })
+            .unwrap_or_else(|| "state-commit".to_string());
+        events.push(self.record_runtime_budget_trace_event(
+            "state_commit_displacement",
+            Some(task_id.clone()),
+            map_id.clone(),
+            trace_node_id,
+            Some(outcome.commit_id.clone()),
+            outcome.status != ActionMapStateCommitStatus::Rejected,
+            vec![
+                "schema:taskspace-state-commit-displacement-event-v1".to_string(),
+                "producer:runtime".to_string(),
+                format!("status:{}", outcome.status.as_str()),
+                format!("commit_id:{}", outcome.commit_id),
+                format!("accepted_section_count:{}", outcome.accepted_sections.len()),
+                format!("rejected_section_count:{}", outcome.rejected_sections.len()),
+                "state_commit_count:1".to_string(),
+                "model_visible_state_commit_count:1".to_string(),
+                "runtime_synthesized_state_commit_count:0".to_string(),
+                format!("legacy_state_action_attempt_count:{legacy_state_action_attempt_count}"),
+                format!(
+                    "legacy_state_action_displaced_count:{legacy_state_action_displaced_count}"
+                ),
+                "legacy_state_action_count:0".to_string(),
+                "active_budget_source:runtime".to_string(),
+                format!("legacy_state_action_budget:{legacy_state_action_budget}"),
+                "budget_response_action_taken:false".to_string(),
+            ],
         ));
         self.applied_state_commits
             .insert(outcome.commit_id.clone(), outcome.clone());
         Ok((outcome, events))
+    }
+
+    fn validate_state_commit_validation_failure_rework(
+        &self,
+        map_id: &str,
+        input: &ActionMapStateCommitInput,
+    ) -> Result<(), String> {
+        let Some(current_node_id) = self.current_main_node_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return Ok(());
+        };
+        let Some(current_node) = map.nodes.get(current_node_id) else {
+            return Ok(());
+        };
+        if !matches!(
+            current_node.kind,
+            NodeKind::SmokeTest | NodeKind::RegressionTest
+        ) {
+            return Ok(());
+        }
+        let marks_current_failed_validation = input.result_validities.iter().any(|validity| {
+            let Some(result_validity) = ResultValidity::from_str(&validity.validity) else {
+                return false;
+            };
+            if result_validity == ResultValidity::Accepted {
+                return false;
+            }
+            let result_id =
+                self.resolve_result_id_or_latest_node_result(map_id, validity.result_id.as_str());
+            map.results.get(&result_id).is_some_and(|result| {
+                result.node_id == current_node_id
+                    && matches!(
+                        result.action_class,
+                        Some(ActionClass::Test | ActionClass::Build)
+                    )
+                    && result.tool_success != Some(true)
+            })
+        });
+        if !marks_current_failed_validation {
+            return Ok(());
+        }
+        if state_commit_has_validation_failure_rework(input, map, current_node_id) {
+            return Ok(());
+        }
+        Err(format!(
+            "TaskSpace validation node `{current_node_id}` recorded a failed test/build result without a rework transition. In the same state_commit, either block `{current_node_id}` with sections.blockers, or finish `{current_node_id}` and create or bind an implement_solution node that depends on the failed validation evidence before reading or editing more code."
+        ))
     }
 
     pub(crate) fn mark_result_validity_for_main(
@@ -3303,14 +5257,21 @@ preview:\n\
         result_id: &str,
         validity: &str,
         validity_reason: String,
-        claims: Vec<ActionMapCognitiveClaimInput>,
-        evidence_refs: Vec<ActionMapEvidenceRefInput>,
+        mut claims: Vec<ActionMapCognitiveClaimInput>,
+        mut evidence_refs: Vec<ActionMapEvidenceRefInput>,
         changed_artifacts: Vec<String>,
         validator_refs: Vec<String>,
         remaining_uncertainty: Vec<String>,
     ) -> Result<Vec<MapRuntimeEvent>, String> {
         let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
-        let result_id = require_nonempty("result_id", result_id)?;
+        let requested_result_id = require_nonempty("result_id", result_id)?;
+        let result_id = self.resolve_result_id_or_latest_node_result(&map_id, &requested_result_id);
+        if result_id != requested_result_id {
+            rewrite_result_id_refs(&mut evidence_refs, &requested_result_id, &result_id);
+            for claim in &mut claims {
+                rewrite_result_id_refs(&mut claim.evidence_refs, &requested_result_id, &result_id);
+            }
+        }
         let validity = ResultValidity::from_str(validity).ok_or_else(|| {
             "TaskSpace mark_result_validity validity must be one of: unreviewed, accepted, questioned, invalid."
                 .to_string()
@@ -3409,6 +5370,78 @@ preview:\n\
             "TaskSpace mode is active but no active task path exists.".to_string()
         })?;
         self.validate_completion_evidence_for(map_id, node_id)
+    }
+
+    pub(crate) fn current_main_node_progress_signature(&self) -> Option<usize> {
+        let map_id = self.active_map_id.as_ref()?;
+        let node_id = self.current_main_node_id.as_ref()?;
+        self.current_node_progress_signature(map_id, node_id)
+    }
+
+    fn inspect_node_has_successful_code_or_test_read(
+        &self,
+        map_id: &str,
+        node_id: &str,
+    ) -> Result<bool, String> {
+        let map = self
+            .maps
+            .get(map_id)
+            .ok_or_else(|| format!("TaskSpace task path `{map_id}` is missing."))?;
+        let node = map
+            .nodes
+            .get(node_id)
+            .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
+        Ok(node_has_successful_code_or_test_inspect_result(map, node))
+    }
+
+    fn current_node_progress_signature(&self, map_id: &str, node_id: &str) -> Option<usize> {
+        let map = self.maps.get(map_id)?;
+        let node = map.nodes.get(node_id)?;
+        let task = map
+            .task_id
+            .as_deref()
+            .and_then(|task_id| self.tasks.get(task_id));
+        let successful_main_tool_results = node
+            .result_context
+            .iter()
+            .filter(|result_ref| {
+                map.results.get(&result_ref.id).is_some_and(|result| {
+                    result.kind == NodeResultKind::MainToolCall && result.tool_success == Some(true)
+                })
+            })
+            .count();
+        let problem_state_progress =
+            usize::from(task.is_some_and(|task| node_has_problem_state_effect(task, map, node)));
+        Some(successful_main_tool_results + problem_state_progress)
+    }
+
+    pub(crate) fn current_main_node_has_successful_action(
+        &self,
+        action_class: ActionClass,
+    ) -> bool {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return false;
+        };
+        let Some(node_id) = self.current_main_node_id.as_deref() else {
+            return false;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return false;
+        };
+        let Some(node) = map.nodes.get(node_id) else {
+            return false;
+        };
+        node_has_successful_action(map, node, action_class)
+    }
+
+    pub(crate) fn active_map_has_accepted_successful_validation_result(&self) -> bool {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return false;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return false;
+        };
+        map_has_accepted_successful_validation_result(map)
     }
 
     fn validate_completion_evidence_for(&self, map_id: &str, node_id: &str) -> Result<(), String> {
@@ -3613,6 +5646,25 @@ preview:\n\
             ));
         }
         Ok(())
+    }
+
+    fn resolve_result_id_or_latest_node_result(&self, map_id: &str, value: &str) -> String {
+        let Some(map) = self.maps.get(map_id) else {
+            return value.to_string();
+        };
+        if map.results.contains_key(value) {
+            return value.to_string();
+        }
+        let Some(node) = map.nodes.get(value) else {
+            return value.to_string();
+        };
+        latest_successful_validation_result_id(map, node)
+            .or_else(|| {
+                node.result_context
+                    .last()
+                    .map(|result_ref| result_ref.id.clone())
+            })
+            .unwrap_or_else(|| value.to_string())
     }
 
     fn validate_result_ids_belong_to_active_map(
@@ -4132,6 +6184,39 @@ preview:\n\
                 artifacts.push(artifact.to_string());
             }
         }
+        if artifacts.is_empty() {
+            artifacts.extend(
+                self.infer_changed_artifacts_from_successful_edit_results(map, &result.node_id),
+            );
+        }
+        artifacts
+    }
+
+    fn infer_changed_artifacts_from_successful_edit_results(
+        &self,
+        map: &ActionMapInstance,
+        node_id: &str,
+    ) -> Vec<String> {
+        let Some(node) = map.nodes.get(node_id) else {
+            return Vec::new();
+        };
+        let mut artifacts = Vec::new();
+        for result_ref in &node.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind != NodeResultKind::MainToolCall
+                || result.action_class != Some(ActionClass::Edit)
+                || result.tool_success != Some(true)
+            {
+                continue;
+            }
+            for artifact in extract_edit_changed_artifacts_from_tool_body(&result.body) {
+                if !artifacts.iter().any(|existing| existing == &artifact) {
+                    artifacts.push(artifact);
+                }
+            }
+        }
         artifacts
     }
 
@@ -4191,6 +6276,7 @@ preview:\n\
             .maps
             .get(&map_id)
             .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        self.validate_final_answer_no_internal_orchestration_terms(message)?;
         let has_completed_final_synthesis = map.nodes.values().any(|node| {
             node.kind == NodeKind::FinalSynthesis && node.status == NodeStatus::Completed
         });
@@ -4350,6 +6436,20 @@ preview:\n\
                     .to_string(),
             );
         }
+        for marker in FINAL_ANSWER_INTERNAL_PROTOCOL_MARKERS {
+            if normalized.contains(marker) {
+                return Err(format!(
+                    "TaskSpace final answer gate rejected hidden tool-call protocol marker `{marker}`. Rewrite the final answer as a user-visible result, validation status, or blocked_by_budget explanation only."
+                ));
+            }
+        }
+        for marker in FINAL_ANSWER_FOLLOW_UP_INTENT_MARKERS {
+            if normalized.contains(marker) {
+                return Err(format!(
+                    "TaskSpace final answer gate rejected non-final follow-up intent `{marker}`. Rewrite the final answer as a completed result, validation status, or blocked_by_budget explanation only."
+                ));
+            }
+        }
         for term in FINAL_ANSWER_INTERNAL_ORCHESTRATION_TERMS {
             if contains_bounded_term(&normalized, term) {
                 return Err(format!(
@@ -4362,7 +6462,7 @@ preview:\n\
 
     pub(crate) fn prepare_spawn_assignment(
         &mut self,
-        _owner_session_id: ThreadId,
+        owner_session_id: ThreadId,
         _requested_task_name: &str,
         requested_node_id: Option<&str>,
     ) -> Result<(Option<ActionMapAssignment>, Vec<MapRuntimeEvent>), String> {
@@ -4380,6 +6480,63 @@ preview:\n\
                     .to_string(),
             );
         };
+        let (task_id_for_budget, node_count_for_budget, budget_trace_node_id) = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            (
+                map.task_id.clone(),
+                map.nodes.len(),
+                self.current_main_node_id
+                    .clone()
+                    .or_else(|| ordered_node_ids(map).into_iter().next())
+                    .unwrap_or_else(|| "spawn-budget".to_string()),
+            )
+        };
+        let active_budget = self.active_budget.as_ref().cloned().unwrap_or_else(|| {
+            taskspace_active_budget_for_route(
+                "taskspace-v005-active",
+                TaskSpaceRouteMode::DefaultCompact,
+            )
+        });
+        self.budget_counters.node_count = node_count_for_budget;
+        let max_spawn_agent_calls = active_budget.max_spawn_agent_calls;
+        let max_nodes = active_budget.max_nodes;
+        let spawn_count_before = self.budget_counters.spawn_agent_call_count;
+        let gate_decision = self.gate_spawn_budget(&map_id, &budget_trace_node_id);
+        if !gate_decision.allowed {
+            events.push(self.record_runtime_budget_trace_event(
+                "spawn_node_budget",
+                task_id_for_budget,
+                map_id.clone(),
+                budget_trace_node_id,
+                None,
+                false,
+                vec![
+                    "schema:taskspace-spawn-node-budget-event-v1".to_string(),
+                    "producer:runtime".to_string(),
+                    "budget_kind:spawn".to_string(),
+                    "action:spawn_agent".to_string(),
+                    "status:blocked".to_string(),
+                    format!("spawn_agent_call_count_before:{spawn_count_before}"),
+                    format!("spawn_agent_call_count_after:{spawn_count_before}"),
+                    "active_budget_source:runtime".to_string(),
+                    format!("route_mode:{}", active_budget.route_mode.as_str()),
+                    format!("profile_name:{}", active_budget.profile_name.as_str()),
+                    format!("max_spawn_agent_calls:{max_spawn_agent_calls}"),
+                    format!("node_count:{node_count_for_budget}"),
+                    format!("max_nodes:{max_nodes}"),
+                    format!("budget_state:{}", gate_decision.budget_state.as_str()),
+                    format!("budget_gate_reason:{}", gate_decision.reason),
+                    "budget_response_action_taken:true".to_string(),
+                ],
+            ));
+            return Err(format!(
+                "TaskSpace blocked spawn_agent because active profile spawn budget is exhausted: {spawn_count_before}/{}.",
+                max_spawn_agent_calls
+            ));
+        }
         if let Some(current_node_id) = self.current_main_node_id.as_deref() {
             let map = self
                 .maps
@@ -4403,7 +6560,7 @@ preview:\n\
             .map(str::trim)
             .filter(|node_id| !node_id.is_empty());
         let node_id = self.select_spawn_node_id(&map_id, requested_node_id)?;
-        self.validate_spawn_parallelism(&map_id, &node_id)?;
+        self.validate_spawn_parallelism(owner_session_id, &map_id, &node_id)?;
         self.validate_maintenance_barrier_for_node(&node_id)?;
         let subagent_plan_id = self.select_subagent_plan_id_for_node(&map_id, &node_id)?;
         let subagent_plan = self
@@ -4463,6 +6620,32 @@ preview:\n\
             lease_id: lease_id.clone(),
             holder: LeaseHolder::SubAgent.as_str().to_string(),
         }));
+        let task_id_for_budget = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
+        self.budget_counters.spawn_agent_call_count = spawn_count_before + 1;
+        events.push(self.record_runtime_budget_trace_event(
+            "spawn_node_budget",
+            task_id_for_budget,
+            map_id.clone(),
+            node_id.clone(),
+            Some(lease_id.clone()),
+            true,
+            vec![
+                "schema:taskspace-spawn-node-budget-event-v1".to_string(),
+                "producer:runtime".to_string(),
+                "budget_kind:spawn".to_string(),
+                "action:spawn_agent".to_string(),
+                "status:allowed".to_string(),
+                format!("spawn_agent_call_count_before:{spawn_count_before}"),
+                format!("spawn_agent_call_count_after:{}", spawn_count_before + 1),
+                "active_budget_source:runtime".to_string(),
+                format!("route_mode:{}", active_budget.route_mode.as_str()),
+                format!("profile_name:{}", active_budget.profile_name.as_str()),
+                format!("max_spawn_agent_calls:{max_spawn_agent_calls}"),
+                format!("node_count:{node_count_for_budget}"),
+                format!("max_nodes:{max_nodes}"),
+                "budget_response_action_taken:false".to_string(),
+            ],
+        ));
 
         Ok((
             Some(ActionMapAssignment {
@@ -4705,7 +6888,7 @@ preview:\n\
             .unwrap_or_default()
     }
 
-    pub(crate) fn build_developer_context(&self) -> Option<String> {
+    pub(crate) fn build_developer_context(&mut self) -> Option<String> {
         if self.mode != MapRuntimeMode::Experiment {
             return None;
         }
@@ -4937,62 +7120,116 @@ preview:\n\
         context
     }
 
-    fn build_active_projection_developer_context(&self) -> Option<String> {
-        let map = self.active_map()?;
-        let task = map
-            .task_id
+    fn build_active_projection_developer_context(&mut self) -> Option<String> {
+        let map_id = self.active_map_id.clone()?;
+        let (task_id, current_node_id, context, estimated_tokens, max_projection_tokens) = {
+            let map = self.maps.get(&map_id)?;
+            let task = map
+                .task_id
+                .as_ref()
+                .or(self.active_task_id.as_ref())
+                .and_then(|task_id| self.tasks.get(task_id))?;
+            let mut context = String::from(
+                "TaskSpace v0.0.5 active compact profile is enabled. Use this compact projection as the model-visible TaskSpace surface; runtime state remains authoritative.\n",
+            );
+            context.push_str(
+                "Use taskspace_control for state changes. Prefer state_commit for multi-section updates. Keep simple fixes on the narrow path: inspect_code_context -> implement_solution -> smoke_test/regression_test, then direct final answer after accepted validation. Do not create final_synthesis only to summarize thin work. Do not spawn agents for thin/single-file work unless new evidence reveals independent tracks.\n",
+            );
+            if self.bootstrap_required {
+                context.push_str(
+                    "Bootstrap is required now: create the first semantic task with taskspace_control(action=start_task) before ordinary tools or subagent spawn.\n",
+                );
+            } else if self.routing_required {
+                context.push_str(
+                    "Task routing is required now: route to the active task or start a new semantic task before ordinary tools or subagent spawn.\n",
+                );
+            }
+            if let Some(barrier) = self.active_maintenance_barrier() {
+                context.push_str("Maintenance barrier:\n- map: ");
+                context.push_str(&barrier.map_id);
+                context.push_str("\n- node: ");
+                context.push_str(&barrier.node_id);
+                context.push_str("\n- reason: ");
+                context.push_str(barrier.reason.as_str());
+                context.push('\n');
+            }
+            let estimated_tokens = append_context_projection_active(
+                &mut context,
+                task,
+                map,
+                self.current_main_node_id.as_deref(),
+                self.active_budget.as_ref(),
+            );
+            if let Some(node_id) = self.current_main_node_id.as_ref()
+                && let Some(node) = map.nodes.get(node_id)
+            {
+                let contract = contract_for(node.kind);
+                context.push_str("\nCurrent node contract:\n- node: ");
+                context.push_str(node_id);
+                context.push_str(" kind=");
+                context.push_str(node.kind.as_str());
+                context.push_str("\n- allowed action classes: ");
+                context.push_str(
+                    &contract
+                        .allowed_actions
+                        .iter()
+                        .map(|action| action.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+                context.push('\n');
+            }
+            (
+                task.id.clone(),
+                self.current_main_node_id
+                    .clone()
+                    .unwrap_or_else(|| "projection".to_string()),
+                context,
+                estimated_tokens,
+                self.active_budget
+                    .as_ref()
+                    .map(|budget| budget.max_projection_tokens)
+                    .unwrap_or(usize::MAX),
+            )
+        };
+        self.budget_counters.projection_tokens_last = estimated_tokens;
+        self.budget_counters.projection_tokens_max = self
+            .budget_counters
+            .projection_tokens_max
+            .max(estimated_tokens);
+        let route_mode = self
+            .active_budget
             .as_ref()
-            .or(self.active_task_id.as_ref())
-            .and_then(|task_id| self.tasks.get(task_id))?;
-        let mut context = String::from(
-            "TaskSpace v0.0.5 active compact profile is enabled. Use this compact projection as the model-visible TaskSpace surface; runtime state remains authoritative.\n",
+            .map(|budget| budget.route_mode.as_str())
+            .unwrap_or("unknown");
+        let profile_name = self
+            .active_budget
+            .as_ref()
+            .map(|budget| budget.profile_name.as_str())
+            .unwrap_or("unknown");
+        let status = if estimated_tokens <= max_projection_tokens {
+            "within_budget"
+        } else {
+            "over_budget"
+        };
+        let _ = self.record_runtime_budget_trace_event(
+            "projection_budget",
+            Some(task_id),
+            map_id,
+            current_node_id,
+            None,
+            estimated_tokens <= max_projection_tokens,
+            vec![
+                "schema:taskspace-projection-budget-v1".to_string(),
+                "producer:runtime".to_string(),
+                "active_budget_source:runtime".to_string(),
+                format!("route_mode:{route_mode}"),
+                format!("profile_name:{profile_name}"),
+                format!("projection_tokens:{estimated_tokens}"),
+                format!("max_projection_tokens:{max_projection_tokens}"),
+                format!("status:{status}"),
+            ],
         );
-        context.push_str(
-            "Use taskspace_control for state changes. Prefer state_commit for multi-section updates. Keep simple fixes on the narrow path: inspect_code_context -> implement_solution -> smoke_test/regression_test, then direct final answer after accepted validation. Do not create final_synthesis only to summarize thin work. Do not spawn agents for thin/single-file work unless new evidence reveals independent tracks.\n",
-        );
-        if self.bootstrap_required {
-            context.push_str(
-                "Bootstrap is required now: create the first semantic task with taskspace_control(action=start_task) before ordinary tools or subagent spawn.\n",
-            );
-        } else if self.routing_required {
-            context.push_str(
-                "Task routing is required now: route to the active task or start a new semantic task before ordinary tools or subagent spawn.\n",
-            );
-        }
-        if let Some(barrier) = self.active_maintenance_barrier() {
-            context.push_str("Maintenance barrier:\n- map: ");
-            context.push_str(&barrier.map_id);
-            context.push_str("\n- node: ");
-            context.push_str(&barrier.node_id);
-            context.push_str("\n- reason: ");
-            context.push_str(barrier.reason.as_str());
-            context.push('\n');
-        }
-        append_context_projection_active(
-            &mut context,
-            task,
-            map,
-            self.current_main_node_id.as_deref(),
-        );
-        if let Some(node_id) = self.current_main_node_id.as_ref()
-            && let Some(node) = map.nodes.get(node_id)
-        {
-            let contract = contract_for(node.kind);
-            context.push_str("\nCurrent node contract:\n- node: ");
-            context.push_str(node_id);
-            context.push_str(" kind=");
-            context.push_str(node.kind.as_str());
-            context.push_str("\n- allowed action classes: ");
-            context.push_str(
-                &contract
-                    .allowed_actions
-                    .iter()
-                    .map(|action| action.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            );
-            context.push('\n');
-        }
         Some(context)
     }
 
@@ -5758,10 +7995,7 @@ preview:\n\
             .len()
                 < 2
         {
-            return Err(
-                "TaskSpace blocked ordinary main-agent work because a broad inspect_code_context node exhausted its main-tool budget without two accepted subagent inspect results on dependent investigation tracks. Delegate the remaining independent investigation tracks: create ready inspect_code_context nodes if needed, call spawn_agent with explicit node_id for each track, then mark the subagent results accepted before continuing ordinary tools."
-                    .to_string(),
-            );
+            return Err(broad_delegation_recovery_message(&broad_completed_inspects));
         }
         Ok(())
     }
@@ -6116,7 +8350,12 @@ preview:\n\
             .count()
     }
 
-    fn validate_spawn_parallelism(&self, map_id: &str, node_id: &str) -> Result<(), String> {
+    fn validate_spawn_parallelism(
+        &self,
+        owner_session_id: ThreadId,
+        map_id: &str,
+        node_id: &str,
+    ) -> Result<(), String> {
         let map = self
             .maps
             .get(map_id)
@@ -6151,7 +8390,9 @@ preview:\n\
             ));
         }
         let has_completed_narrow_inspect = Self::has_completed_narrow_inspect(map);
-        if !has_completed_narrow_inspect {
+        if !has_completed_narrow_inspect
+            || has_unresolved_broad_delegation_debt(map, owner_session_id)
+        {
             return Ok(());
         }
         Err(format!(
@@ -6234,7 +8475,7 @@ preview:\n\
             action_class: draft.action_class,
             tool_success: Some(draft.tool_success),
             tags,
-            artifact_refs: Vec::new(),
+            artifact_refs: draft.artifact_refs,
             created_at_ms: draft.created_at_ms,
         };
         self.taskspace_trace_events.push(event.clone());
@@ -6682,6 +8923,7 @@ fn append_context_projection_shadow(
         current_node_id,
         "shadow",
         "ContextProjectionV1 shadow (not active replacement):",
+        None,
     );
 }
 
@@ -6690,15 +8932,19 @@ fn append_context_projection_active(
     task: &TaskState,
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
-) {
+    active_budget: Option<&TaskSpaceActiveBudgetV1>,
+) -> usize {
     append_context_projection_with_header(
         context,
         task,
         map,
         current_node_id,
-        "active",
+        active_budget
+            .map(|budget| budget.route_mode.as_str())
+            .unwrap_or("active"),
         "ContextProjectionV1 active replacement:",
-    );
+        active_budget,
+    )
 }
 
 fn append_context_projection_with_header(
@@ -6708,7 +8954,8 @@ fn append_context_projection_with_header(
     current_node_id: Option<&str>,
     profile: &str,
     header: &str,
-) {
+    active_budget: Option<&TaskSpaceActiveBudgetV1>,
+) -> usize {
     let projection_id = format!("projection-{profile}-{}-{}", task.id, map.id);
     let current_node = current_node_id
         .and_then(|node_id| map.nodes.get(node_id))
@@ -6801,7 +9048,16 @@ fn append_context_projection_with_header(
     projection.push_str(&projection_id);
     projection.push_str("\n- task_id: ");
     projection.push_str(&task.id);
-    projection.push_str("\n- mode: default_compact\n- active_objective: ");
+    projection.push_str("\n- mode: ");
+    projection.push_str(profile);
+    if let Some(budget) = active_budget {
+        projection.push_str("\n- active_budget_source: runtime");
+        projection.push_str("\n- max_projection_tokens: ");
+        projection.push_str(&budget.max_projection_tokens.to_string());
+        projection.push_str("\n- max_avg_input_tokens_per_request: ");
+        projection.push_str(&budget.max_avg_input_tokens_per_request.to_string());
+    }
+    projection.push_str("\n- active_objective: ");
     projection.push_str(&single_line_preview(&task.problem_ledger.objective, 220));
     projection.push_str("\n- sections:\n");
     append_projection_list(&mut projection, "success_criteria", &success_criteria);
@@ -6815,9 +9071,19 @@ fn append_context_projection_with_header(
     append_projection_list(&mut projection, "next_valid_actions", &next_valid_actions);
     append_projection_list(&mut projection, "hidden_refs_available", &hidden_refs);
     projection.push_str("- estimated_tokens: ");
-    projection.push_str(&approx_projection_tokens(&projection).to_string());
+    let estimated_tokens = approx_projection_tokens(&projection);
+    projection.push_str(&estimated_tokens.to_string());
+    if let Some(budget) = active_budget {
+        projection.push_str("\n- projection_budget_status: ");
+        projection.push_str(if estimated_tokens <= budget.max_projection_tokens {
+            "within_budget"
+        } else {
+            "over_budget"
+        });
+    }
     projection.push('\n');
     context.push_str(&projection);
+    estimated_tokens
 }
 
 fn append_projection_list(context: &mut String, label: &str, values: &[String]) {
@@ -6883,8 +9149,15 @@ fn blocked_action_recovery_message(
     node: &MapNode,
     descriptor: &ToolActionDescriptor,
     reason: &str,
+    implement_has_edit: bool,
 ) -> String {
     if node.kind == NodeKind::ImplementSolution && descriptor.action_class == ActionClass::Test {
+        if !implement_has_edit {
+            return format!(
+                "TaskSpace blocked this tool call. Current node `{}` kind: implement_solution. Requested tool `{}` action class: test. Reason: {}. This implementation node has no successful edit result yet. Do not finish the node, create another inspect node, or run validation now. First apply the smallest implementation edit with an edit-capable tool such as apply_patch; after the edit succeeds, finish this implementation node and create or bind a smoke_test or regression_test node for validation.",
+                node.id, descriptor.tool_name, reason
+            );
+        }
         return format!(
             "TaskSpace blocked this tool call. Current node `{}` kind: implement_solution. Requested tool `{}` action class: test. Reason: {}. Do not block this implementation node or create another inspect node. First call taskspace_control(action=finish_node, node_id=\"{}\", result_summary=\"implementation edit is applied\", next_node_kind=\"smoke_test\", next_node_title=\"Run validation\", next_node_context_summary=\"Run tests for the implementation from {}\", next_dependency_node_ids=[\"{}\"]), then run the test only after current_node is smoke_test or regression_test.",
             node.id, descriptor.tool_name, reason, node.id, node.id, node.id
@@ -8363,6 +10636,44 @@ fn sanitize_trace_tags(tags: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+fn trace_tag_value<'a>(tags: &'a [String], key: &str) -> Option<&'a str> {
+    let prefix = format!("{key}:");
+    tags.iter()
+        .find_map(|tag| tag.strip_prefix(prefix.as_str()))
+}
+
+fn trace_tag_usize(tags: &[String], key: &str) -> Option<usize> {
+    trace_tag_value(tags, key).and_then(|value| value.parse::<usize>().ok())
+}
+
+fn map_runtime_event_from_trace_event(event: TaskSpaceTraceEvent) -> MapRuntimeEvent {
+    MapRuntimeEvent::TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent {
+        trace_event_id: event.id,
+        kind: event.kind,
+        task_id: event.task_id,
+        map_id: event.map_id,
+        node_id: event.node_id,
+        result_id: event.result_id,
+        call_id: event.call_id,
+        action_class: event.action_class.map(|action| action.as_str().to_string()),
+        tool_success: event.tool_success,
+        tags: event.tags,
+        artifact_refs: event.artifact_refs,
+        created_at_ms: event.created_at_ms,
+    })
+}
+
+fn sanitize_provider_response_trace_tag_value(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            '\r' | '\n' | '\t' => ' ',
+            _ => ch,
+        })
+        .take(160)
+        .collect::<String>()
+}
+
 fn is_known_trace_tag(tag: &str) -> bool {
     matches!(
         tag,
@@ -8372,7 +10683,33 @@ fn is_known_trace_tag(tag: &str) -> bool {
             | "validator_failure"
             | "unclassified_shell_action"
             | "unclassified_tool_action"
-    )
+    ) || tag.starts_with("schema:")
+        || tag.starts_with("producer:")
+        || tag.starts_with("active_budget_source:")
+        || tag.starts_with("profile_name:")
+        || tag.starts_with("route_mode:")
+        || tag.starts_with("status:")
+        || tag.starts_with("request_count_")
+        || tag.starts_with("max_rollout_model_requests:")
+        || tag.starts_with("max_requests:")
+        || tag.starts_with("node_request_count:")
+        || tag.starts_with("max_model_requests_per_node:")
+        || tag.starts_with("post_budget_grace_requests:")
+        || tag.starts_with("request_phase:")
+        || tag.starts_with("spawn_agent_call_count_")
+        || tag.starts_with("max_spawn_agent_calls:")
+        || tag.starts_with("max_subagent_results:")
+        || tag.starts_with("node_count")
+        || tag.starts_with("max_nodes:")
+        || tag.starts_with("max_open_leaf_nodes:")
+        || tag.starts_with("budget_kind:")
+        || tag.starts_with("action:")
+        || tag.starts_with("budget_state:")
+        || tag.starts_with("budget_gate_reason:")
+        || tag.starts_with("legacy_state_action_")
+        || tag.starts_with("state_commit_count:")
+        || tag.starts_with("projection_tokens")
+        || tag.starts_with("max_projection_tokens:")
 }
 
 fn looks_like_shell_tool(tool_name: &str) -> bool {
@@ -8661,6 +10998,42 @@ fn broad_completed_inspect_node_ids(
     node_ids
 }
 
+fn has_unresolved_broad_delegation_debt(
+    map: &ActionMapInstance,
+    owner_session_id: ThreadId,
+) -> bool {
+    let broad_completed_inspects = broad_completed_inspect_node_ids(map, owner_session_id);
+    !broad_completed_inspects.is_empty()
+        && related_completed_accepted_subagent_inspect_node_ids(
+            map,
+            owner_session_id,
+            &broad_completed_inspects,
+        )
+        .len()
+            < 2
+}
+
+fn broad_delegation_recovery_message(broad_completed_inspects: &[String]) -> String {
+    let message = "TaskSpace blocked ordinary main-agent work because a broad inspect_code_context node exhausted its main-tool budget or produced broad structural findings without two accepted subagent inspect results on dependent investigation tracks. Delegate the remaining independent investigation tracks: create two ready inspect_code_context nodes if needed, record a subagent plan for each ready track, call spawn_agent with explicit node_id for each track, then mark the subagent results accepted before continuing ordinary tools.";
+    let blocking_items = broad_completed_inspects
+        .iter()
+        .map(|node_id| format!("broad_inspect_delegation_debt:{node_id}"))
+        .collect::<Vec<_>>();
+    gate_recovery_message(
+        message,
+        "broad_inspect_delegation_debt",
+        blocking_items,
+        vec![
+            "taskspace_control(action=create_node, node_kind=\"inspect_code_context\", bind_current=false) for first independent track".to_string(),
+            "taskspace_control(action=create_node, node_kind=\"inspect_code_context\", bind_current=false) for second independent track".to_string(),
+            "taskspace_control(action=record_subagent_plan, parent_node_id=\"<ready inspect node>\") for each track".to_string(),
+            "spawn_agent(node_id=\"<ready inspect node>\") for each planned track".to_string(),
+            "taskspace_control(action=mark_result_validity, status=\"accepted\") for two completed subagent inspect results".to_string(),
+        ],
+        vec!["two accepted subagent inspect results related to the broad inspect node".to_string()],
+    )
+}
+
 fn should_enforce_tool_budget_barrier(
     map: &ActionMapInstance,
     node: &MapNode,
@@ -8668,6 +11041,146 @@ fn should_enforce_tool_budget_barrier(
 ) -> bool {
     node.kind != NodeKind::InspectCodeContext
         || completed_main_inspect_has_broad_accepted_result(map, &node.id, owner_session_id)
+}
+
+fn provider_request_budget_pressure_active(
+    provider_request_count: usize,
+    max_requests: usize,
+) -> bool {
+    provider_request_count.saturating_mul(4) >= max_requests.saturating_mul(3)
+}
+
+fn provider_request_budget_pressure_active_for_node(
+    provider_request_count: usize,
+    max_requests: usize,
+    node_kind: NodeKind,
+) -> bool {
+    if node_kind == NodeKind::InspectCodeContext {
+        provider_request_count.saturating_mul(2) >= max_requests
+    } else {
+        provider_request_budget_pressure_active(provider_request_count, max_requests)
+    }
+}
+
+fn provider_request_budget_snapshot_pressure_active_for_node(
+    snapshot: &ActionMapProviderRequestBudgetSnapshot,
+    node_kind: NodeKind,
+) -> bool {
+    provider_request_budget_pressure_active_for_node(
+        snapshot.request_count,
+        snapshot.max_requests,
+        node_kind,
+    ) || snapshot.node_request_count >= snapshot.max_model_requests_per_node
+        || snapshot.request_phase.as_deref() == Some("budget_recovery")
+}
+
+fn budget_state_for_counter(counter_value: usize, counter_limit: usize) -> TaskSpaceBudgetState {
+    if counter_limit == 0 || counter_value >= counter_limit {
+        return TaskSpaceBudgetState::HardStopped;
+    }
+    let remaining = counter_limit.saturating_sub(counter_value);
+    if remaining <= 1 {
+        return TaskSpaceBudgetState::CompactCheckpointRequired;
+    }
+    if counter_value.saturating_mul(4) >= counter_limit.saturating_mul(3) {
+        return TaskSpaceBudgetState::ThinDowngraded;
+    }
+    if counter_value.saturating_mul(2) >= counter_limit {
+        return TaskSpaceBudgetState::Warned;
+    }
+    TaskSpaceBudgetState::Normal
+}
+
+fn inspect_evidence_pressure_active(node: &MapNode, budget: usize) -> bool {
+    node.kind == NodeKind::InspectCodeContext
+        && count_node_results_of_kind(node, NodeResultKind::MainToolCall)
+            >= budget.saturating_add(1) / 2
+}
+
+fn should_block_budget_pressure_probe(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    action_class: ActionClass,
+) -> bool {
+    if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+        && matches!(action_class, ActionClass::Test | ActionClass::Build)
+    {
+        return false;
+    }
+
+    let has_read = node_has_successful_action(map, node, ActionClass::Read)
+        || node_has_successful_action(map, node, ActionClass::Search);
+    if !has_read {
+        return false;
+    }
+
+    let has_edit = node_has_successful_action(map, node, ActionClass::Edit);
+    if has_edit {
+        matches!(
+            action_class,
+            ActionClass::Read | ActionClass::Search | ActionClass::Unknown
+        )
+    } else {
+        matches!(
+            action_class,
+            ActionClass::Read
+                | ActionClass::Search
+                | ActionClass::Unknown
+                | ActionClass::Test
+                | ActionClass::Build
+        )
+    }
+}
+
+fn is_broad_directory_listing_probe(descriptor: &ToolActionDescriptor) -> bool {
+    if !matches!(
+        descriptor.action_class,
+        ActionClass::Read | ActionClass::Search | ActionClass::Unknown
+    ) {
+        return false;
+    }
+    let preview = descriptor.preview.to_ascii_lowercase();
+    if preview.contains("rg --files") || preview.contains("ripgrep --files") {
+        return false;
+    }
+    let lists_directory = preview.contains("get-childitem")
+        || preview.contains("gci ")
+        || preview.contains("dir ")
+        || preview.contains("ls ");
+    if !lists_directory {
+        return false;
+    }
+    if preview.contains("format-table") || preview.contains(" ft ") {
+        return true;
+    }
+    let recursive = preview.contains("-recurse")
+        || preview.contains(" -r ")
+        || preview.contains(" /s")
+        || preview.contains(" **");
+    let forced_or_all =
+        preview.contains("-force") || preview.contains(" -force ") || preview.contains(" -a ");
+    let metadata_only_listing = preview.contains("select-object fullname")
+        || preview.contains("select fullname")
+        || preview.contains("select-object name")
+        || preview.contains("select name");
+    let untruncated_full_name_listing = preview.contains("-expandproperty fullname")
+        || preview.contains("select -expand fullname")
+        || preview.contains("select-object -expand fullname")
+        || preview.contains("select-object -expandproperty fullname");
+    if metadata_only_listing && !recursive {
+        return false;
+    }
+    if untruncated_full_name_listing && !forced_or_all {
+        return false;
+    }
+    if metadata_only_listing && recursive {
+        return true;
+    }
+    let bounded_shallow_depth = preview.contains("-depth 1") || preview.contains("-depth 2");
+    if bounded_shallow_depth && !forced_or_all {
+        return false;
+    }
+    recursive || forced_or_all
 }
 
 fn completed_main_inspect_has_broad_accepted_result(
@@ -8717,6 +11230,37 @@ fn accepted_result_artifact_refs(result: &NodeResult) -> HashSet<String> {
         }
     }
     artifact_refs
+}
+
+fn extract_edit_changed_artifacts_from_tool_body(body: &str) -> Vec<String> {
+    let mut artifacts = Vec::new();
+    let normalized_body = body.replace("\\n", "\n");
+    for line in normalized_body.lines() {
+        let trimmed = line.trim();
+        let Some(path) = trimmed
+            .strip_prefix("M ")
+            .or_else(|| trimmed.strip_prefix("A "))
+            .or_else(|| trimmed.strip_prefix("D "))
+            .or_else(|| trimmed.strip_prefix("*** Update File: "))
+            .or_else(|| trimmed.strip_prefix("+++ b/"))
+            .or_else(|| trimmed.strip_prefix("+++ "))
+        else {
+            continue;
+        };
+        let path = path.trim();
+        if path.is_empty()
+            || path.starts_with("user-request")
+            || path.starts_with("output-ref://")
+            || path == "/dev/null"
+            || path.contains('\0')
+        {
+            continue;
+        }
+        if !artifacts.iter().any(|existing| existing == path) {
+            artifacts.push(path.to_string());
+        }
+    }
+    artifacts
 }
 
 fn is_implementation_surface_ref(artifact_ref: &str) -> bool {
@@ -8875,6 +11419,62 @@ fn node_has_successful_action(
     })
 }
 
+fn node_has_successful_code_or_test_inspect_result(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> bool {
+    node.result_context.iter().any(|result_ref| {
+        let Some(result) = map.results.get(&result_ref.id) else {
+            return false;
+        };
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(true)
+            || result.action_class != Some(ActionClass::Read)
+        {
+            return false;
+        }
+        code_or_test_read_body_has_content_signal(&result.body)
+    })
+}
+
+fn code_or_test_read_body_has_content_signal(body: &str) -> bool {
+    let body = body.to_ascii_lowercase();
+    body.contains("def ")
+        || body.contains("fn ")
+        || body.contains("function ")
+        || body.contains("return ")
+        || body.contains("import ")
+        || body.contains("const ")
+        || body.contains("let ")
+        || body.contains("class ")
+        || body.contains("assert ")
+        || body.contains("#[test]")
+        || body.contains("describe(")
+        || body.contains("it(")
+        || body.contains("test_")
+}
+
+fn inspect_code_or_test_read_summary(map: &ActionMapInstance, node: &MapNode) -> String {
+    let summaries: Vec<String> = node
+        .result_context
+        .iter()
+        .filter_map(|result_ref| map.results.get(&result_ref.id))
+        .filter(|result| {
+            result.kind == NodeResultKind::MainToolCall
+                && result.tool_success == Some(true)
+                && result.action_class == Some(ActionClass::Read)
+        })
+        .filter(|result| code_or_test_read_body_has_content_signal(&result.body))
+        .take(3)
+        .map(|result| format!("{}: {}", result.id, single_line_preview(&result.body, 240)))
+        .collect();
+    if summaries.is_empty() {
+        "successful code/test read evidence is recorded on the inspect node".to_string()
+    } else {
+        summaries.join(" | ")
+    }
+}
+
 fn node_has_problem_state_effect(
     task: &TaskState,
     map: &ActionMapInstance,
@@ -9010,6 +11610,48 @@ fn node_has_result_id(node: &MapNode, result_id: &str) -> bool {
         .any(|result_ref| result_ref.id == result_id)
 }
 
+fn state_commit_has_validation_failure_rework(
+    input: &ActionMapStateCommitInput,
+    map: &ActionMapInstance,
+    current_node_id: &str,
+) -> bool {
+    if input
+        .blockers
+        .iter()
+        .any(|blocker| blocker.node_id == current_node_id)
+    {
+        return true;
+    }
+    if input.nodes.iter().any(|node| {
+        node.kind == NodeKind::ImplementSolution
+            && (node.dependency_node_ids.is_empty()
+                || node
+                    .dependency_node_ids
+                    .iter()
+                    .any(|dependency| dependency == current_node_id))
+    }) {
+        return true;
+    }
+    if input.active_node_id.as_deref().is_some_and(|node_id| {
+        map.nodes
+            .get(node_id)
+            .is_some_and(|node| node.kind == NodeKind::ImplementSolution)
+    }) {
+        return true;
+    }
+    input.finished_nodes.iter().any(|finished| {
+        finished.node_id == current_node_id
+            && (finished.next_node_id.as_deref().is_some_and(|node_id| {
+                map.nodes
+                    .get(node_id)
+                    .is_some_and(|node| node.kind == NodeKind::ImplementSolution)
+            }) || finished
+                .next_node_draft
+                .as_ref()
+                .is_some_and(|draft| draft.kind == NodeKind::ImplementSolution))
+    })
+}
+
 fn map_has_successful_edit(map: &ActionMapInstance) -> bool {
     map.nodes
         .values()
@@ -9056,6 +11698,38 @@ fn map_has_accepted_implementation_result(map: &ActionMapInstance) -> bool {
 fn node_has_successful_validation_action(map: &ActionMapInstance, node: &MapNode) -> bool {
     node_has_successful_action(map, node, ActionClass::Test)
         || node_has_successful_action(map, node, ActionClass::Build)
+}
+
+fn latest_successful_validation_result_id(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Option<NodeResultId> {
+    node.result_context.iter().rev().find_map(|result_ref| {
+        let result = map.results.get(&result_ref.id)?;
+        if result.kind == NodeResultKind::MainToolCall
+            && matches!(
+                result.action_class,
+                Some(ActionClass::Test | ActionClass::Build)
+            )
+            && result.tool_success == Some(true)
+        {
+            Some(result_ref.id.clone())
+        } else {
+            None
+        }
+    })
+}
+
+fn rewrite_result_id_refs(
+    refs: &mut [ActionMapEvidenceRefInput],
+    from_result_id: &str,
+    to_result_id: &str,
+) {
+    for evidence_ref in refs {
+        if evidence_ref.result_id.as_deref() == Some(from_result_id) {
+            evidence_ref.result_id = Some(to_result_id.to_string());
+        }
+    }
 }
 
 #[cfg(test)]
@@ -9377,6 +12051,850 @@ mod tests {
         }
     }
 
+    #[test]
+    fn provider_request_budget_events_record_replayable_trace() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_task_id, _map_id, node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "budget task".to_string(),
+                "verify provider budget event recording".to_string(),
+                "inspect".to_string(),
+                "inspect active provider budget".to_string(),
+                true,
+            )
+            .expect("start task");
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("active budget snapshot");
+        assert_eq!(snapshot.node_id.as_deref(), Some(node_id.as_str()));
+        assert_eq!(snapshot.request_count, 0);
+
+        let events = state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![
+                    ActionMapProviderRequestBudgetEventInput {
+                        request_id: "provider-request-1".to_string(),
+                        logical_request_id: "provider-request:turn-a:logical-1".to_string(),
+                        parent_request_id: None,
+                        attempt_seq: 1,
+                        transport: "responses_http".to_string(),
+                        status: "started".to_string(),
+                        request_count_before: 0,
+                        request_count_after: 1,
+                        max_requests: 1,
+                        budget_state_before: "normal".to_string(),
+                        budget_state_after: "hard_stopped".to_string(),
+                        budget_transition_reason: "provider_request_budget_reached".to_string(),
+                        started_at_ms: 100,
+                        completed_at_ms: None,
+                        latency_ms: None,
+                        input_tokens: None,
+                        cached_input_tokens: None,
+                        output_tokens: None,
+                        reasoning_output_tokens: None,
+                        total_tokens: None,
+                        provider_payload_sha256: None,
+                        provider_payload_bytes: None,
+                        provider_wire_api: None,
+                        tools_count: None,
+                        tools_present: None,
+                        request_shape_classifier: None,
+                        messages_hash: None,
+                        stable_prefix_hash: None,
+                        dynamic_suffix_hash: None,
+                        exact_payload_scan_passed: None,
+                        active_projection_present: None,
+                        legacy_taskspace_history_present: None,
+                        large_raw_output_tokens: None,
+                        protected_items_present: None,
+                        replacement_confirmed: None,
+                        task_id: None,
+                        map_id: None,
+                        node_id: None,
+                        request_phase: None,
+                    },
+                    ActionMapProviderRequestBudgetEventInput {
+                        request_id: "provider-request-2".to_string(),
+                        logical_request_id: "provider-request:turn-a:logical-2".to_string(),
+                        parent_request_id: Some("provider-request:turn-a:logical-2".to_string()),
+                        attempt_seq: 1,
+                        transport: "responses_http".to_string(),
+                        status: "blocked".to_string(),
+                        request_count_before: 1,
+                        request_count_after: 1,
+                        max_requests: 1,
+                        budget_state_before: "hard_stopped".to_string(),
+                        budget_state_after: "hard_stopped".to_string(),
+                        budget_transition_reason: "provider_request_budget_exhausted".to_string(),
+                        started_at_ms: 200,
+                        completed_at_ms: Some(200),
+                        latency_ms: Some(0),
+                        input_tokens: Some(10),
+                        cached_input_tokens: Some(3),
+                        output_tokens: Some(4),
+                        reasoning_output_tokens: Some(1),
+                        total_tokens: Some(14),
+                        provider_payload_sha256: Some(
+                            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                                .to_string(),
+                        ),
+                        provider_payload_bytes: Some(4321),
+                        provider_wire_api: Some("ChatCompletions".to_string()),
+                        tools_count: Some(24),
+                        tools_present: Some(true),
+                        request_shape_classifier: Some("native_tools_schema_hot_path".to_string()),
+                        messages_hash: Some("messages-hash".to_string()),
+                        stable_prefix_hash: Some("stable-prefix-hash".to_string()),
+                        dynamic_suffix_hash: Some("dynamic-suffix-hash".to_string()),
+                        exact_payload_scan_passed: Some(true),
+                        active_projection_present: Some(true),
+                        legacy_taskspace_history_present: Some(false),
+                        large_raw_output_tokens: Some(0),
+                        protected_items_present: Some(true),
+                        replacement_confirmed: Some(true),
+                        task_id: Some("dispatch-task".to_string()),
+                        map_id: Some("dispatch-map".to_string()),
+                        node_id: Some("dispatch-node".to_string()),
+                        request_phase: Some("dispatch_phase".to_string()),
+                    },
+                ],
+            )
+            .expect("provider budget trace events");
+
+        assert_eq!(events.len(), 4);
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(started) =
+            events.first().expect("started provider trace event")
+        else {
+            panic!("expected provider budget trace event");
+        };
+        assert!(
+            started
+                .tags
+                .iter()
+                .any(|tag| tag == "request_phase:unknown")
+        );
+        assert!(
+            started
+                .tags
+                .iter()
+                .any(|tag| tag == "request_phase_missing_reason:provider_context_missing")
+        );
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(blocked) =
+            events.get(2).expect("blocked provider trace event")
+        else {
+            panic!("expected provider budget trace event");
+        };
+        assert_eq!(blocked.kind, "provider_request_budget");
+        assert_eq!(blocked.task_id.as_deref(), Some("dispatch-task"));
+        assert_eq!(blocked.map_id, "dispatch-map");
+        assert_eq!(blocked.node_id, "dispatch-node");
+        assert_eq!(blocked.call_id.as_deref(), Some("provider-request-2"));
+        assert_eq!(blocked.tool_success, Some(false));
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "schema:taskspace-provider-request-budget-event-v1")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "producer:provider_lifecycle")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "budget_response_action_taken:true")
+        );
+        assert!(blocked.tags.iter().any(|tag| tag == "input_tokens:10"));
+        assert!(blocked.tags.iter().any(|tag| tag == "latency_ms:0"));
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "budget_state_before:hard_stopped")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "budget_state_after:hard_stopped")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "budget_transition_reason:provider_request_budget_exhausted")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "request_phase:dispatch_phase")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "logical_request_id:provider-request:turn-a:logical-2")
+        );
+        assert!(blocked.tags.iter().any(|tag| tag == "attempt_seq:1"));
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "parent_request_id:provider-request:turn-a:logical-2")
+        );
+        assert!(blocked.tags.iter().any(|tag| tag
+            == "provider_payload_sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "provider_payload_bytes:4321")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "exact_payload_scan_passed:true")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "legacy_taskspace_history_present:false")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "replacement_confirmed:true")
+        );
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(quality) =
+            events.last().expect("last trace event")
+        else {
+            panic!("expected budget quality trace event");
+        };
+        assert_eq!(quality.kind, "budget_quality_impact");
+        assert_eq!(quality.task_id.as_deref(), Some("dispatch-task"));
+        assert_eq!(quality.map_id, "dispatch-map");
+        assert_eq!(quality.node_id, "dispatch-node");
+        assert_eq!(quality.call_id.as_deref(), Some("provider-request-2"));
+        assert_eq!(quality.tool_success, Some(false));
+        assert!(
+            quality
+                .tags
+                .iter()
+                .any(|tag| tag == "schema:taskspace-budget-quality-impact-v1")
+        );
+        assert!(
+            quality
+                .tags
+                .iter()
+                .any(|tag| tag == "budget_action:hard_stop")
+        );
+        assert!(
+            quality
+                .tags
+                .iter()
+                .any(|tag| tag == "budget_state_before:hard_stopped")
+        );
+        assert!(
+            quality
+                .tags
+                .iter()
+                .any(|tag| tag == "budget_state_after:hard_stopped")
+        );
+        assert!(
+            quality
+                .tags
+                .iter()
+                .any(|tag| tag == "final_classification:blocked_by_budget")
+        );
+        assert!(quality.tags.iter().any(|tag| tag == "score_eligible:false"));
+        assert_eq!(
+            state
+                .provider_request_budget_snapshot()
+                .expect("snapshot after events")
+                .request_count,
+            1
+        );
+    }
+
+    #[test]
+    fn taskspace_active_budget_thin_route_uses_ten_requests_and_no_spawn() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let events = state
+            .activate_active_budget_for_route("taskspace-v005-active", TaskSpaceRouteMode::Thin);
+
+        let budget = state.active_budget().expect("active budget");
+        assert_eq!(budget.route_mode, TaskSpaceRouteMode::Thin);
+        assert_eq!(budget.max_rollout_model_requests, 10);
+        assert_eq!(budget.max_model_requests_per_node, 3);
+        assert_eq!(budget.max_spawn_agent_calls, 0);
+        assert_eq!(budget.max_nodes, 4);
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn taskspace_active_budget_default_compact_uses_ten_requests_and_two_spawn() {
+        let budget = taskspace_active_budget_for_route(
+            "taskspace-v005-active",
+            TaskSpaceRouteMode::DefaultCompact,
+        );
+
+        assert_eq!(budget.max_rollout_model_requests, 10);
+        assert_eq!(budget.max_model_requests_per_node, 3);
+        assert_eq!(budget.max_spawn_agent_calls, 2);
+        assert_eq!(budget.max_nodes, 8);
+    }
+
+    #[test]
+    fn taskspace_active_budget_provider_snapshot_uses_active_budget_not_constants() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("thin-profile", TaskSpaceRouteMode::Thin);
+        let (_task_id, _map_id, _node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "thin budget task".to_string(),
+                "verify snapshot budget".to_string(),
+                "inspect".to_string(),
+                "inspect active budget snapshot".to_string(),
+                true,
+            )
+            .expect("start task");
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot should use active budget");
+
+        assert_eq!(snapshot.route_mode.as_deref(), Some("thin"));
+        assert_eq!(snapshot.profile_name.as_deref(), Some("thin-profile"));
+        assert_eq!(snapshot.max_requests, 10);
+        assert_eq!(snapshot.max_model_requests_per_node, 3);
+        assert_ne!(snapshot.max_requests, 40);
+    }
+
+    #[test]
+    fn taskspace_active_budget_node_request_gate_blocks_before_rollout_budget() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("thin-profile", TaskSpaceRouteMode::Thin);
+        let (_task_id, map_id, node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "thin budget task".to_string(),
+                "verify node budget gate".to_string(),
+                "inspect".to_string(),
+                "inspect active budget gate".to_string(),
+                true,
+            )
+            .expect("start task");
+        state.budget_counters.rollout_model_request_count = 1;
+        state
+            .budget_counters
+            .model_request_count_by_node
+            .insert(node_id.clone(), 3);
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot should use active budget");
+        let decision = state.gate_provider_request_pre_dispatch(&snapshot);
+
+        assert_eq!(snapshot.map_id, map_id);
+        assert_eq!(snapshot.request_count, 1);
+        assert_eq!(snapshot.max_requests, 10);
+        assert_eq!(snapshot.node_request_count, 3);
+        assert_eq!(snapshot.max_model_requests_per_node, 3);
+        assert!(!decision.allowed);
+        assert_eq!(decision.reason, "provider_node_request_budget_exhausted");
+    }
+
+    #[test]
+    fn taskspace_active_budget_provider_batch_counts_multiple_started_events() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("thin-profile", TaskSpaceRouteMode::Thin);
+        let (_task_id, _map_id, node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "batch budget task".to_string(),
+                "verify batch provider events".to_string(),
+                "inspect".to_string(),
+                "inspect provider batch accounting".to_string(),
+                true,
+            )
+            .expect("start task");
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot should exist");
+
+        state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![
+                    ActionMapProviderRequestBudgetEventInput {
+                        request_id: "provider-request-1".to_string(),
+                        logical_request_id: "provider-request:turn-a:logical-1".to_string(),
+                        parent_request_id: None,
+                        attempt_seq: 1,
+                        transport: "responses_http".to_string(),
+                        status: "started".to_string(),
+                        request_count_before: 0,
+                        request_count_after: 1,
+                        max_requests: 4,
+                        budget_state_before: "normal".to_string(),
+                        budget_state_after: "normal".to_string(),
+                        budget_transition_reason: "request_dispatched_without_state_change"
+                            .to_string(),
+                        started_at_ms: 100,
+                        completed_at_ms: None,
+                        latency_ms: None,
+                        input_tokens: None,
+                        cached_input_tokens: None,
+                        output_tokens: None,
+                        reasoning_output_tokens: None,
+                        total_tokens: None,
+                        provider_payload_sha256: None,
+                        provider_payload_bytes: None,
+                        provider_wire_api: None,
+                        tools_count: None,
+                        tools_present: None,
+                        request_shape_classifier: None,
+                        messages_hash: None,
+                        stable_prefix_hash: None,
+                        dynamic_suffix_hash: None,
+                        exact_payload_scan_passed: None,
+                        active_projection_present: None,
+                        legacy_taskspace_history_present: None,
+                        large_raw_output_tokens: None,
+                        protected_items_present: None,
+                        replacement_confirmed: None,
+                        task_id: None,
+                        map_id: None,
+                        node_id: None,
+                        request_phase: Some("model_sampling".to_string()),
+                    },
+                    ActionMapProviderRequestBudgetEventInput {
+                        request_id: "provider-request-2".to_string(),
+                        logical_request_id: "provider-request:turn-a:logical-2".to_string(),
+                        parent_request_id: None,
+                        attempt_seq: 1,
+                        transport: "responses_http".to_string(),
+                        status: "started".to_string(),
+                        request_count_before: 1,
+                        request_count_after: 2,
+                        max_requests: 4,
+                        budget_state_before: "normal".to_string(),
+                        budget_state_after: "warned".to_string(),
+                        budget_transition_reason: "provider_request_warning_threshold_reached"
+                            .to_string(),
+                        started_at_ms: 200,
+                        completed_at_ms: None,
+                        latency_ms: None,
+                        input_tokens: None,
+                        cached_input_tokens: None,
+                        output_tokens: None,
+                        reasoning_output_tokens: None,
+                        total_tokens: None,
+                        provider_payload_sha256: None,
+                        provider_payload_bytes: None,
+                        provider_wire_api: None,
+                        tools_count: None,
+                        tools_present: None,
+                        request_shape_classifier: None,
+                        messages_hash: None,
+                        stable_prefix_hash: None,
+                        dynamic_suffix_hash: None,
+                        exact_payload_scan_passed: None,
+                        active_projection_present: None,
+                        legacy_taskspace_history_present: None,
+                        large_raw_output_tokens: None,
+                        protected_items_present: None,
+                        replacement_confirmed: None,
+                        task_id: None,
+                        map_id: None,
+                        node_id: None,
+                        request_phase: Some("model_sampling".to_string()),
+                    },
+                ],
+            )
+            .expect("events recorded");
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot after events");
+        assert_eq!(snapshot.request_count, 2);
+        assert_eq!(snapshot.node_id.as_deref(), Some(node_id.as_str()));
+        assert_eq!(snapshot.node_request_count, 2);
+    }
+
+    #[test]
+    fn taskspace_active_budget_restore_reconstructs_provider_counters() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("thin-profile", TaskSpaceRouteMode::Thin);
+        let (_task_id, _map_id, _node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "restore budget task".to_string(),
+                "verify restored budget counters".to_string(),
+                "inspect".to_string(),
+                "inspect restored budget counters".to_string(),
+                true,
+            )
+            .expect("start task");
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot before event");
+        state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![ActionMapProviderRequestBudgetEventInput {
+                    request_id: "provider-request-1".to_string(),
+                    logical_request_id: "provider-request:turn-a:logical-1".to_string(),
+                    parent_request_id: None,
+                    attempt_seq: 1,
+                    transport: "responses_http".to_string(),
+                    status: "started".to_string(),
+                    request_count_before: 4,
+                    request_count_after: 5,
+                    max_requests: 10,
+                    budget_state_before: "normal".to_string(),
+                    budget_state_after: "normal".to_string(),
+                    budget_transition_reason: "request_dispatched_without_state_change".to_string(),
+                    started_at_ms: 100,
+                    completed_at_ms: None,
+                    latency_ms: None,
+                    input_tokens: None,
+                    cached_input_tokens: None,
+                    output_tokens: None,
+                    reasoning_output_tokens: None,
+                    total_tokens: None,
+                    provider_payload_sha256: None,
+                    provider_payload_bytes: None,
+                    provider_wire_api: None,
+                    tools_count: None,
+                    tools_present: None,
+                    request_shape_classifier: None,
+                    messages_hash: None,
+                    stable_prefix_hash: None,
+                    dynamic_suffix_hash: None,
+                    exact_payload_scan_passed: None,
+                    active_projection_present: None,
+                    legacy_taskspace_history_present: None,
+                    large_raw_output_tokens: None,
+                    protected_items_present: None,
+                    replacement_confirmed: None,
+                    task_id: None,
+                    map_id: None,
+                    node_id: None,
+                    request_phase: Some("model_sampling".to_string()),
+                }],
+            )
+            .expect("event recorded");
+
+        let saved = state.snapshot();
+        let mut restored = ActionMapRuntimeState::default();
+        restored.restore_snapshot(saved);
+        let restored_snapshot = restored
+            .provider_request_budget_snapshot()
+            .expect("restored snapshot");
+        assert_eq!(restored_snapshot.route_mode.as_deref(), Some("thin"));
+        assert_eq!(restored_snapshot.max_requests, 10);
+        assert_eq!(restored_snapshot.request_count, 5);
+        assert_eq!(restored_snapshot.node_request_count, 1);
+        let error = restored
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Unknown, "probe")
+                    .with_call_id("restored-probe"),
+            )
+            .expect_err("restored provider pressure should block another inspect probe");
+        let (message, _events) = error.into_parts();
+        assert!(
+            message.contains("provider_request_budget_pressure_requires_inspect_node_transition")
+        );
+        assert!(message.contains("5/10 used"));
+    }
+
+    #[test]
+    fn taskspace_active_budget_thin_route_forces_inspect_pressure_at_five_of_ten() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("thin-profile", TaskSpaceRouteMode::Thin);
+        let (_task_id, map_id, node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "thin pressure task".to_string(),
+                "verify thin route pressure".to_string(),
+                "inspect".to_string(),
+                "inspect thin pressure".to_string(),
+                true,
+            )
+            .expect("start task");
+        state.provider_request_count = 5;
+        state.budget_counters.rollout_model_request_count = 5;
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "thin-pressure-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "src/tax_calc.py:def calculate_tax(subtotal, region):".to_string(),
+            )
+            .expect("read evidence records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(node_id),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("thin-profile".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 5,
+            max_requests: 10,
+            node_request_count: 1,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
+        };
+
+        let outcome = state
+            .force_finish_inspect_for_provider_budget(owner, &snapshot, "thin_pressure")
+            .expect("force finish should be valid");
+
+        let (outcome, _events) = outcome.expect("forced transition should finish inspect");
+        let result = state
+            .maps
+            .get(&map_id)
+            .and_then(|map| map.results.get(&outcome.result_id))
+            .expect("forced transition result should exist");
+        assert_eq!(result.evidence_package.validity, ResultValidity::Accepted);
+    }
+
+    #[test]
+    fn taskspace_active_budget_projection_uses_route_budget_fields() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("thin-profile", TaskSpaceRouteMode::Thin);
+        start_test_task(
+            &mut state,
+            owner,
+            "Projection budget",
+            "Verify active projection budget fields.",
+            true,
+        );
+
+        let context = state.build_developer_context().expect("context");
+
+        assert!(context.contains("- mode: thin"));
+        assert!(context.contains("- active_budget_source: runtime"));
+        assert!(context.contains("- max_projection_tokens: 12000"));
+        assert!(context.contains("- projection_budget_status: within_budget"));
+        assert!(
+            state
+                .taskspace_trace_events
+                .iter()
+                .any(|event| event.kind == "projection_budget"
+                    && event.tags.iter().any(|tag| tag == "route_mode:thin"))
+        );
+        assert!(state.budget_counters.projection_tokens_last > 0);
+    }
+
+    #[test]
+    fn provider_response_actionability_records_replayable_trace() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_task_id, _map_id, node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "response task".to_string(),
+                "verify provider response actionability".to_string(),
+                "inspect".to_string(),
+                "inspect active provider response".to_string(),
+                true,
+            )
+            .expect("start task");
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("active budget snapshot");
+        assert_eq!(snapshot.node_id.as_deref(), Some(node_id.as_str()));
+
+        let events = state
+            .record_provider_response_actionability(
+                &snapshot,
+                ActionMapProviderResponseActionabilityInput {
+                    response_actionability: "final_rejected".to_string(),
+                    end_turn: Some(true),
+                    saw_actionable_output: false,
+                    assistant_message_present: true,
+                    recovery_action: "developer_recovery".to_string(),
+                    last_agent_message_preview: Some(
+                        "Let me check the environment.\nNext line".to_string(),
+                    ),
+                },
+            )
+            .expect("provider response trace event");
+
+        assert_eq!(events.len(), 1);
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(event) =
+            events.first().expect("provider response trace event")
+        else {
+            panic!("expected provider response trace event");
+        };
+        assert_eq!(event.kind, "provider_response_actionability");
+        assert_eq!(event.tool_success, Some(false));
+        assert_eq!(event.node_id, node_id);
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "schema:taskspace-provider-response-actionability-v1")
+        );
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "producer:provider_response")
+        );
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "response_actionability:final_rejected")
+        );
+        assert!(event.tags.iter().any(|tag| tag == "end_turn:true"));
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "saw_actionable_output:false")
+        );
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "assistant_message_present:true")
+        );
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "recovery_action:developer_recovery")
+        );
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag
+                    == "last_agent_message_preview:Let me check the environment. Next line")
+        );
+    }
+
+    #[test]
+    fn provider_request_budget_snapshot_does_not_fallback_to_ready_node() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main(
+                owner,
+                "budget attribution task".to_string(),
+                "verify provider attribution missing reason".to_string(),
+                "inspect".to_string(),
+                "inspect without current main node".to_string(),
+                true,
+            )
+            .expect("start task");
+        state.current_main_node_id = None;
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("active budget snapshot still exists");
+        assert!(snapshot.node_id.is_none());
+        assert_eq!(
+            snapshot.provider_request_context_missing_reason.as_deref(),
+            Some("current_main_node_missing")
+        );
+
+        let events = state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![ActionMapProviderRequestBudgetEventInput {
+                    request_id: "provider-request-missing-context".to_string(),
+                    logical_request_id: "provider-request:missing-context:logical-1".to_string(),
+                    parent_request_id: None,
+                    attempt_seq: 1,
+                    transport: "responses_http".to_string(),
+                    status: "started".to_string(),
+                    request_count_before: 0,
+                    request_count_after: 1,
+                    max_requests: 1,
+                    budget_state_before: "normal".to_string(),
+                    budget_state_after: "normal".to_string(),
+                    budget_transition_reason: "provider_request_started".to_string(),
+                    started_at_ms: 100,
+                    completed_at_ms: None,
+                    latency_ms: None,
+                    input_tokens: None,
+                    cached_input_tokens: None,
+                    output_tokens: None,
+                    reasoning_output_tokens: None,
+                    total_tokens: None,
+                    provider_payload_sha256: None,
+                    provider_payload_bytes: None,
+                    provider_wire_api: None,
+                    tools_count: None,
+                    tools_present: None,
+                    request_shape_classifier: None,
+                    messages_hash: None,
+                    stable_prefix_hash: None,
+                    dynamic_suffix_hash: None,
+                    exact_payload_scan_passed: None,
+                    active_projection_present: None,
+                    legacy_taskspace_history_present: None,
+                    large_raw_output_tokens: None,
+                    protected_items_present: None,
+                    replacement_confirmed: None,
+                    task_id: None,
+                    map_id: None,
+                    node_id: None,
+                    request_phase: None,
+                }],
+            )
+            .expect("provider budget trace events");
+
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(event) =
+            events.first().expect("provider trace event")
+        else {
+            panic!("expected provider budget trace event");
+        };
+        assert_eq!(event.node_id, "provider-context-missing");
+        assert!(event.tags.iter().any(|tag| {
+            tag == "provider_request_context_missing_reason:current_main_node_missing"
+        }));
+    }
+
     fn seed_test_map(state: &mut ActionMapRuntimeState, owner: ThreadId) {
         state.ensure_active_seed_map(owner, "test");
         state.mark_routing_complete();
@@ -9683,6 +13201,140 @@ mod tests {
             MapRuntimeEvent::CognitiveStateUpdated(event)
                 if event.update_kind == "state_commit.replayed"
         )));
+    }
+
+    #[test]
+    fn state_commit_records_runtime_displacement_trace() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_unseeded_test_task(
+            &mut state,
+            owner,
+            "Track state",
+            "Record state through state_commit",
+            true,
+        );
+
+        let (_outcome, events) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-runtime-trace".to_string(),
+                    success_criteria: vec![ActionMapSuccessCriterionInput {
+                        id: "sc-runtime-trace".to_string(),
+                        kind: "test".to_string(),
+                        description: "runtime trace exists".to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("test-fixture:trace".to_string()),
+                            ..Default::default()
+                        }],
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect("state commit records runtime trace");
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                if event.kind == "state_commit_displacement"
+                    && event.call_id.as_deref() == Some("commit-runtime-trace")
+                    && event.tags.iter().any(|tag| tag == "producer:runtime")
+                    && event
+                        .tags
+                        .iter()
+                        .any(|tag| tag == "legacy_state_action_attempt_count:1")
+                    && event
+                        .tags
+                        .iter()
+                        .any(|tag| tag == "legacy_state_action_displaced_count:1")
+                    && event.tags.iter().any(|tag| tag == "legacy_state_action_count:0")
+        )));
+    }
+
+    #[test]
+    fn create_node_records_runtime_node_budget_trace() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_unseeded_test_task(
+            &mut state,
+            owner,
+            "Track nodes",
+            "Record node budget through runtime",
+            true,
+        );
+
+        let (_node_id, events) = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Implement focused fix".to_string(),
+                "Small implementation node".to_string(),
+                vec![],
+                false,
+            )
+            .expect("node creation records budget trace");
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                if event.kind == "spawn_node_budget"
+                    && event.tags.iter().any(|tag| tag == "producer:runtime")
+                    && event.tags.iter().any(|tag| tag == "budget_kind:node")
+                    && event.tags.iter().any(|tag| tag == "status:allowed")
+                    && event.tags.iter().any(|tag| tag == "max_nodes:10")
+        )));
+    }
+
+    #[test]
+    fn create_node_blocks_when_runtime_node_budget_exhausted() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_unseeded_test_task(
+            &mut state,
+            owner,
+            "Track node cap",
+            "Block broad node expansion through runtime",
+            true,
+        );
+
+        for index in 1..ActionMapRuntimeState::DEFAULT_ACTIVE_NODE_BUDGET_MAX {
+            state
+                .create_node_for_main_with_kind(
+                    owner,
+                    NodeKind::ImplementSolution,
+                    format!("Budget node {index}"),
+                    "Budget fixture node".to_string(),
+                    vec![],
+                    false,
+                )
+                .expect("node within runtime budget");
+        }
+
+        let error = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Node over budget".to_string(),
+                "Budget fixture node".to_string(),
+                vec![],
+                false,
+            )
+            .expect_err("node budget should be exhausted");
+        assert!(error.contains("node budget is exhausted"));
+        assert!(state.taskspace_trace_events.iter().any(|event| {
+            event.kind == "spawn_node_budget"
+                && event.tags.iter().any(|tag| tag == "budget_kind:node")
+                && event.tags.iter().any(|tag| tag == "status:blocked")
+                && event
+                    .tags
+                    .iter()
+                    .any(|tag| tag == "budget_response_action_taken:true")
+        }));
     }
 
     #[test]
@@ -10497,7 +14149,11 @@ mod tests {
         assert!(outcome.mode.changed);
         assert!(outcome.active_map_id.is_none());
         assert!(state.active_map().is_none());
-        assert!(events.is_empty());
+        assert!(events.iter().any(|event| matches!(
+            event,
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
+                if recorded.kind == "active_budget"
+        )));
         assert!(state.current_main_node_id.is_none());
     }
 
@@ -10952,8 +14608,9 @@ mod tests {
         ));
         let trace = snapshot
             .trace_events
-            .first()
-            .expect("trace event is exposed");
+            .iter()
+            .find(|event| event.call_id.as_deref() == Some("call-edit"))
+            .expect("edit trace event is exposed");
         assert_eq!(trace.id, "trace-1");
         assert_eq!(trace.kind, "main_tool_result");
         assert_eq!(trace.task_id.as_deref(), Some(task_id.as_str()));
@@ -11219,6 +14876,48 @@ mod tests {
     }
 
     #[test]
+    fn successful_edit_trace_records_changed_artifact_refs() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Trace edit".to_string(),
+                "Record edit artifact refs.".to_string(),
+                "Implement fix".to_string(),
+                "Patch source.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "TaskSpace observed implementation edit in turn diff: diff --git a/src/lib.rs b/src/lib.rs\\n--- a/src/lib.rs\\n+++ b/src/lib.rs\\n@@\\n-old\\n+new\\n*** Update File: tests/test_lib.rs\\n".to_string(),
+            )
+            .expect("edit result records")
+            .expect("result is recorded");
+
+        let snapshot = state.snapshot();
+        let trace = snapshot
+            .trace_events
+            .iter()
+            .find(|event| event.call_id.as_deref() == Some("call-edit"))
+            .expect("edit trace event is exposed");
+        assert_eq!(
+            trace.artifact_refs,
+            vec!["src/lib.rs".to_string(), "tests/test_lib.rs".to_string()]
+        );
+    }
+
+    #[test]
     fn trace_event_does_not_parse_shell_preview_as_structured_semantics() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -11394,21 +15093,37 @@ mod tests {
             MapRuntimeEvent::NodeResultRecorded(event)
                 if event.result_id == format!("result-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}")
         ));
-        assert!(matches!(
-            &events[1],
-            MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
-                if event.trace_event_id == format!("trace-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}")
-        ));
-        assert!(matches!(
-            &events[2],
-            MapRuntimeEvent::SentinelWarningRaised(event)
-                if event.sentinel_id == format!("sentinel-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}")
-        ));
-        assert!(matches!(
-            &events[3],
-            MapRuntimeEvent::MaintenanceBarrierRaised(event)
-                if event.result_count == MAIN_TOOL_RESULT_BUDGET_PER_NODE
-        ));
+        let trace_index = events
+            .iter()
+            .position(|event| {
+                matches!(
+                    event,
+                    MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                        if event.result_id.as_deref()
+                            == Some(format!("result-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}").as_str())
+                )
+            })
+            .expect("budget-exhausting trace event should be emitted");
+        let barrier_index = events
+            .iter()
+            .position(|event| {
+                matches!(
+                    event,
+                    MapRuntimeEvent::MaintenanceBarrierRaised(event)
+                        if event.result_count == MAIN_TOOL_RESULT_BUDGET_PER_NODE
+                )
+            })
+            .expect("maintenance barrier should be raised");
+        assert!(trace_index < barrier_index);
+        if let Some(sentinel_index) = events.iter().position(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::SentinelWarningRaised(event)
+                    if event.sentinel_id == format!("sentinel-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}")
+            )
+        }) {
+            assert!(sentinel_index < barrier_index);
+        }
     }
 
     #[test]
@@ -12075,6 +15790,78 @@ mod tests {
     }
 
     #[test]
+    fn accepted_implementation_result_infers_changed_artifacts_from_successful_edit_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Fix code",
+            "Modify output artifacts.",
+            "Implement fix",
+            "Patch a file.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nM src/lib.rs\n".to_string(),
+            )
+            .expect("edit result")
+            .expect("result id");
+        let (outcome, _) = state
+            .finish_main_node(
+                owner,
+                &node_id,
+                "Implementation completed.".to_string(),
+                None,
+            )
+            .expect("finish implementation");
+        let result_id = outcome.result_id;
+
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &result_id,
+                "accepted",
+                "accepted implementation handoff".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-finish".to_string(),
+                    statement: "Implementation can proceed to validation.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("successful edit result infers changed_artifacts");
+
+        let result = state
+            .active_map()
+            .expect("active map")
+            .results
+            .get(&result_id)
+            .expect("result");
+        assert_eq!(
+            result.evidence_package.changed_artifacts,
+            vec!["src/lib.rs".to_string()]
+        );
+    }
+
+    #[test]
     fn accepted_test_result_requires_validator_evidence() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -12575,6 +16362,31 @@ mod tests {
     }
 
     #[test]
+    fn provider_request_budget_snapshot_uses_final_synthesis_phase() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::FinalSynthesis,
+                "budget final task".to_string(),
+                "verify final synthesis request phase".to_string(),
+                "final synthesis".to_string(),
+                "produce bounded final answer".to_string(),
+                true,
+            )
+            .expect("start final synthesis task");
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("active budget snapshot");
+
+        assert_eq!(snapshot.node_id.as_deref(), Some("node-1"));
+        assert_eq!(snapshot.request_phase.as_deref(), Some("final_synthesis"));
+    }
+
+    #[test]
     fn projection_prioritizes_inspect_to_implement_after_evidence() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -12642,6 +16454,16 @@ mod tests {
                 ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch"),
             )
             .expect("implementation nodes allow edit");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-call",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "patched target file".to_string(),
+            )
+            .expect("edit result records");
         let error = state
             .prepare_main_tool_call(
                 owner,
@@ -12654,6 +16476,37 @@ mod tests {
         assert!(error.contains("next_node_kind=\"smoke_test\""));
         assert!(error.contains("Do not block this implementation node"));
         assert!(error.contains("then run the test only after current_node is smoke_test"));
+    }
+
+    #[test]
+    fn implement_node_blocks_test_before_edit_with_edit_recovery() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Implement fix".to_string(),
+                "Apply the known fix.".to_string(),
+                "Patch code".to_string(),
+                "Modify the target files.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
+            )
+            .expect_err("implementation nodes require an edit before tests");
+
+        assert!(error.contains("has no successful edit result yet"));
+        assert!(error.contains("apply_patch"));
+        assert!(error.contains("Do not finish the node"));
+        assert!(!error.contains("result_summary=\"implementation edit is applied\""));
     }
 
     #[test]
@@ -13271,6 +17124,112 @@ mod tests {
         let node = map.nodes.get("node-1").expect("final node");
         assert_eq!(node.status, NodeStatus::Running);
         assert!(map.results.is_empty());
+    }
+
+    #[test]
+    fn final_response_rejects_tool_call_protocol_markers() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::FinalSynthesis,
+                "Summarize outcome".to_string(),
+                "Write the final user-facing synthesis.".to_string(),
+                "Final synthesis".to_string(),
+                "Summarize completed work without new implementation.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
+
+        let error = state
+            .record_main_final_response(
+                owner,
+                "<｜｜DSML｜｜tool_calls>\n<｜｜DSML｜｜invoke name=\"shell_command\">",
+            )
+            .expect_err("tool-call protocol markers should be rejected");
+
+        assert!(error.contains("hidden tool-call protocol marker"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("final node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert!(map.results.is_empty());
+    }
+
+    #[test]
+    fn direct_final_response_rejects_tool_call_protocol_markers() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main(
+                owner,
+                "Fix pipeline".to_string(),
+                "Inspect and fix scripts.".to_string(),
+                "Inspect scripts".to_string(),
+                "Read the script files.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        let error = state
+            .record_main_final_response(
+                owner,
+                "<｜｜DSML｜｜tool_calls>\n<｜｜DSML｜｜invoke name=\"shell_command\">",
+            )
+            .expect_err("direct final text must reject tool-call protocol markers");
+
+        assert!(error.contains("hidden tool-call protocol marker"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("inspect node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert!(map.results.is_empty());
+    }
+
+    #[test]
+    fn direct_final_response_rejects_follow_up_intent() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main(
+                owner,
+                "Fix pipeline".to_string(),
+                "Inspect and fix scripts.".to_string(),
+                "Inspect scripts".to_string(),
+                "Read the script files.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        let error = state
+            .record_main_final_response(
+                owner,
+                "Let me check bash availability and try running the pipeline.",
+            )
+            .expect_err("direct final text must reject follow-up intent");
+
+        assert!(error.contains("non-final follow-up intent"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+        let map = state.active_map().expect("active map");
+        let node = map.nodes.get("node-1").expect("inspect node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert!(map.results.is_empty());
+    }
+
+    #[test]
+    fn final_response_allows_completed_user_visible_check_summary() {
+        let state = ActionMapRuntimeState::default();
+
+        state
+            .validate_final_answer_no_internal_orchestration_terms(
+                "I checked the shell scripts and found that the remaining blocker is missing validation evidence.",
+            )
+            .expect("completed check summary should be allowed");
     }
 
     #[test]
@@ -14256,6 +18215,992 @@ mod tests {
     }
 
     #[test]
+    fn provider_budget_pressure_blocks_more_probe_after_read_without_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Budget pressure inspection",
+            "Read evidence then force implementation handoff under provider pressure.",
+            "Budget pressure inspection",
+            "Read evidence then force implementation handoff under provider pressure.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
+                    .with_call_id("read-1"),
+            )
+            .expect("initial read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-1",
+                "shell_command",
+                true,
+                "read useful evidence".to_string(),
+            )
+            .expect("read result records");
+        state.provider_request_count = 30;
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Unknown, "bash run")
+                    .with_call_id("probe-1"),
+            )
+            .expect_err("budget pressure should block another probe");
+        let (message, events) = error.into_parts();
+
+        assert!(
+            message.contains("provider_request_budget_pressure_requires_inspect_node_transition")
+        );
+        assert!(message.contains("Stop ordinary probing"));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ToolActionBlocked(event)
+                    if event.reason == "provider_request_budget_pressure_requires_inspect_node_transition"
+                        && event.action_class == "unknown"
+            )
+        }));
+    }
+
+    #[test]
+    fn provider_budget_pressure_forces_inspect_transition_without_read_accounting() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Budget pressure inspection",
+            "Provider pressure should force the inspect node into implementation.",
+            "Budget pressure inspection",
+            "Provider pressure should force the inspect node into implementation.",
+            true,
+        );
+        state.provider_request_count = 30;
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "bash run")
+                    .with_call_id("late-test"),
+            )
+            .expect_err(
+                "provider pressure should block inspect tools even without read accounting",
+            );
+        let (message, events) = error.into_parts();
+
+        assert!(message.contains("requires_inspect_node_transition"));
+        assert!(message.contains("next_node_kind=\"implement_solution\""));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ToolActionBlocked(event)
+                    if event.reason == "provider_request_budget_pressure_requires_inspect_node_transition"
+                        && event.action_class == "test"
+            )
+        }));
+    }
+
+    #[test]
+    fn thin_route_blocks_broad_recursive_directory_listing_in_inspect() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Thin inspect should avoid broad repository listing.",
+            "Thin inspect",
+            "Thin inspect should avoid broad repository listing.",
+            true,
+        );
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Recurse -Force",
+                )
+                .with_call_id("broad-list"),
+            )
+            .expect_err("thin inspect should block broad recursive listing");
+        let (message, events) = error.into_parts();
+
+        assert!(message.contains("thin_route_blocks_broad_directory_listing"));
+        assert!(message.contains("rg --files"));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ToolActionBlocked(event)
+                    if event.reason == "thin_route_blocks_broad_directory_listing"
+                        && event.action_class == "read"
+            )
+        }));
+    }
+
+    #[test]
+    fn thin_route_allows_narrow_file_discovery_in_inspect() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Thin inspect should allow narrow discovery.",
+            "Thin inspect",
+            "Thin inspect should allow narrow discovery.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "rg --files")
+                    .with_call_id("file-list"),
+            )
+            .expect("rg --files should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "file-list",
+                "shell_command",
+                true,
+                "src/tax_calc.py\ntests/test_tax_calc.py".to_string(),
+            )
+            .expect("file listing result records");
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-Content src/tax_calc.py",
+                )
+                .with_call_id("read-source"),
+            )
+            .expect("narrow source read should be allowed");
+    }
+
+    #[test]
+    fn thin_route_allows_bounded_shallow_directory_discovery_in_inspect() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Thin inspect should allow shallow structure discovery.",
+            "Thin inspect",
+            "Thin inspect should allow shallow structure discovery.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Recurse -Depth 2 -Name",
+                )
+                .with_call_id("shallow-list"),
+            )
+            .expect("bounded shallow listing should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "shallow-list",
+                "shell_command",
+                true,
+                "README.md\nsrc/tax_calc.py\ntests/test_tax_calc.py".to_string(),
+            )
+            .expect("shallow listing result records");
+
+        let forced_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Recurse -Depth 2 -Force",
+                )
+                .with_call_id("forced-shallow-list"),
+            )
+            .expect_err("forced shallow listing should remain blocked");
+        assert!(forced_error.contains("thin_route_blocks_broad_directory_listing"));
+    }
+
+    #[test]
+    fn thin_route_allows_metadata_only_recursive_listing_without_force() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Thin inspect should allow metadata-only file discovery.",
+            "Thin inspect",
+            "Thin inspect should allow metadata-only file discovery.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Recurse | Select-Object -ExpandProperty FullName",
+                )
+                .with_call_id("metadata-list"),
+            )
+            .expect("untruncated recursive full name listing without force should be allowed");
+
+        let forced_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Force -Recurse | Select-Object FullName",
+                )
+                .with_call_id("forced-metadata-list"),
+            )
+            .expect_err("forced metadata listing should remain blocked");
+        assert!(forced_error.contains("thin_route_blocks_broad_directory_listing"));
+    }
+
+    #[test]
+    fn thin_route_allows_shallow_force_metadata_listing() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Thin inspect should allow shallow metadata discovery.",
+            "Thin inspect",
+            "Thin inspect should allow shallow metadata discovery.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Force | Select-Object Name, Mode",
+                )
+                .with_call_id("shallow-force-metadata-list"),
+            )
+            .expect("shallow force metadata listing should be allowed");
+    }
+
+    #[test]
+    fn thin_route_blocks_truncating_format_table_discovery() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Thin inspect should block truncating discovery output.",
+            "Thin inspect",
+            "Thin inspect should block truncating discovery output.",
+            true,
+        );
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Recurse | Select-Object FullName, Length | Format-Table -AutoSize",
+                )
+                .with_call_id("truncating-list"),
+            )
+            .expect_err("format-table directory discovery should be blocked");
+        assert!(error.contains("thin_route_blocks_broad_directory_listing"));
+    }
+
+    #[test]
+    fn thin_route_blocks_recursive_select_object_table_discovery() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Thin inspect should block table-shaped recursive discovery output.",
+            "Thin inspect",
+            "Thin inspect should block table-shaped recursive discovery output.",
+            true,
+        );
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Recurse -Depth 2 | Select-Object FullName, Mode",
+                )
+                .with_call_id("table-list"),
+            )
+            .expect_err("recursive table-shaped discovery should be blocked");
+        assert!(error.contains("thin_route_blocks_broad_directory_listing"));
+    }
+
+    #[test]
+    fn thin_route_blocks_broad_directory_listing_in_implement() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Thin implement",
+            "Thin implement should edit known files without broad listing.",
+            "Thin implement",
+            "Thin implement should edit known files without broad listing.",
+            true,
+        );
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-ChildItem -Recurse -Force | Select-Object FullName",
+                )
+                .with_call_id("implement-broad-list"),
+            )
+            .expect_err("broad listing should be blocked in implement");
+        assert!(error.contains("thin_route_blocks_broad_directory_listing"));
+    }
+
+    #[test]
+    fn forced_inspect_transition_skips_without_completion_progress() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "No evidence has been recorded yet.",
+            "Thin inspect",
+            "No evidence has been recorded yet.",
+            true,
+        );
+
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: Some("task-1".to_string()),
+            map_id: "map-1".to_string(),
+            node_id: Some("node-1".to_string()),
+            node_kind: Some("inspect_code_context".to_string()),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 4,
+            max_requests: 8,
+            node_request_count: 4,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
+        };
+        let forced = state
+            .force_finish_inspect_for_provider_budget(owner, &snapshot, "test")
+            .expect("missing inspect evidence should not error");
+
+        assert!(forced.is_none());
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some("node-1"),
+            "runtime should leave the inspect node active for recovery"
+        );
+    }
+
+    #[test]
+    fn provider_budget_follow_up_force_finishes_inspect_into_implementation() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Budget pressure inspection",
+            "Provider response follow-up should converge inspect into implementation.",
+            "Budget pressure inspection",
+            "Provider response follow-up should converge inspect into implementation.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
+                    .with_call_id("read-1"),
+            )
+            .expect("initial read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-1",
+                "shell_command",
+                true,
+                "src/tax_calc.py:def calculate_tax(subtotal, region):".to_string(),
+            )
+            .expect("read result records");
+        state.provider_request_count = 34;
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            route_mode: Some("default_compact".to_string()),
+            profile_name: Some("taskspace-v005-active".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 34,
+            max_requests: ActionMapRuntimeState::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX,
+            node_request_count: 0,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "hard_stopped".to_string(),
+        };
+
+        let (outcome, events) = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "budget_pressure_follow_up_intent",
+            )
+            .expect("forced transition should be accepted")
+            .expect("forced transition should run");
+
+        let map = state.active_map().expect("active map");
+        let inspect_node = map.nodes.get(&node_id).expect("inspect node");
+        assert_eq!(inspect_node.status, NodeStatus::Completed);
+        let next_node_id = outcome.next_node_id.expect("next implementation node");
+        let next_node = map.nodes.get(&next_node_id).expect("next node");
+        assert_eq!(next_node.kind, NodeKind::ImplementSolution);
+        assert_eq!(next_node.status, NodeStatus::Running);
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(next_node_id.as_str())
+        );
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                    if event.kind == "forced_inspect_transition"
+                        && event.node_id == node_id
+                        && event.tags.iter().any(|tag| tag == "trigger:budget_pressure_follow_up_intent")
+            )
+        }));
+    }
+
+    #[test]
+    fn inspect_no_action_with_code_evidence_force_finishes_before_rollout_pressure() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "Inspect a single failing file.",
+            "Thin inspect",
+            "Inspect a single failing file.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "cat src/tax_calc.py",
+                )
+                .with_call_id("read-src"),
+            )
+            .expect("source read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-src",
+                "shell_command",
+                true,
+                "src/tax_calc.py:return round(subtotal * RATES[region], 1)".to_string(),
+            )
+            .expect("source read result records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 3,
+            max_requests: 10,
+            node_request_count: 3,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+
+        let (outcome, _) = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_no_action_with_evidence",
+            )
+            .expect("evidence-driven forced transition should be accepted")
+            .expect("forced transition should run before rollout pressure");
+
+        let map = state.active_map().expect("active map");
+        assert_eq!(
+            map.nodes.get(&node_id).expect("inspect node").status,
+            NodeStatus::Completed
+        );
+        let next_node = map
+            .nodes
+            .get(&outcome.next_node_id.expect("next node"))
+            .expect("implementation node");
+        assert_eq!(next_node.kind, NodeKind::ImplementSolution);
+    }
+
+    #[test]
+    fn inspect_no_action_with_file_listing_does_not_force_finish() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Thin inspect",
+            "File listing alone is not inspected code evidence.",
+            "Thin inspect",
+            "File listing alone is not inspected code evidence.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Search, "rg --files")
+                    .with_call_id("rg-files"),
+            )
+            .expect("file listing should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "rg-files",
+                "shell_command",
+                true,
+                "README.md\nsrc/tax_calc.py\ntests/test_tax_calc.py".to_string(),
+            )
+            .expect("file listing result records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 3,
+            max_requests: 10,
+            node_request_count: 3,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+
+        let forced = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_no_action_with_evidence",
+            )
+            .expect("file-listing-only recovery should not error");
+
+        assert!(forced.is_none());
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(node_id.as_str())
+        );
+    }
+
+    #[test]
+    fn forced_inspect_transition_skips_with_readme_only_evidence() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Budget pressure inspection",
+            "README-only evidence is not enough to implement.",
+            "Budget pressure inspection",
+            "README-only evidence is not enough to implement.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-Content README.md",
+                )
+                .with_call_id("readme"),
+            )
+            .expect("readme read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "readme",
+                "shell_command",
+                true,
+                "Product rules: calculate_tax returns the tax amount rounded to cents.".to_string(),
+            )
+            .expect("readme result records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 4,
+            max_requests: 8,
+            node_request_count: 4,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
+        };
+
+        let forced = state
+            .force_finish_inspect_for_provider_budget(owner, &snapshot, "test")
+            .expect("README-only inspect evidence should not error");
+
+        assert!(forced.is_none());
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(node_id.as_str())
+        );
+    }
+
+    #[test]
+    fn provider_budget_follow_up_force_finishes_implementation_into_smoke_test_after_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Budget pressure implementation",
+            "Provider response follow-up should converge implementation into validation.",
+            "Budget pressure implementation",
+            "Provider response follow-up should converge implementation into validation.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
+                    .with_call_id("edit-1"),
+            )
+            .expect("edit should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "edit-1",
+                "apply_patch",
+                true,
+                "fixed src/tax_calc.py rounding precision".to_string(),
+            )
+            .expect("edit result records");
+        state.provider_request_count = 5;
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::ImplementSolution.as_str().to_string()),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 5,
+            max_requests: 10,
+            node_request_count: 3,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "active".to_string(),
+        };
+
+        let (outcome, events) = state
+            .force_finish_implement_for_provider_budget(
+                owner,
+                &snapshot,
+                "budget_pressure_follow_up_intent",
+            )
+            .expect("forced transition should be accepted")
+            .expect("forced transition should run");
+
+        let map = state.active_map().expect("active map");
+        let implement_node = map.nodes.get(&node_id).expect("implement node");
+        assert_eq!(implement_node.status, NodeStatus::Completed);
+        let next_node_id = outcome.next_node_id.expect("next validation node");
+        let next_node = map.nodes.get(&next_node_id).expect("next node");
+        assert_eq!(next_node.kind, NodeKind::SmokeTest);
+        assert_eq!(next_node.status, NodeStatus::Running);
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(next_node_id.as_str())
+        );
+        let bridge_result = map.results.get(&outcome.result_id).expect("bridge result");
+        assert_eq!(
+            bridge_result.evidence_package.validity,
+            ResultValidity::Accepted
+        );
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                    if event.kind == "forced_implement_transition"
+                        && event.node_id == node_id
+                        && event.tags.iter().any(|tag| tag == "trigger:budget_pressure_follow_up_intent")
+            )
+        }));
+    }
+
+    #[test]
+    fn inspect_evidence_pressure_blocks_probe_before_provider_budget_pressure() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Evidence pressure inspection",
+            "Enough inspect evidence should force implementation handoff.",
+            "Evidence pressure inspection",
+            "Enough inspect evidence should force implementation handoff.",
+            true,
+        );
+        for index in 0..5 {
+            let call_id = format!("read-{index}");
+            state
+                .prepare_main_tool_call(
+                    owner,
+                    ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
+                        .with_call_id(&call_id),
+                )
+                .expect("read should be allowed before evidence pressure threshold is recorded");
+            state
+                .record_main_tool_result(
+                    owner,
+                    &call_id,
+                    "shell_command",
+                    true,
+                    format!("read useful evidence {index}"),
+                )
+                .expect("read result records");
+        }
+        state.provider_request_count = 2;
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
+                    .with_call_id("read-after-threshold"),
+            )
+            .expect_err("inspect evidence pressure should block more probing");
+        let (message, events) = error.into_parts();
+
+        assert!(message.contains("inspect_evidence_pressure_requires_implementation"));
+        assert!(message.contains("inspect evidence pressure is active"));
+        assert!(message.contains("next_node_kind=\"implement_solution\""));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ToolActionBlocked(event)
+                    if event.reason == "inspect_evidence_pressure_requires_implementation_before_more_probe"
+                        && event.action_class == "read"
+            )
+        }));
+    }
+
+    #[test]
+    fn provider_budget_pressure_blocks_validation_before_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Budget pressure edit",
+            "Read evidence then edit under provider pressure.",
+            "Budget pressure edit",
+            "Read evidence then edit under provider pressure.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
+                    .with_call_id("read-1"),
+            )
+            .expect("initial read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-1",
+                "shell_command",
+                true,
+                "read useful evidence".to_string(),
+            )
+            .expect("read result records");
+        state.provider_request_count = 30;
+
+        let test_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Build, "cargo test")
+                    .with_call_id("test-before-edit"),
+            )
+            .expect_err("validation before edit should be blocked under pressure");
+        assert!(test_error.contains("requires_implementation_before_more_probe"));
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
+                    .with_call_id("edit-1"),
+            )
+            .expect("budget pressure should still allow the concrete edit");
+    }
+
+    #[test]
+    fn provider_budget_pressure_blocks_more_read_after_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Budget pressure validation",
+            "Read and edit before narrow validation.",
+            "Budget pressure validation",
+            "Read and edit before narrow validation.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
+                    .with_call_id("read-1"),
+            )
+            .expect("initial read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-1",
+                "shell_command",
+                true,
+                "read useful evidence".to_string(),
+            )
+            .expect("read result records");
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
+                    .with_call_id("edit-1"),
+            )
+            .expect("edit should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "edit-1",
+                "apply_patch",
+                true,
+                "edited file".to_string(),
+            )
+            .expect("edit result records");
+        state.provider_request_count = 30;
+
+        let read_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
+                    .with_call_id("read-2"),
+            )
+            .expect_err("more read probing should be blocked after edit");
+        assert!(read_error.contains("blocks_more_exploration_after_edit"));
+    }
+
+    #[test]
     fn narrow_inspect_budget_exhaustion_can_finish_into_implementation() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -14692,6 +19637,77 @@ mod tests {
             .prepare_main_tool_call(owner, "apply_patch")
             .expect_err("broad accepted inspection must require subagent tracks");
         assert!(error.contains("without two accepted subagent inspect results"));
+    }
+
+    #[test]
+    fn broad_debt_after_narrow_inspect_allows_recovery_inspect_tracks() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Pipeline audit",
+            "Inspect connected parser, pricing, and invoice behavior.",
+            true,
+        );
+        state
+            .record_main_tool_result(owner, "read-1", "shell", true, "read ok".to_string())
+            .expect("record main result")
+            .expect("result recorded");
+        let (outcome, _) = state
+            .finish_main_node(
+                owner,
+                "node-1",
+                "Found parser, pricing, and invoice mismatches.".to_string(),
+                None,
+            )
+            .expect("finish broad inspect");
+        accept_broad_inspect_result(&mut state, owner, &outcome.result_id);
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Implement pipeline fix".to_string(),
+                "Fix parser, pricing, and invoice mismatches.".to_string(),
+                vec!["node-1".to_string()],
+                true,
+            )
+            .expect("implementation node can be created for recovery");
+
+        let blocked = state
+            .prepare_main_tool_call(owner, "apply_patch")
+            .expect_err("broad debt blocks direct implementation");
+        let (message, _) = blocked.into_parts();
+        assert!(message.contains("broad_inspect_delegation_debt"));
+        assert!(message.contains("TaskSpaceGateRecoveryV1"));
+        assert!(message.contains("record_subagent_plan"));
+
+        for title in ["Parser investigation", "Pricing investigation"] {
+            state
+                .create_node_for_main_with_kind(
+                    owner,
+                    NodeKind::InspectCodeContext,
+                    title.to_string(),
+                    format!("{title} after the broad overview."),
+                    vec!["node-1".to_string()],
+                    false,
+                )
+                .expect("recovery inspect node can be created despite completed narrow inspect");
+        }
+
+        let first = prepare_test_spawn_assignment(&mut state, owner, "parser", Some("node-3"))
+            .expect("first recovery inspect can be assigned")
+            .0
+            .expect("first assignment");
+        assert_eq!(first.node_id, "node-3");
+        state.attach_agent_to_lease(&first.lease_id, ThreadId::new(), None);
+
+        let second = prepare_test_spawn_assignment(&mut state, owner, "pricing", Some("node-4"))
+            .expect("second recovery inspect can be assigned")
+            .0
+            .expect("second assignment");
+        assert_eq!(second.node_id, "node-4");
     }
 
     #[test]
@@ -15707,6 +20723,48 @@ mod tests {
     }
 
     #[test]
+    fn current_main_node_successful_action_query_reads_recorded_tool_results() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Fix rounding",
+            "Fix the tax rounding bug.",
+            "Apply code fix",
+            "Change calculate_tax rounding.",
+            true,
+        );
+
+        assert!(!state.current_main_node_has_successful_action(ActionClass::Edit));
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "read src/tax_calc.py".to_string(),
+            )
+            .expect("read result records");
+        assert!(!state.current_main_node_has_successful_action(ActionClass::Edit));
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "changed round(..., 1) to round(..., 2)".to_string(),
+            )
+            .expect("edit result records");
+
+        assert!(state.current_main_node_has_successful_action(ActionClass::Edit));
+    }
+
+    #[test]
     fn finish_inspect_node_requires_discovery_evidence_or_problem_state_effect() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -15827,15 +20885,40 @@ mod tests {
             )
             .expect("successful test result records")
             .expect("test result id");
-        let missing_criterion = state
+        state
             .finish_main_node(owner, &node_id, "Tests passed.".to_string(), None)
-            .expect_err("validation requires success criterion update");
+            .expect("smoke test auto-accepts successful validation evidence");
+        let map = state.active_map().expect("active map");
+        let task = state.tasks.get("task-1").expect("task");
         assert!(
-            missing_criterion.contains("cannot be completed without a satisfied success criterion")
+            map.results
+                .get("result-2")
+                .is_some_and(|result| result.evidence_package.validity == ResultValidity::Accepted)
         );
-        assert!(missing_criterion.contains("action=state_commit"));
-        assert!(missing_criterion.contains("sections.result_validities"));
-        assert!(missing_criterion.contains("sections.finished_nodes"));
+        assert!(
+            task.problem_ledger
+                .success_criteria
+                .iter()
+                .any(|criterion| {
+                    criterion.status == "satisfied"
+                        && evidence_refs_include_successful_validation_result(
+                            map,
+                            map.nodes.get(&node_id).expect("node"),
+                            &criterion.evidence_refs,
+                        )
+                })
+        );
+
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix again",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
         let (result_id, _) = state
             .record_main_tool_result_with_class(
                 owner,
@@ -15952,6 +21035,76 @@ mod tests {
     }
 
     #[test]
+    fn state_commit_result_validity_accepts_validation_node_id_alias() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-pass",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("successful test result records")
+            .expect("test result id");
+
+        let (outcome, _) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-node-result-alias".to_string(),
+                    result_validities: vec![ActionMapStateCommitResultValidityInput {
+                        result_id: node_id,
+                        validity: "accepted".to_string(),
+                        validity_reason: "pytest passed".to_string(),
+                        claims: vec![ActionMapCognitiveClaimInput {
+                            id: "claim-pytest-pass".to_string(),
+                            statement: "pytest passed.".to_string(),
+                            evidence_refs: vec![ActionMapEvidenceRefInput {
+                                result_id: Some("node-1".to_string()),
+                                validator_ref: Some("pytest".to_string()),
+                                ..Default::default()
+                            }],
+                        }],
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some("node-1".to_string()),
+                            ..Default::default()
+                        }],
+                        changed_artifacts: Vec::new(),
+                        validator_refs: vec!["pytest".to_string()],
+                        remaining_uncertainty: Vec::new(),
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect("state commit runs");
+
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
+        let map = state.active_map().expect("active map");
+        assert_eq!(
+            map.results
+                .get(&result_id)
+                .expect("validation result")
+                .evidence_package
+                .validity,
+            ResultValidity::Accepted
+        );
+    }
+
+    #[test]
     fn block_validation_node_rejects_successful_validator_result() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -16022,6 +21175,139 @@ mod tests {
         state
             .block_main_node(owner, &node_id, "pytest failed".to_string())
             .expect("failed validation can be blocked");
+    }
+
+    #[test]
+    fn state_commit_rejects_failed_validation_result_without_rework_transition() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, _node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "pytest failed".to_string(),
+            )
+            .expect("failed test result records")
+            .expect("test result id");
+
+        let error = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-failed-validation-only".to_string(),
+                    result_validities: vec![ActionMapStateCommitResultValidityInput {
+                        result_id: result_id.clone(),
+                        validity: "invalid".to_string(),
+                        validity_reason: "pytest failed".to_string(),
+                        claims: Vec::new(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some(result_id),
+                            validator_ref: Some("pytest".to_string()),
+                            ..Default::default()
+                        }],
+                        changed_artifacts: Vec::new(),
+                        validator_refs: vec!["pytest".to_string()],
+                        remaining_uncertainty: Vec::new(),
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect_err("failed validation state-only commit must be rejected");
+
+        assert!(error.contains("failed test/build result without a rework transition"));
+        assert!(error.contains("implement_solution"));
+    }
+
+    #[test]
+    fn state_commit_accepts_failed_validation_result_with_rework_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "pytest failed".to_string(),
+            )
+            .expect("failed test result records")
+            .expect("test result id");
+
+        let (outcome, _) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-failed-validation-rework".to_string(),
+                    result_validities: vec![ActionMapStateCommitResultValidityInput {
+                        result_id: result_id.clone(),
+                        validity: "invalid".to_string(),
+                        validity_reason: "pytest failed".to_string(),
+                        claims: Vec::new(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some(result_id),
+                            validator_ref: Some("pytest".to_string()),
+                            ..Default::default()
+                        }],
+                        changed_artifacts: Vec::new(),
+                        validator_refs: vec!["pytest".to_string()],
+                        remaining_uncertainty: Vec::new(),
+                    }],
+                    nodes: vec![ActionMapStateCommitNodeInput {
+                        kind: NodeKind::ImplementSolution,
+                        title: "Repair failed validation".to_string(),
+                        context_summary: "Fix the parser and pricing failures observed by pytest."
+                            .to_string(),
+                        dependency_node_ids: vec![node_id],
+                        bind_current: false,
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect("failed validation can create rework node");
+
+        assert!(
+            outcome.rejected_sections.is_empty(),
+            "{:?}",
+            outcome.rejected_sections
+        );
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
+        assert_eq!(
+            outcome.accepted_sections,
+            vec!["result_validities", "nodes"]
+        );
+        let map = state.active_map().expect("active map");
+        assert!(
+            map.nodes
+                .values()
+                .any(|node| node.kind == NodeKind::ImplementSolution
+                    && node.title == "Repair failed validation")
+        );
     }
 
     #[test]
@@ -17708,6 +22994,10 @@ mod tests {
             .expect("reclaimed assignment");
         assert_eq!(reclaimed.node_id, "define_scope");
         assert_eq!(reclaimed.lease_id, "lease-2");
+        state.release_lease(&reclaimed.lease_id, "test_release");
+        let third = prepare_test_spawn_assignment(&mut state, owner, "third", None)
+            .expect_err("spawn budget is cumulative, not concurrent");
+        assert!(third.contains("spawn budget is exhausted"));
     }
 
     #[test]

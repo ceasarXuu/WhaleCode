@@ -1,5 +1,12 @@
 # 09. E3 Validation Plan
 
+> 历史文档警告（2026-06-19）：本文已经被
+> `18-unfinished-work-engineering-design.md` 和 `docs/experiments/`
+> 的实验制度取代。本文中的旧 PASS/PARTIAL 口径、v004-clean 三样本安排、
+> “product partial acceptable” 表述均不得作为 v0.0.5 当前收口、
+> release decision 或正式 E3 依据。当前唯一 formal P0 release proof 是
+> `terminal-bench_E3-P0_3_5`；`_1_1`、`_3_1`、`_3_2` 只能是 diagnostic-only。
+
 ## 1. 验证目标
 
 v0.0.5 E3 不以“扩大样本”为目标。它验证两件事：
@@ -70,9 +77,9 @@ avg_input_per_request_ratio <= 1.25x
 允许阶段性判定：
 
 ```text
-PASS: all cost gates pass
-PARTIAL: main ratio <=3x and root cause outlier isolated
-FAIL: main ratio remains >5x or model_request_ratio remains >5x
+historical strong-cost result: all cost gates pass
+historical engineering-only result: main ratio <=3x and root cause outlier isolated
+historical failed-cost result: main ratio remains >5x or model_request_ratio remains >5x
 ```
 
 ### Quality gates
@@ -105,7 +112,7 @@ high_unreviewed_result_ratio falls substantially
 count-call-stack shows improved path or at least lower-cost failure
 ```
 
-### Engineering success but product partial
+### Historical Engineering-Only Outcome
 
 ```text
 cost <=2x
@@ -113,7 +120,10 @@ map management works
 solved slightly regresses or remains tied
 ```
 
-This is acceptable for v0.0.5 if regression is explained and v0.0.6 can focus on utility.
+This historical outcome is not acceptable for current v0.0.5 release closure.
+Any engineering-only or partial-cost result must be reported as
+`blocked_partial` with `closeable=false`, and cannot replace
+`terminal-bench_E3-P0_3_5` release proof.
 
 ### Failure
 

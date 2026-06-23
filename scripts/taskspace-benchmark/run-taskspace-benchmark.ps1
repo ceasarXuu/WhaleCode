@@ -18,7 +18,24 @@ param(
     [string]$TaskListHash = "",
     [string]$SourceVersion = "",
     [string]$ProfileHash = "",
+    [string]$SampleSetId = "",
+    [string[]]$SampleNames = @(),
+    [string]$BenchmarkFamily = "",
+    [string]$RunnerEntrypoint = "",
+    [string]$ArtifactOrigin = "",
+    [string]$RunnerScriptSha256 = "",
+    [string]$ChildRunnerSha256 = "",
+    [string]$TaskListSha256 = "",
+    [string]$SuiteManifestPath = "",
+    [string]$SuiteReceiptPath = "",
+    [string]$SuiteReceiptSha256 = "",
+    [string]$ApprovalMarkerSha256 = "",
+    [string]$CodeCompleteMarkerSha256 = "",
+    [string]$V005NonAgentGatesPath = "",
+    [string]$V005CodeCompleteMarkerPath = "",
+    [string]$V005UserApprovalMarkerPath = "",
     [switch]$ForceRerun,
+    [switch]$AllowStaleWhaleBin,
     [switch]$PlanOnly
 )
 $ErrorActionPreference = "Stop"
@@ -70,6 +87,45 @@ if (-not $resuming) {
     }
     if ($stale) { Write-TaskspaceRunEvent $runDir "stale_lock_reclaimed" @{ previous_lock_owner = [string]$existingStatus.lock_owner } }
 }
+if (-not [string]::IsNullOrWhiteSpace($V005NonAgentGatesPath) -and (Test-Path -LiteralPath $V005NonAgentGatesPath -PathType Leaf)) {
+    Copy-Item -LiteralPath $V005NonAgentGatesPath -Destination (Join-Path $runDir "v005-non-agent-gates.json") -Force
+}
+if (-not [string]::IsNullOrWhiteSpace($V005CodeCompleteMarkerPath) -and (Test-Path -LiteralPath $V005CodeCompleteMarkerPath -PathType Leaf)) {
+    Copy-Item -LiteralPath $V005CodeCompleteMarkerPath -Destination (Join-Path $runDir "v005-code-complete.json") -Force
+}
+if (-not [string]::IsNullOrWhiteSpace($V005UserApprovalMarkerPath) -and (Test-Path -LiteralPath $V005UserApprovalMarkerPath -PathType Leaf)) {
+    Copy-Item -LiteralPath $V005UserApprovalMarkerPath -Destination (Join-Path $runDir "v005-user-approval.json") -Force
+}
+$suiteManifestCopyPath = ""
+if (-not [string]::IsNullOrWhiteSpace($SuiteManifestPath) -and (Test-Path -LiteralPath $SuiteManifestPath -PathType Leaf)) {
+    $suiteManifestCopyPath = Join-Path $runDir "suite-manifest.json"
+    Copy-Item -LiteralPath $SuiteManifestPath -Destination $suiteManifestCopyPath -Force
+}
+$suiteReceiptCopyPath = ""
+if (-not [string]::IsNullOrWhiteSpace($SuiteReceiptPath) -and (Test-Path -LiteralPath $SuiteReceiptPath -PathType Leaf)) {
+    $suiteReceiptCopyPath = Join-Path $runDir "suite-receipt.jsonl"
+    Copy-Item -LiteralPath $SuiteReceiptPath -Destination $suiteReceiptCopyPath -Force
+}
+Update-TaskspaceBenchmarkRunStatusFields $runDir @{
+    sample_set_id = $SampleSetId
+    sample_names = @($SampleNames)
+    benchmark_family = $BenchmarkFamily
+    runner_entrypoint = $RunnerEntrypoint
+    runner_profile_hash = $ProfileHash
+    source_version = $SourceVersion
+    task_list_hash = $TaskListHash
+    repeats_per_sample = $Repeats
+    artifact_origin = $ArtifactOrigin
+    runner_script_sha256 = $RunnerScriptSha256
+    child_runner_sha256 = $ChildRunnerSha256
+    task_list_sha256 = $TaskListSha256
+    suite_manifest_path = $suiteManifestCopyPath
+    suite_manifest_sha256 = if ($suiteManifestCopyPath) { (Get-FileHash -Algorithm SHA256 -LiteralPath $suiteManifestCopyPath).Hash.ToLowerInvariant() } else { "" }
+    suite_receipt_path = $suiteReceiptCopyPath
+    suite_receipt_sha256 = if ($SuiteReceiptSha256) { $SuiteReceiptSha256 } elseif ($suiteReceiptCopyPath) { (Get-FileHash -Algorithm SHA256 -LiteralPath $suiteReceiptCopyPath).Hash.ToLowerInvariant() } else { "" }
+    approval_marker_sha256 = $ApprovalMarkerSha256
+    code_complete_marker_sha256 = $CodeCompleteMarkerSha256
+} | Out-Null
 $promptCopy = Join-Path $runDir "prompt.txt"
 Write-Text $promptCopy $prompt
 Write-TaskspaceJson $promptGuard (Join-Path $runDir "prompt-guard.json")
@@ -79,8 +135,8 @@ $taskspacePrompt = $prompt + (New-TaskspaceRoutingPrompt $routingDecision)
 $routingDecisionPath = Join-Path $runDir "routing-decision.json"
 Write-TaskspaceJson $routingDecision $routingDecisionPath
 Write-TaskspaceRunEvent $runDir "routing_decision_completed" @{ mode = [string]$routingDecision.recommended_mode; confidence = [string]$routingDecision.confidence; status = [string]$routingDecision.status; path = $routingDecisionPath }
-$whaleVersion = if (Test-Path -LiteralPath $WhaleBin) { (& $WhaleBin --version 2>&1) -join " " } else { "" }
-$whaleSha = if (Test-Path -LiteralPath $WhaleBin) { Get-TaskspaceFileSha256 $WhaleBin } else { "" }
+$whaleVersion = ""
+$whaleSha = ""
 $fixtureSha = Get-TaskspaceDirectorySha256 $manifest.FixtureDir
 $promptSha = Get-TaskspaceFileSha256 $manifest.PromptPath
 $requiredProviderParams = @("model", "model_reasoning_effort", "sandbox_mode")
@@ -149,11 +205,28 @@ if ([string]$harnessHealth.status -eq "fail") {
     Write-Host "AbortSummary: $abortPath"
     exit 3
 }
+$binaryHealthPath = Join-Path $runDir "whale-binary-preflight-health.json"
+$binaryHealth = New-TaskspaceWhaleBinaryHealth $WhaleBin $repoRoot -AllowStale:$AllowStaleWhaleBin
+Write-TaskspaceHarnessHealth $binaryHealthPath $binaryHealth
+Write-TaskspaceRunEvent $runDir "whale_binary_preflight_completed" @{ status = [string]$binaryHealth.status; path = $binaryHealthPath; stale_for_codex_source = [bool]$binaryHealth.stale_for_codex_source }
+if ([string]$binaryHealth.status -eq "fail") {
+    $firstFinding = @($binaryHealth.findings | Where-Object { [string]$_.severity -eq "fail" } | Select-Object -First 1)[0]
+    $signature = New-TaskspaceInfraSignature "harness_materialization_failure" "whale_binary_preflight" ([string]$firstFinding.stable_code) ([string]$firstFinding.message) "" $binaryHealthPath
+    $abortPath = Join-Path $runDir "abort-summary.md"
+    New-TaskspaceHarnessAbortSummaryLines "TaskSpace Whale Binary Abort" "whale_binary_preflight" $firstFinding $signature $binaryHealthPath | Set-Content -LiteralPath $abortPath -Encoding UTF8
+    Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "whale_binary_preflight" ([string]$firstFinding.stable_code) $signature $binaryHealthPath $commandLine 0 0 | Out-Null
+    Write-Host "RunDir: $runDir"
+    Write-Host "WhaleBinaryHealth: $binaryHealthPath"
+    Write-Host "AbortSummary: $abortPath"
+    exit 3
+}
 if (-not (Test-Path -LiteralPath $WhaleBin)) { throw "Whale binary not found: $WhaleBin" }
 $helpText = & $WhaleBin exec --help 2>&1
 if (($helpText -join [Environment]::NewLine) -notmatch "--taskspace") {
     throw "Whale exec does not expose --taskspace."
 }
+$whaleVersion = (& $WhaleBin --version 2>&1) -join " "
+$whaleSha = [string]$binaryHealth.whale_binary_sha256
 
 $pairReports = New-Object System.Collections.Generic.List[object]
 $probe = $null
@@ -336,10 +409,15 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $lastMessagePath $SandboxMode $ConfigOverride
                 $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
                 Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace"); execution_alias = $mount }) (Join-Path $side.ArtifactDir "whale-argv.json")
+                $childEnvironment = @{}
+                if ($side.LogicalMode -eq "taskspace") {
+                    $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode
+                    $childEnvironment["WHALE_TASKSPACE_PROFILE_NAME"] = "taskspace-v005-$($routingDecision.recommended_mode)"
+                }
                 $started = Get-Date
                 $timedOut = $false
                 try {
-                    $exitCode = Invoke-RealProcess $WhaleBin $args $executionRepoDir $jsonlPath $stderrPath $TimeoutSeconds $stdinPath $processTimingPath
+                    $exitCode = Invoke-RealProcess $WhaleBin $args $executionRepoDir $jsonlPath $stderrPath $TimeoutSeconds $stdinPath $processTimingPath $childEnvironment
                 } catch {
                     if ([string]$_.Exception.Message -notmatch "^Process timed out after ") { throw }
                     $exitCode = 124

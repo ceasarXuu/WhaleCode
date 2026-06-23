@@ -1,0 +1,531 @@
+# Problem P-001: v0.0.5 processing-pipeline diagnostic stops on TaskSpace timeout
+- Status: repair_in_progress
+- Created: 2026-06-21 00:35
+- Updated: 2026-06-21 05:35
+- Objective: Explain why the 2026-06-21 `terminal-bench_E3-P0_3_1` diagnostic stopped after the first sample.
+- Symptoms:
+  - Only `processing-pipeline` was executed.
+  - Standard solved the sample.
+  - TaskSpace exited with code 124 after 900 seconds.
+  - TaskSpace public validation and hidden oracle were skipped after agent timeout.
+- Expected behavior:
+  - The run should test the latest v0.0.5 code after the 2026-06-20/21 fixes.
+  - TaskSpace should either finish the sample or fail quickly with a bounded budget/gate reason.
+- Actual behavior:
+  - The benchmark invoked `C:\Users\77585\.whale\bin\whale.exe`, whose file timestamp is 2026-06-18 05:44:25, before the later v0.0.5 fixes.
+  - The old TaskSpace binary spent the whole budget in orchestration, validation delegation, and subagent wait loops.
+- Impact:
+  - The run does not validate current HEAD `f3d4d45e94` / `11c6e692c5` behavior.
+  - The failure still proves the installed benchmark binary is unsafe for v0.0.5 verification until rebuilt/installed.
+- Reproduction:
+  - Run root: `target\terminal-bench_E3-P0_3_1-v005-20260621-diagnostic\processing-pipeline\runs\terminal_bench__processing-pipeline\20260621-000213-625`.
+  - Pair report: `pair-001\pair-report.md`.
+- Environment:
+  - Repository: `D:\whalecode-alpha`
+  - Benchmark command used `C:\Users\77585\.whale\bin\whale.exe exec --json --taskspace ...`.
+- Known facts:
+  - E-001
+  - E-002
+  - E-003
+  - E-004
+  - E-005
+  - E-006
+  - E-007
+  - E-008
+- Ruled out:
+  - Validator or Docker as the primary failure cause for this sample: TaskSpace validation did not start because the agent timed out first.
+- Fix criteria:
+  - Rebuild/install current `whale.exe` before rerunning diagnostics.
+  - Re-run a bounded single-sample TaskSpace diagnostic and verify provider budget/request events are present.
+  - The same `processing-pipeline` sample must avoid uncontrolled spawn/wait expansion or terminate with a bounded budget reason before 900 seconds.
+- Current conclusion: The immediate 900-second failure was caused by stale benchmark execution plus old TaskSpace orchestration behavior. The stale-binary execution path is now guarded by an external benchmark preflight and the local installed binary has been rebuilt from current codex source. A current-binary direct TaskSpace reproduction then exposed a separate v0.0.5 implementation gap: compact checkpoint budget handling blocked the `19/20` provider request before the model could use the final budget slot for bounded recovery or final synthesis. The dispatch-level budget gap is fixed and covered by focused unit tests. A post-fix direct TaskSpace-only smoke reached `20/20` hard stop instead of `19/20` compact checkpoint block, but still failed without edits or final message. The next implementation gap was in the provider response layer: final-response gate rejection happened after the no-action recovery calculation, so commentary-only assistant text could be rejected but still avoid recovery. Provider response actionability is now recorded as a replayable trace event, final-gate rejection is classified before recovery, and the first recovery emits a JSONL-visible warning while the second non-action remains a hard stop.
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+  - H-004
+- Resolution basis:
+  - H-001
+  - H-002
+  - E-001
+  - E-002
+  - E-003
+  - E-004
+  - E-005
+- Close reason:
+  - not closed
+
+## Hypothesis H-001: The diagnostic ran a stale Whale binary rather than current v0.0.5 code
+- Status: confirmed
+- Parent: P-001
+- Claim: The benchmark did not execute the newly committed v0.0.5 fixes because `run-taskspace-external-benchmark.ps1` used the installed `C:\Users\77585\.whale\bin\whale.exe`, which predates the fixes.
+- Layer: execution-environment
+- Factor relation: necessary
+- Depends on:
+  - none
+- Rationale:
+  - The benchmark command uses the installed user binary by default.
+  - Current HEAD after the fixes is 2026-06-21, but the binary timestamp is 2026-06-18.
+- Falsifiable predictions:
+  - If true: file metadata for `C:\Users\77585\.whale\bin\whale.exe` should predate commits `c517c135e`, `f3d4d45e`, and `11c6e692`.
+  - If true: artifacts may miss v0.0.5 provider budget/request evidence expected from the latest code.
+  - If false: the binary should be freshly built after those commits, or the benchmark should point to a build artifact from current source.
+- Diagnostic evidence plan:
+  - Capture installed binary metadata and benchmark command.
+  - Inspect artifacts for provider request/budget event availability.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-001
+  - E-003
+  - E-006
+  - E-007
+  - E-008
+- Conclusion: confirmed.
+- Repair design readiness: execution-environment repair implemented; current-code runtime reproduction is still required before TaskSpace design/runtime repair.
+- Next step: rerun a bounded single-sample TaskSpace diagnostic with the fresh binary; if reproduced, design a runtime fix around validation-node/subagent budget and main-path validation.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-002: The executed TaskSpace runtime timed out because validation was delegated into subagent/node loops instead of finishing on the main path
+- Status: confirmed
+- Parent: P-001
+- Claim: After making task changes, the executed TaskSpace runtime repeatedly created validation nodes and attempted subagent validation work, hitting lease/plan/review gates and ending in a `wait_agent` call when the 900-second harness timeout killed the process.
+- Layer: runtime-behavior
+- Factor relation: sufficient_for_timeout
+- Depends on:
+  - H-001
+- Rationale:
+  - The pair report shows TaskSpace changed files but did not reach validation.
+  - The rollout shows many TaskSpace control/model cycles and final activity around `spawn_agent`/`wait_agent`.
+- Falsifiable predictions:
+  - If true: artifacts should show many `taskspace_control`, `spawn_agent`, and `wait_agent` calls; graph health should show many blocked validation nodes and subagent warning; final rollout events should be in validation delegation/wait state.
+  - If false: the timeout should occur in Docker, public validation, or a single long shell command rather than TaskSpace orchestration.
+- Diagnostic evidence plan:
+  - Parse `rollout.jsonl`, `graph-health.json`, `pair-timing.json`, and `pair-report.md`.
+  - Compare agent execution timing to validation timing.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-002
+  - E-004
+  - E-005
+- Conclusion: confirmed for the stale executed binary.
+- Repair design readiness: blocked until current binary is rebuilt and a current-code reproduction is collected.
+- Next step: rerun one sample with current binary; if reproduced, design a runtime fix around validation-node/subagent budget and main-path validation.
+- Blocker:
+  - stale binary prevents attributing this runtime behavior to current code
+- Close reason:
+  - not closed
+
+## Hypothesis H-003: The first-sample failure is primarily validator or Docker infrastructure failure
+- Status: refuted
+- Parent: P-001
+- Claim: `processing-pipeline` failed because Docker build/run or Terminal-Bench validation infrastructure failed.
+- Layer: harness
+- Factor relation: alternative
+- Depends on:
+  - none
+- Rationale:
+  - Prior P0 runs had harness/validator issues on some samples, especially `multi-source-data-merger`.
+- Falsifiable predictions:
+  - If true: pair timing and pair report should show public validation, Docker, or hidden oracle failure as the first failure.
+  - If false: TaskSpace should time out before validation begins.
+- Diagnostic evidence plan:
+  - Inspect pair timing and pair report lifecycle fields.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-002
+- Conclusion: refuted for this sample.
+- Repair design readiness: none
+- Next step: do not spend time on Docker/validator for this early-stop failure.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-004: Compact checkpoint provider budget handling blocked the last recovery request
+- Status: confirmed
+- Parent: P-001
+- Claim: In current v0.0.5 code, `ProviderRequestBudgetContext::before_dispatch` treats the compact checkpoint state as a pre-dispatch hard error for non-`final_synthesis` attribution, so the model cannot use the last available provider request to produce final synthesis, compact checkpoint, or bounded failure output.
+- Layer: runtime-budget-gate
+- Factor relation: sufficient_for_current_binary_failure
+- Depends on:
+  - H-001
+- Rationale:
+  - The current-binary `processing-pipeline` reproduction stopped quickly with a provider budget error at `19/20`, not with the old 900-second timeout.
+  - The code path computes `compact_checkpoint_required` when one request remains, then rejects ordinary dispatch unless the existing attribution is already `final_synthesis`.
+  - The model cannot change the attribution to `final_synthesis` without receiving one more provider request.
+- Falsifiable predictions:
+  - If true: direct current-binary artifacts should contain `turn.failed` with the compact checkpoint budget message at `19/20`.
+  - If true: `client.rs` should block compact checkpoint before incrementing the provider request count when attribution is not `final_synthesis`.
+  - If fixed: a unit test starting at `1/2` budget should allow one `budget_recovery` dispatch to `2/2`, then block the next dispatch as exhausted.
+- Diagnostic evidence plan:
+  - Inspect current-binary direct TaskSpace JSONL for the exact provider budget failure.
+  - Inspect `client.rs` compact checkpoint branch and existing provider budget tests.
+  - Add a focused provider budget regression proving one `budget_recovery` dispatch is allowed and the next dispatch hard-stops.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-009
+  - E-010
+  - E-011
+  - E-012
+- Conclusion: confirmed.
+- Repair design readiness: ready and authorized by the user's request to fill this missing v0.0.5 gap.
+- Next step: a future live TaskSpace smoke can verify whether `processing-pipeline` now reaches bounded final output or exposes the next runtime/design issue.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-001: The benchmark used an installed binary older than the v0.0.5 fixes
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Inspected `C:\Users\77585\.whale\bin\whale.exe` metadata and version after the run.
+- Observations:
+  - Path: `C:\Users\77585\.whale\bin\whale.exe`
+  - Version output: `whale 0.1.0`
+  - LastWriteTime: `2026/6/18 5:44:25`
+  - Size: `234189824`
+  - The benchmark stderr records this exact binary in the command that timed out.
+- Interpretation:
+  - The run cannot prove whether commits made on 2026-06-20/21 fixed or failed, because the executable predates them.
+- Supports:
+  - H-001
+- Refutes or weakens:
+  - any conclusion that current HEAD was validated
+
+## Evidence E-002: Pair report proves agent-timeout before validation
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Inspected `pair-001\pair-report.md` and `pair-001\pair-timing.json`.
+- Observations:
+  - Standard: `business_success=True`, `exec_exit_code=0`, `exec_timed_out=False`, `wall_time_ms=409997`, `outcome_standard=solved`.
+  - TaskSpace: `business_success=False`, `exec_exit_code=124`, `exec_timed_out=True`, `wall_time_ms=900029`, `outcome_taskspace=agent_exec_timeout`.
+  - TaskSpace validation lifecycle: `right_tests_started_seen=False`, `right_validation_lifecycle_stage=unknown`.
+  - Pair timing marks TaskSpace `agent_execution` as `duration_ms=900029`, `exit_code=124`, `timed_out=true`; `public_validation_skipped` reason is `agent_exec_timeout`.
+- Interpretation:
+  - The failure happens inside TaskSpace agent execution, before validator or hidden oracle can judge the output.
+- Supports:
+  - H-002
+- Refutes or weakens:
+  - H-003
+
+## Evidence E-003: Current run lacks provider budget/request event evidence
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Inspected right-side artifacts under `pair-001\right\artifacts`.
+- Observations:
+  - `provider-request-events.jsonl` is empty.
+  - `budget-events.jsonl` is empty.
+  - `budget-quality-impact-events.jsonl` is empty.
+  - `request-phase-summary.json` reports `provider_request_event_count=0`, `provider_request_distinct_count=0`, `provider_request_terminal_count=0`, and `unknown_request_phase_ratio=100`.
+  - `spawn-node-budget-summary.json` reports `status=fail`, `source_status=missing_runtime`, and `runtime_event_count=0`.
+- Interpretation:
+  - The diagnostic did not produce the runtime evidence required to prove current v0.0.5 provider-budget behavior.
+  - This aligns with stale binary execution or missing artifact collection and prevents treating the run as proof of the latest budget implementation.
+- Supports:
+  - H-001
+- Refutes or weakens:
+  - current-code validation claims
+
+## Evidence E-004: Rollout shows orchestration loop and expensive request expansion
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Parsed `pair-001\right\artifacts\rollout.jsonl`.
+- Observations:
+  - Total parsed rollout lines: 1575.
+  - `token_count` events: 191.
+  - Function calls: `taskspace_control=121`, `shell_command=83`, `spawn_agent=10`, `wait_agent=2`, `apply_patch=5`.
+  - Rollout token summary: `model_request_count=191`, `input_tokens=11,493,455`, `output_tokens=49,582`, `cached_input_tokens=9,212,032`.
+  - Input per request grew from `first_input_tokens=16,432` to `last_input_tokens=92,571`; `p95_input_tokens=89,369`.
+  - Final rollout activity included a `wait_agent` call with `timeout_ms=180000`.
+- Interpretation:
+  - The runtime was still spending model turns on orchestration and delegated validation near timeout.
+  - The cost issue is both request-count expansion and per-request context growth.
+- Supports:
+  - H-002
+- Refutes or weakens:
+  - single slow validation command as root cause
+
+## Evidence E-005: Graph health shows blocked validation-node proliferation and no useful subagent yield
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Parsed `graph-health.json` and `action-map-observability.json`.
+- Observations:
+  - Final node inventory includes multiple blocked validation nodes: `node-4`, `node-6`, `node-7`, `node-8`, `node-10`, `node-14`, `node-15`; `node-16` remains `running`.
+  - `graph-health.json` reports `node_count=15`, `blocked_node_ratio=0.5333`, `node_inflation_ratio=3`, `unreviewed_result_ratio=0.803`.
+  - `subagent_spawn_count=2`, `subagent_result_count=10`, `subagent_decision_yield=0`.
+  - Warnings include `high_blocked_node_ratio` and `subagent_no_decision_yield`.
+  - Observed spawn attempts repeatedly targeted pipeline validation and hit messages such as active lease, unreviewed result, or missing subagent plan.
+- Interpretation:
+  - The stale runtime did not converge after it had enough artifacts to attempt validation; it multiplied validation nodes and subagent attempts instead.
+- Supports:
+  - H-002
+- Refutes or weakens:
+  - task-domain-only failure
+
+## Evidence E-006: External benchmark now rejects stale Whale binaries before materialization or agent execution
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Added `whale_binary_preflight` to `run-taskspace-external-benchmark.ps1` and ran non-agent self-tests.
+- Observations:
+  - `scripts\taskspace-benchmark\test-external-wrapper-harness.ps1` passed.
+  - A fake stale binary fixture exited with code `3`.
+  - The generated `sample-status.json` recorded `run_validity=invalid_harness`, `abort_phase=whale_binary_preflight`, and `abort_reason=whale_binary_stale_for_codex_source`.
+  - A live preflight against the previously installed binary also exited with code `3` and wrote `whale-binary-preflight-health.json`.
+- Interpretation:
+  - Future external E3 or diagnostic runs cannot silently use a binary older than the latest `third_party/codex-cli` source commit unless the operator explicitly opts into `-AllowStaleWhaleBin`.
+- Supports:
+  - H-001
+- Refutes or weakens:
+  - future conclusions based on accidentally stale installed binaries
+
+## Evidence E-007: Local installed Whale binary was rebuilt and passes freshness preflight
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Ran `cargo build -p codex-cli --bin whale --locked`, installed via `scripts\install-whale-local.ps1`, then ran non-agent preflight.
+- Observations:
+  - Build completed successfully in `D:\whalecode-alpha\third_party\codex-cli\codex-rs`.
+  - Installed binary: `C:\Users\77585\.whale\bin\whale.exe`.
+  - Installed SHA256: `5c99e4c72b1765ff5c6f0641e29025f2bc85d6495503fec24ecd0cde969acb40`.
+  - Installed `LastWriteTimeUtc`: `2026-06-20T16:46:34.0658113Z`.
+  - Latest `third_party/codex-cli` source commit: `f3d4d45e947934fceb7a4f9c52ca3575e6846420`, `2026-06-20T15:57:15Z`.
+  - `whale-binary-preflight-health.json` reported `status=pass`, `run_validity=valid`, and `stale_for_codex_source=false`.
+- Interpretation:
+  - The local benchmark default binary no longer predates the v0.0.5 runtime source currently under investigation.
+- Supports:
+  - H-001
+- Refutes or weakens:
+  - stale-binary as a blocker for the next current-code diagnostic
+
+## Evidence E-008: Direct runner no longer executes Whale before binary preflight
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Added a direct `run-taskspace-benchmark.ps1` fake stale binary fixture to the wrapper self-test.
+- Observations:
+  - Initial direct-runner fixture failed because `run-taskspace-benchmark.ps1` executed `$WhaleBin --version` before the newly added binary preflight.
+  - The runner now initializes `whaleVersion` and `whaleSha` without executing the binary before preflight.
+  - After `whale_binary_preflight` passes, the runner invokes `whale.exe exec --help` and `whale.exe --version`.
+  - `scripts\taskspace-benchmark\test-external-wrapper-harness.ps1` now passes with a direct fake stale binary fixture and records `abort_phase=whale_binary_preflight`.
+- Interpretation:
+  - Stale or invalid direct-runner binaries are classified as harness failures before any binary execution attempt.
+- Supports:
+  - H-001
+- Refutes or weakens:
+  - direct `run-taskspace-benchmark.ps1` as a remaining stale-binary bypass
+
+## Evidence E-009: Current-binary processing-pipeline stopped at compact checkpoint budget gate
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Ran a direct TaskSpace-only `processing-pipeline` reproduction with the freshly rebuilt installed binary.
+- Observations:
+  - Run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-010203`.
+  - App dir: `C:\w\taskspace-processing-pipeline-single-20260621-010203\app`.
+  - Wall time: `152,721 ms`.
+  - `last-message.md` was missing.
+  - JSONL events included `turn.failed=1` and `error=1`.
+  - Final error: `TaskSpace blocked this provider request because the active provider request budget requires a compact checkpoint or final synthesis response (19/20). Enter final_synthesis or record a compact state checkpoint before requesting another model turn.`
+  - File hashes for the task scripts were unchanged after the run.
+- Interpretation:
+  - The stale-binary timeout was removed from this reproduction, but the current runtime still failed before producing a bounded final result.
+  - The failure is a v0.0.5 budget response implementation gap, not a validator/Docker completion result.
+- Supports:
+  - H-004
+- Refutes or weakens:
+  - stale binary as the only remaining blocker
+
+## Evidence E-010: Provider budget code and tests encoded a pre-dispatch compact checkpoint hard block
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Inspected `third_party\codex-cli\codex-rs\core\src\client.rs` and `client_tests.rs`.
+- Observations:
+  - `provider_request_budget_state_for` returns `compact_checkpoint_required` when `remaining <= 1`.
+  - `before_dispatch` rejected compact checkpoint requests unless `request_phase=final_synthesis`.
+  - The existing test `provider_request_budget_blocks_regular_dispatch_at_compact_checkpoint` expected `ProviderRequestBudgetContext::enabled(1, 2)` to fail before dispatch.
+  - The repair changes this contract to allow one `budget_recovery` dispatch from `1/2` to `2/2`, then reject the next request as exhausted.
+- Interpretation:
+  - The bug is not just model behavior; the runtime encoded an impossible sequencing requirement for final synthesis attribution.
+- Supports:
+  - H-004
+- Refutes or weakens:
+  - prompt-only or task-domain-only explanations
+
+## Evidence E-011: Focused provider budget repair validation passed
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Changed `ProviderRequestBudgetContext::before_dispatch`, updated focused provider budget tests, formatted, tested, rebuilt, installed, and ran the non-agent wrapper self-test.
+- Observations:
+  - `before_dispatch` now allows compact checkpoint state to consume the final provider request as a bounded recovery slot.
+  - The updated test proves `ProviderRequestBudgetContext::enabled(1, 2)` dispatches from `1/2` to `2/2`, records `provider_request_budget_reached`, marks the event phase as `budget_recovery`, and then rejects the next request as exhausted.
+  - `cargo test -p codex-core provider_request_budget -- --nocapture` passed: `7 passed; 0 failed`.
+  - `cargo build -p codex-cli --bin whale --locked` passed.
+  - Installed binary SHA256: `DBEBA2C7AD3DBAC777B7A93B5C8B2B8360D1F5740BFB43D14907534575A8B56F`.
+  - `scripts\taskspace-benchmark\test-external-wrapper-harness.ps1` passed.
+- Interpretation:
+  - The impossible sequencing requirement at compact checkpoint is fixed at the dispatch layer.
+  - This validation does not prove `processing-pipeline` solves; it only proves the identified non-design budget gate bug is repaired and the installed binary includes the repair.
+- Supports:
+  - H-004
+- Refutes or weakens:
+  - claims that this repair already establishes E3 correctness
+
+## Evidence E-012: Post-repair processing-pipeline direct smoke reached 20/20 hard stop without edits
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Ran a TaskSpace-only direct `whale exec --json --taskspace` smoke on `processing-pipeline` after materializing the terminal-bench public fixture through the adapter.
+- Observations:
+  - Adapter root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-adapter-20260621-023830`.
+  - Valid run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-024159`.
+  - App dir: `C:\w\taskspace-processing-pipeline-single-20260621-024159\app`.
+  - Public fixture files copied: `collect_data.sh`, `docker-compose.yaml`, `Dockerfile`, `generate_report.sh`, `process_data.sh`, `run_pipeline.sh`, `task.yaml`.
+  - Timed out: `false`.
+  - Wall time: `109,216 ms`.
+  - JSONL event counts: `item.completed=14`, `item.started=11`, `turn.failed=1`, `error=1`.
+  - Final error: `TaskSpace blocked this provider request because the active provider request budget is exhausted (20/20).`
+  - `last-message.md` was missing.
+  - Hash comparison against the adapter fixture showed `0` file changes.
+  - Direct JSONL contained no token/usage fields.
+  - The readable trace shows the model read all relevant scripts, identified likely issues, checked shell availability, checked for tests, and then hit hard stop while preparing to run the pipeline with Git Bash.
+- Interpretation:
+  - The dispatch-level repair changed the failure from `19/20 compact_checkpoint_required` to `20/20 budget exhausted`, which supports that the bounded recovery slot is active.
+  - The sample remains failed because TaskSpace did not convert diagnosis into an edit before exhausting the request budget.
+  - This evidence does not support v0.0.5 closure; it exposes the next convergence issue.
+- Supports:
+  - H-004 as fixed at the dispatch boundary
+- Refutes or weakens:
+  - claims that the budget recovery repair made `processing-pipeline` pass
+
+## Hypothesis H-005: TaskSpace does not force convergence after sufficient inspect evidence
+- Status: supported, not fully fixed
+- Claim:
+  - After the compact-checkpoint dispatch bug was fixed, `processing-pipeline` still fails because TaskSpace allows the main agent to keep spending provider requests on inspect/environment discovery or commentary-only follow-up after enough file evidence exists to move into implementation.
+- Predictions:
+  - A run after the dispatch repair should no longer fail at `19/20 compact_checkpoint_required`, but should still show no file edits and hard stop at `20/20`.
+  - If a tool-level convergence gate is added, tool fan-out should drop, but the run can still fail if the model consumes provider requests without emitting tool/control/final actions.
+  - JSONL should show assistant text such as "let me check" or diagnosis text followed by no patch and a provider budget hard stop.
+- Diagnostic evidence plan:
+  - Add focused tests around provider budget guidance, inspect evidence pressure, and no-action recovery.
+  - Rebuild/install Whale and run only the `processing-pipeline` TaskSpace single sample until a clear new failure mode appears.
+
+## Evidence E-013: Provider-visible budget guidance and provider pressure tool gate were implemented and validated
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Added provider-visible budget guidance in `session/turn.rs`, added provider-budget-pressure tool gate in `action_map/runtime.rs`, formatted, ran focused tests, rebuilt, installed, and ran direct `processing-pipeline` smoke.
+- Observations:
+  - `TaskSpaceProviderBudgetGuidanceV1` is injected at half budget, 75% budget, and final recovery request, except during `final_synthesis`.
+  - Runtime gate blocks broad read/search/unknown/test/build probing under provider budget pressure after useful read/search evidence exists.
+  - Runtime gate still allows concrete edits before validation.
+  - Tests passed:
+    - `cargo test -p codex-core provider_budget_guidance -- --nocapture`: `6 passed`.
+    - `cargo test -p codex-core provider_budget_pressure -- --nocapture`: initially failed due test/contract mismatch, then passed after alignment.
+    - `cargo test -p codex-core provider_request_budget -- --nocapture`: `7 passed`.
+  - Installed binary SHA256 for this iteration: `090CD3930ACC0E9E24291B490E08F2CEEA0A14ECDEF099EA1E764D692A3DB70C`.
+  - Smoke run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-042137`.
+  - Smoke result: `timed_out=false`, wall `133,606 ms`, `changed_count=0`, `last-message.md` missing, final error `20/20 budget exhausted`.
+- Interpretation:
+  - Prompt guidance and provider-pressure tool gate are implemented and unit-tested, but do not solve the sample because the final failure path can occur without another gated tool call.
+- Supports:
+  - H-005
+- Refutes or weakens:
+  - claims that prompt guidance alone is enough
+
+## Evidence E-014: Inspect evidence pressure gate reduced tool fan-out but did not force edits
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Added inspect evidence pressure gate, which blocks further inspect probing once an `inspect_code_context` node reaches half its main-tool budget with useful evidence; rebuilt, installed, and reran direct smoke.
+- Observations:
+  - New helper: `inspect_evidence_pressure_active`.
+  - New test: `inspect_evidence_pressure_blocks_probe_before_provider_budget_pressure`.
+  - Focused tests passed:
+    - `cargo test -p codex-core provider_budget_pressure -- --nocapture`: `4 passed`.
+    - `cargo test -p codex-core inspect_evidence_pressure -- --nocapture`: `1 passed`.
+    - `cargo test -p codex-core provider_budget_guidance -- --nocapture`: `6 passed`.
+    - `cargo test -p codex-core provider_request_budget -- --nocapture`: `7 passed`.
+  - Installed binary SHA256: `9D55A70DFE5AA683214EC8C3F063938E59C2225A64AAD7A7A0B08E1AA7B5C935`.
+  - Smoke run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-043108`.
+  - Smoke result: wall `73,834 ms`, `changed_count=0`, `item.completed=6`, `item.started=5`, final error `20/20 budget exhausted`.
+  - JSONL showed five file-read tool results, then an assistant message: `Let me check what interpreters are available and understand the environment better.`
+- Interpretation:
+  - The gate reduced visible tool fan-out and runtime, but did not force implementation. The model can still consume provider turns through non-action or empty follow-up after enough evidence exists.
+- Supports:
+  - H-005
+- Refutes or weakens:
+  - "the problem is only too many tool calls"
+
+## Evidence E-015: No-action recovery was added but did not surface in JSONL or prevent hard stop
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Added `TaskSpaceNoActionRecoveryV1` developer recovery item for `end_turn=false` responses with no actionable output, added a one-retry cap, rebuilt, installed, and reran direct smoke.
+- Observations:
+  - New test `no_action_recovery_item_requires_actionable_taskspace_output` passed.
+  - `cargo test -p codex-core no_action_recovery -- --nocapture` passed.
+  - `cargo test -p codex-core provider_budget_guidance -- --nocapture` passed.
+  - Installed binary SHA256 after the final no-action recovery adjustment: `0EF243F8B0C9F52798AF558A30C4075ECC9A72BE8CDCE4548B406998E144C7C0`.
+  - Smoke run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-045601`.
+  - Smoke result: wall `71,455 ms`, `changed_count=0`, `item.completed=3`, `item.started=2`, final error `20/20 budget exhausted`.
+  - JSONL showed a broad file dump and then assistant text: `Let me check the environment and try running the pipeline.`
+  - `TaskSpaceNoActionRecoveryV1` did not appear in JSONL or stderr.
+- Interpretation:
+  - The recovery item helper and local tests compile, but the live failure path is still not captured strongly enough by the current no-action detector or it is inserted invisibly and ignored before budget exhaustion.
+  - Further real E3 runs should be blocked until provider-budget/no-action telemetry is exposed in the JSONL or the runtime can hard-stop no-action loops before 20/20.
+- Supports:
+  - H-005
+- Refutes or weakens:
+  - claims that the latest no-action recovery fully fixes `processing-pipeline`
+
+## Evidence E-016: Provider response actionability and final-gate rejection recovery were implemented
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Inspected and changed the provider response completion path in `session/turn.rs`, added replayable runtime trace support in `action_map/runtime.rs`, and ran focused Rust regressions.
+- Observations:
+  - Root cause in code: `taskspace_no_action_recovery_item` was computed before `record_action_map_main_final_response`. If an assistant message such as "Let me check..." reached `end_turn=true` and was rejected by the final-response gate, `needs_follow_up` became true only after the recovery calculation had already finished.
+  - New trace event kind: `provider_response_actionability`.
+  - New schema tag: `schema:taskspace-provider-response-actionability-v1`.
+  - Recorded tags include `response_actionability`, `end_turn`, `saw_actionable_output`, `assistant_message_present`, `recovery_action`, request count/max, request phase, and a short assistant preview.
+  - First recovery now sends a `WarningEvent` containing `TaskSpaceNoActionRecoveryV1`; this should be visible in `whale exec --json` output.
+  - A second non-action recovery still sends an `ErrorEvent` and hard-stops the turn.
+  - Focused tests passed:
+    - `provider_response_actionability`: `5 passed`
+    - `no_action_recovery`: `1 passed`
+    - `provider_request_budget`: `7 passed`
+    - `provider_budget_guidance`: `6 passed`
+    - `provider_budget_pressure`: `4 passed`
+- Interpretation:
+  - This closes the specific engineering gap where no-action/final-rejected provider responses were not observable and could bypass recovery.
+  - This has not yet proven that `processing-pipeline` passes; it only removes the known non-design implementation flaw before the next bounded smoke.
+- Supports:
+  - H-005
+- Refutes or weakens:
+  - claims that the previous no-action recovery implementation was complete
+
+## Evidence E-017: Final-budget follow-up work now hard-stops at provider response completion
+- Status: accepted
+- Captured: 2026-06-21
+- Method: Added provider response classification `actionable_follow_up_at_hard_stop`, rebuilt/installed Whale, and reran bounded TaskSpace-only `processing-pipeline` direct smoke.
+- Observations:
+  - Before this fix, the direct smoke reached generic dispatch-level error: `TaskSpace blocked this provider request because the active provider request budget is exhausted (20/20)`.
+  - JSONL sequence showed a provider response with file-read tool calls and an assistant message: `Let me check the environment and try running the pipeline...`; because the response included tool calls, it was not a no-action response, but it still required another model turn after the provider budget was exhausted.
+  - New behavior classifies this as `actionable_follow_up_at_hard_stop`.
+  - New direct smoke:
+    - Run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-171502-provider-response`
+    - App dir: `C:\w\taskspace-processing-pipeline-single-20260621-171502-provider-response\app`
+    - Whale SHA256: `A65A0C46787DBE317A1178F05E67D1F27D3F7C3ED204383E5F1678EDBE32AEF3`
+    - Timed out: `false`
+    - Wall time: `85,662 ms`
+    - File changes: `0`
+    - Last message: missing
+    - Error: `TaskSpace stopped this turn because the final provider budget response produced tool/control work that requires another model turn, but the provider request budget is already exhausted.`
+  - Focused tests passed after this addition:
+    - `provider_response_actionability`: `5 passed`
+    - `no_action_recovery`: `1 passed`
+    - `provider_request_budget`: `7 passed`
+  - `cargo build -p codex-cli --bin whale --locked` passed and the installed binary was refreshed.
+- Interpretation:
+  - The provider response layer now hard-stops the exact live failure mode at response completion rather than letting the next provider dispatch fail generically.
+  - This is still not a solved `processing-pipeline` sample: TaskSpace still spends the final budget response on read/follow-up work and makes no edit.
+  - The remaining problem is convergence policy before the final budget response, not merely missing response-layer observability.
+- Supports:
+  - H-005
+- Refutes or weakens:
+  - claims that provider response observability alone is sufficient to make the sample pass

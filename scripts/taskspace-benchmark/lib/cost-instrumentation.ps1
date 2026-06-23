@@ -39,6 +39,636 @@ function Get-TaskspaceCostProperty {
     $null
 }
 
+function Convert-TaskspaceTraceTags {
+    param($Event)
+    $table = [ordered]@{}
+    if ($null -eq $Event) { return [pscustomobject]$table }
+    $tags = Get-TaskspaceCostProperty $Event @("tags")
+    if ($null -eq $tags -and $null -ne $Event.details) {
+        $tags = Get-TaskspaceCostProperty $Event.details @("tags")
+    }
+    foreach ($tag in @($tags)) {
+        $text = [string]$tag
+        if ([string]::IsNullOrWhiteSpace($text)) { continue }
+        $index = $text.IndexOf(":")
+        if ($index -lt 0) {
+            $table[$text] = $true
+            continue
+        }
+        $key = $text.Substring(0, $index)
+        $value = $text.Substring($index + 1)
+        if (-not [string]::IsNullOrWhiteSpace($key)) { $table[$key] = $value }
+    }
+    [pscustomobject]$table
+}
+
+function Get-TaskspaceTraceField {
+    param($Event, [string[]]$Names)
+    $value = Get-TaskspaceCostProperty $Event $Names
+    if ($null -ne $value) { return $value }
+    if ($null -ne $Event.details) { return Get-TaskspaceCostProperty $Event.details $Names }
+    $null
+}
+
+function Get-TaskspaceTraceEvents {
+    param(
+        [string]$ObservabilityJsonPath,
+        [string[]]$Kinds,
+        [AllowEmptyString()][string]$RolloutJsonlPath = ""
+    )
+    $events = New-Object System.Collections.Generic.List[object]
+    $seen = @{}
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($ObservabilityJsonPath) -and (Test-Path -LiteralPath $ObservabilityJsonPath)) {
+            $obs = (Get-Content -Raw -Encoding UTF8 -LiteralPath $ObservabilityJsonPath) | ConvertFrom-Json
+            foreach ($event in @($obs.timeline)) {
+                $kind = [string](Get-TaskspaceTraceField $event @("kind"))
+                if ($Kinds -notcontains $kind) { continue }
+                $traceId = [string](Get-TaskspaceTraceField $event @("trace_event_id", "id"))
+                $dedupeKey = if ([string]::IsNullOrWhiteSpace($traceId)) { "obs:${kind}:$($events.Count)" } else { "${kind}:$traceId" }
+                if ($seen.ContainsKey($dedupeKey)) { continue }
+                $seen[$dedupeKey] = $true
+                $events.Add($event)
+            }
+        }
+    } catch {}
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($RolloutJsonlPath) -and (Test-Path -LiteralPath $RolloutJsonlPath)) {
+            foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $RolloutJsonlPath)) {
+                if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                $row = $null
+                try { $row = $line | ConvertFrom-Json } catch { continue }
+                if ([string]$row.type -ne "event_msg" -or $null -eq $row.payload) { continue }
+                $payload = $row.payload
+                $kind = [string]$payload.kind
+                if ($Kinds -notcontains $kind) { continue }
+                $traceId = [string]$payload.traceEventId
+                $dedupeKey = if ([string]::IsNullOrWhiteSpace($traceId)) { "rollout:${kind}:$($events.Count)" } else { "${kind}:$traceId" }
+                if ($seen.ContainsKey($dedupeKey)) { continue }
+                $seen[$dedupeKey] = $true
+                $events.Add([pscustomobject]@{
+                    id = $traceId
+                    trace_event_id = $traceId
+                    kind = $kind
+                    task_id = [string]$payload.taskId
+                    map_id = [string]$payload.mapId
+                    node_id = [string]$payload.nodeId
+                    result_id = [string]$payload.resultId
+                    call_id = [string]$payload.callId
+                    action_class = [string]$payload.actionClass
+                    tool_success = $payload.toolSuccess
+                    tags = @($payload.tags)
+                    artifact_refs = @($payload.artifactRefs)
+                    created_at_ms = $payload.createdAtMs
+                })
+            }
+        }
+    } catch {}
+    @($events.ToArray())
+}
+
+function Convert-TaskspaceTraceInt {
+    param($Value, [int]$Default = 0)
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return $Default }
+    try { return [int]$Value } catch { return $Default }
+}
+
+function Convert-TaskspaceTraceBool {
+    param($Value, [bool]$Default = $false)
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return $Default }
+    $text = [string]$Value
+    if ($text -ieq "true") { return $true }
+    if ($text -ieq "false") { return $false }
+    return $Default
+}
+
+function New-TaskspaceBudgetArtifacts {
+    param([string]$ObservabilityJsonPath, [AllowEmptyString()][string]$RolloutJsonlPath = "")
+    $activeBudgetEvents = New-Object System.Collections.Generic.List[object]
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("active_budget") $RolloutJsonlPath)) {
+        $tags = Convert-TaskspaceTraceTags $event
+        if ([string]$tags.producer -ne "runtime") { continue }
+        $activeBudgetEvents.Add([pscustomobject]@{
+            schema_version = "taskspace-active-budget-v1"
+            trace_event_id = [string](Get-TaskspaceTraceField $event @("trace_event_id", "id"))
+            active_budget_source = [string]$tags.active_budget_source
+            profile_name = [string]$tags.profile_name
+            route_mode = [string]$tags.route_mode
+            max_rollout_model_requests = Convert-TaskspaceTraceInt $tags.max_rollout_model_requests
+            max_model_requests_per_node = Convert-TaskspaceTraceInt $tags.max_model_requests_per_node
+            max_spawn_agent_calls = Convert-TaskspaceTraceInt $tags.max_spawn_agent_calls
+            max_nodes = Convert-TaskspaceTraceInt $tags.max_nodes
+            max_projection_tokens = Convert-TaskspaceTraceInt $tags.max_projection_tokens
+        })
+    }
+    $budgetEvents = New-Object System.Collections.Generic.List[object]
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("provider_request_budget") $RolloutJsonlPath)) {
+        $tags = Convert-TaskspaceTraceTags $event
+        $budgetEvents.Add([pscustomobject]@{
+            schema_version = "taskspace-budget-event-v1"
+            trace_event_id = [string](Get-TaskspaceTraceField $event @("trace_event_id", "id"))
+            task_id = [string](Get-TaskspaceTraceField $event @("task_id"))
+            map_id = [string](Get-TaskspaceTraceField $event @("map_id"))
+            node_id = [string](Get-TaskspaceTraceField $event @("node_id"))
+            request_id = [string](Get-TaskspaceTraceField $event @("call_id"))
+            transport = [string]$tags.transport
+            status = [string]$tags.status
+            request_phase = [string]$tags.request_phase
+            producer = [string]$tags.producer
+            request_count_before = Convert-TaskspaceTraceInt $tags.request_count_before
+            request_count_after = Convert-TaskspaceTraceInt $tags.request_count_after
+            max_requests = Convert-TaskspaceTraceInt $tags.max_requests
+            active_budget_source = [string]$tags.active_budget_source
+            route_mode = [string]$tags.route_mode
+            profile_name = [string]$tags.profile_name
+            node_request_count = Convert-TaskspaceTraceInt $tags.node_request_count
+            max_model_requests_per_node = Convert-TaskspaceTraceInt $tags.max_model_requests_per_node
+            post_budget_grace_requests = Convert-TaskspaceTraceInt $tags.post_budget_grace_requests
+            runtime_budget_state = [string]$tags.runtime_budget_state
+            budget_response_action_taken = Convert-TaskspaceTraceBool $tags.budget_response_action_taken $false
+            input_tokens = Get-TaskspaceUsageNumber $tags @("input_tokens")
+            cached_input_tokens = Get-TaskspaceUsageNumber $tags @("cached_input_tokens")
+            output_tokens = Get-TaskspaceUsageNumber $tags @("output_tokens")
+            reasoning_output_tokens = Get-TaskspaceUsageNumber $tags @("reasoning_output_tokens")
+            total_tokens = Get-TaskspaceUsageNumber $tags @("total_tokens")
+            provider_payload_sha256 = [string]$tags.provider_payload_sha256
+            provider_payload_bytes = Convert-TaskspaceTraceInt $tags.provider_payload_bytes
+            provider_wire_api = [string]$tags.provider_wire_api
+            tools_count = Convert-TaskspaceTraceInt $tags.tools_count
+            tools_present = Convert-TaskspaceTraceBool $tags.tools_present $false
+            request_shape_classifier = [string]$tags.request_shape_classifier
+            messages_hash = [string]$tags.messages_hash
+            stable_prefix_hash = [string]$tags.stable_prefix_hash
+            dynamic_suffix_hash = [string]$tags.dynamic_suffix_hash
+            exact_payload_scan_passed = Convert-TaskspaceTraceBool $tags.exact_payload_scan_passed $false
+            active_projection_present = Convert-TaskspaceTraceBool $tags.active_projection_present $false
+            legacy_taskspace_history_present = Convert-TaskspaceTraceBool $tags.legacy_taskspace_history_present $false
+            large_raw_output_tokens = Convert-TaskspaceTraceInt $tags.large_raw_output_tokens
+            protected_items_present = Convert-TaskspaceTraceBool $tags.protected_items_present $false
+            replacement_confirmed = Convert-TaskspaceTraceBool $tags.replacement_confirmed $false
+        })
+    }
+    $qualityEvents = New-Object System.Collections.Generic.List[object]
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("budget_quality_impact") $RolloutJsonlPath)) {
+        $tags = Convert-TaskspaceTraceTags $event
+        $qualityEvents.Add([pscustomobject]@{
+            schema_version = "taskspace-budget-quality-impact-v1"
+            trace_event_id = [string](Get-TaskspaceTraceField $event @("trace_event_id", "id"))
+            provider_request_budget_trace_event_id = [string]$tags.provider_request_budget_trace_event_id
+            task_id = [string](Get-TaskspaceTraceField $event @("task_id"))
+            map_id = [string](Get-TaskspaceTraceField $event @("map_id"))
+            node_id = [string](Get-TaskspaceTraceField $event @("node_id"))
+            request_id = [string](Get-TaskspaceTraceField $event @("call_id"))
+            budget_action = [string]$tags.budget_action
+            provider_request_status = [string]$tags.provider_request_status
+            counter_name = [string]$tags.counter_name
+            counter_value = Convert-TaskspaceTraceInt $tags.counter_value
+            counter_limit = Convert-TaskspaceTraceInt $tags.counter_limit
+            request_phase = [string]$tags.request_phase
+            score_eligible = Convert-TaskspaceTraceBool $tags.score_eligible $false
+            budget_induced_validation_skip = Convert-TaskspaceTraceBool $tags.budget_induced_validation_skip $false
+            manual_override_used = Convert-TaskspaceTraceBool $tags.manual_override_used $false
+            bounded_recovery_used = Convert-TaskspaceTraceBool $tags.bounded_recovery_used $false
+            final_classification = [string]$tags.final_classification
+        })
+    }
+    $qualityByProviderTrace = @{}
+    foreach ($quality in @($qualityEvents.ToArray())) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$quality.provider_request_budget_trace_event_id)) {
+            $qualityByProviderTrace[[string]$quality.provider_request_budget_trace_event_id] = $true
+        }
+    }
+    $budgetActions = @($budgetEvents.ToArray() | Where-Object { [bool]$_.budget_response_action_taken })
+    $missing = 0
+    foreach ($action in $budgetActions) {
+        if (-not $qualityByProviderTrace.ContainsKey([string]$action.trace_event_id)) { $missing++ }
+    }
+    $summary = [pscustomobject]@{
+        schema_version = "taskspace-budget-quality-impact-summary-v1"
+        budget_event_count = [int]$budgetEvents.Count
+        active_budget_source = if ($activeBudgetEvents.Count -gt 0) { [string]$activeBudgetEvents[0].active_budget_source } else { [string](@($budgetEvents.ToArray() | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.active_budget_source) } | Select-Object -First 1).active_budget_source) }
+        route_mode = if ($activeBudgetEvents.Count -gt 0) { [string]$activeBudgetEvents[0].route_mode } else { [string](@($budgetEvents.ToArray() | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.route_mode) } | Select-Object -First 1).route_mode) }
+        max_rollout_model_requests = if ($activeBudgetEvents.Count -gt 0) { [int]$activeBudgetEvents[0].max_rollout_model_requests } elseif ($budgetEvents.Count -gt 0) { [int](@($budgetEvents.ToArray() | Measure-Object -Property max_requests -Maximum).Maximum) } else { 0 }
+        max_model_requests_per_node = if ($activeBudgetEvents.Count -gt 0) { [int]$activeBudgetEvents[0].max_model_requests_per_node } elseif ($budgetEvents.Count -gt 0) { [int](@($budgetEvents.ToArray() | Measure-Object -Property max_model_requests_per_node -Maximum).Maximum) } else { 0 }
+        budget_quality_impact_event_count = [int]$qualityEvents.Count
+        budget_action_count = [int]$budgetActions.Count
+        budget_quality_impact_logged_for_every_budget_action = ($missing -eq 0)
+        budget_quality_impact_missing_count = [int]$missing
+        budget_induced_validation_skip_count = [int](@($qualityEvents.ToArray() | Where-Object { [bool]$_.budget_induced_validation_skip -or [string]$_.final_classification -eq "validation_skip" }).Count)
+        budget_induced_score_ineligible_solved_count = [int](@($qualityEvents.ToArray() | Where-Object { -not [bool]$_.score_eligible -and [string]$_.final_classification -eq "solved" }).Count)
+        blocked_by_budget_samples_count = [int](@($qualityEvents.ToArray() | Where-Object { [string]$_.final_classification -eq "blocked_by_budget" }).Count)
+        manual_override_used_count = [int](@($qualityEvents.ToArray() | Where-Object { [bool]$_.manual_override_used }).Count)
+    }
+    [pscustomobject]@{
+        budget_events = @($budgetEvents.ToArray())
+        active_budget_events = @($activeBudgetEvents.ToArray())
+        budget_quality_impact_events = @($qualityEvents.ToArray())
+        budget_quality_impact_summary = $summary
+    }
+}
+
+function New-TaskspaceActiveReplacementArtifacts {
+    param([object[]]$BudgetEvents)
+    $scanEvents = New-Object System.Collections.Generic.List[object]
+    foreach ($event in @($BudgetEvents)) {
+        if ([string]::IsNullOrWhiteSpace([string]$event.provider_payload_sha256)) { continue }
+        if (-not [bool]$event.active_projection_present -and -not [bool]$event.legacy_taskspace_history_present) { continue }
+        $scanId = "scan-$($event.trace_event_id)"
+        $passed = [bool]$event.exact_payload_scan_passed `
+            -and [bool]$event.replacement_confirmed `
+            -and -not [bool]$event.legacy_taskspace_history_present `
+            -and [int]$event.large_raw_output_tokens -eq 0
+        $scanEvents.Add([pscustomobject]@{
+            schema_version = "taskspace-exact-payload-scan-event-v1"
+            scan_event_id = $scanId
+            provider_budget_trace_event_id = [string]$event.trace_event_id
+            request_id = [string]$event.request_id
+            provider_payload_sha256 = [string]$event.provider_payload_sha256
+            provider_payload_bytes = [int]$event.provider_payload_bytes
+            passed = [bool]$passed
+            active_projection_present = [bool]$event.active_projection_present
+            legacy_taskspace_history_present = [bool]$event.legacy_taskspace_history_present
+            large_raw_output_tokens = [int]$event.large_raw_output_tokens
+            protected_items_present = [bool]$event.protected_items_present
+            replacement_confirmed = [bool]$event.replacement_confirmed
+        })
+    }
+    $selected = @($scanEvents.ToArray() | Where-Object { [bool]$_.passed } | Select-Object -First 1)
+    if ($selected.Count -eq 0) {
+        $selected = @($scanEvents.ToArray() | Select-Object -First 1)
+    }
+    $first = if ($selected.Count -gt 0) { $selected[0] } else { $null }
+    $report = [pscustomobject]@{
+        schema_version = "taskspace-active-context-replacement-report-v1"
+        provider_payload_available = ($null -ne $first -and -not [string]::IsNullOrWhiteSpace([string]$first.provider_payload_sha256))
+        request_id = if ($null -ne $first) { [string]$first.request_id } else { "" }
+        provider_payload_sha256 = if ($null -ne $first) { [string]$first.provider_payload_sha256 } else { "" }
+        exact_payload_scan_passed = if ($null -ne $first) { [bool]$first.passed } else { $false }
+        exact_payload_scan_event_id = if ($null -ne $first) { [string]$first.scan_event_id } else { "" }
+        replacement_confirmed = if ($null -ne $first) { [bool]$first.replacement_confirmed } else { $false }
+        legacy_taskspace_history_present = if ($null -ne $first) { [bool]$first.legacy_taskspace_history_present } else { $true }
+        large_raw_output_tokens = if ($null -ne $first) { [int]$first.large_raw_output_tokens } else { 0 }
+        protected_items_present = if ($null -ne $first) { [bool]$first.protected_items_present } else { $false }
+    }
+    [pscustomobject]@{
+        exact_payload_scan_events = @($scanEvents.ToArray())
+        active_context_replacement_report = $report
+    }
+}
+
+function New-TaskspaceProviderRequestArtifacts {
+    param([object[]]$BudgetEvents, $RequestSummary = $null)
+    $events = New-Object System.Collections.Generic.List[object]
+    $phaseKnown = 0
+    $terminalStatuses = @("response_completed", "response_failed", "cancelled", "blocked")
+    foreach ($event in @($BudgetEvents)) {
+        if ([string]::IsNullOrWhiteSpace([string]$event.request_id)) { continue }
+        $phase = [string]$event.request_phase
+        if (-not [string]::IsNullOrWhiteSpace($phase) -and $phase -ne "unknown") { $phaseKnown++ }
+        $events.Add([pscustomobject]@{
+            schema_version = "taskspace-provider-request-budget-event-v1"
+            request_id = [string]$event.request_id
+            logical_request_id = [string]$event.logical_request_id
+            parent_request_id = [string]$event.parent_request_id
+            attempt_seq = Convert-TaskspaceTraceInt $event.attempt_seq
+            request_phase = if ([string]::IsNullOrWhiteSpace($phase)) { "unknown" } else { $phase }
+            producer = [string]$event.producer
+            task_id = [string]$event.task_id
+            map_id = [string]$event.map_id
+            node_id = [string]$event.node_id
+            status = [string]$event.status
+            transport = [string]$event.transport
+            trace_event_id = [string]$event.trace_event_id
+            provider_payload_sha256 = [string]$event.provider_payload_sha256
+            provider_wire_api = [string]$event.provider_wire_api
+            tools_count = [int]$event.tools_count
+            tools_present = [bool]$event.tools_present
+            request_shape_classifier = [string]$event.request_shape_classifier
+            messages_hash = [string]$event.messages_hash
+            stable_prefix_hash = [string]$event.stable_prefix_hash
+            dynamic_suffix_hash = [string]$event.dynamic_suffix_hash
+        })
+    }
+    $count = [int]$events.Count
+    $distinctRequestCount = @($events.ToArray() | Select-Object -ExpandProperty request_id -Unique).Count
+    $terminalRequestCount = @($events.ToArray() | Where-Object { [string]$_.status -in $terminalStatuses } | Select-Object -ExpandProperty request_id -Unique).Count
+    $expectedRequestCount = Convert-TaskspaceTraceInt (Get-TaskspaceCostProperty $RequestSummary @("model_request_count"))
+    if ($expectedRequestCount -lt $distinctRequestCount) { $expectedRequestCount = $distinctRequestCount }
+    $coverage = if ($count -gt 0) { [int][Math]::Round(([double]$phaseKnown / [double]$count) * 100.0) } else { 0 }
+    $unknownRatio = if ($count -gt 0) { [int][Math]::Round((([double]$count - [double]$phaseKnown) / [double]$count) * 100.0) } else { 100 }
+    $hookCoverage = if ($expectedRequestCount -gt 0) { [int][Math]::Min(100, [Math]::Round(([double]$distinctRequestCount / [double]$expectedRequestCount) * 100.0)) } else { 0 }
+    $terminalCoverage = if ($expectedRequestCount -gt 0) { [int][Math]::Min(100, [Math]::Round(([double]$terminalRequestCount / [double]$expectedRequestCount) * 100.0)) } else { 0 }
+    [pscustomobject]@{
+        provider_request_events = @($events.ToArray())
+        request_phase_summary = [pscustomobject]@{
+            schema_version = "taskspace-request-phase-summary-v1"
+            provider_request_hook_coverage = $hookCoverage
+            provider_request_terminal_coverage = $terminalCoverage
+            request_phase_attribution_coverage = $coverage
+            unknown_request_phase_ratio = $unknownRatio
+            provider_request_event_count = $count
+            provider_request_distinct_count = [int]$distinctRequestCount
+            provider_request_terminal_count = [int]$terminalRequestCount
+            expected_model_request_count = [int]$expectedRequestCount
+        }
+    }
+}
+
+function New-TaskspaceProviderCacheTraceArtifacts {
+    param([object[]]$BudgetEvents)
+    $terminalStatuses = @("response_completed", "response_failed", "cancelled")
+    $events = New-Object System.Collections.Generic.List[object]
+    $shapeCounts = @{}
+    $missingUsage = 0
+    $request2PlusHit = [int64]0
+    $request2PlusMiss = [int64]0
+    $request2PlusCount = 0
+    foreach ($event in @($BudgetEvents)) {
+        if ([string]$event.status -notin $terminalStatuses) { continue }
+        if ([string]::IsNullOrWhiteSpace([string]$event.request_id)) { continue }
+        $inputTokens = Get-TaskspaceCostProperty $event @("input_tokens")
+        $cachedTokens = Get-TaskspaceCostProperty $event @("cached_input_tokens")
+        $uncachedTokens = $null
+        if ($null -ne $inputTokens -and $null -ne $cachedTokens) {
+            $uncachedTokens = [Math]::Max(0, [int64]$inputTokens - [int64]$cachedTokens)
+        } else {
+            $missingUsage++
+        }
+        $hitRate = if ($null -ne $cachedTokens -and $null -ne $uncachedTokens -and ([double]$cachedTokens + [double]$uncachedTokens) -gt 0) {
+            [Math]::Round([double]$cachedTokens / ([double]$cachedTokens + [double]$uncachedTokens), 6)
+        } else {
+            $null
+        }
+        $shape = [string]$event.request_shape_classifier
+        if ([string]::IsNullOrWhiteSpace($shape)) {
+            $shape = if ([bool]$event.tools_present -or [int]$event.tools_count -gt 0) { "native_tools_schema_hot_path" } else { "unknown_or_unclassified" }
+        }
+        Add-TaskspaceCostCount $shapeCounts $shape
+        $attemptSeq = Convert-TaskspaceTraceInt $event.attempt_seq
+        $modelRequestIndex = Convert-TaskspaceTraceInt $event.request_count_after
+        if ($modelRequestIndex -ge 2 -and $null -ne $cachedTokens -and $null -ne $uncachedTokens) {
+            $request2PlusHit += [int64]$cachedTokens
+            $request2PlusMiss += [int64]$uncachedTokens
+            $request2PlusCount++
+        }
+        $events.Add([pscustomobject]@{
+            schema_version = "TaskSpaceProviderCacheTraceV1"
+            request_id = [string]$event.request_id
+            logical_request_id = [string]$event.logical_request_id
+            model_request_index = $modelRequestIndex
+            attempt_seq = $attemptSeq
+            request_phase = [string]$event.request_phase
+            task_id = [string]$event.task_id
+            map_id = [string]$event.map_id
+            node_id = [string]$event.node_id
+            provider_wire_api = [string]$event.provider_wire_api
+            transport = [string]$event.transport
+            tools_count = [int]$event.tools_count
+            tools_present = [bool]$event.tools_present
+            request_shape_classifier = $shape
+            stable_prefix_hash = [string]$event.stable_prefix_hash
+            dynamic_suffix_hash = [string]$event.dynamic_suffix_hash
+            messages_hash = [string]$event.messages_hash
+            provider_payload_sha256 = [string]$event.provider_payload_sha256
+            input_tokens = $inputTokens
+            cached_input_tokens = $cachedTokens
+            uncached_input_tokens = $uncachedTokens
+            hit_rate = $hitRate
+            status = [string]$event.status
+        })
+    }
+    $count = [int]$events.Count
+    $covered = @($events.ToArray() | Where-Object {
+        -not [string]::IsNullOrWhiteSpace([string]$_.request_shape_classifier) -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.provider_payload_sha256)
+    }).Count
+    $request2PlusDenominator = [double]$request2PlusHit + [double]$request2PlusMiss
+    [pscustomobject]@{
+        provider_cache_trace_events = @($events.ToArray())
+        provider_cache_trace_summary = [pscustomobject]@{
+            schema_version = "TaskSpaceProviderCacheTraceSummaryV1"
+            provider_request_count = $count
+            trace_coverage = if ($count -gt 0) { [Math]::Round([double]$covered / [double]$count, 6) } else { 0.0 }
+            cache_usage_missing_count = [int]$missingUsage
+            request_shape_counts = Convert-TaskspaceCostTable $shapeCounts
+            native_tools_schema_hot_path_count = if ($shapeCounts.ContainsKey("native_tools_schema_hot_path")) { [int]$shapeCounts["native_tools_schema_hot_path"] } else { 0 }
+            tool_free_action_contract_count = if ($shapeCounts.ContainsKey("tool_free_action_contract")) { [int]$shapeCounts["tool_free_action_contract"] } else { 0 }
+            unknown_or_unclassified_count = if ($shapeCounts.ContainsKey("unknown_or_unclassified")) { [int]$shapeCounts["unknown_or_unclassified"] } else { 0 }
+            request_2_plus_count = [int]$request2PlusCount
+            request_2_plus_cached_input_tokens = [int64]$request2PlusHit
+            request_2_plus_uncached_input_tokens = [int64]$request2PlusMiss
+            request_2_plus_hit_rate = if ($request2PlusDenominator -gt 0) { [Math]::Round([double]$request2PlusHit / $request2PlusDenominator, 6) } else { $null }
+        }
+    }
+}
+
+function Test-TaskspaceProviderCacheTraceTaskspaceArtifact {
+    param([Parameter(Mandatory = $true)][string]$SummaryPath)
+    $artifactDir = Split-Path -Parent $SummaryPath
+    $metricsPath = Join-Path $artifactDir "metrics.json"
+    $metric = $null
+    if (Test-Path -LiteralPath $metricsPath) {
+        try { $metric = Get-Content -Raw -Encoding UTF8 -LiteralPath $metricsPath | ConvertFrom-Json } catch { $metric = $null }
+    }
+    if ($metric -and $metric.PSObject.Properties.Name -contains "logical_mode") {
+        return ([string]$metric.logical_mode -eq "taskspace")
+    }
+    return ($SummaryPath -match '(?i)[\\/]+right[\\/]+artifacts[\\/]+provider-cache-trace-summary\.json$')
+}
+
+function Add-TaskspaceProviderCacheShapeCounts {
+    param($ShapeCounts, $RequestShapeCounts)
+    if (-not $RequestShapeCounts) { return }
+    foreach ($property in @($RequestShapeCounts.PSObject.Properties)) {
+        $name = [string]$property.Name
+        if ([string]::IsNullOrWhiteSpace($name)) { continue }
+        if (-not $ShapeCounts.ContainsKey($name)) { $ShapeCounts[$name] = 0 }
+        $ShapeCounts[$name] = [int]$ShapeCounts[$name] + [int]$property.Value
+    }
+}
+
+function New-TaskspaceProviderCacheTraceAggregateArtifacts {
+    param([Parameter(Mandatory = $true)][string]$RootDir)
+    $rootSummaryPath = Join-Path $RootDir "provider-cache-trace-summary.json"
+    $rootTracePath = Join-Path $RootDir "provider-cache-trace.jsonl"
+    $summaryFiles = @(Get-ChildItem -LiteralPath $RootDir -Filter "provider-cache-trace-summary.json" -Recurse -ErrorAction SilentlyContinue |
+        Where-Object {
+            [System.IO.Path]::GetFullPath($_.FullName) -ne [System.IO.Path]::GetFullPath($rootSummaryPath) -and
+            (Test-TaskspaceProviderCacheTraceTaskspaceArtifact $_.FullName)
+        } |
+        Sort-Object FullName)
+    $shapeCounts = @{}
+    $providerRequestCount = 0
+    $coveredCount = 0
+    $missingUsage = 0
+    $request2PlusCount = 0
+    $request2PlusHit = [int64]0
+    $request2PlusMiss = [int64]0
+    $toolFreeCount = 0
+    $nativeToolsCount = 0
+    $unknownCount = 0
+    $eventLines = New-Object System.Collections.Generic.List[string]
+    foreach ($file in $summaryFiles) {
+        try { $summary = Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json } catch { continue }
+        $count = if ($summary.PSObject.Properties.Name -contains "provider_request_count") { [int]$summary.provider_request_count } else { 0 }
+        $providerRequestCount += $count
+        $coverage = if ($summary.PSObject.Properties.Name -contains "trace_coverage") { [double]$summary.trace_coverage } else { 0.0 }
+        $coveredCount += [int][Math]::Round($coverage * [double]$count)
+        if ($summary.PSObject.Properties.Name -contains "cache_usage_missing_count") { $missingUsage += [int]$summary.cache_usage_missing_count }
+        if ($summary.PSObject.Properties.Name -contains "request_2_plus_count") { $request2PlusCount += [int]$summary.request_2_plus_count }
+        if ($summary.PSObject.Properties.Name -contains "request_2_plus_cached_input_tokens") { $request2PlusHit += [int64]$summary.request_2_plus_cached_input_tokens }
+        if ($summary.PSObject.Properties.Name -contains "request_2_plus_uncached_input_tokens") { $request2PlusMiss += [int64]$summary.request_2_plus_uncached_input_tokens }
+        if ($summary.PSObject.Properties.Name -contains "native_tools_schema_hot_path_count") { $nativeToolsCount += [int]$summary.native_tools_schema_hot_path_count }
+        if ($summary.PSObject.Properties.Name -contains "tool_free_action_contract_count") { $toolFreeCount += [int]$summary.tool_free_action_contract_count }
+        if ($summary.PSObject.Properties.Name -contains "unknown_or_unclassified_count") { $unknownCount += [int]$summary.unknown_or_unclassified_count }
+        if ($summary.PSObject.Properties.Name -contains "request_shape_counts") {
+            Add-TaskspaceProviderCacheShapeCounts $shapeCounts $summary.request_shape_counts
+        }
+        $tracePath = Join-Path (Split-Path -Parent $file.FullName) "provider-cache-trace.jsonl"
+        if (Test-Path -LiteralPath $tracePath) {
+            foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $tracePath)) {
+                if (-not [string]::IsNullOrWhiteSpace($line)) { [void]$eventLines.Add($line) }
+            }
+        }
+    }
+    $denominator = [double]$request2PlusHit + [double]$request2PlusMiss
+    [pscustomobject]@{
+        provider_cache_trace_events = @($eventLines.ToArray())
+        provider_cache_trace_summary = [pscustomobject]@{
+            schema_version = "TaskSpaceProviderCacheTraceSummaryV1"
+            provider_request_count = [int]$providerRequestCount
+            trace_coverage = if ($providerRequestCount -gt 0) { [Math]::Round([double]$coveredCount / [double]$providerRequestCount, 6) } else { 0.0 }
+            cache_usage_missing_count = [int]$missingUsage
+            request_shape_counts = Convert-TaskspaceCostTable $shapeCounts
+            native_tools_schema_hot_path_count = [int]$nativeToolsCount
+            tool_free_action_contract_count = [int]$toolFreeCount
+            unknown_or_unclassified_count = [int]$unknownCount
+            request_2_plus_count = [int]$request2PlusCount
+            request_2_plus_cached_input_tokens = [int64]$request2PlusHit
+            request_2_plus_uncached_input_tokens = [int64]$request2PlusMiss
+            request_2_plus_hit_rate = if ($denominator -gt 0) { [Math]::Round([double]$request2PlusHit / $denominator, 6) } else { $null }
+        }
+    }
+}
+
+function New-TaskspaceStateCommitDisplacementSummary {
+    param([string]$ObservabilityJsonPath)
+    $events = New-Object System.Collections.Generic.List[object]
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("state_commit_displacement"))) {
+        $tags = Convert-TaskspaceTraceTags $event
+        if ([string]$tags.producer -ne "runtime") { continue }
+        $events.Add([pscustomobject]@{
+            trace_event_id = [string](Get-TaskspaceTraceField $event @("trace_event_id", "id"))
+            task_id = [string](Get-TaskspaceTraceField $event @("task_id"))
+            map_id = [string](Get-TaskspaceTraceField $event @("map_id"))
+            node_id = [string](Get-TaskspaceTraceField $event @("node_id"))
+            commit_id = [string]$tags.commit_id
+            status = [string]$tags.status
+            accepted_section_count = Convert-TaskspaceTraceInt $tags.accepted_section_count
+            rejected_section_count = Convert-TaskspaceTraceInt $tags.rejected_section_count
+            state_commit_count = Convert-TaskspaceTraceInt $tags.state_commit_count
+            model_visible_state_commit_count = Convert-TaskspaceTraceInt $tags.model_visible_state_commit_count
+            runtime_synthesized_state_commit_count = Convert-TaskspaceTraceInt $tags.runtime_synthesized_state_commit_count
+            legacy_state_action_attempt_count = Convert-TaskspaceTraceInt $tags.legacy_state_action_attempt_count
+            legacy_state_action_displaced_count = Convert-TaskspaceTraceInt $tags.legacy_state_action_displaced_count
+            legacy_state_action_count = Convert-TaskspaceTraceInt $tags.legacy_state_action_count
+            legacy_state_action_budget = Convert-TaskspaceTraceInt $tags.legacy_state_action_budget
+            producer = [string]$tags.producer
+        })
+    }
+    $stateCommitCount = [int](@($events.ToArray() | Measure-Object -Property state_commit_count -Sum).Sum)
+    $modelVisibleStateCommitCount = [int](@($events.ToArray() | Measure-Object -Property model_visible_state_commit_count -Sum).Sum)
+    $runtimeSynthesizedStateCommitCount = [int](@($events.ToArray() | Measure-Object -Property runtime_synthesized_state_commit_count -Sum).Sum)
+    $legacyStateActionAttemptCount = [int](@($events.ToArray() | Measure-Object -Property legacy_state_action_attempt_count -Sum).Sum)
+    $legacyStateActionDisplacedCount = [int](@($events.ToArray() | Measure-Object -Property legacy_state_action_displaced_count -Sum).Sum)
+    $legacyStateActionCount = [int](@($events.ToArray() | Measure-Object -Property legacy_state_action_count -Sum).Sum)
+    $legacyStateActionBudget = if ($events.Count -gt 0) { [int](@($events.ToArray() | Measure-Object -Property legacy_state_action_budget -Maximum).Maximum) } else { 0 }
+    $sourceStatus = if ($events.Count -gt 0) { "runtime" } else { "missing_runtime" }
+    $hasDisplacementDenominator = $legacyStateActionAttemptCount -gt 0
+    $displacementRate = if ($legacyStateActionAttemptCount -gt 0) {
+        [Math]::Round(($legacyStateActionDisplacedCount / [double]$legacyStateActionAttemptCount), 4)
+    } else {
+        [double]0
+    }
+    [pscustomobject]@{
+        schema_version = "taskspace-state-commit-displacement-v1"
+        status = if ($sourceStatus -eq "runtime" -and $stateCommitCount -gt 0 -and $hasDisplacementDenominator -and $legacyStateActionDisplacedCount -ge $legacyStateActionAttemptCount -and $legacyStateActionCount -le $legacyStateActionBudget) { "pass" } else { "fail" }
+        source_status = $sourceStatus
+        producer = "runtime"
+        has_displacement_denominator = [bool]$hasDisplacementDenominator
+        model_visible_state_commit_count = [int]$modelVisibleStateCommitCount
+        runtime_synthesized_state_commit_count = [int]$runtimeSynthesizedStateCommitCount
+        legacy_state_action_attempt_count = [int]$legacyStateActionAttemptCount
+        legacy_state_action_displaced_count = [int]$legacyStateActionDisplacedCount
+        legacy_state_action_displacement_rate = [double]$displacementRate
+        legacy_state_action_count = [int]$legacyStateActionCount
+        legacy_state_action_budget = [int]$legacyStateActionBudget
+        state_commit_count = [int]$stateCommitCount
+        runtime_state_commit_count = [int]$stateCommitCount
+        taskspace_control_count = [int]$stateCommitCount
+        runtime_event_count = [int]$events.Count
+        runtime_events = @($events.ToArray())
+    }
+}
+
+function New-TaskspaceSpawnNodeBudgetSummary {
+    param([string]$ObservabilityJsonPath, [AllowEmptyString()][string]$RolloutJsonlPath = "")
+    $events = New-Object System.Collections.Generic.List[object]
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("spawn_node_budget") $RolloutJsonlPath)) {
+        $tags = Convert-TaskspaceTraceTags $event
+        if ([string]$tags.producer -ne "runtime") { continue }
+        $events.Add([pscustomobject]@{
+            trace_event_id = [string](Get-TaskspaceTraceField $event @("trace_event_id", "id"))
+            task_id = [string](Get-TaskspaceTraceField $event @("task_id"))
+            map_id = [string](Get-TaskspaceTraceField $event @("map_id"))
+            node_id = [string](Get-TaskspaceTraceField $event @("node_id"))
+            budget_kind = [string]$tags.budget_kind
+            action = [string]$tags.action
+            status = [string]$tags.status
+            active_budget_source = [string]$tags.active_budget_source
+            route_mode = [string]$tags.route_mode
+            profile_name = [string]$tags.profile_name
+            spawn_agent_call_count_after = Convert-TaskspaceTraceInt $tags.spawn_agent_call_count_after
+            max_spawn_agent_calls = Convert-TaskspaceTraceInt $tags.max_spawn_agent_calls
+            node_count = Convert-TaskspaceTraceInt $tags.node_count
+            node_count_after = Convert-TaskspaceTraceInt $tags.node_count_after
+            max_nodes = Convert-TaskspaceTraceInt $tags.max_nodes
+            budget_response_action_taken = Convert-TaskspaceTraceBool $tags.budget_response_action_taken
+            producer = [string]$tags.producer
+        })
+    }
+    $runtimeEvents = @($events.ToArray())
+    $spawnEvents = @($runtimeEvents | Where-Object { [string]$_.budget_kind -eq "spawn" })
+    $nodeEvents = @($runtimeEvents | Where-Object { [string]$_.budget_kind -eq "node" })
+    $blockedEvents = @($runtimeEvents | Where-Object { [string]$_.status -eq "blocked" })
+    $invalidBlockedEvents = @($blockedEvents | Where-Object { -not [bool]$_.budget_response_action_taken })
+    $spawnCount = if ($spawnEvents.Count -gt 0) { [int](@($spawnEvents | Measure-Object -Property spawn_agent_call_count_after -Maximum).Maximum) } else { 0 }
+    $maxSpawnAgentCalls = if ($spawnEvents.Count -gt 0) { [int](@($spawnEvents | Measure-Object -Property max_spawn_agent_calls -Maximum).Maximum) } else { 0 }
+    $nodeCountFromCreate = if ($nodeEvents.Count -gt 0) { [int](@($nodeEvents | Measure-Object -Property node_count_after -Maximum).Maximum) } else { 0 }
+    $nodeCountFromSpawn = if ($spawnEvents.Count -gt 0) { [int](@($spawnEvents | Measure-Object -Property node_count -Maximum).Maximum) } else { 0 }
+    $nodeCount = [Math]::Max($nodeCountFromCreate, $nodeCountFromSpawn)
+    $maxNodes = if ($runtimeEvents.Count -gt 0) { [int](@($runtimeEvents | Measure-Object -Property max_nodes -Maximum).Maximum) } else { 0 }
+    $sourceStatus = if ($runtimeEvents.Count -gt 0) { "runtime" } else { "missing_runtime" }
+    [pscustomobject]@{
+        schema_version = "taskspace-spawn-node-budget-summary-v1"
+        status = if ($sourceStatus -eq "runtime" -and $spawnCount -le $maxSpawnAgentCalls -and $nodeCount -le $maxNodes -and $invalidBlockedEvents.Count -eq 0) { "pass" } else { "fail" }
+        within_budget_status = if ($sourceStatus -eq "runtime" -and $blockedEvents.Count -eq 0 -and $spawnCount -le $maxSpawnAgentCalls -and $nodeCount -le $maxNodes) { "pass" } else { "fail" }
+        over_budget_enforcement_status = if ($blockedEvents.Count -eq 0) { "not_observed" } elseif ($invalidBlockedEvents.Count -eq 0) { "pass" } else { "fail" }
+        source_status = $sourceStatus
+        producer = "runtime"
+        active_budget_source = [string](@($runtimeEvents | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.active_budget_source) } | Select-Object -First 1).active_budget_source)
+        route_mode = [string](@($runtimeEvents | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.route_mode) } | Select-Object -First 1).route_mode)
+        spawn_agent_call_count = [int]$spawnCount
+        max_spawn_agent_calls = [int]$maxSpawnAgentCalls
+        node_count = [int]$nodeCount
+        max_nodes = [int]$maxNodes
+        runtime_event_count = [int]$runtimeEvents.Count
+        blocked_budget_event_count = [int]$blockedEvents.Count
+        invalid_blocked_budget_event_count = [int]$invalidBlockedEvents.Count
+        runtime_events = @($runtimeEvents)
+    }
+}
+
 function Get-TaskspaceTokenUsageObjects {
     param($Value)
     $found = New-Object System.Collections.Generic.List[object]
@@ -620,6 +1250,12 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $replay = New-TaskspaceReplaySummary $ArtifactDir
     $outputRefEvents = @(New-TaskspaceOutputRefEvents $ObservabilityJsonPath $ArtifactDir)
     $projection = New-TaskspaceContextProjectionSummary $JsonlPath $ObservabilityJsonPath $rolloutJsonlPath
+    $budget = New-TaskspaceBudgetArtifacts $ObservabilityJsonPath $rolloutJsonlPath
+    $activeReplacement = New-TaskspaceActiveReplacementArtifacts $budget.budget_events
+    $providerRequest = New-TaskspaceProviderRequestArtifacts $budget.budget_events $request
+    $providerCacheTrace = New-TaskspaceProviderCacheTraceArtifacts $budget.budget_events
+    $stateCommitDisplacement = New-TaskspaceStateCommitDisplacementSummary $ObservabilityJsonPath
+    $spawnNodeBudget = New-TaskspaceSpawnNodeBudgetSummary $ObservabilityJsonPath $rolloutJsonlPath
     $tokenPath = Join-Path $ArtifactDir "token-summary.json"
     $requestPath = Join-Path $ArtifactDir "request-summary.json"
     $visibilityPath = Join-Path $ArtifactDir "provider-input-visibility.json"
@@ -627,6 +1263,18 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $projectionPath = Join-Path $ArtifactDir "context-projection-summary.json"
     $projectionEventsPath = Join-Path $ArtifactDir "projection-events.jsonl"
     $outputRefEventsPath = Join-Path $ArtifactDir "output-ref-events.jsonl"
+    $budgetEventsPath = Join-Path $ArtifactDir "budget-events.jsonl"
+    $budgetQualityImpactEventsPath = Join-Path $ArtifactDir "budget-quality-impact-events.jsonl"
+    $budgetQualityImpactSummaryPath = Join-Path $ArtifactDir "budget_induced_quality_impact_summary.json"
+    $exactPayloadScanEventsPath = Join-Path $ArtifactDir "exact-payload-scan-events.jsonl"
+    $activeReplacementReportPath = Join-Path $ArtifactDir "active-context-replacement-report.json"
+    $providerRequestEventsPath = Join-Path $ArtifactDir "provider-request-events.jsonl"
+    $requestPhaseSummaryPath = Join-Path $ArtifactDir "request-phase-summary.json"
+    $providerCacheTracePath = Join-Path $ArtifactDir "provider-cache-trace.jsonl"
+    $providerCacheTraceSummaryPath = Join-Path $ArtifactDir "provider-cache-trace-summary.json"
+    $stateCommitDisplacementPath = Join-Path $ArtifactDir "state-commit-displacement.json"
+    $spawnNodeBudgetPath = Join-Path $ArtifactDir "spawn-node-budget-summary.json"
+    $activeBudgetEventsPath = Join-Path $ArtifactDir "active-budget-events.jsonl"
     $token | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $tokenPath -Encoding UTF8
     $request | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $requestPath -Encoding UTF8
     $visibility | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $visibilityPath -Encoding UTF8
@@ -644,6 +1292,48 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     } else {
         [System.IO.File]::WriteAllText($outputRefEventsPath, "", [System.Text.UTF8Encoding]::new($false))
     }
+    $budgetEventLines = @($budget.budget_events | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
+    if ($budgetEventLines.Count -gt 0) {
+        $budgetEventLines | Set-Content -LiteralPath $budgetEventsPath -Encoding UTF8
+    } else {
+        [System.IO.File]::WriteAllText($budgetEventsPath, "", [System.Text.UTF8Encoding]::new($false))
+    }
+    $activeBudgetEventLines = @($budget.active_budget_events | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
+    if ($activeBudgetEventLines.Count -gt 0) {
+        $activeBudgetEventLines | Set-Content -LiteralPath $activeBudgetEventsPath -Encoding UTF8
+    } else {
+        [System.IO.File]::WriteAllText($activeBudgetEventsPath, "", [System.Text.UTF8Encoding]::new($false))
+    }
+    $budgetQualityImpactEventLines = @($budget.budget_quality_impact_events | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
+    if ($budgetQualityImpactEventLines.Count -gt 0) {
+        $budgetQualityImpactEventLines | Set-Content -LiteralPath $budgetQualityImpactEventsPath -Encoding UTF8
+    } else {
+        [System.IO.File]::WriteAllText($budgetQualityImpactEventsPath, "", [System.Text.UTF8Encoding]::new($false))
+    }
+    $budget.budget_quality_impact_summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $budgetQualityImpactSummaryPath -Encoding UTF8
+    $exactPayloadScanEventLines = @($activeReplacement.exact_payload_scan_events | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
+    if ($exactPayloadScanEventLines.Count -gt 0) {
+        $exactPayloadScanEventLines | Set-Content -LiteralPath $exactPayloadScanEventsPath -Encoding UTF8
+    } else {
+        [System.IO.File]::WriteAllText($exactPayloadScanEventsPath, "", [System.Text.UTF8Encoding]::new($false))
+    }
+    $activeReplacement.active_context_replacement_report | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $activeReplacementReportPath -Encoding UTF8
+    $providerRequestEventLines = @($providerRequest.provider_request_events | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
+    if ($providerRequestEventLines.Count -gt 0) {
+        $providerRequestEventLines | Set-Content -LiteralPath $providerRequestEventsPath -Encoding UTF8
+    } else {
+        [System.IO.File]::WriteAllText($providerRequestEventsPath, "", [System.Text.UTF8Encoding]::new($false))
+    }
+    $providerRequest.request_phase_summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $requestPhaseSummaryPath -Encoding UTF8
+    $providerCacheTraceEventLines = @($providerCacheTrace.provider_cache_trace_events | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
+    if ($providerCacheTraceEventLines.Count -gt 0) {
+        $providerCacheTraceEventLines | Set-Content -LiteralPath $providerCacheTracePath -Encoding UTF8
+    } else {
+        [System.IO.File]::WriteAllText($providerCacheTracePath, "", [System.Text.UTF8Encoding]::new($false))
+    }
+    $providerCacheTrace.provider_cache_trace_summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $providerCacheTraceSummaryPath -Encoding UTF8
+    $stateCommitDisplacement | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $stateCommitDisplacementPath -Encoding UTF8
+    $spawnNodeBudget | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $spawnNodeBudgetPath -Encoding UTF8
     [pscustomobject]@{
         token_summary_path = $tokenPath
         request_summary_path = $requestPath
@@ -652,6 +1342,18 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         context_projection_summary_path = $projectionPath
         projection_events_path = $projectionEventsPath
         output_ref_events_path = $outputRefEventsPath
+        budget_events_path = $budgetEventsPath
+        active_budget_events_path = $activeBudgetEventsPath
+        budget_quality_impact_events_path = $budgetQualityImpactEventsPath
+        budget_quality_impact_summary_path = $budgetQualityImpactSummaryPath
+        exact_payload_scan_events_path = $exactPayloadScanEventsPath
+        active_context_replacement_report_path = $activeReplacementReportPath
+        provider_request_events_path = $providerRequestEventsPath
+        request_phase_summary_path = $requestPhaseSummaryPath
+        provider_cache_trace_path = $providerCacheTracePath
+        provider_cache_trace_summary_path = $providerCacheTraceSummaryPath
+        state_commit_displacement_path = $stateCommitDisplacementPath
+        spawn_node_budget_path = $spawnNodeBudgetPath
         token_summary = $token
         request_summary = $request
         provider_input_visibility = $visibility
@@ -659,6 +1361,18 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         replay_summary = $replay
         output_ref_events = $outputRefEvents
         context_projection_summary = $projection
+        budget_events = $budget.budget_events
+        active_budget_events = $budget.active_budget_events
+        budget_quality_impact_events = $budget.budget_quality_impact_events
+        budget_quality_impact_summary = $budget.budget_quality_impact_summary
+        exact_payload_scan_events = $activeReplacement.exact_payload_scan_events
+        active_context_replacement_report = $activeReplacement.active_context_replacement_report
+        provider_request_events = $providerRequest.provider_request_events
+        request_phase_summary = $providerRequest.request_phase_summary
+        provider_cache_trace_events = $providerCacheTrace.provider_cache_trace_events
+        provider_cache_trace_summary = $providerCacheTrace.provider_cache_trace_summary
+        state_commit_displacement = $stateCommitDisplacement
+        spawn_node_budget = $spawnNodeBudget
     }
 }
 
@@ -806,7 +1520,10 @@ function Write-TaskspaceCostAggregateArtifacts {
     $requestPath = Join-Path $RootDir "request-summary.json"
     $controlPath = Join-Path $RootDir "taskspace-control-usage.json"
     $projectionPath = Join-Path $RootDir "context-projection-summary.json"
+    $providerCacheTracePath = Join-Path $RootDir "provider-cache-trace.jsonl"
+    $providerCacheTraceSummaryPath = Join-Path $RootDir "provider-cache-trace-summary.json"
     $gatePath = Join-Path $RootDir "suite-cost-gate.json"
+    $providerCacheTrace = New-TaskspaceProviderCacheTraceAggregateArtifacts $RootDir
     $summary = [pscustomobject]@{
         schema_version = "taskspace-cost-aggregate-v1"
         scope = $Scope
@@ -874,13 +1591,23 @@ function Write-TaskspaceCostAggregateArtifacts {
     $request | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $requestPath -Encoding UTF8
     $control | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $controlPath -Encoding UTF8
     $projection | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $projectionPath -Encoding UTF8
+    $providerCacheTraceEventLines = @($providerCacheTrace.provider_cache_trace_events)
+    if ($providerCacheTraceEventLines.Count -gt 0) {
+        $providerCacheTraceEventLines | Set-Content -LiteralPath $providerCacheTracePath -Encoding UTF8
+    } else {
+        [System.IO.File]::WriteAllText($providerCacheTracePath, "", [System.Text.UTF8Encoding]::new($false))
+    }
+    $providerCacheTrace.provider_cache_trace_summary | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $providerCacheTraceSummaryPath -Encoding UTF8
     $gate | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $gatePath -Encoding UTF8
     [pscustomobject]@{
         token_summary_path = $tokenPath
         request_summary_path = $requestPath
         taskspace_control_usage_path = $controlPath
         context_projection_summary_path = $projectionPath
+        provider_cache_trace_path = $providerCacheTracePath
+        provider_cache_trace_summary_path = $providerCacheTraceSummaryPath
         suite_cost_gate_path = $gatePath
+        provider_cache_trace_summary = $providerCacheTrace.provider_cache_trace_summary
         gate = $gate
     }
 }

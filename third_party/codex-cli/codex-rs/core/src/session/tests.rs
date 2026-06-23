@@ -1332,6 +1332,59 @@ async fn build_initial_context_consumes_action_map_transition_notice_once() {
 }
 
 #[tokio::test]
+async fn build_initial_context_keeps_stable_skills_before_taskspace_context() {
+    let (session, mut turn_context) = make_session_and_context().await;
+    let mut outcome = SkillLoadOutcome::default();
+    outcome.skills = vec![SkillMetadata {
+        name: "repo-skill".to_string(),
+        description: "stable skill metadata".to_string(),
+        short_description: None,
+        interface: None,
+        dependencies: None,
+        policy: None,
+        path_to_skills_md: test_path_buf("/tmp/repo-skill/SKILL.md").abs(),
+        scope: SkillScope::Repo,
+    }];
+    turn_context.turn_skills = TurnSkillsContext::new(Arc::new(outcome));
+    {
+        let mut state = session.state.lock().await;
+        state
+            .action_map_runtime
+            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
+    }
+
+    let initial_context = session.build_initial_context(&turn_context).await;
+    let first_developer_text = developer_input_texts(&initial_context).join("\n");
+    let skills_index = first_developer_text
+        .find("<skills_instructions>")
+        .unwrap_or_else(|| panic!("expected skills instructions: {first_developer_text}"));
+    let taskspace_index = first_developer_text
+        .find("TaskSpace mode is now active")
+        .unwrap_or_else(|| panic!("expected TaskSpace context: {first_developer_text}"));
+
+    assert!(
+        skills_index < taskspace_index,
+        "stable skills block should precede dynamic TaskSpace context for provider prefix caching: {first_developer_text}"
+    );
+
+    let developer_texts = developer_input_texts(&initial_context);
+    let stable_developer_text = developer_texts
+        .iter()
+        .find(|text| text.contains("<skills_instructions>"))
+        .expect("expected stable developer item with skills instructions");
+    assert!(
+        !stable_developer_text.contains("TaskSpace mode is now active"),
+        "stable developer item must not contain legacy TaskSpace markers that provider filtering omits: {stable_developer_text}"
+    );
+    assert!(
+        developer_texts
+            .iter()
+            .any(|text| text.contains("TaskSpace mode is now active")),
+        "expected TaskSpace transition in a separate developer item: {developer_texts:?}"
+    );
+}
+
+#[tokio::test]
 async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() {
     let (session, turn_context) = make_session_and_context().await;
     {
@@ -1364,7 +1417,7 @@ async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() 
         "expected active compact TaskSpace update in steady-state context: {developer_text}"
     );
     assert!(
-        developer_text.contains("projection_id: projection-active-task-1-map-1"),
+        developer_text.contains("projection_id: projection-default_compact-task-1-map-1"),
         "expected latest active projection in steady-state context: {developer_text}"
     );
     assert!(
@@ -1726,6 +1779,7 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
     let mut sentinel_event_seen = false;
     let mut snapshot_seen = false;
     let mut map_runtime_order = Vec::new();
+    let mut main_tool_trace_event_id = None;
     let deadline = tokio::time::Instant::now() + StdDuration::from_secs(2);
     while tokio::time::Instant::now() < deadline
         && (!trace_event_seen || !sentinel_event_seen || !snapshot_seen)
@@ -1741,15 +1795,18 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
                     map_runtime_order.push("node_result_recorded");
                 }
             }
-            EventMsg::MapRuntime(MapRuntimeEvent::TaskspaceTraceEventRecorded(event)) => {
+            EventMsg::MapRuntime(MapRuntimeEvent::TaskspaceTraceEventRecorded(event))
+                if event.kind == "main_tool_result" =>
+            {
                 map_runtime_order.push("taskspace_trace_event_recorded");
-                assert_eq!(event.trace_event_id, "trace-1");
+                assert!(event.trace_event_id.starts_with("trace-"));
                 assert_eq!(event.kind, "main_tool_result");
                 assert_eq!(event.result_id.as_deref(), Some("result-1"));
                 assert_eq!(event.call_id.as_deref(), Some("call-session-test"));
                 assert_eq!(event.action_class.as_deref(), Some("test"));
                 assert_eq!(event.tool_success, Some(false));
                 assert!(event.tags.iter().any(|tag| tag == "validator_failure"));
+                main_tool_trace_event_id = Some(event.trace_event_id);
                 trace_event_seen = true;
             }
             EventMsg::MapRuntime(MapRuntimeEvent::SentinelWarningRaised(event)) => {
@@ -1758,23 +1815,28 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
                 assert_eq!(event.sentinel_type, "validator_failure");
                 assert_eq!(event.status, "active");
                 assert_eq!(event.result_id.as_deref(), Some("result-1"));
-                assert_eq!(event.trace_event_ids, vec!["trace-1".to_string()]);
+                if let Some(trace_event_id) = main_tool_trace_event_id.as_ref() {
+                    assert_eq!(event.trace_event_ids, vec![trace_event_id.clone()]);
+                } else {
+                    assert_eq!(event.trace_event_ids.len(), 1);
+                    assert!(event.trace_event_ids[0].starts_with("trace-"));
+                }
                 sentinel_event_seen = true;
             }
             EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) => {
-                if payload.snapshot.trace_summary.total_event_count == 1 {
-                    assert_eq!(payload.snapshot.trace_events.len(), 1);
+                if payload.snapshot.trace_events.iter().any(|event| {
+                    event.kind == "main_tool_result"
+                        && event.result_id.as_deref() == Some("result-1")
+                }) {
                     assert_eq!(payload.snapshot.sentinel_summary.total_warning_count, 1);
                     assert_eq!(payload.snapshot.sentinel_warnings.len(), 1);
                     let warning = &payload.snapshot.sentinel_warnings[0];
                     assert_eq!(warning.sentinel_type, "validator_failure");
                     assert_eq!(warning.status, "active");
                     assert_eq!(warning.result_id.as_deref(), Some("result-1"));
-                    assert_eq!(warning.trace_event_ids, vec!["trace-1".to_string()]);
-                    assert_eq!(
-                        payload.snapshot.trace_events[0].result_id.as_deref(),
-                        Some("result-1")
-                    );
+                    if let Some(trace_event_id) = main_tool_trace_event_id.as_ref() {
+                        assert_eq!(warning.trace_event_ids, vec![trace_event_id.clone()]);
+                    }
                     snapshot_seen = true;
                 }
             }

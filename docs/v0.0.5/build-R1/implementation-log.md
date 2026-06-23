@@ -1,5 +1,75 @@
 # v0.0.5 Implementation Log
 
+## 2026-06-21 Provider response actionability observability and recovery
+
+Scope:
+
+- 补齐 v0.0.5 `Budget Response Gate` 在 provider response 层的缺漏。
+- 不跑完整 E3；本步骤先排除工程实现问题，避免在 response 层不可观测时继续消耗真实 agent 调用。
+
+Root cause:
+
+- 之前的 `TaskSpaceNoActionRecoveryV1` helper 是真实代码，但触发顺序不完整。
+- `try_run_sampling_request` 先计算 no-action recovery，再调用 `record_action_map_main_final_response`。
+- 因此如果 provider 输出 `end_turn=true` 的普通助手文本，且该文本被 TaskSpace final-response gate 拒绝，`needs_follow_up` 会在 recovery 计算之后才变成 `true`。
+- 结果是类似 `Let me check the environment...` 的 commentary/final-rejected response 既不是有效 final，也没有触发 recovery，后续继续烧 provider request 直到 `20/20` hard stop。
+
+Changes:
+
+- `action_map/runtime.rs`
+  - 新增 `ActionMapProviderResponseActionabilityInput`。
+  - 新增 replayable trace event：`provider_response_actionability`。
+  - 事件 schema：`taskspace-provider-response-actionability-v1`。
+  - 记录字段包括 `response_actionability`、`end_turn`、`saw_actionable_output`、`assistant_message_present`、`recovery_action`、`request_count/max_requests`、`request_phase`、`last_agent_message_preview`。
+- `session/mod.rs`
+  - 新增 `record_action_map_provider_response_actionability` wrapper，将 provider response 事件纳入 ActionMap runtime event 通道。
+- `session/turn.rs`
+  - 新增 provider response 分类：`actionable`、`no_action_follow_up`、`empty_follow_up`、`final_candidate`、`final_rejected`。
+  - 调整 Completed 分支顺序：先执行 final-response gate，再分类是否需要 recovery。
+  - `final_rejected`、`no_action_follow_up`、`empty_follow_up` 都会进入一次 `TaskSpaceNoActionRecoveryV1`。
+  - 第一次 recovery 现在发送 `WarningEvent`，使 `whale exec --json` 能看到 runtime 做了 recovery。
+  - 第二次 non-action response 仍然发送 `ErrorEvent` 并 hard-stop。
+
+Validation:
+
+```text
+cargo fmt --manifest-path third_party\codex-cli\codex-rs\Cargo.toml --package codex-core
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core provider_response_actionability -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core no_action_recovery -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core provider_request_budget -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core provider_budget_guidance -- --nocapture
+cargo test --manifest-path third_party\codex-cli\codex-rs\Cargo.toml -p codex-core provider_budget_pressure -- --nocapture
+```
+
+Result:
+
+- `provider_response_actionability`: `5 passed`
+- `no_action_recovery`: `1 passed`
+- `provider_request_budget`: `7 passed`
+- `provider_budget_guidance`: `6 passed`
+- `provider_budget_pressure`: `4 passed`
+- 首次并行跑 cargo tests 时遇到 package cache lock 和编译失败；编译失败原因是误用不存在的单值 tag 清洗函数。已改为 provider-response 专用 preview 清洗函数，并串行复测通过。
+
+Interpretation:
+
+- 这次修的是明确的工程实现缺漏，不是设计变更。
+- provider response 层现在具备可观测性，final-gate rejected response 不再绕过 no-action recovery。
+- 这仍不证明 `processing-pipeline` 已通过；下一步需要 rebuild/install 后再跑 bounded single-sample TaskSpace smoke，看是否出现 `TaskSpaceNoActionRecoveryV1` warning、是否早停、是否转入 edit。
+
+Follow-up hard-stop repair and smoke:
+
+- Bounded smoke after the first provider-response repair still failed at `20/20`, with no recovery marker. JSONL showed why: the final provider response included read-file tool calls, so it was technically actionable, but those tool outputs required another model turn after the budget was already exhausted.
+- Added `actionable_follow_up_at_hard_stop` classification.
+- If `needs_follow_up=true` and the current provider request count is already at `max_requests`, the turn now hard-stops at provider response completion with a specific error instead of attempting the next provider dispatch.
+- Rebuilt and installed Whale SHA256 `A65A0C46787DBE317A1178F05E67D1F27D3F7C3ED204383E5F1678EDBE32AEF3`.
+- Direct TaskSpace-only smoke:
+  - Run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-171502-provider-response`
+  - Timed out: `false`
+  - Wall time: `85,662 ms`
+  - File changes: `0`
+  - Result: failed with provider response hard-stop: final provider budget response produced follow-up-dependent work after budget exhaustion.
+- Interpretation: provider response hard-stop is now active, but `processing-pipeline` remains unsolved. The remaining engineering target is earlier convergence: by the final budget response, TaskSpace must already force edit/final/blocked output instead of allowing more read/follow-up work.
+
 ## 2026-06-18 Implement-to-validation recovery tightening
 
 Changed:
@@ -4385,3 +4455,296 @@ Conclusion:
 - The repeated internal matrix substantially improves confidence over the one-repeat smoke, but it does not prove "accuracy did not decline" without qualification.
 - A conservative statement is: v0.0.5 has no broad correctness regression across the internal matrix, but one L3 repeat still shows a TaskSpace timeout/validation failure and must be documented as a residual correctness risk if v0.0.5 is closed now.
 - If v0.0.5 is closed now, the release note should say correctness is mostly preserved on the internal 5x5 matrix (`24/25` raw TaskSpace business success), with one known `subscription-billing-repair` timeout outlier; cost remains explicitly deferred to the next version.
+
+## 2026-06-19 runtime budget and release-gate hardening
+
+Scope:
+
+- Continued v0.0.5 after adversarial review blocked the continuation scheme.
+- No real E3 or live agent benchmark was run in this step.
+- Fixed two evidence-quality problems before any further benchmark: weak `state_commit_displacement` proof and release/start gate producer-proof gaps.
+
+Changes:
+
+- Runtime now emits `state_commit_displacement` with a runtime-owned denominator: model-visible commit count, runtime-synthesized count, legacy-equivalent action attempts, and displaced action count.
+- Runtime now emits `spawn_node_budget` for allowed and blocked node/spawn budget decisions.
+- Cost instrumentation now separates spawn/node `within_budget_status` from `over_budget_enforcement_status`, so negative fixtures can prove a correct block without being mislabeled as failed instrumentation.
+- E3 start gate now has `blocked_for_full_e3` as a top-level state when v0.0.5 markers are missing or blocked, avoiding the misleading combination of `status=pass` and `full_e3_allowed=false`.
+- Suite runner attestation now includes a runner nonce and writes a `runner_attestation_generated` event into `suite-receipt.jsonl`; release decision requires the attestation hash, nonce, process id, command hash, and receipt pre-hash to join back to that receipt event.
+- Release decision now rechecks every `v005_non_agent_gates` child gate against `task_list_hash`, `source_version`, and `profile_hash`, and requires stronger `v005_code_complete` marker fields.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1 -RunRoot target\v005-runtime-budget-cost-selftest-4
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1 -RunRoot target\v005-start-gate-hardening-selftest-2
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 -RunRoot target\v005-release-hardening-selftest-2
+cargo test -p codex-core state_commit -- --nocapture
+cargo test -p codex-core provider_request_budget -- --nocapture
+git diff --check
+```
+
+Result:
+
+- All commands passed.
+- The first attempt to run multiple cargo tests in parallel timed out on target locks; rerunning the Rust tests serially or in smaller groups avoided the lock contention.
+
+Follow-up:
+
+- Still do not run real E3 until the remaining accepted blocking findings are fixed and closure review passes.
+- Remaining high-risk item at this point: provider request attribution must not fallback from ActionMap ready/current node when explicit provider request context is missing.
+
+## 2026-06-19 provider attribution fallback removal
+
+Scope:
+
+- Closed the accepted review finding that provider request attribution could fallback from ActionMap runtime state to a ready node.
+- No real E3 or live agent benchmark was run.
+
+Changes:
+
+- `provider_request_budget_snapshot` now only carries a node id when there is an explicit current main node.
+- If the current main node is missing, the snapshot records `provider_request_context_missing_reason=current_main_node_missing` instead of selecting an arbitrary ready node.
+- Provider lifecycle trace events generated from a missing-context snapshot now use `node_id=provider-context-missing` and carry `provider_request_context_missing_reason`, making attribution coverage fail loudly instead of producing false precision.
+
+Validation:
+
+```text
+cargo test -p codex-core provider_request_budget -- --nocapture
+cargo test -p codex-core active_context_replacement -- --nocapture
+```
+
+Result:
+
+- `provider_request_budget`: 4 passed.
+- `active_context_replacement`: 6 passed.
+
+## 2026-06-19 terminal-bench_E3-P0_3_1 diagnostic run
+
+Scope:
+
+- Ran the requested low-cost `terminal-bench_E3-P0_3_1` diagnostic candidate after closure review passed.
+- This was not a formal E3 run and not release proof.
+- The formal sample set remains `terminal-bench_E3-P0_3_5`.
+
+Command shape:
+
+```text
+scripts\taskspace-benchmark\run-taskspace-external-benchmark.ps1
+  -Benchmark terminal-bench
+  -TaskDir C:\w\terminal-bench-1a6ffa9674b571da0ed040c470cb40c4d85f9b9b\original-tasks\<sample>
+  -SourceVersion 1a6ffa9674b571da0ed040c470cb40c4d85f9b9b
+  -Repeats 1
+  -SampleSetId terminal-bench_E3-P0_3_1
+  -AllowDiagnosticNonTargetResult
+  -ScoringMode
+```
+
+Artifacts:
+
+- Run root: `D:\whalecode-alpha\target\terminal-bench_E3-P0_3_1-v005-20260619-diagnostic-4`
+- Report: `docs/v0.0.5/19-terminal-bench_E3-P0_3_1-diagnostic-run.md`
+
+Result:
+
+- `reported_evidence_level=diagnostic-only`
+- `not_release_proof=true`
+- `score_valid=false`
+- `engineering_clean=false`
+- Standard raw success: 2/3
+- TaskSpace raw success: 0/3
+- Standard agent wall time: 483,015 ms
+- TaskSpace agent wall time: 1,752,094 ms
+- Standard total tokens: 1,480,481
+- TaskSpace total tokens: 24,118,773
+- TaskSpace time ratio: 3.63x
+- TaskSpace token ratio: 16.29x
+- TaskSpace rollout requests: 435 total
+
+Conclusion:
+
+- The diagnostic path runs, but the result is negative for v0.0.5 cost-control and raw correctness goals.
+- Do not proceed to formal `terminal-bench_E3-P0_3_5` closure until TaskSpace raw success and token/request cost are improved on the diagnostic P0 path.
+
+## 2026-06-21 stale Whale binary guard and reinstall
+
+Scope:
+
+- Fixed the non-design execution contamination where external benchmark runs could silently use an installed `whale.exe` older than the current v0.0.5 runtime source.
+- No real E3 or live agent benchmark was run.
+
+Changes:
+
+- Added `whale_binary_preflight` to `run-taskspace-external-benchmark.ps1`.
+- The preflight writes `whale-binary-preflight-health.json` with binary path, SHA256, LastWriteTimeUTC, current git HEAD, latest `third_party/codex-cli` source commit, and stale status.
+- A binary older than the latest `third_party/codex-cli` commit now exits `3` as `invalid_harness` before materialization or agent execution.
+- Added the same preflight to direct `run-taskspace-benchmark.ps1` execution before `whale.exe exec --help` or `whale.exe --version` can be invoked.
+- Added explicit `-AllowStaleWhaleBin` for forensic runs; this is not valid for formal scoring conclusions.
+- Updated external wrapper self-test to use controlled fake fresh/stale binaries instead of depending on the machine-installed binary.
+
+Validation:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-external-wrapper-harness.ps1
+cargo build -p codex-cli --bin whale --locked
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath "$env:CARGO_TARGET_DIR\debug\whale.exe" -PersistUserPath -BackupLegacyCopies
+```
+
+Result:
+
+- Wrapper self-test passed.
+- The old installed binary was classified as `invalid_harness` with `abort_reason=whale_binary_stale_for_codex_source`.
+- A direct runner fake stale binary fixture also exits `3` with `abort_phase=whale_binary_preflight`, proving the inner runner cannot execute stale binaries before classifying them.
+- Rebuilt installed binary: `C:\Users\77585\.whale\bin\whale.exe`.
+- Installed SHA256: `5c99e4c72b1765ff5c6f0641e29025f2bc85d6495503fec24ecd0cde969acb40`.
+- Fresh binary preflight passed with `stale_for_codex_source=false`.
+
+Reflection:
+
+- Before any live TaskSpace benchmark, run the external wrapper preflight or the suite start gate after rebuilding and reinstalling Whale.
+- Do not treat a benchmark result as current-code evidence unless `whale-binary-preflight-health.json` proves the installed binary is at least as fresh as the relevant `third_party/codex-cli` source.
+
+## 2026-06-21 Budget Response Gate bounded recovery repair
+
+Scope:
+
+- 修复 v0.0.5 `Budget Response Gate` 的工程缺漏：当前 binary 下 `processing-pipeline` 不再表现为旧 binary 的 900 秒失控超时，但 TaskSpace 在 `19/20` provider request 时被 compact checkpoint gate 直接硬拒，模型没有机会用最后一次请求输出 `final_synthesis` / bounded failure。
+- 该问题属于 `docs/v0.0.5/18-unfinished-work-engineering-design.md` 的 `6.4 Budget Response Gate` 与 `6.4.1 Budget-Induced Quality Protection`，不是产品设计外的新需求。
+
+Root cause:
+
+- `provider_request_budget_state_for` 在剩余 1 次请求时进入 `compact_checkpoint_required`。
+- `ProviderRequestBudgetContext::before_dispatch` 对非 `final_synthesis` phase 的 compact checkpoint 请求立即返回 `CodexErr::InvalidRequest`。
+- 实际运行中，上层在发起下一次模型请求前还没有机会把 `request_phase` 改成 `final_synthesis`，因此 soft convergence gate 退化成 fatal `turn.failed`。
+
+Changes:
+
+- `before_dispatch` 现在允许 compact checkpoint 状态下的最后一次 provider request 作为 bounded recovery slot。
+- 非 `final_synthesis` attribution 使用该 slot 时，provider budget events 的 `request_phase` 会标记为 `budget_recovery`。
+- 该请求会把预算状态从 `compact_checkpoint_required` 推进到 `hard_stopped`，并记录 `provider_request_budget_reached`。
+- recovery slot 用完后，下一次 provider request 仍按 `provider_request_budget_exhausted` 硬停，不允许继续消耗预算。
+- 更新 `client_tests.rs`，把旧的“compact checkpoint 普通请求必须阻断”契约改为“允许一次 `budget_recovery`，随后 hard stop”。
+
+Validation:
+
+```text
+cargo fmt
+cargo test -p codex-core provider_request_budget -- --nocapture
+cargo build -p codex-cli --bin whale --locked
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -BinaryPath "$env:CARGO_TARGET_DIR\debug\whale.exe" -PersistUserPath -BackupLegacyCopies
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-external-wrapper-harness.ps1
+```
+
+Result:
+
+- `cargo fmt` completed; rustfmt printed the repository's existing nightly-only `imports_granularity` warnings.
+- Focused Rust test passed: `7 passed; 0 failed` for `provider_request_budget`.
+- `cargo build -p codex-cli --bin whale --locked` passed.
+- Installed binary: `C:\Users\77585\.whale\bin\whale.exe`.
+- Installed SHA256: `DBEBA2C7AD3DBAC777B7A93B5C8B2B8360D1F5740BFB43D14907534575A8B56F`.
+- Installed `LastWriteTimeUtc`: `2026-06-20T18:10:59Z`.
+- External wrapper self-test passed; run root `D:\whalecode-alpha\target\external-wrapper-selftest\20260621-021120-504`.
+- 未执行真实 E3；该修复只验证预算门禁工程语义和非 agent wrapper preflight。
+
+Reflection:
+
+- 预算门禁不能只在 action-map trace 中表达质量影响；dispatch 层也必须给模型一次受控收敛机会，否则“要求 final_synthesis”会变成模型无法执行的前置条件。
+- 该修复不承诺 `processing-pipeline` 通过，只排除“soft budget gate 无 recovery 通道”这个非设计层缺漏。
+
+## 2026-06-21 processing-pipeline single-sample TaskSpace smoke after budget recovery repair
+
+Scope:
+
+- 按用户要求，对此前定位用的 `processing-pipeline` 单 sample 再跑一轮轻量 TaskSpace-only smoke。
+- 未跑完整 E3，未跑 Standard 对照。
+- 使用 terminal-bench adapter 物化公开 fixture；有效运行的 app 目录只包含公开文件，不包含 `solution.sh` 或 `tests`。
+
+Artifacts:
+
+- Adapter root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-adapter-20260621-023830`
+- Valid run root: `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-024159`
+- Valid app dir: `C:\w\taskspace-processing-pipeline-single-20260621-024159\app`
+- Whale SHA256: `DBEBA2C7AD3DBAC777B7A93B5C8B2B8360D1F5740BFB43D14907534575A8B56F`
+
+Result:
+
+- Timed out: `false`
+- Wall time: `109,216 ms`
+- `turn.completed`: `0`
+- `turn.failed`: `1`
+- Final error: `TaskSpace blocked this provider request because the active provider request budget is exhausted (20/20).`
+- `last-message.md`: missing
+- File changes: `0`; all public fixture hashes stayed unchanged.
+- Token usage: unavailable in this direct `whale exec --json` artifact; do not treat missing usage as zero.
+
+Interpretation:
+
+- The previous `19/20 compact_checkpoint_required` immediate block is gone; the run reached the hard limit at `20/20`, so the bounded recovery dispatch repair did take effect at the budget boundary.
+- The remaining failure is different: the model spent the available requests on file reads, shell/environment checks, and a plan to try Git Bash, but never executed a patch.
+- This is still not a passing sample and does not support v0.0.5 closure.
+
+Harness note:
+
+- An invalid direct attempt at `D:\whalecode-alpha\target\taskspace-processing-pipeline-single-20260621-023943` used `Copy-Item -LiteralPath <fixture>\*`, which does not expand wildcards in PowerShell. That attempt copied an empty app and is excluded from the sample conclusion.
+- For future direct fixture materialization, use `Copy-Item -Path (Join-Path $fixtureDir '*') ...` and assert expected public files before launching the agent.
+
+## 2026-06-21 processing-pipeline convergence hardening follow-up
+
+Scope:
+
+- 继续补 v0.0.5 `Budget Response Gate` / `Routing Thin` / `Verification-first` 的关键代码缺漏。
+- 目标不是跑完整 E3，而是只用 `processing-pipeline` 单样本确认工程路径是否从“诊断后不编辑、20/20 hard stop”向收束实现推进。
+
+Changes:
+
+- `session/turn.rs`
+  - 新增 `TaskSpaceProviderBudgetGuidanceV1` provider-visible developer guidance。
+  - 在 provider request 达到 50%、75%、最后一次 recovery slot 时，显式要求收窄路径、优先实现、进入验证节点后只跑窄验证。
+  - 新增 `TaskSpaceNoActionRecoveryV1` helper，用于 TaskSpace 下模型输出 follow-up 但没有 tool/control/final action 的恢复提示。
+- `action_map/runtime.rs`
+  - 新增 provider budget pressure tool gate：在 provider request 压力下，已有 read/search 证据后阻止继续 broad probe。
+  - 新增 inspect evidence pressure gate：`inspect_code_context` 达到半个主工具预算后，继续读/搜/未知 shell/测试/构建会被阻止，要求 finish 到 `implement_solution`。
+  - 保持 concrete edit 可执行，不把预算门禁做成禁止实现的死门。
+
+Focused validation:
+
+```text
+cargo fmt
+cargo test -p codex-core provider_budget_pressure -- --nocapture
+cargo test -p codex-core inspect_evidence_pressure -- --nocapture
+cargo test -p codex-core provider_budget_guidance -- --nocapture
+cargo test -p codex-core provider_request_budget -- --nocapture
+cargo test -p codex-core no_action_recovery -- --nocapture
+cargo build -p codex-cli --bin whale --locked
+scripts\install-whale-local.ps1
+```
+
+Focused test results:
+
+- `provider_budget_pressure`: `4 passed; 0 failed`
+- `inspect_evidence_pressure`: `1 passed; 0 failed`
+- `provider_budget_guidance`: `6 passed; 0 failed`
+- `provider_request_budget`: `7 passed; 0 failed`
+- `no_action_recovery`: `1 passed; 0 failed`
+- Build passed and installed final binary SHA256: `0EF243F8B0C9F52798AF558A30C4075ECC9A72BE8CDCE4548B406998E144C7C0`
+
+Direct TaskSpace smoke attempts:
+
+| Run root | Whale SHA256 | Wall time | File changes | Result |
+|---|---:|---:|---:|---|
+| `target\taskspace-processing-pipeline-single-20260621-042137` | `090CD3930ACC0E9E24291B490E08F2CEEA0A14ECDEF099EA1E764D692A3DB70C` | `133,606 ms` | `0` | `20/20 budget exhausted` |
+| `target\taskspace-processing-pipeline-single-20260621-043108` | `9D55A70DFE5AA683214EC8C3F063938E59C2225A64AAD7A7A0B08E1AA7B5C935` | `73,834 ms` | `0` | `20/20 budget exhausted` |
+| `target\taskspace-processing-pipeline-single-20260621-044307` | `B5B8E825353E2D92BE0598A95A00EEE535919CE9BD4425F97440E4F464A9C7D2` | `84,401 ms` | `0` | `20/20 budget exhausted` |
+| `target\taskspace-processing-pipeline-single-20260621-045601` | `0EF243F8B0C9F52798AF558A30C4075ECC9A72BE8CDCE4548B406998E144C7C0` | `71,455 ms` | `0` | `20/20 budget exhausted` |
+
+Interpretation:
+
+- 已完成的代码补全是工程真实实现，不是入口或 mock：provider guidance、runtime tool gate、inspect evidence gate、no-action recovery helper 都有 focused tests。
+- 但 `processing-pipeline` 仍未通过。当前失败已经从“工具探测无限扩散”收窄为“模型在识别问题后输出 commentary/no-action 或空 follow-up，继续消耗 provider request，最后 20/20 hard stop”。
+- 因此 v0.0.5 仍不能关闭，且不应继续跑真实完整 E3；下一步必须先把 provider-budget/no-action recovery 事件暴露到 JSONL/TaskSpace trace，并在 runtime 层把 no-action follow-up 变成可观测、可恢复或早停的状态机事件。
+
+Reflection:
+
+- 只靠 prompt guidance 不足以控制 DeepSeek 在 TaskSpace 中的收束行为。
+- 只靠 tool gate 也不足，因为失败路径可以发生在没有新工具调用的 provider turn。
+- 后续修复必须覆盖 provider response 层：`end_turn=false`、无 tool/control/final、空 completion、以及 final-response gate rejection 都必须记录成稳定事件，并且最多允许一次恢复，不能继续烧到 20/20。
