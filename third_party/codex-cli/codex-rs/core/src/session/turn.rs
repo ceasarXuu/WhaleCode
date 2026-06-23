@@ -3294,6 +3294,53 @@ tax_calc.py\n\
     }
 
     #[test]
+    fn taskspace_apply_patch_resolves_unique_directory_suffix_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(temp.path().join("src").join("order_pipeline")).expect("mkdir");
+        fs::write(
+            temp.path()
+                .join("src")
+                .join("order_pipeline")
+                .join("pricing.py"),
+            "old",
+        )
+        .expect("write");
+
+        let resolved =
+            resolve_unique_existing_relative_path_from(temp.path(), "order_pipeline/pricing.py");
+
+        assert_eq!(resolved.as_deref(), Some("src/order_pipeline/pricing.py"));
+    }
+
+    #[test]
+    fn taskspace_apply_patch_keeps_ambiguous_directory_suffix_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(temp.path().join("pkg_a").join("order_pipeline")).expect("mkdir");
+        fs::create_dir_all(temp.path().join("pkg_b").join("order_pipeline")).expect("mkdir");
+        fs::write(
+            temp.path()
+                .join("pkg_a")
+                .join("order_pipeline")
+                .join("pricing.py"),
+            "old",
+        )
+        .expect("write");
+        fs::write(
+            temp.path()
+                .join("pkg_b")
+                .join("order_pipeline")
+                .join("pricing.py"),
+            "old",
+        )
+        .expect("write");
+
+        let resolved =
+            resolve_unique_existing_relative_path_from(temp.path(), "order_pipeline/pricing.py");
+
+        assert_eq!(resolved, None);
+    }
+
+    #[test]
     fn provider_budget_guidance_is_absent_before_warning_threshold() {
         assert!(
             build_taskspace_provider_budget_guidance_item(
@@ -5181,7 +5228,18 @@ fn resolve_unique_existing_relative_path_from(root: &Path, path: &str) -> Option
         return None;
     }
     if path.contains('/') || path.contains('\\') {
-        return None;
+        let normalized = path.trim().replace('\\', "/");
+        let src_prefixed = format!("src/{normalized}");
+        if root.join(&src_prefixed).exists() {
+            return Some(src_prefixed);
+        }
+        let mut matches = Vec::new();
+        collect_unique_suffix_matches(root, root, &normalized, &mut matches, 2_000);
+        if matches.len() != 1 {
+            return None;
+        }
+        let relative = matches.pop()?;
+        return relative.to_str().map(|value| value.replace('\\', "/"));
     }
     let mut matches = Vec::new();
     collect_unique_basename_matches(root, root, path, &mut matches, 2_000);
@@ -5226,6 +5284,43 @@ fn collect_unique_basename_matches(
             && let Ok(relative) = path.strip_prefix(root)
         {
             matches.push(relative.to_path_buf());
+        }
+    }
+    remaining
+}
+
+fn collect_unique_suffix_matches(
+    root: &Path,
+    dir: &Path,
+    suffix: &str,
+    matches: &mut Vec<PathBuf>,
+    remaining: usize,
+) -> usize {
+    if remaining == 0 || matches.len() > 1 {
+        return remaining;
+    }
+    let mut remaining = remaining;
+    let Ok(entries) = fs::read_dir(dir) else {
+        return remaining;
+    };
+    for entry in entries.flatten() {
+        if remaining == 0 || matches.len() > 1 {
+            break;
+        }
+        remaining = remaining.saturating_sub(1);
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if file_name == ".git" || file_name == "target" || file_name == "node_modules" {
+            continue;
+        }
+        if path.is_dir() {
+            remaining = collect_unique_suffix_matches(root, &path, suffix, matches, remaining);
+        } else if let Ok(relative) = path.strip_prefix(root) {
+            let relative_text = relative.to_string_lossy().replace('\\', "/");
+            if relative_text.ends_with(&format!("/{suffix}")) {
+                matches.push(relative.to_path_buf());
+            }
         }
     }
     remaining

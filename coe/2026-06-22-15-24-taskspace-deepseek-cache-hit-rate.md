@@ -732,3 +732,30 @@
   - The next live correctness blocker is now earlier than failed-validation recovery: action-contract patch application can fail repeatedly in `implement_solution` without a successful edit or transition.
 - Supports:
   - H-006
+
+## Evidence E-032: Action-contract patch path suffix normalization added; live rerun did not exercise it
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Investigated the E-031 `apply_patch` failures.
+  - Found the model emitted unified diffs for `order_pipeline/pricing.py`, while the actual repository file was `src/order_pipeline/pricing.py`.
+  - Updated action-contract apply-patch path resolution so non-root directory suffixes first try `src/<path>` and otherwise use a unique relative-path suffix match.
+  - Rebuilt and installed `whale.exe`, then reran `multi-file-order-pipeline` with run root `target\deepseek-cache-fix-validation\e2-l2-probe-apply-patch-path`.
+- Observations:
+  - Local tests passed:
+    - `cargo test -p codex-core taskspace_apply_patch_resolves_unique_directory_suffix_path --lib`
+    - `cargo test -p codex-core taskspace_apply_patch_keeps_ambiguous_directory_suffix_path --lib`
+    - `cargo test -p codex-core taskspace_action_contract_apply_patch_normalizes_unified_diff --lib`
+    - `cargo test -p codex-core taskspace_action_contract_apply_patch_normalizes_plain_unified_diff --lib`
+    - `cargo test -p codex-core taskspace_action_contract_policy --lib`
+    - `cargo check -p codex-core`
+  - Installed binary SHA256 for the live rerun: `D06E5C6B4E9D5FDAE1898FB7F16C2174C28CA3EED054B718F82F7D0EEDCF1077`.
+  - Cache trace summary: `provider_request_count=14`, `trace_coverage=1`, `request_2_plus_hit_rate=0.99286`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=14`, `cache_usage_missing_count=0`.
+  - The live rerun still failed E2/L2 readiness with `agent_patch_wrong`, but did not exercise the patch-path fix: the action trace did not reach an `apply_patch` action.
+  - Action-map observability showed the workflow remained in inspect-oriented recovery and ended with no accepted result validity transition.
+- Interpretation:
+  - The path-resolution defect from E-031 is fixed at the local action-contract normalization layer.
+  - The latest live run cannot validate that fix end-to-end because model behavior diverged earlier before patch application.
+  - Cache behavior remains stable; the remaining live correctness blocker is TaskSpace workflow progression under inspect-budget pressure before implementation.
+- Supports:
+  - H-006

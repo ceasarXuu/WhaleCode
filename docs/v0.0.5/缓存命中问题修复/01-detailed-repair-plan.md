@@ -782,6 +782,7 @@ Required checks:
 | 2026-06-23 | Implementation node read-only listing allowed | `implement_solution` now permits `list_files` as read-only context completion while continuing to block tests |
 | 2026-06-23 | Failed-validation rework gate landed | Validation nodes that record a failed test/build result through `state_commit.result_validities` must now block the validation node or create/bind an `implement_solution` rework path in the same commit |
 | 2026-06-23 | E2/L2 rework-gate rerun completed | Cache gate still passed at request 2+ hit rate `0.991157`; this live run did not exercise the new failed-validation gate because TaskSpace failed earlier in `implement_solution` after repeated failed `apply_patch` calls |
+| 2026-06-23 | Apply-patch directory suffix normalization landed | Action-contract patch paths such as `order_pipeline/pricing.py` now resolve to unique existing paths such as `src/order_pipeline/pricing.py` while ambiguous suffixes remain unchanged |
 
 ## 19. 2026-06-23 Implementation Result
 
@@ -838,6 +839,8 @@ Validation evidence:
 - E2/L2 rerun on `target/deepseek-cache-fix-validation/e2-l2-probe-impl-list-files`: cache gate still passed with `request_2_plus_hit_rate=0.988838`, `native_tools_schema_hot_path_count=0`, and `tool_free_action_contract_count=11`; the trace exposed a failed-validation recovery gap where TaskSpace marked the validator result failed but did not create or bind a follow-up implementation node.
 - Failed-validation rework gate check: `cargo test -p codex-core state_commit_rejects_failed_validation_result_without_rework_transition --lib`, `cargo test -p codex-core state_commit_accepts_failed_validation_result_with_rework_node --lib`, `cargo test -p codex-core taskspace_action_contract_policy --lib`, `cargo test -p codex-core taskspace_action_contract_node_policy_matrix_blocks_cross_node_actions --lib`, and `cargo check -p codex-core` passed.
 - E2/L2 rerun on `target/deepseek-cache-fix-validation/e2-l2-probe-validation-rework`: `run_validity=valid`, `request_2_plus_hit_rate=0.991157`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=9`; the run is still not Phase 4 acceptance because TaskSpace failed earlier in implementation with repeated failed `apply_patch` calls and did not reach validation.
+- Apply-patch path normalization check: `cargo test -p codex-core taskspace_apply_patch_resolves_unique_directory_suffix_path --lib`, `cargo test -p codex-core taskspace_apply_patch_keeps_ambiguous_directory_suffix_path --lib`, `cargo test -p codex-core taskspace_action_contract_apply_patch_normalizes_unified_diff --lib`, `cargo test -p codex-core taskspace_action_contract_apply_patch_normalizes_plain_unified_diff --lib`, `cargo test -p codex-core taskspace_action_contract_policy --lib`, and `cargo check -p codex-core` passed.
+- E2/L2 rerun on `target/deepseek-cache-fix-validation/e2-l2-probe-apply-patch-path`: `run_validity=valid`, `request_2_plus_hit_rate=0.99286`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=14`; the run is still not Phase 4 acceptance and did not exercise the patch-path fix because TaskSpace did not reach `apply_patch`.
 
 ## 18. Plan Quality Checklist
 

@@ -154,3 +154,28 @@ Validation:
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-e2-matrix.ps1 -Scenarios multi-file-order-pipeline -RequiredLevels L2 -Repeats 1 -RunRoot target\deepseek-cache-fix-validation\e2-l2-probe-validation-rework ...`
   - cache gate: `request_2_plus_hit_rate=0.991157`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=9`.
   - E2 readiness: not passed; this live run failed earlier in `implement_solution` after repeated failed `apply_patch` calls and did not reach failed-validation rework.
+
+## 2026-06-23 Apply Patch Path Follow-Up
+
+Root cause:
+- The action-contract model can emit unified diffs for package-relative paths such as `order_pipeline/pricing.py`.
+- The repository file lives at `src/order_pipeline/pricing.py`.
+- Previous path normalization handled bare basenames and existing root-relative paths, but did not resolve non-root directory suffixes.
+
+Runtime fix:
+- Action-contract apply-patch normalization now resolves `src/<path>` when it exists.
+- If `src/<path>` does not exist, it searches for a unique relative path ending in the requested directory suffix.
+- Ambiguous suffix matches remain unchanged.
+
+Validation:
+- `cargo test -p codex-core taskspace_apply_patch_resolves_unique_directory_suffix_path --lib`
+- `cargo test -p codex-core taskspace_apply_patch_keeps_ambiguous_directory_suffix_path --lib`
+- `cargo test -p codex-core taskspace_action_contract_apply_patch_normalizes_unified_diff --lib`
+- `cargo test -p codex-core taskspace_action_contract_apply_patch_normalizes_plain_unified_diff --lib`
+- `cargo test -p codex-core taskspace_action_contract_policy --lib`
+- `cargo check -p codex-core`
+- `cargo build -p codex-cli --bin whale`
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1`
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-e2-matrix.ps1 -Scenarios multi-file-order-pipeline -RequiredLevels L2 -Repeats 1 -RunRoot target\deepseek-cache-fix-validation\e2-l2-probe-apply-patch-path ...`
+  - cache gate: `request_2_plus_hit_rate=0.99286`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=14`.
+  - E2 readiness: not passed; this live run did not reach `apply_patch`, so it does not end-to-end validate the path fix.
