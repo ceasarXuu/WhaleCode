@@ -780,6 +780,8 @@ Required checks:
 | 2026-06-23 | Late-inspect action-contract enforcement landed | Budget transition guidance now reaches action-contract mode and the local validator rejects further inspect reads when a node transition is required |
 | 2026-06-23 | E2/L2 late-inspect rerun completed | Cache gate still passed at request 2+ hit rate `0.991693`; E2/L2 correctness still failed with `agent_patch_wrong` |
 | 2026-06-23 | Implementation node read-only listing allowed | `implement_solution` now permits `list_files` as read-only context completion while continuing to block tests |
+| 2026-06-23 | Failed-validation rework gate landed | Validation nodes that record a failed test/build result through `state_commit.result_validities` must now block the validation node or create/bind an `implement_solution` rework path in the same commit |
+| 2026-06-23 | E2/L2 rework-gate rerun completed | Cache gate still passed at request 2+ hit rate `0.991157`; this live run did not exercise the new failed-validation gate because TaskSpace failed earlier in `implement_solution` after repeated failed `apply_patch` calls |
 
 ## 19. 2026-06-23 Implementation Result
 
@@ -833,6 +835,9 @@ Validation evidence:
 - Late-inspect enforcement check: `cargo test -p codex-core action_contract_late_inspect_rejects_more_file_reads --lib`, `cargo test -p codex-core provider_budget --lib`, and `cargo check -p codex-core` passed.
 - E2/L2 rerun on `target/deepseek-cache-fix-validation/e2-l2-probe-late-inspect`: `run_validity=valid`, `request_2_plus_hit_rate=0.991693`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=9`; the run is still not Phase 4 acceptance because TaskSpace failed correctness with `agent_patch_wrong`.
 - Implementation-node policy check: `cargo test -p codex-core taskspace_action_contract_node_policy_matrix_blocks_cross_node_actions --lib`, `cargo test -p codex-core taskspace_action_contract_policy --lib`, and `cargo check -p codex-core` passed.
+- E2/L2 rerun on `target/deepseek-cache-fix-validation/e2-l2-probe-impl-list-files`: cache gate still passed with `request_2_plus_hit_rate=0.988838`, `native_tools_schema_hot_path_count=0`, and `tool_free_action_contract_count=11`; the trace exposed a failed-validation recovery gap where TaskSpace marked the validator result failed but did not create or bind a follow-up implementation node.
+- Failed-validation rework gate check: `cargo test -p codex-core state_commit_rejects_failed_validation_result_without_rework_transition --lib`, `cargo test -p codex-core state_commit_accepts_failed_validation_result_with_rework_node --lib`, `cargo test -p codex-core taskspace_action_contract_policy --lib`, `cargo test -p codex-core taskspace_action_contract_node_policy_matrix_blocks_cross_node_actions --lib`, and `cargo check -p codex-core` passed.
+- E2/L2 rerun on `target/deepseek-cache-fix-validation/e2-l2-probe-validation-rework`: `run_validity=valid`, `request_2_plus_hit_rate=0.991157`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=9`; the run is still not Phase 4 acceptance because TaskSpace failed earlier in implementation with repeated failed `apply_patch` calls and did not reach validation.
 
 ## 18. Plan Quality Checklist
 

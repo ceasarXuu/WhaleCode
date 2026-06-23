@@ -131,3 +131,26 @@ v0.0.5 缓存命中问题当前状态：已通过 L1 live 验收。
 - `native_tools_schema_hot_path_count == 0`
 - TaskSpace run success 必须为 true
 - release decision 中 `provider_cache_trace_gate_pass == true`
+
+## 2026-06-23 L2 Recovery Follow-Up
+
+Additional L2 evidence:
+- `target/deepseek-cache-fix-validation/e2-l2-probe-impl-list-files` kept the cache gate passing: `request_2_plus_hit_rate=0.988838`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=11`.
+- That run exposed a failed-validation recovery gap: TaskSpace recorded a failed validator result through `state_commit.result_validities`, but did not create or bind a follow-up `implement_solution` node.
+
+Runtime fix:
+- `ActionMapRuntimeState::state_commit_for_main` now rejects state-only failed validation commits on `smoke_test` and `regression_test` nodes.
+- A failed validation state commit is allowed only when the same commit blocks the validation node or creates/binds an `implement_solution` rework path.
+
+Validation:
+- `cargo fmt`
+- `cargo test -p codex-core state_commit_rejects_failed_validation_result_without_rework_transition --lib`
+- `cargo test -p codex-core state_commit_accepts_failed_validation_result_with_rework_node --lib`
+- `cargo test -p codex-core taskspace_action_contract_policy --lib`
+- `cargo test -p codex-core taskspace_action_contract_node_policy_matrix_blocks_cross_node_actions --lib`
+- `cargo check -p codex-core`
+- `cargo build -p codex-cli --bin whale`
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1`
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-e2-matrix.ps1 -Scenarios multi-file-order-pipeline -RequiredLevels L2 -Repeats 1 -RunRoot target\deepseek-cache-fix-validation\e2-l2-probe-validation-rework ...`
+  - cache gate: `request_2_plus_hit_rate=0.991157`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=9`.
+  - E2 readiness: not passed; this live run failed earlier in `implement_solution` after repeated failed `apply_patch` calls and did not reach failed-validation rework.

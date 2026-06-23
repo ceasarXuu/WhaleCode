@@ -669,3 +669,66 @@
   - This fix removes an avoidable recovery-budget sink in the E2/L2 action-contract path without weakening the validation boundary that keeps tests out of implementation nodes.
 - Supports:
   - H-006
+
+## Evidence E-029: E2/L2 rerun after implementation file listing exposes failed-validation rework gap
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Rebuilt and installed `whale.exe` after E-028.
+  - Ran `run-taskspace-e2-matrix.ps1` for `multi-file-order-pipeline` with run root `target\deepseek-cache-fix-validation\e2-l2-probe-impl-list-files`.
+  - Inspected matrix, aggregate, pair report, cache trace summary, and action trace.
+- Observations:
+  - Installed binary SHA256: `9C9A7975ADDAAC140569134D3CF7D35E242B1B90A80251FA19BF805339158EB3`.
+  - Cache trace summary: `request_2_plus_hit_rate=0.988838`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=11`.
+  - E2/L2 correctness still failed with `invalid_harness`, `engineering_unclean`, and `agent_patch_wrong`.
+  - TaskSpace fixed `pricing.py`, ran validation, observed parser and invoice failures, read `parser.py` during validation, then emitted `taskspace_control state_commit` with `result_validities` marking the validation result failed.
+  - The trace did not show a follow-up `implement_solution` node being created or bound after the failed validation state commit; the run then exhausted recovery.
+- Interpretation:
+  - The cache fix remains stable under L2 pressure.
+  - The next concrete runtime gap is failed-validation recovery: action-contract mode allowed a state-only failure commit inside a validation node, leaving the workflow without an enforced rework transition.
+  - The defect mechanism is now narrower than E-027/E-028: the model reached validation evidence and failure classification, but the runtime did not require the failed validator evidence to be followed by a blocker or implementation rework node.
+- Supports:
+  - H-006
+
+## Evidence E-030: Failed validation state commits now require a rework transition
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Added a runtime gate in `ActionMapRuntimeState::state_commit_for_main`.
+  - The gate detects current `smoke_test` or `regression_test` nodes that mark a failed test/build result as non-accepted in `result_validities`.
+  - Such a state commit is rejected unless the same commit blocks the validation node, creates an `implement_solution` rework node, binds an existing implementation node, or finishes the validation node into an implementation draft.
+- Observations:
+  - `cargo fmt` passed.
+  - `cargo test -p codex-core state_commit_rejects_failed_validation_result_without_rework_transition --lib` passed.
+  - `cargo test -p codex-core state_commit_accepts_failed_validation_result_with_rework_node --lib` passed.
+  - `cargo test -p codex-core taskspace_action_contract_policy --lib` passed.
+  - `cargo test -p codex-core taskspace_action_contract_node_policy_matrix_blocks_cross_node_actions --lib` passed.
+  - `cargo check -p codex-core` passed.
+- Interpretation:
+  - The E-029 failure mode is now covered by a local regression test: a validation node can no longer accept a state-only failed validation commit and then continue without a rework path.
+  - The allowed path preserves the validation boundary: edits still require an `implement_solution` node, while validation nodes can record failure evidence and transition to rework.
+- Supports:
+  - H-006
+
+## Evidence E-031: E2/L2 rerun after failed-validation rework gate keeps cache passing but does not reach the new gate
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Built `codex-cli --bin whale`, installed via `scripts\install-whale-local.ps1`, and ran `run-taskspace-e2-matrix.ps1` with run root `target\deepseek-cache-fix-validation\e2-l2-probe-validation-rework`.
+  - Inspected matrix report, pair report, aggregate report, provider cache trace summary, and action-map observability.
+- Observations:
+  - Installed binary SHA256: `E2C4F96EEABAC6474AA7F36B609D0DD2BBF804EFDEE74A1087D4AD9B4DE81B85`.
+  - Runner exit: `0`.
+  - Aggregate `run_validity=valid`, `score_ready=True`, `score_valid=True`.
+  - Matrix readiness still failed: `e2_evidence_readiness=False`, `valid_pairs=0`, `excluded_pairs=1`, `non_e2_reports=1`.
+  - Utility outcome: `standard_better=1`; failure taxonomy: `agent_patch_wrong`.
+  - TaskSpace outcome: `business_success=False`, `public_validation_exit_code=1`, `hidden_oracle_exit_code=1`.
+  - Cache trace summary: `provider_request_count=9`, `trace_coverage=1`, `request_2_plus_hit_rate=0.991157`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=9`, `cache_usage_missing_count=0`.
+  - Action-map observability shows `node-1 inspect_code_context` completed and `node-2 implement_solution` still running.
+  - The implementation node had no successful edit result; two `apply_patch` tool results failed before producing a result. No validation node, failed validation state commit, or `state_commit` was reached in this live run.
+- Interpretation:
+  - E-030 is validated locally but was not exercised by this L2 live run because the workflow failed earlier in implementation patch application.
+  - Cache behavior remains stable and within the cache-hit acceptance criteria.
+  - The next live correctness blocker is now earlier than failed-validation recovery: action-contract patch application can fail repeatedly in `implement_solution` without a successful edit or transition.
+- Supports:
+  - H-006

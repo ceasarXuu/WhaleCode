@@ -4871,6 +4871,7 @@ preview:\n\
         }
 
         let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        self.validate_state_commit_validation_failure_rework(&map_id, &input)?;
         let commit_id = require_nonempty_owned("commit_id", input.commit_id)?;
         if let Some(previous) = self.applied_state_commits.get(&commit_id) {
             let mut outcome = previous.clone();
@@ -5199,6 +5200,55 @@ preview:\n\
         self.applied_state_commits
             .insert(outcome.commit_id.clone(), outcome.clone());
         Ok((outcome, events))
+    }
+
+    fn validate_state_commit_validation_failure_rework(
+        &self,
+        map_id: &str,
+        input: &ActionMapStateCommitInput,
+    ) -> Result<(), String> {
+        let Some(current_node_id) = self.current_main_node_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return Ok(());
+        };
+        let Some(current_node) = map.nodes.get(current_node_id) else {
+            return Ok(());
+        };
+        if !matches!(
+            current_node.kind,
+            NodeKind::SmokeTest | NodeKind::RegressionTest
+        ) {
+            return Ok(());
+        }
+        let marks_current_failed_validation = input.result_validities.iter().any(|validity| {
+            let Some(result_validity) = ResultValidity::from_str(&validity.validity) else {
+                return false;
+            };
+            if result_validity == ResultValidity::Accepted {
+                return false;
+            }
+            let result_id =
+                self.resolve_result_id_or_latest_node_result(map_id, validity.result_id.as_str());
+            map.results.get(&result_id).is_some_and(|result| {
+                result.node_id == current_node_id
+                    && matches!(
+                        result.action_class,
+                        Some(ActionClass::Test | ActionClass::Build)
+                    )
+                    && result.tool_success != Some(true)
+            })
+        });
+        if !marks_current_failed_validation {
+            return Ok(());
+        }
+        if state_commit_has_validation_failure_rework(input, map, current_node_id) {
+            return Ok(());
+        }
+        Err(format!(
+            "TaskSpace validation node `{current_node_id}` recorded a failed test/build result without a rework transition. In the same state_commit, either block `{current_node_id}` with sections.blockers, or finish `{current_node_id}` and create or bind an implement_solution node that depends on the failed validation evidence before reading or editing more code."
+        ))
     }
 
     pub(crate) fn mark_result_validity_for_main(
@@ -11558,6 +11608,48 @@ fn node_has_result_id(node: &MapNode, result_id: &str) -> bool {
     node.result_context
         .iter()
         .any(|result_ref| result_ref.id == result_id)
+}
+
+fn state_commit_has_validation_failure_rework(
+    input: &ActionMapStateCommitInput,
+    map: &ActionMapInstance,
+    current_node_id: &str,
+) -> bool {
+    if input
+        .blockers
+        .iter()
+        .any(|blocker| blocker.node_id == current_node_id)
+    {
+        return true;
+    }
+    if input.nodes.iter().any(|node| {
+        node.kind == NodeKind::ImplementSolution
+            && (node.dependency_node_ids.is_empty()
+                || node
+                    .dependency_node_ids
+                    .iter()
+                    .any(|dependency| dependency == current_node_id))
+    }) {
+        return true;
+    }
+    if input.active_node_id.as_deref().is_some_and(|node_id| {
+        map.nodes
+            .get(node_id)
+            .is_some_and(|node| node.kind == NodeKind::ImplementSolution)
+    }) {
+        return true;
+    }
+    input.finished_nodes.iter().any(|finished| {
+        finished.node_id == current_node_id
+            && (finished.next_node_id.as_deref().is_some_and(|node_id| {
+                map.nodes
+                    .get(node_id)
+                    .is_some_and(|node| node.kind == NodeKind::ImplementSolution)
+            }) || finished
+                .next_node_draft
+                .as_ref()
+                .is_some_and(|draft| draft.kind == NodeKind::ImplementSolution))
+    })
 }
 
 fn map_has_successful_edit(map: &ActionMapInstance) -> bool {
@@ -21083,6 +21175,139 @@ mod tests {
         state
             .block_main_node(owner, &node_id, "pytest failed".to_string())
             .expect("failed validation can be blocked");
+    }
+
+    #[test]
+    fn state_commit_rejects_failed_validation_result_without_rework_transition() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, _node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "pytest failed".to_string(),
+            )
+            .expect("failed test result records")
+            .expect("test result id");
+
+        let error = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-failed-validation-only".to_string(),
+                    result_validities: vec![ActionMapStateCommitResultValidityInput {
+                        result_id: result_id.clone(),
+                        validity: "invalid".to_string(),
+                        validity_reason: "pytest failed".to_string(),
+                        claims: Vec::new(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some(result_id),
+                            validator_ref: Some("pytest".to_string()),
+                            ..Default::default()
+                        }],
+                        changed_artifacts: Vec::new(),
+                        validator_refs: vec!["pytest".to_string()],
+                        remaining_uncertainty: Vec::new(),
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect_err("failed validation state-only commit must be rejected");
+
+        assert!(error.contains("failed test/build result without a rework transition"));
+        assert!(error.contains("implement_solution"));
+    }
+
+    #[test]
+    fn state_commit_accepts_failed_validation_result_with_rework_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "pytest failed".to_string(),
+            )
+            .expect("failed test result records")
+            .expect("test result id");
+
+        let (outcome, _) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-failed-validation-rework".to_string(),
+                    result_validities: vec![ActionMapStateCommitResultValidityInput {
+                        result_id: result_id.clone(),
+                        validity: "invalid".to_string(),
+                        validity_reason: "pytest failed".to_string(),
+                        claims: Vec::new(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some(result_id),
+                            validator_ref: Some("pytest".to_string()),
+                            ..Default::default()
+                        }],
+                        changed_artifacts: Vec::new(),
+                        validator_refs: vec!["pytest".to_string()],
+                        remaining_uncertainty: Vec::new(),
+                    }],
+                    nodes: vec![ActionMapStateCommitNodeInput {
+                        kind: NodeKind::ImplementSolution,
+                        title: "Repair failed validation".to_string(),
+                        context_summary: "Fix the parser and pricing failures observed by pytest."
+                            .to_string(),
+                        dependency_node_ids: vec![node_id],
+                        bind_current: false,
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect("failed validation can create rework node");
+
+        assert!(
+            outcome.rejected_sections.is_empty(),
+            "{:?}",
+            outcome.rejected_sections
+        );
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
+        assert_eq!(
+            outcome.accepted_sections,
+            vec!["result_validities", "nodes"]
+        );
+        let map = state.active_map().expect("active map");
+        assert!(
+            map.nodes
+                .values()
+                .any(|node| node.kind == NodeKind::ImplementSolution
+                    && node.title == "Repair failed validation")
+        );
     }
 
     #[test]
