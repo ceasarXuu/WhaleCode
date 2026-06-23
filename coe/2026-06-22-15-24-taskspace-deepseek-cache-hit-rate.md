@@ -627,3 +627,27 @@
   - This fix makes the cache-optimized transport preserve the same node-budget pressure semantics locally, without reintroducing provider-native tool schemas.
 - Supports:
   - H-006
+
+## Evidence E-027: E2/L2 rerun after late-inspect enforcement keeps cache passing but still fails correctness
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Rebuilt and installed `whale.exe` after E-026.
+  - Ran `run-taskspace-e2-matrix.ps1` for `multi-file-order-pipeline` with run root `target\deepseek-cache-fix-validation\e2-l2-probe-late-inspect`.
+  - Inspected matrix, aggregate, pair report, cache trace summary, and action trace.
+- Observations:
+  - Installed binary SHA256: `d68871613265397f784b24a75d48180229955fb0b0ba9271bbb23ac781e59983`.
+  - Runner exit: `0`.
+  - Aggregate `run_validity=valid`, `score_ready=True`, `score_valid=True`.
+  - Matrix readiness still failed: `e2_evidence_readiness=False`, `valid_pairs=0`, `excluded_pairs=1`, `non_e2_reports=1`.
+  - Utility outcome: `taskspace_worse=1`; failure taxonomy: `agent_patch_wrong`.
+  - TaskSpace outcome: `business_success=False`, `public_validation_exit_code=1`, `hidden_oracle_exit_code=1`.
+  - Cache trace summary: `provider_request_count=9`, `trace_coverage=1`, `request_2_plus_hit_rate=0.991693`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=9`, `cache_usage_missing_count=0`.
+  - Action trace includes `TaskSpaceActionV1 rejected: node_budget_transition_required:inspect_code_context:list_files`, proving the new validator path executed.
+  - `taskspace_control_count=0`, `state_commit_count=0`, `spawn_agent_call_count=0`; graph still reports `ImplementationDependsOnParserAndPricing=false` and `ParallelInspectTrackCount=0`.
+- Interpretation:
+  - E-026 improved harness cleanliness and preserved the cache gate, but did not close Phase 4 L2 correctness.
+  - The remaining Phase 4 gap is model/workflow compliance after validator recovery: action-contract mode can reject late inspect reads, but the next response path still needs to reliably transition into implementation with accepted parser/pricing evidence.
+  - This is not a regression of the DeepSeek cache fix; it is a separate action-contract workflow completeness blocker for E2/L2 acceptance.
+- Supports:
+  - H-006

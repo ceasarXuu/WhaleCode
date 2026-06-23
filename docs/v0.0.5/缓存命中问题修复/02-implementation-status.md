@@ -100,6 +100,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
   - refreshed installed `whale.exe` first because the previous attempt was blocked by `whale_binary_stale_for_codex_source`.
   - cache gate: `trace_coverage=1`, `request_2_plus_hit_rate=0.990798`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=10`.
   - E2 readiness: not passed; TaskSpace changed only `src/order_pipeline/pricing.py` and failed parser/invoice validation with `agent_patch_wrong`.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-e2-matrix.ps1 -Scenarios multi-file-order-pipeline -RequiredLevels L2 -Repeats 1 -RunRoot target\deepseek-cache-fix-validation\e2-l2-probe-late-inspect ...`
+  - cache gate: `trace_coverage=1`, `request_2_plus_hit_rate=0.991693`, `native_tools_schema_hot_path_count=0`, `tool_free_action_contract_count=9`.
+  - E2 readiness: not passed; late-inspect validator rejection was observed, but TaskSpace still failed correctness with `agent_patch_wrong`.
 
 反向验证：
 
