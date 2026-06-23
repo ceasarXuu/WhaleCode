@@ -93,6 +93,7 @@ Evidence files:
 - `target/deepseek-cache-fix-validation/deepseek-anchor-request2-l3/deepseek-cache-fix-verification.md`
 - `target/deepseek-cache-fix-validation/deepseek-anchor-request2-l3/deepseek-cache-fix-verification.json`
 - `target/deepseek-cache-fix-validation/benchmark-20260623-115451/single-file-fast-fix/20260623-115451-777`
+- `docs/v0.0.5/缓存命中问题修复/03-production-cache-probe-20260623.md`
 
 ## 6. Scope Guard
 

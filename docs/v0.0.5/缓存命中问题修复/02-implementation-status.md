@@ -99,6 +99,8 @@ cargo build -p codex-cli --bin whale
 
 v0.0.5 TaskSpace DeepSeek 缓存命中问题当前状态：缓存 gate 已通过 live 验证。
 
+2026-06-23 production-style probe also passed on three real benchmark samples with two TaskSpace rounds each. Evidence: `docs/v0.0.5/缓存命中问题修复/03-production-cache-probe-20260623.md`.
+
 后续变更不得移除以下 gate：
 
 - `effective_taskspace_cache_hit_rate >= 0.95`

