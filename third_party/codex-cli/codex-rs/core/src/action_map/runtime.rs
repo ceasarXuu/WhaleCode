@@ -643,7 +643,7 @@ pub(crate) fn taskspace_active_budget_for_route(
     let mut budget = default_budget_common(profile_name, route_mode);
     match route_mode {
         TaskSpaceRouteMode::Thin => {
-            budget.max_rollout_model_requests = 10;
+            budget.max_rollout_model_requests = 8;
             budget.max_model_requests_per_node = 3;
             budget.max_spawn_agent_calls = 0;
             budget.max_subagent_results = 0;
@@ -12329,7 +12329,7 @@ mod tests {
     }
 
     #[test]
-    fn taskspace_active_budget_thin_route_uses_ten_requests_and_no_spawn() {
+    fn taskspace_active_budget_thin_route_uses_eight_requests_and_no_spawn() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let events = state
@@ -12337,7 +12337,7 @@ mod tests {
 
         let budget = state.active_budget().expect("active budget");
         assert_eq!(budget.route_mode, TaskSpaceRouteMode::Thin);
-        assert_eq!(budget.max_rollout_model_requests, 10);
+        assert_eq!(budget.max_rollout_model_requests, 8);
         assert_eq!(budget.max_model_requests_per_node, 3);
         assert_eq!(budget.max_spawn_agent_calls, 0);
         assert_eq!(budget.max_nodes, 4);

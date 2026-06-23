@@ -404,3 +404,62 @@ runtime_bottleneck_classification = agent_bound
 Action: keep Phase A focused on typed active budget and request/node budget
 evidence. Route the open leaf follow-up into Phase F/H graph hygiene, and route
 the walltime follow-up into Phase H runtime bottleneck analysis before C/E3.
+
+## A.12 Closeout evidence
+
+Phase A implementation closeout was verified after restoring the thin-route
+contract to 8 rollout model requests and fixing terminal action handling at the
+provider budget hard stop.
+
+Code fixes:
+
+```text
+TaskSpaceRouteMode::Thin max_rollout_model_requests = 8
+final_answer/blocked actions are terminal and cannot be auto-rewritten into finish_node recovery
+terminal action state clears needs_follow_up and saw_actionable_output before actionability scoring
+```
+
+Local acceptance:
+
+```text
+cargo test -p codex-core taskspace_terminal --lib
+cargo test -p codex-core taskspace_active_budget --lib
+cargo test -p codex-core provider_request_budget --lib
+pwsh -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1
+cargo build -p codex-cli --bin whale --locked
+```
+
+B-tier diagnostic evidence:
+
+```text
+run = target/phase-a-complete-B-rerun44/single-file-fast-fix/20260624-054856-278
+utility_direction = both_success
+outcome_taskspace = solved
+business_success = True
+exec_exit_code = 0
+public_validation_exit_code = 0
+hidden_oracle_exit_code = 0
+taskspace_tool_call_ratio = 0.4
+taskspace_wall_time_ratio = 1.42
+request_2_plus_hit_rate = 0.989818
+trace_coverage = 1
+cache_usage_missing_count = 0
+native_tools_schema_hot_path_count = 0
+tool_free_action_contract_count = 8
+provider_request_hook_coverage = 100
+request_phase_attribution_coverage = 100
+active_budget_source = runtime
+route_mode = thin
+max_rollout_model_requests = 8
+blocked_by_budget_samples_count = 0
+```
+
+Remaining non-Phase-A follow-up:
+
+```text
+open_leaf_nodes = 1
+```
+
+Interpretation: Phase A active-budget contract and B-tier business/cache gates
+are complete. The remaining open leaf is graph hygiene and remains routed to
+Phase F/H before release-like or E3 claims.

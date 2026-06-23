@@ -2938,6 +2938,55 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_terminal_actions_are_detected() {
+        let final_answer = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"final_answer","node_id":"node-3","args":{"message":"All tests pass."}}"#,
+        )
+        .expect("valid final answer");
+        let blocked = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"blocked","node_id":"node-3","args":{"reason":"budget exhausted"}}"#,
+        )
+        .expect("valid blocked action");
+        let read_file = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-3","args":{"path":"README.md"}}"#,
+        )
+        .expect("valid read action");
+
+        assert!(taskspace_action_is_terminal(&final_answer));
+        assert!(taskspace_action_is_terminal(&blocked));
+        assert!(!taskspace_action_is_terminal(&read_file));
+    }
+
+    #[test]
+    fn taskspace_terminal_action_clears_follow_up_state() {
+        let mut needs_follow_up = true;
+        let mut saw_actionable_output = true;
+        let mut last_agent_message =
+            Some("A successful implementation edit is already recorded.".to_string());
+
+        apply_taskspace_terminal_action_message(
+            &mut needs_follow_up,
+            &mut saw_actionable_output,
+            &mut last_agent_message,
+            "All tests pass.".to_string(),
+        );
+
+        assert!(!needs_follow_up);
+        assert!(!saw_actionable_output);
+        assert_eq!(last_agent_message.as_deref(), Some("All tests pass."));
+        assert_eq!(
+            classify_taskspace_provider_response_actionability(
+                needs_follow_up,
+                saw_actionable_output,
+                true,
+                false,
+                false,
+            ),
+            TaskspaceProviderResponseActionability::FinalCandidate
+        );
+    }
+
+    #[test]
     fn taskspace_action_contract_run_test_prefixes_bare_pytest_file() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"run_test","node_id":"node-1","args":{"command":"pytest test_tax_calc.py -v"}}"#,
@@ -4934,7 +4983,7 @@ async fn should_finish_node_after_successful_required_action(
     snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
     sess: &Session,
 ) -> bool {
-    if taskspace_action_is_finish_node_control(action) {
+    if taskspace_action_is_finish_node_control(action) || taskspace_action_is_terminal(action) {
         return false;
     }
     match snapshot.node_kind.as_deref() {
@@ -5644,6 +5693,21 @@ fn taskspace_action_final_message(action: &TaskSpaceActionV1) -> Option<String> 
     }
 }
 
+fn taskspace_action_is_terminal(action: &TaskSpaceActionV1) -> bool {
+    taskspace_action_final_message(action).is_some()
+}
+
+fn apply_taskspace_terminal_action_message(
+    needs_follow_up: &mut bool,
+    saw_actionable_output: &mut bool,
+    last_agent_message: &mut Option<String>,
+    final_message: String,
+) {
+    *needs_follow_up = false;
+    *saw_actionable_output = false;
+    *last_agent_message = Some(final_message);
+}
+
 async fn record_taskspace_observed_implement_edit(
     sess: &Arc<Session>,
     turn_context: &Arc<TurnContext>,
@@ -5940,6 +6004,7 @@ async fn try_run_sampling_request(
                 {
                     last_agent_message = Some(raw_text.to_string());
                 }
+                let mut taskspace_terminal_action_observed = false;
                 if action_contract_mode
                     && let Some(raw_text) = raw_assistant_text.as_deref()
                     && !raw_text.trim().is_empty()
@@ -6026,7 +6091,13 @@ async fn try_run_sampling_request(
                             }
                         }
                         Ok((_action, Some(final_message), None)) => {
-                            last_agent_message = Some(final_message);
+                            apply_taskspace_terminal_action_message(
+                                &mut needs_follow_up,
+                                &mut saw_actionable_output,
+                                &mut last_agent_message,
+                                final_message,
+                            );
+                            taskspace_terminal_action_observed = true;
                         }
                         Ok((_action, None, None)) => {}
                         Err(reason) => {
@@ -6037,7 +6108,9 @@ async fn try_run_sampling_request(
                         }
                     }
                 }
-                needs_follow_up |= output_result.needs_follow_up;
+                if !taskspace_terminal_action_observed {
+                    needs_follow_up |= output_result.needs_follow_up;
+                }
                 // todo: remove before stabilizing multi-agent v2
                 if preempt_for_mailbox_mail && sess.mailbox_rx.lock().await.has_pending() {
                     break Ok(SamplingRequestResult {
