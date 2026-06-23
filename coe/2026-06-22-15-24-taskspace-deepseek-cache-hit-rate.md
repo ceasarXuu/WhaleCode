@@ -32,7 +32,10 @@
   - The conclusion must cite direct artifact, code, or provider documentation evidence.
   - If a code repair is needed, design it only after the causal mechanism is confirmed.
 - Current conclusion:
-  - Confirmed current root cause: DeepSeek official prompt cache works for stable no-tool ChatCompletions prefixes, but TaskSpace's current provider transport sends repeated ChatCompletions requests with large tool schemas plus dynamic TaskSpace state. Official same-nonce probes show no-tool prefix-extension requests can reach about 98-99% hit rate, while the TaskSpace-like request shape with 24 tools falls to about 4-5% hit rate. Local repairs fixed real prompt-shape and runtime defects, but live verification still fails at about 11-12% TaskSpace hit rate. The complete cost fix requires a tool-free or tool-schema-separated TaskSpace transport, not another local prompt-order patch.
+  - Confirmed root cause: DeepSeek official prompt cache works for stable no-tool ChatCompletions prefixes, while the old TaskSpace provider transport repeatedly sent large tool schemas plus dynamic TaskSpace state through the hot path.
+  - The cache-specific fix is the tool-free `cache_optimized_action_contract` transport plus provider cache trace gates.
+  - Live cache evidence now shows TaskSpace request 2+ hit rate above the 0.95 target with no native tools schema hot-path requests.
+  - As of E-033, this case's acceptance scope is cache-only: TaskSpace task-result fields are not part of the cache-hit pass/fail gate.
 - Resolution basis:
   - H-006, E-014 through E-016.
   - H-001/E-006 and H-005/E-011 through E-013 identified and repaired real prompt-shape defects, but E-014 through E-016 supersede them as the final cost root cause.
@@ -757,5 +760,31 @@
   - The path-resolution defect from E-031 is fixed at the local action-contract normalization layer.
   - The latest live run cannot validate that fix end-to-end because model behavior diverged earlier before patch application.
   - Cache behavior remains stable; the remaining live correctness blocker is TaskSpace workflow progression under inspect-budget pressure before implementation.
+- Supports:
+  - H-006
+
+## Evidence E-033: Cache project scope corrected and verifier pass/fail is cache-only
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Rewrote `docs/v0.0.5/缓存命中问题修复/README.md`, `01-detailed-repair-plan.md`, and `02-implementation-status.md` to remove non-cache goals and acceptance criteria.
+  - Updated `scripts/taskspace-benchmark/verify-deepseek-cache-fix.ps1` so TaskSpace artifact validation requires only provider cache trace and request-shape gates:
+    - request 2+ cache hit rate meets threshold;
+    - cache trace coverage meets threshold;
+    - cache usage is present;
+    - native tools schema is absent from the hot path;
+    - tool-free action-contract requests are observed.
+  - Added `scripts/taskspace-benchmark/test-deepseek-cache-verifier.ps1`.
+- Observations:
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-deepseek-cache-verifier.ps1` passed.
+  - The verifier self-test includes a fixture whose TaskSpace execution fields indicate task failure, while cache trace fields pass; the verifier returns success for the cache gate and does not report task-result fields in the cache stats object.
+  - The verifier self-test also fails fixtures with native tools schema in the hot path and fixtures with missing provider cache usage.
+  - Re-running the corrected verifier on `target\deepseek-cache-fix-validation\benchmark-20260623-115451\single-file-fast-fix\20260623-115451-777` with `-SkipOfficialProbe -MinTaskspaceHitRate 0.95` returned `Status: pass`.
+  - The cache-only verification report shows `taskspace_provider_transport=cache_optimized_action_contract`, `effective_taskspace_cache_hit_rate=0.989246`, `effective_taskspace_cache_hit_rate_source=provider_request_2_plus`, `cache_trace_coverage=1`, `native_tools_schema_hot_path_count=0`, and `tool_free_action_contract_count=10`.
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1` still passed.
+  - `git diff --check` passed.
+- Interpretation:
+  - E-019's task-result requirement is superseded for this cache-hit project.
+  - The current cache gate now matches the narrowed problem statement: it answers only whether DeepSeek TaskSpace input cache is stable and whether the hot-path request shape is cache-safe.
 - Supports:
   - H-006

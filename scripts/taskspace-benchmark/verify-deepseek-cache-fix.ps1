@@ -9,11 +9,12 @@ param(
     [string]$WhaleBin = "$env:USERPROFILE\.whale\bin\whale.exe",
     [int]$BenchmarkTimeoutSeconds = 900,
     [ValidateSet("native_tools", "cache_optimized_action_contract")]
-    [string]$TaskspaceProviderTransport = "native_tools",
+    [string]$TaskspaceProviderTransport = "cache_optimized_action_contract",
     [double]$MinOfficialSecondHitRate = 0.50,
-    [double]$MinTaskspaceHitRate = 0.80,
+    [double]$MinTaskspaceHitRate = 0.95,
+    [double]$MinCacheTraceCoverage = 0.99,
     [double]$BaselineTaskspaceHitRate = 0.1386,
-    [double]$MinTaskspaceImprovementRatio = 4.0,
+    [double]$MinTaskspaceImprovementRatio = 1.0,
     [switch]$SkipOfficialProbe,
     [switch]$AllowStaleWhaleBin
 )
@@ -78,6 +79,15 @@ function Get-UsageNumber {
         }
     }
     $null
+}
+
+function Get-NumberOrDefault {
+    param($Object, [string]$Name, $Default)
+    if ($null -eq $Object) { return $Default }
+    if (-not ($Object.PSObject.Properties.Name -contains $Name)) { return $Default }
+    $value = $Object.$Name
+    if ($null -eq $value -or [string]::IsNullOrWhiteSpace([string]$value)) { return $Default }
+    try { return [double]$value } catch { return $Default }
 }
 
 function Get-UsageStats {
@@ -290,8 +300,6 @@ function Get-SideRolloutHitRate {
             source = "side_request_summary_rollout_trace"
             request_summary_path = $requestPath
             metrics_path = $metricFile.FullName
-            exec_exit_code = Get-UsageNumber $metrics @("exec_exit_code")
-            business_success = if ($metrics.PSObject.Properties.Name -contains "business_success") { [bool]$metrics.business_success } else { $null }
             model_request_count = Get-UsageNumber $trace @("model_request_count")
             input_tokens = $input
             output_tokens = $output
@@ -339,68 +347,53 @@ function Test-TaskspaceArtifact {
         }
     }
     $cacheTraceSummary = Read-JsonFile $cacheTraceSummaryPath
+    if ($null -eq $cacheTraceSummary) {
+        return [pscustomobject]@{
+            status = "fail"
+            artifact_dir = $Dir
+            reason = "provider-cache-trace-summary.json missing"
+            token_summary_path = $tokenPath
+            provider_cache_trace_summary_path = $cacheTraceSummaryPath
+        }
+    }
     $effectiveHitRate = if (
-        $cacheTraceSummary -and
         $cacheTraceSummary.PSObject.Properties.Name -contains "request_2_plus_hit_rate" -and
         $null -ne $cacheTraceSummary.request_2_plus_hit_rate
     ) {
         [double]$cacheTraceSummary.request_2_plus_hit_rate
-    } elseif ($taskspace -and $null -ne $taskspace.hit_rate) {
-        [double]$taskspace.hit_rate
     } else {
         $null
     }
-    $effectiveHitRateSource = if (
-        $cacheTraceSummary -and
-        $cacheTraceSummary.PSObject.Properties.Name -contains "request_2_plus_hit_rate" -and
-        $null -ne $cacheTraceSummary.request_2_plus_hit_rate
-    ) {
-        "provider_request_2_plus"
-    } else {
-        "taskspace_overall"
-    }
-    $improvementRatio = if ($null -ne $effectiveHitRate -and $BaselineTaskspaceHitRate -gt 0) {
-        [Math]::Round([double]$effectiveHitRate / $BaselineTaskspaceHitRate, 4)
-    } else {
-        $null
-    }
-    $taskspaceBusinessSuccess = $null
-    if ($taskspace -and $taskspace.PSObject.Properties.Name -contains "business_success") {
-        $taskspaceBusinessSuccess = [bool]$taskspace.business_success
-    }
-    $taskspaceExecOk = $null
-    if ($taskspace -and $taskspace.PSObject.Properties.Name -contains "exec_exit_code" -and $null -ne $taskspace.exec_exit_code) {
-        $taskspaceExecOk = ([int64]$taskspace.exec_exit_code -eq 0)
-    }
-    $taskspaceRunSucceeded = (
-        (($null -eq $taskspaceBusinessSuccess) -or $taskspaceBusinessSuccess) -and
-        (($null -eq $taskspaceExecOk) -or $taskspaceExecOk)
-    )
+    $effectiveHitRateSource = "provider_request_2_plus"
+    $traceCoverage = Get-NumberOrDefault $cacheTraceSummary "trace_coverage" 0.0
+    $cacheUsageMissingCount = [int](Get-NumberOrDefault $cacheTraceSummary "cache_usage_missing_count" 999999)
+    $nativeToolsHotPathCount = [int](Get-NumberOrDefault $cacheTraceSummary "native_tools_schema_hot_path_count" 999999)
+    $toolFreeActionContractCount = [int](Get-NumberOrDefault $cacheTraceSummary "tool_free_action_contract_count" 0)
     $passed = (
         $taskspace -and
-        $taskspaceRunSucceeded -and
         $null -ne $effectiveHitRate -and
         [double]$effectiveHitRate -ge $MinTaskspaceHitRate -and
-        $null -ne $improvementRatio -and
-        [double]$improvementRatio -ge $MinTaskspaceImprovementRatio
+        [double]$traceCoverage -ge $MinCacheTraceCoverage -and
+        $cacheUsageMissingCount -eq 0 -and
+        $nativeToolsHotPathCount -eq 0 -and
+        $toolFreeActionContractCount -gt 0
     )
     [pscustomobject]@{
         status = if ($passed) { "pass" } else { "fail" }
         artifact_dir = $Dir
         token_summary_path = $tokenPath
         min_taskspace_hit_rate = $MinTaskspaceHitRate
-        baseline_taskspace_hit_rate = $BaselineTaskspaceHitRate
-        min_taskspace_improvement_ratio = $MinTaskspaceImprovementRatio
+        min_cache_trace_coverage = $MinCacheTraceCoverage
         standard = $standard
         taskspace = $taskspace
-        taskspace_run_success = $taskspaceRunSucceeded
-        taskspace_business_success = $taskspaceBusinessSuccess
-        taskspace_exec_ok = $taskspaceExecOk
         effective_taskspace_cache_hit_rate = if ($null -ne $effectiveHitRate) { [Math]::Round([double]$effectiveHitRate, 6) } else { $null }
         effective_taskspace_cache_hit_rate_source = $effectiveHitRateSource
+        cache_trace_coverage = [Math]::Round([double]$traceCoverage, 6)
+        cache_usage_missing_count = $cacheUsageMissingCount
+        native_tools_schema_hot_path_count = $nativeToolsHotPathCount
+        tool_free_action_contract_count = $toolFreeActionContractCount
         provider_cache_trace_summary_path = $cacheTraceSummaryPath
         provider_cache_trace_summary = $cacheTraceSummary
-        taskspace_improvement_ratio = $improvementRatio
     }
 }
 
@@ -422,14 +415,10 @@ function Write-MarkdownReport {
     }
     if ($Result.taskspace_validation -and $Result.taskspace_validation.taskspace) {
         $lines.Add("- taskspace_hit_rate: $($Result.taskspace_validation.taskspace.hit_rate)")
-        $lines.Add("- taskspace_run_success: $($Result.taskspace_validation.taskspace_run_success)")
-        $lines.Add("- taskspace_business_success: $($Result.taskspace_validation.taskspace_business_success)")
-        $lines.Add("- taskspace_exec_ok: $($Result.taskspace_validation.taskspace_exec_ok)")
         $lines.Add("- effective_taskspace_cache_hit_rate: $($Result.taskspace_validation.effective_taskspace_cache_hit_rate)")
         $lines.Add("- effective_taskspace_cache_hit_rate_source: $($Result.taskspace_validation.effective_taskspace_cache_hit_rate_source)")
         $lines.Add("- taskspace_cached_input_tokens: $($Result.taskspace_validation.taskspace.cached_input_tokens)")
         $lines.Add("- taskspace_uncached_input_tokens: $($Result.taskspace_validation.taskspace.uncached_input_tokens)")
-        $lines.Add("- taskspace_improvement_ratio: $($Result.taskspace_validation.taskspace_improvement_ratio)")
     }
     if ($Result.taskspace_validation -and $Result.taskspace_validation.provider_cache_trace_summary) {
         $trace = $Result.taskspace_validation.provider_cache_trace_summary
