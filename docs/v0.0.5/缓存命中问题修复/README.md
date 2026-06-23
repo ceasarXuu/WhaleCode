@@ -24,15 +24,7 @@
 TaskSpace 在 DeepSeek 官方 API 上的 input cache 命中率必须稳定达到 95%+。
 ```
 
-本项目不把以下内容作为目标、验收项或继续修复理由：
-
-- TaskSpace 节点预算策略；
-- TaskSpace 任务完成结果；
-- TaskSpace 总 input token 是否接近 standard；
-- `taskspace_uncached_input_tokens <= 1.2x standard_uncached_input_tokens` 之类的总量比较；
-- 任何非缓存执行链路问题。
-
-如果缓存验证过程中暴露这些问题，只能记录为独立问题，不能作为本缓存项目继续扩张的依据。
+本项目的目标、验收和证据只围绕 DeepSeek input cache 命中率与 provider-visible 请求形态。
 
 ## 2. Confirmed Root Cause
 
@@ -47,7 +39,7 @@ TaskSpace 低命中的根因是请求形态：
 = 大量稳定内容无法作为同一 provider prefix 稳定复用
 ```
 
-standard 模式和 TaskSpace 的区别不是“预算好坏”，而是 TaskSpace 更容易在多轮请求中反复携带大 tools schema 与动态状态，破坏 DeepSeek 可复用前缀。
+standard 模式和 TaskSpace 的缓存差异来自 provider-visible 请求形态：TaskSpace 更容易在多轮请求中反复携带大 tools schema 与动态状态，破坏 DeepSeek 可复用前缀。
 
 ## 3. Fix Direction
 
@@ -90,8 +82,8 @@ standard 模式和 TaskSpace 的区别不是“预算好坏”，而是 TaskSpac
 
 Evidence files:
 
-- `target/deepseek-cache-fix-validation/deepseek-anchor-request2-l3/deepseek-cache-fix-verification.md`
-- `target/deepseek-cache-fix-validation/deepseek-anchor-request2-l3/deepseek-cache-fix-verification.json`
+- `target/deepseek-cache-fix-validation/scope-corrected-cache-only-verify/deepseek-cache-fix-verification.md`
+- `target/deepseek-cache-fix-validation/scope-corrected-cache-only-verify/deepseek-cache-fix-verification.json`
 - `target/deepseek-cache-fix-validation/benchmark-20260623-115451/single-file-fast-fix/20260623-115451-777`
 - `docs/v0.0.5/缓存命中问题修复/03-production-cache-probe-20260623.md`
 
@@ -100,6 +92,6 @@ Evidence files:
 后续执行必须遵守：
 
 1. 只修复或验证与 DeepSeek input cache 命中率直接相关的请求形态、cache trace、usage 字段解析、cache gate。
-2. 任何非缓存失败不得阻塞缓存验收，只能阻塞其自身所属项目。
-3. 缓存验证脚本不得把任务成功、validation 结果、节点预算、总 token 比例作为 pass/fail 条件。
-4. 文档、脚本和报告必须明确区分“缓存 gate”和其他 gate。
+2. 缓存验收只读取本文列出的 cache summary fields。
+3. 缓存验证脚本的 pass/fail 条件必须只来自 DeepSeek cache usage 与 request shape。
+4. 文档、脚本和报告必须只声明缓存 gate。

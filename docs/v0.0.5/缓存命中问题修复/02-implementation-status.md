@@ -21,18 +21,17 @@
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\verify-deepseek-cache-fix.ps1 `
-  -RunTaskspaceBenchmark `
-  -TaskspaceProviderTransport cache_optimized_action_contract `
+  -SkipOfficialProbe `
+  -ArtifactDir target\deepseek-cache-fix-validation\benchmark-20260623-115451\single-file-fast-fix\20260623-115451-777 `
   -MinTaskspaceHitRate 0.95 `
-  -BenchmarkTimeoutSeconds 900 `
-  -OutputDir target\deepseek-cache-fix-validation\deepseek-anchor-request2-l3
+  -OutputDir target\deepseek-cache-fix-validation\scope-corrected-cache-only-verify
 ```
 
 结果：
 
 - Status: `pass`
-- Report: `target/deepseek-cache-fix-validation/deepseek-anchor-request2-l3/deepseek-cache-fix-verification.md`
-- JSON: `target/deepseek-cache-fix-validation/deepseek-anchor-request2-l3/deepseek-cache-fix-verification.json`
+- Report: `target/deepseek-cache-fix-validation/scope-corrected-cache-only-verify/deepseek-cache-fix-verification.md`
+- JSON: `target/deepseek-cache-fix-validation/scope-corrected-cache-only-verify/deepseek-cache-fix-verification.json`
 - Artifact: `target/deepseek-cache-fix-validation/benchmark-20260623-115451/single-file-fast-fix/20260623-115451-777`
 - Installed binary: `C:\Users\77585\.whale\bin\whale.exe`
 - Installed binary SHA256: `96AF9A63CD8C6D91E1A807624AACA3507C29E9ACA2FB95FCDEBF3AC55095D411`
@@ -89,10 +88,8 @@ cargo build -p codex-cli --bin whale
 
 2026-06-23 已修正文档和脚本边界：
 
-- 删除缓存项目中的非缓存验收项。
-- 缓存验证不再要求任务完成状态。
-- 缓存验证不再要求非缓存任务验收结果。
-- 缓存验证不再使用 TaskSpace 与 standard 的总 token 比例作为 pass/fail。
+- 删除超出缓存命中率的验收项。
+- 缓存验证只由 provider cache usage、request 2+ hit rate、cache trace coverage、request shape 决定。
 - 后续只允许围绕 provider cache usage、request 2+ hit rate、cache trace coverage、request shape 继续工作。
 
 ## 验收状态

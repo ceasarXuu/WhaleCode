@@ -36,7 +36,7 @@ TaskSpace request 2+ 应复用稳定 provider prefix，并在 DeepSeek 官方 us
 
 ### Gap
 
-旧路径的 native tools schema 和动态消息排列方式不适合作为 DeepSeek TaskSpace 多轮请求热路径。必须改变 provider-visible 请求形态，而不是调整非缓存策略。
+旧路径的 native tools schema 和动态消息排列方式不适合作为 DeepSeek TaskSpace 多轮请求热路径。必须改变 provider-visible 请求形态。
 
 ## 2. Goals
 
@@ -45,20 +45,11 @@ TaskSpace request 2+ 应复用稳定 provider prefix，并在 DeepSeek 官方 us
 | Stable provider prefix | request 2+ 复用稳定输入 | TaskSpace hit rate `0.118437` | `request_2_plus_hit_rate >= 0.95` | provider usage fields |
 | Remove native tools schema churn | 热路径不再反复发送大 tools schema | old path present | `native_tools_schema_hot_path_count == 0` | cache trace |
 | Complete cache observability | 每次 provider 请求可判定命中与请求形态 | partial/manual | `trace_coverage >= 0.99` | provider cache trace |
-| Enforce cache-only gate | 缓存验收不被非缓存指标污染 | mixed gates | cache verifier ignores non-cache pass/fail | verifier selftest |
+| Enforce cache-only gate | 缓存验收只由缓存字段决定 | mixed gates | cache verifier ignores out-of-scope pass/fail | verifier selftest |
 
-## 3. Non-Goals
+## 3. Scope Boundary
 
-本项目明确不处理、不验收、不继续追踪以下事项：
-
-- TaskSpace 节点预算策略；
-- TaskSpace 任务完成结果；
-- 非缓存执行链路问题；
-- TaskSpace 与 standard 的总 input token 比例；
-- request count 与 standard 的比例；
-- aggregate total token 下降目标。
-
-这些事项即使在缓存验证过程中出现，也不属于本项目的修复范围。
+本项目只定义 DeepSeek input cache 命中率与 provider-visible 请求形态的修复、验证和证据。
 
 ## 4. Constraints And Assumptions
 
@@ -67,7 +58,7 @@ TaskSpace request 2+ 应复用稳定 provider prefix，并在 DeepSeek 官方 us
 | DeepSeek 官方 cache usage 字段可信 | official no-tool cache probe | 标记 provider/account/model 层问题 |
 | request 2+ 比整体 hit rate 更适合验收 | 冷启动请求单独排除 | 若 provider 不返回逐请求字段，则缓存项目不能关闭 |
 | 移除 native tools schema 是必要条件 | request shape trace | 若 native tools schema 仍出现，cache gate fail |
-| 缓存验证可以独立于任务是否完成 | verifier selftest | 若脚本再次绑定非缓存结果，视为回归 |
+| 缓存验证只读取 provider cache trace | verifier selftest | 若脚本再次绑定 scope 外结果，视为回归 |
 
 ## 5. Technical Design
 
@@ -148,19 +139,19 @@ runtime 仍必须做基本安全校验，防止模型输出绕过本地工具权
 
 #### Objective
 
-把 v0.0.5 本项目收敛为缓存命中率修复，删除非缓存验收项。
+把 v0.0.5 本项目收敛为缓存命中率修复，删除超出缓存命中率的验收项。
 
 #### Tasks
 
 - 更新 `README.md`、本计划、实现状态文档。
-- 明确禁止把任务完成率、预算策略、总 token 比例作为缓存 gate。
+- 明确缓存 gate 只由 DeepSeek cache usage 与 request shape 决定。
 - 更新验证脚本，使 pass/fail 只由 cache usage 与 request shape 决定。
 
 #### Validation
 
 | Validation Type | Method | Passing Standard |
 |---|---|---|
-| Documentation | `rg` scope audit | 无非缓存验收项 |
+| Documentation | `rg` scope audit | 无超出缓存命中率的验收项 |
 | Script behavior | verifier selftest | 任务失败但缓存达标的 fixture 通过缓存验证 |
 
 ### Phase 1: Cache Trace And Request Shape
@@ -223,7 +214,7 @@ runtime 仍必须做基本安全校验，防止模型输出绕过本地工具权
 
 #### Exit Criteria
 
-缓存 gate 可以独立回答“DeepSeek input cache 命中是否达标”，不受非缓存结果影响。
+缓存 gate 可以独立回答“DeepSeek input cache 命中是否达标”，不读取本文 gate 以外的结果。
 
 ### Phase 4: Live DeepSeek Verification
 

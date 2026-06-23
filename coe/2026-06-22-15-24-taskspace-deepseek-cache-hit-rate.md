@@ -819,3 +819,24 @@
   - This evidence evaluates cache behavior only.
 - Supports:
   - H-006
+
+## Evidence E-035: Scope-drift cleanup removes non-cache side effects from the cache project
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Audited the final engineering state against `docs/v0.0.5/缓存命中问题修复`.
+  - Found three cache-project boundary drifts:
+    - `CacheOptimizedActionContract` raised provider request budget limits in `turn.rs`;
+    - the implementation-status docs still linked the pre-scope-correction verification artifact;
+    - the cache verifier Markdown report still printed TaskSpace cached and uncached total-token fields.
+  - Updated the code and docs to align with the narrowed cache-hit scope.
+- Observations:
+  - `taskspace_transport_budget_limits` now preserves the existing snapshot budget values and no longer branches on provider transport mode.
+  - The action-contract budget regression test now asserts existing budget limits are preserved.
+  - `verify-deepseek-cache-fix.ps1` no longer exposes baseline/improvement parameters or prints TaskSpace cached/uncached total-token fields in Markdown.
+  - `README.md` and `02-implementation-status.md` now reference `target/deepseek-cache-fix-validation/scope-corrected-cache-only-verify`.
+- Interpretation:
+  - The cache repair path is now aligned with the documented scope: request shape, provider cache usage, request 2+ hit rate, trace coverage, and native-tools absence.
+  - Budget behavior and aggregate token-total comparisons are no longer part of the cache-hit repair artifact surface.
+- Supports:
+  - H-006

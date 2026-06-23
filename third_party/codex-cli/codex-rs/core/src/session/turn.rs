@@ -1219,21 +1219,11 @@ fn taskspace_provider_transport_mode_for_request(
 
 fn taskspace_transport_budget_limits(
     snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-    transport_mode: TaskspaceProviderTransportMode,
 ) -> TaskspaceProviderTransportBudgetLimits {
-    match transport_mode {
-        TaskspaceProviderTransportMode::NativeTools => TaskspaceProviderTransportBudgetLimits {
-            max_requests: snapshot.max_requests,
-            max_model_requests_per_node: snapshot.max_model_requests_per_node,
-            post_budget_grace_requests: snapshot.post_budget_grace_requests,
-        },
-        TaskspaceProviderTransportMode::CacheOptimizedActionContract => {
-            TaskspaceProviderTransportBudgetLimits {
-                max_requests: snapshot.max_requests.max(14),
-                max_model_requests_per_node: snapshot.max_model_requests_per_node.max(6),
-                post_budget_grace_requests: snapshot.post_budget_grace_requests.max(2),
-            }
-        }
+    TaskspaceProviderTransportBudgetLimits {
+        max_requests: snapshot.max_requests,
+        max_model_requests_per_node: snapshot.max_model_requests_per_node,
+        post_budget_grace_requests: snapshot.post_budget_grace_requests,
     }
 }
 
@@ -1779,7 +1769,7 @@ async fn run_sampling_request(
         let budget_tool_visibility = provider_budget_snapshot
             .as_ref()
             .map(|snapshot| {
-                let limits = taskspace_transport_budget_limits(snapshot, transport_mode);
+                let limits = taskspace_transport_budget_limits(snapshot);
                 taskspace_provider_tool_visibility_for_budget(
                     snapshot.request_count,
                     limits.max_requests,
@@ -1799,10 +1789,9 @@ async fn run_sampling_request(
         if let Some(snapshot) = provider_budget_snapshot.as_ref()
             && let Some(item) = build_taskspace_provider_budget_guidance_item(
                 snapshot.request_count,
-                taskspace_transport_budget_limits(snapshot, transport_mode).max_requests,
+                taskspace_transport_budget_limits(snapshot).max_requests,
                 snapshot.node_request_count,
-                taskspace_transport_budget_limits(snapshot, transport_mode)
-                    .max_model_requests_per_node,
+                taskspace_transport_budget_limits(snapshot).max_model_requests_per_node,
                 snapshot.request_phase.as_deref(),
                 snapshot.node_kind.as_deref(),
                 snapshot.node_id.as_deref(),
@@ -2760,16 +2749,19 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn taskspace_action_contract_transport_uses_serial_action_budget() {
+    fn taskspace_action_contract_transport_preserves_existing_budget_limits() {
         let snapshot = provider_snapshot("inspect_code_context");
-        let limits = taskspace_transport_budget_limits(
-            &snapshot,
-            TaskspaceProviderTransportMode::CacheOptimizedActionContract,
-        );
+        let limits = taskspace_transport_budget_limits(&snapshot);
 
-        assert_eq!(limits.max_requests, 14);
-        assert_eq!(limits.max_model_requests_per_node, 6);
-        assert_eq!(limits.post_budget_grace_requests, 2);
+        assert_eq!(limits.max_requests, snapshot.max_requests);
+        assert_eq!(
+            limits.max_model_requests_per_node,
+            snapshot.max_model_requests_per_node
+        );
+        assert_eq!(
+            limits.post_budget_grace_requests,
+            snapshot.post_budget_grace_requests
+        );
     }
 
     #[test]
@@ -5341,10 +5333,7 @@ fn taskspace_action_to_tool_call(
             action_name
         ));
     }
-    let limits = taskspace_transport_budget_limits(
-        snapshot,
-        TaskspaceProviderTransportMode::CacheOptimizedActionContract,
-    );
+    let limits = taskspace_transport_budget_limits(snapshot);
     let budget_visibility = taskspace_provider_tool_visibility_for_budget(
         snapshot.request_count,
         limits.max_requests,
@@ -5728,7 +5717,7 @@ async fn try_run_sampling_request(
         .map(|snapshot| {
             let transport_mode =
                 taskspace_provider_transport_mode(&turn_context, Some(snapshot), true);
-            let limits = taskspace_transport_budget_limits(snapshot, transport_mode);
+            let limits = taskspace_transport_budget_limits(snapshot);
             let budget_state = match transport_mode {
                 TaskspaceProviderTransportMode::NativeTools => snapshot.budget_state.clone(),
                 TaskspaceProviderTransportMode::CacheOptimizedActionContract => String::new(),

@@ -13,8 +13,6 @@ param(
     [double]$MinOfficialSecondHitRate = 0.50,
     [double]$MinTaskspaceHitRate = 0.95,
     [double]$MinCacheTraceCoverage = 0.99,
-    [double]$BaselineTaskspaceHitRate = 0.1386,
-    [double]$MinTaskspaceImprovementRatio = 1.0,
     [switch]$SkipOfficialProbe,
     [switch]$AllowStaleWhaleBin
 )
@@ -417,8 +415,6 @@ function Write-MarkdownReport {
         $lines.Add("- taskspace_hit_rate: $($Result.taskspace_validation.taskspace.hit_rate)")
         $lines.Add("- effective_taskspace_cache_hit_rate: $($Result.taskspace_validation.effective_taskspace_cache_hit_rate)")
         $lines.Add("- effective_taskspace_cache_hit_rate_source: $($Result.taskspace_validation.effective_taskspace_cache_hit_rate_source)")
-        $lines.Add("- taskspace_cached_input_tokens: $($Result.taskspace_validation.taskspace.cached_input_tokens)")
-        $lines.Add("- taskspace_uncached_input_tokens: $($Result.taskspace_validation.taskspace.uncached_input_tokens)")
     }
     if ($Result.taskspace_validation -and $Result.taskspace_validation.provider_cache_trace_summary) {
         $trace = $Result.taskspace_validation.provider_cache_trace_summary
