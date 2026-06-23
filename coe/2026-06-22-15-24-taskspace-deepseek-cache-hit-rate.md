@@ -496,3 +496,23 @@
   - The dominant root cause chain is closed for this acceptance scope: TaskSpace no longer sends provider-native tools schema in the DeepSeek hot path, and the provider-visible stable prefix is large enough for request 2+ cache reuse to exceed `0.95`.
 - Supports:
   - H-006
+
+## Evidence E-021: Release decision now hard-gates provider cache trace and DeepSeek TaskSpace defaults to action-contract transport
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Updated `third_party/codex-cli/codex-rs/core/src/session/turn.rs` so DeepSeek ChatCompletions TaskSpace defaults to `CacheOptimizedActionContract`; `WHALE_TASKSPACE_PROVIDER_TRANSPORT=native_tools` remains the explicit debug fallback.
+  - Updated `scripts/taskspace-benchmark/write-release-decision.ps1` so v0.0.5 release decision requires `provider-cache-trace-summary.json` and fails when request 2+ cache hit rate, trace coverage, native-tools hot-path count, or tool-free action-contract count are outside the cache gate.
+  - Updated `scripts/taskspace-benchmark/test-release-decision.ps1` with pass and fail fixtures for provider cache trace.
+  - Ran targeted validation.
+- Observations:
+  - `cargo test -p codex-core taskspace_provider_transport_defaults_deepseek_to_action_contract --lib` passed.
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1` passed.
+  - `cargo check -p codex-core` passed.
+  - `git diff --check` passed.
+  - Release-decision fixture coverage now includes low request 2+ hit rate, native tools schema in the hot path, and missing provider cache trace summary.
+- Interpretation:
+  - The plan's Phase 5 release gate is now enforced by the release-decision script instead of existing only as documentation.
+  - The plan's Phase 7 default switch is in code: release-like DeepSeek TaskSpace requests use the cache-safe transport unless the debug fallback is explicitly selected.
+- Supports:
+  - H-006

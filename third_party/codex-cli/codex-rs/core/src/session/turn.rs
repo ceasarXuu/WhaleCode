@@ -1197,19 +1197,23 @@ fn taskspace_provider_transport_mode(
         .ok()
         .or_else(|| std::env::var("TASKSPACE_PROVIDER_TRANSPORT").ok())
         .unwrap_or_default();
-    if configured != "cache_optimized_action_contract" {
-        return TaskspaceProviderTransportMode::NativeTools;
-    }
     let provider_info = turn_context.provider.info();
     let provider_name = provider_info.name.to_ascii_lowercase();
     let model = turn_context.model_info.slug.to_ascii_lowercase();
     let deepseek_chat = provider_info.wire_api
         == codex_model_provider_info::WireApi::ChatCompletions
         && (provider_name.contains("deepseek") || model.contains("deepseek"));
-    if deepseek_chat {
-        TaskspaceProviderTransportMode::CacheOptimizedActionContract
-    } else {
+    taskspace_provider_transport_mode_for_request(deepseek_chat, configured.as_str())
+}
+
+fn taskspace_provider_transport_mode_for_request(
+    deepseek_chat: bool,
+    configured: &str,
+) -> TaskspaceProviderTransportMode {
+    if !deepseek_chat || configured == "native_tools" {
         TaskspaceProviderTransportMode::NativeTools
+    } else {
+        TaskspaceProviderTransportMode::CacheOptimizedActionContract
     }
 }
 
@@ -3096,6 +3100,22 @@ tax_calc.py\n\
         assert_eq!(action.args["action"], "finish_node");
         assert_eq!(action.args["node_id"], "node-2");
         assert!(taskspace_action_is_finish_node_control(&action));
+    }
+
+    #[test]
+    fn taskspace_provider_transport_defaults_deepseek_to_action_contract() {
+        assert_eq!(
+            taskspace_provider_transport_mode_for_request(true, ""),
+            TaskspaceProviderTransportMode::CacheOptimizedActionContract
+        );
+        assert_eq!(
+            taskspace_provider_transport_mode_for_request(true, "native_tools"),
+            TaskspaceProviderTransportMode::NativeTools
+        );
+        assert_eq!(
+            taskspace_provider_transport_mode_for_request(false, ""),
+            TaskspaceProviderTransportMode::NativeTools
+        );
     }
 
     #[test]

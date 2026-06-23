@@ -37,6 +37,14 @@ function Get-ReleaseInt {
     $DefaultValue
 }
 
+function Get-ReleaseDouble {
+    param($Object, [string]$Name, [double]$DefaultValue = 0.0)
+    if ($Object -and $Object.PSObject.Properties.Name -contains $Name -and $null -ne $Object.$Name) {
+        return [double]$Object.$Name
+    }
+    $DefaultValue
+}
+
 function Get-ReleaseString {
     param($Object, [string]$Name, [string]$DefaultValue = "")
     if ($Object -and $Object.PSObject.Properties.Name -contains $Name -and $null -ne $Object.$Name) {
@@ -186,6 +194,7 @@ $budgetEventsPath = Join-Path $runRoot "budget-events.jsonl"
 $budgetQualityImpactEventsPath = Join-Path $runRoot "budget-quality-impact-events.jsonl"
 $budgetQualityImpactSummaryPath = Join-Path $runRoot "budget_induced_quality_impact_summary.json"
 $requestPhaseSummaryPath = Join-Path $runRoot "request-phase-summary.json"
+$providerCacheTraceSummaryPath = Join-Path $runRoot "provider-cache-trace-summary.json"
 $activeReplacementPath = Join-Path $runRoot "active-context-replacement-report.json"
 $exactPayloadScanEventsPath = Join-Path $runRoot "exact-payload-scan-events.jsonl"
 $stateCommitDisplacementPath = Join-Path $runRoot "state-commit-displacement.json"
@@ -210,6 +219,7 @@ $requiredArtifacts = @(
     "budget-quality-impact-events.jsonl",
     "budget_induced_quality_impact_summary.json",
     "request-phase-summary.json",
+    "provider-cache-trace-summary.json",
     "active-context-replacement-report.json",
     "exact-payload-scan-events.jsonl",
     "state-commit-displacement.json",
@@ -238,6 +248,7 @@ $budgetEvents = @(Read-ReleaseJsonl $budgetEventsPath)
 $budgetQualityImpactEvents = @(Read-ReleaseJsonl $budgetQualityImpactEventsPath)
 $budgetQualityImpactSummary = Read-ReleaseJson $budgetQualityImpactSummaryPath
 $requestPhaseSummary = Read-ReleaseJson $requestPhaseSummaryPath
+$providerCacheTraceSummary = Read-ReleaseJson $providerCacheTraceSummaryPath
 $activeReplacement = Read-ReleaseJson $activeReplacementPath
 $exactPayloadScanEvents = @(Read-ReleaseJsonl $exactPayloadScanEventsPath)
 $stateCommitDisplacement = Read-ReleaseJson $stateCommitDisplacementPath
@@ -693,6 +704,15 @@ $requestPhasePass = ($requestPhaseSummary `
     -and (Get-ReleaseInt $requestPhaseSummary "expected_model_request_count" 0) -gt 0 `
     -and (Get-ReleaseInt $requestPhaseSummary "provider_request_distinct_count" 0) -ge (Get-ReleaseInt $requestPhaseSummary "expected_model_request_count" 0) `
     -and (Get-ReleaseInt $requestPhaseSummary "provider_request_terminal_count" 0) -ge (Get-ReleaseInt $requestPhaseSummary "expected_model_request_count" 0))
+$providerCacheTracePass = ($providerCacheTraceSummary `
+    -and (Get-ReleaseString $providerCacheTraceSummary "schema_version") -eq "TaskSpaceProviderCacheTraceSummaryV1" `
+    -and (Get-ReleaseInt $providerCacheTraceSummary "provider_request_count" 0) -gt 0 `
+    -and (Get-ReleaseDouble $providerCacheTraceSummary "trace_coverage" 0.0) -ge 0.99 `
+    -and (Get-ReleaseInt $providerCacheTraceSummary "cache_usage_missing_count" 999999) -eq 0 `
+    -and (Get-ReleaseInt $providerCacheTraceSummary "native_tools_schema_hot_path_count" 999999) -eq 0 `
+    -and (Get-ReleaseInt $providerCacheTraceSummary "tool_free_action_contract_count" 0) -gt 0 `
+    -and (Get-ReleaseInt $providerCacheTraceSummary "request_2_plus_count" 0) -gt 0 `
+    -and (Get-ReleaseDouble $providerCacheTraceSummary "request_2_plus_hit_rate" 0.0) -ge 0.95)
 $activeReplacementScanId = Get-ReleaseString $activeReplacement "exact_payload_scan_event_id"
 $activeReplacementRequestId = Get-ReleaseString $activeReplacement "request_id"
 $activeReplacementPayloadHash = Get-ReleaseString $activeReplacement "provider_payload_sha256"
@@ -787,6 +807,7 @@ if (-not $providerRequestPass) { Add-ReleaseLine $blockers "provider_request_eve
 if (-not $budgetResponsePass) { Add-ReleaseLine $blockers "runtime_budget_response_gate_failed" }
 if (-not $budgetQualityImpactPass) { Add-ReleaseLine $blockers "budget_quality_impact_gate_failed" }
 if (-not $requestPhasePass) { Add-ReleaseLine $blockers "request_phase_attribution_missing" }
+if (-not $providerCacheTracePass) { Add-ReleaseLine $blockers "provider_cache_trace_gate_failed" }
 if (-not $activeReplacementPass) { Add-ReleaseLine $blockers "active_context_replacement_gate_failed" }
 if (-not $stateCommitDisplacementPass) { Add-ReleaseLine $blockers "state_commit_displacement_gate_failed" }
 if (-not $spawnNodeBudgetPass) { Add-ReleaseLine $blockers "spawn_budget_gate_failed" }
@@ -806,7 +827,7 @@ if ($aggregate -and (Get-ReleaseInt $aggregate "excluded_pairs" 0) -gt 0) { Add-
 
 $decision = "fail"
 $closeable = $false
-if ($qualityPass -and $projectionPass -and $mapPass -and $routingPass -and $outputRefPass -and $runProvenancePass -and $formalE3IdentityPass -and $suiteProvenancePass -and $suiteReceiptPass -and $suiteRunnerAttestationPass -and $codeCompleteMarkerPass -and $userApprovalMarkerPass -and $providerRequestPass -and $budgetResponsePass -and $budgetQualityImpactPass -and $requestPhasePass -and $activeReplacementPass -and $stateCommitDisplacementPass -and $spawnNodeBudgetPass -and $v005NonAgentGatesPass) {
+if ($qualityPass -and $projectionPass -and $mapPass -and $routingPass -and $outputRefPass -and $runProvenancePass -and $formalE3IdentityPass -and $suiteProvenancePass -and $suiteReceiptPass -and $suiteRunnerAttestationPass -and $codeCompleteMarkerPass -and $userApprovalMarkerPass -and $providerRequestPass -and $budgetResponsePass -and $budgetQualityImpactPass -and $requestPhasePass -and $providerCacheTracePass -and $activeReplacementPass -and $stateCommitDisplacementPass -and $spawnNodeBudgetPass -and $v005NonAgentGatesPass) {
     if ($costStatus -eq "PASS" -and $formalP0CostCleanPass -and $blockers.Count -eq 0) {
         $decision = "release_pass"
         $closeable = $true
@@ -883,6 +904,13 @@ $summary = [pscustomobject]@{
     derived_blocked_by_budget_count = [int]$derivedBlockedByBudgetCount
     derived_manual_override_count = [int]$derivedManualOverrideCount
     request_phase_gate_pass = [bool]$requestPhasePass
+    provider_cache_trace_gate_pass = [bool]$providerCacheTracePass
+    provider_cache_trace_coverage = Get-ReleaseDouble $providerCacheTraceSummary "trace_coverage" 0.0
+    provider_cache_request_2_plus_hit_rate = Get-ReleaseDouble $providerCacheTraceSummary "request_2_plus_hit_rate" 0.0
+    provider_cache_request_2_plus_count = Get-ReleaseInt $providerCacheTraceSummary "request_2_plus_count" 0
+    provider_cache_native_tools_schema_hot_path_count = Get-ReleaseInt $providerCacheTraceSummary "native_tools_schema_hot_path_count" 0
+    provider_cache_tool_free_action_contract_count = Get-ReleaseInt $providerCacheTraceSummary "tool_free_action_contract_count" 0
+    provider_cache_usage_missing_count = Get-ReleaseInt $providerCacheTraceSummary "cache_usage_missing_count" 0
     active_replacement_gate_pass = [bool]$activeReplacementPass
     exact_payload_scan_gate_pass = [bool]$exactScanPass
     exact_payload_scan_matching_provider_event_count = [int]$matchingProviderPayloadEvents.Count
@@ -949,6 +977,11 @@ Add-ReleaseLine $lines "- formal_p0_cost_partial_pass: $formalP0CostPartialPass"
 Add-ReleaseLine $lines "- code_complete_marker_pass: $codeCompleteMarkerPass"
 Add-ReleaseLine $lines "- user_approval_marker_pass: $userApprovalMarkerPass"
 Add-ReleaseLine $lines "- start_gate_decision_path: $gateDecisionPath"
+Add-ReleaseLine $lines "- provider_cache_trace_gate_pass: $providerCacheTracePass"
+Add-ReleaseLine $lines "- provider_cache_trace_coverage: $(Get-ReleaseDouble $providerCacheTraceSummary "trace_coverage" 0.0)"
+Add-ReleaseLine $lines "- provider_cache_request_2_plus_hit_rate: $(Get-ReleaseDouble $providerCacheTraceSummary "request_2_plus_hit_rate" 0.0)"
+Add-ReleaseLine $lines "- provider_cache_native_tools_schema_hot_path_count: $(Get-ReleaseInt $providerCacheTraceSummary "native_tools_schema_hot_path_count" 0)"
+Add-ReleaseLine $lines "- provider_cache_tool_free_action_contract_count: $(Get-ReleaseInt $providerCacheTraceSummary "tool_free_action_contract_count" 0)"
 Add-ReleaseLine $lines "- max_large_output_replay_count: $maxLargeReplay"
 Add-ReleaseLine $lines "- runtime_output_ref_created_count: $runtimeOutputRefs"
 Add-ReleaseLine $lines "- valid_output_ref_created_event_count: $($validOutputRefCreatedEvents.Count)"

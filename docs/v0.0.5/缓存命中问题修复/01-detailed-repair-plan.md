@@ -768,6 +768,7 @@ Required checks:
 |---|---|---|
 | 2026-06-22 | Created detailed repair plan | Formalize v0.0.5 cache blocker execution path |
 | 2026-06-23 | L1 live acceptance passed | `cache_optimized_action_contract` reached request 2+ hit rate `0.989246` with no native tools schema in the DeepSeek TaskSpace hot path |
+| 2026-06-23 | Release gate and default switch landed | Release decision now blocks missing/low/native-tools cache trace; DeepSeek TaskSpace defaults to `CacheOptimizedActionContract` |
 
 ## 19. 2026-06-23 Implementation Result
 
@@ -786,6 +787,31 @@ Final evidence:
 - Verification status: `pass`
 
 The acceptance script now requires the TaskSpace run to succeed when run-level success fields are present. This prevents a cache-only pass when the TaskSpace execution itself failed.
+
+## 20. 2026-06-23 Release Gate And Default Switch
+
+Phase 5 and Phase 7 have code-level coverage for the cache-hit scope:
+
+- `write-release-decision.ps1` now requires `provider-cache-trace-summary.json`.
+- Release decision blocks when:
+  - `trace_coverage < 0.99`;
+  - `request_2_plus_hit_rate < 0.95`;
+  - `native_tools_schema_hot_path_count > 0`;
+  - `tool_free_action_contract_count == 0`;
+  - provider cache usage fields are missing.
+- `test-release-decision.ps1` includes fixture coverage for:
+  - passing cache trace;
+  - low request 2+ cache hit rate;
+  - native tools schema present in the hot path;
+  - missing provider cache trace summary.
+- DeepSeek ChatCompletions TaskSpace now defaults to `CacheOptimizedActionContract`.
+- `WHALE_TASKSPACE_PROVIDER_TRANSPORT=native_tools` remains the explicit debug fallback.
+
+Validation evidence:
+
+- `cargo test -p codex-core taskspace_provider_transport_defaults_deepseek_to_action_contract --lib`
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1`
+- `cargo check -p codex-core`
 
 ## 18. Plan Quality Checklist
 

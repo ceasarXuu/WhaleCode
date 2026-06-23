@@ -112,6 +112,22 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             provider_request_terminal_count = 1
             expected_model_request_count = 1
         }) (Join-Path $dir "request-phase-summary.json")
+    Write-Json ([pscustomobject]@{
+            schema_version = "TaskSpaceProviderCacheTraceSummaryV1"
+            provider_request_count = 10
+            trace_coverage = 1.0
+            cache_usage_missing_count = 0
+            request_shape_counts = [pscustomobject]@{
+                tool_free_action_contract = 10
+            }
+            native_tools_schema_hot_path_count = 0
+            tool_free_action_contract_count = 10
+            unknown_or_unclassified_count = 0
+            request_2_plus_count = 9
+            request_2_plus_cached_input_tokens = 1065728
+            request_2_plus_uncached_input_tokens = 11585
+            request_2_plus_hit_rate = 0.989246
+        }) (Join-Path $dir "provider-cache-trace-summary.json")
     ([pscustomobject]@{
         schema_version = "taskspace-exact-payload-scan-event-v1"
         scan_event_id = "scan-1"
@@ -456,6 +472,37 @@ Assert-True ($LASTEXITCODE -eq 1) "request ratio fixture did not fail release de
 $requestRatioDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $requestRatioDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($requestRatioDecision.blockers) -contains "formal_p0_request_ratio_gate_failed") "request ratio fixture did not report request ratio blocker"
 Assert-True ([string]$requestRatioDecision.decision -ne "release_pass") "request ratio fixture incorrectly wrote release_pass"
+
+$lowCacheDir = New-FixtureRun "low-provider-cache" "PASS" $true 0
+$lowCachePath = Join-Path $lowCacheDir "provider-cache-trace-summary.json"
+$lowCacheSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath $lowCachePath | ConvertFrom-Json
+$lowCacheSummary.request_2_plus_hit_rate = 0.5
+Write-Json $lowCacheSummary $lowCachePath
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $lowCacheDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "low provider cache fixture did not fail release decision"
+$lowCacheDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $lowCacheDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($lowCacheDecision.blockers) -contains "provider_cache_trace_gate_failed") "low provider cache fixture did not report cache trace blocker"
+Assert-True (-not [bool]$lowCacheDecision.provider_cache_trace_gate_pass) "low provider cache fixture incorrectly passed cache trace gate"
+
+$nativeToolsCacheDir = New-FixtureRun "native-tools-provider-cache" "PASS" $true 0
+$nativeToolsCachePath = Join-Path $nativeToolsCacheDir "provider-cache-trace-summary.json"
+$nativeToolsCacheSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath $nativeToolsCachePath | ConvertFrom-Json
+$nativeToolsCacheSummary.native_tools_schema_hot_path_count = 1
+Write-Json $nativeToolsCacheSummary $nativeToolsCachePath
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $nativeToolsCacheDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "native tools cache fixture did not fail release decision"
+$nativeToolsCacheDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $nativeToolsCacheDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($nativeToolsCacheDecision.blockers) -contains "provider_cache_trace_gate_failed") "native tools cache fixture did not report cache trace blocker"
+Assert-True ([int]$nativeToolsCacheDecision.provider_cache_native_tools_schema_hot_path_count -eq 1) "native tools cache fixture did not expose hot path count"
+
+$missingCacheTraceDir = New-FixtureRun "missing-provider-cache-trace" "PASS" $true 0
+$missingCacheTracePath = Join-Path $missingCacheTraceDir "provider-cache-trace-summary.json"
+Move-Item -LiteralPath $missingCacheTracePath -Destination (Join-Path $missingCacheTraceDir "provider-cache-trace-summary.json.removed") -Force
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $missingCacheTraceDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "missing provider cache trace fixture did not fail release decision"
+$missingCacheTraceDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingCacheTraceDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($missingCacheTraceDecision.blockers) -contains "provider_cache_trace_gate_failed") "missing provider cache trace fixture did not report cache trace blocker"
+Assert-True (@($missingCacheTraceDecision.blockers) -contains "required_artifact_missing:provider-cache-trace-summary.json") "missing provider cache trace fixture did not report missing artifact"
 
 $wrongTaskListDir = New-FixtureRun "wrong-task-list" "PASS" $true 0 1 @("processing-pipeline", "multi-source-data-merger", "hello-world")
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $wrongTaskListDir *> $null

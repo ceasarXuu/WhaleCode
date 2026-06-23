@@ -68,6 +68,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
   - 使用 DeepSeek 官方 usage 字段验证缓存命中。
   - 使用 `provider_cache_trace_summary.request_2_plus_hit_rate` 作为 TaskSpace 稳态验收指标。
   - 同时要求 TaskSpace run success，防止任务失败时仅凭缓存指标通过。
+- Release decision gate
+  - `write-release-decision.ps1` 要求 `provider-cache-trace-summary.json` 存在。
+  - release decision 必须满足 request 2+ hit rate、trace coverage、native tools schema hot path count 三个缓存门槛。
+  - `test-release-decision.ps1` 覆盖低命中、有 native tools schema、缺失 cache trace 三个反例。
+- 默认 transport
+  - DeepSeek ChatCompletions TaskSpace 默认选择 `CacheOptimizedActionContract`。
+  - 显式设置 `WHALE_TASKSPACE_PROVIDER_TRANSPORT=native_tools` 时保留旧路径作为调试入口。
 
 ## 本地验证
 
@@ -76,8 +83,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 - `cargo fmt`
 - `cargo test -p codex-core taskspace_control_create --lib`
 - `cargo test -p codex-core taskspace_finish_node_detects_control_type_alias --lib`
+- `cargo test -p codex-core taskspace_provider_transport_defaults_deepseek_to_action_contract --lib`
 - `cargo check -p codex-core`
 - `cargo build -p codex-cli --bin whale`
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1`
 - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\verify-deepseek-cache-fix.ps1 ...`
 
 反向验证：
@@ -105,3 +114,4 @@ v0.0.5 缓存命中问题当前状态：已通过 L1 live 验收。
 - `cache_trace_coverage >= 0.99`
 - `native_tools_schema_hot_path_count == 0`
 - TaskSpace run success 必须为 true
+- release decision 中 `provider_cache_trace_gate_pass == true`
