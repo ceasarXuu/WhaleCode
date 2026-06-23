@@ -10,6 +10,34 @@
 Only after Phases A-G are green:
 
 ```powershell
+# Provider and binary preflight.
+cargo build -p codex-cli --bin whale --locked
+
+'Reply exactly ok.' | D:\BuildCache\whalecode\cargo-target\debug\whale.exe exec `
+  --json `
+  -m deepseek-v4-flash `
+  -c 'model_reasoning_effort="low"' `
+  -s read-only `
+  --skip-git-repo-check `
+  --ephemeral `
+  -
+
+# B-tier smoke must pass business and cache gates before C/E3-style diagnostics.
+pwsh -File scripts/taskspace-benchmark/run-taskspace-benchmark.ps1 `
+  -Scenario single-file-fast-fix `
+  -Repeats 1 `
+  -RunRoot target\phase-a-benefit-B `
+  -TimeoutSeconds 900 `
+  -ValidationTimeoutSeconds 180 `
+  -ValidationPretestTimeoutSeconds 60 `
+  -ValidationTestTimeoutSeconds 180 `
+  -SandboxMode workspace-write `
+  -EnableAggregate `
+  -AllowNonE2Result `
+  -WhaleBin D:\BuildCache\whalecode\cargo-target\debug\whale.exe
+```
+
+```powershell
 # Non-agent gates first.
 pwsh -File scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1 `
   -RunRoot <run-root> `
@@ -27,11 +55,16 @@ pwsh -File scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1 `
 The targeted diagnostic must show:
 
 ```text
+TaskSpace B-tier business_success=true before escalation
+TaskSpace public and hidden validation exit codes are 0
+TaskSpace provider-cache-trace-summary.json passes the hard cache gate
 request count is no longer 30x-190x Standard
 spawn count stays within route budget
 active payload scan passes
 request phase summary has meaningful phase distribution
 budget quality impact summary has no silent validation skip
+open_leaf_nodes = 0 or graph hygiene follow-up is recorded before E3
+agent_walltime_ratio <= 2.5x or runtime bottleneck report exists and formal E3 remains blocked
 ```
 
 ## H.2 Formal E3 start gate

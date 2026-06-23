@@ -361,3 +361,46 @@ Artifacts must show:
   "max_model_requests_per_node": "route-specific"
 }
 ```
+
+## A.11 Plan update after DeepSeek cache repair
+
+The cache repair changes Phase A from a provider-blocked design task into a
+measurable regression and benefit gate. Phase A should not be considered
+complete merely because the B-tier sample solves the task.
+
+Updated Phase A acceptance:
+
+```text
+DeepSeek provider preflight passes before any B/C diagnostic
+current whale binary is rebuilt from the current codex source commit
+TaskSpace B-tier business_success=true
+TaskSpace public and hidden validation exit codes are 0
+TaskSpace provider-cache-trace-summary.json passes the hard cache gate
+budget-quality-summary records active_budget_source=runtime
+budget-quality-summary records blocked_by_budget_samples_count=0
+request-phase-summary records provider_request_hook_coverage >= 99%
+request-phase-summary records request_phase_attribution_coverage >= 95%
+```
+
+Current B-tier smoke evidence:
+
+```text
+run = target/phase-a-benefit-B-rerun40/single-file-fast-fix/20260624-012521-098
+outcome_taskspace = solved
+request_2_plus_hit_rate = 0.989997
+provider_request_hook_coverage = 100
+request_phase_attribution_coverage = 100
+blocked_by_budget_samples_count = 0
+```
+
+Open items produced by that same smoke:
+
+```text
+open_leaf_nodes = 1
+taskspace_wall_time_ratio = 2.72
+runtime_bottleneck_classification = agent_bound
+```
+
+Action: keep Phase A focused on typed active budget and request/node budget
+evidence. Route the open leaf follow-up into Phase F/H graph hygiene, and route
+the walltime follow-up into Phase H runtime bottleneck analysis before C/E3.

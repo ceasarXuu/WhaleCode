@@ -39,11 +39,16 @@ spawn_node_budget_gate_pass = true
 Engineering re-entry before formal E3 requires:
 
 ```text
+DeepSeek provider preflight succeeds for the selected model
+current whale binary is rebuilt from the current codex source commit
 terminal-bench_E3-P0_1_1 targeted diagnostic
 model_request_count_ratio <= 2.5x
 avg_input_per_request_ratio <= 1.25x
-agent_walltime_ratio <= 2.5x
+agent_walltime_ratio is measured from the pair report
 blocked_by_budget_samples_count = 0 for release-like claims
+B-tier smoke may close only when business_success=true and the TaskSpace-side cache gate passes
+open_leaf_nodes = 0 for release-like claims; otherwise record graph hygiene follow-up
+agent_walltime_ratio <= 2.5x or a runtime bottleneck report exists with owner/follow-up
 ```
 
 DeepSeek official TaskSpace runs also require the cache blocker gates in:
@@ -52,13 +57,55 @@ DeepSeek official TaskSpace runs also require the cache blocker gates in:
 docs/v0.0.5/缓存命中问题修复/README.md
 ```
 
-Until that project closes, DeepSeek TaskSpace benchmark output is diagnostic-only for v0.0.5 cache evidence. The hard cache target is:
+The cache blocker has live provider evidence, but every DeepSeek official
+TaskSpace benchmark still must archive the TaskSpace-side
+`provider-cache-trace-summary.json`. The hard cache target is:
 
 ```text
-steady_state_provider_cache_hit_rate_for_requests_2_plus >= 0.95
-cache trace coverage >= 99%
-native_tools_schema_hot_path_count == 0 for DeepSeek release-like TaskSpace runs
+request_2_plus_hit_rate >= 0.95
+trace_coverage >= 0.99
+cache_usage_missing_count == 0
+native_tools_schema_hot_path_count == 0
+tool_free_action_contract_count > 0
 ```
+
+## 1.1 B-tier acceptance after cache repair
+
+B-tier smoke is now a useful Phase A regression signal, but it is not utility
+aggregate proof when the only exclusion is `repeats_lt_3`.
+
+Required evidence for a B-tier pass:
+
+```text
+pair-report.md shows TaskSpace business_success=true and outcome_taskspace=solved
+TaskSpace public_validation_exit_code = 0
+TaskSpace hidden_oracle_exit_code = 0
+TaskSpace provider-cache-trace-summary.json passes the hard cache target above
+request-phase-summary shows provider_request_hook_coverage >= 99%
+budget-quality-summary shows blocked_by_budget_samples_count = 0
+```
+
+Current B evidence after the DeepSeek cache fix:
+
+```text
+run = target/phase-a-benefit-B-rerun40/single-file-fast-fix/20260624-012521-098
+utility_direction = both_success
+outcome_taskspace = solved
+request_2_plus_hit_rate = 0.989997
+trace_coverage = 1
+cache_usage_missing_count = 0
+native_tools_schema_hot_path_count = 0
+tool_free_action_contract_count = 9
+provider_request_hook_coverage = 100
+request_phase_attribution_coverage = 100
+blocked_by_budget_samples_count = 0
+open_leaf_nodes = 1
+taskspace_wall_time_ratio = 2.72
+```
+
+Interpretation: cache and business-success blockers are cleared for this smoke,
+but `open_leaf_nodes=1` and `taskspace_wall_time_ratio=2.72` remain follow-up
+gates before C/E3 or release-like claims.
 
 ## 2. Current alpha implementation baseline
 

@@ -84,9 +84,17 @@ Required work:
 ```text
 [ ] Block release if exact payload scan is missing or hash/request mismatch
 [ ] Block release if active replacement proof is hash-only without exact scan
+[ ] Block DeepSeek release-like claims if TaskSpace provider-cache-trace-summary.json is missing
+[ ] Block DeepSeek release-like claims if request_2_plus_hit_rate < 0.95
+[ ] Block DeepSeek release-like claims if trace_coverage < 0.99
+[ ] Block DeepSeek release-like claims if cache_usage_missing_count > 0
+[ ] Block DeepSeek release-like claims if native_tools_schema_hot_path_count > 0
+[ ] Block DeepSeek release-like claims if tool_free_action_contract_count == 0
 [ ] Block release if BudgetQualityImpact has validation skip or score-ineligible solved
 [ ] Block release if state_commit_displacement denominator lacks legacy attempts
 [ ] Block release if spawn/node budget has unreviewed subagent results
+[ ] Block release-like claims if open_leaf_nodes > 0
+[ ] Require runtime bottleneck evidence when agent_walltime_ratio exceeds the configured threshold
 [ ] Block release if diagnostic sample set attempts release_pass
 [ ] Keep blocked_partial closeable=false
 ```
@@ -104,8 +112,12 @@ cargo test -p codex-core active_context_replacement passes
 cargo test -p codex-core state_commit passes
 cargo test -p codex-core spawn_node_budget passes
 pwsh -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1 passes
+pwsh -File scripts/taskspace-benchmark/test-deepseek-cache-verifier.ps1 passes
 pwsh -File scripts/taskspace-benchmark/test-release-decision.ps1 passes
 pwsh -File scripts/taskspace-benchmark/test-e3-start-gate.ps1 passes
+B-tier smoke business and cache gates pass with provider-cache-trace-summary.json archived
+open_leaf_nodes = 0 before release-like closeout
+agent_walltime_ratio <= configured threshold or a runtime bottleneck report blocks formal E3
 v005-non-agent-gates.json exists and status=pass
 v005-code-complete.json exists and status=pass
 v005-user-approval.json exists and explicitly approves terminal-bench_E3-P0_3_5
