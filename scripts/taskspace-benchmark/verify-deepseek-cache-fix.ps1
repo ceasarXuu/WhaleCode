@@ -332,16 +332,55 @@ function Test-TaskspaceArtifact {
         if ($fallbackTaskspace) { $taskspace = $fallbackTaskspace }
     }
     $cacheTraceSummaryPath = Join-Path $Dir "provider-cache-trace-summary.json"
+    if (-not (Test-Path -LiteralPath $cacheTraceSummaryPath)) {
+        $sideCacheTraceSummaryPath = Join-Path $Dir "pair-001\right\artifacts\provider-cache-trace-summary.json"
+        if (Test-Path -LiteralPath $sideCacheTraceSummaryPath) {
+            $cacheTraceSummaryPath = $sideCacheTraceSummaryPath
+        }
+    }
     $cacheTraceSummary = Read-JsonFile $cacheTraceSummaryPath
-    $improvementRatio = if ($taskspace -and $null -ne $taskspace.hit_rate -and $BaselineTaskspaceHitRate -gt 0) {
-        [Math]::Round([double]$taskspace.hit_rate / $BaselineTaskspaceHitRate, 4)
+    $effectiveHitRate = if (
+        $cacheTraceSummary -and
+        $cacheTraceSummary.PSObject.Properties.Name -contains "request_2_plus_hit_rate" -and
+        $null -ne $cacheTraceSummary.request_2_plus_hit_rate
+    ) {
+        [double]$cacheTraceSummary.request_2_plus_hit_rate
+    } elseif ($taskspace -and $null -ne $taskspace.hit_rate) {
+        [double]$taskspace.hit_rate
     } else {
         $null
     }
+    $effectiveHitRateSource = if (
+        $cacheTraceSummary -and
+        $cacheTraceSummary.PSObject.Properties.Name -contains "request_2_plus_hit_rate" -and
+        $null -ne $cacheTraceSummary.request_2_plus_hit_rate
+    ) {
+        "provider_request_2_plus"
+    } else {
+        "taskspace_overall"
+    }
+    $improvementRatio = if ($null -ne $effectiveHitRate -and $BaselineTaskspaceHitRate -gt 0) {
+        [Math]::Round([double]$effectiveHitRate / $BaselineTaskspaceHitRate, 4)
+    } else {
+        $null
+    }
+    $taskspaceBusinessSuccess = $null
+    if ($taskspace -and $taskspace.PSObject.Properties.Name -contains "business_success") {
+        $taskspaceBusinessSuccess = [bool]$taskspace.business_success
+    }
+    $taskspaceExecOk = $null
+    if ($taskspace -and $taskspace.PSObject.Properties.Name -contains "exec_exit_code" -and $null -ne $taskspace.exec_exit_code) {
+        $taskspaceExecOk = ([int64]$taskspace.exec_exit_code -eq 0)
+    }
+    $taskspaceRunSucceeded = (
+        (($null -eq $taskspaceBusinessSuccess) -or $taskspaceBusinessSuccess) -and
+        (($null -eq $taskspaceExecOk) -or $taskspaceExecOk)
+    )
     $passed = (
         $taskspace -and
-        $null -ne $taskspace.hit_rate -and
-        [double]$taskspace.hit_rate -ge $MinTaskspaceHitRate -and
+        $taskspaceRunSucceeded -and
+        $null -ne $effectiveHitRate -and
+        [double]$effectiveHitRate -ge $MinTaskspaceHitRate -and
         $null -ne $improvementRatio -and
         [double]$improvementRatio -ge $MinTaskspaceImprovementRatio
     )
@@ -354,6 +393,11 @@ function Test-TaskspaceArtifact {
         min_taskspace_improvement_ratio = $MinTaskspaceImprovementRatio
         standard = $standard
         taskspace = $taskspace
+        taskspace_run_success = $taskspaceRunSucceeded
+        taskspace_business_success = $taskspaceBusinessSuccess
+        taskspace_exec_ok = $taskspaceExecOk
+        effective_taskspace_cache_hit_rate = if ($null -ne $effectiveHitRate) { [Math]::Round([double]$effectiveHitRate, 6) } else { $null }
+        effective_taskspace_cache_hit_rate_source = $effectiveHitRateSource
         provider_cache_trace_summary_path = $cacheTraceSummaryPath
         provider_cache_trace_summary = $cacheTraceSummary
         taskspace_improvement_ratio = $improvementRatio
@@ -378,6 +422,11 @@ function Write-MarkdownReport {
     }
     if ($Result.taskspace_validation -and $Result.taskspace_validation.taskspace) {
         $lines.Add("- taskspace_hit_rate: $($Result.taskspace_validation.taskspace.hit_rate)")
+        $lines.Add("- taskspace_run_success: $($Result.taskspace_validation.taskspace_run_success)")
+        $lines.Add("- taskspace_business_success: $($Result.taskspace_validation.taskspace_business_success)")
+        $lines.Add("- taskspace_exec_ok: $($Result.taskspace_validation.taskspace_exec_ok)")
+        $lines.Add("- effective_taskspace_cache_hit_rate: $($Result.taskspace_validation.effective_taskspace_cache_hit_rate)")
+        $lines.Add("- effective_taskspace_cache_hit_rate_source: $($Result.taskspace_validation.effective_taskspace_cache_hit_rate_source)")
         $lines.Add("- taskspace_cached_input_tokens: $($Result.taskspace_validation.taskspace.cached_input_tokens)")
         $lines.Add("- taskspace_uncached_input_tokens: $($Result.taskspace_validation.taskspace.uncached_input_tokens)")
         $lines.Add("- taskspace_improvement_ratio: $($Result.taskspace_validation.taskspace_improvement_ratio)")

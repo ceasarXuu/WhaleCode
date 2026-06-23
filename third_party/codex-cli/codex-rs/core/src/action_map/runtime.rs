@@ -752,6 +752,7 @@ struct MainToolTraceDraft {
     tool_name: String,
     action_class: Option<ActionClass>,
     tool_success: bool,
+    artifact_refs: Vec<String>,
     created_at_ms: i64,
 }
 
@@ -2180,6 +2181,10 @@ preview:\n\
                 .map(ActionClass::as_str)
                 .unwrap_or("unspecified")
         );
+        let artifact_refs = match (recorded_action_class, success) {
+            (Some(ActionClass::Edit), true) => extract_edit_changed_artifacts_from_tool_body(&body),
+            _ => Vec::new(),
+        };
         let (task_id, raised_barrier) = {
             let map = self
                 .maps
@@ -2239,6 +2244,7 @@ preview:\n\
             tool_name: recorded_tool_name,
             action_class: recorded_action_class,
             tool_success: success,
+            artifact_refs,
             created_at_ms,
         });
         let mut events = vec![MapRuntimeEvent::NodeResultRecorded(
@@ -4059,6 +4065,11 @@ preview:\n\
             next_node_id,
             next_node_draft.as_ref(),
         )?;
+        let mut validation_events = self.auto_accept_validation_result_for_finish(
+            owner_session_id,
+            node_id,
+            result_summary,
+        )?;
         self.validate_completion_evidence(node_id)?;
         if self.active_node_kind(node_id)? == NodeKind::FinalSynthesis {
             self.validate_final_response_ready(owner_session_id, result_summary, false)?;
@@ -4071,6 +4082,8 @@ preview:\n\
             NodeStatus::Completed,
             true,
         )?;
+        validation_events.append(&mut events);
+        let mut events = validation_events;
         let mut bound_next_node_id = None;
         if let Some(next_node_id) = next_node_id {
             let bind_events = self.bind_main_node(owner_session_id, next_node_id)?;
@@ -4100,6 +4113,92 @@ preview:\n\
             },
             events,
         ))
+    }
+
+    fn auto_accept_validation_result_for_finish(
+        &mut self,
+        owner_session_id: ThreadId,
+        node_id: &str,
+        result_summary: &str,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let Some(map_id) = self.active_map_id.clone() else {
+            return Ok(Vec::new());
+        };
+        let Some((node_kind, result_id, result_already_accepted, criterion_already_satisfied)) =
+            self.maps.get(&map_id).and_then(|map| {
+                let node = map.nodes.get(node_id)?;
+                if !matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
+                    return None;
+                }
+                let result_id = latest_successful_validation_result_id(map, node)?;
+                let result_already_accepted = map.results.get(&result_id).is_some_and(|result| {
+                    result.evidence_package.validity == ResultValidity::Accepted
+                });
+                let criterion_already_satisfied = map
+                    .task_id
+                    .as_deref()
+                    .and_then(|task_id| self.tasks.get(task_id))
+                    .is_some_and(|task| {
+                        node_satisfies_success_criterion_with_validation_result(task, map, node)
+                    });
+                Some((
+                    node.kind,
+                    result_id,
+                    result_already_accepted,
+                    criterion_already_satisfied,
+                ))
+            })
+        else {
+            return Ok(Vec::new());
+        };
+
+        let mut events = Vec::new();
+        if !result_already_accepted {
+            events.extend(self.mark_result_validity_for_main(
+                owner_session_id,
+                &result_id,
+                "accepted",
+                format!("{} succeeded before node finish.", node_kind.as_str()),
+                vec![ActionMapCognitiveClaimInput {
+                    id: format!("claim-{result_id}-validation-pass"),
+                    statement: format!(
+                        "{} passed: {}",
+                        node_kind.as_str(),
+                        single_line_preview(result_summary, 160)
+                    ),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.clone()),
+                        validator_ref: Some(node_kind.as_str().to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    validator_ref: Some(node_kind.as_str().to_string()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                vec![node_kind.as_str().to_string()],
+                Vec::new(),
+            )?);
+        }
+        if !criterion_already_satisfied {
+            events.extend(self.record_success_criteria_for_main(
+                owner_session_id,
+                vec![ActionMapSuccessCriterionInput {
+                    id: format!("sc-{node_id}-validation-pass"),
+                    kind: "test".to_string(),
+                    description: format!("{} passed before node finish.", node_kind.as_str()),
+                    status: "satisfied".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id),
+                        validator_ref: Some(node_kind.as_str().to_string()),
+                        ..Default::default()
+                    }],
+                }],
+            )?);
+        }
+        Ok(events)
     }
 
     pub(crate) fn block_main_node(
@@ -5108,14 +5207,21 @@ preview:\n\
         result_id: &str,
         validity: &str,
         validity_reason: String,
-        claims: Vec<ActionMapCognitiveClaimInput>,
-        evidence_refs: Vec<ActionMapEvidenceRefInput>,
+        mut claims: Vec<ActionMapCognitiveClaimInput>,
+        mut evidence_refs: Vec<ActionMapEvidenceRefInput>,
         changed_artifacts: Vec<String>,
         validator_refs: Vec<String>,
         remaining_uncertainty: Vec<String>,
     ) -> Result<Vec<MapRuntimeEvent>, String> {
         let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
-        let result_id = require_nonempty("result_id", result_id)?;
+        let requested_result_id = require_nonempty("result_id", result_id)?;
+        let result_id = self.resolve_result_id_or_latest_node_result(&map_id, &requested_result_id);
+        if result_id != requested_result_id {
+            rewrite_result_id_refs(&mut evidence_refs, &requested_result_id, &result_id);
+            for claim in &mut claims {
+                rewrite_result_id_refs(&mut claim.evidence_refs, &requested_result_id, &result_id);
+            }
+        }
         let validity = ResultValidity::from_str(validity).ok_or_else(|| {
             "TaskSpace mark_result_validity validity must be one of: unreviewed, accepted, questioned, invalid."
                 .to_string()
@@ -5276,6 +5382,16 @@ preview:\n\
             return false;
         };
         node_has_successful_action(map, node, action_class)
+    }
+
+    pub(crate) fn active_map_has_accepted_successful_validation_result(&self) -> bool {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return false;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return false;
+        };
+        map_has_accepted_successful_validation_result(map)
     }
 
     fn validate_completion_evidence_for(&self, map_id: &str, node_id: &str) -> Result<(), String> {
@@ -5480,6 +5596,25 @@ preview:\n\
             ));
         }
         Ok(())
+    }
+
+    fn resolve_result_id_or_latest_node_result(&self, map_id: &str, value: &str) -> String {
+        let Some(map) = self.maps.get(map_id) else {
+            return value.to_string();
+        };
+        if map.results.contains_key(value) {
+            return value.to_string();
+        }
+        let Some(node) = map.nodes.get(value) else {
+            return value.to_string();
+        };
+        latest_successful_validation_result_id(map, node)
+            .or_else(|| {
+                node.result_context
+                    .last()
+                    .map(|result_ref| result_ref.id.clone())
+            })
+            .unwrap_or_else(|| value.to_string())
     }
 
     fn validate_result_ids_belong_to_active_map(
@@ -5997,6 +6132,39 @@ preview:\n\
             }
             if !artifacts.iter().any(|existing| existing == artifact) {
                 artifacts.push(artifact.to_string());
+            }
+        }
+        if artifacts.is_empty() {
+            artifacts.extend(
+                self.infer_changed_artifacts_from_successful_edit_results(map, &result.node_id),
+            );
+        }
+        artifacts
+    }
+
+    fn infer_changed_artifacts_from_successful_edit_results(
+        &self,
+        map: &ActionMapInstance,
+        node_id: &str,
+    ) -> Vec<String> {
+        let Some(node) = map.nodes.get(node_id) else {
+            return Vec::new();
+        };
+        let mut artifacts = Vec::new();
+        for result_ref in &node.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind != NodeResultKind::MainToolCall
+                || result.action_class != Some(ActionClass::Edit)
+                || result.tool_success != Some(true)
+            {
+                continue;
+            }
+            for artifact in extract_edit_changed_artifacts_from_tool_body(&result.body) {
+                if !artifacts.iter().any(|existing| existing == &artifact) {
+                    artifacts.push(artifact);
+                }
             }
         }
         artifacts
@@ -8257,7 +8425,7 @@ preview:\n\
             action_class: draft.action_class,
             tool_success: Some(draft.tool_success),
             tags,
-            artifact_refs: Vec::new(),
+            artifact_refs: draft.artifact_refs,
             created_at_ms: draft.created_at_ms,
         };
         self.taskspace_trace_events.push(event.clone());
@@ -10884,6 +11052,12 @@ fn should_block_budget_pressure_probe(
     node: &MapNode,
     action_class: ActionClass,
 ) -> bool {
+    if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+        && matches!(action_class, ActionClass::Test | ActionClass::Build)
+    {
+        return false;
+    }
+
     let has_read = node_has_successful_action(map, node, ActionClass::Read)
         || node_has_successful_action(map, node, ActionClass::Search);
     if !has_read {
@@ -11006,6 +11180,37 @@ fn accepted_result_artifact_refs(result: &NodeResult) -> HashSet<String> {
         }
     }
     artifact_refs
+}
+
+fn extract_edit_changed_artifacts_from_tool_body(body: &str) -> Vec<String> {
+    let mut artifacts = Vec::new();
+    let normalized_body = body.replace("\\n", "\n");
+    for line in normalized_body.lines() {
+        let trimmed = line.trim();
+        let Some(path) = trimmed
+            .strip_prefix("M ")
+            .or_else(|| trimmed.strip_prefix("A "))
+            .or_else(|| trimmed.strip_prefix("D "))
+            .or_else(|| trimmed.strip_prefix("*** Update File: "))
+            .or_else(|| trimmed.strip_prefix("+++ b/"))
+            .or_else(|| trimmed.strip_prefix("+++ "))
+        else {
+            continue;
+        };
+        let path = path.trim();
+        if path.is_empty()
+            || path.starts_with("user-request")
+            || path.starts_with("output-ref://")
+            || path == "/dev/null"
+            || path.contains('\0')
+        {
+            continue;
+        }
+        if !artifacts.iter().any(|existing| existing == path) {
+            artifacts.push(path.to_string());
+        }
+    }
+    artifacts
 }
 
 fn is_implementation_surface_ref(artifact_ref: &str) -> bool {
@@ -11401,6 +11606,38 @@ fn map_has_accepted_implementation_result(map: &ActionMapInstance) -> bool {
 fn node_has_successful_validation_action(map: &ActionMapInstance, node: &MapNode) -> bool {
     node_has_successful_action(map, node, ActionClass::Test)
         || node_has_successful_action(map, node, ActionClass::Build)
+}
+
+fn latest_successful_validation_result_id(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Option<NodeResultId> {
+    node.result_context.iter().rev().find_map(|result_ref| {
+        let result = map.results.get(&result_ref.id)?;
+        if result.kind == NodeResultKind::MainToolCall
+            && matches!(
+                result.action_class,
+                Some(ActionClass::Test | ActionClass::Build)
+            )
+            && result.tool_success == Some(true)
+        {
+            Some(result_ref.id.clone())
+        } else {
+            None
+        }
+    })
+}
+
+fn rewrite_result_id_refs(
+    refs: &mut [ActionMapEvidenceRefInput],
+    from_result_id: &str,
+    to_result_id: &str,
+) {
+    for evidence_ref in refs {
+        if evidence_ref.result_id.as_deref() == Some(from_result_id) {
+            evidence_ref.result_id = Some(to_result_id.to_string());
+        }
+    }
 }
 
 #[cfg(test)]
@@ -14279,8 +14516,9 @@ mod tests {
         ));
         let trace = snapshot
             .trace_events
-            .first()
-            .expect("trace event is exposed");
+            .iter()
+            .find(|event| event.call_id.as_deref() == Some("call-edit"))
+            .expect("edit trace event is exposed");
         assert_eq!(trace.id, "trace-1");
         assert_eq!(trace.kind, "main_tool_result");
         assert_eq!(trace.task_id.as_deref(), Some(task_id.as_str()));
@@ -14543,6 +14781,48 @@ mod tests {
                 Some(action_class.as_str())
             );
         }
+    }
+
+    #[test]
+    fn successful_edit_trace_records_changed_artifact_refs() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Trace edit".to_string(),
+                "Record edit artifact refs.".to_string(),
+                "Implement fix".to_string(),
+                "Patch source.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "TaskSpace observed implementation edit in turn diff: diff --git a/src/lib.rs b/src/lib.rs\\n--- a/src/lib.rs\\n+++ b/src/lib.rs\\n@@\\n-old\\n+new\\n*** Update File: tests/test_lib.rs\\n".to_string(),
+            )
+            .expect("edit result records")
+            .expect("result is recorded");
+
+        let snapshot = state.snapshot();
+        let trace = snapshot
+            .trace_events
+            .iter()
+            .find(|event| event.call_id.as_deref() == Some("call-edit"))
+            .expect("edit trace event is exposed");
+        assert_eq!(
+            trace.artifact_refs,
+            vec!["src/lib.rs".to_string(), "tests/test_lib.rs".to_string()]
+        );
     }
 
     #[test]
@@ -15404,6 +15684,78 @@ mod tests {
                 Vec::new(),
             )
             .expect("artifact evidence infers changed_artifacts");
+
+        let result = state
+            .active_map()
+            .expect("active map")
+            .results
+            .get(&result_id)
+            .expect("result");
+        assert_eq!(
+            result.evidence_package.changed_artifacts,
+            vec!["src/lib.rs".to_string()]
+        );
+    }
+
+    #[test]
+    fn accepted_implementation_result_infers_changed_artifacts_from_successful_edit_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Fix code",
+            "Modify output artifacts.",
+            "Implement fix",
+            "Patch a file.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nM src/lib.rs\n".to_string(),
+            )
+            .expect("edit result")
+            .expect("result id");
+        let (outcome, _) = state
+            .finish_main_node(
+                owner,
+                &node_id,
+                "Implementation completed.".to_string(),
+                None,
+            )
+            .expect("finish implementation");
+        let result_id = outcome.result_id;
+
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &result_id,
+                "accepted",
+                "accepted implementation handoff".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-finish".to_string(),
+                    statement: "Implementation can proceed to validation.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("successful edit result infers changed_artifacts");
 
         let result = state
             .active_map()
@@ -20441,15 +20793,40 @@ mod tests {
             )
             .expect("successful test result records")
             .expect("test result id");
-        let missing_criterion = state
+        state
             .finish_main_node(owner, &node_id, "Tests passed.".to_string(), None)
-            .expect_err("validation requires success criterion update");
+            .expect("smoke test auto-accepts successful validation evidence");
+        let map = state.active_map().expect("active map");
+        let task = state.tasks.get("task-1").expect("task");
         assert!(
-            missing_criterion.contains("cannot be completed without a satisfied success criterion")
+            map.results
+                .get("result-2")
+                .is_some_and(|result| result.evidence_package.validity == ResultValidity::Accepted)
         );
-        assert!(missing_criterion.contains("action=state_commit"));
-        assert!(missing_criterion.contains("sections.result_validities"));
-        assert!(missing_criterion.contains("sections.finished_nodes"));
+        assert!(
+            task.problem_ledger
+                .success_criteria
+                .iter()
+                .any(|criterion| {
+                    criterion.status == "satisfied"
+                        && evidence_refs_include_successful_validation_result(
+                            map,
+                            map.nodes.get(&node_id).expect("node"),
+                            &criterion.evidence_refs,
+                        )
+                })
+        );
+
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix again",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
         let (result_id, _) = state
             .record_main_tool_result_with_class(
                 owner,
@@ -20563,6 +20940,76 @@ mod tests {
             NodeStatus::Completed
         );
         assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+    }
+
+    #[test]
+    fn state_commit_result_validity_accepts_validation_node_id_alias() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-pass",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed".to_string(),
+            )
+            .expect("successful test result records")
+            .expect("test result id");
+
+        let (outcome, _) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-node-result-alias".to_string(),
+                    result_validities: vec![ActionMapStateCommitResultValidityInput {
+                        result_id: node_id,
+                        validity: "accepted".to_string(),
+                        validity_reason: "pytest passed".to_string(),
+                        claims: vec![ActionMapCognitiveClaimInput {
+                            id: "claim-pytest-pass".to_string(),
+                            statement: "pytest passed.".to_string(),
+                            evidence_refs: vec![ActionMapEvidenceRefInput {
+                                result_id: Some("node-1".to_string()),
+                                validator_ref: Some("pytest".to_string()),
+                                ..Default::default()
+                            }],
+                        }],
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some("node-1".to_string()),
+                            ..Default::default()
+                        }],
+                        changed_artifacts: Vec::new(),
+                        validator_refs: vec!["pytest".to_string()],
+                        remaining_uncertainty: Vec::new(),
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect("state commit runs");
+
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
+        let map = state.active_map().expect("active map");
+        assert_eq!(
+            map.results
+                .get(&result_id)
+                .expect("validation result")
+                .evidence_package
+                .validity,
+            ResultValidity::Accepted
+        );
     }
 
     #[test]

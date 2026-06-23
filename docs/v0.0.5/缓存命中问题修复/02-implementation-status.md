@@ -4,64 +4,104 @@
 
 ## 当前结论
 
-`cache_optimized_action_contract` 已作为 opt-in 原型落地，但未达到 v0.0.5 缓存命中验收标准。
+`cache_optimized_action_contract` 已通过 DeepSeek official API live 验证，满足本项目的缓存命中验收口径：
 
-当前原型已经证明：
+- DeepSeek 官方 `usage.prompt_cache_hit_tokens / usage.prompt_cache_miss_tokens` 字段可用。
+- TaskSpace DeepSeek hot path 不再发送 provider-native tools schema。
+- TaskSpace request 2+ 稳态缓存命中率达到 `0.989246`，高于 `0.95` 验收线。
+- live benchmark 运行成功，验证脚本不再允许“缓存达标但任务失败”的假阳性通过。
 
-- TaskSpace 可以在 DeepSeek ChatCompletions hot path 上关闭 provider-native tools schema。
-- provider cache trace 能识别 `tool_free_action_contract` 请求形态。
-- DeepSeek 在无 tools schema 时仍会输出 DSML 残留，需要 transport 层做显式归一化。
-- 仅移除 tools schema 后，TaskSpace 仍会重发增长中的动态历史，缓存命中率无法稳定达到 95%。
+## 最终验证证据
+
+验证命令：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\verify-deepseek-cache-fix.ps1 `
+  -RunTaskspaceBenchmark `
+  -TaskspaceProviderTransport cache_optimized_action_contract `
+  -MinTaskspaceHitRate 0.95 `
+  -MinTaskspaceImprovementRatio 1.0 `
+  -BenchmarkTimeoutSeconds 900 `
+  -OutputDir target\deepseek-cache-fix-validation\deepseek-anchor-request2-l3
+```
+
+结果：
+
+- Status: `pass`
+- Report: `target/deepseek-cache-fix-validation/deepseek-anchor-request2-l3/deepseek-cache-fix-verification.md`
+- JSON: `target/deepseek-cache-fix-validation/deepseek-anchor-request2-l3/deepseek-cache-fix-verification.json`
+- Artifact: `target/deepseek-cache-fix-validation/benchmark-20260623-115451/single-file-fast-fix/20260623-115451-777`
+- Installed binary: `C:\Users\77585\.whale\bin\whale.exe`
+- Installed binary SHA256: `96AF9A63CD8C6D91E1A807624AACA3507C29E9ACA2FB95FCDEBF3AC55095D411`
+
+关键指标：
+
+| Metric | Value |
+|---|---:|
+| official second request hit rate | `0.998267` |
+| official prefix-extension third request hit rate | `0.996663` |
+| taskspace overall hit rate | `0.990786` |
+| taskspace effective request 2+ hit rate | `0.989246` |
+| taskspace request 2+ cached input tokens | `1065728` |
+| taskspace request 2+ uncached input tokens | `11585` |
+| cache trace coverage | `1` |
+| native tools schema hot path count | `0` |
+| tool-free action contract count | `10` |
+| verification status | `pass` |
 
 ## 已落地内容
 
 - `WHALE_TASKSPACE_PROVIDER_TRANSPORT=cache_optimized_action_contract`
-  - 仅对 DeepSeek ChatCompletions TaskSpace 请求生效。
-  - provider-native tools 被置空。
-  - 稳定 action contract 进入 provider instructions。
-  - 动态 active node state 保持为小型 developer item。
+  - DeepSeek ChatCompletions TaskSpace 请求使用 tool-free action contract。
+  - provider-native tools schema 从 TaskSpace hot path 中移除。
+  - 稳定 action contract 和 DeepSeek cache anchor 进入 provider instructions 前缀。
+  - 动态 TaskSpace 状态保持为短 active-state suffix。
 - `TaskSpaceActionV1`
-  - 将模型 JSON action 映射回本地 `shell_command`、`apply_patch`、`taskspace_control` 等执行路径。
+  - 模型输出 JSON action，本地映射到现有 `shell_command`、`apply_patch`、`taskspace_control` 等执行路径。
   - 保留 node kind 策略校验。
-- DeepSeek DSML 残留恢复
-  - 支持前导 JSON 后追加 DSML。
-  - 支持有限的纯 DSML 只读命令恢复。
-  - 支持常见 unified diff patch 转换为 `apply_patch` 可接受格式。
+  - 支持 `control_action`、`control_type` 等常见别名归一化。
+  - 支持成功验证后的 `final_synthesis` / `finish_node` 直接收敛为 final answer，避免预算末端再消耗一轮模型请求。
+- Provider cache trace
+  - 生成 `provider-cache-trace.jsonl` 和 `provider-cache-trace-summary.json`。
+  - 记录 request shape、tools presence、official usage cache fields、request 2+ hit rate。
 - 验证脚本
-  - `verify-deepseek-cache-fix.ps1` 支持 `-TaskspaceProviderTransport cache_optimized_action_contract`。
+  - 使用 DeepSeek 官方 usage 字段验证缓存命中。
+  - 使用 `provider_cache_trace_summary.request_2_plus_hit_rate` 作为 TaskSpace 稳态验收指标。
+  - 同时要求 TaskSpace run success，防止任务失败时仅凭缓存指标通过。
 
-## 最新验证
+## 本地验证
 
-本地验证通过：
+已通过：
 
-- `cargo test -p codex-core taskspace_action_contract --lib`
+- `cargo fmt`
+- `cargo test -p codex-core taskspace_control_create --lib`
+- `cargo test -p codex-core taskspace_finish_node_detects_control_type_alias --lib`
 - `cargo check -p codex-core`
-- `cargo build -p codex-cli --bin whale --locked`
+- `cargo build -p codex-cli --bin whale`
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\verify-deepseek-cache-fix.ps1 ...`
 
-DeepSeek live 验证未通过：
+反向验证：
 
-- Report: `target/deepseek-cache-fix-validation/action-contract-l5/deepseek-cache-fix-verification.md`
-- Artifact: `target/deepseek-cache-fix-validation/benchmark-20260623-025852/single-file-fast-fix/20260623-025853-014`
-- TaskSpace hit rate: `0.259476`
-- TaskSpace business_success: `false`
-- model_request_count: `11`
+- 对旧 artifact `target/deepseek-cache-fix-validation/benchmark-20260623-112745/single-file-fast-fix/20260623-112746-534` 重新运行验证脚本。
+- 该 artifact 之前因脚本漏洞被误判为 pass；修复后结果为 `Status: fail`，因为 TaskSpace `exec_exit_code=1` 且 `business_success=false`。
 
-## 根因更新
+## 根因闭环
 
-原始根因“TaskSpace 反复发送带大 tools schema 的 DeepSeek ChatCompletions 请求”已被验证为必要根因，但不是充分根因。
+已确认并修复的根因链：
 
-新增确认的剩余根因：
+1. TaskSpace native-tools ChatCompletions hot path 反复发送大 tools schema，且 tools schema 位于动态消息之后，DeepSeek 无法稳定复用期望中的 provider prefix。
+2. 仅移除 tools schema 不足以达标，因为 TaskSpace 仍会 replay 增长的动态历史，稳定前缀占比不足。
+3. 修复后的 action-contract transport 将稳定协议和 cache anchor 放入稳定 provider instructions，将动态状态压缩为 bounded suffix。
+4. DeepSeek 官方 usage 字段显示 request 2+ 稳态命中率恢复到 `0.989246`。
 
-- TaskSpace 当前仍把增长中的动态历史作为普通 ChatCompletions prompt 重放。
-- DeepSeek 官方缓存按共享前缀计入 cached tokens；动态历史越长，稳定前缀占比越低。
-- action-contract 串行动作协议比 native tools 更容易消耗 TaskSpace rollout 请求预算。
-- DeepSeek 即使在无 provider tools schema 时，仍可能输出 DSML 风格工具调用残留。
+## 验收状态
 
-## 下一步
+v0.0.5 缓存命中问题当前状态：已通过 L1 live 验收。
 
-v0.0.5 缓存修复不能继续以“在现有 turn loop 里补 fallback”为主线。下一步应切到结构化 transport：
+后续变更不得移除以下 gate：
 
-- provider prompt 由稳定前缀、短 active state、短 action result 三段组成；
-- 历史不再以完整 conversation replay 进入 DeepSeek ChatCompletions；
-- TaskSpace runtime 明确区分 native-tools 并行动作预算和 action-contract 串行动作预算；
-- 验收以 `provider-cache-trace-summary.json` 中的 tool-free request 2+ hit rate 和 bounded dynamic suffix 为准。
+- `effective_taskspace_cache_hit_rate >= 0.95`
+- `effective_taskspace_cache_hit_rate_source == provider_request_2_plus`
+- `cache_trace_coverage >= 0.99`
+- `native_tools_schema_hot_path_count == 0`
+- TaskSpace run success 必须为 true

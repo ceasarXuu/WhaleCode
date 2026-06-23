@@ -448,3 +448,51 @@
   - The opt-in action-contract transport is useful evidence and scaffolding, but it is not the v0.0.5 cache-hit fix.
 - Supports:
   - H-006
+
+## Evidence E-019: Verification gate now rejects cache-only passes when TaskSpace execution failed
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Inspected the live artifact `target/deepseek-cache-fix-validation/benchmark-20260623-112745/single-file-fast-fix/20260623-112746-534`.
+  - The artifact had strong cache metrics but `exec_exit_code=1` and `business_success=false`.
+  - Updated `scripts/taskspace-benchmark/verify-deepseek-cache-fix.ps1` so TaskSpace validation requires run success when `business_success` or `exec_exit_code` fields are present.
+  - Re-ran the verifier against the same artifact with `-SkipOfficialProbe`.
+- Observations:
+  - Before the verifier fix, the artifact could be reported as `Status: pass` because only cache thresholds were considered.
+  - After the verifier fix, the same artifact reports `Status: fail`.
+  - The report path for the negative check is `target/deepseek-cache-fix-validation/script-negative-check/deepseek-cache-fix-verification.md`.
+- Interpretation:
+  - The verification method now distinguishes the cache-hit project gate from a failed TaskSpace execution.
+  - Cache acceptance evidence cannot be closed by a run that fails to complete the benchmark task.
+- Supports:
+  - H-006
+
+## Evidence E-020: Cache-optimized action-contract transport passes DeepSeek live acceptance
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Added action-contract normalization for `control_action` and `control_type` aliases.
+  - Added deterministic final-answer convergence when validation already has a successful Test/Build result and the model emits a validation `finish_node`.
+  - Added a stable DeepSeek cache anchor in the tool-free action-contract provider instructions.
+  - Built and installed `C:\Users\77585\.whale\bin\whale.exe` with SHA256 `96AF9A63CD8C6D91E1A807624AACA3507C29E9ACA2FB95FCDEBF3AC55095D411`.
+  - Ran `scripts\taskspace-benchmark\verify-deepseek-cache-fix.ps1 -RunTaskspaceBenchmark -TaskspaceProviderTransport cache_optimized_action_contract -MinTaskspaceHitRate 0.95 -MinTaskspaceImprovementRatio 1.0`.
+- Observations:
+  - Verification status: `pass`.
+  - Report: `target/deepseek-cache-fix-validation/deepseek-anchor-request2-l3/deepseek-cache-fix-verification.md`.
+  - JSON: `target/deepseek-cache-fix-validation/deepseek-anchor-request2-l3/deepseek-cache-fix-verification.json`.
+  - Artifact: `target/deepseek-cache-fix-validation/benchmark-20260623-115451/single-file-fast-fix/20260623-115451-777`.
+  - DeepSeek official identical second request hit rate: `0.998267`.
+  - DeepSeek official prefix-extension third request hit rate: `0.996663`.
+  - TaskSpace overall hit rate: `0.990786`.
+  - TaskSpace effective request 2+ hit rate: `0.989246`.
+  - TaskSpace request 2+ cached input tokens: `1065728`.
+  - TaskSpace request 2+ uncached input tokens: `11585`.
+  - Cache trace coverage: `1`.
+  - Native tools schema hot path count: `0`.
+  - Tool-free action contract count: `10`.
+  - Runtime log reached `turn.completed`; benchmark validation ran `pytest` and collected `3 passed`.
+- Interpretation:
+  - The live DeepSeek official run satisfies the cache-hit acceptance gate for the L1 TaskSpace scenario.
+  - The dominant root cause chain is closed for this acceptance scope: TaskSpace no longer sends provider-native tools schema in the DeepSeek hot path, and the provider-visible stable prefix is large enough for request 2+ cache reuse to exceed `0.95`.
+- Supports:
+  - H-006

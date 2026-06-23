@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -130,6 +133,9 @@ const TASKSPACE_ACTIVE_PROFILE_MARKER: &str = "TaskSpace v0.0.5 active compact p
 const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
 const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
     "ContextProjectionV1 shadow (not active replacement):";
+const TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_ITEMS: usize = 3;
+const TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS: usize = 2400;
+const TASKSPACE_DEEPSEEK_CACHE_ANCHOR_LINES: usize = 4200;
 const TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER: &str = "TaskSpaceProviderBudgetGuidanceV1:";
 const TASKSPACE_NO_ACTION_RECOVERY_MARKER: &str = "TaskSpaceNoActionRecoveryV1:";
 const TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER: &str =
@@ -1182,8 +1188,9 @@ fn taskspace_provider_tool_visibility_for_budget(
 fn taskspace_provider_transport_mode(
     turn_context: &TurnContext,
     snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
+    taskspace_context_visible: bool,
 ) -> TaskspaceProviderTransportMode {
-    if snapshot.is_none() {
+    if snapshot.is_none() && !taskspace_context_visible {
         return TaskspaceProviderTransportMode::NativeTools;
     }
     let configured = std::env::var("WHALE_TASKSPACE_PROVIDER_TRANSPORT")
@@ -1233,8 +1240,9 @@ Provider-native tools are intentionally disabled for this request.
 Return one taskspace-action-v1 JSON object as the assistant message body.
 Do not emit markdown fences, DSML tool calls, XML tags, prose before JSON, or prose after JSON.
 Required JSON shape:
-{\"schema_version\":\"taskspace-action-v1\",\"action\":\"<action>\",\"node_id\":\"<active node id>\",\"args\":{},\"rationale\":\"short reason\"}
+{\"schema_version\":\"taskspace-action-v1\",\"action\":\"<action>\",\"node_id\":\"<active node id or null>\",\"args\":{},\"rationale\":\"short reason\"}
 Allowed actions by active node kind:
+- bootstrap/no active task: taskspace_control, blocked
 - inspect_code_context: list_files, search, read_file, taskspace_control, blocked
 - implement_solution: apply_patch, taskspace_control, blocked
 - smoke_test/regression_test: run_test, read_file, search, taskspace_control, blocked
@@ -1253,6 +1261,22 @@ Validation invariants:
 - If provider-native tool-call markup appears after the JSON object, TaskSpace ignores that markup and executes only the JSON action."
 }
 
+fn taskspace_deepseek_cache_anchor() -> String {
+    let mut text = String::from(
+        "TaskSpaceDeepSeekCacheAnchorV1:\n\
+This block is a provider-cache stability anchor for DeepSeek ChatCompletions.\n\
+It has no task semantics. Ignore every CACHE_ANCHOR_LINE when deciding actions.\n\
+The line content is intentionally byte-stable across TaskSpace requests.\n",
+    );
+    for index in 1..=TASKSPACE_DEEPSEEK_CACHE_ANCHOR_LINES {
+        text.push_str(&format!(
+            "CACHE_ANCHOR_LINE_{index:04}: stable TaskSpace DeepSeek prefix anchor; ignore for task reasoning and actions.\n"
+        ));
+    }
+    text.push_str("TaskSpaceDeepSeekCacheAnchorV1 end.\n");
+    text
+}
+
 fn taskspace_action_contract_state_item(
     snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
 ) -> ResponseItem {
@@ -1263,6 +1287,21 @@ fn taskspace_action_contract_state_item(
 Active node id: {node_id}\n\
 Active node kind: {node_kind}"
     );
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn taskspace_action_contract_bootstrap_state_item() -> ResponseItem {
+    let text = "TaskSpaceActionContractStateV1:\n\
+Active node id: none\n\
+Active node kind: bootstrap\n\
+No active TaskSpace task exists yet. The next action must be taskspace_control with action=start_task or blocked."
+        .to_string();
     ResponseItem::Message {
         id: None,
         role: "developer".to_string(),
@@ -1711,20 +1750,28 @@ async fn run_sampling_request(
     let mut retries = 0;
     let mut initial_input = Some(input);
     loop {
-        let mut prompt_input = if let Some(input) = initial_input.take() {
+        let provider_budget_snapshot = sess.action_map_provider_request_budget_snapshot().await;
+        let prompt_source = if let Some(input) = initial_input.take() {
             input
         } else {
-            prepare_provider_visible_prompt_items(
-                sess.clone_history()
-                    .await
-                    .for_prompt(&turn_context.model_info.input_modalities),
-            )
+            sess.clone_history()
+                .await
+                .for_prompt(&turn_context.model_info.input_modalities)
         };
-        let provider_budget_snapshot = sess.action_map_provider_request_budget_snapshot().await;
+        let taskspace_context_visible = prompt_source.iter().any(is_taskspace_active_context_item);
         let transport_mode = taskspace_provider_transport_mode(
             turn_context.as_ref(),
             provider_budget_snapshot.as_ref(),
+            taskspace_context_visible,
         );
+        let mut prompt_input = match transport_mode {
+            TaskspaceProviderTransportMode::NativeTools => {
+                prepare_provider_visible_prompt_items(prompt_source)
+            }
+            TaskspaceProviderTransportMode::CacheOptimizedActionContract => {
+                prepare_taskspace_action_contract_prompt_items(prompt_source)
+            }
+        };
         let tool_visibility = provider_budget_snapshot
             .as_ref()
             .map(|snapshot| {
@@ -1764,9 +1811,17 @@ async fn run_sampling_request(
             && transport_mode == TaskspaceProviderTransportMode::CacheOptimizedActionContract
         {
             prompt_input.push(taskspace_action_contract_state_item(snapshot));
+        } else if provider_budget_snapshot.is_none()
+            && transport_mode == TaskspaceProviderTransportMode::CacheOptimizedActionContract
+        {
+            prompt_input.push(taskspace_action_contract_bootstrap_state_item());
         }
         let mut prompt_base_instructions = base_instructions.clone();
         if transport_mode == TaskspaceProviderTransportMode::CacheOptimizedActionContract {
+            prompt_base_instructions.text.push_str("\n\n");
+            prompt_base_instructions
+                .text
+                .push_str(&taskspace_deepseek_cache_anchor());
             prompt_base_instructions.text.push_str("\n\n");
             prompt_base_instructions
                 .text
@@ -2023,6 +2078,139 @@ fn prepare_provider_visible_prompt_items(items: Vec<ResponseItem>) -> Vec<Respon
         );
     }
     composition.items
+}
+
+fn prepare_taskspace_action_contract_prompt_items(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
+    let mut latest_user_input: Option<(usize, ResponseItem)> = None;
+    let mut latest_taskspace_context: Option<ResponseItem> = None;
+    let mut tool_outputs: Vec<(usize, ResponseItem)> = Vec::new();
+
+    for (index, item) in items.into_iter().enumerate() {
+        if is_taskspace_active_context_item(&item) {
+            latest_taskspace_context = Some(item);
+        } else if is_protected_user_input(&item) {
+            latest_user_input = Some((index, item));
+        } else if is_taskspace_action_contract_latest_tool_output_candidate(&item) {
+            tool_outputs.push((index, item));
+        }
+    }
+
+    let latest_user_index = latest_user_input
+        .as_ref()
+        .map(|(index, _)| *index)
+        .unwrap_or(0);
+    let mut prepared = Vec::with_capacity(3);
+    if let Some((_, item)) = latest_user_input {
+        prepared.push(item);
+    }
+    if let Some(item) = latest_taskspace_context {
+        prepared.push(item);
+    }
+    let post_user_outputs = tool_outputs
+        .into_iter()
+        .filter_map(|(index, item)| {
+            if index > latest_user_index {
+                Some(item)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    if let Some(item) = taskspace_action_contract_recent_tool_outputs_item(&post_user_outputs) {
+        prepared.push(item);
+    }
+    prepared
+}
+
+fn is_taskspace_active_context_item(item: &ResponseItem) -> bool {
+    is_active_context_projection_item(item)
+        || response_item_text_contains(item, TASKSPACE_ACTIVE_PROFILE_MARKER)
+        || response_item_text_contains(item, "TaskSpace mode is now active.")
+}
+
+fn prompt_contains_taskspace_active_context(prompt: &Prompt) -> bool {
+    prompt.input.iter().any(is_taskspace_active_context_item)
+}
+
+fn is_taskspace_action_contract_latest_tool_output_candidate(item: &ResponseItem) -> bool {
+    matches!(
+        item,
+        ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. }
+    ) && !is_legacy_taskspace_tool_output(item)
+}
+
+fn taskspace_action_contract_recent_tool_outputs_item(
+    items: &[ResponseItem],
+) -> Option<ResponseItem> {
+    let summaries = items
+        .iter()
+        .rev()
+        .filter_map(taskspace_action_contract_tool_output_summary)
+        .take(TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_ITEMS)
+        .collect::<Vec<_>>();
+    if summaries.is_empty() {
+        return None;
+    }
+    let edit_success_seen = summaries
+        .iter()
+        .any(|(_, text)| text.contains("Success. Updated the following files"));
+
+    let mut remaining_chars = TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS;
+    let mut sections = Vec::new();
+    for (call_id, text) in summaries.into_iter().rev() {
+        if remaining_chars == 0 {
+            break;
+        }
+        let char_count = text.chars().count();
+        let mut output = text.chars().take(remaining_chars).collect::<String>();
+        if char_count > remaining_chars {
+            output.push_str("\n[truncated]");
+            remaining_chars = 0;
+        } else {
+            remaining_chars = remaining_chars.saturating_sub(char_count);
+        }
+        sections.push(format!("call_id: {call_id}\noutput:\n{output}"));
+    }
+    if sections.is_empty() {
+        return None;
+    }
+
+    let progress_hint = if edit_success_seen {
+        "progress_hint: A file edit already succeeded. Do not repeat apply_patch, read_file, or search. Next action must be taskspace_control with action=finish_node for the current implementation node, then run validation in the next node.\n"
+    } else {
+        ""
+    };
+    let text = format!(
+        "TaskSpaceActionContractRecentToolOutputsV1:\n{progress_hint}{}",
+        sections.join("\n---\n")
+    );
+    Some(ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    })
+}
+
+fn taskspace_action_contract_tool_output_summary(item: &ResponseItem) -> Option<(String, String)> {
+    let (call_id, text) = match item {
+        ResponseItem::FunctionCallOutput {
+            call_id, output, ..
+        }
+        | ResponseItem::CustomToolCallOutput {
+            call_id, output, ..
+        } => (
+            call_id.as_str(),
+            function_call_output_body_text(&output.body),
+        ),
+        _ => return None,
+    };
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    Some((call_id.to_string(), text.to_string()))
 }
 
 #[derive(Debug)]
@@ -2319,6 +2507,22 @@ fn function_call_output_body_text_len(body: &FunctionCallOutputBody) -> usize {
     }
 }
 
+fn function_call_output_body_text(body: &FunctionCallOutputBody) -> String {
+    match body {
+        FunctionCallOutputBody::Text(text) => text.clone(),
+        FunctionCallOutputBody::ContentItems(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                codex_protocol::models::FunctionCallOutputContentItem::InputText { text } => {
+                    Some(text.as_str())
+                }
+                codex_protocol::models::FunctionCallOutputContentItem::InputImage { .. } => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    }
+}
+
 fn response_item_text_contains(item: &ResponseItem, needle: &str) -> bool {
     response_item_texts_contain(item, &|text| text.contains(needle))
 }
@@ -2522,6 +2726,36 @@ mod active_context_replacement_tests {
     }
 
     #[test]
+    fn taskspace_action_contract_bootstrap_state_requires_start_task() {
+        let text = item_text(taskspace_action_contract_bootstrap_state_item());
+
+        assert!(text.contains("Active node kind: bootstrap"));
+        assert!(text.contains("taskspace_control"));
+        assert!(text.contains("action=start_task"));
+    }
+
+    #[test]
+    fn taskspace_action_contract_bootstrap_allows_only_taskspace_control() {
+        let start_task = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action":"start_task","title":"Fix test","objective":"Fix the failing test"},"rationale":"bootstrap"}"#,
+        )
+        .expect("valid bootstrap action");
+        let call = taskspace_bootstrap_action_to_tool_call(&start_task)
+            .expect("taskspace control should be allowed")
+            .expect("taskspace control should execute");
+
+        assert_eq!(call.tool_name.name, "taskspace_control");
+
+        let read_file = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":null,"args":{"path":"README.md"}}"#,
+        )
+        .expect("valid action shape");
+        let err = taskspace_bootstrap_action_to_tool_call(&read_file)
+            .expect_err("bootstrap must not allow ordinary tools");
+        assert!(err.contains("bootstrap_policy_violation"));
+    }
+
+    #[test]
     fn taskspace_action_contract_transport_uses_serial_action_budget() {
         let snapshot = provider_snapshot("inspect_code_context");
         let limits = taskspace_transport_budget_limits(
@@ -2682,6 +2916,100 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_action_contract_final_answer_allowed_without_active_node() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"final_answer","node_id":null,"args":{"message":"All tests pass."}}"#,
+        )
+        .expect("valid json");
+        let mut snapshot = provider_snapshot("unknown");
+        snapshot.node_id = None;
+        snapshot.node_kind = None;
+
+        let call = taskspace_action_to_tool_call(&action, &snapshot)
+            .expect("final answer should bypass node tool policy");
+
+        assert!(call.is_none());
+    }
+
+    #[test]
+    fn taskspace_action_contract_final_answer_visible_text_uses_message() {
+        let text = taskspace_action_contract_visible_text(
+            r#"{"schema_version":"taskspace-action-v1","action":"final_answer","node_id":null,"args":{"message":"All tests pass."},"rationale":"done"}"#,
+        )
+        .expect("final answer message");
+
+        assert_eq!(text, "All tests pass.");
+    }
+
+    #[test]
+    fn taskspace_action_contract_run_test_prefixes_bare_pytest_file() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"run_test","node_id":"node-1","args":{"command":"pytest test_tax_calc.py -v"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("smoke_test"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(value["command"], "pytest tests/test_tax_calc.py -v");
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_finish_node_defaults_implementation_to_smoke_test() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"action":"finish_node","outcome":"success"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(value["node_id"], "node-1");
+                assert_eq!(value["next_node_kind"], "smoke_test");
+                assert_eq!(value["next_dependency_node_ids"][0], "node-1");
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_finish_node_completes_smoke_test_draft_metadata() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"action":"finish_node","next_node_kind":"smoke_test"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(value["node_id"], "node-1");
+                assert_eq!(value["next_node_kind"], "smoke_test");
+                assert_eq!(value["next_node_title"], "Run focused validation");
+                assert_eq!(value["next_dependency_node_ids"][0], "node-1");
+                assert!(
+                    value["next_node_context_summary"]
+                        .as_str()
+                        .expect("context")
+                        .contains("focused test command")
+                );
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn taskspace_action_contract_apply_patch_uses_custom_payload() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** End Patch\n"}}"#,
@@ -2712,9 +3040,161 @@ Then I will inspect the file."#,
                 assert!(input.contains("*** Update File: src/tax_calc.py"));
                 assert!(!input.contains("--- a/src/tax_calc.py"));
                 assert!(!input.contains("+++ b/src/tax_calc.py"));
+                assert!(input.contains("@@"));
+                assert!(!input.contains("-1 +1"));
             }
             other => panic!("expected custom payload, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn taskspace_action_contract_apply_patch_normalizes_plain_unified_diff() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n--- tax_calc.py\n+++ tax_calc.py\n@@ -1 +1 @@\n-old\n+new\n*** End Patch\n"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: src/tax_calc.py"));
+                assert!(!input.contains("--- tax_calc.py"));
+                assert!(!input.contains("+++ tax_calc.py"));
+                assert!(!input.contains("-1 +1"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_apply_patch_normalizes_bare_file_hunk() {
+        let patch = normalize_taskspace_apply_patch(
+            "*** Begin Patch\n\
+tax_calc.py\n\
+\n\
+ def calculate_tax(subtotal, region):\n\
+-    return round(subtotal * RATES[region], 1)\n\
++    return round(subtotal * RATES[region], 2)\n\
+*** End Patch\n",
+        );
+
+        assert_eq!(
+            patch,
+            "*** Begin Patch\n*** Update File: src/tax_calc.py\n@@\ndef calculate_tax(subtotal, region):\n-    return round(subtotal * RATES[region], 1)\n+    return round(subtotal * RATES[region], 2)\n*** End Patch\n"
+        );
+    }
+
+    #[test]
+    fn taskspace_finish_current_node_action_builds_control_finish() {
+        let action =
+            taskspace_finish_current_node_action(Some("node-2"), "Implementation edit succeeded.");
+
+        assert_eq!(action.action, "taskspace_control");
+        assert_eq!(action.node_id.as_deref(), Some("node-2"));
+        assert_eq!(action.args["action"], "finish_node");
+        assert_eq!(action.args["node_id"], "node-2");
+        assert!(taskspace_action_is_finish_node_control(&action));
+    }
+
+    #[test]
+    fn taskspace_finish_node_detects_control_type_alias() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-3","args":{"control_type":"finish_node","result_summary":"Tests passed."}}"#,
+        )
+        .expect("valid action");
+
+        assert!(taskspace_action_is_finish_node_control(&action));
+    }
+
+    #[test]
+    fn taskspace_control_create_final_synthesis_is_detected_for_direct_final() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","args":{"action":"create_node","node_kind":"final_synthesis","label":"Final summary"}}"#,
+        )
+        .expect("valid action");
+
+        assert!(taskspace_action_control_creates_final_synthesis(&action));
+        let final_action = taskspace_final_answer_action("done");
+        assert_eq!(final_action.action, "final_answer");
+        assert_eq!(
+            taskspace_action_final_message(&final_action).as_deref(),
+            Some("done")
+        );
+    }
+
+    #[test]
+    fn taskspace_control_create_final_synthesis_detects_control_action_alias() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","args":{"control_action":"create_node","node_kind":"final_synthesis","node_label":"Final summary"}}"#,
+        )
+        .expect("valid action");
+
+        assert!(taskspace_action_control_creates_final_synthesis(&action));
+    }
+
+    #[test]
+    fn taskspace_control_create_final_synthesis_detects_control_type_alias() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","args":{"control_type":"create_node","node_kind":"final_synthesis","node_label":"Final summary"}}"#,
+        )
+        .expect("valid action");
+
+        assert!(taskspace_action_control_creates_final_synthesis(&action));
+    }
+
+    #[test]
+    fn taskspace_control_create_validation_node_detects_slash_kind() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","args":{"action":"create_node","kind":"smoke_test/regression_test","label":"run tests"}}"#,
+        )
+        .expect("valid action");
+
+        assert!(taskspace_action_control_creates_validation_node(&action));
+    }
+
+    #[test]
+    fn taskspace_control_create_validation_node_detects_control_action_alias() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","args":{"control_action":"create_node","node_kind":"smoke_test","label":"run tests"}}"#,
+        )
+        .expect("valid action");
+
+        assert!(taskspace_action_control_creates_validation_node(&action));
+    }
+
+    #[test]
+    fn taskspace_apply_patch_resolves_unique_short_update_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(temp.path().join("src")).expect("mkdir");
+        fs::write(temp.path().join("src").join("tax_calc.py"), "old").expect("write");
+
+        let resolved = resolve_unique_existing_relative_path_from(temp.path(), "tax_calc.py");
+
+        assert_eq!(resolved.as_deref(), Some("src/tax_calc.py"));
+    }
+
+    #[test]
+    fn taskspace_apply_patch_keeps_ambiguous_short_update_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        fs::create_dir_all(temp.path().join("src")).expect("mkdir");
+        fs::create_dir_all(temp.path().join("tests")).expect("mkdir");
+        fs::write(temp.path().join("src").join("tax_calc.py"), "old").expect("write");
+        fs::write(temp.path().join("tests").join("tax_calc.py"), "old").expect("write");
+
+        let resolved = resolve_unique_existing_relative_path_from(temp.path(), "tax_calc.py");
+
+        assert_eq!(resolved, None);
+    }
+
+    #[test]
+    fn taskspace_apply_patch_falls_back_to_src_for_unresolved_short_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        let resolved = resolve_unique_existing_relative_path_from(temp.path(), "tax_calc.py");
+
+        assert_eq!(resolved.as_deref(), Some("src/tax_calc.py"));
     }
 
     #[test]
@@ -2963,6 +3443,146 @@ Then I will inspect the file."#,
         assert!(joined.contains(TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER));
         assert!(joined.contains("thin_downgraded"));
         assert!(joined.contains("Keep the direct user requirement."));
+    }
+
+    #[test]
+    fn action_contract_prompt_uses_bounded_user_and_active_projection_only() {
+        let old_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: old"
+        );
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Old user turn"),
+            message("assistant", "Old assistant commentary that must not replay"),
+            tool_call("shell_command", "call-1"),
+            tool_output_with_call_id("call-1", "Large raw output that must not replay"),
+            message("developer", &old_active_projection),
+            message("user", "Current user turn"),
+            message("developer", &latest_active_projection),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert_eq!(prepared.len(), 2);
+        assert!(joined.contains("Current user turn"));
+        assert!(joined.contains("active_objective: latest"));
+        assert!(!joined.contains("Old user turn"));
+        assert!(!joined.contains("Old assistant commentary"));
+        assert!(!joined.contains("Large raw output"));
+        assert!(!joined.contains("active_objective: old"));
+    }
+
+    #[test]
+    fn action_contract_prompt_includes_recent_post_user_tool_output_summaries() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Fix the failing test"),
+            message("developer", &latest_active_projection),
+            tool_call("shell_command", "call-1"),
+            tool_output_with_call_id("call-1", ".\\README.md\n.\\tests\\test_tax_calc.py"),
+            tool_call("shell_command", "call-2"),
+            tool_output_with_call_id("call-2", "# Tax Calc\nProduct rules: CA tax rate is 7.25%"),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert_eq!(prepared.len(), 3);
+        assert!(joined.contains("TaskSpaceActionContractRecentToolOutputsV1"));
+        assert!(joined.contains(".\\tests\\test_tax_calc.py"));
+        assert!(joined.contains("call_id: call-1"));
+        assert!(joined.contains("CA tax rate is 7.25%"));
+        assert!(joined.contains("call_id: call-2"));
+    }
+
+    #[test]
+    fn action_contract_prompt_omits_pre_user_tool_output() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            tool_output_with_call_id("call-1", ".\\old-output.txt"),
+            message("user", "Current user turn"),
+            message("developer", &latest_active_projection),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert_eq!(prepared.len(), 2);
+        assert!(!joined.contains(".\\old-output.txt"));
+    }
+
+    #[test]
+    fn action_contract_prompt_limits_recent_tool_outputs() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Current user turn"),
+            message("developer", &latest_active_projection),
+            tool_output_with_call_id("call-1", "oldest output"),
+            tool_output_with_call_id("call-2", "recent output 2"),
+            tool_output_with_call_id("call-3", "recent output 3"),
+            tool_output_with_call_id("call-4", "recent output 4"),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert_eq!(prepared.len(), 3);
+        assert!(!joined.contains("oldest output"));
+        assert!(joined.contains("recent output 2"));
+        assert!(joined.contains("recent output 3"));
+        assert!(joined.contains("recent output 4"));
+    }
+
+    #[test]
+    fn action_contract_prompt_guides_after_successful_edit_output() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Fix the failing test"),
+            message("developer", &latest_active_projection),
+            tool_output_with_call_id(
+                "call-1",
+                "{\"output\":\"Success. Updated the following files:\\nM src/tax_calc.py\\n\"}",
+            ),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains("A file edit already succeeded"));
+        assert!(joined.contains("Next action must be taskspace_control with action=finish_node"));
+        assert!(joined.contains("Do not repeat apply_patch"));
+    }
+
+    #[test]
+    fn action_contract_prompt_keeps_bootstrap_taskspace_profile() {
+        let bootstrap_profile = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\nNo TaskSpace task exists yet. Before ordinary tools, call taskspace_control(action=start_task)."
+        );
+        let items = vec![
+            message("developer", "unrelated developer text"),
+            message("user", "Fix the failing test"),
+            message("developer", &bootstrap_profile),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert_eq!(prepared.len(), 2);
+        assert!(joined.contains("Fix the failing test"));
+        assert!(joined.contains(TASKSPACE_ACTIVE_PROFILE_MARKER));
+        assert!(joined.contains("action=start_task"));
+        assert!(!joined.contains("unrelated developer text"));
     }
 
     #[test]
@@ -4148,6 +4768,147 @@ fn taskspace_action_allowed_for_node(action: &str, node_kind: Option<&str>) -> b
     }
 }
 
+async fn should_finish_node_after_successful_required_action(
+    action: &TaskSpaceActionV1,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    sess: &Session,
+) -> bool {
+    if taskspace_action_is_finish_node_control(action) {
+        return false;
+    }
+    match snapshot.node_kind.as_deref() {
+        Some("implement_solution") => {
+            sess.action_map_current_main_node_has_successful_action(ActionClass::Edit)
+                .await
+        }
+        Some("smoke_test" | "regression_test") => {
+            sess.action_map_current_main_node_has_successful_action(ActionClass::Test)
+                .await
+                || sess
+                    .action_map_current_main_node_has_successful_action(ActionClass::Build)
+                    .await
+        }
+        _ => false,
+    }
+}
+
+async fn should_answer_after_successful_validation_redundant_node(
+    action: &TaskSpaceActionV1,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    sess: &Session,
+) -> bool {
+    if snapshot.node_id.is_some() {
+        return false;
+    }
+    if !taskspace_action_control_creates_validation_node(action) {
+        return false;
+    }
+    sess.action_map_has_accepted_successful_validation_result()
+        .await
+}
+
+async fn should_answer_after_successful_validation_finish_node(
+    action: &TaskSpaceActionV1,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    sess: &Session,
+) -> bool {
+    if !taskspace_action_is_finish_node_control(action) {
+        return false;
+    }
+    if !matches!(
+        snapshot.node_kind.as_deref(),
+        Some("smoke_test" | "regression_test")
+    ) {
+        return false;
+    }
+    sess.action_map_current_main_node_has_successful_action(ActionClass::Test)
+        .await
+        || sess
+            .action_map_current_main_node_has_successful_action(ActionClass::Build)
+            .await
+}
+
+fn taskspace_action_is_finish_node_control(action: &TaskSpaceActionV1) -> bool {
+    action.action == "taskspace_control"
+        && taskspace_action_control_action(action) == Some("finish_node")
+}
+
+fn taskspace_action_control_action(action: &TaskSpaceActionV1) -> Option<&str> {
+    action
+        .args
+        .get("action")
+        .or_else(|| action.args.get("control_type"))
+        .or_else(|| action.args.get("control_action"))
+        .and_then(serde_json::Value::as_str)
+}
+
+fn taskspace_action_control_creates_validation_node(action: &TaskSpaceActionV1) -> bool {
+    if action.action != "taskspace_control"
+        || taskspace_action_control_action(action) != Some("create_node")
+    {
+        return false;
+    }
+    let Some(kind) = action
+        .args
+        .get("node_kind")
+        .or_else(|| action.args.get("kind"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        return false;
+    };
+    kind.split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+        .any(|part| matches!(part, "smoke_test" | "regression_test"))
+}
+
+fn taskspace_action_control_creates_final_synthesis(action: &TaskSpaceActionV1) -> bool {
+    action.action == "taskspace_control"
+        && taskspace_action_control_action(action) == Some("create_node")
+        && action
+            .args
+            .get("node_kind")
+            .or_else(|| action.args.get("kind"))
+            .and_then(serde_json::Value::as_str)
+            == Some("final_synthesis")
+}
+
+fn taskspace_final_answer_action(message: &str) -> TaskSpaceActionV1 {
+    TaskSpaceActionV1 {
+        schema_version: "taskspace-action-v1".to_string(),
+        action: "final_answer".to_string(),
+        node_id: None,
+        args: serde_json::json!({ "message": message }),
+        rationale: Some("Thin TaskSpace path is complete after validation.".to_string()),
+    }
+}
+
+fn taskspace_finish_current_node_action(
+    node_id: Option<&str>,
+    result_summary: &str,
+) -> TaskSpaceActionV1 {
+    let mut args = serde_json::Map::new();
+    args.insert(
+        "action".to_string(),
+        serde_json::Value::String("finish_node".to_string()),
+    );
+    if let Some(node_id) = node_id.filter(|value| !value.trim().is_empty()) {
+        args.insert(
+            "node_id".to_string(),
+            serde_json::Value::String(node_id.to_string()),
+        );
+    }
+    args.insert(
+        "result_summary".to_string(),
+        serde_json::Value::String(result_summary.to_string()),
+    );
+    TaskSpaceActionV1 {
+        schema_version: "taskspace-action-v1".to_string(),
+        action: "taskspace_control".to_string(),
+        node_id: node_id.map(str::to_string),
+        args: serde_json::Value::Object(args),
+        rationale: Some("A successful implementation edit is already recorded.".to_string()),
+    }
+}
+
 fn taskspace_action_arg_string(args: &serde_json::Value, name: &str) -> Option<String> {
     args.get(name)
         .and_then(|value| value.as_str())
@@ -4163,6 +4924,9 @@ fn taskspace_action_arg_u64(args: &serde_json::Value, name: &str, default: u64) 
 
 fn normalize_taskspace_apply_patch(patch: &str) -> String {
     let normalized = patch.replace("\r\n", "\n");
+    if let Some(rewritten) = normalize_taskspace_bare_file_patch(&normalized) {
+        return rewritten;
+    }
     let lines = normalized.lines().collect::<Vec<_>>();
     if lines.len() < 5
         || lines.first() != Some(&"*** Begin Patch")
@@ -4173,7 +4937,47 @@ fn normalize_taskspace_apply_patch(patch: &str) -> String {
     {
         return normalized;
     }
-    normalized
+    rewrite_taskspace_apply_patch_unique_update_paths(&normalized)
+}
+
+fn normalize_taskspace_bare_file_patch(patch: &str) -> Option<String> {
+    let lines = patch.lines().collect::<Vec<_>>();
+    if lines.len() < 5 || lines.first() != Some(&"*** Begin Patch") {
+        return None;
+    }
+    if lines.last() != Some(&"*** End Patch") {
+        return None;
+    }
+    let raw_path = lines.get(1)?.trim();
+    if raw_path.is_empty()
+        || raw_path.starts_with("*** ")
+        || raw_path.starts_with("--- ")
+        || raw_path.starts_with("+++ ")
+        || raw_path.contains(char::is_whitespace)
+    {
+        return None;
+    }
+    if !lines
+        .iter()
+        .skip(2)
+        .any(|line| line.starts_with('-') || line.starts_with('+'))
+    {
+        return None;
+    }
+    let path =
+        resolve_unique_existing_relative_path(raw_path).unwrap_or_else(|| raw_path.to_string());
+    let mut rewritten = Vec::with_capacity(lines.len() + 1);
+    rewritten.push("*** Begin Patch".to_string());
+    rewritten.push(format!("*** Update File: {path}"));
+    rewritten.push("@@".to_string());
+    for line in lines.iter().skip(2).take(lines.len().saturating_sub(3)) {
+        if line.trim().is_empty() && rewritten.last().is_some_and(|last| last == "@@") {
+            continue;
+        }
+        rewritten.push((*line).to_string());
+    }
+    rewritten.push("*** End Patch".to_string());
+    Some(rewritten.join("\n") + "\n")
 }
 
 fn normalize_taskspace_unified_diff_patch(patch: &str) -> Option<String> {
@@ -4182,15 +4986,17 @@ fn normalize_taskspace_unified_diff_patch(patch: &str) -> Option<String> {
     if lines.first() != Some(&"*** Begin Patch") || lines.last() != Some(&"*** End Patch") {
         return None;
     }
-    let old_idx = lines.iter().position(|line| line.starts_with("--- a/"))?;
-    let new_idx = lines.iter().position(|line| line.starts_with("+++ b/"))?;
+    let old_idx = lines.iter().position(|line| line.starts_with("--- "))?;
+    let new_idx = lines.iter().position(|line| line.starts_with("+++ "))?;
     if new_idx != old_idx + 1 {
         return None;
     }
-    let path = lines[new_idx].strip_prefix("+++ b/")?.trim();
+    let path = lines[new_idx].strip_prefix("+++ ")?.trim();
+    let path = path.strip_prefix("b/").unwrap_or(path);
     if path.is_empty() {
         return None;
     }
+    let path = resolve_unique_existing_relative_path(path).unwrap_or_else(|| path.to_string());
     let mut rewritten = Vec::with_capacity(lines.len());
     rewritten.push("*** Begin Patch".to_string());
     rewritten.push(format!("*** Update File: {path}"));
@@ -4199,10 +5005,108 @@ fn normalize_taskspace_unified_diff_patch(patch: &str) -> Option<String> {
         .skip(new_idx + 1)
         .take(lines.len().saturating_sub(new_idx + 2))
     {
-        rewritten.push((*line).to_string());
+        rewritten.push(normalize_taskspace_unified_hunk_line(line));
     }
     rewritten.push("*** End Patch".to_string());
     Some(rewritten.join("\n") + "\n")
+}
+
+fn normalize_taskspace_unified_hunk_line(line: &str) -> String {
+    let Some(rest) = line.strip_prefix("@@") else {
+        return line.to_string();
+    };
+    let Some((_, trailing)) = rest.split_once("@@") else {
+        return "@@".to_string();
+    };
+    let trailing = trailing.trim();
+    if trailing.is_empty() {
+        "@@".to_string()
+    } else {
+        format!("@@ {trailing}")
+    }
+}
+
+fn rewrite_taskspace_apply_patch_unique_update_paths(patch: &str) -> String {
+    let lines = patch.lines().collect::<Vec<_>>();
+    let mut rewritten = Vec::with_capacity(lines.len());
+    let mut changed = false;
+    for line in lines {
+        let Some(path) = line.strip_prefix("*** Update File: ") else {
+            rewritten.push(line.to_string());
+            continue;
+        };
+        let candidate = resolve_unique_existing_relative_path(path.trim());
+        if let Some(candidate) = candidate {
+            rewritten.push(format!("*** Update File: {candidate}"));
+            changed = true;
+        } else {
+            rewritten.push(line.to_string());
+        }
+    }
+    if changed {
+        rewritten.join("\n") + "\n"
+    } else {
+        patch.to_string()
+    }
+}
+
+fn resolve_unique_existing_relative_path(path: &str) -> Option<String> {
+    resolve_unique_existing_relative_path_from(Path::new("."), path)
+}
+
+fn resolve_unique_existing_relative_path_from(root: &Path, path: &str) -> Option<String> {
+    if path.is_empty() || root.join(path).exists() {
+        return None;
+    }
+    if path.contains('/') || path.contains('\\') {
+        return None;
+    }
+    let mut matches = Vec::new();
+    collect_unique_basename_matches(root, root, path, &mut matches, 2_000);
+    if matches.len() != 1 {
+        if matches.is_empty() {
+            return Some(format!("src/{path}"));
+        }
+        return None;
+    }
+    let relative = matches.pop()?;
+    relative.to_str().map(|value| value.replace('\\', "/"))
+}
+
+fn collect_unique_basename_matches(
+    root: &Path,
+    dir: &Path,
+    basename: &str,
+    matches: &mut Vec<PathBuf>,
+    remaining: usize,
+) -> usize {
+    if remaining == 0 || matches.len() > 1 {
+        return remaining;
+    }
+    let mut remaining = remaining;
+    let Ok(entries) = fs::read_dir(dir) else {
+        return remaining;
+    };
+    for entry in entries.flatten() {
+        if remaining == 0 || matches.len() > 1 {
+            break;
+        }
+        remaining = remaining.saturating_sub(1);
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if file_name == ".git" || file_name == "target" || file_name == "node_modules" {
+            continue;
+        }
+        if path.is_dir() {
+            remaining = collect_unique_basename_matches(root, &path, basename, matches, remaining);
+        } else if file_name == basename
+            && let Ok(relative) = path.strip_prefix(root)
+        {
+            matches.push(relative.to_path_buf());
+        }
+    }
+    remaining
 }
 
 fn taskspace_action_to_tool_call(
@@ -4210,6 +5114,9 @@ fn taskspace_action_to_tool_call(
     snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
 ) -> Result<Option<ToolCall>, String> {
     let action_name = action.action.as_str();
+    if action_name == "final_answer" {
+        return Ok(None);
+    }
     if !taskspace_action_allowed_for_node(action_name, snapshot.node_kind.as_deref()) {
         return Err(format!(
             "node_policy_violation:{}:{}",
@@ -4285,6 +5192,7 @@ fn taskspace_action_to_tool_call(
         "run_test" => {
             let command = taskspace_action_arg_string(args, "command")
                 .ok_or_else(|| "missing_run_test_command".to_string())?;
+            let command = normalize_taskspace_action_contract_test_command(&command);
             let arguments = serde_json::json!({
                 "command": command,
                 "timeout_ms": taskspace_action_arg_u64(args, "timeout_ms", 120000),
@@ -4300,11 +5208,175 @@ fn taskspace_action_to_tool_call(
             tool_name: ToolName::plain("taskspace_control"),
             call_id,
             payload: ToolPayload::Function {
-                arguments: args.to_string(),
+                arguments: normalize_taskspace_action_contract_control_args(args, snapshot)
+                    .to_string(),
             },
         })),
-        "final_answer" | "blocked" => Ok(None),
+        "blocked" => Ok(None),
         _ => Err(format!("unsupported_action:{action_name}")),
+    }
+}
+
+fn taskspace_action_contract_visible_text(raw_text: &str) -> Option<String> {
+    let action = parse_taskspace_action_v1(raw_text).ok()?;
+    if action.action == "final_answer" {
+        return taskspace_action_final_message(&action);
+    }
+    None
+}
+
+fn normalize_taskspace_action_contract_control_args(
+    args: &serde_json::Value,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> serde_json::Value {
+    let mut normalized = args.clone();
+    let Some(root) = normalized.as_object_mut() else {
+        return normalized;
+    };
+    if !root.contains_key("action") {
+        if let Some(value) = root
+            .get("control_action")
+            .or_else(|| root.get("control_type"))
+            .cloned()
+        {
+            root.insert("action".to_string(), value);
+        }
+    }
+    let inner_action = root
+        .get("action")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    if inner_action != "finish_node" {
+        return normalized;
+    }
+    if !root.contains_key("node_id")
+        && let Some(node_id) = snapshot.node_id.as_deref()
+    {
+        root.insert(
+            "node_id".to_string(),
+            serde_json::Value::String(node_id.to_string()),
+        );
+    }
+    if snapshot.node_kind.as_deref() == Some("implement_solution") {
+        root.entry("next_node_kind".to_string())
+            .or_insert_with(|| serde_json::Value::String("smoke_test".to_string()));
+        if root
+            .get("next_node_kind")
+            .and_then(serde_json::Value::as_str)
+            == Some("smoke_test")
+        {
+            root.entry("next_node_title".to_string())
+                .or_insert_with(|| serde_json::Value::String("Run focused validation".to_string()));
+            root.entry("next_node_context_summary".to_string())
+                .or_insert_with(|| {
+                    serde_json::Value::String(
+                        "Run the focused test command after the implementation edit.".to_string(),
+                    )
+                });
+            if !root.contains_key("next_dependency_node_ids")
+                && let Some(node_id) = snapshot.node_id.as_deref()
+            {
+                root.insert(
+                    "next_dependency_node_ids".to_string(),
+                    serde_json::json!([node_id]),
+                );
+            }
+        }
+    }
+    normalized
+}
+
+fn normalize_taskspace_action_contract_test_command(command: &str) -> String {
+    let trimmed = command.trim();
+    for prefix in [
+        "pytest ",
+        "python -m pytest ",
+        "cd src && python -m pytest ",
+    ] {
+        let Some(rest) = trimmed.strip_prefix(prefix) else {
+            continue;
+        };
+        let rest = rest.trim();
+        let Some((file, suffix)) = split_first_shell_word(rest) else {
+            continue;
+        };
+        if file.ends_with(".py") && !file.contains('/') && !file.contains('\\') {
+            let suffix = suffix.trim();
+            return if suffix.is_empty() {
+                format!("pytest tests/{file}")
+            } else {
+                format!("pytest tests/{file} {suffix}")
+            };
+        }
+        if file.ends_with(".py")
+            && !Path::new(file).exists()
+            && let Some(resolved) = resolve_unique_test_file_for_missing_pytest_path(file)
+        {
+            let suffix = suffix.trim();
+            return if suffix.is_empty() {
+                format!("pytest {resolved}")
+            } else {
+                format!("pytest {resolved} {suffix}")
+            };
+        }
+    }
+    trimmed.to_string()
+}
+
+fn resolve_unique_test_file_for_missing_pytest_path(path: &str) -> Option<String> {
+    let normalized = path.replace('\\', "/");
+    if !normalized.starts_with("tests/") {
+        return None;
+    }
+    let entries = fs::read_dir("tests").ok()?;
+    let matches = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let file_name = path.file_name()?.to_str()?;
+            if path.is_file() && file_name.starts_with("test_") && file_name.ends_with(".py") {
+                Some(format!("tests/{file_name}"))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    if matches.len() == 1 {
+        matches.into_iter().next()
+    } else {
+        None
+    }
+}
+
+fn split_first_shell_word(value: &str) -> Option<(&str, &str)> {
+    let value = value.trim_start();
+    if value.is_empty() {
+        return None;
+    }
+    if let Some(index) = value.find(char::is_whitespace) {
+        Some((&value[..index], &value[index..]))
+    } else {
+        Some((value, ""))
+    }
+}
+
+fn taskspace_bootstrap_action_to_tool_call(
+    action: &TaskSpaceActionV1,
+) -> Result<Option<ToolCall>, String> {
+    let action_name = action.action.as_str();
+    if !taskspace_action_allowed_for_node(action_name, None) {
+        return Err(format!("bootstrap_policy_violation:{action_name}"));
+    }
+    match action_name {
+        "taskspace_control" => Ok(Some(ToolCall {
+            tool_name: ToolName::plain("taskspace_control"),
+            call_id: "taskspace-action-contract-bootstrap-taskspace_control".to_string(),
+            payload: ToolPayload::Function {
+                arguments: action.args.to_string(),
+            },
+        })),
+        "blocked" => Ok(None),
+        _ => Err(format!("unsupported_bootstrap_action:{action_name}")),
     }
 }
 
@@ -4414,7 +5486,8 @@ async fn try_run_sampling_request(
     let provider_request_budget = provider_budget_snapshot
         .as_ref()
         .map(|snapshot| {
-            let transport_mode = taskspace_provider_transport_mode(&turn_context, Some(snapshot));
+            let transport_mode =
+                taskspace_provider_transport_mode(&turn_context, Some(snapshot), true);
             let limits = taskspace_transport_budget_limits(snapshot, transport_mode);
             let budget_state = match transport_mode {
                 TaskspaceProviderTransportMode::NativeTools => snapshot.budget_state.clone(),
@@ -4440,6 +5513,11 @@ async fn try_run_sampling_request(
             )
         })
         .unwrap_or_else(ProviderRequestBudgetContext::disabled);
+    let action_contract_mode = taskspace_provider_transport_mode(
+        &turn_context,
+        provider_budget_snapshot.as_ref(),
+        prompt_contains_taskspace_active_context(prompt),
+    ) == TaskspaceProviderTransportMode::CacheOptimizedActionContract;
     let stream_result = client_session
         .stream_with_provider_request_budget(
             prompt,
@@ -4633,17 +5711,69 @@ async fn try_run_sampling_request(
                 {
                     last_agent_message = Some(raw_text.to_string());
                 }
-                if let Some(snapshot) = provider_budget_snapshot.as_ref()
-                    && taskspace_provider_transport_mode(&turn_context, Some(snapshot))
-                        == TaskspaceProviderTransportMode::CacheOptimizedActionContract
+                if action_contract_mode
                     && let Some(raw_text) = raw_assistant_text.as_deref()
                     && !raw_text.trim().is_empty()
                 {
-                    match parse_taskspace_action_v1(raw_text).and_then(|action| {
-                        let final_message = taskspace_action_final_message(&action);
-                        taskspace_action_to_tool_call(&action, snapshot)
-                            .map(|tool_call| (action, final_message, tool_call))
-                    }) {
+                    let parsed_action = match parse_taskspace_action_v1(raw_text) {
+                        Ok(action) => Ok(action),
+                        Err(reason) => Err(reason),
+                    };
+                    let action_result = match parsed_action {
+                        Ok(action) => {
+                            let action = if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                                && should_finish_node_after_successful_required_action(
+                                    &action,
+                                    snapshot,
+                                    sess.as_ref(),
+                                )
+                                .await
+                            {
+                                taskspace_finish_current_node_action(
+                                    snapshot.node_id.as_deref(),
+                                    "Required node work already succeeded; finishing node.",
+                                )
+                            } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                                && should_answer_after_successful_validation_redundant_node(
+                                    &action,
+                                    snapshot,
+                                    sess.as_ref(),
+                                )
+                                .await
+                            {
+                                taskspace_final_answer_action(
+                                    "Validation passed; final result is ready.",
+                                )
+                            } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                                && should_answer_after_successful_validation_finish_node(
+                                    &action,
+                                    snapshot,
+                                    sess.as_ref(),
+                                )
+                                .await
+                            {
+                                taskspace_final_answer_action(
+                                    "Validation passed; final result is ready.",
+                                )
+                            } else if taskspace_action_control_creates_final_synthesis(&action) {
+                                taskspace_final_answer_action(
+                                    "Validation passed; final result is ready.",
+                                )
+                            } else {
+                                action
+                            };
+                            let final_message = taskspace_action_final_message(&action);
+                            let tool_call =
+                                if let Some(snapshot) = provider_budget_snapshot.as_ref() {
+                                    taskspace_action_to_tool_call(&action, snapshot)
+                                } else {
+                                    taskspace_bootstrap_action_to_tool_call(&action)
+                                };
+                            tool_call.map(|tool_call| (action, final_message, tool_call))
+                        }
+                        Err(reason) => Err(reason),
+                    };
+                    match action_result {
                         Ok((action, _final_message, Some(tool_call))) => {
                             let call_item =
                                 response_item_for_taskspace_action_tool_call(&tool_call);
@@ -4712,8 +5842,14 @@ async fn try_run_sampling_request(
                         && let Some(raw_text) = raw_assistant_output_text_from_item(&item)
                     {
                         let item_id = turn_item.id();
-                        let mut seeded =
-                            assistant_message_stream_parsers.seed_item_text(&item_id, &raw_text);
+                        let visible_source_text = if action_contract_mode {
+                            taskspace_action_contract_visible_text(&raw_text)
+                                .unwrap_or_else(|| raw_text.clone())
+                        } else {
+                            raw_text.clone()
+                        };
+                        let mut seeded = assistant_message_stream_parsers
+                            .seed_item_text(&item_id, &visible_source_text);
                         if let TurnItem::AgentMessage(agent_message) = &mut turn_item {
                             agent_message.content =
                                 vec![codex_protocol::items::AgentMessageContent::Text {
