@@ -487,6 +487,11 @@ Expand the action-contract transport from one smoke scenario to normal TaskSpace
 | Output refs | action-map/runtime output refs | read/search results | output-ref tests | ref creation/read events | none | planned |
 | Final synthesis | final gate path | final answer envelope | final gate tests | final accepted event | none | planned |
 
+Current evidence:
+
+- `taskspace_action_contract_node_policy_matrix_blocks_cross_node_actions` covers inspect, implement, validation, final, and unknown-node policy decisions in `taskspace_action_allowed_for_node`.
+- Validation command: `cargo test -p codex-core taskspace_action_contract_node_policy_matrix_blocks_cross_node_actions --lib`.
+
 #### Testing And Validation
 
 | Validation Type | Validation Item | Method | Passing Standard |

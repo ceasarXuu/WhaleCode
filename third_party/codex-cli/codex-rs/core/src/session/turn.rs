@@ -3119,6 +3119,70 @@ tax_calc.py\n\
     }
 
     #[test]
+    fn taskspace_action_contract_node_policy_matrix_blocks_cross_node_actions() {
+        assert!(taskspace_action_allowed_for_node(
+            "read_file",
+            Some("inspect_code_context")
+        ));
+        assert!(taskspace_action_allowed_for_node(
+            "search",
+            Some("inspect_code_context")
+        ));
+        assert!(!taskspace_action_allowed_for_node(
+            "apply_patch",
+            Some("inspect_code_context")
+        ));
+        assert!(!taskspace_action_allowed_for_node(
+            "run_test",
+            Some("inspect_code_context")
+        ));
+
+        assert!(taskspace_action_allowed_for_node(
+            "apply_patch",
+            Some("implement_solution")
+        ));
+        assert!(!taskspace_action_allowed_for_node(
+            "run_test",
+            Some("implement_solution")
+        ));
+
+        for validation_kind in ["smoke_test", "regression_test"] {
+            assert!(taskspace_action_allowed_for_node(
+                "run_test",
+                Some(validation_kind)
+            ));
+            assert!(!taskspace_action_allowed_for_node(
+                "apply_patch",
+                Some(validation_kind)
+            ));
+        }
+
+        assert!(taskspace_action_allowed_for_node(
+            "final_answer",
+            Some("final_synthesis")
+        ));
+        assert!(taskspace_action_allowed_for_node(
+            "taskspace_control",
+            Some("final_synthesis")
+        ));
+        assert!(!taskspace_action_allowed_for_node(
+            "read_file",
+            Some("final_synthesis")
+        ));
+        assert!(!taskspace_action_allowed_for_node(
+            "run_test",
+            Some("final_synthesis")
+        ));
+        assert!(!taskspace_action_allowed_for_node(
+            "apply_patch",
+            Some("final_synthesis")
+        ));
+
+        assert!(taskspace_action_allowed_for_node("blocked", None));
+        assert!(!taskspace_action_allowed_for_node("read_file", None));
+    }
+
+    #[test]
     fn taskspace_finish_node_detects_control_type_alias() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-3","args":{"control_type":"finish_node","result_summary":"Tests passed."}}"#,

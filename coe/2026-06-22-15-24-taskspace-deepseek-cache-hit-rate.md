@@ -540,3 +540,24 @@
   - The gate is scoped to TaskSpace/right artifacts, so Standard-mode provider request shape does not contaminate the TaskSpace DeepSeek cache-hit release gate.
 - Supports:
   - H-006
+
+## Evidence E-023: Action-contract transport has node-kind policy matrix regression coverage
+- Status: accepted
+- Captured: 2026-06-23
+- Method:
+  - Added `taskspace_action_contract_node_policy_matrix_blocks_cross_node_actions` in `third_party/codex-cli/codex-rs/core/src/session/turn.rs`.
+  - The test exercises `taskspace_action_allowed_for_node` for inspect, implement, validation, final synthesis, and unknown/no active node cases.
+  - Ran targeted Rust validation after formatting.
+- Observations:
+  - `cargo test -p codex-core taskspace_action_contract_node_policy_matrix_blocks_cross_node_actions --lib` passed.
+  - `cargo check -p codex-core` passed.
+  - The policy matrix allows read/search in inspect nodes and blocks patch/test there.
+  - It allows patch in implement nodes and blocks test there.
+  - It allows test in smoke/regression validation nodes and blocks patch there.
+  - It allows final answer/control in final synthesis nodes and blocks read/test/patch there.
+  - With no active node, only `blocked` remains allowed among the checked actions.
+- Interpretation:
+  - Phase 4 now has direct code-level regression coverage for cross-node action bypass prevention in the cache-optimized action-contract path.
+  - This supports preserving TaskSpace node semantics while avoiding provider-native tool schema on the DeepSeek hot path.
+- Supports:
+  - H-006
