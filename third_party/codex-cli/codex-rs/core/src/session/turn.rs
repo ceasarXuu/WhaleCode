@@ -5796,13 +5796,7 @@ async fn try_run_sampling_request(
                     post_budget_grace_request_count: snapshot.post_budget_grace_request_count,
                     budget_state,
                 },
-                ProviderRequestAttribution {
-                    request_scope_id: Some(turn_context.sub_id.to_string()),
-                    task_id: snapshot.task_id.as_ref().map(|id| id.to_string()),
-                    map_id: Some(snapshot.map_id.to_string()),
-                    node_id: snapshot.node_id.as_ref().map(|id| id.to_string()),
-                    request_phase: snapshot.request_phase.clone(),
-                },
+                ProviderRequestAttribution::from_snapshot(snapshot, turn_context.sub_id.as_str()),
             )
         })
         .unwrap_or_else(ProviderRequestBudgetContext::disabled);

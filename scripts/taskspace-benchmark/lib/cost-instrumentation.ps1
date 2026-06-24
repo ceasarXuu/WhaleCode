@@ -319,12 +319,39 @@ function New-TaskspaceActiveReplacementArtifacts {
 function New-TaskspaceProviderRequestArtifacts {
     param([object[]]$BudgetEvents, $RequestSummary = $null)
     $events = New-Object System.Collections.Generic.List[object]
+    $phaseCounts = @{}
+    $phaseTokens = @{}
     $phaseKnown = 0
     $terminalStatuses = @("response_completed", "response_failed", "cancelled", "blocked")
     foreach ($event in @($BudgetEvents)) {
         if ([string]::IsNullOrWhiteSpace([string]$event.request_id)) { continue }
         $phase = [string]$event.request_phase
-        if (-not [string]::IsNullOrWhiteSpace($phase) -and $phase -ne "unknown") { $phaseKnown++ }
+        if ([string]::IsNullOrWhiteSpace($phase)) { $phase = "unknown" }
+        if ($phase -ne "unknown") { $phaseKnown++ }
+        Add-TaskspaceCostCount $phaseCounts $phase
+        if (-not $phaseTokens.ContainsKey($phase)) {
+            $phaseTokens[$phase] = [ordered]@{
+                request_count = 0
+                terminal_request_count = 0
+                input_tokens = [int64]0
+                cached_input_tokens = [int64]0
+                output_tokens = [int64]0
+                reasoning_output_tokens = [int64]0
+                total_tokens = [int64]0
+            }
+        }
+        $phaseTokens[$phase].request_count++
+        if ([string]$event.status -in $terminalStatuses) { $phaseTokens[$phase].terminal_request_count++ }
+        $inputTokens = Convert-TaskspaceTraceInt $event.input_tokens
+        $cachedInputTokens = Convert-TaskspaceTraceInt $event.cached_input_tokens
+        $outputTokens = Convert-TaskspaceTraceInt $event.output_tokens
+        $reasoningOutputTokens = Convert-TaskspaceTraceInt $event.reasoning_output_tokens
+        $totalTokens = Convert-TaskspaceTraceInt $event.total_tokens
+        $phaseTokens[$phase].input_tokens += [int64]$inputTokens
+        $phaseTokens[$phase].cached_input_tokens += [int64]$cachedInputTokens
+        $phaseTokens[$phase].output_tokens += [int64]$outputTokens
+        $phaseTokens[$phase].reasoning_output_tokens += [int64]$reasoningOutputTokens
+        $phaseTokens[$phase].total_tokens += [int64]$totalTokens
         $events.Add([pscustomobject]@{
             schema_version = "taskspace-provider-request-budget-event-v1"
             request_id = [string]$event.request_id
@@ -339,6 +366,11 @@ function New-TaskspaceProviderRequestArtifacts {
             status = [string]$event.status
             transport = [string]$event.transport
             trace_event_id = [string]$event.trace_event_id
+            input_tokens = $inputTokens
+            cached_input_tokens = $cachedInputTokens
+            output_tokens = $outputTokens
+            reasoning_output_tokens = $reasoningOutputTokens
+            total_tokens = $totalTokens
             provider_payload_sha256 = [string]$event.provider_payload_sha256
             provider_wire_api = [string]$event.provider_wire_api
             tools_count = [int]$event.tools_count
@@ -358,6 +390,11 @@ function New-TaskspaceProviderRequestArtifacts {
     $unknownRatio = if ($count -gt 0) { [int][Math]::Round((([double]$count - [double]$phaseKnown) / [double]$count) * 100.0) } else { 100 }
     $hookCoverage = if ($expectedRequestCount -gt 0) { [int][Math]::Min(100, [Math]::Round(([double]$distinctRequestCount / [double]$expectedRequestCount) * 100.0)) } else { 0 }
     $terminalCoverage = if ($expectedRequestCount -gt 0) { [int][Math]::Min(100, [Math]::Round(([double]$terminalRequestCount / [double]$expectedRequestCount) * 100.0)) } else { 0 }
+    $phaseTokenSummary = [ordered]@{}
+    foreach ($key in @($phaseTokens.Keys | Sort-Object)) { $phaseTokenSummary[$key] = [pscustomobject]$phaseTokens[$key] }
+    $nonModelSamplingPhaseNames = @($phaseCounts.Keys | Where-Object { $_ -ne "model_sampling" -and $_ -ne "final_synthesis" -and $_ -ne "unknown" } | Sort-Object)
+    $nonModelSamplingPhaseCount = [int](@($nonModelSamplingPhaseNames | ForEach-Object { [int]$phaseCounts[$_] } | Measure-Object -Sum).Sum)
+    $phaseDiversityGatePass = $nonModelSamplingPhaseNames.Count -ge 2
     [pscustomobject]@{
         provider_request_events = @($events.ToArray())
         request_phase_summary = [pscustomobject]@{
@@ -370,6 +407,11 @@ function New-TaskspaceProviderRequestArtifacts {
             provider_request_distinct_count = [int]$distinctRequestCount
             provider_request_terminal_count = [int]$terminalRequestCount
             expected_model_request_count = [int]$expectedRequestCount
+            phase_counts = Convert-TaskspaceCostTable $phaseCounts
+            phase_token_summary = [pscustomobject]$phaseTokenSummary
+            non_model_sampling_phase_count = [int]$nonModelSamplingPhaseCount
+            non_model_sampling_distinct_phase_count = [int]$nonModelSamplingPhaseNames.Count
+            phase_diversity_gate_pass = [bool]$phaseDiversityGatePass
         }
     }
 }

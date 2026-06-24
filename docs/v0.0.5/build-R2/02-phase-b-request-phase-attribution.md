@@ -214,3 +214,108 @@ request_phase_attribution_coverage >= 95
 unknown_request_phase_ratio <= 5
 phase_counts includes at least two non-model_sampling phases on synthetic fixture
 ```
+
+## B.11 Implementation status
+
+Status: implemented locally on 2026-06-24.
+
+Implemented scope:
+
+```text
+TaskSpaceProviderRequestPhase enum and strict as_str mapping
+pending_provider_request_phase / pending_provider_request_context_reason / last_provider_request_context runtime state
+provider_request_context_selected runtime trace event
+next_provider_request_phase selection:
+  compact checkpoint -> budget_recovery
+  pending semantic phase -> pending phase
+  missing current node -> unknown + current_main_node_missing
+  final synthesis node -> final_synthesis
+  smoke/regression nodes -> validation_recovery
+  default -> model_sampling
+state_commit accepted -> pending state_commit
+record_subagent_plan accepted -> pending subagent_spawn
+non-accepted result validity -> pending validation_recovery
+ProviderRequestAttribution::from_snapshot
+request-phase-summary phase_counts / phase_token_summary
+request-phase-summary phase_diversity_gate_pass for synthetic fixtures
+```
+
+Deferred producers:
+
+```text
+projection_update
+legacy_state_action
+ordinary_tool_recovery
+subagent_result_processing
+```
+
+These enum variants are reserved but not yet emitted by a semantic transition
+producer in this phase. They should be wired only when their source transition
+has a clear runtime event boundary.
+
+Local validation:
+
+```text
+cargo test -p codex-core request_phase --lib
+  4 passed
+
+cargo test -p codex-core provider_request_budget --lib
+  10 passed
+
+pwsh -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1
+  cost instrumentation selftest passed
+
+pwsh -File scripts/taskspace-benchmark/test-release-decision.ps1
+  Release decision self-test: PASS
+  RunRoot: target/release-decision-selftest/run-20260624-202641-438
+
+cargo build -p codex-cli --bin whale --locked
+  finished dev build
+```
+
+Synthetic request-phase fixture evidence:
+
+```text
+phase_counts.model_sampling = 1
+phase_counts.validation_recovery = 1
+phase_counts.state_commit = 1
+non_model_sampling_distinct_phase_count = 2
+phase_diversity_gate_pass = true
+phase_token_summary.state_commit.input_tokens = 7
+phase_token_summary.validation_recovery.cached_input_tokens = 1
+```
+
+B-tier diagnostic rerun:
+
+```text
+run = target/phase-b-complete-B-rerun45/single-file-fast-fix/20260624-203208-963
+valid_pair = True
+included_in_utility_aggregate = False
+outcome_taskspace = wrong
+business_success = False
+exec_exit_code = 1
+public_validation_exit_code = 1
+hidden_oracle_exit_code = 1
+failure_taxonomy = agent_patch_wrong
+provider_request_hook_coverage = 100
+provider_request_terminal_coverage = 100
+request_phase_attribution_coverage = 100
+unknown_request_phase_ratio = 0
+phase_counts.model_sampling = 24
+phase_counts.budget_recovery = 5
+phase_diversity_gate_pass = false
+request_2_plus_hit_rate = 0.991148
+trace_coverage = 1
+tool_free_action_contract_count = 7
+taskspace_control_count = 0
+state_commit_count = 0
+open_leaf_nodes = 1
+```
+
+Interpretation: Phase B instrumentation gates are satisfied on the real B-tier
+run, but the B-tier business gate failed because the agent did not successfully
+patch `src/tax_calc.py`. The trace shows two malformed `taskspace_control`
+attempts with missing `action` and no successful `state_commit`, so the run never
+exercised the new semantic phase producers beyond `budget_recovery`. This is a
+downstream action-contract / TaskSpace workflow reliability issue, not evidence
+that request-phase attribution is missing.

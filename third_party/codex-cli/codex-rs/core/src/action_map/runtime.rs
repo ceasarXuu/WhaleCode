@@ -424,6 +424,53 @@ pub(crate) struct ActionMapSubagentPlanInput {
     pub(crate) depends_on_results: Vec<String>,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub(crate) struct TaskSpaceProviderRequestContextV1 {
+    pub(crate) task_id: Option<TaskId>,
+    pub(crate) map_id: ActionMapId,
+    pub(crate) node_id: Option<MapNodeId>,
+    pub(crate) request_phase: TaskSpaceProviderRequestPhase,
+    pub(crate) context_selection_reason: String,
+    pub(crate) missing_reason: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskSpaceProviderRequestPhase {
+    Startup,
+    ProjectionUpdate,
+    StateCommit,
+    LegacyStateAction,
+    OrdinaryToolRecovery,
+    SubagentSpawn,
+    SubagentResultProcessing,
+    ValidationRecovery,
+    FinalSynthesis,
+    BudgetRecovery,
+    ModelSampling,
+    Unknown,
+}
+
+impl TaskSpaceProviderRequestPhase {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Startup => "startup",
+            Self::ProjectionUpdate => "projection_update",
+            Self::StateCommit => "state_commit",
+            Self::LegacyStateAction => "legacy_state_action",
+            Self::OrdinaryToolRecovery => "ordinary_tool_recovery",
+            Self::SubagentSpawn => "subagent_spawn",
+            Self::SubagentResultProcessing => "subagent_result_processing",
+            Self::ValidationRecovery => "validation_recovery",
+            Self::FinalSynthesis => "final_synthesis",
+            Self::BudgetRecovery => "budget_recovery",
+            Self::ModelSampling => "model_sampling",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
     pub(crate) task_id: Option<TaskId>,
@@ -713,6 +760,9 @@ pub(crate) struct ActionMapRuntimeState {
     budget_state: TaskSpaceBudgetState,
     budget_violations: Vec<TaskSpaceBudgetViolation>,
     sentinel_warnings: Vec<TaskSpaceSentinelWarning>,
+    pending_provider_request_phase: Option<TaskSpaceProviderRequestPhase>,
+    pending_provider_request_context_reason: Option<String>,
+    last_provider_request_context: Option<TaskSpaceProviderRequestContextV1>,
     next_task_seq: u64,
     next_map_seq: u64,
     next_node_seq: u64,
@@ -836,6 +886,9 @@ impl Default for ActionMapRuntimeState {
             budget_state: TaskSpaceBudgetState::Normal,
             budget_violations: Vec::new(),
             sentinel_warnings: Vec::new(),
+            pending_provider_request_phase: None,
+            pending_provider_request_context_reason: None,
+            last_provider_request_context: None,
             next_task_seq: 1,
             next_map_seq: 1,
             next_node_seq: 1,
@@ -2365,6 +2418,57 @@ preview:\n\
         })
     }
 
+    pub(crate) fn set_next_provider_request_phase(
+        &mut self,
+        phase: TaskSpaceProviderRequestPhase,
+        reason: impl Into<String>,
+    ) -> Vec<MapRuntimeEvent> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Vec::new();
+        }
+        let Some(map_id) = self.active_map_id.clone() else {
+            return Vec::new();
+        };
+        let reason = reason.into();
+        self.pending_provider_request_phase = Some(phase);
+        self.pending_provider_request_context_reason = Some(reason.clone());
+        let task_id = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
+        let node_id = self.current_main_node_id.clone();
+        let missing_reason =
+            self.provider_request_context_missing_reason(&map_id, node_id.as_deref(), phase);
+        self.last_provider_request_context = Some(TaskSpaceProviderRequestContextV1 {
+            task_id: task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: node_id.clone(),
+            request_phase: phase,
+            context_selection_reason: reason.clone(),
+            missing_reason: missing_reason.clone(),
+        });
+        let trace_node_id = node_id
+            .clone()
+            .unwrap_or_else(|| "provider-context-missing".to_string());
+        let mut tags = vec![
+            "schema:taskspace-provider-request-context-v1".to_string(),
+            "producer:runtime".to_string(),
+            format!("request_phase:{}", phase.as_str()),
+            format!("context_selection_reason:{reason}"),
+        ];
+        if let Some(missing_reason) = missing_reason {
+            tags.push(format!(
+                "provider_request_context_missing_reason:{missing_reason}"
+            ));
+        }
+        vec![self.record_runtime_budget_trace_event(
+            "provider_request_context_selected",
+            task_id,
+            map_id,
+            trace_node_id,
+            None,
+            true,
+            tags,
+        )]
+    }
+
     pub(crate) fn provider_request_budget_snapshot(
         &self,
     ) -> Option<ActionMapProviderRequestBudgetSnapshot> {
@@ -2374,18 +2478,16 @@ preview:\n\
         let budget = self.active_budget.as_ref()?;
         let map_id = self.active_map_id.clone()?;
         let node_id = self.current_main_node_id.clone();
-        let request_phase = self.provider_request_phase_for_node(&map_id, node_id.as_deref());
+        let phase = self.next_provider_request_phase(&map_id, node_id.as_deref());
+        let request_phase = Some(phase.as_str().to_string());
         let node_kind = node_id.as_deref().and_then(|node_id| {
             self.maps
                 .get(&map_id)
                 .and_then(|map| map.nodes.get(node_id))
                 .map(|node| node.kind.as_str().to_string())
         });
-        let provider_request_context_missing_reason = if node_id.is_some() {
-            None
-        } else {
-            Some("current_main_node_missing".to_string())
-        };
+        let provider_request_context_missing_reason =
+            self.provider_request_context_missing_reason(&map_id, node_id.as_deref(), phase);
         let task_id = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
         let node_request_count = node_id
             .as_ref()
@@ -2415,18 +2517,47 @@ preview:\n\
         })
     }
 
-    fn provider_request_phase_for_node(
+    pub(crate) fn next_provider_request_phase(
         &self,
         map_id: &str,
         node_id: Option<&str>,
-    ) -> Option<String> {
-        let node = node_id
-            .and_then(|node_id| self.maps.get(map_id).and_then(|map| map.nodes.get(node_id)))?;
-        let phase = match node.kind {
-            NodeKind::FinalSynthesis => "final_synthesis",
-            _ => "model_sampling",
+    ) -> TaskSpaceProviderRequestPhase {
+        if self.budget_state == TaskSpaceBudgetState::CompactCheckpointRequired {
+            return TaskSpaceProviderRequestPhase::BudgetRecovery;
+        }
+        if let Some(phase) = self.pending_provider_request_phase {
+            return phase;
+        }
+        let Some(node) = node_id
+            .and_then(|node_id| self.maps.get(map_id).and_then(|map| map.nodes.get(node_id)))
+        else {
+            return TaskSpaceProviderRequestPhase::Unknown;
         };
-        Some(phase.to_string())
+        match node.kind {
+            NodeKind::FinalSynthesis => TaskSpaceProviderRequestPhase::FinalSynthesis,
+            NodeKind::SmokeTest | NodeKind::RegressionTest => {
+                TaskSpaceProviderRequestPhase::ValidationRecovery
+            }
+            _ => TaskSpaceProviderRequestPhase::ModelSampling,
+        }
+    }
+
+    fn provider_request_context_missing_reason(
+        &self,
+        map_id: &str,
+        node_id: Option<&str>,
+        phase: TaskSpaceProviderRequestPhase,
+    ) -> Option<String> {
+        if node_id.is_none() {
+            return Some("current_main_node_missing".to_string());
+        }
+        if phase == TaskSpaceProviderRequestPhase::Unknown {
+            return Some("current_main_node_not_found".to_string());
+        }
+        if !self.maps.contains_key(map_id) {
+            return Some("active_map_missing".to_string());
+        }
+        None
     }
 
     pub(crate) fn record_provider_request_budget_events(
@@ -2492,6 +2623,14 @@ preview:\n\
                 .clone()
                 .filter(|phase| !phase.trim().is_empty())
                 .unwrap_or_else(|| "unknown".to_string());
+            if input.status == "started"
+                && self
+                    .pending_provider_request_phase
+                    .is_some_and(|phase| phase.as_str() == request_phase)
+            {
+                self.pending_provider_request_phase = None;
+                self.pending_provider_request_context_reason = None;
+            }
             let effective_node_request_count = if node_id == "provider-context-missing" {
                 snapshot.node_request_count
             } else {
@@ -4804,17 +4943,19 @@ preview:\n\
                 updated_at_ms: now,
             },
         );
-        Ok((
-            plan_id.clone(),
-            vec![MapRuntimeEvent::CognitiveStateUpdated(
-                MapRuntimeCognitiveStateUpdatedEvent {
-                    task_id,
-                    map_id: Some(map_id),
-                    update_kind: "subagent_plan.recorded".to_string(),
-                    record_id: plan_id,
-                },
-            )],
-        ))
+        let mut events = vec![MapRuntimeEvent::CognitiveStateUpdated(
+            MapRuntimeCognitiveStateUpdatedEvent {
+                task_id,
+                map_id: Some(map_id),
+                update_kind: "subagent_plan.recorded".to_string(),
+                record_id: plan_id.clone(),
+            },
+        )];
+        events.extend(self.set_next_provider_request_phase(
+            TaskSpaceProviderRequestPhase::SubagentSpawn,
+            "record_subagent_plan",
+        ));
+        Ok((plan_id, events))
     }
 
     pub(crate) fn record_next_best_action_for_main(
@@ -5197,6 +5338,12 @@ preview:\n\
                 "budget_response_action_taken:false".to_string(),
             ],
         ));
+        if outcome.status != ActionMapStateCommitStatus::Rejected {
+            events.extend(self.set_next_provider_request_phase(
+                TaskSpaceProviderRequestPhase::StateCommit,
+                "state_commit_accepted",
+            ));
+        }
         self.applied_state_commits
             .insert(outcome.commit_id.clone(), outcome.clone());
         Ok((outcome, events))
@@ -5354,15 +5501,22 @@ preview:\n\
             validity_reason: validity_reason.clone(),
             adoption,
         };
-        Ok(vec![MapRuntimeEvent::ResultValidityChanged(
+        let mut events = vec![MapRuntimeEvent::ResultValidityChanged(
             MapRuntimeResultValidityChangedEvent {
-                task_id,
+                task_id: task_id.clone(),
                 map_id,
                 node_id: result.node_id.clone(),
                 result_id,
                 validity: validity.as_str().to_string(),
             },
-        )])
+        )];
+        if validity != ResultValidity::Accepted {
+            events.extend(self.set_next_provider_request_phase(
+                TaskSpaceProviderRequestPhase::ValidationRecovery,
+                "result_validity_not_accepted",
+            ));
+        }
+        Ok(events)
     }
 
     fn validate_completion_evidence(&self, node_id: &str) -> Result<(), String> {
@@ -12629,6 +12783,127 @@ mod tests {
             message.contains("provider_request_budget_pressure_requires_inspect_node_transition")
         );
         assert!(message.contains("4/8 used"));
+    }
+
+    #[test]
+    fn request_phase_state_commit_sets_next_provider_context() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "State commit phase",
+            "Verify state commits attribute the next provider request.",
+            true,
+        );
+
+        let (_outcome, events) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "phase-b-state-commit".to_string(),
+                    next_best_action: Some(ActionMapStateCommitNextBestActionInput {
+                        node_id: None,
+                        action_summary: "continue from committed state".to_string(),
+                        reason: "state commit changed the model-visible plan".to_string(),
+                        expected_artifact: None,
+                        blocked_by: Vec::new(),
+                    }),
+                    ..Default::default()
+                },
+            )
+            .expect("state commit accepted");
+
+        assert!(events.iter().any(|event| {
+            match event {
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(event) => {
+                    event.kind == "provider_request_context_selected"
+                        && event
+                            .tags
+                            .iter()
+                            .any(|tag| tag == "request_phase:state_commit")
+                }
+                _ => false,
+            }
+        }));
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("provider request snapshot");
+        assert_eq!(snapshot.request_phase.as_deref(), Some("state_commit"));
+    }
+
+    #[test]
+    fn request_phase_validation_node_uses_validation_recovery() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validation phase",
+            "Verify validation nodes attribute recovery requests.",
+            "run smoke test",
+            "smoke test failed",
+            true,
+        );
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("provider request snapshot");
+        assert_eq!(
+            snapshot.request_phase.as_deref(),
+            Some("validation_recovery")
+        );
+    }
+
+    #[test]
+    fn request_phase_unknown_records_missing_current_node() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Unknown phase",
+            "Verify missing current node is explicit.",
+            true,
+        );
+        state.current_main_node_id = None;
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("provider request snapshot");
+        assert_eq!(snapshot.request_phase.as_deref(), Some("unknown"));
+        assert_eq!(
+            snapshot.provider_request_context_missing_reason.as_deref(),
+            Some("current_main_node_missing")
+        );
+    }
+
+    #[test]
+    fn request_phase_budget_recovery_overrides_pending_model_sampling() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Budget recovery phase",
+            "Verify compact checkpoint overrides pending model sampling.",
+            true,
+        );
+        state.set_next_provider_request_phase(
+            TaskSpaceProviderRequestPhase::ModelSampling,
+            "test_pending_sampling",
+        );
+        state.budget_state = TaskSpaceBudgetState::CompactCheckpointRequired;
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("provider request snapshot");
+        assert_eq!(snapshot.request_phase.as_deref(), Some("budget_recovery"));
     }
 
     #[test]

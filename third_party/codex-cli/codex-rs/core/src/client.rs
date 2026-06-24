@@ -32,6 +32,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
 use codex_api::ApiError;
 use codex_api::AuthProvider;
 use codex_api::CompactClient as ApiCompactClient;
@@ -221,6 +222,21 @@ pub(crate) struct ProviderRequestAttribution {
     pub(crate) map_id: Option<String>,
     pub(crate) node_id: Option<String>,
     pub(crate) request_phase: Option<String>,
+}
+
+impl ProviderRequestAttribution {
+    pub(crate) fn from_snapshot(
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        request_scope_id: &str,
+    ) -> Self {
+        Self {
+            request_scope_id: Some(request_scope_id.to_string()),
+            task_id: snapshot.task_id.as_ref().map(|id| id.to_string()),
+            map_id: Some(snapshot.map_id.to_string()),
+            node_id: snapshot.node_id.as_ref().map(|id| id.to_string()),
+            request_phase: snapshot.request_phase.clone(),
+        }
+    }
 }
 
 #[derive(Debug)]

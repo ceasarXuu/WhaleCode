@@ -130,8 +130,11 @@ $obs = [pscustomobject]@{
                 "max_model_requests_per_node:3",
                 "post_budget_grace_requests:1",
                 "runtime_budget_state:hard_stopped",
-                "request_phase:model_sampling",
+                "request_phase:validation_recovery",
                 "producer:provider_lifecycle",
+                "input_tokens:4",
+                "cached_input_tokens:1",
+                "output_tokens:2",
                 "budget_response_action_taken:true"
             )
         },
@@ -150,7 +153,59 @@ $obs = [pscustomobject]@{
                 "counter_name:provider_request_count",
                 "counter_value:1",
                 "counter_limit:1",
-                "request_phase:model_sampling",
+                "request_phase:validation_recovery",
+                "score_eligible:false",
+                "budget_induced_validation_skip:false",
+                "manual_override_used:false",
+                "bounded_recovery_used:false",
+                "final_classification:blocked_by_budget"
+            )
+        },
+        [pscustomobject]@{
+            kind = "provider_request_budget"
+            trace_event_id = "trace-budget-3"
+            task_id = "task-1"
+            map_id = "map-1"
+            node_id = "node-1"
+            call_id = "provider-request-3"
+            tags = @(
+                "schema:taskspace-provider-request-budget-event-v1",
+                "transport:responses_http",
+                "status:blocked",
+                "request_count_before:1",
+                "request_count_after:1",
+                "max_requests:1",
+                "active_budget_source:runtime",
+                "route_mode:thin",
+                "profile_name:taskspace-v005-active",
+                "node_request_count:2",
+                "max_model_requests_per_node:3",
+                "post_budget_grace_requests:1",
+                "runtime_budget_state:hard_stopped",
+                "request_phase:state_commit",
+                "producer:provider_lifecycle",
+                "input_tokens:7",
+                "cached_input_tokens:3",
+                "output_tokens:1",
+                "budget_response_action_taken:true"
+            )
+        },
+        [pscustomobject]@{
+            kind = "budget_quality_impact"
+            trace_event_id = "trace-quality-3"
+            task_id = "task-1"
+            map_id = "map-1"
+            node_id = "node-1"
+            call_id = "provider-request-3"
+            tags = @(
+                "schema:taskspace-budget-quality-impact-v1",
+                "provider_request_budget_trace_event_id:trace-budget-3",
+                "budget_action:hard_stop",
+                "provider_request_status:blocked",
+                "counter_name:provider_request_count",
+                "counter_value:1",
+                "counter_limit:1",
+                "request_phase:state_commit",
                 "score_eligible:false",
                 "budget_induced_validation_skip:false",
                 "manual_override_used:false",
@@ -255,21 +310,24 @@ $replacement = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifact
 $phaseSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "request-phase-summary.json") | ConvertFrom-Json
 $stateCommit = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "state-commit-displacement.json") | ConvertFrom-Json
 $spawnBudget = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "spawn-node-budget-summary.json") | ConvertFrom-Json
-Assert-True ($budgetEvents.Count -eq 2) "budget event count was not extracted from runtime trace"
+Assert-True ($budgetEvents.Count -eq 3) "budget event count was not extracted from runtime trace"
 Assert-True ($activeBudgetEvents.Count -eq 1 -and [string]$activeBudgetEvents[0].route_mode -eq "thin" -and [int]$activeBudgetEvents[0].max_rollout_model_requests -eq 8) "active budget event was not extracted from runtime trace"
 Assert-True ([string]$budgetEvents[0].active_budget_source -eq "runtime" -and [string]$budgetEvents[0].route_mode -eq "thin" -and [int]$budgetEvents[0].max_model_requests_per_node -eq 3) "provider budget event did not preserve active budget fields"
-Assert-True ($qualityEvents.Count -eq 2) "budget quality event count was not extracted from runtime trace"
+Assert-True ($qualityEvents.Count -eq 3) "budget quality event count was not extracted from runtime trace"
 Assert-True ($scanEvents.Count -eq 1 -and [bool]$scanEvents[0].passed) "exact payload scan event was not derived from runtime payload trace"
 Assert-True (-not [bool]$scanEvents[0].protected_items_present) "protected items should remain advisory for exact payload scan"
-Assert-True ($providerEvents.Count -eq 2 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
-Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provider_lifecycle" }).Count -eq 2) "provider request events did not preserve provider_lifecycle producer"
+Assert-True ($providerEvents.Count -eq 3 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
+Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provider_lifecycle" }).Count -eq 3) "provider request events did not preserve provider_lifecycle producer"
 Assert-True ([string]$providerEvents[0].provider_wire_api -eq "ChatCompletions" -and [int]$providerEvents[0].tools_count -eq 24 -and [string]$providerEvents[0].request_shape_classifier -eq "native_tools_schema_hot_path") "provider request events did not preserve cache request shape fields"
 Assert-True ($cacheTraceEvents.Count -eq 1 -and [string]$cacheTraceEvents[0].schema_version -eq "TaskSpaceProviderCacheTraceV1" -and [double]$cacheTraceEvents[0].hit_rate -eq 0.2) "provider cache trace event was not derived from terminal provider request"
 Assert-True ([int]$cacheTraceSummary.native_tools_schema_hot_path_count -eq 1 -and [double]$cacheTraceSummary.trace_coverage -eq 1.0) "provider cache trace summary did not classify native tools hot path"
 Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"
 Assert-True (-not [bool]$replacement.protected_items_present) "active replacement report should preserve advisory protected-item absence"
 Assert-True ([int]$phaseSummary.provider_request_hook_coverage -eq 100 -and [int]$phaseSummary.request_phase_attribution_coverage -eq 100) "request phase summary did not reflect provider events"
-Assert-True ([int]$phaseSummary.provider_request_terminal_coverage -eq 100 -and [int]$phaseSummary.expected_model_request_count -eq 2 -and [int]$phaseSummary.provider_request_distinct_count -eq 2) "request phase summary did not use expected provider request denominator"
+Assert-True ([int]$phaseSummary.provider_request_terminal_coverage -eq 100 -and [int]$phaseSummary.expected_model_request_count -eq 3 -and [int]$phaseSummary.provider_request_distinct_count -eq 3) "request phase summary did not use expected provider request denominator"
+Assert-True ([int]$phaseSummary.phase_counts.model_sampling -eq 1 -and [int]$phaseSummary.phase_counts.validation_recovery -eq 1 -and [int]$phaseSummary.phase_counts.state_commit -eq 1) "request phase summary did not expose phase counts"
+Assert-True ([bool]$phaseSummary.phase_diversity_gate_pass -and [int]$phaseSummary.non_model_sampling_distinct_phase_count -eq 2) "request phase summary did not enforce non-model phase diversity"
+Assert-True ([int64]$phaseSummary.phase_token_summary.state_commit.input_tokens -eq 7 -and [int64]$phaseSummary.phase_token_summary.validation_recovery.cached_input_tokens -eq 1) "request phase summary did not expose phase token totals"
 Assert-True ([string]$stateCommit.status -eq "pass" -and [string]$stateCommit.source_status -eq "runtime" -and [int]$stateCommit.runtime_event_count -eq 1 -and [bool]$stateCommit.has_displacement_denominator -and [int]$stateCommit.legacy_state_action_attempt_count -eq 2) "state commit displacement summary should pass with runtime denominator evidence"
 Assert-True ([string]$spawnBudget.status -eq "pass" -and [string]$spawnBudget.source_status -eq "runtime" -and [int]$spawnBudget.runtime_event_count -eq 2) "spawn/node budget should pass with runtime producer evidence"
 Assert-True ([string]$spawnBudget.active_budget_source -eq "runtime" -and [string]$spawnBudget.route_mode -eq "thin" -and [int]$spawnBudget.max_nodes -eq 4) "spawn/node budget summary did not preserve active budget route fields"
@@ -277,8 +335,8 @@ Assert-True ([string]$spawnBudget.within_budget_status -eq "fail" -and [string]$
 Assert-True ([bool]$summary.budget_quality_impact_logged_for_every_budget_action) "budget action was not matched to quality impact"
 Assert-True ([string]$summary.active_budget_source -eq "runtime" -and [string]$summary.route_mode -eq "thin" -and [int]$summary.max_rollout_model_requests -eq 8 -and [int]$summary.max_model_requests_per_node -eq 3) "budget quality summary did not expose active budget fields"
 Assert-True ([int]$summary.budget_quality_impact_missing_count -eq 0) "budget quality impact missing count should be zero"
-Assert-True ([int]$summary.blocked_by_budget_samples_count -eq 1) "blocked budget quality impact was not summarized"
-Assert-True ([int]$instrumentation.budget_quality_impact_summary.budget_action_count -eq 1) "returned instrumentation object omitted budget summary"
+Assert-True ([int]$summary.blocked_by_budget_samples_count -eq 2) "blocked budget quality impact was not summarized"
+Assert-True ([int]$instrumentation.budget_quality_impact_summary.budget_action_count -eq 2) "returned instrumentation object omitted budget summary"
 
 $rolloutOnlyArtifactDir = Join-Path $RunRoot "rollout-only-artifacts"
 New-Item -ItemType Directory -Path $rolloutOnlyArtifactDir -Force | Out-Null
