@@ -1,6 +1,8 @@
 # Phase D. Profile Advisory Quality Impact
 
 > 2026-06-25 更新：预算/profile 不再产生硬停；本阶段只保留质量影响与回归检测。
+>
+> 2026-06-26 复核：Phase A 后续修复没有恢复 hard stop。Phase D 的方向保持有效，但 release-like closeout 仍依赖 Phase C/E/G 的 producer-owned 证据。
 
 ## D.1 目标
 
@@ -10,6 +12,22 @@
 - 记录旧 blocked 输入是否出现，作为兼容/回归信号。
 - 阻断 release-like 声明中的 validation skip、score-ineligible solved、manual override。
 - 不再要求或鼓励 provider request blocked、node budget block、spawn budget block、final hard stop。
+
+## D.1.1 当前状态
+
+Status: mostly aligned; not standalone release-complete.
+
+当前实现已经把 profile overrun 作为 `over_profile_hint` / `observe`
+处理，并把 `blocked_by_budget_samples_count` 保留为旧硬停回归计数。后续
+Phase D 不应重新引入预算硬停。
+
+仍需由后续阶段补齐的依赖：
+
+```text
+Phase C: exact payload scan producer-owned proof
+Phase E: legacy state action displacement denominator
+Phase G: v005-non-agent-gates.json 聚合器和本地证据 hash
+```
 
 ## D.2 当前语义
 

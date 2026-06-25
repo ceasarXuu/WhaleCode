@@ -9,6 +9,32 @@
 
 Before any real E3, prove all new implementation contracts with deterministic non-agent tests and local artifacts.
 
+## G.1.1 Current status after Phase A/B follow-up
+
+Status: blocker; partially implemented fixtures, missing canonical aggregator.
+
+Already present:
+
+```text
+test-cost-instrumentation.ps1 covers several v0.0.5 summary fixtures
+test-release-decision.ps1 covers v005 marker and release blocker fixtures
+test-e3-start-gate.ps1 validates v005 marker identity, freshness, local evidence path, sha256, sample set, and task list identity
+write-release-decision.ps1 reads v005-non-agent-gates.json and v005-code-complete.json
+lib/e3-start-gate.ps1 enforces v005 marker gates
+```
+
+Still missing:
+
+```text
+scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1
+canonical v005-non-agent-gates.json evidence bundle for current HEAD
+per-gate local evidence files with sha256
+single command that runs the required non-agent gates and writes the marker consumed by release/start gates
+```
+
+Therefore Phase G is not complete even though many underlying fixture tests
+exist.
+
 ## G.2 Files to change
 
 ```text
@@ -20,7 +46,7 @@ scripts/taskspace-benchmark/lib/e3-start-gate.ps1
 scripts/taskspace-benchmark/write-release-decision.ps1
 ```
 
-Optionally add:
+Required now:
 
 ```text
 scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1
@@ -57,7 +83,7 @@ Every gate evidence path must be a local file. `selftest://` is not acceptable.
 
 ## G.4 Build script pseudocode
 
-If adding `build-v005-non-agent-gates.ps1`, implement:
+Implement `build-v005-non-agent-gates.ps1`:
 
 ```powershell
 param(

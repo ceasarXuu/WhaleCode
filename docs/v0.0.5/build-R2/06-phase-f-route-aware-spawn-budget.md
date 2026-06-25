@@ -1,6 +1,8 @@
 # Phase F. Route-aware Spawn/Node Profile Observability
 
 > 2026-06-25 更新：route/profile 不再限制 spawn/node 数量；只提供起始复杂度估算和 over-profile 观测。
+>
+> 2026-06-26 复核：runtime 已补强 subagent plan、ready-node claim、unreviewed-result 等质量门；artifact/release 汇总仍需收敛。
 
 ## F.1 目标
 
@@ -25,6 +27,25 @@ subagent result 长期未 adopt/reject/defer，导致证据债务未清
 ```
 
 这些可以确保 fanout 有证据收益，而不是用预算上限替代架构判断。
+
+当前 runtime 已实现或强化的质量门：
+
+```text
+spawn_agent 必须 claim ready node
+ready node 必须先有 unused record_subagent_plan
+record_subagent_plan 必须包含 bounded scope 和 decision yield reference
+completed narrow inspect 后，不允许再为单条 follow-up inspect 滥用 subagent
+unreviewed result 会阻断 ordinary work 或 downstream spawn，直到 mark_result_validity 明确 accept/question/reject
+subagent 完成 inspect/validation 类 node 前必须有对应工具或问题状态证据
+```
+
+仍未完成的 Phase F 产物：
+
+```text
+spawn-node-budget-summary 需要继续保持 advisory-only 语义
+release artifact 需要显式汇总 unreviewed_subagent_result_count / review debt
+post-ABI B-tier smoke 需要证明这些质量门没有再次制造业务失败
+```
 
 ## F.3 禁止的行为
 

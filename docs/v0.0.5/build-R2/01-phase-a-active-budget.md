@@ -3,6 +3,8 @@
 > 从 `22-v005-completion-engineering-playbook.md` 拆分而来；本文件是 Phase A 的当前准则。
 >
 > 2026-06-25 更新：`profile` 不再是 session 预算或强度上限，只是任务起始复杂度估算。
+>
+> 2026-06-26 复核：后续 action-contract ABI 修复和 codex-core 全量门禁没有恢复硬预算上限；新增验证门属于正确性/证据门禁，不是 profile cap。
 
 ## A.1 目标
 
@@ -225,7 +227,19 @@ spawn/node budget reports over_profile_hint but status=pass
 
 ## A.11 Phase B/C 影响
 
-Phase B request-phase attribution 不应再把 `budget_recovery` 当预算超限后的强制阶段；它只能作为显式兼容输入或人工诊断阶段。
+Phase B request-phase attribution 不应再把 `budget_recovery` 当预算超限后的强制阶段；它只能作为显式兼容输入、旧轨迹解释或人工诊断阶段。
+
+当前代码仍保留 `CompactCheckpointRequired -> budget_recovery` 的 request phase 兼容路径。这条路径必须满足：
+
+```text
+只做 attribution / legacy diagnostic
+不得阻断 provider dispatch
+不得隐藏工具
+不得强制 final response
+不得作为 release blocker，除非同时出现 blocked budget event
+```
+
+如果后续 Phase B 收敛该路径，优先把它改成 legacy/diagnostic-only 标记，避免重新引入 profile hard stop。
 
 Phase C cache/payload proof 要求更高：因为超 profile 后请求仍会继续发出，所有完成态 provider request 都应该尽量保留 payload hash、request shape、cache usage 和 request phase，不能只记录前几个请求。
 
@@ -243,3 +257,16 @@ legacy restored maintenance barrier -> discarded
 cost/release spawn-node budget gate -> advisory-only
 hard_stop/hard_stopped runtime terms -> removed from current code path
 ```
+
+2026-06-26 后续验证：
+
+```text
+cargo test -p codex-core action_map::runtime --lib --quiet
+  passed
+cargo test -p codex-core --lib --quiet
+  1985 passed; 0 failed; 4 ignored
+cargo check -p codex-cli --locked
+  passed
+```
+
+后续修复新增了更严格的 validation/result 证据绑定和 subagent plan/结果审查门禁。这些门禁属于任务正确性与状态一致性，符合 A.2；不得被解释为 profile 数字上限回流。

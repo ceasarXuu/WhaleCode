@@ -9,6 +9,36 @@
 
 `state_commit_displacement` must measure real legacy actions attempted / displaced / allowed. It must not use `state_commit` section count as the denominator.
 
+## E.1.1 Current status after Phase A/B follow-up
+
+Status: blocker; not implemented as specified.
+
+The runtime currently emits a `state_commit_displacement` trace, but its
+denominator still comes from state_commit sections:
+
+```text
+legacy_state_action_attempt_count = accepted_sections.len + rejected_sections.len
+legacy_state_action_displaced_count = accepted_sections.len
+```
+
+That is exactly the approximation this phase is meant to replace. Do not mark
+Phase E complete until real legacy action attempts are recorded independently
+from state_commit sections.
+
+Current acceptable interim value:
+
+```text
+state_commit_displacement trace exists and can be consumed by scripts
+```
+
+Current blocker:
+
+```text
+no independent LegacyStateActionAttemptV1 producer
+no separate state_commit_section_count
+displacement denominator still conflates compression sections with legacy action attempts
+```
+
 ## E.2 Files to change
 
 ```text
@@ -167,6 +197,9 @@ let legacy_state_action_count = self.budget_counters.legacy_state_action_allowed
 ```
 
 Also emit `state_commit_section_count` separately so compression can be measured without corrupting displacement denominator.
+
+2026-06-26 note: this section remains the required fix. The current runtime has
+not yet made this replacement.
 
 ## E.8 Script changes
 

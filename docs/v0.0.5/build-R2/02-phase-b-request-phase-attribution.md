@@ -3,6 +3,8 @@
 > Split from `22-v005-completion-engineering-playbook.md` to keep each execution context small and phase-cohesive.
 >
 > Canonical sequence: read `00-overview-and-gates.md` first, then only the phase file you are implementing.
+>
+> 2026-06-26 review: Phase B attribution is implemented and codex-core full gate is green. The rerun45 `taskspace_control` failure was later fixed in the action-contract ABI layer; a post-ABI B-tier rerun is still required for business-success evidence.
 
 
 ## B.1 Goal
@@ -98,6 +100,11 @@ pub(crate) fn next_provider_request_phase(
     }
 }
 ```
+
+Compatibility note after Phase A: `budget_recovery` is allowed only as a
+request-phase attribution or legacy diagnostic marker. It must not be used to
+block dispatch, hide tools, force final response, or make release fail merely
+because a profile hint was exceeded.
 
 ## B.6 Phase producers
 
@@ -217,7 +224,7 @@ phase_counts includes at least two non-model_sampling phases on synthetic fixtur
 
 ## B.11 Implementation status
 
-Status: implemented locally on 2026-06-24.
+Status: implemented and revalidated locally on 2026-06-26.
 
 Implemented scope:
 
@@ -312,10 +319,34 @@ state_commit_count = 0
 open_leaf_nodes = 1
 ```
 
-Interpretation: Phase B instrumentation gates are satisfied on the real B-tier
-run, but the B-tier business gate failed because the agent did not successfully
-patch `src/tax_calc.py`. The trace shows two malformed `taskspace_control`
-attempts with missing `action` and no successful `state_commit`, so the run never
-exercised the new semantic phase producers beyond `budget_recovery`. This is a
-downstream action-contract / TaskSpace workflow reliability issue, not evidence
-that request-phase attribution is missing.
+Interpretation as of 2026-06-24: Phase B instrumentation gates were satisfied on
+the real B-tier run, but the B-tier business gate failed because the agent did
+not successfully patch `src/tax_calc.py`. The trace showed malformed
+`taskspace_control` attempts with missing `action`, so the run never exercised
+the new semantic phase producers beyond `budget_recovery`.
+
+2026-06-26 update:
+
+```text
+root cause = action-contract taskspace_control ABI drift
+fix commit = aef9f7a31 Fix TaskSpace action contract control ABI
+full gate commit = 557fe3304 Fix codex-core TaskSpace gate regressions
+taskspace_control_count now includes native controls and taskspace-action-v1 lifecycle controls
+action_contract_taskspace_control_count is reported separately
+cargo test -p codex-core --lib --quiet passed
+```
+
+Phase B therefore remains green for attribution, but the old rerun45 artifact is
+no longer sufficient business evidence. The next B-tier smoke must be produced
+after the ABI fix and must verify:
+
+```text
+business_success = true
+public_validation_exit_code = 0
+hidden_oracle_exit_code = 0
+request_phase_attribution_coverage >= 95
+unknown_request_phase_ratio <= 5
+taskspace_control_count > 0 when lifecycle transitions are required
+state_commit_count > 0 when state_commit is the expected workflow path
+blocked_by_budget_samples_count = 0
+```

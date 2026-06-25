@@ -6,6 +6,7 @@
 
 
 - Created: 2026-06-21
+- Last reviewed: 2026-06-26
 - Branch target: `whalecode-alpha`
 - Status: engineering execution guide; not a release approval document
 - Canonical design dependency: `18-unfinished-work-engineering-design.md`
@@ -108,30 +109,62 @@ Interpretation: cache and business-success blockers are cleared for this smoke,
 but `open_leaf_nodes=1` and `taskspace_wall_time_ratio=2.72` remain follow-up
 gates before C/E3 or release-like claims.
 
+## 1.2 Current status after Phase A/B and follow-up fixes
+
+As of 2026-06-26, the post-A/B implementation state is:
+
+```text
+Phase A advisory profile semantics are implemented.
+Phase B request phase attribution is implemented for core semantic producers.
+TaskSpace action-contract taskspace_control ABI canonicalization is fixed.
+codex-core full library gate is green on the current commit.
+```
+
+Validated evidence:
+
+```text
+cargo test -p codex-core --lib --quiet
+  1985 passed; 0 failed; 4 ignored
+
+cargo check -p codex-cli --locked
+  passed
+
+taskspace_control action-contract ABI:
+  action_name / command / control_action / control_type aliases are canonicalized before native handler execution
+  taskspace_control_count now includes native tool calls and taskspace-action-v1 lifecycle controls
+```
+
+This changes the remaining work shape. The old B-tier `missing field action`
+failure is no longer a Phase B attribution blocker; it is now a repaired
+action-contract ABI issue. A new post-ABI B-tier smoke is still required before
+claiming business-success readiness.
+
 ## 2. Current alpha implementation baseline
 
-The alpha branch already has partial implementations in these areas:
+The alpha branch now has these implementation states:
 
 | Area | Existing implementation | Remaining problem |
 |---|---|---|
-| Provider request budget | `ProviderRequestBudgetContext` in `core/src/client.rs`; request dispatch checks before HTTP/WebSocket request | Fixed max request count; not route-aware; phase attribution is too coarse |
-| Active context replacement | `prepare_provider_visible_prompt_items` and `compose_provider_visible_history` in `core/src/session/turn.rs` | Marker-based; exact payload proof is mostly derived from budget events |
-| Budget quality impact | `budget_quality_impact` trace generated from provider budget events in `action_map/runtime.rs` | Quality fields are mostly static; validator state is not actually joined |
-| `state_commit` | `taskspace_control(action=state_commit)` handler and `state_commit_for_main` runtime method | Displacement denominator counts commit sections, not real legacy action attempts |
-| Spawn/node profile | Node count and spawn/node profile trace events exist | Profile must remain advisory-only; subagent result adoption quality gates are incomplete |
-| Release decision | `write-release-decision.ps1` checks many new artifacts | Some artifacts are synthesized from summaries instead of canonical producer-owned facts |
+| Provider request budget / profile | Phase A advisory-only dispatch and spawn/node profile gates are implemented | `budget_recovery` still exists as a compatibility attribution path; it must not become a profile hard-stop |
+| Request phase attribution | `TaskSpaceProviderRequestPhase`, pending provider phase state, `ProviderRequestAttribution::from_snapshot`, `phase_counts`, and `phase_token_summary` exist | Some enum variants remain reserved/deferred; post-ABI B-tier rerun is still needed |
+| TaskSpace action contract ABI | `taskspace-action-v1` lifecycle controls are canonicalized before native `taskspace_control`; benchmark usage splits native vs action-contract controls | Needs post-ABI B-tier business validation |
+| Active context replacement / payload scan | Provider request events carry payload hash and scan booleans; release fixtures read `exact-payload-scan-events.jsonl` | Phase C is still partial because scan events are derived from provider budget events rather than independent producer-owned scan events |
+| Budget quality impact | Advisory-only profile semantics are reflected in budget quality summaries | Still depends on Phase C/E/G artifacts for release-like closeout |
+| `state_commit` displacement | `state_commit_displacement` runtime trace exists | Phase E is not complete: denominator still comes from accepted/rejected state_commit sections, not independent legacy action attempts |
+| Spawn/node profile and subagent quality | Spawn/node profile traces are advisory; runtime enforces subagent plan and unreviewed-result gates | Artifact/release summary for unreviewed subagent result quality remains incomplete |
+| Release/start gates | Release decision and E3 start gate know v0.0.5 markers | `build-v005-non-agent-gates.ps1` / canonical `v005-non-agent-gates.json` builder is missing |
 
 ## 3. Implementation phases
 
 Complete the work in this order. Do not run real E3 until Phase G is green.
 
 ```text
-Phase A  Advisory active complexity profile and route-aware profile state
-Phase B  Request phase attribution and context propagation
-Phase C  Exact provider payload scan proof
-Phase D  BudgetQualityImpactV1 with validator/quality semantics
-Phase E  Legacy state action displacement denominator
-Phase F  Route-aware spawn/node profile observability and subagent quality gates
-Phase G  Non-agent gates, release-decision fixtures, start-gate fixtures
-Phase H  Targeted diagnostic and formal E3 readiness
+Phase A  Done: advisory active complexity profile and profile-hint observability
+Phase B  Done with caveats: request phase attribution and context propagation
+Phase C  Partial: exact provider payload scan proof; producer-owned scan event still required
+Phase D  Mostly aligned: advisory profile quality impact and hard-stop regression detection
+Phase E  Blocker: legacy state action displacement denominator still needs real attempt events
+Phase F  Partial: runtime subagent quality gates exist; artifact/release summary remains pending
+Phase G  Blocker: canonical non-agent gate builder and evidence bundle still missing
+Phase H  Blocked: targeted diagnostic and formal E3 readiness wait for C/E/G and post-ABI B smoke
 ```

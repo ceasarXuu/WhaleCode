@@ -1,11 +1,26 @@
 # v0.0.5 Completion Engineering Playbook
 
 - Created: 2026-06-21
+- Last reviewed: 2026-06-26
 - Branch target: `whalecode-alpha`
 - Status: split index for phased execution; not a release approval document
 - Canonical design dependency: `18-unfinished-work-engineering-design.md`
 
 This playbook has been split into phase-cohesive documents so implementation work can load only the relevant context.
+
+## Current State
+
+As of 2026-06-26:
+
+```text
+Phase A is implemented: profile is advisory-only, not a session/request/spawn/node hard cap.
+Phase B is implemented: request phase attribution and phase summaries exist.
+TaskSpace action-contract taskspace_control ABI repair is implemented after Phase B.
+codex-core full library gate is green on the current follow-up fix.
+Phase C/E/G remain blockers before Phase H or formal E3.
+```
+
+Read `00-overview-and-gates.md` and `09-module-checklist-and-closeout.md` for the current blocker list before executing any later phase.
 
 ## Read Order
 

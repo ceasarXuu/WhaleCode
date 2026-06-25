@@ -9,6 +9,17 @@
 
 Only after Phases A-G are green:
 
+Current status as of 2026-06-26: blocked.
+
+Do not run targeted diagnostic or formal E3 yet. The current blockers are:
+
+```text
+Phase C producer-owned exact payload scan is not complete
+Phase E legacy state action denominator is not complete
+Phase G build-v005-non-agent-gates.ps1 / v005-non-agent-gates.json is missing
+post-ABI B-tier smoke has not been rerun after taskspace_control ABI repair
+```
+
 ```powershell
 # Provider and binary preflight.
 cargo build -p codex-cli --bin whale --locked
@@ -38,7 +49,7 @@ pwsh -File scripts/taskspace-benchmark/run-taskspace-benchmark.ps1 `
 ```
 
 ```powershell
-# Non-agent gates first.
+# Non-agent gates first. This command is blocked until Phase G implements the builder.
 pwsh -File scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1 `
   -RunRoot <run-root> `
   -TaskListHash <formal-task-list-hash> `
@@ -59,7 +70,7 @@ TaskSpace B-tier business_success=true before escalation
 TaskSpace public and hidden validation exit codes are 0
 TaskSpace provider-cache-trace-summary.json passes the hard cache gate
 request count is no longer 30x-190x Standard
-spawn count stays within route budget
+spawn/node profile trace is advisory-only and blocked_budget_event_count = 0
 active payload scan passes
 request phase summary has meaningful phase distribution
 budget quality impact summary has no silent validation skip
