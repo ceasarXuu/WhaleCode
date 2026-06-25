@@ -142,6 +142,53 @@ async fn start_action_map_task_node(
     node_id
 }
 
+async fn record_action_map_subagent_plan(
+    session: &Arc<crate::session::session::Session>,
+    turn: &Arc<TurnContext>,
+    node_id: &str,
+    track_name: &str,
+) {
+    session
+        .record_action_map_subagent_plan(
+            turn,
+            crate::action_map::ActionMapSubagentPlanInput {
+                parent_node_id: node_id.to_string(),
+                why_parallelizable: format!(
+                    "{track_name} is a bounded independent evidence track."
+                ),
+                expected_artifact: format!("{track_name} notes with claims and evidence."),
+                acceptance_check: "Parent can inspect and accept the node result.".to_string(),
+                max_scope: format!("Only {node_id}."),
+                supports_questions: vec![format!("q-{node_id}")],
+                tests_hypotheses: Vec::new(),
+                depends_on_results: Vec::new(),
+            },
+        )
+        .await
+        .expect("subagent plan records before spawn");
+}
+
+async fn record_action_map_fact_from_result(
+    session: &Arc<crate::session::session::Session>,
+    turn: &Arc<TurnContext>,
+    claim_id: &str,
+    statement: &str,
+    result_id: &str,
+) {
+    session
+        .record_action_map_fact(
+            turn,
+            claim_id,
+            statement.to_string(),
+            vec![crate::action_map::ActionMapEvidenceRefInput {
+                result_id: Some(result_id.to_string()),
+                ..Default::default()
+            }],
+        )
+        .await
+        .expect("fact records from accepted result evidence");
+}
+
 fn active_action_map_snapshot_map(snapshot: &ActionMapSnapshot) -> &ActionMapSnapshotMap {
     let active_map_id = snapshot
         .active_map_id
@@ -1320,11 +1367,12 @@ async fn action_map_experiment_spawn_binds_first_ready_node() {
         &session,
         &turn,
         "Define scope",
-        "Subagent should inspect this repo from a concrete TaskSpace node.",
+        "Inspect the repository scope from a concrete TaskSpace node.",
         false,
     )
     .await;
     assert_eq!(node_id, "node-1");
+    record_action_map_subagent_plan(&session, &turn, &node_id, "Repository scope inspection").await;
 
     let output = SpawnAgentHandlerV2
         .handle(invocation(
@@ -1385,7 +1433,7 @@ async fn action_map_experiment_spawn_requires_node_id_for_multiple_ready_nodes()
         &session,
         &turn,
         "Review architecture",
-        "Subagent should review architecture.",
+        "Review architecture evidence.",
         false,
     )
     .await;
@@ -1393,7 +1441,7 @@ async fn action_map_experiment_spawn_requires_node_id_for_multiple_ready_nodes()
         .create_action_map_node_for_main(
             &turn,
             "Review tests".to_string(),
-            "Subagent should review tests.".to_string(),
+            "Review test evidence.".to_string(),
             Vec::new(),
             false,
         )
@@ -1455,7 +1503,7 @@ async fn action_map_experiment_spawn_claims_explicit_node_id() {
         &session,
         &turn,
         "Review architecture",
-        "Subagent should review architecture.",
+        "Review architecture evidence.",
         false,
     )
     .await;
@@ -1463,12 +1511,13 @@ async fn action_map_experiment_spawn_claims_explicit_node_id() {
         .create_action_map_node_for_main(
             &turn,
             "Review tests".to_string(),
-            "Subagent should review tests.".to_string(),
+            "Review test evidence.".to_string(),
             Vec::new(),
             false,
         )
         .await
         .expect("second ready node should be created");
+    record_action_map_subagent_plan(&session, &turn, "node-2", "Test evidence review").await;
 
     let output = SpawnAgentHandlerV2
         .handle(invocation(
@@ -1530,7 +1579,7 @@ async fn action_map_experiment_spawn_rejects_pending_explicit_node_id() {
         &session,
         &turn,
         "Review architecture",
-        "Subagent should review architecture.",
+        "Review architecture evidence.",
         false,
     )
     .await;
@@ -1538,7 +1587,7 @@ async fn action_map_experiment_spawn_rejects_pending_explicit_node_id() {
         .create_action_map_node_for_main(
             &turn,
             "Review tests".to_string(),
-            "Subagent should review tests after architecture review.".to_string(),
+            "Review test evidence after architecture review.".to_string(),
             vec![first_node_id],
             false,
         )
@@ -1600,7 +1649,7 @@ async fn action_map_experiment_hidden_metadata_spawn_claims_explicit_node_id() {
         &session,
         &turn,
         "Review architecture",
-        "Subagent should review architecture.",
+        "Review architecture evidence.",
         false,
     )
     .await;
@@ -1608,12 +1657,13 @@ async fn action_map_experiment_hidden_metadata_spawn_claims_explicit_node_id() {
         .create_action_map_node_for_main(
             &turn,
             "Review tests".to_string(),
-            "Subagent should review tests.".to_string(),
+            "Review test evidence.".to_string(),
             Vec::new(),
             false,
         )
         .await
         .expect("second ready node should be created");
+    record_action_map_subagent_plan(&session, &turn, "node-2", "Hidden metadata test review").await;
 
     let output = SpawnAgentHandlerV2
         .handle(invocation(
@@ -1677,11 +1727,12 @@ async fn action_map_experiment_spawn_keeps_requested_task_name_for_dynamic_node(
         &session,
         &turn,
         "Dynamic review",
-        "A dynamic node should still get a valid subagent path.",
+        "Dynamic review evidence should keep the requested child path.",
         false,
     )
     .await;
     assert_eq!(node_id, "node-1");
+    record_action_map_subagent_plan(&session, &turn, &node_id, "Dynamic node review").await;
 
     let output = SpawnAgentHandlerV2
         .handle(invocation(
@@ -1742,22 +1793,24 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
         &session,
         &turn,
         "Define scope",
-        "First subagent node for scope definition.",
+        "First scope definition evidence node.",
         false,
     )
     .await;
     assert_eq!(first_node_id, "node-1");
     let second_node_id = session
-        .create_action_map_node_for_main(
+        .create_action_map_node_for_main_with_kind(
             &turn,
-            "Inspect code context".to_string(),
-            "Second subagent node after scope is defined.".to_string(),
+            crate::action_map::NodeKind::RegressionTest,
+            "Validate downstream context".to_string(),
+            "Second bounded validation handoff after scope is defined.".to_string(),
             vec!["node-1".to_string()],
             false,
         )
         .await
         .expect("dependent second node should be created");
     assert_eq!(second_node_id, "node-2");
+    record_action_map_subagent_plan(&session, &turn, &first_node_id, "Scope definition").await;
 
     let first_output = SpawnAgentHandlerV2
         .handle(invocation(
@@ -1788,6 +1841,30 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
         .await
         .expect("child thread exists");
     let child_turn = child_thread.codex.session.new_default_turn().await;
+    session
+        .prepare_action_map_child_tool_call(
+            first_child_id,
+            crate::action_map::ToolActionDescriptor::new(
+                "shell_command",
+                crate::action_map::ActionClass::Read,
+                "Get-Content src/lib.rs",
+            ),
+        )
+        .await
+        .expect("first child read should be allowed on leased node");
+    assert!(
+        session
+            .record_action_map_child_tool_result(
+                first_child_id,
+                "child-read-1",
+                "shell_command",
+                Some(crate::action_map::ActionClass::Read),
+                true,
+                "read src/lib.rs".to_string(),
+            )
+            .await,
+        "first child read result should record on leased node"
+    );
     child_thread
         .codex
         .session
@@ -1809,7 +1886,7 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
             let result_exists = snapshot
                 .maps
                 .iter()
-                .any(|map| map.results.iter().any(|result| result.id == "result-1"));
+                .any(|map| map.results.iter().any(|result| result.id == "result-2"));
             if result_exists {
                 break;
             }
@@ -1821,19 +1898,19 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
     session
         .mark_action_map_result_validity(
             &turn,
-            "result-1",
+            "result-2",
             "accepted",
-            "Test fixture accepted the first subagent result.".to_string(),
+            "Test fixture accepted the first node result.".to_string(),
             vec![crate::action_map::ActionMapCognitiveClaimInput {
-                id: "claim-result-1".to_string(),
-                statement: "First subagent result is ready for downstream work.".to_string(),
+                id: "claim-result-2".to_string(),
+                statement: "First node result is ready for downstream work.".to_string(),
                 evidence_refs: vec![crate::action_map::ActionMapEvidenceRefInput {
-                    result_id: Some("result-1".to_string()),
+                    result_id: Some("result-2".to_string()),
                     ..Default::default()
                 }],
             }],
             vec![crate::action_map::ActionMapEvidenceRefInput {
-                result_id: Some("result-1".to_string()),
+                result_id: Some("result-2".to_string()),
                 ..Default::default()
             }],
             Vec::new(),
@@ -1842,6 +1919,26 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
         )
         .await
         .expect("first node result should be accepted before downstream spawn");
+    record_action_map_fact_from_result(
+        &session,
+        &turn,
+        "fact-result-2-scope-ready",
+        "First node subagent result provides accepted scope evidence.",
+        "result-2",
+    )
+    .await;
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let statuses = active_action_map_node_statuses(&session).await;
+            if statuses.get("node-2").map(String::as_str) == Some("ready") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("completion watcher should make node-2 ready");
+    record_action_map_subagent_plan(&session, &turn, "node-2", "Code context inspection").await;
 
     timeout(Duration::from_secs(5), async {
         loop {
@@ -1899,14 +1996,15 @@ async fn action_map_experiment_blocks_nested_spawn_from_node_bound_subagent() {
     let session = root.thread.codex.session.clone();
     let turn = session.new_default_turn().await;
     enable_action_map_experiment(&session).await;
-    start_action_map_task_node(
+    let node_id = start_action_map_task_node(
         &session,
         &turn,
         "Inspect parser",
-        "A node-bound subagent should inspect parser behavior.",
+        "Inspect parser behavior in a node-bound child track.",
         false,
     )
     .await;
+    record_action_map_subagent_plan(&session, &turn, &node_id, "Parser behavior inspection").await;
 
     let child_output = SpawnAgentHandlerV2
         .handle(invocation(
@@ -4250,11 +4348,12 @@ async fn action_map_wait_timeout_requests_progress_summary_from_running_node_age
         &session,
         &turn,
         "Claim scope",
-        "Subagent node used to test timeout summary requests.",
+        "Scope-claim node used to test timeout summary requests.",
         false,
     )
     .await;
     assert_eq!(node_id, "node-1");
+    record_action_map_subagent_plan(&session, &turn, &node_id, "Timeout summary scope claim").await;
 
     let spawn_output = SpawnAgentHandlerV2
         .handle(invocation(
@@ -4578,11 +4677,13 @@ async fn action_map_close_agent_releases_node_lease_for_reclaim() {
         &session,
         &turn,
         "Claim scope",
-        "Subagent node used to test close and reclaim.",
+        "Scope-claim node used to test close and reclaim.",
         false,
     )
     .await;
     assert_eq!(node_id, "node-1");
+    record_action_map_subagent_plan(&session, &turn, &node_id, "Close and reclaim scope claim")
+        .await;
 
     let first_output = SpawnAgentHandlerV2
         .handle(invocation(
@@ -4609,6 +4710,7 @@ async fn action_map_close_agent_releases_node_lease_for_reclaim() {
         ))
         .await
         .expect("close_agent should release the Action Map lease");
+    record_action_map_subagent_plan(&session, &turn, &node_id, "Reclaimed scope claim").await;
 
     let second_output = SpawnAgentHandlerV2
         .handle(invocation(

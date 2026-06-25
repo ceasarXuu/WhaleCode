@@ -1,0 +1,247 @@
+# Problem P-001: codex-core full gate fails after TaskSpace budget rule changes
+- Status: closed
+- Created: 2026-06-26 00:00
+- Updated: 2026-06-26 23:45
+- Objective: Make `cargo test -p codex-core --lib --quiet` pass without reintroducing hard TaskSpace budget caps.
+- Symptoms:
+  - Full codex-core library gate reports failures concentrated in action_map runtime tests, config fixtures, multi_agents fixtures, and one session timeout.
+- Expected behavior:
+  - Full codex-core library tests pass and advisory-only profile behavior remains intact.
+- Actual behavior:
+  - Focused Phase B gates pass, but the broad library gate still fails on stale or inconsistent fixture assumptions.
+- Impact:
+  - Phase B cannot be called broadly green until the full codex-core regression gate is repaired or any remaining flakes are proven unrelated.
+- Reproduction:
+  - `cargo test -p codex-core --lib --quiet`
+- Environment:
+  - Windows PowerShell, branch `whalecode-alpha`, workspace `D:\whalecode-alpha`.
+- Known facts:
+  - Targeted budget, maintenance barrier, and taskspace gates passed before this case was opened.
+- Ruled out:
+  - none
+- Fix criteria:
+  - Focused failing families pass.
+  - Full `cargo test -p codex-core --lib --quiet` passes or any residual timeout is isolated and documented with repeat evidence.
+  - No hard per-session, per-request, or profile strength cap is restored.
+- Current conclusion: The broad gate failures were caused by stale fixture assumptions and one load-sensitive session test timeout. Production TaskSpace budget behavior did not need a hard cap rollback.
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+  - H-004
+- Resolution basis:
+  - `cargo test -p codex-core action_map::runtime --lib --quiet` passed: 242 passed, 0 failed.
+  - `cargo test -p codex-core config:: --lib --quiet` passed: 254 passed, 0 failed.
+  - `cargo test -p codex-core action_map_completion_watcher_advances_next_spawn_to_next_node --lib -- --nocapture` passed.
+  - `cargo test -p codex-core session::tests::run_user_shell_command_does_not_set_reference_context_item --lib -- --exact --nocapture` passed.
+  - Final `cargo test -p codex-core --lib --quiet` passed: 1985 passed, 0 failed, 4 ignored.
+  - `cargo check -p codex-cli --locked` passed.
+- Close reason:
+  - Fixed and verified.
+
+## Hypothesis H-001: action_map tests assert stale trace/profile semantics
+- Status: supported
+- Parent: P-001
+- Claim: The action_map failures are fixture expectations that still assume fixed trace ids, fixed trace counts, compact-context wording, or hard thin-route blocks.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - Recent TaskSpace work made profiles advisory-only and active profile traces can precede tool-result traces.
+- Falsifiable predictions:
+  - If true: focused action_map failures will point at assertions over fixed trace ids, blocked thin-route behavior, or old developer-context wording.
+  - If false: focused failures will reveal production logic regressions unrelated to stale expectations.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: action_map failure messages identify stale assertions.
+  - Signal: focused cargo test output.
+  - Capture method: run failing action_map family with `--nocapture`.
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - test name
+  - Differentiates from:
+    - H-004
+  - Supports if:
+    - panics mention expected trace ids/counts, old context text, or `thin_route_blocks_*`.
+  - Refutes if:
+    - panics expose a real runtime invariant violation.
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-001
+- Conclusion: The focused failures were stale assumptions about fixed trace ids, hard thin-route blocking, old compact-context wording, and accepted validation semantics.
+- Repair design readiness: completed
+- Next step: closed
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-002: config failures are stale generated fixtures
+- Status: supported
+- Parent: P-001
+- Claim: The config failures come from expected schema/precedence fixture files that no longer match current generated defaults.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - The broad gate reported config fixture/schema failures, a common signal of snapshot drift after model/provider defaults change.
+- Falsifiable predictions:
+  - If true: isolated config tests fail with textual fixture diffs and no runtime panic.
+  - If false: failures show loader or precedence logic is broken.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: config tests fail only on fixture diffs.
+  - Signal: focused config test output.
+  - Capture method: run the named config fixture tests.
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - test name
+  - Differentiates from:
+    - H-001
+  - Supports if:
+    - output shows expected-vs-actual fixture drift.
+  - Refutes if:
+    - output shows config parsing/merging behavior failure.
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-002
+- Conclusion: Config failures were fixture drift: generated schema missed `taskspace_compact_tool_schema`, and precedence fixtures expected the old resolved OAuth credentials store mode.
+- Repair design readiness: completed
+- Next step: closed
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-003: multi_agents tests use invalid worker-type TaskSpace titles and stale subagent lifecycle assumptions
+- Status: supported
+- Parent: P-001
+- Claim: The multi_agents failures are caused by test helper task titles/context that describe a worker type instead of a concrete evidence or implementation surface.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - TaskSpace rejects live node titles that describe subagent/worker type instead of concrete work surface.
+- Falsifiable predictions:
+  - If true: helper `start_action_map_task_node` passes title/context through unchanged, and failing tests call it with subagent-like labels.
+  - If false: failures occur after task start or in multi-agent handler logic.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: helper forwards invalid titles to `start_action_map_task_for_main`.
+  - Signal: source inspection and focused multi_agents test output.
+  - Capture method: inspect `multi_agents_tests.rs`; run focused multi_agents tests.
+  - Event name or marker:
+    - `TaskSpace task should start`
+  - Correlation keys:
+    - helper title
+  - Differentiates from:
+    - H-001
+  - Supports if:
+    - source and panic message both point to title validation before handler logic.
+  - Refutes if:
+    - failures persist after fixture titles are concrete.
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-003
+- Conclusion: Multi-agent fixtures needed concrete TaskSpace titles, explicit subagent plans, child tool evidence before child completion, and final child result acceptance before downstream spawn.
+- Repair design readiness: completed
+- Next step: closed
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-004: the session timeout is an isolated flaky or load-sensitive test
+- Status: supported
+- Parent: P-001
+- Claim: The session timeout is not caused by the TaskSpace budget changes and passes when isolated.
+- Layer: diagnostic
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - Prior report had a single timeout among many deterministic fixture failures.
+- Falsifiable predictions:
+  - If true: isolated session test passes repeatedly or times out only under broad load.
+  - If false: isolated session test consistently times out.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: isolated session test passes.
+  - Signal: focused cargo test output.
+  - Capture method: run the named session test with `--exact --nocapture`.
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - test name
+  - Differentiates from:
+    - H-001
+  - Supports if:
+    - isolated test passes.
+  - Refutes if:
+    - isolated test times out.
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-004
+- Conclusion: The test passed in isolation but timed out in the full gate with a 15s wait. The test now uses a lighter platform-specific noop shell command and a 60s wait window while preserving the reference-context assertion.
+- Repair design readiness: completed
+- Next step: closed
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-003: multi_agents helper forwards test title into TaskSpace task creation
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/core/src/tools/handlers/multi_agents_tests.rs`
+- Prediction or plan link:
+  - H-003 helper forwards invalid titles to `start_action_map_task_for_main`.
+- Matched signal:
+  - helper passes `title.to_string()` and `context_summary.to_string()` as both task and node title/context.
+- Correlation keys:
+  - `start_action_map_task_node`
+- Raw content:
+  ```text
+  start_action_map_task_for_main(... title.to_string(), context_summary.to_string(), title.to_string(), context_summary.to_string(), bind_current)
+  ```
+- Interpretation: Any test title containing worker-type wording is validated as a live TaskSpace node title before multi-agent handler behavior can be tested.
+- Time: 2026-06-26 00:00
+
+## Evidence E-004: final gate passes after fixture and timeout repair
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+  - H-004
+- Direction: supports
+- Type: command-output
+- Source: local PowerShell in `D:\whalecode-alpha\third_party\codex-cli\codex-rs`
+- Prediction or plan link:
+  - P-001 fix criteria.
+- Matched signal:
+  - Final full library test gate and CLI check completed successfully.
+- Correlation keys:
+  - `cargo test -p codex-core --lib --quiet`
+  - `cargo check -p codex-cli --locked`
+- Raw content:
+  ```text
+  test result: ok. 1985 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 96.41s
+  Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 48s
+  ```
+- Interpretation: The broad codex-core fixture failures are repaired without restoring hard TaskSpace budget caps.
+- Time: 2026-06-26 23:45

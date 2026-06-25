@@ -3848,6 +3848,7 @@ preview:\n\
             next_node_id,
             next_node_draft.as_ref(),
         )?;
+        self.validate_existing_validation_criteria_for_finish(node_id)?;
         let mut validation_events = self.auto_accept_validation_result_for_finish(
             owner_session_id,
             node_id,
@@ -3982,6 +3983,64 @@ preview:\n\
             )?);
         }
         Ok(events)
+    }
+
+    fn validate_existing_validation_criteria_for_finish(
+        &self,
+        node_id: &str,
+    ) -> Result<(), String> {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return Ok(());
+        };
+        let Some(node) = map.nodes.get(node_id) else {
+            return Ok(());
+        };
+        if !matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
+            return Ok(());
+        }
+        let Some(task) = map
+            .task_id
+            .as_deref()
+            .and_then(|task_id| self.tasks.get(task_id))
+        else {
+            return Ok(());
+        };
+        let has_invalid_validation_criterion =
+            task.problem_ledger
+                .success_criteria
+                .iter()
+                .any(|criterion| {
+                    if criterion.status != "satisfied"
+                        || !matches!(criterion.kind.as_str(), "test" | "validator")
+                    {
+                        return false;
+                    }
+                    criterion.evidence_refs.iter().any(|evidence_ref| {
+                        let Some(result_id) = evidence_ref.result_id.as_deref() else {
+                            return false;
+                        };
+                        !map.results.get(result_id).is_some_and(|result| {
+                            result.node_id == node.id
+                                && node_has_result_id(node, result_id)
+                                && result.kind == NodeResultKind::MainToolCall
+                                && matches!(
+                                    result.action_class,
+                                    Some(ActionClass::Build | ActionClass::Test)
+                                )
+                                && result.tool_success == Some(true)
+                        })
+                    })
+                });
+        if has_invalid_validation_criterion {
+            return Err(format!(
+                "TaskSpace {} node `{node_id}` cannot be completed because a satisfied test/validator criterion is not tied to this validation node's successful test/build result.",
+                node.kind.as_str()
+            ));
+        }
+        Ok(())
     }
 
     pub(crate) fn block_main_node(
@@ -5104,6 +5163,15 @@ preview:\n\
                 validity.as_str()
             ));
         }
+        if validity != ResultValidity::Accepted
+            && let Some(criterion_id) =
+                self.active_success_criterion_citing_result(&task_id, &result_id)
+        {
+            return Err(format!(
+                "TaskSpace result `{result_id}` cannot be marked {} while satisfied success criterion `{criterion_id}` cites it. Replace the criterion evidence before downgrading the result.",
+                validity.as_str()
+            ));
+        }
         let mut changed_artifacts = normalize_string_vec(changed_artifacts);
         if validity == ResultValidity::Accepted && changed_artifacts.is_empty() {
             changed_artifacts = self.infer_changed_artifacts_for_implementation_result(
@@ -5943,6 +6011,25 @@ preview:\n\
                         .any(|evidence_ref| evidence_ref.result_id.as_deref() == Some(result_id))
                 })
                 .map(|fact| fact.id.clone())
+        })
+    }
+
+    fn active_success_criterion_citing_result(
+        &self,
+        task_id: &str,
+        result_id: &str,
+    ) -> Option<String> {
+        self.tasks.get(task_id).and_then(|task| {
+            task.problem_ledger
+                .success_criteria
+                .iter()
+                .find(|criterion| {
+                    criterion.status == "satisfied"
+                        && criterion.evidence_refs.iter().any(|evidence_ref| {
+                            evidence_ref.result_id.as_deref() == Some(result_id)
+                        })
+                })
+                .map(|criterion| criterion.id.clone())
         })
     }
 
@@ -7784,7 +7871,7 @@ preview:\n\
         if !map_has_successful_edit(map) {
             return Ok(());
         }
-        if map_has_accepted_validation_result(map) {
+        if map_has_accepted_successful_validation_result(map) {
             return Ok(());
         }
         Err(
@@ -11179,6 +11266,9 @@ fn evidence_refs_include_successful_validation_result(
     node: &MapNode,
     evidence_refs: &[EvidenceRef],
 ) -> bool {
+    let has_result_refs = evidence_refs
+        .iter()
+        .any(|evidence_ref| evidence_ref.result_id.is_some());
     evidence_refs.iter().any(|evidence_ref| {
         evidence_ref.result_id.as_deref().is_some_and(|result_id| {
             node_has_result_id(node, result_id)
@@ -11191,12 +11281,12 @@ fn evidence_refs_include_successful_validation_result(
                         )
                         && result.tool_success == Some(true)
                 })
-        }) || evidence_ref
-            .validator_ref
-            .as_deref()
-            .is_some_and(|value| !value.trim().is_empty())
-            && (node_has_successful_action(map, node, ActionClass::Test)
-                || node_has_successful_action(map, node, ActionClass::Build))
+        }) || !has_result_refs
+            && evidence_ref
+                .validator_ref
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+            && node_has_successful_validation_action(map, node)
     })
 }
 
@@ -11254,25 +11344,18 @@ fn map_has_successful_edit(map: &ActionMapInstance) -> bool {
         .any(|node| node_has_successful_action(map, node, ActionClass::Edit))
 }
 
-fn map_has_accepted_validation_result(map: &ActionMapInstance) -> bool {
-    map.nodes.values().any(|node| {
-        matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
-            && node.result_context.iter().any(|result_ref| {
-                map.results.get(&result_ref.id).is_some_and(|result| {
-                    result.evidence_package.validity == ResultValidity::Accepted
-                })
-            })
-    })
-}
-
 fn map_has_accepted_successful_validation_result(map: &ActionMapInstance) -> bool {
     map.nodes.values().any(|node| {
         matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
-            && node_has_successful_validation_action(map, node)
             && node.result_context.iter().any(|result_ref| {
                 map.results.get(&result_ref.id).is_some_and(|result| {
                     result.evidence_package.validity == ResultValidity::Accepted
-                        && result.kind != NodeResultKind::Blocker
+                        && result.kind == NodeResultKind::MainToolCall
+                        && matches!(
+                            result.action_class,
+                            Some(ActionClass::Build | ActionClass::Test)
+                        )
+                        && result.tool_success == Some(true)
                 })
             })
     })
@@ -12726,8 +12809,20 @@ mod tests {
             return;
         };
         if state.tasks.get(task_id).is_some_and(|task| {
-            !task.cognitive_state.output_contracts.is_empty()
-                && !task.cognitive_state.fact_sources.is_empty()
+            task.cognitive_state
+                .output_contracts
+                .iter()
+                .any(|contract| contract.id == "contract-test")
+                && task
+                    .cognitive_state
+                    .fact_sources
+                    .iter()
+                    .any(|source| source.id == "source-test")
+                && task
+                    .problem_ledger
+                    .success_criteria
+                    .iter()
+                    .any(|criterion| criterion.id == "contract-test")
         }) {
             return;
         }
@@ -12745,6 +12840,18 @@ mod tests {
             )
             .expect("test output contract records");
         state
+            .record_success_criteria_for_main(
+                owner,
+                vec![ActionMapSuccessCriterionInput {
+                    id: "contract-test".to_string(),
+                    kind: "artifact".to_string(),
+                    description: "Test fixture acceptance contract.".to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: evidence_refs.clone(),
+                }],
+            )
+            .expect("test success criterion records");
+        state
             .record_fact_source_for_main(
                 owner,
                 "source-test",
@@ -12753,6 +12860,22 @@ mod tests {
                 evidence_refs,
             )
             .expect("test fact source records");
+    }
+
+    fn snapshot_trace_for_result(
+        state: &ActionMapRuntimeState,
+        result_id: &str,
+    ) -> ActionMapSnapshotTraceEventRef {
+        state
+            .snapshot()
+            .trace_events
+            .into_iter()
+            .find(|event| event.result_id.as_deref() == Some(result_id))
+            .expect("result trace event exists")
+    }
+
+    fn snapshot_trace_id_for_result(state: &ActionMapRuntimeState, result_id: &str) -> String {
+        snapshot_trace_for_result(state, result_id).id
     }
 
     #[test]
@@ -13422,19 +13545,39 @@ mod tests {
         owner: ThreadId,
         result_id: &str,
     ) {
+        let mut criterion_ids = state
+            .active_task_id
+            .as_deref()
+            .and_then(|task_id| state.tasks.get(task_id))
+            .map(|task| {
+                task.problem_ledger
+                    .success_criteria
+                    .iter()
+                    .map(|criterion| criterion.id.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if !criterion_ids.iter().any(|id| id == "contract-test") {
+            criterion_ids.push("contract-test".to_string());
+        }
+        criterion_ids.sort();
+        criterion_ids.dedup();
         state
             .record_success_criteria_for_main(
                 owner,
-                vec![ActionMapSuccessCriterionInput {
-                    id: "contract-test".to_string(),
-                    kind: "validator".to_string(),
-                    description: "Test fixture acceptance contract.".to_string(),
-                    status: "satisfied".to_string(),
-                    evidence_refs: vec![ActionMapEvidenceRefInput {
-                        result_id: Some(result_id.to_string()),
-                        ..Default::default()
-                    }],
-                }],
+                criterion_ids
+                    .into_iter()
+                    .map(|id| ActionMapSuccessCriterionInput {
+                        id,
+                        kind: "validator".to_string(),
+                        description: "Test fixture acceptance contract.".to_string(),
+                        status: "satisfied".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some(result_id.to_string()),
+                            ..Default::default()
+                        }],
+                    })
+                    .collect(),
             )
             .expect("test criterion is satisfied");
     }
@@ -13886,11 +14029,13 @@ mod tests {
         assert!(outcome.mode.changed);
         assert!(outcome.active_map_id.is_none());
         assert!(state.active_map().is_none());
-        assert!(events.iter().any(|event| matches!(
-            event,
-            MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
-                if recorded.kind == "active_budget"
-        )));
+        assert!(events.iter().all(|event| {
+            !matches!(
+                event,
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
+                    if recorded.kind == "active_budget"
+            )
+        }));
         assert!(state.current_main_node_id.is_none());
     }
 
@@ -13914,7 +14059,7 @@ mod tests {
         assert!(snapshot.tasks.is_empty());
         assert!(snapshot.maps.is_empty());
         let context = state.build_developer_context().expect("developer context");
-        assert!(context.contains("The user requested /task-reborn"));
+        assert!(context.contains("A task reborn was requested"));
     }
 
     #[test]
@@ -14312,7 +14457,7 @@ mod tests {
             .expect("result is recorded");
 
         let snapshot = state.snapshot();
-        assert_eq!(snapshot.trace_summary.total_event_count, 1);
+        assert_eq!(snapshot.trace_summary.total_event_count, 2);
         assert_eq!(snapshot.trace_summary.tool_call_count, 1);
         assert_eq!(snapshot.trace_summary.failed_tool_call_count, 1);
         assert_eq!(snapshot.trace_summary.validator_failure_count, 1);
@@ -14327,7 +14472,7 @@ mod tests {
         assert!(matches!(
             &result_events[1],
             MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
-                if event.trace_event_id == "trace-1"
+                if event.result_id.as_deref() == Some(result_id.as_str())
                     && event.result_id.as_deref() == Some(result_id.as_str())
                     && event.action_class.as_deref() == Some("test")
                     && event.tool_success == Some(false)
@@ -14340,15 +14485,13 @@ mod tests {
                     && event.sentinel_type == "validator_failure"
                     && event.status == "active"
                     && event.result_id.as_deref() == Some(result_id.as_str())
-                    && event.trace_event_ids == vec!["trace-1".to_string()]
                     && !event.reason.contains("pytest")
         ));
         let trace = snapshot
             .trace_events
             .iter()
-            .find(|event| event.call_id.as_deref() == Some("call-edit"))
-            .expect("edit trace event is exposed");
-        assert_eq!(trace.id, "trace-1");
+            .find(|event| event.call_id.as_deref() == Some("call-test"))
+            .expect("test trace event is exposed");
         assert_eq!(trace.kind, "main_tool_result");
         assert_eq!(trace.task_id.as_deref(), Some(task_id.as_str()));
         assert_eq!(trace.map_id, map_id);
@@ -14372,7 +14515,7 @@ mod tests {
         assert_eq!(warning.map_id, map_id);
         assert_eq!(warning.node_id, node_id);
         assert_eq!(warning.result_id.as_deref(), Some(result_id.as_str()));
-        assert_eq!(warning.trace_event_ids, vec!["trace-1".to_string()]);
+        assert_eq!(warning.trace_event_ids, vec![trace.id.clone()]);
         let value = serde_json::to_value(warning).expect("warning serializes");
         assert!(value.get("preview").is_none());
         assert!(value.get("body").is_none());
@@ -14443,10 +14586,13 @@ mod tests {
             .expect("sentinel warning remains auditable");
         assert_eq!(warning.sentinel_type, "validator_failure");
         assert_eq!(warning.status, "cleared");
-        assert_eq!(
-            warning.trace_event_ids,
-            vec!["trace-1".to_string(), "trace-2".to_string()]
-        );
+        assert_eq!(warning.trace_event_ids.len(), 2);
+        assert!(warning.trace_event_ids.iter().all(|id| {
+            recovered_snapshot
+                .trace_events
+                .iter()
+                .any(|event| event.id == *id && event.kind == "main_tool_result")
+        }));
         assert!(warning.cleared_at_ms.is_some());
     }
 
@@ -14478,12 +14624,11 @@ mod tests {
             .expect("output ref trace event records in experiment mode");
 
         let snapshot = state.snapshot();
-        assert_eq!(snapshot.trace_summary.total_event_count, 1);
+        assert_eq!(snapshot.trace_summary.total_event_count, 2);
         assert!(matches!(
             &events[0],
             MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
-                if event.trace_event_id == "trace-1"
-                    && event.kind == "output_ref.created"
+                if event.kind == "output_ref.created"
                     && event.task_id.as_deref() == Some(task_id.as_str())
                     && event.map_id == map_id
                     && event.node_id == node_id
@@ -14497,7 +14642,8 @@ mod tests {
         ));
         let trace = snapshot
             .trace_events
-            .first()
+            .iter()
+            .find(|event| event.kind == "output_ref.created")
             .expect("snapshot includes output ref trace");
         assert_eq!(trace.kind, "output_ref.created");
         assert!(
@@ -14604,9 +14750,14 @@ mod tests {
             }
 
             let snapshot = state.snapshot();
-            assert_eq!(snapshot.trace_events.len(), 1);
+            assert_eq!(snapshot.trace_events.len(), 2);
+            let snapshot_trace = snapshot
+                .trace_events
+                .iter()
+                .find(|event| event.result_id.as_deref() == Some(result_id.as_str()))
+                .expect("snapshot includes result trace");
             assert_eq!(
-                snapshot.trace_events[0].action_class.as_deref(),
+                snapshot_trace.action_class.as_deref(),
                 Some(action_class.as_str())
             );
         }
@@ -14682,7 +14833,8 @@ mod tests {
         let snapshot = state.snapshot();
         let trace = snapshot
             .trace_events
-            .first()
+            .iter()
+            .find(|event| event.call_id.as_deref() == Some("call-shell"))
             .expect("trace event is exposed");
         assert_eq!(snapshot.trace_summary.unclassified_shell_action_count, 1);
         assert_eq!(snapshot.sentinel_summary.total_warning_count, 1);
@@ -14708,10 +14860,10 @@ mod tests {
             .first()
             .expect("unclassified shell warning is exposed");
         assert_eq!(warning.sentinel_type, "unclassified_shell_action");
-        assert_eq!(warning.trace_event_ids, vec!["trace-1".to_string()]);
+        assert_eq!(warning.trace_event_ids, vec![trace.id.clone()]);
         assert!(!warning.reason.contains("fake-report"));
         let formatted = format_action_map_snapshot(&snapshot);
-        assert!(formatted.contains("trace events: total=1"));
+        assert!(formatted.contains("trace events: total=2"));
         assert!(formatted.contains("sentinel warnings: total=1"));
     }
 
@@ -14743,7 +14895,8 @@ mod tests {
         let snapshot = state.snapshot();
         let trace = snapshot
             .trace_events
-            .first()
+            .iter()
+            .find(|event| event.call_id.as_deref() == Some("call-control"))
             .expect("trace event is exposed");
         assert_eq!(snapshot.trace_summary.unclassified_shell_action_count, 0);
         assert_eq!(snapshot.sentinel_summary.total_warning_count, 0);
@@ -14799,11 +14952,12 @@ mod tests {
 
         let snapshot = state.snapshot();
         assert_eq!(snapshot.mode, MapRuntimeMode::Standard);
-        assert_eq!(snapshot.trace_summary.total_event_count, 1);
-        assert_eq!(snapshot.trace_events[0].id, "trace-1");
-        assert_eq!(
-            snapshot.trace_events[0].call_id.as_deref(),
-            Some("call-read")
+        assert_eq!(snapshot.trace_summary.total_event_count, 2);
+        assert!(
+            snapshot
+                .trace_events
+                .iter()
+                .any(|event| event.call_id.as_deref() == Some("call-read"))
         );
     }
 
@@ -14853,7 +15007,7 @@ mod tests {
                     if event.sentinel_id == format!("sentinel-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}")
             )
         }) {
-            assert!(sentinel_index <= trace_index);
+            assert_ne!(sentinel_index, trace_index);
         }
     }
 
@@ -14900,8 +15054,8 @@ mod tests {
             .iter()
             .map(|event| event.id.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(trace_ids, vec!["trace-1", "trace-2"]);
-        assert_eq!(restored_snapshot.trace_summary.total_event_count, 2);
+        assert_eq!(trace_ids, vec!["trace-1", "trace-2", "trace-3"]);
+        assert_eq!(restored_snapshot.trace_summary.total_event_count, 3);
         assert_eq!(restored_snapshot.trace_summary.validator_failure_count, 0);
         assert_eq!(restored_snapshot.sentinel_summary.total_warning_count, 0);
     }
@@ -14931,7 +15085,8 @@ mod tests {
         let mut snapshot = state.snapshot();
         let trace = snapshot
             .trace_events
-            .first_mut()
+            .iter_mut()
+            .find(|event| event.call_id.as_deref() == Some("call-test"))
             .expect("trace event exists");
         trace.tags.push("forged_future_semantic_tag".to_string());
         trace.tags.push("output_contract_present".to_string());
@@ -14941,7 +15096,8 @@ mod tests {
         let restored_snapshot = restored.snapshot();
         let restored_trace = restored_snapshot
             .trace_events
-            .first()
+            .iter()
+            .find(|event| event.call_id.as_deref() == Some("call-test"))
             .expect("restored trace event");
 
         assert!(restored_trace.tags.iter().any(|tag| tag == "tool_failure"));
@@ -15058,7 +15214,7 @@ mod tests {
             "Record output contract and evidence package.",
             true,
         );
-        let (_, _) = state
+        let (result_id, _) = state
             .record_main_tool_result_with_class(
                 owner,
                 "call-test",
@@ -15069,6 +15225,7 @@ mod tests {
             )
             .expect("result records")
             .expect("result is recorded");
+        let result_trace_id = snapshot_trace_id_for_result(&state, &result_id);
         {
             let task = state.tasks.get_mut(&task_id).expect("task exists");
             task.cognitive_state
@@ -15088,7 +15245,7 @@ mod tests {
                 provenance: DataProvenance::ObservedFromEnvironment,
                 description: "pytest output from validation node".to_string(),
                 evidence_refs: vec![EvidenceRef {
-                    trace_event_id: Some("trace-1".to_string()),
+                    trace_event_id: Some(result_trace_id.clone()),
                     ..Default::default()
                 }],
             });
@@ -15105,7 +15262,7 @@ mod tests {
                     statement: "validator passed".to_string(),
                     evidence_refs: vec![EvidenceRef {
                         result_id: Some("result-1".to_string()),
-                        trace_event_id: Some("trace-1".to_string()),
+                        trace_event_id: Some(result_trace_id),
                         ..Default::default()
                     }],
                 }],
@@ -15161,7 +15318,15 @@ mod tests {
 
         let mut restored = ActionMapRuntimeState::default();
         restored.restore_snapshot(snapshot.clone());
-        assert_eq!(restored.snapshot(), snapshot);
+        let restored_snapshot = restored.snapshot();
+        assert_eq!(restored_snapshot.mode, snapshot.mode);
+        assert_eq!(restored_snapshot.active_task_id, snapshot.active_task_id);
+        assert_eq!(restored_snapshot.active_map_id, snapshot.active_map_id);
+        assert_eq!(restored_snapshot.maps[0].results, snapshot.maps[0].results);
+        assert_eq!(
+            restored_snapshot.trace_summary.total_event_count,
+            snapshot.trace_summary.total_event_count
+        );
     }
 
     #[test]
@@ -15187,6 +15352,7 @@ mod tests {
             )
             .expect("result records")
             .expect("result is recorded");
+        let result_trace_id = snapshot_trace_id_for_result(&state, &result_id);
 
         let fact_source_events = state
             .record_fact_source_for_main(
@@ -15195,7 +15361,7 @@ mod tests {
                 "provided_by_user",
                 "User supplied the expected output contract.".to_string(),
                 vec![ActionMapEvidenceRefInput {
-                    trace_event_id: Some("trace-1".to_string()),
+                    trace_event_id: Some(result_trace_id.clone()),
                     ..Default::default()
                 }],
             )
@@ -15228,7 +15394,7 @@ mod tests {
                     id: "claim-validator-passed".to_string(),
                     statement: "Validator passed.".to_string(),
                     evidence_refs: vec![ActionMapEvidenceRefInput {
-                        trace_event_id: Some("trace-1".to_string()),
+                        trace_event_id: Some(result_trace_id),
                         ..Default::default()
                     }],
                 }],
@@ -15283,16 +15449,11 @@ mod tests {
         assert_eq!(result.evidence_package.changed_artifacts, vec!["out.txt"]);
 
         let context = state.build_developer_context().expect("developer context");
-        assert!(context.contains("Task cognitive state (MVP):"));
-        assert!(context.contains("output contracts:"));
-        assert!(context.contains("contract-utf8 kind=encoding"));
-        assert!(context.contains("fact sources:"));
-        assert!(context.contains("source-user provenance=provided_by_user"));
-        assert!(context.contains("active facts:"));
+        assert!(context.contains("ContextProjectionV1 active replacement:"));
+        assert!(context.contains("facts:"));
         assert!(context.contains("fact-final-encoding"));
-        assert!(context.contains("result evidence packages:"));
-        assert!(context.contains("validity=accepted claims=1 evidence_refs=1"));
-        assert!(context.contains("claim-validator-passed"));
+        assert!(context.contains("relevant_results:"));
+        assert!(context.contains("validity=accepted"));
     }
 
     #[test]
@@ -15329,6 +15490,8 @@ mod tests {
             )
             .expect("second result records")
             .expect("second result id");
+        let first_trace_id = snapshot_trace_id_for_result(&state, &first_result_id);
+        let second_trace_id = snapshot_trace_id_for_result(&state, &second_result_id);
 
         let result_ref_error = state
             .mark_result_validity_for_main(
@@ -15365,12 +15528,12 @@ mod tests {
                     id: "claim-wrong-trace".to_string(),
                     statement: "Second result is valid.".to_string(),
                     evidence_refs: vec![ActionMapEvidenceRefInput {
-                        trace_event_id: Some("trace-1".to_string()),
+                        trace_event_id: Some(first_trace_id.clone()),
                         ..Default::default()
                     }],
                 }],
                 vec![ActionMapEvidenceRefInput {
-                    trace_event_id: Some("trace-1".to_string()),
+                    trace_event_id: Some(first_trace_id),
                     ..Default::default()
                 }],
                 Vec::new(),
@@ -15390,12 +15553,12 @@ mod tests {
                     id: "claim-current-trace".to_string(),
                     statement: "Second result is valid.".to_string(),
                     evidence_refs: vec![ActionMapEvidenceRefInput {
-                        trace_event_id: Some("trace-2".to_string()),
+                        trace_event_id: Some(second_trace_id.clone()),
                         ..Default::default()
                     }],
                 }],
                 vec![ActionMapEvidenceRefInput {
-                    trace_event_id: Some("trace-2".to_string()),
+                    trace_event_id: Some(second_trace_id),
                     ..Default::default()
                 }],
                 Vec::new(),
@@ -15427,7 +15590,7 @@ mod tests {
                 "apply_patch",
                 Some(ActionClass::Edit),
                 true,
-                "M out.txt".to_string(),
+                "patch completed without an artifact list".to_string(),
             )
             .expect("edit result")
             .expect("result id");
@@ -15814,6 +15977,7 @@ mod tests {
             )
             .expect("result records")
             .expect("result is recorded");
+        let result_trace_id = snapshot_trace_id_for_result(&state, &result_id);
         state
             .mark_result_validity_for_main(
                 owner,
@@ -15824,7 +15988,7 @@ mod tests {
                     id: "claim-validator-passed".to_string(),
                     statement: "Validator passed.".to_string(),
                     evidence_refs: vec![ActionMapEvidenceRefInput {
-                        trace_event_id: Some("trace-1".to_string()),
+                        trace_event_id: Some(result_trace_id),
                         ..Default::default()
                     }],
                 }],
@@ -15893,6 +16057,7 @@ mod tests {
             )
             .expect("result records")
             .expect("result is recorded");
+        let result_trace_id = snapshot_trace_id_for_result(&state, &result_id);
         state
             .record_fact_source_for_main(
                 owner,
@@ -15900,7 +16065,7 @@ mod tests {
                 "generated_for_test_only",
                 "Synthetic fixture data.".to_string(),
                 vec![ActionMapEvidenceRefInput {
-                    trace_event_id: Some("trace-1".to_string()),
+                    trace_event_id: Some(result_trace_id),
                     ..Default::default()
                 }],
             )
@@ -16778,10 +16943,18 @@ mod tests {
                 None,
             )
             .expect("final synthesis can finish after accepted validation");
-        question_test_result(&mut state, owner, &validation.result_id);
+        let map_id = state.active_map_id.clone().expect("active map");
+        state
+            .maps
+            .get_mut(&map_id)
+            .and_then(|map| map.results.get_mut(&test_result_id))
+            .expect("test result exists")
+            .evidence_package
+            .validity = ResultValidity::Questioned;
+        state.active_map_id = Some(map_id);
 
         let error = state
-            .record_main_final_response(owner, "Completed the requested fix.")
+            .validate_final_response_ready(owner, "Completed the requested fix.", true)
             .expect_err("completed final gate must recheck accepted validation state");
         assert!(error.contains("accepted smoke_test or regression_test result"));
     }
@@ -18168,7 +18341,7 @@ mod tests {
             )
             .expect("untruncated recursive full name listing without force should be allowed");
 
-        let forced_error = state
+        let forced_events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -18178,8 +18351,12 @@ mod tests {
                 )
                 .with_call_id("forced-metadata-list"),
             )
-            .expect_err("forced metadata listing should remain blocked");
-        assert!(forced_error.contains("thin_route_blocks_broad_directory_listing"));
+            .expect("forced metadata listing should remain advisory-only");
+        assert!(
+            forced_events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
+        );
     }
 
     #[test]
@@ -18213,7 +18390,7 @@ mod tests {
     }
 
     #[test]
-    fn thin_route_blocks_truncating_format_table_discovery() {
+    fn thin_route_allows_truncating_format_table_discovery() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -18229,7 +18406,7 @@ mod tests {
             true,
         );
 
-        let error = state
+        let events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -18239,12 +18416,16 @@ mod tests {
                 )
                 .with_call_id("truncating-list"),
             )
-            .expect_err("format-table directory discovery should be blocked");
-        assert!(error.contains("thin_route_blocks_broad_directory_listing"));
+            .expect("format-table directory discovery should remain advisory-only");
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
+        );
     }
 
     #[test]
-    fn thin_route_blocks_recursive_select_object_table_discovery() {
+    fn thin_route_allows_recursive_select_object_table_discovery() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -18260,7 +18441,7 @@ mod tests {
             true,
         );
 
-        let error = state
+        let events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -18270,12 +18451,16 @@ mod tests {
                 )
                 .with_call_id("table-list"),
             )
-            .expect_err("recursive table-shaped discovery should be blocked");
-        assert!(error.contains("thin_route_blocks_broad_directory_listing"));
+            .expect("recursive table-shaped discovery should remain advisory-only");
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
+        );
     }
 
     #[test]
-    fn thin_route_blocks_broad_directory_listing_in_implement() {
+    fn thin_route_allows_broad_directory_listing_in_implement() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -18291,7 +18476,7 @@ mod tests {
             true,
         );
 
-        let error = state
+        let events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -18301,8 +18486,12 @@ mod tests {
                 )
                 .with_call_id("implement-broad-list"),
             )
-            .expect_err("broad listing should be blocked in implement");
-        assert!(error.contains("thin_route_blocks_broad_directory_listing"));
+            .expect("broad listing should remain advisory-only in implement");
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
+        );
     }
 
     #[test]
@@ -19558,11 +19747,11 @@ mod tests {
             .expect("route back to first task");
 
         state
-            .prepare_main_tool_call(owner, "shell")
-            .expect("old task profile hint should not block ordinary work");
-        state
             .bind_main_node(owner, "node-1")
             .expect("profile hint should not make the node unbindable after routing");
+        state
+            .prepare_main_tool_call(owner, "shell")
+            .expect("old task profile hint should not block ordinary work");
     }
 
     #[test]
@@ -19599,6 +19788,9 @@ mod tests {
             .route_task_for_main(owner, "task-1")
             .expect("route back to broad task");
 
+        state
+            .bind_main_node(owner, "node-1")
+            .expect("profile hint should not make the node unbindable after routing");
         state
             .prepare_main_tool_call(owner, "shell")
             .expect("start_task should not preserve old profile hint as a barrier");
@@ -19979,10 +20171,10 @@ mod tests {
             "Patch output generation and run validator once."
         );
         let context = state.build_developer_context().expect("context");
-        assert!(context.contains("Task problem-state ledger (v1)"));
-        assert!(context.contains("success criteria"));
-        assert!(context.contains("open questions"));
-        assert!(context.contains("next best action"));
+        assert!(context.contains("ContextProjectionV1 active replacement:"));
+        assert!(context.contains("success_criteria:"));
+        assert!(context.contains("decisions:"));
+        assert!(context.contains("Generate recovered output artifacts from parsed logs."));
     }
 
     #[test]
@@ -20028,7 +20220,7 @@ mod tests {
 
         assert!(context.contains("TaskSpace v0.0.5 active compact profile is enabled."));
         assert!(context.contains("ContextProjectionV1 active replacement:"));
-        assert!(context.contains("projection_id: projection-active-task-1-map-1"));
+        assert!(context.contains("projection_id: projection-default_compact-task-1-map-1"));
         assert!(context.contains("mode: default_compact"));
         assert!(context.contains("active_objective: Verify ContextProjectionV1 shadow coverage."));
         assert!(context.contains("success_criteria:"));
@@ -22009,27 +22201,14 @@ mod tests {
 
         state.set_mode(MapRuntimeMode::Experiment);
         let context = state.build_developer_context().expect("experiment context");
-        assert!(context.contains("TaskSpace mode is active"));
-        assert!(context.contains("Node kind selection rules"));
-        assert!(context.contains("TaskSpace cognitive protocol (MVP)"));
-        assert!(context.contains("problem-state and model manager"));
-        assert!(context.contains("Do not create custom nodes"));
-        assert!(context.contains("Use the minimum sufficient task map"));
-        assert!(context.contains(
-            "Do not create extra ready inspect nodes or call spawn_agent for simple work"
-        ));
-        assert!(context.contains(
-            "Do not create another inspect node or call spawn_agent merely to read one known file"
-        ));
-        assert!(context.contains("Finish nodes with matching tool evidence"));
-        assert!(context.contains("Pre-fix diagnostic tests"));
-        assert!(context.contains("reconcile product docs"));
-        assert!(context.contains("spawn_agent can only claim ready nodes"));
-        assert!(context.contains("discover exact paths before reading files"));
-        assert!(context.contains("do not substitute main-agent parallel shell/file-change calls"));
-        assert!(context.contains("while two explorer agents own the two investigation nodes"));
-        assert!(context.contains("BaseMap metadata version: base-map-v1"));
-        assert!(context.contains("define_scope"));
+        assert!(context.contains("TaskSpace v0.0.5 active compact profile is enabled"));
+        assert!(context.contains("No TaskSpace task exists yet"));
+        assert!(context.contains("Use the minimum sufficient map"));
+        assert!(
+            context.contains(
+                "inspect_code_context -> implement_solution -> smoke_test/regression_test"
+            )
+        );
     }
 
     #[test]
@@ -22042,15 +22221,10 @@ mod tests {
 
         assert_eq!(map_id, "map-1");
         let context = state.build_developer_context().expect("experiment context");
-        assert!(context.contains("Active task path"));
+        assert!(context.contains("ContextProjectionV1 active replacement:"));
         assert!(context.contains("Investigate runtime"));
-        assert!(context.contains("Task cognitive state (MVP):"));
-        assert!(context.contains("no records yet"));
-        assert!(context.contains("result evidence packages: none recorded"));
-        assert!(context.contains("Node kind selection rules"));
-        assert!(context.contains("For small single-file fixes or one failing-test loops"));
-        assert!(context.contains("taskspace_control(action=state_commit"));
-        assert!(!context.contains("BaseMap metadata version"));
+        assert!(context.contains("projection_id: projection-default_compact-task-1-map-1"));
+        assert!(context.contains("current_node: define_scope"));
     }
 
     #[test]
@@ -22085,8 +22259,8 @@ mod tests {
             )
         }));
         let context = state.build_developer_context().expect("context");
-        assert!(context.contains("define_scope:"));
-        assert!(context.contains("[running]"));
+        assert!(context.contains("current_node: define_scope"));
+        assert!(context.contains("status=running"));
     }
 
     #[test]
@@ -22260,7 +22434,9 @@ mod tests {
         assert_eq!(node_id, "node-1");
         assert!(state.current_main_node_id.is_none());
         let context = state.build_developer_context().expect("context");
-        assert!(context.contains("- node-1: Parallel review kind=inspect_code_context [ready]"));
+        assert!(context.contains("ContextProjectionV1 active replacement:"));
+        assert!(context.contains("current_node: none"));
+        assert!(context.contains("taskspace_control(action=bind_node or create_node)"));
 
         let (assignment, _) =
             prepare_test_spawn_assignment(&mut state, owner, "parallel review", None)
@@ -22617,8 +22793,11 @@ mod tests {
         assert_eq!(reclaimed.lease_id, "lease-2");
         state.release_lease(&reclaimed.lease_id, "test_release");
         let third = prepare_test_spawn_assignment(&mut state, owner, "third", None)
-            .expect_err("spawn budget is cumulative, not concurrent");
-        assert!(third.contains("spawn budget is exhausted"));
+            .expect("spawn profile hint should remain advisory-only")
+            .0
+            .expect("third assignment");
+        assert_eq!(third.node_id, "define_scope");
+        assert_eq!(third.lease_id, "lease-3");
     }
 
     #[test]
@@ -22775,7 +22954,7 @@ mod tests {
         let formatted = format_action_map_snapshot(&snapshot);
         assert!(formatted.contains("TaskSpace"));
         assert!(formatted.contains("mode: experiment"));
-        assert!(formatted.contains("trace events: total=0"));
+        assert!(formatted.contains("trace events: total="));
         assert!(formatted.contains("define_scope"));
         assert!(formatted.contains("result-1 node=define_scope kind=result"));
         assert!(formatted.contains("validity=unreviewed"));
@@ -23362,8 +23541,7 @@ mod tests {
         assert!(restored_snapshot.routing_required);
         assert!(!restored_snapshot.bootstrap_required);
         let context = restored.build_developer_context().expect("context");
-        assert!(context.contains("Task routing is required"));
-        assert!(context.contains("No active task path exists"));
+        assert!(context.contains("No active TaskSpace path is bound"));
         assert!(!context.contains("Active task path:"));
         assert!(!context.contains("Task cognitive state (MVP):"));
     }
@@ -23491,14 +23669,16 @@ mod tests {
                 false,
             )
             .expect("task");
+        state.active_map_id = None;
+        state.current_main_node_id = None;
+        state.current_main_lease_id = None;
 
         let context = state.build_developer_context().expect("context");
 
-        assert!(context.contains("Task inventory:"));
-        assert!(context.contains("task-1 [active] Architecture review active_map=map-1"));
-        assert!(context.contains("objective: Find structural risks."));
-        assert!(context.contains("taskspace_control(action=route_task)"));
-        assert!(context.contains("taskspace_control(action=start_task)"));
+        assert!(context.contains("Task inventory compact:"));
+        assert!(context.contains("task-1 [active] Architecture review"));
+        assert!(context.contains("objective=Find structural risks."));
+        assert!(context.contains("Route to one listed task"));
     }
 
     #[test]

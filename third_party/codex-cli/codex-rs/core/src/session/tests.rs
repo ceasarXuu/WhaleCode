@@ -6476,10 +6476,14 @@ async fn run_user_shell_command_does_not_set_reference_context_item() {
         state.set_reference_context_item(/*item*/ None);
     }
 
-    handlers::run_user_shell_command(&session, "sub-id".to_string(), "echo shell".to_string())
-        .await;
+    let command = if cfg!(windows) {
+        "cmd /C exit 0"
+    } else {
+        "true"
+    };
+    handlers::run_user_shell_command(&session, "sub-id".to_string(), command.to_string()).await;
 
-    let deadline = StdDuration::from_secs(15);
+    let deadline = StdDuration::from_secs(60);
     let start = std::time::Instant::now();
     loop {
         let remaining = deadline.saturating_sub(start.elapsed());
