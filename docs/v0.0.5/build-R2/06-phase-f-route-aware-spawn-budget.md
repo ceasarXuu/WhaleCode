@@ -1,189 +1,125 @@
-# Phase F. Route-aware spawn/node/subagent budget enforcement
+# Phase F. Route-aware Spawn/Node Profile Observability
 
-> Split from `22-v005-completion-engineering-playbook.md` to keep each execution context small and phase-cohesive.
->
-> Canonical sequence: read `00-overview-and-gates.md` first, then only the phase file you are implementing.
+> 2026-06-25 更新：route/profile 不再限制 spawn/node 数量；只提供起始复杂度估算和 over-profile 观测。
 
+## F.1 目标
 
-## F.1 Goal
+Fanout 质量仍然要被治理，但不能用 profile 数字硬砍：
 
-Fanout must be limited by route/profile budget and by result adoption. Spawn is allowed only when it has a decision target, bounded scope, and adoption path.
+- `max_spawn_agent_calls`、`max_nodes`、`max_open_leaf_nodes` 是 profile hint。
+- 超过 hint 时记录 `over_profile_hint`，不阻断 create/spawn。
+- Spawn 是否合理由 subagent plan 的决策目标、证据边界、结果采纳路径决定。
+- Thin/default/deep 只影响起始 prompt 和 map 复杂度建议，不能锁死整个 session 强度。
 
-## F.2 Files to change
+## F.2 仍然允许的质量门
 
-```text
-third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs
-third_party/codex-cli/codex-rs/core/src/session/mod.rs
-third_party/codex-cli/codex-rs/tools/src/agent_tool.rs
-third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control.rs
-scripts/taskspace-benchmark/lib/cost-instrumentation.ps1
-scripts/taskspace-benchmark/test-cost-instrumentation.ps1
-scripts/taskspace-benchmark/test-release-decision.ps1
-```
-
-## F.3 Gate functions
-
-Add these methods:
-
-```rust
-pub(crate) fn gate_record_subagent_plan(
-    &mut self,
-    parent_node_id: &str,
-    plan: &ActionMapSubagentPlanInput,
-) -> Result<Vec<MapRuntimeEvent>, ActionMapGateError>;
-
-pub(crate) fn gate_spawn_agent_call(
-    &mut self,
-    parent_node_id: &str,
-    plan_id: Option<&str>,
-) -> Result<Vec<MapRuntimeEvent>, ActionMapGateError>;
-
-pub(crate) fn record_subagent_result_decision(
-    &mut self,
-    result_id: &str,
-    decision: SubagentResultDecision,
-) -> Vec<MapRuntimeEvent>;
-```
-
-Define:
-
-```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SubagentResultDecision {
-    Adopt,
-    Reject,
-    Defer,
-}
-```
-
-## F.4 Record subagent plan validation
-
-Before accepting `record_subagent_plan`, require:
+这些不是预算硬上限，可以继续阻断：
 
 ```text
-why_parallelizable non-empty
-expected_artifact non-empty
-acceptance_check non-empty
-max_scope non-empty
-supports_questions or tests_hypotheses or depends_on_results non-empty
-decision_target present
+spawn 前没有 active TaskSpace route/binding
+spawn 没有明确 node_id 或无法 claim 对应 ready node
+record_subagent_plan 缺少 why_parallelizable / expected_artifact / acceptance_check / max_scope
+subagent plan 没有 decision target
+subagent result 长期未 adopt/reject/defer，导致证据债务未清
+同一 running node 已被 main lease 持有，不能被子 agent 抢占
 ```
 
-If missing, block with:
+这些可以确保 fanout 有证据收益，而不是用预算上限替代架构判断。
+
+## F.3 禁止的行为
 
 ```text
-reason = subagent_plan_missing_decision_target
-next_valid_actions = [
-  "finish current inspect node",
-  "continue main-agent serial work",
-  "record_subagent_plan with decision_target and bounded scope"
-]
+thin route 因 max_spawn_agent_calls=0 直接拒绝 spawn
+spawn_agent_call_count >= max_spawn_agent_calls 后拒绝 spawn
+node_count >= max_nodes 后拒绝 create_node
+open_leaf_node_count >= max_open_leaf_nodes 后拒绝 create_node
+release decision 因 spawn/node count 超 profile 失败
 ```
 
-## F.5 Spawn budget enforcement
+## F.4 Runtime trace
 
-Pseudo:
-
-```rust
-fn gate_spawn_agent_call(&mut self, parent_node_id: &str, plan_id: Option<&str>) -> Result<Vec<MapRuntimeEvent>, ActionMapGateError> {
-    let budget = self.active_budget.as_ref().ok_or_else(no_budget)?;
-    if budget.max_spawn_agent_calls == 0 {
-        return Err(block_spawn("route_disallows_spawn"));
-    }
-    if self.budget_counters.spawn_agent_call_count >= budget.max_spawn_agent_calls {
-        return Err(block_spawn("spawn_budget_exhausted"));
-    }
-    let plan = require_plan_with_decision_target(plan_id)?;
-    if has_no_yield_debt_for_plan_class(plan) {
-        return Err(block_spawn("same_class_spawn_disabled_after_no_yield"));
-    }
-    self.budget_counters.spawn_agent_call_count += 1;
-    emit_spawn_node_budget_event("spawn", "allowed")
-}
-```
-
-## F.6 Subagent result adoption
-
-Add tracking:
-
-```rust
-pub(crate) struct PendingSubagentResultReview {
-    pub(crate) result_id: String,
-    pub(crate) plan_id: String,
-    pub(crate) created_at_provider_request_count: usize,
-    pub(crate) deadline_provider_request_count: usize,
-    pub(crate) decision: Option<SubagentResultDecision>,
-}
-```
-
-Rules:
+`spawn_node_budget` trace 继续保留，但语义是 profile advisory：
 
 ```text
-Every subagent result must be adopt/reject/defer within N=2 main provider requests.
-If deadline passes, block new spawn and require decision.
-If two no-yield results for same plan class occur, disable same-class spawn for the run.
-unreviewed_subagent_result_count must be 0 for release.
+kind = spawn_node_budget
+producer = runtime
+enforcement = advisory
+status = allowed
+budget_kind = spawn|node
+budget_gate_reason = spawn_budget_available|spawn_profile_hint_exceeded|node_budget_available|node_profile_hint_exceeded
 ```
 
-## F.7 Cost artifact
+如果出现 `status=blocked`，应视为硬预算回归，release gate 应失败。
 
-`spawn-node-budget-summary.json` must include:
+## F.5 Cost artifact
+
+`spawn-node-budget-summary.json`：
 
 ```json
 {
   "schema_version": "taskspace-spawn-node-budget-summary-v1",
-  "status": "pass|fail",
-  "route_mode": "thin",
-  "spawn_agent_call_count": 0,
+  "status": "pass",
+  "within_budget_status": "within_profile_hint|over_profile_hint|missing_runtime",
+  "over_budget_enforcement_status": "advisory_only|blocked_event_observed",
+  "spawn_agent_call_count": 3,
   "max_spawn_agent_calls": 0,
-  "subagent_result_count": 0,
-  "max_subagent_results": 0,
-  "unreviewed_subagent_result_count": 0,
-  "subagent_no_decision_yield_count": 0,
-  "same_class_spawn_disabled_count": 0,
-  "node_count": 3,
+  "node_count": 5,
   "max_nodes": 4,
-  "open_leaf_node_count": 1,
-  "max_open_leaf_nodes": 2
+  "over_profile_hint": true,
+  "blocked_budget_event_count": 0
 }
 ```
 
-## F.8 Tests
-
-Rust:
-
-```rust
-#[test]
-fn thin_route_blocks_spawn_even_with_subagent_plan() {}
-
-#[test]
-fn default_route_allows_spawn_with_decision_target() {}
-
-#[test]
-fn spawn_without_decision_target_is_blocked() {}
-
-#[test]
-fn unreviewed_subagent_result_blocks_new_spawn_after_deadline() {}
-
-#[test]
-fn node_budget_uses_route_budget_not_default_constant() {}
-```
-
-PowerShell:
+`status=pass` 的条件：
 
 ```text
-spawn-node-budget summary fails when unreviewed_subagent_result_count > 0
-spawn-node-budget summary fails when spawn_count > route budget
-spawn-node-budget summary passes for thin route with spawn=0 and node_count<=4
+runtime event 存在
+blocked_budget_event_count = 0
 ```
 
-## F.9 Acceptance
+不是：
 
 ```text
 spawn_agent_call_count <= max_spawn_agent_calls
-subagent_result_count <= max_subagent_results
-unreviewed_subagent_result_count = 0
-subagent_no_decision_yield_count = 0
 node_count <= max_nodes
-open_leaf_node_count <= max_open_leaf_nodes
+```
+
+## F.6 Release gate
+
+Release decision 的 `spawn_node_budget_gate_pass` 表示：
+
+```text
+profile advisory trace 存在
+没有 profile 产生的 blocked event
+```
+
+不表示：
+
+```text
+运行被限制在起始 route/profile 的 max_* 内
+```
+
+## F.7 Tests
+
+Rust：
+
+```text
+cargo test -p codex-core budget --lib
+cargo test -p codex-core taskspace --lib
+```
+
+PowerShell：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1
+```
+
+关键断言：
+
+```text
+create_node over profile => allowed + node_profile_hint_exceeded
+spawn over profile => allowed + spawn_profile_hint_exceeded
+spawn-node summary over_profile_hint => status=pass
+release decision 不要求 within_budget_status=pass
 ```

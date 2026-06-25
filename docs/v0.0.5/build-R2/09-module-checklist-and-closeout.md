@@ -11,19 +11,19 @@ Required work:
 
 ```text
 [ ] Add TaskSpaceRouteMode
-[ ] Add TaskSpaceActiveBudgetV1
+[ ] Add TaskSpaceActiveBudgetV1 as advisory complexity profile
 [ ] Add TaskSpaceBudgetCounters
 [ ] Add TaskSpaceBudgetState
 [ ] Add TaskSpaceProviderRequestPhase
 [ ] Add BudgetQualityImpactV1
 [ ] Add LegacyStateActionAttemptV1
-[ ] Replace fixed budget constants with route-aware active_budget
+[ ] Replace fixed budget constants with route-aware advisory profile
 [ ] Extend provider_request_budget_snapshot
 [ ] Add next_provider_request_phase
 [ ] Add record_budget_quality_impact
 [ ] Add record_legacy_state_action_attempt
 [ ] Fix state_commit_displacement denominator
-[ ] Add spawn/node/subagent result review budget gates
+[ ] Add spawn/node profile observability and subagent result review quality gates
 ```
 
 ## 4.2 `core/src/client.rs`
@@ -32,8 +32,8 @@ Required work:
 
 ```text
 [ ] Replace count/max-only ProviderRequestBudgetContext with ProviderRequestBudgetLimits
-[ ] Enforce rollout request budget
-[ ] Enforce per-node request budget
+[ ] Record rollout request profile hints without blocking dispatch
+[ ] Record per-node request profile hints without forcing recovery
 [ ] Generate ExactPayloadScanEventV1 before redaction/hash-only fallback
 [ ] Add exact_payload_scan_event_id to ProviderRequestBudgetEvent
 [ ] Preserve request_id/logical_request_id/attempt across retry/fallback
@@ -47,7 +47,7 @@ Required work:
 ```text
 [ ] Build ProviderRequestAttribution from full snapshot
 [ ] Preserve missing context reason
-[ ] Add hard-stop BudgetQualityImpact producer
+[ ] Remove hard-stop BudgetQualityImpact producer; keep legacy hard-stop regression detection
 [ ] Add no-action recovery exhausted BudgetQualityImpact producer
 [ ] Ensure active context replacement emits proof context before provider request
 [ ] Add tests for active replacement leak cases
@@ -73,7 +73,7 @@ Required work:
 [ ] Add phase_counts and phase_token_summary
 [ ] Parse BudgetQualityImpactV1 full fields
 [ ] Parse legacy_state_action_attempt events
-[ ] Parse route-aware spawn/node/subagent budget fields
+[ ] Parse route-aware spawn/node/subagent profile fields
 [ ] Fail summaries when required producer-owned evidence is missing
 ```
 
@@ -92,7 +92,7 @@ Required work:
 [ ] Block DeepSeek release-like claims if tool_free_action_contract_count == 0
 [ ] Block release if BudgetQualityImpact has validation skip or score-ineligible solved
 [ ] Block release if state_commit_displacement denominator lacks legacy attempts
-[ ] Block release if spawn/node budget has unreviewed subagent results
+[ ] Block release if spawn/node profile trace has blocked budget events or unreviewed subagent results
 [ ] Block release-like claims if open_leaf_nodes > 0
 [ ] Require runtime bottleneck evidence when agent_walltime_ratio exceeds the configured threshold
 [ ] Block release if diagnostic sample set attempts release_pass
@@ -110,7 +110,7 @@ cargo check -p codex-cli --locked passes
 cargo test -p codex-core provider_request_budget passes
 cargo test -p codex-core active_context_replacement passes
 cargo test -p codex-core state_commit passes
-cargo test -p codex-core spawn_node_budget passes
+cargo test -p codex-core budget --lib passes, including advisory spawn/node profile assertions
 pwsh -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1 passes
 pwsh -File scripts/taskspace-benchmark/test-deepseek-cache-verifier.ps1 passes
 pwsh -File scripts/taskspace-benchmark/test-release-decision.ps1 passes
@@ -132,12 +132,12 @@ Then, and only then, run formal `terminal-bench_E3-P0_3_5`.
 
 Use this split to keep reviews bounded:
 
-1. `v005-budget-contract`: Phase A runtime/client budget contract and tests.
+1. `v005-profile-advisory-contract`: Phase A runtime/client advisory profile contract and tests.
 2. `v005-request-phase`: Phase B phase attribution and cost summary fixtures.
 3. `v005-payload-proof`: Phase C exact payload scan proof and release gate updates.
 4. `v005-quality-impact`: Phase D quality impact events and scoring blockers.
 5. `v005-state-commit-displacement`: Phase E legacy denominator fix.
-6. `v005-spawn-budget`: Phase F route-aware spawn/node/subagent result budget.
+6. `v005-spawn-profile`: Phase F route-aware spawn/node profile observability and subagent result quality gates.
 7. `v005-gates`: Phase G non-agent gates, release-decision fixtures, start-gate fixtures.
 8. `v005-diagnostic`: Phase H targeted diagnostic evidence only; no release close.
 

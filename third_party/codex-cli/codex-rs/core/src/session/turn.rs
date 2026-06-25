@@ -136,7 +136,6 @@ const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
 const TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_ITEMS: usize = 3;
 const TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS: usize = 2400;
 const TASKSPACE_DEEPSEEK_CACHE_ANCHOR_LINES: usize = 4200;
-const TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER: &str = "TaskSpaceProviderBudgetGuidanceV1:";
 const TASKSPACE_NO_ACTION_RECOVERY_MARKER: &str = "TaskSpaceNoActionRecoveryV1:";
 const TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER: &str =
     "TaskSpaceForcedInspectTransitionRecoveryV1:";
@@ -149,7 +148,6 @@ const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TaskspaceProviderResponseActionability {
     Actionable,
-    ActionableFollowUpAtHardStop,
     NoActionFollowUp,
     EmptyFollowUp,
     FinalCandidate,
@@ -159,8 +157,6 @@ enum TaskspaceProviderResponseActionability {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TaskspaceProviderToolVisibility {
     All,
-    EssentialCoding,
-    TaskspaceControlOnly,
     None,
 }
 
@@ -193,7 +189,6 @@ impl TaskspaceProviderResponseActionability {
     fn as_str(self) -> &'static str {
         match self {
             Self::Actionable => "actionable",
-            Self::ActionableFollowUpAtHardStop => "actionable_follow_up_at_hard_stop",
             Self::NoActionFollowUp => "no_action_follow_up",
             Self::EmptyFollowUp => "empty_follow_up",
             Self::FinalCandidate => "final_candidate",
@@ -206,10 +201,6 @@ impl TaskspaceProviderResponseActionability {
             self,
             Self::NoActionFollowUp | Self::EmptyFollowUp | Self::FinalRejected
         )
-    }
-
-    fn is_hard_stop(self) -> bool {
-        matches!(self, Self::ActionableFollowUpAtHardStop)
     }
 }
 
@@ -589,7 +580,7 @@ pub(crate) async fn run_turn(
                         sess.send_event(
                             &turn_context,
                             EventMsg::Error(ErrorEvent {
-                                message: format!("TaskSpace stopped this turn because the model produced too many non-action assistant messages while requesting follow-up ({taskspace_no_action_recovery_count}/{no_action_recovery_cap} recoveries spent). It must emit a tool call, taskspace_control transition, or a final blocked_by_budget answer instead of commentary-only output."),
+                                message: format!("TaskSpace stopped this turn because the model produced too many non-action assistant messages while requesting follow-up ({taskspace_no_action_recovery_count}/{no_action_recovery_cap} recoveries spent). It must emit a tool call, taskspace_control transition, or a final blocked-with-evidence answer instead of commentary-only output."),
                                 codex_error_info: None,
                             }),
                         )
@@ -1135,22 +1126,14 @@ fn build_prompt_with_tool_visibility(
     };
     let tools = match tool_visibility {
         TaskspaceProviderToolVisibility::All => tools,
-        TaskspaceProviderToolVisibility::EssentialCoding => {
-            filter_taskspace_essential_coding_tool_specs(tools)
-        }
-        TaskspaceProviderToolVisibility::TaskspaceControlOnly => {
-            filter_taskspace_control_tool_specs(tools)
-        }
         TaskspaceProviderToolVisibility::None => Vec::new(),
     };
 
     Prompt {
         input,
         tools,
-        parallel_tool_calls: matches!(
-            tool_visibility,
-            TaskspaceProviderToolVisibility::All | TaskspaceProviderToolVisibility::EssentialCoding
-        ) && turn_context.model_info.supports_parallel_tool_calls,
+        parallel_tool_calls: matches!(tool_visibility, TaskspaceProviderToolVisibility::All)
+            && turn_context.model_info.supports_parallel_tool_calls,
         tool_choice: "auto".to_string(),
         base_instructions,
         personality: turn_context.personality,
@@ -1162,27 +1145,14 @@ fn build_prompt_with_tool_visibility(
 }
 
 fn taskspace_provider_tool_visibility_for_budget(
-    request_count: usize,
-    max_requests: usize,
-    node_request_count: usize,
-    max_model_requests_per_node: usize,
-    request_phase: Option<&str>,
-    node_kind: Option<&str>,
+    _request_count: usize,
+    _max_requests: usize,
+    _node_request_count: usize,
+    _max_model_requests_per_node: usize,
+    _request_phase: Option<&str>,
+    _node_kind: Option<&str>,
 ) -> TaskspaceProviderToolVisibility {
-    if max_requests == 0 || request_phase == Some("final_synthesis") {
-        return TaskspaceProviderToolVisibility::All;
-    }
-    let global_remaining = max_requests.saturating_sub(request_count);
-    let node_remaining = max_model_requests_per_node.saturating_sub(node_request_count);
-    if global_remaining <= 1 {
-        return TaskspaceProviderToolVisibility::None;
-    }
-    if node_kind == Some("inspect_code_context")
-        && (request_phase == Some("budget_recovery") || node_remaining <= 1)
-    {
-        return TaskspaceProviderToolVisibility::TaskspaceControlOnly;
-    }
-    TaskspaceProviderToolVisibility::EssentialCoding
+    TaskspaceProviderToolVisibility::All
 }
 
 fn taskspace_provider_transport_mode(
@@ -1305,171 +1275,17 @@ No active TaskSpace task exists yet. The next action must be taskspace_control w
     }
 }
 
-fn is_taskspace_essential_coding_tool_name(name: &str) -> bool {
-    matches!(
-        name,
-        "taskspace_control" | "shell_command" | "apply_patch" | "local_shell" | "unified_exec"
-    )
-}
-
-fn filter_taskspace_essential_coding_tool_specs(tools: Vec<ToolSpec>) -> Vec<ToolSpec> {
-    tools
-        .into_iter()
-        .filter_map(|spec| match spec {
-            ToolSpec::Function(tool) if is_taskspace_essential_coding_tool_name(&tool.name) => {
-                Some(ToolSpec::Function(tool))
-            }
-            ToolSpec::Freeform(tool) if is_taskspace_essential_coding_tool_name(&tool.name) => {
-                Some(ToolSpec::Freeform(tool))
-            }
-            ToolSpec::Namespace(mut namespace) => {
-                namespace.tools.retain(|tool| match tool {
-                    ResponsesApiNamespaceTool::Function(tool) => {
-                        is_taskspace_essential_coding_tool_name(&tool.name)
-                    }
-                });
-                if namespace.tools.is_empty() {
-                    None
-                } else {
-                    Some(ToolSpec::Namespace(namespace))
-                }
-            }
-            ToolSpec::LocalShell {} => Some(ToolSpec::LocalShell {}),
-            _ => None,
-        })
-        .collect()
-}
-
-fn filter_taskspace_control_tool_specs(tools: Vec<ToolSpec>) -> Vec<ToolSpec> {
-    tools
-        .into_iter()
-        .filter_map(|spec| match spec {
-            ToolSpec::Function(tool) if tool.name == "taskspace_control" => {
-                Some(ToolSpec::Function(tool))
-            }
-            ToolSpec::Namespace(mut namespace) => {
-                namespace.tools.retain(|tool| match tool {
-                    ResponsesApiNamespaceTool::Function(tool) => tool.name == "taskspace_control",
-                });
-                if namespace.tools.is_empty() {
-                    None
-                } else {
-                    Some(ToolSpec::Namespace(namespace))
-                }
-            }
-            _ => None,
-        })
-        .collect()
-}
-
 fn build_taskspace_provider_budget_guidance_item(
-    request_count: usize,
-    max_requests: usize,
-    node_request_count: usize,
-    max_model_requests_per_node: usize,
-    request_phase: Option<&str>,
-    node_kind: Option<&str>,
-    node_id: Option<&str>,
-    tool_visibility: TaskspaceProviderToolVisibility,
+    _request_count: usize,
+    _max_requests: usize,
+    _node_request_count: usize,
+    _max_model_requests_per_node: usize,
+    _request_phase: Option<&str>,
+    _node_kind: Option<&str>,
+    _node_id: Option<&str>,
+    _tool_visibility: TaskspaceProviderToolVisibility,
 ) -> Option<ResponseItem> {
-    if max_requests == 0 || request_count >= max_requests {
-        return None;
-    }
-    if request_phase == Some("final_synthesis") {
-        return None;
-    }
-
-    let global_remaining = max_requests.saturating_sub(request_count);
-    let node_remaining = max_model_requests_per_node.saturating_sub(node_request_count);
-    let remaining = global_remaining.min(node_remaining);
-    let guidance = if global_remaining <= 1 {
-        format!(
-            "{TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER} budget_recovery\n\
-request_count: {request_count}/{max_requests}\n\
-remaining_provider_requests: {remaining}\n\
-Required behavior for this response:\n\
-- This is the final provider request before hard budget stop.\n\
-- Tools are intentionally not exposed on this request because any tool result would require another model turn.\n\
-- Do not attempt edits, broad exploration, shell/environment inventory, test discovery, or spawning agents.\n\
-- If edits are already complete, provide the final user-facing result now.\n\
-- Otherwise answer blocked_by_budget with the exact missing evidence and the smallest next action that would have been required.\n\
-- Do not ask for another model turn."
-        )
-    } else if node_kind == Some("implement_solution") {
-        format!(
-            "{TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER} implement_requires_edit\n\
-request_count: {request_count}/{max_requests}\n\
-remaining_provider_requests: {remaining}\n\
-Required behavior for the next response:\n\
-- Current node kind is implement_solution.\n\
-- If no edit tool result has succeeded in this node yet, the next action must be apply_patch with the smallest concrete fix from inspected evidence.\n\
-- Do not run tests, shell validation, environment checks, or more inspection before the edit succeeds.\n\
-- After a successful edit, finish this implementation node and create or bind a smoke_test/regression_test node for validation."
-        )
-    } else if node_kind == Some("inspect_code_context")
-        && matches!(
-            tool_visibility,
-            TaskspaceProviderToolVisibility::TaskspaceControlOnly
-        )
-    {
-        let node_ref = node_id.unwrap_or("<current inspect node>");
-        format!(
-            "{TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER} inspect_transition_required\n\
-request_count: {request_count}/{max_requests}\n\
-node_request_count: {node_request_count}/{max_model_requests_per_node}\n\
-remaining_provider_requests: {remaining}\n\
-Required behavior for the next response:\n\
-- Current node kind is inspect_code_context and only taskspace_control is exposed on this request.\n\
-- Do not attempt file edits, shell/environment checks, tests, or pseudo tool-call text in this response.\n\
-- Required next action: call taskspace_control(action=\"finish_node\", node_id=\"{node_ref}\", result_summary=\"concise inspected finding and target file\", next_node_kind=\"implement_solution\", next_node_title=\"Apply inspected fix\", next_node_context_summary=\"Apply the narrow fix identified from the inspected files\", next_dependency_node_ids=[\"{node_ref}\"])."
-        )
-    } else if request_count.saturating_mul(4) >= max_requests.saturating_mul(3) {
-        let constrained_inspect_next_action = if node_kind == Some("inspect_code_context")
-            && matches!(
-                tool_visibility,
-                TaskspaceProviderToolVisibility::TaskspaceControlOnly
-            ) {
-            let node_ref = node_id.unwrap_or("<current inspect node>");
-            format!(
-                "\n\
-Node/tool constraint:\n\
-- Current node kind is inspect_code_context and only taskspace_control is exposed on this request.\n\
-- Do not attempt file edits, shell/environment checks, tests, or pseudo tool-call text in this response.\n\
-- Required next action: call taskspace_control(action=\"finish_node\", node_id=\"{node_ref}\", result_summary=\"concise inspected finding and target file\", next_node_kind=\"implement_solution\", next_node_title=\"Apply inspected fix\", next_node_context_summary=\"Apply the narrow fix identified from the inspected files\", next_dependency_node_ids=[\"{node_ref}\"])."
-            )
-        } else {
-            String::new()
-        };
-        format!(
-            "{TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER} thin_downgraded\n\
-request_count: {request_count}/{max_requests}\n\
-remaining_provider_requests: {remaining}\n\
-Required behavior for the next response:\n\
-- Budget pressure is active; stop broad investigation and avoid environment inventory or test discovery unless it directly enables an edit.\n\
-- If a concrete file-level fix is identified, implement it now before any further validation.\n\
-- After an edit, finish the implementation node into a validation node, run at most one narrow validation command, then finish.\n\
-- If no safe edit is identified, finish with blocked_by_budget and the smallest missing evidence.{constrained_inspect_next_action}"
-        )
-    } else if request_count.saturating_mul(2) >= max_requests {
-        format!(
-            "{TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER} warned\n\
-request_count: {request_count}/{max_requests}\n\
-remaining_provider_requests: {remaining}\n\
-Required behavior:\n\
-- Keep the remaining path narrow.\n\
-- Prefer implementation and validation over additional broad discovery."
-        )
-    } else {
-        return None;
-    };
-
-    Some(ResponseItem::Message {
-        id: None,
-        role: "developer".to_string(),
-        content: vec![ContentItem::InputText { text: guidance }],
-        end_turn: None,
-        phase: None,
-    })
+    return None;
 }
 
 fn build_taskspace_no_action_recovery_item(last_message: Option<&str>) -> ResponseItem {
@@ -1482,7 +1298,7 @@ The previous assistant message requested follow-up but did not produce effective
 Previous assistant message: {previous}\n\
 Required behavior for the next response:\n\
 - Do not send commentary-only text such as \"let me check\".\n\
-- Emit exactly one actionable operation now: a tool call, a taskspace_control finish/transition/state_commit, or a final blocked_by_budget answer with the exact missing evidence.\n\
+- Emit exactly one actionable operation now: a tool call, a taskspace_control finish/transition/state_commit, or a final blocked-with-evidence answer with the exact missing evidence.\n\
 - If the current node is inspect_code_context and no source/test evidence has been read yet, call shell_command with `rg --files` now.\n\
 - If inspect evidence is sufficient, finish the inspect node into implement_solution before more environment probing.\n\
 - If a tool was blocked, follow that tool output's recovery instructions instead of repeating the same blocked action.\n\
@@ -1501,12 +1317,12 @@ Required behavior for the next response:\n\
 fn build_taskspace_forced_inspect_transition_recovery_item() -> ResponseItem {
     let text = format!(
         "{TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER}\n\
-TaskSpace already forced the previous inspect_code_context node into implement_solution because provider request budget pressure was active.\n\
+TaskSpace already transitioned the previous inspect_code_context node into implement_solution because inspected evidence was sufficient for a concrete implementation step.\n\
 Current required behavior:\n\
 - Do not run more shell/environment checks, test discovery, Docker inspection, or broad reads.\n\
 - Do not emit commentary-only text such as \"let me check\".\n\
 - Emit exactly one implementation action now: call apply_patch with the smallest concrete fix identified from inspect evidence.\n\
-- If no safe edit can be made from the inspected evidence, answer blocked_by_budget with the exact missing evidence."
+- If no safe edit can be made from the inspected evidence, answer blocked-with-evidence with the exact missing evidence."
     );
 
     ResponseItem::Message {
@@ -1521,7 +1337,7 @@ Current required behavior:\n\
 fn build_taskspace_forced_implement_transition_recovery_item() -> ResponseItem {
     let text = format!(
         "{TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER}\n\
-TaskSpace already forced the previous implement_solution node into smoke_test because provider request budget pressure was active after a successful edit.\n\
+TaskSpace already transitioned the previous implement_solution node into smoke_test because a successful edit was recorded and validation is now the next coherent step.\n\
 Current required behavior:\n\
 - Do not run more broad reads, environment discovery, or speculative edits.\n\
 - Do not emit commentary-only text such as \"let me run tests\".\n\
@@ -1584,18 +1400,11 @@ fn taskspace_budget_pressure_silent_action_requires_transition(
 }
 
 fn taskspace_budget_pressure_active_for_node_kind(
-    request_count: usize,
-    max_requests: usize,
-    node_kind: Option<&str>,
+    _request_count: usize,
+    _max_requests: usize,
+    _node_kind: Option<&str>,
 ) -> bool {
-    if max_requests == 0 {
-        return false;
-    }
-    match node_kind {
-        Some("inspect_code_context") => request_count.saturating_mul(2) >= max_requests,
-        Some("implement_solution") => request_count.saturating_mul(2) >= max_requests,
-        _ => false,
-    }
+    false
 }
 
 fn taskspace_budget_pressure_message_has_follow_up_intent(message: &str) -> bool {
@@ -1625,11 +1434,9 @@ fn classify_taskspace_provider_response_actionability(
     saw_actionable_output: bool,
     assistant_message_present: bool,
     final_response_rejected: bool,
-    provider_budget_exhausted_followup: bool,
+    _provider_budget_exhausted_followup: bool,
 ) -> TaskspaceProviderResponseActionability {
-    if provider_budget_exhausted_followup {
-        TaskspaceProviderResponseActionability::ActionableFollowUpAtHardStop
-    } else if final_response_rejected {
+    if final_response_rejected {
         TaskspaceProviderResponseActionability::FinalRejected
     } else if saw_actionable_output {
         TaskspaceProviderResponseActionability::Actionable
@@ -2645,42 +2452,6 @@ mod active_context_replacement_tests {
             .expect("expected input text")
     }
 
-    fn function_tool(name: &str) -> ToolSpec {
-        ToolSpec::Function(codex_tools::ResponsesApiTool {
-            name: name.to_string(),
-            description: format!("{name} description"),
-            strict: false,
-            defer_loading: None,
-            parameters: codex_tools::JsonSchema::default(),
-            output_schema: None,
-        })
-    }
-
-    #[test]
-    fn taskspace_essential_coding_tool_filter_keeps_only_required_coding_tools() {
-        let filtered = filter_taskspace_essential_coding_tool_specs(vec![
-            function_tool("taskspace_control"),
-            function_tool("shell_command"),
-            ToolSpec::Freeform(codex_tools::FreeformTool {
-                name: "apply_patch".to_string(),
-                description: "patch files".to_string(),
-                format: codex_tools::FreeformToolFormat {
-                    r#type: "grammar".to_string(),
-                    syntax: "lark".to_string(),
-                    definition: "start: /.+/".to_string(),
-                },
-            }),
-            function_tool("web_search"),
-            function_tool("notion_search"),
-        ]);
-        let names = filtered.iter().map(ToolSpec::name).collect::<Vec<_>>();
-
-        assert_eq!(
-            names,
-            vec!["taskspace_control", "shell_command", "apply_patch"]
-        );
-    }
-
     fn provider_snapshot(
         node_kind: &str,
     ) -> crate::action_map::ActionMapProviderRequestBudgetSnapshot {
@@ -3471,8 +3242,8 @@ tax_calc.py\n\
     }
 
     #[test]
-    fn provider_budget_guidance_warns_at_half_budget() {
-        let text = item_text(
+    fn provider_budget_guidance_is_advisory_only_at_half_profile_hint() {
+        assert!(
             build_taskspace_provider_budget_guidance_item(
                 10,
                 20,
@@ -3483,17 +3254,13 @@ tax_calc.py\n\
                 None,
                 TaskspaceProviderToolVisibility::All,
             )
-            .expect("warning guidance"),
+            .is_none()
         );
-
-        assert!(text.contains(TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER));
-        assert!(text.contains("warned"));
-        assert!(text.contains("Prefer implementation and validation"));
     }
 
     #[test]
-    fn provider_budget_guidance_forces_thin_implementation_priority() {
-        let text = item_text(
+    fn provider_budget_guidance_does_not_force_thin_implementation_priority() {
+        assert!(
             build_taskspace_provider_budget_guidance_item(
                 15,
                 20,
@@ -3504,17 +3271,13 @@ tax_calc.py\n\
                 None,
                 TaskspaceProviderToolVisibility::All,
             )
-            .expect("thin guidance"),
+            .is_none()
         );
-
-        assert!(text.contains("thin_downgraded"));
-        assert!(text.contains("implement it now before any further validation"));
-        assert!(text.contains("finish the implementation node into a validation node"));
     }
 
     #[test]
-    fn provider_budget_guidance_implementation_node_requires_patch_before_tests() {
-        let text = item_text(
+    fn provider_budget_guidance_does_not_force_implementation_node_patch_order() {
+        assert!(
             build_taskspace_provider_budget_guidance_item(
                 4,
                 20,
@@ -3523,19 +3286,15 @@ tax_calc.py\n\
                 Some("model_sampling"),
                 Some("implement_solution"),
                 Some("node-2"),
-                TaskspaceProviderToolVisibility::EssentialCoding,
+                TaskspaceProviderToolVisibility::All,
             )
-            .expect("implementation guidance"),
+            .is_none()
         );
-
-        assert!(text.contains("implement_requires_edit"));
-        assert!(text.contains("next action must be apply_patch"));
-        assert!(text.contains("Do not run tests"));
     }
 
     #[test]
-    fn provider_budget_guidance_control_only_inspect_requires_finish_node() {
-        let text = item_text(
+    fn provider_budget_guidance_does_not_make_inspect_control_only() {
+        assert!(
             build_taskspace_provider_budget_guidance_item(
                 3,
                 20,
@@ -3544,21 +3303,15 @@ tax_calc.py\n\
                 Some("budget_recovery"),
                 Some("inspect_code_context"),
                 Some("inspect_code_context"),
-                TaskspaceProviderToolVisibility::TaskspaceControlOnly,
+                TaskspaceProviderToolVisibility::All,
             )
-            .expect("inspect transition guidance"),
+            .is_none()
         );
-
-        assert!(text.contains("inspect_transition_required"));
-        assert!(text.contains("only taskspace_control is exposed"));
-        assert!(text.contains("Do not attempt file edits"));
-        assert!(text.contains("taskspace_control(action=\"finish_node\""));
-        assert!(text.contains("next_node_kind=\"implement_solution\""));
     }
 
     #[test]
-    fn provider_budget_guidance_marks_last_dispatch_as_budget_recovery() {
-        let text = item_text(
+    fn provider_budget_guidance_does_not_mark_last_dispatch_as_budget_recovery() {
+        assert!(
             build_taskspace_provider_budget_guidance_item(
                 19,
                 20,
@@ -3569,18 +3322,12 @@ tax_calc.py\n\
                 None,
                 TaskspaceProviderToolVisibility::None,
             )
-            .expect("recovery guidance"),
+            .is_none()
         );
-
-        assert!(text.contains("budget_recovery"));
-        assert!(text.contains("final provider request before hard budget stop"));
-        assert!(text.contains("Tools are intentionally not exposed"));
-        assert!(text.contains("Otherwise answer blocked_by_budget"));
-        assert!(text.contains("Do not ask for another model turn"));
     }
 
     #[test]
-    fn provider_budget_hides_tools_on_final_non_synthesis_request() {
+    fn provider_budget_does_not_hide_tools_on_final_non_synthesis_request() {
         assert_eq!(
             taskspace_provider_tool_visibility_for_budget(
                 19,
@@ -3590,12 +3337,12 @@ tax_calc.py\n\
                 Some("model_sampling"),
                 Some("inspect_code_context")
             ),
-            TaskspaceProviderToolVisibility::None
+            TaskspaceProviderToolVisibility::All
         );
     }
 
     #[test]
-    fn provider_budget_exposes_only_taskspace_control_for_late_inspect_request() {
+    fn provider_budget_does_not_force_taskspace_control_for_late_inspect_request() {
         assert_eq!(
             taskspace_provider_tool_visibility_for_budget(
                 3,
@@ -3605,12 +3352,12 @@ tax_calc.py\n\
                 Some("budget_recovery"),
                 Some("inspect_code_context")
             ),
-            TaskspaceProviderToolVisibility::TaskspaceControlOnly
+            TaskspaceProviderToolVisibility::All
         );
     }
 
     #[test]
-    fn action_contract_late_inspect_rejects_more_file_reads() {
+    fn action_contract_late_inspect_allows_file_reads_past_profile_hint() {
         let mut snapshot = provider_snapshot("inspect_code_context");
         snapshot.request_count = 5;
         snapshot.node_request_count = 5;
@@ -3621,22 +3368,14 @@ tax_calc.py\n\
         )
         .expect("valid action shape");
 
-        let err = taskspace_action_to_tool_call(&read_file, &snapshot)
-            .expect_err("late inspect should force taskspace_control transition");
-        assert!(err.contains("node_budget_transition_required:inspect_code_context:read_file"));
-
-        let finish_node = parse_taskspace_action_v1(
-            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"action":"finish_node","node_id":"node-1","result_summary":"Inspected README and tests.","next_node_kind":"implement_solution","next_node_title":"Apply fix","next_node_context_summary":"Apply fix from inspected evidence"}}"#,
-        )
-        .expect("valid control action");
-        let call = taskspace_action_to_tool_call(&finish_node, &snapshot)
-            .expect("finish_node remains allowed")
-            .expect("finish_node should execute taskspace_control");
-        assert_eq!(call.tool_name.name, "taskspace_control");
+        let call = taskspace_action_to_tool_call(&read_file, &snapshot)
+            .expect("late inspect should remain advisory-only")
+            .expect("read_file should execute shell_command");
+        assert_eq!(call.tool_name.name, "shell_command");
     }
 
     #[test]
-    fn provider_budget_exposes_essential_tools_for_implementation_request() {
+    fn provider_budget_does_not_reduce_tools_for_implementation_request() {
         assert_eq!(
             taskspace_provider_tool_visibility_for_budget(
                 15,
@@ -3646,12 +3385,12 @@ tax_calc.py\n\
                 Some("model_sampling"),
                 Some("implement_solution")
             ),
-            TaskspaceProviderToolVisibility::EssentialCoding
+            TaskspaceProviderToolVisibility::All
         );
     }
 
     #[test]
-    fn provider_budget_uses_essential_tools_for_normal_model_sampling() {
+    fn provider_budget_does_not_reduce_tools_for_normal_model_sampling() {
         assert_eq!(
             taskspace_provider_tool_visibility_for_budget(
                 1,
@@ -3661,7 +3400,7 @@ tax_calc.py\n\
                 Some("model_sampling"),
                 Some("inspect_code_context")
             ),
-            TaskspaceProviderToolVisibility::EssentialCoding
+            TaskspaceProviderToolVisibility::All
         );
     }
 
@@ -3698,32 +3437,19 @@ tax_calc.py\n\
     }
 
     #[test]
-    fn active_context_replacement_preserves_provider_budget_guidance() {
+    fn active_context_replacement_does_not_inject_provider_budget_guidance() {
         let active_projection = format!(
             "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
         );
-        let guidance = build_taskspace_provider_budget_guidance_item(
-            15,
-            20,
-            0,
-            3,
-            Some("model_sampling"),
-            None,
-            None,
-            TaskspaceProviderToolVisibility::All,
-        )
-        .expect("guidance item");
         let items = vec![
             message("developer", &active_projection),
-            guidance,
             message("user", "Keep the direct user requirement."),
         ];
 
         let prepared = prepare_provider_visible_prompt_items(items);
         let joined = item_texts(&prepared).join("\n");
 
-        assert!(joined.contains(TASKSPACE_PROVIDER_BUDGET_GUIDANCE_MARKER));
-        assert!(joined.contains("thin_downgraded"));
+        assert!(!joined.contains("TaskSpaceProviderBudgetGuidanceV1"));
         assert!(joined.contains("Keep the direct user requirement."));
     }
 
@@ -3908,8 +3634,8 @@ tax_calc.py\n\
     }
 
     #[test]
-    fn budget_pressure_follow_up_intent_applies_to_implementation_node() {
-        assert!(taskspace_budget_pressure_follow_up_intent(
+    fn budget_pressure_follow_up_intent_is_disabled_for_implementation_node() {
+        assert!(!taskspace_budget_pressure_follow_up_intent(
             32,
             40,
             Some("implement_solution"),
@@ -3949,8 +3675,8 @@ tax_calc.py\n\
     }
 
     #[test]
-    fn budget_pressure_follow_up_intent_requires_recovery() {
-        assert!(taskspace_budget_pressure_follow_up_intent(
+    fn budget_pressure_follow_up_intent_does_not_require_recovery() {
+        assert!(!taskspace_budget_pressure_follow_up_intent(
             30,
             40,
             Some("inspect_code_context"),
@@ -3971,8 +3697,8 @@ tax_calc.py\n\
     }
 
     #[test]
-    fn budget_pressure_follow_up_intent_detects_chinese_test_intent() {
-        assert!(taskspace_budget_pressure_follow_up_intent(
+    fn budget_pressure_follow_up_intent_ignores_chinese_test_intent() {
+        assert!(!taskspace_budget_pressure_follow_up_intent(
             3,
             6,
             Some("inspect_code_context"),
@@ -3981,14 +3707,16 @@ tax_calc.py\n\
     }
 
     #[test]
-    fn budget_pressure_silent_action_forces_inspect_transition() {
-        assert!(taskspace_budget_pressure_silent_action_requires_transition(
-            4,
-            8,
-            Some("inspect_code_context"),
-            false,
-            true
-        ));
+    fn budget_pressure_silent_action_does_not_force_transition() {
+        assert!(
+            !taskspace_budget_pressure_silent_action_requires_transition(
+                4,
+                8,
+                Some("inspect_code_context"),
+                false,
+                true
+            )
+        );
         assert!(
             !taskspace_budget_pressure_silent_action_requires_transition(
                 3,
@@ -3998,20 +3726,24 @@ tax_calc.py\n\
                 true
             )
         );
-        assert!(taskspace_budget_pressure_silent_action_requires_transition(
-            4,
-            8,
-            Some("implement_solution"),
-            false,
-            true
-        ));
-        assert!(taskspace_budget_pressure_silent_action_requires_transition(
-            6,
-            8,
-            Some("implement_solution"),
-            false,
-            true
-        ));
+        assert!(
+            !taskspace_budget_pressure_silent_action_requires_transition(
+                4,
+                8,
+                Some("implement_solution"),
+                false,
+                true
+            )
+        );
+        assert!(
+            !taskspace_budget_pressure_silent_action_requires_transition(
+                6,
+                8,
+                Some("implement_solution"),
+                false,
+                true
+            )
+        );
     }
 
     #[test]
@@ -4027,17 +3759,16 @@ tax_calc.py\n\
     }
 
     #[test]
-    fn provider_response_actionability_classifies_final_budget_followup_as_hard_stop() {
+    fn provider_response_actionability_treats_profile_hint_overrun_as_actionable() {
         let classification =
             classify_taskspace_provider_response_actionability(true, true, true, false, true);
 
         assert_eq!(
             classification,
-            TaskspaceProviderResponseActionability::ActionableFollowUpAtHardStop
+            TaskspaceProviderResponseActionability::Actionable
         );
-        assert!(classification.is_hard_stop());
         assert!(!classification.needs_recovery());
-        assert_eq!(classification.as_str(), "actionable_follow_up_at_hard_stop");
+        assert_eq!(classification.as_str(), "actionable");
     }
 
     #[test]
@@ -5518,26 +5249,6 @@ fn taskspace_action_to_tool_call(
             action_name
         ));
     }
-    let limits = taskspace_transport_budget_limits(snapshot);
-    let budget_visibility = taskspace_provider_tool_visibility_for_budget(
-        snapshot.request_count,
-        limits.max_requests,
-        snapshot.node_request_count,
-        limits.max_model_requests_per_node,
-        snapshot.request_phase.as_deref(),
-        snapshot.node_kind.as_deref(),
-    );
-    if matches!(
-        budget_visibility,
-        TaskspaceProviderToolVisibility::TaskspaceControlOnly
-    ) && !matches!(action_name, "taskspace_control" | "blocked")
-    {
-        return Err(format!(
-            "node_budget_transition_required:{}:{}",
-            snapshot.node_kind.as_deref().unwrap_or("unknown"),
-            action_name
-        ));
-    }
     if let (Some(expected), Some(actual)) = (snapshot.node_id.as_deref(), action.node_id.as_deref())
         && expected != actual
     {
@@ -6394,11 +6105,7 @@ async fn try_run_sampling_request(
                 }
                 let current_budget_snapshot =
                     sess.action_map_provider_request_budget_snapshot().await;
-                let provider_budget_exhausted_followup = needs_follow_up
-                    && current_budget_snapshot
-                        .as_ref()
-                        .map(|snapshot| snapshot.request_count >= snapshot.max_requests)
-                        .unwrap_or(false);
+                let provider_budget_exhausted_followup = false;
                 let budget_pressure_follow_up_intent = current_budget_snapshot
                     .as_ref()
                     .map(|snapshot| {
@@ -6441,9 +6148,7 @@ async fn try_run_sampling_request(
                         None
                     };
                 if let Some(snapshot) = current_budget_snapshot {
-                    let recovery_action = if response_actionability.is_hard_stop() {
-                        "hard_stop"
-                    } else if taskspace_no_action_recovery_item.is_some() {
+                    let recovery_action = if taskspace_no_action_recovery_item.is_some() {
                         "developer_recovery"
                     } else {
                         "none"
@@ -6540,17 +6245,6 @@ async fn try_run_sampling_request(
                         }
                         _ => {}
                     }
-                }
-                if response_actionability.is_hard_stop() {
-                    let message = "TaskSpace stopped this turn because the final provider budget response produced tool/control work that requires another model turn, but the provider request budget is already exhausted. The final budget response must produce a final answer, a compact checkpoint, or a bounded blocked_by_budget result instead of follow-up-dependent work.".to_string();
-                    sess.send_event(
-                        &turn_context,
-                        EventMsg::Warning(WarningEvent {
-                            message: message.clone(),
-                        }),
-                    )
-                    .await;
-                    break Err(CodexErr::InvalidRequest(message));
                 }
                 if final_response_rejected {
                     last_agent_message = None;

@@ -746,7 +746,7 @@ $stateCommitDisplacementPass = ($stateCommitDisplacement `
     -and (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_attempt_count" 0) -gt 0 `
     -and (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_displaced_count" 0) -ge (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_attempt_count" 0) `
     -and (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_count" 999999) -le (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_budget" 0))
-$spawnNodeBudgetPass = ($spawnNodeBudget -and (Get-ReleaseString $spawnNodeBudget "status") -eq "pass" -and (Get-ReleaseString $spawnNodeBudget "within_budget_status") -eq "pass")
+$spawnNodeBudgetPass = ($spawnNodeBudget -and (Get-ReleaseString $spawnNodeBudget "status") -eq "pass")
 $requiredV005NonAgentGates = @(
     "provider_request_hook",
     "runtime_budget_response",

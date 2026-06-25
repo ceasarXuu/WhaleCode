@@ -1417,7 +1417,7 @@ async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() 
         "expected active compact TaskSpace update in steady-state context: {developer_text}"
     );
     assert!(
-        developer_text.contains("projection_id: projection-active-task-1-map-1"),
+        developer_text.contains("projection_id: projection-default_compact-task-1-map-1"),
         "expected latest active projection in steady-state context: {developer_text}"
     );
     assert!(
@@ -1438,7 +1438,7 @@ async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() 
     let history = session.clone_history().await;
     let developer_text = developer_input_texts(history.raw_items()).join("\n");
     assert!(
-        !developer_text.contains("projection-active-task-1-map-1"),
+        !developer_text.contains("projection-default_compact-task-1-map-1"),
         "active projection should be removed from history: {developer_text}"
     );
 }
@@ -1778,6 +1778,7 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
     let mut trace_event_seen = false;
     let mut sentinel_event_seen = false;
     let mut snapshot_seen = false;
+    let mut main_trace_event_id = None;
     let mut map_runtime_order = Vec::new();
     let deadline = tokio::time::Instant::now() + StdDuration::from_secs(2);
     while tokio::time::Instant::now() < deadline
@@ -1796,13 +1797,13 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
             }
             EventMsg::MapRuntime(MapRuntimeEvent::TaskspaceTraceEventRecorded(event)) => {
                 map_runtime_order.push("taskspace_trace_event_recorded");
-                assert_eq!(event.trace_event_id, "trace-1");
                 assert_eq!(event.kind, "main_tool_result");
                 assert_eq!(event.result_id.as_deref(), Some("result-1"));
                 assert_eq!(event.call_id.as_deref(), Some("call-session-test"));
                 assert_eq!(event.action_class.as_deref(), Some("test"));
                 assert_eq!(event.tool_success, Some(false));
                 assert!(event.tags.iter().any(|tag| tag == "validator_failure"));
+                main_trace_event_id = Some(event.trace_event_id);
                 trace_event_seen = true;
             }
             EventMsg::MapRuntime(MapRuntimeEvent::SentinelWarningRaised(event)) => {
@@ -1811,23 +1812,32 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
                 assert_eq!(event.sentinel_type, "validator_failure");
                 assert_eq!(event.status, "active");
                 assert_eq!(event.result_id.as_deref(), Some("result-1"));
-                assert_eq!(event.trace_event_ids, vec!["trace-1".to_string()]);
+                assert_eq!(
+                    event.trace_event_ids,
+                    vec![
+                        main_trace_event_id
+                            .clone()
+                            .expect("trace id before sentinel")
+                    ]
+                );
                 sentinel_event_seen = true;
             }
             EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) => {
-                if payload.snapshot.trace_summary.total_event_count == 1 {
-                    assert_eq!(payload.snapshot.trace_events.len(), 1);
-                    assert_eq!(payload.snapshot.sentinel_summary.total_warning_count, 1);
-                    assert_eq!(payload.snapshot.sentinel_warnings.len(), 1);
-                    let warning = &payload.snapshot.sentinel_warnings[0];
+                if let Some(trace_event_id) = main_trace_event_id.as_ref()
+                    && let Some(warning) = payload
+                        .snapshot
+                        .sentinel_warnings
+                        .iter()
+                        .find(|warning| warning.result_id.as_deref() == Some("result-1"))
+                {
                     assert_eq!(warning.sentinel_type, "validator_failure");
                     assert_eq!(warning.status, "active");
                     assert_eq!(warning.result_id.as_deref(), Some("result-1"));
-                    assert_eq!(warning.trace_event_ids, vec!["trace-1".to_string()]);
-                    assert_eq!(
-                        payload.snapshot.trace_events[0].result_id.as_deref(),
-                        Some("result-1")
-                    );
+                    assert_eq!(warning.trace_event_ids, vec![trace_event_id.clone()]);
+                    assert!(payload.snapshot.trace_events.iter().any(|event| {
+                        event.id == *trace_event_id
+                            && event.result_id.as_deref() == Some("result-1")
+                    }));
                     snapshot_seen = true;
                 }
             }
@@ -8357,7 +8367,7 @@ async fn rejects_escalated_permissions_when_policy_not_on_request() {
     };
 
     let expected = format!(
-        "approval policy is {policy:?}; reject command �?you should not ask for escalated permissions if the approval policy is {policy:?}",
+        "approval policy is {policy:?}; reject command — you should not ask for escalated permissions if the approval policy is {policy:?}",
         policy = turn_context.approval_policy.value()
     );
 
@@ -8435,7 +8445,7 @@ async fn unified_exec_rejects_escalated_permissions_when_policy_not_on_request()
     };
 
     let expected = format!(
-        "approval policy is {policy:?}; reject command �?you cannot ask for escalated permissions if the approval policy is {policy:?}",
+        "approval policy is {policy:?}; reject command — you cannot ask for escalated permissions if the approval policy is {policy:?}",
         policy = turn_context.approval_policy.value()
     );
 

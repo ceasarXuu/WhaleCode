@@ -155,7 +155,7 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             legacy_state_action_budget = 0
             state_commit_count = 1
         }) (Join-Path $dir "state-commit-displacement.json")
-    Write-Json ([pscustomobject]@{ status = "pass"; within_budget_status = "pass"; over_budget_enforcement_status = "not_observed"; spawn_agent_call_count = 0; max_spawn_agent_calls = 0 }) (Join-Path $dir "spawn-node-budget-summary.json")
+    Write-Json ([pscustomobject]@{ status = "pass"; within_budget_status = "within_profile_hint"; over_budget_enforcement_status = "advisory_only"; spawn_agent_call_count = 0; max_spawn_agent_calls = 0; over_profile_hint = $false }) (Join-Path $dir "spawn-node-budget-summary.json")
     $profileHash = "profile-fixture-hash"
     $sourceVersion = "terminal-bench@fixture"
     $taskListHash = "task-list-fixture-hash"
@@ -693,12 +693,12 @@ $qualityImpactMismatchDir = New-FixtureRun "budget-quality-summary-mismatch" "PA
 ([pscustomobject]@{
         schema_version = "taskspace-budget-quality-impact-v1"
         sample_id = "processing-pipeline"
-        budget_action = "hard_stop"
-        final_classification = "blocked_by_budget"
+        budget_action = "legacy_profile_hint_blocked_input"
+        final_classification = "legacy_blocked_input_observed"
         score_eligible = $false
         missing_evidence_count = 1
         protected_item_miss_count = 0
-        manual_override_used = $false
+        manual_override_used = $true
     } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $qualityImpactMismatchDir "budget-quality-impact-events.jsonl") -Encoding UTF8
 Write-Json ([pscustomobject]@{
         budget_quality_impact_logged_for_every_budget_action = $true
@@ -713,7 +713,7 @@ Assert-True ($LASTEXITCODE -eq 1) "budget quality summary mismatch fixture did n
 $qualityImpactMismatchDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $qualityImpactMismatchDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($qualityImpactMismatchDecision.blockers) -contains "budget_quality_impact_gate_failed") "summary mismatch fixture did not report budget quality blocker"
 Assert-True (-not [bool]$qualityImpactMismatchDecision.budget_quality_impact_summary_matches_events) "summary mismatch fixture incorrectly matched derived event counts"
-Assert-True ([int]$qualityImpactMismatchDecision.derived_blocked_by_budget_count -eq 1) "summary mismatch fixture did not derive blocked_by_budget from events"
+Assert-True ([int]$qualityImpactMismatchDecision.derived_manual_override_count -eq 1) "summary mismatch fixture did not derive manual override from events"
 
 $qualityImpactMissingDir = New-FixtureRun "missing-budget-quality-impact" "PASS" $true 0
 Move-Item -LiteralPath (Join-Path $qualityImpactMissingDir "budget-quality-impact-events.jsonl") -Destination (Join-Path $qualityImpactMissingDir "budget-quality-impact-events.jsonl.bak") -Force

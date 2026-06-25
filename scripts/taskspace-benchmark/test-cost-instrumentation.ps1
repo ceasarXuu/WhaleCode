@@ -119,9 +119,9 @@ $obs = [pscustomobject]@{
             tags = @(
                 "schema:taskspace-provider-request-budget-event-v1",
                 "transport:responses_http",
-                "status:blocked",
+                "status:response_completed",
                 "request_count_before:1",
-                "request_count_after:1",
+                "request_count_after:2",
                 "max_requests:1",
                 "active_budget_source:runtime",
                 "route_mode:thin",
@@ -129,13 +129,22 @@ $obs = [pscustomobject]@{
                 "node_request_count:2",
                 "max_model_requests_per_node:3",
                 "post_budget_grace_requests:1",
-                "runtime_budget_state:hard_stopped",
+                "runtime_budget_state:over_profile_hint",
                 "request_phase:validation_recovery",
                 "producer:provider_lifecycle",
                 "input_tokens:4",
                 "cached_input_tokens:1",
                 "output_tokens:2",
-                "budget_response_action_taken:true"
+                "provider_payload_sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "provider_payload_bytes:2048",
+                "provider_wire_api:Responses",
+                "tools_count:0",
+                "tools_present:false",
+                "request_shape_classifier:tool_free_action_contract",
+                "messages_hash:messages-hash-2",
+                "stable_prefix_hash:stable-prefix-hash",
+                "dynamic_suffix_hash:dynamic-suffix-hash-2",
+                "budget_response_action_taken:false"
             )
         },
         [pscustomobject]@{
@@ -148,17 +157,17 @@ $obs = [pscustomobject]@{
             tags = @(
                 "schema:taskspace-budget-quality-impact-v1",
                 "provider_request_budget_trace_event_id:trace-budget-2",
-                "budget_action:hard_stop",
-                "provider_request_status:blocked",
+                "budget_action:observe",
+                "provider_request_status:response_completed",
                 "counter_name:provider_request_count",
-                "counter_value:1",
+                "counter_value:2",
                 "counter_limit:1",
                 "request_phase:validation_recovery",
-                "score_eligible:false",
+                "score_eligible:true",
                 "budget_induced_validation_skip:false",
                 "manual_override_used:false",
                 "bounded_recovery_used:false",
-                "final_classification:blocked_by_budget"
+                "final_classification:score_eligible"
             )
         },
         [pscustomobject]@{
@@ -171,9 +180,9 @@ $obs = [pscustomobject]@{
             tags = @(
                 "schema:taskspace-provider-request-budget-event-v1",
                 "transport:responses_http",
-                "status:blocked",
-                "request_count_before:1",
-                "request_count_after:1",
+                "status:response_completed",
+                "request_count_before:2",
+                "request_count_after:3",
                 "max_requests:1",
                 "active_budget_source:runtime",
                 "route_mode:thin",
@@ -181,13 +190,22 @@ $obs = [pscustomobject]@{
                 "node_request_count:2",
                 "max_model_requests_per_node:3",
                 "post_budget_grace_requests:1",
-                "runtime_budget_state:hard_stopped",
+                "runtime_budget_state:over_profile_hint",
                 "request_phase:state_commit",
                 "producer:provider_lifecycle",
                 "input_tokens:7",
                 "cached_input_tokens:3",
                 "output_tokens:1",
-                "budget_response_action_taken:true"
+                "provider_payload_sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "provider_payload_bytes:3072",
+                "provider_wire_api:Responses",
+                "tools_count:0",
+                "tools_present:false",
+                "request_shape_classifier:tool_free_action_contract",
+                "messages_hash:messages-hash-3",
+                "stable_prefix_hash:stable-prefix-hash",
+                "dynamic_suffix_hash:dynamic-suffix-hash-3",
+                "budget_response_action_taken:false"
             )
         },
         [pscustomobject]@{
@@ -200,17 +218,17 @@ $obs = [pscustomobject]@{
             tags = @(
                 "schema:taskspace-budget-quality-impact-v1",
                 "provider_request_budget_trace_event_id:trace-budget-3",
-                "budget_action:hard_stop",
-                "provider_request_status:blocked",
+                "budget_action:observe",
+                "provider_request_status:response_completed",
                 "counter_name:provider_request_count",
-                "counter_value:1",
+                "counter_value:3",
                 "counter_limit:1",
                 "request_phase:state_commit",
-                "score_eligible:false",
+                "score_eligible:true",
                 "budget_induced_validation_skip:false",
                 "manual_override_used:false",
                 "bounded_recovery_used:false",
-                "final_classification:blocked_by_budget"
+                "final_classification:score_eligible"
             )
         },
         [pscustomobject]@{
@@ -270,14 +288,14 @@ $obs = [pscustomobject]@{
                 "producer:runtime",
                 "budget_kind:node",
                 "action:create_node",
-                "status:blocked",
+                "status:allowed",
                 "active_budget_source:runtime",
                 "route_mode:thin",
                 "profile_name:taskspace-v005-active",
                 "node_count_before:4",
-                "node_count_after:4",
+                "node_count_after:5",
                 "max_nodes:4",
-                "budget_response_action_taken:true"
+                "budget_response_action_taken:false"
             )
         }
     )
@@ -319,8 +337,8 @@ Assert-True (-not [bool]$scanEvents[0].protected_items_present) "protected items
 Assert-True ($providerEvents.Count -eq 3 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
 Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provider_lifecycle" }).Count -eq 3) "provider request events did not preserve provider_lifecycle producer"
 Assert-True ([string]$providerEvents[0].provider_wire_api -eq "ChatCompletions" -and [int]$providerEvents[0].tools_count -eq 24 -and [string]$providerEvents[0].request_shape_classifier -eq "native_tools_schema_hot_path") "provider request events did not preserve cache request shape fields"
-Assert-True ($cacheTraceEvents.Count -eq 1 -and [string]$cacheTraceEvents[0].schema_version -eq "TaskSpaceProviderCacheTraceV1" -and [double]$cacheTraceEvents[0].hit_rate -eq 0.2) "provider cache trace event was not derived from terminal provider request"
-Assert-True ([int]$cacheTraceSummary.native_tools_schema_hot_path_count -eq 1 -and [double]$cacheTraceSummary.trace_coverage -eq 1.0) "provider cache trace summary did not classify native tools hot path"
+Assert-True ($cacheTraceEvents.Count -eq 3 -and [string]$cacheTraceEvents[0].schema_version -eq "TaskSpaceProviderCacheTraceV1" -and [double]$cacheTraceEvents[0].hit_rate -eq 0.2) "provider cache trace events were not derived from terminal provider requests"
+Assert-True ([int]$cacheTraceSummary.native_tools_schema_hot_path_count -eq 1 -and [int]$cacheTraceSummary.tool_free_action_contract_count -eq 2 -and [double]$cacheTraceSummary.trace_coverage -eq 1.0) "provider cache trace summary did not classify completed request shapes"
 Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"
 Assert-True (-not [bool]$replacement.protected_items_present) "active replacement report should preserve advisory protected-item absence"
 Assert-True ([int]$phaseSummary.provider_request_hook_coverage -eq 100 -and [int]$phaseSummary.request_phase_attribution_coverage -eq 100) "request phase summary did not reflect provider events"
@@ -331,12 +349,12 @@ Assert-True ([int64]$phaseSummary.phase_token_summary.state_commit.input_tokens 
 Assert-True ([string]$stateCommit.status -eq "pass" -and [string]$stateCommit.source_status -eq "runtime" -and [int]$stateCommit.runtime_event_count -eq 1 -and [bool]$stateCommit.has_displacement_denominator -and [int]$stateCommit.legacy_state_action_attempt_count -eq 2) "state commit displacement summary should pass with runtime denominator evidence"
 Assert-True ([string]$spawnBudget.status -eq "pass" -and [string]$spawnBudget.source_status -eq "runtime" -and [int]$spawnBudget.runtime_event_count -eq 2) "spawn/node budget should pass with runtime producer evidence"
 Assert-True ([string]$spawnBudget.active_budget_source -eq "runtime" -and [string]$spawnBudget.route_mode -eq "thin" -and [int]$spawnBudget.max_nodes -eq 4) "spawn/node budget summary did not preserve active budget route fields"
-Assert-True ([string]$spawnBudget.within_budget_status -eq "fail" -and [string]$spawnBudget.over_budget_enforcement_status -eq "pass" -and [int]$spawnBudget.blocked_budget_event_count -eq 1) "spawn/node budget should split within-budget failure from successful over-budget enforcement"
+Assert-True ([string]$spawnBudget.within_budget_status -eq "over_profile_hint" -and [string]$spawnBudget.over_budget_enforcement_status -eq "advisory_only" -and [bool]$spawnBudget.over_profile_hint -and [int]$spawnBudget.blocked_budget_event_count -eq 0) "spawn/node budget should report over-profile hints without enforcing a hard budget"
 Assert-True ([bool]$summary.budget_quality_impact_logged_for_every_budget_action) "budget action was not matched to quality impact"
 Assert-True ([string]$summary.active_budget_source -eq "runtime" -and [string]$summary.route_mode -eq "thin" -and [int]$summary.max_rollout_model_requests -eq 8 -and [int]$summary.max_model_requests_per_node -eq 3) "budget quality summary did not expose active budget fields"
 Assert-True ([int]$summary.budget_quality_impact_missing_count -eq 0) "budget quality impact missing count should be zero"
-Assert-True ([int]$summary.blocked_by_budget_samples_count -eq 2) "blocked budget quality impact was not summarized"
-Assert-True ([int]$instrumentation.budget_quality_impact_summary.budget_action_count -eq 2) "returned instrumentation object omitted budget summary"
+Assert-True ([int]$summary.blocked_by_budget_samples_count -eq 0) "budget quality impact should not summarize profile overruns as blocked_by_budget"
+Assert-True ([int]$instrumentation.budget_quality_impact_summary.budget_action_count -eq 0) "returned instrumentation object should not classify profile hints as budget actions"
 
 $rolloutOnlyArtifactDir = Join-Path $RunRoot "rollout-only-artifacts"
 New-Item -ItemType Directory -Path $rolloutOnlyArtifactDir -Force | Out-Null
@@ -380,9 +398,9 @@ $rolloutOnlyPath = Join-Path $rolloutOnlyArtifactDir "rollout.jsonl"
             tags = @(
                 "schema:taskspace-provider-request-budget-event-v1",
                 "transport:responses_http",
-                "status:blocked",
+                "status:response_completed",
                 "request_count_before:4",
-                "request_count_after:4",
+                "request_count_after:5",
                 "max_requests:4",
                 "active_budget_source:runtime",
                 "route_mode:thin",
@@ -390,10 +408,10 @@ $rolloutOnlyPath = Join-Path $rolloutOnlyArtifactDir "rollout.jsonl"
                 "node_request_count:2",
                 "max_model_requests_per_node:3",
                 "post_budget_grace_requests:1",
-                "runtime_budget_state:hard_stopped",
+                "runtime_budget_state:over_profile_hint",
                 "request_phase:model_sampling",
                 "producer:provider_lifecycle",
-                "budget_response_action_taken:true"
+                "budget_response_action_taken:false"
             )
         }
     },
@@ -409,17 +427,17 @@ $rolloutOnlyPath = Join-Path $rolloutOnlyArtifactDir "rollout.jsonl"
             tags = @(
                 "schema:taskspace-budget-quality-impact-v1",
                 "provider_request_budget_trace_event_id:rollout-budget-1",
-                "budget_action:hard_stop",
-                "provider_request_status:blocked",
+                "budget_action:observe",
+                "provider_request_status:response_completed",
                 "counter_name:provider_request_count",
-                "counter_value:4",
+                "counter_value:5",
                 "counter_limit:4",
                 "request_phase:model_sampling",
-                "score_eligible:false",
+                "score_eligible:true",
                 "budget_induced_validation_skip:false",
                 "manual_override_used:false",
                 "bounded_recovery_used:false",
-                "final_classification:blocked_by_budget"
+                "final_classification:score_eligible"
             )
         }
     },
@@ -455,11 +473,11 @@ $rolloutOnlyQualityEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path
 $rolloutOnlySummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $rolloutOnlyArtifactDir "budget_induced_quality_impact_summary.json") | ConvertFrom-Json
 $rolloutOnlySpawn = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $rolloutOnlyArtifactDir "spawn-node-budget-summary.json") | ConvertFrom-Json
 Assert-True ($rolloutOnlyActiveEvents.Count -eq 1 -and [string]$rolloutOnlyActiveEvents[0].profile_name -eq "taskspace-v005-thin") "rollout-only active budget event was not extracted"
-Assert-True ($rolloutOnlyBudgetEvents.Count -eq 1 -and [string]$rolloutOnlyBudgetEvents[0].status -eq "blocked" -and [bool]$rolloutOnlyBudgetEvents[0].budget_response_action_taken) "rollout-only provider budget event was not extracted"
-Assert-True ($rolloutOnlyQualityEvents.Count -eq 1 -and [string]$rolloutOnlyQualityEvents[0].final_classification -eq "blocked_by_budget") "rollout-only quality impact event was not extracted"
+Assert-True ($rolloutOnlyBudgetEvents.Count -eq 1 -and [string]$rolloutOnlyBudgetEvents[0].status -eq "response_completed" -and -not [bool]$rolloutOnlyBudgetEvents[0].budget_response_action_taken) "rollout-only provider budget event was not extracted as advisory-only"
+Assert-True ($rolloutOnlyQualityEvents.Count -eq 1 -and [string]$rolloutOnlyQualityEvents[0].final_classification -eq "score_eligible") "rollout-only quality impact event was not extracted as advisory-only"
 Assert-True ([int]$rolloutOnlySummary.budget_event_count -eq 1 -and [int]$rolloutOnlySummary.budget_quality_impact_event_count -eq 1 -and [string]$rolloutOnlySummary.route_mode -eq "thin") "rollout-only budget summary did not use rollout trace events"
 Assert-True ([string]$rolloutOnlySpawn.source_status -eq "runtime" -and [int]$rolloutOnlySpawn.runtime_event_count -eq 1) "rollout-only spawn/node budget summary did not use rollout trace events"
-Assert-True ([int]$rolloutOnlyInstrumentation.budget_quality_impact_summary.blocked_by_budget_samples_count -eq 1) "returned rollout-only instrumentation omitted budget quality impact"
+Assert-True ([int]$rolloutOnlyInstrumentation.budget_quality_impact_summary.blocked_by_budget_samples_count -eq 0) "returned rollout-only instrumentation should not classify profile hints as blocked_by_budget"
 
 $aggregateCacheRoot = Join-Path $RunRoot "aggregate-cache-root"
 $leftArtifacts = Join-Path $aggregateCacheRoot "pair-001\left\artifacts"

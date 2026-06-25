@@ -85,48 +85,35 @@ fn test_session_telemetry() -> SessionTelemetry {
 }
 
 #[test]
-fn provider_request_budget_blocks_before_dispatch_when_exhausted() {
+fn provider_request_budget_observes_profile_hint_overrun_before_dispatch() {
     let budget = ProviderRequestBudgetContext::enabled(1, 1);
 
-    let err = budget
+    let dispatch = budget
         .before_dispatch("responses_http")
-        .expect_err("exhausted budget should block before dispatch");
+        .expect("profile hint overrun should not block dispatch");
 
-    assert!(
-        err.to_string()
-            .contains("active provider request budget is exhausted")
-    );
+    assert_eq!(dispatch.request_count_before, 1);
+    assert_eq!(dispatch.request_count_after, 2);
+    assert_eq!(dispatch.budget_state_before, "over_profile_hint");
+    assert_eq!(dispatch.budget_state_after, "over_profile_hint");
+
     let events = budget.drain_events();
     assert_eq!(events.len(), 1);
-    assert_eq!(
-        events[0].request_id,
-        "provider-request:scope-unknown:logical-2:attempt-1"
-    );
-    assert_eq!(
-        events[0].logical_request_id,
-        "provider-request:scope-unknown:logical-2"
-    );
-    assert_eq!(events[0].attempt_seq, 1);
-    assert_eq!(events[0].transport, "responses_http");
-    assert_eq!(events[0].status, "blocked");
+    assert_eq!(events[0].status, "started");
     assert_eq!(events[0].request_count_before, 1);
-    assert_eq!(events[0].request_count_after, 1);
+    assert_eq!(events[0].request_count_after, 2);
     assert_eq!(events[0].max_requests, 1);
-    assert_eq!(events[0].budget_state_before, "hard_stopped");
-    assert_eq!(events[0].budget_state_after, "hard_stopped");
-    assert_eq!(
-        events[0].budget_transition_reason,
-        "provider_request_budget_exhausted"
-    );
+    assert_eq!(events[0].budget_state_before, "over_profile_hint");
+    assert_eq!(events[0].budget_state_after, "over_profile_hint");
 }
 
 #[test]
-fn provider_request_budget_allows_bounded_recovery_at_compact_checkpoint() {
+fn provider_request_budget_compact_checkpoint_remains_advisory() {
     let budget = ProviderRequestBudgetContext::enabled(1, 2);
 
     let _dispatch = budget
         .before_dispatch("responses_http")
-        .expect("compact checkpoint should allow one bounded recovery dispatch");
+        .expect("compact checkpoint profile hint should not block dispatch");
 
     let events = budget.drain_events();
     assert_eq!(events.len(), 1);
@@ -135,37 +122,24 @@ fn provider_request_budget_allows_bounded_recovery_at_compact_checkpoint() {
     assert_eq!(events[0].request_count_after, 2);
     assert_eq!(events[0].max_requests, 2);
     assert_eq!(events[0].budget_state_before, "compact_checkpoint_required");
-    assert_eq!(events[0].budget_state_after, "hard_stopped");
+    assert_eq!(events[0].budget_state_after, "over_profile_hint");
     assert_eq!(
         events[0].budget_transition_reason,
-        "provider_request_budget_reached"
+        "provider_request_profile_hint_exceeded"
     );
-    assert_eq!(events[0].request_phase.as_deref(), Some("budget_recovery"));
+    assert_eq!(events[0].request_phase.as_deref(), None);
 
     budget.record_response_completed(None);
-    let terminal_events = budget.drain_events();
-    assert_eq!(terminal_events.len(), 1);
-    assert_eq!(
-        terminal_events[0].request_id,
-        "provider-request:scope-unknown:logical-2:attempt-1"
-    );
-    assert_eq!(terminal_events[0].status, "response_completed");
-    assert_eq!(
-        terminal_events[0].request_phase.as_deref(),
-        Some("budget_recovery")
-    );
-
-    let err = budget
+    let _ = budget.drain_events();
+    let dispatch = budget
         .before_dispatch("responses_http")
-        .expect_err("budget should hard stop after bounded recovery is spent");
-    assert!(
-        err.to_string()
-            .contains("active provider request budget is exhausted")
-    );
+        .expect("profile hint overrun should continue after terminal event");
+    assert_eq!(dispatch.request_count_before, 2);
+    assert_eq!(dispatch.request_count_after, 3);
 }
 
 #[test]
-fn provider_request_budget_allows_final_synthesis_at_compact_checkpoint() {
+fn provider_request_budget_preserves_final_synthesis_phase_at_profile_hint() {
     let budget = ProviderRequestBudgetContext::enabled_with_attribution(
         ProviderRequestBudgetLimits {
             request_count: 1,
@@ -192,7 +166,7 @@ fn provider_request_budget_allows_final_synthesis_at_compact_checkpoint() {
     assert_eq!(events[0].request_count_before, 1);
     assert_eq!(events[0].request_count_after, 2);
     assert_eq!(events[0].budget_state_before, "compact_checkpoint_required");
-    assert_eq!(events[0].budget_state_after, "hard_stopped");
+    assert_eq!(events[0].budget_state_after, "over_profile_hint");
     assert_eq!(events[0].request_phase.as_deref(), Some("final_synthesis"));
     assert_eq!(
         events.last().expect("terminal event").status,
@@ -209,7 +183,7 @@ fn provider_request_budget_allows_final_synthesis_at_compact_checkpoint() {
 }
 
 #[test]
-fn provider_request_budget_allows_automatic_node_budget_recovery_once() {
+fn provider_request_budget_node_profile_hint_does_not_force_recovery_phase() {
     let budget = ProviderRequestBudgetContext::enabled_with_attribution(
         ProviderRequestBudgetLimits {
             request_count: 1,
@@ -229,29 +203,26 @@ fn provider_request_budget_allows_automatic_node_budget_recovery_once() {
 
     let _dispatch = budget
         .before_dispatch("responses_http")
-        .expect("node budget should allow one automatic recovery dispatch");
+        .expect("node profile hint should not force recovery dispatch");
 
     let events = budget.drain_events();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].status, "started");
-    assert_eq!(events[0].request_phase.as_deref(), Some("budget_recovery"));
+    assert_eq!(events[0].request_phase.as_deref(), Some("model_sampling"));
     assert_eq!(events[0].request_count_before, 1);
     assert_eq!(events[0].request_count_after, 2);
     assert_eq!(events[0].node_id.as_deref(), Some("node-1"));
 
     budget.record_response_completed(None);
     let _ = budget.drain_events();
-    let err = budget
+    let dispatch = budget
         .before_dispatch("responses_http")
-        .expect_err("node budget should block after automatic recovery is spent");
-    assert!(
-        err.to_string()
-            .contains("active node provider request budget is exhausted")
-    );
+        .expect("node profile hint should stay advisory after repeated use");
+    assert_eq!(dispatch.request_phase.as_deref(), Some("model_sampling"));
 }
 
 #[test]
-fn provider_request_budget_allows_budget_recovery_grace_once() {
+fn provider_request_budget_explicit_budget_recovery_phase_remains_advisory() {
     let budget = ProviderRequestBudgetContext::enabled_with_attribution(
         ProviderRequestBudgetLimits {
             request_count: 1,
@@ -271,7 +242,7 @@ fn provider_request_budget_allows_budget_recovery_grace_once() {
 
     let _dispatch = budget
         .before_dispatch("responses_http")
-        .expect("budget_recovery should bypass the node request budget");
+        .expect("budget_recovery phase should remain advisory");
 
     let events = budget.drain_events();
     assert_eq!(events.len(), 1);
@@ -282,17 +253,14 @@ fn provider_request_budget_allows_budget_recovery_grace_once() {
 
     budget.record_response_completed(None);
     let _ = budget.drain_events();
-    let err = budget
+    let dispatch = budget
         .before_dispatch("responses_http")
-        .expect_err("budget_recovery grace should be single-use");
-    assert!(
-        err.to_string()
-            .contains("active node provider request budget is exhausted")
-    );
+        .expect("budget_recovery phase should not be single-use");
+    assert_eq!(dispatch.request_phase.as_deref(), Some("budget_recovery"));
 }
 
 #[test]
-fn provider_request_budget_blocks_rebuilt_context_after_recovery_grace_spent() {
+fn provider_request_budget_allows_rebuilt_context_after_recovery_grace_spent() {
     let budget = ProviderRequestBudgetContext::enabled_with_attribution(
         ProviderRequestBudgetLimits {
             request_count: 2,
@@ -310,13 +278,10 @@ fn provider_request_budget_blocks_rebuilt_context_after_recovery_grace_spent() {
         },
     );
 
-    let err = budget
+    let dispatch = budget
         .before_dispatch("responses_http")
-        .expect_err("rebuilt budget context must honor spent recovery grace");
-    assert!(
-        err.to_string()
-            .contains("active node provider request budget is exhausted")
-    );
+        .expect("rebuilt budget context should not hard-stop after recovery grace");
+    assert_eq!(dispatch.request_phase.as_deref(), Some("budget_recovery"));
 }
 
 #[test]

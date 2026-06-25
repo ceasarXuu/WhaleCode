@@ -33,7 +33,7 @@ unknown_request_phase_ratio <= 5%
 active_context_replacement_confirmed = true
 budget_quality_impact_gate_pass = true
 state_commit_displacement_gate_pass = true
-spawn_node_budget_gate_pass = true
+spawn_node_budget_gate_pass = true  # 仅表示 advisory profile trace 存在且没有 profile 产生的 blocked event
 ```
 
 Engineering re-entry before formal E3 requires:
@@ -45,7 +45,7 @@ terminal-bench_E3-P0_1_1 targeted diagnostic
 model_request_count_ratio <= 2.5x
 avg_input_per_request_ratio <= 1.25x
 agent_walltime_ratio is measured from the pair report
-blocked_by_budget_samples_count = 0 for release-like claims
+blocked_by_budget_samples_count = 0 for release-like claims；这是旧 hard-stop 行为的回归计数
 B-tier smoke may close only when business_success=true and the TaskSpace-side cache gate passes
 open_leaf_nodes = 0 for release-like claims; otherwise record graph hygiene follow-up
 agent_walltime_ratio <= 2.5x or a runtime bottleneck report exists with owner/follow-up
@@ -83,6 +83,7 @@ TaskSpace hidden_oracle_exit_code = 0
 TaskSpace provider-cache-trace-summary.json passes the hard cache target above
 request-phase-summary shows provider_request_hook_coverage >= 99%
 budget-quality-summary shows blocked_by_budget_samples_count = 0
+spawn-node-budget-summary 可以显示 within_budget_status=over_profile_hint；只要 status=pass 就不是 release blocker
 ```
 
 Current B evidence after the DeepSeek cache fix:
@@ -117,7 +118,7 @@ The alpha branch already has partial implementations in these areas:
 | Active context replacement | `prepare_provider_visible_prompt_items` and `compose_provider_visible_history` in `core/src/session/turn.rs` | Marker-based; exact payload proof is mostly derived from budget events |
 | Budget quality impact | `budget_quality_impact` trace generated from provider budget events in `action_map/runtime.rs` | Quality fields are mostly static; validator state is not actually joined |
 | `state_commit` | `taskspace_control(action=state_commit)` handler and `state_commit_for_main` runtime method | Displacement denominator counts commit sections, not real legacy action attempts |
-| Spawn/node budget | Node count and spawn/node budget trace events exist | Budget is fixed, not route/profile-aware; subagent result adoption budget is incomplete |
+| Spawn/node profile | Node count and spawn/node profile trace events exist | Profile must remain advisory-only; subagent result adoption quality gates are incomplete |
 | Release decision | `write-release-decision.ps1` checks many new artifacts | Some artifacts are synthesized from summaries instead of canonical producer-owned facts |
 
 ## 3. Implementation phases
@@ -125,12 +126,12 @@ The alpha branch already has partial implementations in these areas:
 Complete the work in this order. Do not run real E3 until Phase G is green.
 
 ```text
-Phase A  TaskSpaceActiveBudgetV1 and route-aware budget state
+Phase A  Advisory active complexity profile and route-aware profile state
 Phase B  Request phase attribution and context propagation
 Phase C  Exact provider payload scan proof
 Phase D  BudgetQualityImpactV1 with validator/quality semantics
 Phase E  Legacy state action displacement denominator
-Phase F  Route-aware spawn/node/subagent budget enforcement
+Phase F  Route-aware spawn/node profile observability and subagent quality gates
 Phase G  Non-agent gates, release-decision fixtures, start-gate fixtures
 Phase H  Targeted diagnostic and formal E3 readiness
 ```

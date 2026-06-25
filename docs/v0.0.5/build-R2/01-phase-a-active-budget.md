@@ -1,465 +1,245 @@
-# Phase A. TaskSpaceActiveBudgetV1 and route-aware budget state
+# Phase A. Active Complexity Profile（advisory-only）
 
-> Split from `22-v005-completion-engineering-playbook.md` to keep each execution context small and phase-cohesive.
+> 从 `22-v005-completion-engineering-playbook.md` 拆分而来；本文件是 Phase A 的当前准则。
 >
-> Canonical sequence: read `00-overview-and-gates.md` first, then only the phase file you are implementing.
+> 2026-06-25 更新：`profile` 不再是 session 预算或强度上限，只是任务起始复杂度估算。
 
+## A.1 目标
 
-## A.1 Goal
+把原来的 `TaskSpaceActiveBudgetV1` 硬预算模型改成 **Active Complexity Profile**：
 
-Replace the current fixed constants with a typed active budget contract. Budget must be selected by route/profile and consumed by provider request, node, spawn, legacy action, projection, and quality gates.
+- profile 只影响启动时的 prompt、起始 route/mode、初始 map 复杂度建议和观测标签。
+- profile 可以提供 `max_*` 参考值，用于 over-profile hint、成本分析和回归检测。
+- profile 不能阻断 provider request、工具调用、create node、spawn agent、final response 或 session 继续推进。
+- 复杂度必须允许随任务证据动态变化；不能因为起始 profile 低估而把任务锁死在 thin/default 强度里。
 
-## A.2 Files to change
+AI Agent 推理程度：high。原因是该改动跨 provider dispatch、runtime gate、session prompt、benchmark gate 和 release decision，必须避免局部止血式放行。
+
+## A.2 不变量
+
+Phase A 完成后必须满足：
+
+```text
+provider request 超过 profile request hint 后仍 dispatch
+per-node request 超过 profile hint 后不进入 budget_recovery，不隐藏工具
+create_node 超过 profile node hint 后仍 allowed
+spawn_agent 超过 profile spawn hint 后不因 profile 被拒绝
+main/child tool result 数量超过旧 budget 后不 raise maintenance barrier
+restore_snapshot 不恢复旧 maintenance barrier
+release/cost gate 不因 spawn/node/request 超过 profile 失败
+blocked_by_budget 只能作为旧硬停回归计数，当前运行不得产生
+```
+
+仍然允许保留的阻断：
+
+```text
+节点职责策略阻断，例如 inspect 节点不能执行 edit
+subagent plan 缺少 decision target / bounded scope 等结构性质量阻断
+final answer 缺少验证证据的正确性阻断
+in-flight tool call 生命周期阻断，避免同一 node 未结算就 finish
+权限、沙箱、安全、解析、schema 校验阻断
+```
+
+换句话说，**阻断只能来自任务正确性、状态一致性或安全边界，不能来自 profile 数字上限。**
+
+## A.3 代码范围
 
 ```text
 third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs
-third_party/codex-cli/codex-rs/core/src/action_map/mod.rs
-third_party/codex-cli/codex-rs/core/src/session/mod.rs
-third_party/codex-cli/codex-rs/core/src/session/turn.rs
 third_party/codex-cli/codex-rs/core/src/client.rs
+third_party/codex-cli/codex-rs/core/src/client_tests.rs
+third_party/codex-cli/codex-rs/core/src/session/turn.rs
+third_party/codex-cli/codex-rs/core/src/session/tests.rs
 scripts/taskspace-benchmark/lib/cost-instrumentation.ps1
 scripts/taskspace-benchmark/test-cost-instrumentation.ps1
+scripts/taskspace-benchmark/write-release-decision.ps1
+scripts/taskspace-benchmark/test-release-decision.ps1
 ```
 
-## A.3 New Rust types
+## A.4 Runtime contract
 
-Add these types in `core/src/action_map/runtime.rs`. Re-export only the snapshot/input types through `action_map/mod.rs` when needed by `session`.
+`TaskSpaceActiveBudgetV1` 可以继续保留字段名，作为兼容 schema 和观测对象，但执行语义改为 profile hint：
 
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TaskSpaceRouteMode {
-    Thin,
-    VerificationFirst,
-    DefaultCompact,
-    SubagentAssisted,
-    Deep,
-}
-
-impl TaskSpaceRouteMode {
-    pub(crate) fn as_str(self) -> &'static str { /* exact mapping */ }
-    pub(crate) fn from_str(value: &str) -> Option<Self> { /* strict parser */ }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TaskSpaceBudgetState {
-    Normal,
-    Warned,
-    CompactCheckpointRequired,
-    ThinDowngraded,
-    HardStopped,
-}
-
-impl TaskSpaceBudgetState {
-    pub(crate) fn as_str(self) -> &'static str { /* exact mapping */ }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TaskSpaceActiveBudgetV1 {
-    pub(crate) schema_version: &'static str,
     pub(crate) profile_name: String,
     pub(crate) route_mode: TaskSpaceRouteMode,
-    pub(crate) max_rollout_model_requests: usize,
-    pub(crate) max_model_requests_per_node: usize,
-    pub(crate) max_spawn_agent_calls: usize,
-    pub(crate) max_subagent_results: usize,
-    pub(crate) max_nodes: usize,
-    pub(crate) max_open_leaf_nodes: usize,
-    pub(crate) max_legacy_state_actions: usize,
-    pub(crate) max_projection_tokens: usize,
-    pub(crate) max_avg_input_tokens_per_request: usize,
-    pub(crate) post_budget_grace_requests: usize,
-    pub(crate) budget_response_policy: TaskSpaceBudgetResponsePolicy,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TaskSpaceBudgetCounters {
-    pub(crate) rollout_model_request_count: usize,
-    pub(crate) model_request_count_by_node: std::collections::HashMap<String, usize>,
-    pub(crate) spawn_agent_call_count: usize,
-    pub(crate) subagent_result_count: usize,
-    pub(crate) node_count: usize,
-    pub(crate) open_leaf_node_count: usize,
-    pub(crate) legacy_state_action_attempt_count: usize,
-    pub(crate) legacy_state_action_displaced_count: usize,
-    pub(crate) legacy_state_action_allowed_count: usize,
-    pub(crate) state_commit_count: usize,
-    pub(crate) projection_tokens_last: usize,
-    pub(crate) projection_tokens_max: usize,
-    pub(crate) post_budget_grace_request_count: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TaskSpaceBudgetViolation {
-    pub(crate) violation_id: String,
-    pub(crate) counter_name: String,
-    pub(crate) counter_value: usize,
-    pub(crate) counter_limit: usize,
-    pub(crate) state_before: TaskSpaceBudgetState,
-    pub(crate) state_after: TaskSpaceBudgetState,
-    pub(crate) action_taken: String,
-    pub(crate) created_at_ms: i64,
+    pub(crate) max_rollout_model_requests: usize,      // hint, not cap
+    pub(crate) max_model_requests_per_node: usize,     // hint, not cap
+    pub(crate) max_spawn_agent_calls: usize,           // hint, not cap
+    pub(crate) max_nodes: usize,                       // hint, not cap
+    pub(crate) max_projection_tokens: usize,           // projection sizing hint
+    pub(crate) max_avg_input_tokens_per_request: usize // cost analysis hint
 }
 ```
 
-`TaskSpaceBudgetResponsePolicy` can start as a small enum:
+`TaskSpaceBudgetState` 不再包含 `HardStopped`：
 
 ```rust
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum TaskSpaceBudgetResponsePolicy {
-    WarnCompactThinHardStop,
-}
+Normal
+Warned
+CompactCheckpointRequired
+ThinDowngraded
+OverProfileHint
 ```
 
-## A.4 Budget defaults
+其中 `CompactCheckpointRequired` / `ThinDowngraded` 也只是提示名称，不允许触发强制 compact、工具隐藏或自动降级。
 
-Implement one canonical function:
+## A.5 Provider request 行为
 
-```rust
-pub(crate) fn taskspace_active_budget_for_route(
-    profile_name: &str,
-    route_mode: TaskSpaceRouteMode,
-) -> TaskSpaceActiveBudgetV1 {
-    match route_mode {
-        TaskSpaceRouteMode::Thin => TaskSpaceActiveBudgetV1 {
-            profile_name: profile_name.to_string(),
-            route_mode,
-            max_rollout_model_requests: 8,
-            max_model_requests_per_node: 3,
-            max_spawn_agent_calls: 0,
-            max_subagent_results: 0,
-            max_nodes: 4,
-            max_open_leaf_nodes: 2,
-            max_legacy_state_actions: 0,
-            max_projection_tokens: 12_000,
-            max_avg_input_tokens_per_request: 12_000,
-            post_budget_grace_requests: 1,
-            ..default_budget_common()
-        },
-        TaskSpaceRouteMode::VerificationFirst => { /* requests <= 6, spawn = 0, nodes <= 5 */ }
-        TaskSpaceRouteMode::DefaultCompact => { /* requests <= 10, spawn <= 2, nodes <= 8 */ }
-        TaskSpaceRouteMode::SubagentAssisted => { /* requests <= 14, spawn <= 3, nodes <= 10 */ }
-        TaskSpaceRouteMode::Deep => { /* requests <= 20, spawn <= 4, nodes <= 14 */ }
-    }
-}
-```
-
-Do not keep `DEFAULT_PROVIDER_REQUEST_BUDGET_MAX`, `DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX`, and `DEFAULT_ACTIVE_NODE_BUDGET_MAX` as the main source of truth. They may remain as compatibility aliases only if they call this function.
-
-## A.5 Runtime state changes
-
-Extend `ActionMapRuntimeState`:
-
-```rust
-pub(crate) struct ActionMapRuntimeState {
-    // existing fields
-    active_budget: Option<TaskSpaceActiveBudgetV1>,
-    budget_counters: TaskSpaceBudgetCounters,
-    budget_state: TaskSpaceBudgetState,
-    budget_violations: Vec<TaskSpaceBudgetViolation>,
-}
-```
-
-Initialize in `Default`:
-
-```rust
-active_budget: None,
-budget_counters: TaskSpaceBudgetCounters::default(),
-budget_state: TaskSpaceBudgetState::Normal,
-budget_violations: Vec::new(),
-```
-
-## A.6 New runtime functions
-
-Add these methods to `ActionMapRuntimeState`:
-
-```rust
-pub(crate) fn activate_active_budget_for_route(
-    &mut self,
-    profile_name: &str,
-    route_mode: TaskSpaceRouteMode,
-) -> Vec<MapRuntimeEvent>;
-
-pub(crate) fn active_budget(&self) -> Option<&TaskSpaceActiveBudgetV1>;
-
-pub(crate) fn budget_counters(&self) -> &TaskSpaceBudgetCounters;
-
-pub(crate) fn update_budget_state_for_counter(
-    &mut self,
-    counter_name: &str,
-    counter_value: usize,
-    counter_limit: usize,
-    action_context: &str,
-) -> Option<MapRuntimeEvent>;
-
-pub(crate) fn gate_provider_request_pre_dispatch(
-    &mut self,
-    snapshot: &ActionMapProviderRequestBudgetSnapshot,
-) -> TaskSpaceBudgetGateDecision;
-
-pub(crate) fn gate_create_node_budget(
-    &mut self,
-    map_id: &str,
-    candidate_node_kind: NodeKind,
-) -> TaskSpaceBudgetGateDecision;
-
-pub(crate) fn gate_spawn_budget(
-    &mut self,
-    map_id: &str,
-    parent_node_id: &str,
-) -> TaskSpaceBudgetGateDecision;
-```
-
-Use a common gate decision type:
-
-```rust
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TaskSpaceBudgetGateDecision {
-    pub(crate) allowed: bool,
-    pub(crate) budget_state: TaskSpaceBudgetState,
-    pub(crate) reason: String,
-    pub(crate) blocking_items: Vec<String>,
-    pub(crate) next_valid_actions: Vec<String>,
-    pub(crate) recovery_request_phase: Option<TaskSpaceProviderRequestPhase>,
-    pub(crate) quality_impact_required: bool,
-}
-```
-
-## A.7 Provider request snapshot contract
-
-Extend `ActionMapProviderRequestBudgetSnapshot` in `runtime.rs`:
-
-```rust
-pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
-    pub(crate) task_id: Option<String>,
-    pub(crate) map_id: String,
-    pub(crate) node_id: Option<String>,
-    pub(crate) route_mode: Option<String>,
-    pub(crate) profile_name: Option<String>,
-    pub(crate) request_phase: Option<String>,
-    pub(crate) provider_request_context_missing_reason: Option<String>,
-    pub(crate) request_count: usize,
-    pub(crate) max_requests: usize,
-    pub(crate) node_request_count: usize,
-    pub(crate) max_model_requests_per_node: usize,
-    pub(crate) post_budget_grace_requests: usize,
-    pub(crate) budget_state: String,
-}
-```
-
-`provider_request_budget_snapshot()` must read from `active_budget`, not from constants.
-
-Pseudo implementation:
-
-```rust
-pub(crate) fn provider_request_budget_snapshot(&self) -> Option<ActionMapProviderRequestBudgetSnapshot> {
-    if self.mode != MapRuntimeMode::Experiment { return None; }
-    let budget = self.active_budget.as_ref()?;
-    let map_id = self.active_map_id.clone()?;
-    let node_id = self.current_main_node_id.clone();
-    let phase = self.next_provider_request_phase(&map_id, node_id.as_deref());
-    let node_request_count = node_id
-        .as_ref()
-        .and_then(|id| self.budget_counters.model_request_count_by_node.get(id).copied())
-        .unwrap_or(0);
-
-    Some(ActionMapProviderRequestBudgetSnapshot {
-        task_id: self.maps.get(&map_id).and_then(|m| m.task_id.clone()),
-        map_id,
-        node_id,
-        route_mode: Some(budget.route_mode.as_str().to_string()),
-        profile_name: Some(budget.profile_name.clone()),
-        request_phase: Some(phase.as_str().to_string()),
-        provider_request_context_missing_reason: phase.missing_reason(),
-        request_count: self.budget_counters.rollout_model_request_count,
-        max_requests: budget.max_rollout_model_requests,
-        node_request_count,
-        max_model_requests_per_node: budget.max_model_requests_per_node,
-        post_budget_grace_requests: budget.post_budget_grace_requests,
-        budget_state: self.budget_state.as_str().to_string(),
-    })
-}
-```
-
-## A.8 Client budget dispatch change
-
-`ProviderRequestBudgetContext::enabled_with_attribution(...)` currently receives only count and max. Replace with a snapshot-derived config:
-
-```rust
-pub(crate) struct ProviderRequestBudgetLimits {
-    pub(crate) request_count: usize,
-    pub(crate) max_requests: usize,
-    pub(crate) node_request_count: usize,
-    pub(crate) max_model_requests_per_node: usize,
-    pub(crate) post_budget_grace_requests: usize,
-    pub(crate) budget_state: String,
-}
-```
-
-New signature:
-
-```rust
-pub(crate) fn enabled_with_attribution(
-    limits: ProviderRequestBudgetLimits,
-    attribution: ProviderRequestAttribution,
-) -> Self
-```
-
-`before_dispatch()` must enforce both rollout and per-node limits:
-
-```rust
-if before >= max_requests {
-    return blocked("provider_request_budget_exhausted");
-}
-if node_before >= max_model_requests_per_node && request_phase != Some("budget_recovery") {
-    return blocked("provider_node_request_budget_exhausted");
-}
-```
-
-## A.9 Tests
-
-Add Rust tests in `core/src/action_map/runtime.rs` tests or a dedicated module:
-
-```rust
-#[test]
-fn thin_route_budget_uses_eight_requests_and_no_spawn() { /* activate Thin; assert limits */ }
-
-#[test]
-fn default_compact_budget_uses_ten_requests_and_two_spawn() { /* activate DefaultCompact */ }
-
-#[test]
-fn provider_request_snapshot_uses_active_budget_not_constants() { /* assert max_requests */ }
-
-#[test]
-fn node_request_budget_blocks_before_rollout_budget() { /* node limit exhausted */ }
-```
-
-Add client tests in `core/src/client_tests.rs`:
-
-```rust
-#[test]
-fn provider_request_budget_blocks_per_node_limit() { /* enabled context with node max = 1 */ }
-
-#[test]
-fn provider_request_budget_allows_budget_recovery_grace_once() { /* phase budget_recovery */ }
-```
-
-## A.10 Acceptance
+`ProviderRequestBudgetContext::before_dispatch` 必须始终允许 dispatch：
 
 ```text
-cargo test -p codex-core taskspace_active_budget
-cargo test -p codex-core provider_request_budget
-pwsh -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1
+enabled=false -> disabled dispatch
+enabled=true  -> increment request counters, emit started event, return dispatch
+count >= max_requests -> budget_state_after=over_profile_hint
+node_count >= max_model_requests_per_node -> reason=provider_node_request_profile_hint_exceeded
 ```
 
-Artifacts must show:
+禁止行为：
+
+```text
+return Err(...) because request_count >= max_requests
+return Err(...) because node_request_count >= max_model_requests_per_node
+force request_phase=budget_recovery
+consume post-budget grace as a retry/dispatch permission
+hide tools or force taskspace_control-only
+turn final response into hard stop
+```
+
+## A.6 Runtime gate 行为
+
+以下函数仍可存在，但只能返回 advisory decision：
+
+```rust
+gate_provider_request_pre_dispatch(...)
+gate_create_node_budget(...)
+gate_spawn_budget(...)
+```
+
+要求：
+
+```text
+allowed = true
+blocking_items = []
+next_valid_actions = []
+quality_impact_required = false
+reason = *_available 或 *_profile_hint_exceeded
+trace tags include enforcement:advisory
+```
+
+`spawn_node_budget` trace 仍保留，是为了让成本与路线分析知道 profile 是否被低估；它不是 release blocker。
+
+## A.7 Session prompt 行为
+
+profile 可以影响起始 prompt 文案，例如：
+
+```text
+当前 profile: thin/default/deep
+建议先走窄路径
+建议避免无证据 fanout
+建议优先 state_commit 压缩上下文
+```
+
+profile 不得影响：
+
+```text
+可见工具集合
+parallel_tool_calls
+是否允许继续 provider request
+是否强制 final
+是否强制 inspect -> implement 或 implement -> smoke_test
+是否输出 blocked_by_budget
+```
+
+预算相关 guidance item 默认不注入；如果未来恢复，也只能作为 advisory 文案，不能改变工具或 dispatch 策略。
+
+## A.8 Maintenance barrier 行为
+
+旧实现把 main tool result 数量当硬上限，并 raise maintenance barrier。该行为取消：
+
+```text
+fill_main_tool_budget 后继续允许 main tool call
+不会产生 MaintenanceBarrierRaised
+snapshot.maintenance_barriers 保持空
+restore_snapshot 丢弃旧 maintenance barrier
+restart_active_map 不需要清除 profile 产生的 barrier
+```
+
+保留 in-flight tool call 生命周期检查：工具调用尚未返回时，不能 finish 当前 node。
+
+## A.9 Benchmark/release 行为
+
+`spawn-node-budget-summary.json` 字段含义调整：
 
 ```json
 {
-  "active_budget_source": "runtime",
-  "route_mode": "thin|verification_first|default_compact|subagent_assisted|deep",
-  "max_rollout_model_requests": "route-specific",
-  "max_model_requests_per_node": "route-specific"
+  "status": "pass",
+  "within_budget_status": "within_profile_hint|over_profile_hint|missing_runtime",
+  "over_budget_enforcement_status": "advisory_only|blocked_event_observed",
+  "over_profile_hint": true
 }
 ```
 
-## A.11 Plan update after DeepSeek cache repair
-
-The cache repair changes Phase A from a provider-blocked design task into a
-measurable regression and benefit gate. Phase A should not be considered
-complete merely because the B-tier sample solves the task.
-
-Updated Phase A acceptance:
+Release decision 只要求：
 
 ```text
-DeepSeek provider preflight passes before any B/C diagnostic
-current whale binary is rebuilt from the current codex source commit
-TaskSpace B-tier business_success=true
-TaskSpace public and hidden validation exit codes are 0
-TaskSpace provider-cache-trace-summary.json passes the hard cache gate
-budget-quality-summary records active_budget_source=runtime
-budget-quality-summary records blocked_by_budget_samples_count=0
-request-phase-summary records provider_request_hook_coverage >= 99%
-request-phase-summary records request_phase_attribution_coverage >= 95%
+spawn-node-budget-summary.json 存在
+status = pass
+blocked_budget_event_count = 0
 ```
 
-Current B-tier smoke evidence:
+不再要求：
 
 ```text
-run = target/phase-a-benefit-B-rerun40/single-file-fast-fix/20260624-012521-098
-outcome_taskspace = solved
-request_2_plus_hit_rate = 0.989997
-provider_request_hook_coverage = 100
-request_phase_attribution_coverage = 100
-blocked_by_budget_samples_count = 0
+spawn_agent_call_count <= max_spawn_agent_calls
+node_count <= max_nodes
+within_budget_status 必须等于 pass
 ```
 
-Open items produced by that same smoke:
+`blocked_by_budget_samples_count` 保留为回归检测字段：当前实现必须为 0；如果非 0，说明旧硬停语义回流。
+
+## A.10 验收测试
+
+必须通过：
 
 ```text
-open_leaf_nodes = 1
-taskspace_wall_time_ratio = 2.72
-runtime_bottleneck_classification = agent_bound
+cargo test -p codex-core budget --lib
+cargo test -p codex-core maintenance_barrier --lib
+cargo test -p codex-core taskspace --lib
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1
 ```
 
-Action: keep Phase A focused on typed active budget and request/node budget
-evidence. Route the open leaf follow-up into Phase F/H graph hygiene, and route
-the walltime follow-up into Phase H runtime bottleneck analysis before C/E3.
-
-## A.12 Closeout evidence
-
-Phase A implementation closeout was verified after restoring the thin-route
-contract to 8 rollout model requests and fixing terminal action handling at the
-provider budget hard stop.
-
-Code fixes:
+关键断言：
 
 ```text
-TaskSpaceRouteMode::Thin max_rollout_model_requests = 8
-final_answer/blocked actions are terminal and cannot be auto-rewritten into finish_node recovery
-terminal action state clears needs_follow_up and saw_actionable_output before actionability scoring
+provider_request_budget_*_remains_advisory
+provider_budget_*_does_not_block_*
+provider_budget_follow_up_does_not_force_finish_*
+main_tool_profile_hint_counts_inflight_parallel_calls_without_blocking
+tool_profile_hint_does_not_create_maintenance_barrier
+restore_snapshot_discards_legacy_maintenance_barrier_state
+spawn/node budget reports over_profile_hint but status=pass
 ```
 
-Local acceptance:
+## A.11 Phase B/C 影响
+
+Phase B request-phase attribution 不应再把 `budget_recovery` 当预算超限后的强制阶段；它只能作为显式兼容输入或人工诊断阶段。
+
+Phase C cache/payload proof 要求更高：因为超 profile 后请求仍会继续发出，所有完成态 provider request 都应该尽量保留 payload hash、request shape、cache usage 和 request phase，不能只记录前几个请求。
+
+## A.12 当前执行记录
+
+2026-06-25 已完成的实现方向：
 
 ```text
-cargo test -p codex-core taskspace_terminal --lib
-cargo test -p codex-core taskspace_active_budget --lib
-cargo test -p codex-core provider_request_budget --lib
-pwsh -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1
-cargo build -p codex-cli --bin whale --locked
+provider request hard stop -> over_profile_hint advisory
+node/request/spawn profile gate -> allowed=true
+tool visibility budget downgrade -> removed
+budget guidance injection -> disabled
+maintenance barrier from tool budget -> removed
+legacy restored maintenance barrier -> discarded
+cost/release spawn-node budget gate -> advisory-only
+hard_stop/hard_stopped runtime terms -> removed from current code path
 ```
-
-B-tier diagnostic evidence:
-
-```text
-run = target/phase-a-complete-B-rerun44/single-file-fast-fix/20260624-054856-278
-utility_direction = both_success
-outcome_taskspace = solved
-business_success = True
-exec_exit_code = 0
-public_validation_exit_code = 0
-hidden_oracle_exit_code = 0
-taskspace_tool_call_ratio = 0.4
-taskspace_wall_time_ratio = 1.42
-request_2_plus_hit_rate = 0.989818
-trace_coverage = 1
-cache_usage_missing_count = 0
-native_tools_schema_hot_path_count = 0
-tool_free_action_contract_count = 8
-provider_request_hook_coverage = 100
-request_phase_attribution_coverage = 100
-active_budget_source = runtime
-route_mode = thin
-max_rollout_model_requests = 8
-blocked_by_budget_samples_count = 0
-```
-
-Remaining non-Phase-A follow-up:
-
-```text
-open_leaf_nodes = 1
-```
-
-Interpretation: Phase A active-budget contract and B-tier business/cache gates
-are complete. The remaining open leaf is graph hygiene and remains routed to
-Phase F/H before release-like or E3 claims.

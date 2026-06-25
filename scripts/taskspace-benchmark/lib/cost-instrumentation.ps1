@@ -690,12 +690,13 @@ function New-TaskspaceSpawnNodeBudgetSummary {
     $nodeCountFromSpawn = if ($spawnEvents.Count -gt 0) { [int](@($spawnEvents | Measure-Object -Property node_count -Maximum).Maximum) } else { 0 }
     $nodeCount = [Math]::Max($nodeCountFromCreate, $nodeCountFromSpawn)
     $maxNodes = if ($runtimeEvents.Count -gt 0) { [int](@($runtimeEvents | Measure-Object -Property max_nodes -Maximum).Maximum) } else { 0 }
+    $overProfileHint = ($runtimeEvents.Count -gt 0 -and (($maxSpawnAgentCalls -ge 0 -and $spawnCount -gt $maxSpawnAgentCalls) -or ($maxNodes -ge 0 -and $nodeCount -gt $maxNodes)))
     $sourceStatus = if ($runtimeEvents.Count -gt 0) { "runtime" } else { "missing_runtime" }
     [pscustomobject]@{
         schema_version = "taskspace-spawn-node-budget-summary-v1"
-        status = if ($sourceStatus -eq "runtime" -and $spawnCount -le $maxSpawnAgentCalls -and $nodeCount -le $maxNodes -and $invalidBlockedEvents.Count -eq 0) { "pass" } else { "fail" }
-        within_budget_status = if ($sourceStatus -eq "runtime" -and $blockedEvents.Count -eq 0 -and $spawnCount -le $maxSpawnAgentCalls -and $nodeCount -le $maxNodes) { "pass" } else { "fail" }
-        over_budget_enforcement_status = if ($blockedEvents.Count -eq 0) { "not_observed" } elseif ($invalidBlockedEvents.Count -eq 0) { "pass" } else { "fail" }
+        status = if ($sourceStatus -eq "runtime" -and $blockedEvents.Count -eq 0) { "pass" } else { "fail" }
+        within_budget_status = if ($sourceStatus -ne "runtime") { "missing_runtime" } elseif ($overProfileHint) { "over_profile_hint" } else { "within_profile_hint" }
+        over_budget_enforcement_status = if ($blockedEvents.Count -eq 0) { "advisory_only" } else { "blocked_event_observed" }
         source_status = $sourceStatus
         producer = "runtime"
         active_budget_source = [string](@($runtimeEvents | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.active_budget_source) } | Select-Object -First 1).active_budget_source)
@@ -704,6 +705,7 @@ function New-TaskspaceSpawnNodeBudgetSummary {
         max_spawn_agent_calls = [int]$maxSpawnAgentCalls
         node_count = [int]$nodeCount
         max_nodes = [int]$maxNodes
+        over_profile_hint = [bool]$overProfileHint
         runtime_event_count = [int]$runtimeEvents.Count
         blocked_budget_event_count = [int]$blockedEvents.Count
         invalid_blocked_budget_event_count = [int]$invalidBlockedEvents.Count

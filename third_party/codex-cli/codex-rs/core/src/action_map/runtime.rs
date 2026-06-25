@@ -582,7 +582,7 @@ pub(crate) enum TaskSpaceBudgetState {
     Warned,
     CompactCheckpointRequired,
     ThinDowngraded,
-    HardStopped,
+    OverProfileHint,
 }
 
 impl TaskSpaceBudgetState {
@@ -592,7 +592,7 @@ impl TaskSpaceBudgetState {
             TaskSpaceBudgetState::Warned => "warned",
             TaskSpaceBudgetState::CompactCheckpointRequired => "compact_checkpoint_required",
             TaskSpaceBudgetState::ThinDowngraded => "thin_downgraded",
-            TaskSpaceBudgetState::HardStopped => "hard_stopped",
+            TaskSpaceBudgetState::OverProfileHint => "over_profile_hint",
         }
     }
 }
@@ -816,6 +816,7 @@ struct ActionMapMaintenanceBarrier {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 enum MaintenanceBarrierReason {
     NodeToolResultBudgetExceeded,
 }
@@ -902,7 +903,6 @@ impl Default for ActionMapRuntimeState {
 }
 
 impl ActionMapRuntimeState {
-    pub(crate) const DEFAULT_PROVIDER_REQUEST_BUDGET_MAX: usize = 10;
     #[allow(dead_code)]
     pub(crate) const DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX: usize = 2;
     #[allow(dead_code)]
@@ -918,31 +918,49 @@ impl ActionMapRuntimeState {
                 .ok()
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or_else(|| "taskspace-v005-active".to_string());
-            let _ = self.activate_active_budget_for_route(profile_name.trim(), route_mode);
+            self.install_active_budget_for_route(profile_name.trim(), route_mode);
         }
     }
 
-    pub(crate) fn activate_active_budget_for_route(
+    fn install_active_budget_for_route(
         &mut self,
         profile_name: &str,
         route_mode: TaskSpaceRouteMode,
-    ) -> Vec<MapRuntimeEvent> {
+    ) {
         let budget = taskspace_active_budget_for_route(profile_name, route_mode);
         self.active_budget = Some(budget.clone());
         self.budget_state = budget_state_for_counter(
             self.budget_counters.rollout_model_request_count,
             budget.max_rollout_model_requests,
         );
-        let map_id = self
-            .active_map_id
-            .clone()
-            .unwrap_or_else(|| "budget-not-bound".to_string());
-        let node_id = self
-            .current_main_node_id
-            .clone()
-            .unwrap_or_else(|| "budget-not-bound".to_string());
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn activate_active_budget_for_route(
+        &mut self,
+        profile_name: &str,
+        route_mode: TaskSpaceRouteMode,
+    ) -> Vec<MapRuntimeEvent> {
+        self.install_active_budget_for_route(profile_name, route_mode);
+        self.record_active_budget_trace_event_if_bound()
+            .into_iter()
+            .collect()
+    }
+
+    #[allow(dead_code)]
+    fn record_active_budget_trace_event_if_bound(&mut self) -> Option<MapRuntimeEvent> {
+        let budget = self.active_budget.as_ref()?.clone();
+        let map_id = self.active_map_id.clone()?;
+        let node_id = self.current_main_node_id.clone()?;
         let task_id = self.active_task_id.clone();
-        vec![self.record_runtime_budget_trace_event(
+        if self
+            .taskspace_trace_events
+            .iter()
+            .any(|event| event.kind == "active_budget" && event.map_id == map_id)
+        {
+            return None;
+        }
+        Some(self.record_runtime_budget_trace_event(
             "active_budget",
             task_id,
             map_id,
@@ -953,6 +971,7 @@ impl ActionMapRuntimeState {
                 "schema:taskspace-active-budget-v1".to_string(),
                 "producer:runtime".to_string(),
                 "active_budget_source:runtime".to_string(),
+                "enforcement:advisory".to_string(),
                 format!("profile_name:{}", budget.profile_name),
                 format!("route_mode:{}", budget.route_mode.as_str()),
                 format!(
@@ -982,7 +1001,7 @@ impl ActionMapRuntimeState {
                 ),
                 format!("budget_state:{}", self.budget_state.as_str()),
             ],
-        )]
+        ))
     }
 
     #[allow(dead_code)]
@@ -993,13 +1012,6 @@ impl ActionMapRuntimeState {
     #[allow(dead_code)]
     pub(crate) fn budget_counters(&self) -> &TaskSpaceBudgetCounters {
         &self.budget_counters
-    }
-
-    fn max_rollout_model_requests(&self) -> usize {
-        self.active_budget
-            .as_ref()
-            .map(|budget| budget.max_rollout_model_requests)
-            .unwrap_or(Self::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX)
     }
 
     #[allow(dead_code)]
@@ -1062,41 +1074,29 @@ impl ActionMapRuntimeState {
         &mut self,
         snapshot: &ActionMapProviderRequestBudgetSnapshot,
     ) -> TaskSpaceBudgetGateDecision {
-        let allowed = snapshot.request_count < snapshot.max_requests
-            && snapshot.node_request_count < snapshot.max_model_requests_per_node;
         TaskSpaceBudgetGateDecision {
-            allowed,
+            allowed: true,
             budget_state: self.budget_state,
-            reason: if allowed {
+            reason: if snapshot.request_count < snapshot.max_requests
+                && snapshot.node_request_count < snapshot.max_model_requests_per_node
+            {
                 "provider_request_budget_available".to_string()
             } else if snapshot.node_request_count >= snapshot.max_model_requests_per_node {
-                "provider_node_request_budget_exhausted".to_string()
+                "provider_node_request_profile_hint_exceeded".to_string()
             } else {
-                "provider_request_budget_exhausted".to_string()
+                "provider_request_profile_hint_exceeded".to_string()
             },
-            blocking_items: if allowed {
-                Vec::new()
-            } else {
-                vec!["provider_request".to_string()]
-            },
-            next_valid_actions: if allowed {
-                Vec::new()
-            } else {
-                vec!["record compact checkpoint or enter final_synthesis".to_string()]
-            },
-            recovery_request_phase: if allowed {
-                None
-            } else {
-                Some("budget_recovery".to_string())
-            },
-            quality_impact_required: !allowed,
+            blocking_items: Vec::new(),
+            next_valid_actions: Vec::new(),
+            recovery_request_phase: None,
+            quality_impact_required: false,
         }
     }
 
     pub(crate) fn gate_create_node_budget(
         &mut self,
         map_id: &str,
-        candidate_node_kind: NodeKind,
+        _candidate_node_kind: NodeKind,
     ) -> TaskSpaceBudgetGateDecision {
         let budget = self.active_budget.as_ref();
         let max_nodes = budget
@@ -1107,30 +1107,18 @@ impl ActionMapRuntimeState {
             .get(map_id)
             .map(|map| map.nodes.len())
             .unwrap_or_default();
-        let allowed = node_count < max_nodes;
         TaskSpaceBudgetGateDecision {
-            allowed,
+            allowed: true,
             budget_state: self.budget_state,
-            reason: if allowed {
+            reason: if node_count < max_nodes {
                 "node_budget_available".to_string()
             } else {
-                "node_budget_exhausted".to_string()
+                "node_profile_hint_exceeded".to_string()
             },
-            blocking_items: if allowed {
-                Vec::new()
-            } else {
-                vec![format!(
-                    "candidate_node_kind:{}",
-                    candidate_node_kind.as_str()
-                )]
-            },
-            next_valid_actions: if allowed {
-                Vec::new()
-            } else {
-                vec!["finish or reuse an existing open node".to_string()]
-            },
+            blocking_items: Vec::new(),
+            next_valid_actions: Vec::new(),
             recovery_request_phase: None,
-            quality_impact_required: !allowed,
+            quality_impact_required: false,
         }
     }
 
@@ -1144,29 +1132,20 @@ impl ActionMapRuntimeState {
             .map(|budget| budget.max_spawn_agent_calls)
             .unwrap_or(Self::DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX);
         let spawn_count = self.budget_counters.spawn_agent_call_count;
-        let allowed = spawn_count < max_spawn;
         TaskSpaceBudgetGateDecision {
-            allowed,
+            allowed: true,
             budget_state: self.budget_state,
-            reason: if allowed {
+            reason: if spawn_count < max_spawn {
                 "spawn_budget_available".to_string()
             } else if max_spawn == 0 {
-                "route_disallows_spawn".to_string()
+                "route_spawn_profile_hint_exceeded".to_string()
             } else {
-                "spawn_budget_exhausted".to_string()
+                "spawn_profile_hint_exceeded".to_string()
             },
-            blocking_items: if allowed {
-                Vec::new()
-            } else {
-                vec!["spawn_agent".to_string()]
-            },
-            next_valid_actions: if allowed {
-                Vec::new()
-            } else {
-                vec!["continue main-agent serial work".to_string()]
-            },
+            blocking_items: Vec::new(),
+            next_valid_actions: Vec::new(),
             recovery_request_phase: None,
-            quality_impact_required: !allowed,
+            quality_impact_required: false,
         }
     }
 
@@ -1175,15 +1154,14 @@ impl ActionMapRuntimeState {
         let mut profile_name = None;
         let mut counters = TaskSpaceBudgetCounters::default();
         for event in &self.taskspace_trace_events {
+            route_mode = trace_tag_value(&event.tags, "route_mode")
+                .and_then(TaskSpaceRouteMode::from_str)
+                .or(route_mode);
+            profile_name = trace_tag_value(&event.tags, "profile_name")
+                .map(str::to_string)
+                .or(profile_name);
             match event.kind.as_str() {
-                "active_budget" => {
-                    route_mode = trace_tag_value(&event.tags, "route_mode")
-                        .and_then(TaskSpaceRouteMode::from_str)
-                        .or(route_mode);
-                    profile_name = trace_tag_value(&event.tags, "profile_name")
-                        .map(str::to_string)
-                        .or(profile_name);
-                }
+                "active_budget" => {}
                 "provider_request_budget" => {
                     let request_count_after =
                         trace_tag_usize(&event.tags, "request_count_after").unwrap_or_default();
@@ -1589,23 +1567,7 @@ impl ActionMapRuntimeState {
             })
             .collect();
 
-        self.maintenance_barriers = snapshot
-            .maintenance_barriers
-            .into_iter()
-            .filter_map(|barrier| {
-                let reason = maintenance_barrier_reason_from_str(&barrier.reason)?;
-                Some((
-                    barrier.map_id.clone(),
-                    ActionMapMaintenanceBarrier {
-                        map_id: barrier.map_id,
-                        node_id: barrier.node_id,
-                        reason,
-                        result_count: barrier.result_count,
-                        budget: barrier.budget,
-                    },
-                ))
-            })
-            .collect();
+        self.maintenance_barriers.clear();
 
         if self.mode == MapRuntimeMode::Experiment && !self.restored_active_binding_is_coherent() {
             self.active_task_id = None;
@@ -1854,188 +1816,6 @@ impl ActionMapRuntimeState {
             ActionMapGateError::from(format!("TaskSpace current node `{node_id}` is missing."))
         })?;
         let contract = contract_for(node.kind);
-        let main_tool_result_count = count_node_results_of_kind(node, NodeResultKind::MainToolCall);
-        let reserved_tool_count = self.reserved_tool_calls_for_node(&map_id, &node_id);
-        let budget = contract.max_main_tool_results_before_split_hint;
-        let max_rollout_model_requests = self.max_rollout_model_requests();
-        let provider_budget_pressure = provider_request_budget_pressure_active_for_node(
-            self.provider_request_count,
-            max_rollout_model_requests,
-            node.kind,
-        );
-        if descriptor.action_class != ActionClass::Control
-            && matches!(
-                node.kind,
-                NodeKind::InspectCodeContext | NodeKind::ImplementSolution
-            )
-            && self
-                .active_budget
-                .as_ref()
-                .is_some_and(|budget| budget.route_mode == TaskSpaceRouteMode::Thin)
-            && is_broad_directory_listing_probe(&descriptor)
-        {
-            let message = format!(
-                "TaskSpace blocked this tool call because thin-route nodes must not spend context on broad or truncating directory listings. Requested tool `{}` preview: {}. Use `rg --files`, `Get-ChildItem -Name`, or direct narrow file reads for the likely source/test files instead.",
-                descriptor.tool_name, descriptor.preview
-            );
-            let recovery = gate_recovery_message(
-                &message,
-                "thin_route_blocks_broad_directory_listing",
-                vec![
-                    format!("current_node:{}:{}", node.id, node.kind.as_str()),
-                    format!("route_mode:{}", TaskSpaceRouteMode::Thin.as_str()),
-                    format!(
-                        "requested_action_class:{}",
-                        descriptor.action_class.as_str()
-                    ),
-                ],
-                vec![
-                    "rg --files".to_string(),
-                    "Get-ChildItem -Name src, tests".to_string(),
-                    "Get-Content <known source/test file>".to_string(),
-                    "avoid Format-Table for file discovery because long paths may be truncated"
-                        .to_string(),
-                ],
-                vec![
-                    "Avoid recursive, -Force, or truncating directory listings in thin nodes."
-                        .to_string(),
-                ],
-            );
-            return Err(ActionMapGateError::new(
-                recovery,
-                vec![MapRuntimeEvent::ToolActionBlocked(
-                    MapRuntimeToolActionBlockedEvent {
-                        map_id,
-                        node_id,
-                        node_kind: node.kind.as_str().to_string(),
-                        tool_name: descriptor.tool_name,
-                        action_class: descriptor.action_class.as_str().to_string(),
-                        reason: "thin_route_blocks_broad_directory_listing".to_string(),
-                    },
-                )],
-            ));
-        }
-        let inspect_evidence_pressure = inspect_evidence_pressure_active(node, budget);
-        if descriptor.action_class != ActionClass::Control
-            && provider_budget_pressure
-            && node.kind == NodeKind::InspectCodeContext
-        {
-            let next_action = format!(
-                "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
-                node.id
-            );
-            let message = format!(
-                "TaskSpace blocked this tool call because provider request budget pressure is active ({}/{} used) and current node `{}` is still inspect_code_context. Requested tool `{}` action class: {}. Stop ordinary probing and transition the inspected finding into implementation with {}.",
-                self.provider_request_count,
-                max_rollout_model_requests,
-                node.id,
-                descriptor.tool_name,
-                descriptor.action_class.as_str(),
-                next_action
-            );
-            let recovery = gate_recovery_message(
-                &message,
-                "provider_request_budget_pressure_requires_inspect_node_transition",
-                vec![
-                    format!("current_node:{}:{}", node.id, node.kind.as_str()),
-                    format!(
-                        "provider_request_count:{}/{}",
-                        self.provider_request_count, max_rollout_model_requests
-                    ),
-                    format!(
-                        "requested_action_class:{}",
-                        descriptor.action_class.as_str()
-                    ),
-                ],
-                vec![next_action],
-                Vec::new(),
-            );
-            return Err(ActionMapGateError::new(
-                recovery,
-                vec![MapRuntimeEvent::ToolActionBlocked(
-                    MapRuntimeToolActionBlockedEvent {
-                        map_id,
-                        node_id,
-                        node_kind: node.kind.as_str().to_string(),
-                        tool_name: descriptor.tool_name,
-                        action_class: descriptor.action_class.as_str().to_string(),
-                        reason: "provider_request_budget_pressure_requires_inspect_node_transition"
-                            .to_string(),
-                    },
-                )],
-            ));
-        }
-        if descriptor.action_class != ActionClass::Control
-            && (provider_budget_pressure || inspect_evidence_pressure)
-            && should_block_budget_pressure_probe(map, node, descriptor.action_class)
-        {
-            let has_edit = node_has_successful_action(map, node, ActionClass::Edit);
-            let reason = if inspect_evidence_pressure && !provider_budget_pressure {
-                "inspect_evidence_pressure_requires_implementation_before_more_probe"
-            } else if has_edit {
-                "provider_request_budget_pressure_blocks_more_exploration_after_edit"
-            } else {
-                "provider_request_budget_pressure_requires_implementation_before_more_probe"
-            };
-            let next_action = if node.kind == NodeKind::InspectCodeContext && !has_edit {
-                format!(
-                    "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
-                    node.id
-                )
-            } else if has_edit {
-                "run one narrow validation command or finish final answer".to_string()
-            } else {
-                "make the smallest safe edit or finish blocked_by_budget".to_string()
-            };
-            let pressure_summary = if provider_budget_pressure {
-                format!(
-                    "provider request budget pressure is active ({}/{} used)",
-                    self.provider_request_count, max_rollout_model_requests
-                )
-            } else {
-                format!(
-                    "inspect evidence pressure is active ({}/{} main tool results recorded)",
-                    main_tool_result_count, budget
-                )
-            };
-            let message = format!(
-                "TaskSpace blocked this tool call because {pressure_summary} and current node `{}` already has enough evidence for a convergence step. Requested tool `{}` action class: {}. Do not spend more provider requests on broad probing. {}.",
-                node.id,
-                descriptor.tool_name,
-                descriptor.action_class.as_str(),
-                next_action
-            );
-            let recovery = gate_recovery_message(
-                &message,
-                reason,
-                vec![
-                    format!("current_node:{}:{}", node.id, node.kind.as_str()),
-                    format!(
-                        "provider_request_count:{}/{}",
-                        self.provider_request_count, max_rollout_model_requests
-                    ),
-                    format!(
-                        "requested_action_class:{}",
-                        descriptor.action_class.as_str()
-                    ),
-                ],
-                vec![next_action],
-                Vec::new(),
-            );
-            return Err(ActionMapGateError::new(
-                recovery,
-                vec![MapRuntimeEvent::ToolActionBlocked(
-                    MapRuntimeToolActionBlockedEvent {
-                        map_id,
-                        node_id,
-                        node_kind: node.kind.as_str().to_string(),
-                        tool_name: descriptor.tool_name,
-                        action_class: descriptor.action_class.as_str().to_string(),
-                        reason: reason.to_string(),
-                    },
-                )],
-            ));
-        }
         if !contract.allows(descriptor.action_class) {
             let reason = format!(
                 "{} does not allow {}",
@@ -2092,42 +1872,6 @@ impl ActionMapRuntimeState {
                     },
                 )],
             ));
-        }
-        if descriptor.action_class != ActionClass::Control
-            && main_tool_result_count + reserved_tool_count >= budget
-            && should_enforce_tool_budget_barrier(map, node, owner_session_id)
-        {
-            let barrier = ActionMapMaintenanceBarrier {
-                map_id: map_id.clone(),
-                node_id: node_id.clone(),
-                reason: MaintenanceBarrierReason::NodeToolResultBudgetExceeded,
-                result_count: main_tool_result_count + reserved_tool_count,
-                budget,
-            };
-            let mut events = Vec::new();
-            if !self.maintenance_barriers.contains_key(&map_id) {
-                events.push(maintenance_barrier_raised_event(&barrier));
-                self.maintenance_barriers.insert(map_id.clone(), barrier);
-            }
-            let message = format!(
-                "TaskSpace blocked this tool call because current node `{}` already has {} recorded and {} in-flight tool results (budget {}). Finish this broad node or create a narrower follow-up node before retrying. If the remaining work contains independent investigation tracks, create separate ready inspect_code_context nodes and use spawn_agent for those nodes instead of continuing all investigation in the main node.",
-                node_id, main_tool_result_count, reserved_tool_count, budget
-            );
-            let recovery = gate_recovery_message(
-                &message,
-                "node_tool_result_budget_exceeded",
-                vec![format!(
-                    "current_node:{node_id}:main_tool_results:{}:reserved:{}:budget:{budget}",
-                    main_tool_result_count, reserved_tool_count
-                )],
-                vec![
-                    format!("taskspace_control(action=finish_node, node_id=\"{node_id}\")"),
-                    "taskspace_control(action=create_node, node_kind=\"inspect_code_context\") for independent tracks".to_string(),
-                    "spawn_agent only after ready independent inspect nodes exist".to_string(),
-                ],
-                Vec::new(),
-            );
-            return Err(ActionMapGateError::new(recovery, events));
         }
         if descriptor.action_class != ActionClass::Control
             && let Some(call_id) = descriptor.call_id.as_deref()
@@ -2268,25 +2012,7 @@ preview:\n\
                 id: result_id.clone(),
                 kind: NodeResultKind::MainToolCall,
             });
-            let main_tool_result_count =
-                count_node_results_of_kind(node, NodeResultKind::MainToolCall);
-            let budget = contract_for(node.kind).max_main_tool_results_before_split_hint;
-            let should_raise_barrier = node.kind != NodeKind::InspectCodeContext;
-            let raised_barrier = if should_raise_barrier
-                && main_tool_result_count >= budget
-                && !self.maintenance_barriers.contains_key(&map_id)
-            {
-                Some(ActionMapMaintenanceBarrier {
-                    map_id: map_id.clone(),
-                    node_id: node_id.clone(),
-                    reason: MaintenanceBarrierReason::NodeToolResultBudgetExceeded,
-                    result_count: main_tool_result_count,
-                    budget,
-                })
-            } else {
-                None
-            };
-            (task_id, raised_barrier)
+            (task_id, None)
         };
         let trace_events = self.append_main_tool_trace_events(MainToolTraceDraft {
             task_id,
@@ -2769,7 +2495,7 @@ preview:\n\
                 tags.push(format!("replacement_confirmed:{replacement_confirmed}"));
             }
             if input.status == "blocked" {
-                tags.push("budget_response_action_taken:true".to_string());
+                tags.push("legacy_blocked_input_observed:true".to_string());
             }
             let event = TaskSpaceTraceEvent {
                 id: id.clone(),
@@ -2806,14 +2532,14 @@ preview:\n\
             let budget_action = if input.status == "blocked"
                 && input.budget_transition_reason == "provider_request_compact_checkpoint_required"
             {
-                "compact_checkpoint_required"
+                "legacy_compact_checkpoint_blocked_input"
             } else if input.status == "blocked" {
-                "hard_stop"
+                "legacy_profile_hint_blocked_input"
             } else {
                 "observe"
             };
             let final_classification = if input.status == "blocked" {
-                "blocked_by_budget"
+                "legacy_blocked_input_observed"
             } else {
                 "score_eligible"
             };
@@ -3012,7 +2738,7 @@ preview:\n\
             return Ok(None);
         }
         let result_summary = format!(
-            "Provider request budget pressure forced inspect convergence at {}/{} after {trigger}; proceed to implementation using this inspected evidence: {}",
+            "Inspect evidence supported convergence at profile request count {}/{} after {trigger}; proceed to implementation using this inspected evidence: {}",
             snapshot.request_count, snapshot.max_requests, evidence_summary
         );
         let context_summary = format!(
@@ -3126,7 +2852,7 @@ preview:\n\
             return Ok(None);
         }
         let result_summary = format!(
-            "Provider request budget pressure forced implementation convergence at {}/{} after {trigger}; proceed to validation using the successful edit already recorded on this node.",
+            "Implementation evidence supported convergence at profile request count {}/{} after {trigger}; proceed to validation using the successful edit already recorded on this node.",
             snapshot.request_count, snapshot.max_requests
         );
         let next_node_draft = ActionMapNextNodeDraft {
@@ -3147,7 +2873,7 @@ preview:\n\
         if let Some(event) = self.accept_forced_transition_result(
             &map_id,
             &outcome.result_id,
-            "Runtime forced implementation convergence into validation under provider budget pressure.",
+            "Runtime accepted implementation convergence into validation after a successful edit.",
             "runtime accepted forced implementation transition bridge result",
         )? {
             events.push(event);
@@ -3266,7 +2992,7 @@ preview:\n\
         self.accept_forced_transition_result(
             map_id,
             result_id,
-            "Runtime forced inspect convergence into implementation under provider budget pressure.",
+            "Runtime accepted inspect convergence into implementation after sufficient code or test evidence.",
             validity_reason,
         )
     }
@@ -3315,9 +3041,6 @@ preview:\n\
         }
 
         let contract = contract_for(node.kind);
-        let tool_result_count = count_node_results_of_kind(node, NodeResultKind::MainToolCall);
-        let reserved_tool_count = self.reserved_tool_calls_for_node(&map_id, &node_id);
-        let budget = contract.max_main_tool_results_before_split_hint;
         if !contract.allows(descriptor.action_class) {
             let reason = format!(
                 "{} does not allow {}",
@@ -3344,29 +3067,6 @@ preview:\n\
                         reason,
                     },
                 )],
-            ));
-        }
-        if descriptor.action_class != ActionClass::Control
-            && tool_result_count + reserved_tool_count >= budget
-        {
-            let barrier = ActionMapMaintenanceBarrier {
-                map_id: map_id.clone(),
-                node_id: node_id.clone(),
-                reason: MaintenanceBarrierReason::NodeToolResultBudgetExceeded,
-                result_count: tool_result_count + reserved_tool_count,
-                budget,
-            };
-            let mut events = Vec::new();
-            if !self.maintenance_barriers.contains_key(&map_id) {
-                events.push(maintenance_barrier_raised_event(&barrier));
-                self.maintenance_barriers.insert(map_id.clone(), barrier);
-            }
-            return Err(ActionMapGateError::new(
-                format!(
-                    "TaskSpace blocked this subagent tool call because node `{}` already has {} recorded and {} in-flight tool results (budget {}). Return a result for this node and let the parent create a narrower follow-up node.",
-                    node_id, tool_result_count, reserved_tool_count, budget
-                ),
-                events,
             ));
         }
         if descriptor.action_class != ActionClass::Control
@@ -3483,7 +3183,7 @@ preview:\n\
             id: result_id.clone(),
             kind: NodeResultKind::MainToolCall,
         });
-        let mut events = vec![MapRuntimeEvent::NodeResultRecorded(
+        let events = vec![MapRuntimeEvent::NodeResultRecorded(
             MapRuntimeNodeResultRecordedEvent {
                 map_id: map_id.clone(),
                 node_id: node_id.clone(),
@@ -3494,19 +3194,6 @@ preview:\n\
                 source_thread_id: child_thread_id,
             },
         )];
-        let tool_result_count = count_node_results_of_kind(node, NodeResultKind::MainToolCall);
-        let budget = contract_for(node.kind).max_main_tool_results_before_split_hint;
-        if tool_result_count >= budget && !self.maintenance_barriers.contains_key(&map_id) {
-            let barrier = ActionMapMaintenanceBarrier {
-                map_id: map_id.clone(),
-                node_id: node_id.clone(),
-                reason: MaintenanceBarrierReason::NodeToolResultBudgetExceeded,
-                result_count: tool_result_count,
-                budget,
-            };
-            events.push(maintenance_barrier_raised_event(&barrier));
-            self.maintenance_barriers.insert(map_id.clone(), barrier);
-        }
         Ok(Some((result_id, events)))
     }
 
@@ -3530,13 +3217,6 @@ preview:\n\
             .nodes
             .get(node_id)
             .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
-        if let Some(barrier) = self.maintenance_barriers.get(&map_id)
-            && barrier.node_id == node_id
-        {
-            return Err(format!(
-                "TaskSpace maintenance barrier is active for node `{node_id}`; bind a different narrower recovery node or create a follow-up node with taskspace_control(action=create_node, bind_current=true)."
-            ));
-        }
         if self.current_main_node_id.as_deref() == Some(node_id)
             && let Some(lease_id) = self.current_main_lease_id.as_ref()
             && node.active_lease.as_deref() == Some(lease_id.as_str())
@@ -3666,19 +3346,12 @@ preview:\n\
             "TaskSpace mode is active but no active task path exists. Call taskspace_control(action=start_task) to create a new semantic task before creating extra nodes."
                 .to_string()
         })?;
-        let (task_id_for_budget, node_count_before, budget_trace_node_id) = {
+        let node_count_before = {
             let map = self
                 .maps
                 .get(&map_id)
                 .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-            (
-                map.task_id.clone(),
-                map.nodes.len(),
-                self.current_main_node_id
-                    .clone()
-                    .or_else(|| ordered_node_ids(map).into_iter().next())
-                    .unwrap_or_else(|| "node-budget".to_string()),
-            )
+            map.nodes.len()
         };
         let active_budget = self.active_budget.as_ref().cloned().unwrap_or_else(|| {
             taskspace_active_budget_for_route(
@@ -3689,37 +3362,6 @@ preview:\n\
         self.budget_counters.node_count = node_count_before;
         let max_nodes = active_budget.max_nodes;
         let gate_decision = self.gate_create_node_budget(&map_id, kind);
-        if !gate_decision.allowed {
-            let budget_event = self.record_runtime_budget_trace_event(
-                "spawn_node_budget",
-                task_id_for_budget,
-                map_id.clone(),
-                budget_trace_node_id,
-                None,
-                false,
-                vec![
-                    "schema:taskspace-spawn-node-budget-event-v1".to_string(),
-                    "producer:runtime".to_string(),
-                    "budget_kind:node".to_string(),
-                    "action:create_node".to_string(),
-                    "status:blocked".to_string(),
-                    format!("node_count_before:{node_count_before}"),
-                    format!("node_count_after:{node_count_before}"),
-                    "active_budget_source:runtime".to_string(),
-                    format!("route_mode:{}", active_budget.route_mode.as_str()),
-                    format!("profile_name:{}", active_budget.profile_name.as_str()),
-                    format!("max_nodes:{max_nodes}"),
-                    format!("budget_state:{}", gate_decision.budget_state.as_str()),
-                    format!("budget_gate_reason:{}", gate_decision.reason),
-                    "budget_response_action_taken:true".to_string(),
-                ],
-            );
-            events.push(budget_event);
-            return Err(format!(
-                "TaskSpace blocked create_node because active profile node budget is exhausted: {node_count_before}/{}.",
-                max_nodes
-            ));
-        }
         let node_id = self.next_node_id();
         let map = self
             .maps
@@ -3848,10 +3490,12 @@ preview:\n\
                 format!("node_count_before:{node_count_before}"),
                 format!("node_count_after:{}", node_count_before + 1),
                 "active_budget_source:runtime".to_string(),
+                "enforcement:advisory".to_string(),
                 format!("route_mode:{}", active_budget.route_mode.as_str()),
                 format!("profile_name:{}", active_budget.profile_name.as_str()),
                 format!("max_nodes:{max_nodes}"),
                 "budget_response_action_taken:false".to_string(),
+                format!("budget_gate_reason:{}", gate_decision.reason),
             ],
         ));
         Ok((node_id, events))
@@ -6593,14 +6237,14 @@ preview:\n\
         for marker in FINAL_ANSWER_INTERNAL_PROTOCOL_MARKERS {
             if normalized.contains(marker) {
                 return Err(format!(
-                    "TaskSpace final answer gate rejected hidden tool-call protocol marker `{marker}`. Rewrite the final answer as a user-visible result, validation status, or blocked_by_budget explanation only."
+                    "TaskSpace final answer gate rejected hidden tool-call protocol marker `{marker}`. Rewrite the final answer as a user-visible result, validation status, or blocked-with-evidence explanation only."
                 ));
             }
         }
         for marker in FINAL_ANSWER_FOLLOW_UP_INTENT_MARKERS {
             if normalized.contains(marker) {
                 return Err(format!(
-                    "TaskSpace final answer gate rejected non-final follow-up intent `{marker}`. Rewrite the final answer as a completed result, validation status, or blocked_by_budget explanation only."
+                    "TaskSpace final answer gate rejected non-final follow-up intent `{marker}`. Rewrite the final answer as a completed result, validation status, or blocked-with-evidence explanation only."
                 ));
             }
         }
@@ -6634,13 +6278,12 @@ preview:\n\
                     .to_string(),
             );
         };
-        let (task_id_for_budget, node_count_for_budget, budget_trace_node_id) = {
+        let (node_count_for_budget, budget_trace_node_id) = {
             let map = self
                 .maps
                 .get(&map_id)
                 .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
             (
-                map.task_id.clone(),
                 map.nodes.len(),
                 self.current_main_node_id
                     .clone()
@@ -6659,38 +6302,6 @@ preview:\n\
         let max_nodes = active_budget.max_nodes;
         let spawn_count_before = self.budget_counters.spawn_agent_call_count;
         let gate_decision = self.gate_spawn_budget(&map_id, &budget_trace_node_id);
-        if !gate_decision.allowed {
-            events.push(self.record_runtime_budget_trace_event(
-                "spawn_node_budget",
-                task_id_for_budget,
-                map_id.clone(),
-                budget_trace_node_id,
-                None,
-                false,
-                vec![
-                    "schema:taskspace-spawn-node-budget-event-v1".to_string(),
-                    "producer:runtime".to_string(),
-                    "budget_kind:spawn".to_string(),
-                    "action:spawn_agent".to_string(),
-                    "status:blocked".to_string(),
-                    format!("spawn_agent_call_count_before:{spawn_count_before}"),
-                    format!("spawn_agent_call_count_after:{spawn_count_before}"),
-                    "active_budget_source:runtime".to_string(),
-                    format!("route_mode:{}", active_budget.route_mode.as_str()),
-                    format!("profile_name:{}", active_budget.profile_name.as_str()),
-                    format!("max_spawn_agent_calls:{max_spawn_agent_calls}"),
-                    format!("node_count:{node_count_for_budget}"),
-                    format!("max_nodes:{max_nodes}"),
-                    format!("budget_state:{}", gate_decision.budget_state.as_str()),
-                    format!("budget_gate_reason:{}", gate_decision.reason),
-                    "budget_response_action_taken:true".to_string(),
-                ],
-            ));
-            return Err(format!(
-                "TaskSpace blocked spawn_agent because active profile spawn budget is exhausted: {spawn_count_before}/{}.",
-                max_spawn_agent_calls
-            ));
-        }
         if let Some(current_node_id) = self.current_main_node_id.as_deref() {
             let map = self
                 .maps
@@ -6792,12 +6403,14 @@ preview:\n\
                 format!("spawn_agent_call_count_before:{spawn_count_before}"),
                 format!("spawn_agent_call_count_after:{}", spawn_count_before + 1),
                 "active_budget_source:runtime".to_string(),
+                "enforcement:advisory".to_string(),
                 format!("route_mode:{}", active_budget.route_mode.as_str()),
                 format!("profile_name:{}", active_budget.profile_name.as_str()),
                 format!("max_spawn_agent_calls:{max_spawn_agent_calls}"),
                 format!("node_count:{node_count_for_budget}"),
                 format!("max_nodes:{max_nodes}"),
                 "budget_response_action_taken:false".to_string(),
+                format!("budget_gate_reason:{}", gate_decision.reason),
             ],
         ));
 
@@ -8076,13 +7689,6 @@ preview:\n\
         if finishing_node.kind != NodeKind::InspectCodeContext {
             return Ok(());
         }
-        let exhausted_budget =
-            count_node_results_of_kind(finishing_node, NodeResultKind::MainToolCall)
-                >= contract_for(finishing_node.kind).max_main_tool_results_before_split_hint;
-        let barrier_active = self
-            .maintenance_barriers
-            .get(map_id)
-            .is_some_and(|barrier| barrier.node_id == finishing_node_id);
         let has_broad_structural_result = completed_main_inspect_has_broad_accepted_result(
             map,
             finishing_node_id,
@@ -8096,7 +7702,7 @@ preview:\n\
         {
             return Ok(());
         }
-        if !exhausted_budget && !barrier_active && !has_broad_structural_result {
+        if !has_broad_structural_result {
             return Ok(());
         }
         let related_subagent_inspects = related_completed_accepted_subagent_inspect_node_ids(
@@ -8122,17 +7728,7 @@ preview:\n\
     }
 
     fn validate_maintenance_barrier(&self) -> Result<(), String> {
-        let Some(barrier) = self.active_maintenance_barrier() else {
-            return Ok(());
-        };
-        Err(format!(
-            "TaskSpace maintenance barrier is active for node `{}` on map `{}`: {} ({} main tool results, budget {}). Ordinary main-agent tools are blocked until you use taskspace_control to create or bind a different narrower node, or stop and ask the user to restart/reframe the task. For broad investigations, split independent tracks into ready inspect_code_context nodes and assign them with spawn_agent.",
-            barrier.node_id,
-            barrier.map_id,
-            barrier.reason.as_str(),
-            barrier.result_count,
-            barrier.budget
-        ))
+        Ok(())
     }
 
     fn validate_broad_inspect_delegation(&self, owner_session_id: ThreadId) -> Result<(), String> {
@@ -8197,42 +7793,16 @@ preview:\n\
         )
     }
 
-    fn validate_maintenance_barrier_for_node(&self, node_id: &str) -> Result<(), String> {
-        let Some(barrier) = self.active_maintenance_barrier() else {
-            return Ok(());
-        };
-        if barrier.node_id != node_id {
-            return Ok(());
-        }
-        Err(format!(
-            "TaskSpace maintenance barrier is active for node `{}` on map `{}`: {} ({} main tool results, budget {}). Select a different ready node or create a narrower recovery node.",
-            barrier.node_id,
-            barrier.map_id,
-            barrier.reason.as_str(),
-            barrier.result_count,
-            barrier.budget
-        ))
+    fn validate_maintenance_barrier_for_node(&self, _node_id: &str) -> Result<(), String> {
+        Ok(())
     }
 
     fn validate_maintenance_barrier_for_map_node(
         &self,
-        map_id: &str,
-        node_id: &str,
+        _map_id: &str,
+        _node_id: &str,
     ) -> Result<(), ActionMapGateError> {
-        let Some(barrier) = self.maintenance_barriers.get(map_id) else {
-            return Ok(());
-        };
-        if barrier.node_id != node_id {
-            return Ok(());
-        }
-        Err(ActionMapGateError::from(format!(
-            "TaskSpace maintenance barrier is active for node `{}` on map `{}`: {} ({} tool results, budget {}). The subagent must return a result/blocker and let the parent create or bind a recovery node.",
-            barrier.node_id,
-            barrier.map_id,
-            barrier.reason.as_str(),
-            barrier.result_count,
-            barrier.budget
-        )))
+        Ok(())
     }
 
     fn reserved_main_tool_calls(&self, map_id: &str, node_id: &str) -> usize {
@@ -8240,18 +7810,6 @@ preview:\n\
             .values()
             .filter(|reservation| reservation.map_id == map_id && reservation.node_id == node_id)
             .count()
-    }
-
-    fn reserved_child_tool_calls(&self, map_id: &str, node_id: &str) -> usize {
-        self.child_tool_reservations
-            .values()
-            .filter(|reservation| reservation.map_id == map_id && reservation.node_id == node_id)
-            .count()
-    }
-
-    fn reserved_tool_calls_for_node(&self, map_id: &str, node_id: &str) -> usize {
-        self.reserved_main_tool_calls(map_id, node_id)
-            + self.reserved_child_tool_calls(map_id, node_id)
     }
 
     fn reserve_main_tool_call(&mut self, call_id: &str, reservation: MainToolReservation) {
@@ -9756,6 +9314,7 @@ fn subagent_plan_status_from_str(status: &str) -> Option<SubagentPlanStatus> {
     }
 }
 
+#[allow(dead_code)]
 fn maintenance_barrier_reason_from_str(reason: &str) -> Option<MaintenanceBarrierReason> {
     match reason {
         "node_tool_result_budget_exceeded" => {
@@ -11188,49 +10747,24 @@ fn broad_delegation_recovery_message(broad_completed_inspects: &[String]) -> Str
     )
 }
 
-fn should_enforce_tool_budget_barrier(
-    map: &ActionMapInstance,
-    node: &MapNode,
-    owner_session_id: ThreadId,
-) -> bool {
-    node.kind != NodeKind::InspectCodeContext
-        || completed_main_inspect_has_broad_accepted_result(map, &node.id, owner_session_id)
-}
-
-fn provider_request_budget_pressure_active(
-    provider_request_count: usize,
-    max_requests: usize,
-) -> bool {
-    provider_request_count.saturating_mul(4) >= max_requests.saturating_mul(3)
-}
-
 fn provider_request_budget_pressure_active_for_node(
-    provider_request_count: usize,
-    max_requests: usize,
-    node_kind: NodeKind,
+    _provider_request_count: usize,
+    _max_requests: usize,
+    _node_kind: NodeKind,
 ) -> bool {
-    if node_kind == NodeKind::InspectCodeContext {
-        provider_request_count.saturating_mul(2) >= max_requests
-    } else {
-        provider_request_budget_pressure_active(provider_request_count, max_requests)
-    }
+    false
 }
 
 fn provider_request_budget_snapshot_pressure_active_for_node(
-    snapshot: &ActionMapProviderRequestBudgetSnapshot,
-    node_kind: NodeKind,
+    _snapshot: &ActionMapProviderRequestBudgetSnapshot,
+    _node_kind: NodeKind,
 ) -> bool {
-    provider_request_budget_pressure_active_for_node(
-        snapshot.request_count,
-        snapshot.max_requests,
-        node_kind,
-    ) || snapshot.node_request_count >= snapshot.max_model_requests_per_node
-        || snapshot.request_phase.as_deref() == Some("budget_recovery")
+    false
 }
 
 fn budget_state_for_counter(counter_value: usize, counter_limit: usize) -> TaskSpaceBudgetState {
     if counter_limit == 0 || counter_value >= counter_limit {
-        return TaskSpaceBudgetState::HardStopped;
+        return TaskSpaceBudgetState::OverProfileHint;
     }
     let remaining = counter_limit.saturating_sub(counter_value);
     if remaining <= 1 {
@@ -11243,98 +10777,6 @@ fn budget_state_for_counter(counter_value: usize, counter_limit: usize) -> TaskS
         return TaskSpaceBudgetState::Warned;
     }
     TaskSpaceBudgetState::Normal
-}
-
-fn inspect_evidence_pressure_active(node: &MapNode, budget: usize) -> bool {
-    node.kind == NodeKind::InspectCodeContext
-        && count_node_results_of_kind(node, NodeResultKind::MainToolCall)
-            >= budget.saturating_add(1) / 2
-}
-
-fn should_block_budget_pressure_probe(
-    map: &ActionMapInstance,
-    node: &MapNode,
-    action_class: ActionClass,
-) -> bool {
-    if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
-        && matches!(action_class, ActionClass::Test | ActionClass::Build)
-    {
-        return false;
-    }
-
-    let has_read = node_has_successful_action(map, node, ActionClass::Read)
-        || node_has_successful_action(map, node, ActionClass::Search);
-    if !has_read {
-        return false;
-    }
-
-    let has_edit = node_has_successful_action(map, node, ActionClass::Edit);
-    if has_edit {
-        matches!(
-            action_class,
-            ActionClass::Read | ActionClass::Search | ActionClass::Unknown
-        )
-    } else {
-        matches!(
-            action_class,
-            ActionClass::Read
-                | ActionClass::Search
-                | ActionClass::Unknown
-                | ActionClass::Test
-                | ActionClass::Build
-        )
-    }
-}
-
-fn is_broad_directory_listing_probe(descriptor: &ToolActionDescriptor) -> bool {
-    if !matches!(
-        descriptor.action_class,
-        ActionClass::Read | ActionClass::Search | ActionClass::Unknown
-    ) {
-        return false;
-    }
-    let preview = descriptor.preview.to_ascii_lowercase();
-    if preview.contains("rg --files") || preview.contains("ripgrep --files") {
-        return false;
-    }
-    let lists_directory = preview.contains("get-childitem")
-        || preview.contains("gci ")
-        || preview.contains("dir ")
-        || preview.contains("ls ");
-    if !lists_directory {
-        return false;
-    }
-    if preview.contains("format-table") || preview.contains(" ft ") {
-        return true;
-    }
-    let recursive = preview.contains("-recurse")
-        || preview.contains(" -r ")
-        || preview.contains(" /s")
-        || preview.contains(" **");
-    let forced_or_all =
-        preview.contains("-force") || preview.contains(" -force ") || preview.contains(" -a ");
-    let metadata_only_listing = preview.contains("select-object fullname")
-        || preview.contains("select fullname")
-        || preview.contains("select-object name")
-        || preview.contains("select name");
-    let untruncated_full_name_listing = preview.contains("-expandproperty fullname")
-        || preview.contains("select -expand fullname")
-        || preview.contains("select-object -expand fullname")
-        || preview.contains("select-object -expandproperty fullname");
-    if metadata_only_listing && !recursive {
-        return false;
-    }
-    if untruncated_full_name_listing && !forced_or_all {
-        return false;
-    }
-    if metadata_only_listing && recursive {
-        return true;
-    }
-    let bounded_shallow_depth = preview.contains("-depth 1") || preview.contains("-depth 2");
-    if bounded_shallow_depth && !forced_or_all {
-        return false;
-    }
-    recursive || forced_or_all
 }
 
 fn completed_main_inspect_has_broad_accepted_result(
@@ -12241,8 +11683,9 @@ mod tests {
                         request_count_after: 1,
                         max_requests: 1,
                         budget_state_before: "normal".to_string(),
-                        budget_state_after: "hard_stopped".to_string(),
-                        budget_transition_reason: "provider_request_budget_reached".to_string(),
+                        budget_state_after: "over_profile_hint".to_string(),
+                        budget_transition_reason: "provider_request_profile_hint_exceeded"
+                            .to_string(),
                         started_at_ms: 100,
                         completed_at_ms: None,
                         latency_ms: None,
@@ -12281,9 +11724,10 @@ mod tests {
                         request_count_before: 1,
                         request_count_after: 1,
                         max_requests: 1,
-                        budget_state_before: "hard_stopped".to_string(),
-                        budget_state_after: "hard_stopped".to_string(),
-                        budget_transition_reason: "provider_request_budget_exhausted".to_string(),
+                        budget_state_before: "over_profile_hint".to_string(),
+                        budget_state_after: "over_profile_hint".to_string(),
+                        budget_transition_reason: "provider_request_profile_hint_exceeded"
+                            .to_string(),
                         started_at_ms: 200,
                         completed_at_ms: Some(200),
                         latency_ms: Some(0),
@@ -12364,7 +11808,7 @@ mod tests {
             blocked
                 .tags
                 .iter()
-                .any(|tag| tag == "budget_response_action_taken:true")
+                .any(|tag| tag == "legacy_blocked_input_observed:true")
         );
         assert!(blocked.tags.iter().any(|tag| tag == "input_tokens:10"));
         assert!(blocked.tags.iter().any(|tag| tag == "latency_ms:0"));
@@ -12372,19 +11816,19 @@ mod tests {
             blocked
                 .tags
                 .iter()
-                .any(|tag| tag == "budget_state_before:hard_stopped")
+                .any(|tag| tag == "budget_state_before:over_profile_hint")
         );
         assert!(
             blocked
                 .tags
                 .iter()
-                .any(|tag| tag == "budget_state_after:hard_stopped")
+                .any(|tag| tag == "budget_state_after:over_profile_hint")
         );
         assert!(
             blocked
                 .tags
                 .iter()
-                .any(|tag| tag == "budget_transition_reason:provider_request_budget_exhausted")
+                .any(|tag| tag == "budget_transition_reason:provider_request_profile_hint_exceeded")
         );
         assert!(
             blocked
@@ -12452,25 +11896,25 @@ mod tests {
             quality
                 .tags
                 .iter()
-                .any(|tag| tag == "budget_action:hard_stop")
+                .any(|tag| tag == "budget_action:legacy_profile_hint_blocked_input")
         );
         assert!(
             quality
                 .tags
                 .iter()
-                .any(|tag| tag == "budget_state_before:hard_stopped")
+                .any(|tag| tag == "budget_state_before:over_profile_hint")
         );
         assert!(
             quality
                 .tags
                 .iter()
-                .any(|tag| tag == "budget_state_after:hard_stopped")
+                .any(|tag| tag == "budget_state_after:over_profile_hint")
         );
         assert!(
             quality
                 .tags
                 .iter()
-                .any(|tag| tag == "final_classification:blocked_by_budget")
+                .any(|tag| tag == "final_classification:legacy_blocked_input_observed")
         );
         assert!(quality.tags.iter().any(|tag| tag == "score_eligible:false"));
         assert_eq!(
@@ -12485,6 +11929,7 @@ mod tests {
     #[test]
     fn taskspace_active_budget_thin_route_uses_eight_requests_and_no_spawn() {
         let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         let events = state
             .activate_active_budget_for_route("taskspace-v005-active", TaskSpaceRouteMode::Thin);
@@ -12495,7 +11940,28 @@ mod tests {
         assert_eq!(budget.max_model_requests_per_node, 3);
         assert_eq!(budget.max_spawn_agent_calls, 0);
         assert_eq!(budget.max_nodes, 4);
-        assert_eq!(events.len(), 1);
+        assert!(events.is_empty());
+
+        let (_task_id, map_id, node_id, _task_events) = state
+            .start_task_for_main(
+                owner,
+                "thin budget task".to_string(),
+                "verify bound active budget trace".to_string(),
+                "inspect".to_string(),
+                "inspect active budget trace".to_string(),
+                true,
+            )
+            .expect("start task");
+        let bound_events = state
+            .activate_active_budget_for_route("taskspace-v005-active", TaskSpaceRouteMode::Thin);
+        assert!(bound_events.iter().any(|event| {
+            matches!(event, MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                if event.kind == "active_budget"
+                    && event.map_id == map_id
+                    && event.node_id == node_id
+                    && event.tags.iter().any(|tag| tag == "route_mode:thin")
+                    && event.tags.iter().any(|tag| tag == "enforcement:advisory"))
+        }));
     }
 
     #[test]
@@ -12571,8 +12037,11 @@ mod tests {
         assert_eq!(snapshot.max_requests, 8);
         assert_eq!(snapshot.node_request_count, 3);
         assert_eq!(snapshot.max_model_requests_per_node, 3);
-        assert!(!decision.allowed);
-        assert_eq!(decision.reason, "provider_node_request_budget_exhausted");
+        assert!(decision.allowed);
+        assert_eq!(
+            decision.reason,
+            "provider_node_request_profile_hint_exceeded"
+        );
     }
 
     #[test]
@@ -12771,18 +12240,18 @@ mod tests {
         assert_eq!(restored_snapshot.max_requests, 8);
         assert_eq!(restored_snapshot.request_count, 4);
         assert_eq!(restored_snapshot.node_request_count, 1);
-        let error = restored
+        let events = restored
             .prepare_main_tool_call(
                 owner,
-                ToolActionDescriptor::new("shell_command", ActionClass::Unknown, "probe")
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "probe")
                     .with_call_id("restored-probe"),
             )
-            .expect_err("restored provider pressure should block another inspect probe");
-        let (message, _events) = error.into_parts();
+            .expect("restored profile hint must not block another inspect probe");
         assert!(
-            message.contains("provider_request_budget_pressure_requires_inspect_node_transition")
+            events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
         );
-        assert!(message.contains("4/8 used"));
     }
 
     #[test]
@@ -12956,13 +12425,7 @@ mod tests {
             .force_finish_inspect_for_provider_budget(owner, &snapshot, "thin_pressure")
             .expect("force finish should be valid");
 
-        let (outcome, _events) = outcome.expect("forced transition should finish inspect");
-        let result = state
-            .maps
-            .get(&map_id)
-            .and_then(|map| map.results.get(&outcome.result_id))
-            .expect("forced transition result should exist");
-        assert_eq!(result.evidence_package.validity, ResultValidity::Accepted);
+        assert!(outcome.is_none());
     }
 
     #[test]
@@ -13560,12 +13023,13 @@ mod tests {
                     && event.tags.iter().any(|tag| tag == "producer:runtime")
                     && event.tags.iter().any(|tag| tag == "budget_kind:node")
                     && event.tags.iter().any(|tag| tag == "status:allowed")
-                    && event.tags.iter().any(|tag| tag == "max_nodes:10")
+                    && event.tags.iter().any(|tag| tag == "enforcement:advisory")
+                    && event.tags.iter().any(|tag| tag == "max_nodes:8")
         )));
     }
 
     #[test]
-    fn create_node_blocks_when_runtime_node_budget_exhausted() {
+    fn create_node_allows_when_runtime_node_profile_hint_exceeded() {
         let owner = ThreadId::new();
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -13590,7 +13054,7 @@ mod tests {
                 .expect("node within runtime budget");
         }
 
-        let error = state
+        let (_node_id, events) = state
             .create_node_for_main_with_kind(
                 owner,
                 NodeKind::ImplementSolution,
@@ -13599,16 +13063,14 @@ mod tests {
                 vec![],
                 false,
             )
-            .expect_err("node budget should be exhausted");
-        assert!(error.contains("node budget is exhausted"));
-        assert!(state.taskspace_trace_events.iter().any(|event| {
-            event.kind == "spawn_node_budget"
-                && event.tags.iter().any(|tag| tag == "budget_kind:node")
-                && event.tags.iter().any(|tag| tag == "status:blocked")
-                && event
-                    .tags
-                    .iter()
-                    .any(|tag| tag == "budget_response_action_taken:true")
+            .expect("node profile hint should not block creation");
+        assert!(events.iter().any(|event| {
+            matches!(event, MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                if event.kind == "spawn_node_budget"
+                    && event.tags.iter().any(|tag| tag == "budget_kind:node")
+                    && event.tags.iter().any(|tag| tag == "status:allowed")
+                    && event.tags.iter().any(|tag| tag == "enforcement:advisory")
+                    && event.tags.iter().any(|tag| tag == "budget_gate_reason:node_profile_hint_exceeded"))
         }));
     }
 
@@ -15346,7 +14808,7 @@ mod tests {
     }
 
     #[test]
-    fn trace_event_is_emitted_before_barrier_event_when_budget_is_exhausted() {
+    fn trace_event_is_emitted_without_barrier_when_tool_profile_hint_is_exceeded() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -15379,17 +14841,11 @@ mod tests {
                 )
             })
             .expect("budget-exhausting trace event should be emitted");
-        let barrier_index = events
-            .iter()
-            .position(|event| {
-                matches!(
-                    event,
-                    MapRuntimeEvent::MaintenanceBarrierRaised(event)
-                        if event.result_count == MAIN_TOOL_RESULT_BUDGET_PER_NODE
-                )
-            })
-            .expect("maintenance barrier should be raised");
-        assert!(trace_index < barrier_index);
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::MaintenanceBarrierRaised(_)))
+        );
         if let Some(sentinel_index) = events.iter().position(|event| {
             matches!(
                 event,
@@ -15397,7 +14853,7 @@ mod tests {
                     if event.sentinel_id == format!("sentinel-{MAIN_TOOL_RESULT_BUDGET_PER_NODE}")
             )
         }) {
-            assert!(sentinel_index < barrier_index);
+            assert!(sentinel_index <= trace_index);
         }
     }
 
@@ -18450,7 +17906,7 @@ mod tests {
     }
 
     #[test]
-    fn implementation_node_hits_maintenance_barrier_after_tool_budget() {
+    fn implementation_node_does_not_hit_maintenance_barrier_after_tool_profile_hint() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -18467,30 +17923,23 @@ mod tests {
 
         let events = fill_main_tool_budget(&mut state, owner);
 
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::MaintenanceBarrierRaised(event)
-                    if event.node_id == node_id
-                        && event.result_count == MAIN_TOOL_RESULT_BUDGET_PER_NODE
-                        && event.budget == MAIN_TOOL_RESULT_BUDGET_PER_NODE
-            )
+        assert!(!events.iter().any(|event| {
+            matches!(event, MapRuntimeEvent::MaintenanceBarrierRaised(event) if event.node_id == node_id)
         }));
-        let error = state
+        state
             .prepare_main_tool_call(owner, "shell")
-            .expect_err("ordinary tools should be blocked by barrier");
-        assert!(error.contains("maintenance barrier"));
+            .expect("ordinary tools should continue after profile hint overrun");
         let spawn_error = state
             .prepare_spawn_assignment(owner, "parallel follow-up", None)
             .expect_err("spawn has no non-barrier ready node to claim");
         assert!(spawn_error.contains("no ready node"));
         let context = state.build_developer_context().expect("context");
-        assert!(context.contains("Maintenance barrier"));
-        assert!(context.contains("node_tool_result_budget_exceeded"));
+        assert!(!context.contains("Maintenance barrier"));
+        assert!(!context.contains("node_tool_result_budget_exceeded"));
     }
 
     #[test]
-    fn provider_budget_pressure_blocks_more_probe_after_read_without_edit() {
+    fn provider_budget_pressure_does_not_block_more_probe_after_read_without_edit() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -18522,31 +17971,17 @@ mod tests {
             .expect("read result records");
         state.provider_request_count = 30;
 
-        let error = state
+        state
             .prepare_main_tool_call(
                 owner,
-                ToolActionDescriptor::new("shell_command", ActionClass::Unknown, "bash run")
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "bash run")
                     .with_call_id("probe-1"),
             )
-            .expect_err("budget pressure should block another probe");
-        let (message, events) = error.into_parts();
-
-        assert!(
-            message.contains("provider_request_budget_pressure_requires_inspect_node_transition")
-        );
-        assert!(message.contains("Stop ordinary probing"));
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::ToolActionBlocked(event)
-                    if event.reason == "provider_request_budget_pressure_requires_inspect_node_transition"
-                        && event.action_class == "unknown"
-            )
-        }));
+            .expect("provider request profile hint should not block another probe");
     }
 
     #[test]
-    fn provider_budget_pressure_forces_inspect_transition_without_read_accounting() {
+    fn provider_budget_pressure_does_not_force_inspect_transition_without_read_accounting() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -18562,31 +17997,17 @@ mod tests {
         );
         state.provider_request_count = 30;
 
-        let error = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, "bash run")
                     .with_call_id("late-test"),
             )
-            .expect_err(
-                "provider pressure should block inspect tools even without read accounting",
-            );
-        let (message, events) = error.into_parts();
-
-        assert!(message.contains("requires_inspect_node_transition"));
-        assert!(message.contains("next_node_kind=\"implement_solution\""));
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::ToolActionBlocked(event)
-                    if event.reason == "provider_request_budget_pressure_requires_inspect_node_transition"
-                        && event.action_class == "test"
-            )
-        }));
+            .expect("provider request profile hint should not block inspect tools");
     }
 
     #[test]
-    fn thin_route_blocks_broad_recursive_directory_listing_in_inspect() {
+    fn thin_route_allows_broad_recursive_directory_listing_in_inspect() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -18602,7 +18023,7 @@ mod tests {
             true,
         );
 
-        let error = state
+        let events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -18612,19 +18033,12 @@ mod tests {
                 )
                 .with_call_id("broad-list"),
             )
-            .expect_err("thin inspect should block broad recursive listing");
-        let (message, events) = error.into_parts();
-
-        assert!(message.contains("thin_route_blocks_broad_directory_listing"));
-        assert!(message.contains("rg --files"));
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::ToolActionBlocked(event)
-                    if event.reason == "thin_route_blocks_broad_directory_listing"
-                        && event.action_class == "read"
-            )
-        }));
+            .expect("thin inspect profile must not block broad recursive listing");
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
+        );
     }
 
     #[test]
@@ -18712,7 +18126,7 @@ mod tests {
             )
             .expect("shallow listing result records");
 
-        let forced_error = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -18722,8 +18136,7 @@ mod tests {
                 )
                 .with_call_id("forced-shallow-list"),
             )
-            .expect_err("forced shallow listing should remain blocked");
-        assert!(forced_error.contains("thin_route_blocks_broad_directory_listing"));
+            .expect("forced shallow listing should remain advisory-only");
     }
 
     #[test]
@@ -18939,7 +18352,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_budget_follow_up_force_finishes_inspect_into_implementation() {
+    fn provider_budget_follow_up_does_not_force_finish_inspect_into_implementation() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -18980,43 +18393,30 @@ mod tests {
             request_phase: Some("model_sampling".to_string()),
             provider_request_context_missing_reason: None,
             request_count: 34,
-            max_requests: ActionMapRuntimeState::DEFAULT_PROVIDER_REQUEST_BUDGET_MAX,
+            max_requests: 10,
             node_request_count: 0,
             max_model_requests_per_node: 3,
             post_budget_grace_requests: 1,
             post_budget_grace_request_count: 0,
-            budget_state: "hard_stopped".to_string(),
+            budget_state: "over_profile_hint".to_string(),
         };
 
-        let (outcome, events) = state
+        let forced = state
             .force_finish_inspect_for_provider_budget(
                 owner,
                 &snapshot,
                 "budget_pressure_follow_up_intent",
             )
-            .expect("forced transition should be accepted")
-            .expect("forced transition should run");
+            .expect("profile hint follow-up should not error");
 
+        assert!(forced.is_none());
         let map = state.active_map().expect("active map");
         let inspect_node = map.nodes.get(&node_id).expect("inspect node");
-        assert_eq!(inspect_node.status, NodeStatus::Completed);
-        let next_node_id = outcome.next_node_id.expect("next implementation node");
-        let next_node = map.nodes.get(&next_node_id).expect("next node");
-        assert_eq!(next_node.kind, NodeKind::ImplementSolution);
-        assert_eq!(next_node.status, NodeStatus::Running);
+        assert_eq!(inspect_node.status, NodeStatus::Running);
         assert_eq!(
             state.current_main_node_id.as_deref(),
-            Some(next_node_id.as_str())
+            Some(node_id.as_str())
         );
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
-                    if event.kind == "forced_inspect_transition"
-                        && event.node_id == node_id
-                        && event.tags.iter().any(|tag| tag == "trigger:budget_pressure_follow_up_intent")
-            )
-        }));
     }
 
     #[test]
@@ -19222,7 +18622,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_budget_follow_up_force_finishes_implementation_into_smoke_test_after_edit() {
+    fn provider_budget_follow_up_does_not_force_finish_implementation_into_smoke_test_after_edit() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -19271,44 +18671,26 @@ mod tests {
             budget_state: "active".to_string(),
         };
 
-        let (outcome, events) = state
+        let forced = state
             .force_finish_implement_for_provider_budget(
                 owner,
                 &snapshot,
                 "budget_pressure_follow_up_intent",
             )
-            .expect("forced transition should be accepted")
-            .expect("forced transition should run");
+            .expect("profile hint follow-up should not error");
 
+        assert!(forced.is_none());
         let map = state.active_map().expect("active map");
         let implement_node = map.nodes.get(&node_id).expect("implement node");
-        assert_eq!(implement_node.status, NodeStatus::Completed);
-        let next_node_id = outcome.next_node_id.expect("next validation node");
-        let next_node = map.nodes.get(&next_node_id).expect("next node");
-        assert_eq!(next_node.kind, NodeKind::SmokeTest);
-        assert_eq!(next_node.status, NodeStatus::Running);
+        assert_eq!(implement_node.status, NodeStatus::Running);
         assert_eq!(
             state.current_main_node_id.as_deref(),
-            Some(next_node_id.as_str())
+            Some(node_id.as_str())
         );
-        let bridge_result = map.results.get(&outcome.result_id).expect("bridge result");
-        assert_eq!(
-            bridge_result.evidence_package.validity,
-            ResultValidity::Accepted
-        );
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
-                    if event.kind == "forced_implement_transition"
-                        && event.node_id == node_id
-                        && event.tags.iter().any(|tag| tag == "trigger:budget_pressure_follow_up_intent")
-            )
-        }));
     }
 
     #[test]
-    fn inspect_evidence_pressure_blocks_probe_before_provider_budget_pressure() {
+    fn inspect_evidence_pressure_does_not_block_probe_before_provider_budget_pressure() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -19343,30 +18725,22 @@ mod tests {
         }
         state.provider_request_count = 2;
 
-        let error = state
+        let events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
                     .with_call_id("read-after-threshold"),
             )
-            .expect_err("inspect evidence pressure should block more probing");
-        let (message, events) = error.into_parts();
-
-        assert!(message.contains("inspect_evidence_pressure_requires_implementation"));
-        assert!(message.contains("inspect evidence pressure is active"));
-        assert!(message.contains("next_node_kind=\"implement_solution\""));
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::ToolActionBlocked(event)
-                    if event.reason == "inspect_evidence_pressure_requires_implementation_before_more_probe"
-                        && event.action_class == "read"
-            )
-        }));
+            .expect("inspect evidence profile hint should not block more probing");
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
+        );
     }
 
     #[test]
-    fn provider_budget_pressure_blocks_validation_before_edit() {
+    fn provider_budget_pressure_does_not_block_validation_before_edit() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -19398,14 +18772,13 @@ mod tests {
             .expect("read result records");
         state.provider_request_count = 30;
 
-        let test_error = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("shell_command", ActionClass::Build, "cargo test")
                     .with_call_id("test-before-edit"),
             )
-            .expect_err("validation before edit should be blocked under pressure");
-        assert!(test_error.contains("requires_implementation_before_more_probe"));
+            .expect("provider profile hint should not block validation before edit");
 
         state
             .prepare_main_tool_call(
@@ -19413,11 +18786,11 @@ mod tests {
                 ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
                     .with_call_id("edit-1"),
             )
-            .expect("budget pressure should still allow the concrete edit");
+            .expect("provider profile hint should still allow the concrete edit");
     }
 
     #[test]
-    fn provider_budget_pressure_blocks_more_read_after_edit() {
+    fn provider_budget_pressure_does_not_block_more_read_after_edit() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -19465,14 +18838,13 @@ mod tests {
             .expect("edit result records");
         state.provider_request_count = 30;
 
-        let read_error = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("shell_command", ActionClass::Read, "Get-Content")
                     .with_call_id("read-2"),
             )
-            .expect_err("more read probing should be blocked after edit");
-        assert!(read_error.contains("blocks_more_exploration_after_edit"));
+            .expect("provider profile hint should not block more read probing after edit");
     }
 
     #[test]
@@ -19525,7 +18897,7 @@ mod tests {
     }
 
     #[test]
-    fn maintenance_barrier_allows_subagent_on_different_ready_node() {
+    fn tool_profile_hint_allows_subagent_on_different_ready_node() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -19544,17 +18916,19 @@ mod tests {
                 owner,
                 NodeKind::InspectCodeContext,
                 "Parallel evidence review".to_string(),
-                "Ready node for a separate subagent.".to_string(),
+                "Review a separate evidence surface in parallel.".to_string(),
                 Vec::new(),
                 false,
             )
             .expect("create separate ready node");
         fill_main_tool_budget(&mut state, owner);
-        assert!(state.prepare_main_tool_call(owner, "shell").is_err());
+        state
+            .prepare_main_tool_call(owner, "shell")
+            .expect("tool profile hint should not block main work");
 
         let (assignment, events) =
             prepare_test_spawn_assignment(&mut state, owner, "parallel follow-up", Some("node-2"))
-                .expect("barrier node should not block an explicit separate ready node");
+                .expect("profile hint should not block an explicit separate ready node");
 
         let assignment = assignment.expect("assignment");
         assert_eq!(assignment.node_id, "node-2");
@@ -19567,7 +18941,7 @@ mod tests {
     }
 
     #[test]
-    fn main_tool_budget_counts_inflight_parallel_calls() {
+    fn main_tool_profile_hint_counts_inflight_parallel_calls_without_blocking() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -19592,24 +18966,18 @@ mod tests {
                 .expect("in-flight call should reserve remaining budget");
         }
 
-        let error = state
+        let events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("shell", ActionClass::Read, "")
                     .with_call_id("call-over-budget"),
             )
-            .expect_err("parallel calls beyond budget should be blocked before dispatch");
-        let (message, events) = error.into_parts();
-        assert!(message.contains("in-flight tool results"));
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::MaintenanceBarrierRaised(event)
-                    if event.node_id == "node-1"
-                        && event.result_count == MAIN_TOOL_RESULT_BUDGET_PER_NODE
-                        && event.budget == MAIN_TOOL_RESULT_BUDGET_PER_NODE
-            )
-        }));
+            .expect("parallel calls beyond profile hint should remain dispatchable");
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::MaintenanceBarrierRaised(_)))
+        );
     }
 
     #[test]
@@ -19701,7 +19069,7 @@ mod tests {
     }
 
     #[test]
-    fn maintenance_barrier_can_be_cleared_by_finishing_or_blocking_current_node() {
+    fn tool_profile_hint_does_not_create_maintenance_barrier() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -19710,33 +19078,19 @@ mod tests {
             owner,
             NodeKind::ImplementSolution,
             "Broad implementation",
-            "A broad node that should be split after budget pressure.",
+            "A broad node that should be split after profile hint pressure.",
             "Broad implementation",
-            "A broad node that should be split after budget pressure.",
+            "A broad node that should be split after profile hint pressure.",
             true,
         );
         fill_main_tool_budget(&mut state, owner);
-        assert!(state.prepare_main_tool_call(owner, "shell").is_err());
-        let bind_error = state
+        state
+            .prepare_main_tool_call(owner, "shell")
+            .expect("tool profile hint should not block ordinary work");
+        state
             .bind_main_node(owner, "node-1")
-            .expect_err("binding the same overgrown node should not clear the barrier");
-        assert!(bind_error.contains("different narrower recovery node"));
-
-        let (result_id, events) = state
-            .block_main_node(
-                owner,
-                "node-1",
-                "Overgrown node needs narrower follow-up.".to_string(),
-            )
-            .expect("block overgrown node");
-        accept_test_result(&mut state, owner, &result_id);
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::MaintenanceBarrierCleared(event)
-                    if event.node_id == "node-1" && event.reason == "node_lifecycle_recorded"
-            )
-        }));
+            .expect("binding the same node should remain allowed");
+        assert!(state.snapshot().maintenance_barriers.is_empty());
 
         let (recovery_node_id, _) = state
             .create_node_for_main(
@@ -19744,15 +19098,12 @@ mod tests {
                 "Focused follow-up".to_string(),
                 "Continue with a narrower recovery node.".to_string(),
                 Vec::new(),
-                true,
+                false,
             )
-            .expect("recovery node created");
+            .expect("follow-up node can be created without a stale barrier");
 
         assert_eq!(recovery_node_id, "node-2");
-        state
-            .prepare_main_tool_call(owner, "shell")
-            .expect("recovery node should be allowed");
-        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
     }
 
     #[test]
@@ -20150,7 +19501,7 @@ mod tests {
     }
 
     #[test]
-    fn route_task_preserves_previous_task_maintenance_barrier() {
+    fn route_task_does_not_preserve_tool_profile_hint_as_barrier() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -20184,11 +19535,13 @@ mod tests {
             .bind_main_node(owner, "node-1")
             .expect("bind broad node");
         fill_main_tool_budget(&mut state, owner);
-        assert!(state.prepare_main_tool_call(owner, "shell").is_err());
+        state
+            .prepare_main_tool_call(owner, "shell")
+            .expect("tool profile hint should not block first task work");
 
         state
             .route_task_for_main(owner, "task-2")
-            .expect("route away from task with barrier");
+            .expect("route away from task with profile hint");
         let unbound_error = state
             .prepare_main_tool_call(owner, "shell")
             .expect_err("routed task still needs an explicit main node binding");
@@ -20202,20 +19555,18 @@ mod tests {
         assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
         state
             .route_task_for_main(owner, "task-1")
-            .expect("route back to barrier task");
+            .expect("route back to first task");
 
-        let error = state
+        state
             .prepare_main_tool_call(owner, "shell")
-            .expect_err("old task barrier should still block ordinary work");
-        assert!(error.contains("maintenance barrier"));
-        let bind_error = state
+            .expect("old task profile hint should not block ordinary work");
+        state
             .bind_main_node(owner, "node-1")
-            .expect_err("barrier node must not become bindable after routing");
-        assert!(bind_error.contains("different narrower recovery node"));
+            .expect("profile hint should not make the node unbindable after routing");
     }
 
     #[test]
-    fn start_task_preserves_previous_task_maintenance_barrier() {
+    fn start_task_does_not_preserve_tool_profile_hint_as_barrier() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -20224,7 +19575,7 @@ mod tests {
                 owner,
                 NodeKind::ImplementSolution,
                 "Broad task".to_string(),
-                "Task that triggers the maintenance barrier.".to_string(),
+                "Task that exceeds the old tool profile hint.".to_string(),
                 "Broad node".to_string(),
                 "A deliberately broad node.".to_string(),
                 true,
@@ -20237,7 +19588,7 @@ mod tests {
             .start_task_for_main(
                 owner,
                 "Separate task".to_string(),
-                "A separate task should not clear the old barrier.".to_string(),
+                "A separate task should not inherit the old profile hint.".to_string(),
                 "Separate node".to_string(),
                 "A separate node.".to_string(),
                 false,
@@ -20248,14 +19599,13 @@ mod tests {
             .route_task_for_main(owner, "task-1")
             .expect("route back to broad task");
 
-        let error = state
+        state
             .prepare_main_tool_call(owner, "shell")
-            .expect_err("start_task must not clear old task barrier");
-        assert!(error.contains("maintenance barrier"));
+            .expect("start_task should not preserve old profile hint as a barrier");
     }
 
     #[test]
-    fn restore_snapshot_preserves_task_map_and_barrier_state() {
+    fn restore_snapshot_discards_legacy_maintenance_barrier_state() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -20264,7 +19614,7 @@ mod tests {
                 owner,
                 NodeKind::ImplementSolution,
                 "Broad task".to_string(),
-                "Task that triggers the maintenance barrier.".to_string(),
+                "Task that exceeds the old tool profile hint.".to_string(),
                 "Broad node".to_string(),
                 "A deliberately broad node.".to_string(),
                 true,
@@ -20273,37 +19623,33 @@ mod tests {
         seed_test_cognitive_preflight(&mut state, owner);
         fill_main_tool_budget(&mut state, owner);
         let snapshot = state.snapshot();
-        assert_eq!(snapshot.maintenance_barriers.len(), 1);
+        assert!(snapshot.maintenance_barriers.is_empty());
 
         let mut restored = ActionMapRuntimeState::default();
         restored.restore_snapshot(snapshot.clone());
 
-        assert_eq!(restored.snapshot(), snapshot);
-        let error = restored
-            .prepare_main_tool_call(owner, "shell")
-            .expect_err("restored barrier should block ordinary work");
-        assert!(error.contains("maintenance barrier"));
+        let restored_snapshot = restored.snapshot();
+        assert!(restored_snapshot.maintenance_barriers.is_empty());
+        assert_eq!(restored_snapshot.active_task_id, snapshot.active_task_id);
+        assert_eq!(restored_snapshot.active_map_id, snapshot.active_map_id);
+        assert_eq!(restored_snapshot.maps.len(), snapshot.maps.len());
         restored
-            .block_main_node(
-                owner,
-                "node-1",
-                "Overgrown restored node needs narrower follow-up.".to_string(),
-            )
-            .expect("block restored overgrown node");
+            .prepare_main_tool_call(owner, "shell")
+            .expect("restored profile hint should not block ordinary work");
         let (recovery_node_id, _) = restored
             .create_node_for_main(
                 owner,
                 "Recovery node".to_string(),
                 "A narrower recovery node.".to_string(),
                 Vec::new(),
-                true,
+                false,
             )
             .expect("recovery node after restore");
         assert_eq!(recovery_node_id, "node-2");
     }
 
     #[test]
-    fn restart_clears_maintenance_barrier_with_event() {
+    fn restart_has_no_maintenance_barrier_to_clear_after_profile_hint() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -20318,17 +19664,17 @@ mod tests {
             true,
         );
         fill_main_tool_budget(&mut state, owner);
-        assert!(state.prepare_main_tool_call(owner, "shell").is_err());
+        state
+            .prepare_main_tool_call(owner, "shell")
+            .expect("tool profile hint should not block ordinary work");
 
         let (_, _, events) = state.restart_active_map(owner, "Reborn map");
 
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::MaintenanceBarrierCleared(event)
-                    if event.node_id == "node-1" && event.reason == "map_restarted"
-            )
-        }));
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::MaintenanceBarrierCleared(_)))
+        );
         let error = state
             .prepare_main_tool_call(owner, "shell")
             .expect_err("new empty map should require a concrete node, not report old barrier");
