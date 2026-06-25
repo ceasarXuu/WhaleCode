@@ -12,6 +12,7 @@ use std::time::UNIX_EPOCH;
 
 use crate::action_map::ActionClass;
 use crate::action_map::ActionMapAssignment;
+use crate::action_map::ActionMapExactPayloadScanEventInput;
 use crate::action_map::ActionMapFinishNodeOutcome;
 use crate::action_map::ActionMapNextNodeDraft;
 use crate::action_map::ActionMapProviderRequestBudgetEventInput;
@@ -1155,6 +1156,29 @@ impl Session {
                 large_raw_output_tokens: event.large_raw_output_tokens,
                 protected_items_present: event.protected_items_present,
                 replacement_confirmed: event.replacement_confirmed,
+                exact_payload_scan: event.exact_payload_scan.map(|scan| {
+                    ActionMapExactPayloadScanEventInput {
+                        scan_event_id: scan.scan_event_id,
+                        request_id: scan.request_id,
+                        provider_payload_sha256: scan.provider_payload_sha256,
+                        scanner_version: scan.scanner_version,
+                        matcher_version: scan.matcher_version,
+                        checked_byte_ranges: scan.checked_byte_ranges,
+                        negative_checks_performed: scan.negative_checks_performed,
+                        active_projection_present: scan.active_projection_present,
+                        legacy_taskspace_history_present: scan.legacy_taskspace_history_present,
+                        raw_taskspace_control_history_tokens: scan
+                            .raw_taskspace_control_history_tokens,
+                        completed_stale_node_history_tokens: scan
+                            .completed_stale_node_history_tokens,
+                        rejected_subagent_body_tokens: scan.rejected_subagent_body_tokens,
+                        large_raw_output_tokens: scan.large_raw_output_tokens,
+                        protected_items_present: scan.protected_items_present,
+                        replacement_confirmed: scan.replacement_confirmed,
+                        passed: scan.passed,
+                        failure_reasons: scan.failure_reasons,
+                    }
+                }),
                 task_id: event.task_id,
                 map_id: event.map_id,
                 node_id: event.node_id,

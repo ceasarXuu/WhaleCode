@@ -42,8 +42,8 @@ Required work:
 [~] Replace count/max-only ProviderRequestBudgetContext; current shape still carries profile max fields but dispatch is advisory
 [x] Record rollout request profile hints without blocking dispatch
 [x] Record per-node request profile hints without forcing recovery
-[ ] Generate producer-owned ExactPayloadScanEventV1 before redaction/hash-only fallback
-[ ] Add exact_payload_scan_event_id to ProviderRequestBudgetEvent from producer-owned scan
+[x] Generate producer-owned ExactPayloadScanEventV1 before redaction/hash-only fallback
+[x] Add exact_payload_scan_event_id to ProviderRequestBudgetEvent from producer-owned scan
 [x] Preserve request_id/logical_request_id/attempt across retry/fallback
 [x] Ensure terminal event is generated for completed/error/cancelled/blocked
 ```
@@ -79,12 +79,12 @@ Required work:
 Required work:
 
 ```text
-[ ] Parse exact_payload_scan runtime events instead of synthesizing scan events from budget booleans
+[x] Parse exact_payload_scan runtime events instead of synthesizing scan events from budget booleans
 [x] Add phase_counts and phase_token_summary
 [~] Parse BudgetQualityImpactV1 full fields
 [ ] Parse legacy_state_action_attempt events
 [~] Parse route-aware spawn/node/subagent profile fields
-[~] Fail summaries when required producer-owned evidence is missing
+[x] Fail summaries when required producer-owned evidence is missing
 [x] Split taskspace_control usage into native and action-contract lifecycle counts
 ```
 
@@ -93,8 +93,8 @@ Required work:
 Required work:
 
 ```text
-[~] Block release if exact payload scan is missing or hash/request mismatch
-[~] Block release if active replacement proof is hash-only without exact scan
+[x] Block release if exact payload scan is missing or hash/request mismatch
+[x] Block release if active replacement proof is hash-only without exact scan
 [ ] Block DeepSeek release-like claims if TaskSpace provider-cache-trace-summary.json is missing
 [ ] Block DeepSeek release-like claims if request_2_plus_hit_rate < 0.95
 [ ] Block DeepSeek release-like claims if trace_coverage < 0.99
@@ -128,12 +128,13 @@ cargo check -p codex-cli --locked
   passed
 taskspace_action_contract / taskspace_control focused gates
   passed in the action-contract ABI repair run
+Phase C exact payload scan gates
+  provider_payload, provider_request_budget replayable trace, taskspace, cost instrumentation, and release decision passed
 ```
 
 Current code-complete blockers:
 
 ```text
-Phase C producer-owned exact payload scan event is missing
 Phase E independent legacy state action attempt denominator is missing
 Phase G canonical v005-non-agent-gates.json builder is missing
 post-ABI B-tier smoke business/cache/open-leaf/walltime evidence is missing

@@ -718,7 +718,17 @@ $activeReplacementRequestId = Get-ReleaseString $activeReplacement "request_id"
 $activeReplacementPayloadHash = Get-ReleaseString $activeReplacement "provider_payload_sha256"
 $matchingExactScanEvents = @($exactPayloadScanEvents | Where-Object {
         [string]$_.schema_version -eq "taskspace-exact-payload-scan-event-v1" -and
+        ([string]$_.producer -eq "provider_payload_scanner" -or [string]$_.producer -eq "provider_lifecycle") -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.scanner_version) -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.matcher_version) -and
         [bool]$_.passed -and
+        [bool]$_.active_projection_present -and
+        -not [bool]$_.legacy_taskspace_history_present -and
+        [int]$_.raw_taskspace_control_history_tokens -eq 0 -and
+        [int]$_.completed_stale_node_history_tokens -eq 0 -and
+        [int]$_.rejected_subagent_body_tokens -eq 0 -and
+        [int]$_.large_raw_output_tokens -eq 0 -and
+        [bool]$_.protected_items_present -and
         [string]$_.scan_event_id -eq $activeReplacementScanId -and
         [string]$_.provider_payload_sha256 -eq $activeReplacementPayloadHash -and
         (-not [string]::IsNullOrWhiteSpace($activeReplacementRequestId) -and [string]$_.request_id -eq $activeReplacementRequestId)
@@ -738,7 +748,11 @@ $activeReplacementPass = ($activeReplacement `
     -and -not [string]::IsNullOrWhiteSpace($activeReplacementScanId) `
     -and (Get-ReleaseBool $activeReplacement "replacement_confirmed") `
     -and -not (Get-ReleaseBool $activeReplacement "legacy_taskspace_history_present" $true) `
+    -and (Get-ReleaseInt $activeReplacement "raw_taskspace_control_history_tokens" 0) -eq 0 `
+    -and (Get-ReleaseInt $activeReplacement "completed_stale_node_history_tokens" 0) -eq 0 `
+    -and (Get-ReleaseInt $activeReplacement "rejected_subagent_body_tokens" 0) -eq 0 `
     -and (Get-ReleaseInt $activeReplacement "large_raw_output_tokens" 1) -eq 0 `
+    -and (Get-ReleaseBool $activeReplacement "protected_items_present") `
     -and $exactScanPass)
 $stateCommitDisplacementPass = ($stateCommitDisplacement `
     -and (Get-ReleaseString $stateCommitDisplacement "status") -eq "pass" `

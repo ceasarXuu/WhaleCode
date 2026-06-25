@@ -116,6 +116,7 @@ As of 2026-06-26, the post-A/B implementation state is:
 ```text
 Phase A advisory profile semantics are implemented.
 Phase B request phase attribution is implemented for core semantic producers.
+Phase C producer-owned exact payload scan proof is implemented locally.
 TaskSpace action-contract taskspace_control ABI canonicalization is fixed.
 codex-core full library gate is green on the current commit.
 ```
@@ -132,6 +133,11 @@ cargo check -p codex-cli --locked
 taskspace_control action-contract ABI:
   action_name / command / control_action / control_type aliases are canonicalized before native handler execution
   taskspace_control_count now includes native tool calls and taskspace-action-v1 lifecycle controls
+
+Phase C exact payload scan:
+  exact_payload_scan runtime trace is produced by provider_payload_scanner
+  active replacement artifacts no longer synthesize scan rows from provider budget booleans
+  release decision fails hash-only, synthetic-producer, mismatched-hash, missing-provider-join, and missing-protected-items fixtures
 ```
 
 This changes the remaining work shape. The old B-tier `missing field action`
@@ -148,8 +154,8 @@ The alpha branch now has these implementation states:
 | Provider request budget / profile | Phase A advisory-only dispatch and spawn/node profile gates are implemented | `budget_recovery` still exists as a compatibility attribution path; it must not become a profile hard-stop |
 | Request phase attribution | `TaskSpaceProviderRequestPhase`, pending provider phase state, `ProviderRequestAttribution::from_snapshot`, `phase_counts`, and `phase_token_summary` exist | Some enum variants remain reserved/deferred; post-ABI B-tier rerun is still needed |
 | TaskSpace action contract ABI | `taskspace-action-v1` lifecycle controls are canonicalized before native `taskspace_control`; benchmark usage splits native vs action-contract controls | Needs post-ABI B-tier business validation |
-| Active context replacement / payload scan | Provider request events carry payload hash and scan booleans; release fixtures read `exact-payload-scan-events.jsonl` | Phase C is still partial because scan events are derived from provider budget events rather than independent producer-owned scan events |
-| Budget quality impact | Advisory-only profile semantics are reflected in budget quality summaries | Still depends on Phase C/E/G artifacts for release-like closeout |
+| Active context replacement / payload scan | Provider request events carry payload hash and scan booleans; `exact_payload_scan` runtime trace is emitted with producer `provider_payload_scanner`; release fixtures require request_id/hash join | Needs post-ABI B-tier evidence on a real run, but the Phase C producer-owned gate is implemented locally |
+| Budget quality impact | Advisory-only profile semantics are reflected in budget quality summaries | Still depends on Phase E/G artifacts for release-like closeout |
 | `state_commit` displacement | `state_commit_displacement` runtime trace exists | Phase E is not complete: denominator still comes from accepted/rejected state_commit sections, not independent legacy action attempts |
 | Spawn/node profile and subagent quality | Spawn/node profile traces are advisory; runtime enforces subagent plan and unreviewed-result gates | Artifact/release summary for unreviewed subagent result quality remains incomplete |
 | Release/start gates | Release decision and E3 start gate know v0.0.5 markers | `build-v005-non-agent-gates.ps1` / canonical `v005-non-agent-gates.json` builder is missing |
@@ -161,10 +167,10 @@ Complete the work in this order. Do not run real E3 until Phase G is green.
 ```text
 Phase A  Done: advisory active complexity profile and profile-hint observability
 Phase B  Done with caveats: request phase attribution and context propagation
-Phase C  Partial: exact provider payload scan proof; producer-owned scan event still required
+Phase C  Done locally: exact provider payload scan proof with producer-owned scan event and release fixtures
 Phase D  Mostly aligned: advisory profile quality impact and hard-stop regression detection
 Phase E  Blocker: legacy state action displacement denominator still needs real attempt events
 Phase F  Partial: runtime subagent quality gates exist; artifact/release summary remains pending
 Phase G  Blocker: canonical non-agent gate builder and evidence bundle still missing
-Phase H  Blocked: targeted diagnostic and formal E3 readiness wait for C/E/G and post-ABI B smoke
+Phase H  Blocked: targeted diagnostic and formal E3 readiness wait for E/G and post-ABI B smoke
 ```

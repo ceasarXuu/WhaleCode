@@ -14,7 +14,6 @@ Current status as of 2026-06-26: blocked.
 Do not run targeted diagnostic or formal E3 yet. The current blockers are:
 
 ```text
-Phase C producer-owned exact payload scan is not complete
 Phase E legacy state action denominator is not complete
 Phase G build-v005-non-agent-gates.ps1 / v005-non-agent-gates.json is missing
 post-ABI B-tier smoke has not been rerun after taskspace_control ABI repair

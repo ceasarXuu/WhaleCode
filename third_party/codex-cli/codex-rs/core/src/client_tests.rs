@@ -334,6 +334,17 @@ fn provider_request_budget_records_started_and_terminal_status() {
     assert_eq!(events[1].active_projection_present, Some(true));
     assert_eq!(events[1].legacy_taskspace_history_present, Some(false));
     assert_eq!(events[1].replacement_confirmed, Some(true));
+    let exact_scan = events[1]
+        .exact_payload_scan
+        .as_ref()
+        .expect("payload_captured exact scan");
+    assert_eq!(exact_scan.request_id, events[1].request_id);
+    assert_eq!(exact_scan.provider_payload_sha256, payload_sha256);
+    assert_eq!(
+        exact_scan.scan_event_id,
+        format!("scan:{}:{}", events[1].request_id, payload_sha256)
+    );
+    assert!(exact_scan.passed);
     assert_eq!(
         events[2].provider_payload_sha256.as_deref(),
         Some(payload_sha256.as_str())
@@ -366,6 +377,13 @@ fn provider_request_budget_records_started_and_terminal_status() {
     );
     assert_eq!(terminal_events[0].exact_payload_scan_passed, Some(true));
     assert_eq!(terminal_events[0].replacement_confirmed, Some(true));
+    assert_eq!(
+        terminal_events[0]
+            .exact_payload_scan
+            .as_ref()
+            .map(|scan| scan.scan_event_id.as_str()),
+        Some(exact_scan.scan_event_id.as_str())
+    );
     assert!(terminal_events[0].completed_at_ms.is_some());
     assert!(terminal_events[0].latency_ms.is_some());
 }
@@ -376,18 +394,14 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
         "input": "ContextProjectionV1 active replacement:\n- protected"
     }))
     .expect("active payload digest");
-    assert!(active.scan.exact_payload_scan_passed);
+    assert!(active.scan.passed);
     assert!(active.scan.replacement_confirmed);
 
     let active_with_current_control_guidance = provider_payload_digest(&json!({
-        "input": "ContextProjectionV1 active replacement:\nUse taskspace_control for state changes."
+        "input": "ContextProjectionV1 active replacement:\n- protected\nUse taskspace_control for state changes."
     }))
     .expect("active payload digest with current control guidance");
-    assert!(
-        active_with_current_control_guidance
-            .scan
-            .exact_payload_scan_passed
-    );
+    assert!(active_with_current_control_guidance.scan.passed);
     assert!(
         active_with_current_control_guidance
             .scan
@@ -400,7 +414,7 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     .expect("legacy payload digest");
     assert!(legacy.scan.active_projection_present);
     assert!(legacy.scan.legacy_taskspace_history_present);
-    assert!(!legacy.scan.exact_payload_scan_passed);
+    assert!(!legacy.scan.passed);
     assert!(!legacy.scan.replacement_confirmed);
 
     let missing_protected = provider_payload_digest(&json!({
@@ -409,7 +423,11 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     .expect("missing protected payload digest");
     assert!(missing_protected.scan.active_projection_present);
     assert!(!missing_protected.scan.protected_items_present);
-    assert!(missing_protected.scan.exact_payload_scan_passed);
+    assert!(!missing_protected.scan.passed);
+    assert_eq!(
+        missing_protected.scan.failure_reasons,
+        vec!["protected_items_missing".to_string()]
+    );
 
     let large_instruction_text = "x".repeat(60 * 1024);
     let large_active_instructions = provider_payload_digest(&json!({
@@ -417,7 +435,7 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     }))
     .expect("large active instruction payload digest");
     assert_eq!(large_active_instructions.scan.large_raw_output_tokens, 0);
-    assert!(large_active_instructions.scan.exact_payload_scan_passed);
+    assert!(large_active_instructions.scan.passed);
 
     let raw_output = "x".repeat(60 * 1024);
     let large_raw = provider_payload_digest(&json!({
@@ -436,7 +454,7 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     }))
     .expect("large raw payload digest");
     assert!(large_raw.scan.large_raw_output_tokens > 0);
-    assert!(!large_raw.scan.exact_payload_scan_passed);
+    assert!(!large_raw.scan.passed);
 
     let output_ref = provider_payload_digest(&json!({
         "input": [
@@ -454,7 +472,7 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     }))
     .expect("output ref payload digest");
     assert_eq!(output_ref.scan.large_raw_output_tokens, 0);
-    assert!(output_ref.scan.exact_payload_scan_passed);
+    assert!(output_ref.scan.passed);
 }
 
 #[test]

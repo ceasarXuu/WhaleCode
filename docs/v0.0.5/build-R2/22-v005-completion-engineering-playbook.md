@@ -15,9 +15,10 @@ As of 2026-06-26:
 ```text
 Phase A is implemented: profile is advisory-only, not a session/request/spawn/node hard cap.
 Phase B is implemented: request phase attribution and phase summaries exist.
+Phase C is implemented locally: exact_payload_scan is producer-owned and release fixtures reject synthetic/hash-only proof.
 TaskSpace action-contract taskspace_control ABI repair is implemented after Phase B.
 codex-core full library gate is green on the current follow-up fix.
-Phase C/E/G remain blockers before Phase H or formal E3.
+Phase E/G plus post-ABI B-tier evidence remain blockers before Phase H or formal E3.
 ```
 
 Read `00-overview-and-gates.md` and `09-module-checklist-and-closeout.md` for the current blocker list before executing any later phase.

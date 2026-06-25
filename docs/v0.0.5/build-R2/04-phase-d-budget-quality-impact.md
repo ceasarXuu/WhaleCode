@@ -2,7 +2,7 @@
 
 > 2026-06-25 更新：预算/profile 不再产生硬停；本阶段只保留质量影响与回归检测。
 >
-> 2026-06-26 复核：Phase A 后续修复没有恢复 hard stop。Phase D 的方向保持有效，但 release-like closeout 仍依赖 Phase C/E/G 的 producer-owned 证据。
+> 2026-06-26 复核：Phase A 后续修复没有恢复 hard stop。Phase C 已补齐 producer-owned scan 证据；Phase D 的 release-like closeout 仍依赖 Phase E/G。
 
 ## D.1 目标
 

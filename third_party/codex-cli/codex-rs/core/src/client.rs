@@ -156,6 +156,28 @@ const MEMORIES_SUMMARIZE_ENDPOINT: &str = "/memories/trace_summarize";
 pub(crate) const WEBSOCKET_CONNECT_TIMEOUT: Duration =
     Duration::from_millis(DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS);
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct ExactPayloadScanEventV1 {
+    pub(crate) schema_version: &'static str,
+    pub(crate) scan_event_id: String,
+    pub(crate) request_id: String,
+    pub(crate) provider_payload_sha256: String,
+    pub(crate) scanner_version: String,
+    pub(crate) matcher_version: String,
+    pub(crate) checked_byte_ranges: Vec<(usize, usize)>,
+    pub(crate) negative_checks_performed: Vec<String>,
+    pub(crate) active_projection_present: bool,
+    pub(crate) legacy_taskspace_history_present: bool,
+    pub(crate) raw_taskspace_control_history_tokens: usize,
+    pub(crate) completed_stale_node_history_tokens: usize,
+    pub(crate) rejected_subagent_body_tokens: usize,
+    pub(crate) large_raw_output_tokens: usize,
+    pub(crate) protected_items_present: bool,
+    pub(crate) replacement_confirmed: bool,
+    pub(crate) passed: bool,
+    pub(crate) failure_reasons: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderRequestBudgetEvent {
     pub(crate) request_id: String,
@@ -193,6 +215,7 @@ pub(crate) struct ProviderRequestBudgetEvent {
     pub(crate) large_raw_output_tokens: Option<usize>,
     pub(crate) protected_items_present: Option<bool>,
     pub(crate) replacement_confirmed: Option<bool>,
+    pub(crate) exact_payload_scan: Option<ExactPayloadScanEventV1>,
     pub(crate) task_id: Option<String>,
     pub(crate) map_id: Option<String>,
     pub(crate) node_id: Option<String>,
@@ -274,17 +297,7 @@ struct ProviderRequestBudgetActiveRequest {
     messages_hash: Option<String>,
     stable_prefix_hash: Option<String>,
     dynamic_suffix_hash: Option<String>,
-    payload_scan: Option<ProviderPayloadScan>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ProviderPayloadScan {
-    exact_payload_scan_passed: bool,
-    active_projection_present: bool,
-    legacy_taskspace_history_present: bool,
-    large_raw_output_tokens: usize,
-    protected_items_present: bool,
-    replacement_confirmed: bool,
+    payload_scan: Option<ExactPayloadScanEventV1>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -298,7 +311,7 @@ struct ProviderPayloadDigest {
     messages_hash: String,
     stable_prefix_hash: String,
     dynamic_suffix_hash: String,
-    scan: ProviderPayloadScan,
+    scan: ExactPayloadScanEventV1,
 }
 
 struct ProviderRequestIdentity {
@@ -472,6 +485,7 @@ impl ProviderRequestBudgetContext {
             large_raw_output_tokens: None,
             protected_items_present: None,
             replacement_confirmed: None,
+            exact_payload_scan: None,
             task_id: self.state.attribution.task_id.clone(),
             map_id: self.state.attribution.map_id.clone(),
             node_id: self.state.attribution.node_id.clone(),
@@ -506,7 +520,7 @@ impl ProviderRequestBudgetContext {
         self.record_active_terminal_status("cancelled", None);
     }
 
-    fn record_provider_payload(&self, payload: ProviderPayloadDigest) {
+    fn record_provider_payload(&self, mut payload: ProviderPayloadDigest) {
         if !self.state.enabled {
             return;
         }
@@ -519,6 +533,10 @@ impl ProviderRequestBudgetContext {
             let Some(active_request) = active_request.as_mut() else {
                 return;
             };
+            payload.scan.request_id = active_request.request_id.clone();
+            payload.scan.provider_payload_sha256 = payload.sha256.clone();
+            payload.scan.scan_event_id =
+                format!("scan:{}:{}", active_request.request_id, payload.sha256);
             active_request.provider_payload_sha256 = Some(payload.sha256);
             active_request.provider_payload_bytes = Some(payload.bytes);
             active_request.provider_wire_api = Some(payload.provider_wire_api);
@@ -531,7 +549,7 @@ impl ProviderRequestBudgetContext {
             active_request.payload_scan = Some(payload.scan);
             active_request.clone()
         };
-        let scan = active_request.payload_scan;
+        let scan = active_request.payload_scan.clone();
         self.push_event(ProviderRequestBudgetEvent {
             request_id: active_request.request_id,
             logical_request_id: active_request.logical_request_id,
@@ -562,7 +580,7 @@ impl ProviderRequestBudgetContext {
             messages_hash: active_request.messages_hash,
             stable_prefix_hash: active_request.stable_prefix_hash,
             dynamic_suffix_hash: active_request.dynamic_suffix_hash,
-            exact_payload_scan_passed: scan.as_ref().map(|scan| scan.exact_payload_scan_passed),
+            exact_payload_scan_passed: scan.as_ref().map(|scan| scan.passed),
             active_projection_present: scan.as_ref().map(|scan| scan.active_projection_present),
             legacy_taskspace_history_present: scan
                 .as_ref()
@@ -570,6 +588,7 @@ impl ProviderRequestBudgetContext {
             large_raw_output_tokens: scan.as_ref().map(|scan| scan.large_raw_output_tokens),
             protected_items_present: scan.as_ref().map(|scan| scan.protected_items_present),
             replacement_confirmed: scan.as_ref().map(|scan| scan.replacement_confirmed),
+            exact_payload_scan: scan,
             task_id: self.state.attribution.task_id.clone(),
             map_id: self.state.attribution.map_id.clone(),
             node_id: self.state.attribution.node_id.clone(),
@@ -622,7 +641,7 @@ impl ProviderRequestBudgetContext {
                 exact_payload_scan_passed: active_request
                     .payload_scan
                     .as_ref()
-                    .map(|scan| scan.exact_payload_scan_passed),
+                    .map(|scan| scan.passed),
                 active_projection_present: active_request
                     .payload_scan
                     .as_ref()
@@ -643,6 +662,7 @@ impl ProviderRequestBudgetContext {
                     .payload_scan
                     .as_ref()
                     .map(|scan| scan.replacement_confirmed),
+                exact_payload_scan: active_request.payload_scan,
                 task_id: self.state.attribution.task_id.clone(),
                 map_id: self.state.attribution.map_id.clone(),
                 node_id: self.state.attribution.node_id.clone(),
@@ -797,9 +817,7 @@ impl ProviderRequestBudgetDispatch {
                 dynamic_suffix_hash: active_payload
                     .as_ref()
                     .and_then(|active| active.dynamic_suffix_hash.clone()),
-                exact_payload_scan_passed: payload_scan
-                    .as_ref()
-                    .map(|scan| scan.exact_payload_scan_passed),
+                exact_payload_scan_passed: payload_scan.as_ref().map(|scan| scan.passed),
                 active_projection_present: payload_scan
                     .as_ref()
                     .map(|scan| scan.active_projection_present),
@@ -813,6 +831,7 @@ impl ProviderRequestBudgetDispatch {
                     .as_ref()
                     .map(|scan| scan.protected_items_present),
                 replacement_confirmed: payload_scan.as_ref().map(|scan| scan.replacement_confirmed),
+                exact_payload_scan: payload_scan,
                 task_id: context.state.attribution.task_id.clone(),
                 map_id: context.state.attribution.map_id.clone(),
                 node_id: context.state.attribution.node_id.clone(),
@@ -854,6 +873,7 @@ fn provider_payload_digest_for_wire<T: serde::Serialize>(
     let bytes = serde_json::to_vec(payload).ok()?;
     let value = serde_json::to_value(payload).ok()?;
     let text = String::from_utf8_lossy(&bytes);
+    let sha256 = sha256_hex(&bytes);
     let tools_count = value
         .get("tools")
         .and_then(|tools| tools.as_array())
@@ -865,24 +885,8 @@ fn provider_payload_digest_for_wire<T: serde::Serialize>(
     } else {
         "tool_free_action_contract"
     };
-    let active_projection_present = text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER);
-    let legacy_taskspace_history_present = text.contains(TASKSPACE_SHADOW_PROJECTION_MARKER)
-        || text.contains("TaskSpace Bootstrap")
-        || text.contains("TaskSpace ContextProjectionV1 shadow update");
-    let active_projection_block = text
-        .split(TASKSPACE_ACTIVE_PROJECTION_MARKER)
-        .nth(1)
-        .unwrap_or_default();
-    let protected_items_present = active_projection_block.contains("- protected")
-        || active_projection_block.contains("protected_item")
-        || active_projection_block.contains("protected item")
-        || active_projection_block.contains("protected evidence");
-    let large_raw_output_tokens = estimate_large_raw_output_tokens(&value);
-    let replacement_confirmed = active_projection_present
-        && !legacy_taskspace_history_present
-        && large_raw_output_tokens == 0;
     Some(ProviderPayloadDigest {
-        sha256: sha256_hex(&bytes),
+        sha256: sha256.clone(),
         bytes: bytes.len(),
         provider_wire_api: format!("{provider_wire_api:?}"),
         tools_count,
@@ -891,15 +895,98 @@ fn provider_payload_digest_for_wire<T: serde::Serialize>(
         messages_hash: json_field_hash(&value, "input"),
         stable_prefix_hash: json_field_hash(&value, "instructions"),
         dynamic_suffix_hash: json_field_hash(&value, "input"),
-        scan: ProviderPayloadScan {
-            exact_payload_scan_passed: replacement_confirmed,
-            active_projection_present,
-            legacy_taskspace_history_present,
-            large_raw_output_tokens,
-            protected_items_present,
-            replacement_confirmed,
-        },
+        scan: scan_provider_payload_text("request-unbound", &sha256, &text, &value),
     })
+}
+
+fn scan_provider_payload_text(
+    request_id: &str,
+    sha256: &str,
+    text: &str,
+    value: &serde_json::Value,
+) -> ExactPayloadScanEventV1 {
+    let active_projection_present = text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER);
+    let legacy_taskspace_history_present = text.contains(TASKSPACE_SHADOW_PROJECTION_MARKER)
+        || text.contains("TaskSpace Bootstrap")
+        || text.contains("TaskSpace ContextProjectionV1 shadow update")
+        || text.contains("TaskSpace mode is now active")
+        || text.contains("taskspace_control(");
+    let active_projection_block = text
+        .split(TASKSPACE_ACTIVE_PROJECTION_MARKER)
+        .nth(1)
+        .unwrap_or_default();
+    let protected_items_present = active_projection_block.contains("- protected")
+        || active_projection_block.contains("protected_item")
+        || active_projection_block.contains("protected item")
+        || active_projection_block.contains("protected evidence");
+    let raw_taskspace_control_history_tokens =
+        estimate_marker_context_tokens(text, "taskspace_control(");
+    let completed_stale_node_history_tokens =
+        estimate_marker_context_tokens(text, "completed stale node");
+    let rejected_subagent_body_tokens = estimate_marker_context_tokens(text, "rejected subagent");
+    let large_raw_output_tokens = estimate_large_raw_output_tokens(value);
+    let replacement_confirmed = active_projection_present
+        && !legacy_taskspace_history_present
+        && large_raw_output_tokens == 0
+        && protected_items_present;
+    let mut failure_reasons = Vec::new();
+    if !active_projection_present {
+        failure_reasons.push("active_projection_missing".to_string());
+    }
+    if legacy_taskspace_history_present {
+        failure_reasons.push("legacy_taskspace_history_present".to_string());
+    }
+    if raw_taskspace_control_history_tokens > 0 {
+        failure_reasons.push("raw_taskspace_control_history_present".to_string());
+    }
+    if completed_stale_node_history_tokens > 0 {
+        failure_reasons.push("completed_stale_node_history_present".to_string());
+    }
+    if rejected_subagent_body_tokens > 0 {
+        failure_reasons.push("rejected_subagent_body_present".to_string());
+    }
+    if large_raw_output_tokens > 0 {
+        failure_reasons.push("large_raw_output_present".to_string());
+    }
+    if !protected_items_present {
+        failure_reasons.push("protected_items_missing".to_string());
+    }
+    ExactPayloadScanEventV1 {
+        schema_version: "taskspace-exact-payload-scan-event-v1",
+        scan_event_id: format!("scan:{request_id}:{sha256}"),
+        request_id: request_id.to_string(),
+        provider_payload_sha256: sha256.to_string(),
+        scanner_version: "v005-exact-scan-2".to_string(),
+        matcher_version: "v005-marker-and-structural-negative-checks-2".to_string(),
+        checked_byte_ranges: vec![(0, text.len())],
+        negative_checks_performed: vec![
+            "legacy_taskspace_history".to_string(),
+            "raw_taskspace_control_history".to_string(),
+            "completed_stale_node_history".to_string(),
+            "rejected_subagent_body".to_string(),
+            "large_raw_output".to_string(),
+        ],
+        active_projection_present,
+        legacy_taskspace_history_present,
+        raw_taskspace_control_history_tokens,
+        completed_stale_node_history_tokens,
+        rejected_subagent_body_tokens,
+        large_raw_output_tokens,
+        protected_items_present,
+        replacement_confirmed,
+        passed: failure_reasons.is_empty(),
+        failure_reasons,
+    }
+}
+
+fn estimate_marker_context_tokens(text: &str, marker: &str) -> usize {
+    text.match_indices(marker)
+        .map(|(index, _)| {
+            let start = index.saturating_sub(1024);
+            let end = text.len().min(index.saturating_add(marker.len() + 1024));
+            end.saturating_sub(start).max(marker.len()).div_ceil(4)
+        })
+        .sum()
 }
 
 fn estimate_large_raw_output_tokens(value: &serde_json::Value) -> usize {

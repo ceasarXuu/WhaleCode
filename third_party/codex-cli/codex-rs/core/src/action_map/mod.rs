@@ -12,6 +12,7 @@ pub(crate) use map::ToolActionDescriptor;
 pub(crate) use runtime::ActionMapAssignment;
 pub(crate) use runtime::ActionMapCognitiveClaimInput;
 pub(crate) use runtime::ActionMapEvidenceRefInput;
+pub(crate) use runtime::ActionMapExactPayloadScanEventInput;
 pub(crate) use runtime::ActionMapFinishNodeOutcome;
 pub(crate) use runtime::ActionMapLedgerDecisionInput;
 pub(crate) use runtime::ActionMapNextNodeDraft;

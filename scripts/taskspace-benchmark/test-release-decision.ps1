@@ -130,9 +130,20 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         }) (Join-Path $dir "provider-cache-trace-summary.json")
     ([pscustomobject]@{
         schema_version = "taskspace-exact-payload-scan-event-v1"
+        producer = "provider_payload_scanner"
         scan_event_id = "scan-1"
         request_id = "provider-request-1"
         provider_payload_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        scanner_version = "v005-exact-scan-2"
+        matcher_version = "v005-marker-and-structural-negative-checks-2"
+        active_projection_present = $true
+        legacy_taskspace_history_present = $false
+        raw_taskspace_control_history_tokens = 0
+        completed_stale_node_history_tokens = 0
+        rejected_subagent_body_tokens = 0
+        large_raw_output_tokens = 0
+        protected_items_present = $true
+        replacement_confirmed = $true
         passed = $true
     } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $dir "exact-payload-scan-events.jsonl") -Encoding UTF8
     Write-Json ([pscustomobject]@{
@@ -143,8 +154,11 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             exact_payload_scan_event_id = "scan-1"
             replacement_confirmed = $true
             legacy_taskspace_history_present = $false
+            raw_taskspace_control_history_tokens = 0
+            completed_stale_node_history_tokens = 0
+            rejected_subagent_body_tokens = 0
             large_raw_output_tokens = 0
-            protected_items_present = $false
+            protected_items_present = $true
         }) (Join-Path $dir "active-context-replacement-report.json")
     Write-Json ([pscustomobject]@{
             status = "pass"
@@ -741,6 +755,27 @@ $scanRows[0].provider_payload_sha256 = "cccccccccccccccccccccccccccccccccccccccc
 Assert-True ($LASTEXITCODE -eq 1) "mismatched exact scan fixture did not exit 1"
 $mismatchedScanDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $mismatchedScanDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($mismatchedScanDecision.blockers) -contains "active_context_replacement_gate_failed") "mismatched scan fixture did not report active replacement blocker"
+
+$syntheticScanDir = New-FixtureRun "synthetic-exact-scan" "PASS" $true 0
+$scanRows = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $syntheticScanDir "exact-payload-scan-events.jsonl") | ForEach-Object { $_ | ConvertFrom-Json }
+$scanRows[0].producer = "cost_instrumentation_synthesized"
+($scanRows[0] | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $syntheticScanDir "exact-payload-scan-events.jsonl") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $syntheticScanDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "synthetic exact scan fixture did not exit 1"
+$syntheticScanDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $syntheticScanDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($syntheticScanDecision.blockers) -contains "active_context_replacement_gate_failed") "synthetic scan fixture did not report active replacement blocker"
+
+$missingProtectedItemsDir = New-FixtureRun "missing-protected-items" "PASS" $true 0
+$scanRows = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $missingProtectedItemsDir "exact-payload-scan-events.jsonl") | ForEach-Object { $_ | ConvertFrom-Json }
+$scanRows[0].protected_items_present = $false
+($scanRows[0] | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $missingProtectedItemsDir "exact-payload-scan-events.jsonl") -Encoding UTF8
+$activeReplacement = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingProtectedItemsDir "active-context-replacement-report.json") | ConvertFrom-Json
+$activeReplacement.protected_items_present = $false
+$activeReplacement | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $missingProtectedItemsDir "active-context-replacement-report.json") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $missingProtectedItemsDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "missing protected items fixture did not exit 1"
+$missingProtectedItemsDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $missingProtectedItemsDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($missingProtectedItemsDecision.blockers) -contains "active_context_replacement_gate_failed") "missing protected items fixture did not report active replacement blocker"
 
 $missingProviderPayloadJoinDir = New-FixtureRun "missing-provider-payload-join" "PASS" $true 0
 $providerRows = Get-Content -Encoding UTF8 -LiteralPath (Join-Path $missingProviderPayloadJoinDir "provider-request-events.jsonl") | ForEach-Object { $_ | ConvertFrom-Json }

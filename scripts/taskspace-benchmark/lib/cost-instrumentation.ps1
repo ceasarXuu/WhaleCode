@@ -200,9 +200,13 @@ function New-TaskspaceBudgetArtifacts {
             messages_hash = [string]$tags.messages_hash
             stable_prefix_hash = [string]$tags.stable_prefix_hash
             dynamic_suffix_hash = [string]$tags.dynamic_suffix_hash
+            exact_payload_scan_event_id = [string]$tags.exact_payload_scan_event_id
             exact_payload_scan_passed = Convert-TaskspaceTraceBool $tags.exact_payload_scan_passed $false
             active_projection_present = Convert-TaskspaceTraceBool $tags.active_projection_present $false
             legacy_taskspace_history_present = Convert-TaskspaceTraceBool $tags.legacy_taskspace_history_present $false
+            raw_taskspace_control_history_tokens = Convert-TaskspaceTraceInt $tags.raw_taskspace_control_history_tokens
+            completed_stale_node_history_tokens = Convert-TaskspaceTraceInt $tags.completed_stale_node_history_tokens
+            rejected_subagent_body_tokens = Convert-TaskspaceTraceInt $tags.rejected_subagent_body_tokens
             large_raw_output_tokens = Convert-TaskspaceTraceInt $tags.large_raw_output_tokens
             protected_items_present = Convert-TaskspaceTraceBool $tags.protected_items_present $false
             replacement_confirmed = Convert-TaskspaceTraceBool $tags.replacement_confirmed $false
@@ -267,35 +271,64 @@ function New-TaskspaceBudgetArtifacts {
     }
 }
 
-function New-TaskspaceActiveReplacementArtifacts {
-    param([object[]]$BudgetEvents)
+function New-TaskspaceExactPayloadScanEvents {
+    param([string]$ObservabilityJsonPath, [AllowEmptyString()][string]$RolloutJsonlPath = "")
     $scanEvents = New-Object System.Collections.Generic.List[object]
-    foreach ($event in @($BudgetEvents)) {
-        if ([string]::IsNullOrWhiteSpace([string]$event.provider_payload_sha256)) { continue }
-        if (-not [bool]$event.active_projection_present -and -not [bool]$event.legacy_taskspace_history_present) { continue }
-        $scanId = "scan-$($event.trace_event_id)"
-        $passed = [bool]$event.exact_payload_scan_passed `
-            -and [bool]$event.replacement_confirmed `
-            -and -not [bool]$event.legacy_taskspace_history_present `
-            -and [int]$event.large_raw_output_tokens -eq 0
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("exact_payload_scan") $RolloutJsonlPath)) {
+        $tags = Convert-TaskspaceTraceTags $event
         $scanEvents.Add([pscustomobject]@{
             schema_version = "taskspace-exact-payload-scan-event-v1"
-            scan_event_id = $scanId
-            provider_budget_trace_event_id = [string]$event.trace_event_id
-            request_id = [string]$event.request_id
-            provider_payload_sha256 = [string]$event.provider_payload_sha256
-            provider_payload_bytes = [int]$event.provider_payload_bytes
-            passed = [bool]$passed
-            active_projection_present = [bool]$event.active_projection_present
-            legacy_taskspace_history_present = [bool]$event.legacy_taskspace_history_present
-            large_raw_output_tokens = [int]$event.large_raw_output_tokens
-            protected_items_present = [bool]$event.protected_items_present
-            replacement_confirmed = [bool]$event.replacement_confirmed
+            trace_event_id = [string](Get-TaskspaceTraceField $event @("trace_event_id", "id"))
+            task_id = [string](Get-TaskspaceTraceField $event @("task_id"))
+            map_id = [string](Get-TaskspaceTraceField $event @("map_id"))
+            node_id = [string](Get-TaskspaceTraceField $event @("node_id"))
+            request_id = [string](Get-TaskspaceTraceField $event @("call_id"))
+            producer = [string]$tags.producer
+            scan_event_id = [string]$tags.scan_event_id
+            provider_request_budget_trace_event_id = [string]$tags.provider_request_budget_trace_event_id
+            provider_payload_sha256 = [string]$tags.provider_payload_sha256
+            provider_payload_bytes = Convert-TaskspaceTraceInt $tags.provider_payload_bytes
+            scanner_version = [string]$tags.scanner_version
+            matcher_version = [string]$tags.matcher_version
+            checked_byte_ranges = [string]$tags.checked_byte_ranges
+            negative_checks_performed = [string]$tags.negative_checks_performed
+            active_projection_present = Convert-TaskspaceTraceBool $tags.active_projection_present $false
+            legacy_taskspace_history_present = Convert-TaskspaceTraceBool $tags.legacy_taskspace_history_present $false
+            raw_taskspace_control_history_tokens = Convert-TaskspaceTraceInt $tags.raw_taskspace_control_history_tokens
+            completed_stale_node_history_tokens = Convert-TaskspaceTraceInt $tags.completed_stale_node_history_tokens
+            rejected_subagent_body_tokens = Convert-TaskspaceTraceInt $tags.rejected_subagent_body_tokens
+            large_raw_output_tokens = Convert-TaskspaceTraceInt $tags.large_raw_output_tokens
+            protected_items_present = Convert-TaskspaceTraceBool $tags.protected_items_present $false
+            replacement_confirmed = Convert-TaskspaceTraceBool $tags.replacement_confirmed $false
+            passed = Convert-TaskspaceTraceBool $tags.passed $false
+            failure_reasons = [string]$tags.failure_reasons
         })
     }
-    $selected = @($scanEvents.ToArray() | Where-Object { [bool]$_.passed } | Select-Object -First 1)
+    @($scanEvents.ToArray())
+}
+
+function New-TaskspaceActiveReplacementArtifacts {
+    param([object[]]$BudgetEvents, [object[]]$ExactPayloadScanEvents)
+    $providerByJoin = @{}
+    foreach ($event in @($BudgetEvents)) {
+        $requestId = [string]$event.request_id
+        $payloadHash = [string]$event.provider_payload_sha256
+        if ([string]::IsNullOrWhiteSpace($requestId) -or [string]::IsNullOrWhiteSpace($payloadHash)) { continue }
+        $providerByJoin["$requestId|$payloadHash"] = $true
+    }
+    $scanEvents = @($ExactPayloadScanEvents | Where-Object {
+        -not [string]::IsNullOrWhiteSpace([string]$_.scan_event_id) -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.request_id) -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.provider_payload_sha256) -and
+        ([string]$_.producer -eq "provider_payload_scanner" -or [string]$_.producer -eq "provider_lifecycle")
+    } | ForEach-Object {
+        $joinKey = "$([string]$_.request_id)|$([string]$_.provider_payload_sha256)"
+        $_ | Add-Member -NotePropertyName matching_provider_event -NotePropertyValue ([bool]$providerByJoin.ContainsKey($joinKey)) -Force
+        $_
+    })
+    $selected = @($scanEvents | Where-Object { [bool]$_.passed -and [bool]$_.matching_provider_event } | Select-Object -First 1)
     if ($selected.Count -eq 0) {
-        $selected = @($scanEvents.ToArray() | Select-Object -First 1)
+        $selected = @($scanEvents | Select-Object -First 1)
     }
     $first = if ($selected.Count -gt 0) { $selected[0] } else { $null }
     $report = [pscustomobject]@{
@@ -305,13 +338,18 @@ function New-TaskspaceActiveReplacementArtifacts {
         provider_payload_sha256 = if ($null -ne $first) { [string]$first.provider_payload_sha256 } else { "" }
         exact_payload_scan_passed = if ($null -ne $first) { [bool]$first.passed } else { $false }
         exact_payload_scan_event_id = if ($null -ne $first) { [string]$first.scan_event_id } else { "" }
+        exact_payload_scan_producer = if ($null -ne $first) { [string]$first.producer } else { "" }
+        exact_payload_scan_matching_provider_event = if ($null -ne $first) { [bool]$first.matching_provider_event } else { $false }
         replacement_confirmed = if ($null -ne $first) { [bool]$first.replacement_confirmed } else { $false }
         legacy_taskspace_history_present = if ($null -ne $first) { [bool]$first.legacy_taskspace_history_present } else { $true }
+        raw_taskspace_control_history_tokens = if ($null -ne $first) { [int]$first.raw_taskspace_control_history_tokens } else { 0 }
+        completed_stale_node_history_tokens = if ($null -ne $first) { [int]$first.completed_stale_node_history_tokens } else { 0 }
+        rejected_subagent_body_tokens = if ($null -ne $first) { [int]$first.rejected_subagent_body_tokens } else { 0 }
         large_raw_output_tokens = if ($null -ne $first) { [int]$first.large_raw_output_tokens } else { 0 }
         protected_items_present = if ($null -ne $first) { [bool]$first.protected_items_present } else { $false }
     }
     [pscustomobject]@{
-        exact_payload_scan_events = @($scanEvents.ToArray())
+        exact_payload_scan_events = @($scanEvents)
         active_context_replacement_report = $report
     }
 }
@@ -372,6 +410,8 @@ function New-TaskspaceProviderRequestArtifacts {
             reasoning_output_tokens = $reasoningOutputTokens
             total_tokens = $totalTokens
             provider_payload_sha256 = [string]$event.provider_payload_sha256
+            provider_payload_bytes = [int]$event.provider_payload_bytes
+            exact_payload_scan_event_id = [string]$event.exact_payload_scan_event_id
             provider_wire_api = [string]$event.provider_wire_api
             tools_count = [int]$event.tools_count
             tools_present = [bool]$event.tools_present
@@ -1328,7 +1368,8 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $outputRefEvents = @(New-TaskspaceOutputRefEvents $ObservabilityJsonPath $ArtifactDir)
     $projection = New-TaskspaceContextProjectionSummary $JsonlPath $ObservabilityJsonPath $rolloutJsonlPath
     $budget = New-TaskspaceBudgetArtifacts $ObservabilityJsonPath $rolloutJsonlPath
-    $activeReplacement = New-TaskspaceActiveReplacementArtifacts $budget.budget_events
+    $exactPayloadScanEvents = @(New-TaskspaceExactPayloadScanEvents $ObservabilityJsonPath $rolloutJsonlPath)
+    $activeReplacement = New-TaskspaceActiveReplacementArtifacts $budget.budget_events $exactPayloadScanEvents
     $providerRequest = New-TaskspaceProviderRequestArtifacts $budget.budget_events $request
     $providerCacheTrace = New-TaskspaceProviderCacheTraceArtifacts $budget.budget_events
     $stateCommitDisplacement = New-TaskspaceStateCommitDisplacementSummary $ObservabilityJsonPath
@@ -1388,7 +1429,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         [System.IO.File]::WriteAllText($budgetQualityImpactEventsPath, "", [System.Text.UTF8Encoding]::new($false))
     }
     $budget.budget_quality_impact_summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $budgetQualityImpactSummaryPath -Encoding UTF8
-    $exactPayloadScanEventLines = @($activeReplacement.exact_payload_scan_events | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
+    $exactPayloadScanEventLines = @($exactPayloadScanEvents | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
     if ($exactPayloadScanEventLines.Count -gt 0) {
         $exactPayloadScanEventLines | Set-Content -LiteralPath $exactPayloadScanEventsPath -Encoding UTF8
     } else {
@@ -1442,7 +1483,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         active_budget_events = $budget.active_budget_events
         budget_quality_impact_events = $budget.budget_quality_impact_events
         budget_quality_impact_summary = $budget.budget_quality_impact_summary
-        exact_payload_scan_events = $activeReplacement.exact_payload_scan_events
+        exact_payload_scan_events = $exactPayloadScanEvents
         active_context_replacement_report = $activeReplacement.active_context_replacement_report
         provider_request_events = $providerRequest.provider_request_events
         request_phase_summary = $providerRequest.request_phase_summary

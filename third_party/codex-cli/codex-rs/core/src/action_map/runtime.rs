@@ -527,10 +527,32 @@ pub(crate) struct ActionMapProviderRequestBudgetEventInput {
     pub(crate) large_raw_output_tokens: Option<usize>,
     pub(crate) protected_items_present: Option<bool>,
     pub(crate) replacement_confirmed: Option<bool>,
+    pub(crate) exact_payload_scan: Option<ActionMapExactPayloadScanEventInput>,
     pub(crate) task_id: Option<String>,
     pub(crate) map_id: Option<String>,
     pub(crate) node_id: Option<String>,
     pub(crate) request_phase: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ActionMapExactPayloadScanEventInput {
+    pub(crate) scan_event_id: String,
+    pub(crate) request_id: String,
+    pub(crate) provider_payload_sha256: String,
+    pub(crate) scanner_version: String,
+    pub(crate) matcher_version: String,
+    pub(crate) checked_byte_ranges: Vec<(usize, usize)>,
+    pub(crate) negative_checks_performed: Vec<String>,
+    pub(crate) active_projection_present: bool,
+    pub(crate) legacy_taskspace_history_present: bool,
+    pub(crate) raw_taskspace_control_history_tokens: usize,
+    pub(crate) completed_stale_node_history_tokens: usize,
+    pub(crate) rejected_subagent_body_tokens: usize,
+    pub(crate) large_raw_output_tokens: usize,
+    pub(crate) protected_items_present: bool,
+    pub(crate) replacement_confirmed: bool,
+    pub(crate) passed: bool,
+    pub(crate) failure_reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -2371,6 +2393,7 @@ preview:\n\
                 input.status.as_str(),
                 "blocked" | "failed" | "response_failed" | "cancelled"
             ));
+            let exact_payload_scan = input.exact_payload_scan.clone();
             let mut tags = vec![
                 "schema:taskspace-provider-request-budget-event-v1".to_string(),
                 format!("transport:{}", input.transport),
@@ -2494,6 +2517,24 @@ preview:\n\
             if let Some(replacement_confirmed) = input.replacement_confirmed {
                 tags.push(format!("replacement_confirmed:{replacement_confirmed}"));
             }
+            if let Some(scan) = exact_payload_scan.as_ref() {
+                tags.push(format!(
+                    "exact_payload_scan_event_id:{}",
+                    scan.scan_event_id
+                ));
+                tags.push(format!(
+                    "raw_taskspace_control_history_tokens:{}",
+                    scan.raw_taskspace_control_history_tokens
+                ));
+                tags.push(format!(
+                    "completed_stale_node_history_tokens:{}",
+                    scan.completed_stale_node_history_tokens
+                ));
+                tags.push(format!(
+                    "rejected_subagent_body_tokens:{}",
+                    scan.rejected_subagent_body_tokens
+                ));
+            }
             if input.status == "blocked" {
                 tags.push("legacy_blocked_input_observed:true".to_string());
             }
@@ -2528,6 +2569,80 @@ preview:\n\
                     created_at_ms: event.created_at_ms,
                 },
             ));
+            if let Some(scan) = exact_payload_scan {
+                let scan_trace_id = self.next_trace_event_id();
+                let checked_byte_ranges = scan
+                    .checked_byte_ranges
+                    .iter()
+                    .map(|(start, end)| format!("{start}-{end}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let provider_payload_bytes = scan
+                    .checked_byte_ranges
+                    .iter()
+                    .map(|(_, end)| *end)
+                    .max()
+                    .unwrap_or(0);
+                let negative_checks_performed = scan.negative_checks_performed.join(",");
+                let failure_reasons = if scan.failure_reasons.is_empty() {
+                    "none".to_string()
+                } else {
+                    scan.failure_reasons.join(",")
+                };
+                let scan_tags = vec![
+                    "schema:taskspace-exact-payload-scan-event-v1".to_string(),
+                    "producer:provider_payload_scanner".to_string(),
+                    format!("scan_event_id:{}", scan.scan_event_id),
+                    format!("provider_request_budget_trace_event_id:{id}"),
+                    format!("provider_payload_sha256:{}", scan.provider_payload_sha256),
+                    format!("provider_payload_bytes:{provider_payload_bytes}"),
+                    format!("scanner_version:{}", scan.scanner_version),
+                    format!("matcher_version:{}", scan.matcher_version),
+                    format!("checked_byte_ranges:{checked_byte_ranges}"),
+                    format!("negative_checks_performed:{negative_checks_performed}"),
+                    format!(
+                        "active_projection_present:{}",
+                        scan.active_projection_present
+                    ),
+                    format!(
+                        "legacy_taskspace_history_present:{}",
+                        scan.legacy_taskspace_history_present
+                    ),
+                    format!(
+                        "raw_taskspace_control_history_tokens:{}",
+                        scan.raw_taskspace_control_history_tokens
+                    ),
+                    format!(
+                        "completed_stale_node_history_tokens:{}",
+                        scan.completed_stale_node_history_tokens
+                    ),
+                    format!(
+                        "rejected_subagent_body_tokens:{}",
+                        scan.rejected_subagent_body_tokens
+                    ),
+                    format!("large_raw_output_tokens:{}", scan.large_raw_output_tokens),
+                    format!("protected_items_present:{}", scan.protected_items_present),
+                    format!("replacement_confirmed:{}", scan.replacement_confirmed),
+                    format!("passed:{}", scan.passed),
+                    format!("failure_reasons:{failure_reasons}"),
+                ];
+                let scan_event = TaskSpaceTraceEvent {
+                    id: scan_trace_id,
+                    kind: "exact_payload_scan".to_string(),
+                    task_id: event.task_id.clone(),
+                    map_id: event.map_id.clone(),
+                    node_id: event.node_id.clone(),
+                    result_id: None,
+                    call_id: Some(scan.request_id),
+                    action_class: None,
+                    tool_success: Some(scan.passed),
+                    tags: scan_tags,
+                    artifact_refs: Vec::new(),
+                    created_at_ms,
+                };
+                self.taskspace_trace_events.push(scan_event.clone());
+                events.push(map_runtime_event_from_trace_event(scan_event));
+            }
             let quality_id = self.next_trace_event_id();
             let budget_action = if input.status == "blocked"
                 && input.budget_transition_reason == "provider_request_compact_checkpoint_required"
@@ -10496,6 +10611,50 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("max_model_requests_per_node:")
         || tag.starts_with("post_budget_grace_requests:")
         || tag.starts_with("request_phase:")
+        || tag.starts_with("request_phase_missing_reason:")
+        || tag.starts_with("provider_request_context_missing_reason:")
+        || tag.starts_with("provider_request_budget_trace_event_id:")
+        || tag.starts_with("logical_request_id:")
+        || tag.starts_with("attempt_seq:")
+        || tag.starts_with("transport:")
+        || tag.starts_with("runtime_budget_state:")
+        || tag.starts_with("budget_state_before:")
+        || tag.starts_with("budget_state_after:")
+        || tag.starts_with("budget_transition_reason:")
+        || tag.starts_with("started_at_ms:")
+        || tag.starts_with("completed_at_ms:")
+        || tag.starts_with("latency_ms:")
+        || tag.starts_with("input_tokens:")
+        || tag.starts_with("cached_input_tokens:")
+        || tag.starts_with("output_tokens:")
+        || tag.starts_with("reasoning_output_tokens:")
+        || tag.starts_with("total_tokens:")
+        || tag.starts_with("provider_payload_sha256:")
+        || tag.starts_with("provider_payload_bytes:")
+        || tag.starts_with("provider_wire_api:")
+        || tag.starts_with("tools_count:")
+        || tag.starts_with("tools_present:")
+        || tag.starts_with("request_shape_classifier:")
+        || tag.starts_with("messages_hash:")
+        || tag.starts_with("stable_prefix_hash:")
+        || tag.starts_with("dynamic_suffix_hash:")
+        || tag.starts_with("exact_payload_scan_passed:")
+        || tag.starts_with("active_projection_present:")
+        || tag.starts_with("legacy_taskspace_history_present:")
+        || tag.starts_with("large_raw_output_tokens:")
+        || tag.starts_with("protected_items_present:")
+        || tag.starts_with("replacement_confirmed:")
+        || tag.starts_with("exact_payload_scan_event_id:")
+        || tag.starts_with("scan_event_id:")
+        || tag.starts_with("scanner_version:")
+        || tag.starts_with("matcher_version:")
+        || tag.starts_with("checked_byte_ranges:")
+        || tag.starts_with("negative_checks_performed:")
+        || tag.starts_with("raw_taskspace_control_history_tokens:")
+        || tag.starts_with("completed_stale_node_history_tokens:")
+        || tag.starts_with("rejected_subagent_body_tokens:")
+        || tag.starts_with("passed:")
+        || tag.starts_with("failure_reasons:")
         || tag.starts_with("spawn_agent_call_count_")
         || tag.starts_with("max_spawn_agent_calls:")
         || tag.starts_with("max_subagent_results:")
@@ -11792,6 +11951,7 @@ mod tests {
                         large_raw_output_tokens: None,
                         protected_items_present: None,
                         replacement_confirmed: None,
+                        exact_payload_scan: None,
                         task_id: None,
                         map_id: None,
                         node_id: None,
@@ -11837,6 +11997,32 @@ mod tests {
                         large_raw_output_tokens: Some(0),
                         protected_items_present: Some(true),
                         replacement_confirmed: Some(true),
+                        exact_payload_scan: Some(ActionMapExactPayloadScanEventInput {
+                            scan_event_id: "scan-provider-request-2".to_string(),
+                            request_id: "provider-request-2".to_string(),
+                            provider_payload_sha256:
+                                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                                    .to_string(),
+                            scanner_version: "v005-exact-scan-2".to_string(),
+                            matcher_version: "v005-marker-and-structural-negative-checks-2"
+                                .to_string(),
+                            checked_byte_ranges: vec![(0, 4321)],
+                            negative_checks_performed: vec![
+                                "legacy_taskspace_history".to_string(),
+                                "raw_taskspace_control_history".to_string(),
+                                "large_raw_output".to_string(),
+                            ],
+                            active_projection_present: true,
+                            legacy_taskspace_history_present: false,
+                            raw_taskspace_control_history_tokens: 0,
+                            completed_stale_node_history_tokens: 0,
+                            rejected_subagent_body_tokens: 0,
+                            large_raw_output_tokens: 0,
+                            protected_items_present: true,
+                            replacement_confirmed: true,
+                            passed: true,
+                            failure_reasons: Vec::new(),
+                        }),
                         task_id: Some("dispatch-task".to_string()),
                         map_id: Some("dispatch-map".to_string()),
                         node_id: Some("dispatch-node".to_string()),
@@ -11846,7 +12032,7 @@ mod tests {
             )
             .expect("provider budget trace events");
 
-        assert_eq!(events.len(), 4);
+        assert_eq!(events.len(), 5);
         let MapRuntimeEvent::TaskspaceTraceEventRecorded(started) =
             events.first().expect("started provider trace event")
         else {
@@ -11958,6 +12144,43 @@ mod tests {
                 .iter()
                 .any(|tag| tag == "replacement_confirmed:true")
         );
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "exact_payload_scan_event_id:scan-provider-request-2")
+        );
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(scan) =
+            events.get(3).expect("exact payload scan trace event")
+        else {
+            panic!("expected exact payload scan trace event");
+        };
+        assert_eq!(scan.kind, "exact_payload_scan");
+        assert_eq!(scan.call_id.as_deref(), Some("provider-request-2"));
+        assert_eq!(scan.tool_success, Some(true));
+        assert!(
+            scan.tags
+                .iter()
+                .any(|tag| tag == "producer:provider_payload_scanner")
+        );
+        assert!(
+            scan.tags
+                .iter()
+                .any(|tag| tag == "scan_event_id:scan-provider-request-2")
+        );
+        let expected_budget_join = format!(
+            "provider_request_budget_trace_event_id:{}",
+            blocked.trace_event_id
+        );
+        assert!(scan.tags.iter().any(|tag| tag == &expected_budget_join));
+        assert!(scan.tags.iter().any(|tag| tag
+            == "provider_payload_sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+        assert!(
+            scan.tags
+                .iter()
+                .any(|tag| tag == "provider_payload_bytes:4321")
+        );
+        assert!(scan.tags.iter().any(|tag| tag == "passed:true"));
         let MapRuntimeEvent::TaskspaceTraceEventRecorded(quality) =
             events.last().expect("last trace event")
         else {
@@ -12188,6 +12411,7 @@ mod tests {
                         large_raw_output_tokens: None,
                         protected_items_present: None,
                         replacement_confirmed: None,
+                        exact_payload_scan: None,
                         task_id: None,
                         map_id: None,
                         node_id: None,
@@ -12230,6 +12454,7 @@ mod tests {
                         large_raw_output_tokens: None,
                         protected_items_present: None,
                         replacement_confirmed: None,
+                        exact_payload_scan: None,
                         task_id: None,
                         map_id: None,
                         node_id: None,
@@ -12305,6 +12530,7 @@ mod tests {
                     large_raw_output_tokens: None,
                     protected_items_present: None,
                     replacement_confirmed: None,
+                    exact_payload_scan: None,
                     task_id: None,
                     map_id: None,
                     node_id: None,
@@ -12697,6 +12923,7 @@ mod tests {
                     large_raw_output_tokens: None,
                     protected_items_present: None,
                     replacement_confirmed: None,
+                    exact_payload_scan: None,
                     task_id: None,
                     map_id: None,
                     node_id: None,

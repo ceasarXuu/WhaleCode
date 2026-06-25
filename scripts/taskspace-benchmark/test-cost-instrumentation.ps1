@@ -79,11 +79,45 @@ $obs = [pscustomobject]@{
                 "stable_prefix_hash:stable-prefix-hash",
                 "dynamic_suffix_hash:dynamic-suffix-hash",
                 "exact_payload_scan_passed:true",
+                "exact_payload_scan_event_id:scan-provider-request-1",
                 "active_projection_present:true",
                 "legacy_taskspace_history_present:false",
+                "raw_taskspace_control_history_tokens:0",
+                "completed_stale_node_history_tokens:0",
+                "rejected_subagent_body_tokens:0",
                 "large_raw_output_tokens:0",
-                "protected_items_present:false",
+                "protected_items_present:true",
                 "replacement_confirmed:true"
+            )
+        },
+        [pscustomobject]@{
+            kind = "exact_payload_scan"
+            trace_event_id = "trace-scan-1"
+            task_id = "task-1"
+            map_id = "map-1"
+            node_id = "node-1"
+            call_id = "provider-request-1"
+            tags = @(
+                "schema:taskspace-exact-payload-scan-event-v1",
+                "producer:provider_payload_scanner",
+                "scan_event_id:scan-provider-request-1",
+                "provider_request_budget_trace_event_id:trace-budget-1",
+                "provider_payload_sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "provider_payload_bytes:4321",
+                "scanner_version:v005-exact-scan-2",
+                "matcher_version:v005-marker-and-structural-negative-checks-2",
+                "checked_byte_ranges:0-4321",
+                "negative_checks_performed:legacy_taskspace_history,raw_taskspace_control_history,large_raw_output",
+                "active_projection_present:true",
+                "legacy_taskspace_history_present:false",
+                "raw_taskspace_control_history_tokens:0",
+                "completed_stale_node_history_tokens:0",
+                "rejected_subagent_body_tokens:0",
+                "large_raw_output_tokens:0",
+                "protected_items_present:true",
+                "replacement_confirmed:true",
+                "passed:true",
+                "failure_reasons:none"
             )
         },
         [pscustomobject]@{
@@ -332,15 +366,17 @@ Assert-True ($budgetEvents.Count -eq 3) "budget event count was not extracted fr
 Assert-True ($activeBudgetEvents.Count -eq 1 -and [string]$activeBudgetEvents[0].route_mode -eq "thin" -and [int]$activeBudgetEvents[0].max_rollout_model_requests -eq 8) "active budget event was not extracted from runtime trace"
 Assert-True ([string]$budgetEvents[0].active_budget_source -eq "runtime" -and [string]$budgetEvents[0].route_mode -eq "thin" -and [int]$budgetEvents[0].max_model_requests_per_node -eq 3) "provider budget event did not preserve active budget fields"
 Assert-True ($qualityEvents.Count -eq 3) "budget quality event count was not extracted from runtime trace"
-Assert-True ($scanEvents.Count -eq 1 -and [bool]$scanEvents[0].passed) "exact payload scan event was not derived from runtime payload trace"
-Assert-True (-not [bool]$scanEvents[0].protected_items_present) "protected items should remain advisory for exact payload scan"
+Assert-True ($scanEvents.Count -eq 1 -and [bool]$scanEvents[0].passed -and [string]$scanEvents[0].producer -eq "provider_payload_scanner") "exact payload scan event was not read from provider-owned runtime trace"
+Assert-True ([bool]$scanEvents[0].protected_items_present) "exact payload scan should preserve protected item proof"
 Assert-True ($providerEvents.Count -eq 3 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
 Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provider_lifecycle" }).Count -eq 3) "provider request events did not preserve provider_lifecycle producer"
 Assert-True ([string]$providerEvents[0].provider_wire_api -eq "ChatCompletions" -and [int]$providerEvents[0].tools_count -eq 24 -and [string]$providerEvents[0].request_shape_classifier -eq "native_tools_schema_hot_path") "provider request events did not preserve cache request shape fields"
 Assert-True ($cacheTraceEvents.Count -eq 3 -and [string]$cacheTraceEvents[0].schema_version -eq "TaskSpaceProviderCacheTraceV1" -and [double]$cacheTraceEvents[0].hit_rate -eq 0.2) "provider cache trace events were not derived from terminal provider requests"
 Assert-True ([int]$cacheTraceSummary.native_tools_schema_hot_path_count -eq 1 -and [int]$cacheTraceSummary.tool_free_action_contract_count -eq 2 -and [double]$cacheTraceSummary.trace_coverage -eq 1.0) "provider cache trace summary did not classify completed request shapes"
 Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"
-Assert-True (-not [bool]$replacement.protected_items_present) "active replacement report should preserve advisory protected-item absence"
+Assert-True ([bool]$replacement.protected_items_present -and [bool]$replacement.exact_payload_scan_matching_provider_event) "active replacement report did not preserve exact scan join evidence"
+$budgetOnlyReplacement = New-TaskspaceActiveReplacementArtifacts $budgetEvents @()
+Assert-True (-not [bool]$budgetOnlyReplacement.active_context_replacement_report.exact_payload_scan_passed -and @($budgetOnlyReplacement.exact_payload_scan_events).Count -eq 0) "budget-only payload booleans should not synthesize exact scan evidence"
 Assert-True ([int]$phaseSummary.provider_request_hook_coverage -eq 100 -and [int]$phaseSummary.request_phase_attribution_coverage -eq 100) "request phase summary did not reflect provider events"
 Assert-True ([int]$phaseSummary.provider_request_terminal_coverage -eq 100 -and [int]$phaseSummary.expected_model_request_count -eq 3 -and [int]$phaseSummary.provider_request_distinct_count -eq 3) "request phase summary did not use expected provider request denominator"
 Assert-True ([int]$phaseSummary.phase_counts.model_sampling -eq 1 -and [int]$phaseSummary.phase_counts.validation_recovery -eq 1 -and [int]$phaseSummary.phase_counts.state_commit -eq 1) "request phase summary did not expose phase counts"
