@@ -932,8 +932,35 @@ function New-TaskspaceControlUsageSummary {
     $actions = @{}
     $total = 0
     $stateCommit = 0
+    $nativeTotal = 0
+    $actionContractTotal = 0
+    function Add-ControlUsage([AllowEmptyString()][string]$Action, [string]$Source) {
+        $script:taskspaceCostControlTotal++
+        if ($Source -eq "action_contract") {
+            $script:taskspaceCostActionContractControlTotal++
+        } else {
+            $script:taskspaceCostNativeControlTotal++
+        }
+        if ($Action -eq "state_commit") { $script:taskspaceCostStateCommit++ }
+        Add-TaskspaceCostCount $script:taskspaceCostActions $Action
+    }
     function Visit-ControlValue($Current) {
-        if ($null -eq $Current -or $Current -is [string] -or $Current -is [ValueType]) { return }
+        if ($null -eq $Current) { return }
+        if ($Current -is [string]) {
+            $text = $Current.Trim()
+            if ($text.StartsWith("{") -and $text.Contains("taskspace-action-v1")) {
+                try {
+                    $actionContract = $text | ConvertFrom-Json
+                    if ([string](Get-TaskspaceCostProperty $actionContract @("schema_version")) -eq "taskspace-action-v1" -and [string](Get-TaskspaceCostProperty $actionContract @("action")) -eq "taskspace_control") {
+                        $args = Get-TaskspaceCostProperty $actionContract @("args")
+                        $innerAction = [string](Get-TaskspaceCostProperty $args @("action", "control_action", "control_type", "action_name", "command"))
+                        Add-ControlUsage $innerAction "action_contract"
+                    }
+                } catch {}
+            }
+            return
+        }
+        if ($Current -is [ValueType]) { return }
         $names = @($Current.PSObject.Properties.Name)
         $nameValue = Get-TaskspaceCostProperty $Current @("name", "tool")
         if ([string]$nameValue -eq "taskspace_control") {
@@ -952,9 +979,7 @@ function New-TaskspaceControlUsageSummary {
             if ([string]::IsNullOrWhiteSpace($action)) {
                 $action = [string](Get-TaskspaceCostProperty $Current @("action"))
             }
-            $script:taskspaceCostControlTotal++
-            if ($action -eq "state_commit") { $script:taskspaceCostStateCommit++ }
-            Add-TaskspaceCostCount $script:taskspaceCostActions $action
+            Add-ControlUsage $action "native"
         }
         foreach ($prop in @($Current.PSObject.Properties)) {
             if ($prop.Value -is [System.Collections.IEnumerable] -and -not ($prop.Value -is [string])) {
@@ -967,12 +992,18 @@ function New-TaskspaceControlUsageSummary {
     $script:taskspaceCostActions = $actions
     $script:taskspaceCostControlTotal = 0
     $script:taskspaceCostStateCommit = 0
+    $script:taskspaceCostNativeControlTotal = 0
+    $script:taskspaceCostActionContractControlTotal = 0
     foreach ($row in @($parsed.rows)) { Visit-ControlValue $row }
     $total = $script:taskspaceCostControlTotal
     $stateCommit = $script:taskspaceCostStateCommit
+    $nativeTotal = $script:taskspaceCostNativeControlTotal
+    $actionContractTotal = $script:taskspaceCostActionContractControlTotal
     Remove-Variable -Name taskspaceCostActions -Scope Script -ErrorAction SilentlyContinue
     Remove-Variable -Name taskspaceCostControlTotal -Scope Script -ErrorAction SilentlyContinue
     Remove-Variable -Name taskspaceCostStateCommit -Scope Script -ErrorAction SilentlyContinue
+    Remove-Variable -Name taskspaceCostNativeControlTotal -Scope Script -ErrorAction SilentlyContinue
+    Remove-Variable -Name taskspaceCostActionContractControlTotal -Scope Script -ErrorAction SilentlyContinue
     $runtimeEventCounts = @{}
     $runtimeEventTotal = 0
     $runtimeStateCommit = 0
@@ -1019,6 +1050,8 @@ function New-TaskspaceControlUsageSummary {
         parse_errors = [int]$parsed.parse_errors
         availability = if ($parsed.source_status -eq "read") { "measured" } else { "source_missing" }
         taskspace_control_count = [int]$total
+        native_taskspace_control_count = [int]$nativeTotal
+        action_contract_taskspace_control_count = [int]$actionContractTotal
         state_commit_count = [int]$stateCommit
         runtime_state_commit_count = [int]$runtimeStateCommit
         runtime_output_ref_created_count = [int]$runtimeOutputRefCreated
@@ -1452,6 +1485,8 @@ function New-TaskspaceCostSideTotals {
         provider_total_tokens_per_jsonl_kb = [double]0
         wall_time_ms = [double]0
         taskspace_control_count = [double]0
+        native_taskspace_control_count = [double]0
+        action_contract_taskspace_control_count = [double]0
         state_commit_count = [double]0
         runtime_state_commit_count = [double]0
         runtime_output_ref_created_count = [double]0
@@ -1471,6 +1506,8 @@ function New-TaskspaceCostSideTotals {
         missing_provider_total_tokens_per_jsonl_kb = 0
         missing_wall_time_ms = 0
         missing_taskspace_control_count = 0
+        missing_native_taskspace_control_count = 0
+        missing_action_contract_taskspace_control_count = 0
         missing_state_commit_count = 0
         missing_runtime_state_commit_count = 0
         missing_runtime_output_ref_created_count = 0
@@ -1554,7 +1591,7 @@ function Write-TaskspaceCostAggregateArtifacts {
         $totals = $byMode[$mode]
         $totals.side_count++
         if ([string]$metric.token_summary_availability -eq "measured") { $totals.complete_side_count++ }
-        foreach ($field in @("model_request_count", "input_tokens", "output_tokens", "cached_input_tokens", "uncached_input_tokens", "jsonl_bytes", "provider_input_tokens_per_jsonl_kb", "provider_total_tokens_per_jsonl_kb", "wall_time_ms", "taskspace_control_count", "state_commit_count", "runtime_state_commit_count", "runtime_output_ref_created_count", "runtime_output_ref_slice_read_count", "taskspace_runtime_event_count", "large_output_replay_count", "projection_count", "projection_tokens", "projection_protected_miss_count")) {
+        foreach ($field in @("model_request_count", "input_tokens", "output_tokens", "cached_input_tokens", "uncached_input_tokens", "jsonl_bytes", "provider_input_tokens_per_jsonl_kb", "provider_total_tokens_per_jsonl_kb", "wall_time_ms", "taskspace_control_count", "native_taskspace_control_count", "action_contract_taskspace_control_count", "state_commit_count", "runtime_state_commit_count", "runtime_output_ref_created_count", "runtime_output_ref_slice_read_count", "taskspace_runtime_event_count", "large_output_replay_count", "projection_count", "projection_tokens", "projection_protected_miss_count")) {
             Add-TaskspaceCostMetricTotal $totals $metric $field
         }
     }
@@ -1604,12 +1641,16 @@ function Write-TaskspaceCostAggregateArtifacts {
         schema_version = "taskspace-control-usage-aggregate-v1"
         scope = $Scope
         taskspace_control_count = $byMode.taskspace.taskspace_control_count
+        taskspace_native_taskspace_control_count = $byMode.taskspace.native_taskspace_control_count
+        taskspace_action_contract_taskspace_control_count = $byMode.taskspace.action_contract_taskspace_control_count
         state_commit_count = $byMode.taskspace.state_commit_count
         runtime_state_commit_count = $byMode.taskspace.runtime_state_commit_count
         runtime_output_ref_created_count = $byMode.taskspace.runtime_output_ref_created_count
         runtime_output_ref_slice_read_count = $byMode.taskspace.runtime_output_ref_slice_read_count
         taskspace_runtime_event_count = $byMode.taskspace.taskspace_runtime_event_count
         standard_taskspace_control_count = $byMode.standard.taskspace_control_count
+        standard_native_taskspace_control_count = $byMode.standard.native_taskspace_control_count
+        standard_action_contract_taskspace_control_count = $byMode.standard.action_contract_taskspace_control_count
         standard_runtime_state_commit_count = $byMode.standard.runtime_state_commit_count
         standard_runtime_output_ref_created_count = $byMode.standard.runtime_output_ref_created_count
         standard_runtime_output_ref_slice_read_count = $byMode.standard.runtime_output_ref_slice_read_count

@@ -1247,7 +1247,7 @@ Action argument rules:
 - read_file args: {\"path\":\"relative/path\"}
 - apply_patch args: {\"patch\":\"*** Begin Patch\\n...\\n*** End Patch\\n\"}
 - run_test args: {\"command\":\"test command\",\"timeout_ms\":120000}
-- taskspace_control args: use the existing taskspace_control arguments.
+- taskspace_control args: {\"action\":\"start_task|finish_node|create_node|bind_node|block_node|record_fact|record_fact_source|record_output_contract|record_success_criteria|state_commit\",...}; use canonical key \"action\", not \"action_name\" or \"command\", for lifecycle commands.
 - final_answer args: {\"message\":\"user-facing final answer\"}
 - blocked args: {\"reason\":\"exact missing evidence or blocker\"}
 Validation invariants:
@@ -2749,6 +2749,26 @@ mod active_context_replacement_tests {
     }
 
     #[test]
+    fn taskspace_action_contract_bootstrap_canonicalizes_action_name_alias() {
+        let start_task = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action_name":"start_task","first_node_id":"inspect_context","first_node_kind":"inspect_code_context","initial_success_criteria":"Tax calculation tests pass","initial_fact_sources":["README","test files","source files"]},"rationale":"Initialize task"}"#,
+        )
+        .expect("valid bootstrap action");
+        let call = taskspace_bootstrap_action_to_tool_call(&start_task)
+            .expect("taskspace control should be allowed")
+            .expect("taskspace control should execute");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(value["action"], "start_task");
+                assert!(value.get("action_name").is_none());
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn taskspace_action_contract_transport_preserves_existing_budget_limits() {
         let snapshot = provider_snapshot("inspect_code_context");
         let limits = taskspace_transport_budget_limits(&snapshot);
@@ -3024,6 +3044,58 @@ Then I will inspect the file."#,
             }
             other => panic!("expected function payload, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn taskspace_action_contract_finish_node_canonicalizes_command_alias() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"command":"finish_node","node_id":"node-1","result_summary":"Inspected project structure and tests.","next_node_kind":"implement_solution","next_node_title":"Apply fix","next_node_context_summary":"Fix src/tax_calc.py based on tests."},"rationale":"Completed initial inspection"}"#,
+        )
+        .expect("valid control action");
+
+        assert!(taskspace_action_is_finish_node_control(&action));
+
+        let call =
+            taskspace_action_to_tool_call(&action, &provider_snapshot("inspect_code_context"))
+                .expect("policy ok")
+                .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(value["action"], "finish_node");
+                assert_eq!(value["node_id"], "node-1");
+                assert_eq!(value["next_node_kind"], "implement_solution");
+                assert!(value.get("command").is_none());
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_missing_control_action_is_rejected_before_handler() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"result_summary":"No discriminator."}}"#,
+        )
+        .expect("valid action shape");
+        let err =
+            taskspace_action_to_tool_call(&action, &provider_snapshot("inspect_code_context"))
+                .expect_err("control actions need a stable discriminator");
+
+        assert_eq!(err, TASKSPACE_CONTROL_ACTION_MISSING_ERROR);
+    }
+
+    #[test]
+    fn taskspace_action_contract_conflicting_control_action_aliases_are_rejected() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"action":"finish_node","command":"start_task"}}"#,
+        )
+        .expect("valid action shape");
+        let err =
+            taskspace_action_to_tool_call(&action, &provider_snapshot("inspect_code_context"))
+                .expect_err("conflicting control action aliases must not be guessed");
+
+        assert!(err.starts_with(TASKSPACE_CONTROL_ACTION_CONFLICT_ERROR));
     }
 
     #[test]
@@ -5043,13 +5115,77 @@ fn taskspace_action_is_finish_node_control(action: &TaskSpaceActionV1) -> bool {
         && taskspace_action_control_action(action) == Some("finish_node")
 }
 
+const TASKSPACE_CONTROL_ACTION_MISSING_ERROR: &str = "E_TASKSPACE_CONTROL_ACTION_MISSING";
+const TASKSPACE_CONTROL_ARGS_NOT_OBJECT_ERROR: &str = "E_TASKSPACE_CONTROL_ARGS_NOT_OBJECT";
+const TASKSPACE_CONTROL_ACTION_CONFLICT_ERROR: &str = "E_TASKSPACE_CONTROL_ACTION_CONFLICT";
+const TASKSPACE_CONTROL_ACTION_ALIASES: [&str; 4] =
+    ["control_action", "control_type", "action_name", "command"];
+const TASKSPACE_CONTROL_ACTION_KEYS: [&str; 5] = [
+    "action",
+    "control_action",
+    "control_type",
+    "action_name",
+    "command",
+];
+
 fn taskspace_action_control_action(action: &TaskSpaceActionV1) -> Option<&str> {
-    action
-        .args
+    let root = action.args.as_object()?;
+    taskspace_control_action_from_root(root)
+}
+
+fn taskspace_control_action_from_root<'a>(
+    root: &'a serde_json::Map<String, serde_json::Value>,
+) -> Option<&'a str> {
+    TASKSPACE_CONTROL_ACTION_KEYS.iter().find_map(|key| {
+        root.get(*key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    })
+}
+
+fn canonicalize_taskspace_control_action_arg(
+    root: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<String, String> {
+    let mut selected = root
         .get("action")
-        .or_else(|| action.args.get("control_type"))
-        .or_else(|| action.args.get("control_action"))
         .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    for alias in TASKSPACE_CONTROL_ACTION_ALIASES {
+        let Some(alias_value) = root
+            .get(alias)
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        if let Some(current) = selected.as_deref() {
+            if current != alias_value {
+                return Err(format!(
+                    "{TASKSPACE_CONTROL_ACTION_CONFLICT_ERROR}:action={current}:{alias}={alias_value}"
+                ));
+            }
+        } else {
+            selected = Some(alias_value.to_string());
+        }
+    }
+
+    let Some(action) = selected else {
+        return Err(TASKSPACE_CONTROL_ACTION_MISSING_ERROR.to_string());
+    };
+
+    root.insert(
+        "action".to_string(),
+        serde_json::Value::String(action.clone()),
+    );
+    for alias in TASKSPACE_CONTROL_ACTION_ALIASES {
+        root.remove(alias);
+    }
+    Ok(action)
 }
 
 fn taskspace_action_control_creates_validation_node(action: &TaskSpaceActionV1) -> bool {
@@ -5482,14 +5618,15 @@ fn taskspace_action_to_tool_call(
                 payload: ToolPayload::Function { arguments },
             }))
         }
-        "taskspace_control" => Ok(Some(ToolCall {
-            tool_name: ToolName::plain("taskspace_control"),
-            call_id,
-            payload: ToolPayload::Function {
-                arguments: normalize_taskspace_action_contract_control_args(args, snapshot)
-                    .to_string(),
-            },
-        })),
+        "taskspace_control" => {
+            let arguments =
+                normalize_taskspace_action_contract_control_args(args, Some(snapshot))?.to_string();
+            Ok(Some(ToolCall {
+                tool_name: ToolName::plain("taskspace_control"),
+                call_id,
+                payload: ToolPayload::Function { arguments },
+            }))
+        }
         "blocked" => Ok(None),
         _ => Err(format!("unsupported_action:{action_name}")),
     }
@@ -5505,28 +5642,19 @@ fn taskspace_action_contract_visible_text(raw_text: &str) -> Option<String> {
 
 fn normalize_taskspace_action_contract_control_args(
     args: &serde_json::Value,
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-) -> serde_json::Value {
+    snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
+) -> Result<serde_json::Value, String> {
     let mut normalized = args.clone();
     let Some(root) = normalized.as_object_mut() else {
-        return normalized;
+        return Err(TASKSPACE_CONTROL_ARGS_NOT_OBJECT_ERROR.to_string());
     };
-    if !root.contains_key("action") {
-        if let Some(value) = root
-            .get("control_action")
-            .or_else(|| root.get("control_type"))
-            .cloned()
-        {
-            root.insert("action".to_string(), value);
-        }
-    }
-    let inner_action = root
-        .get("action")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
+    let inner_action = canonicalize_taskspace_control_action_arg(root)?;
     if inner_action != "finish_node" {
-        return normalized;
+        return Ok(normalized);
     }
+    let Some(snapshot) = snapshot else {
+        return Ok(normalized);
+    };
     if !root.contains_key("node_id")
         && let Some(node_id) = snapshot.node_id.as_deref()
     {
@@ -5561,7 +5689,7 @@ fn normalize_taskspace_action_contract_control_args(
             }
         }
     }
-    normalized
+    Ok(normalized)
 }
 
 fn normalize_taskspace_action_contract_test_command(command: &str) -> String {
@@ -5650,7 +5778,8 @@ fn taskspace_bootstrap_action_to_tool_call(
             tool_name: ToolName::plain("taskspace_control"),
             call_id: "taskspace-action-contract-bootstrap-taskspace_control".to_string(),
             payload: ToolPayload::Function {
-                arguments: action.args.to_string(),
+                arguments: normalize_taskspace_action_contract_control_args(&action.args, None)?
+                    .to_string(),
             },
         })),
         "blocked" => Ok(None),

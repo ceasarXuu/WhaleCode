@@ -336,6 +336,8 @@ function Get-TaskspaceBenchmarkMetrics {
         rollout_trace_first_input_tokens_per_request = $costInstrumentation.request_summary.rollout_trace.first_input_tokens_per_request
         rollout_trace_last_input_tokens_per_request = $costInstrumentation.request_summary.rollout_trace.last_input_tokens_per_request
         taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.taskspace_control_count
+        native_taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.native_taskspace_control_count
+        action_contract_taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.action_contract_taskspace_control_count
         state_commit_count = [int]$costInstrumentation.taskspace_control_usage.state_commit_count
         runtime_state_commit_count = [int]$costInstrumentation.taskspace_control_usage.runtime_state_commit_count
         runtime_output_ref_created_count = [int]$costInstrumentation.taskspace_control_usage.runtime_output_ref_created_count

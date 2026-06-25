@@ -3,7 +3,7 @@
 - Created: 2026-06-25
 - Updated: 2026-06-25
 - Version: 0.1
-- Status: Draft
+- Status: Partially Implemented
 - Owner / Responsible: Unknown
 - Related Systems: TaskSpace runtime, DeepSeek ChatCompletions transport, action_map, taskspace_control, benchmark instrumentation
 - Related Links:
@@ -13,6 +13,31 @@
 - Risk Level: High
 - Plan Type: Full
 - AI Agent 推理程度: high
+
+## 0.1 2026-06-25 实施记录
+
+已落地范围：
+
+- 在 action-contract 本地编译边界中规范化 `taskspace_control.args.action`，支持并收敛 `control_action`、`control_type`、`action_name`、`command`，并对缺失或冲突 discriminator 返回稳定错误码。
+- 在 native `taskspace_control` handler 中补齐同一组 alias 作为第二道边界。
+- 更新静态 action-contract 指令，明确 lifecycle 子动作必须使用 canonical `args.action`，不能使用 `action_name` 或 `command`。
+- 扩展 benchmark cost instrumentation：`taskspace_control_count` 现在同时统计 native `taskspace_control` 和 `taskspace-action-v1` assistant JSON 中的 lifecycle control；新增 `native_taskspace_control_count` 与 `action_contract_taskspace_control_count` 来源拆分。
+- 新增 COE：`coe/2026-06-25-15-30-taskspace-action-contract-abi.md`。
+
+已验证：
+
+- `cargo test -p codex-core taskspace_action_contract --lib`：26 passed。
+- `cargo test -p codex-core taskspace_control --lib`：31 passed。
+- `cargo build -p codex-cli --bin whale`：通过。
+- `scripts/taskspace-benchmark/test-cost-instrumentation.ps1`：通过。
+- `scripts/taskspace-benchmark/test-harness.ps1`：通过。
+- B-tier smoke：`target/action-contract-repair-B-rerun46/single-file-fast-fix/20260625-154751-205`，TaskSpace side `business_success=True`，public/hidden validation 均为 0，`request_2_plus_hit_rate=0.988546`，`native_tools_schema_hot_path_count=0`，`tool_free_action_contract_count=8`。
+- 用新统计器重算该 B-tier right artifact 后：`taskspace_control_count=2`，`action_contract_taskspace_control_count=2`，`native_taskspace_control_count=0`。
+
+仍需后续验证：
+
+- 至少一次 C-tier 或多样本 B-tier，确认该修复在非 canonical 模型输出和更长 TaskSpace workflow 下仍稳定。
+- 后续 release gate 应优先读取来源拆分字段，避免把 cache-optimized action-contract lifecycle 误判为 native tool absence。
 
 ## 1. 背景
 

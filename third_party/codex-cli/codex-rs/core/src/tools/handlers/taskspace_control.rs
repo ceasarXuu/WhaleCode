@@ -1075,6 +1075,8 @@ fn normalize_taskspace_arguments(arguments: &str) -> Result<String, FunctionCall
 fn normalize_taskspace_argument_aliases(root: &mut serde_json::Map<String, JsonValue>) {
     move_alias(root, "control_action", "action");
     move_alias(root, "control_type", "action");
+    move_alias(root, "action_name", "action");
+    move_alias(root, "command", "action");
     let action = root
         .get("action")
         .and_then(JsonValue::as_str)
@@ -2229,6 +2231,70 @@ mod tests {
                 assert_eq!(node_kind, "inspect_code_context");
                 assert_eq!(node_title, "diagnose-and-inspect");
                 assert!(node_context_summary.contains("diagnostic command"));
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn start_task_accepts_action_name_alias() {
+        let raw = serde_json::json!({
+            "action_name": "start_task",
+            "first_node_id": "inspect_context",
+            "first_node_kind": "inspect_code_context",
+            "initial_success_criteria": "Tax calculation tests pass",
+            "initial_fact_sources": ["README", "test files", "source files"]
+        });
+
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let value: JsonValue = serde_json::from_str(&normalized).expect("json");
+        assert_eq!(value["action"], "start_task");
+        assert!(value.get("action_name").is_none());
+
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("start_task action_name alias parses");
+        match args {
+            TaskSpaceControlArgs::StartTask {
+                node_kind,
+                node_title,
+                initial_success_criteria,
+                initial_fact_sources,
+                ..
+            } => {
+                assert_eq!(node_kind, "inspect_code_context");
+                assert_eq!(node_title, "inspect_context");
+                assert_eq!(initial_success_criteria[0].id, "criterion-1");
+                assert_eq!(initial_fact_sources.len(), 3);
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn finish_node_accepts_command_alias() {
+        let raw = serde_json::json!({
+            "command": "finish_node",
+            "node_id": "node-1",
+            "next_node_kind": "implement_solution",
+            "next_node_title": "Apply fix",
+            "next_node_context_summary": "Patch src/tax_calc.py based on tests."
+        });
+
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let value: JsonValue = serde_json::from_str(&normalized).expect("json");
+        assert_eq!(value["action"], "finish_node");
+        assert!(value.get("command").is_none());
+
+        let args: TaskSpaceControlArgs =
+            parse_arguments(&normalized).expect("finish_node command alias parses");
+        match args {
+            TaskSpaceControlArgs::FinishNode {
+                result_summary,
+                next_node_kind,
+                ..
+            } => {
+                assert!(result_summary.contains("TaskSpace node completed"));
+                assert_eq!(next_node_kind.as_deref(), Some("implement_solution"));
             }
             other => panic!("unexpected args: {other:?}"),
         }
