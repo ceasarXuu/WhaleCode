@@ -165,3 +165,56 @@ duration ~= 202 seconds
 ```
 
 根因：`build-v005-non-agent-gates.ps1` 对 `start_gate_fixture` 的 240 秒超时在 Windows 上过紧，fixture 单独运行已经接近该边界；wrapper 叠加进程启动、输出捕获和系统调度后会误判为 timeout。修复为将该 gate timeout 调整到 420 秒。该修复不改变通过标准，仍要求 start gate fixture exit code 为 0 且不超时。
+
+## F.10 2026-06-27 B-tier blocker 修复状态
+
+本轮 B-tier smoke 暴露两个 release blocker：
+
+```text
+wait_attribution_status = missing
+missing field = model_request_duration_ms
+open_leaf_nodes = 1
+```
+
+已确认并修复：
+
+```text
+Timing:
+  runner 之前读取 whale-exec.jsonl，里面没有 provider_lifecycle timing。
+  rollout.jsonl 同一 run 可解析 16 个 terminal provider events，
+  model_request_duration_ms = 117196。
+  现已改为优先读取 artifact rollout.jsonl。
+
+Graph:
+  explicit taskspace_control(action=finish_node) 被 session/turn.rs
+  在 successful validation 分支里替换成 final_answer，导致没有执行 taskspace_control。
+  现已删除该替换分支，显式 lifecycle action 必须先落 runtime state。
+```
+
+已验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-score-validity.ps1
+PASS
+
+cargo test -p codex-core active_context_replacement --lib
+83 passed
+
+cargo test -p codex-core taskspace --lib
+93 passed
+```
+
+下一步验证顺序：
+
+```text
+1. cargo build -p codex-cli --bin whale
+2. rerun B-tier single-file-fast-fix
+3. inspect pair artifacts:
+   - business_success=true
+   - exact_context_bundle_verified=true
+   - replacement_confirmed=true
+   - request_2_plus_hit_rate >= 0.95
+   - open_leaf_nodes=0
+   - model_request_duration_ms present
+   - wait_attribution_status=complete
+```

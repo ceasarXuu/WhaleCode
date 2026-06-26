@@ -1,7 +1,7 @@
 # Problem P-001: R3 B-tier smoke exposes missing timing attribution and open TaskSpace leaf
 - Status: open
 - Created: 2026-06-27 00:48
-- Updated: 2026-06-27 00:48
+- Updated: 2026-06-27 01:06
 - Objective: Make the R3 B-tier smoke produce trustworthy benefit evidence by fixing proven harness attribution gaps and then closing the remaining TaskSpace graph lifecycle blocker.
 - Symptoms:
   - B-tier smoke finished with business success on both standard and TaskSpace, but speed evidence was blocked because `model_request_duration_ms` was missing.
@@ -20,13 +20,13 @@
 - Environment:
   - Windows PowerShell, branch `whalecode-alpha`, local debug `whale.exe` from `D:\BuildCache\whalecode\cargo-target\debug\whale.exe`.
 - Known facts:
-  - See E-001 through E-003.
+  - See E-001 through E-005.
 - Ruled out:
   - none
 - Fix criteria:
   - Timing attribution self-test passes and B-tier metrics can read provider lifecycle timing from `rollout.jsonl`.
   - The graph closeout blocker has a confirmed root cause, focused regression coverage, and a rerun that no longer leaves a successful open leaf.
-- Current conclusion: Timing attribution has a confirmed runner source-selection root cause. Graph closeout is still under diagnosis.
+- Current conclusion: Timing attribution has a confirmed runner source-selection root cause. Graph closeout has a confirmed action-contract rewrite root cause: explicit validation `finish_node` was replaced by `final_answer` before the lifecycle tool could run.
 - Related hypotheses:
   - H-001
   - H-002
@@ -78,7 +78,7 @@
   - not closed
 
 ## Hypothesis H-002: Explicit `finish_node` for the final smoke-test node is not committed
-- Status: unverified
+- Status: confirmed
 - Parent: P-001
 - Claim: The final TaskSpace node remains running because the explicit `finish_node` action in the model transcript is not converted into a durable graph transition.
 - Layer: root-cause
@@ -112,12 +112,14 @@
   - Instrumentation status: none
   - Instrumentation lifecycle:
     - none
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-003
-- Conclusion: unverified
-- Repair design readiness: blocked until Status is confirmed and Evidence gate is satisfied
-- Next step: extract targeted transcript and rollout state for `node-3`.
+  - E-004
+  - E-005
+- Conclusion: confirmed
+- Repair design readiness: ready
+- Next step: preserve explicit lifecycle `finish_node` as a `taskspace_control` tool call; do not rewrite it to `final_answer`.
 - Blocker:
   - none
 - Close reason:
@@ -186,3 +188,49 @@
   ```
 - Interpretation: This proves the graph closeout symptom exists, but does not yet prove whether the cause is model action emission, parser/action contract, or runtime commit.
 - Time: 2026-06-27 00:48
+
+## Evidence E-004: The final finish_node existed only as assistant text, not as a tool call
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: diagnostic-log
+- Source: `target\phase-r3-btier-smoke-20260627-003813\single-file-fast-fix\20260627-003814-503\pair-001\right\artifacts\whale-exec.jsonl`
+- Prediction or plan link:
+  - H-002 If true prediction.
+- Matched signal:
+  - `item_98` is an `agent_message` containing `taskspace_control finish_node`; no subsequent `function_call` or `function_call_output` appears for that action.
+- Correlation keys:
+  - `node-3`
+  - `item_98`
+- Raw content:
+  ```text
+  item_98 agent_message:
+  {"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-3","args":{"action":"finish_node","result_validities":[...],"result":"All 3 tax calculation tests pass."},"rationale":"Tests pass; closing smoke_test node and marking all criteria as satisfied."}
+
+  item_100 error:
+  TaskSpaceProviderResponseActionabilityV1 actionability=final_candidate recovery_action=none request_count=16/8 phase=validation_recovery node_kind=smoke_test assistant_message_present=true saw_actionable_output=false end_turn=unknown preview=Validation passed; final result is ready.
+  ```
+- Interpretation: The model emitted a valid lifecycle action, but the runtime did not synthesize or execute a corresponding `taskspace_control` call.
+- Time: 2026-06-27 01:06
+
+## Evidence E-005: Code rewrote validation finish_node into final_answer before tool conversion
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: code-location
+- Source: `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Prediction or plan link:
+  - H-002 Diagnostic evidence plan: distinguish valid-but-ignored from rejected action.
+- Matched signal:
+  - `should_answer_after_successful_validation_finish_node` returned true for explicit `taskspace_control(action=finish_node)` on smoke/regression nodes with successful test/build evidence; the caller replaced the action with `taskspace_final_answer_action` before `taskspace_action_to_tool_call`.
+- Correlation keys:
+  - `should_answer_after_successful_validation_finish_node`
+  - `taskspace_final_answer_action`
+- Raw content:
+  ```text
+  else if ... should_answer_after_successful_validation_finish_node(&action, snapshot, sess.as_ref()).await {
+      taskspace_final_answer_action("Validation passed; final result is ready.")
+  }
+  ```
+- Interpretation: The runtime intentionally bypassed the explicit lifecycle action, which explains both `saw_actionable_output=false` and the remaining open leaf.
+- Time: 2026-06-27 01:06

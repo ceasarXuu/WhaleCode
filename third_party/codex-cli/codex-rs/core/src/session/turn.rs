@@ -2960,6 +2960,31 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_action_contract_finish_node_on_validation_node_remains_lifecycle_tool() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"action":"finish_node","result_validities":[{"id":"criterion-1","status":"closed"}],"result":"All tests pass."},"rationale":"close validation node"}"#,
+        )
+        .expect("valid json");
+
+        assert!(taskspace_action_is_finish_node_control(&action));
+        assert!(taskspace_action_final_message(&action).is_none());
+
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("smoke_test"))
+            .expect("policy ok")
+            .expect("finish_node must execute taskspace_control");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(value["action"], "finish_node");
+                assert_eq!(value["node_id"], "node-1");
+                assert_eq!(value["result"], "All tests pass.");
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn taskspace_action_contract_apply_patch_uses_custom_payload() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** End Patch\n"}}"#,
@@ -4882,27 +4907,6 @@ async fn should_answer_after_successful_validation_redundant_node(
         .await
 }
 
-async fn should_answer_after_successful_validation_finish_node(
-    action: &TaskSpaceActionV1,
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-    sess: &Session,
-) -> bool {
-    if !taskspace_action_is_finish_node_control(action) {
-        return false;
-    }
-    if !matches!(
-        snapshot.node_kind.as_deref(),
-        Some("smoke_test" | "regression_test")
-    ) {
-        return false;
-    }
-    sess.action_map_current_main_node_has_successful_action(ActionClass::Test)
-        .await
-        || sess
-            .action_map_current_main_node_has_successful_action(ActionClass::Build)
-            .await
-}
-
 fn taskspace_action_is_finish_node_control(action: &TaskSpaceActionV1) -> bool {
     action.action == "taskspace_control"
         && taskspace_action_control_action(action) == Some("finish_node")
@@ -5932,17 +5936,6 @@ async fn try_run_sampling_request(
                                 )
                             } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
                                 && should_answer_after_successful_validation_redundant_node(
-                                    &action,
-                                    snapshot,
-                                    sess.as_ref(),
-                                )
-                                .await
-                            {
-                                taskspace_final_answer_action(
-                                    "Validation passed; final result is ready.",
-                                )
-                            } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
-                                && should_answer_after_successful_validation_finish_node(
                                     &action,
                                     snapshot,
                                     sess.as_ref(),

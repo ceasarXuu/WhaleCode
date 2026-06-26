@@ -108,12 +108,26 @@ R3-D first lifecycle fix landed locally:
   active_context_replacement and taskspace unit gates passed.
   B-tier / targeted diagnostic proof is still required before marking graph closeout done.
 
+R3-D second lifecycle fix landed locally:
+  explicit taskspace_control(action=finish_node) on smoke_test/regression_test is no longer
+  rewritten into final_answer before tool conversion.
+  This preserves lifecycle state commit before terminal response.
+  active_context_replacement and taskspace unit gates passed with 83 / 93 tests.
+  B-tier proof must still show open_leaf_nodes=0.
+
 R3-E first timing fix landed locally:
   provider_request_budget trace now emits model_request_duration_ms beside latency_ms.
   benchmark timing parser prefers provider_lifecycle terminal durations and keeps websocket timing
   as fallback.
   provider_request_budget, E3 score-validity, and cost instrumentation self-tests passed.
   B-tier / targeted diagnostic proof is still required before marking wait attribution done.
+
+R3-E second timing fix landed locally:
+  benchmark runner now reads model timing from artifact rollout.jsonl when present and falls back
+  to whale-exec.jsonl only when rollout is unavailable.
+  Same B-tier artifact proved rollout.jsonl reports provider_lifecycle_timing while whale-exec.jsonl
+  reports jsonl_without_timing.
+  E3 score-validity self-test passed.
 ```
 
 ## 0.6 R2 blocker 到 R3 phase 映射

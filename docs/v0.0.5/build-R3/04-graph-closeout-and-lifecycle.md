@@ -121,3 +121,57 @@ taskspace_final_answer_does_not_block_successful_required_action_auto_finish
 ```
 
 尚未完成的真实收益证明：需要重新跑 B-tier / targeted diagnostic，确认真实运行 artifact 中 `open_leaf_nodes=0`，并检查没有引入多余 `final_synthesis` 节点。
+
+## D.11 2026-06-27 closeout blocker 修复
+
+B-tier smoke `target\phase-r3-btier-smoke-20260627-003813` 暴露出第二类 graph closeout blocker：
+
+```text
+business_success = true
+open_leaf_nodes = 1
+node-3 kind = smoke_test
+node-3 status = running
+```
+
+根因不是模型没有发出 closeout，也不是 `taskspace_control` handler 拒绝了 `finish_node`。实际链路是：
+
+```text
+assistant text emitted valid taskspace_control(action=finish_node)
+session/turn.rs detected successful validation on smoke_test
+runtime rewrote that explicit finish_node into final_answer
+taskspace_control tool call was never synthesized
+node-3 stayed running
+```
+
+修复原则：
+
+```text
+显式 lifecycle action 必须先落 runtime state，不能被 final_answer 替换。
+final_answer 只能用于真正的 terminal response，不能绕过 finish_node/block_node。
+```
+
+已落地：
+
+```text
+removed should_answer_after_successful_validation_finish_node rewrite branch
+added taskspace_action_contract_finish_node_on_validation_node_remains_lifecycle_tool
+```
+
+已验证：
+
+```text
+cargo test -p codex-core active_context_replacement --lib
+83 passed
+
+cargo test -p codex-core taskspace --lib
+93 passed
+```
+
+仍需真实收益证明：
+
+```text
+重建 whale.exe
+重跑 B-tier single-file-fast-fix
+确认 open_leaf_nodes=0
+确认没有新增 summary-only final_synthesis
+```
