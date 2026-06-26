@@ -235,3 +235,50 @@ release rollback/fallback note
 ```
 
 After code changes land, ask whether to run adversarial review before formal E3.
+
+## 0.10 2026-06-27 Current Status
+
+R3 已在 B-tier `single-file-fast-fix` 上证明：
+
+```text
+business_success = true
+exec_exit_code = 0
+open_leaf_nodes = 0
+exact_context_bundle_verified = true
+replacement_confirmed = true
+raw_taskspace_control_history_tokens = 0
+request_2_plus_hit_rate = 0.986813
+cache_usage_missing_count = 0
+native_tools_schema_hot_path_count = 0
+wait_attribution_status = complete
+```
+
+低内存脚本级门禁已复跑通过：
+
+```text
+test-release-decision.ps1 = PASS
+test-cost-instrumentation.ps1 = PASS
+test-v005-non-agent-gates-builder.ps1 = PASS
+test-e3-start-gate.ps1 = PASS
+```
+
+仍未完成：
+
+```text
+current-HEAD build-v005-non-agent-gates.ps1 formal run
+targeted diagnostic terminal-bench_E3-P0_1_1
+code-complete marker
+explicit user approval marker
+formal E3 start gate
+formal terminal-bench_E3-P0_3_5
+```
+
+当前暂停原因：
+
+```text
+FreePhysicalMemory ~= 2.27GB
+formal non-agent gates include cargo test
+continuing under this RAM state risks pagefile pressure and host instability
+```
+
+下一步先释放本机内存，或确认允许结束无关高占用进程，再执行正式 non-agent gates。

@@ -429,3 +429,40 @@ R3 的 correctness / graph closeout / context replacement / cache-hit / timing a
 但 speedup/cost saving 不能宣称。当前真实证据显示 TaskSpace 在该样本上仍更慢、更贵。
 下一阶段应把优化目标从“补齐观测字段”切换到“降低 TaskSpace 请求数、模型时长和重复动作”。
 ```
+
+## F.15 2026-06-27 脚本级门禁复跑与资源状态
+
+已在当前 HEAD 复跑低内存脚本级门禁：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1
+PASS
+duration ~= 88 seconds
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1
+PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-v005-non-agent-gates-builder.ps1
+PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1
+PASS
+duration ~= 165 seconds
+```
+
+正式 current-HEAD non-agent gates 暂缓执行。原因不是门禁脚本失败，而是本机资源风险：
+
+```text
+FreePhysicalMemory ~= 2.27GB
+FreeVirtualMemory ~= 25.68GB
+
+Top memory holders included:
+  vmmemWSL ~= 959MB working set
+  Codex processes ~= 827MB combined working set in top two entries
+  MsMpEng ~= 460MB working set
+  multiple opencode processes ~= 300MB working set each
+```
+
+`build-v005-non-agent-gates.ps1` 的正式模式会串行触发多组 `cargo test`。在当前 RAM 状态下继续执行存在较高页面文件压力和系统失稳风险，因此按资源门禁暂停。下一步需要先释放本机内存，或确认允许结束无关高占用进程；随后再执行正式 non-agent gates。
+
+注意：递归扫描整个 `target` 查找 marker 在当前目录体量下发生超时，因此后续 marker 检查应只针对已知 run root，不再全量递归扫构建产物目录。
