@@ -274,6 +274,14 @@ $providerTiming = Get-TaskspaceModelTimingAttribution $providerTimingJsonl
 Assert-True ([int64]$providerTiming.model_request_duration_ms -eq 660) "model timing parser did not aggregate provider lifecycle terminal durations"
 Assert-True ([string]$providerTiming.model_timing_source_status -eq "provider_lifecycle_timing") "model timing parser did not prefer provider lifecycle timing"
 Assert-True ([int64]$providerTiming.model_timing_event_count -eq 2) "model timing parser counted non-terminal provider events"
+$timingSourceDir = Join-Path $RunRoot ("timing-source-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
+New-Item -ItemType Directory -Force -Path $timingSourceDir | Out-Null
+$timingSourceRollout = Join-Path $timingSourceDir "rollout.jsonl"
+"{}" | Set-Content -LiteralPath $timingSourceRollout -Encoding UTF8
+$timingSourceFallback = Join-Path $RunRoot ("timing-source-fallback-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff") + ".jsonl")
+"{}" | Set-Content -LiteralPath $timingSourceFallback -Encoding UTF8
+Assert-True ([string](Get-TaskspaceModelTimingSourcePath $timingSourceDir $timingSourceFallback) -eq [string]$timingSourceRollout) "model timing source did not prefer artifact rollout jsonl"
+Assert-True ([string](Get-TaskspaceModelTimingSourcePath (Join-Path $RunRoot "missing-artifacts") $timingSourceFallback) -eq [string]$timingSourceFallback) "model timing source did not fall back to exec jsonl"
 $decisionCases = @(
     [pscustomobject]@{ name = "missing timing"; timing = $null; score_valid = $true; expected = "speedup_blocked_instrumentation"; evidence_valid = $false },
     [pscustomobject]@{ name = "invalid score"; timing = [pscustomobject]@{ timing_quality = "complete"; bottleneck_classification = "validator_bound" }; score_valid = $false; expected = "speedup_blocked_invalid_run"; evidence_valid = $false },

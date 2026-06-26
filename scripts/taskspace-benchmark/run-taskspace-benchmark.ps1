@@ -509,7 +509,8 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $validation = [pscustomobject]@{ exit_code = $validationExit; stdout_path = $validationStdout; stderr_path = $validationStderr }
         $metrics = Get-TaskspaceBenchmarkMetrics $side $exec $validation $oracle $obsBySide[$side.Name]
         $metrics.invalid_prompt = $promptGuard.invalid_prompt
-        $modelTiming = Get-TaskspaceModelTimingAttribution $exec.jsonl_path
+        $modelTimingPath = Get-TaskspaceModelTimingSourcePath $side.ArtifactDir $exec.jsonl_path
+        $modelTiming = Get-TaskspaceModelTimingAttribution $modelTimingPath
         $metrics | Add-Member -NotePropertyName model_queue_wait_ms -NotePropertyValue $modelTiming.model_queue_wait_ms -Force
         $metrics | Add-Member -NotePropertyName model_retry_backoff_ms -NotePropertyValue $modelTiming.model_retry_backoff_ms -Force
         $metrics | Add-Member -NotePropertyName model_request_duration_ms -NotePropertyValue $modelTiming.model_request_duration_ms -Force

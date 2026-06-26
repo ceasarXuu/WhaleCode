@@ -146,6 +146,18 @@ function Get-TaskspaceTimingIntValue {
     $null
 }
 
+function Get-TaskspaceModelTimingSourcePath {
+    param(
+        [string]$ArtifactDir,
+        [string]$FallbackJsonlPath
+    )
+    if (-not [string]::IsNullOrWhiteSpace($ArtifactDir)) {
+        $rolloutTimingPath = Join-Path $ArtifactDir "rollout.jsonl"
+        if (Test-Path -LiteralPath $rolloutTimingPath) { return $rolloutTimingPath }
+    }
+    $FallbackJsonlPath
+}
+
 function Get-TaskspaceModelTimingAttribution {
     param([string]$JsonlPath)
     $requestMs = [int64]0
