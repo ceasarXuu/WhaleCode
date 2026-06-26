@@ -47,6 +47,100 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
   passed
 ```
 
+## C.1.2 真实收益证明记录（2026-06-26）
+
+验证命令使用当前 Phase C 代码构建出的真实 `whale.exe`，而不是旧安装包：
+
+```text
+WhaleBin = D:\BuildCache\whalecode\cargo-target\debug\whale.exe
+Git HEAD = 0125c95e8
+RunRoot = target\phase-c-real-benefit-proof\single-file-fast-fix-20260626-202548
+Scenario = single-file-fast-fix
+Repeats = 1
+Model = deepseek-v4-flash
+```
+
+这次 smoke 不能证明 TaskSpace 已经获得正向业务收益。结果是
+`standard` 解题成功，`taskspace` 解题失败：
+
+```text
+reported_evidence_level = E1
+valid_pair = True
+included_in_utility_aggregate = False
+utility_direction = standard_better
+failure_taxonomy = agent_patch_wrong
+outcome_standard = solved
+outcome_taskspace = wrong
+taskspace_wall_time_ratio = 1.74
+```
+
+因此 Phase C 的真实收益不是“已提升成功率”，而是更基础的工程收益：
+它在真实 provider 请求上阻止了 false green，并把失败定位到
+provider-visible payload 层。旧的 budget/projection 派生证明只能说明
+本地状态或摘要看起来正确，无法证明真正发给 provider 的 payload 已经完成
+active context replacement。
+
+真实 artifact 证据：
+
+```text
+artifact_dir =
+  target\phase-c-real-benefit-proof\single-file-fast-fix-20260626-202548\
+  single-file-fast-fix\20260626-202549-940\pair-001\right\artifacts
+
+exact_payload_scan_count = 30
+exact_payload_scan_pass_count = 0
+exact_payload_scan_producer = provider_payload_scanner
+exact_payload_scan_matching_provider_count = 30
+failure_reasons =
+  legacy_taskspace_history_present,
+  raw_taskspace_control_history_present,
+  protected_items_missing
+```
+
+`active-context-replacement-report.json` 给出的最小现场：
+
+```text
+provider_payload_available = true
+exact_payload_scan_passed = false
+exact_payload_scan_matching_provider_event = true
+replacement_confirmed = false
+legacy_taskspace_history_present = true
+raw_taskspace_control_history_tokens = 917
+completed_stale_node_history_tokens = 0
+rejected_subagent_body_tokens = 0
+large_raw_output_tokens = 0
+protected_items_present = false
+```
+
+同时，这次失败不能归因为 Phase B 已修过的 action contract ABI 问题或
+DeepSeek cache 命中不稳定：
+
+```text
+provider_request_count = 10
+request_2_plus_hit_rate = 0.991999
+trace_coverage = 1
+cache_usage_missing_count = 0
+native_tools_schema_hot_path_count = 0
+tool_free_action_contract_count = 10
+
+request_phase_attribution_coverage = 100
+unknown_request_phase_ratio = 0
+taskspace_control_count = 2
+action_contract_taskspace_control_count = 2
+native_taskspace_control_count = 0
+```
+
+结论：
+
+```text
+真实业务收益：未证明；本样本 TaskSpace 解题失败。
+真实工程收益：已证明；Phase C 在真实 provider-visible payload 上发现污染，
+  并阻止 active context replacement 被错误标记为通过。
+下一步：修复 active context replacement 输入构造，使 provider payload 不再包含
+  legacy TaskSpace history / raw taskspace_control history，并生成
+  protected_items_present=true 的可验证证明。
+```
+
 ## C.2 Files to change
 
 ```text
