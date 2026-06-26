@@ -2,7 +2,7 @@
 
 > 2026-06-25 更新：route/profile 不再限制 spawn/node 数量；只提供起始复杂度估算和 over-profile 观测。
 >
-> 2026-06-26 复核：runtime 已补强 subagent plan、ready-node claim、unreviewed-result 等质量门；artifact/release 汇总仍需收敛。
+> 2026-06-26 执行：artifact/release 已显式汇总 subagent review debt；release gate 会阻断未审查 subagent result，但不会因为 over-profile hint 阻断。
 
 ## F.1 目标
 
@@ -39,11 +39,12 @@ unreviewed result 会阻断 ordinary work 或 downstream spawn，直到 mark_res
 subagent 完成 inspect/validation 类 node 前必须有对应工具或问题状态证据
 ```
 
-仍未完成的 Phase F 产物：
+Phase F 已完成的产物：
 
 ```text
-spawn-node-budget-summary 需要继续保持 advisory-only 语义
-release artifact 需要显式汇总 unreviewed_subagent_result_count / review debt
+spawn-node-budget-summary 继续保持 advisory-only 语义
+release artifact 显式汇总 unreviewed_subagent_result_count / review debt
+release gate 阻断未审查 subagent result
 post-ABI B-tier smoke 需要证明这些质量门没有再次制造业务失败
 ```
 
@@ -87,7 +88,11 @@ budget_gate_reason = spawn_budget_available|spawn_profile_hint_exceeded|node_bud
   "node_count": 5,
   "max_nodes": 4,
   "over_profile_hint": true,
-  "blocked_budget_event_count": 0
+  "blocked_budget_event_count": 0,
+  "subagent_review_debt_status": "no_unreviewed_subagent_results|unreviewed_subagent_results|not_measured",
+  "subagent_result_count": 1,
+  "reviewed_subagent_result_count": 1,
+  "unreviewed_subagent_result_count": 0
 }
 ```
 
@@ -96,6 +101,7 @@ budget_gate_reason = spawn_budget_available|spawn_profile_hint_exceeded|node_bud
 ```text
 runtime event 存在
 blocked_budget_event_count = 0
+unreviewed_subagent_result_count = 0
 ```
 
 不是：
@@ -112,6 +118,8 @@ Release decision 的 `spawn_node_budget_gate_pass` 表示：
 ```text
 profile advisory trace 存在
 没有 profile 产生的 blocked event
+subagent_review_debt_status = no_unreviewed_subagent_results
+unreviewed_subagent_result_count = 0
 ```
 
 不表示：
@@ -143,4 +151,41 @@ create_node over profile => allowed + node_profile_hint_exceeded
 spawn over profile => allowed + spawn_profile_hint_exceeded
 spawn-node summary over_profile_hint => status=pass
 release decision 不要求 within_budget_status=pass
+release decision 会阻断 unreviewed_subagent_result_count > 0
+```
+
+## F.8 本地收益证明
+
+Phase F 的真实收益不是“减少次数”，而是把 fanout 治理从硬预算迁移到可验证质量债：
+
+```text
+正例 artifact:
+  target/cost-instrumentation-selftest/artifacts/spawn-node-budget-summary.json
+  status = pass
+  within_budget_status = over_profile_hint
+  over_budget_enforcement_status = advisory_only
+  over_profile_hint = true
+  blocked_budget_event_count = 0
+  subagent_review_debt_status = no_unreviewed_subagent_results
+  subagent_result_count = 1
+  reviewed_subagent_result_count = 1
+  unreviewed_subagent_result_count = 0
+
+负例 artifact:
+  target/release-decision-selftest/run-20260626-214802-116/unreviewed-subagent-result/release-decision.json
+  decision = fail
+  closeable = false
+  spawn_node_budget_gate_pass = false
+  subagent_review_debt_status = unreviewed_subagent_results
+  unreviewed_subagent_result_count = 1
+  blockers includes spawn_budget_gate_failed
+```
+
+已通过门禁：
+
+```text
+cargo test -p codex-core budget --lib
+cargo test -p codex-core taskspace --lib
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1
 ```

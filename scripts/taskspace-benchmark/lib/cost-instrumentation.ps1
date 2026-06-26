@@ -142,6 +142,70 @@ function Convert-TaskspaceTraceBool {
     return $Default
 }
 
+function Get-TaskspaceSubagentReviewDebt {
+    param([AllowEmptyString()][string]$ObservabilityJsonPath = "")
+    $sourceStatus = "missing"
+    $latestSnapshot = $null
+    if (-not [string]::IsNullOrWhiteSpace($ObservabilityJsonPath) -and (Test-Path -LiteralPath $ObservabilityJsonPath)) {
+        try {
+            $obs = (Get-Content -Raw -Encoding UTF8 -LiteralPath $ObservabilityJsonPath) | ConvertFrom-Json
+            $sourceStatus = "read"
+            foreach ($event in @($obs.timeline)) {
+                $kind = [string](Get-TaskspaceTraceField $event @("kind"))
+                $details = Get-TaskspaceCostProperty $event @("details")
+                $detailType = [string](Get-TaskspaceCostProperty $details @("type"))
+                if ($kind -ne "snapshot_updated" -and $detailType -ne "snapshot_updated") { continue }
+                $snapshot = Get-TaskspaceCostProperty $details @("snapshot")
+                if ($null -ne $snapshot) { $latestSnapshot = $snapshot }
+            }
+        } catch {
+            $sourceStatus = "parse_error"
+        }
+    }
+    $results = New-Object System.Collections.Generic.List[object]
+    if ($null -ne $latestSnapshot) {
+        foreach ($map in @($latestSnapshot.maps)) {
+            $mapId = [string](Get-TaskspaceCostProperty $map @("id", "mapId", "map_id"))
+            foreach ($result in @($map.results)) {
+                $subagentPlanId = [string](Get-TaskspaceCostProperty $result @("subagentPlanId", "subagent_plan_id"))
+                if ([string]::IsNullOrWhiteSpace($subagentPlanId)) { continue }
+                $evidencePackage = Get-TaskspaceCostProperty $result @("evidencePackage", "evidence_package")
+                $validity = [string](Get-TaskspaceCostProperty $evidencePackage @("validity"))
+                if ([string]::IsNullOrWhiteSpace($validity)) { $validity = "unreviewed" }
+                $results.Add([pscustomobject]@{
+                    map_id = $mapId
+                    node_id = [string](Get-TaskspaceCostProperty $result @("nodeId", "node_id"))
+                    result_id = [string](Get-TaskspaceCostProperty $result @("id", "resultId", "result_id"))
+                    subagent_plan_id = $subagentPlanId
+                    kind = [string](Get-TaskspaceCostProperty $result @("kind"))
+                    validity = $validity
+                })
+            }
+        }
+    }
+    $resultRows = @($results.ToArray())
+    $unreviewed = @($resultRows | Where-Object { [string]$_.validity -eq "unreviewed" })
+    $reviewed = @($resultRows | Where-Object { [string]$_.validity -ne "unreviewed" })
+    $reviewDebtStatus = if ($sourceStatus -ne "read") {
+        "not_measured"
+    } elseif ($null -eq $latestSnapshot) {
+        "not_measured"
+    } elseif ($unreviewed.Count -gt 0) {
+        "unreviewed_subagent_results"
+    } else {
+        "no_unreviewed_subagent_results"
+    }
+    [pscustomobject]@{
+        source_status = $sourceStatus
+        review_debt_status = $reviewDebtStatus
+        subagent_result_count = [int]$resultRows.Count
+        reviewed_subagent_result_count = [int]$reviewed.Count
+        unreviewed_subagent_result_count = [int]$unreviewed.Count
+        subagent_results = @($resultRows)
+        unreviewed_subagent_results = @($unreviewed)
+    }
+}
+
 function New-TaskspaceBudgetArtifacts {
     param([string]$ObservabilityJsonPath, [AllowEmptyString()][string]$RolloutJsonlPath = "")
     $activeBudgetEvents = New-Object System.Collections.Generic.List[object]
@@ -761,11 +825,14 @@ function New-TaskspaceSpawnNodeBudgetSummary {
     $maxNodes = if ($runtimeEvents.Count -gt 0) { [int](@($runtimeEvents | Measure-Object -Property max_nodes -Maximum).Maximum) } else { 0 }
     $overProfileHint = ($runtimeEvents.Count -gt 0 -and (($maxSpawnAgentCalls -ge 0 -and $spawnCount -gt $maxSpawnAgentCalls) -or ($maxNodes -ge 0 -and $nodeCount -gt $maxNodes)))
     $sourceStatus = if ($runtimeEvents.Count -gt 0) { "runtime" } else { "missing_runtime" }
+    $reviewDebt = Get-TaskspaceSubagentReviewDebt $ObservabilityJsonPath
     [pscustomobject]@{
         schema_version = "taskspace-spawn-node-budget-summary-v1"
-        status = if ($sourceStatus -eq "runtime" -and $blockedEvents.Count -eq 0) { "pass" } else { "fail" }
+        status = if ($sourceStatus -eq "runtime" -and $blockedEvents.Count -eq 0 -and [int]$reviewDebt.unreviewed_subagent_result_count -eq 0) { "pass" } else { "fail" }
         within_budget_status = if ($sourceStatus -ne "runtime") { "missing_runtime" } elseif ($overProfileHint) { "over_profile_hint" } else { "within_profile_hint" }
         over_budget_enforcement_status = if ($blockedEvents.Count -eq 0) { "advisory_only" } else { "blocked_event_observed" }
+        subagent_review_debt_status = [string]$reviewDebt.review_debt_status
+        subagent_review_source_status = [string]$reviewDebt.source_status
         source_status = $sourceStatus
         producer = "runtime"
         active_budget_source = [string](@($runtimeEvents | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.active_budget_source) } | Select-Object -First 1).active_budget_source)
@@ -775,9 +842,13 @@ function New-TaskspaceSpawnNodeBudgetSummary {
         node_count = [int]$nodeCount
         max_nodes = [int]$maxNodes
         over_profile_hint = [bool]$overProfileHint
+        subagent_result_count = [int]$reviewDebt.subagent_result_count
+        reviewed_subagent_result_count = [int]$reviewDebt.reviewed_subagent_result_count
+        unreviewed_subagent_result_count = [int]$reviewDebt.unreviewed_subagent_result_count
         runtime_event_count = [int]$runtimeEvents.Count
         blocked_budget_event_count = [int]$blockedEvents.Count
         invalid_blocked_budget_event_count = [int]$invalidBlockedEvents.Count
+        unreviewed_subagent_results = @($reviewDebt.unreviewed_subagent_results)
         runtime_events = @($runtimeEvents)
     }
 }

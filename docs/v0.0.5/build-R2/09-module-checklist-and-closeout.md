@@ -31,7 +31,7 @@ Required work:
 [x] Add record_budget_quality_impact; keep as advisory quality/regression signal
 [x] Add record_legacy_state_action_attempt
 [x] Fix state_commit_displacement denominator
-[~] Add spawn/node profile observability and subagent result review quality gates
+[x] Add spawn/node profile observability and subagent result review quality gates
 ```
 
 ## 4.2 `core/src/client.rs`
@@ -83,7 +83,7 @@ Required work:
 [x] Add phase_counts and phase_token_summary
 [x] Parse BudgetQualityImpactV1 full fields
 [x] Parse legacy_state_action_attempt events
-[~] Parse route-aware spawn/node/subagent profile fields
+[x] Parse route-aware spawn/node/subagent profile fields
 [x] Fail summaries when required producer-owned evidence is missing
 [x] Split taskspace_control usage into native and action-contract lifecycle counts
 ```
@@ -103,7 +103,7 @@ Required work:
 [ ] Block DeepSeek release-like claims if tool_free_action_contract_count == 0
 [x] Block release if BudgetQualityImpact has validation skip, score-ineligible solved, manual override, blocked_by_budget, or forbidden budget_action
 [x] Block release if state_commit_displacement denominator lacks legacy attempts
-[~] Block release if spawn/node profile trace has blocked budget events or unreviewed subagent results
+[x] Block release if spawn/node profile trace has blocked budget events or unreviewed subagent results
 [x] Block release-like claims if open_leaf_nodes > 0
 [x] Require runtime bottleneck evidence when agent_walltime_ratio exceeds the configured threshold
 [x] Block release if diagnostic sample set attempts release_pass
@@ -130,12 +130,13 @@ taskspace_action_contract / taskspace_control focused gates
   passed in the action-contract ABI repair run
 Phase C exact payload scan gates
   provider_payload, provider_request_budget replayable trace, taskspace, cost instrumentation, and release decision passed
+Phase E/F local gates
+  state_commit displacement denominator, advisory spawn/node profile, and subagent review debt release fixtures passed
 ```
 
 Current code-complete blockers:
 
 ```text
-Phase E independent legacy state action attempt denominator is missing
 Phase G canonical v005-non-agent-gates.json builder is missing
 post-ABI B-tier smoke business/cache/open-leaf/walltime evidence is missing
 ```

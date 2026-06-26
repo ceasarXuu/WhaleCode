@@ -34,7 +34,7 @@ unknown_request_phase_ratio <= 5%
 active_context_replacement_confirmed = true
 budget_quality_impact_gate_pass = true
 state_commit_displacement_gate_pass = true
-spawn_node_budget_gate_pass = true  # 仅表示 advisory profile trace 存在且没有 profile 产生的 blocked event
+spawn_node_budget_gate_pass = true  # 仅表示 advisory profile trace 存在、没有 profile blocked event、没有未审查 subagent result
 ```
 
 Engineering re-entry before formal E3 requires:
@@ -155,9 +155,9 @@ The alpha branch now has these implementation states:
 | Request phase attribution | `TaskSpaceProviderRequestPhase`, pending provider phase state, `ProviderRequestAttribution::from_snapshot`, `phase_counts`, and `phase_token_summary` exist | Some enum variants remain reserved/deferred; post-ABI B-tier rerun is still needed |
 | TaskSpace action contract ABI | `taskspace-action-v1` lifecycle controls are canonicalized before native `taskspace_control`; benchmark usage splits native vs action-contract controls | Needs post-ABI B-tier business validation |
 | Active context replacement / payload scan | Provider request events carry payload hash and scan booleans; `exact_payload_scan` runtime trace is emitted with producer `provider_payload_scanner`; release fixtures require request_id/hash join | Needs post-ABI B-tier evidence on a real run, but the Phase C producer-owned gate is implemented locally |
-| Budget quality impact | Advisory-only profile semantics are reflected in budget quality summaries | Still depends on Phase E/G artifacts for release-like closeout |
-| `state_commit` displacement | `legacy_state_action_attempt` and `state_commit_displacement` runtime traces exist | Phase G still must package this as canonical non-agent evidence |
-| Spawn/node profile and subagent quality | Spawn/node profile traces are advisory; runtime enforces subagent plan and unreviewed-result gates | Artifact/release summary for unreviewed subagent result quality remains incomplete |
+| Budget quality impact | Advisory-only profile semantics are reflected in budget quality summaries | Still depends on Phase G artifacts for release-like closeout |
+| `state_commit` displacement | `legacy_state_action_attempt` and `state_commit_displacement` runtime traces exist and release fixtures require a real legacy-attempt denominator | Phase G still must package this as canonical non-agent evidence |
+| Spawn/node profile and subagent quality | Spawn/node profile traces are advisory; runtime enforces subagent plan and unreviewed-result gates; `spawn-node-budget-summary.json` now reports subagent review debt and release fixtures block unreviewed subagent results | Needs post-ABI B-tier evidence on a real run |
 | Release/start gates | Release decision and E3 start gate know v0.0.5 markers | `build-v005-non-agent-gates.ps1` / canonical `v005-non-agent-gates.json` builder is missing |
 
 ## 3. Implementation phases
@@ -170,7 +170,7 @@ Phase B  Done with caveats: request phase attribution and context propagation
 Phase C  Done locally: exact provider payload scan proof with producer-owned scan event and release fixtures
 Phase D  Done for scope: advisory profile quality impact, full-field artifacts, and hard-stop regression detection
 Phase E  Done for scope: legacy state action displacement denominator now uses real attempt events
-Phase F  Partial: runtime subagent quality gates exist; artifact/release summary remains pending
+Phase F  Done for scope: route-aware spawn/node hints remain advisory; release artifacts now block unreviewed subagent result debt
 Phase G  Blocker: canonical non-agent gate builder and evidence bundle still missing
 Phase H  Blocked: targeted diagnostic and formal E3 readiness wait for E/G and post-ABI B smoke
 ```

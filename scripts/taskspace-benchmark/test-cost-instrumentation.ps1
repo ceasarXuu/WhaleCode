@@ -389,6 +389,30 @@ $obs = [pscustomobject]@{
                 "max_nodes:4",
                 "budget_response_action_taken:false"
             )
+        },
+        [pscustomobject]@{
+            kind = "snapshot_updated"
+            details = [pscustomobject]@{
+                type = "snapshot_updated"
+                snapshot = [pscustomobject]@{
+                    maps = @(
+                        [pscustomobject]@{
+                            id = "map-1"
+                            results = @(
+                                [pscustomobject]@{
+                                    id = "result-subagent-1"
+                                    nodeId = "node-subagent-1"
+                                    kind = "result"
+                                    subagentPlanId = "subagent-plan-1"
+                                    evidencePackage = [pscustomobject]@{
+                                        validity = "accepted"
+                                    }
+                                }
+                            )
+                        }
+                    )
+                }
+            }
         }
     )
 }
@@ -448,6 +472,7 @@ Assert-True ([int]$stateCommit.legacy_state_action_attempt_event_count -eq 2 -an
 Assert-True ([string]$spawnBudget.status -eq "pass" -and [string]$spawnBudget.source_status -eq "runtime" -and [int]$spawnBudget.runtime_event_count -eq 2) "spawn/node budget should pass with runtime producer evidence"
 Assert-True ([string]$spawnBudget.active_budget_source -eq "runtime" -and [string]$spawnBudget.route_mode -eq "thin" -and [int]$spawnBudget.max_nodes -eq 4) "spawn/node budget summary did not preserve active budget route fields"
 Assert-True ([string]$spawnBudget.within_budget_status -eq "over_profile_hint" -and [string]$spawnBudget.over_budget_enforcement_status -eq "advisory_only" -and [bool]$spawnBudget.over_profile_hint -and [int]$spawnBudget.blocked_budget_event_count -eq 0) "spawn/node budget should report over-profile hints without enforcing a hard budget"
+Assert-True ([string]$spawnBudget.subagent_review_debt_status -eq "no_unreviewed_subagent_results" -and [int]$spawnBudget.subagent_result_count -eq 1 -and [int]$spawnBudget.reviewed_subagent_result_count -eq 1 -and [int]$spawnBudget.unreviewed_subagent_result_count -eq 0) "spawn/node budget should expose reviewed subagent result debt status"
 Assert-True ([bool]$summary.budget_quality_impact_logged_for_every_budget_action) "budget action was not matched to quality impact"
 Assert-True ([string]$summary.active_budget_source -eq "runtime" -and [string]$summary.route_mode -eq "thin" -and [int]$summary.max_rollout_model_requests -eq 8 -and [int]$summary.max_model_requests_per_node -eq 3) "budget quality summary did not expose active budget fields"
 Assert-True ([int]$summary.budget_quality_impact_missing_count -eq 0) "budget quality impact missing count should be zero"
@@ -583,6 +608,7 @@ Assert-True ($rolloutOnlyQualityEvents.Count -eq 1 -and [string]$rolloutOnlyQual
 Assert-True ([string]$rolloutOnlyQualityEvents[0].budget_state_after -eq "over_profile_hint" -and [string]$rolloutOnlyQualityEvents[0].logical_request_id -eq "logical-rollout-1") "rollout-only quality impact event did not preserve full budget quality fields"
 Assert-True ([int]$rolloutOnlySummary.budget_event_count -eq 1 -and [int]$rolloutOnlySummary.budget_quality_impact_event_count -eq 1 -and [string]$rolloutOnlySummary.route_mode -eq "thin") "rollout-only budget summary did not use rollout trace events"
 Assert-True ([string]$rolloutOnlySpawn.source_status -eq "runtime" -and [int]$rolloutOnlySpawn.runtime_event_count -eq 1) "rollout-only spawn/node budget summary did not use rollout trace events"
+Assert-True ([string]$rolloutOnlySpawn.subagent_review_debt_status -eq "not_measured" -and [int]$rolloutOnlySpawn.unreviewed_subagent_result_count -eq 0) "rollout-only spawn/node summary should make missing snapshot review evidence explicit"
 Assert-True ([int]$rolloutOnlyInstrumentation.budget_quality_impact_summary.blocked_by_budget_samples_count -eq 0) "returned rollout-only instrumentation should not classify profile hints as blocked_by_budget"
 
 $aggregateCacheRoot = Join-Path $RunRoot "aggregate-cache-root"

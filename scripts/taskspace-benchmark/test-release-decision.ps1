@@ -169,7 +169,20 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             legacy_state_action_budget = 0
             state_commit_count = 1
         }) (Join-Path $dir "state-commit-displacement.json")
-    Write-Json ([pscustomobject]@{ status = "pass"; within_budget_status = "within_profile_hint"; over_budget_enforcement_status = "advisory_only"; spawn_agent_call_count = 0; max_spawn_agent_calls = 0; over_profile_hint = $false }) (Join-Path $dir "spawn-node-budget-summary.json")
+    Write-Json ([pscustomobject]@{
+            status = "pass"
+            within_budget_status = "within_profile_hint"
+            over_budget_enforcement_status = "advisory_only"
+            spawn_agent_call_count = 0
+            max_spawn_agent_calls = 0
+            over_profile_hint = $false
+            blocked_budget_event_count = 0
+            invalid_blocked_budget_event_count = 0
+            subagent_review_debt_status = "no_unreviewed_subagent_results"
+            subagent_result_count = 0
+            reviewed_subagent_result_count = 0
+            unreviewed_subagent_result_count = 0
+        }) (Join-Path $dir "spawn-node-budget-summary.json")
     $profileHash = "profile-fixture-hash"
     $sourceVersion = "terminal-bench@fixture"
     $taskListHash = "task-list-fixture-hash"
@@ -705,6 +718,37 @@ Assert-True ($LASTEXITCODE -eq 1) "state commit displacement without legacy atte
 $stateCommitNoAttemptDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $stateCommitNoAttemptDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($stateCommitNoAttemptDecision.blockers) -contains "state_commit_displacement_gate_failed") "state commit displacement without legacy attempts did not report blocker"
 Assert-True (-not [bool]$stateCommitNoAttemptDecision.state_commit_displacement_gate_pass) "state commit displacement without legacy attempts incorrectly passed"
+
+$unreviewedSubagentDir = New-FixtureRun "unreviewed-subagent-result" "PASS" $true 0
+Write-Json ([pscustomobject]@{
+        status = "fail"
+        within_budget_status = "over_profile_hint"
+        over_budget_enforcement_status = "advisory_only"
+        spawn_agent_call_count = 2
+        max_spawn_agent_calls = 0
+        over_profile_hint = $true
+        blocked_budget_event_count = 0
+        invalid_blocked_budget_event_count = 0
+        subagent_review_debt_status = "unreviewed_subagent_results"
+        subagent_result_count = 1
+        reviewed_subagent_result_count = 0
+        unreviewed_subagent_result_count = 1
+        unreviewed_subagent_results = @(
+            [pscustomobject]@{
+                map_id = "map-1"
+                node_id = "node-subagent-1"
+                result_id = "result-subagent-1"
+                subagent_plan_id = "subagent-plan-1"
+                validity = "unreviewed"
+            }
+        )
+    }) (Join-Path $unreviewedSubagentDir "spawn-node-budget-summary.json")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $unreviewedSubagentDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "unreviewed subagent result fixture did not exit 1"
+$unreviewedSubagentDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $unreviewedSubagentDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($unreviewedSubagentDecision.blockers) -contains "spawn_budget_gate_failed") "unreviewed subagent result fixture did not report spawn budget blocker"
+Assert-True (-not [bool]$unreviewedSubagentDecision.spawn_node_budget_gate_pass) "unreviewed subagent result fixture incorrectly passed"
+Assert-True ([int]$unreviewedSubagentDecision.unreviewed_subagent_result_count -eq 1) "unreviewed subagent result fixture did not expose review debt count"
 
 $qualityImpactSkipDir = New-FixtureRun "budget-quality-validation-skip" "PASS" $true 0
 Write-Json ([pscustomobject]@{

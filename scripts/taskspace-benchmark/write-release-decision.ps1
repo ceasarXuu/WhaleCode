@@ -771,7 +771,13 @@ $stateCommitDisplacementPass = ($stateCommitDisplacement `
     -and (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_attempt_count" 0) -gt 0 `
     -and (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_displaced_count" 0) -ge (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_attempt_count" 0) `
     -and (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_count" 999999) -le (Get-ReleaseInt $stateCommitDisplacement "legacy_state_action_budget" 0))
-$spawnNodeBudgetPass = ($spawnNodeBudget -and (Get-ReleaseString $spawnNodeBudget "status") -eq "pass")
+$spawnNodeBudgetPass = ($spawnNodeBudget `
+    -and (Get-ReleaseString $spawnNodeBudget "status") -eq "pass" `
+    -and (Get-ReleaseString $spawnNodeBudget "over_budget_enforcement_status") -eq "advisory_only" `
+    -and (Get-ReleaseInt $spawnNodeBudget "blocked_budget_event_count" 1) -eq 0 `
+    -and (Get-ReleaseInt $spawnNodeBudget "invalid_blocked_budget_event_count" 1) -eq 0 `
+    -and (Get-ReleaseString $spawnNodeBudget "subagent_review_debt_status") -eq "no_unreviewed_subagent_results" `
+    -and (Get-ReleaseInt $spawnNodeBudget "unreviewed_subagent_result_count" 1) -eq 0)
 $requiredV005NonAgentGates = @(
     "provider_request_hook",
     "runtime_budget_response",
@@ -942,6 +948,13 @@ $summary = [pscustomobject]@{
     exact_payload_scan_matching_provider_event_count = [int]$matchingProviderPayloadEvents.Count
     state_commit_displacement_gate_pass = [bool]$stateCommitDisplacementPass
     spawn_node_budget_gate_pass = [bool]$spawnNodeBudgetPass
+    spawn_node_over_budget_enforcement_status = Get-ReleaseString $spawnNodeBudget "over_budget_enforcement_status" ""
+    spawn_node_blocked_budget_event_count = Get-ReleaseInt $spawnNodeBudget "blocked_budget_event_count" 0
+    spawn_node_invalid_blocked_budget_event_count = Get-ReleaseInt $spawnNodeBudget "invalid_blocked_budget_event_count" 0
+    subagent_review_debt_status = Get-ReleaseString $spawnNodeBudget "subagent_review_debt_status" ""
+    subagent_result_count = Get-ReleaseInt $spawnNodeBudget "subagent_result_count" 0
+    reviewed_subagent_result_count = Get-ReleaseInt $spawnNodeBudget "reviewed_subagent_result_count" 0
+    unreviewed_subagent_result_count = Get-ReleaseInt $spawnNodeBudget "unreviewed_subagent_result_count" 0
     v005_non_agent_gates_pass = [bool]$v005NonAgentGatesPass
     max_large_output_replay_count = [int]$maxLargeReplay
     runtime_output_ref_created_count = [int]$runtimeOutputRefs
