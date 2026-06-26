@@ -734,6 +734,9 @@ $matchingExactScanEvents = @($exactPayloadScanEvents | Where-Object {
         -not [string]::IsNullOrWhiteSpace([string]$_.matcher_version) -and
         [bool]$_.passed -and
         [bool]$_.active_projection_present -and
+        [bool]$_.context_bundle_present -and
+        [bool]$_.exact_context_bundle_verified -and
+        [bool]$_.cache_plan_verified -and
         -not [bool]$_.legacy_taskspace_history_present -and
         [int]$_.raw_taskspace_control_history_tokens -eq 0 -and
         [int]$_.completed_stale_node_history_tokens -eq 0 -and
@@ -757,6 +760,9 @@ $activeReplacementPass = ($activeReplacement `
     -and -not [string]::IsNullOrWhiteSpace($activeReplacementRequestId) `
     -and (Get-ReleaseBool $activeReplacement "exact_payload_scan_passed") `
     -and -not [string]::IsNullOrWhiteSpace($activeReplacementScanId) `
+    -and (Get-ReleaseBool $activeReplacement "context_bundle_present") `
+    -and (Get-ReleaseBool $activeReplacement "exact_context_bundle_verified") `
+    -and (Get-ReleaseBool $activeReplacement "cache_plan_verified") `
     -and (Get-ReleaseBool $activeReplacement "replacement_confirmed") `
     -and -not (Get-ReleaseBool $activeReplacement "legacy_taskspace_history_present" $true) `
     -and (Get-ReleaseInt $activeReplacement "raw_taskspace_control_history_tokens" 0) -eq 0 `

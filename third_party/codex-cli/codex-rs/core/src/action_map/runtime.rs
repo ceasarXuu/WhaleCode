@@ -544,6 +544,9 @@ pub(crate) struct ActionMapExactPayloadScanEventInput {
     pub(crate) checked_byte_ranges: Vec<(usize, usize)>,
     pub(crate) negative_checks_performed: Vec<String>,
     pub(crate) active_projection_present: bool,
+    pub(crate) context_bundle_present: bool,
+    pub(crate) exact_context_bundle_verified: bool,
+    pub(crate) cache_plan_verified: bool,
     pub(crate) legacy_taskspace_history_present: bool,
     pub(crate) raw_taskspace_control_history_tokens: usize,
     pub(crate) completed_stale_node_history_tokens: usize,
@@ -2597,6 +2600,15 @@ preview:\n\
                     scan.scan_event_id
                 ));
                 tags.push(format!(
+                    "context_bundle_present:{}",
+                    scan.context_bundle_present
+                ));
+                tags.push(format!(
+                    "exact_context_bundle_verified:{}",
+                    scan.exact_context_bundle_verified
+                ));
+                tags.push(format!("cache_plan_verified:{}", scan.cache_plan_verified));
+                tags.push(format!(
                     "raw_taskspace_control_history_tokens:{}",
                     scan.raw_taskspace_control_history_tokens
                 ));
@@ -2678,6 +2690,12 @@ preview:\n\
                         "active_projection_present:{}",
                         scan.active_projection_present
                     ),
+                    format!("context_bundle_present:{}", scan.context_bundle_present),
+                    format!(
+                        "exact_context_bundle_verified:{}",
+                        scan.exact_context_bundle_verified
+                    ),
+                    format!("cache_plan_verified:{}", scan.cache_plan_verified),
                     format!(
                         "legacy_taskspace_history_present:{}",
                         scan.legacy_taskspace_history_present
@@ -10720,6 +10738,9 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("dynamic_suffix_hash:")
         || tag.starts_with("exact_payload_scan_passed:")
         || tag.starts_with("active_projection_present:")
+        || tag.starts_with("context_bundle_present:")
+        || tag.starts_with("exact_context_bundle_verified:")
+        || tag.starts_with("cache_plan_verified:")
         || tag.starts_with("legacy_taskspace_history_present:")
         || tag.starts_with("large_raw_output_tokens:")
         || tag.starts_with("protected_items_present:")
@@ -12097,6 +12118,9 @@ mod tests {
                                 "large_raw_output".to_string(),
                             ],
                             active_projection_present: true,
+                            context_bundle_present: true,
+                            exact_context_bundle_verified: true,
+                            cache_plan_verified: true,
                             legacy_taskspace_history_present: false,
                             raw_taskspace_control_history_tokens: 0,
                             completed_stale_node_history_tokens: 0,

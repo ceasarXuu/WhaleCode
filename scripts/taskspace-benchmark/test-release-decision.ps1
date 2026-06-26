@@ -137,6 +137,9 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
         scanner_version = "v005-exact-scan-2"
         matcher_version = "v005-marker-and-structural-negative-checks-2"
         active_projection_present = $true
+        context_bundle_present = $true
+        exact_context_bundle_verified = $true
+        cache_plan_verified = $true
         legacy_taskspace_history_present = $false
         raw_taskspace_control_history_tokens = 0
         completed_stale_node_history_tokens = 0
@@ -152,6 +155,9 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
             provider_payload_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             exact_payload_scan_passed = $true
             exact_payload_scan_event_id = "scan-1"
+            context_bundle_present = $true
+            exact_context_bundle_verified = $true
+            cache_plan_verified = $true
             replacement_confirmed = $true
             legacy_taskspace_history_present = $false
             raw_taskspace_control_history_tokens = 0

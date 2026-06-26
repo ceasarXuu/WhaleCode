@@ -81,6 +81,9 @@ $obs = [pscustomobject]@{
                 "exact_payload_scan_passed:true",
                 "exact_payload_scan_event_id:scan-provider-request-1",
                 "active_projection_present:true",
+                "context_bundle_present:true",
+                "exact_context_bundle_verified:true",
+                "cache_plan_verified:true",
                 "legacy_taskspace_history_present:false",
                 "raw_taskspace_control_history_tokens:0",
                 "completed_stale_node_history_tokens:0",
@@ -109,6 +112,9 @@ $obs = [pscustomobject]@{
                 "checked_byte_ranges:0-4321",
                 "negative_checks_performed:legacy_taskspace_history,raw_taskspace_control_history,large_raw_output",
                 "active_projection_present:true",
+                "context_bundle_present:true",
+                "exact_context_bundle_verified:true",
+                "cache_plan_verified:true",
                 "legacy_taskspace_history_present:false",
                 "raw_taskspace_control_history_tokens:0",
                 "completed_stale_node_history_tokens:0",
@@ -453,12 +459,14 @@ Assert-True ([string]$qualityEvents[1].budget_state_after -eq "over_profile_hint
 Assert-True ([string]$qualityEvents[1].logical_request_id -eq "logical-2" -and [int]$qualityEvents[1].attempt_seq -eq 1) "budget quality event did not preserve logical request identity"
 Assert-True ($scanEvents.Count -eq 1 -and [bool]$scanEvents[0].passed -and [string]$scanEvents[0].producer -eq "provider_payload_scanner") "exact payload scan event was not read from provider-owned runtime trace"
 Assert-True ([bool]$scanEvents[0].protected_items_present) "exact payload scan should preserve protected item proof"
+Assert-True ([bool]$scanEvents[0].exact_context_bundle_verified) "exact payload scan should preserve bundle proof"
 Assert-True ($providerEvents.Count -eq 3 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
 Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provider_lifecycle" }).Count -eq 3) "provider request events did not preserve provider_lifecycle producer"
 Assert-True ([string]$providerEvents[0].provider_wire_api -eq "ChatCompletions" -and [int]$providerEvents[0].tools_count -eq 24 -and [string]$providerEvents[0].request_shape_classifier -eq "native_tools_schema_hot_path") "provider request events did not preserve cache request shape fields"
 Assert-True ($cacheTraceEvents.Count -eq 3 -and [string]$cacheTraceEvents[0].schema_version -eq "TaskSpaceProviderCacheTraceV1" -and [double]$cacheTraceEvents[0].hit_rate -eq 0.2) "provider cache trace events were not derived from terminal provider requests"
 Assert-True ([int]$cacheTraceSummary.native_tools_schema_hot_path_count -eq 1 -and [int]$cacheTraceSummary.tool_free_action_contract_count -eq 2 -and [double]$cacheTraceSummary.trace_coverage -eq 1.0) "provider cache trace summary did not classify completed request shapes"
 Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"
+Assert-True ([bool]$replacement.context_bundle_present -and [bool]$replacement.exact_context_bundle_verified -and [bool]$replacement.cache_plan_verified) "active replacement report did not preserve bundle proof"
 Assert-True ([bool]$replacement.protected_items_present -and [bool]$replacement.exact_payload_scan_matching_provider_event) "active replacement report did not preserve exact scan join evidence"
 $budgetOnlyReplacement = New-TaskspaceActiveReplacementArtifacts $budgetEvents @()
 Assert-True (-not [bool]$budgetOnlyReplacement.active_context_replacement_report.exact_payload_scan_passed -and @($budgetOnlyReplacement.exact_payload_scan_events).Count -eq 0) "budget-only payload booleans should not synthesize exact scan evidence"

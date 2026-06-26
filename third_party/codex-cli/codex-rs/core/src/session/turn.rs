@@ -10,6 +10,7 @@ use crate::SkillInjections;
 use crate::SkillLoadOutcome;
 use crate::action_map::ActionClass;
 use crate::action_map::ActionMapProviderResponseActionabilityInput;
+use crate::action_map::compile_taskspace_agent_context_text;
 use crate::build_skill_injections;
 use crate::client::ModelClientSession;
 use crate::client::ProviderRequestAttribution;
@@ -1887,7 +1888,7 @@ fn prepare_taskspace_action_contract_prompt_items(items: Vec<ResponseItem>) -> V
 
     for (index, item) in items.into_iter().enumerate() {
         if is_taskspace_active_context_item(&item) {
-            latest_taskspace_context = Some(item);
+            latest_taskspace_context = Some(compile_taskspace_context_item(item));
         } else if is_protected_user_input(&item) {
             latest_user_input = Some((index, item));
         } else if is_taskspace_action_contract_latest_tool_output_candidate(&item) {
@@ -2077,7 +2078,12 @@ fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisible
         let action =
             provider_visible_history_pair_action(&item, base_action, &paired_omitted_tool_call_ids);
         if matches!(action, ProviderVisibleHistoryAction::Include) {
-            prepared.push(item);
+            prepared.push(match category {
+                ProviderVisibleItemCategory::ActiveProjection => {
+                    compile_taskspace_context_item(item)
+                }
+                _ => item,
+            });
         }
         decisions.push(ProviderVisibleHistoryDecision {
             index,
@@ -2184,6 +2190,47 @@ fn classify_provider_visible_item(item: &ResponseItem) -> ProviderVisibleItemCat
 fn is_active_context_projection_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_ACTIVE_PROFILE_MARKER)
         && response_item_text_contains(item, TASKSPACE_ACTIVE_PROJECTION_MARKER)
+}
+
+fn compile_taskspace_context_item(item: ResponseItem) -> ResponseItem {
+    match item {
+        ResponseItem::Message {
+            id,
+            role,
+            content,
+            end_turn,
+            phase,
+        } => {
+            let content = content
+                .into_iter()
+                .map(|content_item| match content_item {
+                    ContentItem::InputText { text } => {
+                        if let Some(compiled) = compile_taskspace_agent_context_text(&text) {
+                            ContentItem::InputText { text: compiled }
+                        } else {
+                            ContentItem::InputText { text }
+                        }
+                    }
+                    ContentItem::OutputText { text } => {
+                        if let Some(compiled) = compile_taskspace_agent_context_text(&text) {
+                            ContentItem::OutputText { text: compiled }
+                        } else {
+                            ContentItem::OutputText { text }
+                        }
+                    }
+                    other => other,
+                })
+                .collect();
+            ResponseItem::Message {
+                id,
+                role,
+                content,
+                end_turn,
+                phase,
+            }
+        }
+        other => other,
+    }
 }
 
 fn is_protected_user_input(item: &ResponseItem) -> bool {

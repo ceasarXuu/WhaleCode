@@ -267,6 +267,9 @@ function New-TaskspaceBudgetArtifacts {
             exact_payload_scan_event_id = [string]$tags.exact_payload_scan_event_id
             exact_payload_scan_passed = Convert-TaskspaceTraceBool $tags.exact_payload_scan_passed $false
             active_projection_present = Convert-TaskspaceTraceBool $tags.active_projection_present $false
+            context_bundle_present = Convert-TaskspaceTraceBool $tags.context_bundle_present $false
+            exact_context_bundle_verified = Convert-TaskspaceTraceBool $tags.exact_context_bundle_verified $false
+            cache_plan_verified = Convert-TaskspaceTraceBool $tags.cache_plan_verified $false
             legacy_taskspace_history_present = Convert-TaskspaceTraceBool $tags.legacy_taskspace_history_present $false
             raw_taskspace_control_history_tokens = Convert-TaskspaceTraceInt $tags.raw_taskspace_control_history_tokens
             completed_stale_node_history_tokens = Convert-TaskspaceTraceInt $tags.completed_stale_node_history_tokens
@@ -364,6 +367,9 @@ function New-TaskspaceExactPayloadScanEvents {
             checked_byte_ranges = [string]$tags.checked_byte_ranges
             negative_checks_performed = [string]$tags.negative_checks_performed
             active_projection_present = Convert-TaskspaceTraceBool $tags.active_projection_present $false
+            context_bundle_present = Convert-TaskspaceTraceBool $tags.context_bundle_present $false
+            exact_context_bundle_verified = Convert-TaskspaceTraceBool $tags.exact_context_bundle_verified $false
+            cache_plan_verified = Convert-TaskspaceTraceBool $tags.cache_plan_verified $false
             legacy_taskspace_history_present = Convert-TaskspaceTraceBool $tags.legacy_taskspace_history_present $false
             raw_taskspace_control_history_tokens = Convert-TaskspaceTraceInt $tags.raw_taskspace_control_history_tokens
             completed_stale_node_history_tokens = Convert-TaskspaceTraceInt $tags.completed_stale_node_history_tokens
@@ -411,6 +417,9 @@ function New-TaskspaceActiveReplacementArtifacts {
         exact_payload_scan_event_id = if ($null -ne $first) { [string]$first.scan_event_id } else { "" }
         exact_payload_scan_producer = if ($null -ne $first) { [string]$first.producer } else { "" }
         exact_payload_scan_matching_provider_event = if ($null -ne $first) { [bool]$first.matching_provider_event } else { $false }
+        context_bundle_present = if ($null -ne $first) { [bool]$first.context_bundle_present } else { $false }
+        exact_context_bundle_verified = if ($null -ne $first) { [bool]$first.exact_context_bundle_verified } else { $false }
+        cache_plan_verified = if ($null -ne $first) { [bool]$first.cache_plan_verified } else { $false }
         replacement_confirmed = if ($null -ne $first) { [bool]$first.replacement_confirmed } else { $false }
         legacy_taskspace_history_present = if ($null -ne $first) { [bool]$first.legacy_taskspace_history_present } else { $true }
         raw_taskspace_control_history_tokens = if ($null -ne $first) { [int]$first.raw_taskspace_control_history_tokens } else { 0 }

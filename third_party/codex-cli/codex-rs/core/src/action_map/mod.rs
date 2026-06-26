@@ -1,11 +1,15 @@
 mod basemap;
 mod cognitive;
+mod context_compiler;
 mod contracts;
 mod ledger;
 mod map;
 mod runtime;
 mod sentinel;
 
+pub(crate) use context_compiler::TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER;
+pub(crate) use context_compiler::TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER;
+pub(crate) use context_compiler::compile_taskspace_agent_context_text;
 pub(crate) use map::ActionClass;
 pub(crate) use map::NodeKind;
 pub(crate) use map::ToolActionDescriptor;

@@ -33,6 +33,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
+use crate::action_map::TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER;
+use crate::action_map::TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER;
 use codex_api::ApiError;
 use codex_api::AuthProvider;
 use codex_api::CompactClient as ApiCompactClient;
@@ -167,6 +169,9 @@ pub(crate) struct ExactPayloadScanEventV1 {
     pub(crate) checked_byte_ranges: Vec<(usize, usize)>,
     pub(crate) negative_checks_performed: Vec<String>,
     pub(crate) active_projection_present: bool,
+    pub(crate) context_bundle_present: bool,
+    pub(crate) exact_context_bundle_verified: bool,
+    pub(crate) cache_plan_verified: bool,
     pub(crate) legacy_taskspace_history_present: bool,
     pub(crate) raw_taskspace_control_history_tokens: usize,
     pub(crate) completed_stale_node_history_tokens: usize,
@@ -905,12 +910,18 @@ fn scan_provider_payload_text(
     text: &str,
     value: &serde_json::Value,
 ) -> ExactPayloadScanEventV1 {
-    let active_projection_present = text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER);
-    let legacy_taskspace_history_present = text.contains(TASKSPACE_SHADOW_PROJECTION_MARKER)
-        || text.contains("TaskSpace Bootstrap")
-        || text.contains("TaskSpace ContextProjectionV1 shadow update")
-        || text.contains("TaskSpace mode is now active")
-        || text.contains("taskspace_control(");
+    let active_projection_present = text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER)
+        || text.contains(TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER);
+    let context_bundle_present = text.contains(TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER)
+        && text.contains(TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER);
+    let cache_plan_verified = context_bundle_present && text.contains("cache_plan_verified: true");
+    let legacy_scan_text = remove_taskspace_agent_context_bundle_sections(text);
+    let legacy_taskspace_history_present = legacy_scan_text
+        .contains(TASKSPACE_SHADOW_PROJECTION_MARKER)
+        || legacy_scan_text.contains("TaskSpace Bootstrap")
+        || legacy_scan_text.contains("TaskSpace ContextProjectionV1 shadow update")
+        || legacy_scan_text.contains("TaskSpace mode is now active")
+        || legacy_scan_text.contains("taskspace_control(");
     let active_projection_block = text
         .split(TASKSPACE_ACTIVE_PROJECTION_MARKER)
         .nth(1)
@@ -920,15 +931,18 @@ fn scan_provider_payload_text(
         || active_projection_block.contains("protected item")
         || active_projection_block.contains("protected evidence");
     let raw_taskspace_control_history_tokens =
-        estimate_marker_context_tokens(text, "taskspace_control(");
+        estimate_marker_context_tokens(&legacy_scan_text, "taskspace_control(");
     let completed_stale_node_history_tokens =
-        estimate_marker_context_tokens(text, "completed stale node");
-    let rejected_subagent_body_tokens = estimate_marker_context_tokens(text, "rejected subagent");
+        estimate_marker_context_tokens(&legacy_scan_text, "completed stale node");
+    let rejected_subagent_body_tokens =
+        estimate_marker_context_tokens(&legacy_scan_text, "rejected subagent");
     let large_raw_output_tokens = estimate_large_raw_output_tokens(value);
     let replacement_confirmed = active_projection_present
         && !legacy_taskspace_history_present
         && large_raw_output_tokens == 0
         && protected_items_present;
+    let exact_context_bundle_verified =
+        replacement_confirmed && context_bundle_present && cache_plan_verified;
     let mut failure_reasons = Vec::new();
     if !active_projection_present {
         failure_reasons.push("active_projection_missing".to_string());
@@ -967,6 +981,9 @@ fn scan_provider_payload_text(
             "large_raw_output".to_string(),
         ],
         active_projection_present,
+        context_bundle_present,
+        exact_context_bundle_verified,
+        cache_plan_verified,
         legacy_taskspace_history_present,
         raw_taskspace_control_history_tokens,
         completed_stale_node_history_tokens,
@@ -977,6 +994,23 @@ fn scan_provider_payload_text(
         passed: failure_reasons.is_empty(),
         failure_reasons,
     }
+}
+
+fn remove_taskspace_agent_context_bundle_sections(text: &str) -> String {
+    let mut remaining = text;
+    let mut output = String::with_capacity(text.len());
+    while let Some(start) = remaining.find(TASKSPACE_ACTIVE_PROJECTION_MARKER) {
+        output.push_str(&remaining[..start]);
+        let section = &remaining[start..];
+        let Some(end) = section.find(TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER) else {
+            output.push_str(section);
+            return output;
+        };
+        let after_end = start + end + TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER.len();
+        remaining = &remaining[after_end..];
+    }
+    output.push_str(remaining);
+    output
 }
 
 fn estimate_marker_context_tokens(text: &str, marker: &str) -> usize {

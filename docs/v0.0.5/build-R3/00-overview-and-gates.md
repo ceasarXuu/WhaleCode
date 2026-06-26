@@ -91,6 +91,18 @@ graph closeout 和 timing attribution 独立收敛，不被上下文优化掩盖
 | R3-E | Timing attribution | provider/model/wait timing 字段补齐 | wait attribution complete，walltime blocker 可解释 |
 | R3-F | Validation closeout | 当前 HEAD 证据包、B-tier、targeted diagnostic、formal E3 start gate | targeted diagnostic 通过后才允许 formal E3 |
 
+2026-06-26 implementation note:
+
+```text
+R3-A/B/C first vertical slice landed locally:
+  TaskSpace context compiler module wraps active projection with bundle/cache/protected proof.
+  ordinary provider-visible prompt and action-contract prompt both compile active context items.
+  exact payload scanner ignores legal taskspace_control(action=...) guidance inside compiled bundle.
+  runtime exact_payload_scan trace and benchmark scripts now carry context_bundle_present,
+  exact_context_bundle_verified, and cache_plan_verified.
+Focused gates passed, but B-tier benefit proof is still required before marking R3-A/B/C done.
+```
+
 ## 0.6 R2 blocker 到 R3 phase 映射
 
 | R2 Blocker | R3 Owner Phase | Notes |

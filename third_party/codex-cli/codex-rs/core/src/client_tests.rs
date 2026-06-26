@@ -408,6 +408,50 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
             .replacement_confirmed
     );
 
+    let bundled_active_with_structured_control = provider_payload_digest(&json!({
+        "input": concat!(
+            "ContextProjectionV1 active replacement:\n",
+            "TaskSpaceAgentContextBundleV1:\n",
+            "- cache_plan:\n",
+            "  cache_plan_verified: true\n",
+            "- protected_items:\n",
+            "  - protected_item: current requirement\n",
+            "- next_valid_actions:\n",
+            "  - channel: taskspace_control\n",
+            "    action: finish_node\n",
+            "    render_hint: taskspace_control(action=finish_node)\n",
+            "TaskSpaceAgentContextBundleV1 end."
+        )
+    }))
+    .expect("bundled active payload digest");
+    assert!(bundled_active_with_structured_control.scan.passed);
+    assert!(
+        bundled_active_with_structured_control
+            .scan
+            .context_bundle_present
+    );
+    assert!(
+        bundled_active_with_structured_control
+            .scan
+            .exact_context_bundle_verified
+    );
+    assert!(
+        bundled_active_with_structured_control
+            .scan
+            .cache_plan_verified
+    );
+    assert_eq!(
+        bundled_active_with_structured_control
+            .scan
+            .raw_taskspace_control_history_tokens,
+        0
+    );
+    assert!(
+        bundled_active_with_structured_control
+            .scan
+            .protected_items_present
+    );
+
     let legacy = provider_payload_digest(&json!({
         "input": "ContextProjectionV1 active replacement:\n- protected\nContextProjectionV1 shadow (not active replacement):\ntaskspace_control"
     }))

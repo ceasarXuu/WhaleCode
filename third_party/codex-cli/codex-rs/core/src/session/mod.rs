@@ -1166,6 +1166,9 @@ impl Session {
                         checked_byte_ranges: scan.checked_byte_ranges,
                         negative_checks_performed: scan.negative_checks_performed,
                         active_projection_present: scan.active_projection_present,
+                        context_bundle_present: scan.context_bundle_present,
+                        exact_context_bundle_verified: scan.exact_context_bundle_verified,
+                        cache_plan_verified: scan.cache_plan_verified,
                         legacy_taskspace_history_present: scan.legacy_taskspace_history_present,
                         raw_taskspace_control_history_tokens: scan
                             .raw_taskspace_control_history_tokens,
