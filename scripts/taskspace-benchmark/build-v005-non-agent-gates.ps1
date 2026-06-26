@@ -50,7 +50,7 @@ if ($FixtureMode) {
         New-V005GateSpec "spawn_node_budget" "$rustWorkspace cargo test -p codex-core budget --lib; exit `$LASTEXITCODE" 240
         New-V005GateSpec "request_phase_attribution" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1" 180
         New-V005GateSpec "release_decision_fixture" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1" 240
-        New-V005GateSpec "start_gate_fixture" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1" 240
+        New-V005GateSpec "start_gate_fixture" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1" 420
     )
 }
 

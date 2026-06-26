@@ -145,3 +145,23 @@ Formal E3 is not run until explicit user approval marker exists.
 
 If targeted diagnostic finds a new blocker, create `build-R3/07-<blocker-name>.md`
 instead of expanding this closeout file indefinitely.
+
+## F.9 当前执行状态
+
+2026-06-27 current-HEAD non-agent gates 首次执行结果：
+
+```text
+status = fail
+failed_gate = start_gate_fixture
+reason = wrapper timeout after 240 seconds
+```
+
+复核结果：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1
+PASS
+duration ~= 202 seconds
+```
+
+根因：`build-v005-non-agent-gates.ps1` 对 `start_gate_fixture` 的 240 秒超时在 Windows 上过紧，fixture 单独运行已经接近该边界；wrapper 叠加进程启动、输出捕获和系统调度后会误判为 timeout。修复为将该 gate timeout 调整到 420 秒。该修复不改变通过标准，仍要求 start gate fixture exit code 为 0 且不超时。
