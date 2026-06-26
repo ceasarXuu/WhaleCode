@@ -11,7 +11,7 @@ Before any real E3, prove all new implementation contracts with deterministic no
 
 ## G.1.1 Current status after Phase A/B follow-up
 
-Status: blocker; partially implemented fixtures, missing canonical aggregator.
+Status: done for local non-agent gate builder; formal E3 still requires code-complete marker and explicit user approval for the formal sample set.
 
 Already present:
 
@@ -23,7 +23,7 @@ write-release-decision.ps1 reads v005-non-agent-gates.json and v005-code-complet
 lib/e3-start-gate.ps1 enforces v005 marker gates
 ```
 
-Still missing:
+Now implemented:
 
 ```text
 scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1
@@ -32,8 +32,9 @@ per-gate local evidence files with sha256
 single command that runs the required non-agent gates and writes the marker consumed by release/start gates
 ```
 
-Therefore Phase G is not complete even though many underlying fixture tests
-exist.
+The builder has a fixture mode for fast schema/evidence validation, but the
+release-like benefit must be proven with the default mode because default mode
+executes the actual non-agent gates.
 
 ## G.2 Files to change
 
@@ -50,6 +51,7 @@ Required now:
 
 ```text
 scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1
+scripts/taskspace-benchmark/test-v005-non-agent-gates-builder.ps1
 ```
 
 ## G.3 Required non-agent gates
@@ -81,56 +83,34 @@ scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1
 
 Every gate evidence path must be a local file. `selftest://` is not acceptable.
 
-## G.4 Build script pseudocode
+## G.4 Build script contract
 
-Implement `build-v005-non-agent-gates.ps1`:
+`build-v005-non-agent-gates.ps1` takes the identity that will later be used by
+release/start gates:
 
 ```powershell
-param(
-  [Parameter(Mandatory=$true)][string]$RunRoot,
-  [Parameter(Mandatory=$true)][string]$TaskListHash,
-  [Parameter(Mandatory=$true)][string]$ProfileHash,
-  [Parameter(Mandatory=$true)][string]$SourceVersion
-)
-
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
-$head = git -C $repoRoot rev-parse HEAD
-$gates = [ordered]@{}
-
-function Invoke-Gate($Name, $Command, $EvidencePath) {
-  $result = Invoke-Expression $Command
-  $sha = if (Test-Path $EvidencePath) { (Get-FileHash $EvidencePath -Algorithm SHA256).Hash.ToLowerInvariant() } else { "" }
-  $gates[$Name] = [pscustomobject]@{
-    status = if ($LASTEXITCODE -eq 0 -and $sha) { "pass" } else { "fail" }
-    producer = "build-v005-non-agent-gates.ps1"
-    command = $Command
-    exit_code = $LASTEXITCODE
-    generated_at = (Get-Date).ToString("o")
-    git_commit = $head
-    profile_hash = $ProfileHash
-    task_list_hash = $TaskListHash
-    source_version = $SourceVersion
-    evidence_path = $EvidencePath
-    evidence_sha256 = $sha
-  }
-}
-
-Invoke-Gate "provider_request_hook" "cargo test -p codex-core provider_request_budget --locked" "$RunRoot\evidence\provider_request_hook.txt"
-Invoke-Gate "active_context_replacement" "cargo test -p codex-core active_context_replacement --locked" "$RunRoot\evidence\active_context_replacement.txt"
-Invoke-Gate "release_decision_fixture" "pwsh -File scripts\taskspace-benchmark\test-release-decision.ps1" "$RunRoot\evidence\release_decision_fixture.txt"
-# etc.
-
-[pscustomobject]@{
-  schema_version = 1
-  status = if (@($gates.Values | Where-Object { $_.status -ne "pass" }).Count -eq 0) { "pass" } else { "fail" }
-  gates = [pscustomobject]$gates
-  git_commit = $head
-  profile_hash = $ProfileHash
-  task_list_hash = $TaskListHash
-  source_version = $SourceVersion
-  generated_at = (Get-Date).ToString("o")
-} | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 (Join-Path $RunRoot "v005-non-agent-gates.json")
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\build-v005-non-agent-gates.ps1 `
+  -RunRoot <run-root> `
+  -TaskListHash <task-list-hash> `
+  -ProfileHash <profile-hash> `
+  -SourceVersion <source-version>
 ```
+
+Default mode runs:
+
+```text
+cargo test -p codex-core provider_request_budget --lib
+cargo test -p codex-core active_context_replacement --lib
+cargo test -p codex-core state_commit --lib
+cargo test -p codex-core budget --lib
+powershell -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1
+powershell -File scripts\taskspace-benchmark\test-release-decision.ps1
+powershell -File scripts\taskspace-benchmark\test-e3-start-gate.ps1
+```
+
+Each gate gets a local evidence file under
+`<run-root>/non-agent-evidence/<gate>.txt`, and the top-level
+`v005-non-agent-gates.json` records the sha256 for that exact file.
 
 ## G.5 Release-decision negative fixtures
 
@@ -166,7 +146,29 @@ full_e3_allowed=true only when all identities match and all markers are fresh/pa
 
 ```text
 pwsh -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1
+pwsh -File scripts/taskspace-benchmark/test-v005-non-agent-gates-builder.ps1
 pwsh -File scripts/taskspace-benchmark/test-release-decision.ps1
 pwsh -File scripts/taskspace-benchmark/test-e3-start-gate.ps1
 pwsh -File scripts/taskspace-benchmark/test-external-wrapper-harness.ps1
+```
+
+## G.8 本地收益证明
+
+Phase G 的收益是把“我跑过若干门禁”的聊天态结论，变成 release/start gate 都能校验的 typed marker：
+
+```text
+v005-non-agent-gates.json status = pass
+每个 required gate status = pass
+每个 gate 记录 command / exit_code / git_commit / task_list_hash / profile_hash / source_version
+每个 gate evidence_path 是本地文件
+每个 gate evidence_sha256 与本地文件实际 sha256 一致
+start gate / release decision 继续拒绝 missing/stale/mismatched marker
+```
+
+本地已验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-v005-non-agent-gates-builder.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\build-v005-non-agent-gates.ps1 -RunRoot <target run> -TaskListHash <hash> -ProfileHash <hash> -SourceVersion <source>
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-external-wrapper-harness.ps1
 ```

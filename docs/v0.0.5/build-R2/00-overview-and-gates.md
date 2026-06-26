@@ -155,10 +155,10 @@ The alpha branch now has these implementation states:
 | Request phase attribution | `TaskSpaceProviderRequestPhase`, pending provider phase state, `ProviderRequestAttribution::from_snapshot`, `phase_counts`, and `phase_token_summary` exist | Some enum variants remain reserved/deferred; post-ABI B-tier rerun is still needed |
 | TaskSpace action contract ABI | `taskspace-action-v1` lifecycle controls are canonicalized before native `taskspace_control`; benchmark usage splits native vs action-contract controls | Needs post-ABI B-tier business validation |
 | Active context replacement / payload scan | Provider request events carry payload hash and scan booleans; `exact_payload_scan` runtime trace is emitted with producer `provider_payload_scanner`; release fixtures require request_id/hash join | Needs post-ABI B-tier evidence on a real run, but the Phase C producer-owned gate is implemented locally |
-| Budget quality impact | Advisory-only profile semantics are reflected in budget quality summaries | Still depends on Phase G artifacts for release-like closeout |
-| `state_commit` displacement | `legacy_state_action_attempt` and `state_commit_displacement` runtime traces exist and release fixtures require a real legacy-attempt denominator | Phase G still must package this as canonical non-agent evidence |
+| Budget quality impact | Advisory-only profile semantics are reflected in budget quality summaries and can be packaged by `build-v005-non-agent-gates.ps1` | Needs formal sample-set identity and user approval before real E3 |
+| `state_commit` displacement | `legacy_state_action_attempt` and `state_commit_displacement` runtime traces exist; release fixtures require a real legacy-attempt denominator; Phase G packages this as canonical non-agent evidence | Needs formal sample-set identity and user approval before real E3 |
 | Spawn/node profile and subagent quality | Spawn/node profile traces are advisory; runtime enforces subagent plan and unreviewed-result gates; `spawn-node-budget-summary.json` now reports subagent review debt and release fixtures block unreviewed subagent results | Needs post-ABI B-tier evidence on a real run |
-| Release/start gates | Release decision and E3 start gate know v0.0.5 markers | `build-v005-non-agent-gates.ps1` / canonical `v005-non-agent-gates.json` builder is missing |
+| Release/start gates | Release decision and E3 start gate know v0.0.5 markers; `build-v005-non-agent-gates.ps1` now builds current-HEAD local evidence with sha256 | Formal E3 still requires current code-complete marker and explicit user approval marker |
 
 ## 3. Implementation phases
 
@@ -171,6 +171,6 @@ Phase C  Done locally: exact provider payload scan proof with producer-owned sca
 Phase D  Done for scope: advisory profile quality impact, full-field artifacts, and hard-stop regression detection
 Phase E  Done for scope: legacy state action displacement denominator now uses real attempt events
 Phase F  Done for scope: route-aware spawn/node hints remain advisory; release artifacts now block unreviewed subagent result debt
-Phase G  Blocker: canonical non-agent gate builder and evidence bundle still missing
-Phase H  Blocked: targeted diagnostic and formal E3 readiness wait for E/G and post-ABI B smoke
+Phase G  Done for scope: canonical non-agent gate builder writes current-HEAD evidence bundle consumed by release/start gates
+Phase H  Blocked: targeted diagnostic and formal E3 readiness wait for post-ABI B smoke, code-complete marker, and user approval
 ```

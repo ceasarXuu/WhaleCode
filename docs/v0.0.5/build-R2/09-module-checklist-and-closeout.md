@@ -108,7 +108,7 @@ Required work:
 [x] Require runtime bottleneck evidence when agent_walltime_ratio exceeds the configured threshold
 [x] Block release if diagnostic sample set attempts release_pass
 [x] Keep blocked_partial closeable=false
-[~] Validate v005-non-agent-gates.json and v005-code-complete.json markers
+[x] Validate v005-non-agent-gates.json and v005-code-complete.json markers
 ```
 
 ---
@@ -137,8 +137,8 @@ Phase E/F local gates
 Current code-complete blockers:
 
 ```text
-Phase G canonical v005-non-agent-gates.json builder is missing
 post-ABI B-tier smoke business/cache/open-leaf/walltime evidence is missing
+current code-complete marker and explicit user approval marker for formal P0 are still missing
 ```
 
 ```text
@@ -148,9 +148,11 @@ cargo test -p codex-core active_context_replacement passes
 cargo test -p codex-core state_commit passes
 cargo test -p codex-core budget --lib passes, including advisory spawn/node profile assertions
 pwsh -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1 passes
+pwsh -File scripts/taskspace-benchmark/test-v005-non-agent-gates-builder.ps1 passes
 pwsh -File scripts/taskspace-benchmark/test-deepseek-cache-verifier.ps1 passes
 pwsh -File scripts/taskspace-benchmark/test-release-decision.ps1 passes
 pwsh -File scripts/taskspace-benchmark/test-e3-start-gate.ps1 passes
+pwsh -File scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1 produces status=pass for current HEAD
 B-tier smoke business and cache gates pass with provider-cache-trace-summary.json archived
 open_leaf_nodes = 0 before release-like closeout
 agent_walltime_ratio <= configured threshold or a runtime bottleneck report blocks formal E3
