@@ -115,6 +115,14 @@ R3-D second lifecycle fix landed locally:
   active_context_replacement and taskspace unit gates passed with 83 / 93 tests.
   B-tier proof must still show open_leaf_nodes=0.
 
+R3-D third lifecycle fix landed locally:
+  closed graph with an existing task and no active bound node is now treated as final-answer state.
+  The prompt tells the model to return final_answer when work is complete, and runtime guards
+  no-active-node plus accepted successful validation by synthesizing final_answer for non-terminal
+  follow-up work actions.
+  active_context_replacement and taskspace unit gates passed with 84 / 94 tests.
+  B-tier proof must now show business_success=true and open_leaf_nodes=0 together.
+
 R3-E first timing fix landed locally:
   provider_request_budget trace now emits model_request_duration_ms beside latency_ms.
   benchmark timing parser prefers provider_lifecycle terminal durations and keeps websocket timing

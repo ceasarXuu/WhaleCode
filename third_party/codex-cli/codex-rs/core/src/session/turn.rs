@@ -1208,6 +1208,7 @@ Required JSON shape:
 {\"schema_version\":\"taskspace-action-v1\",\"action\":\"<action>\",\"node_id\":\"<active node id or null>\",\"args\":{},\"rationale\":\"short reason\"}
 Allowed actions by active node kind:
 - bootstrap/no active task: taskspace_control, blocked
+- existing task with no active node: final_answer, taskspace_control, blocked
 - inspect_code_context: list_files, search, read_file, taskspace_control, blocked
 - implement_solution: list_files, search, read_file, apply_patch, taskspace_control, blocked
 - smoke_test/regression_test: run_test, read_file, search, taskspace_control, blocked
@@ -1247,11 +1248,16 @@ fn taskspace_action_contract_state_item(
 ) -> ResponseItem {
     let node_id = snapshot.node_id.as_deref().unwrap_or("none");
     let node_kind = snapshot.node_kind.as_deref().unwrap_or("unknown");
-    let text = format!(
+    let mut text = format!(
         "TaskSpaceActionContractStateV1:\n\
 Active node id: {node_id}\n\
 Active node kind: {node_kind}"
     );
+    if snapshot.task_id.is_some() && snapshot.node_id.is_none() {
+        text.push_str(
+            "\nExisting TaskSpace task has no active bound node. If the requested work is complete, return final_answer. Do not create or bind another node unless unresolved work remains.",
+        );
+    }
     ResponseItem::Message {
         id: None,
         role: "developer".to_string(),
@@ -2543,6 +2549,20 @@ mod active_context_replacement_tests {
         assert!(text.contains("Active node kind: bootstrap"));
         assert!(text.contains("taskspace_control"));
         assert!(text.contains("action=start_task"));
+    }
+
+    #[test]
+    fn taskspace_action_contract_state_guides_final_answer_without_active_node() {
+        let mut snapshot = provider_snapshot("smoke_test");
+        snapshot.node_id = None;
+        snapshot.node_kind = None;
+
+        let text = item_text(taskspace_action_contract_state_item(&snapshot));
+
+        assert!(text.contains("Active node id: none"));
+        assert!(text.contains("Existing TaskSpace task has no active bound node"));
+        assert!(text.contains("return final_answer"));
+        assert!(!text.contains("action=start_task"));
     }
 
     #[test]
@@ -4907,6 +4927,21 @@ async fn should_answer_after_successful_validation_redundant_node(
         .await
 }
 
+async fn should_answer_after_completed_task_without_active_node(
+    action: &TaskSpaceActionV1,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    sess: &Session,
+) -> bool {
+    if snapshot.node_id.is_some() {
+        return false;
+    }
+    if taskspace_action_final_message(action).is_some() {
+        return false;
+    }
+    sess.action_map_has_accepted_successful_validation_result()
+        .await
+}
+
 fn taskspace_action_is_finish_node_control(action: &TaskSpaceActionV1) -> bool {
     action.action == "taskspace_control"
         && taskspace_action_control_action(action) == Some("finish_node")
@@ -5936,6 +5971,17 @@ async fn try_run_sampling_request(
                                 )
                             } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
                                 && should_answer_after_successful_validation_redundant_node(
+                                    &action,
+                                    snapshot,
+                                    sess.as_ref(),
+                                )
+                                .await
+                            {
+                                taskspace_final_answer_action(
+                                    "Validation passed; final result is ready.",
+                                )
+                            } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                                && should_answer_after_completed_task_without_active_node(
                                     &action,
                                     snapshot,
                                     sess.as_ref(),

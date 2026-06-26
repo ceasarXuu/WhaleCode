@@ -175,3 +175,47 @@ cargo test -p codex-core taskspace --lib
 确认 open_leaf_nodes=0
 确认没有新增 summary-only final_synthesis
 ```
+
+## D.12 2026-06-27 closed-graph final answer 修复
+
+第二轮 B-tier `target\phase-r3-btier-smoke-20260627-012652` 证明 D.11 的直接收益已经出现：
+
+```text
+open_leaf_nodes = 0
+model_request_duration_ms = 503738
+provider lifecycle timing source = rollout.jsonl
+public_validation_exit_code = 0
+hidden_oracle_exit_code = 0
+```
+
+但该 run 仍然失败：
+
+```text
+TaskSpace exec_exit_code = 1
+business_success = false
+```
+
+根因是 graph 已经全部关闭后，runtime 进入 `node_id=null / node_kind=unknown`，action-contract prompt 没有把“已有 task 但无 active node”定义为 final-answer 状态，模型开始重复 `create_node`，最后发出 `list_files node_id=null` 并被 policy 拒绝。
+
+修复：
+
+```text
+TaskSpaceActionContractStateV1:
+  existing task + no active bound node => if work is complete, return final_answer
+
+Runtime guard:
+  no active node + accepted successful validation result + non-terminal work action
+  => synthesize final_answer("Validation passed; final result is ready.")
+```
+
+已验证：
+
+```text
+cargo test -p codex-core active_context_replacement --lib
+84 passed
+
+cargo test -p codex-core taskspace --lib
+94 passed
+```
+
+仍需真实收益证明：重跑 B-tier，要求 `business_success=true`、`exec_exit_code=0`、`open_leaf_nodes=0` 同时成立。

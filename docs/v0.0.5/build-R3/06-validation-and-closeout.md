@@ -218,3 +218,59 @@ cargo test -p codex-core taskspace --lib
    - model_request_duration_ms present
    - wait_attribution_status=complete
 ```
+
+## F.11 2026-06-27 第二轮 B-tier 结果
+
+使用 fresh target binary：
+
+```text
+D:\whalecode-alpha\target\phase-r3-current-cargo-target\debug\whale.exe
+```
+
+运行：
+
+```text
+target\phase-r3-btier-smoke-20260627-012652\single-file-fast-fix\20260627-012654-869
+```
+
+已证明收益：
+
+```text
+open_leaf_nodes = 0
+model_request_duration_ms = 503738
+model_timing_source_status = provider_lifecycle_timing
+model_timing_source_path = pair-001\right\artifacts\rollout.jsonl
+public_validation_exit_code = 0
+hidden_oracle_exit_code = 0
+```
+
+仍未通过：
+
+```text
+TaskSpace exec_exit_code = 1
+TaskSpace business_success = false
+pair outcome = taskspace_worse
+wait_attribution_status = missing
+missing fields = model_queue_wait_ms, model_retry_backoff_ms
+```
+
+根因拆分：
+
+```text
+exec_exit_code=1:
+  graph closeout 后没有 active node，但 action-contract prompt 仍诱导继续创建/读取节点。
+  修复为 no-active-node completed-task final_answer prompt + runtime guard。
+
+wait_attribution_status=missing:
+  model_request_duration_ms 已补齐；剩余缺口是 provider queue/retry wait telemetry 未实现。
+  这不影响 graph closeout 证明，但仍阻塞 speedup/release claim。
+```
+
+下一步：
+
+```text
+1. 提交 no-active-node final-answer 修复
+2. fresh build 当前 commit
+3. 重跑 B-tier，要求 business_success=true 且 open_leaf_nodes=0
+4. 单独处理 queue/retry wait attribution，不能把 timing release gate 标成 complete
+```

@@ -1,11 +1,12 @@
 # Problem P-001: R3 B-tier smoke exposes missing timing attribution and open TaskSpace leaf
 - Status: open
 - Created: 2026-06-27 00:48
-- Updated: 2026-06-27 01:06
+- Updated: 2026-06-27 01:54
 - Objective: Make the R3 B-tier smoke produce trustworthy benefit evidence by fixing proven harness attribution gaps and then closing the remaining TaskSpace graph lifecycle blocker.
 - Symptoms:
   - B-tier smoke finished with business success on both standard and TaskSpace, but speed evidence was blocked because `model_request_duration_ms` was missing.
   - The same run left `open_leaf_nodes=1` on the TaskSpace side.
+  - After graph closeout was fixed, a later B-tier run reached `open_leaf_nodes=0` but the TaskSpace process exited 1 after reopening work with no active node.
 - Expected behavior:
   - Benchmark metrics should read provider lifecycle timing from the artifact that actually contains provider events.
   - A successful TaskSpace run should close all graph leaves or provide a precise lifecycle rejection reason.
@@ -20,16 +21,17 @@
 - Environment:
   - Windows PowerShell, branch `whalecode-alpha`, local debug `whale.exe` from `D:\BuildCache\whalecode\cargo-target\debug\whale.exe`.
 - Known facts:
-  - See E-001 through E-005.
+  - See E-001 through E-007.
 - Ruled out:
   - none
 - Fix criteria:
   - Timing attribution self-test passes and B-tier metrics can read provider lifecycle timing from `rollout.jsonl`.
   - The graph closeout blocker has a confirmed root cause, focused regression coverage, and a rerun that no longer leaves a successful open leaf.
-- Current conclusion: Timing attribution has a confirmed runner source-selection root cause. Graph closeout has a confirmed action-contract rewrite root cause: explicit validation `finish_node` was replaced by `final_answer` before the lifecycle tool could run.
+- Current conclusion: Timing attribution has a confirmed runner source-selection root cause. Graph closeout has a confirmed action-contract rewrite root cause. A follow-on closeout blocker is now confirmed: after all leaves close, action-contract state did not guide or guard final answer, so the model reopened work from a no-active-node state.
 - Related hypotheses:
   - H-001
   - H-002
+  - H-003
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -234,3 +236,105 @@
   ```
 - Interpretation: The runtime intentionally bypassed the explicit lifecycle action, which explains both `saw_actionable_output=false` and the remaining open leaf.
 - Time: 2026-06-27 01:06
+
+## Hypothesis H-003: Closed graph with no active node is not treated as final-answer state
+- Status: confirmed
+- Parent: P-001
+- Claim: After all TaskSpace leaves close and no active node remains, the action-contract prompt and runtime still allow the model to start new work instead of forcing or guiding `final_answer`, causing process exit 1 despite public and hidden validation passing.
+- Layer: root-cause
+- Factor relation: single
+- Depends on:
+  - H-002
+- Rationale:
+  - The post-fix B-tier run had `open_leaf_nodes=0` and validation success, but later emitted `create_node` / `list_files` actions with `node_id=null`.
+- Falsifiable predictions:
+  - If true: artifacts show all graph nodes completed, then later provider requests have `node_kind=unknown`, `node_id=null`, and rejected work actions rather than `final_answer`.
+  - If false: process exit 1 is caused by validation failure, open graph leaf, or missing provider timing.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: compare graph-health, metrics, and final whale-exec tail after the post-fix B-tier run.
+  - Signal: `open_leaf_nodes`, validation exit codes, `TaskSpaceProviderResponseActionabilityV1`, and terminal `turn.failed`.
+  - Capture method: inspect B-tier artifacts under `target\phase-r3-btier-smoke-20260627-012652`.
+  - Event name or marker:
+    - `TaskSpaceProviderResponseActionabilityV1`
+    - `turn.failed`
+  - Correlation keys:
+    - `node_id=null`
+    - `node_kind=unknown`
+  - Differentiates from:
+    - graph closeout failure
+    - validation failure
+    - timing attribution failure
+  - Supports if:
+    - graph is closed, validators pass, and the final failure is a no-active-node action-policy loop.
+  - Refutes if:
+    - an open leaf or failed validator explains the exit.
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-006
+  - E-007
+- Conclusion: confirmed
+- Repair design readiness: ready
+- Next step: add no-active-node completed-task final-answer guidance and runtime final-answer guard.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-006: Post-fix B-tier proves graph and timing benefits but exits 1
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: reproduction
+- Source: `target\phase-r3-btier-smoke-20260627-012652\single-file-fast-fix\20260627-012654-869`
+- Prediction or plan link:
+  - H-003 If true prediction.
+- Matched signal:
+  - `open_leaf_nodes=0`, `model_request_duration_ms=503738`, public and hidden validation exit 0, but TaskSpace `exec_exit_code=1`.
+- Correlation keys:
+  - `pair-001\right`
+- Raw content:
+  ```text
+  right metrics:
+  exec_exit_code: 1
+  public_validation_exit_code: 0
+  hidden_oracle_exit_code: 0
+  business_success: false
+  open_leaf_nodes: 0
+  model_request_duration_ms: 503738
+  model_timing_source_status: provider_lifecycle_timing
+  ```
+- Interpretation: The prior graph and timing fixes produced their direct benefits, but did not fully close the session success path.
+- Time: 2026-06-27 01:54
+
+## Evidence E-007: Final failure reopens work from no active node
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: diagnostic-log
+- Source: `target\phase-r3-btier-smoke-20260627-012652\single-file-fast-fix\20260627-012654-869\pair-001\right\artifacts\whale-exec.jsonl`
+- Prediction or plan link:
+  - H-003 If true prediction.
+- Matched signal:
+  - After node closeout, provider requests report `phase=unknown node_kind=unknown`; assistant emits repeated `create_node` actions and finally `list_files node_id=null`, which is rejected with `node_policy_violation:unknown:list_files`.
+- Correlation keys:
+  - `item_147`
+  - `item_153`
+  - `item_159`
+  - `item_165`
+  - `item_171`
+  - `item_173`
+- Raw content:
+  ```text
+  item_147: taskspace_control create_node kind=inspect_code_context
+  item_153: taskspace_control create_node kind=inspect_code_context
+  item_159: taskspace_control create_node kind=inspect_code_context
+  item_165: taskspace_control create_node kind=inspect_code_context
+  item_171: list_files node_id=null
+  item_173: TaskSpaceActionV1 rejected: node_policy_violation:unknown:list_files
+  turn.failed: too many non-action assistant messages while requesting follow-up
+  ```
+- Interpretation: The final-answer state after graph closeout is under-specified; the model is still being routed as if more TaskSpace work should start.
+- Time: 2026-06-27 01:54
