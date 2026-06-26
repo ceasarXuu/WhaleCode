@@ -137,7 +137,7 @@ Phase E/F local gates
 Current code-complete blockers:
 
 ```text
-post-ABI B-tier smoke business/cache/open-leaf/walltime evidence is missing
+post-ABI B-tier smoke shows business/cache pass, but active context replacement, open_leaf_nodes, walltime, and timing attribution are still blockers
 current code-complete marker and explicit user approval marker for formal P0 are still missing
 ```
 

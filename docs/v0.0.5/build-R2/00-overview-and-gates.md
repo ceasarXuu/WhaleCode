@@ -172,5 +172,5 @@ Phase D  Done for scope: advisory profile quality impact, full-field artifacts, 
 Phase E  Done for scope: legacy state action displacement denominator now uses real attempt events
 Phase F  Done for scope: route-aware spawn/node hints remain advisory; release artifacts now block unreviewed subagent result debt
 Phase G  Done for scope: canonical non-agent gate builder writes current-HEAD evidence bundle consumed by release/start gates
-Phase H  Blocked: targeted diagnostic and formal E3 readiness wait for post-ABI B smoke, code-complete marker, and user approval
+Phase H  Blocked after B-tier diagnostic: business/cache/fanout pass, but active context replacement, open_leaf_nodes, walltime, and timing attribution block targeted/formal E3
 ```
