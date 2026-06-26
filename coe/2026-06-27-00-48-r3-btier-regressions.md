@@ -338,3 +338,79 @@
   ```
 - Interpretation: The final-answer state after graph closeout is under-specified; the model is still being routed as if more TaskSpace work should start.
 - Time: 2026-06-27 01:54
+
+## Hypothesis H-004: Current B-tier rerun is blocked by local Windows commit/pagefile pressure
+- Status: confirmed
+- Parent: P-001
+- Claim: After the no-active-node fix, the next B-tier proof cannot currently start because this Windows host cannot build a fresh `whale.exe`; the failures are resource exhaustion during Rust metadata/codegen/link, not source-level compile errors.
+- Layer: environment
+- Factor relation: blocking
+- Depends on:
+  - H-003
+- Rationale:
+  - B-tier needs a `whale.exe` built after commit `76e0b96e`.
+  - The only available `phase-r3-current-cargo-target\debug\whale.exe` is older than the commit.
+  - Fresh and incremental builds fail with out-of-memory / pagefile errors before producing an updated executable.
+- Falsifiable predictions:
+  - If true: reducing parallelism or using `dev-small` still fails with Windows commit/pagefile or rustc allocation errors, while prior targeted unit/regression tests remain compiled and passing.
+  - If false: cargo reports deterministic Rust source errors tied to this patch, or a fresh post-commit `whale.exe` is produced.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: compare executable timestamp, cargo build output, and OS memory/pagefile state.
+  - Signal: `LastWriteTimeUtc`, `rustc-LLVM ERROR: out of memory`, `memory allocation ... failed`, Windows `os error 1455`, free physical memory, pagefile usage.
+  - Capture method: run candidate builds with fresh target, existing target incremental, and `dev-small`; inspect `Win32_OperatingSystem` and `Win32_PageFileUsage`.
+  - Event name or marker:
+    - `rustc-LLVM ERROR: out of memory`
+    - `页面文件太小，无法完成操作。 (os error 1455)`
+  - Differentiates from:
+    - source compile error
+    - stale binary preflight failure
+    - B-tier business/graph failure
+  - Supports if:
+    - no post-commit binary is produced and cargo fails in metadata/codegen/link with memory or pagefile signals.
+  - Refutes if:
+    - cargo produces a fresh post-commit `whale.exe`, or reports deterministic source errors.
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-008
+- Conclusion: confirmed
+- Repair design readiness: blocked
+- Next step: free local memory / increase Windows commit limit, then rebuild with `--profile dev-small -j1` or existing-target incremental and rerun B-tier.
+- Blocker:
+  - user/operator action required to free memory or increase pagefile / close memory-heavy background agents.
+- Close reason:
+  - not closed
+
+## Evidence E-008: Post-fix B-tier proof cannot start because fresh whale.exe build exhausts Windows commit/pagefile
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: environment
+- Source: local build attempts on 2026-06-27
+- Prediction or plan link:
+  - H-004 diagnostic evidence plan.
+- Matched signal:
+  - Existing binary timestamp is older than HEAD:
+    `phase-r3-current-cargo-target\debug\whale.exe LastWriteTimeUtc=2026-06-26T17:26:35.1780363Z`;
+    HEAD commit time is `2026-06-27T02:05:21+08:00`.
+  - Fresh target build failed with `rustc-LLVM ERROR: out of memory` and invalid rmeta follow-on errors.
+  - Existing target incremental build reached `codex-cli` final binary compile but failed with `memory allocation of 2097152 bytes failed`.
+  - `dev-small` build failed with `页面文件太小，无法完成操作。 (os error 1455)` while reading Rust toolchain metadata.
+  - OS snapshots showed low free physical memory, including about 2.3GB before retry and about 1.6GB after later attempts; pagefile usage was high (`AllocatedBaseSize=49152`, `CurrentUsage=22207`, `PeakUsage=23248` MB).
+- Correlation keys:
+  - `76e0b96e`
+  - `phase-r3-current-cargo-target-2`
+  - `phase-r3-current-cargo-target-3`
+  - `dev-small`
+- Raw content:
+  ```text
+  rustc-LLVM ERROR: out of memory
+  memory allocation of 2097152 bytes failed
+  页面文件太小，无法完成操作。 (os error 1455)
+  FreePhysicalMemory: 2359512 KB, then 1648988 KB
+  PageFile: AllocatedBaseSize=49152 MB, CurrentUsage=22207 MB, PeakUsage=23248 MB
+  ```
+- Interpretation: The current blocker is host resource exhaustion before B-tier can run a post-fix executable. This does not disprove the no-active-node fix; it prevents measuring its real B-tier benefit until the host can build.
+- Time: 2026-06-27 03:22

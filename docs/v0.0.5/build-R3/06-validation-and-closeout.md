@@ -274,3 +274,66 @@ wait_attribution_status=missing:
 3. 重跑 B-tier，要求 business_success=true 且 open_leaf_nodes=0
 4. 单独处理 queue/retry wait attribution，不能把 timing release gate 标成 complete
 ```
+
+## F.12 2026-06-27 第三轮 B-tier 验证阻塞
+
+已提交 no-active-node final-answer 修复：
+
+```text
+76e0b96e Close TaskSpace no-active-node final answer path
+```
+
+但第三轮 B-tier 尚未启动。原因不是当前修复出现源码编译错误，而是本机无法产出
+该 commit 之后的 fresh `whale.exe`：
+
+```text
+现有 binary:
+  D:\whalecode-alpha\target\phase-r3-current-cargo-target\debug\whale.exe
+  LastWriteTimeUtc = 2026-06-26T17:26:35.1780363Z
+
+当前 HEAD:
+  76e0b96eee254cad6ced962958e633732e3d1796
+  commit time = 2026-06-27T02:05:21+08:00
+```
+
+构建阻塞现场：
+
+```text
+fresh target build:
+  rustc-LLVM ERROR: out of memory
+
+existing target incremental build:
+  reached codex-cli final binary compile
+  failed with memory allocation of 2097152 bytes failed
+
+dev-small profile build:
+  failed with 页面文件太小，无法完成操作。 (os error 1455)
+
+host snapshot:
+  FreePhysicalMemory ~= 2.3GB before retry, then ~= 1.6GB
+  PageFile AllocatedBaseSize = 49152 MB
+  PageFile CurrentUsage = 22207 MB
+```
+
+判断：
+
+```text
+blocked_by = local_windows_commit_or_pagefile_pressure
+not_blocked_by = rust_source_compile_error
+not_yet_proven = 76e0b96e B-tier business_success/open_leaf_nodes benefit
+```
+
+恢复条件：
+
+```text
+1. 释放本机内存或提高 Windows commit limit/pagefile 可用量
+2. 重跑:
+   cargo build -j1 --profile dev-small -p codex-cli --bin whale
+3. 使用 post-commit whale.exe 重跑 B-tier single-file-fast-fix
+4. 要求同时证明:
+   - business_success=true
+   - exec_exit_code=0
+   - open_leaf_nodes=0
+   - model_request_duration_ms present
+5. timing release gate 仍需单独补齐 queue/retry wait telemetry
+```
