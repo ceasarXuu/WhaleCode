@@ -92,3 +92,40 @@ model_request_duration_ms is present for terminal provider events.
 unknown_time_ratio is below configured threshold or release remains blocked.
 taskspace_wall_time_ratio > threshold has a complete bottleneck report.
 ```
+
+## E.8 当前实现状态
+
+已落地 provider lifecycle duration 标准字段链路：
+
+```text
+runtime provider_request_budget trace:
+  latency_ms
+  model_request_duration_ms
+
+benchmark timing parser:
+  provider_lifecycle terminal events preferred
+  responsesapi.websocket_timing retained as fallback
+
+cost instrumentation artifact:
+  started_at_ms
+  completed_at_ms
+  latency_ms
+  model_request_duration_ms
+```
+
+这解决的是 Phase H 中 `model_request_duration_ms missing` 的主要工程缺口：DeepSeek / TaskSpace 路径不应依赖 `responsesapi.websocket_timing` 私有事件，只要 provider lifecycle terminal event 存在，就能归因模型请求耗时。
+
+已验证：
+
+```text
+cargo test -p codex-core provider_request_budget --lib
+10 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-score-validity.ps1
+PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1
+PASS
+```
+
+尚未完成的真实收益证明：需要重新跑 B-tier / targeted diagnostic，确认真实 `sample-timing.json` 中 `model_request_duration_ms` 非空，并使 `wait_attribution_missing_fields` 不再包含该字段。

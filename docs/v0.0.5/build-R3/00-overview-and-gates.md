@@ -107,6 +107,13 @@ R3-D first lifecycle fix landed locally:
   has successful required-action evidence.
   active_context_replacement and taskspace unit gates passed.
   B-tier / targeted diagnostic proof is still required before marking graph closeout done.
+
+R3-E first timing fix landed locally:
+  provider_request_budget trace now emits model_request_duration_ms beside latency_ms.
+  benchmark timing parser prefers provider_lifecycle terminal durations and keeps websocket timing
+  as fallback.
+  provider_request_budget, E3 score-validity, and cost instrumentation self-tests passed.
+  B-tier / targeted diagnostic proof is still required before marking wait attribution done.
 ```
 
 ## 0.6 R2 blocker 到 R3 phase 映射

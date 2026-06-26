@@ -263,6 +263,17 @@ $modelTimingJsonl = Join-Path $RunRoot ("model-timing-" + (Get-Date -Format "yyy
 $modelTiming = Get-TaskspaceModelTimingAttribution $modelTimingJsonl
 Assert-True ([int64]$modelTiming.model_request_duration_ms -eq 570) "model timing parser did not aggregate websocket timing metrics"
 Assert-True ([string]$modelTiming.model_timing_source_status -eq "responsesapi_websocket_timing") "model timing parser did not record timing source status"
+$providerTimingJsonl = Join-Path $RunRoot ("provider-timing-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff") + ".jsonl")
+@(
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-1","tags":["producer:provider_lifecycle","status:started","latency_ms:999"]}}',
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-1","tags":["producer:provider_lifecycle","status:response_completed","model_request_duration_ms:615","latency_ms:615"]}}',
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-2","tags":["producer:provider_lifecycle","status:response_failed","latency_ms:45"]}}',
+    '{"type":"responsesapi.websocket_timing","timing_metrics":{"responses_duration_excl_engine_and_client_tool_time_ms":1,"engine_service_total_ms":2}}'
+) | Set-Content -LiteralPath $providerTimingJsonl -Encoding UTF8
+$providerTiming = Get-TaskspaceModelTimingAttribution $providerTimingJsonl
+Assert-True ([int64]$providerTiming.model_request_duration_ms -eq 660) "model timing parser did not aggregate provider lifecycle terminal durations"
+Assert-True ([string]$providerTiming.model_timing_source_status -eq "provider_lifecycle_timing") "model timing parser did not prefer provider lifecycle timing"
+Assert-True ([int64]$providerTiming.model_timing_event_count -eq 2) "model timing parser counted non-terminal provider events"
 $decisionCases = @(
     [pscustomobject]@{ name = "missing timing"; timing = $null; score_valid = $true; expected = "speedup_blocked_instrumentation"; evidence_valid = $false },
     [pscustomobject]@{ name = "invalid score"; timing = [pscustomobject]@{ timing_quality = "complete"; bottleneck_classification = "validator_bound" }; score_valid = $false; expected = "speedup_blocked_invalid_run"; evidence_valid = $false },

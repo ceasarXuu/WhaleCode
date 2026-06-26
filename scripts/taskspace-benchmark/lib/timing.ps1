@@ -117,10 +117,41 @@ function New-TaskspaceUnavailableWaitAttribution {
     [pscustomobject]$result
 }
 
+function Convert-TaskspaceTimingTraceTags {
+    param($Tags)
+    $table = [ordered]@{}
+    foreach ($tag in @($Tags)) {
+        $text = [string]$tag
+        if ([string]::IsNullOrWhiteSpace($text)) { continue }
+        $index = $text.IndexOf(":")
+        if ($index -lt 0) {
+            $table[$text] = $true
+            continue
+        }
+        $key = $text.Substring(0, $index)
+        $value = $text.Substring($index + 1)
+        if (-not [string]::IsNullOrWhiteSpace($key)) { $table[$key] = $value }
+    }
+    [pscustomobject]$table
+}
+
+function Get-TaskspaceTimingIntValue {
+    param($Object, [string[]]$Names)
+    if ($null -eq $Object) { return $null }
+    foreach ($name in @($Names)) {
+        if ($Object.PSObject.Properties.Name -contains $name -and $null -ne $Object.$name -and -not [string]::IsNullOrWhiteSpace([string]$Object.$name)) {
+            try { return [int64]$Object.$name } catch { return $null }
+        }
+    }
+    $null
+}
+
 function Get-TaskspaceModelTimingAttribution {
     param([string]$JsonlPath)
     $requestMs = [int64]0
     $eventCount = 0
+    $providerRequestMs = [int64]0
+    $providerEventCount = 0
     $parseErrors = 0
     if ([string]::IsNullOrWhiteSpace($JsonlPath) -or -not (Test-Path -LiteralPath $JsonlPath)) {
         return [pscustomobject]@{
@@ -139,6 +170,21 @@ function Get-TaskspaceModelTimingAttribution {
         $eventType = if ($evt.PSObject.Properties.Name -contains "type") { [string]$evt.type } else { "" }
         $payload = if ($evt.PSObject.Properties.Name -contains "payload") { $evt.payload } else { $null }
         $payloadType = if ($payload -and $payload.PSObject.Properties.Name -contains "type") { [string]$payload.type } else { "" }
+        if ($eventType -eq "event_msg" -and $payload -and [string]$payload.kind -eq "provider_request_budget") {
+            $tags = Convert-TaskspaceTimingTraceTags $payload.tags
+            $status = [string]$tags.status
+            $producer = [string]$tags.producer
+            if (
+                $producer -eq "provider_lifecycle" -and
+                @("response_completed", "response_failed", "cancelled") -contains $status
+            ) {
+                $durationMs = Get-TaskspaceTimingIntValue $tags @("model_request_duration_ms", "latency_ms")
+                if ($null -ne $durationMs) {
+                    $providerRequestMs += [int64]$durationMs
+                    $providerEventCount++
+                }
+            }
+        }
         $timingMetrics = $null
         if ($eventType -eq "responsesapi.websocket_timing" -and $evt.PSObject.Properties.Name -contains "timing_metrics") {
             $timingMetrics = $evt.timing_metrics
@@ -150,6 +196,17 @@ function Get-TaskspaceModelTimingAttribution {
         $overhead = if ($timingMetrics.PSObject.Properties.Name -contains "responses_duration_excl_engine_and_client_tool_time_ms") { [int64]$timingMetrics.responses_duration_excl_engine_and_client_tool_time_ms } else { 0 }
         $engine = if ($timingMetrics.PSObject.Properties.Name -contains "engine_service_total_ms") { [int64]$timingMetrics.engine_service_total_ms } else { 0 }
         $requestMs += ($overhead + $engine)
+    }
+    if ($providerEventCount -gt 0) {
+        return [pscustomobject]@{
+            model_request_duration_ms = $providerRequestMs
+            model_queue_wait_ms = $null
+            model_retry_backoff_ms = $null
+            model_timing_event_count = $providerEventCount
+            model_timing_source_status = "provider_lifecycle_timing"
+            model_timing_source_path = $JsonlPath
+            model_timing_parse_errors = $parseErrors
+        }
     }
     [pscustomobject]@{
         model_request_duration_ms = if ($eventCount -gt 0) { $requestMs } else { $null }

@@ -66,6 +66,10 @@ $obs = [pscustomobject]@{
                 "runtime_budget_state:normal",
                 "request_phase:model_sampling",
                 "producer:provider_lifecycle",
+                "started_at_ms:100",
+                "completed_at_ms:715",
+                "latency_ms:615",
+                "model_request_duration_ms:615",
                 "input_tokens:10",
                 "cached_input_tokens:2",
                 "output_tokens:5",
@@ -463,6 +467,7 @@ Assert-True ([bool]$scanEvents[0].exact_context_bundle_verified) "exact payload 
 Assert-True ($providerEvents.Count -eq 3 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
 Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provider_lifecycle" }).Count -eq 3) "provider request events did not preserve provider_lifecycle producer"
 Assert-True ([string]$providerEvents[0].provider_wire_api -eq "ChatCompletions" -and [int]$providerEvents[0].tools_count -eq 24 -and [string]$providerEvents[0].request_shape_classifier -eq "native_tools_schema_hot_path") "provider request events did not preserve cache request shape fields"
+Assert-True ([int64]$providerEvents[0].model_request_duration_ms -eq 615 -and [int64]$providerEvents[0].latency_ms -eq 615 -and [int64]$providerEvents[0].started_at_ms -eq 100 -and [int64]$providerEvents[0].completed_at_ms -eq 715) "provider request events did not preserve provider lifecycle timing fields"
 Assert-True ($cacheTraceEvents.Count -eq 3 -and [string]$cacheTraceEvents[0].schema_version -eq "TaskSpaceProviderCacheTraceV1" -and [double]$cacheTraceEvents[0].hit_rate -eq 0.2) "provider cache trace events were not derived from terminal provider requests"
 Assert-True ([int]$cacheTraceSummary.native_tools_schema_hot_path_count -eq 1 -and [int]$cacheTraceSummary.tool_free_action_contract_count -eq 2 -and [double]$cacheTraceSummary.trace_coverage -eq 1.0) "provider cache trace summary did not classify completed request shapes"
 Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"

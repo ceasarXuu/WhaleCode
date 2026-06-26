@@ -2525,6 +2525,7 @@ preview:\n\
             }
             if let Some(latency_ms) = input.latency_ms {
                 tags.push(format!("latency_ms:{latency_ms}"));
+                tags.push(format!("model_request_duration_ms:{latency_ms}"));
             }
             if let Some(input_tokens) = input.input_tokens {
                 tags.push(format!("input_tokens:{input_tokens}"));
@@ -10722,6 +10723,7 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("started_at_ms:")
         || tag.starts_with("completed_at_ms:")
         || tag.starts_with("latency_ms:")
+        || tag.starts_with("model_request_duration_ms:")
         || tag.starts_with("input_tokens:")
         || tag.starts_with("cached_input_tokens:")
         || tag.starts_with("output_tokens:")
@@ -12189,6 +12191,12 @@ mod tests {
         );
         assert!(blocked.tags.iter().any(|tag| tag == "input_tokens:10"));
         assert!(blocked.tags.iter().any(|tag| tag == "latency_ms:0"));
+        assert!(
+            blocked
+                .tags
+                .iter()
+                .any(|tag| tag == "model_request_duration_ms:0")
+        );
         assert!(
             blocked
                 .tags

@@ -133,6 +133,12 @@ function Convert-TaskspaceTraceInt {
     try { return [int]$Value } catch { return $Default }
 }
 
+function Convert-TaskspaceTraceNullableInt {
+    param($Value)
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return $null }
+    try { return [int64]$Value } catch { return $null }
+}
+
 function Convert-TaskspaceTraceBool {
     param($Value, [bool]$Default = $false)
     if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return $Default }
@@ -255,6 +261,10 @@ function New-TaskspaceBudgetArtifacts {
             output_tokens = Get-TaskspaceUsageNumber $tags @("output_tokens")
             reasoning_output_tokens = Get-TaskspaceUsageNumber $tags @("reasoning_output_tokens")
             total_tokens = Get-TaskspaceUsageNumber $tags @("total_tokens")
+            started_at_ms = Convert-TaskspaceTraceNullableInt $tags.started_at_ms
+            completed_at_ms = Convert-TaskspaceTraceNullableInt $tags.completed_at_ms
+            latency_ms = Convert-TaskspaceTraceNullableInt $tags.latency_ms
+            model_request_duration_ms = Convert-TaskspaceTraceNullableInt $tags.model_request_duration_ms
             provider_payload_sha256 = [string]$tags.provider_payload_sha256
             provider_payload_bytes = Convert-TaskspaceTraceInt $tags.provider_payload_bytes
             provider_wire_api = [string]$tags.provider_wire_api
@@ -484,6 +494,10 @@ function New-TaskspaceProviderRequestArtifacts {
             status = [string]$event.status
             transport = [string]$event.transport
             trace_event_id = [string]$event.trace_event_id
+            started_at_ms = Convert-TaskspaceTraceNullableInt $event.started_at_ms
+            completed_at_ms = Convert-TaskspaceTraceNullableInt $event.completed_at_ms
+            latency_ms = Convert-TaskspaceTraceNullableInt $event.latency_ms
+            model_request_duration_ms = Convert-TaskspaceTraceNullableInt $event.model_request_duration_ms
             input_tokens = $inputTokens
             cached_input_tokens = $cachedInputTokens
             output_tokens = $outputTokens
