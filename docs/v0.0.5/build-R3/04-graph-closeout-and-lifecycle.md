@@ -99,3 +99,25 @@ Release fixtures still block open_leaf_nodes>0.
 Small single-file task does not create summary-only final_synthesis.
 Graph health artifact explains any diagnostic open node before formal E3.
 ```
+
+## D.10 当前实现状态
+
+已落地第一处 lifecycle 收口修复：当当前 `implement_solution` / `smoke_test` / `regression_test` 节点已经有成功的必需动作证据时，`final_answer` 不再阻断 runtime 先生成 `finish_node`。这修复的是“业务已经成功，但终端回答绕过节点关闭，导致 `open_leaf_nodes=1`”这一类失败路径。
+
+已验证：
+
+```text
+cargo test -p codex-core active_context_replacement --lib
+82 passed
+
+cargo test -p codex-core taskspace --lib
+92 passed
+```
+
+新增回归测试：
+
+```text
+taskspace_final_answer_does_not_block_successful_required_action_auto_finish
+```
+
+尚未完成的真实收益证明：需要重新跑 B-tier / targeted diagnostic，确认真实运行 artifact 中 `open_leaf_nodes=0`，并检查没有引入多余 `final_synthesis` 节点。

@@ -2796,6 +2796,21 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_final_answer_does_not_block_successful_required_action_auto_finish() {
+        let final_answer = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"final_answer","node_id":"node-3","args":{"message":"All tests pass."}}"#,
+        )
+        .expect("valid final answer");
+        let finish_node = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-3","args":{"action":"finish_node","outcome":"success","summary":"tests pass"}}"#,
+        )
+        .expect("valid finish node");
+
+        assert!(!taskspace_action_blocks_successful_required_action_auto_finish(&final_answer));
+        assert!(taskspace_action_blocks_successful_required_action_auto_finish(&finish_node));
+    }
+
+    #[test]
     fn taskspace_terminal_action_clears_follow_up_state() {
         let mut needs_follow_up = true;
         let mut saw_actionable_output = true;
@@ -4833,7 +4848,7 @@ async fn should_finish_node_after_successful_required_action(
     snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
     sess: &Session,
 ) -> bool {
-    if taskspace_action_is_finish_node_control(action) || taskspace_action_is_terminal(action) {
+    if taskspace_action_blocks_successful_required_action_auto_finish(action) {
         return false;
     }
     match snapshot.node_kind.as_deref() {
@@ -4891,6 +4906,12 @@ async fn should_answer_after_successful_validation_finish_node(
 fn taskspace_action_is_finish_node_control(action: &TaskSpaceActionV1) -> bool {
     action.action == "taskspace_control"
         && taskspace_action_control_action(action) == Some("finish_node")
+}
+
+fn taskspace_action_blocks_successful_required_action_auto_finish(
+    action: &TaskSpaceActionV1,
+) -> bool {
+    taskspace_action_is_finish_node_control(action)
 }
 
 const TASKSPACE_CONTROL_ACTION_MISSING_ERROR: &str = "E_TASKSPACE_CONTROL_ACTION_MISSING";
@@ -5580,6 +5601,7 @@ fn taskspace_action_final_message(action: &TaskSpaceActionV1) -> Option<String> 
     }
 }
 
+#[cfg(test)]
 fn taskspace_action_is_terminal(action: &TaskSpaceActionV1) -> bool {
     taskspace_action_final_message(action).is_some()
 }

@@ -101,6 +101,12 @@ R3-A/B/C first vertical slice landed locally:
   runtime exact_payload_scan trace and benchmark scripts now carry context_bundle_present,
   exact_context_bundle_verified, and cache_plan_verified.
 Focused gates passed, but B-tier benefit proof is still required before marking R3-A/B/C done.
+
+R3-D first lifecycle fix landed locally:
+  final_answer no longer blocks finish_node recovery when the current implement/test node already
+  has successful required-action evidence.
+  active_context_replacement and taskspace unit gates passed.
+  B-tier / targeted diagnostic proof is still required before marking graph closeout done.
 ```
 
 ## 0.6 R2 blocker 到 R3 phase 映射
