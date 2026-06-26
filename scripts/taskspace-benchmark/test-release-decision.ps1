@@ -729,6 +729,21 @@ Assert-True (@($qualityImpactMismatchDecision.blockers) -contains "budget_qualit
 Assert-True (-not [bool]$qualityImpactMismatchDecision.budget_quality_impact_summary_matches_events) "summary mismatch fixture incorrectly matched derived event counts"
 Assert-True ([int]$qualityImpactMismatchDecision.derived_manual_override_count -eq 1) "summary mismatch fixture did not derive manual override from events"
 
+$qualityImpactForbiddenActionDir = New-FixtureRun "budget-quality-forbidden-action" "PASS" $true 0
+([pscustomobject]@{
+        schema_version = "taskspace-budget-quality-impact-v1"
+        sample_id = "processing-pipeline"
+        budget_action = "hard_stop"
+        final_classification = "score_eligible"
+        score_eligible = $true
+        manual_override_used = $false
+    } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $qualityImpactForbiddenActionDir "budget-quality-impact-events.jsonl") -Encoding UTF8
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $qualityImpactForbiddenActionDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "budget quality forbidden action fixture did not exit 1"
+$qualityImpactForbiddenActionDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $qualityImpactForbiddenActionDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($qualityImpactForbiddenActionDecision.blockers) -contains "budget_quality_impact_gate_failed") "forbidden action fixture did not report budget quality blocker"
+Assert-True ([int]$qualityImpactForbiddenActionDecision.derived_forbidden_budget_action_count -eq 1) "forbidden action fixture did not derive forbidden budget action count"
+
 $qualityImpactMissingDir = New-FixtureRun "missing-budget-quality-impact" "PASS" $true 0
 Move-Item -LiteralPath (Join-Path $qualityImpactMissingDir "budget-quality-impact-events.jsonl") -Destination (Join-Path $qualityImpactMissingDir "budget-quality-impact-events.jsonl.bak") -Force
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $qualityImpactMissingDir *> $null

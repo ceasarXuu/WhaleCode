@@ -2,7 +2,7 @@
 
 > 2026-06-25 更新：预算/profile 不再产生硬停；本阶段只保留质量影响与回归检测。
 >
-> 2026-06-26 复核：Phase A 后续修复没有恢复 hard stop。Phase C 已补齐 producer-owned scan 证据；Phase D 的 release-like closeout 仍依赖 Phase E/G。
+> 2026-06-26 复核：Phase A 后续修复没有恢复 hard stop。Phase C 已补齐 producer-owned scan 证据；Phase D 已补齐 quality impact 字段解析和 forbidden budget action release gate；release-like closeout 仍依赖 Phase E/G。
 
 ## D.1 目标
 
@@ -15,11 +15,22 @@
 
 ## D.1.1 当前状态
 
-Status: mostly aligned; not standalone release-complete.
+Status: implemented for Phase D scope; not standalone release-complete.
 
 当前实现已经把 profile overrun 作为 `over_profile_hint` / `observe`
 处理，并把 `blocked_by_budget_samples_count` 保留为旧硬停回归计数。后续
 Phase D 不应重新引入预算硬停。
+
+Phase D 当前已经完成：
+
+```text
+BudgetQualityImpactV1 runtime trace is produced for provider request budget events.
+Cost instrumentation preserves active_budget_source, route_mode, budget_state_before,
+  budget_state_after, budget_transition_reason, logical_request_id, attempt_seq.
+Release decision fails forbidden current budget actions:
+  hard_stop, node_budget_block, spawn_budget_block,
+  provider_request_budget_exhausted, blocked_by_budget.
+```
 
 仍需由后续阶段补齐的依赖：
 
@@ -103,6 +114,7 @@ budget_induced_score_ineligible_solved_count > 0
 blocked_by_budget_samples_count > 0
 manual_override_used_count > 0
 summary derived counts 与 event 不一致
+derived_forbidden_budget_action_count > 0
 ```
 
 Release decision 不得因为以下情况失败：
@@ -139,4 +151,47 @@ profile hint overrun => budget_action=observe
 legacy blocked input => legacy_* classification, not hard_stop
 blocked_by_budget_samples_count = 0
 manual_override mismatch still fails release decision
+forbidden budget_action such as hard_stop still fails release decision
+```
+
+## D.7 2026-06-26 本地验证
+
+真实 smoke 证据来自：
+
+```text
+target\phase-c-real-benefit-proof\single-file-fast-fix-20260626-202548\
+single-file-fast-fix\20260626-202549-940\pair-001\right\artifacts
+```
+
+该样本不能证明 TaskSpace 业务收益，但能证明 Phase D 没有通过硬停或
+跳过验证来伪造成果：
+
+```text
+budget_event_count = 40
+budget_quality_impact_event_count = 40
+budget_action_count = 0
+budget_quality_impact_logged_for_every_budget_action = true
+budget_quality_impact_missing_count = 0
+budget_induced_validation_skip_count = 0
+budget_induced_score_ineligible_solved_count = 0
+blocked_by_budget_samples_count = 0
+manual_override_used_count = 0
+spawn-node over_budget_enforcement_status = advisory_only
+spawn-node blocked_budget_event_count = 0
+```
+
+本阶段门禁：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1
+  passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1
+  passed
+
+cargo test -p codex-core budget --lib
+  60 passed
+
+cargo test -p codex-core taskspace --lib
+  91 passed
 ```

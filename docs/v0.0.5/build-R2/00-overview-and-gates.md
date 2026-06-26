@@ -168,7 +168,7 @@ Complete the work in this order. Do not run real E3 until Phase G is green.
 Phase A  Done: advisory active complexity profile and profile-hint observability
 Phase B  Done with caveats: request phase attribution and context propagation
 Phase C  Done locally: exact provider payload scan proof with producer-owned scan event and release fixtures
-Phase D  Mostly aligned: advisory profile quality impact and hard-stop regression detection
+Phase D  Done for scope: advisory profile quality impact, full-field artifacts, and hard-stop regression detection
 Phase E  Blocker: legacy state action displacement denominator still needs real attempt events
 Phase F  Partial: runtime subagent quality gates exist; artifact/release summary remains pending
 Phase G  Blocker: canonical non-agent gate builder and evidence bundle still missing

@@ -135,7 +135,14 @@ $obs = [pscustomobject]@{
                 "counter_name:provider_request_count",
                 "counter_value:1",
                 "counter_limit:1",
+                "active_budget_source:runtime",
+                "route_mode:thin",
+                "budget_state_before:normal",
+                "budget_state_after:normal",
+                "budget_transition_reason:provider_request_within_profile_hint",
                 "request_phase:model_sampling",
+                "logical_request_id:logical-1",
+                "attempt_seq:1",
                 "score_eligible:true",
                 "budget_induced_validation_skip:false",
                 "manual_override_used:false",
@@ -196,7 +203,14 @@ $obs = [pscustomobject]@{
                 "counter_name:provider_request_count",
                 "counter_value:2",
                 "counter_limit:1",
+                "active_budget_source:runtime",
+                "route_mode:thin",
+                "budget_state_before:normal",
+                "budget_state_after:over_profile_hint",
+                "budget_transition_reason:provider_request_profile_hint_exceeded",
                 "request_phase:validation_recovery",
+                "logical_request_id:logical-2",
+                "attempt_seq:1",
                 "score_eligible:true",
                 "budget_induced_validation_skip:false",
                 "manual_override_used:false",
@@ -257,7 +271,14 @@ $obs = [pscustomobject]@{
                 "counter_name:provider_request_count",
                 "counter_value:3",
                 "counter_limit:1",
+                "active_budget_source:runtime",
+                "route_mode:thin",
+                "budget_state_before:over_profile_hint",
+                "budget_state_after:over_profile_hint",
+                "budget_transition_reason:provider_request_profile_hint_exceeded",
                 "request_phase:state_commit",
+                "logical_request_id:logical-3",
+                "attempt_seq:1",
                 "score_eligible:true",
                 "budget_induced_validation_skip:false",
                 "manual_override_used:false",
@@ -366,6 +387,9 @@ Assert-True ($budgetEvents.Count -eq 3) "budget event count was not extracted fr
 Assert-True ($activeBudgetEvents.Count -eq 1 -and [string]$activeBudgetEvents[0].route_mode -eq "thin" -and [int]$activeBudgetEvents[0].max_rollout_model_requests -eq 8) "active budget event was not extracted from runtime trace"
 Assert-True ([string]$budgetEvents[0].active_budget_source -eq "runtime" -and [string]$budgetEvents[0].route_mode -eq "thin" -and [int]$budgetEvents[0].max_model_requests_per_node -eq 3) "provider budget event did not preserve active budget fields"
 Assert-True ($qualityEvents.Count -eq 3) "budget quality event count was not extracted from runtime trace"
+Assert-True ([string]$qualityEvents[1].active_budget_source -eq "runtime" -and [string]$qualityEvents[1].route_mode -eq "thin") "budget quality event did not preserve active budget route fields"
+Assert-True ([string]$qualityEvents[1].budget_state_after -eq "over_profile_hint" -and [string]$qualityEvents[1].budget_transition_reason -eq "provider_request_profile_hint_exceeded") "budget quality event did not preserve budget state transition fields"
+Assert-True ([string]$qualityEvents[1].logical_request_id -eq "logical-2" -and [int]$qualityEvents[1].attempt_seq -eq 1) "budget quality event did not preserve logical request identity"
 Assert-True ($scanEvents.Count -eq 1 -and [bool]$scanEvents[0].passed -and [string]$scanEvents[0].producer -eq "provider_payload_scanner") "exact payload scan event was not read from provider-owned runtime trace"
 Assert-True ([bool]$scanEvents[0].protected_items_present) "exact payload scan should preserve protected item proof"
 Assert-True ($providerEvents.Count -eq 3 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
@@ -468,7 +492,14 @@ $rolloutOnlyPath = Join-Path $rolloutOnlyArtifactDir "rollout.jsonl"
                 "counter_name:provider_request_count",
                 "counter_value:5",
                 "counter_limit:4",
+                "active_budget_source:runtime",
+                "route_mode:thin",
+                "budget_state_before:over_profile_hint",
+                "budget_state_after:over_profile_hint",
+                "budget_transition_reason:provider_request_profile_hint_exceeded",
                 "request_phase:model_sampling",
+                "logical_request_id:logical-rollout-1",
+                "attempt_seq:1",
                 "score_eligible:true",
                 "budget_induced_validation_skip:false",
                 "manual_override_used:false",
@@ -511,6 +542,7 @@ $rolloutOnlySpawn = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $rol
 Assert-True ($rolloutOnlyActiveEvents.Count -eq 1 -and [string]$rolloutOnlyActiveEvents[0].profile_name -eq "taskspace-v005-thin") "rollout-only active budget event was not extracted"
 Assert-True ($rolloutOnlyBudgetEvents.Count -eq 1 -and [string]$rolloutOnlyBudgetEvents[0].status -eq "response_completed" -and -not [bool]$rolloutOnlyBudgetEvents[0].budget_response_action_taken) "rollout-only provider budget event was not extracted as advisory-only"
 Assert-True ($rolloutOnlyQualityEvents.Count -eq 1 -and [string]$rolloutOnlyQualityEvents[0].final_classification -eq "score_eligible") "rollout-only quality impact event was not extracted as advisory-only"
+Assert-True ([string]$rolloutOnlyQualityEvents[0].budget_state_after -eq "over_profile_hint" -and [string]$rolloutOnlyQualityEvents[0].logical_request_id -eq "logical-rollout-1") "rollout-only quality impact event did not preserve full budget quality fields"
 Assert-True ([int]$rolloutOnlySummary.budget_event_count -eq 1 -and [int]$rolloutOnlySummary.budget_quality_impact_event_count -eq 1 -and [string]$rolloutOnlySummary.route_mode -eq "thin") "rollout-only budget summary did not use rollout trace events"
 Assert-True ([string]$rolloutOnlySpawn.source_status -eq "runtime" -and [int]$rolloutOnlySpawn.runtime_event_count -eq 1) "rollout-only spawn/node budget summary did not use rollout trace events"
 Assert-True ([int]$rolloutOnlyInstrumentation.budget_quality_impact_summary.blocked_by_budget_samples_count -eq 0) "returned rollout-only instrumentation should not classify profile hints as blocked_by_budget"

@@ -228,7 +228,14 @@ function New-TaskspaceBudgetArtifacts {
             counter_name = [string]$tags.counter_name
             counter_value = Convert-TaskspaceTraceInt $tags.counter_value
             counter_limit = Convert-TaskspaceTraceInt $tags.counter_limit
+            active_budget_source = [string]$tags.active_budget_source
+            route_mode = [string]$tags.route_mode
+            budget_state_before = [string]$tags.budget_state_before
+            budget_state_after = [string]$tags.budget_state_after
+            budget_transition_reason = [string]$tags.budget_transition_reason
             request_phase = [string]$tags.request_phase
+            logical_request_id = [string]$tags.logical_request_id
+            attempt_seq = Convert-TaskspaceTraceInt $tags.attempt_seq
             score_eligible = Convert-TaskspaceTraceBool $tags.score_eligible $false
             budget_induced_validation_skip = Convert-TaskspaceTraceBool $tags.budget_induced_validation_skip $false
             manual_override_used = Convert-TaskspaceTraceBool $tags.manual_override_used $false

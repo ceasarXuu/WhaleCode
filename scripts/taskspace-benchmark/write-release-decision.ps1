@@ -678,6 +678,16 @@ $derivedBlockedByBudgetCount = @($validBudgetQualityImpactEvents | Where-Object 
 $derivedManualOverrideCount = @($validBudgetQualityImpactEvents | Where-Object {
         Get-ReleaseBool $_ "manual_override_used"
     }).Count
+$forbiddenBudgetActions = @(
+    "hard_stop",
+    "node_budget_block",
+    "spawn_budget_block",
+    "provider_request_budget_exhausted",
+    "blocked_by_budget"
+)
+$derivedForbiddenBudgetActionCount = @($validBudgetQualityImpactEvents | Where-Object {
+        $forbiddenBudgetActions -contains [string]$_.budget_action
+    }).Count
 $budgetQualityImpactSummaryMatchesEvents = ($budgetQualityImpactSummary `
     -and (Get-ReleaseInt $budgetQualityImpactSummary "budget_induced_validation_skip_count" 0) -eq $derivedBudgetValidationSkipCount `
     -and (Get-ReleaseInt $budgetQualityImpactSummary "budget_induced_score_ineligible_solved_count" 0) -eq $derivedBudgetScoreIneligibleSolvedCount `
@@ -695,7 +705,8 @@ $budgetQualityImpactPass = ($budgetQualityImpactSummary `
     -and $derivedBudgetValidationSkipCount -eq 0 `
     -and $derivedBudgetScoreIneligibleSolvedCount -eq 0 `
     -and $derivedBlockedByBudgetCount -eq 0 `
-    -and $derivedManualOverrideCount -eq 0)
+    -and $derivedManualOverrideCount -eq 0 `
+    -and $derivedForbiddenBudgetActionCount -eq 0)
 $requestPhasePass = ($requestPhaseSummary `
     -and (Get-ReleaseInt $requestPhaseSummary "provider_request_hook_coverage" 0) -ge 99 `
     -and (Get-ReleaseInt $requestPhaseSummary "provider_request_terminal_coverage" 0) -ge 99 `
@@ -917,6 +928,7 @@ $summary = [pscustomobject]@{
     derived_budget_induced_score_ineligible_solved_count = [int]$derivedBudgetScoreIneligibleSolvedCount
     derived_blocked_by_budget_count = [int]$derivedBlockedByBudgetCount
     derived_manual_override_count = [int]$derivedManualOverrideCount
+    derived_forbidden_budget_action_count = [int]$derivedForbiddenBudgetActionCount
     request_phase_gate_pass = [bool]$requestPhasePass
     provider_cache_trace_gate_pass = [bool]$providerCacheTracePass
     provider_cache_trace_coverage = Get-ReleaseDouble $providerCacheTraceSummary "trace_coverage" 0.0

@@ -23,12 +23,12 @@ Required work:
 [x] Add TaskSpaceBudgetCounters
 [x] Add TaskSpaceBudgetState
 [x] Add TaskSpaceProviderRequestPhase
-[~] Add BudgetQualityImpactV1 / equivalent budget_quality_impact trace semantics
+[x] Add BudgetQualityImpactV1 / equivalent budget_quality_impact trace semantics
 [ ] Add LegacyStateActionAttemptV1 as an independent producer
 [x] Replace fixed budget constants with route-aware advisory profile
 [x] Extend provider_request_budget_snapshot
 [x] Add next_provider_request_phase
-[~] Add record_budget_quality_impact; keep as advisory quality/regression signal
+[x] Add record_budget_quality_impact; keep as advisory quality/regression signal
 [ ] Add record_legacy_state_action_attempt
 [ ] Fix state_commit_displacement denominator
 [~] Add spawn/node profile observability and subagent result review quality gates
@@ -81,7 +81,7 @@ Required work:
 ```text
 [x] Parse exact_payload_scan runtime events instead of synthesizing scan events from budget booleans
 [x] Add phase_counts and phase_token_summary
-[~] Parse BudgetQualityImpactV1 full fields
+[x] Parse BudgetQualityImpactV1 full fields
 [ ] Parse legacy_state_action_attempt events
 [~] Parse route-aware spawn/node/subagent profile fields
 [x] Fail summaries when required producer-owned evidence is missing
@@ -101,7 +101,7 @@ Required work:
 [ ] Block DeepSeek release-like claims if cache_usage_missing_count > 0
 [ ] Block DeepSeek release-like claims if native_tools_schema_hot_path_count > 0
 [ ] Block DeepSeek release-like claims if tool_free_action_contract_count == 0
-[x] Block release if BudgetQualityImpact has validation skip or score-ineligible solved
+[x] Block release if BudgetQualityImpact has validation skip, score-ineligible solved, manual override, blocked_by_budget, or forbidden budget_action
 [ ] Block release if state_commit_displacement denominator lacks legacy attempts
 [~] Block release if spawn/node profile trace has blocked budget events or unreviewed subagent results
 [x] Block release-like claims if open_leaf_nodes > 0
