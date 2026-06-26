@@ -689,6 +689,23 @@ Assert-True ($LASTEXITCODE -eq 1) "provider request coverage gap fixture did not
 $requestCoverageDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $requestCoverageDir "release-decision.json") | ConvertFrom-Json
 Assert-True (@($requestCoverageDecision.blockers) -contains "request_phase_attribution_missing") "provider request coverage gap fixture did not report request phase blocker"
 
+$stateCommitNoAttemptDir = New-FixtureRun "state-commit-displacement-no-legacy-attempt" "PASS" $true 0
+Write-Json ([pscustomobject]@{
+        status = "fail"
+        has_displacement_denominator = $false
+        legacy_state_action_attempt_count = 0
+        legacy_state_action_displaced_count = 0
+        legacy_state_action_count = 0
+        legacy_state_action_budget = 0
+        state_commit_count = 1
+        state_commit_section_count = 2
+    }) (Join-Path $stateCommitNoAttemptDir "state-commit-displacement.json")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-release-decision.ps1") -RunDir $stateCommitNoAttemptDir *> $null
+Assert-True ($LASTEXITCODE -eq 1) "state commit displacement without legacy attempts fixture did not exit 1"
+$stateCommitNoAttemptDecision = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $stateCommitNoAttemptDir "release-decision.json") | ConvertFrom-Json
+Assert-True (@($stateCommitNoAttemptDecision.blockers) -contains "state_commit_displacement_gate_failed") "state commit displacement without legacy attempts did not report blocker"
+Assert-True (-not [bool]$stateCommitNoAttemptDecision.state_commit_displacement_gate_pass) "state commit displacement without legacy attempts incorrectly passed"
+
 $qualityImpactSkipDir = New-FixtureRun "budget-quality-validation-skip" "PASS" $true 0
 Write-Json ([pscustomobject]@{
         budget_quality_impact_logged_for_every_budget_action = $true

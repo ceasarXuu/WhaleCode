@@ -643,6 +643,22 @@ function New-TaskspaceProviderCacheTraceAggregateArtifacts {
 function New-TaskspaceStateCommitDisplacementSummary {
     param([string]$ObservabilityJsonPath)
     $events = New-Object System.Collections.Generic.List[object]
+    $attemptEvents = New-Object System.Collections.Generic.List[object]
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("legacy_state_action_attempt"))) {
+        $tags = Convert-TaskspaceTraceTags $event
+        if ([string]$tags.producer -ne "runtime") { continue }
+        $attemptEvents.Add([pscustomobject]@{
+            trace_event_id = [string](Get-TaskspaceTraceField $event @("trace_event_id", "id"))
+            task_id = [string](Get-TaskspaceTraceField $event @("task_id"))
+            map_id = [string](Get-TaskspaceTraceField $event @("map_id"))
+            node_id = [string](Get-TaskspaceTraceField $event @("node_id"))
+            action = [string]$tags.action
+            displaced = Convert-TaskspaceTraceBool $tags.displaced $false
+            allowed = Convert-TaskspaceTraceBool $tags.allowed $false
+            reason = [string]$tags.reason
+            producer = [string]$tags.producer
+        })
+    }
     foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("state_commit_displacement"))) {
         $tags = Convert-TaskspaceTraceTags $event
         if ([string]$tags.producer -ne "runtime") { continue }
@@ -655,6 +671,7 @@ function New-TaskspaceStateCommitDisplacementSummary {
             status = [string]$tags.status
             accepted_section_count = Convert-TaskspaceTraceInt $tags.accepted_section_count
             rejected_section_count = Convert-TaskspaceTraceInt $tags.rejected_section_count
+            state_commit_section_count = Convert-TaskspaceTraceInt $tags.state_commit_section_count
             state_commit_count = Convert-TaskspaceTraceInt $tags.state_commit_count
             model_visible_state_commit_count = Convert-TaskspaceTraceInt $tags.model_visible_state_commit_count
             runtime_synthesized_state_commit_count = Convert-TaskspaceTraceInt $tags.runtime_synthesized_state_commit_count
@@ -665,12 +682,14 @@ function New-TaskspaceStateCommitDisplacementSummary {
             producer = [string]$tags.producer
         })
     }
-    $stateCommitCount = [int](@($events.ToArray() | Measure-Object -Property state_commit_count -Sum).Sum)
-    $modelVisibleStateCommitCount = [int](@($events.ToArray() | Measure-Object -Property model_visible_state_commit_count -Sum).Sum)
-    $runtimeSynthesizedStateCommitCount = [int](@($events.ToArray() | Measure-Object -Property runtime_synthesized_state_commit_count -Sum).Sum)
-    $legacyStateActionAttemptCount = [int](@($events.ToArray() | Measure-Object -Property legacy_state_action_attempt_count -Sum).Sum)
-    $legacyStateActionDisplacedCount = [int](@($events.ToArray() | Measure-Object -Property legacy_state_action_displaced_count -Sum).Sum)
-    $legacyStateActionCount = [int](@($events.ToArray() | Measure-Object -Property legacy_state_action_count -Sum).Sum)
+    $acceptedStateCommitEvents = @($events.ToArray() | Where-Object { [string]$_.status -eq "accepted" -or [string]$_.status -eq "partial" })
+    $stateCommitCount = [int](@($acceptedStateCommitEvents | Measure-Object -Property state_commit_count -Sum).Sum)
+    $stateCommitSectionCount = [int](@($acceptedStateCommitEvents | Measure-Object -Property state_commit_section_count -Sum).Sum)
+    $modelVisibleStateCommitCount = [int](@($acceptedStateCommitEvents | Measure-Object -Property model_visible_state_commit_count -Sum).Sum)
+    $runtimeSynthesizedStateCommitCount = [int](@($acceptedStateCommitEvents | Measure-Object -Property runtime_synthesized_state_commit_count -Sum).Sum)
+    $legacyStateActionAttemptCount = [int]$attemptEvents.Count
+    $legacyStateActionDisplacedCount = [int](@($attemptEvents.ToArray() | Where-Object { [bool]$_.displaced }).Count)
+    $legacyStateActionCount = [int](@($attemptEvents.ToArray() | Where-Object { [bool]$_.allowed }).Count)
     $legacyStateActionBudget = if ($events.Count -gt 0) { [int](@($events.ToArray() | Measure-Object -Property legacy_state_action_budget -Maximum).Maximum) } else { 0 }
     $sourceStatus = if ($events.Count -gt 0) { "runtime" } else { "missing_runtime" }
     $hasDisplacementDenominator = $legacyStateActionAttemptCount -gt 0
@@ -693,10 +712,13 @@ function New-TaskspaceStateCommitDisplacementSummary {
         legacy_state_action_count = [int]$legacyStateActionCount
         legacy_state_action_budget = [int]$legacyStateActionBudget
         state_commit_count = [int]$stateCommitCount
+        state_commit_section_count = [int]$stateCommitSectionCount
         runtime_state_commit_count = [int]$stateCommitCount
         taskspace_control_count = [int]$stateCommitCount
         runtime_event_count = [int]$events.Count
         runtime_events = @($events.ToArray())
+        legacy_state_action_attempt_event_count = [int]$attemptEvents.Count
+        legacy_state_action_attempt_events = @($attemptEvents.ToArray())
     }
 }
 

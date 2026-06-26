@@ -1794,6 +1794,31 @@ impl Session {
         Ok(outcome)
     }
 
+    pub(crate) async fn record_action_map_legacy_state_action_attempt(
+        &self,
+        turn_context: &TurnContext,
+        action: &str,
+        displaced: bool,
+        allowed: bool,
+        reason: &str,
+    ) -> Result<(), String> {
+        let events = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .record_legacy_state_action_attempt_for_main(
+                    self.conversation_id,
+                    action,
+                    displaced,
+                    allowed,
+                    reason,
+                )
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(())
+    }
+
     pub(crate) async fn mark_action_map_result_validity(
         &self,
         turn_context: &TurnContext,

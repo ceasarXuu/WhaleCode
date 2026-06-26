@@ -287,6 +287,42 @@ $obs = [pscustomobject]@{
             )
         },
         [pscustomobject]@{
+            kind = "legacy_state_action_attempt"
+            trace_event_id = "trace-legacy-attempt-1"
+            task_id = "task-1"
+            map_id = "map-1"
+            node_id = "node-1"
+            call_id = "record_fact"
+            tags = @(
+                "schema:taskspace-legacy-state-action-attempt-v1",
+                "producer:runtime",
+                "action:record_fact",
+                "displaced:true",
+                "allowed:false",
+                "reason:active_profile_requires_state_commit",
+                "active_budget_source:runtime",
+                "budget_response_action_taken:false"
+            )
+        },
+        [pscustomobject]@{
+            kind = "legacy_state_action_attempt"
+            trace_event_id = "trace-legacy-attempt-2"
+            task_id = "task-1"
+            map_id = "map-1"
+            node_id = "node-1"
+            call_id = "record_decision"
+            tags = @(
+                "schema:taskspace-legacy-state-action-attempt-v1",
+                "producer:runtime",
+                "action:record_decision",
+                "displaced:true",
+                "allowed:false",
+                "reason:active_profile_requires_state_commit",
+                "active_budget_source:runtime",
+                "budget_response_action_taken:false"
+            )
+        },
+        [pscustomobject]@{
             kind = "state_commit_displacement"
             trace_event_id = "trace-state-commit-1"
             task_id = "task-1"
@@ -300,11 +336,12 @@ $obs = [pscustomobject]@{
                 "commit_id:commit-1",
                 "accepted_section_count:2",
                 "rejected_section_count:0",
+                "state_commit_section_count:2",
                 "state_commit_count:1",
                 "model_visible_state_commit_count:1",
                 "runtime_synthesized_state_commit_count:0",
-                "legacy_state_action_attempt_count:2",
-                "legacy_state_action_displaced_count:2",
+                "legacy_state_action_attempt_count:0",
+                "legacy_state_action_displaced_count:0",
                 "legacy_state_action_count:0",
                 "active_budget_source:runtime",
                 "legacy_state_action_budget:0",
@@ -407,6 +444,7 @@ Assert-True ([int]$phaseSummary.phase_counts.model_sampling -eq 1 -and [int]$pha
 Assert-True ([bool]$phaseSummary.phase_diversity_gate_pass -and [int]$phaseSummary.non_model_sampling_distinct_phase_count -eq 2) "request phase summary did not enforce non-model phase diversity"
 Assert-True ([int64]$phaseSummary.phase_token_summary.state_commit.input_tokens -eq 7 -and [int64]$phaseSummary.phase_token_summary.validation_recovery.cached_input_tokens -eq 1) "request phase summary did not expose phase token totals"
 Assert-True ([string]$stateCommit.status -eq "pass" -and [string]$stateCommit.source_status -eq "runtime" -and [int]$stateCommit.runtime_event_count -eq 1 -and [bool]$stateCommit.has_displacement_denominator -and [int]$stateCommit.legacy_state_action_attempt_count -eq 2) "state commit displacement summary should pass with runtime denominator evidence"
+Assert-True ([int]$stateCommit.legacy_state_action_attempt_event_count -eq 2 -and [int]$stateCommit.state_commit_section_count -eq 2) "state commit displacement should report legacy attempts separately from state_commit sections"
 Assert-True ([string]$spawnBudget.status -eq "pass" -and [string]$spawnBudget.source_status -eq "runtime" -and [int]$spawnBudget.runtime_event_count -eq 2) "spawn/node budget should pass with runtime producer evidence"
 Assert-True ([string]$spawnBudget.active_budget_source -eq "runtime" -and [string]$spawnBudget.route_mode -eq "thin" -and [int]$spawnBudget.max_nodes -eq 4) "spawn/node budget summary did not preserve active budget route fields"
 Assert-True ([string]$spawnBudget.within_budget_status -eq "over_profile_hint" -and [string]$spawnBudget.over_budget_enforcement_status -eq "advisory_only" -and [bool]$spawnBudget.over_profile_hint -and [int]$spawnBudget.blocked_budget_event_count -eq 0) "spawn/node budget should report over-profile hints without enforcing a hard budget"

@@ -450,7 +450,18 @@ impl ToolHandler for TaskSpaceControlHandler {
         };
         let normalized_arguments = normalize_taskspace_arguments(&arguments)?;
         let args: TaskSpaceControlArgs = parse_arguments(&normalized_arguments)?;
-        reject_legacy_state_action_for_active_profile(&args)?;
+        if let Some(action) = legacy_state_action_name(&args) {
+            let _ = session
+                .record_action_map_legacy_state_action_attempt(
+                    &turn,
+                    action,
+                    true,
+                    false,
+                    "active_profile_requires_state_commit",
+                )
+                .await;
+            return Err(legacy_state_action_rejection(action));
+        }
         let message = match args {
             TaskSpaceControlArgs::StartTask {
                 task_title,
@@ -937,25 +948,36 @@ impl ToolHandler for TaskSpaceControlHandler {
     }
 }
 
+fn legacy_state_action_name(args: &TaskSpaceControlArgs) -> Option<&'static str> {
+    match args {
+        TaskSpaceControlArgs::RecordOutputContract { .. } => Some("record_output_contract"),
+        TaskSpaceControlArgs::RecordFactSource { .. } => Some("record_fact_source"),
+        TaskSpaceControlArgs::RecordFact { .. } => Some("record_fact"),
+        TaskSpaceControlArgs::RecordSuccessCriteria { .. } => Some("record_success_criteria"),
+        TaskSpaceControlArgs::RecordOpenQuestion { .. } => Some("record_open_question"),
+        TaskSpaceControlArgs::CloseOpenQuestion { .. } => Some("close_open_question"),
+        TaskSpaceControlArgs::RecordDecision { .. } => Some("record_decision"),
+        TaskSpaceControlArgs::RecordNextBestAction { .. } => Some("record_next_best_action"),
+        TaskSpaceControlArgs::MarkResultValidity { .. } => Some("mark_result_validity"),
+        TaskSpaceControlArgs::AdoptResult { .. } => Some("adopt_result"),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
 fn reject_legacy_state_action_for_active_profile(
     args: &TaskSpaceControlArgs,
 ) -> Result<(), FunctionCallError> {
-    let action = match args {
-        TaskSpaceControlArgs::RecordOutputContract { .. } => "record_output_contract",
-        TaskSpaceControlArgs::RecordFactSource { .. } => "record_fact_source",
-        TaskSpaceControlArgs::RecordFact { .. } => "record_fact",
-        TaskSpaceControlArgs::RecordSuccessCriteria { .. } => "record_success_criteria",
-        TaskSpaceControlArgs::RecordOpenQuestion { .. } => "record_open_question",
-        TaskSpaceControlArgs::CloseOpenQuestion { .. } => "close_open_question",
-        TaskSpaceControlArgs::RecordDecision { .. } => "record_decision",
-        TaskSpaceControlArgs::RecordNextBestAction { .. } => "record_next_best_action",
-        TaskSpaceControlArgs::MarkResultValidity { .. } => "mark_result_validity",
-        TaskSpaceControlArgs::AdoptResult { .. } => "adopt_result",
-        _ => return Ok(()),
+    let Some(action) = legacy_state_action_name(args) else {
+        return Ok(());
     };
-    Err(FunctionCallError::RespondToModel(format!(
+    Err(legacy_state_action_rejection(action))
+}
+
+fn legacy_state_action_rejection(action: &str) -> FunctionCallError {
+    FunctionCallError::RespondToModel(format!(
         "TaskSpace active profile blocks legacy state action `{action}`. Use taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) to batch state changes; start_task initial_* fields remain allowed for new-task setup."
-    )))
+    ))
 }
 
 fn parse_output_slice_mode(

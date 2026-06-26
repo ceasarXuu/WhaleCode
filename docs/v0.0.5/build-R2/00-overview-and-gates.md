@@ -156,7 +156,7 @@ The alpha branch now has these implementation states:
 | TaskSpace action contract ABI | `taskspace-action-v1` lifecycle controls are canonicalized before native `taskspace_control`; benchmark usage splits native vs action-contract controls | Needs post-ABI B-tier business validation |
 | Active context replacement / payload scan | Provider request events carry payload hash and scan booleans; `exact_payload_scan` runtime trace is emitted with producer `provider_payload_scanner`; release fixtures require request_id/hash join | Needs post-ABI B-tier evidence on a real run, but the Phase C producer-owned gate is implemented locally |
 | Budget quality impact | Advisory-only profile semantics are reflected in budget quality summaries | Still depends on Phase E/G artifacts for release-like closeout |
-| `state_commit` displacement | `state_commit_displacement` runtime trace exists | Phase E is not complete: denominator still comes from accepted/rejected state_commit sections, not independent legacy action attempts |
+| `state_commit` displacement | `legacy_state_action_attempt` and `state_commit_displacement` runtime traces exist | Phase G still must package this as canonical non-agent evidence |
 | Spawn/node profile and subagent quality | Spawn/node profile traces are advisory; runtime enforces subagent plan and unreviewed-result gates | Artifact/release summary for unreviewed subagent result quality remains incomplete |
 | Release/start gates | Release decision and E3 start gate know v0.0.5 markers | `build-v005-non-agent-gates.ps1` / canonical `v005-non-agent-gates.json` builder is missing |
 
@@ -169,7 +169,7 @@ Phase A  Done: advisory active complexity profile and profile-hint observability
 Phase B  Done with caveats: request phase attribution and context propagation
 Phase C  Done locally: exact provider payload scan proof with producer-owned scan event and release fixtures
 Phase D  Done for scope: advisory profile quality impact, full-field artifacts, and hard-stop regression detection
-Phase E  Blocker: legacy state action displacement denominator still needs real attempt events
+Phase E  Done for scope: legacy state action displacement denominator now uses real attempt events
 Phase F  Partial: runtime subagent quality gates exist; artifact/release summary remains pending
 Phase G  Blocker: canonical non-agent gate builder and evidence bundle still missing
 Phase H  Blocked: targeted diagnostic and formal E3 readiness wait for E/G and post-ABI B smoke

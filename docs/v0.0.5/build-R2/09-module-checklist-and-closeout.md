@@ -24,13 +24,13 @@ Required work:
 [x] Add TaskSpaceBudgetState
 [x] Add TaskSpaceProviderRequestPhase
 [x] Add BudgetQualityImpactV1 / equivalent budget_quality_impact trace semantics
-[ ] Add LegacyStateActionAttemptV1 as an independent producer
+[x] Add LegacyStateActionAttemptV1 as an independent producer
 [x] Replace fixed budget constants with route-aware advisory profile
 [x] Extend provider_request_budget_snapshot
 [x] Add next_provider_request_phase
 [x] Add record_budget_quality_impact; keep as advisory quality/regression signal
-[ ] Add record_legacy_state_action_attempt
-[ ] Fix state_commit_displacement denominator
+[x] Add record_legacy_state_action_attempt
+[x] Fix state_commit_displacement denominator
 [~] Add spawn/node profile observability and subagent result review quality gates
 ```
 
@@ -67,7 +67,7 @@ Required work:
 Required work:
 
 ```text
-[ ] Replace pure legacy reject with runtime-recorded legacy attempt
+[x] Replace pure legacy reject with runtime-recorded legacy attempt
 [x] Set next provider phase after state_commit
 [x] Set next provider phase after record_subagent_plan
 [~] Ensure state_commit errors still produce displacement/rejection evidence
@@ -82,7 +82,7 @@ Required work:
 [x] Parse exact_payload_scan runtime events instead of synthesizing scan events from budget booleans
 [x] Add phase_counts and phase_token_summary
 [x] Parse BudgetQualityImpactV1 full fields
-[ ] Parse legacy_state_action_attempt events
+[x] Parse legacy_state_action_attempt events
 [~] Parse route-aware spawn/node/subagent profile fields
 [x] Fail summaries when required producer-owned evidence is missing
 [x] Split taskspace_control usage into native and action-contract lifecycle counts
@@ -102,7 +102,7 @@ Required work:
 [ ] Block DeepSeek release-like claims if native_tools_schema_hot_path_count > 0
 [ ] Block DeepSeek release-like claims if tool_free_action_contract_count == 0
 [x] Block release if BudgetQualityImpact has validation skip, score-ineligible solved, manual override, blocked_by_budget, or forbidden budget_action
-[ ] Block release if state_commit_displacement denominator lacks legacy attempts
+[x] Block release if state_commit_displacement denominator lacks legacy attempts
 [~] Block release if spawn/node profile trace has blocked budget events or unreviewed subagent results
 [x] Block release-like claims if open_leaf_nodes > 0
 [x] Require runtime bottleneck evidence when agent_walltime_ratio exceeds the configured threshold

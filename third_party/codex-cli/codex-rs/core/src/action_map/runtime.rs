@@ -660,6 +660,18 @@ pub(crate) struct TaskSpaceBudgetCounters {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LegacyStateActionAttemptV1 {
+    pub(crate) action: String,
+    pub(crate) task_id: Option<String>,
+    pub(crate) map_id: Option<String>,
+    pub(crate) node_id: Option<String>,
+    pub(crate) displaced: bool,
+    pub(crate) allowed: bool,
+    pub(crate) reason: String,
+    pub(crate) created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TaskSpaceBudgetViolation {
     pub(crate) violation_id: String,
     pub(crate) counter_name: String,
@@ -779,6 +791,7 @@ pub(crate) struct ActionMapRuntimeState {
     provider_request_count: usize,
     active_budget: Option<TaskSpaceActiveBudgetV1>,
     budget_counters: TaskSpaceBudgetCounters,
+    legacy_state_action_attempts: Vec<LegacyStateActionAttemptV1>,
     budget_state: TaskSpaceBudgetState,
     budget_violations: Vec<TaskSpaceBudgetViolation>,
     sentinel_warnings: Vec<TaskSpaceSentinelWarning>,
@@ -906,6 +919,7 @@ impl Default for ActionMapRuntimeState {
             provider_request_count: 0,
             active_budget: None,
             budget_counters: TaskSpaceBudgetCounters::default(),
+            legacy_state_action_attempts: Vec::new(),
             budget_state: TaskSpaceBudgetState::Normal,
             budget_violations: Vec::new(),
             sentinel_warnings: Vec::new(),
@@ -1034,6 +1048,66 @@ impl ActionMapRuntimeState {
     #[allow(dead_code)]
     pub(crate) fn budget_counters(&self) -> &TaskSpaceBudgetCounters {
         &self.budget_counters
+    }
+
+    pub(crate) fn record_legacy_state_action_attempt_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        action: &str,
+        displaced: bool,
+        allowed: bool,
+        reason: &str,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(Vec::new());
+        }
+        let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        let node_id = self
+            .current_main_node_id
+            .clone()
+            .or_else(|| {
+                self.maps
+                    .get(&map_id)
+                    .and_then(|map| ordered_node_ids(map).into_iter().next())
+            })
+            .unwrap_or_else(|| "legacy-state-action".to_string());
+        let created_at_ms = now_ms();
+        let attempt = LegacyStateActionAttemptV1 {
+            action: action.to_string(),
+            task_id: Some(task_id.clone()),
+            map_id: Some(map_id.clone()),
+            node_id: Some(node_id.clone()),
+            displaced,
+            allowed,
+            reason: reason.to_string(),
+            created_at_ms,
+        };
+        self.budget_counters.legacy_state_action_attempt_count += 1;
+        if displaced {
+            self.budget_counters.legacy_state_action_displaced_count += 1;
+        }
+        if allowed {
+            self.budget_counters.legacy_state_action_allowed_count += 1;
+        }
+        self.legacy_state_action_attempts.push(attempt);
+        Ok(vec![self.record_runtime_budget_trace_event(
+            "legacy_state_action_attempt",
+            Some(task_id),
+            map_id,
+            node_id,
+            Some(action.to_string()),
+            !displaced || allowed,
+            vec![
+                "schema:taskspace-legacy-state-action-attempt-v1".to_string(),
+                "producer:runtime".to_string(),
+                format!("action:{action}"),
+                format!("displaced:{displaced}"),
+                format!("allowed:{allowed}"),
+                format!("reason:{reason}"),
+                "active_budget_source:runtime".to_string(),
+                "budget_response_action_taken:false".to_string(),
+            ],
+        )])
     }
 
     #[allow(dead_code)]
@@ -1219,16 +1293,16 @@ impl ActionMapRuntimeState {
                     }
                     _ => {}
                 },
+                "legacy_state_action_attempt" => {
+                    counters.legacy_state_action_attempt_count += 1;
+                    if trace_tag_bool(&event.tags, "displaced").unwrap_or(false) {
+                        counters.legacy_state_action_displaced_count += 1;
+                    }
+                    if trace_tag_bool(&event.tags, "allowed").unwrap_or(false) {
+                        counters.legacy_state_action_allowed_count += 1;
+                    }
+                }
                 "state_commit_displacement" => {
-                    counters.legacy_state_action_attempt_count +=
-                        trace_tag_usize(&event.tags, "legacy_state_action_attempt_count")
-                            .unwrap_or_default();
-                    counters.legacy_state_action_displaced_count +=
-                        trace_tag_usize(&event.tags, "legacy_state_action_displaced_count")
-                            .unwrap_or_default();
-                    counters.legacy_state_action_allowed_count +=
-                        trace_tag_usize(&event.tags, "legacy_state_action_count")
-                            .unwrap_or_default();
                     counters.state_commit_count +=
                         trace_tag_usize(&event.tags, "state_commit_count").unwrap_or_default();
                 }
@@ -5102,9 +5176,13 @@ preview:\n\
                 record_id: commit_id.clone(),
             },
         ));
-        let legacy_state_action_attempt_count =
+        let state_commit_section_count =
             outcome.accepted_sections.len() + outcome.rejected_sections.len();
-        let legacy_state_action_displaced_count = outcome.accepted_sections.len();
+        let legacy_state_action_attempt_count =
+            self.budget_counters.legacy_state_action_attempt_count;
+        let legacy_state_action_displaced_count =
+            self.budget_counters.legacy_state_action_displaced_count;
+        let legacy_state_action_count = self.budget_counters.legacy_state_action_allowed_count;
         let legacy_state_action_budget = self
             .active_budget
             .as_ref()
@@ -5116,9 +5194,6 @@ preview:\n\
                 )
                 .max_legacy_state_actions
             });
-        self.budget_counters.legacy_state_action_attempt_count += legacy_state_action_attempt_count;
-        self.budget_counters.legacy_state_action_displaced_count +=
-            legacy_state_action_displaced_count;
         self.budget_counters.state_commit_count += 1;
         let trace_node_id = self
             .current_main_node_id
@@ -5143,6 +5218,7 @@ preview:\n\
                 format!("commit_id:{}", outcome.commit_id),
                 format!("accepted_section_count:{}", outcome.accepted_sections.len()),
                 format!("rejected_section_count:{}", outcome.rejected_sections.len()),
+                format!("state_commit_section_count:{state_commit_section_count}"),
                 "state_commit_count:1".to_string(),
                 "model_visible_state_commit_count:1".to_string(),
                 "runtime_synthesized_state_commit_count:0".to_string(),
@@ -5150,7 +5226,7 @@ preview:\n\
                 format!(
                     "legacy_state_action_displaced_count:{legacy_state_action_displaced_count}"
                 ),
-                "legacy_state_action_count:0".to_string(),
+                format!("legacy_state_action_count:{legacy_state_action_count}"),
                 "active_budget_source:runtime".to_string(),
                 format!("legacy_state_action_budget:{legacy_state_action_budget}"),
                 "budget_response_action_taken:false".to_string(),
@@ -10561,6 +10637,10 @@ fn trace_tag_usize(tags: &[String], key: &str) -> Option<usize> {
     trace_tag_value(tags, key).and_then(|value| value.parse::<usize>().ok())
 }
 
+fn trace_tag_bool(tags: &[String], key: &str) -> Option<bool> {
+    trace_tag_value(tags, key).and_then(|value| value.parse::<bool>().ok())
+}
+
 fn map_runtime_event_from_trace_event(event: TaskSpaceTraceEvent) -> MapRuntimeEvent {
     MapRuntimeEvent::TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent {
         trace_event_id: event.id,
@@ -10666,7 +10746,11 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("budget_state:")
         || tag.starts_with("budget_gate_reason:")
         || tag.starts_with("legacy_state_action_")
+        || tag.starts_with("displaced:")
+        || tag.starts_with("allowed:")
+        || tag.starts_with("reason:")
         || tag.starts_with("state_commit_count:")
+        || tag.starts_with("state_commit_section_count:")
         || tag.starts_with("projection_tokens")
         || tag.starts_with("max_projection_tokens:")
 }
@@ -13292,7 +13376,7 @@ mod tests {
     }
 
     #[test]
-    fn state_commit_records_runtime_displacement_trace() {
+    fn state_commit_sections_do_not_increment_legacy_attempt_count() {
         let owner = ThreadId::new();
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -13330,6 +13414,84 @@ mod tests {
                 if event.kind == "state_commit_displacement"
                     && event.call_id.as_deref() == Some("commit-runtime-trace")
                     && event.tags.iter().any(|tag| tag == "producer:runtime")
+                    && event
+                        .tags
+                        .iter()
+                        .any(|tag| tag == "state_commit_section_count:1")
+                    && event
+                        .tags
+                        .iter()
+                        .any(|tag| tag == "legacy_state_action_attempt_count:0")
+                    && event
+                        .tags
+                        .iter()
+                        .any(|tag| tag == "legacy_state_action_displaced_count:0")
+                    && event.tags.iter().any(|tag| tag == "legacy_state_action_count:0")
+        )));
+    }
+
+    #[test]
+    fn state_commit_displacement_denominator_uses_legacy_attempts_not_sections() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_unseeded_test_task(
+            &mut state,
+            owner,
+            "Track state",
+            "Record state through state_commit",
+            true,
+        );
+
+        let attempt_events = state
+            .record_legacy_state_action_attempt_for_main(
+                owner,
+                "record_fact",
+                true,
+                false,
+                "active_profile_requires_state_commit",
+            )
+            .expect("legacy attempt records");
+        assert!(attempt_events.iter().any(|event| matches!(
+            event,
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                if event.kind == "legacy_state_action_attempt"
+                    && event.call_id.as_deref() == Some("record_fact")
+                    && event.tags.iter().any(|tag| tag == "displaced:true")
+                    && event.tags.iter().any(|tag| tag == "allowed:false")
+        )));
+
+        let (_outcome, events) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-runtime-trace".to_string(),
+                    success_criteria: vec![ActionMapSuccessCriterionInput {
+                        id: "sc-runtime-trace".to_string(),
+                        kind: "test".to_string(),
+                        description: "runtime trace exists".to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("test-fixture:trace".to_string()),
+                            ..Default::default()
+                        }],
+                    }],
+                    output_contracts: vec![ActionMapStateCommitOutputContractInput {
+                        id: "contract-runtime-trace".to_string(),
+                        kind: "artifact".to_string(),
+                        description: "runtime trace artifact".to_string(),
+                        evidence_refs: Vec::new(),
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect("state commit records runtime trace");
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                if event.kind == "state_commit_displacement"
+                    && event.tags.iter().any(|tag| tag == "state_commit_section_count:2")
                     && event
                         .tags
                         .iter()
