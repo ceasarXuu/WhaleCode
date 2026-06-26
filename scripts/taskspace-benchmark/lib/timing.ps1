@@ -146,6 +146,12 @@ function Get-TaskspaceTimingIntValue {
     $null
 }
 
+function Get-TaskspaceTimingFieldValue {
+    param($Object, [string]$Name)
+    if ($null -eq $Object -or -not ($Object.PSObject.Properties.Name -contains $Name)) { return $null }
+    $Object.$Name
+}
+
 function Get-TaskspaceModelTimingSourcePath {
     param(
         [string]$ArtifactDir,
@@ -164,6 +170,7 @@ function Get-TaskspaceModelTimingAttribution {
     $eventCount = 0
     $providerRequestMs = [int64]0
     $providerEventCount = 0
+    $providerRequests = @{}
     $parseErrors = 0
     if ([string]::IsNullOrWhiteSpace($JsonlPath) -or -not (Test-Path -LiteralPath $JsonlPath)) {
         return [pscustomobject]@{
@@ -186,6 +193,32 @@ function Get-TaskspaceModelTimingAttribution {
             $tags = Convert-TaskspaceTimingTraceTags $payload.tags
             $status = [string]$tags.status
             $producer = [string]$tags.producer
+            $callId = [string](Get-TaskspaceTimingFieldValue $payload "callId")
+            if ([string]::IsNullOrWhiteSpace($callId)) { $callId = [string]$tags.request_id }
+            if ($producer -eq "provider_lifecycle" -and -not [string]::IsNullOrWhiteSpace($callId)) {
+                if (-not $providerRequests.ContainsKey($callId)) {
+                    $providerRequests[$callId] = [pscustomobject]@{
+                        request_id = $callId
+                        logical_request_id = [string]$tags.logical_request_id
+                        attempt_seq = Get-TaskspaceTimingIntValue $tags @("attempt_seq")
+                        started_at_ms = $null
+                        stream_opened_at_ms = $null
+                        terminal_at_ms = $null
+                    }
+                }
+                $requestState = $providerRequests[$callId]
+                $startedAtMs = Get-TaskspaceTimingIntValue $tags @("started_at_ms")
+                if ($null -ne $startedAtMs) { $requestState.started_at_ms = [int64]$startedAtMs }
+                $createdAtMs = Get-TaskspaceTimingIntValue $payload @("createdAtMs")
+                if ($status -eq "stream_opened" -and $null -ne $createdAtMs) {
+                    $requestState.stream_opened_at_ms = [int64]$createdAtMs
+                }
+                if (@("response_completed", "response_failed", "cancelled", "failed") -contains $status) {
+                    $terminalAtMs = Get-TaskspaceTimingIntValue $tags @("completed_at_ms")
+                    if ($null -eq $terminalAtMs) { $terminalAtMs = $createdAtMs }
+                    if ($null -ne $terminalAtMs) { $requestState.terminal_at_ms = [int64]$terminalAtMs }
+                }
+            }
             if (
                 $producer -eq "provider_lifecycle" -and
                 @("response_completed", "response_failed", "cancelled") -contains $status
@@ -209,11 +242,32 @@ function Get-TaskspaceModelTimingAttribution {
         $engine = if ($timingMetrics.PSObject.Properties.Name -contains "engine_service_total_ms") { [int64]$timingMetrics.engine_service_total_ms } else { 0 }
         $requestMs += ($overhead + $engine)
     }
+    $providerQueueWaitMs = [int64]0
+    $providerQueueObserved = $false
+    foreach ($requestState in @($providerRequests.Values)) {
+        if ($null -ne $requestState.started_at_ms -and $null -ne $requestState.stream_opened_at_ms) {
+            $providerQueueWaitMs += [Math]::Max([int64]0, [int64]$requestState.stream_opened_at_ms - [int64]$requestState.started_at_ms)
+            $providerQueueObserved = $true
+        }
+    }
+    $providerRetryBackoffMs = [int64]0
+    $providerRetryObserved = ($providerRequests.Count -gt 0)
+    $logicalGroups = @($providerRequests.Values | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.logical_request_id) -and $null -ne $_.attempt_seq } | Group-Object -Property logical_request_id)
+    foreach ($group in $logicalGroups) {
+        $attempts = @($group.Group | Sort-Object -Property attempt_seq)
+        for ($i = 1; $i -lt $attempts.Count; $i++) {
+            $previous = $attempts[$i - 1]
+            $current = $attempts[$i]
+            if ($null -ne $previous.terminal_at_ms -and $null -ne $current.started_at_ms) {
+                $providerRetryBackoffMs += [Math]::Max([int64]0, [int64]$current.started_at_ms - [int64]$previous.terminal_at_ms)
+            }
+        }
+    }
     if ($providerEventCount -gt 0) {
         return [pscustomobject]@{
             model_request_duration_ms = $providerRequestMs
-            model_queue_wait_ms = $null
-            model_retry_backoff_ms = $null
+            model_queue_wait_ms = if ($providerQueueObserved) { $providerQueueWaitMs } else { $null }
+            model_retry_backoff_ms = if ($providerRetryObserved) { $providerRetryBackoffMs } else { $null }
             model_timing_event_count = $providerEventCount
             model_timing_source_status = "provider_lifecycle_timing"
             model_timing_source_path = $JsonlPath
@@ -223,7 +277,7 @@ function Get-TaskspaceModelTimingAttribution {
     [pscustomobject]@{
         model_request_duration_ms = if ($eventCount -gt 0) { $requestMs } else { $null }
         model_queue_wait_ms = $null
-        model_retry_backoff_ms = $null
+        model_retry_backoff_ms = if ($eventCount -gt 0) { [int64]0 } else { $null }
         model_timing_event_count = $eventCount
         model_timing_source_status = if ($eventCount -gt 0) { "responsesapi_websocket_timing" } elseif ($parseErrors -gt 0) { "jsonl_without_timing_with_parse_errors" } else { "jsonl_without_timing" }
         model_timing_source_path = $JsonlPath
@@ -346,12 +400,14 @@ function Write-TaskspacePairTiming {
     foreach ($span in @($spans | Where-Object { [string]$_.phase -eq "public_validation" })) { $validationMs += [int64]$span.duration_ms }
     $oracleMs = 0
     foreach ($span in @($spans | Where-Object { [string]$_.phase -eq "hidden_oracle" })) { $oracleMs += [int64]$span.duration_ms }
-    $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0; $processLaunchWaitMs = 0; $processLaunchWaitObserved = $false; $modelRequestMs = 0; $modelRequestObserved = $false; $cacheLockWaitMs = 0; $cacheLockWaitObserved = $false
+    $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0; $processLaunchWaitMs = 0; $processLaunchWaitObserved = $false; $modelRequestMs = 0; $modelRequestObserved = $false; $modelQueueWaitMs = 0; $modelQueueWaitObserved = $false; $modelRetryBackoffMs = 0; $modelRetryBackoffObserved = $false; $cacheLockWaitMs = 0; $cacheLockWaitObserved = $false
     $dockerCacheKeys = New-Object System.Collections.Generic.List[string]
     $metricValues = if ($MetricsBySide) { @($MetricsBySide.Values) } else { @() }
     foreach ($metrics in $metricValues) {
         if ($metrics.PSObject.Properties.Name -contains "process_launch_wait_ms" -and $null -ne $metrics.process_launch_wait_ms) { $processLaunchWaitMs += [int64]$metrics.process_launch_wait_ms; $processLaunchWaitObserved = $true }
         if ($metrics.PSObject.Properties.Name -contains "model_request_duration_ms" -and $null -ne $metrics.model_request_duration_ms) { $modelRequestMs += [int64]$metrics.model_request_duration_ms; $modelRequestObserved = $true }
+        if ($metrics.PSObject.Properties.Name -contains "model_queue_wait_ms" -and $null -ne $metrics.model_queue_wait_ms) { $modelQueueWaitMs += [int64]$metrics.model_queue_wait_ms; $modelQueueWaitObserved = $true }
+        if ($metrics.PSObject.Properties.Name -contains "model_retry_backoff_ms" -and $null -ne $metrics.model_retry_backoff_ms) { $modelRetryBackoffMs += [int64]$metrics.model_retry_backoff_ms; $modelRetryBackoffObserved = $true }
         if ($metrics.PSObject.Properties.Name -contains "docker_cache_lock_wait_ms" -and $null -ne $metrics.docker_cache_lock_wait_ms) { $cacheLockWaitMs += [int64]$metrics.docker_cache_lock_wait_ms; $cacheLockWaitObserved = $true }
         if ($metrics.PSObject.Properties.Name -contains "docker_build_duration_ms") { $dockerBuildMs += [int64]$metrics.docker_build_duration_ms }
         if ($metrics.PSObject.Properties.Name -contains "docker_run_duration_ms") { $dockerRunMs += [int64]$metrics.docker_run_duration_ms }
@@ -367,15 +423,15 @@ function Write-TaskspacePairTiming {
         }
     }
     $totalDurationMs = [int64](($PairFinishedAt - $PairStartedAt).TotalMilliseconds)
-    $breakdown = New-TaskspaceTimingBreakdown $totalDurationMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $EngineeringUncleanReasons
+    $breakdown = New-TaskspaceTimingBreakdown $totalDurationMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs $modelQueueWaitMs $EngineeringUncleanReasons
     $resourceWait = New-TaskspaceSerialResourceWaitAttribution
-    $unavailableWaitFields = @("model_queue_wait_ms", "model_retry_backoff_ms")
-    $unavailableWaitReasons = New-TaskspaceUnavailableWaitAttribution $unavailableWaitFields "whale_jsonl_provider_queue_retry_telemetry_unavailable"
     $waitMissingFields = @(Get-TaskspaceRequiredWaitTimingFields | Where-Object {
+            ([string]$_ -eq "model_queue_wait_ms" -and $modelQueueWaitObserved -eq $false) -or
+            ([string]$_ -eq "model_retry_backoff_ms" -and $modelRetryBackoffObserved -eq $false) -or
             ([string]$_ -eq "process_launch_wait_ms" -and $processLaunchWaitObserved -eq $false) -or
             ([string]$_ -eq "model_request_duration_ms" -and $modelRequestObserved -eq $false)
         })
-    $waitBlockers = @(@($waitMissingFields | ForEach-Object { "missing_wait_attribution:$_" }) + @($unavailableWaitFields | ForEach-Object { "unavailable_wait_attribution:$_" }))
+    $waitBlockers = @($waitMissingFields | ForEach-Object { "missing_wait_attribution:$_" })
     $artifact = [ordered]@{
         schema_version = 1
         scenario = if ($Manifest -and $Manifest.PSObject.Properties.Name -contains "Id") { [string]$Manifest.Id } else { "" }
@@ -393,8 +449,8 @@ function Write-TaskspacePairTiming {
         docker_build_duration_ms = $dockerBuildMs
         docker_run_duration_ms = $dockerRunMs
         docker_cleanup_duration_ms = $dockerCleanupMs
-        model_queue_wait_ms = $null
-        model_retry_backoff_ms = $null
+        model_queue_wait_ms = if ($modelQueueWaitObserved) { $modelQueueWaitMs } else { $null }
+        model_retry_backoff_ms = if ($modelRetryBackoffObserved) { $modelRetryBackoffMs } else { $null }
         model_request_duration_ms = if ($modelRequestObserved) { $modelRequestMs } else { $null }
         process_launch_wait_ms = if ($processLaunchWaitObserved) { $processLaunchWaitMs } else { $null }
         docker_token_wait_ms = [int64]$resourceWait.docker_token_wait_ms
@@ -405,7 +461,7 @@ function Write-TaskspacePairTiming {
         resource_wait_attribution_mode = if ($cacheLockWaitObserved) { "serial_with_cache_lock_observed" } else { [string]$resourceWait.resource_wait_attribution_mode }
         wait_attribution_status = if ($waitBlockers.Count -gt 0) { "missing" } else { "complete" }
         wait_attribution_missing_fields = @($waitMissingFields)
-        wait_attribution_unavailable_fields = $unavailableWaitReasons
+        wait_attribution_unavailable_fields = [pscustomobject]@{}
         docker_cache_keys = @($dockerCacheKeys.ToArray() | Sort-Object -Unique)
         measured_overhead_ms = $totalDurationMs - $agentMs
         timing_breakdown = $breakdown
@@ -498,7 +554,7 @@ function Write-TaskspaceSampleTiming {
     foreach ($file in $pairTimingFiles) {
         try { $pairs += (Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json) } catch { $parseErrors.Add($file.FullName) }
     }
-    $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0; $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0; $processLaunchWaitMs = 0; $processLaunchWaitObserved = $false; $modelRequestMs = 0; $modelRequestObserved = $false; $cacheLockWaitMs = 0; $cacheLockWaitObserved = $false
+    $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0; $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0; $processLaunchWaitMs = 0; $processLaunchWaitObserved = $false; $modelRequestMs = 0; $modelRequestObserved = $false; $modelQueueWaitMs = 0; $modelQueueWaitObserved = $false; $modelRetryBackoffMs = 0; $modelRetryBackoffObserved = $false; $cacheLockWaitMs = 0; $cacheLockWaitObserved = $false
     $bottleneckCounts = @{}
     $cacheKeyCounts = @{}
     $childRuntimeBlockers = New-Object System.Collections.Generic.List[string]
@@ -520,6 +576,8 @@ function Write-TaskspaceSampleTiming {
         $overheadMs += [int64]$pair.measured_overhead_ms
         if ($pair.PSObject.Properties.Name -contains "process_launch_wait_ms" -and $null -ne $pair.process_launch_wait_ms) { $processLaunchWaitMs += [int64]$pair.process_launch_wait_ms; $processLaunchWaitObserved = $true }
         if ($pair.PSObject.Properties.Name -contains "model_request_duration_ms" -and $null -ne $pair.model_request_duration_ms) { $modelRequestMs += [int64]$pair.model_request_duration_ms; $modelRequestObserved = $true }
+        if ($pair.PSObject.Properties.Name -contains "model_queue_wait_ms" -and $null -ne $pair.model_queue_wait_ms) { $modelQueueWaitMs += [int64]$pair.model_queue_wait_ms; $modelQueueWaitObserved = $true }
+        if ($pair.PSObject.Properties.Name -contains "model_retry_backoff_ms" -and $null -ne $pair.model_retry_backoff_ms) { $modelRetryBackoffMs += [int64]$pair.model_retry_backoff_ms; $modelRetryBackoffObserved = $true }
         if ($pair.PSObject.Properties.Name -contains "cache_lock_wait_ms" -and $null -ne $pair.cache_lock_wait_ms) { $cacheLockWaitMs += [int64]$pair.cache_lock_wait_ms; $cacheLockWaitObserved = $true }
         $pairDockerBuildMs = if ($pair.PSObject.Properties.Name -contains "docker_build_duration_ms") { [int64]$pair.docker_build_duration_ms } else { 0 }
         $pairDockerRunMs = if ($pair.PSObject.Properties.Name -contains "docker_run_duration_ms") { [int64]$pair.docker_run_duration_ms } else { 0 }
@@ -547,11 +605,11 @@ function Write-TaskspaceSampleTiming {
         }
     }
     $aggregateUncleanReasons = if ($bottleneckCounts.ContainsKey("engineering_unclean_slow")) { @("child_engineering_unclean_slow") } else { @() }
-    $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $aggregateUncleanReasons
+    $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs $modelQueueWaitMs $aggregateUncleanReasons
     $resourceWait = New-TaskspaceSerialResourceWaitAttribution
-    $unavailableWaitFields = @("model_queue_wait_ms", "model_retry_backoff_ms")
-    $unavailableWaitReasons = New-TaskspaceUnavailableWaitAttribution $unavailableWaitFields "whale_jsonl_provider_queue_retry_telemetry_unavailable"
-    $waitBlockers = @(@($waitMissingFields.ToArray() | ForEach-Object { "missing_wait_attribution:$_" }) + @($unavailableWaitFields | ForEach-Object { "unavailable_wait_attribution:$_" }))
+    if (-not $modelQueueWaitObserved -and -not $waitMissingFields.Contains("model_queue_wait_ms")) { $waitMissingFields.Add("model_queue_wait_ms") }
+    if (-not $modelRetryBackoffObserved -and -not $waitMissingFields.Contains("model_retry_backoff_ms")) { $waitMissingFields.Add("model_retry_backoff_ms") }
+    $waitBlockers = @($waitMissingFields.ToArray() | ForEach-Object { "missing_wait_attribution:$_" })
     $timingBlocked = (@($missingPairTimingDirs).Count -gt 0 -or $parseErrors.Count -gt 0 -or $waitBlockers.Count -gt 0 -or $childRuntimeBlockers.Count -gt 0)
     $artifact = [ordered]@{
         schema_version = 1
@@ -568,8 +626,8 @@ function Write-TaskspaceSampleTiming {
         docker_build_duration_ms = $dockerBuildMs
         docker_run_duration_ms = $dockerRunMs
         docker_cleanup_duration_ms = $dockerCleanupMs
-        model_queue_wait_ms = $null
-        model_retry_backoff_ms = $null
+        model_queue_wait_ms = if ($modelQueueWaitObserved) { $modelQueueWaitMs } else { $null }
+        model_retry_backoff_ms = if ($modelRetryBackoffObserved) { $modelRetryBackoffMs } else { $null }
         model_request_duration_ms = if ($modelRequestObserved) { $modelRequestMs } else { $null }
         process_launch_wait_ms = if ($processLaunchWaitObserved) { $processLaunchWaitMs } else { $null }
         docker_token_wait_ms = [int64]$resourceWait.docker_token_wait_ms
@@ -580,7 +638,7 @@ function Write-TaskspaceSampleTiming {
         resource_wait_attribution_mode = if ($cacheLockWaitObserved) { "serial_with_cache_lock_observed" } else { [string]$resourceWait.resource_wait_attribution_mode }
         wait_attribution_status = if ($waitBlockers.Count -gt 0) { "missing" } else { "complete" }
         wait_attribution_missing_fields = @($waitMissingFields.ToArray())
-        wait_attribution_unavailable_fields = $unavailableWaitReasons
+        wait_attribution_unavailable_fields = [pscustomobject]@{}
         measured_overhead_ms = $overheadMs
         timing_breakdown = $breakdown
         bottleneck_classification = [string]$breakdown.bottleneck_classification
@@ -638,7 +696,7 @@ function Write-TaskspaceSuiteTiming {
     foreach ($file in $sampleTimingFiles) {
         try { $samples += (Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json) } catch { $parseErrors.Add($file.FullName) }
     }
-    $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0; $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0; $processLaunchWaitMs = 0; $processLaunchWaitObserved = $false; $modelRequestMs = 0; $modelRequestObserved = $false; $cacheLockWaitMs = 0; $cacheLockWaitObserved = $false
+    $totalMs = 0; $agentMs = 0; $validationMs = 0; $oracleMs = 0; $overheadMs = 0; $dockerBuildMs = 0; $dockerRunMs = 0; $dockerCleanupMs = 0; $processLaunchWaitMs = 0; $processLaunchWaitObserved = $false; $modelRequestMs = 0; $modelRequestObserved = $false; $modelQueueWaitMs = 0; $modelQueueWaitObserved = $false; $modelRetryBackoffMs = 0; $modelRetryBackoffObserved = $false; $cacheLockWaitMs = 0; $cacheLockWaitObserved = $false
     $bottleneckCounts = @{}
     $cacheKeyCounts = @{}
     $childRuntimeBlockers = New-Object System.Collections.Generic.List[string]
@@ -660,6 +718,8 @@ function Write-TaskspaceSuiteTiming {
         $overheadMs += [int64]$sample.measured_overhead_ms
         if ($sample.PSObject.Properties.Name -contains "process_launch_wait_ms" -and $null -ne $sample.process_launch_wait_ms) { $processLaunchWaitMs += [int64]$sample.process_launch_wait_ms; $processLaunchWaitObserved = $true }
         if ($sample.PSObject.Properties.Name -contains "model_request_duration_ms" -and $null -ne $sample.model_request_duration_ms) { $modelRequestMs += [int64]$sample.model_request_duration_ms; $modelRequestObserved = $true }
+        if ($sample.PSObject.Properties.Name -contains "model_queue_wait_ms" -and $null -ne $sample.model_queue_wait_ms) { $modelQueueWaitMs += [int64]$sample.model_queue_wait_ms; $modelQueueWaitObserved = $true }
+        if ($sample.PSObject.Properties.Name -contains "model_retry_backoff_ms" -and $null -ne $sample.model_retry_backoff_ms) { $modelRetryBackoffMs += [int64]$sample.model_retry_backoff_ms; $modelRetryBackoffObserved = $true }
         if ($sample.PSObject.Properties.Name -contains "cache_lock_wait_ms" -and $null -ne $sample.cache_lock_wait_ms) { $cacheLockWaitMs += [int64]$sample.cache_lock_wait_ms; $cacheLockWaitObserved = $true }
         $sampleDockerBuildMs = if ($sample.PSObject.Properties.Name -contains "docker_build_duration_ms") { [int64]$sample.docker_build_duration_ms } else { 0 }
         $sampleDockerRunMs = if ($sample.PSObject.Properties.Name -contains "docker_run_duration_ms") { [int64]$sample.docker_run_duration_ms } else { 0 }
@@ -690,11 +750,11 @@ function Write-TaskspaceSuiteTiming {
         }
     }
     $aggregateUncleanReasons = if ($bottleneckCounts.ContainsKey("engineering_unclean_slow")) { @("child_engineering_unclean_slow") } else { @() }
-    $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs 0 $aggregateUncleanReasons
+    $breakdown = New-TaskspaceTimingBreakdown $totalMs $agentMs $validationMs $oracleMs $dockerBuildMs $dockerRunMs $dockerCleanupMs $modelQueueWaitMs $aggregateUncleanReasons
     $resourceWait = New-TaskspaceSerialResourceWaitAttribution
-    $unavailableWaitFields = @("model_queue_wait_ms", "model_retry_backoff_ms")
-    $unavailableWaitReasons = New-TaskspaceUnavailableWaitAttribution $unavailableWaitFields "whale_jsonl_provider_queue_retry_telemetry_unavailable"
-    $waitBlockers = @(@($waitMissingFields.ToArray() | ForEach-Object { "missing_wait_attribution:$_" }) + @($unavailableWaitFields | ForEach-Object { "unavailable_wait_attribution:$_" }))
+    if (-not $modelQueueWaitObserved -and -not $waitMissingFields.Contains("model_queue_wait_ms")) { $waitMissingFields.Add("model_queue_wait_ms") }
+    if (-not $modelRetryBackoffObserved -and -not $waitMissingFields.Contains("model_retry_backoff_ms")) { $waitMissingFields.Add("model_retry_backoff_ms") }
+    $waitBlockers = @($waitMissingFields.ToArray() | ForEach-Object { "missing_wait_attribution:$_" })
     $timingBlocked = (@($missingSampleTimingDirs).Count -gt 0 -or $parseErrors.Count -gt 0 -or $waitBlockers.Count -gt 0 -or $childRuntimeBlockers.Count -gt 0)
     $artifact = [ordered]@{
         schema_version = 1
@@ -711,8 +771,8 @@ function Write-TaskspaceSuiteTiming {
         docker_build_duration_ms = $dockerBuildMs
         docker_run_duration_ms = $dockerRunMs
         docker_cleanup_duration_ms = $dockerCleanupMs
-        model_queue_wait_ms = $null
-        model_retry_backoff_ms = $null
+        model_queue_wait_ms = if ($modelQueueWaitObserved) { $modelQueueWaitMs } else { $null }
+        model_retry_backoff_ms = if ($modelRetryBackoffObserved) { $modelRetryBackoffMs } else { $null }
         model_request_duration_ms = if ($modelRequestObserved) { $modelRequestMs } else { $null }
         process_launch_wait_ms = if ($processLaunchWaitObserved) { $processLaunchWaitMs } else { $null }
         docker_token_wait_ms = [int64]$resourceWait.docker_token_wait_ms
@@ -723,7 +783,7 @@ function Write-TaskspaceSuiteTiming {
         resource_wait_attribution_mode = if ($cacheLockWaitObserved) { "serial_with_cache_lock_observed" } else { [string]$resourceWait.resource_wait_attribution_mode }
         wait_attribution_status = if ($waitBlockers.Count -gt 0) { "missing" } else { "complete" }
         wait_attribution_missing_fields = @($waitMissingFields.ToArray())
-        wait_attribution_unavailable_fields = $unavailableWaitReasons
+        wait_attribution_unavailable_fields = [pscustomobject]@{}
         measured_overhead_ms = $overheadMs
         timing_breakdown = $breakdown
         bottleneck_classification = [string]$breakdown.bottleneck_classification

@@ -414,3 +414,110 @@
   ```
 - Interpretation: The current blocker is host resource exhaustion before B-tier can run a post-fix executable. This does not disprove the no-active-node fix; it prevents measuring its real B-tier benefit until the host can build.
 - Time: 2026-06-27 03:22
+
+## Hypothesis H-005: Timing gate remains blocked because provider queue/retry attribution is marked unavailable despite lifecycle evidence
+- Status: confirmed
+- Parent: P-001
+- Claim: The benchmark timing layer hard-coded `model_queue_wait_ms` and `model_retry_backoff_ms` as unavailable even though provider lifecycle events already expose enough state to compute stream-open wait and no-retry backoff for real B-tier runs.
+- Layer: root-cause
+- Factor relation: single
+- Depends on:
+  - H-001
+- Rationale:
+  - Real rollout events include `status:started`, `status:stream_opened`, `status:response_completed`, `started_at_ms`, `completed_at_ms`, `createdAtMs`, `logical_request_id`, and `attempt_seq`.
+  - `scripts\taskspace-benchmark\lib\timing.ps1` nevertheless emitted `wait_attribution_unavailable_fields` for queue/retry and forced `runtime_optimization_status=blocked`.
+- Falsifiable predictions:
+  - If true: parsing the same B-tier `rollout.jsonl` with lifecycle-derived queue/retry logic yields non-null `model_queue_wait_ms`, zero retry backoff when no retry attempts exist, and complete wait attribution.
+  - If false: rollout lacks `stream_opened` or terminal lifecycle events, or retry absence cannot be distinguished from missing retry telemetry.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: compute timing from provider lifecycle events in a real B-tier artifact and rerun B-tier after parser/aggregation changes.
+  - Signal: direct parser output, `sample-timing.json`, pair metrics, cache/context artifacts, and pair report outcome.
+  - Capture method: run `Get-TaskspaceModelTimingAttribution` on real `rollout.jsonl`, then rerun B-tier `single-file-fast-fix`.
+  - Event name or marker:
+    - `status:stream_opened`
+    - `status:response_completed`
+    - `wait_attribution_status`
+  - Correlation keys:
+    - `target\phase-r3-btier-smoke-20260627-035703`
+    - `target\phase-r3-btier-smoke-20260627-041043`
+  - Differentiates from:
+    - provider missing lifecycle timing
+    - graph closeout failure
+    - cache/context replacement failure
+  - Supports if:
+    - timing fields become non-null and wait attribution becomes complete while other gates remain green.
+  - Refutes if:
+    - timing remains unavailable/missing after lifecycle-derived parsing.
+  - Instrumentation status: retained
+  - Instrumentation lifecycle:
+    - retained as benchmark timing attribution logic.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-009
+  - E-010
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: keep speedup claim blocked by actual pair outcome if TaskSpace remains slower, not by missing timing.
+- Blocker:
+  - none for timing attribution gate.
+- Close reason:
+  - not closed
+
+## Evidence E-009: Existing B-tier rollout contains enough lifecycle evidence for queue/retry attribution
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: diagnostic-run
+- Source: `target\phase-r3-btier-smoke-20260627-035703\single-file-fast-fix\20260627-035705-541\pair-001\right\artifacts\rollout.jsonl`
+- Prediction or plan link:
+  - H-005 If true prediction.
+- Matched signal:
+  - Direct parser output after the timing fix:
+    `model_request_duration_ms=112764`, `model_queue_wait_ms=6825`, `model_retry_backoff_ms=0`, `model_timing_event_count=12`, `model_timing_source_status=provider_lifecycle_timing`.
+- Correlation keys:
+  - `status:started`
+  - `status:stream_opened`
+  - `status:response_completed`
+- Raw content:
+  ```text
+  Get-TaskspaceModelTimingAttribution rollout.jsonl:
+    model_request_duration_ms: 112764
+    model_queue_wait_ms: 6825
+    model_retry_backoff_ms: 0
+    model_timing_source_status: provider_lifecycle_timing
+  ```
+- Interpretation: Queue/retry attribution was available from existing lifecycle events; the blocker was benchmark parser/aggregation logic.
+- Time: 2026-06-27 04:10
+
+## Evidence E-010: Fresh B-tier passes business, graph, context, cache, and wait attribution gates but remains cost-higher
+- Related hypotheses:
+  - H-003
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: `target\phase-r3-btier-smoke-20260627-041043\single-file-fast-fix\20260627-041044-436`
+- Prediction or plan link:
+  - H-003 fix validation and H-005 fix validation.
+- Matched signal:
+  - TaskSpace metrics: `exec_exit_code=0`, `business_success=true`, public/hidden validation exit 0, `open_leaf_nodes=0`.
+  - Timing: `wait_attribution_status=complete`, `model_queue_wait_ms=9952`, `model_retry_backoff_ms=0`, `model_request_duration_ms=166112`, `runtime_optimization_status=ready`.
+  - Context/cache: `exact_context_bundle_verified=true`, `replacement_confirmed=true`, `raw_taskspace_control_history_tokens=0`, `request_2_plus_hit_rate=0.986813`, `cache_usage_missing_count=0`.
+  - Outcome remains `both_success_taskspace_cost_higher`; TaskSpace wall-time ratio 4.87, tool-call ratio 1.38.
+- Correlation keys:
+  - `pair-001`
+  - `provider-cache-trace-summary.json`
+  - `active-context-replacement-report.json`
+  - `sample-timing.json`
+- Raw content:
+  ```text
+  wait_attribution_status = complete
+  runtime_optimization_status = ready
+  business_success = true
+  open_leaf_nodes = 0
+  request_2_plus_hit_rate = 0.986813
+  outcome = both_success_taskspace_cost_higher
+  taskspace_wall_time_ratio = 4.87
+  taskspace_tool_call_ratio = 1.38
+  ```
+- Interpretation: R3 correctness, graph closeout, context replacement, cache-hit, and timing observability gates are now evidenced on B-tier. The real remaining blocker is not missing telemetry; it is that this B-tier sample still shows TaskSpace slower/costlier than standard.
+- Time: 2026-06-27 04:16

@@ -337,3 +337,95 @@ not_yet_proven = 76e0b96e B-tier business_success/open_leaf_nodes benefit
    - model_request_duration_ms present
 5. timing release gate 仍需单独补齐 queue/retry wait telemetry
 ```
+
+## F.13 2026-06-27 第三轮 B-tier 结果
+
+释放本机内存后，使用低内存 profile 成功构建 post-commit binary：
+
+```text
+cargo build -j1 --profile dev-small -p codex-cli --bin whale
+
+D:\whalecode-alpha\target\phase-r3-current-cargo-target\dev-small\whale.exe
+LastWriteTimeUtc = 2026-06-26T19:56:31.2306704Z
+```
+
+随后重跑 B-tier：
+
+```text
+target\phase-r3-btier-smoke-20260627-035703\single-file-fast-fix\20260627-035705-541
+```
+
+已证明 no-active-node final-answer 修复的直接收益：
+
+```text
+TaskSpace exec_exit_code = 0
+TaskSpace business_success = true
+public_validation_exit_code = 0
+hidden_oracle_exit_code = 0
+open_leaf_nodes = 0
+exact_context_bundle_verified = true
+replacement_confirmed = true
+request_2_plus_hit_rate = 0.987422
+cache_usage_missing_count = 0
+```
+
+仍未通过 timing release gate：
+
+```text
+wait_attribution_status = missing
+missing fields = model_queue_wait_ms, model_retry_backoff_ms
+```
+
+## F.14 2026-06-27 第四轮 B-tier 结果
+
+修复 benchmark timing parser 后，重新跑 B-tier：
+
+```text
+target\phase-r3-btier-smoke-20260627-041043\single-file-fast-fix\20260627-041044-436
+```
+
+已通过的 R3 gate：
+
+```text
+business_success = true
+exec_exit_code = 0
+public_validation_exit_code = 0
+hidden_oracle_exit_code = 0
+open_leaf_nodes = 0
+
+exact_payload_scan_passed = true
+exact_context_bundle_verified = true
+cache_plan_verified = true
+replacement_confirmed = true
+legacy_taskspace_history_present = false
+raw_taskspace_control_history_tokens = 0
+protected_items_present = true
+
+request_2_plus_hit_rate = 0.986813
+cache_usage_missing_count = 0
+native_tools_schema_hot_path_count = 0
+
+wait_attribution_status = complete
+runtime_optimization_status = ready
+model_request_duration_ms = 166112
+model_queue_wait_ms = 9952
+model_retry_backoff_ms = 0
+```
+
+仍不能宣称的收益：
+
+```text
+pair outcome = both_success_taskspace_cost_higher
+taskspace_wall_time_ratio = 4.87
+taskspace_tool_call_ratio = 1.38
+```
+
+结论：
+
+```text
+R3 的 correctness / graph closeout / context replacement / cache-hit / timing attribution
+在 B-tier single-file-fast-fix 上已有真实证据。
+
+但 speedup/cost saving 不能宣称。当前真实证据显示 TaskSpace 在该样本上仍更慢、更贵。
+下一阶段应把优化目标从“补齐观测字段”切换到“降低 TaskSpace 请求数、模型时长和重复动作”。
+```

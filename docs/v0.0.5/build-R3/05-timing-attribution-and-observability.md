@@ -128,4 +128,51 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 PASS
 ```
 
-尚未完成的真实收益证明：需要重新跑 B-tier / targeted diagnostic，确认真实 `sample-timing.json` 中 `model_request_duration_ms` 非空，并使 `wait_attribution_missing_fields` 不再包含该字段。
+第一轮真实 B-tier 证明 `model_request_duration_ms` 已补齐，但 `model_queue_wait_ms` 和
+`model_retry_backoff_ms` 仍被旧 parser 标成 unavailable。后续修复改为从 provider lifecycle
+事件计算：
+
+```text
+queue_wait = first stream_opened.createdAtMs - started_at_ms
+retry_backoff = next attempt started_at_ms - previous terminal_at_ms
+no retry attempts observed => model_retry_backoff_ms = 0
+```
+
+已验证真实 artifact 可回放：
+
+```text
+target\phase-r3-btier-smoke-20260627-035703\single-file-fast-fix\20260627-035705-541
+
+Get-TaskspaceModelTimingAttribution rollout.jsonl:
+  model_request_duration_ms = 112764
+  model_queue_wait_ms = 6825
+  model_retry_backoff_ms = 0
+  model_timing_source_status = provider_lifecycle_timing
+```
+
+第二轮真实 B-tier 证明 wait attribution gate 已收敛：
+
+```text
+target\phase-r3-btier-smoke-20260627-041043\single-file-fast-fix\20260627-041044-436
+
+sample-timing.json:
+  wait_attribution_status = complete
+  runtime_optimization_status = ready
+  model_request_duration_ms = 166112
+  model_queue_wait_ms = 9952
+  model_retry_backoff_ms = 0
+  runtime_optimization_blockers = []
+```
+
+已验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-score-validity.ps1
+PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1
+PASS
+```
+
+注意：这证明的是 timing attribution 和 release gate 可观测性收敛，不证明 TaskSpace 性能更快。
+同一 B-tier pair 仍是 `both_success_taskspace_cost_higher`，`taskspace_wall_time_ratio=4.87`。

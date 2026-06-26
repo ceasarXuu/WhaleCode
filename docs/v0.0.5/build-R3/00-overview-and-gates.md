@@ -136,6 +136,36 @@ R3-E second timing fix landed locally:
   Same B-tier artifact proved rollout.jsonl reports provider_lifecycle_timing while whale-exec.jsonl
   reports jsonl_without_timing.
   E3 score-validity self-test passed.
+
+R3-E third timing fix landed locally:
+  benchmark timing parser now derives model_queue_wait_ms from provider lifecycle
+  started_at_ms -> stream_opened.createdAtMs and records model_retry_backoff_ms=0
+  when no retry attempts are observed.
+  E3 score-validity and harness guardrails self-tests passed.
+  B-tier `target\phase-r3-btier-smoke-20260627-041043` proved:
+    wait_attribution_status=complete
+    runtime_optimization_status=ready
+    model_request_duration_ms=166112
+    model_queue_wait_ms=9952
+    model_retry_backoff_ms=0
+
+B-tier correctness / graph / context / cache / timing gates now have real evidence:
+  business_success=true
+  exec_exit_code=0
+  public_validation_exit_code=0
+  hidden_oracle_exit_code=0
+  open_leaf_nodes=0
+  exact_context_bundle_verified=true
+  replacement_confirmed=true
+  raw_taskspace_control_history_tokens=0
+  request_2_plus_hit_rate=0.986813
+  cache_usage_missing_count=0
+  native_tools_schema_hot_path_count=0
+
+Remaining non-convergence:
+  the same B-tier pair outcome is both_success_taskspace_cost_higher.
+  taskspace_wall_time_ratio=4.87 and taskspace_tool_call_ratio=1.38.
+  Therefore R3 can claim instrumentation and lifecycle correctness, but cannot claim speedup/cost saving.
 ```
 
 ## 0.6 R2 blocker 到 R3 phase 映射

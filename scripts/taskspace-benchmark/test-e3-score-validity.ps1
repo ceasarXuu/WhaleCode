@@ -250,8 +250,8 @@ $timingPath = Write-TaskspacePairTiming $timingPairDir 1 $now $now.AddSeconds(5)
 $timing = Get-Content -Raw -Encoding UTF8 -LiteralPath $timingPath | ConvertFrom-Json
 Assert-True ([int64]$timing.total_duration_ms -gt 0) "timing artifact did not record total duration"
 Assert-True (@($timing.spans | Where-Object { [string]$_.phase -eq "public_validation" }).Count -eq 2) "timing artifact did not record both validation spans"
-Assert-True ([string]$timing.runtime_optimization_status -eq "blocked" -and @($timing.runtime_optimization_blockers | Where-Object { [string]$_ -match "unavailable_wait_attribution:model_queue_wait_ms" }).Count -eq 1) "pair timing did not block speed claims when model queue attribution is unavailable"
-Assert-True ([string]$timing.wait_attribution_unavailable_fields.model_queue_wait_ms -eq "whale_jsonl_provider_queue_retry_telemetry_unavailable") "pair timing did not record unavailable model queue attribution reason"
+Assert-True ([string]$timing.runtime_optimization_status -eq "blocked" -and @($timing.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:model_queue_wait_ms" }).Count -eq 1) "pair timing did not block speed claims when model queue attribution is missing"
+Assert-True (@($timing.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:model_retry_backoff_ms" }).Count -eq 1) "pair timing did not block speed claims when model retry attribution is missing"
 Assert-True (@($timing.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:process_launch_wait_ms" }).Count -eq 1) "pair timing did not report missing process launch wait when no process timing was observed"
 $metricWithTiming = Add-TaskspaceMetricTimingFields $metricsBySide.left $validationTimingBySide.left
 Assert-True ([int64]$metricWithTiming.public_validation_duration_ms -gt 0) "metric timing did not record validation duration"
@@ -265,13 +265,18 @@ Assert-True ([int64]$modelTiming.model_request_duration_ms -eq 570) "model timin
 Assert-True ([string]$modelTiming.model_timing_source_status -eq "responsesapi_websocket_timing") "model timing parser did not record timing source status"
 $providerTimingJsonl = Join-Path $RunRoot ("provider-timing-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff") + ".jsonl")
 @(
-    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-1","tags":["producer:provider_lifecycle","status:started","latency_ms:999"]}}',
-    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-1","tags":["producer:provider_lifecycle","status:response_completed","model_request_duration_ms:615","latency_ms:615"]}}',
-    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-2","tags":["producer:provider_lifecycle","status:response_failed","latency_ms:45"]}}',
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-1","createdAtMs":1000,"tags":["producer:provider_lifecycle","status:started","started_at_ms:1000","logical_request_id:provider-request-fixture:logical-1","attempt_seq:1"]}}',
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-1","createdAtMs":1100,"tags":["producer:provider_lifecycle","status:stream_opened","started_at_ms:1000","logical_request_id:provider-request-fixture:logical-1","attempt_seq:1"]}}',
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-1","createdAtMs":1615,"tags":["producer:provider_lifecycle","status:response_completed","started_at_ms:1000","completed_at_ms:1615","model_request_duration_ms:615","latency_ms:615","logical_request_id:provider-request-fixture:logical-1","attempt_seq:1"]}}',
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-2","createdAtMs":2000,"tags":["producer:provider_lifecycle","status:started","started_at_ms:2000","logical_request_id:provider-request-fixture:logical-2","attempt_seq:1"]}}',
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-2","createdAtMs":2020,"tags":["producer:provider_lifecycle","status:stream_opened","started_at_ms:2000","logical_request_id:provider-request-fixture:logical-2","attempt_seq:1"]}}',
+    '{"type":"event_msg","payload":{"kind":"provider_request_budget","callId":"provider-request-2","createdAtMs":2045,"tags":["producer:provider_lifecycle","status:response_failed","started_at_ms:2000","completed_at_ms:2045","latency_ms:45","logical_request_id:provider-request-fixture:logical-2","attempt_seq:1"]}}',
     '{"type":"responsesapi.websocket_timing","timing_metrics":{"responses_duration_excl_engine_and_client_tool_time_ms":1,"engine_service_total_ms":2}}'
 ) | Set-Content -LiteralPath $providerTimingJsonl -Encoding UTF8
 $providerTiming = Get-TaskspaceModelTimingAttribution $providerTimingJsonl
 Assert-True ([int64]$providerTiming.model_request_duration_ms -eq 660) "model timing parser did not aggregate provider lifecycle terminal durations"
+Assert-True ([int64]$providerTiming.model_queue_wait_ms -eq 120) "model timing parser did not aggregate provider lifecycle queue wait"
+Assert-True ([int64]$providerTiming.model_retry_backoff_ms -eq 0) "model timing parser did not record zero retry backoff when no retry attempts occurred"
 Assert-True ([string]$providerTiming.model_timing_source_status -eq "provider_lifecycle_timing") "model timing parser did not prefer provider lifecycle timing"
 Assert-True ([int64]$providerTiming.model_timing_event_count -eq 2) "model timing parser counted non-terminal provider events"
 $timingSourceDir = Join-Path $RunRoot ("timing-source-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
@@ -313,6 +318,10 @@ $processMetrics.left | Add-Member -NotePropertyName process_launch_wait_ms -Note
 $processMetrics.right | Add-Member -NotePropertyName process_launch_wait_ms -NotePropertyValue 13 -Force
 $processMetrics.left | Add-Member -NotePropertyName model_request_duration_ms -NotePropertyValue 570 -Force
 $processMetrics.right | Add-Member -NotePropertyName model_request_duration_ms -NotePropertyValue 430 -Force
+$processMetrics.left | Add-Member -NotePropertyName model_queue_wait_ms -NotePropertyValue 10 -Force
+$processMetrics.right | Add-Member -NotePropertyName model_queue_wait_ms -NotePropertyValue 20 -Force
+$processMetrics.left | Add-Member -NotePropertyName model_retry_backoff_ms -NotePropertyValue 0 -Force
+$processMetrics.right | Add-Member -NotePropertyName model_retry_backoff_ms -NotePropertyValue 0 -Force
 $processValidationTiming = @{
     left = [pscustomobject]@{ logical_mode = "standard"; validation_started_at = $now; validation_finished_at = $now.AddSeconds(1); validation_exit_code = 0; validation_process_launch_wait_ms = 17; oracle_started_at = $now.AddSeconds(1); oracle_finished_at = $now.AddSeconds(2); oracle_exit_code = 0; engineering_unclean_reasons = @() }
     right = [pscustomobject]@{ logical_mode = "taskspace"; validation_started_at = $now; validation_finished_at = $now.AddSeconds(1); validation_exit_code = 0; validation_process_launch_wait_ms = 19; oracle_started_at = $now.AddSeconds(1); oracle_finished_at = $now.AddSeconds(2); oracle_exit_code = 0; engineering_unclean_reasons = @() }
@@ -321,6 +330,8 @@ $processTimingPath = Write-TaskspacePairTiming $processTimingPairDir 1 $now $now
 $processTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $processTimingPath | ConvertFrom-Json
 Assert-True ([int64]$processTiming.process_launch_wait_ms -eq 60) "pair timing did not aggregate agent and validation process launch wait"
 Assert-True ([int64]$processTiming.model_request_duration_ms -eq 1000) "pair timing did not aggregate model request duration"
+Assert-True ([int64]$processTiming.model_queue_wait_ms -eq 30) "pair timing did not aggregate model queue wait"
+Assert-True ([int64]$processTiming.model_retry_backoff_ms -eq 0) "pair timing did not aggregate model retry backoff"
 Assert-True ([int64]$processTiming.resource_wait_ms_total -eq 0 -and [string]$processTiming.resource_wait_attribution_mode -eq "serial_no_resource_governor") "pair timing did not record serial resource wait attribution"
 Assert-True (@($processTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:process_launch_wait_ms" }).Count -eq 0) "pair timing still reported process launch wait missing after observing process timing"
 Assert-True (@($processTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:model_request_duration_ms" }).Count -eq 0) "pair timing still reported model request duration missing after observing timing"
@@ -382,7 +393,7 @@ $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | C
 Assert-True ([int]$suiteTiming.timing_sample_count -eq 1) "suite timing did not aggregate sample timing"
 Assert-True ([int64]$suiteTiming.total_pair_duration_ms -gt 0) "suite timing did not record total pair duration"
 Assert-True ([string]$suiteTiming.runtime_optimization_status -eq "blocked" -and [string]$suiteTiming.timing_quality -eq "incomplete") "suite timing did not block when wait attribution was missing"
-Assert-True (@($suiteTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "unavailable_wait_attribution:model_queue_wait_ms" }).Count -gt 0) "suite timing did not expose unavailable model queue attribution blocker"
+Assert-True (@($suiteTiming.runtime_optimization_blockers | Where-Object { [string]$_ -match "missing_wait_attribution:model_queue_wait_ms" }).Count -gt 0) "suite timing did not expose missing model queue attribution blocker"
 $suiteRoot = Join-Path $runDir "suite-fixture"
 $suiteSamples = Join-Path $suiteRoot "samples"
 New-Item -ItemType Directory -Force -Path (Join-Path $suiteSamples "sample-a") | Out-Null
