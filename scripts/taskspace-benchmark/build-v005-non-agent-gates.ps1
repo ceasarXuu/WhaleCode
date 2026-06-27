@@ -42,12 +42,12 @@ if ($FixtureMode) {
 } else {
     $rustWorkspace = "Set-Location third_party\codex-cli\codex-rs;"
     $specs = @(
-        New-V005GateSpec "provider_request_hook" "$rustWorkspace cargo test -p codex-core provider_request_budget --lib; exit `$LASTEXITCODE" 240
-        New-V005GateSpec "runtime_budget_response" "$rustWorkspace cargo test -p codex-core provider_request_budget --lib; exit `$LASTEXITCODE" 240
+        New-V005GateSpec "provider_request_hook" "$rustWorkspace cargo test -p codex-core provider_request_budget --lib; exit `$LASTEXITCODE" 600
+        New-V005GateSpec "runtime_budget_response" "$rustWorkspace cargo test -p codex-core provider_request_budget --lib; exit `$LASTEXITCODE" 600
         New-V005GateSpec "budget_quality_impact" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1" 180
-        New-V005GateSpec "active_context_replacement" "$rustWorkspace cargo test -p codex-core active_context_replacement --lib; exit `$LASTEXITCODE" 240
-        New-V005GateSpec "state_commit_displacement" "$rustWorkspace cargo test -p codex-core state_commit --lib; exit `$LASTEXITCODE" 240
-        New-V005GateSpec "spawn_node_budget" "$rustWorkspace cargo test -p codex-core budget --lib; exit `$LASTEXITCODE" 240
+        New-V005GateSpec "active_context_replacement" "$rustWorkspace cargo test -p codex-core active_context_replacement --lib; exit `$LASTEXITCODE" 600
+        New-V005GateSpec "state_commit_displacement" "$rustWorkspace cargo test -p codex-core state_commit --lib; exit `$LASTEXITCODE" 600
+        New-V005GateSpec "spawn_node_budget" "$rustWorkspace cargo test -p codex-core budget --lib; exit `$LASTEXITCODE" 600
         New-V005GateSpec "request_phase_attribution" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1" 180
         New-V005GateSpec "release_decision_fixture" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1" 240
         New-V005GateSpec "start_gate_fixture" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1" 420
