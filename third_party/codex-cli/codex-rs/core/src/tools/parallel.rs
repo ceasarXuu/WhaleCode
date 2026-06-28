@@ -673,14 +673,43 @@ fn contains_any(haystack: &str, needles: &[&str]) -> bool {
 
 fn action_map_tool_error_preview(err: &FunctionCallError) -> String {
     match err {
-        FunctionCallError::RespondToModel(_) => {
-            "Tool call failed before producing a result.".to_string()
+        FunctionCallError::RespondToModel(message) => {
+            taskspace_safe_local_validator_infra_error_summary(message)
+                .unwrap_or_else(|| "Tool call failed before producing a result.".to_string())
         }
         FunctionCallError::MissingLocalShellCallId => {
             "Tool call failed because the shell call id was missing.".to_string()
         }
         FunctionCallError::Fatal(_) => "Tool call failed with a fatal runtime error.".to_string(),
     }
+}
+
+fn taskspace_safe_local_validator_infra_error_summary(message: &str) -> Option<String> {
+    let signal = taskspace_compact_ascii_signal(message);
+    let has_bash_access_denied = signal.contains("bashservicecreateinstanceeaccessdenied")
+        || signal.contains("bashservicecreateinstancee_accessdenied")
+        || signal.contains("eaccessdenied")
+        || signal.contains("e_accessdenied");
+    if has_bash_access_denied {
+        return Some(
+            "Tool call failed before producing a result. local_validator_infra_failure: Bash/Service/CreateInstance/E_ACCESSDENIED"
+                .to_string(),
+        );
+    }
+    if signal.contains("invalidendofline") || signal.contains("notavalidstatementseparator") {
+        return Some(
+            "Tool call failed before producing a result. local_validator_infra_failure: PowerShell InvalidEndOfLine"
+                .to_string(),
+        );
+    }
+    None
+}
+
+fn taskspace_compact_ascii_signal(text: &str) -> String {
+    text.chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 #[cfg(test)]
@@ -699,6 +728,21 @@ mod tests {
 
         assert_eq!(preview, "Tool call failed before producing a result.");
         assert!(!preview.contains("secret"));
+    }
+
+    #[test]
+    fn action_map_error_preview_keeps_safe_local_validator_infra_signal() {
+        let nul_separated = "Bash/Service/CreateInstance/E_ACCESSDENIED"
+            .chars()
+            .flat_map(|ch| [ch, '\0'])
+            .collect::<String>();
+        let preview = action_map_tool_error_preview(&FunctionCallError::RespondToModel(format!(
+            "garbled host output: {nul_separated}"
+        )));
+
+        assert!(preview.contains("local_validator_infra_failure"));
+        assert!(preview.contains("Bash/Service/CreateInstance/E_ACCESSDENIED"));
+        assert!(!preview.contains("garbled host output"));
     }
 
     #[test]

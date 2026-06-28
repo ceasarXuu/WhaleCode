@@ -298,3 +298,60 @@ graph_health_warnings = high_blocked_node_ratio
 它属于 benchmark 工程清洁度分类问题：本机 Bash `E_ACCESSDENIED` 被计入
 `validator_failure`，后续需要把 local-validator-infra blocker 与真实 validator
 failure 在指标层分开。
+
+## D.14 2026-06-28 sentinel clean 修复
+
+D.13 的残留继续下钻后发现，`validator_failure` sentinel 并不是由带有
+`E_ACCESSDENIED` 正文的 result 触发，而是由工具失败持久化路径生成的占位 result
+触发：
+
+```text
+node-3 / result-33 / trace-448:
+  action_class = test
+  success = false
+  body = Tool call failed before producing a result.
+
+whale-exec 原始 command output:
+  Bash/Service/CreateInstance/E_ACCESSDENIED
+```
+
+修复原则：
+
+```text
+ActionMap 不能持久化任意 raw tool error，避免泄露本地路径或敏感内容。
+但它必须保留可分类的稳定错误类型，否则 sentinel 会把 host infra failure
+误判成 business validator_failure。
+```
+
+已落地：
+
+```text
+tools/parallel.rs:
+  FunctionCallError::RespondToModel 仍默认写入固定占位语；
+  仅当 compact signal 命中 Bash/Service/CreateInstance/E_ACCESSDENIED
+  或 PowerShell InvalidEndOfLine 时，写入 canonical local_validator_infra_failure 摘要。
+```
+
+已验证：
+
+```text
+cargo test -j1 -p codex-core action_map_error_preview_keeps_safe_local_validator_infra_signal --lib
+PASS
+
+cargo test -j1 -p codex-core local_validator_infra_failure_does_not_raise_validator_failure --lib
+PASS
+
+cargo test -j1 -p codex-core taskspace --lib
+111 passed
+
+targeted diagnostic:
+  target\phase-r3-targeted-diagnostic-20260628-114800\runs\terminal_bench__processing-pipeline\20260628-114818-716
+
+TaskSpace right side:
+  outcome_taskspace = solved
+  active_sentinel_warning_count = 0
+  open_leaf_nodes = 0
+  exec_exit_code = 0
+  public_validation_exit_code = 0
+  hidden_oracle_exit_code = 0
+```

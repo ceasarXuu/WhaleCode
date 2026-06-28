@@ -1433,3 +1433,82 @@
   ```
 - Interpretation: The targeted diagnostic failure has been reduced from a runtime turn failure to a successful TaskSpace run with an explicit blocked local-validator-infra lifecycle edge. The remaining `active_sentinel_warning:validator_failure` is a benchmark taxonomy/engineering-clean residual, not the original graph or terminalization failure.
 - Time: 2026-06-28 11:22
+
+## Hypothesis H-017: failed tool-result preview drops stable local-infra error signals
+- Status: confirmed
+- Parent: P-001
+- Claim: When a direct tool call returns `FunctionCallError::RespondToModel`, `tools/parallel.rs` records only `Tool call failed before producing a result.` into ActionMap. This protects raw error text, but also drops stable local validator infrastructure signatures such as `Bash/Service/CreateInstance/E_ACCESSDENIED`, causing runtime sentinel classification to raise `validator_failure` instead of `validator_infra_failure`.
+- Layer: root-cause
+- Factor relation: sequential
+- Depends on:
+  - H-016
+- Rationale:
+  - The `20260628-110353` targeted diagnostic had `active_sentinel_warning_count=1`.
+  - The active sentinel referenced `node-3 / result-33 / trace-448`.
+  - `result-33` had `actionClass=test`, `success=false`, and body `Tool call failed before producing a result.`
+  - The corresponding `whale-exec.jsonl` command output for `bash run_pipeline.sh` contained UTF-16/NUL-shaped `Bash/Service/CreateInstance/E_ACCESSDENIED`.
+  - Runtime already had tests proving a result body with the canonical infra signature is classified as `validator_infra_failure`, not `validator_failure`.
+- Falsifiable predictions:
+  - If true before repair: a `RespondToModel` error containing NUL-separated `Bash/Service/CreateInstance/E_ACCESSDENIED` produces the generic preview and loses the infra signature.
+  - If true after repair: the same error produces a canonical, non-raw preview containing `local_validator_infra_failure: Bash/Service/CreateInstance/E_ACCESSDENIED`, and the targeted diagnostic has no active validator_failure sentinel.
+  - If false: preserving the canonical infra signal would not change `active_sentinel_warning_count`.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: add a focused unit test for `action_map_tool_error_preview(...)`, run the existing runtime sentinel local-infra test, and rerun the same targeted diagnostic.
+  - Signal: focused tests pass; targeted metrics show `active_sentinel_warning_count=0`, `outcome_taskspace=solved`, and no `turn.failed`.
+  - Capture method: unit tests plus real targeted diagnostic artifacts.
+  - Event name or marker:
+    - `local_validator_infra_failure`
+    - `Bash/Service/CreateInstance/E_ACCESSDENIED`
+    - `active_sentinel_warning_count`
+  - Correlation keys:
+    - `result-33`
+    - `trace-448`
+    - `20260628-110353`
+    - `20260628-114800`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-027
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: run formal current-HEAD non-agent gates, then decide whether formal E3 start gate can proceed after explicit user approval marker.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-027: safe local-infra preview removes active validator_failure sentinel
+- Related hypotheses:
+  - H-017
+- Direction: supports
+- Type: fix-validation
+- Source: `target\phase-r3-targeted-diagnostic-20260628-114800\runs\terminal_bench__processing-pipeline\20260628-114818-716`
+- Prediction or plan link:
+  - H-017 after-repair predictions.
+- Matched signal:
+  - `tools/parallel.rs` now keeps `FunctionCallError::RespondToModel` generic by default, but emits canonical summaries for known local validator infra signatures.
+  - Focused test passed: `action_map_error_preview_keeps_safe_local_validator_infra_signal`.
+  - Existing runtime sentinel test passed: `local_validator_infra_failure_does_not_raise_validator_failure`.
+  - Aggregate TaskSpace regression passed: `cargo test -j1 -p codex-core taskspace --lib`, `111 passed`.
+  - New dev-small whale binary built with SHA256 `9E5B08528D6B11C5BAA742374CFBA193FFDE5F4EAB632384EE447AB04A777CEA`.
+  - Targeted diagnostic rerun produced `outcome_taskspace=solved`, `active_sentinel_warning_count=0`, `exec_exit_code=0`, `business_success=true`, `public_validation_exit_code=0`, `hidden_oracle_exit_code=0`, and `open_leaf_nodes=0`.
+  - Provider cache remained healthy: `request_2_plus_hit_rate=0.982693`, `cache_usage_missing_count=0`, `trace_coverage=1`.
+  - Request/tool count improved on this sample versus the previous targeted run: provider requests `34 -> 16`, tool calls `30 -> 10`.
+- Correlation keys:
+  - `action_map_error_preview_keeps_safe_local_validator_infra_signal`
+  - `target\phase-r3-targeted-diagnostic-20260628-114800`
+  - `active_sentinel_warning_count=0`
+- Raw content:
+  ```text
+  outcome_taskspace                 : solved
+  exec_exit_code                    : 0
+  business_success                  : True
+  public_validation_exit_code       : 0
+  hidden_oracle_exit_code           : 0
+  tool_call_count                   : 10
+  rollout_trace_model_request_count : 17
+  active_sentinel_warning_count     : 0
+  open_leaf_nodes                   : 0
+  request_2_plus_hit_rate           : 0.982693
+  ```
+- Interpretation: The remaining R3 targeted diagnostic runtime/observability blocker is closed. The run is still not formal E3 evidence because its only remaining engineering reasons are external validator fidelity / E3 eligibility flags.
+- Time: 2026-06-28 12:05

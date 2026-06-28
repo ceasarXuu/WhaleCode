@@ -571,3 +571,75 @@ engineering_unclean_reasons:
   code-complete marker 与 explicit user approval marker 仍不存在；
   formal terminal-bench_E3-P0_3_5 仍未运行。
 ```
+
+## F.17 2026-06-28 sentinel clean targeted rerun
+
+针对 F.16 的 `active_sentinel_warning:validator_failure` 残留，新增脱敏错误分类修复后，
+重建 binary：
+
+```text
+cargo build -j1 --profile dev-small -p codex-cli --bin whale
+PASS
+
+target\phase-r3-current-cargo-target\dev-small\whale.exe
+SHA256 = 9E5B08528D6B11C5BAA742374CFBA193FFDE5F4EAB632384EE447AB04A777CEA
+```
+
+重跑同一个 targeted diagnostic：
+
+```text
+target\phase-r3-targeted-diagnostic-20260628-114800\runs\terminal_bench__processing-pipeline\20260628-114818-716
+```
+
+结果：
+
+```text
+outcome_taskspace = solved
+engineering_unclean_reasons =
+  e3_external_validator_fidelity_unproven
+  e3_external_validator_not_e3_eligible
+
+TaskSpace right side:
+  exec_exit_code = 0
+  business_success = true
+  public_validation_exit_code = 0
+  hidden_oracle_exit_code = 0
+  wall_time_ms = 288513
+  tool_call_count = 10
+  rollout_trace_model_request_count = 17
+  taskspace_control_count = 3
+  state_commit_count = 1
+  active_sentinel_warning_count = 0
+  open_leaf_nodes = 0
+
+provider cache:
+  provider_request_count = 16
+  trace_coverage = 1
+  cache_usage_missing_count = 0
+  tool_free_action_contract_count = 16
+  native_tools_schema_hot_path_count = 0
+  request_2_plus_hit_rate = 0.982693
+  request_2_plus_cached_input_tokens = 1776000
+  request_2_plus_uncached_input_tokens = 31278
+
+relative movement vs previous targeted run:
+  provider_request_count: 34 -> 16
+  tool_call_count: 30 -> 10
+  active_sentinel_warning_count: 1 -> 0
+  outcome_taskspace: engineering_unclean -> solved
+```
+
+结论：
+
+```text
+R3 targeted diagnostic 当前已证明：
+  business correctness pass
+  graph closeout pass
+  active sentinel clean
+  cache hit maintained
+  request/tool count materially reduced on the diagnostic sample
+
+仍不能声明 formal E3 完成，因为该 targeted run 仍带有:
+  e3_external_validator_fidelity_unproven
+  e3_external_validator_not_e3_eligible
+```

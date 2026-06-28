@@ -367,3 +367,69 @@ graph-health warning:
 因此 R3 可以继续声明“targeted diagnostic blocker 已从 turn.failed/open leaf
 收敛为显式 blocked validation node”，但仍不能声明 formal E3 完成或速度/成本收益完成。
 ```
+
+## 0.12 2026-06-28 Targeted Diagnostic Sentinel Clean Follow-up
+
+针对 0.11 的 `active_sentinel_warning:validator_failure` 残留，继续定位后确认：
+
+```text
+sentinel source:
+  node-3 / result-33 / trace-448
+  call_id = taskspace-action-contract-32-run_test
+  action_class = test
+  body = Tool call failed before producing a result.
+
+actual whale-exec command output:
+  Bash/Service/CreateInstance/E_ACCESSDENIED
+```
+
+根因不是 runtime local-infra detector 失效，而是 tool failure 持久化路径过度脱敏：
+`FunctionCallError::RespondToModel` 被写成固定占位语，ActionMap 看不到可分类的稳定错误码。
+
+修复后只保留脱敏后的 canonical infra signal，不写入任意 raw error：
+
+```text
+Tool call failed before producing a result.
+local_validator_infra_failure: Bash/Service/CreateInstance/E_ACCESSDENIED
+```
+
+最新真实验证：
+
+```text
+run:
+  target\phase-r3-targeted-diagnostic-20260628-114800\runs\terminal_bench__processing-pipeline\20260628-114818-716
+
+TaskSpace right side:
+  outcome_taskspace = solved
+  exec_exit_code = 0
+  business_success = true
+  public_validation_exit_code = 0
+  hidden_oracle_exit_code = 0
+  open_leaf_nodes = 0
+  active_sentinel_warning_count = 0
+  turn.failed = absent
+
+efficiency movement on this diagnostic sample:
+  previous provider_request_count = 34
+  current provider_request_count = 16
+  previous tool_call_count = 30
+  current tool_call_count = 10
+  taskspace_tool_call_ratio = 0.18
+  taskspace_wall_time_ratio = 0.95
+
+cache:
+  request_2_plus_hit_rate = 0.982693
+  cache_usage_missing_count = 0
+  native_tools_schema_hot_path_count = 0
+```
+
+仍未完成：
+
+```text
+engineering_unclean_reasons:
+  e3_external_validator_fidelity_unproven
+  e3_external_validator_not_e3_eligible
+
+这两个原因来自 targeted diagnostic 的外部 validator fidelity / E3 eligibility，
+不是 TaskSpace runtime graph、cache、sentinel 或业务正确性失败。
+```
