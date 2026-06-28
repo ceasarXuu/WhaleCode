@@ -760,3 +760,22 @@ no-agent multi-source-data-merger validator probe:
 formal profile_hash 会变化；commit 后必须重新生成 current-HEAD gates / markers，
 再以短 run root 重跑 formal E3。
 ```
+
+后续 suite start gate 还暴露一个测试契约同步问题：
+
+```text
+failed gate = cheap_self_tests
+failed command = .\scripts\taskspace-benchmark\test-harness.ps1
+old expectation = proxy_env_skipped_loopback
+new contract = proxy_env_preserved_loopback + proxyBuildArgs
+```
+
+已同步 `test-harness.ps1`：
+
+```text
+test-harness.ps1 = PASS
+test-e3-start-gate.ps1 = PASS
+git diff --check = PASS
+```
+
+该问题只影响 gate fixture，不代表正式样本或 agent 解题失败。

@@ -1970,3 +1970,67 @@
   ```
 - Interpretation: The original formal blocker was removed at the harness build-network layer. The remaining no-agent probe failure is business-test failure on an unsolved fixture, not a Docker/apt materialization failure.
 - Time: 2026-06-28 22:24
+
+## Hypothesis H-024: start gate self-test fixture still expected old WSL proxy skip behavior
+- Status: confirmed
+- Parent: P-001
+- Claim: After the build-network repair, full formal E3 was blocked by `test-harness.ps1` because the fixture still asserted the old `proxy_env_skipped_loopback` behavior, while the repaired adapter intentionally preserves WSL loopback proxy values under host networking.
+- Layer: harness-test-contract
+- Factor relation: sequential
+- Depends on:
+  - H-023
+- Rationale:
+  - Suite runner invokes start gate with `-RunSelfTests`.
+  - The start gate failed only on `test-harness.ps1`.
+  - The failure message named the stale WSL loopback proxy guard expectation.
+- Falsifiable predictions:
+  - If true before repair: start gate reports `self_test_failed` and `test-harness.ps1` fails on the WSL loopback proxy assertion.
+  - If true after repair: updating the fixture to assert `proxy_env_preserved_loopback`, build proxy args, and absence of skip behavior makes both `test-harness.ps1` and `test-e3-start-gate.ps1` pass.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: inspect the suite start-gate artifact and rerun the two affected self-tests after fixture update.
+  - Signal: `e3-start-gate.json` self-test list and PowerShell self-test output.
+  - Capture method: direct artifact read plus targeted self-test runs.
+  - Event name or marker:
+    - `self_test_failed`
+    - `proxy_env_skipped_loopback`
+    - `proxy_env_preserved_loopback`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-035
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: commit/push the fixture-contract update, regenerate current-HEAD gates/markers, then rerun formal E3.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-035: start gate self-test passes after proxy-contract fixture update
+- Related hypotheses:
+  - H-024
+- Direction: supports
+- Type: fix-validation
+- Source: `scripts\taskspace-benchmark\test-harness.ps1`, `target\e3f-after-build-proxy-fix\suite-20260628-223434\start-gate\e3-start-gate.json`
+- Prediction or plan link:
+  - H-024 after-repair prediction.
+- Matched signal:
+  - Failed start gate recorded `first_failure_stable_code=self_test_failed`, `first_failure_command=.\scripts\taskspace-benchmark\test-harness.ps1`, and output `terminal-bench validator did not guard WSL loopback proxy injection`.
+  - `test-harness.ps1` now asserts `proxy_env_preserved_loopback`, Docker build proxy args, and absence of `proxy_env_skipped_loopback`.
+  - `test-harness.ps1` passed.
+  - `test-e3-start-gate.ps1` passed.
+- Correlation keys:
+  - `test-harness.ps1`
+  - `test-e3-start-gate.ps1`
+- Raw content:
+  ```text
+  failed suite start gate:
+    self_test = .\scripts\taskspace-benchmark\test-harness.ps1
+    output = terminal-bench validator did not guard WSL loopback proxy injection
+
+  after fixture update:
+    TaskSpace benchmark harness self-test: PASS
+    E3 start gate self-test: PASS
+    git diff --check: PASS
+  ```
+- Interpretation: The formal E3 start-gate blocker was a stale test contract, not a runtime or model failure.
+- Time: 2026-06-28 22:38

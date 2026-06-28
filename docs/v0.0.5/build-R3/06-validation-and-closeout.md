@@ -1061,3 +1061,39 @@ target\r3-proxy-build-probe\20260628-2222:
 因此修复已经证明原始 apt/Docker build blocker 被清除，下一轮 formal E3 可以继续
 用真实 agent 生成这些文件。由于 adapter SHA 改变，必须重新生成 profile identity、
 non-agent gates、markers 和 start gate，再重跑正式 E3。
+
+### F.23.1 start-gate fixture contract sync
+
+首次用 suite runner 重跑 formal E3 时，suite 内置 start gate 失败在 cheap self-tests：
+
+```text
+SuiteRoot = target\e3f-after-build-proxy-fix\suite-20260628-223434
+abort_reason = e3_start_gate_failed/self_test_failed
+failed command = .\scripts\taskspace-benchmark\test-harness.ps1
+output = terminal-bench validator did not guard WSL loopback proxy injection
+```
+
+这是 `test-harness.ps1` 的旧断言未同步新契约：
+
+```text
+旧断言：必须出现 proxy_env_skipped_loopback
+新契约：WSL host networking 下保留 loopback proxy，并传入 Docker build args
+```
+
+修复后的 fixture 断言：
+
+```text
+proxy_env_preserved_loopback exists
+$proxyBuildArgs += @("--build-arg", "$proxyName=$proxyValue") exists
+proxy_env_skipped_loopback absent
+```
+
+验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 = PASS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1 = PASS
+git diff --check = PASS
+```
+
+该修复改变 git commit，需要再次刷新 non-agent gates 和 markers 后重跑正式 E3。
