@@ -83,6 +83,7 @@ function New-TaskspacePairWorkspace {
     $sides = @{}
     foreach ($side in @("left", "right")) {
         $sideRoot = New-Dir (Join-Path $repeatDir $side)
+        $runnerPrivateDir = New-Dir (Join-Path $repeatDir "_runner-private\$side")
         $aliasRoot = ""
         $repoDir = if ($needsTerminalBenchAppAlias) {
             $aliasRoot = $sideRoot
@@ -99,6 +100,7 @@ function New-TaskspacePairWorkspace {
             RepoDir = $repoDir
             ExecutionAliasRoot = $aliasRoot
             ArtifactDir = $artifactDir
+            RunnerPrivateDir = $runnerPrivateDir
         }
     }
     $mapPath = Join-Path $repeatDir "logical-mode-map.json"

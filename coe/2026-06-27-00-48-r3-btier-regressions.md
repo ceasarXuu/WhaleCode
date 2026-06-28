@@ -2204,3 +2204,78 @@
   ```
 - Interpretation: The new guard bounds observability artifact size and memory risk while retaining exact runtime event counts for downstream cost metrics. It does not change agent execution, TaskSpace graph semantics, provider budgets, or Docker validation.
 - Time: 2026-06-29 01:35
+
+## Hypothesis H-027: pre-agent validator probe artifacts were written into agent-visible artifacts
+- Status: confirmed
+- Parent: P-001
+- Claim: The post-observability formal E3 run failed validator-source isolation proof because the runner wrote pre-agent validator probe manifests under `side.ArtifactDir\vprobe`, which is mounted as `W:\artifacts` and can be read by the agent. This exposed validator-source path metadata to the standard-side transcript even though actual validator source files were protected by the source guard.
+- Layer: benchmark-runner-isolation
+- Factor relation: sequential
+- Depends on:
+  - H-026
+- Rationale:
+  - The failed pair solved the task on both standard and TaskSpace sides.
+  - Source guard proof showed validator files were denied and restored.
+  - The isolation failure was driven by `agent_artifact_validator_tokens` on the standard side.
+  - The standard agent read `W:\artifacts\vprobe\terminal-bench-runtime-manifest.json`, which contained the `external-validator-source` path token.
+- Falsifiable predictions:
+  - If true before repair: `left\artifacts\whale-exec.jsonl` contains an agent command reading `W:\artifacts\vprobe\terminal-bench-runtime-manifest.json`, and the manifest contains `external-validator-source`.
+  - If true after repair: probe proof files move under `_runner-private\<side>\vprobe`, `left/right/artifacts\vprobe` are absent, `agent_artifact_validator_tokens` are empty for both sides, and `proof_agent_cannot_read_validator_source=True`.
+  - If false: the validator-source token still appears in agent transcript or repo files after moving pre-agent probe artifacts out of `ArtifactDir`.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: compare the failed formal pair's agent-visible artifacts with a focused processing-pipeline rerun after moving probe output to runner-private storage.
+  - Signal: `external-isolation-proof.json`, `pair-report.md`, existence of `left/right/artifacts/vprobe`, and `_runner-private/*/vprobe/validator-probe-result.json`.
+  - Capture method: inspect failed formal artifacts, update runner workspace/probe paths, run harness self-tests and a one-pair processing-pipeline scoring rerun.
+  - Event name or marker:
+    - `agent_artifact_validator_tokens`
+    - `proof_agent_cannot_read_validator_source`
+    - `external-validator-source`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-038
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: commit/push the runner-private probe isolation fix, refresh current-HEAD gates/markers because runner scripts changed, then rerun formal E3 from a fresh run root.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-038: runner-private probe output clears validator-source isolation proof
+- Related hypotheses:
+  - H-027
+- Direction: supports
+- Type: fix-validation
+- Source: `scripts\taskspace-benchmark\lib\workspace.ps1`, `scripts\taskspace-benchmark\run-taskspace-benchmark.ps1`, `scripts\taskspace-benchmark\test-harness.ps1`, `target\r3-processing-pipeline-runner-private-proof`
+- Prediction or plan link:
+  - H-027 after-repair prediction.
+- Matched signal:
+  - Pre-agent validator probe outputs are now written under `pair-001\_runner-private\<side>\vprobe`.
+  - `left\artifacts\vprobe` and `right\artifacts\vprobe` are absent in the focused rerun.
+  - `external-isolation-proof.json` reports `agent_artifact_validator_tokens=[]` for both sides and `agent_cannot_read_validator_source_proven=true`.
+  - `pair-report.md` reports `engineering_unclean=False`, `outcome_standard=solved`, `outcome_taskspace=solved`, `proof_agent_cannot_read_validator_source=True`, and `proof_validator_e3_eligible=True`.
+  - Harness self-tests passed before the focused rerun.
+- Correlation keys:
+  - `target\e3f-after-observability-guard\suite-20260629-023835`
+  - `target\r3-processing-pipeline-runner-private-proof\terminal_bench__processing-pipeline\20260629-025723-879`
+  - `_runner-private`
+  - `artifacts\vprobe`
+- Raw content:
+  ```text
+  focused tests:
+    scripts\taskspace-benchmark\test-harness.ps1 = PASS
+    scripts\taskspace-benchmark\test-e3-proof-harness.ps1 -RunRoot target\r3-e3-proof-runner-private-test = PASS
+
+  focused processing-pipeline rerun:
+    command exit_code = 0
+    proof_agent_cannot_read_validator_source = True
+    proof_validator_e3_eligible = True
+    engineering_unclean = False
+    outcome_standard = solved
+    outcome_taskspace = solved
+    left_artifacts_vprobe_exists = False
+    right_artifacts_vprobe_exists = False
+    runner_private_validator_probe_results = 2
+  ```
+- Interpretation: The E3 isolation failure was a runner artifact placement bug. Moving pre-agent probe outputs to runner-private storage preserves proof evidence for the runner while removing validator-source metadata from the agent-readable artifact mount.
+- Time: 2026-06-29 03:12

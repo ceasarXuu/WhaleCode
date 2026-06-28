@@ -913,3 +913,77 @@ cost instrumentation:
 
 Gate 更新：formal E3 继续前需要重新生成 profile identity、non-agent gates、code-complete marker、user-approval marker 和 start gate。
 该 guard 只约束诊断报告规模，不改变 agent/session 预算、TaskSpace graph 语义、provider 请求或 validator 结果。
+
+## 0.21 2026-06-29 Runner-Private Validator Probe Isolation
+
+刷新 gates 后的 formal E3 已经越过 observability blow-up，但 `processing-pipeline` 暴露了一个 proof 隔离问题：
+
+```text
+SuiteRoot = target\e3f-after-observability-guard\suite-20260629-023835
+sample = processing-pipeline
+pair = pair-001
+outcome_standard = solved
+outcome_taskspace = solved
+engineering_unclean_reason = e3_external_validator_source_not_isolated
+proof_agent_cannot_read_validator_source = False
+proof_validator_e3_eligible = False
+```
+
+根因不是 agent 解题失败，也不是 validator 源文件内容泄漏。source guard 已证明真实 validator 文件不可读；失败来自 runner 自己的 pre-agent probe 输出位置：
+
+```text
+old path = pair-001\<side>\artifacts\vprobe
+agent visible mount = W:\artifacts
+standard agent read = W:\artifacts\vprobe\terminal-bench-runtime-manifest.json
+manifest token = external-validator-source
+```
+
+修复后的职责边界：
+
+```text
+agent-visible artifacts:
+  execution transcript, validation logs, metrics, graph health
+
+runner-private storage:
+  pre-agent validator probe stdout/stderr
+  terminal-bench runtime manifest
+  validator-probe-result.json
+  proof-only metadata that can mention external-validator-source
+```
+
+已修改：
+
+```text
+workspace.ps1:
+  New-TaskspacePairWorkspace creates _runner-private\<side>
+  side object exposes RunnerPrivateDir
+
+run-taskspace-benchmark.ps1:
+  validator pretest/probe writes to RunnerPrivateDir\vprobe
+  fallback path is pair._runner-private\<side>\vprobe
+
+test-harness.ps1:
+  asserts probe proof path uses RunnerPrivateDir
+  asserts artifacts\vprobe is not materialized
+```
+
+已验证：
+
+```text
+scripts\taskspace-benchmark\test-harness.ps1 = PASS
+scripts\taskspace-benchmark\test-e3-proof-harness.ps1 -RunRoot target\r3-e3-proof-runner-private-test = PASS
+git diff --check = PASS
+
+focused processing-pipeline rerun:
+  command exit_code = 0
+  outcome_standard = solved
+  outcome_taskspace = solved
+  engineering_unclean = False
+  proof_agent_cannot_read_validator_source = True
+  proof_validator_e3_eligible = True
+  left_artifacts_vprobe_exists = False
+  right_artifacts_vprobe_exists = False
+  runner_private_validator_probe_results = 2
+```
+
+该修复改变 runner artifact 分区，不改变 agent prompt、TaskSpace graph、provider budget、Docker validation 或评分语义。由于 runner 脚本再次变化，下一轮 formal E3 前必须重新生成 current-HEAD profile/gates/markers/start gate。

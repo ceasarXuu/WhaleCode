@@ -1263,3 +1263,82 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 结论：该问题是 runner observability artifact 放大，不是 TaskSpace 解题失败。修复只限制诊断报告的物化规模，
 不改变 agent session 预算、provider payload、TaskSpace graph 语义或 validator 判定。由于脚本 SHA 再次变化，
 后续必须刷新 current-HEAD profile/gates/markers 后再重跑 formal E3。
+
+### F.26 pre-agent validator probe runner-private isolation
+
+重跑 formal E3 后，`processing-pipeline` 的 pair-001 两侧都解题成功，但 E3 proof 被判为不干净：
+
+```text
+SuiteRoot = target\e3f-after-observability-guard\suite-20260629-023835
+sample = processing-pipeline
+pair = pair-001
+outcome_standard = solved
+outcome_taskspace = solved
+proof_official_runner_or_equivalent = True
+proof_agent_cannot_read_validator_source = False
+proof_validator_e3_eligible = False
+engineering_unclean_reason = e3_external_validator_source_not_isolated
+```
+
+证据拆分：
+
+```text
+actual validator source guard:
+  protected file count = 5
+  read denied after protect = true
+  read restored after release = true
+
+failing proof signal:
+  left agent_artifact_validator_tokens = ["external-validator-source"]
+  right agent_artifact_validator_tokens = []
+```
+
+根因是 runner 把 pre-agent validator probe 的 runtime manifest 写到了 agent 可读目录：
+
+```text
+old path = pair-001\left\artifacts\vprobe\terminal-bench-runtime-manifest.json
+agent-visible path = W:\artifacts\vprobe\terminal-bench-runtime-manifest.json
+standard transcript = Get-Content "W:\artifacts\vprobe\terminal-bench-runtime-manifest.json"
+manifest field = validator_mount ... external-validator-source
+```
+
+这不是 validator 源码内容泄漏，而是 validator-source 路径元数据被放入 agent-visible artifacts。修复方式是将 pre-agent probe 输出整体迁移到 runner-private 分区：
+
+```text
+workspace.ps1:
+  side.RunnerPrivateDir = pair-001\_runner-private\<side>
+
+run-taskspace-benchmark.ps1:
+  probeRoot = side.RunnerPrivateDir\vprobe
+  validator-probe stdout/stderr/result/manifest all stay under probeRoot
+
+test-harness.ps1:
+  probe proof path budget checks RunnerPrivateDir
+  asserts artifacts\vprobe does not exist
+```
+
+验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 = PASS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-proof-harness.ps1 -RunRoot target\r3-e3-proof-runner-private-test = PASS
+git diff --check = PASS
+
+focused processing-pipeline rerun:
+  RunDir = target\r3-processing-pipeline-runner-private-proof\terminal_bench__processing-pipeline\20260629-025723-879
+  command exit_code = 0
+  engineering_unclean = False
+  outcome_standard = solved
+  outcome_taskspace = solved
+  proof_agent_cannot_read_validator_source = True
+  proof_validator_e3_eligible = True
+  agent_artifact_validator_tokens(left) = []
+  agent_artifact_validator_tokens(right) = []
+  left\artifacts\vprobe exists = False
+  right\artifacts\vprobe exists = False
+  _runner-private validator-probe-result.json count = 2
+```
+
+结论：该问题是 runner artifact 分区错误，不是 agent 解题错误、DeepSeek API 问题或 Docker validation 问题。修复不弱化 E3 proof；相反，它把 proof-only metadata 从 agent 可见上下文中移除，同时保留 runner 自身可审计证据。
+
+由于 `workspace.ps1`、`run-taskspace-benchmark.ps1` 和 `test-harness.ps1` 已变化，正式继续 E3 前必须重新刷新 current-HEAD profile/gates/markers/start gate。

@@ -319,9 +319,14 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $probeStatusBySide = @{}
     if ([string]$manifest.EvidenceTarget -eq "E3" -or ($manifest.ExternalBenchmark -and $manifest.ExternalBenchmark.adapter_metadata -and [bool]$manifest.ExternalBenchmark.adapter_metadata.validator_probe_supported)) {
         foreach ($side in @($pair.Left, $pair.Right)) {
-            $probeStdout = Join-Path $side.ArtifactDir "validator-probe.stdout.log"
-            $probeStderr = Join-Path $side.ArtifactDir "validator-probe.stderr.log"
-            $probeProofDir = Join-Path $side.ArtifactDir "vprobe"
+            $probeRoot = if ($side.PSObject.Properties.Name -contains "RunnerPrivateDir" -and -not [string]::IsNullOrWhiteSpace([string]$side.RunnerPrivateDir)) {
+                New-Dir (Join-Path ([string]$side.RunnerPrivateDir) "vprobe")
+            } else {
+                New-Dir (Join-Path $pair.PairDir "_runner-private\$($side.Name)\vprobe")
+            }
+            $probeStdout = Join-Path $probeRoot "validator-probe.stdout.log"
+            $probeStderr = Join-Path $probeRoot "validator-probe.stderr.log"
+            $probeProofDir = $probeRoot
             $probeStartedAt = Get-Date
             $probeExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $probeStdout $probeStderr ([Math]::Min($ValidationPretestTimeoutSeconds, [Math]::Max(30, $ValidationTimeoutSeconds))) $probeProofDir @("-ProbeOnly")
             $probeFinishedAt = Get-Date
