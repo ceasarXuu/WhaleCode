@@ -548,7 +548,11 @@ function New-SuiteChildArgs {
         "-V005UserApprovalMarkerPath", $V005UserApprovalMarkerPath,
         "-EnableAggregate"
     )
-    foreach ($sampleName in @($suiteSampleNames)) { if (-not [string]::IsNullOrWhiteSpace($sampleName)) { $childArgs += @("-SampleNames", $sampleName) } }
+    $nonEmptySuiteSampleNames = @($suiteSampleNames | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    if ($nonEmptySuiteSampleNames.Count -gt 0) {
+        $childArgs += "-SampleNames"
+        foreach ($sampleName in @($nonEmptySuiteSampleNames)) { $childArgs += [string]$sampleName }
+    }
     foreach ($override in @($ConfigOverride)) { $childArgs += @("-ConfigOverride", $override) }
     if ($AuditReviewRoot) { $childArgs += @("-AuditReviewRoot", $AuditReviewRoot) }
     if ($PlanOnly) { $childArgs += "-PlanOnly" }

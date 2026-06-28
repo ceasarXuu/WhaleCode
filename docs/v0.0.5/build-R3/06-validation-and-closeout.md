@@ -690,3 +690,69 @@ formal terminal-bench_E3-P0_3_5 尚未运行
 注意：本次 non-agent gates 绑定的是 targeted diagnostic 身份
 `terminal-bench-processing-pipeline@1a6ffa9`，不是 formal E3 sample set 身份。
 formal E3 之前必须生成匹配 formal sample set 的 marker，且需要显式用户批准。
+
+## F.19 2026-06-28 formal E3 preflight blocker and fix
+
+正式 E3 预检创建了 formal task list：
+
+```text
+task_list = target\phase-r3-formal-e3-20260628-170557\tasks-terminal-bench_E3-P0_3_5.jsonl
+sample_set_id = terminal-bench_E3-P0_3_5
+samples = processing-pipeline, multi-source-data-merger, recover-accuracy-log
+source_version = 1a6ffa9674b571da0ed040c470cb40c4d85f9b9b
+```
+
+旧 HEAD 上首次 identity 计算得到：
+
+```text
+task_list_hash = de1c223db57ea05e0c87839bb9d13677eb4faa84d3a3830df2b36d7e0ecac5a2
+profile_hash = 261ea8335c6ebcb27223e093d9bda58217b539e495a1f2686a820c7e50cd844c
+```
+
+正式身份绑定的 non-agent gates 在旧 HEAD 上通过：
+
+```text
+artifact = target\phase-r3-formal-e3-20260628-170557\non-agent-gates\v005-non-agent-gates.json
+status = pass
+git_commit = aad32edfe90698c73bddc47fa00ab29a534c2467
+```
+
+但随后 formal plan-only calibration 暴露一个真实 E3 harness blocker：
+
+```text
+Cannot bind parameter because parameter 'SampleNames' is specified more than once.
+```
+
+根因：
+
+```text
+run-taskspace-e3-suite.ps1 对每个样本重复发出 -SampleNames <name>
+run-taskspace-external-benchmark.ps1 也对下游 run-taskspace-benchmark.ps1 重复发出 -SampleNames <name>
+PowerShell string[] 参数应当一次绑定，多值跟随同一个参数名
+```
+
+修复：
+
+```text
+两个 wrapper 均改为：
+  -SampleNames <name1> <name2> <name3>
+而不是：
+  -SampleNames <name1> -SampleNames <name2> -SampleNames <name3>
+```
+
+验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1
+result = PASS
+RunRoot = target\e3-start-gate-selftest\20260628-171620-334
+```
+
+影响：
+
+```text
+该修复会改变 run-taskspace-e3-suite.ps1 的脚本 SHA
+profile_hash 必须重新计算
+formal v005-non-agent-gates 必须在新 HEAD 上重跑
+之前旧 HEAD formal non-agent gates 只能作为“发现问题前的证据”，不能继续用于 final start gate
+```

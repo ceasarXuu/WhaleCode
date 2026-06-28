@@ -466,3 +466,34 @@ start_gate_fixture         pass  171287ms
 
 当前 R3 可以继续推进到 release marker / formal E3 start-gate 设计，但还不能自动进入
 formal E3，因为 `explicit user approval marker` 按 R3-F 规则必须由用户确认后才能生成。
+
+## 0.14 2026-06-28 Formal E3 Preflight Update
+
+用户已在聊天中批准继续 formal E3，但正式启动前的 plan-only calibration 暴露
+multi-sample runner 参数契约问题：
+
+```text
+Cannot bind parameter because parameter 'SampleNames' is specified more than once.
+```
+
+已修复范围：
+
+```text
+scripts\taskspace-benchmark\run-taskspace-e3-suite.ps1
+scripts\taskspace-benchmark\run-taskspace-external-benchmark.ps1
+```
+
+验证：
+
+```text
+test-e3-start-gate.ps1 = PASS
+```
+
+当前 gating 影响：
+
+```text
+修复改变 suite runner script SHA
+formal profile_hash 必须重新计算
+formal v005-non-agent-gates 必须在修复后的新 HEAD 上重跑
+formal E3 start gate 仍需 calibration evidence + 当前 HEAD markers 同时通过
+```

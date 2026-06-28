@@ -166,7 +166,11 @@ if (-not [string]::IsNullOrWhiteSpace($TaskListHash)) { $args += @("-TaskListHas
 $args += @("-SourceVersion", $SourceVersion)
 if (-not [string]::IsNullOrWhiteSpace($ProfileHash)) { $args += @("-ProfileHash", $ProfileHash) }
 if (-not [string]::IsNullOrWhiteSpace($SampleSetId)) { $args += @("-SampleSetId", $SampleSetId) }
-foreach ($sampleName in @($SampleNames)) { if (-not [string]::IsNullOrWhiteSpace($sampleName)) { $args += @("-SampleNames", $sampleName) } }
+$nonEmptySampleNames = @($SampleNames | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+if ($nonEmptySampleNames.Count -gt 0) {
+    $args += "-SampleNames"
+    foreach ($sampleName in @($nonEmptySampleNames)) { $args += [string]$sampleName }
+}
 $args += @("-BenchmarkFamily", $Benchmark)
 if (-not [string]::IsNullOrWhiteSpace($SuiteRunnerEntrypoint)) { $args += @("-RunnerEntrypoint", $SuiteRunnerEntrypoint) }
 if (-not [string]::IsNullOrWhiteSpace($ArtifactOrigin)) { $args += @("-ArtifactOrigin", $ArtifactOrigin) }
