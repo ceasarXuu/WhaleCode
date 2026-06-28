@@ -1658,3 +1658,67 @@
   ```
 - Interpretation: The gate no longer blocks the first formal evidence-generating run on evidence that the run itself must produce, while preserving the stricter rule for speed/cost claims and release decisions.
 - Time: 2026-06-28 18:12
+
+## Hypothesis H-020: suite runner emits empty optional marker args across process boundary
+- Status: confirmed
+- Parent: P-001
+- Claim: `run-taskspace-e3-suite.ps1` unconditionally emitted optional marker hash/path parameters into child PowerShell invocations. When those values were empty, Windows PowerShell dropped or failed to bind the empty argument, so the downstream wrapper saw a named parameter without a value.
+- Layer: harness-contract
+- Factor relation: sequential
+- Depends on:
+  - H-019
+- Rationale:
+  - Formal plan-only does not require v0.0.5 marker hash/path values.
+  - The child runner args included `-ApprovalMarkerSha256 ""`.
+  - The downstream error was `Missing an argument for parameter 'ApprovalMarkerSha256'.`
+  - Required identity fields were non-empty and present in the same command, so the failure is limited to optional empty strings.
+- Falsifiable predictions:
+  - If true before repair: formal plan-only without marker paths fails before sample preflight with a missing optional marker argument.
+  - If true after repair: optional marker args are omitted when empty, required identity/provenance args remain present, and formal plan-only completes all three sample preflights.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: guard optional child args by non-empty value, then rerun formal plan-only for `terminal-bench_E3-P0_3_5`.
+  - Signal: suite health status and child resume commands.
+  - Capture method: formal plan-only suite artifacts.
+  - Event name or marker:
+    - `ApprovalMarkerSha256`
+    - `V005UserApprovalMarkerPath`
+    - `suite_score_valid`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-030
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: commit/push the optional-args repair, recompute final current-HEAD formal identity, then rerun non-agent gates and markers.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-030: formal plan-only completes after optional empty args are omitted
+- Related hypotheses:
+  - H-020
+- Direction: supports
+- Type: fix-validation
+- Source: `target\phase-r3-formal-e3-20260628-170557\plan-current-head-after-optional-arg-fix\suite-20260628-181726`
+- Prediction or plan link:
+  - H-020 after-repair predictions.
+- Matched signal:
+  - `run-taskspace-e3-suite.ps1` now emits optional marker hash/path parameters only when non-empty.
+  - Formal plan-only completed all three samples.
+  - Child resume commands preserve required identity fields: `TaskListHash`, `ProfileHash`, `SourceVersion`, `SampleSetId`, `SuiteReceiptPath`, `SuiteReceiptSha256`.
+  - Empty marker hash/path values are not present in the child resume commands.
+- Correlation keys:
+  - `terminal-bench_E3-P0_3_5`
+  - `profile_hash=2aebff6baaf60a71367f9c999e93a1fd01a140257d48e4cee8378fccb0cbc013`
+- Raw content:
+  ```text
+  SuiteRoot: D:\whalecode-alpha\target\phase-r3-formal-e3-20260628-170557\plan-current-head-after-optional-arg-fix\suite-20260628-181726
+  status = completed
+  suite_score_valid = true
+  score_valid_child_runs = 3
+  score_invalid_child_runs = 0
+  task_list_hash = de1c223db57ea05e0c87839bb9d13677eb4faa84d3a3830df2b36d7e0ecac5a2
+  profile_hash = 2aebff6baaf60a71367f9c999e93a1fd01a140257d48e4cee8378fccb0cbc013
+  ```
+- Interpretation: The formal suite runner no longer depends on fragile empty-string argument binding for optional marker values.
+- Time: 2026-06-28 18:18

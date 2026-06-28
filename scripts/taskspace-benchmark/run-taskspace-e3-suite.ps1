@@ -543,13 +543,21 @@ function New-SuiteChildArgs {
         "-SuiteManifestPath", $suiteManifestPath,
         "-SuiteReceiptPath", $suiteReceiptPath,
         "-SuiteReceiptSha256", (Get-SuiteReceiptSha256),
-        "-ApprovalMarkerSha256", $approvalMarkerSha256,
-        "-CodeCompleteMarkerSha256", $codeCompleteMarkerSha256,
-        "-V005NonAgentGatesPath", $V005NonAgentGatesPath,
-        "-V005CodeCompleteMarkerPath", $V005CodeCompleteMarkerPath,
-        "-V005UserApprovalMarkerPath", $V005UserApprovalMarkerPath,
         "-EnableAggregate"
     )
+    $optionalStringArgs = [ordered]@{
+        ApprovalMarkerSha256 = $approvalMarkerSha256
+        CodeCompleteMarkerSha256 = $codeCompleteMarkerSha256
+        V005NonAgentGatesPath = $V005NonAgentGatesPath
+        V005CodeCompleteMarkerPath = $V005CodeCompleteMarkerPath
+        V005UserApprovalMarkerPath = $V005UserApprovalMarkerPath
+    }
+    foreach ($entry in $optionalStringArgs.GetEnumerator()) {
+        $value = [string]$entry.Value
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            $childArgs += @("-$($entry.Key)", $value)
+        }
+    }
     $nonEmptySuiteSampleNames = @($suiteSampleNames | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
     if ($nonEmptySuiteSampleNames.Count -gt 0) {
         $childArgs += @("-SampleNames", (@($nonEmptySuiteSampleNames) -join ","))

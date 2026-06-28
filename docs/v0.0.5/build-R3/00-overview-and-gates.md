@@ -551,3 +551,50 @@ git diff --check = PASS
 test-e3-start-gate.ps1 = PASS
 test-release-decision.ps1 = PASS
 ```
+
+## 0.16 2026-06-28 Optional Wrapper Args
+
+current HEAD plan-only formal E3 继续暴露 suite child runner 的可选参数契约问题：
+
+```text
+Missing an argument for parameter 'ApprovalMarkerSha256'.
+```
+
+根因：
+
+```text
+run-taskspace-e3-suite.ps1 无条件把可选 marker hash/path 加入 child process args。
+当 marker 尚未生成或 plan-only 不需要 marker 时，值为空字符串。
+Windows PowerShell 跨 native process 调用时空字符串参数不稳定，
+下游脚本看到 -ApprovalMarkerSha256，但没有收到有效参数值。
+```
+
+修复：
+
+```text
+suite child args 对所有可选 string 参数统一执行 non-empty guard：
+  ApprovalMarkerSha256
+  CodeCompleteMarkerSha256
+  V005NonAgentGatesPath
+  V005CodeCompleteMarkerPath
+  V005UserApprovalMarkerPath
+
+必需身份字段仍保持强传递：
+  TaskListHash
+  ProfileHash
+  SourceVersion
+  SampleSetId
+  SuiteReceiptPath / SuiteReceiptSha256
+```
+
+验证：
+
+```text
+formal plan-only terminal-bench_E3-P0_3_5:
+  status = completed
+  suite_score_valid = true
+  score_valid_child_runs = 3
+  score_invalid_child_runs = 0
+  task_list_hash = de1c223db57ea05e0c87839bb9d13677eb4faa84d3a3830df2b36d7e0ecac5a2
+  profile_hash = 2aebff6baaf60a71367f9c999e93a1fd01a140257d48e4cee8378fccb0cbc013
+```

@@ -827,3 +827,41 @@ git diff --check = PASS
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1 = PASS
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 = PASS
 ```
+
+## F.21 2026-06-28 optional child args fix
+
+在 start gate calibration 语义修复后，formal plan-only 再次运行时暴露：
+
+```text
+run-taskspace-external-benchmark.ps1 : Missing an argument for parameter 'ApprovalMarkerSha256'.
+```
+
+该问题不是 TaskSpace runtime、解题能力或 DeepSeek provider 问题，而是 suite runner 的
+child process argument contract 漏洞。空 marker hash/path 在 plan-only 阶段合法，
+但不应作为没有值的命名参数传给下游脚本。
+
+修复规则：
+
+```text
+optional string args are emitted only when non-empty.
+required identity/provenance args are still emitted unconditionally.
+```
+
+验证结果：
+
+```text
+RunRoot = target\phase-r3-formal-e3-20260628-170557\plan-current-head-after-optional-arg-fix
+SuiteRoot = suite-20260628-181726
+status = completed
+suite_score_valid = true
+score_valid_child_runs = 3
+score_invalid_child_runs = 0
+profile_hash = 2aebff6baaf60a71367f9c999e93a1fd01a140257d48e4cee8378fccb0cbc013
+```
+
+影响：
+
+```text
+该修复再次改变 run-taskspace-e3-suite.ps1 SHA。
+commit 后必须以最终 HEAD 重新生成 formal non-agent gates 和 marker。
+```
