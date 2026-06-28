@@ -12,6 +12,16 @@ function Convert-TaskspaceCostTable {
     [pscustomobject]$ordered
 }
 
+function ConvertFrom-TaskspaceCostCountObject {
+    param($Counts)
+    $table = @{}
+    if ($null -eq $Counts) { return $table }
+    foreach ($property in @($Counts.PSObject.Properties)) {
+        try { $table[[string]$property.Name] = [int]$property.Value } catch {}
+    }
+    $table
+}
+
 function Get-TaskspaceCostJsonlRows {
     param([string]$Path)
     $rows = New-Object System.Collections.Generic.List[object]
@@ -1191,6 +1201,28 @@ function New-TaskspaceControlUsageSummary {
                     $updateKind = [string](Get-TaskspaceCostProperty $event.details @("updateKind"))
                 }
                 if ($updateKind -like "state_commit*") { $runtimeStateCommit++ }
+            }
+            $exportMode = ""
+            if ($obs.PSObject.Properties.Name -contains "source" -and $obs.source -and
+                $obs.source.PSObject.Properties.Name -contains "exportPolicy" -and $obs.source.exportPolicy) {
+                $exportMode = [string]$obs.source.exportPolicy.rollout_export_mode
+            }
+            if ($exportMode -eq "summary_only_large_rollout" -and
+                $obs.PSObject.Properties.Name -contains "summary" -and $obs.summary -and
+                $obs.summary.PSObject.Properties.Name -contains "runtimeEventCounts") {
+                $runtimeEventCounts = ConvertFrom-TaskspaceCostCountObject $obs.summary.runtimeEventCounts
+                $runtimeEventTotal = 0
+                $runtimeStateCommit = 0
+                $runtimeOutputRefCreated = 0
+                $runtimeOutputRefSliceRead = 0
+                foreach ($key in @($runtimeEventCounts.Keys)) {
+                    $count = [int]$runtimeEventCounts[$key]
+                    $runtimeEventTotal += $count
+                    if ($key -eq "output_ref.created") { $runtimeOutputRefCreated += $count }
+                    if ($key -eq "output_ref.slice_read") { $runtimeOutputRefSliceRead += $count }
+                    if ($key -like "state_commit*") { $runtimeStateCommit += $count }
+                }
+                $runtimeSourceStatus = "summary_only_large_rollout"
             }
             $observedCreatedRefs = New-Object 'System.Collections.Generic.HashSet[string]'
             $observedSliceRefs = New-Object 'System.Collections.Generic.HashSet[string]'

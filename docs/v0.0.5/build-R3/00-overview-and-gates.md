@@ -860,3 +860,56 @@ TaskSpace observed failures:
 这说明 R3 runner/validator 层已继续推进，但该样本暴露 TaskSpace 对 terminal-bench
 任务环境和编辑目标的理解退化。下一轮应从上下文管理器的环境契约投影、临近节点细节保留、
 以及工具反馈压缩策略处理，而不是把它归类为 harness failure。
+## 0.20 2026-06-29 Observability Export Memory Guard
+
+刷新 current-HEAD gates 后重跑 formal E3 时，新的阻塞点出现在 observability exporter：
+
+```text
+SuiteRoot = target\e3f-current\suite-20260629-010004
+sample = multi-source-data-merger
+pair = pair-001
+right rollout = 243219874 bytes
+pre-fix observability JSON ~= 985.9 MB
+pre-fix observability HTML ~= 985.9 MB
+export process working set ~= 5.86 GB
+```
+
+根因是 exporter 全量物化大 rollout，并把原始 payload/result body 同时写入 JSON 与 HTML。
+这属于 runner 观测 artifact 放大，不代表 agent 解题、DeepSeek API 或 Docker validation 失败。
+
+修复后的门禁含义：
+
+```text
+rollout <= 32MiB:
+  保持 full observability export
+
+rollout > 32MiB:
+  action-map-observability-policy.json 记录策略
+  mode = summary_only_large_rollout
+  输出 bounded timeline + 精确 runtimeEventCounts
+  oversized event line 只计数，不物化 raw payload
+  JSON/HTML 不嵌入 raw result body
+```
+
+已验证：
+
+```text
+test-action-map-observability-summary-export.ps1 = PASS
+test-action-map-observability-lib.ps1 = PASS
+test-cost-instrumentation.ps1 = PASS
+
+真实 243MB rollout:
+  mode = summary_only_large_rollout
+  json_bytes = 394428
+  html_bytes = 402737
+  timeline_dropped = 1805
+  largeLineSkippedCount = 95
+  mapRuntimeEvents = 3067
+
+cost instrumentation:
+  observability_source_status = summary_only_large_rollout
+  taskspace_runtime_event_count = 3067
+```
+
+Gate 更新：formal E3 继续前需要重新生成 profile identity、non-agent gates、code-complete marker、user-approval marker 和 start gate。
+该 guard 只约束诊断报告规模，不改变 agent/session 预算、TaskSpace graph 语义、provider 请求或 validator 结果。

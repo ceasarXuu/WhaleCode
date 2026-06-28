@@ -12,11 +12,24 @@ $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "action-map-observability-lib.ps1")
 . (Join-Path $PSScriptRoot "action-map-observability-report-lib.ps1")
+. (Join-Path $PSScriptRoot "action-map-observability-summary-lib.ps1")
 . (Join-Path $PSScriptRoot "action-map-jsonl-lib.ps1")
 
 $output = New-Item -ItemType Directory -Force -Path $OutputDir
 $rolloutReadStats = New-JsonLineReadStats $RolloutPath
 $jsonlReadStats = New-JsonLineReadStats $JsonlPath
+$exportPolicy = Get-ActionMapObservabilityExportPolicy $RolloutPath
+$exportPolicyPath = Join-Path $output.FullName "action-map-observability-policy.json"
+($exportPolicy | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $exportPolicyPath -Encoding UTF8
+if ([string]$exportPolicy.rollout_export_mode -eq "summary_only_large_rollout") {
+    $reduced = New-ActionMapLargeRolloutSummary -RolloutPath $RolloutPath -JsonlPath $JsonlPath -Policy $exportPolicy -RolloutReadStats $rolloutReadStats -JsonlReadStats $jsonlReadStats -ArtifactRoot $ArtifactRoot
+    $reduced.source["exportPolicyPath"] = $exportPolicyPath
+    $reportPaths = Write-ActionMapObservabilityReport -Reduced $reduced -OutputDir $output.FullName
+    Write-Host "ObservabilityJson: $($reportPaths.Json)"
+    Write-Host "ObservabilityMarkdown: $($reportPaths.Markdown)"
+    Write-Host "ObservabilityHtml: $($reportPaths.Html)"
+    return
+}
 $rolloutItems = Read-JsonLines $RolloutPath $rolloutReadStats
 $jsonlItems = Read-JsonLines $JsonlPath $jsonlReadStats
 
@@ -431,6 +444,8 @@ $reduced = [ordered]@{
         rolloutReadStats = $rolloutReadStats
         jsonlReadStats = $jsonlReadStats
         artifactRoot = $ArtifactRoot
+        exportPolicy = $exportPolicy
+        exportPolicyPath = $exportPolicyPath
     }
     summary = $summary
     tasks = $taskList

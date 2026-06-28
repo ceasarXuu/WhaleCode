@@ -2123,3 +2123,84 @@
   - TaskSpace also attempted to patch `W:\app\src\merge_users.py`, which does not exist in the materialized task.
 - Interpretation: This is a real task-strategy/context issue exposed after the runner blockers were cleared. It is not fixed by H-025 and should remain a follow-up R3 product/agent-context investigation.
 - Time: 2026-06-29 00:45
+
+## Hypothesis H-026: observability exporter fully materializes large rollout payloads and duplicates them into HTML
+- Status: confirmed
+- Parent: P-001
+- Claim: The current formal E3 rerun was stopped because `export-action-map-observability.ps1` reads the entire `rollout.jsonl` into memory, keeps raw snapshot/result payloads in the reduced model, writes a near-1GB JSON report, and embeds the same JSON into the HTML report. This is a benchmark observability artifact blow-up, not an agent solve failure.
+- Layer: benchmark-runner-observability
+- Factor relation: sequential
+- Depends on:
+  - H-025
+- Rationale:
+  - A later formal run reached `multi-source-data-merger` pair-001 after the cost instrumentation guard.
+  - The TaskSpace side produced a 243,219,874 byte rollout, then the exporter process grew to multi-GB working set and generated near-1GB JSON and HTML artifacts.
+  - The exporter code path uses `Read-JsonLines` to materialize all rows, stores raw `$payload` in `timeline.details`, copies snapshot result bodies into nodes, and embeds the full reduced JSON in the HTML `trace-data` script.
+- Falsifiable predictions:
+  - If true before repair: running the exporter on the same large rollout creates very large JSON/HTML and high memory pressure before scoring can proceed.
+  - If true after repair: the same rollout is exported in `summary_only_large_rollout` mode, output artifacts stay small, oversized event payloads are counted but not materialized, and downstream cost metrics can read exact runtime event counts from the summary.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: rerun only the observability exporter and cost reader on the exact pair-001 TaskSpace artifacts without rerunning agent or Docker.
+  - Signal: rollout bytes, export mode, output JSON/HTML byte sizes, skipped large-line count, timeline boundedness, runtime event count, and cost instrumentation source status.
+  - Capture method: focused exporter self-test plus direct export of `target\e3f-current\suite-20260629-010004\...\pair-001\right\artifacts\rollout.jsonl`.
+  - Event name or marker:
+    - `summary_only_large_rollout`
+    - `action-map-observability-policy.json`
+    - `largeLineSkippedCount`
+    - `timelineEventsDropped`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-037
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: commit/push the bounded observability exporter, refresh current-HEAD gates/markers because script SHA changed, then rerun formal E3 from a fresh run root.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-037: bounded summary exporter clears the 243MB rollout observability blow-up
+- Related hypotheses:
+  - H-026
+- Direction: supports
+- Type: fix-validation
+- Source: `scripts\export-action-map-observability.ps1`, `scripts\action-map-observability-summary-lib.ps1`, `scripts\test-action-map-observability-summary-export.ps1`, `target\r3-real-large-observability-export-test`
+- Prediction or plan link:
+  - H-026 after-repair prediction.
+- Matched signal:
+  - Focused summary exporter harness passed and proved raw large result-body markers are absent from JSON/HTML.
+  - Existing small-rollout observability report harness still passed.
+  - Cost instrumentation self-test still passed.
+  - Direct export of the real 243,219,874 byte rollout completed in 20.7 seconds and wrote small reports: JSON 394,428 bytes, HTML 402,737 bytes, Markdown 28,642 bytes.
+  - The real export recorded `rollout_export_mode=summary_only_large_rollout`, `timeline_count=240`, `timeline_dropped=1805`, `parsed_lines=1952`, `largeLineSkippedCount=95`, `parse_errors=0`, and `mapRuntimeEvents=3067`.
+  - Downstream cost instrumentation read the summary JSON with `observability_source_status=summary_only_large_rollout` and preserved `taskspace_runtime_event_count=3067`.
+- Correlation keys:
+  - `target\e3f-current\suite-20260629-010004`
+  - `pair-001\right\artifacts\rollout.jsonl`
+  - `action-map-observability-policy.json`
+- Raw content:
+  ```text
+  focused tests:
+    test-action-map-observability-summary-export.ps1 = PASS
+    test-action-map-observability-lib.ps1 = PASS
+    test-cost-instrumentation.ps1 = PASS
+
+  real rollout export:
+    rollout_bytes = 243219874
+    mode = summary_only_large_rollout
+    json_bytes = 394428
+    html_bytes = 402737
+    timeline_count = 240
+    timeline_dropped = 1805
+    parsed_lines = 1952
+    large_skipped = 95
+    parse_errors = 0
+    map_runtime_events = 3067
+
+  downstream cost read:
+    observability_source_status = summary_only_large_rollout
+    taskspace_runtime_event_count = 3067
+    runtime_state_commit_count = 6
+  ```
+- Interpretation: The new guard bounds observability artifact size and memory risk while retaining exact runtime event counts for downstream cost metrics. It does not change agent execution, TaskSpace graph semantics, provider budgets, or Docker validation.
+- Time: 2026-06-29 01:35

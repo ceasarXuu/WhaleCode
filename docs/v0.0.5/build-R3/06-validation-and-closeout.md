@@ -1187,3 +1187,79 @@ TaskSpace stderr:
 
 这说明在该任务上 TaskSpace 的路径理解 / 编辑策略存在真实退化，后续 R3 需要继续从
 上下文管理器、任务环境说明和工具反馈压缩层面处理。
+
+### F.25 observability exporter large-rollout artifact guard
+
+继续 formal E3 后，又暴露了第二层 runner 观测问题：
+
+```text
+SuiteRoot = target\e3f-current\suite-20260629-010004
+sample = multi-source-data-merger
+pair = pair-001
+right/artifacts/rollout.jsonl = 243219874 bytes
+observability/action-map-observability.json before fix ~= 985922523 bytes
+observability/action-map-observability.html before fix ~= 985930832 bytes
+export process working set ~= 5858.6 MB
+```
+
+根因不是 agent 解题、Docker validation 或 DeepSeek API，而是
+`export-action-map-observability.ps1` 对大 rollout 的全量物化：
+
+```text
+Read-JsonLines 将 rollout 全部读入 List[object]
+timeline.details 保留 raw payload
+snapshot_updated 将 result.body / evidencePackage 拷入 nodes
+report lib 将完整 reduced JSON 写成 .json
+report lib 又把同一份 JSON 嵌入 HTML trace-data
+```
+
+修复方式：
+
+```text
+action-map-observability-summary-lib.ps1:
+  默认 rollout > 32MiB 时进入 summary_only_large_rollout
+  line-stream 读取 rollout
+  超过 TASKSPACE_OBSERVABILITY_EVENT_MAX_BYTES 的单行只提取类型和计数
+  timeline 按 TASKSPACE_OBSERVABILITY_TIMELINE_SAMPLE_LIMIT 有界采样
+  保留 runtimeEventCounts / topLevelEventCounts / largeLineEventCounts
+  不保留 raw result body / raw snapshot payload
+
+export-action-map-observability.ps1:
+  写出 action-map-observability-policy.json
+  小 rollout 保持原 full export
+  大 rollout 输出小而完整的 observability JSON/Markdown/HTML
+
+cost-instrumentation.ps1:
+  summary_only_large_rollout 下从 summary.runtimeEventCounts 读取精确 runtime event count
+  不把 bounded timeline 误当全量 timeline
+```
+
+验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-action-map-observability-summary-export.ps1 = PASS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-action-map-observability-lib.ps1 = PASS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-cost-instrumentation.ps1 = PASS
+
+真实 243MB rollout 单独导出:
+  elapsed = 20.7s
+  mode = summary_only_large_rollout
+  json_bytes = 394428
+  html_bytes = 402737
+  markdown_bytes = 28642
+  timeline_count = 240
+  timeline_dropped = 1805
+  parsed_lines = 1952
+  largeLineSkippedCount = 95
+  parse_errors = 0
+  mapRuntimeEvents = 3067
+
+下游 cost instrumentation:
+  observability_source_status = summary_only_large_rollout
+  taskspace_runtime_event_count = 3067
+  runtime_state_commit_count = 6
+```
+
+结论：该问题是 runner observability artifact 放大，不是 TaskSpace 解题失败。修复只限制诊断报告的物化规模，
+不改变 agent session 预算、provider payload、TaskSpace graph 语义或 validator 判定。由于脚本 SHA 再次变化，
+后续必须刷新 current-HEAD profile/gates/markers 后再重跑 formal E3。
