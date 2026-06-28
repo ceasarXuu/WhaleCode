@@ -723,12 +723,20 @@ git_commit = aad32edfe90698c73bddc47fa00ab29a534c2467
 Cannot bind parameter because parameter 'SampleNames' is specified more than once.
 ```
 
+修复 `SampleNames` 后，下一层 wrapper 继续暴露 provenance 参数契约漂移：
+
+```text
+A parameter cannot be found that matches parameter name 'SuiteReceiptPath'.
+```
+
 根因：
 
 ```text
 run-taskspace-e3-suite.ps1 对每个样本重复发出 -SampleNames <name>
 run-taskspace-external-benchmark.ps1 也对下游 run-taskspace-benchmark.ps1 重复发出 -SampleNames <name>
 PowerShell string[] 参数应当一次绑定，多值跟随同一个参数名
+external wrapper 漏声明 SuiteReceiptPath / SuiteReceiptSha256，但 suite runner 已经传递，
+downstream run-taskspace-benchmark.ps1 也已经支持这两个 provenance 参数
 ```
 
 修复：
@@ -738,6 +746,7 @@ PowerShell string[] 参数应当一次绑定，多值跟随同一个参数名
   -SampleNames <name1> <name2> <name3>
 而不是：
   -SampleNames <name1> -SampleNames <name2> -SampleNames <name3>
+external wrapper 补齐 SuiteReceiptPath / SuiteReceiptSha256 声明和透传
 ```
 
 验证：
@@ -746,6 +755,10 @@ PowerShell string[] 参数应当一次绑定，多值跟随同一个参数名
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1
 result = PASS
 RunRoot = target\e3-start-gate-selftest\20260628-171620-334
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-external-wrapper-harness.ps1
+result = PASS
+RunRoot = target\external-wrapper-selftest\20260628-172201-777
 ```
 
 影响：

@@ -1556,7 +1556,9 @@
   - H-018 after-repair predictions.
 - Matched signal:
   - Both wrappers now emit `-SampleNames` once, followed by all non-empty sample names.
+  - `run-taskspace-external-benchmark.ps1` now declares and forwards `SuiteReceiptPath` / `SuiteReceiptSha256`, matching the suite runner arguments and the downstream benchmark runner provenance parameters.
   - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1` passed.
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-external-wrapper-harness.ps1` passed.
   - The fix changes `run-taskspace-e3-suite.ps1` SHA, so formal `profile_hash` and v0.0.5 non-agent marker evidence must be regenerated on the new HEAD.
 - Correlation keys:
   - `SampleNames`
@@ -1565,6 +1567,9 @@
   ```text
   E3 start gate self-test: PASS
   RunRoot: D:\whalecode-alpha\target\e3-start-gate-selftest\20260628-171620-334
+
+  TaskSpace external wrapper self-test: PASS
+  RunRoot: D:\whalecode-alpha\target\external-wrapper-selftest\20260628-172201-777
   ```
 - Interpretation: The formal E3 harness no longer has a known multi-sample argument-binding blocker, but the formal start gate remains blocked until regenerated identity-bound markers and calibration evidence pass.
 - Time: 2026-06-28 17:22

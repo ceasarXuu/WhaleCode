@@ -28,6 +28,8 @@ param(
     [string]$ChildRunnerSha256 = "",
     [string]$TaskListSha256 = "",
     [string]$SuiteManifestPath = "",
+    [string]$SuiteReceiptPath = "",
+    [string]$SuiteReceiptSha256 = "",
     [string]$ApprovalMarkerSha256 = "",
     [string]$CodeCompleteMarkerSha256 = "",
     [string]$V005NonAgentGatesPath = "",
@@ -178,6 +180,8 @@ if (-not [string]::IsNullOrWhiteSpace($RunnerScriptSha256)) { $args += @("-Runne
 if (-not [string]::IsNullOrWhiteSpace($ChildRunnerSha256)) { $args += @("-ChildRunnerSha256", $ChildRunnerSha256) }
 if (-not [string]::IsNullOrWhiteSpace($TaskListSha256)) { $args += @("-TaskListSha256", $TaskListSha256) }
 if (-not [string]::IsNullOrWhiteSpace($SuiteManifestPath)) { $args += @("-SuiteManifestPath", $SuiteManifestPath) }
+if (-not [string]::IsNullOrWhiteSpace($SuiteReceiptPath)) { $args += @("-SuiteReceiptPath", $SuiteReceiptPath) }
+if (-not [string]::IsNullOrWhiteSpace($SuiteReceiptSha256)) { $args += @("-SuiteReceiptSha256", $SuiteReceiptSha256) }
 if (-not [string]::IsNullOrWhiteSpace($ApprovalMarkerSha256)) { $args += @("-ApprovalMarkerSha256", $ApprovalMarkerSha256) }
 if (-not [string]::IsNullOrWhiteSpace($CodeCompleteMarkerSha256)) { $args += @("-CodeCompleteMarkerSha256", $CodeCompleteMarkerSha256) }
 if (-not [string]::IsNullOrWhiteSpace($V005NonAgentGatesPath)) { $args += @("-V005NonAgentGatesPath", $V005NonAgentGatesPath) }

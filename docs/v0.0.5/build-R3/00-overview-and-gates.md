@@ -487,6 +487,7 @@ scripts\taskspace-benchmark\run-taskspace-external-benchmark.ps1
 
 ```text
 test-e3-start-gate.ps1 = PASS
+test-external-wrapper-harness.ps1 = PASS
 ```
 
 当前 gating 影响：
