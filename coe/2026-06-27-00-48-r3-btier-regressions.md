@@ -2279,3 +2279,99 @@
   ```
 - Interpretation: The E3 isolation failure was a runner artifact placement bug. Moving pre-agent probe outputs to runner-private storage preserves proof evidence for the runner while removing validator-source metadata from the agent-readable artifact mount.
 - Time: 2026-06-29 03:12
+
+## Hypothesis H-028: Terminal-Bench validator Docker backend probe timeout is too brittle for WSL under pressure
+- Status: confirmed
+- Parent: P-001
+- Claim: The latest formal E3 rerun stopped on `multi-source-data-merger` because the generated Terminal-Bench validator uses a fixed 20 second PowerShell `Start-Job` probe for `wsl -d whale-docker -- docker version`; under current Windows/WSL resource pressure this can time out even though Docker is available and a direct or later job probe succeeds.
+- Layer: benchmark-runner-environment-probe
+- Factor relation: sequential
+- Depends on:
+  - H-027
+- Rationale:
+  - The formal suite completed all five `processing-pipeline` pairs and preserved them as `audit_required`.
+  - `multi-source-data-merger` pair-001 failed in scoring mode with `docker_backend_unavailable` before standard-side tests started.
+  - The failure message is specifically `probe timed out after 20 seconds`, not a Docker build or test assertion failure.
+  - A direct Docker check after the failure returned Docker server version `29.1.3`, and a generated validator with a 60 second configurable probe passed `-ProbeOnly`.
+- Falsifiable predictions:
+  - If true before repair: rerunning the old generated validator `-ProbeOnly` on the same left workspace still fails with `docker_backend_unavailable` and `probe timed out after 20 seconds`.
+  - If true after repair: newly materialized validators expose `TASKSPACE_DOCKER_BACKEND_PROBE_TIMEOUT_SECONDS`, default to 60 seconds with a bounded 20-300 second range, and the same real sample `-ProbeOnly` passes with `docker_backend=wsl`.
+  - If false: the new validator would still fail backend discovery, or Docker would be unavailable to direct probes as well.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: compare old formal pair probe result, direct Docker probes, generated validator text, harness tests, and a newly materialized real-sample `-ProbeOnly`.
+  - Signal: `validator-probe-result.json`, Docker version command elapsed time, adapter self-tests, and real validator `-ProbeOnly` result.
+  - Capture method: targeted PowerShell probes without rerunning agent, then adapter code update and no-agent real-sample validator probe.
+  - Event name or marker:
+    - `docker_backend_unavailable`
+    - `probe timed out after 20 seconds`
+    - `TASKSPACE_DOCKER_BACKEND_PROBE_TIMEOUT_SECONDS`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-039
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: commit/push the configurable backend probe timeout, refresh current-HEAD gates/markers because adapter/test scripts changed, then rerun formal E3.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-039: configurable 60 second Docker backend probe clears the real sample probe
+- Related hypotheses:
+  - H-028
+- Direction: supports
+- Type: fix-validation
+- Source: `scripts\taskspace-benchmark\adapters\terminal-bench-adapter.ps1`, `scripts\taskspace-benchmark\test-harness.ps1`, `scripts\taskspace-benchmark\test-terminal-bench-adapter-harness.ps1`, `target\r3-docker-probe-timeout-materialized-probe`
+- Prediction or plan link:
+  - H-028 after-repair prediction.
+- Matched signal:
+  - The failed formal pair recorded `docker_backend_unavailable`, `left_tests_started_seen=False`, and `WSL[whale-docker] exit=124; probe timed out after 20 seconds`.
+  - Direct Docker checks after the failure returned server version `29.1.3`; one WSL direct probe took 11,601ms and a `Start-Job` probe took 10,379ms, showing backend availability with non-trivial WSL latency.
+  - The old generated validator `-ProbeOnly` reproduced the 20 second timeout on the left workspace.
+  - The adapter now generates `TASKSPACE_DOCKER_BACKEND_PROBE_TIMEOUT_SECONDS`, default `return 60`, lower bound 20, upper bound 300.
+  - `test-harness.ps1`, `test-terminal-bench-adapter-harness.ps1`, and `git diff --check` passed.
+  - A newly materialized real `multi-source-data-merger` validator passed `-ProbeOnly` with `docker_backend=wsl` and wrote `validator_probe_completed=true`.
+- Correlation keys:
+  - `target\e3f-after-runner-private\suite-20260629-032450`
+  - `target\r3-multi-source-left-probe-recheck`
+  - `target\r3-docker-probe-timeout-materialized`
+  - `TASKSPACE_DOCKER_BACKEND_PROBE_TIMEOUT_SECONDS`
+- Raw content:
+  ```text
+  failed formal pair:
+    reason = docker_backend_unavailable
+    normalized_message = WSL[whale-docker] exit=124; probe timed out after 20 seconds
+    left_tests_started_seen = False
+
+  focused checks:
+    direct wsl docker version = 29.1.3, elapsed_ms = 11601
+    Start-Job wsl docker version = 29.1.3, elapsed_ms = 10379
+    old validator -ProbeOnly exit_code = 1
+
+  focused tests:
+    test-harness.ps1 = PASS
+    test-terminal-bench-adapter-harness.ps1 = PASS
+    git diff --check = PASS
+
+  new real validator probe:
+    exit_code = 0
+    status = pass
+    stage = probe
+    docker_backend = wsl
+  ```
+- Interpretation: Docker itself was available; the harness misclassified availability because the generated backend probe used a brittle fixed timeout. The repair keeps the probe time-bounded but makes the bound appropriate and configurable for WSL-backed validation under load.
+- Time: 2026-06-29 04:52
+
+## Observation O-007: latest formal E3 still exposes a real TaskSpace regression on multi-source-data-merger
+- Related hypotheses:
+  - H-028
+- Direction: neutral
+- Type: behavioral-observation
+- Source: `target\e3f-after-runner-private\suite-20260629-032450\samples\multi-source-data-merger\runs\terminal_bench__multi-source-data-merger\20260629-042351-268\pair-001\pair-report.md`
+- Matched signal:
+  - Standard side changed `conflicts.json` and `merged_users.parquet`.
+  - TaskSpace side exited 1, changed no files, and left `open_leaf_nodes=1`.
+  - TaskSpace wall time ratio was 12.86 and tool call ratio was 7.18.
+  - Right-side Docker build succeeded and tests ran, so the TaskSpace side had a real wrong outcome independent of the left-side pretest failure.
+- Interpretation: H-028 must be fixed before this sample can be scored cleanly, but the TaskSpace behavior remains a product/agent-context issue for R3. It should not be hidden as a pure harness failure after Docker probe stability is restored.
+- Time: 2026-06-29 04:52

@@ -987,3 +987,77 @@ focused processing-pipeline rerun:
 ```
 
 该修复改变 runner artifact 分区，不改变 agent prompt、TaskSpace graph、provider budget、Docker validation 或评分语义。由于 runner 脚本再次变化，下一轮 formal E3 前必须重新生成 current-HEAD profile/gates/markers/start gate。
+
+## 0.22 2026-06-29 Docker Backend Probe Timeout
+
+runner-private 修复后，formal E3 继续推进到：
+
+```text
+SuiteRoot = target\e3f-after-runner-private\suite-20260629-032450
+processing-pipeline = 5/5 pairs completed, sample phase = audit_required
+multi-source-data-merger = pair-001 aborted in score_validity
+suite status = invalid_harness
+abort_signature = harness_materialization_failure/docker_backend_unavailable
+```
+
+这次没有复现 validator-source metadata 泄漏：
+
+```text
+multi-source pair-001:
+  proof_agent_cannot_read_validator_source = True
+```
+
+新的 harness 根因是 generated Terminal-Bench validator 对 Docker backend 探测使用固定 20 秒 `Start-Job` timeout：
+
+```text
+old generated validator:
+  Invoke-DockerBackendProbe timeout = 20 seconds
+  WSL[whale-docker] exit=124
+  probe timed out after 20 seconds
+
+host check after failure:
+  wsl docker version = 29.1.3
+  direct elapsed_ms = 11601
+  Start-Job elapsed_ms = 10379
+```
+
+修复：
+
+```text
+terminal-bench-adapter.ps1:
+  generated validators now read TASKSPACE_DOCKER_BACKEND_PROBE_TIMEOUT_SECONDS
+  default timeout = 60 seconds
+  lower bound = 20 seconds
+  upper bound = 300 seconds
+
+test-harness.ps1:
+  asserts generated validators expose the configurable timeout
+  asserts default 60 and lower-bound guard remain present
+```
+
+已验证：
+
+```text
+test-harness.ps1 = PASS
+test-terminal-bench-adapter-harness.ps1 = PASS
+git diff --check = PASS
+
+new real multi-source-data-merger validator -ProbeOnly:
+  exit_code = 0
+  status = pass
+  stage = probe
+  docker_backend = wsl
+```
+
+仍未收敛的真实产品问题：
+
+```text
+multi-source-data-merger pair-001:
+  standard changed conflicts.json and merged_users.parquet
+  taskspace changed no files
+  taskspace exec_exit_code = 1
+  taskspace open_leaf_nodes = 1
+  taskspace wall_time_ratio = 12.86
+```
+
+因此 Docker probe 修复只恢复 harness 可判定性，不代表 multi-source 样本已经通过。后续 formal E3 需要重新刷新 current-HEAD gates/markers，再验证该样本的 TaskSpace 策略退化是否仍存在。

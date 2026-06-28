@@ -1342,3 +1342,105 @@ focused processing-pipeline rerun:
 结论：该问题是 runner artifact 分区错误，不是 agent 解题错误、DeepSeek API 问题或 Docker validation 问题。修复不弱化 E3 proof；相反，它把 proof-only metadata 从 agent 可见上下文中移除，同时保留 runner 自身可审计证据。
 
 由于 `workspace.ps1`、`run-taskspace-benchmark.ps1` 和 `test-harness.ps1` 已变化，正式继续 E3 前必须重新刷新 current-HEAD profile/gates/markers/start gate。
+
+### F.27 generated validator Docker backend probe timeout
+
+runner-private probe isolation 修复并刷新门禁后，formal E3 继续执行：
+
+```text
+SuiteRoot = target\e3f-after-runner-private\suite-20260629-032450
+start gate = pass
+processing-pipeline:
+  attempted_pairs = 5
+  completed_pairs = 5
+  phase = audit_required
+multi-source-data-merger:
+  attempted_pairs = 1
+  completed_pairs = 1
+  phase = invalid_harness
+  abort_signature = harness_materialization_failure/docker_backend_unavailable
+recover-accuracy-log:
+  skipped_reason = suite_repeated_infra_signature
+```
+
+`processing-pipeline` 的状态说明 pending-audit 状态机生效：缺人工审查时进入 `audit_required`，没有再误判为 `invalid_harness`。
+
+`multi-source-data-merger` 的工程不干净原因：
+
+```text
+engineering_unclean_reasons:
+  docker_backend_unavailable
+  e3_external_validator_fidelity_unproven
+  e3_external_validator_not_e3_eligible
+  no_tests_started_marker
+```
+
+左侧 validator pretest 证据：
+
+```text
+validator-probe-result.json:
+  status = fail
+  stage = validator_pretest
+  stable_code = docker_backend_unavailable
+  normalized_message = WSL[whale-docker] exit=124; probe timed out after 20 seconds
+```
+
+但主机 Docker 实际可用：
+
+```text
+wsl -d whale-docker -- docker version:
+  server = 29.1.3
+  elapsed_ms = 11601
+
+PowerShell Start-Job wrapper:
+  server = 29.1.3
+  elapsed_ms = 10379
+```
+
+因此根因是 generated validator 的 Docker backend probe 固定 20 秒，对当前 Windows/WSL 资源压力过于脆弱。修复：
+
+```text
+terminal-bench-adapter.ps1:
+  Get-DockerBackendProbeTimeoutSeconds
+  env = TASKSPACE_DOCKER_BACKEND_PROBE_TIMEOUT_SECONDS
+  default = 60
+  min = 20
+  max = 300
+
+Invoke-DockerBackendProbe:
+  default TimeoutSeconds = 0
+  TimeoutSeconds <= 0 时读取 Get-DockerBackendProbeTimeoutSeconds
+```
+
+验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1 = PASS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-terminal-bench-adapter-harness.ps1 = PASS
+git diff --check = PASS
+
+real multi-source-data-merger regenerated validator:
+  command = external-validator.ps1 -ProbeOnly
+  exit_code = 0
+  validator-probe-result.status = pass
+  validator-probe-result.stage = probe
+  docker_backend = wsl
+```
+
+注意：该修复只消除 harness 对 Docker backend 的误判，不改变 agent 预算、TaskSpace graph、评分语义或 validator 测试本身。
+
+同一 formal run 还暴露真实 TaskSpace 行为退化，不能被 Docker probe 修复掩盖：
+
+```text
+multi-source-data-merger pair-001:
+  standard:
+    changed_paths = conflicts.json, merged_users.parquet
+    exec_exit_code = 0
+  taskspace:
+    changed_paths = empty
+    exec_exit_code = 1
+    open_leaf_nodes = 1
+    wall_time_ratio = 12.86
+```
+
+下一轮 formal E3 前，由于 adapter 和 harness test 发生变化，必须重新提交、刷新 current-HEAD gates/markers/start gate。
