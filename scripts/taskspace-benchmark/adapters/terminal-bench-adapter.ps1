@@ -102,6 +102,15 @@ function Test-TerminalBenchPublicFixtureRelativePath {
     return $true
 }
 
+function ConvertTo-TerminalBenchLongPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $full = [System.IO.Path]::GetFullPath($Path)
+    if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { return $full }
+    if ($full.StartsWith("\\?\")) { return $full }
+    if ($full.StartsWith("\\")) { return "\\?\UNC\" + $full.Substring(2) }
+    "\\?\$full"
+}
+
 function Get-TerminalBenchDockerfileBaseImageProof {
     param([Parameter(Mandatory = $true)][string]$DockerfilePath)
     if (-not (Test-Path -LiteralPath $DockerfilePath)) { return [pscustomobject]@{ from_images = @(); digest_pinned = $false } }
@@ -182,8 +191,11 @@ $fixtureSource = if (Test-Path -LiteralPath $fixtureSource) {
         $relative = $file.FullName.Substring($taskRoot.Length).TrimStart("\", "/").Replace("\", "/")
         if (-not (Test-TerminalBenchPublicFixtureRelativePath $relative)) { continue }
         $dest = Join-Path $generatedFixture ($relative.Replace("/", [System.IO.Path]::DirectorySeparatorChar))
-        New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
-        Copy-Item -LiteralPath $file.FullName -Destination $dest -Force
+        [System.IO.Directory]::CreateDirectory((ConvertTo-TerminalBenchLongPath (Split-Path -Parent $dest))) | Out-Null
+        [System.IO.File]::Copy((ConvertTo-TerminalBenchLongPath $file.FullName), (ConvertTo-TerminalBenchLongPath $dest), $true)
+        if (-not [System.IO.File]::Exists((ConvertTo-TerminalBenchLongPath $dest))) {
+            throw "Fixture file copy failed: $relative"
+        }
         $copiedFiles.Add($relative)
     }
     $generatedFixtureAllowlist = @($copiedFiles.ToArray())
@@ -199,6 +211,10 @@ if (Test-Path -LiteralPath (Join-Path $taskRoot "tests")) {
     foreach ($item in Get-ChildItem -LiteralPath (Join-Path $taskRoot "tests") -Force) {
         if (-not $item.PSIsContainer -and [System.IO.Path]::GetExtension($item.FullName).ToLowerInvariant() -eq ".sh") {
             Copy-TaskspaceExternalShellScript $item.FullName (Join-Path $validatorSourceDir $item.Name)
+        } elseif (-not $item.PSIsContainer) {
+            $dest = Join-Path $validatorSourceDir $item.Name
+            [System.IO.Directory]::CreateDirectory((ConvertTo-TerminalBenchLongPath (Split-Path -Parent $dest))) | Out-Null
+            [System.IO.File]::Copy((ConvertTo-TerminalBenchLongPath $item.FullName), (ConvertTo-TerminalBenchLongPath $dest), $true)
         } else {
             Copy-Item -LiteralPath $item.FullName -Destination $validatorSourceDir -Recurse -Force
         }

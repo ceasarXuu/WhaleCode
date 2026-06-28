@@ -1556,9 +1556,14 @@
   - H-018 after-repair predictions.
 - Matched signal:
   - Both wrappers now emit `-SampleNames` once, followed by all non-empty sample names.
+  - Because `powershell.exe -File` binds `string[]` parameters as one string across process boundaries, wrappers now pass a CSV value and entry scripts normalize comma-separated names back to arrays.
   - `run-taskspace-external-benchmark.ps1` now declares and forwards `SuiteReceiptPath` / `SuiteReceiptSha256`, matching the suite runner arguments and the downstream benchmark runner provenance parameters.
+  - External materialization now uses a short `target\external-materialized\<hash>` root, plus a run-local `materialized-scenarios-pointer.json`, avoiding repeated Windows `MAX_PATH` failures in formal suite roots.
+  - External benchmark common copy/hash helpers are long-path aware for fixture and validator-source file trees.
   - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1` passed.
   - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-external-wrapper-harness.ps1` passed.
+  - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-terminal-bench-adapter-harness.ps1` passed.
+  - Formal `terminal-bench_E3-P0_3_5` plan-only suite passed materialization/preflight for all three samples.
   - The fix changes `run-taskspace-e3-suite.ps1` SHA, so formal `profile_hash` and v0.0.5 non-agent marker evidence must be regenerated on the new HEAD.
 - Correlation keys:
   - `SampleNames`
@@ -1570,6 +1575,19 @@
 
   TaskSpace external wrapper self-test: PASS
   RunRoot: D:\whalecode-alpha\target\external-wrapper-selftest\20260628-172201-777
+
+  Terminal-Bench adapter self-test: PASS
+  RunRoot: D:\whalecode-alpha\target\terminal-bench-adapter-selftest\20260628-175207-395
+
+  formal plan-only:
+  SuiteRoot: D:\whalecode-alpha\target\phase-r3-formal-e3-20260628-170557\plan-after-short-materialization-root\suite-20260628-175509
+  sample_set_id = terminal-bench_E3-P0_3_5
+  task_list_hash = de1c223db57ea05e0c87839bb9d13677eb4faa84d3a3830df2b36d7e0ecac5a2
+  profile_hash = c04582a682c487647ffea44b9f6a2010a23619c0724a1d8a1a09c538b01f0bd4
+  status = completed
+  suite_score_valid = true
+  score_valid_child_runs = 3
+  score_invalid_child_runs = 0
   ```
 - Interpretation: The formal E3 harness no longer has a known multi-sample argument-binding blocker, but the formal start gate remains blocked until regenerated identity-bound markers and calibration evidence pass.
 - Time: 2026-06-28 17:22

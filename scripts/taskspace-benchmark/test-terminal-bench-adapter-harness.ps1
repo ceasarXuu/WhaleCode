@@ -34,6 +34,21 @@ Assert-True (@($remoteScenario.external_benchmark.adapter_metadata.remote_assets
 Assert-True (-not [bool]$remoteScenario.external_benchmark.validator_fidelity.e3_eligible) "remote asset scenario was E3 eligible without proof"
 Assert-True ([bool]$remoteScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "remote asset downgrade metadata was not recorded"
 
+$nestedBinaryTask = Join-Path $runDir "nested-binary-fixture"
+New-Item -ItemType Directory -Path (Join-Path $nestedBinaryTask "data\source_c") -Force | Out-Null
+@'
+instruction: "Read data/source_c/users.parquet and create summary.txt."
+category: data-processing
+'@ | Set-Content -LiteralPath (Join-Path $nestedBinaryTask "task.yaml") -Encoding UTF8
+@'
+FROM scratch
+'@ | Set-Content -LiteralPath (Join-Path $nestedBinaryTask "Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $nestedBinaryTask "run-tests.sh") -Encoding UTF8
+[System.IO.File]::WriteAllBytes((Join-Path $nestedBinaryTask "data\source_c\users.parquet"), [byte[]](0x50, 0x41, 0x52, 0x31))
+$nestedBinaryOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $nestedBinaryTask -OutputRoot (Join-Path $runDir "nested-binary-out") -SampleId "nested-binary" -SourceVersion "pinned"
+$nestedBinaryScenarioDir = [string]($nestedBinaryOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+Assert-True (Test-Path -LiteralPath (Join-Path $nestedBinaryScenarioDir "fixture\data\source_c\users.parquet") -PathType Leaf) "nested binary public fixture file was not copied"
+
 $coveredTask = Join-Path $runDir "covered-uv-and-comment"
 New-Item -ItemType Directory -Path $coveredTask | Out-Null
 @'

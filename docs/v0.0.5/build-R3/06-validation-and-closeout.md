@@ -747,6 +747,11 @@ downstream run-taskspace-benchmark.ps1 也已经支持这两个 provenance 参�
 而不是：
   -SampleNames <name1> -SampleNames <name2> -SampleNames <name3>
 external wrapper 补齐 SuiteReceiptPath / SuiteReceiptSha256 声明和透传
+跨 powershell.exe -File 进程边界时，SampleNames 使用 CSV 单值传递，
+入口脚本 normalize 回数组，避免 PowerShell string[] 参数绑定歧义
+external materialization 改用 target\external-materialized\<hash> 短路径根，
+run root 写 materialized-scenarios-pointer.json 保留证据指针
+external common copy/hash helper 支持 Windows long path
 ```
 
 验证：
@@ -759,6 +764,21 @@ RunRoot = target\e3-start-gate-selftest\20260628-171620-334
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-external-wrapper-harness.ps1
 result = PASS
 RunRoot = target\external-wrapper-selftest\20260628-172201-777
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-terminal-bench-adapter-harness.ps1
+result = PASS
+RunRoot = target\terminal-bench-adapter-selftest\20260628-175207-395
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-e3-suite.ps1 ...
+mode = PlanOnly
+SuiteRoot = target\phase-r3-formal-e3-20260628-170557\plan-after-short-materialization-root\suite-20260628-175509
+status = completed
+suite_score_valid = true
+score_valid_child_runs = 3
+score_invalid_child_runs = 0
+sample_set_id = terminal-bench_E3-P0_3_5
+task_list_hash = de1c223db57ea05e0c87839bb9d13677eb4faa84d3a3830df2b36d7e0ecac5a2
+profile_hash = c04582a682c487647ffea44b9f6a2010a23619c0724a1d8a1a09c538b01f0bd4
 ```
 
 影响：

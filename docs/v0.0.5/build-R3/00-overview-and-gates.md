@@ -481,6 +481,9 @@ Cannot bind parameter because parameter 'SampleNames' is specified more than onc
 ```text
 scripts\taskspace-benchmark\run-taskspace-e3-suite.ps1
 scripts\taskspace-benchmark\run-taskspace-external-benchmark.ps1
+scripts\taskspace-benchmark\run-taskspace-benchmark.ps1
+scripts\taskspace-benchmark\adapters\external-benchmark-common.ps1
+scripts\taskspace-benchmark\adapters\terminal-bench-adapter.ps1
 ```
 
 验证：
@@ -488,6 +491,14 @@ scripts\taskspace-benchmark\run-taskspace-external-benchmark.ps1
 ```text
 test-e3-start-gate.ps1 = PASS
 test-external-wrapper-harness.ps1 = PASS
+test-terminal-bench-adapter-harness.ps1 = PASS
+
+formal plan-only terminal-bench_E3-P0_3_5:
+  status = completed
+  suite_score_valid = true
+  score_valid_child_runs = 3
+  score_invalid_child_runs = 0
+  profile_hash = c04582a682c487647ffea44b9f6a2010a23619c0724a1d8a1a09c538b01f0bd4
 ```
 
 当前 gating 影响：

@@ -41,7 +41,14 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\bootstrap.ps1") -RepoRoot $repoRoot -BenchmarkRoot $PSScriptRoot
+
+function ConvertTo-TaskspaceSampleNameList {
+    param([string[]]$Names)
+    @($Names | ForEach-Object { ([string]$_) -split "," } | ForEach-Object { ([string]$_).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+}
+
 if ($Repeats -lt 1) { throw "Repeats must be >= 1" }
+$SampleNames = @(ConvertTo-TaskspaceSampleNameList $SampleNames)
 if (-not $RunRoot) { $RunRoot = Get-NeutralTaskspaceBenchmarkRunRoot $repoRoot }
 $manifest = Read-TaskspaceScenarioManifest $repoRoot $Scenario $ScenarioPath
 $prompt = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifest.PromptPath

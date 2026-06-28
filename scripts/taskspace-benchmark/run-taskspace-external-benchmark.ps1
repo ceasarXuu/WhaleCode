@@ -47,11 +47,34 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\harness-health.ps1")
+
+function ConvertTo-TaskspaceSampleNameList {
+    param([string[]]$Names)
+    @($Names | ForEach-Object { ([string]$_) -split "," } | ForEach-Object { ([string]$_).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+}
+
 if ([string]::IsNullOrWhiteSpace($SourceVersion)) { throw "SourceVersion must pin the external benchmark source revision." }
 if (-not $RunRoot) { $RunRoot = Join-Path ([System.IO.Path]::GetTempPath()) "whale-external-bench-runs" }
 $RunRoot = [System.IO.Path]::GetFullPath($RunRoot)
 New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
-$scenarioRoot = Join-Path $RunRoot "materialized-scenarios"
+$materializationHashInput = [System.Text.Encoding]::UTF8.GetBytes("$RunRoot`n$TaskDir`n$SampleId`n$SourceVersion")
+$materializationSha = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $materializationKey = (([System.BitConverter]::ToString($materializationSha.ComputeHash($materializationHashInput)) -replace "-", "").ToLowerInvariant()).Substring(0, 16)
+} finally {
+    $materializationSha.Dispose()
+}
+$scenarioRoot = Join-Path $repoRoot "target\external-materialized\$materializationKey"
+New-Item -ItemType Directory -Path $scenarioRoot -Force | Out-Null
+[pscustomobject]@{
+    schema_version = 1
+    run_root = $RunRoot
+    scenario_root = $scenarioRoot
+    task_dir = $TaskDir
+    sample_id = $SampleId
+    source_version = $SourceVersion
+    generated_at = (Get-Date).ToString("o")
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $RunRoot "materialized-scenarios-pointer.json") -Encoding UTF8
 $binaryHealthPath = Join-Path $RunRoot "whale-binary-preflight-health.json"
 $binaryHealth = New-TaskspaceWhaleBinaryHealth $WhaleBin $repoRoot -AllowStale:$AllowStaleWhaleBin
 Write-TaskspaceHarnessHealth $binaryHealthPath $binaryHealth
@@ -168,10 +191,9 @@ if (-not [string]::IsNullOrWhiteSpace($TaskListHash)) { $args += @("-TaskListHas
 $args += @("-SourceVersion", $SourceVersion)
 if (-not [string]::IsNullOrWhiteSpace($ProfileHash)) { $args += @("-ProfileHash", $ProfileHash) }
 if (-not [string]::IsNullOrWhiteSpace($SampleSetId)) { $args += @("-SampleSetId", $SampleSetId) }
-$nonEmptySampleNames = @($SampleNames | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+$nonEmptySampleNames = @(ConvertTo-TaskspaceSampleNameList $SampleNames)
 if ($nonEmptySampleNames.Count -gt 0) {
-    $args += "-SampleNames"
-    foreach ($sampleName in @($nonEmptySampleNames)) { $args += [string]$sampleName }
+    $args += @("-SampleNames", (@($nonEmptySampleNames) -join ","))
 }
 $args += @("-BenchmarkFamily", $Benchmark)
 if (-not [string]::IsNullOrWhiteSpace($SuiteRunnerEntrypoint)) { $args += @("-RunnerEntrypoint", $SuiteRunnerEntrypoint) }

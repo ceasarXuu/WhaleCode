@@ -550,8 +550,7 @@ function New-SuiteChildArgs {
     )
     $nonEmptySuiteSampleNames = @($suiteSampleNames | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
     if ($nonEmptySuiteSampleNames.Count -gt 0) {
-        $childArgs += "-SampleNames"
-        foreach ($sampleName in @($nonEmptySuiteSampleNames)) { $childArgs += [string]$sampleName }
+        $childArgs += @("-SampleNames", (@($nonEmptySuiteSampleNames) -join ","))
     }
     foreach ($override in @($ConfigOverride)) { $childArgs += @("-ConfigOverride", $override) }
     if ($AuditReviewRoot) { $childArgs += @("-AuditReviewRoot", $AuditReviewRoot) }
