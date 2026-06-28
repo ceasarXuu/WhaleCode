@@ -263,6 +263,8 @@ function Write-SuiteStartGateAbortHealth {
         completed_child_processes = 0
         score_valid_child_runs = 0
         score_invalid_child_runs = 0
+        score_pending_audit_child_runs = 0
+        suite_score_ready = $false
         suite_score_valid = $false
         generated_at = (Get-Date).ToString("o")
     } | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $suiteHealthPath -Encoding UTF8
@@ -300,6 +302,8 @@ function Write-SuiteEarlyAbortArtifacts {
         completed_child_processes = 0
         score_valid_child_runs = 0
         score_invalid_child_runs = 0
+        score_pending_audit_child_runs = 0
+        suite_score_ready = $false
         suite_score_valid = $false
         calibration_selection_path = (Join-Path $suiteRoot "calibration-selection.json")
         generated_at = (Get-Date).ToString("o")
@@ -423,7 +427,9 @@ function Write-SuiteHealth {
         completed_child_processes = $scoreSummary.completed_child_processes
         score_valid_child_runs = $scoreSummary.score_valid_child_runs
         score_invalid_child_runs = $scoreSummary.score_invalid_child_runs
+        score_pending_audit_child_runs = $scoreSummary.score_pending_audit_child_runs
         first_score_invalid_run = $scoreSummary.first_score_invalid_run
+        suite_score_ready = $scoreSummary.suite_score_ready
         suite_score_valid = $scoreSummary.suite_score_valid
         calibration_selection_path = (Join-Path $suiteRoot "calibration-selection.json")
         expected_time_saved_minutes = $timeSaved.expected_time_saved_minutes
@@ -586,11 +592,31 @@ function Complete-SuiteSampleStatus {
         try {
             $aggregate = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregatePath.FullName | ConvertFrom-Json
             if ($aggregate.PSObject.Properties.Name -contains "score_valid" -and -not [bool]$aggregate.score_valid) {
-                $status = New-TaskspaceSuiteChildFailureStatus $status ([string]$Row.sample_id) ([string]$Row.task_dir) 3 ([string]$aggregatePath.FullName) ([string]$Row.sample_root)
-                $status.abort_phase = "score_validity"
-                $status.abort_signature = "harness_materialization_failure/score_invalid"
-                $status.abort_reason = if ($aggregate.PSObject.Properties.Name -contains "score_invalid_reason") { [string]$aggregate.score_invalid_reason } else { "score_invalid" }
-                $ChildExit = 3
+                $scoreBlockReason = if ($aggregate.PSObject.Properties.Name -contains "score_block_reason") { [string]$aggregate.score_block_reason } else { "" }
+                $scoreInvalidReason = if ($aggregate.PSObject.Properties.Name -contains "score_invalid_reason") { [string]$aggregate.score_invalid_reason } else { "" }
+                if ($scoreBlockReason -eq "audit_required" -and [string]::IsNullOrWhiteSpace($scoreInvalidReason)) {
+                    foreach ($property in @(
+                            @{ name = "score_ready"; value = $false },
+                            @{ name = "score_valid"; value = $false },
+                            @{ name = "score_block_reason"; value = "audit_required" },
+                            @{ name = "score_status"; value = "pending_audit" },
+                            @{ name = "score_artifact"; value = [string]$aggregatePath.FullName }
+                        )) {
+                        $status | Add-Member -NotePropertyName $property.name -NotePropertyValue $property.value -Force
+                    }
+                    Write-TaskspaceRunEvent $suiteRoot "suite_score_pending_audit" @{
+                        suite_run_id = (Split-Path -Leaf $suiteRoot)
+                        child_run_id = if ($status.PSObject.Properties.Name -contains "sample_root") { [string]$status.sample_root } else { "" }
+                        sample_id = if ($status.PSObject.Properties.Name -contains "sample_id") { [string]$status.sample_id } else { [string]$Row.sample_id }
+                        aggregate_path = [string]$aggregatePath.FullName
+                    }
+                } else {
+                    $status = New-TaskspaceSuiteChildFailureStatus $status ([string]$Row.sample_id) ([string]$Row.task_dir) 3 ([string]$aggregatePath.FullName) ([string]$Row.sample_root)
+                    $status.abort_phase = "score_validity"
+                    $status.abort_signature = "harness_materialization_failure/score_invalid"
+                    $status.abort_reason = if (-not [string]::IsNullOrWhiteSpace($scoreInvalidReason)) { $scoreInvalidReason } elseif (-not [string]::IsNullOrWhiteSpace($scoreBlockReason)) { $scoreBlockReason } else { "score_invalid" }
+                    $ChildExit = 3
+                }
             }
         } catch {
             if ($scoreValidityEnforced) {
@@ -695,14 +721,15 @@ for ($index = 0; $index -lt $tasks.Count; ) {
     }
 }
 
-$statusText = if ($suiteAbort) { "invalid_harness" } else { "completed" }
+$finalScoreSummary = Get-TaskspaceSuiteScoreValiditySummary @($sampleStatuses.ToArray()) $Repeats
+$statusText = if ($suiteAbort) { "invalid_harness" } elseif ([int]$finalScoreSummary.score_pending_audit_child_runs -gt 0) { "audit_required" } else { "completed" }
 Write-SuiteHealth $statusText @($sampleStatuses.ToArray()) $signatureCounts $suiteAbort
 $suiteTimingPath = Write-TaskspaceSuiteTiming -SuiteRoot $suiteRoot -SampleStatuses @($sampleStatuses.ToArray()) -TaskListHash $taskListHash -SourceVersion $SourceVersion -ProfileHash $profileHash
 $suiteCost = Write-TaskspaceCostAggregateArtifacts -RootDir $suiteRoot -Scope "suite"
-$runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath $suiteTimingPath -ScoreValid (-not [bool]$suiteAbort)
+$runtimeBottleneckPath = Write-TaskspaceRuntimeBottleneckReport -TimingPath $suiteTimingPath -ScoreValid ([bool]$finalScoreSummary.suite_score_valid)
 $gitCommit = ""
 try { $gitCommit = (& git -C (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path rev-parse HEAD 2>$null) } catch { $gitCommit = "" }
-$calibrationPath = Write-TaskspaceRuntimeCalibrationReport -TimingPath $suiteTimingPath -ScoreValid (-not [bool]$suiteAbort) -CommandLine ([Environment]::CommandLine) -GitCommit ([string]$gitCommit).Trim() -ParallelismPath $parallelismPath
+$calibrationPath = Write-TaskspaceRuntimeCalibrationReport -TimingPath $suiteTimingPath -ScoreValid ([bool]$finalScoreSummary.suite_score_valid) -CommandLine ([Environment]::CommandLine) -GitCommit ([string]$gitCommit).Trim() -ParallelismPath $parallelismPath
 Write-SuiteReceiptEvent "suite_finalized" @{
     status = $statusText
     exit_code = $exitCode

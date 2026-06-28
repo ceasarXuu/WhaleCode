@@ -434,6 +434,10 @@ Assert-True ([int]$suiteScoreSummary.completed_child_processes -eq 1) "suite sco
 Assert-True ([int]$suiteScoreSummary.score_valid_child_runs -eq 1) "suite score summary did not count valid child"
 Assert-True ([int]$suiteScoreSummary.score_invalid_child_runs -eq 1) "suite score summary did not count invalid child"
 Assert-True (-not [bool]$suiteScoreSummary.suite_score_valid -and [string]$suiteScoreSummary.first_score_invalid_run -eq "sample-helper-missing") "suite score summary did not identify first invalid sample"
+$pendingAuditSuiteStatus = [pscustomobject]@{ sample_id = "sample-pending"; run_validity = "valid"; phase = "audit_required"; attempted_pairs = 5; completed_pairs = 5; score_block_reason = "audit_required" }
+$pendingAuditSuiteScoreSummary = Get-TaskspaceSuiteScoreValiditySummary @($pendingAuditSuiteStatus) 5
+Assert-True ([int]$pendingAuditSuiteScoreSummary.completed_child_processes -eq 1 -and [int]$pendingAuditSuiteScoreSummary.score_pending_audit_child_runs -eq 1) "suite score summary did not count pending-audit child"
+Assert-True (-not [bool]$pendingAuditSuiteScoreSummary.suite_score_ready -and -not [bool]$pendingAuditSuiteScoreSummary.suite_score_valid -and [int]$pendingAuditSuiteScoreSummary.score_invalid_child_runs -eq 0) "suite score summary treated pending audit as invalid or score-ready"
 $suiteTimingPath = Write-TaskspaceSuiteTiming $suiteRootFromStatus @($helperStatus)
 $suiteTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $suiteTimingPath | ConvertFrom-Json
 Assert-True ([int]$suiteTiming.missing_sample_timing_count -eq 1) "suite timing did not use helper-generated status to record missing timing"

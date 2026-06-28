@@ -865,3 +865,110 @@ profile_hash = 2aebff6baaf60a71367f9c999e93a1fd01a140257d48e4cee8378fccb0cbc013
 该修复再次改变 run-taskspace-e3-suite.ps1 SHA。
 commit 后必须以最终 HEAD 重新生成 formal non-agent gates 和 marker。
 ```
+
+## F.22 2026-06-28 formal E3 full-run state semantics
+
+在 current-HEAD gates / markers 放行后，full formal E3 第一次启动暴露两个新的
+harness closeout 问题。
+
+### F.22.1 Windows deep run-root Git materialization
+
+长 run root 下的两次 full formal E3 都在 workspace materialization 阶段失败：
+
+```text
+RunRoot = target\phase-r3-formal-e3-20260628-170557\formal-run-final-head-correct-source
+RunRoot = target\phase-r3-formal-e3-20260628-170557\formal-run-final-head-retry-1
+failure = invalid object 100644 83544132e76f2c3e3f5cee636e8e0ca0cabb5faf for 'Dockerfile'
+failed loose-object temp path length = 281
+```
+
+短路径验证：
+
+```text
+RunRoot = target\e3f-final
+SuiteRoot = target\e3f-final\suite-20260628-184253
+result = workspace materialization passed; processing-pipeline entered real agent execution
+```
+
+结论：这是 Windows Git loose-object 路径预算问题，不是 task fixture 内容损坏。
+当前正式运行必须使用短 run root；长期应由 suite runner 自动选择 Windows-safe
+short run root。
+
+### F.22.2 pending audit must not be invalid_harness
+
+短路径 full formal E3 的第一项样本产生了可审查证据：
+
+```text
+sample = processing-pipeline
+attempted_pairs = 5
+completed_pairs = 5
+run_validity = valid
+phase = audit_required
+engineering_unclean_count = 0
+audit_required_count = 5
+score_block_reason = audit_required
+score_invalid_reason =
+```
+
+同时已经产生真实收益信号，但尚未完成 E3 人审计分：
+
+```text
+cost gate = PASS
+direct_input_output_ratio = 1.1877
+walltime_ratio = 0.6001
+provider request 2+ cache hit rate = 0.984232
+semantic_replacement_rate = 0.5299
+protected_miss_count = 0
+```
+
+旧 suite runner 的错误：
+
+```text
+只要 aggregate.score_valid=false 就升级为 invalid_harness。
+这会把 score_block_reason=audit_required 错误写成
+harness_materialization_failure/score_invalid，并跳过剩余样本。
+```
+
+修复后的状态机：
+
+```text
+score_block_reason=audit_required
+score_invalid_reason=<empty>
+=> score_status=pending_audit
+=> child run_validity 保持 valid
+=> suite status = audit_required
+=> suite_score_ready = false
+=> suite_score_valid = false
+=> score_pending_audit_child_runs 计数
+=> emit suite_score_pending_audit
+```
+
+真正的 engineering-unclean 或 score-invalid 仍然保持 invalid_harness 熔断。
+
+验证：
+
+```text
+git diff --check = PASS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-score-validity.ps1 = PASS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1 = PASS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1 = PASS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 = PASS
+```
+
+下一步：
+
+```text
+1. commit/push 当前 state-machine fix
+2. 重新计算 formal profile_hash
+3. 重跑 current-HEAD non-agent gates
+4. 重新生成 code-complete / user-approval marker
+5. 重跑 formal start gate
+6. 使用短 run root 重跑 formal terminal-bench_E3-P0_3_5
+```
+
+下一轮 full formal E3 的正确预期：
+
+```text
+如果样本执行完成但缺少人工审查，suite 应结束为 audit_required，而不是 invalid_harness。
+只有完成 audit-review.json 并通过 score validity 后，才能声明 formal E3 score / speed / cost claim。
+```

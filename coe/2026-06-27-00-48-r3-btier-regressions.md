@@ -1722,3 +1722,141 @@
   ```
 - Interpretation: The formal suite runner no longer depends on fragile empty-string argument binding for optional marker values.
 - Time: 2026-06-28 18:18
+
+## Hypothesis H-021: deep formal suite roots exceed Windows Git loose-object path budget
+- Status: confirmed
+- Parent: P-001
+- Claim: Full formal E3 runs under the long `target\phase-r3-formal-e3-20260628-170557\formal-run-*` roots failed during workspace materialization because Git loose-object temporary paths exceeded the effective Windows path budget. Git left suffixed temporary object files, while the index referenced the unsuffixed object id.
+- Layer: harness-environment
+- Factor relation: sequential
+- Depends on:
+  - H-020
+- Rationale:
+  - Two consecutive full formal attempts failed before model execution with `invalid object 100644 83544132e76f2c3e3f5cee636e8e0ca0cabb5faf for 'Dockerfile'`.
+  - The failing loose-object temporary path length was 281 characters.
+  - A short isolated repro path of 160 characters passed `git init/add/commit/fsck`.
+  - Re-running the same formal identity under short root `target\e3f-final` passed workspace materialization and entered real agent execution.
+- Falsifiable predictions:
+  - If true: deep roots fail before child agent execution with Git object materialization errors, while the same task list and source under a short run root passes materialization.
+  - If false: short root would fail with the same Git object error, or deep root failure would show task content corruption independent of path length.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: compare deep-root failures with short-root formal run progress.
+  - Signal: `pair-abort.json`, failed object path length, and short-root suite status.
+  - Capture method: formal E3 artifacts and path-length probe.
+  - Event name or marker:
+    - `harness_materialization_failure/workspace_materialization_failed`
+    - `invalid object 100644 ... Dockerfile`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-031
+- Conclusion: confirmed
+- Repair design readiness: implemented by operational run-root selection; a future hardening item is to make the suite choose a short formal run root automatically on Windows.
+- Next step: keep formal E3 run roots short (`target\e3f-*`) until the runner owns this path-budget policy.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-031: short formal run root clears Git materialization and reaches real agent execution
+- Related hypotheses:
+  - H-021
+- Direction: supports
+- Type: diagnostic
+- Source: `target\e3f-final\suite-20260628-184253`
+- Prediction or plan link:
+  - H-021 short-root prediction.
+- Matched signal:
+  - Deep formal runs failed with `harness_materialization_failure/workspace_materialization_failed`.
+  - Failed Git loose object temp path length was 281 characters.
+  - Short-root formal run under `target\e3f-final` completed `processing-pipeline` with 5 attempted and 5 completed pairs, `run_validity=valid`, and `exit_code=0`.
+- Correlation keys:
+  - `terminal-bench_E3-P0_3_5`
+  - `task_list_hash=de1c223db57ea05e0c87839bb9d13677eb4faa84d3a3830df2b36d7e0ecac5a2`
+  - `profile_hash=2aebff6baaf60a71367f9c999e93a1fd01a140257d48e4cee8378fccb0cbc013`
+- Raw content:
+  ```text
+  deep failure: invalid object 100644 83544132e76f2c3e3f5cee636e8e0ca0cabb5faf for 'Dockerfile'
+  failed loose object temp path length: 281
+  short root: target\e3f-final\suite-20260628-184253
+  processing-pipeline sample-status:
+    phase = audit_required
+    run_validity = valid
+    attempted_pairs = 5
+    completed_pairs = 5
+    exit_code = 0
+  ```
+- Interpretation: The Git materialization blocker is path-budget related, not scenario content corruption or agent execution failure.
+- Time: 2026-06-28 20:11
+
+## Hypothesis H-022: suite score enforcement conflates pending audit with invalid harness
+- Status: confirmed
+- Parent: P-001
+- Claim: `run-taskspace-e3-suite.ps1` treated any aggregate with `score_valid=false` as `invalid_harness`. This incorrectly converted `score_block_reason=audit_required` into `harness_materialization_failure/score_invalid`, skipped the remaining formal samples, and hid a valid evidence-generation state behind a false harness failure.
+- Layer: harness-state-machine
+- Factor relation: sequential
+- Depends on:
+  - H-021
+- Rationale:
+  - `aggregate-report.ps1` defines missing E3 human review as `run_validity=valid`, `score_ready=false`, `score_block_reason=audit_required`, and blank `score_invalid_reason`.
+  - `run-taskspace-e3-suite.ps1` ignored `score_block_reason` and upgraded every `score_valid=false` aggregate to `invalid_harness`.
+  - The real short-root formal run had 5 completed engineering-clean pairs, but suite health recorded `harness_materialization_failure/score_invalid` and skipped the remaining 2 samples.
+- Falsifiable predictions:
+  - If true before repair: a child run with `run_validity=valid` and aggregate `score_block_reason=audit_required` becomes suite `invalid_harness`.
+  - If true after repair: the same child remains valid, suite status becomes `audit_required`, no remaining samples are skipped for this reason, and `suite_score_pending_audit` events identify the handoff.
+  - If false: pending audit would already be preserved by the suite, or aggregate would label it as engineering-unclean.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: add a suite fixture whose child writes a valid `audit_required` sample status and aggregate, then run suite scoring mode.
+  - Signal: suite health fields and events.
+  - Capture method: `test-e3-harness-guardrails.ps1` and `test-e3-score-validity.ps1`.
+  - Event name or marker:
+    - `suite_score_pending_audit`
+    - `score_pending_audit_child_runs`
+    - `suite_score_ready=false`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-032
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: commit/push the state-machine fix, recompute formal identity, regenerate current-HEAD markers/gates, and rerun formal E3 under a short root.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-032: pending audit is now preserved as audit_required instead of invalid_harness
+- Related hypotheses:
+  - H-022
+- Direction: supports
+- Type: fix-validation
+- Source: `scripts\taskspace-benchmark\lib\suite-status.ps1`, `scripts\taskspace-benchmark\run-taskspace-e3-suite.ps1`, `scripts\taskspace-benchmark\test-e3-score-validity.ps1`, `scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1`
+- Prediction or plan link:
+  - H-022 after-repair predictions.
+- Matched signal:
+  - Suite score summary now records `score_pending_audit_child_runs` and keeps `suite_score_ready=false` for pending audit.
+  - Suite runner emits `suite_score_pending_audit` and does not call `New-TaskspaceSuiteChildFailureStatus` when `score_block_reason=audit_required` and `score_invalid_reason` is blank.
+  - Pending-audit fixture exits 0 with suite `status=audit_required`, `score_invalid_child_runs=0`, `remaining_samples_skipped=0`, and `score_pending_audit_child_runs=2`.
+  - Existing invalid-harness fixtures still fail and skip as before.
+- Correlation keys:
+  - `score_block_reason=audit_required`
+  - `suite_score_pending_audit`
+- Raw content:
+  ```text
+  git diff --check = PASS
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-score-validity.ps1
+  E3 score-validity self-test: PASS
+  RunRoot: D:\whalecode-alpha\target\e3-score-validity-selftest\20260628-200746-621
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-harness-guardrails.ps1
+  E3 harness guardrails self-test: PASS
+  RunRoot: D:\whalecode-alpha\target\e3-guardrails-selftest\20260628-200746-801
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1
+  E3 start gate self-test: PASS
+  RunRoot: D:\whalecode-alpha\target\e3-start-gate-selftest\20260628-200846-069
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1
+  Release decision self-test: PASS
+  RunRoot: D:\whalecode-alpha\target\release-decision-selftest\run-20260628-200846-008
+  ```
+- Interpretation: Pending human audit is now an explicit formal handoff state, while actual score/harness invalid states remain blocking.
+- Time: 2026-06-28 20:11

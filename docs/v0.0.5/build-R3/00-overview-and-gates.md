@@ -598,3 +598,84 @@ formal plan-only terminal-bench_E3-P0_3_5:
   task_list_hash = de1c223db57ea05e0c87839bb9d13677eb4faa84d3a3830df2b36d7e0ecac5a2
   profile_hash = 2aebff6baaf60a71367f9c999e93a1fd01a140257d48e4cee8378fccb0cbc013
 ```
+
+## 0.17 2026-06-28 Formal E3 Full-Run State Fix
+
+正式 E3 full run 继续暴露两个与 agent 解题无关的 harness 问题。
+
+第一，深层 run root 在 Windows 上触发 Git loose-object 路径预算问题：
+
+```text
+deep root = target\phase-r3-formal-e3-20260628-170557\formal-run-*
+failure = invalid object 100644 ... for 'Dockerfile'
+failed loose-object temp path length = 281
+short root = target\e3f-final
+result = workspace materialization passed, real agent pairs executed
+```
+
+当前操作规则：
+
+```text
+formal E3 full run root 使用短路径，例如 target\e3f-*。
+长期修复应把 Windows run-root path budget 纳入 suite runner 自动策略。
+```
+
+第二，短路径 formal run 的 `processing-pipeline` 跑完 5 对后进入人工审查状态，
+但旧 suite 状态机把 `score_block_reason=audit_required` 错误升级为
+`invalid_harness / score_invalid`，并熔断剩余样本。
+
+真实现场：
+
+```text
+SuiteRoot = target\e3f-final\suite-20260628-184253
+sample = processing-pipeline
+run_validity = valid
+phase = audit_required
+attempted_pairs = 5
+completed_pairs = 5
+engineering_unclean_count = 0
+audit_required_count = 5
+score_block_reason = audit_required
+cost gate = PASS
+direct_input_output_ratio = 1.1877
+walltime_ratio = 0.6001
+provider request 2+ cache hit rate = 0.984232
+semantic_replacement_rate = 0.5299
+protected_miss_count = 0
+```
+
+修复后的状态语义：
+
+```text
+audit_required != invalid_harness
+
+score_block_reason=audit_required 且 score_invalid_reason 为空时：
+  child run_validity 保持 valid
+  suite status = audit_required
+  suite_score_ready = false
+  suite_score_valid = false
+  score_pending_audit_child_runs > 0
+  emit event suite_score_pending_audit
+
+真正 engineering_unclean / score_invalid 仍然保持 invalid_harness 熔断。
+```
+
+验证：
+
+```text
+git diff --check = PASS
+test-e3-score-validity.ps1 = PASS
+test-e3-harness-guardrails.ps1 = PASS
+test-e3-start-gate.ps1 = PASS
+test-release-decision.ps1 = PASS
+```
+
+影响：
+
+```text
+该修复改变 suite runner script SHA 和 formal profile_hash。
+commit 后必须重新生成 formal non-agent gates、code-complete marker、user-approval marker、
+并重新跑 formal start gate。
+下一轮 formal E3 预期不再因为 pending human audit 熔断；
+若所有样本执行完成但未人审，正确终态应为 audit_required。
+```

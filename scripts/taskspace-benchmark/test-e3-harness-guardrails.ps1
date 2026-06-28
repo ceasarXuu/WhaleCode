@@ -282,6 +282,59 @@ Assert-True ([int]$suiteChildHealth.remaining_samples_skipped -eq 1 -and [int]$s
 Assert-True ([string]$suiteChildSkipped.phase -eq "skipped" -and [string]$suiteChildSkipped.abort_signature -eq "harness_materialization_failure/stub_score_invalid") "suite child invalid fixture did not skip second sample with first invalid signature"
 Assert-True ($suiteChildInvalidEvents.Count -eq 1 -and [int]$suiteChildInvalidEvents[0].remaining_samples_skipped -eq 1) "suite child invalid fixture did not emit score invalidated event"
 
+$suitePendingAuditRoot = Join-Path $runDir "suite-pending-audit"
+$suitePendingAuditTaskA = Join-Path $suitePendingAuditRoot "task-a"
+$suitePendingAuditTaskB = Join-Path $suitePendingAuditRoot "task-b"
+$suitePendingAuditRunner = Join-Path $suitePendingAuditRoot "stub-runner.ps1"
+New-Item -ItemType Directory -Force -Path $suitePendingAuditTaskA, $suitePendingAuditTaskB | Out-Null
+$suitePendingAuditTaskList = Join-Path $suitePendingAuditRoot "tasks.jsonl"
+@(
+    ([pscustomobject]@{ sample_id = "sample-a"; task_dir = $suitePendingAuditTaskA; source_version = "selftest" } | ConvertTo-Json -Compress),
+    ([pscustomobject]@{ sample_id = "sample-b"; task_dir = $suitePendingAuditTaskB; source_version = "selftest" } | ConvertTo-Json -Compress)
+) | Set-Content -LiteralPath $suitePendingAuditTaskList -Encoding UTF8
+@'
+param(
+    [string]$Benchmark,
+    [string]$TaskDir,
+    [string]$SampleId,
+    [string]$SourceVersion,
+    [int]$Repeats,
+    [string]$RunRoot,
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
+)
+$ErrorActionPreference = "Stop"
+New-Item -ItemType Directory -Force -Path $RunRoot | Out-Null
+[pscustomobject]@{
+    schema_version = 1
+    sample_id = $SampleId
+    phase = "audit_required"
+    run_validity = "valid"
+    exit_code = 0
+    attempted_pairs = $Repeats
+    completed_pairs = $Repeats
+    sample_root = $RunRoot
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $RunRoot "sample-status.json") -Encoding UTF8
+[pscustomobject]@{
+    aggregate_version = "selftest"
+    run_validity = "valid"
+    score_ready = $false
+    score_valid = $false
+    score_block_reason = "audit_required"
+    score_invalid_reason = ""
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $RunRoot "aggregate.json") -Encoding UTF8
+exit 0
+'@ | Set-Content -LiteralPath $suitePendingAuditRunner -Encoding UTF8
+$suitePendingAuditOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-e3-suite.ps1") -Benchmark terminal-bench -TaskListPath $suitePendingAuditTaskList -SourceVersion selftest -Repeats 5 -RunRoot (Join-Path $suitePendingAuditRoot "runs") -RunnerPath $suitePendingAuditRunner -PlanOnly -ScoringMode -SkipStartGate 2>&1
+Assert-True ($LASTEXITCODE -eq 0) "suite pending-audit fixture should complete without invalid_harness: $($suitePendingAuditOutput -join ' | ')"
+$suitePendingAuditRootLine = @($suitePendingAuditOutput | Where-Object { [string]$_ -match "^SuiteRoot:" } | Select-Object -First 1)[0]
+$suitePendingAuditRunRoot = ([string]$suitePendingAuditRootLine) -replace "^SuiteRoot:\s*", ""
+$suitePendingAuditHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $suitePendingAuditRunRoot "suite-health.json") | ConvertFrom-Json
+$suitePendingAuditEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $suitePendingAuditRunRoot "events.jsonl") | ForEach-Object { $_ | ConvertFrom-Json })
+$suitePendingAuditMarkers = @($suitePendingAuditEvents | Where-Object { [string]$_.event -eq "suite_score_pending_audit" })
+Assert-True ([string]$suitePendingAuditHealth.status -eq "audit_required" -and -not [bool]$suitePendingAuditHealth.suite_score_valid -and -not [bool]$suitePendingAuditHealth.suite_score_ready) "suite pending-audit fixture did not finalize as audit_required"
+Assert-True ([int]$suitePendingAuditHealth.remaining_samples_skipped -eq 0 -and [int]$suitePendingAuditHealth.score_invalid_child_runs -eq 0 -and [int]$suitePendingAuditHealth.score_pending_audit_child_runs -eq 2) "suite pending-audit fixture miscounted child states"
+Assert-True ($suitePendingAuditMarkers.Count -eq 2) "suite pending-audit fixture did not emit pending-audit events"
+
 $suiteDefaultScoringRoot = Join-Path $runDir "suite-default-scoring"
 $suiteDefaultTaskA = Join-Path $suiteDefaultScoringRoot "task-a"
 $suiteDefaultTaskB = Join-Path $suiteDefaultScoringRoot "task-b"
