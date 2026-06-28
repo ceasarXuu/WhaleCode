@@ -433,3 +433,36 @@ engineering_unclean_reasons:
 这两个原因来自 targeted diagnostic 的外部 validator fidelity / E3 eligibility，
 不是 TaskSpace runtime graph、cache、sentinel 或业务正确性失败。
 ```
+
+## 0.13 2026-06-28 Non-Agent Gates
+
+current-HEAD formal non-agent gates 已通过：
+
+```text
+artifact:
+  target\phase-r3-non-agent-gates-20260628-120740\v005-non-agent-gates.json
+
+status = pass
+git_commit = 00121c5fd516c543312836d132954debac8b915c
+task_list_hash = terminal-bench-processing-pipeline@1a6ffa9
+profile_hash = taskspace-v005-active__deepseek-v4-flash__reasoning-max
+source_version = terminal-bench@1a6ffa9
+generated_at = 2026-06-28T12:07:41.3219985+08:00
+```
+
+各 gate：
+
+```text
+provider_request_hook      pass  4199ms
+runtime_budget_response    pass  4199ms
+budget_quality_impact      pass  2007ms
+active_context_replacement pass  3885ms
+state_commit_displacement  pass  3739ms
+spawn_node_budget          pass  4407ms
+request_phase_attribution  pass  2007ms
+release_decision_fixture   pass  88213ms
+start_gate_fixture         pass  171287ms
+```
+
+当前 R3 可以继续推进到 release marker / formal E3 start-gate 设计，但还不能自动进入
+formal E3，因为 `explicit user approval marker` 按 R3-F 规则必须由用户确认后才能生成。

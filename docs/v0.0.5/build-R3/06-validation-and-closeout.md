@@ -643,3 +643,50 @@ R3 targeted diagnostic 当前已证明：
   e3_external_validator_fidelity_unproven
   e3_external_validator_not_e3_eligible
 ```
+
+## F.18 2026-06-28 current-HEAD non-agent gates
+
+执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\build-v005-non-agent-gates.ps1 `
+  -RunRoot target\phase-r3-non-agent-gates-20260628-120740 `
+  -TaskListHash 'terminal-bench-processing-pipeline@1a6ffa9' `
+  -ProfileHash 'taskspace-v005-active__deepseek-v4-flash__reasoning-max' `
+  -SourceVersion 'terminal-bench@1a6ffa9'
+```
+
+结果：
+
+```text
+status = pass
+git_commit = 00121c5fd516c543312836d132954debac8b915c
+artifact = target\phase-r3-non-agent-gates-20260628-120740\v005-non-agent-gates.json
+```
+
+gate 明细：
+
+```text
+provider_request_hook      pass  exit=0  timeout=false  duration_ms=4199
+runtime_budget_response    pass  exit=0  timeout=false  duration_ms=4199
+budget_quality_impact      pass  exit=0  timeout=false  duration_ms=2007
+active_context_replacement pass  exit=0  timeout=false  duration_ms=3885
+state_commit_displacement  pass  exit=0  timeout=false  duration_ms=3739
+spawn_node_budget          pass  exit=0  timeout=false  duration_ms=4407
+request_phase_attribution  pass  exit=0  timeout=false  duration_ms=2007
+release_decision_fixture   pass  exit=0  timeout=false  duration_ms=88213
+start_gate_fixture         pass  exit=0  timeout=false  duration_ms=171287
+```
+
+当前剩余 R3-F blocker：
+
+```text
+code-complete marker 尚未生成
+explicit user approval marker 尚未生成
+formal E3 start gate 尚未针对 terminal-bench_E3-P0_3_5 放行
+formal terminal-bench_E3-P0_3_5 尚未运行
+```
+
+注意：本次 non-agent gates 绑定的是 targeted diagnostic 身份
+`terminal-bench-processing-pipeline@1a6ffa9`，不是 formal E3 sample set 身份。
+formal E3 之前必须生成匹配 formal sample set 的 marker，且需要显式用户批准。
