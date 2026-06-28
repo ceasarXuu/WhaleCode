@@ -1860,3 +1860,113 @@
   ```
 - Interpretation: Pending human audit is now an explicit formal handoff state, while actual score/harness invalid states remain blocking.
 - Time: 2026-06-28 20:11
+
+## Hypothesis H-023: Terminal-Bench Docker build does not forward reachable proxy settings
+- Status: confirmed
+- Parent: P-001
+- Claim: The formal E3 suite is blocked on `multi-source-data-merger` because the generated Terminal-Bench validator performs Docker build steps that require Debian apt network access, but the adapter skips Windows loopback proxy variables for WSL and does not pass proxy build args into `docker build`.
+- Layer: harness-environment
+- Factor relation: sequential
+- Depends on:
+  - H-022
+- Rationale:
+  - The failing Dockerfile installs `tmux` and `asciinema` during build.
+  - The host proxy is configured as `127.0.0.1:7890`.
+  - The generated validator logs `proxy_env_skipped_loopback` for WSL and `proxy_env_count=0`.
+  - The build command does not include explicit proxy build args.
+- Falsifiable predictions:
+  - If true: failed build logs show apt cannot connect to `deb.debian.org`, the runtime manifest records proxy bypass for WSL loopback, and a direct WSL Docker container with `--network host` can connect to `127.0.0.1:7890`.
+  - If false: the same build would fail after successful apt/proxy access, or WSL Docker host networking could not reach the loopback proxy even when explicitly tested.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: compare formal suite validator logs, generated adapter code, host proxy state, and a minimal WSL Docker connectivity probe.
+  - Signal: `validation.stderr.log`, `validation.stdout.log`, `docker-build-result.json`, adapter generated command path, `Get-NetTCPConnection`, and `docker run --network host` socket probe.
+  - Capture method: inspect the failed pair artifacts and execute a no-code-change connectivity probe against `python:3.11-slim`.
+  - Event name or marker:
+    - `proxy_env_skipped_loopback`
+    - `docker_build_environment_failure`
+    - `Unable to connect to deb.debian.org:http`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-033
+- Conclusion: confirmed
+- Repair design readiness: ready
+- Next step: make the generated Terminal-Bench validator forward proxy settings to both Docker build and run phases, preserving loopback proxy values when WSL uses host networking, and add harness coverage for that command-generation contract.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-033: failed formal pair proves build-network proxy bypass rather than agent solve failure
+- Related hypotheses:
+  - H-023
+- Direction: supports
+- Type: diagnostic
+- Source: `target\e3f-after-pending-audit-fix\suite-20260628-202449\samples\multi-source-data-merger\runs\terminal_bench__multi-source-data-merger\20260628-215345-335\pair-001`
+- Prediction or plan link:
+  - H-023 diagnostic evidence plan.
+- Matched signal:
+  - Both left and right validator builds failed in Dockerfile step `RUN apt-get update && apt-get install -y tmux asciinema`.
+  - Stderr contained `Unable to connect to deb.debian.org:http`, `Could not connect to debian.map.fastlydns.net:80`, `Package 'tmux' has no installation candidate`, and `Unable to locate package asciinema`.
+  - Stdout recorded `docker_backend=wsl`, `proxy_env_skipped_loopback=HTTP_PROXY`, `proxy_env_skipped_loopback=HTTPS_PROXY`, `proxy_env_count=0`, `docker_cache_enabled=False`, and `docker_cache_bypass_reason=dockerfile_base_image_not_digest_pinned`.
+  - `docker-build-result.json` classified the build phase as `docker_build_environment_failure`.
+  - The host had `HTTP_PROXY=http://127.0.0.1:7890` and `HTTPS_PROXY=http://127.0.0.1:7890`, with port 7890 listening on `127.0.0.1`.
+  - A minimal WSL Docker probe using `docker run --rm --network host python:3.11-slim` connected successfully to `127.0.0.1:7890`.
+- Correlation keys:
+  - `terminal_bench__multi-source-data-merger`
+  - `pair-001`
+  - `proxy_env_skipped_loopback`
+- Raw content:
+  ```text
+  docker_build_result:
+    phase = build
+    exit_code = 1
+    classification = docker_build_environment_failure
+
+  validator stdout:
+    docker_backend=wsl
+    proxy_env_skipped_loopback=HTTP_PROXY
+    proxy_env_skipped_loopback=HTTPS_PROXY
+    proxy_env_count=0
+    docker_cache_enabled=False
+    docker_cache_bypass_reason=dockerfile_base_image_not_digest_pinned
+
+  connectivity probe:
+    proxy_connect=ok
+  ```
+- Interpretation: The formal run reached a harness infrastructure dependency: build-time apt traffic was direct even though a reachable proxy existed under WSL host networking. This does not indicate an agent engineering or solution-quality failure.
+- Time: 2026-06-28 22:40
+
+## Evidence E-034: WSL Docker build proxy forwarding clears the apt build blocker
+- Related hypotheses:
+  - H-023
+- Direction: supports
+- Type: fix-validation
+- Source: `scripts\taskspace-benchmark\adapters\terminal-bench-adapter.ps1`, `scripts\taskspace-benchmark\test-terminal-bench-adapter-harness.ps1`, `target\r3-proxy-build-probe\20260628-2222`
+- Prediction or plan link:
+  - H-023 repair design direction.
+- Matched signal:
+  - Generated validators now preserve WSL loopback proxy variables under host networking and add matching `--build-arg` entries for Docker build.
+  - `test-terminal-bench-adapter-harness.ps1` asserts proxy build args, loopback preservation, and absence of the old skip marker.
+  - `test-terminal-bench-docker-cache-smoke.ps1` and `test-external-wrapper-harness.ps1` passed.
+  - A no-agent `multi-source-data-merger` validator probe recorded `proxy_env_count=4`, `proxy_build_arg_count=4`, and `docker build` phase `exit_code=0`, `classification=ok`.
+  - The same probe then failed in Docker run because the raw fixture had not solved the task, with missing `/app/merged_users.parquet` and `/app/conflicts.json`; this is expected for a no-agent build-network probe.
+- Correlation keys:
+  - `proxy_env_preserved_loopback`
+  - `proxy_build_arg_count`
+  - `docker_build_environment_failure`
+- Raw content:
+  ```text
+  Terminal-Bench adapter self-test: PASS
+  Terminal-Bench Docker cache smoke: PASS
+  TaskSpace external wrapper self-test: PASS
+
+  target\r3-proxy-build-probe\20260628-2222:
+    proxy_env_count = 4
+    proxy_build_arg_count = 4
+    build exit_code = 0
+    build classification = ok
+    run exit_code = 1
+    run classification = docker_run_failure
+  ```
+- Interpretation: The original formal blocker was removed at the harness build-network layer. The remaining no-agent probe failure is business-test failure on an unsolved fixture, not a Docker/apt materialization failure.
+- Time: 2026-06-28 22:24

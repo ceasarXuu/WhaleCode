@@ -237,6 +237,9 @@ Assert-True ([string]$cacheScenario.external_benchmark.adapter_metadata.docker_i
 $cacheValidator = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cacheScenarioDir "external-validator.ps1")
 Assert-True ($cacheValidator -match [regex]::Escape('$cacheEnabled = ([string]$env:TASKSPACE_DOCKER_IMAGE_CACHE -eq "1" -and $cacheEligible)')) "generated validator did not gate docker cache behind env opt-in and eligibility"
 Assert-True ($cacheValidator -match [regex]::Escape('$cacheEligible = $false')) "generated validator did not disable cache for floating Dockerfile base image"
+Assert-True ($cacheValidator -match [regex]::Escape('$proxyBuildArgs += @("--build-arg", "$proxyName=$proxyValue")')) "generated validator did not forward proxy variables to Docker build"
+Assert-True ($cacheValidator -match [regex]::Escape('proxy_env_preserved_loopback=$proxyName')) "generated validator did not preserve WSL loopback proxy under host networking"
+Assert-True ($cacheValidator -notmatch [regex]::Escape('proxy_env_skipped_loopback=$proxyName')) "generated validator still skips WSL loopback proxy"
 "FROM alpine@sha256:0000000000000000000000000000000000000000000000000000000000000000" | Set-Content -LiteralPath (Join-Path $cacheTask "Dockerfile") -Encoding UTF8
 $cachePinnedOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $cacheTask -OutputRoot (Join-Path $runDir "docker-cache-pinned-out") -SampleId "docker-cache" -SourceVersion "pinned"
 $cachePinnedScenarioDir = [string]($cachePinnedOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
@@ -250,7 +253,7 @@ Assert-True (-not [string]::IsNullOrWhiteSpace([string]$pinnedCache.uv_install_s
 Assert-True ([string]$pinnedCache.docker_platform -eq "default" -and [string]$pinnedCache.docker_network_mode -eq "default" -and [string]$pinnedCache.docker_build_environment_mode -eq "host-proxy-forwarded") "docker cache metadata did not include platform/network/env proof fields"
 $cachePinnedValidator = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $cachePinnedScenarioDir "external-validator.ps1")
 Assert-True ($cacheValidator -match [regex]::Escape('Invoke-DockerOutput -Arguments @("image", "inspect", $cacheImage)')) "generated validator did not inspect cache image before build"
-Assert-True ($cachePinnedValidator -match [regex]::Escape('Invoke-Docker -Arguments @("build", "--pull", "-t", $cacheImage, $fixtureDockerPath)')) "generated validator did not build stable cache image on miss"
+Assert-True ($cachePinnedValidator -match [regex]::Escape('Invoke-Docker -Arguments (@("build") + $buildNetworkArgs + $proxyBuildArgs + @("--pull", "-t", $cacheImage, $fixtureDockerPath))')) "generated validator did not build stable cache image on miss with build network/proxy args"
 Assert-True ($cachePinnedValidator -match [regex]::Escape('"cache_hit"')) "generated validator did not record cache hit classification"
 Assert-True ($cachePinnedValidator -match [regex]::Escape('Invoke-WithDockerCacheLock')) "generated validator did not wrap Docker cache inspect/build with cache lock"
 Assert-True ($cachePinnedValidator -match [regex]::Escape('cache_lock_wait_ms = [int64]$script:TaskspaceDockerCacheLockWaitMs')) "generated validator did not record Docker cache lock wait"

@@ -679,3 +679,84 @@ commit 后必须重新生成 formal non-agent gates、code-complete marker、use
 下一轮 formal E3 预期不再因为 pending human audit 熔断；
 若所有样本执行完成但未人审，正确终态应为 audit_required。
 ```
+
+## 0.18 2026-06-28 Terminal-Bench Build Network Contract
+
+pending-audit 状态机修复后的正式 E3 继续推进到第二个样本：
+
+```text
+SuiteRoot = target\e3f-after-pending-audit-fix\suite-20260628-202449
+sample = multi-source-data-merger
+pair = pair-001
+abort_signature = harness_materialization_failure/docker_build_environment_failure
+```
+
+根因不是 agent 解题失败，而是外部 validator 的 Docker build 网络契约不完整：
+
+```text
+Dockerfile:
+  FROM python:3.11-slim
+  RUN apt-get update && apt-get install -y tmux asciinema
+
+host proxy:
+  HTTP_PROXY / HTTPS_PROXY = http://127.0.0.1:7890
+
+旧 validator:
+  docker_backend = wsl
+  proxy_env_skipped_loopback = HTTP_PROXY / HTTPS_PROXY / http_proxy / https_proxy
+  proxy_env_count = 0
+  docker build 未传 --build-arg proxy
+
+失败现象:
+  Unable to connect to deb.debian.org:http
+  Package 'tmux' has no installation candidate
+  Unable to locate package asciinema
+```
+
+验证性探针证明 WSL Docker 在 `--network host` 下可以访问该 loopback proxy：
+
+```text
+docker run --rm --network host python:3.11-slim ...
+proxy_connect = ok
+```
+
+修复后的契约：
+
+```text
+WSL backend:
+  run/build 均使用 host networking
+  loopback proxy 不再跳过，记录 proxy_env_preserved_loopback
+
+Docker build:
+  对 HTTP_PROXY / HTTPS_PROXY / http_proxy / https_proxy 等变量传 --build-arg
+  docker-build-result.json 记录 proxy_env_count / proxy_build_arg_count
+
+native backend:
+  仍把 localhost / 127.0.0.1 proxy 改写为 host.docker.internal
+```
+
+验证：
+
+```text
+test-terminal-bench-adapter-harness.ps1 = PASS
+test-terminal-bench-docker-cache-smoke.ps1 = PASS
+test-external-wrapper-harness.ps1 = PASS
+
+no-agent multi-source-data-merger validator probe:
+  proxy_env_count = 4
+  proxy_build_arg_count = 4
+  docker build phase = ok
+  docker run phase = docker_run_failure
+```
+
+其中 `docker_run_failure` 是直接运行未解题 fixture 的预期测试失败，
+缺少 `/app/merged_users.parquet` 和 `/app/conflicts.json`，不再是 apt/Docker build
+环境失败。
+
+影响：
+
+```text
+该修复改变 terminal-bench-adapter.ps1 SHA。
+formal profile_hash 会变化；commit 后必须重新生成 current-HEAD gates / markers，
+再以短 run root 重跑 formal E3。
+```

@@ -972,3 +972,92 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 如果样本执行完成但缺少人工审查，suite 应结束为 audit_required，而不是 invalid_harness。
 只有完成 audit-review.json 并通过 score validity 后，才能声明 formal E3 score / speed / cost claim。
 ```
+
+## F.23 2026-06-28 terminal-bench build network proof
+
+pending-audit 状态机修复后重新启动 full formal E3，`processing-pipeline`
+正确保留为 `audit_required`，suite 继续执行到 `multi-source-data-merger`。
+该样本第一对在 validator Docker build 阶段失败：
+
+```text
+SuiteRoot = target\e3f-after-pending-audit-fix\suite-20260628-202449
+sample = terminal_bench__multi-source-data-merger
+pair = pair-001
+reason = docker_build_environment_failure
+infra_signature = harness_materialization_failure/docker_build_environment_failure
+engineering_unclean_reasons =
+  docker_build_environment_failure
+  e3_external_validator_fidelity_unproven
+  e3_external_validator_not_e3_eligible
+  no_tests_started_marker
+```
+
+关键证据：
+
+```text
+Docker build stderr:
+  Unable to connect to deb.debian.org:http
+  Package 'tmux' has no installation candidate
+  Unable to locate package asciinema
+
+Validator stdout:
+  docker_backend = wsl
+  proxy_env_skipped_loopback = HTTP_PROXY / HTTPS_PROXY / http_proxy / https_proxy
+  proxy_env_count = 0
+  docker_cache_enabled = False
+  docker_cache_bypass_reason = dockerfile_base_image_not_digest_pinned
+
+Host:
+  HTTP_PROXY / HTTPS_PROXY = http://127.0.0.1:7890
+  127.0.0.1:7890 listening
+
+WSL Docker probe:
+  docker run --rm --network host python:3.11-slim ...
+  proxy_connect = ok
+```
+
+结论：这是 harness build-network contract 问题。旧 adapter 在 WSL host
+network 可以访问 Windows loopback proxy 的情况下仍跳过 proxy，并且未把 proxy
+显式传入 Docker build；因此 apt 走直连失败。
+
+修复：
+
+```text
+terminal-bench-adapter.ps1:
+  WSL backend 保留 loopback proxy，记录 proxy_env_preserved_loopback
+  Docker build 添加 --build-arg <proxyName>=<proxyValue>
+  WSL Docker build 使用 --network host
+  docker-build-result.json 记录 proxy_env_count / proxy_build_arg_count
+
+test-terminal-bench-adapter-harness.ps1:
+  覆盖 build proxy args
+  覆盖 WSL loopback proxy preservation
+  防止旧 proxy_env_skipped_loopback 行为回归
+```
+
+验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-terminal-bench-adapter-harness.ps1 = PASS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-terminal-bench-docker-cache-smoke.ps1 = PASS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-external-wrapper-harness.ps1 = PASS
+
+target\r3-proxy-build-probe\20260628-2222:
+  proxy_env_count = 4
+  proxy_build_arg_count = 4
+  docker build exit_code = 0
+  docker build classification = ok
+  docker run exit_code = 1
+  docker run classification = docker_run_failure
+```
+
+`docker_run_failure` 来自未解题 fixture 缺少输出文件：
+
+```text
+/app/merged_users.parquet missing
+/app/conflicts.json missing
+```
+
+因此修复已经证明原始 apt/Docker build blocker 被清除，下一轮 formal E3 可以继续
+用真实 agent 生成这些文件。由于 adapter SHA 改变，必须重新生成 profile identity、
+non-agent gates、markers 和 start gate，再重跑正式 E3。
