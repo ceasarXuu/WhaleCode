@@ -779,3 +779,84 @@ git diff --check = PASS
 ```
 
 该问题只影响 gate fixture，不代表正式样本或 agent 解题失败。
+
+## 0.19 2026-06-28 Formal E3 Runner Memory Guard
+
+继续 formal E3 后，`multi-source-data-merger` 已经越过 Docker build blocker：
+
+```text
+pair-001 / pair-002:
+  docker_build_environment_mode = host-proxy-forwarded
+  proxy_env_count = 4
+  proxy_build_arg_count = 4
+  docker build phase = ok
+```
+
+新的阻塞点是 runner 观测层内存膨胀，而不是 agent 解题或 validator 构建：
+
+```text
+PID = 7872
+process = run-taskspace-benchmark.ps1
+CPU delta over 60s = 59.515625s
+working set delta over 60s = 683671552 bytes
+private memory ~= 3.4GB
+right/artifacts/rollout.jsonl = 103255682 bytes
+pair-003 right/artifacts/git-diff.patch exists
+pair-003 right/artifacts/graph-health.json exists
+pair-003 right/artifacts/metrics.json missing before fix
+```
+
+确认根因：`Get-TaskspaceBenchmarkMetrics` 的 cost instrumentation 对大 `rollout.jsonl`
+执行多次全量解析和 materialization，导致 PowerShell 进程内存持续上涨。修复后：
+
+```text
+cost-instrumentation.ps1:
+  rollout 超过 32MiB 默认阈值时记录 cost-scan-policy.json
+  保留原始 rollout 文件
+  跳过重复全量 rollout 诊断扫描
+  输出 rollout_scan_mode = skipped_large_rollout
+
+metrics-extractor.ps1:
+  changed inventory 跳过 .tbench-testing / venv / node_modules / cache 目录
+  metrics 暴露 rollout_scan_mode / rollout_bytes / rollout_scan_max_bytes
+
+e3-proof.ps1:
+  validator source isolation 改为 bounded repo scan
+  扫描截断时显式让 proof 失败，不静默证明 absence
+```
+
+已验证：
+
+```text
+test-metrics-extractor-harness.ps1 = PASS
+test-e3-proof-harness.ps1 = PASS
+
+真实 pair-003 right/artifacts metrics extraction:
+  elapsed_ms = 1951
+  rollout_scan_mode = skipped_large_rollout
+  rollout_bytes = 103255682
+  changed_count = 0
+  metrics.json written
+```
+
+该修复只限制诊断脚本对大 rollout 的重复扫描，不改变 agent session 预算、
+provider payload、TaskSpace graph 语义或 validator 判定。
+
+当前仍未收敛的真实行为问题：
+
+```text
+multi-source-data-merger pair-001 / pair-002:
+  standard = solved
+  TaskSpace = wrong
+  engineering_unclean = false
+
+TaskSpace observed failures:
+  rg: /data: IO error
+  Get-Content cannot find /data/source_a/users.json
+  Get-Content cannot find /data/source_b/users.csv
+  apply_patch failed: W:\app\src\merge_users.py does not exist
+```
+
+这说明 R3 runner/validator 层已继续推进，但该样本暴露 TaskSpace 对 terminal-bench
+任务环境和编辑目标的理解退化。下一轮应从上下文管理器的环境契约投影、临近节点细节保留、
+以及工具反馈压缩策略处理，而不是把它归类为 harness failure。

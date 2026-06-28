@@ -2034,3 +2034,92 @@
   ```
 - Interpretation: The formal E3 start-gate blocker was a stale test contract, not a runtime or model failure.
 - Time: 2026-06-28 22:38
+
+## Hypothesis H-025: large rollout cost instrumentation caused the formal E3 sample runner memory runaway
+- Status: confirmed
+- Parent: P-001
+- Claim: `multi-source-data-merger` pair-003 did not fail in agent execution or Docker validation; it stalled while extracting metrics after validation because cost instrumentation repeatedly scanned a 103MB `rollout.jsonl`, causing PowerShell memory to grow into multi-GB range.
+- Layer: benchmark-runner-observability
+- Factor relation: sequential
+- Depends on:
+  - H-023
+  - H-024
+- Rationale:
+  - pair-003 had both side validation logs and Docker results, but only left `metrics.json`.
+  - right artifacts had `git-diff.patch` and `graph-health.json`, placing the stall after changed inventory and graph-health writing.
+  - The stuck `run-taskspace-benchmark.ps1` process used about 3GB private memory and consumed about one CPU core continuously.
+  - right `rollout.jsonl` was 103,255,682 bytes.
+- Falsifiable predictions:
+  - If true before repair: directly invoking metrics extraction on pair-003 right artifacts either hangs or grows memory while parsing rollout-derived cost diagnostics.
+  - If true after repair: large rollout files are guarded by a cost scan policy, metrics extraction completes quickly, writes `metrics.json`, and records `rollout_scan_mode=skipped_large_rollout`.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: reproduce metrics extraction on the exact pair-003 right artifacts without rerunning agent or Docker.
+  - Signal: elapsed time, managed memory before/after, `metrics.json`, `cost-scan-policy.json`.
+  - Capture method: targeted PowerShell invocation of `Get-TaskspaceBenchmarkMetrics`.
+  - Event name or marker:
+    - `rollout_scan_mode`
+    - `skipped_large_rollout`
+    - `cost-scan-policy.json`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-036
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: commit/push, refresh current-HEAD gates/markers, rerun formal E3 from a fresh run root.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-036: bounded changed inventory and large-rollout scan policy clear the pair-003 runner memory failure
+- Related hypotheses:
+  - H-025
+- Direction: supports
+- Type: fix-validation
+- Source: `scripts\taskspace-benchmark\lib\metrics-extractor.ps1`, `scripts\taskspace-benchmark\lib\cost-instrumentation.ps1`, `scripts\taskspace-benchmark\lib\e3-proof.ps1`, `target\e3f-after-proxy-selftest-fix\suite-20260628-224933\samples\multi-source-data-merger\runs\terminal_bench__multi-source-data-merger\20260628-234737-098\pair-003`
+- Prediction or plan link:
+  - H-025 after-repair prediction.
+- Matched signal:
+  - The runaway process was stopped after CPU increased 59.5 seconds over a 60 second window and working set grew by about 684MB.
+  - Suite health recorded `invalid_harness` because the child process was interrupted to prevent host memory pressure.
+  - A focused metrics extractor harness passed, proving `.tbench-testing` files are excluded from changed inventory and large rollout scans are guarded.
+  - E3 proof harness passed, proving validator-source isolation scanning skips runtime dependency trees while still detecting real repo leaks.
+  - Direct metrics extraction on the real pair-003 right artifacts completed in 1,951ms, wrote `metrics.json`, and recorded `rollout_scan_mode=skipped_large_rollout`, `rollout_bytes=103255682`.
+- Correlation keys:
+  - `rollout.jsonl`
+  - `cost-scan-policy.json`
+  - `skipped_large_rollout`
+  - `.tbench-testing`
+- Raw content:
+  ```text
+  runaway process:
+    PID = 7872
+    CPU delta over 60s = 59.515625
+    working set delta over 60s = 683671552
+    private memory ~= 3.4GB
+
+  focused tests:
+    TaskSpace metrics extractor harness self-test: PASS
+    TaskSpace E3 proof harness self-test: PASS
+
+  real pair-003 right metrics extraction:
+    elapsed_ms = 1951
+    rollout_scan_mode = skipped_large_rollout
+    rollout_bytes = 103255682
+    changed_count = 0
+  ```
+- Interpretation: The formal suite failure after the proxy fix was a runner observability memory bug. The fix bounds diagnostic scanning without changing agent execution budgets or Docker validation semantics.
+- Time: 2026-06-29 00:45
+
+## Observation O-006: multi-source-data-merger still shows TaskSpace task-strategy regression
+- Related hypotheses:
+  - H-025
+- Direction: neutral
+- Type: behavioral-observation
+- Source: pair reports and stderr logs under `target\e3f-after-proxy-selftest-fix\suite-20260628-224933\samples\multi-source-data-merger`
+- Matched signal:
+  - pair-001 and pair-002 both reported `outcome_standard=solved`, `outcome_taskspace=wrong`, `engineering_unclean=False`.
+  - TaskSpace logs repeatedly attempted to read `/data/source_a/users.json` and `/data/source_b/users.csv` from the Windows agent workspace, where those paths do not exist.
+  - TaskSpace also attempted to patch `W:\app\src\merge_users.py`, which does not exist in the materialized task.
+- Interpretation: This is a real task-strategy/context issue exposed after the runner blockers were cleared. It is not fixed by H-025 and should remain a follow-up R3 product/agent-context investigation.
+- Time: 2026-06-29 00:45

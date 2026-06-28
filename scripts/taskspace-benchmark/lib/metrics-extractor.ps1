@@ -28,6 +28,19 @@ function Get-TaskspaceChangedPaths {
     @((Get-TaskspaceChangedFileInventory $RepoDir $DiffText) | ForEach-Object { $_.path })
 }
 
+function Test-TaskspaceIgnoredChangedPath {
+    param([AllowEmptyString()][string]$Path = "")
+    $normalized = $Path.Trim().Trim('"').Replace("\", "/")
+    if ([string]::IsNullOrWhiteSpace($normalized)) { return $true }
+    $segments = @($normalized -split "/" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    foreach ($segment in $segments) {
+        if ($segment -in @(".git", ".tbench-testing", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache")) {
+            return $true
+        }
+    }
+    return $false
+}
+
 function Add-TaskspaceChangedPath {
     param(
         [Parameter(Mandatory = $true)][hashtable]$Rows,
@@ -38,12 +51,13 @@ function Add-TaskspaceChangedPath {
     )
     $normalized = $Path.Trim().Trim('"').Replace("\", "/")
     if ([string]::IsNullOrWhiteSpace($normalized)) { return }
+    if (Test-TaskspaceIgnoredChangedPath $normalized) { return }
     $absolute = Join-Path $RepoDir ($normalized.Replace("/", [System.IO.Path]::DirectorySeparatorChar))
     if (Test-Path -LiteralPath $absolute -PathType Container) {
         $repoRoot = (Resolve-Path -LiteralPath $RepoDir).Path
         foreach ($file in @(Get-ChildItem -LiteralPath $absolute -Recurse -Force -File -ErrorAction SilentlyContinue)) {
             $relative = $file.FullName.Substring($repoRoot.Length).TrimStart("\", "/").Replace("\", "/")
-            if ($relative -like ".git/*") { continue }
+            if (Test-TaskspaceIgnoredChangedPath $relative) { continue }
             Add-TaskspaceChangedPath $Rows $RepoDir $relative $Status $Source
         }
         return
@@ -123,6 +137,7 @@ function Get-TaskspaceChangedFileInventory {
     )
     $rows = @{}
     foreach ($path in @(Get-ChangedPathsFromDiff $DiffText)) {
+        if (Test-TaskspaceIgnoredChangedPath $path) { continue }
         Add-TaskspaceChangedPath $rows $RepoDir $path "diff" "git_diff"
     }
     Push-Location $RepoDir
@@ -132,6 +147,7 @@ function Get-TaskspaceChangedFileInventory {
             $status = $line.Substring(0, 2)
             $path = $line.Substring(3).Trim()
             if ($path.Contains(" -> ")) { $path = ($path -split ' -> ')[-1].Trim() }
+            if (Test-TaskspaceIgnoredChangedPath $path) { continue }
             Add-TaskspaceChangedPath $rows $RepoDir $path $status "git_status"
         }
     } finally {
@@ -303,6 +319,10 @@ function Get-TaskspaceBenchmarkMetrics {
         tool_call_count = $commandStats.Completed
         failed_tool_call_count = $commandStats.Failed
         token_summary_path = [string]$costInstrumentation.token_summary_path
+        cost_scan_policy_path = [string]$costInstrumentation.cost_scan_policy_path
+        rollout_scan_mode = [string]$costInstrumentation.cost_scan_policy.rollout_scan_mode
+        rollout_bytes = $costInstrumentation.cost_scan_policy.rollout_bytes
+        rollout_scan_max_bytes = $costInstrumentation.cost_scan_policy.rollout_scan_max_bytes
         request_summary_path = [string]$costInstrumentation.request_summary_path
         provider_input_visibility_path = [string]$costInstrumentation.provider_input_visibility_path
         taskspace_control_usage_path = [string]$costInstrumentation.taskspace_control_usage_path

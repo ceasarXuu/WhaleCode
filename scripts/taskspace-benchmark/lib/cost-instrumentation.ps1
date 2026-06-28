@@ -1473,6 +1473,27 @@ function New-TaskspaceContextProjectionSummary {
     }
 }
 
+function Get-TaskspaceCostRolloutScanPolicy {
+    param([AllowEmptyString()][string]$RolloutJsonlPath = "")
+    $thresholdBytes = 33554432
+    if ($env:TASKSPACE_COST_ROLLOUT_SCAN_MAX_BYTES) {
+        try { $thresholdBytes = [Math]::Max(1048576, [int64]$env:TASKSPACE_COST_ROLLOUT_SCAN_MAX_BYTES) } catch { }
+    }
+    $bytes = $null
+    if (-not [string]::IsNullOrWhiteSpace($RolloutJsonlPath) -and (Test-Path -LiteralPath $RolloutJsonlPath)) {
+        try { $bytes = [int64](Get-Item -LiteralPath $RolloutJsonlPath).Length } catch { $bytes = $null }
+    }
+    $large = ($null -ne $bytes -and [int64]$bytes -gt [int64]$thresholdBytes)
+    [pscustomobject]@{
+        schema_version = "taskspace-cost-scan-policy-v1"
+        rollout_source_path = $RolloutJsonlPath
+        rollout_effective_scan_path = if ($large) { "" } else { $RolloutJsonlPath }
+        rollout_bytes = $bytes
+        rollout_scan_max_bytes = [int64]$thresholdBytes
+        rollout_scan_mode = if ($large) { "skipped_large_rollout" } elseif ([string]::IsNullOrWhiteSpace($RolloutJsonlPath) -or -not (Test-Path -LiteralPath $RolloutJsonlPath)) { "missing" } else { "full" }
+    }
+}
+
 function Write-TaskspaceCostInstrumentationArtifacts {
     param(
         [Parameter(Mandatory = $true)][string]$ArtifactDir,
@@ -1483,21 +1504,27 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         New-Item -ItemType Directory -Path $ArtifactDir -Force | Out-Null
     }
     $rolloutJsonlPath = Join-Path $ArtifactDir "rollout.jsonl"
+    $scanPolicy = Get-TaskspaceCostRolloutScanPolicy $rolloutJsonlPath
+    $rolloutScanPath = [string]$scanPolicy.rollout_effective_scan_path
     $token = New-TaskspaceTokenSummary $JsonlPath
-    $request = New-TaskspaceRequestSummary $JsonlPath $token $rolloutJsonlPath
+    $request = New-TaskspaceRequestSummary $JsonlPath $token $rolloutScanPath
+    $request | Add-Member -NotePropertyName rollout_scan_policy -NotePropertyValue $scanPolicy -Force
     $visibility = New-TaskspaceProviderInputVisibilitySummary $JsonlPath $token
     $control = New-TaskspaceControlUsageSummary $JsonlPath $ObservabilityJsonPath
     $replay = New-TaskspaceReplaySummary $ArtifactDir
     $outputRefEvents = @(New-TaskspaceOutputRefEvents $ObservabilityJsonPath $ArtifactDir)
-    $projection = New-TaskspaceContextProjectionSummary $JsonlPath $ObservabilityJsonPath $rolloutJsonlPath
-    $budget = New-TaskspaceBudgetArtifacts $ObservabilityJsonPath $rolloutJsonlPath
-    $exactPayloadScanEvents = @(New-TaskspaceExactPayloadScanEvents $ObservabilityJsonPath $rolloutJsonlPath)
+    $projection = New-TaskspaceContextProjectionSummary $JsonlPath $ObservabilityJsonPath $rolloutScanPath
+    $projection | Add-Member -NotePropertyName rollout_scan_policy -NotePropertyValue $scanPolicy -Force
+    $budget = New-TaskspaceBudgetArtifacts $ObservabilityJsonPath $rolloutScanPath
+    $exactPayloadScanEvents = @(New-TaskspaceExactPayloadScanEvents $ObservabilityJsonPath $rolloutScanPath)
     $activeReplacement = New-TaskspaceActiveReplacementArtifacts $budget.budget_events $exactPayloadScanEvents
     $providerRequest = New-TaskspaceProviderRequestArtifacts $budget.budget_events $request
     $providerCacheTrace = New-TaskspaceProviderCacheTraceArtifacts $budget.budget_events
     $stateCommitDisplacement = New-TaskspaceStateCommitDisplacementSummary $ObservabilityJsonPath
-    $spawnNodeBudget = New-TaskspaceSpawnNodeBudgetSummary $ObservabilityJsonPath $rolloutJsonlPath
+    $spawnNodeBudget = New-TaskspaceSpawnNodeBudgetSummary $ObservabilityJsonPath $rolloutScanPath
+    $spawnNodeBudget | Add-Member -NotePropertyName rollout_scan_policy -NotePropertyValue $scanPolicy -Force
     $tokenPath = Join-Path $ArtifactDir "token-summary.json"
+    $scanPolicyPath = Join-Path $ArtifactDir "cost-scan-policy.json"
     $requestPath = Join-Path $ArtifactDir "request-summary.json"
     $visibilityPath = Join-Path $ArtifactDir "provider-input-visibility.json"
     $controlPath = Join-Path $ArtifactDir "taskspace-control-usage.json"
@@ -1517,6 +1544,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $spawnNodeBudgetPath = Join-Path $ArtifactDir "spawn-node-budget-summary.json"
     $activeBudgetEventsPath = Join-Path $ArtifactDir "active-budget-events.jsonl"
     $token | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $tokenPath -Encoding UTF8
+    $scanPolicy | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $scanPolicyPath -Encoding UTF8
     $request | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $requestPath -Encoding UTF8
     $visibility | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $visibilityPath -Encoding UTF8
     $control | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $controlPath -Encoding UTF8
@@ -1577,6 +1605,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $spawnNodeBudget | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $spawnNodeBudgetPath -Encoding UTF8
     [pscustomobject]@{
         token_summary_path = $tokenPath
+        cost_scan_policy_path = $scanPolicyPath
         request_summary_path = $requestPath
         provider_input_visibility_path = $visibilityPath
         taskspace_control_usage_path = $controlPath
@@ -1596,6 +1625,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         state_commit_displacement_path = $stateCommitDisplacementPath
         spawn_node_budget_path = $spawnNodeBudgetPath
         token_summary = $token
+        cost_scan_policy = $scanPolicy
         request_summary = $request
         provider_input_visibility = $visibility
         taskspace_control_usage = $control

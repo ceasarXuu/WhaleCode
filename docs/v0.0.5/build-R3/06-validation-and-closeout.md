@@ -1097,3 +1097,93 @@ git diff --check = PASS
 ```
 
 该修复改变 git commit，需要再次刷新 non-agent gates 和 markers 后重跑正式 E3。
+
+### F.24 cost instrumentation large-rollout memory guard
+
+继续 formal E3 后，`multi-source-data-merger` 不再卡在 Docker build。真实验证路径证明：
+
+```text
+pair-001 / pair-002:
+  docker_build_environment_mode = host-proxy-forwarded
+  proxy_env_count = 4
+  proxy_build_arg_count = 4
+  docker build phase = ok
+```
+
+随后暴露新的 runner 级问题：pair-003 两侧 validation 文件已经写出，但样本状态仍停在
+`completed_pairs=2`。进程现场：
+
+```text
+PID = 7872
+process = run-taskspace-benchmark.ps1
+CPU delta over 60s = 59.515625s
+working set delta over 60s = 683671552 bytes
+private memory ~= 3.4GB
+right/artifacts/rollout.jsonl = 103255682 bytes
+```
+
+定位：
+
+```text
+right/artifacts/git-diff.patch 已写出
+right/artifacts/graph-health.json 已写出
+right/artifacts/metrics.json 缺失
+```
+
+因此卡点不是 agent、Docker validation、changed inventory 或 graph health，而是
+`Get-TaskspaceBenchmarkMetrics` 内的 cost instrumentation。大 rollout 会被多个诊断函数
+重复全量扫描并 materialize 事件，导致 PowerShell 内存膨胀。
+
+修复：
+
+```text
+metrics-extractor.ps1:
+  changed inventory 过滤 .tbench-testing / .venv / node_modules / __pycache__ 等运行时依赖树
+  metrics.json 暴露 rollout_scan_mode / rollout_bytes / rollout_scan_max_bytes
+
+cost-instrumentation.ps1:
+  新增 cost-scan-policy.json
+  rollout 超过 TASKSPACE_COST_ROLLOUT_SCAN_MAX_BYTES 或默认 32MiB 时，保留原文件但跳过多次全量 rollout 诊断
+  大文件模式记录 rollout_scan_mode = skipped_large_rollout
+
+e3-proof.ps1:
+  validator source isolation proof 使用 bounded repo scan
+  跳过 .tbench-testing 等运行时目录
+  超过扫描上限时显式让 proof 不通过，而不是静默证明 absence
+```
+
+验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-metrics-extractor-harness.ps1 = PASS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-proof-harness.ps1 = PASS
+
+真实 pair-003 right/artifacts metrics extraction:
+  elapsed_ms = 1951
+  rollout_scan_mode = skipped_large_rollout
+  rollout_bytes = 103255682
+  changed_count = 0
+  metrics.json written
+```
+
+结论：这是 runner observability 内存问题，不是 agent 解题或 Docker validation 问题。
+修复不改变 agent session 预算、不改变 validation 语义，只限制诊断脚本对大 rollout 的
+重复全量解析。
+
+仍未收敛的问题：
+
+```text
+multi-source-data-merger pair-001 / pair-002:
+  standard = solved
+  TaskSpace = wrong
+  engineering_unclean = False
+
+TaskSpace stderr:
+  rg: /data: IO error
+  Get-Content: Cannot find path '/data/source_a/users.json'
+  Get-Content: Cannot find path '/data/source_b/users.csv'
+  apply_patch failed: W:\app\src\merge_users.py does not exist
+```
+
+这说明在该任务上 TaskSpace 的路径理解 / 编辑策略存在真实退化，后续 R3 需要继续从
+上下文管理器、任务环境说明和工具反馈压缩层面处理。
