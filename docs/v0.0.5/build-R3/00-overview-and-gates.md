@@ -509,3 +509,45 @@ formal profile_hash 必须重新计算
 formal v005-non-agent-gates 必须在修复后的新 HEAD 上重跑
 formal E3 start gate 仍需 calibration evidence + 当前 HEAD markers 同时通过
 ```
+
+## 0.15 2026-06-28 Formal E3 Start-Gate Semantics
+
+formal start gate 的 calibration 语义已调整为：
+
+```text
+允许正式 E3 先运行并生成真实 calibration / timing evidence；
+不允许在 calibration gate 未通过时宣称 speedup / cost saving。
+```
+
+调整原因：
+
+```text
+formal terminal-bench_E3-P0_3_5 的 serial calibration evidence 需要由正式 suite
+或同等身份绑定的 suite run 产生。
+旧规则要求 start gate 先看到 calibration evidence 才允许 formal E3，
+但 calibration evidence 又依赖 formal E3 才能生成，形成循环依赖。
+```
+
+当前规则：
+
+```text
+当 task list、profile、source version、current-HEAD non-agent gates、
+code-complete marker 和 explicit user approval marker 全部匹配时，
+start gate 可以在 calibration_gate=skipped_allowed 的情况下放行 full_e3。
+
+此时：
+  full_e3_allowed = true
+  speed_claim_allowed = false
+  calibration_gate_passed = false
+  calibration_gate_skipped_allowed = true
+
+release decision / speed claim 仍必须等待 calibration_gate_passed=true。
+```
+
+验证：
+
+```text
+git diff --check = PASS
+test-e3-start-gate.ps1 = PASS
+test-release-decision.ps1 = PASS
+```

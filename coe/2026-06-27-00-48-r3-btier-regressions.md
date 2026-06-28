@@ -1591,3 +1591,70 @@
   ```
 - Interpretation: The formal E3 harness no longer has a known multi-sample argument-binding blocker, but the formal start gate remains blocked until regenerated identity-bound markers and calibration evidence pass.
 - Time: 2026-06-28 17:22
+
+## Hypothesis H-019: formal start gate creates a circular dependency on calibration evidence
+- Status: confirmed
+- Parent: P-001
+- Claim: The formal E3 start gate required calibration evidence before allowing the first identity-bound formal E3 run, while that calibration evidence can only be produced by the formal suite or an equivalent identity-bound suite run. This blocks evidence generation without proving a TaskSpace runtime defect.
+- Layer: release-gate
+- Factor relation: sequential
+- Depends on:
+  - H-018
+- Rationale:
+  - Current-head non-agent gates and user approval markers can be generated without running model work.
+  - Serial calibration timing for `terminal-bench_E3-P0_3_5` requires the suite to execute enough real pairs to produce timing evidence.
+  - The previous start gate treated missing calibration as a blocker for `full_e3_allowed`, so the run that would generate the missing evidence could not start.
+- Falsifiable predictions:
+  - If true before repair: with valid v0.0.5 markers and no calibration evidence, start gate reports `full_e3_allowed=false` and routes to `serial_calibration`.
+  - If true after repair: with valid v0.0.5 markers and `-AllowSkippedCalibrationGate`, start gate reports `full_e3_allowed=true`, `calibration_gate_skipped_allowed=true`, and `speed_claim_allowed=false`.
+  - If false: release decision would allow speed/cost claims without calibration, or start gate would still block formal E3 after markers pass.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: add a start-gate fixture that passes current v0.0.5 marker inputs, skips calibration explicitly, and asserts full E3 is allowed while speed claims remain blocked.
+  - Signal: start-gate self-test and release decision self-test.
+  - Capture method: PowerShell fixture tests.
+  - Event name or marker:
+    - `calibration_gate_skipped_allowed`
+    - `speed_claim_allowed`
+    - `full_e3_allowed`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-029
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: commit/push the start-gate semantic fix, recompute formal identity, rerun current-HEAD non-agent gates and markers, then start formal E3 with calibration skipped only for evidence generation.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-029: start gate can generate formal calibration evidence without authorizing speed claims
+- Related hypotheses:
+  - H-019
+- Direction: supports
+- Type: fix-validation
+- Source: `scripts\taskspace-benchmark\lib\e3-start-gate.ps1`, `scripts\taskspace-benchmark\run-taskspace-e3-suite.ps1`, `scripts\taskspace-benchmark\test-e3-start-gate.ps1`
+- Prediction or plan link:
+  - H-019 after-repair predictions.
+- Matched signal:
+  - `run-taskspace-e3-suite.ps1` now forwards `-AllowSkippedCalibrationGate` to the start gate.
+  - `New-TaskspaceE3GateDecision` treats `calibration_gate=skipped_allowed` plus passing v0.0.5 markers as enough to set `full_e3_allowed=true`.
+  - The same decision keeps `speed_claim_allowed=false` and `calibration_gate_passed=false`.
+  - `test-e3-start-gate.ps1` added `gate-skipped-calibration-with-markers`.
+  - `test-release-decision.ps1` still passes, so final release-like claims remain calibration-gated.
+- Correlation keys:
+  - `AllowSkippedCalibrationGate`
+  - `calibration_gate_skipped_allowed`
+  - `speed_claim_allowed=false`
+- Raw content:
+  ```text
+  git diff --check = PASS
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1
+  E3 start gate self-test: PASS
+  RunRoot: D:\whalecode-alpha\target\e3-start-gate-selftest\20260628-180849-953
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1
+  Release decision self-test: PASS
+  RunRoot: D:\whalecode-alpha\target\release-decision-selftest\run-20260628-180637-101
+  ```
+- Interpretation: The gate no longer blocks the first formal evidence-generating run on evidence that the run itself must produce, while preserving the stricter rule for speed/cost claims and release decisions.
+- Time: 2026-06-28 18:12

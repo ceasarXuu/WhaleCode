@@ -87,6 +87,7 @@ function New-TaskspaceE3GateDecision {
     param($Gate, [string]$Phase = "R1", [string]$TaskListHash = "", [string]$SourceVersion = "", [string]$ProfileHash = "")
     $passed = ($Gate -and [string]$Gate.status -eq "pass")
     $calibrationPass = $false
+    $calibrationSkippedAllowed = $false
     $fullE3Allowed = $false
     $speedClaimAllowed = $false
     if ($Gate -and $Gate.calibration_gate) {
@@ -102,8 +103,9 @@ function New-TaskspaceE3GateDecision {
         if ($v005MarkerRows.Count -gt 0) {
             $v005MarkersPass = @($v005MarkerRows | Where-Object { [string]$_.status -ne "pass" }).Count -eq 0
         }
+        $calibrationSkippedAllowed = @($Gate.gates | Where-Object { [string]$_.name -eq "calibration_gate" -and [string]$_.status -eq "skipped_allowed" }).Count -gt 0
     }
-    $fullE3Allowed = $passed -and $fullE3Allowed -and $v005MarkersPass
+    $fullE3Allowed = $passed -and ($fullE3Allowed -or $calibrationSkippedAllowed) -and $v005MarkersPass
     $speedClaimAllowed = $passed -and $speedClaimAllowed
     $nextCategory = if (-not $passed -and $calibrationFailed) {
         "serial_calibration"
@@ -124,6 +126,7 @@ function New-TaskspaceE3GateDecision {
         full_e3_allowed = $fullE3Allowed
         speed_claim_allowed = $speedClaimAllowed
         calibration_gate_passed = $calibrationPass
+        calibration_gate_skipped_allowed = $calibrationSkippedAllowed
         v005_markers_passed = $v005MarkersPass
         task_list_hash = $TaskListHash
         source_version = $SourceVersion

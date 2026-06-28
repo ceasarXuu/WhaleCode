@@ -29,6 +29,7 @@ param(
     [string]$V005UserApprovalMarkerPath = "",
     [switch]$SkipStartGate,
     [switch]$AllowSkippedOnePairSmoke,
+    [switch]$AllowSkippedCalibrationGate,
     [string]$RunnerPath = "",
     [int]$MaxParallelSamples = 1,
     [int]$MaxParallelPairsPerSample = 1,
@@ -343,7 +344,8 @@ if ($scoreValidityEnforced -and -not $PlanOnly -and -not $SkipStartGate) {
         -V005UserApprovalMarkerPath $V005UserApprovalMarkerPath `
         -RunSelfTests `
         -AllowSkippedPathContract `
-        -AllowSkippedOnePairSmoke:$AllowSkippedOnePairSmoke
+        -AllowSkippedOnePairSmoke:$AllowSkippedOnePairSmoke `
+        -AllowSkippedCalibrationGate:$AllowSkippedCalibrationGate
     Write-Host "E3StartGate: $($gate.json_path)"
     Write-Host "E3StartGateReport: $($gate.markdown_path)"
     if ([int]$gate.exit_code -ne 0) {

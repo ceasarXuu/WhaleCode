@@ -789,3 +789,41 @@ profile_hash 必须重新计算
 formal v005-non-agent-gates 必须在新 HEAD 上重跑
 之前旧 HEAD formal non-agent gates 只能作为“发现问题前的证据”，不能继续用于 final start gate
 ```
+
+## F.20 2026-06-28 start gate calibration semantics
+
+formal E3 start gate 原本把 calibration evidence 作为 full E3 启动前硬条件。
+这在工程上形成循环依赖：
+
+```text
+start gate 需要 formal terminal-bench_E3-P0_3_5 的 calibration evidence 才放行；
+formal terminal-bench_E3-P0_3_5 又需要 start gate 放行才能产生该 evidence。
+```
+
+修复后的语义：
+
+```text
+calibration gate controls speed/cost claims, not the first identity-bound formal run.
+
+当 current-HEAD non-agent gates、code-complete marker、user approval marker、
+task_list_hash、profile_hash、source_version 全部通过时，
+start gate 允许 calibration_gate=skipped_allowed 的正式 E3 运行。
+
+该状态只表示“可以运行正式 E3 生成证据”，不表示“可以声明速度/成本收益”。
+```
+
+保持不变的 release blocker：
+
+```text
+speed_claim_allowed 必须为 true 才能声明 speedup / cost saving
+calibration_gate_passed 必须为 true 才能发布最终 release-like claim
+test-release-decision.ps1 仍覆盖该约束
+```
+
+验证：
+
+```text
+git diff --check = PASS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1 = PASS
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-release-decision.ps1 = PASS
+```
