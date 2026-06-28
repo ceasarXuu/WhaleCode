@@ -93,6 +93,7 @@ use codex_protocol::items::build_hook_prompt_message;
 use codex_protocol::models::BaseInstructions;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::FunctionCallOutputBody;
+use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::MessagePhase;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
@@ -137,11 +138,16 @@ const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
 const TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_ITEMS: usize = 3;
 const TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS: usize = 2400;
 const TASKSPACE_DEEPSEEK_CACHE_ANCHOR_LINES: usize = 4200;
+const TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT: usize = 10;
+const TASKSPACE_IMPLEMENT_NEEDS_EDIT_RECOVERY_CAP: usize = 2;
 const TASKSPACE_NO_ACTION_RECOVERY_MARKER: &str = "TaskSpaceNoActionRecoveryV1:";
 const TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER: &str =
     "TaskSpaceForcedInspectTransitionRecoveryV1:";
 const TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER: &str =
     "TaskSpaceForcedImplementTransitionRecoveryV1:";
+const TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER: &str = "TaskSpaceImplementNeedsEditRecoveryV1:";
+const TASKSPACE_APPLY_PATCH_FORMAT_MARKER: &str = "TaskSpaceApplyPatchFormatRecoveryV1:";
+const TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER: &str = "TaskSpaceValidationInfraRecoveryV1:";
 const TASKSPACE_INSPECT_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-rg-files";
 const TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-pytest";
 const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
@@ -451,6 +457,7 @@ pub(crate) async fn run_turn(
     let mut last_agent_message: Option<String> = None;
     let mut stop_hook_active = false;
     let mut taskspace_no_action_recovery_count = 0usize;
+    let mut taskspace_implement_needs_edit_recovery_count = 0usize;
     // Although from the perspective of codex.rs, TurnDiffTracker has the lifecycle of a Task which contains
     // many turns, from the perspective of the user, it is a single turn.
     let turn_diff_tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
@@ -568,6 +575,8 @@ pub(crate) async fn run_turn(
                 if let Some(recovery_item) = taskspace_no_action_recovery_item {
                     let counts_against_no_action_cap =
                         is_taskspace_no_action_recovery_item(&recovery_item);
+                    let counts_against_implement_needs_edit_cap =
+                        is_taskspace_implement_needs_edit_recovery_item(&recovery_item);
                     let no_action_recovery_cap = sess
                         .action_map_provider_request_budget_snapshot()
                         .await
@@ -588,21 +597,42 @@ pub(crate) async fn run_turn(
                         .await;
                         return None;
                     }
+                    if counts_against_implement_needs_edit_cap
+                        && taskspace_implement_needs_edit_recovery_count
+                            >= TASKSPACE_IMPLEMENT_NEEDS_EDIT_RECOVERY_CAP
+                    {
+                        sess.send_event(
+                            &turn_context,
+                            EventMsg::Error(ErrorEvent {
+                                message: format!(
+                                    "TaskSpace stopped this turn because the model repeatedly requested read/search/list actions after implementation evidence was sufficient and no edit was recorded ({}/{TASKSPACE_IMPLEMENT_NEEDS_EDIT_RECOVERY_CAP} implement-needs-edit recoveries spent). It must emit apply_patch or blocked instead of rediscovery actions.",
+                                    taskspace_implement_needs_edit_recovery_count
+                                ),
+                                codex_error_info: None,
+                            }),
+                        )
+                        .await;
+                        return None;
+                    }
                     if counts_against_no_action_cap {
                         taskspace_no_action_recovery_count += 1;
+                    }
+                    if counts_against_implement_needs_edit_cap {
+                        taskspace_implement_needs_edit_recovery_count += 1;
                     }
                     sess.send_event(
                         &turn_context,
                         EventMsg::Warning(WarningEvent {
                             message: if counts_against_no_action_cap {
                                 format!("TaskSpace inserted TaskSpaceNoActionRecoveryV1 because the provider response requested follow-up or was rejected by the final-response gate without an actionable tool/control/final result. Recovery attempt {}/{} is being used.", taskspace_no_action_recovery_count, no_action_recovery_cap)
-                            } else if response_item_text_contains(
-                                &recovery_item,
-                                TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER,
-                            ) {
-                                "TaskSpace inserted TaskSpaceForcedImplementTransitionRecoveryV1 after a provider-budget forced implement transition. This guidance does not consume the no-action recovery allowance.".to_string()
+                            } else if counts_against_implement_needs_edit_cap {
+                                format!(
+                                    "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 because implementation has enough read/search evidence and must edit or block. Recovery attempt {}/{} is being used.",
+                                    taskspace_implement_needs_edit_recovery_count,
+                                    TASKSPACE_IMPLEMENT_NEEDS_EDIT_RECOVERY_CAP
+                                )
                             } else {
-                                "TaskSpace inserted TaskSpaceForcedInspectTransitionRecoveryV1 after a provider-budget forced inspect transition. This guidance does not consume the no-action recovery allowance.".to_string()
+                                taskspace_special_recovery_warning_message(&recovery_item)
                             },
                         }),
                     )
@@ -1210,7 +1240,7 @@ Allowed actions by active node kind:
 - bootstrap/no active task: taskspace_control, blocked
 - existing task with no active node: final_answer, taskspace_control, blocked
 - inspect_code_context: list_files, search, read_file, taskspace_control, blocked
-- implement_solution: list_files, search, read_file, apply_patch, taskspace_control, blocked
+- implement_solution: list_files, search, read_file, apply_patch, taskspace_control, blocked before implementation_needs_edit; once TaskSpaceActionContractStateV1 says implementation_needs_edit, only apply_patch, taskspace_control, or blocked are valid
 - smoke_test/regression_test: run_test, read_file, search, taskspace_control, blocked
 - final_synthesis: final_answer, taskspace_control, blocked
 Action argument rules:
@@ -1257,6 +1287,24 @@ Active node kind: {node_kind}"
         text.push_str(
             "\nExisting TaskSpace task has no active bound node. If the requested work is complete, return final_answer. Do not create or bind another node unless unresolved work remains.",
         );
+    }
+    if taskspace_snapshot_requires_implementation_edit(snapshot) {
+        text.push_str(
+            "\nImplementation convergence state: implementation_needs_edit. Current request allowed actions are narrowed to apply_patch, taskspace_control, or blocked only. Do not call list_files, search, read_file, shell discovery, or validation before a successful edit is recorded.",
+        );
+        if !snapshot
+            .current_node_uncovered_mandatory_evidence
+            .is_empty()
+        {
+            text.push_str("\nRequired edit targets from uncovered mandatory evidence:");
+            for item in &snapshot.current_node_uncovered_mandatory_evidence {
+                text.push_str("\n- ");
+                text.push_str(item);
+            }
+            text.push_str(
+                "\nThe next apply_patch must update the exact artifact path(s) named above.",
+            );
+        }
     }
     ResponseItem::Message {
         id: None,
@@ -1321,6 +1369,34 @@ Required behavior for the next response:\n\
     }
 }
 
+fn build_taskspace_apply_patch_format_recovery_item(targets: &str) -> ResponseItem {
+    let targets = targets.trim();
+    let targets = if targets.is_empty() {
+        "(unknown existing file)"
+    } else {
+        targets
+    };
+    let text = format!(
+        "{TASKSPACE_APPLY_PATCH_FORMAT_MARKER}\n\
+The previous apply_patch attempted to add file(s) that already exist: {targets}\n\
+Current required behavior:\n\
+- Do not use /dev/null, Add File, or new file mode for those path(s).\n\
+- Emit exactly one apply_patch now that updates the existing file(s).\n\
+- For apply_patch grammar, use `*** Update File: <path>` hunks for existing files.\n\
+- For unified diff input, use `--- a/<path>` and `+++ b/<path>` for existing files, never `--- /dev/null`.\n\
+- If the inspected evidence named an invalid shebang, patch the first line of that existing file.\n\
+- Do not call finish_node or validation until the update patch succeeds."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn build_taskspace_forced_inspect_transition_recovery_item() -> ResponseItem {
     let text = format!(
         "{TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER}\n\
@@ -1361,8 +1437,117 @@ Current required behavior:\n\
     }
 }
 
+fn build_taskspace_validation_infra_recovery_item() -> ResponseItem {
+    let text = format!(
+        "{TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER}\n\
+The latest validation command failed because local validator infrastructure or the host shell failed, not because new code evidence was found.\n\
+Current required behavior:\n\
+- Do not run more bash, PowerShell, Docker, or shell-discovery commands for the same local validator failure.\n\
+- Emit exactly one blocked taskspace-action-v1 JSON object for the current validation node.\n\
+- The blocked reason must include the exact local infrastructure evidence, such as Bash/Service/CreateInstance/E_ACCESSDENIED.\n\
+- Do not create another inspect node, re-read scripts, or retry validation before this validation node is closed."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn build_taskspace_implement_needs_edit_recovery_item(
+    evidence_summary: Option<&str>,
+) -> ResponseItem {
+    let evidence = evidence_summary
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            let bullets = value
+                .split(" | ")
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(|item| format!("- {item}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!(
+                "\nAlready inspected evidence available to use now:\n{bullets}\n\
+Coverage rule: if inspected evidence names a concrete artifact with a high-signal defect marker such as invalid shebang, traceback, syntax error, or command not found, the implementation must patch that artifact or return blocked with the exact reason it cannot be changed.\n"
+            )
+        })
+        .unwrap_or_default();
+    let text = format!(
+        "{TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER}\n\
+TaskSpace implement_solution has enough read/search evidence on the current node and no successful edit has been recorded.\n\
+{evidence}\
+Current required behavior:\n\
+- Do not call read_file, list_files, search, broad shell discovery, or validation tests from this implementation node.\n\
+- Emit exactly one implementation action now: call apply_patch with the smallest concrete fix supported by the inspected evidence.\n\
+- Use the file contents and failure clues already present in inspected evidence; do not rediscover them.\n\
+- If no safe edit can be made, return blocked with the exact missing evidence instead of reading the same files again."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn is_taskspace_no_action_recovery_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_NO_ACTION_RECOVERY_MARKER)
+}
+
+fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER)
+}
+
+fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
+    if response_item_text_contains(item, TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER) {
+        "TaskSpace inserted TaskSpaceForcedImplementTransitionRecoveryV1 after a provider-budget forced implement transition. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_FORMAT_MARKER) {
+        "TaskSpace inserted TaskSpaceApplyPatchFormatRecoveryV1 after apply_patch tried to add an existing file. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER) {
+        "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 because implementation has enough read/search evidence and must edit or block. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER) {
+        "TaskSpace inserted TaskSpaceValidationInfraRecoveryV1 after local validator infrastructure failed. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER) {
+        "TaskSpace inserted TaskSpaceForcedInspectTransitionRecoveryV1 after a provider-budget forced inspect transition. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else {
+        "TaskSpace inserted non-cap TaskSpace recovery guidance. This guidance does not consume the no-action recovery allowance.".to_string()
+    }
+}
+
+fn taskspace_message_hit_implementation_needs_edit(message: Option<&str>) -> bool {
+    message.is_some_and(|message| message.contains("implementation_needs_edit"))
+}
+
+fn taskspace_existing_file_add_targets_from_rejection(message: Option<&str>) -> Option<String> {
+    let message = message?;
+    let (_, rest) = message.split_once("apply_patch_existing_file_as_add:")?;
+    let targets = rest
+        .split_once(". Return exactly")
+        .map(|(targets, _)| targets)
+        .unwrap_or(rest)
+        .trim();
+    (!targets.is_empty()).then(|| targets.to_string())
+}
+
+fn taskspace_snapshot_requires_implementation_edit(
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> bool {
+    snapshot.node_kind.as_deref() == Some("implement_solution")
+        && (snapshot.current_node_has_uncovered_mandatory_evidence
+            || (!snapshot.current_node_has_successful_edit
+                && (snapshot.current_node_has_dependency_working_evidence
+                    || snapshot
+                        .current_node_progress_signature
+                        .is_some_and(|progress| {
+                            progress >= TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT
+                        }))))
 }
 
 fn taskspace_no_action_recovery_cap_for_node_kind(node_kind: &str) -> usize {
@@ -1425,11 +1610,11 @@ fn taskspace_budget_pressure_message_has_follow_up_intent(message: &str) -> bool
         "i need to check",
         "i should check",
         "try running",
-        "先跑",
-        "跑测试",
-        "运行测试",
-        "执行测试",
-        "确认当前失败",
+        "\u{5148}\u{8dd1}",
+        "\u{8dd1}\u{6d4b}\u{8bd5}",
+        "\u{8fd0}\u{884c}\u{6d4b}\u{8bd5}",
+        "\u{6267}\u{884c}\u{6d4b}\u{8bd5}",
+        "\u{786e}\u{8ba4}\u{5f53}\u{524d}\u{5931}\u{8d25}",
     ];
     FOLLOW_UP_MARKERS
         .iter()
@@ -1940,10 +2125,21 @@ fn prompt_contains_taskspace_active_context(prompt: &Prompt) -> bool {
 }
 
 fn is_taskspace_action_contract_latest_tool_output_candidate(item: &ResponseItem) -> bool {
-    matches!(
+    let is_tool_output = matches!(
         item,
         ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. }
-    ) && !is_legacy_taskspace_tool_output(item)
+    );
+    is_tool_output
+        && (!is_legacy_taskspace_tool_output(item)
+            || is_actionable_taskspace_gate_feedback_output(item))
+}
+
+fn is_actionable_taskspace_gate_feedback_output(item: &ResponseItem) -> bool {
+    (response_item_text_contains(item, "high-signal inspected evidence")
+        && response_item_text_contains(item, "uncovered"))
+        || response_item_texts_contain(item, &|text| {
+            taskspace_output_mentions_local_validator_infra_state_commit(text)
+        })
 }
 
 fn taskspace_action_contract_recent_tool_outputs_item(
@@ -1961,6 +2157,15 @@ fn taskspace_action_contract_recent_tool_outputs_item(
     let edit_success_seen = summaries
         .iter()
         .any(|(_, text)| text.contains("Success. Updated the following files"));
+    let uncovered_high_signal_seen = summaries.iter().any(|(_, text)| {
+        text.contains("high-signal inspected evidence") && text.contains("uncovered")
+    });
+    let local_validator_infra_failure_seen = summaries
+        .iter()
+        .any(|(_, text)| taskspace_output_mentions_local_validator_infra_failure(text));
+    let local_validator_infra_state_commit_seen = summaries
+        .iter()
+        .any(|(_, text)| taskspace_output_mentions_local_validator_infra_state_commit(text));
 
     let mut remaining_chars = TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS;
     let mut sections = Vec::new();
@@ -1982,7 +2187,13 @@ fn taskspace_action_contract_recent_tool_outputs_item(
         return None;
     }
 
-    let progress_hint = if edit_success_seen {
+    let progress_hint = if uncovered_high_signal_seen {
+        "progress_hint: A previous finish_node was rejected because high-signal inspected evidence is still uncovered. Do not repeat finish_node. Next action must be apply_patch for the named uncovered artifact, or blocked with the exact reason it cannot be changed.\n"
+    } else if local_validator_infra_failure_seen && local_validator_infra_state_commit_seen {
+        "progress_hint: Local validation already failed because the host validator infrastructure or shell is unavailable, and that failure has been recorded. Do not run more bash/PowerShell diagnostic commands for the same local validator failure. Next action must be blocked with the exact local validator infrastructure evidence, or taskspace_control with action=finish_node only if the node is explicitly being closed as infrastructure-blocked.\n"
+    } else if local_validator_infra_failure_seen {
+        "progress_hint: The last run_test failed because local validator infrastructure or the host shell failed, not because new code evidence was found. Do not run more bash/PowerShell diagnostic commands for the same failure. Next action must be taskspace_control with action=state_commit marking the failed run_test result invalid because local validator infrastructure failed, or blocked with the exact infrastructure error.\n"
+    } else if edit_success_seen {
         "progress_hint: A file edit already succeeded. Do not repeat apply_patch, read_file, or search. Next action must be taskspace_control with action=finish_node for the current implementation node, then run validation in the next node.\n"
     } else {
         ""
@@ -2018,6 +2229,40 @@ fn taskspace_action_contract_tool_output_summary(item: &ResponseItem) -> Option<
         return None;
     }
     Some((call_id.to_string(), text.to_string()))
+}
+
+fn taskspace_output_mentions_local_validator_infra_failure(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    let signal = taskspace_compact_ascii_signal(&text);
+    text.contains("bash/service/createinstance/e_accessdenied")
+        || text.contains("e_accessdenied")
+        || text.contains("fullyqualifiederrorid : invalidendofline")
+        || text.contains("fullyqualifiederrorid: invalidendofline")
+        || text.contains("invalidendofline")
+        || (text.contains("not a valid statement separator")
+            && (text.contains("parsererror") || text.contains("invalidendofline")))
+        || signal.contains("bashservicecreateinstanceeaccessdenied")
+        || signal.contains("bashservicecreateinstancee_accessdenied")
+        || signal.contains("eaccessdenied")
+        || signal.contains("e_accessdenied")
+        || signal.contains("invalidendofline")
+}
+
+fn taskspace_output_mentions_local_validator_infra_state_commit(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    text.contains("state_commit")
+        && text.contains("accepted")
+        && (text.contains("local validator")
+            || text.contains("validator infrastructure")
+            || text.contains("result_validities")
+            || text.contains("blockers"))
+}
+
+fn taskspace_compact_ascii_signal(text: &str) -> String {
+    text.chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 #[derive(Debug)]
@@ -2513,6 +2758,11 @@ mod active_context_replacement_tests {
             map_id: "map-1".to_string(),
             node_id: Some("node-1".to_string()),
             node_kind: Some(node_kind.to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-active".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -2563,6 +2813,100 @@ mod active_context_replacement_tests {
         assert!(text.contains("Existing TaskSpace task has no active bound node"));
         assert!(text.contains("return final_answer"));
         assert!(!text.contains("action=start_task"));
+    }
+
+    #[test]
+    fn taskspace_action_contract_state_narrows_implementation_after_progress() {
+        let mut snapshot = provider_snapshot("implement_solution");
+        snapshot.current_node_progress_signature =
+            Some(TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT);
+
+        let text = item_text(taskspace_action_contract_state_item(&snapshot));
+
+        assert!(text.contains("Implementation convergence state: implementation_needs_edit"));
+        assert!(text.contains("apply_patch, taskspace_control, or blocked only"));
+        assert!(text.contains("Do not call list_files, search, read_file"));
+
+        snapshot.current_node_has_successful_edit = true;
+        let text_after_edit = item_text(taskspace_action_contract_state_item(&snapshot));
+        assert!(!text_after_edit.contains("implementation_needs_edit"));
+    }
+
+    #[test]
+    fn taskspace_action_contract_state_narrows_implementation_from_dependency_evidence() {
+        let mut snapshot = provider_snapshot("implement_solution");
+        snapshot.current_node_has_dependency_working_evidence = true;
+
+        let text = item_text(taskspace_action_contract_state_item(&snapshot));
+
+        assert!(text.contains("Implementation convergence state: implementation_needs_edit"));
+        assert!(text.contains("Do not call list_files, search, read_file"));
+
+        let read = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"generate_report.sh"},"rationale":"read more"}"#,
+        )
+        .expect("valid read action");
+        let err = taskspace_action_to_tool_call(&read, &snapshot)
+            .expect_err("dependency evidence should narrow implementation to edit/block");
+        assert_eq!(
+            err,
+            "node_policy_violation:implement_solution:read_file:implementation_needs_edit"
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_state_keeps_uncovered_mandatory_evidence_edit_pressure() {
+        let mut snapshot = provider_snapshot("implement_solution");
+        snapshot.current_node_has_successful_edit = true;
+        snapshot.current_node_has_uncovered_mandatory_evidence = true;
+
+        let text = item_text(taskspace_action_contract_state_item(&snapshot));
+
+        assert!(text.contains("Implementation convergence state: implementation_needs_edit"));
+        assert!(text.contains("Do not call list_files, search, read_file"));
+
+        let read = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-2","args":{"path":"collect_data.sh"},"rationale":"read more"}"#,
+        )
+        .expect("valid read action");
+        let err = taskspace_action_to_tool_call(&read, &snapshot)
+            .expect_err("uncovered mandatory evidence should narrow implementation to edit/block");
+        assert_eq!(
+            err,
+            "node_policy_violation:implement_solution:read_file:implementation_needs_edit"
+        );
+    }
+
+    #[test]
+    fn taskspace_apply_patch_must_cover_uncovered_mandatory_evidence_target() {
+        let mut snapshot = provider_snapshot("implement_solution");
+        snapshot.current_node_has_successful_edit = true;
+        snapshot.current_node_has_uncovered_mandatory_evidence = true;
+        snapshot.current_node_uncovered_mandatory_evidence =
+            vec!["generate_report.sh (invalid_shebang, result-13)".to_string()];
+
+        let text = item_text(taskspace_action_contract_state_item(&snapshot));
+        assert!(text.contains("Required edit targets from uncovered mandatory evidence"));
+        assert!(text.contains("generate_report.sh (invalid_shebang, result-13)"));
+
+        let wrong = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** Update File: report_generation.sh\n@@\n-#!/bin/nonexistent\n+#!/bin/bash\n*** End Patch\n"},"rationale":"fix shebang"}"#,
+        )
+        .expect("valid wrong patch action");
+        let err = taskspace_action_to_tool_call(&wrong, &snapshot)
+            .expect_err("wrong artifact must not satisfy mandatory evidence");
+        assert_eq!(
+            err,
+            "apply_patch_missing_mandatory_evidence_targets:generate_report.sh"
+        );
+
+        let right = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** Update File: generate_report.sh\n@@\n-#!/bin/nonexistent\n+#!/bin/bash\n*** End Patch\n"},"rationale":"fix shebang"}"#,
+        )
+        .expect("valid right patch action");
+        taskspace_action_to_tool_call(&right, &snapshot)
+            .expect("right artifact should satisfy mandatory evidence")
+            .expect("tool call");
     }
 
     #[test]
@@ -2623,9 +2967,22 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn taskspace_action_contract_parser_rejects_non_json_text() {
+    fn taskspace_action_contract_parser_accepts_single_fenced_json() {
+        let action = parse_taskspace_action_v1(
+            "```json\n{\"schema_version\":\"taskspace-action-v1\",\"action\":\"read_file\",\"node_id\":\"node-1\",\"args\":{\"path\":\"README.md\"}}\n```",
+        )
+        .expect("single fenced json action should be recoverable");
+        assert_eq!(action.action, "read_file");
+        assert_eq!(
+            taskspace_action_arg_string(&action.args, "path").as_deref(),
+            Some("README.md")
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_rejects_non_json_fence() {
         let err =
-            parse_taskspace_action_v1("```json\n{}\n```").expect_err("must reject fenced text");
+            parse_taskspace_action_v1("```text\n{}\n```").expect_err("must reject non-json fence");
         assert_eq!(err, "action_contract_output_not_strict_json");
     }
 
@@ -2770,6 +3127,48 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_action_contract_blocks_late_implementation_reads_until_edit() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"generate_report.sh"}}"#,
+        )
+        .expect("valid json");
+        let mut snapshot = provider_snapshot("implement_solution");
+        snapshot.current_node_progress_signature =
+            Some(TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT);
+        snapshot.current_node_has_successful_edit = false;
+
+        let err = taskspace_action_to_tool_call(&action, &snapshot)
+            .expect_err("implementation reads should stop after enough evidence");
+
+        assert!(err.contains(
+            "node_policy_violation:implement_solution:read_file:implementation_needs_edit"
+        ));
+
+        snapshot.current_node_has_successful_edit = true;
+        let call = taskspace_action_to_tool_call(&action, &snapshot)
+            .expect("successful edit clears late read block")
+            .expect("read_file still maps to a shell command after edit");
+        assert_eq!(call.tool_name.name, "shell_command");
+    }
+
+    #[test]
+    fn taskspace_implementation_needs_edit_rejection_uses_specific_recovery() {
+        assert!(taskspace_message_hit_implementation_needs_edit(Some(
+            "TaskSpaceActionV1 rejected: node_policy_violation:implement_solution:read_file:implementation_needs_edit"
+        )));
+        let item = build_taskspace_implement_needs_edit_recovery_item(Some(
+            "result-7: generate_report.sh preview #!/bin/nonexistent",
+        ));
+        assert!(response_item_text_contains(
+            &item,
+            TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER
+        ));
+        assert!(response_item_text_contains(&item, "call apply_patch"));
+        assert!(response_item_text_contains(&item, "do not rediscover"));
+        assert!(response_item_text_contains(&item, "#!/bin/nonexistent"));
+    }
+
+    #[test]
     fn taskspace_action_contract_final_answer_allowed_without_active_node() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"final_answer","node_id":null,"args":{"message":"All tests pass."}}"#,
@@ -2860,6 +3259,40 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_blocked_action_blocks_active_node() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"blocked","node_id":"node-1","args":{"reason":"local validator failed with E_ACCESSDENIED"}}"#,
+        )
+        .expect("valid blocked action");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("smoke_test"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        assert_eq!(call.tool_name.name.as_str(), "taskspace_control");
+        assert!(call.call_id.ends_with("-blocked"));
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(
+                    value.get("action").and_then(serde_json::Value::as_str),
+                    Some("block_node")
+                );
+                assert_eq!(
+                    value.get("node_id").and_then(serde_json::Value::as_str),
+                    Some("node-1")
+                );
+                assert_eq!(
+                    value
+                        .get("blocker_summary")
+                        .and_then(serde_json::Value::as_str),
+                    Some("local validator failed with E_ACCESSDENIED")
+                );
+            }
+            _ => panic!("expected function payload"),
+        }
+    }
+
+    #[test]
     fn taskspace_action_contract_run_test_prefixes_bare_pytest_file() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"run_test","node_id":"node-1","args":{"command":"pytest test_tax_calc.py -v"}}"#,
@@ -2875,6 +3308,35 @@ Then I will inspect the file."#,
                 assert_eq!(value["command"], "pytest tests/test_tax_calc.py -v");
             }
             other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_run_test_prefixes_bare_shell_script() {
+        let cases = [
+            ("./run_pipeline.sh", "bash run_pipeline.sh"),
+            (
+                "cd /app && ./run_pipeline.sh",
+                "cd /app && bash run_pipeline.sh",
+            ),
+        ];
+        for (input, expected) in cases {
+            let action = parse_taskspace_action_v1(&format!(
+                r#"{{"schema_version":"taskspace-action-v1","action":"run_test","node_id":"node-1","args":{{"command":{}}}}}"#,
+                serde_json::to_string(input).expect("quoted command")
+            ))
+            .expect("valid json");
+            let call = taskspace_action_to_tool_call(&action, &provider_snapshot("smoke_test"))
+                .expect("policy ok")
+                .expect("tool call");
+
+            match call.payload {
+                ToolPayload::Function { arguments } => {
+                    let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                    assert_eq!(value["command"], expected);
+                }
+                other => panic!("expected function payload, got {other:?}"),
+            }
         }
     }
 
@@ -2949,6 +3411,64 @@ Then I will inspect the file."#,
                 .expect_err("conflicting control action aliases must not be guessed");
 
         assert!(err.starts_with(TASKSPACE_CONTROL_ACTION_CONFLICT_ERROR));
+    }
+
+    #[test]
+    fn taskspace_action_contract_state_commit_compact_validation_blocker_normalizes() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"action":"state_commit","result_validities":{"result-13":"failed"},"success_criteria":{"criterion-1":"failed"},"blockers":["Local bash failed with E_ACCESSDENIED."],"decisions":["Treat local validation as infrastructure-blocked."]},"rationale":"record local validation result"}"#,
+        )
+        .expect("valid action shape");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("smoke_test"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(value["action"], "state_commit");
+                assert_eq!(value["schema_version"], "taskspace-state-commit-v1");
+                assert_eq!(value["active_node_id"], "node-1");
+                assert_eq!(value["blockers"][0]["node_id"], "node-1");
+                assert_eq!(
+                    value["blockers"][0]["blocker_summary"],
+                    "Local bash failed with E_ACCESSDENIED."
+                );
+                assert_eq!(value["decisions"][0]["decision_kind"], "validation");
+                assert_eq!(
+                    value["decisions"][0]["decision"],
+                    "Treat local validation as infrastructure-blocked."
+                );
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_top_level_state_commit_normalizes_to_control_tool() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"state_commit","node_id":"node-1","args":{"result_validities":[{"result_id":"result-13","validity":"invalid","validity_reason":"local validator infrastructure failed"}],"blockers":["PowerShell rejected bash syntax with InvalidEndOfLine."]},"rationale":"record local validation result"}"#,
+        )
+        .expect("valid action shape");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("smoke_test"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        assert_eq!(call.tool_name.name, "taskspace_control");
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(value["action"], "state_commit");
+                assert_eq!(value["schema_version"], "taskspace-state-commit-v1");
+                assert_eq!(value["active_node_id"], "node-1");
+                assert_eq!(value["blockers"][0]["node_id"], "node-1");
+                assert_eq!(
+                    value["blockers"][0]["blocker_summary"],
+                    "PowerShell rejected bash syntax with InvalidEndOfLine."
+                );
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
     }
 
     #[test]
@@ -3061,6 +3581,97 @@ Then I will inspect the file."#,
             }
             other => panic!("expected custom payload, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn taskspace_action_contract_apply_patch_normalizes_bare_multi_file_unified_diff() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "--- a/collect_data.sh\n+++ b/collect_data.sh\n@@ -1,1 +1,1 @@\n-#!/bin/nonexistent\n+#!/bin/bash\n--- a/generate_report.sh\n+++ b/generate_report.sh\n@@ -1,1 +1,1 @@\n-#!/bin/nonexistent\n+#!/bin/bash\n--- a/run_pipeline.sh\n+++ b/run_pipeline.sh\n@@ -4,3 +4,5 @@\n echo \"Starting the data pipeline...\"\n-\n+# Ensure data output directory exists\n+mkdir -p /data/output\n+\n # Step 1: Collect data"
+            },
+            "rationale": "fix scripts"
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.starts_with("*** Begin Patch\n"));
+                assert!(input.ends_with("*** End Patch\n"));
+                assert_eq!(input.matches("*** Update File: ").count(), 3);
+                assert!(input.contains("collect_data.sh"));
+                assert!(input.contains("generate_report.sh"));
+                assert!(input.contains("run_pipeline.sh"));
+                assert!(!input.contains("--- a/collect_data.sh"));
+                assert!(!input.contains("+++ b/collect_data.sh"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_rejects_existing_file_as_add_patch() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n--- /dev/null\n+++ b/Cargo.toml\n@@ -0,0 +1 @@\n+[workspace]\n*** End Patch\n"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("existing files must be patched as updates");
+        assert_eq!(err, "apply_patch_existing_file_as_add:Cargo.toml");
+    }
+
+    #[test]
+    fn taskspace_action_contract_record_fact_compacts_to_state_commit() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "taskspace_control",
+            "node_id": "node-1",
+            "args": {
+                "action": "record_fact",
+                "fact": "generate_report.sh has an invalid shebang",
+            },
+            "rationale": "record implementation evidence"
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("record_fact compacted")
+            .expect("tool call");
+
+        assert_eq!(call.tool_name.name, "taskspace_control");
+        let ToolPayload::Function { arguments } = call.payload else {
+            panic!("expected function payload");
+        };
+        let arguments: serde_json::Value =
+            serde_json::from_str(&arguments).expect("arguments parse");
+        assert_eq!(arguments["action"], "state_commit");
+        assert_eq!(arguments["schema_version"], "taskspace-state-commit-v1");
+        assert_eq!(arguments["active_node_id"], "node-1");
+        assert_eq!(
+            arguments["facts"][0]["statement"],
+            "generate_report.sh has an invalid shebang"
+        );
+        assert_eq!(
+            arguments["facts"][0]["evidence_refs"][0]["fact_source_id"],
+            "fact-source-action-contract-1"
+        );
+        assert_eq!(
+            arguments["fact_sources"][0]["id"],
+            "fact-source-action-contract-1"
+        );
     }
 
     #[test]
@@ -3680,6 +4291,127 @@ tax_calc.py\n\
     }
 
     #[test]
+    fn action_contract_prompt_guides_patch_after_uncovered_high_signal_finish_rejection() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Fix the failing test"),
+            message("developer", &latest_active_projection),
+            tool_output_with_call_id(
+                "call-1",
+                "{\"output\":\"Success. Updated the following files:\\nM collect_data.sh\\n\"}",
+            ),
+            tool_output_with_call_id(
+                "call-2",
+                "TaskSpace implement_solution node `node-2` cannot be completed while high-signal inspected evidence remains uncovered by successful edits: generate_report.sh (invalid_shebang, result-5). Apply another patch covering those artifact(s), or block the node with the exact reason coverage is impossible.",
+            ),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains("high-signal inspected evidence is still uncovered"));
+        assert!(joined.contains("Next action must be apply_patch"));
+        assert!(!joined.contains("Next action must be taskspace_control with action=finish_node"));
+    }
+
+    #[test]
+    fn action_contract_tool_error_is_recordable_recent_output_feedback() {
+        let tool_call = ToolCall {
+            tool_name: ToolName::plain("taskspace_control"),
+            call_id: "taskspace-action-contract-12-taskspace_control".to_string(),
+            payload: ToolPayload::Function {
+                arguments: "{\"action\":\"finish_node\"}".to_string(),
+            },
+        };
+        let err = CodexErr::Fatal(
+            "TaskSpace implement_solution node `node-2` cannot be completed while high-signal inspected evidence remains uncovered by successful edits: generate_report.sh (invalid_shebang, result-5). Apply another patch covering those artifact(s), or block the node with the exact reason coverage is impossible.".to_string(),
+        );
+        let response_input = response_input_for_taskspace_action_tool_error(&tool_call, &err);
+        let response_item: ResponseItem = response_input.into();
+        let recent = taskspace_action_contract_recent_tool_outputs_item(&[response_item])
+            .expect("recent feedback should be produced");
+        let text = item_text(recent);
+
+        assert!(text.contains("high-signal inspected evidence is still uncovered"));
+        assert!(text.contains("generate_report.sh"));
+        assert!(text.contains("Next action must be apply_patch"));
+    }
+
+    #[test]
+    fn action_contract_prompt_guides_state_commit_after_local_validator_infra_failure() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Fix the pipeline"),
+            message("developer", &latest_active_projection),
+            tool_output_with_call_id(
+                "taskspace-action-contract-13-run_test",
+                "Bash/Service/CreateInstance/E_ACCESSDENIED",
+            ),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains("local validator infrastructure or the host shell failed"));
+        assert!(joined.contains("Do not run more bash/PowerShell diagnostic commands"));
+        assert!(joined.contains("action=state_commit"));
+        assert!(joined.contains("local validator infrastructure failed"));
+    }
+
+    #[test]
+    fn action_contract_prompt_detects_utf16_garbled_local_validator_infra_failure() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Fix the pipeline"),
+            message("developer", &latest_active_projection),
+            tool_output_with_call_id(
+                "taskspace-action-contract-13-run_test",
+                "B\0a\0s\0h\0/\0S\0e\0r\0v\0i\0c\0e\0/\0C\0r\0e\0a\0t\0e\0I\0n\0s\0t\0a\0n\0c\0e\0/\0E\0_\0A\0C\0C\0E\0S\0S\0D\0E\0N\0I\0E\0D\0",
+            ),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains("local validator infrastructure or the host shell failed"));
+        assert!(joined.contains("Do not run more bash/PowerShell diagnostic commands"));
+        assert!(joined.contains("action=state_commit"));
+    }
+
+    #[test]
+    fn action_contract_prompt_guides_block_after_recorded_local_validator_infra_failure() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Fix the pipeline"),
+            message("developer", &latest_active_projection),
+            tool_output_with_call_id(
+                "taskspace-action-contract-14-run_test",
+                "At line:2 char:30\n+ bash -x run_pipeline.sh 2>&1 || echo EXIT_CODE=$?\n+                              ~~\nThe token '||' is not a valid statement separator in this version.\nFullyQualifiedErrorId : InvalidEndOfLine",
+            ),
+            tool_output_with_call_id(
+                "taskspace-action-contract-15-taskspace_control",
+                "TaskSpace state_commit auto-123: status=accepted dry_run=false replayed=false accepted_sections=[result_validities,blockers]",
+            ),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains("Local validation already failed"));
+        assert!(joined.contains("that failure has been recorded"));
+        assert!(joined.contains("Do not run more bash/PowerShell diagnostic commands"));
+        assert!(joined.contains("blocked with the exact local validator infrastructure evidence"));
+    }
+
+    #[test]
     fn action_contract_prompt_keeps_bootstrap_taskspace_profile() {
         let bootstrap_profile = format!(
             "{TASKSPACE_ACTIVE_PROFILE_MARKER}\nNo TaskSpace task exists yet. Before ordinary tools, call taskspace_control(action=start_task)."
@@ -3722,6 +4454,48 @@ tax_calc.py\n\
         assert!(text.contains(TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER));
         assert!(text.contains("Current required behavior"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
+    }
+
+    #[test]
+    fn implement_needs_edit_recovery_has_own_cap_marker() {
+        let item = build_taskspace_implement_needs_edit_recovery_item(Some(
+            "result-5: #!/bin/nonexistent",
+        ));
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
+        assert!(text.contains("#!/bin/nonexistent"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+        assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+    }
+
+    #[test]
+    fn validation_infra_recovery_does_not_count_as_no_action_retry() {
+        let item = build_taskspace_validation_infra_recovery_item();
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER));
+        assert!(text.contains("local validator infrastructure"));
+        assert!(text.contains("Emit exactly one blocked"));
+        assert!(text.contains("Bash/Service/CreateInstance/E_ACCESSDENIED"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+    }
+
+    #[test]
+    fn apply_patch_format_recovery_does_not_count_as_no_action_retry() {
+        let targets = taskspace_existing_file_add_targets_from_rejection(Some(
+            "TaskSpaceActionV1 rejected: apply_patch_existing_file_as_add:generate_report.sh. Return exactly one valid taskspace-action-v1 JSON object.",
+        ))
+        .expect("targets parsed");
+        let item = build_taskspace_apply_patch_format_recovery_item(&targets);
+        let text = item_text(item.clone());
+
+        assert_eq!(targets, "generate_report.sh");
+        assert!(text.contains(TASKSPACE_APPLY_PATCH_FORMAT_MARKER));
+        assert!(text.contains("generate_report.sh"));
+        assert!(text.contains("*** Update File: <path>"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+        assert!(!is_taskspace_implement_needs_edit_recovery_item(&item));
     }
 
     #[test]
@@ -3809,7 +4583,9 @@ tax_calc.py\n\
             3,
             6,
             Some("inspect_code_context"),
-            Some("我已经看到了问题所在。先跑测试确认当前失败。")
+            Some(
+                "\u{6211}\u{5df2}\u{7ecf}\u{770b}\u{5230}\u{4e86}\u{95ee}\u{9898}\u{6240}\u{5728}\u{3002}\u{5148}\u{8dd1}\u{6d4b}\u{8bd5}\u{786e}\u{8ba4}\u{5f53}\u{524d}\u{5931}\u{8d25}\u{3002}",
+            )
         ));
     }
 
@@ -4645,15 +5421,8 @@ async fn drain_in_flight(
     while let Some(res) = in_flight.next().await {
         match res {
             Ok(response_input) => {
-                let response_item = response_input.into();
-                sess.record_conversation_items(&turn_context, std::slice::from_ref(&response_item))
+                record_response_input_item(sess.as_ref(), turn_context.as_ref(), response_input)
                     .await;
-                mark_thread_memory_mode_polluted_if_external_context(
-                    sess.as_ref(),
-                    turn_context.as_ref(),
-                    &response_item,
-                )
-                .await;
             }
             Err(err) => {
                 error_or_panic(format!("in-flight tool future failed during drain: {err}"));
@@ -4661,6 +5430,39 @@ async fn drain_in_flight(
         }
     }
     Ok(())
+}
+
+async fn record_response_input_item(
+    sess: &Session,
+    turn_context: &TurnContext,
+    response_input: ResponseInputItem,
+) -> ResponseItem {
+    let response_item = response_input.into();
+    sess.record_conversation_items(turn_context, std::slice::from_ref(&response_item))
+        .await;
+    mark_thread_memory_mode_polluted_if_external_context(sess, turn_context, &response_item).await;
+    response_item
+}
+
+fn response_input_for_taskspace_action_tool_error(
+    tool_call: &ToolCall,
+    err: &CodexErr,
+) -> ResponseInputItem {
+    let output = FunctionCallOutputPayload {
+        body: FunctionCallOutputBody::Text(err.to_string()),
+        success: Some(false),
+    };
+    match &tool_call.payload {
+        ToolPayload::Custom { .. } => ResponseInputItem::CustomToolCallOutput {
+            call_id: tool_call.call_id.clone(),
+            name: Some(tool_call.tool_name.name.clone()),
+            output,
+        },
+        _ => ResponseInputItem::FunctionCallOutput {
+            call_id: tool_call.call_id.clone(),
+            output,
+        },
+    }
 }
 
 async fn run_taskspace_inspect_bootstrap(
@@ -4705,15 +5507,7 @@ async fn run_taskspace_inspect_bootstrap(
             cancellation_token,
         )
         .await?;
-    let response_item: ResponseItem = response_input.into();
-    sess.record_conversation_items(&turn_context, std::slice::from_ref(&response_item))
-        .await;
-    mark_thread_memory_mode_polluted_if_external_context(
-        sess.as_ref(),
-        turn_context.as_ref(),
-        &response_item,
-    )
-    .await;
+    record_response_input_item(sess.as_ref(), turn_context.as_ref(), response_input).await;
     Ok(())
 }
 
@@ -4723,6 +5517,9 @@ fn parse_taskspace_action_v1(text: &str) -> Result<TaskSpaceActionV1, String> {
         return Err("empty_action_contract_output".to_string());
     }
     if trimmed.starts_with("```") {
+        if let Some(fenced_json) = taskspace_single_fenced_json_body(trimmed) {
+            return parse_taskspace_action_v1(fenced_json);
+        }
         return Err("action_contract_output_not_strict_json".to_string());
     }
     if !trimmed.starts_with('{') {
@@ -4747,6 +5544,22 @@ fn parse_taskspace_action_v1(text: &str) -> Result<TaskSpaceActionV1, String> {
         return Err("missing_action".to_string());
     }
     Ok(action)
+}
+
+fn taskspace_single_fenced_json_body(text: &str) -> Option<&str> {
+    let rest = text.strip_prefix("```")?;
+    let header_end = rest.find('\n')?;
+    let header = rest[..header_end].trim();
+    if !header.is_empty() && !header.eq_ignore_ascii_case("json") {
+        return None;
+    }
+    let body_with_closing = rest[header_end + 1..].trim_end();
+    let body = body_with_closing.strip_suffix("```")?.trim();
+    if body.starts_with('{') {
+        Some(body)
+    } else {
+        None
+    }
 }
 
 fn taskspace_action_from_deepseek_dsml(text: &str) -> Option<TaskSpaceActionV1> {
@@ -4871,21 +5684,39 @@ fn taskspace_action_allowed_for_node(action: &str, node_kind: Option<&str>) -> b
     match node_kind {
         Some("inspect_code_context") => matches!(
             action,
-            "list_files" | "search" | "read_file" | "taskspace_control" | "blocked"
+            "list_files"
+                | "search"
+                | "read_file"
+                | "taskspace_control"
+                | "state_commit"
+                | "blocked"
         ),
         Some("implement_solution") => matches!(
             action,
-            "list_files" | "read_file" | "search" | "apply_patch" | "taskspace_control" | "blocked"
+            "list_files"
+                | "read_file"
+                | "search"
+                | "apply_patch"
+                | "taskspace_control"
+                | "state_commit"
+                | "blocked"
         ),
         Some("smoke_test" | "regression_test") => matches!(
             action,
-            "run_test" | "read_file" | "search" | "taskspace_control" | "blocked"
+            "run_test" | "read_file" | "search" | "taskspace_control" | "state_commit" | "blocked"
         ),
         Some("final_synthesis") => {
-            matches!(action, "final_answer" | "taskspace_control" | "blocked")
+            matches!(
+                action,
+                "final_answer" | "taskspace_control" | "state_commit" | "blocked"
+            )
         }
-        _ => matches!(action, "taskspace_control" | "blocked"),
+        _ => matches!(action, "taskspace_control" | "state_commit" | "blocked"),
     }
+}
+
+fn taskspace_action_is_read_or_search(action: &str) -> bool {
+    matches!(action, "list_files" | "read_file" | "search")
 }
 
 async fn should_finish_node_after_successful_required_action(
@@ -4940,6 +5771,20 @@ async fn should_answer_after_completed_task_without_active_node(
     }
     sess.action_map_has_accepted_successful_validation_result()
         .await
+}
+
+async fn should_block_after_closed_validation_without_active_node(
+    action: &TaskSpaceActionV1,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    sess: &Session,
+) -> bool {
+    if snapshot.node_id.is_some() {
+        return false;
+    }
+    if taskspace_action_final_message(action).is_some() {
+        return false;
+    }
+    sess.action_map_has_blocked_validation_result().await
 }
 
 fn taskspace_action_is_finish_node_control(action: &TaskSpaceActionV1) -> bool {
@@ -5065,6 +5910,16 @@ fn taskspace_final_answer_action(message: &str) -> TaskSpaceActionV1 {
     }
 }
 
+fn taskspace_blocked_final_action(reason: &str) -> TaskSpaceActionV1 {
+    TaskSpaceActionV1 {
+        schema_version: "taskspace-action-v1".to_string(),
+        action: "blocked".to_string(),
+        node_id: None,
+        args: serde_json::json!({ "reason": reason }),
+        rationale: Some("TaskSpace path is closed by a blocked validation node.".to_string()),
+    }
+}
+
 fn taskspace_finish_current_node_action(
     node_id: Option<&str>,
     result_summary: &str,
@@ -5166,33 +6021,68 @@ fn normalize_taskspace_bare_file_patch(patch: &str) -> Option<String> {
 
 fn normalize_taskspace_unified_diff_patch(patch: &str) -> Option<String> {
     let normalized = patch.replace("\r\n", "\n");
-    let lines = normalized.lines().collect::<Vec<_>>();
-    if lines.first() != Some(&"*** Begin Patch") || lines.last() != Some(&"*** End Patch") {
+    let mut lines = normalized.lines().collect::<Vec<_>>();
+    if lines.first() == Some(&"*** Begin Patch") && lines.last() == Some(&"*** End Patch") {
+        lines = lines[1..lines.len().saturating_sub(1)].to_vec();
+    }
+    if lines.is_empty() || !lines.iter().any(|line| line.starts_with("--- ")) {
         return None;
     }
-    let old_idx = lines.iter().position(|line| line.starts_with("--- "))?;
-    let new_idx = lines.iter().position(|line| line.starts_with("+++ "))?;
-    if new_idx != old_idx + 1 {
-        return None;
+
+    let mut rewritten = vec!["*** Begin Patch".to_string()];
+    let mut index = 0usize;
+    let mut converted_files = 0usize;
+    while index < lines.len() {
+        if !lines[index].starts_with("--- ") {
+            index += 1;
+            continue;
+        }
+        let Some(new_line) = lines.get(index + 1) else {
+            return None;
+        };
+        if !new_line.starts_with("+++ ") {
+            return None;
+        }
+        let path = taskspace_unified_diff_new_path(new_line)?;
+        let path = resolve_unique_existing_relative_path(path).unwrap_or_else(|| path.to_string());
+        rewritten.push(format!("*** Update File: {path}"));
+        index += 2;
+
+        let mut saw_hunk = false;
+        while index < lines.len() {
+            if lines[index].starts_with("--- ")
+                && lines
+                    .get(index + 1)
+                    .is_some_and(|candidate| candidate.starts_with("+++ "))
+            {
+                break;
+            }
+            if lines[index].starts_with("@@") {
+                saw_hunk = true;
+            }
+            rewritten.push(normalize_taskspace_unified_hunk_line(lines[index]));
+            index += 1;
+        }
+        if !saw_hunk {
+            return None;
+        }
+        converted_files += 1;
     }
-    let path = lines[new_idx].strip_prefix("+++ ")?.trim();
-    let path = path.strip_prefix("b/").unwrap_or(path);
-    if path.is_empty() {
+    if converted_files == 0 {
         return None;
-    }
-    let path = resolve_unique_existing_relative_path(path).unwrap_or_else(|| path.to_string());
-    let mut rewritten = Vec::with_capacity(lines.len());
-    rewritten.push("*** Begin Patch".to_string());
-    rewritten.push(format!("*** Update File: {path}"));
-    for line in lines
-        .iter()
-        .skip(new_idx + 1)
-        .take(lines.len().saturating_sub(new_idx + 2))
-    {
-        rewritten.push(normalize_taskspace_unified_hunk_line(line));
     }
     rewritten.push("*** End Patch".to_string());
     Some(rewritten.join("\n") + "\n")
+}
+
+fn taskspace_unified_diff_new_path(line: &str) -> Option<&str> {
+    let path = line.strip_prefix("+++ ")?.trim();
+    let path = path.strip_prefix("b/").unwrap_or(path);
+    if path.is_empty() || path == "/dev/null" {
+        None
+    } else {
+        Some(path)
+    }
 }
 
 fn normalize_taskspace_unified_hunk_line(line: &str) -> String {
@@ -5208,6 +6098,43 @@ fn normalize_taskspace_unified_hunk_line(line: &str) -> String {
     } else {
         format!("@@ {trailing}")
     }
+}
+
+fn taskspace_unified_diff_add_targets_existing_files(patch: &str) -> Vec<String> {
+    let normalized = patch.replace("\r\n", "\n");
+    let mut lines = normalized.lines().collect::<Vec<_>>();
+    if lines.first() == Some(&"*** Begin Patch") && lines.last() == Some(&"*** End Patch") {
+        lines = lines[1..lines.len().saturating_sub(1)].to_vec();
+    }
+
+    let mut targets = Vec::new();
+    let mut index = 0usize;
+    while index + 1 < lines.len() {
+        let old_line = lines[index];
+        let new_line = lines[index + 1];
+        if !old_line.starts_with("--- ") || !new_line.starts_with("+++ ") {
+            index += 1;
+            continue;
+        }
+        if taskspace_unified_diff_old_path_is_dev_null(old_line)
+            && let Some(path) = taskspace_unified_diff_new_path(new_line)
+        {
+            let normalized_path = path.replace('\\', "/");
+            if Path::new(&normalized_path).exists() {
+                targets.push(normalized_path);
+            }
+        }
+        index += 2;
+    }
+    targets.sort();
+    targets.dedup();
+    targets
+}
+
+fn taskspace_unified_diff_old_path_is_dev_null(line: &str) -> bool {
+    line.strip_prefix("--- ")
+        .map(str::trim)
+        .is_some_and(|path| path == "/dev/null")
 }
 
 fn rewrite_taskspace_apply_patch_unique_update_paths(patch: &str) -> String {
@@ -5232,6 +6159,76 @@ fn rewrite_taskspace_apply_patch_unique_update_paths(patch: &str) -> String {
     } else {
         patch.to_string()
     }
+}
+
+fn taskspace_apply_patch_missing_mandatory_targets(
+    patch: &str,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> Option<Vec<String>> {
+    let required = taskspace_uncovered_mandatory_artifacts(snapshot);
+    if required.is_empty() {
+        return None;
+    }
+    let patch_targets = taskspace_apply_patch_declared_targets(patch)
+        .into_iter()
+        .map(|target| normalize_taskspace_patch_target_key(&target))
+        .collect::<HashSet<_>>();
+    let missing = required
+        .into_iter()
+        .filter(|target| {
+            let required_key = normalize_taskspace_patch_target_key(target);
+            !patch_targets.iter().any(|patch_target| {
+                taskspace_patch_target_covers_required(patch_target, &required_key)
+            })
+        })
+        .collect::<Vec<_>>();
+    (!missing.is_empty()).then_some(missing)
+}
+
+fn taskspace_uncovered_mandatory_artifacts(
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> Vec<String> {
+    snapshot
+        .current_node_uncovered_mandatory_evidence
+        .iter()
+        .filter_map(|item| {
+            item.split_once(" (")
+                .map(|(artifact, _)| artifact)
+                .or(Some(item))
+        })
+        .map(str::trim)
+        .filter(|artifact| !artifact.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>()
+}
+
+fn taskspace_apply_patch_declared_targets(patch: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    for line in patch.lines() {
+        let target = line
+            .strip_prefix("*** Update File: ")
+            .or_else(|| line.strip_prefix("*** Add File: "))
+            .map(str::trim);
+        if let Some(target) = target
+            && !target.is_empty()
+            && !targets.iter().any(|existing| existing == target)
+        {
+            targets.push(target.to_string());
+        }
+    }
+    targets
+}
+
+fn normalize_taskspace_patch_target_key(target: &str) -> String {
+    target
+        .trim()
+        .trim_start_matches("./")
+        .replace('\\', "/")
+        .to_ascii_lowercase()
+}
+
+fn taskspace_patch_target_covers_required(patch_target: &str, required: &str) -> bool {
+    patch_target == required || patch_target.ends_with(&format!("/{required}"))
 }
 
 fn resolve_unique_existing_relative_path(path: &str) -> Option<String> {
@@ -5356,6 +6353,13 @@ fn taskspace_action_to_tool_call(
             action_name
         ));
     }
+    if taskspace_snapshot_requires_implementation_edit(snapshot)
+        && taskspace_action_is_read_or_search(action_name)
+    {
+        return Err(format!(
+            "node_policy_violation:implement_solution:{action_name}:implementation_needs_edit"
+        ));
+    }
     if let (Some(expected), Some(actual)) = (snapshot.node_id.as_deref(), action.node_id.as_deref())
         && expected != actual
     {
@@ -5413,8 +6417,23 @@ fn taskspace_action_to_tool_call(
         "apply_patch" => {
             let patch = taskspace_action_arg_string(args, "patch")
                 .ok_or_else(|| "missing_apply_patch_patch".to_string())?;
+            let existing_add_targets = taskspace_unified_diff_add_targets_existing_files(&patch);
+            if !existing_add_targets.is_empty() {
+                return Err(format!(
+                    "apply_patch_existing_file_as_add:{}",
+                    existing_add_targets.join(",")
+                ));
+            }
             let patch = normalize_taskspace_unified_diff_patch(&patch)
                 .unwrap_or_else(|| normalize_taskspace_apply_patch(&patch));
+            if let Some(missing_targets) =
+                taskspace_apply_patch_missing_mandatory_targets(&patch, snapshot)
+            {
+                return Err(format!(
+                    "apply_patch_missing_mandatory_evidence_targets:{}",
+                    missing_targets.join(",")
+                ));
+            }
             Ok(Some(ToolCall {
                 tool_name: ToolName::plain("apply_patch"),
                 call_id,
@@ -5436,16 +6455,44 @@ fn taskspace_action_to_tool_call(
                 payload: ToolPayload::Function { arguments },
             }))
         }
-        "taskspace_control" => {
+        "taskspace_control" | "state_commit" => {
+            let args = if action_name == "state_commit" {
+                let mut normalized = args.clone();
+                if let Some(root) = normalized.as_object_mut() {
+                    root.entry("action".to_string())
+                        .or_insert_with(|| serde_json::Value::String("state_commit".to_string()));
+                }
+                normalized
+            } else {
+                args.clone()
+            };
             let arguments =
-                normalize_taskspace_action_contract_control_args(args, Some(snapshot))?.to_string();
+                normalize_taskspace_action_contract_control_args(&args, Some(snapshot))?
+                    .to_string();
             Ok(Some(ToolCall {
                 tool_name: ToolName::plain("taskspace_control"),
                 call_id,
                 payload: ToolPayload::Function { arguments },
             }))
         }
-        "blocked" => Ok(None),
+        "blocked" => {
+            let Some(node_id) = snapshot.node_id.as_deref() else {
+                return Ok(None);
+            };
+            let blocker_summary = taskspace_action_arg_string(args, "reason")
+                .ok_or_else(|| "missing_blocked_reason".to_string())?;
+            let arguments = serde_json::json!({
+                "action": "block_node",
+                "node_id": node_id,
+                "blocker_summary": blocker_summary,
+            })
+            .to_string();
+            Ok(Some(ToolCall {
+                tool_name: ToolName::plain("taskspace_control"),
+                call_id,
+                payload: ToolPayload::Function { arguments },
+            }))
+        }
         _ => Err(format!("unsupported_action:{action_name}")),
     }
 }
@@ -5467,6 +6514,14 @@ fn normalize_taskspace_action_contract_control_args(
         return Err(TASKSPACE_CONTROL_ARGS_NOT_OBJECT_ERROR.to_string());
     };
     let inner_action = canonicalize_taskspace_control_action_arg(root)?;
+    if inner_action == "state_commit" {
+        normalize_taskspace_action_contract_state_commit_args(root, snapshot);
+        return Ok(normalized);
+    }
+    if inner_action == "record_fact" {
+        normalize_taskspace_action_contract_record_fact_as_state_commit(root, snapshot);
+        return Ok(normalized);
+    }
     if inner_action != "finish_node" {
         return Ok(normalized);
     }
@@ -5510,8 +6565,172 @@ fn normalize_taskspace_action_contract_control_args(
     Ok(normalized)
 }
 
+fn normalize_taskspace_action_contract_record_fact_as_state_commit(
+    root: &mut serde_json::Map<String, serde_json::Value>,
+    snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
+) {
+    let statement = root
+        .remove("statement")
+        .or_else(|| root.remove("fact"))
+        .or_else(|| root.remove("summary"))
+        .and_then(|value| value.as_str().map(str::trim).map(str::to_string))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "TaskSpace compact fact recorded by action contract.".to_string());
+    let claim_id = root
+        .remove("claim_id")
+        .or_else(|| root.remove("id"))
+        .and_then(|value| value.as_str().map(str::trim).map(str::to_string))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "claim-action-contract-1".to_string());
+    let fact_source_id = root
+        .remove("fact_source_id")
+        .and_then(|value| value.as_str().map(str::trim).map(str::to_string))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "fact-source-action-contract-1".to_string());
+    let active_node_id = snapshot
+        .and_then(|snapshot| snapshot.node_id.as_deref())
+        .map(str::to_string);
+
+    root.clear();
+    root.insert(
+        "action".to_string(),
+        serde_json::Value::String("state_commit".to_string()),
+    );
+    root.insert(
+        "schema_version".to_string(),
+        serde_json::Value::String("taskspace-state-commit-v1".to_string()),
+    );
+    if let Some(active_node_id) = active_node_id {
+        root.insert(
+            "active_node_id".to_string(),
+            serde_json::Value::String(active_node_id),
+        );
+    }
+    root.insert(
+        "fact_sources".to_string(),
+        serde_json::json!([{
+            "id": fact_source_id.clone(),
+            "provenance": "observed_from_environment",
+            "description": "Compact action-contract observation from the current TaskSpace context.",
+            "evidence_refs": [{ "artifact_ref": "user-request" }]
+        }]),
+    );
+    root.insert(
+        "facts".to_string(),
+        serde_json::json!([{
+            "claim_id": claim_id,
+            "statement": statement,
+            "evidence_refs": [{ "fact_source_id": fact_source_id }]
+        }]),
+    );
+}
+
+fn normalize_taskspace_action_contract_state_commit_args(
+    root: &mut serde_json::Map<String, serde_json::Value>,
+    snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
+) {
+    root.entry("schema_version".to_string())
+        .or_insert_with(|| serde_json::Value::String("taskspace-state-commit-v1".to_string()));
+    let current_node_id = snapshot.and_then(|snapshot| snapshot.node_id.as_deref());
+    if !root.contains_key("active_node_id")
+        && let Some(node_id) = current_node_id
+    {
+        root.insert(
+            "active_node_id".to_string(),
+            serde_json::Value::String(node_id.to_string()),
+        );
+    }
+    normalize_taskspace_action_contract_state_commit_blockers(root, current_node_id);
+    normalize_taskspace_action_contract_state_commit_decisions(root);
+}
+
+fn normalize_taskspace_action_contract_state_commit_blockers(
+    root: &mut serde_json::Map<String, serde_json::Value>,
+    current_node_id: Option<&str>,
+) {
+    let Some(serde_json::Value::Array(items)) = root.get_mut("blockers") else {
+        return;
+    };
+    let Some(current_node_id) = current_node_id else {
+        return;
+    };
+    for item in items {
+        match item {
+            serde_json::Value::String(text) => {
+                let blocker_summary = text.trim().to_string();
+                if !blocker_summary.is_empty() {
+                    *item = serde_json::json!({
+                        "node_id": current_node_id,
+                        "blocker_summary": blocker_summary,
+                    });
+                }
+            }
+            serde_json::Value::Object(object) => {
+                if !object.contains_key("blocker_summary")
+                    && let Some(reason) = object.remove("reason")
+                {
+                    object.insert("blocker_summary".to_string(), reason);
+                }
+                object
+                    .entry("node_id".to_string())
+                    .or_insert_with(|| serde_json::Value::String(current_node_id.to_string()));
+            }
+            _ => {}
+        }
+    }
+}
+
+fn normalize_taskspace_action_contract_state_commit_decisions(
+    root: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    let Some(serde_json::Value::Array(items)) = root.get_mut("decisions") else {
+        return;
+    };
+    for (index, item) in items.iter_mut().enumerate() {
+        match item {
+            serde_json::Value::String(text) => {
+                let decision = text.trim().to_string();
+                if !decision.is_empty() {
+                    *item = serde_json::json!({
+                        "id": format!("decision-{}", index + 1),
+                        "decision_kind": "validation",
+                        "decision": decision,
+                        "rationale": "recorded by compact action-contract state_commit normalization",
+                    });
+                }
+            }
+            serde_json::Value::Object(object) => {
+                object.entry("id".to_string()).or_insert_with(|| {
+                    serde_json::Value::String(format!("decision-{}", index + 1))
+                });
+                object
+                    .entry("decision_kind".to_string())
+                    .or_insert_with(|| serde_json::Value::String("validation".to_string()));
+                if !object.contains_key("decision")
+                    && let Some(summary) = object.remove("summary")
+                {
+                    object.insert("decision".to_string(), summary);
+                }
+                object.entry("decision".to_string()).or_insert_with(|| {
+                    serde_json::Value::String("TaskSpace state_commit decision".to_string())
+                });
+                object.entry("rationale".to_string()).or_insert_with(|| {
+                    serde_json::Value::String(
+                        "recorded by compact action-contract state_commit normalization"
+                            .to_string(),
+                    )
+                });
+            }
+            _ => {}
+        }
+    }
+}
+
 fn normalize_taskspace_action_contract_test_command(command: &str) -> String {
     let trimmed = command.trim();
+    if let Some(normalized) = normalize_taskspace_shell_script_test_command(trimmed) {
+        return normalized;
+    }
     for prefix in [
         "pytest ",
         "python -m pytest ",
@@ -5545,6 +6764,42 @@ fn normalize_taskspace_action_contract_test_command(command: &str) -> String {
         }
     }
     trimmed.to_string()
+}
+
+fn normalize_taskspace_shell_script_test_command(command: &str) -> Option<String> {
+    let lower = command.to_ascii_lowercase();
+    if lower.starts_with("bash ") || lower.starts_with("sh ") {
+        return None;
+    }
+    if let Some((left, right)) = command.split_once("&&") {
+        let right = right.trim();
+        if let Some(normalized_right) = normalize_taskspace_shell_script_test_command(right) {
+            return Some(format!("{} && {}", left.trim(), normalized_right));
+        }
+        return None;
+    }
+    let (file, suffix) = split_first_shell_word(command)?;
+    let normalized_file = file.trim_matches('"').trim_matches('\'');
+    if !normalized_file.ends_with(".sh") {
+        return None;
+    }
+    if let Some(script) = normalized_file.strip_prefix("./") {
+        let suffix = suffix.trim();
+        return Some(if suffix.is_empty() {
+            format!("bash {script}")
+        } else {
+            format!("bash {script} {suffix}")
+        });
+    }
+    if normalized_file.starts_with("/app/") {
+        let suffix = suffix.trim();
+        return Some(if suffix.is_empty() {
+            format!("bash {normalized_file}")
+        } else {
+            format!("bash {normalized_file} {suffix}")
+        });
+    }
+    None
 }
 
 fn resolve_unique_test_file_for_missing_pytest_path(path: &str) -> Option<String> {
@@ -5662,6 +6917,12 @@ async fn record_taskspace_observed_implement_edit(
     turn_diff_tracker: &SharedTurnDiffTracker,
     request_count: usize,
 ) -> bool {
+    if sess
+        .action_map_current_main_node_has_successful_action(ActionClass::Edit)
+        .await
+    {
+        return false;
+    }
     let unified_diff = {
         let mut tracker = turn_diff_tracker.lock().await;
         tracker.get_unified_diff().ok().flatten()
@@ -5791,6 +7052,7 @@ async fn try_run_sampling_request(
         Box<dyn ToolArgumentDiffConsumer>,
     )> = None;
     let mut should_emit_turn_diff = false;
+    let mut taskspace_terminal_action_observed_in_request = false;
     let plan_mode = turn_context.collaboration_mode.mode == ModeKind::Plan;
     let mut assistant_message_stream_parsers = AssistantMessageStreamParsers::new(plan_mode);
     let mut plan_mode_state = plan_mode.then(|| PlanModeStreamState::new(&turn_context.sub_id));
@@ -5981,6 +7243,17 @@ async fn try_run_sampling_request(
                                     "Validation passed; final result is ready.",
                                 )
                             } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                                && should_block_after_closed_validation_without_active_node(
+                                    &action,
+                                    snapshot,
+                                    sess.as_ref(),
+                                )
+                                .await
+                            {
+                                taskspace_blocked_final_action(
+                                    "TaskSpace validation is blocked by local validator infrastructure evidence already recorded on the closed validation node.",
+                                )
+                            } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
                                 && should_answer_after_completed_task_without_active_node(
                                     &action,
                                     snapshot,
@@ -6021,12 +7294,41 @@ async fn try_run_sampling_request(
                             .await;
                             saw_actionable_output = true;
                             needs_follow_up = true;
-                            in_flight.push_back(Box::pin(
-                                tool_runtime
-                                    .clone()
-                                    .handle_tool_call(tool_call, cancellation_token.child_token()),
-                            ));
-                            if let Some(rationale) = action.rationale.as_deref()
+                            let mut tool_error_message: Option<String> = None;
+                            match tool_runtime
+                                .clone()
+                                .handle_tool_call(
+                                    tool_call.clone(),
+                                    cancellation_token.child_token(),
+                                )
+                                .await
+                            {
+                                Ok(response_input) => {
+                                    record_response_input_item(
+                                        sess.as_ref(),
+                                        turn_context.as_ref(),
+                                        response_input,
+                                    )
+                                    .await;
+                                }
+                                Err(err) => {
+                                    let response_input =
+                                        response_input_for_taskspace_action_tool_error(
+                                            &tool_call, &err,
+                                        );
+                                    record_response_input_item(
+                                        sess.as_ref(),
+                                        turn_context.as_ref(),
+                                        response_input,
+                                    )
+                                    .await;
+                                    tool_error_message =
+                                        Some(format!("TaskSpace tool call failed: {err}"));
+                                }
+                            }
+                            if let Some(message) = tool_error_message {
+                                last_agent_message = Some(message);
+                            } else if let Some(rationale) = action.rationale.as_deref()
                                 && !rationale.trim().is_empty()
                             {
                                 last_agent_message = Some(rationale.to_string());
@@ -6040,6 +7342,7 @@ async fn try_run_sampling_request(
                                 final_message,
                             );
                             taskspace_terminal_action_observed = true;
+                            taskspace_terminal_action_observed_in_request = true;
                         }
                         Ok((_action, None, None)) => {}
                         Err(reason) => {
@@ -6201,7 +7504,8 @@ async fn try_run_sampling_request(
                     .map(|message| !message.trim().is_empty())
                     .unwrap_or(false);
                 let mut final_response_rejected = false;
-                if !needs_follow_up
+                if !taskspace_terminal_action_observed_in_request
+                    && !needs_follow_up
                     && let Some(message) = last_agent_message.as_deref()
                     && sess
                         .record_action_map_main_final_response(&turn_context, message)
@@ -6249,9 +7553,26 @@ async fn try_run_sampling_request(
                 let mut taskspace_no_action_recovery_item =
                     if response_actionability.needs_recovery() && current_budget_snapshot.is_some()
                     {
-                        Some(build_taskspace_no_action_recovery_item(
+                        if let Some(targets) = taskspace_existing_file_add_targets_from_rejection(
                             last_agent_message.as_deref(),
-                        ))
+                        ) {
+                            Some(build_taskspace_apply_patch_format_recovery_item(&targets))
+                        } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
+                            snapshot.node_kind.as_deref() == Some("implement_solution")
+                                && taskspace_message_hit_implementation_needs_edit(
+                                    last_agent_message.as_deref(),
+                                )
+                        }) {
+                            let evidence_summary =
+                                sess.action_map_current_working_evidence_summary().await;
+                            Some(build_taskspace_implement_needs_edit_recovery_item(
+                                evidence_summary.as_deref(),
+                            ))
+                        } else {
+                            Some(build_taskspace_no_action_recovery_item(
+                                last_agent_message.as_deref(),
+                            ))
+                        }
                     } else {
                         None
                     };
@@ -6512,6 +7833,68 @@ async fn try_run_sampling_request(
                 }
             }
         }
+    }
+    if let Ok(result) = &mut outcome
+        && result.taskspace_no_action_recovery_item.is_none()
+        && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
+        && snapshot.node_kind.as_deref() == Some("implement_solution")
+        && sess
+            .action_map_current_implement_progress_needs_edit()
+            .await
+    {
+        let evidence_summary = sess.action_map_current_working_evidence_summary().await;
+        result.taskspace_no_action_recovery_item = Some(
+            build_taskspace_implement_needs_edit_recovery_item(evidence_summary.as_deref()),
+        );
+    }
+    if let Ok(result) = &mut outcome
+        && result.taskspace_no_action_recovery_item.is_none()
+        && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
+        && snapshot.node_kind.as_deref() == Some("inspect_code_context")
+        && sess
+            .action_map_current_inspect_progress_ready_for_transition()
+            .await
+    {
+        match sess
+            .force_finish_action_map_inspect_for_provider_budget(
+                &turn_context,
+                snapshot,
+                "inspect_progress_convergence",
+            )
+            .await
+        {
+            Ok(true) => {
+                result.taskspace_no_action_recovery_item =
+                    Some(build_taskspace_forced_inspect_transition_recovery_item());
+            }
+            Ok(false) => {}
+            Err(error) => {
+                sess.send_event(
+                    &turn_context,
+                    EventMsg::Warning(WarningEvent {
+                        message: format!(
+                            "TaskSpaceForcedInspectTransitionFailedV1 trigger=inspect_progress_convergence error={error}"
+                        ),
+                    }),
+                )
+                .await;
+            }
+        }
+    }
+    if let Ok(result) = &mut outcome
+        && result.needs_follow_up
+        && result.taskspace_no_action_recovery_item.is_none()
+        && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
+        && matches!(
+            snapshot.node_kind.as_deref(),
+            Some("smoke_test" | "regression_test")
+        )
+        && sess
+            .action_map_current_validation_node_has_local_infra_failure()
+            .await
+    {
+        result.taskspace_no_action_recovery_item =
+            Some(build_taskspace_validation_infra_recovery_item());
     }
     if let Ok(result) = &mut outcome
         && result.needs_follow_up

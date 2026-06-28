@@ -79,6 +79,8 @@ function Protect-TaskspaceExternalSensitiveSource {
     $rows = New-Object System.Collections.Generic.List[object]
     foreach ($file in $files) {
         $fileInfo = Get-Item -LiteralPath $file
+        $staleRemoveOutput = & icacls $file /remove:d "$identity" 2>&1
+        $staleRemoveExit = $LASTEXITCODE
         $preHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()
         $denyOutput = & icacls $file /deny "$($identity):(R)" 2>&1
         $denyExit = $LASTEXITCODE
@@ -92,6 +94,8 @@ function Protect-TaskspaceExternalSensitiveSource {
             path = $file
             file_sha256_before_protect = $preHash
             file_size_before_protect = [int64]$fileInfo.Length
+            stale_deny_remove_exit_code = $staleRemoveExit
+            stale_deny_remove_output = (($staleRemoveOutput | ForEach-Object { [string]$_ }) -join "`n")
             deny_exit_code = $denyExit
             read_denied_after_protect = $readDenied
             probes_after_protect = @($probes)

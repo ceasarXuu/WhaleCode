@@ -521,3 +521,915 @@
   ```
 - Interpretation: R3 correctness, graph closeout, context replacement, cache-hit, and timing observability gates are now evidenced on B-tier. The real remaining blocker is not missing telemetry; it is that this B-tier sample still shows TaskSpace slower/costlier than standard.
 - Time: 2026-06-27 04:16
+
+## Hypothesis H-006: P0 deep TaskSpace run times out because action-contract execution stays in read/model-sampling loops instead of converging to implementation
+- Status: confirmed
+- Parent: P-001
+- Claim: On the P0 `processing-pipeline` targeted diagnostic, TaskSpace context/cache replacement works, but the action-contract loop does not force a transition from repeated read/model-sampling actions into implementation and validation, so the run consumes 95 provider requests and hits the 900s process timeout.
+- Layer: root-cause
+- Factor relation: single
+- Depends on:
+  - H-005
+- Rationale:
+  - B-tier thin task validates context/cache/timing, but P0 deep task exercises a longer inspect -> implement transition.
+  - The P0 run starts TaskSpace and performs action-contract reads, but remains on the inspect node and never produces changed files.
+  - `provider-cache-trace-summary.json` and `active-context-replacement-report.json` pass, so the timeout is not caused by the old raw-history/context pollution blocker.
+- Falsifiable predictions:
+  - If true: the P0 diagnostic shows high provider request count, high cache hit, exact context replacement pass, zero changed files on TaskSpace side, no business success, and phase diversity failing because requests remain mostly `model_sampling`.
+  - If false: the run fails because cache/context replacement regressed, because the validator/harness failed before agent execution, or because implementation edits were made but were semantically wrong.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: compare P0 pair report, request summary, cache summary, active replacement report, phase summary, and rollout action traces.
+  - Signal: `exec_exit_code`, `exec_timed_out`, `request_2_plus_hit_rate`, `exact_context_bundle_verified`, `replacement_confirmed`, `phase_diversity_gate_pass`, provider request count, changed paths, and action trace lines.
+  - Capture method: run targeted `processing-pipeline` diagnostic from pinned terminal-bench source and inspect structured artifacts only; avoid loading full 344MB rollout except targeted `rg` probes.
+  - Event name or marker:
+    - `tool_free_action_contract`
+    - `provider_response_actionability`
+    - `main_tool_result`
+    - `phase_diversity_gate_pass`
+  - Correlation keys:
+    - `target\phase-r3-targeted-diagnostic-20260627-1616`
+    - `terminal_bench__processing-pipeline`
+    - `pair-001`
+  - Differentiates from:
+    - active context replacement failure
+    - DeepSeek cache miss instability
+    - timing attribution failure
+    - validator/docker harness failure
+  - Supports if:
+    - context/cache/timing pass while TaskSpace has many provider requests, no edits, no business success, and timeout.
+  - Refutes if:
+    - context/cache/timing fail first, or TaskSpace produces implementation edits that fail validation.
+  - Instrumentation status: retained
+  - Instrumentation lifecycle:
+    - retain phase/cache/context/actionability summaries as permanent diagnostic artifacts.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-011
+  - E-012
+- Conclusion: confirmed
+- Repair design readiness: ready
+- Next step: inspect the action-contract transition/recovery code path and design a structural convergence fix for deep TaskSpace runs.
+- Blocker:
+  - none for diagnosis; implementation still needs code-path inspection.
+- Close reason:
+  - not closed
+
+## Evidence E-011: Current-HEAD non-agent gates pass after Rust gate timeout fix
+- Related hypotheses:
+  - H-006
+- Direction: neutral
+- Type: regression-test
+- Source: `target\phase-r3-non-agent-gates-20260627-160303\v005-non-agent-gates.json`
+- Prediction or plan link:
+  - H-006 differentiates P0 runtime convergence from non-agent gate failure.
+- Matched signal:
+  - Artifact status `pass`, git commit `435999bb0fbcff87b40b97c8770a6fb2b7e63804`.
+  - All subgates pass: `provider_request_hook`, `runtime_budget_response`, `budget_quality_impact`, `active_context_replacement`, `state_commit_displacement`, `spawn_node_budget`, `request_phase_attribution`, `release_decision_fixture`, `start_gate_fixture`.
+  - The earlier failure was timeout-only: single `cargo test -p codex-core provider_request_budget --lib` passed in about 254s, which exceeded the old 240s builder timeout.
+- Correlation keys:
+  - `435999bb0`
+  - `build-v005-non-agent-gates.ps1`
+  - `profile_hash=7059327f0b8b501ad3399f07ca95d8d994e6ff9ed8199dd96079881ec0b51e3a`
+- Raw content:
+  ```text
+  v005-non-agent-gates status = pass
+  provider_request_hook = pass
+  active_context_replacement = pass
+  state_commit_displacement = pass
+  spawn_node_budget = pass
+  start_gate_fixture = pass
+  ```
+- Interpretation: The current blocker is not non-agent gate readiness. The gate infrastructure can produce a current-HEAD pass artifact after the Rust test timeout is made realistic for this Windows host.
+- Time: 2026-06-27 16:08
+
+## Evidence E-012: P0 targeted diagnostic times out despite context/cache/timing gates passing
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: diagnostic-run
+- Source: `target\phase-r3-targeted-diagnostic-20260627-1616\runs\terminal_bench__processing-pipeline\20260627-161031-920`
+- Prediction or plan link:
+  - H-006 If true prediction.
+- Matched signal:
+  - Pair report: TaskSpace `exec_exit_code=124`, `exec_timed_out=true`, `business_success=false`, `wall_time_ms=900054`, changed paths empty.
+  - Request summary from rollout: `model_request_count=96`, `input_tokens=11538792`, `cached_input_tokens=11398016`, `output_tokens=49096`, `last_input_tokens_per_request=120236`.
+  - Cache: `request_2_plus_hit_rate=0.987655`, `cache_usage_missing_count=0`, `native_tools_schema_hot_path_count=0`.
+  - Context replacement: `exact_context_bundle_verified=true`, `replacement_confirmed=true`, `legacy_taskspace_history_present=false`, `raw_taskspace_control_history_tokens=0`, `protected_items_present=true`.
+  - Timing: `wait_attribution_status=complete`, `model_queue_wait_ms=64457`, `model_retry_backoff_ms=0`, `model_request_duration_ms=580872`.
+  - Phase summary: `phase_diversity_gate_pass=false`, `model_sampling` dominates, only 4 `budget_recovery` events.
+  - Targeted rollout probe: initial `taskspace_control(start_task)` succeeds; later traces show `provider_response_actionability` and `main_tool_result` read actions, but no implementation edits before timeout.
+- Correlation keys:
+  - `processing-pipeline`
+  - `tool_free_action_contract`
+  - `phase_diversity_gate_pass=false`
+  - `exec_timeout`
+- Raw content:
+  ```text
+  TaskSpace exec_exit_code = 124
+  TaskSpace exec_timed_out = true
+  TaskSpace changed_paths = empty
+  rollout_trace.model_request_count = 96
+  request_2_plus_hit_rate = 0.987655
+  exact_context_bundle_verified = true
+  replacement_confirmed = true
+  wait_attribution_status = complete
+  phase_diversity_gate_pass = false
+  ```
+- Interpretation: The P0 failure is a real convergence/runtime behavior issue after R3 context/cache/timing fixes. It is not explained by cache misses, legacy context leakage, missing wait attribution, or validator preflight failure.
+- Time: 2026-06-27 16:44
+
+## Hypothesis H-007: P0 repeated-read convergence improved after dynamic implement-needs-edit state, but validation actions were misclassified
+- Status: confirmed
+- Parent: P-001
+- Claim: The new implement-needs-edit state moves the P0 sample out of the unbounded read loop and into an edit, but the action-contract `run_test` shell call loses its semantic `test` class during tool attribution and is blocked on the `smoke_test` node as `unknown`.
+- Layer: root-cause
+- Factor relation: sequential
+- Depends on:
+  - H-006
+- Rationale:
+  - The `205657` diagnostic no longer times out and has a real `apply_patch`, so the original no-edit convergence failure is materially improved.
+  - The same run emits two `run_test` action-contract calls on `node-3` (`smoke_test`), but both are blocked before execution because the shell text classifier treats `bash /app/run_pipeline.sh` and `./run_pipeline.sh` as `unknown`.
+  - This is an attribution-layer bug: the provider already supplied `action=run_test`, so runtime should not discard that semantic action and re-infer only from shell text.
+- Falsifiable predictions:
+  - If true: rollout contains `taskspace-action-contract-*-run_test` function calls followed by `tool_action_blocked` with `actionClass=unknown` and reason `smoke_test does not allow unknown`.
+  - If true after repair: a unit test can prove `taskspace-action-contract-*-run_test` maps to `ActionClass::Test` while ordinary `bash /app/run_pipeline.sh` remains `Unknown`.
+  - If false: the block is caused by node policy disallowing tests, by the action-contract parser rejecting `run_test`, or by a validator/runtime environment failure.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: inspect the P0 rollout for run_test call ids and blocked runtime events; inspect `tools/parallel.rs` attribution code; add a targeted unit test for action-contract class preservation.
+  - Signal: `call_id=taskspace-action-contract-*-run_test`, `actionClass=unknown`, `reason=smoke_test does not allow unknown`, and a passing unit test for `run_test -> ActionClass::Test`.
+  - Capture method: use targeted `rg` over the rollout, code inspection, and `cargo test -j1 -p codex-core taskspace_action_contract_call_id_preserves_run_test_class --lib`.
+  - Event name or marker:
+    - `tool_action_blocked`
+    - `taskspace-action-contract-23-run_test`
+    - `taskspace-action-contract-25-run_test`
+  - Correlation keys:
+    - `target\phase-r3-targeted-diagnostic-20260627-205657`
+    - `pair-001\right\artifacts\rollout.jsonl`
+    - `node-3`
+  - Differentiates from:
+    - semantic agent patch failure
+    - validator/docker failure
+    - smoke_test policy rejecting all tests
+  - Supports if:
+    - the rollout block reason is `unknown`, while action-contract call ids explicitly name `run_test`.
+  - Refutes if:
+    - `run_test` is mapped to `test` but still blocked, or no `run_test` action exists.
+  - Instrumentation status: retained
+  - Instrumentation lifecycle:
+    - keep call-id based action-class tests as permanent regression coverage.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-013
+  - E-014
+  - E-015
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: rebuild `whale` and rerun the targeted P0 sample to verify `run_test` is no longer blocked as `unknown`.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-013: Dynamic implement-needs-edit state reduces the no-edit loop and produces an edit
+- Related hypotheses:
+  - H-006
+  - H-007
+- Direction: supports
+- Type: diagnostic-run
+- Source: `target\phase-r3-targeted-diagnostic-20260627-205657\runs\terminal_bench__processing-pipeline\20260627-205724-454\pair-001`
+- Prediction or plan link:
+  - H-006 repair validation and H-007 rationale.
+- Matched signal:
+  - Pair report: TaskSpace right side `exec_exit_code=1`, `exec_timed_out=false`, `wall_time_ms=247708`, `tool_call_count=21`, changed paths `collect_data.sh` and `data/output/raw_data.txt`.
+  - Request phase summary: `provider_request_distinct_count=25`, `phase_diversity_gate_pass=true`, `model_sampling=84`, `budget_recovery=4`, `validation_recovery=12`.
+  - Metrics: `rollout_trace_model_request_count=26`, `rollout_trace_input_tokens=3124918`, `taskspace_control_count=2`, `nodes=3`, `accepted_results=2`.
+  - Whale exec trace: one `TaskSpaceImplementNeedsEditRecoveryV1` then `item_111` is an `apply_patch` against `collect_data.sh`.
+- Correlation keys:
+  - `TaskSpaceImplementNeedsEditRecoveryV1`
+  - `item_111`
+  - `phase_diversity_gate_pass=true`
+- Raw content:
+  ```text
+  right exec_timed_out = false
+  right changed_paths = collect_data.sh, data/output/raw_data.txt
+  provider_request_distinct_count = 25
+  phase_diversity_gate_pass = true
+  item_111 action = apply_patch
+  ```
+- Interpretation: The previous no-edit timeout mechanism is no longer the primary blocker in this run. The model made an edit and progressed to validation, exposing later correctness and action-class issues.
+- Time: 2026-06-27 21:15
+
+## Evidence E-014: Action-contract run_test is blocked as unknown on smoke_test
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: diagnostic-run
+- Source: `target\phase-r3-targeted-diagnostic-20260627-205657\runs\terminal_bench__processing-pipeline\20260627-205724-454\pair-001\right\artifacts\rollout.jsonl`
+- Prediction or plan link:
+  - H-007 prediction: run_test call ids followed by `actionClass=unknown` block.
+- Matched signal:
+  - Rollout line 620: function call `shell_command` with call id `taskspace-action-contract-23-run_test`, command `bash /app/run_pipeline.sh`.
+  - Rollout line 625: `tool_action_blocked`, `nodeKind=smoke_test`, `actionClass=unknown`, reason `smoke_test does not allow unknown`.
+  - Rollout line 630: function output says the same call was blocked as `unknown`.
+  - Rollout lines 670 and 680 repeat the pattern for `taskspace-action-contract-25-run_test`, command `./run_pipeline.sh`.
+- Correlation keys:
+  - `taskspace-action-contract-23-run_test`
+  - `taskspace-action-contract-25-run_test`
+  - `tool_action_blocked`
+- Raw content:
+  ```text
+  call_id=taskspace-action-contract-23-run_test command=bash /app/run_pipeline.sh
+  tool_action_blocked nodeKind=smoke_test actionClass=unknown reason=smoke_test does not allow unknown
+  call_id=taskspace-action-contract-25-run_test command=./run_pipeline.sh
+  TaskSpace blocked this tool call ... action class: unknown
+  ```
+- Interpretation: The smoke_test policy itself is not the issue; the action semantic is lost before policy evaluation. The action-contract call id retains the source action and is the correct low-risk attribution key.
+- Time: 2026-06-27 21:28
+
+## Evidence E-015: Action-contract class preservation fix passes targeted and TaskSpace regression tests
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: fix-validation
+- Source: `third_party\codex-cli\codex-rs\core\src\tools\parallel.rs`
+- Prediction or plan link:
+  - H-007 after-repair prediction.
+- Matched signal:
+  - Code change: `ToolCallRuntime::classify_taskspace_tool_action` now first checks `taskspace_action_contract_class(&call.call_id)` before shell payload inference.
+  - Mapping: `run_test -> ActionClass::Test`, `apply_patch -> Edit`, `taskspace_control -> Control`, `list_files/read_file -> Read`, `search -> Search`.
+  - Targeted unit test: `taskspace_action_contract_call_id_preserves_run_test_class` passed.
+  - TaskSpace aggregate regression: `cargo test -j1 -p codex-core taskspace --lib` passed, `99 passed`.
+  - Guardrail: the test also asserts ordinary `bash /app/run_pipeline.sh` remains `ActionClass::Unknown`, so only action-contract calls get this semantic override.
+- Correlation keys:
+  - `taskspace_action_contract_class`
+  - `taskspace_action_contract_call_id_preserves_run_test_class`
+  - `cargo test -j1 -p codex-core taskspace --lib`
+- Raw content:
+  ```text
+  test tools::parallel::tests::taskspace_action_contract_call_id_preserves_run_test_class ... ok
+  test result: ok. 1 passed; 0 failed
+  test result: ok. 99 passed; 0 failed; 1906 filtered out
+  ```
+- Interpretation: The engineering regression that turned action-contract validation into an unknown shell action is fixed at the attribution boundary without broadening ordinary shell command classification.
+- Time: 2026-06-27 21:34
+
+## Evidence E-016: 205657 remaining TaskSpace failure is semantic, not cache/context/timing
+- Related hypotheses:
+  - H-007
+- Direction: neutral
+- Type: diagnostic-run
+- Source: `target\phase-r3-targeted-diagnostic-20260627-205657\runs\terminal_bench__processing-pipeline\20260627-205724-454\pair-001\right\artifacts\validation.stdout.log`
+- Prediction or plan link:
+  - H-007 differentiates action attribution from agent semantic correctness.
+- Matched signal:
+  - Public validation reached tests and completed.
+  - Failures show `generate_report.sh` still has `#!/bin/nonexistent`, pipeline exits 1 because `process_data.sh` expects `/data/output/raw_data.txt`, and expected `/data/output/*` files are missing.
+  - The model edited `collect_data.sh` to use `./data/output`, which contradicts validator expectations.
+- Correlation keys:
+  - `test_correct_shebang`
+  - `test_pipeline_execution`
+  - `test_all_output_files_created`
+  - `test_data_was_processed`
+- Raw content:
+  ```text
+  FAILED test_correct_shebang: '#!/bin/nonexistent' != '#!/bin/bash'
+  FAILED test_pipeline_execution: Error: Input data not found!
+  FAILED test_all_output_files_created: /data/output/raw_data.txt should be created
+  FAILED test_data_was_processed: FileNotFoundError /data/output/processed_data.txt
+  ```
+- Interpretation: After the convergence fix, this run still fails because the agent chose the wrong patch and missed `generate_report.sh`. That is a remaining semantic solving failure to evaluate after the `run_test` attribution repair is validated live.
+- Time: 2026-06-27 21:31
+
+## Hypothesis H-008: Interrupted benchmark source protection can leave stale Windows deny ACLs that break later source hashing
+- Status: confirmed
+- Parent: P-001
+- Claim: The external source guard can fail before applying fresh protection when a previous interrupted run left a deny ACE on the pinned terminal-bench source file; the guard must remove stale deny ACEs before computing source hashes.
+- Layer: root-cause
+- Factor relation: independent
+- Depends on:
+  - H-006
+- Rationale:
+  - The `203312` diagnostic failed before measuring TaskSpace because `Get-FileHash` on the pinned `run-tests.sh` source returned access denied.
+  - Inspecting ACLs showed a deny `Read, Synchronize` ACE for the current user on that source file.
+  - Removing the stale deny ACE made `Get-FileHash` succeed.
+- Falsifiable predictions:
+  - If true: stale ACL inspection shows a deny ACE; after removing it, hash succeeds; source guard smoke with the real manifest shape protects and releases the source with remove/deny/release exit codes all zero.
+  - If false: access denied persists after stale deny removal, or the source guard cannot protect/release the same file cleanly.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: check ACL on the pinned sensitive file, remove stale deny, retry hash, then run source guard smoke using `ExternalBenchmark.adapter_metadata.sensitive_source_files`.
+  - Signal: ACL deny ACE, successful SHA256 hash, and source guard smoke JSON with `protected=true`, `released=true`, `stale_remove_exit=0`, `deny_exit=0`, `remove_exit=0`.
+  - Capture method: PowerShell `Get-Acl`, `icacls /remove:d`, `Get-FileHash`, and targeted source guard smoke.
+  - Event name or marker:
+    - `stale_deny_remove_exit_code`
+    - `sensitive_source_files`
+  - Correlation keys:
+    - `target\terminal-bench-pinned-1a6ffa9\original-tasks\processing-pipeline\run-tests.sh`
+    - `phase-r3-targeted-diagnostic-20260627-203312`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-017
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: keep stale-deny removal fields in source guard proof for future benchmark reruns.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-017: Source guard stale deny removal fixes pinned benchmark hash access
+- Related hypotheses:
+  - H-008
+- Direction: supports
+- Type: fix-validation
+- Source: `scripts\taskspace-benchmark\lib\source-guard.ps1`
+- Prediction or plan link:
+  - H-008 prediction and repair validation.
+- Matched signal:
+  - Pre-fix pinned source ACL included `ROG306\77585 Deny Read, Synchronize`, and `Get-FileHash` failed with access denied.
+  - After `icacls ... /remove:d ROG306\77585`, `Get-FileHash` succeeded with SHA256 `FD7911468D6830532C48CA5049E0F67D1DD4AECD768D1470F21EFCE55C81BE97`.
+  - Source guard now removes stale deny ACEs before hashing and records `stale_deny_remove_exit_code` / `stale_deny_remove_output`.
+  - Correct manifest-shape smoke result: `protected=true`, `released=true`, `stale_remove_exit=0`, `deny_exit=0`, `remove_exit=0`.
+- Correlation keys:
+  - `Protect-TaskspaceExternalSensitiveSource`
+  - `stale_deny_remove_exit_code`
+  - `ExternalBenchmark.adapter_metadata.sensitive_source_files`
+- Raw content:
+  ```text
+  stale ACL: ROG306\77585 Deny Read, Synchronize
+  Get-FileHash SHA256 FD7911468D6830532C48CA5049E0F67D1DD4AECD768D1470F21EFCE55C81BE97
+  {"protected":true,"released":true,"stale_remove_exit":0,"deny_exit":0,"remove_exit":0}
+  ```
+- Interpretation: The ACL failure was benchmark infrastructure contamination from a previous interrupted protection cycle, not a TaskSpace agent behavior failure. The guard now self-heals stale deny ACEs before re-protecting sensitive sources.
+- Time: 2026-06-27 20:45
+
+## Evidence E-018: Live rerun confirms run_test is preserved as test, exposing the next convergence issue
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: fix-validation
+- Source: `target\phase-r3-targeted-diagnostic-20260627-2142\runs\terminal_bench__terminal_bench__processing-pipeline\20260627-213629-806`
+- Prediction or plan link:
+  - H-007 next step: live targeted P0 validation after rebuilding `whale`.
+- Matched signal:
+  - `run-status.json`: `phase=completed`, `run_validity=valid`, `exit_code=0`, `attempted_pairs=1`, `completed_pairs=1`.
+  - Pair report: standard side solved; TaskSpace side still false, but no longer because `run_test` is blocked as `unknown`.
+  - Rollout line 636: `taskspace-action-contract-24-run_test` invokes `shell_command` with `bash run_pipeline.sh`.
+  - Rollout line 645 / trace-339: `main_tool_result`, `callId=taskspace-action-contract-24-run_test`, `actionClass=test`, `toolSuccess=false`, tags `tool_failure`, `validator_failure`.
+  - No matching `smoke_test does not allow unknown` for the run_test call.
+- Correlation keys:
+  - `20260627-213629-806`
+  - `taskspace-action-contract-24-run_test`
+  - `trace-339`
+- Raw content:
+  ```text
+  run_validity = valid
+  outcome_standard = solved
+  outcome_taskspace = engineering_unclean
+  call_id = taskspace-action-contract-24-run_test
+  actionClass = test
+  toolSuccess = false
+  unclassifiedShellWarningCount = 0
+  ```
+- Interpretation: The action-class preservation repair is validated live. The next failure is not action-class policy; it is that implementation still re-reads too long, chooses a partial/wrong patch, and the local smoke command fails with a Windows/WSL `Bash/Service/CreateInstance/E_ACCESSDENIED` tool failure before the external Docker validator reports the semantic misses.
+- Time: 2026-06-27 21:58
+
+## Hypothesis H-009: Implement nodes re-read because inherited inspect evidence is not treated as implementation convergence evidence
+- Status: confirmed
+- Parent: P-001
+- Claim: After a forced inspect -> implement transition, the implementation node contains enough dependency evidence to patch, but the runtime only counts reads performed on the implementation node itself. That allows a second read loop, loses focus on high-signal dependency evidence, and delays edit pressure until the implement node itself reaches the read threshold.
+- Layer: root-cause
+- Factor relation: sequential
+- Depends on:
+  - H-007
+- Rationale:
+  - The `2142` live rerun shows inspect result `result-14` already captured `generate_report.sh` with `#!/bin/nonexistent`, but the implement node continued to read/list through request 21 before `TaskSpaceImplementNeedsEditRecoveryV1`.
+  - The actual patch only changed `process_data.sh`, leaving `generate_report.sh` and output path expectations unresolved.
+  - Code inspection showed `current_main_implement_progress_needs_edit` and the runtime read/search gate used only `current_node_progress_signature`, ignoring dependency nodes.
+- Falsifiable predictions:
+  - If true: after inspect transition, an implement node with dependency code/test evidence returns `current_main_implement_progress_needs_edit() == true` before any implement-node read.
+  - If true after repair: a read/search tool call on that implement node is blocked with a reason including `dependency_working_evidence`, while `apply_patch` remains allowed.
+  - If false: dependency evidence is already considered, or the repeated reads are caused by parser/action-contract rejection rather than runtime state.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: create an inspect node, record a successful high-signal shell script read, force transition to implement, then attempt an implementation read.
+  - Signal: `current_main_implement_progress_needs_edit()`, `dependency_working_evidence` in the gate error, and action-contract state containing `implementation_needs_edit`.
+  - Capture method: focused Rust unit tests plus TaskSpace aggregate regression.
+  - Event name or marker:
+    - `current_node_has_dependency_working_evidence`
+    - `dependency_working_evidence`
+    - `TaskSpaceImplementNeedsEditRecoveryV1`
+  - Correlation keys:
+    - `result-14`
+    - `generate_report.sh`
+    - `#!/bin/nonexistent`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-019
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: rebuild `whale` and rerun the targeted P0 sample to check whether implement re-read loops are reduced and whether the model patches all high-signal files.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-019: Dependency evidence now narrows implement nodes immediately
+- Related hypotheses:
+  - H-009
+- Direction: supports
+- Type: fix-validation
+- Source: `third_party\codex-cli\codex-rs\core\src\action_map\runtime.rs`, `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Prediction or plan link:
+  - H-009 after-repair prediction.
+- Matched signal:
+  - Snapshot now exposes `current_node_has_dependency_working_evidence`.
+  - Runtime gate blocks implement read/search if the current implement node has no successful edit and either dependency working evidence exists or current-node progress has reached the hint.
+  - Provider-visible action-contract state uses the same condition via `taskspace_snapshot_requires_implementation_edit`.
+  - Focused tests passed:
+    - `taskspace_action_contract_state_narrows_implementation_from_dependency_evidence`
+    - `implement_dependency_evidence_needs_edit_immediately_after_inspect_transition`
+  - Aggregate TaskSpace regression passed: `cargo test -j1 -p codex-core taskspace --lib`, `100 passed`.
+- Correlation keys:
+  - `implement_node_has_dependency_working_evidence`
+  - `current_node_has_dependency_working_evidence`
+  - `dependency_working_evidence`
+- Raw content:
+  ```text
+  test taskspace_action_contract_state_narrows_implementation_from_dependency_evidence ... ok
+  test implement_dependency_evidence_needs_edit_immediately_after_inspect_transition ... ok
+  test result: ok. 100 passed; 0 failed; 1907 filtered out
+  ```
+- Interpretation: The second read loop is addressed structurally at the graph boundary. Implementation nodes created from inspected evidence now start in an edit/block convergence state instead of rebuilding their own read history.
+- Time: 2026-06-27 22:13
+
+## Hypothesis H-010: Existing-file add-patch rejection consumes recovery before the model can update mandatory evidence
+- Status: confirmed
+- Parent: P-001
+- Claim: When action-contract apply_patch tries to add a file that already exists, the runtime correctly rejects the patch, but the rejection is surfaced as generic no-action recovery. Repeated Add File attempts can exhaust no-action recovery before the model receives a stable, specific correction to update the existing file, even though mandatory evidence correctly requires that file to be patched.
+- Layer: root-cause
+- Factor relation: sequential
+- Depends on:
+  - H-009
+- Rationale:
+  - The `20260628-031556-911` targeted run reached `implement_solution`, identified `generate_report.sh`, and attempted several patches.
+  - The first multi-file patch and two follow-up patches were rejected as `apply_patch_existing_file_as_add:generate_report.sh`.
+  - The final `finish_node` attempt was correctly rejected because `generate_report.sh (invalid_shebang, result-5)` remained uncovered by successful edits.
+  - The turn then failed with generic no-action recovery exhausted (`3/3 recoveries spent`), so the model did not get a stable format-specific recovery loop.
+- Falsifiable predictions:
+  - If true before repair: action-contract rejection text contains `apply_patch_existing_file_as_add:generate_report.sh`, followed by `TaskSpaceNoActionRecoveryV1` attempts and eventual `turn.failed`.
+  - If true after repair: the same rejection produces `TaskSpaceApplyPatchFormatRecoveryV1`, does not count as `TaskSpaceNoActionRecoveryV1`, and instructs `*** Update File: <path>` or `--- a/<path>` / `+++ b/<path>` for existing files.
+  - If false: the failure would be caused by runtime mandatory-evidence gate overreach or by a missing parser path, not by rejection recovery semantics.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: inspect latest targeted run and focused unit tests for recovery semantics.
+  - Signal: `apply_patch_existing_file_as_add`, `TaskSpaceApplyPatchFormatRecoveryV1`, no-action marker absence, and state_commit compact record-fact conversion.
+  - Capture method: targeted run artifact inspection plus `codex-core` focused tests.
+  - Event name or marker:
+    - `TaskSpaceApplyPatchFormatRecoveryV1`
+    - `apply_patch_existing_file_as_add`
+    - `TaskSpaceNoActionRecoveryV1`
+  - Correlation keys:
+    - `20260628-031556-911`
+    - `generate_report.sh`
+    - `result-5`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-020
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: rebuild `whale` and rerun the targeted P0 sample to verify the model no longer dies on repeated existing-file add-patch recovery.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-020: Existing-file add-patch and compact record_fact recovery are fixed in focused regression
+- Related hypotheses:
+  - H-010
+- Direction: supports
+- Type: fix-validation
+- Source: `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Prediction or plan link:
+  - H-010 after-repair predictions.
+- Matched signal:
+  - Added `TaskSpaceApplyPatchFormatRecoveryV1` for `apply_patch_existing_file_as_add:<path>`.
+  - The new recovery item explicitly instructs `*** Update File: <path>` and unified diff `--- a/<path>` / `+++ b/<path>` for existing files.
+  - The recovery item does not contain `TaskSpaceNoActionRecoveryV1` and does not count against the generic no-action cap.
+  - Action-contract `taskspace_control(action=record_fact, fact=...)` now compacts into `state_commit` with an observed fact source instead of reaching the legacy `record_fact` schema and failing on missing `claim_id`.
+  - Focused tests passed:
+    - `taskspace_action_contract_record_fact_compacts_to_state_commit`
+    - `apply_patch_format_recovery_does_not_count_as_no_action_retry`
+  - Aggregate TaskSpace regression passed: `cargo test -j1 -p codex-core taskspace --lib`, `106 passed`.
+- Correlation keys:
+  - `TaskSpaceApplyPatchFormatRecoveryV1`
+  - `fact-source-action-contract-1`
+  - `taskspace-state-commit-v1`
+- Raw content:
+  ```text
+  test taskspace_action_contract_record_fact_compacts_to_state_commit ... ok
+  test apply_patch_format_recovery_does_not_count_as_no_action_retry ... ok
+  test result: ok. 106 passed; 0 failed; 1913 filtered out
+  ```
+- Interpretation: The runtime keeps strict mandatory-evidence and existing-file patch validation, but now gives the model a format-specific recovery path and prevents a compact fact note from dying at schema parse time.
+- Time: 2026-06-28 04:00
+
+## Hypothesis H-011: taskspace_control tool errors are not recorded as model-visible action-contract feedback
+- Status: confirmed
+- Parent: P-001
+- Claim: In the action-contract synchronous tool path, a `taskspace_control` runtime error from mandatory-evidence validation is logged to stderr but not recorded as a `FunctionCallOutput` conversation item. The next request therefore lacks `TaskSpaceActionContractRecentToolOutputsV1` feedback and the model repeats `finish_node` until generic no-action recovery is exhausted.
+- Layer: root-cause
+- Factor relation: sequential
+- Depends on:
+  - H-010
+- Rationale:
+  - The `20260628-040040-607` targeted run no longer hit existing-file add-patch rejection; it applied one edit to `collect_data.sh`.
+  - Four `finish_node` attempts were rejected by runtime mandatory evidence because `generate_report.sh (invalid_shebang, result-5)` remained uncovered.
+  - The rejection text appears in `whale-exec.stderr.log`, but not as a model-visible function-call output in `whale-exec.jsonl`.
+  - The model consequently saw generic `TaskSpaceNoActionRecoveryV1` and repeated `finish_node` instead of patching `generate_report.sh`.
+- Falsifiable predictions:
+  - If true before repair: stderr contains the high-signal mandatory-evidence rejection, but recent tool outputs do not inject the high-signal `Next action must be apply_patch` hint.
+  - If true after repair: action-contract tool errors are recorded as `FunctionCallOutput` with `success=false`; recent-output summarization sees `high-signal inspected evidence` and injects patch-specific guidance.
+  - If false: the model would have received the exact rejection and still chosen to repeat finish_node due to model instruction failure alone.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: convert a synthetic mandatory-evidence `CodexErr` into action-contract tool output and feed it through recent-output summarization.
+  - Signal: `FunctionCallOutput success=false`, `generate_report.sh`, `high-signal inspected evidence is still uncovered`, `Next action must be apply_patch`.
+  - Capture method: focused unit test plus aggregate TaskSpace regression.
+  - Event name or marker:
+    - `TaskSpaceActionContractRecentToolOutputsV1`
+    - `FunctionCallOutputPayload.success=false`
+    - `high-signal inspected evidence`
+  - Correlation keys:
+    - `20260628-040040-607`
+    - `taskspace-action-contract-12-taskspace_control`
+    - `generate_report.sh`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-021
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: rebuild `whale` and rerun the targeted P0 sample to verify finish_node gate errors now steer the next action to patch the uncovered artifact.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-021: action-contract tool errors now become recent-output feedback
+- Related hypotheses:
+  - H-011
+- Direction: supports
+- Type: fix-validation
+- Source: `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Prediction or plan link:
+  - H-011 after-repair predictions.
+- Matched signal:
+  - Added `response_input_for_taskspace_action_tool_error(...)`, which records action-contract tool errors as `FunctionCallOutput` or `CustomToolCallOutput` with `success=false`.
+  - The synchronous action-contract tool execution path now records that failure output and preserves the tool error as `last_agent_message` for recovery.
+  - Focused test passed: `action_contract_tool_error_is_recordable_recent_output_feedback`.
+  - Aggregate TaskSpace regression passed: `cargo test -j1 -p codex-core taskspace --lib`, `106 passed`.
+- Correlation keys:
+  - `response_input_for_taskspace_action_tool_error`
+  - `TaskSpaceActionContractRecentToolOutputsV1`
+  - `FunctionCallOutputPayload.success=false`
+- Raw content:
+  ```text
+  test action_contract_tool_error_is_recordable_recent_output_feedback ... ok
+  test result: ok. 106 passed; 0 failed; 1914 filtered out
+  ```
+- Interpretation: mandatory-evidence `finish_node` failures should now remain visible to the next model request as compact dynamic feedback, preserving strict validation while enabling recovery.
+- Time: 2026-06-28 04:26
+
+## Hypothesis H-012: mandatory evidence does not become a hard edit target contract
+- Status: confirmed
+- Parent: P-001
+- Claim: The runtime correctly detects uncovered mandatory evidence and prevents premature `finish_node`, but the action-contract state only says that high-signal evidence is uncovered. It does not make the uncovered artifact path a hard `apply_patch` target, so the model can patch a plausible but wrong filename such as `report_generation.sh` while the required `generate_report.sh` remains uncovered.
+- Layer: root-cause
+- Factor relation: sequential
+- Depends on:
+  - H-011
+- Rationale:
+  - The `20260628-042821-008` targeted run showed H-011 recovery working far enough for the model to attempt another edit after mandatory-evidence feedback.
+  - The next edit targeted `report_generation.sh` even though the uncovered mandatory evidence was `generate_report.sh (invalid_shebang, result-13)`.
+  - The wrong-target patch was rejected only by the generic "successful implementation edit already recorded" path, not by a precise mandatory-evidence target check.
+  - This kept the node in an edit-required state but did not force the next patch to cover the actual evidence artifact.
+- Falsifiable predictions:
+  - If true before repair: action-contract state mentions uncovered mandatory evidence, but a wrong file target is not rejected with a mandatory-target-specific error.
+  - If true after repair: the snapshot carries uncovered mandatory evidence artifact names, action-contract state prints required edit targets, and `apply_patch` for any wrong target is rejected with `apply_patch_missing_mandatory_evidence_targets:<artifact>`.
+  - If false: the model's wrong-file edit would already have produced a target-specific mandatory-evidence rejection, and the remaining failure would be pure model noncompliance.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: synthesize an implementation snapshot with uncovered `generate_report.sh` mandatory evidence and run the action-contract state plus `apply_patch` gate.
+  - Signal: required target text in the state item; wrong-target rejection; right-target acceptance.
+  - Capture method: focused unit test plus aggregate TaskSpace regression.
+  - Event name or marker:
+    - `Required edit targets from uncovered mandatory evidence`
+    - `apply_patch_missing_mandatory_evidence_targets`
+  - Correlation keys:
+    - `20260628-042821-008`
+    - `generate_report.sh`
+    - `report_generation.sh`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-022
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: rebuild `whale` and rerun the targeted P0 sample to verify real action-contract traffic either patches `generate_report.sh` or receives the mandatory-target-specific rejection.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-022: uncovered mandatory evidence is now enforced as apply_patch target set
+- Related hypotheses:
+  - H-012
+- Direction: supports
+- Type: fix-validation
+- Source: `third_party\codex-cli\codex-rs\core\src\session\turn.rs`; `third_party\codex-cli\codex-rs\core\src\action_map\runtime.rs`
+- Prediction or plan link:
+  - H-012 after-repair predictions.
+- Matched signal:
+  - Added `ActionMapProviderRequestBudgetSnapshot.current_node_uncovered_mandatory_evidence`.
+  - Action-contract state now prints `Required edit targets from uncovered mandatory evidence` and names `generate_report.sh`.
+  - Added `taskspace_apply_patch_missing_mandatory_targets(...)`, which rejects wrong-target patches with `apply_patch_missing_mandatory_evidence_targets:generate_report.sh`.
+  - Focused test passed: `taskspace_apply_patch_must_cover_uncovered_mandatory_evidence_target`.
+  - Aggregate TaskSpace regression passed: `cargo test -j1 -p codex-core taskspace --lib`, `107 passed`.
+- Correlation keys:
+  - `current_node_uncovered_mandatory_evidence`
+  - `apply_patch_missing_mandatory_evidence_targets`
+  - `generate_report.sh`
+- Raw content:
+  ```text
+  test taskspace_apply_patch_must_cover_uncovered_mandatory_evidence_target ... ok
+  test result: ok. 107 passed; 0 failed; 1914 filtered out
+  ```
+- Interpretation: The runtime no longer relies only on soft prompt pressure after high-signal inspection evidence is discovered. Once an implement node has uncovered mandatory evidence, the next `apply_patch` must cover the actual artifact path named by that evidence.
+- Time: 2026-06-28 05:18
+
+## Hypothesis H-013: local validator infrastructure failures are not lifted into action-contract next-step policy
+- Status: confirmed
+- Parent: P-001
+- Claim: The runtime can tag local shell failures such as WSL `Bash/Service/CreateInstance/E_ACCESSDENIED` and PowerShell `InvalidEndOfLine` as validator infrastructure failures, but the action-contract recent-output layer treated them as ordinary failed test output. The model therefore kept issuing more Bash/PowerShell diagnostics inside a Windows validation node until the no-action recovery cap ended the turn.
+- Layer: root-cause
+- Factor relation: sequential
+- Depends on:
+  - H-012
+- Rationale:
+  - The `20260628-050004-157` targeted run patched only `generate_report.sh`, and the external public and hidden validators both exited 0.
+  - The in-agent validation node still failed because `run_test` executed `bash run_pipeline.sh` through the Windows host shell, producing `Bash/Service/CreateInstance/E_ACCESSDENIED`.
+  - The follow-up diagnostic command `bash -x run_pipeline.sh 2>&1 || echo EXIT_CODE=$?` was then parsed by PowerShell and failed with `The token '||' is not a valid statement separator` / `FullyQualifiedErrorId : InvalidEndOfLine`.
+  - The turn ended with `TaskSpace stopped this turn because the model produced too many non-action assistant messages`, even though the code patch was externally valid.
+- Falsifiable predictions:
+  - If true before repair: recent action-contract feedback summarizes the raw shell failure but does not say that local validator infrastructure failed or require `state_commit`/blocked.
+  - If true after repair: recent action-contract feedback detects local validator infra signatures and says not to rerun Bash/PowerShell diagnostics; accepted `state_commit` outputs that record blocker/result-validity sections remain visible despite legacy taskspace-control filtering.
+  - If false: the model would already have received a specific local-validator-infra next-step policy and still ignored it.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: synthesize recent tool outputs for `E_ACCESSDENIED`, PowerShell `InvalidEndOfLine`, and accepted `state_commit` blocker/result-validity output.
+  - Signal: `TaskSpaceActionContractRecentToolOutputsV1` contains local-validator-infra guidance, `action=state_commit`, and no-rerun guidance; accepted state_commit output is not filtered out as legacy taskspace history.
+  - Capture method: focused unit tests plus aggregate TaskSpace regression.
+  - Event name or marker:
+    - `TaskSpaceActionContractRecentToolOutputsV1`
+    - `Bash/Service/CreateInstance/E_ACCESSDENIED`
+    - `FullyQualifiedErrorId : InvalidEndOfLine`
+    - `TaskSpace state_commit ... status=accepted`
+  - Correlation keys:
+    - `20260628-050004-157`
+    - `taskspace-action-contract-13-run_test`
+    - `taskspace-action-contract-14-run_test`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-023
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: rebuild `whale` and rerun the targeted P0 sample to verify the agent no longer ends as `turn.failed` after host-shell validator infra failure.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-023: local validator infra failures now become action-contract recovery guidance
+- Related hypotheses:
+  - H-013
+- Direction: supports
+- Type: fix-validation
+- Source: `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Prediction or plan link:
+  - H-013 after-repair predictions.
+- Matched signal:
+  - Added detection for local validator infrastructure signatures in recent tool outputs: `Bash/Service/CreateInstance/E_ACCESSDENIED`, `E_ACCESSDENIED`, `InvalidEndOfLine`, and PowerShell statement-separator parse errors.
+  - Recent feedback now instructs: do not rerun Bash/PowerShell diagnostics for the same local validator infra failure; next action must be `taskspace_control(action=state_commit)` marking the failed run invalid because local validator infrastructure failed, or blocked with exact infrastructure evidence.
+  - Accepted `state_commit` outputs with `result_validities` or `blockers` are now allowed through the action-contract recent-output filter even though generic legacy taskspace-control history remains filtered.
+  - Focused tests passed:
+    - `action_contract_prompt_guides_state_commit_after_local_validator_infra_failure`
+    - `action_contract_prompt_guides_block_after_recorded_local_validator_infra_failure`
+    - existing runtime local-validator infra tests.
+  - Aggregate TaskSpace regression passed: `cargo test -j1 -p codex-core taskspace --lib`, `107 passed`.
+- Correlation keys:
+  - `taskspace_output_mentions_local_validator_infra_failure`
+  - `taskspace_output_mentions_local_validator_infra_state_commit`
+  - `is_actionable_taskspace_gate_feedback_output`
+- Raw content:
+  ```text
+  test action_contract_prompt_guides_state_commit_after_local_validator_infra_failure ... ok
+  test action_contract_prompt_guides_block_after_recorded_local_validator_infra_failure ... ok
+  test result: ok. 107 passed; 0 failed; 1916 filtered out
+  ```
+- Interpretation: TaskSpace now separates code-validation evidence from host-local validator availability in the context path that is actually sent back to the model, without weakening the typed smoke/regression finish contract.
+- Time: 2026-06-28 05:47
+
+## Hypothesis H-014: compact top-level state_commit action is rejected instead of normalized
+- Status: confirmed
+- Parent: P-001
+- Claim: After local validator infra guidance tells the model to record a `state_commit`, the model may emit `{"action":"state_commit", ...}` as a compact top-level TaskSpace action instead of wrapping it as `{"action":"taskspace_control","args":{"action":"state_commit", ...}}`. The action-contract policy rejects that equivalent form in validation nodes, causing recovery to fail even though the intended operation is valid.
+- Layer: root-cause
+- Factor relation: sequential
+- Depends on:
+  - H-013
+- Rationale:
+  - The `20260628-054840-759` targeted run showed H-013 guidance working: after PowerShell `InvalidEndOfLine`, the model stopped Bash diagnostics and attempted to record local validation as invalid.
+  - The emitted action was top-level `state_commit` with `args.action=state_commit`.
+  - The policy rejected it as `node_policy_violation:smoke_test:state_commit`, then the no-action recovery cap ended the turn.
+- Falsifiable predictions:
+  - If true before repair: top-level `state_commit` in a smoke_test node is rejected by action policy.
+  - If true after repair: top-level `state_commit` is allowed anywhere `taskspace_control` is allowed and normalizes to a `taskspace_control` tool call with `schema_version=taskspace-state-commit-v1`.
+  - If false: the same emitted action would already have reached the taskspace_control handler.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: parse a top-level `state_commit` TaskSpaceActionV1 and convert it with a smoke_test provider snapshot.
+  - Signal: produced tool name is `taskspace_control`; arguments contain `action=state_commit`, default schema, active node id, and normalized blocker object.
+  - Capture method: focused unit test plus aggregate TaskSpace regression.
+  - Event name or marker:
+    - `state_commit`
+    - `taskspace_control`
+    - `taskspace-state-commit-v1`
+  - Correlation keys:
+    - `20260628-054840-759`
+    - `node_policy_violation:smoke_test:state_commit`
+    - `taskspace-action-contract-15-state_commit`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-024
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: rebuild `whale` and rerun the targeted P0 sample to verify the compact `state_commit` no longer fails the validation recovery path.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-024: top-level state_commit now normalizes to taskspace_control
+- Related hypotheses:
+  - H-014
+- Direction: supports
+- Type: fix-validation
+- Source: `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Prediction or plan link:
+  - H-014 after-repair predictions.
+- Matched signal:
+  - `taskspace_action_allowed_for_node(...)` now permits top-level `state_commit` in nodes where `taskspace_control` is valid.
+  - `taskspace_action_to_tool_call(...)` maps top-level `state_commit` to the `taskspace_control` tool and inserts `args.action=state_commit` when needed.
+  - Focused test passed: `taskspace_action_contract_top_level_state_commit_normalizes_to_control_tool`.
+  - Aggregate TaskSpace regression passed: `cargo test -j1 -p codex-core taskspace --lib`, `108 passed`.
+- Correlation keys:
+  - `taskspace_action_contract_top_level_state_commit_normalizes_to_control_tool`
+  - `taskspace_control`
+  - `taskspace-state-commit-v1`
+- Raw content:
+  ```text
+  test taskspace_action_contract_top_level_state_commit_normalizes_to_control_tool ... ok
+  test result: ok. 108 passed; 0 failed; 1916 filtered out
+  ```
+- Interpretation: The action contract now accepts the compact cognitive operation form that DeepSeek naturally emits after local-validator-infra recovery guidance, while keeping the underlying state mutation routed through the existing taskspace_control handler.
+- Time: 2026-06-28 06:17
+
+## Hypothesis H-015: UTF-16/garbled host-shell errors evade local validator infra detection
+- Status: confirmed
+- Parent: P-001
+- Claim: WSL/Bash host failures on Windows can appear in tool output as UTF-16-like text with embedded NUL/control bytes, for example `B\0a\0s\0h\0/.../E\0_\0A...`. Plain substring matching for `Bash/Service/CreateInstance/E_ACCESSDENIED` misses this form, so the action-contract recent-output layer fails to classify the result as local validator infrastructure failure.
+- Layer: root-cause
+- Factor relation: sequential
+- Depends on:
+  - H-013
+- Rationale:
+  - The `20260628-061941-127` targeted run still repeated validation commands after a garbled WSL `E_ACCESSDENIED` output.
+  - The output contained the same semantic marker, but interleaved with NUL/control characters and therefore did not match the plain text detector.
+  - The next request lacked the local-validator-infra progress hint and the model tried `chmod +x *.sh && ./run_pipeline.sh`, which then failed under PowerShell with `InvalidEndOfLine`.
+- Falsifiable predictions:
+  - If true before repair: a recent tool output containing `B\0a\0s\0h\0/.../E\0_\0A...` does not produce local-validator-infra guidance.
+  - If true after repair: compact signal matching removes control characters/separators and detects both `bashservicecreateinstancee_accessdenied` and `invalidendofline`.
+  - If false: the garbled output would already trigger the same `state_commit`/blocked guidance as plain `E_ACCESSDENIED`.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: synthesize a function-call output with embedded NULs in the Bash E_ACCESSDENIED marker and feed it through action-contract recent-output construction.
+  - Signal: `TaskSpaceActionContractRecentToolOutputsV1` contains local-validator-infra guidance, no-rerun guidance, and `action=state_commit`.
+  - Capture method: focused unit test plus aggregate TaskSpace regression.
+  - Event name or marker:
+    - `taskspace_compact_ascii_signal`
+    - `bashservicecreateinstancee_accessdenied`
+    - `TaskSpaceActionContractRecentToolOutputsV1`
+  - Correlation keys:
+    - `20260628-061941-127`
+    - `Bash/Service/CreateInstance/E_ACCESSDENIED`
+    - `InvalidEndOfLine`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-025
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: rebuild `whale` after the next context-retention repair and rerun the targeted P0 sample.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-025: local validator infra detection now handles garbled Windows Bash output
+- Related hypotheses:
+  - H-015
+- Direction: supports
+- Type: fix-validation
+- Source: `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Prediction or plan link:
+  - H-015 after-repair predictions.
+- Matched signal:
+  - Added `taskspace_compact_ascii_signal(...)`, which strips non-ASCII signal characters and lowercases the remaining marker.
+  - Local-validator-infra detection now matches `bashservicecreateinstanceeaccessdenied`, `bashservicecreateinstancee_accessdenied`, `eaccessdenied`, `e_accessdenied`, and `invalidendofline`.
+  - Focused test passed: `action_contract_prompt_detects_utf16_garbled_local_validator_infra_failure`.
+  - Focused local-validator group passed: `5 passed`.
+  - Aggregate TaskSpace regression passed: `cargo test -j1 -p codex-core taskspace --lib`, `108 passed`.
+- Correlation keys:
+  - `taskspace_compact_ascii_signal`
+  - `action_contract_prompt_detects_utf16_garbled_local_validator_infra_failure`
+  - `local_validator_infra_failure`
+- Raw content:
+  ```text
+  test action_contract_prompt_detects_utf16_garbled_local_validator_infra_failure ... ok
+  test result: ok. 5 passed; 0 failed; 2020 filtered out
+  test result: ok. 108 passed; 0 failed; 1917 filtered out
+  ```
+- Interpretation: The action-contract feedback path now recognizes the exact Windows-host failure shape observed in targeted terminal-bench runs, instead of relying on clean UTF-8 substrings.
+- Time: 2026-06-28 06:36
+
+## Hypothesis H-016: terminal TaskSpace actions are still rejected by the normal final-response gate
+- Status: confirmed
+- Parent: P-001
+- Claim: After the runtime rewrites closed blocked validation evidence into a terminal blocked response, `session/turn.rs` still runs the ordinary final-response gate for the same request. That gate treats the terminal blocked candidate as an unactionable final candidate, inserts no-action recovery, and can still end the turn as failed even though the TaskSpace graph is already closed.
+- Layer: root-cause
+- Factor relation: sequential
+- Depends on:
+  - H-013
+  - H-015
+- Rationale:
+  - The `20260628-103125` targeted diagnostic showed `open_leaf_nodes=0` and a blocked validation node, but the run still failed.
+  - The log contained `blocked_by_taskspace_action_contract: TaskSpace validation is blocked by local validator infrastructure evidence already recorded on the closed validation node.`
+  - The same log then recorded `TaskSpaceProviderResponseActionabilityV1 actionability=final_candidate recovery_action=none`, meaning the normal final gate handled the terminal blocked candidate as if no typed terminal action had occurred.
+- Falsifiable predictions:
+  - If true before repair: a request that already applied a terminal TaskSpace action can still be rejected by the normal final-response gate and consume no-action recovery.
+  - If true after repair: once a terminal TaskSpace action is observed in a request, the normal final-response recording/rejection gate is skipped for that request, and the targeted diagnostic no longer emits `turn.failed`.
+  - If false: the terminal blocked candidate would not pass through the ordinary final gate, or `turn.failed` would be caused by another later action rejection.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: rebuild a current binary with request-level terminal action tracking and rerun the same targeted diagnostic sample.
+  - Signal: no `turn.failed`, `exec_exit_code=0`, `business_success=true`, `public_validation_exit_code=0`, `hidden_oracle_exit_code=0`, and `open_leaf_nodes=0`.
+  - Capture method: focused unit regression plus real targeted diagnostic run.
+  - Event name or marker:
+    - `taskspace_terminal_action_observed_in_request`
+    - `blocked_by_taskspace_action_contract`
+    - `turn.failed`
+  - Correlation keys:
+    - `20260628-103125`
+    - `20260628-110353`
+    - `TaskSpaceProviderResponseActionabilityV1`
+- Evidence gate: satisfied
+- Related evidence:
+  - E-026
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: handle residual benchmark engineering-clean taxonomy for local validator infra blockers, then rerun formal non-agent gates when host resources allow.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-026: terminal action gate fix removes targeted diagnostic turn.failed
+- Related hypotheses:
+  - H-016
+- Direction: supports
+- Type: fix-validation
+- Source: `target\phase-r3-targeted-diagnostic-20260628-110353\runs\terminal_bench__processing-pipeline\20260628-110410-426`
+- Prediction or plan link:
+  - H-016 after-repair predictions.
+- Matched signal:
+  - Added request-level terminal action tracking in `session/turn.rs`.
+  - Aggregate TaskSpace regression passed: `cargo test -j1 -p codex-core taskspace --lib`, `111 passed`.
+  - Low-memory dev-small whale build passed and produced `target\phase-r3-current-cargo-target\dev-small\whale.exe` with SHA256 `2B4293F1E60F2FA5484724F48F8FE3EB357234C735F981DF71045E048739C9DA`.
+  - Targeted diagnostic run `20260628-110410-426` produced `exec_exit_code=0`, `business_success=true`, `public_validation_exit_code=0`, `hidden_oracle_exit_code=0`, and `open_leaf_nodes=0`.
+  - Targeted log search found no `turn.failed`.
+  - Provider cache proof stayed healthy: `request_2_plus_hit_rate=0.984414`, `cache_usage_missing_count=0`, `trace_coverage=1`.
+- Correlation keys:
+  - `taskspace_terminal_action_observed_in_request`
+  - `target\phase-r3-targeted-diagnostic-20260628-110353`
+  - `request_2_plus_hit_rate=0.984414`
+- Raw content:
+  ```text
+  exec_exit_code                    : 0
+  business_success                  : True
+  public_validation_exit_code       : 0
+  hidden_oracle_exit_code           : 0
+  open_leaf_nodes                   : 0
+  Select-String turn.failed         : False
+  request_2_plus_hit_rate           : 0.984414
+  ```
+- Interpretation: The targeted diagnostic failure has been reduced from a runtime turn failure to a successful TaskSpace run with an explicit blocked local-validator-infra lifecycle edge. The remaining `active_sentinel_warning:validator_failure` is a benchmark taxonomy/engineering-clean residual, not the original graph or terminalization failure.
+- Time: 2026-06-28 11:22

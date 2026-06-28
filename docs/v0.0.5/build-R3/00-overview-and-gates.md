@@ -7,7 +7,7 @@
 
 ```text
 Created: 2026-06-26
-Updated: 2026-06-26
+Updated: 2026-06-28
 Version: v0.0.5 build-R3
 Status: Draft
 Owner / Responsible: WhaleCode core runtime
@@ -282,3 +282,88 @@ continuing under this RAM state risks pagefile pressure and host instability
 ```
 
 下一步先释放本机内存，或确认允许结束无关高占用进程，再执行正式 non-agent gates。
+
+## 0.11 2026-06-28 Targeted Diagnostic Current Status
+
+R3 继续推进到 terminal-bench targeted diagnostic 后，发现 B-tier 已收敛的
+context/cache/graph/timing 能力仍不足以覆盖 E3-like 外部任务中的两类真实问题：
+
+```text
+target sample:
+  terminal-bench processing-pipeline
+  source_version = 1a6ffa9
+
+new blockers observed:
+  implement_solution 在已经有高信号证据后仍可能继续 read/search，而不是立刻 patch
+  Windows 本机 Bash/WSL validator infra 失败会被当成普通测试失败，导致重复诊断或 turn.failed
+```
+
+已落地的 R3-D/F 延伸修复：
+
+```text
+implementation_needs_edit:
+  当 implement_solution 节点已有 dependency-working / mandatory-evidence 证据，
+  且没有成功 edit 时，后续 read/search 会被收敛为 apply_patch 或 blocked。
+
+mandatory evidence target:
+  如果已发现的高信号证据指向具体文件，例如 generate_report.sh，
+  后续 apply_patch 必须覆盖该文件，否则被拒绝为 missing mandatory evidence target。
+
+local validator infra terminalization:
+  Bash/Service/CreateInstance/E_ACCESSDENIED、UTF-16/NUL 形式的同类输出、
+  PowerShell InvalidEndOfLine 等本机 validator infra 失败不再驱动重复测试。
+  它们会被提升为 validation node blocked / invalid validation evidence。
+
+terminal action final gate:
+  当本轮已经观察到 terminal TaskSpace action，例如 blocked，
+  final-response gate 不再把 runtime 生成的 blocked final candidate 当成普通无动作回答拒绝。
+```
+
+最新真实验证：
+
+```text
+run:
+  target\phase-r3-targeted-diagnostic-20260628-110353\runs\terminal_bench__processing-pipeline\20260628-110410-426
+
+TaskSpace right side:
+  exec_exit_code = 0
+  business_success = true
+  public_validation_exit_code = 0
+  hidden_oracle_exit_code = 0
+  open_leaf_nodes = 0
+  turn.failed = absent
+  tool_call_count = 30
+  rollout_trace_model_request_count = 35
+
+cache:
+  trace_coverage = 1
+  cache_usage_missing_count = 0
+  native_tools_schema_hot_path_count = 0
+  request_2_plus_hit_rate = 0.984414
+  request_2_plus_cached_input_tokens = 3912576
+  request_2_plus_uncached_input_tokens = 61946
+```
+
+当前仍未完全收敛：
+
+```text
+outcome_taskspace = engineering_unclean
+engineering_unclean_reasons:
+  active_sentinel_warning:validator_failure
+  e3_external_validator_fidelity_unproven
+  e3_external_validator_not_e3_eligible
+
+graph-health warning:
+  high_blocked_node_ratio
+```
+
+解释：
+
+```text
+本轮已经证明 targeted diagnostic 的业务正确性、graph closeout、terminalization
+和 cache hit 都成立；但 benchmark 工程清洁度仍把本机 Bash E_ACCESSDENIED
+归为 validator_failure，且该 run 仍是 diagnostic，不是 E3 eligible formal run。
+
+因此 R3 可以继续声明“targeted diagnostic blocker 已从 turn.failed/open leaf
+收敛为显式 blocked validation node”，但仍不能声明 formal E3 完成或速度/成本收益完成。
+```

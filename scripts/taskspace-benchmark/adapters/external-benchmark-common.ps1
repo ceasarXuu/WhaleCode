@@ -14,8 +14,25 @@ function Write-TaskspaceExternalJson {
     ($Value | ConvertTo-Json -Depth 30) | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
+function Repair-TaskspaceExternalStaleDenyForCurrentUser {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $resolved = (Resolve-Path -LiteralPath $Path).Path
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    & icacls $resolved /remove:d "$identity" *> $null
+    $resolved
+}
+
+function Repair-TaskspaceExternalStaleDenyTreeForCurrentUser {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $resolved = (Resolve-Path -LiteralPath $Path).Path
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    & icacls $resolved /remove:d "$identity" /T /C *> $null
+    $resolved
+}
+
 function Get-TaskspaceExternalFileSha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
+    Repair-TaskspaceExternalStaleDenyForCurrentUser $Path | Out-Null
     (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
 }
 
@@ -48,6 +65,7 @@ function Copy-TaskspaceExternalFixture {
         [Parameter(Mandatory = $true)][string]$DestinationDir
     )
     $dest = New-TaskspaceExternalDir $DestinationDir
+    Repair-TaskspaceExternalStaleDenyTreeForCurrentUser $SourceDir | Out-Null
     $sourceLeaks = @(Get-ChildItem -LiteralPath $SourceDir -Recurse -Force -ErrorAction SilentlyContinue |
         Where-Object { Test-TaskspaceExternalLeakyName $_.Name })
     if ($sourceLeaks.Count -gt 0) {
@@ -69,7 +87,8 @@ function Copy-TaskspaceExternalShellScript {
         [Parameter(Mandatory = $true)][string]$SourcePath,
         [Parameter(Mandatory = $true)][string]$DestinationPath
     )
-    $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $SourcePath).Path)
+    $resolvedSourcePath = Repair-TaskspaceExternalStaleDenyForCurrentUser $SourcePath
+    $bytes = [System.IO.File]::ReadAllBytes($resolvedSourcePath)
     if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
         $bytes = if ($bytes.Length -eq 3) { [byte[]]@() } else { [byte[]]$bytes[3..($bytes.Length - 1)] }
     }
@@ -105,6 +124,10 @@ function New-TaskspaceExternalScenario {
         }
     }
     $scenarioRoot = New-TaskspaceExternalDir $ScenarioDir
+    Repair-TaskspaceExternalStaleDenyForCurrentUser $InstructionPath | Out-Null
+    Repair-TaskspaceExternalStaleDenyForCurrentUser $ValidatorScriptPath | Out-Null
+    Repair-TaskspaceExternalStaleDenyTreeForCurrentUser $FixtureSourceDir | Out-Null
+    Repair-TaskspaceExternalStaleDenyTreeForCurrentUser $ValidatorSourceDir | Out-Null
     $promptPath = Join-Path $scenarioRoot "prompt.txt"
     Copy-Item -LiteralPath $InstructionPath -Destination $promptPath -Force
     $fixtureDir = Copy-TaskspaceExternalFixture $FixtureSourceDir (Join-Path $scenarioRoot "fixture")

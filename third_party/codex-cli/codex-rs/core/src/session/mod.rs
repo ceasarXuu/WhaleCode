@@ -1012,11 +1012,25 @@ impl Session {
             .current_main_node_has_successful_action(action_class)
     }
 
+    pub(crate) async fn action_map_current_validation_node_has_local_infra_failure(&self) -> bool {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .current_main_validation_node_has_local_infra_failure()
+    }
+
     pub(crate) async fn action_map_has_accepted_successful_validation_result(&self) -> bool {
         let state = self.state.lock().await;
         state
             .action_map_runtime
             .active_map_has_accepted_successful_validation_result()
+    }
+
+    pub(crate) async fn action_map_has_blocked_validation_result(&self) -> bool {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .active_map_has_blocked_validation_result()
     }
 
     pub(crate) async fn record_action_map_main_tool_result(
@@ -1275,6 +1289,27 @@ impl Session {
         } else {
             Ok(false)
         }
+    }
+
+    pub(crate) async fn action_map_current_inspect_progress_ready_for_transition(&self) -> bool {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .current_main_inspect_progress_ready_for_transition()
+    }
+
+    pub(crate) async fn action_map_current_implement_progress_needs_edit(&self) -> bool {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .current_main_implement_progress_needs_edit()
+    }
+
+    pub(crate) async fn action_map_current_working_evidence_summary(&self) -> Option<String> {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .current_main_working_evidence_summary()
     }
 
     pub(crate) async fn force_finish_action_map_implement_for_provider_budget(

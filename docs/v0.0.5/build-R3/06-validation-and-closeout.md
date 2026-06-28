@@ -466,3 +466,108 @@ Top memory holders included:
 `build-v005-non-agent-gates.ps1` 的正式模式会串行触发多组 `cargo test`。在当前 RAM 状态下继续执行存在较高页面文件压力和系统失稳风险，因此按资源门禁暂停。下一步需要先释放本机内存，或确认允许结束无关高占用进程；随后再执行正式 non-agent gates。
 
 注意：递归扫描整个 `target` 查找 marker 在当前目录体量下发生超时，因此后续 marker 检查应只针对已知 run root，不再全量递归扫构建产物目录。
+
+## F.16 2026-06-28 targeted diagnostic 修复与收益证明
+
+在 B-tier gates 已经通过后，继续执行 targeted diagnostic：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\run-taskspace-external-benchmark.ps1 `
+  -Benchmark terminal-bench `
+  -TaskDir target\terminal-bench-pinned-1a6ffa9\original-tasks\processing-pipeline `
+  -SampleId processing-pipeline `
+  -SourceVersion 1a6ffa9 `
+  -Repeats 1 `
+  -RunRoot target\phase-r3-targeted-diagnostic-20260628-110353 `
+  -WhaleBin target\phase-r3-current-cargo-target\dev-small\whale.exe `
+  -Model deepseek-v4-flash `
+  -TimeoutSeconds 900 `
+  -ValidationTimeoutSeconds 420 `
+  -ValidationPretestTimeoutSeconds 120 `
+  -ValidationTestTimeoutSeconds 420 `
+  -SandboxMode full-auto `
+  -ConfigOverride 'model_reasoning_effort=max' `
+  -AllowStaleWhaleBin `
+  -EnableAggregate
+```
+
+本轮验证的修复范围：
+
+```text
+1. implementation_needs_edit:
+   防止 implement_solution 在证据充分但尚未 edit 时继续 rediscovery。
+
+2. mandatory evidence target:
+   如果 inspect evidence 指向 generate_report.sh，patch 必须覆盖该目标。
+
+3. local validator infra detection:
+   识别普通文本和 UTF-16/NUL 形态的 Bash/Service/CreateInstance/E_ACCESSDENIED。
+
+4. compact state_commit / blocked terminalization:
+   接受 DeepSeek 常见的 top-level state_commit，
+   并把 local validator infra blocker 终止为显式 blocked validation node。
+
+5. terminal action final gate skip:
+   已观察到 terminal TaskSpace action 的请求，不再被普通 final-response gate
+   误判为无动作回答。
+```
+
+验证结果：
+
+```text
+run:
+  target\phase-r3-targeted-diagnostic-20260628-110353\runs\terminal_bench__processing-pipeline\20260628-110410-426
+
+right / TaskSpace:
+  exec_exit_code = 0
+  business_success = true
+  public_validation_exit_code = 0
+  hidden_oracle_exit_code = 0
+  wall_time_ms = 268848
+  tool_call_count = 30
+  rollout_trace_model_request_count = 35
+  taskspace_control_count = 3
+  open_leaf_nodes = 0
+  turn.failed = absent
+
+provider cache:
+  provider_request_count = 34
+  trace_coverage = 1
+  cache_usage_missing_count = 0
+  tool_free_action_contract_count = 34
+  native_tools_schema_hot_path_count = 0
+  request_2_plus_hit_rate = 0.984414
+  request_2_plus_cached_input_tokens = 3912576
+  request_2_plus_uncached_input_tokens = 61946
+```
+
+真实收益结论：
+
+```text
+targeted diagnostic blocker 已从:
+  turn.failed + repeated validator diagnostics / open lifecycle uncertainty
+
+收敛为:
+  exec_exit_code=0
+  business_success=true
+  public/hidden validator pass
+  open_leaf_nodes=0
+  explicit local-validator-infra blocked evidence
+  cache hit >= 0.95
+```
+
+仍阻塞 release / formal E3 的问题：
+
+```text
+outcome_taskspace = engineering_unclean
+engineering_unclean_reasons:
+  active_sentinel_warning:validator_failure
+  e3_external_validator_fidelity_unproven
+  e3_external_validator_not_e3_eligible
+
+需要后续处理：
+  benchmark 指标层把 local-validator-infra blocker 从 validator_failure 中拆出；
+  targeted diagnostic 通过后，仍需要正式 current-HEAD non-agent gates；
+  code-complete marker 与 explicit user approval marker 仍不存在；
+  formal terminal-bench_E3-P0_3_5 仍未运行。
+```

@@ -219,3 +219,82 @@ cargo test -p codex-core taskspace --lib
 ```
 
 仍需真实收益证明：重跑 B-tier，要求 `business_success=true`、`exec_exit_code=0`、`open_leaf_nodes=0` 同时成立。
+
+## D.13 2026-06-28 targeted diagnostic terminal closeout 修复
+
+terminal-bench `processing-pipeline` targeted diagnostic 暴露出第三类 lifecycle
+问题：validation node 已经被判定为本机 validator infrastructure blocker，
+模型也发出了 `blocked`，但 runtime 仍可能在同一轮继续执行普通 final-response
+gate，并把 runtime 生成的 blocked final candidate 当成无动作回答拒绝，最终触发
+no-action recovery / `turn.failed`。
+
+失败链路：
+
+```text
+run before fix:
+  target\phase-r3-targeted-diagnostic-20260628-103125
+
+observed:
+  open_leaf_nodes = 0
+  validation node already closed as blocked
+  assistant final candidate:
+    blocked_by_taskspace_action_contract:
+    TaskSpace validation is blocked by local validator infrastructure evidence...
+  final-response gate rejected it as non-actionable final_candidate
+  no-action recovery exhausted the turn
+  turn.failed remained present
+```
+
+根因：
+
+```text
+TaskSpace terminal action 和普通 assistant final answer 共用同一个 final gate。
+当本轮已经通过 typed action 完成 block_node / finish_node / final_answer 语义后，
+后续 runtime 合成的 terminal final candidate 不应再被普通“必须有动作”的规则拦截。
+```
+
+修复：
+
+```text
+session/turn.rs:
+  add taskspace_terminal_action_observed_in_request
+  set true when terminal TaskSpace action is applied
+  skip normal final response recording/rejection gate for the same request
+
+runtime.rs / session/mod.rs:
+  detect blocked validation evidence when graph is already closed
+  convert no-active-node validation blocker into terminal blocked answer
+```
+
+已验证：
+
+```text
+cargo test -j1 -p codex-core taskspace --lib
+111 passed
+
+cargo build -j1 --profile dev-small -p codex-cli --bin whale
+PASS
+
+targeted diagnostic:
+  target\phase-r3-targeted-diagnostic-20260628-110353\runs\terminal_bench__processing-pipeline\20260628-110410-426
+
+TaskSpace right side:
+  exec_exit_code = 0
+  business_success = true
+  public_validation_exit_code = 0
+  hidden_oracle_exit_code = 0
+  open_leaf_nodes = 0
+  turn.failed = absent
+```
+
+残留：
+
+```text
+active_sentinel_warning_types = validator_failure
+graph_health_warnings = high_blocked_node_ratio
+```
+
+该残留不是 graph closeout blocker：图已闭合，业务验证和 hidden oracle 均通过。
+它属于 benchmark 工程清洁度分类问题：本机 Bash `E_ACCESSDENIED` 被计入
+`validator_failure`，后续需要把 local-validator-infra blocker 与真实 validator
+failure 在指标层分开。

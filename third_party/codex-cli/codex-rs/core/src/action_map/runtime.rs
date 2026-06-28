@@ -477,6 +477,11 @@ pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
     pub(crate) map_id: ActionMapId,
     pub(crate) node_id: Option<MapNodeId>,
     pub(crate) node_kind: Option<String>,
+    pub(crate) current_node_progress_signature: Option<usize>,
+    pub(crate) current_node_has_successful_edit: bool,
+    pub(crate) current_node_has_dependency_working_evidence: bool,
+    pub(crate) current_node_has_uncovered_mandatory_evidence: bool,
+    pub(crate) current_node_uncovered_mandatory_evidence: Vec<String>,
     pub(crate) route_mode: Option<String>,
     pub(crate) profile_name: Option<String>,
     pub(crate) request_phase: Option<String>,
@@ -818,6 +823,7 @@ struct MainToolReservation {
     lease_id: AssignmentLeaseId,
     tool_name: String,
     action_class: ActionClass,
+    artifact_refs: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -840,6 +846,7 @@ struct MainToolTraceDraft {
     tool_name: String,
     action_class: Option<ActionClass>,
     tool_success: bool,
+    body: String,
     artifact_refs: Vec<String>,
     created_at_ms: i64,
 }
@@ -1972,9 +1979,62 @@ impl ActionMapRuntimeState {
                 )],
             ));
         }
+        if node.kind == NodeKind::ImplementSolution
+            && matches!(
+                descriptor.action_class,
+                ActionClass::Read | ActionClass::Search
+            )
+            && !node_has_successful_action(map, node, ActionClass::Edit)
+            && (implement_node_has_dependency_working_evidence(map, node)
+                || self
+                    .current_node_progress_signature(&map_id, &node_id)
+                    .is_some_and(|progress| {
+                        progress >= contract.max_main_tool_results_before_split_hint
+                    }))
+        {
+            let evidence_source = if implement_node_has_dependency_working_evidence(map, node) {
+                "dependency_working_evidence"
+            } else {
+                "current_node_progress"
+            };
+            let reason = format!(
+                "implement_solution has enough read/search evidence ({evidence_source}) and no successful edit"
+            );
+            let message = format!(
+                "TaskSpace blocked this {} because current node `{}` kind: implement_solution has enough read/search evidence and no successful edit. Requested tool `{}` action class: {}. Apply the smallest implementation edit with apply_patch now, or return blocked with the exact missing evidence if no safe edit can be made.",
+                descriptor.action_class.as_str(),
+                node.id,
+                descriptor.tool_name,
+                descriptor.action_class.as_str()
+            );
+            let recovery = gate_recovery_message(
+                &message,
+                &reason,
+                vec![format!("current_node:{}:{}", node.id, node.kind.as_str())],
+                vec![
+                    "call apply_patch for the current implementation node".to_string(),
+                    "or return blocked with exact missing evidence".to_string(),
+                ],
+                Vec::new(),
+            );
+            return Err(ActionMapGateError::new(
+                recovery,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: node.kind.as_str().to_string(),
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason,
+                    },
+                )],
+            ));
+        }
         if descriptor.action_class != ActionClass::Control
             && let Some(call_id) = descriptor.call_id.as_deref()
         {
+            let artifact_refs = tool_action_descriptor_artifact_refs(&descriptor);
             self.reserve_main_tool_call(
                 call_id,
                 MainToolReservation {
@@ -1983,6 +2043,7 @@ impl ActionMapRuntimeState {
                     lease_id,
                     tool_name: descriptor.tool_name,
                     action_class: descriptor.action_class,
+                    artifact_refs,
                 },
             );
         }
@@ -2022,11 +2083,14 @@ impl ActionMapRuntimeState {
         }
 
         let reservation = self.release_main_tool_reservation(call_id);
-        let (map_id, node_id, lease_id, recorded_tool_name, recorded_action_class) = if let Some(
-            reservation,
-        ) =
-            reservation
-        {
+        let (
+            map_id,
+            node_id,
+            lease_id,
+            recorded_tool_name,
+            recorded_action_class,
+            reserved_artifact_refs,
+        ) = if let Some(reservation) = reservation {
             self.validate_main_tool_reservation(owner_session_id, &reservation)?;
             if let Some(observed_action_class) = action_class
                 && observed_action_class != reservation.action_class
@@ -2043,6 +2107,7 @@ impl ActionMapRuntimeState {
                 reservation.lease_id,
                 reservation.tool_name,
                 Some(reservation.action_class),
+                reservation.artifact_refs,
             )
         } else {
             self.validate_main_binding(owner_session_id)?;
@@ -2061,6 +2126,7 @@ impl ActionMapRuntimeState {
                 lease_id,
                 tool_name.to_string(),
                 action_class,
+                Vec::new(),
             )
         };
         let result_id = self.next_result_id();
@@ -2078,9 +2144,14 @@ preview:\n\
                 .unwrap_or("unspecified")
         );
         let artifact_refs = match (recorded_action_class, success) {
-            (Some(ActionClass::Edit), true) => extract_edit_changed_artifacts_from_tool_body(&body),
+            (Some(ActionClass::Edit), true) => merge_artifact_refs(
+                reserved_artifact_refs,
+                extract_edit_changed_artifacts_from_tool_body(&body),
+            ),
+            (Some(ActionClass::Read), true) => reserved_artifact_refs,
             _ => Vec::new(),
         };
+        let evidence_package = node_result_evidence_package_for_artifact_refs(&artifact_refs);
         let (task_id, raised_barrier) = {
             let map = self
                 .maps
@@ -2101,8 +2172,8 @@ preview:\n\
                 kind: NodeResultKind::MainToolCall,
                 action_class: recorded_action_class,
                 tool_success: Some(success),
-                body,
-                evidence_package: NodeResultEvidencePackage::default(),
+                body: body.clone(),
+                evidence_package,
                 source_thread_id: owner_session_id,
                 created_at_ms,
             };
@@ -2122,6 +2193,7 @@ preview:\n\
             tool_name: recorded_tool_name,
             action_class: recorded_action_class,
             tool_success: success,
+            body: body.clone(),
             artifact_refs,
             created_at_ms,
         });
@@ -2305,12 +2377,38 @@ preview:\n\
         let node_id = self.current_main_node_id.clone();
         let phase = self.next_provider_request_phase(&map_id, node_id.as_deref());
         let request_phase = Some(phase.as_str().to_string());
-        let node_kind = node_id.as_deref().and_then(|node_id| {
+        let current_node = node_id.as_deref().and_then(|node_id| {
             self.maps
                 .get(&map_id)
                 .and_then(|map| map.nodes.get(node_id))
-                .map(|node| node.kind.as_str().to_string())
         });
+        let node_kind = current_node.map(|node| node.kind.as_str().to_string());
+        let current_node_progress_signature = node_id
+            .as_deref()
+            .and_then(|node_id| self.current_node_progress_signature(&map_id, node_id));
+        let current_node_has_successful_edit = self.maps.get(&map_id).is_some_and(|map| {
+            current_node
+                .is_some_and(|node| node_has_successful_action(map, node, ActionClass::Edit))
+        });
+        let current_node_has_dependency_working_evidence =
+            self.maps.get(&map_id).is_some_and(|map| {
+                current_node.is_some_and(|node| {
+                    node.kind == NodeKind::ImplementSolution
+                        && implement_node_has_dependency_working_evidence(map, node)
+                })
+            });
+        let current_node_uncovered_mandatory_evidence = self
+            .maps
+            .get(&map_id)
+            .and_then(|map| {
+                current_node.and_then(|node| {
+                    (node.kind == NodeKind::ImplementSolution)
+                        .then(|| implement_node_uncovered_mandatory_evidence(map, node))
+                })
+            })
+            .unwrap_or_default();
+        let current_node_has_uncovered_mandatory_evidence =
+            !current_node_uncovered_mandatory_evidence.is_empty();
         let provider_request_context_missing_reason =
             self.provider_request_context_missing_reason(&map_id, node_id.as_deref(), phase);
         let task_id = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
@@ -2328,6 +2426,11 @@ preview:\n\
             map_id,
             node_id,
             node_kind,
+            current_node_progress_signature,
+            current_node_has_successful_edit,
+            current_node_has_dependency_working_evidence,
+            current_node_has_uncovered_mandatory_evidence,
+            current_node_uncovered_mandatory_evidence,
             route_mode: Some(budget.route_mode.as_str().to_string()),
             profile_name: Some(budget.profile_name.clone()),
             request_phase,
@@ -2933,7 +3036,9 @@ preview:\n\
             return Ok(None);
         }
         let evidence_driven_no_action_recovery = trigger == "inspect_no_action_with_evidence";
+        let progress_driven_convergence = trigger == "inspect_progress_convergence";
         if !evidence_driven_no_action_recovery
+            && !progress_driven_convergence
             && !provider_request_budget_pressure_active_for_node(
                 snapshot.request_count,
                 snapshot.max_requests,
@@ -2943,6 +3048,20 @@ preview:\n\
             return Ok(None);
         }
         if !self.inspect_node_has_successful_code_or_test_read(&map_id, node_id)? {
+            return Ok(None);
+        }
+        let unread_script_refs = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            let node = map
+                .nodes
+                .get(node_id)
+                .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
+            inspect_node_unread_referenced_scripts(map, node)
+        };
+        if !unread_script_refs.is_empty() {
             return Ok(None);
         }
         let result_summary = format!(
@@ -5179,6 +5298,18 @@ preview:\n\
             &mut events,
         );
 
+        if should_auto_block_local_infra_validation_after_state_commit(&outcome)
+            && let Some((node_id, blocker_summary)) =
+                self.current_main_validation_node_local_infra_failure_summary()
+        {
+            let (_, blocker_events) =
+                self.block_main_node(owner_session_id, &node_id, blocker_summary)?;
+            events.extend(blocker_events);
+            outcome
+                .accepted_sections
+                .push("local_infra_blocker".to_string());
+        }
+
         outcome.status = match (
             outcome.accepted_sections.is_empty(),
             outcome.rejected_sections.is_empty(),
@@ -5298,6 +5429,7 @@ preview:\n\
                         Some(ActionClass::Test | ActionClass::Build)
                     )
                     && result.tool_success != Some(true)
+                    && !node_result_is_local_validator_infra_failure(result)
             })
         });
         if !marks_current_failed_validation {
@@ -5454,6 +5586,80 @@ preview:\n\
         self.current_node_progress_signature(map_id, node_id)
     }
 
+    pub(crate) fn current_main_inspect_progress_ready_for_transition(&self) -> bool {
+        let Some(map_id) = self.active_map_id.as_ref() else {
+            return false;
+        };
+        let Some(node_id) = self.current_main_node_id.as_ref() else {
+            return false;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return false;
+        };
+        let Some(node) = map.nodes.get(node_id) else {
+            return false;
+        };
+        if node.kind != NodeKind::InspectCodeContext
+            || !node_has_successful_code_or_test_inspect_result(map, node)
+        {
+            return false;
+        }
+        self.current_node_progress_signature(map_id, node_id)
+            .is_some_and(|progress| {
+                progress
+                    >= contract_for(NodeKind::InspectCodeContext)
+                        .max_main_tool_results_before_split_hint
+            })
+    }
+
+    pub(crate) fn current_main_implement_progress_needs_edit(&self) -> bool {
+        let Some(map_id) = self.active_map_id.as_ref() else {
+            return false;
+        };
+        let Some(node_id) = self.current_main_node_id.as_ref() else {
+            return false;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return false;
+        };
+        let Some(node) = map.nodes.get(node_id) else {
+            return false;
+        };
+        if node.kind != NodeKind::ImplementSolution
+            || node_has_successful_action(map, node, ActionClass::Edit)
+        {
+            return false;
+        }
+        implement_node_has_dependency_working_evidence(map, node)
+            || self
+                .current_node_progress_signature(map_id, node_id)
+                .is_some_and(|progress| {
+                    progress
+                        >= contract_for(NodeKind::ImplementSolution)
+                            .max_main_tool_results_before_split_hint
+                })
+    }
+
+    pub(crate) fn current_main_working_evidence_summary(&self) -> Option<String> {
+        let map_id = self.active_map_id.as_ref()?;
+        let node_id = self.current_main_node_id.as_ref()?;
+        let map = self.maps.get(map_id)?;
+        let node = map.nodes.get(node_id)?;
+        let mut evidence_node_ids = map
+            .edges
+            .iter()
+            .filter(|edge| edge.to == node.id)
+            .map(|edge| edge.from.as_str())
+            .collect::<Vec<_>>();
+        evidence_node_ids.push(node.id.as_str());
+        let summary = code_or_test_read_summary_for_nodes(map, &evidence_node_ids);
+        if summary.trim().is_empty() {
+            Some(single_line_preview(&node.context.summary, 480))
+        } else {
+            Some(summary)
+        }
+    }
+
     fn inspect_node_has_successful_code_or_test_read(
         &self,
         map_id: &str,
@@ -5510,6 +5716,43 @@ preview:\n\
         node_has_successful_action(map, node, action_class)
     }
 
+    pub(crate) fn current_main_validation_node_has_local_infra_failure(&self) -> bool {
+        self.current_main_validation_node_local_infra_failure_summary()
+            .is_some()
+    }
+
+    fn current_main_validation_node_local_infra_failure_summary(&self) -> Option<(String, String)> {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return None;
+        };
+        let Some(node_id) = self.current_main_node_id.as_deref() else {
+            return None;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return None;
+        };
+        let Some(node) = map.nodes.get(node_id) else {
+            return None;
+        };
+        if !matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
+            return None;
+        }
+        node.result_context.iter().rev().find_map(|result_ref| {
+            let result = map.results.get(&result_ref.id)?;
+            if !node_result_is_local_validator_infra_failure(result) {
+                return None;
+            }
+            Some((
+                node_id.to_string(),
+                format!(
+                    "Local validator infrastructure failed while running `{}`: {}",
+                    result.id,
+                    single_line_preview(&result.body, 180)
+                ),
+            ))
+        })
+    }
+
     pub(crate) fn active_map_has_accepted_successful_validation_result(&self) -> bool {
         let Some(map_id) = self.active_map_id.as_deref() else {
             return false;
@@ -5518,6 +5761,16 @@ preview:\n\
             return false;
         };
         map_has_accepted_successful_validation_result(map)
+    }
+
+    pub(crate) fn active_map_has_blocked_validation_result(&self) -> bool {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return false;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return false;
+        };
+        map_has_blocked_validation_result(map)
     }
 
     fn validate_completion_evidence_for(&self, map_id: &str, node_id: &str) -> Result<(), String> {
@@ -5548,6 +5801,13 @@ preview:\n\
                 if !node_has_successful_action(map, node, ActionClass::Edit) {
                     return Err(format!(
                         "TaskSpace implement_solution node `{node_id}` cannot be completed without a recorded successful edit action. Execute the edit in this node, or block the node if the edit cannot be made."
+                    ));
+                }
+                let uncovered = implement_node_uncovered_mandatory_evidence(map, node);
+                if !uncovered.is_empty() {
+                    return Err(format!(
+                        "TaskSpace implement_solution node `{node_id}` cannot be completed while high-signal inspected evidence remains uncovered by successful edits: {}. Apply another patch covering those artifact(s), or block the node with the exact reason coverage is impossible.",
+                        uncovered.join(", ")
                     ));
                 }
             }
@@ -5730,6 +5990,9 @@ preview:\n\
         };
         if map.results.contains_key(value) {
             return value.to_string();
+        }
+        if let Some(result_id) = resolve_action_contract_call_result_id(map, value) {
+            return result_id;
         }
         let Some(node) = map.nodes.get(value) else {
             return value.to_string();
@@ -8472,7 +8735,12 @@ preview:\n\
 
     fn append_main_tool_trace_events(&mut self, draft: MainToolTraceDraft) -> Vec<MapRuntimeEvent> {
         let id = self.next_trace_event_id();
-        let tags = trace_tags_for(draft.action_class, draft.tool_success, &draft.tool_name);
+        let tags = trace_tags_for(
+            draft.action_class,
+            draft.tool_success,
+            &draft.tool_name,
+            &draft.body,
+        );
         let event = TaskSpaceTraceEvent {
             id: id.clone(),
             kind: "main_tool_result".to_string(),
@@ -9041,6 +9309,8 @@ fn append_context_projection_with_header(
             )
         })
         .collect::<Vec<_>>();
+    let critical_artifact_evidence =
+        projection_critical_artifact_evidence(map, current_node_id, 4, 900);
     let hidden_refs = map
         .results
         .keys()
@@ -9077,6 +9347,11 @@ fn append_context_projection_with_header(
     append_projection_list(&mut projection, "decisions", &decisions);
     append_projection_list(&mut projection, "facts", &facts);
     append_projection_list(&mut projection, "relevant_results", &relevant_results);
+    append_projection_multiline_list(
+        &mut projection,
+        "critical_artifact_evidence",
+        &critical_artifact_evidence,
+    );
     append_projection_list(&mut projection, "next_valid_actions", &next_valid_actions);
     append_projection_list(&mut projection, "hidden_refs_available", &hidden_refs);
     projection.push_str("- estimated_tokens: ");
@@ -9108,6 +9383,107 @@ fn append_projection_list(context: &mut String, label: &str, values: &[String]) 
         context.push_str(value);
         context.push('\n');
     }
+}
+
+fn append_projection_multiline_list(context: &mut String, label: &str, values: &[String]) {
+    context.push_str("  ");
+    context.push_str(label);
+    context.push_str(":\n");
+    if values.is_empty() {
+        context.push_str("    - none\n");
+        return;
+    }
+    for value in values {
+        let mut lines = value.lines();
+        let Some(first_line) = lines.next() else {
+            context.push_str("    - \n");
+            continue;
+        };
+        context.push_str("    - ");
+        context.push_str(first_line);
+        context.push('\n');
+        for line in lines {
+            context.push_str("      ");
+            context.push_str(line);
+            context.push('\n');
+        }
+    }
+}
+
+fn projection_critical_artifact_evidence(
+    map: &ActionMapInstance,
+    current_node_id: Option<&str>,
+    max_results: usize,
+    max_excerpt_chars: usize,
+) -> Vec<String> {
+    let Some(current_node_id) = current_node_id else {
+        return Vec::new();
+    };
+    let mut node_ids = map
+        .edges
+        .iter()
+        .filter(|edge| edge.to == current_node_id)
+        .map(|edge| edge.from.as_str())
+        .collect::<Vec<_>>();
+    node_ids.push(current_node_id);
+
+    let mut evidence = Vec::new();
+    let mut seen = HashSet::new();
+    for node_id in node_ids {
+        let Some(node) = map.nodes.get(node_id) else {
+            continue;
+        };
+        for result_ref in &node.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind != NodeResultKind::MainToolCall
+                || result.tool_success != Some(true)
+                || result.action_class != Some(ActionClass::Read)
+            {
+                continue;
+            }
+            let Some(signal) = mandatory_evidence_signal(&result.body) else {
+                continue;
+            };
+            let artifacts = result_artifact_refs(result);
+            if artifacts.is_empty() {
+                continue;
+            }
+            let key = format!("{}:{}", result.id, artifacts.join("|"));
+            if !seen.insert(key) {
+                continue;
+            }
+            evidence.push(format!(
+                "{} artifacts={} signal={}\nexcerpt:\n{}",
+                result.id,
+                artifacts.join(","),
+                signal,
+                bounded_line_preserving_excerpt(&result.body, max_excerpt_chars)
+            ));
+            if evidence.len() >= max_results {
+                return evidence;
+            }
+        }
+    }
+    evidence
+}
+
+fn bounded_line_preserving_excerpt(text: &str, max_chars: usize) -> String {
+    let mut excerpt = String::new();
+    let mut count = 0usize;
+    for ch in text.chars() {
+        if count >= max_chars {
+            excerpt.push_str("\n...");
+            break;
+        }
+        if ch == '\r' {
+            continue;
+        }
+        excerpt.push(ch);
+        count += 1;
+    }
+    excerpt.trim_end().to_string()
 }
 
 fn projection_next_valid_actions(
@@ -10615,6 +10991,7 @@ fn trace_tags_for(
     action_class: Option<ActionClass>,
     success: bool,
     tool_name: &str,
+    body: &str,
 ) -> Vec<String> {
     let mut tags = Vec::new();
     tags.push(if success {
@@ -10625,6 +11002,9 @@ fn trace_tags_for(
     match action_class {
         Some(ActionClass::Build | ActionClass::Test) if success => {
             tags.push("validator_success".to_string());
+        }
+        Some(ActionClass::Build | ActionClass::Test) if is_local_validator_infra_failure(body) => {
+            tags.push("validator_infra_failure".to_string());
         }
         Some(ActionClass::Build | ActionClass::Test) => {
             tags.push("validator_failure".to_string());
@@ -10638,6 +11018,10 @@ fn trace_tags_for(
         _ => {}
     }
     tags
+}
+
+fn is_local_validator_infra_failure(body: &str) -> bool {
+    text_mentions_local_validator_infra_failure(body)
 }
 
 fn sanitize_trace_tags(tags: Vec<String>) -> Vec<String> {
@@ -10695,6 +11079,7 @@ fn is_known_trace_tag(tag: &str) -> bool {
             | "tool_failure"
             | "validator_success"
             | "validator_failure"
+            | "validator_infra_failure"
             | "unclassified_shell_action"
             | "unclassified_tool_action"
     ) || tag.starts_with("schema:")
@@ -11181,6 +11566,83 @@ fn accepted_result_artifact_refs(result: &NodeResult) -> HashSet<String> {
     artifact_refs
 }
 
+fn node_result_evidence_package_for_artifact_refs(
+    artifact_refs: &[String],
+) -> NodeResultEvidencePackage {
+    if artifact_refs.is_empty() {
+        return NodeResultEvidencePackage::default();
+    }
+    NodeResultEvidencePackage {
+        evidence_refs: artifact_refs
+            .iter()
+            .map(|artifact_ref| EvidenceRef {
+                artifact_ref: Some(artifact_ref.clone()),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }
+}
+
+fn merge_artifact_refs(mut left: Vec<String>, right: Vec<String>) -> Vec<String> {
+    for artifact in right {
+        if !left.iter().any(|existing| existing == &artifact) {
+            left.push(artifact);
+        }
+    }
+    left
+}
+
+fn tool_action_descriptor_artifact_refs(descriptor: &ToolActionDescriptor) -> Vec<String> {
+    match descriptor.action_class {
+        ActionClass::Read => descriptor
+            .preview
+            .parse::<serde_json::Value>()
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("command")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(read_command_artifact_ref)
+            })
+            .into_iter()
+            .collect(),
+        ActionClass::Edit => extract_edit_changed_artifacts_from_tool_body(&descriptor.preview),
+        _ => Vec::new(),
+    }
+}
+
+fn read_command_artifact_ref(command: &str) -> Option<String> {
+    if command.contains("Get-Content") {
+        return powershell_path_arg(command)
+            .as_deref()
+            .map(normalize_artifact_ref);
+    }
+    command
+        .strip_prefix("cat ")
+        .or_else(|| command.strip_prefix("type "))
+        .map(str::trim)
+        .map(|path| normalize_artifact_ref(path.trim_matches('"').trim_matches('\'')))
+}
+
+fn powershell_path_arg(command: &str) -> Option<String> {
+    let marker = if command.contains("-LiteralPath") {
+        "-LiteralPath"
+    } else if command.contains("-Path") {
+        "-Path"
+    } else {
+        return None;
+    };
+    let start = command.find(marker)? + marker.len();
+    let rest = command[start..].trim_start();
+    if let Some(rest) = rest.strip_prefix('"') {
+        let end = rest.find('"')?;
+        return Some(rest[..end].to_string());
+    }
+    let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+    Some(rest[..end].to_string())
+}
+
 fn extract_edit_changed_artifacts_from_tool_body(body: &str) -> Vec<String> {
     let mut artifacts = Vec::new();
     let normalized_body = body.replace("\\n", "\n");
@@ -11205,11 +11667,20 @@ fn extract_edit_changed_artifacts_from_tool_body(body: &str) -> Vec<String> {
         {
             continue;
         }
-        if !artifacts.iter().any(|existing| existing == path) {
-            artifacts.push(path.to_string());
+        let path = normalize_artifact_ref(path);
+        if !artifacts.iter().any(|existing| existing == &path) {
+            artifacts.push(path);
         }
     }
     artifacts
+}
+
+fn normalize_artifact_ref(path: &str) -> String {
+    path.trim()
+        .trim_start_matches("a/")
+        .trim_start_matches("b/")
+        .trim_start_matches("./")
+        .replace('\\', "/")
 }
 
 fn is_implementation_surface_ref(artifact_ref: &str) -> bool {
@@ -11386,11 +11857,179 @@ fn node_has_successful_code_or_test_inspect_result(
     })
 }
 
+fn inspect_node_unread_referenced_scripts(map: &ActionMapInstance, node: &MapNode) -> Vec<String> {
+    let mut read_artifacts = HashSet::new();
+    let mut referenced = Vec::new();
+    for result_ref in &node.result_context {
+        let Some(result) = map.results.get(&result_ref.id) else {
+            continue;
+        };
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(true)
+            || result.action_class != Some(ActionClass::Read)
+        {
+            continue;
+        }
+        for artifact in result_artifact_refs(result) {
+            read_artifacts.insert(artifact_key(&artifact));
+        }
+        for script_ref in shell_script_refs_in_body(&result.body) {
+            if !referenced.iter().any(|existing| existing == &script_ref) {
+                referenced.push(script_ref);
+            }
+        }
+    }
+    referenced
+        .into_iter()
+        .filter(|script_ref| !read_artifacts.contains(&artifact_key(script_ref)))
+        .collect()
+}
+
+fn shell_script_refs_in_body(body: &str) -> Vec<String> {
+    let mut refs = Vec::new();
+    for token in body.split(|ch: char| {
+        ch.is_whitespace() || matches!(ch, '"' | '\'' | '`' | '(' | ')' | ';' | ',')
+    }) {
+        let token = token.trim_matches(|ch: char| matches!(ch, ':' | '!' | '?' | '[' | ']'));
+        let Some(path) = token.strip_prefix("./") else {
+            continue;
+        };
+        if !path.ends_with(".sh") || path.contains('*') {
+            continue;
+        }
+        let normalized = normalize_artifact_ref(path);
+        if !normalized.is_empty() && !refs.iter().any(|existing| existing == &normalized) {
+            refs.push(normalized);
+        }
+    }
+    refs
+}
+
+fn implement_node_has_dependency_working_evidence(map: &ActionMapInstance, node: &MapNode) -> bool {
+    map.edges.iter().any(|edge| {
+        if edge.to != node.id {
+            return false;
+        }
+        map.nodes.get(&edge.from).is_some_and(|dependency| {
+            node_has_successful_code_or_test_inspect_result(map, dependency)
+        })
+    })
+}
+
+fn implement_node_uncovered_mandatory_evidence(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Vec<String> {
+    let changed_artifacts = successful_edit_artifact_set(map, node);
+    let mut evidence_node_ids = map
+        .edges
+        .iter()
+        .filter(|edge| edge.to == node.id)
+        .map(|edge| edge.from.as_str())
+        .collect::<Vec<_>>();
+    evidence_node_ids.push(node.id.as_str());
+    let mut uncovered = Vec::new();
+    for evidence_node_id in evidence_node_ids {
+        let Some(evidence_node) = map.nodes.get(evidence_node_id) else {
+            continue;
+        };
+        for result_ref in &evidence_node.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind != NodeResultKind::MainToolCall
+                || result.tool_success != Some(true)
+                || result.action_class != Some(ActionClass::Read)
+            {
+                continue;
+            }
+            let Some(signal) = mandatory_evidence_signal(&result.body) else {
+                continue;
+            };
+            for artifact in result_artifact_refs(result) {
+                let normalized = artifact_key(&artifact);
+                if !changed_artifacts.contains(&normalized) {
+                    let item = format!("{artifact} ({signal}, {})", result.id);
+                    if !uncovered.iter().any(|existing| existing == &item) {
+                        uncovered.push(item);
+                    }
+                }
+            }
+        }
+    }
+    uncovered
+}
+
+fn successful_edit_artifact_set(map: &ActionMapInstance, node: &MapNode) -> HashSet<String> {
+    let mut artifacts = HashSet::new();
+    for result_ref in &node.result_context {
+        let Some(result) = map.results.get(&result_ref.id) else {
+            continue;
+        };
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(true)
+            || result.action_class != Some(ActionClass::Edit)
+        {
+            continue;
+        }
+        for artifact in result_artifact_refs(result) {
+            artifacts.insert(artifact_key(&artifact));
+        }
+        for artifact in extract_edit_changed_artifacts_from_tool_body(&result.body) {
+            artifacts.insert(artifact_key(&artifact));
+        }
+    }
+    artifacts
+}
+
+fn result_artifact_refs(result: &NodeResult) -> Vec<String> {
+    let mut artifacts = Vec::new();
+    for evidence_ref in &result.evidence_package.evidence_refs {
+        if let Some(artifact_ref) = evidence_ref.artifact_ref.as_deref() {
+            let artifact_ref = normalize_artifact_ref(artifact_ref);
+            if !artifact_ref.is_empty()
+                && !artifacts.iter().any(|existing| existing == &artifact_ref)
+            {
+                artifacts.push(artifact_ref);
+            }
+        }
+    }
+    for artifact_ref in &result.evidence_package.changed_artifacts {
+        let artifact_ref = normalize_artifact_ref(artifact_ref);
+        if !artifact_ref.is_empty() && !artifacts.iter().any(|existing| existing == &artifact_ref) {
+            artifacts.push(artifact_ref);
+        }
+    }
+    artifacts
+}
+
+fn artifact_key(path: &str) -> String {
+    normalize_artifact_ref(path).to_ascii_lowercase()
+}
+
+fn mandatory_evidence_signal(body: &str) -> Option<&'static str> {
+    let lower = body.to_ascii_lowercase();
+    if lower.contains("#!/bin/nonexistent") {
+        Some("invalid_shebang")
+    } else if lower.contains("traceback") {
+        Some("traceback")
+    } else if lower.contains("syntax error") {
+        Some("syntax_error")
+    } else if lower.contains("command not found") {
+        Some("command_not_found")
+    } else {
+        None
+    }
+}
+
 fn code_or_test_read_body_has_content_signal(body: &str) -> bool {
     let body = body.to_ascii_lowercase();
     body.contains("def ")
         || body.contains("fn ")
         || body.contains("function ")
+        || body.contains("#!/bin/")
+        || body.contains("#!/usr/bin/env bash")
+        || body.contains("set -e")
         || body.contains("return ")
         || body.contains("import ")
         || body.contains("const ")
@@ -11403,24 +12042,67 @@ fn code_or_test_read_body_has_content_signal(body: &str) -> bool {
         || body.contains("test_")
 }
 
+const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_RESULTS: usize = 8;
+const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_CHARS: usize = 320;
+
 fn inspect_code_or_test_read_summary(map: &ActionMapInstance, node: &MapNode) -> String {
-    let summaries: Vec<String> = node
-        .result_context
-        .iter()
-        .filter_map(|result_ref| map.results.get(&result_ref.id))
-        .filter(|result| {
-            result.kind == NodeResultKind::MainToolCall
-                && result.tool_success == Some(true)
-                && result.action_class == Some(ActionClass::Read)
-        })
-        .filter(|result| code_or_test_read_body_has_content_signal(&result.body))
-        .take(3)
-        .map(|result| format!("{}: {}", result.id, single_line_preview(&result.body, 240)))
-        .collect();
-    if summaries.is_empty() {
+    let summary = code_or_test_read_summary_for_nodes(map, &[node.id.as_str()]);
+    if summary.is_empty() {
         "successful code/test read evidence is recorded on the inspect node".to_string()
     } else {
-        summaries.join(" | ")
+        summary
+    }
+}
+
+fn code_or_test_read_summary_for_nodes(map: &ActionMapInstance, node_ids: &[&str]) -> String {
+    let mut summaries: Vec<(usize, usize, String)> = node_ids
+        .iter()
+        .filter_map(|node_id| map.nodes.get(*node_id))
+        .flat_map(|node| node.result_context.iter())
+        .enumerate()
+        .filter_map(|(index, result_ref)| {
+            map.results
+                .get(&result_ref.id)
+                .map(|result| (index, result))
+        })
+        .filter(|result| {
+            result.1.kind == NodeResultKind::MainToolCall
+                && result.1.tool_success == Some(true)
+                && result.1.action_class == Some(ActionClass::Read)
+        })
+        .filter(|(_, result)| code_or_test_read_body_has_content_signal(&result.body))
+        .map(|(index, result)| {
+            (
+                working_evidence_priority(&result.body),
+                index,
+                format!(
+                    "{}: {}",
+                    result.id,
+                    single_line_preview(&result.body, TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_CHARS)
+                ),
+            )
+        })
+        .collect();
+    summaries.sort_by_key(|(priority, index, _)| (*priority, *index));
+    summaries
+        .into_iter()
+        .take(TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_RESULTS)
+        .map(|(_, _, summary)| summary)
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+fn working_evidence_priority(body: &str) -> usize {
+    let lower = body.to_ascii_lowercase();
+    if lower.contains("#!/bin/nonexistent")
+        || lower.contains("traceback")
+        || lower.contains("syntax error")
+        || lower.contains("no such file")
+        || lower.contains("command not found")
+    {
+        0
+    } else {
+        1
     }
 }
 
@@ -11562,6 +12244,15 @@ fn node_has_result_id(node: &MapNode, result_id: &str) -> bool {
         .any(|result_ref| result_ref.id == result_id)
 }
 
+fn node_result_is_local_validator_infra_failure(result: &NodeResult) -> bool {
+    result.tool_success != Some(true)
+        && matches!(
+            result.action_class,
+            Some(ActionClass::Build | ActionClass::Test)
+        )
+        && is_local_validator_infra_failure(&result.body)
+}
+
 fn state_commit_has_validation_failure_rework(
     input: &ActionMapStateCommitInput,
     map: &ActionMapInstance,
@@ -11625,6 +12316,62 @@ fn map_has_accepted_successful_validation_result(map: &ActionMapInstance) -> boo
                 })
             })
     })
+}
+
+fn map_has_blocked_validation_result(map: &ActionMapInstance) -> bool {
+    map.nodes.values().any(|node| {
+        matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+            && node.status == NodeStatus::Blocked
+            && node.result_context.iter().any(|result_ref| {
+                map.results.get(&result_ref.id).is_some_and(|result| {
+                    result.kind == NodeResultKind::Blocker
+                        && result.evidence_package.validity != ResultValidity::Invalid
+                })
+            })
+    })
+}
+
+fn should_auto_block_local_infra_validation_after_state_commit(
+    outcome: &ActionMapStateCommitOutcome,
+) -> bool {
+    if outcome.accepted_sections.is_empty() || !outcome.rejected_sections.is_empty() {
+        return false;
+    }
+    !outcome
+        .accepted_sections
+        .iter()
+        .any(|section| matches!(section.as_str(), "blockers" | "finished_nodes" | "nodes"))
+}
+
+fn resolve_action_contract_call_result_id(map: &ActionMapInstance, value: &str) -> Option<String> {
+    let value = value.trim();
+    if !value.starts_with("taskspace-action-contract-") {
+        return None;
+    }
+    map.results
+        .values()
+        .filter(|result| result.body.contains(value))
+        .max_by_key(|result| result.created_at_ms)
+        .map(|result| result.id.clone())
+}
+
+fn text_mentions_local_validator_infra_failure(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    let compact = text
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+        .collect::<String>();
+    text.contains("bash/service/createinstance/e_accessdenied")
+        || text.contains("wsl/service/e_accessdenied")
+        || text.contains("e_accessdenied")
+        || text.contains("invalidendofline")
+        || compact.contains("bashservicecreateinstanceeaccessdenied")
+        || compact.contains("bashservicecreateinstancee_accessdenied")
+        || compact.contains("wslserviceeaccessdenied")
+        || compact.contains("wslservicee_accessdenied")
+        || compact.contains("eaccessdenied")
+        || compact.contains("e_accessdenied")
+        || compact.contains("invalidendofline")
 }
 
 fn map_has_accepted_implementation_result(map: &ActionMapInstance) -> bool {
@@ -12833,6 +13580,11 @@ mod tests {
             map_id: map_id.clone(),
             node_id: Some(node_id),
             node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("thin-profile".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -14940,6 +15692,135 @@ mod tests {
         let value = serde_json::to_value(warning).expect("warning serializes");
         assert!(value.get("preview").is_none());
         assert!(value.get("body").is_none());
+    }
+
+    #[test]
+    fn local_validator_infra_failure_does_not_raise_validator_failure() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Run local smoke",
+            "Separate local validator infra faults from business failures.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "bash run_pipeline")
+                    .with_call_id("call-local-validator"),
+            )
+            .expect("diagnostic test is allowed");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-local-validator",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "Bash/Service/CreateInstance/E_ACCESSDENIED".to_string(),
+            )
+            .expect("infra failure result records")
+            .expect("result is recorded");
+
+        let snapshot = state.snapshot();
+        let trace = snapshot
+            .trace_events
+            .iter()
+            .find(|event| event.call_id.as_deref() == Some("call-local-validator"))
+            .expect("infra failure trace is exposed");
+        assert!(trace.tags.iter().any(|tag| tag == "tool_failure"));
+        assert!(
+            trace
+                .tags
+                .iter()
+                .any(|tag| tag == "validator_infra_failure")
+        );
+        assert!(!trace.tags.iter().any(|tag| tag == "validator_failure"));
+        assert_eq!(snapshot.trace_summary.validator_failure_count, 0);
+        assert_eq!(snapshot.sentinel_summary.total_warning_count, 0);
+        assert_eq!(snapshot.sentinel_summary.active_warning_count, 0);
+
+        let tags = trace_tags_for(
+            Some(ActionClass::Test),
+            false,
+            "shell_command",
+            "The token '&&' is not a valid statement separator in this version. \
+             FullyQualifiedErrorId : InvalidEndOfLine",
+        );
+        assert!(tags.iter().any(|tag| tag == "validator_infra_failure"));
+        assert!(!tags.iter().any(|tag| tag == "validator_failure"));
+    }
+
+    #[test]
+    fn local_validator_infra_failure_state_commit_does_not_require_code_rework() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Run local smoke",
+            "Separate local validator infra faults from business failures.",
+            "Run smoke test",
+            "Run the local smoke command.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "bash run_pipeline")
+                    .with_call_id("call-local-validator"),
+            )
+            .expect("diagnostic test is allowed");
+        let result_id = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-local-validator",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "Bash/Service/CreateInstance/E_ACCESSDENIED".to_string(),
+            )
+            .expect("infra failure result records")
+            .expect("result is recorded")
+            .0;
+
+        let (outcome, _events) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "infra-validation-state".to_string(),
+                    result_validities: vec![ActionMapStateCommitResultValidityInput {
+                        result_id: result_id.clone(),
+                        validity: "invalid".to_string(),
+                        validity_reason: "local validator infrastructure failed".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some(result_id),
+                            ..Default::default()
+                        }],
+                        claims: Vec::new(),
+                        changed_artifacts: Vec::new(),
+                        validator_refs: Vec::new(),
+                        remaining_uncertainty: Vec::new(),
+                    }],
+                    ..Default::default()
+                },
+            )
+            .expect("infra validation state_commit should not require code rework");
+
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
+        assert!(
+            outcome
+                .accepted_sections
+                .iter()
+                .any(|section| section == "result_validities")
+        );
     }
 
     #[test]
@@ -18937,6 +19818,11 @@ mod tests {
             map_id: "map-1".to_string(),
             node_id: Some("node-1".to_string()),
             node_kind: Some("inspect_code_context".to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -18998,6 +19884,11 @@ mod tests {
             map_id: map_id.clone(),
             node_id: Some(node_id.clone()),
             node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
             route_mode: Some("default_compact".to_string()),
             profile_name: Some("taskspace-v005-active".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -19069,6 +19960,11 @@ mod tests {
             map_id,
             node_id: Some(node_id.clone()),
             node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -19101,6 +19997,124 @@ mod tests {
             .get(&outcome.next_node_id.expect("next node"))
             .expect("implementation node");
         assert_eq!(next_node.kind, NodeKind::ImplementSolution);
+    }
+
+    #[test]
+    fn forced_inspect_transition_waits_for_referenced_script_reads() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Pipeline inspect",
+            "Inspect pipeline scripts.",
+            "Pipeline inspect",
+            "Inspect pipeline scripts.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    r#"{"command":"Get-Content -LiteralPath \"run_pipeline.sh\" -TotalCount 240"}"#,
+                )
+                .with_call_id("read-pipeline"),
+            )
+            .expect("pipeline read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-pipeline",
+                "shell_command",
+                true,
+                "#!/bin/bash\n./collect_data.sh\n./generate_report.sh\n".to_string(),
+            )
+            .expect("pipeline read result records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 3,
+            max_requests: 10,
+            node_request_count: 3,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+
+        let forced = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_no_action_with_evidence",
+            )
+            .expect("unread script refs should not error");
+        assert!(forced.is_none());
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    r#"{"command":"Get-Content -LiteralPath \"collect_data.sh\" -TotalCount 240"}"#,
+                )
+                .with_call_id("read-collect"),
+            )
+            .expect("collect read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-collect",
+                "shell_command",
+                true,
+                "#!/bin/bash\necho data\n".to_string(),
+            )
+            .expect("collect read result records");
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    r#"{"command":"Get-Content -LiteralPath \"generate_report.sh\" -TotalCount 240"}"#,
+                )
+                .with_call_id("read-report"),
+            )
+            .expect("report read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-report",
+                "shell_command",
+                true,
+                "#!/bin/nonexistent\necho report\n".to_string(),
+            )
+            .expect("report read result records");
+
+        let forced = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_no_action_with_evidence",
+            )
+            .expect("covered script refs should not error");
+        assert!(forced.is_some());
     }
 
     #[test]
@@ -19139,6 +20153,11 @@ mod tests {
             map_id,
             node_id: Some(node_id.clone()),
             node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -19165,6 +20184,511 @@ mod tests {
             state.current_main_node_id.as_deref(),
             Some(node_id.as_str())
         );
+    }
+
+    #[test]
+    fn shell_script_read_counts_as_inspect_code_evidence() {
+        assert!(code_or_test_read_body_has_content_signal(
+            "#!/bin/bash\nset -e\n./collect_data.sh\n./process_data.sh\n"
+        ));
+    }
+
+    #[test]
+    fn implement_progress_needs_edit_after_repeated_reads_without_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Apply fix",
+            "Apply a narrow implementation change.",
+            "Apply fix",
+            "Apply a narrow implementation change.",
+            true,
+        );
+        for index in
+            0..contract_for(NodeKind::ImplementSolution).max_main_tool_results_before_split_hint
+        {
+            let call_id = format!("read-{index}");
+            state
+                .prepare_main_tool_call(
+                    owner,
+                    ToolActionDescriptor::new(
+                        "shell_command",
+                        ActionClass::Read,
+                        format!("Get-Content script-{index}.sh"),
+                    )
+                    .with_call_id(call_id.as_str()),
+                )
+                .expect("implementation read should be allowed before convergence");
+            state
+                .record_main_tool_result(
+                    owner,
+                    call_id.as_str(),
+                    "shell_command",
+                    true,
+                    "#!/bin/bash\nset -e\necho pipeline step".to_string(),
+                )
+                .expect("implementation read result records");
+        }
+
+        assert!(
+            state.current_main_implement_progress_needs_edit(),
+            "implementation node should require an edit after enough reads"
+        );
+
+        let err = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-Content generate_report.sh",
+                )
+                .with_call_id("late-read"),
+            )
+            .expect_err("late read should be blocked until edit or blocker");
+        assert!(
+            err.to_string()
+                .contains("implement_solution has enough read/search evidence")
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "apply patch")
+                    .with_call_id("edit-1"),
+            )
+            .expect("edit remains allowed after read convergence");
+        state
+            .record_main_tool_result(
+                owner,
+                "edit-1",
+                "apply_patch",
+                true,
+                "changed generate_report.sh".to_string(),
+            )
+            .expect("edit result records");
+
+        assert!(
+            !state.current_main_implement_progress_needs_edit(),
+            "successful edit clears implementation needs-edit pressure"
+        );
+        let map = state.active_map().expect("active map");
+        assert!(node_has_successful_action(
+            map,
+            map.nodes.get(&node_id).expect("implementation node"),
+            ActionClass::Edit
+        ));
+    }
+
+    #[test]
+    fn implement_dependency_evidence_needs_edit_immediately_after_inspect_transition() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, inspect_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect pipeline",
+            "Inspect scripts before applying the implementation.",
+            "Inspect pipeline",
+            "Inspect scripts before applying the implementation.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-Content generate_report.sh",
+                )
+                .with_call_id("read-generate-report"),
+            )
+            .expect("inspect read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-generate-report",
+                "shell_command",
+                true,
+                "#!/bin/nonexistent\n# Report generation script".to_string(),
+            )
+            .expect("inspect evidence should record");
+
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(inspect_node_id),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 4,
+            max_requests: 8,
+            node_request_count: 4,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
+        };
+
+        state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_no_action_with_evidence",
+            )
+            .expect("inspect transition should be allowed")
+            .expect("inspect transition should create implement node");
+
+        assert!(
+            state.current_main_implement_progress_needs_edit(),
+            "implementation node should inherit dependency evidence pressure"
+        );
+        let err = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-Content process_data.sh",
+                )
+                .with_call_id("implement-read"),
+            )
+            .expect_err("dependency evidence should block implementation reads until edit");
+        assert!(err.to_string().contains("dependency_working_evidence"));
+    }
+
+    #[test]
+    fn implement_finish_requires_covering_high_signal_dependency_artifacts() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, inspect_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect pipeline",
+            "Read scripts before fixing them.",
+            "Inspect pipeline",
+            "Read scripts before fixing them.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "Get-Content -LiteralPath \"generate_report.sh\" -TotalCount 240"
+                    })
+                    .to_string(),
+                )
+                .with_call_id("read-generate-report"),
+            )
+            .expect("read should reserve artifact refs");
+        let (read_result_id, _) = state
+            .record_main_tool_result(
+                owner,
+                "read-generate-report",
+                "shell_command",
+                true,
+                "#!/bin/nonexistent\n# Report generation script".to_string(),
+            )
+            .expect("read result should record")
+            .expect("read result id");
+        let map = state.active_map().expect("active map");
+        let read_result = map.results.get(&read_result_id).expect("read result");
+        assert_eq!(
+            result_artifact_refs(read_result),
+            vec!["generate_report.sh".to_string()]
+        );
+
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(inspect_node_id),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 4,
+            max_requests: 8,
+            node_request_count: 4,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
+        };
+        state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_no_action_with_evidence",
+            )
+            .expect("inspect transition should be allowed")
+            .expect("inspect transition should create implement node");
+        let implement_node_id = state
+            .current_main_node_id
+            .clone()
+            .expect("implementation node should be bound");
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-collect",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nM collect_data.sh\n".to_string(),
+            )
+            .expect("edit result records")
+            .expect("edit result id");
+        let err = state
+            .finish_main_node(
+                owner,
+                &implement_node_id,
+                "Implementation completed.".to_string(),
+                None,
+            )
+            .expect_err("must not finish while high-signal evidence artifact is uncovered");
+        assert!(err.contains("generate_report.sh"));
+        assert!(err.contains("invalid_shebang"));
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-generate-report",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nM generate_report.sh\n".to_string(),
+            )
+            .expect("second edit result records")
+            .expect("second edit result id");
+        state
+            .finish_main_node(
+                owner,
+                &implement_node_id,
+                "Implementation completed.".to_string(),
+                None,
+            )
+            .expect("covered high-signal evidence should allow finish");
+    }
+
+    #[test]
+    fn active_projection_keeps_high_signal_artifact_excerpt_for_implement_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, inspect_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect pipeline",
+            "Read scripts before fixing them.",
+            "Inspect pipeline",
+            "Read scripts before fixing them.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "Get-Content -LiteralPath \"generate_report.sh\" -TotalCount 240"
+                    })
+                    .to_string(),
+                )
+                .with_call_id("read-generate-report"),
+            )
+            .expect("read should reserve artifact refs");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-generate-report",
+                "shell_command",
+                true,
+                "#!/bin/nonexistent\n\
+# Report generation script\n\
+if [ -f \"/data/output/processed_data.txt\" ]; then\n\
+  echo \"=== ANALYSIS REPORT ===\" > /data/output/final_report.txt\n\
+fi\n"
+                    .to_string(),
+            )
+            .expect("read result should record")
+            .expect("read result id");
+
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(inspect_node_id),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 4,
+            max_requests: 8,
+            node_request_count: 4,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
+        };
+        state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_no_action_with_evidence",
+            )
+            .expect("inspect transition should be allowed")
+            .expect("inspect transition should create implement node");
+
+        let context = state.build_developer_context().expect("developer context");
+        assert!(context.contains("ContextProjectionV1 active replacement:"));
+        assert!(context.contains("critical_artifact_evidence:"));
+        assert!(context.contains("artifacts=generate_report.sh"));
+        assert!(context.contains("signal=invalid_shebang"));
+        assert!(context.contains("#!/bin/nonexistent"));
+        assert!(context.contains("/data/output/final_report.txt"));
+    }
+
+    #[test]
+    fn inspect_progress_convergence_force_finishes_after_contract_hint() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Deep inspect",
+            "Inspect enough pipeline scripts to identify a concrete implementation.",
+            "Deep inspect",
+            "Inspect enough pipeline scripts to identify a concrete implementation.",
+            true,
+        );
+        for index in
+            0..contract_for(NodeKind::InspectCodeContext).max_main_tool_results_before_split_hint
+        {
+            let call_id = format!("read-{index}");
+            state
+                .prepare_main_tool_call(
+                    owner,
+                    ToolActionDescriptor::new(
+                        "shell_command",
+                        ActionClass::Read,
+                        format!("Get-Content script-{index}.sh"),
+                    )
+                    .with_call_id(call_id.as_str()),
+                )
+                .expect("source read should be allowed");
+            state
+                .record_main_tool_result(
+                    owner,
+                    call_id.as_str(),
+                    "shell_command",
+                    true,
+                    if index == 7 {
+                        "#!/bin/nonexistent\n# Report generation script".to_string()
+                    } else {
+                        "#!/bin/bash\nset -e\necho pipeline step".to_string()
+                    },
+                )
+                .expect("source read result records");
+        }
+        assert!(
+            state.current_main_inspect_progress_ready_for_transition(),
+            "inspect node should be ready to converge after enough code reads"
+        );
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("deep".to_string()),
+            profile_name: Some("taskspace-v005-deep".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 1,
+            max_requests: 20,
+            node_request_count: 1,
+            max_model_requests_per_node: 5,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+
+        let (outcome, events) = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_progress_convergence",
+            )
+            .expect("progress-driven transition should not error")
+            .expect("progress-driven transition should run without budget pressure");
+
+        let map = state.active_map().expect("active map");
+        assert_eq!(
+            map.nodes.get(&node_id).expect("inspect node").status,
+            NodeStatus::Completed
+        );
+        let next_node = map
+            .nodes
+            .get(&outcome.next_node_id.expect("next node"))
+            .expect("implementation node");
+        assert_eq!(next_node.kind, NodeKind::ImplementSolution);
+        assert!(
+            next_node.context.summary.contains("#!/bin/nonexistent"),
+            "forced transition must preserve suspicious inspected evidence beyond the first three reads"
+        );
+        assert!(
+            state
+                .current_main_working_evidence_summary()
+                .expect("working evidence summary")
+                .contains("#!/bin/nonexistent"),
+            "implementation recovery should be able to expose dependency evidence"
+        );
+        assert!(events.iter().any(|event| {
+            match event {
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(event) => event
+                    .tags
+                    .iter()
+                    .any(|tag| tag == "trigger:inspect_progress_convergence"),
+                _ => false,
+            }
+        }));
     }
 
     #[test]
@@ -19207,6 +20731,11 @@ mod tests {
             map_id,
             node_id: Some(node_id.clone()),
             node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -19268,6 +20797,11 @@ mod tests {
             map_id: map_id.clone(),
             node_id: Some(node_id.clone()),
             node_kind: Some(NodeKind::ImplementSolution.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -21409,6 +22943,217 @@ mod tests {
         state
             .block_main_node(owner, &node_id, "pytest failed".to_string())
             .expect("failed validation can be blocked");
+    }
+
+    #[test]
+    fn active_map_detects_blocked_validation_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+
+        assert!(!state.active_map_has_blocked_validation_result());
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "pytest failed".to_string(),
+            )
+            .expect("failed test result records");
+        state
+            .block_main_node(owner, &node_id, "pytest failed".to_string())
+            .expect("failed validation can be blocked");
+
+        assert!(state.active_map_has_blocked_validation_result());
+        assert!(state.current_main_node_id.is_none());
+    }
+
+    #[test]
+    fn current_validation_node_detects_local_infra_failure() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+
+        assert!(!state.current_main_validation_node_has_local_infra_failure());
+        let nul_separated_error = "Bash/Service/CreateInstance/E_ACCESSDENIED"
+            .chars()
+            .flat_map(|ch| [ch, '\0'])
+            .collect::<String>();
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                nul_separated_error,
+            )
+            .expect("failed test result records");
+
+        assert!(state.current_main_validation_node_has_local_infra_failure());
+    }
+
+    #[test]
+    fn state_commit_auto_blocks_local_infra_validation_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+        let nul_separated_error = "Bash/Service/CreateInstance/E_ACCESSDENIED"
+            .chars()
+            .flat_map(|ch| [ch, '\0'])
+            .collect::<String>();
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                nul_separated_error,
+            )
+            .expect("failed test result records")
+            .expect("test result id");
+
+        let (outcome, _) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-local-infra-validation".to_string(),
+                    result_validities: vec![ActionMapStateCommitResultValidityInput {
+                        result_id: result_id.clone(),
+                        validity: "invalid".to_string(),
+                        validity_reason: "local validator infrastructure failed".to_string(),
+                        claims: Vec::new(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some(result_id),
+                            validator_ref: Some("bash run_pipeline.sh".to_string()),
+                            ..Default::default()
+                        }],
+                        changed_artifacts: Vec::new(),
+                        validator_refs: vec!["bash run_pipeline.sh".to_string()],
+                        remaining_uncertainty: Vec::new(),
+                    }],
+                    ..Default::default()
+                },
+            )
+            .expect("local infra validation state_commit should auto-block node");
+
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
+        assert!(
+            outcome
+                .accepted_sections
+                .iter()
+                .any(|section| section == "local_infra_blocker")
+        );
+        let map_id = state.active_map_id.clone().expect("active map");
+        let node = state
+            .maps
+            .get(&map_id)
+            .and_then(|map| map.nodes.get(&node_id))
+            .expect("validation node");
+        assert_eq!(node.status, NodeStatus::Blocked);
+        assert!(state.current_main_node_id.is_none());
+        assert!(state.active_map_has_blocked_validation_result());
+    }
+
+    #[test]
+    fn state_commit_resolves_action_contract_run_test_call_id_to_validation_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+        let call_id = "taskspace-action-contract-13-run_test";
+        let nul_separated_error = "Bash/Service/CreateInstance/E_ACCESSDENIED"
+            .chars()
+            .flat_map(|ch| [ch, '\0'])
+            .collect::<String>();
+        let (actual_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                call_id,
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                nul_separated_error,
+            )
+            .expect("failed test result records")
+            .expect("test result id");
+
+        let (outcome, _) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-action-contract-run-test".to_string(),
+                    result_validities: vec![ActionMapStateCommitResultValidityInput {
+                        result_id: call_id.to_string(),
+                        validity: "invalid".to_string(),
+                        validity_reason: "local validator infrastructure failed".to_string(),
+                        claims: Vec::new(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some(call_id.to_string()),
+                            validator_ref: Some("bash run_pipeline.sh".to_string()),
+                            ..Default::default()
+                        }],
+                        changed_artifacts: Vec::new(),
+                        validator_refs: vec!["bash run_pipeline.sh".to_string()],
+                        remaining_uncertainty: Vec::new(),
+                    }],
+                    ..Default::default()
+                },
+            )
+            .expect("action-contract call id should resolve to recorded validation result");
+
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
+        let map_id = state.active_map_id.clone().expect("active map");
+        let map = state.maps.get(&map_id).expect("active map state");
+        let result = map
+            .results
+            .get(&actual_result_id)
+            .expect("actual validation result");
+        assert_eq!(result.evidence_package.validity, ResultValidity::Invalid);
+        let node = map.nodes.get(&node_id).expect("validation node");
+        assert_eq!(node.status, NodeStatus::Blocked);
     }
 
     #[test]

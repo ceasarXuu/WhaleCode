@@ -117,6 +117,7 @@ function Get-TerminalBenchDockerfileBaseImageProof {
 }
 
 $taskRoot = (Resolve-Path -LiteralPath $TaskDir).Path
+Repair-TaskspaceExternalStaleDenyTreeForCurrentUser $taskRoot | Out-Null
 if ([string]::IsNullOrWhiteSpace($SampleId)) { $SampleId = Split-Path -Leaf $taskRoot }
 $instructionCandidates = @("instruction.md", "prompt.md", "task.md", "README.md") |
     ForEach-Object { Join-Path $taskRoot $_ } |

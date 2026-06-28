@@ -344,8 +344,22 @@ impl ToolCallRuntime {
     fn classify_taskspace_tool_action(call: &ToolCall) -> ToolActionDescriptor {
         let tool_name = call.tool_name.display();
         let preview = call.payload.log_payload().to_string();
-        let class = classify_tool_payload(&tool_name, &call.payload);
+        let class = taskspace_action_contract_class(&call.call_id)
+            .unwrap_or_else(|| classify_tool_payload(&tool_name, &call.payload));
         ToolActionDescriptor::new(tool_name, class, preview).with_call_id(call.call_id.clone())
+    }
+}
+
+fn taskspace_action_contract_class(call_id: &str) -> Option<ActionClass> {
+    let suffix = call_id.strip_prefix("taskspace-action-contract-")?;
+    let (_, action) = suffix.rsplit_once('-')?;
+    match action {
+        "list_files" | "read_file" => Some(ActionClass::Read),
+        "search" => Some(ActionClass::Search),
+        "apply_patch" => Some(ActionClass::Edit),
+        "run_test" => Some(ActionClass::Test),
+        "taskspace_control" => Some(ActionClass::Control),
+        _ => None,
     }
 }
 
@@ -673,6 +687,7 @@ fn action_map_tool_error_preview(err: &FunctionCallError) -> String {
 mod tests {
     use super::action_map_tool_error_preview;
     use super::classify_shell_text;
+    use super::taskspace_action_contract_class;
     use crate::action_map::ActionClass;
     use crate::function_tool::FunctionCallError;
 
@@ -800,6 +815,24 @@ mod tests {
         assert_eq!(classify_shell_text("rustfmt src/lib.rs"), ActionClass::Edit);
         assert_eq!(
             classify_shell_text("some-unknown-tool"),
+            ActionClass::Unknown
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_call_id_preserves_run_test_class() {
+        assert_eq!(
+            taskspace_action_contract_class("taskspace-action-contract-25-run_test"),
+            Some(ActionClass::Test)
+        );
+        assert_eq!(
+            taskspace_action_contract_class(
+                "taskspace-action-contract-bootstrap-taskspace_control"
+            ),
+            Some(ActionClass::Control)
+        );
+        assert_eq!(
+            classify_shell_text("bash /app/run_pipeline.sh"),
             ActionClass::Unknown
         );
     }

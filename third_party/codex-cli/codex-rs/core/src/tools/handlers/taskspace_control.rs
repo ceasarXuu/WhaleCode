@@ -1290,6 +1290,8 @@ fn normalize_state_commit_sections(root: &mut serde_json::Map<String, JsonValue>
         normalize_success_criteria_objects(criteria);
     }
     normalize_state_commit_result_validities(root);
+    normalize_state_commit_decisions(root);
+    normalize_state_commit_facts(root);
     normalize_state_commit_evidence_array(root, "output_contracts");
     normalize_state_commit_evidence_array(root, "fact_sources");
     normalize_state_commit_described_objects(root, "output_contracts", "artifact");
@@ -1315,6 +1317,7 @@ fn normalize_success_criteria_map(value: &mut JsonValue) {
             if status.is_empty() {
                 return None;
             }
+            let status = normalize_success_criterion_status_alias(status);
             Some(serde_json::json!({
                 "id": id,
                 "kind": "test",
@@ -1353,6 +1356,8 @@ fn normalize_success_criteria_objects(value: &mut JsonValue) {
             .as_str()
             .unwrap_or("satisfied")
             .to_string();
+        let status = normalize_success_criterion_status_alias(&status);
+        object.insert("status".to_string(), JsonValue::String(status.clone()));
         object
             .entry("description".to_string())
             .or_insert_with(|| JsonValue::String(format!("{kind} {id} is {status}")));
@@ -1378,6 +1383,7 @@ fn normalize_state_commit_result_validities(root: &mut serde_json::Map<String, J
                     if validity.is_empty() {
                         return None;
                     }
+                    let validity = normalize_result_validity_alias(validity);
                     Some(serde_json::json!({
                         "result_id": result_id,
                         "validity": validity,
@@ -1406,6 +1412,12 @@ fn normalize_state_commit_result_validities(root: &mut serde_json::Map<String, J
                         ),
                     );
                 }
+                if let Some(validity) = object.get("validity").and_then(JsonValue::as_str) {
+                    object.insert(
+                        "validity".to_string(),
+                        JsonValue::String(normalize_result_validity_alias(validity)),
+                    );
+                }
                 if !object.contains_key("evidence_refs")
                     && let Some(result_id) = object.get("result_id").and_then(JsonValue::as_str)
                 {
@@ -1417,6 +1429,116 @@ fn normalize_state_commit_result_validities(root: &mut serde_json::Map<String, J
             }
         }
         _ => {}
+    }
+}
+
+fn normalize_result_validity_alias(value: &str) -> String {
+    match value.trim().replace('-', "_").to_ascii_lowercase().as_str() {
+        "pass" | "passed" | "success" | "succeeded" | "valid" => "accepted".to_string(),
+        "fail"
+        | "failed"
+        | "failure"
+        | "error"
+        | "rejected"
+        | "invalid_infrastructure_failure"
+        | "infrastructure_failure"
+        | "infra_failure"
+        | "invalid_infra_failure" => "invalid".to_string(),
+        "uncertain" | "needs_review" | "warning" => "questioned".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn normalize_success_criterion_status_alias(value: &str) -> String {
+    match value.trim().replace('-', "_").to_ascii_lowercase().as_str() {
+        "pass" | "passed" | "success" | "succeeded" | "accepted" => "satisfied".to_string(),
+        "fail" | "failed" | "failure" | "invalid" | "error" | "needs_review" => {
+            "questioned".to_string()
+        }
+        other => other.to_string(),
+    }
+}
+
+fn normalize_state_commit_decisions(root: &mut serde_json::Map<String, JsonValue>) {
+    let Some(JsonValue::Array(items)) = root.get_mut("decisions") else {
+        return;
+    };
+    for (index, item) in items.iter_mut().enumerate() {
+        match item {
+            JsonValue::String(text) => {
+                let decision = text.trim().to_string();
+                if !decision.is_empty() {
+                    *item = serde_json::json!({
+                        "id": format!("decision-{}", index + 1),
+                        "decision_kind": "validation",
+                        "decision": decision,
+                        "rationale": "recorded by compact state_commit normalization"
+                    });
+                }
+            }
+            JsonValue::Object(object) => {
+                object
+                    .entry("id".to_string())
+                    .or_insert_with(|| JsonValue::String(format!("decision-{}", index + 1)));
+                object
+                    .entry("decision_kind".to_string())
+                    .or_insert_with(|| JsonValue::String("validation".to_string()));
+                if !object.contains_key("decision")
+                    && let Some(summary) = object.remove("summary")
+                {
+                    object.insert("decision".to_string(), summary);
+                }
+                object.entry("decision".to_string()).or_insert_with(|| {
+                    JsonValue::String("TaskSpace state_commit decision".to_string())
+                });
+                object.entry("rationale".to_string()).or_insert_with(|| {
+                    JsonValue::String("recorded by compact state_commit normalization".to_string())
+                });
+            }
+            _ => {}
+        }
+    }
+}
+
+fn normalize_state_commit_facts(root: &mut serde_json::Map<String, JsonValue>) {
+    let Some(JsonValue::Array(items)) = root.get_mut("facts") else {
+        return;
+    };
+    for (index, item) in items.iter_mut().enumerate() {
+        match item {
+            JsonValue::String(text) => {
+                let statement = text.trim().to_string();
+                if !statement.is_empty() {
+                    *item = serde_json::json!({
+                        "claim_id": format!("fact-{}", index + 1),
+                        "statement": statement,
+                        "evidence_refs": [{ "artifact_ref": "taskspace-state-commit" }]
+                    });
+                }
+            }
+            JsonValue::Object(object) => {
+                object
+                    .entry("claim_id".to_string())
+                    .or_insert_with(|| JsonValue::String(format!("fact-{}", index + 1)));
+                if !object.contains_key("statement")
+                    && let Some(summary) = object.remove("summary")
+                {
+                    object.insert("statement".to_string(), summary);
+                }
+                object.entry("statement".to_string()).or_insert_with(|| {
+                    JsonValue::String("TaskSpace state_commit fact".to_string())
+                });
+                if !object.contains_key("evidence_refs") {
+                    object.insert(
+                        "evidence_refs".to_string(),
+                        JsonValue::Array(vec![
+                            serde_json::json!({ "artifact_ref": "taskspace-state-commit" }),
+                        ]),
+                    );
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -2407,7 +2529,78 @@ mod tests {
                 assert_eq!(result_validities[0].validity, "accepted");
                 assert!(!result_validities[0].validity_reason.is_empty());
                 assert_eq!(success_criteria[0].id, "criterion-1");
-                assert_eq!(success_criteria[0].status, "accepted");
+                assert_eq!(success_criteria[0].status, "satisfied");
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn state_commit_compact_failed_validation_aliases_normalize() {
+        let raw = serde_json::json!({
+            "action": "state_commit",
+            "result_validities": {
+                "result-13": "failed"
+            },
+            "success_criteria": {
+                "criterion-1": "failed"
+            },
+            "decisions": [
+                "Local validation failure is infrastructure-specific."
+            ]
+        });
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("compact failed state_commit parses");
+
+        match args {
+            TaskSpaceControlArgs::StateCommit {
+                result_validities,
+                success_criteria,
+                decisions,
+                ..
+            } => {
+                assert_eq!(result_validities[0].result_id, "result-13");
+                assert_eq!(result_validities[0].validity, "invalid");
+                assert_eq!(success_criteria[0].id, "criterion-1");
+                assert_eq!(success_criteria[0].status, "questioned");
+                assert_eq!(decisions[0].id, "decision-1");
+                assert_eq!(decisions[0].decision_kind, "validation");
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn state_commit_compact_local_infra_fact_string_normalizes() {
+        let raw = serde_json::json!({
+            "action": "state_commit",
+            "result_validities": {
+                "result-13": "invalid_infrastructure_failure"
+            },
+            "facts": [
+                "E_ACCESSDENIED indicates Bash/Service is not available on this Windows host."
+            ],
+            "next_outline": "Stop retrying bash diagnostics and close as local validation infra."
+        });
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("compact local infra state_commit parses");
+
+        match args {
+            TaskSpaceControlArgs::StateCommit {
+                result_validities,
+                facts,
+                ..
+            } => {
+                assert_eq!(result_validities[0].result_id, "result-13");
+                assert_eq!(result_validities[0].validity, "invalid");
+                assert_eq!(facts[0].claim_id, "fact-1");
+                assert!(facts[0].statement.contains("E_ACCESSDENIED"));
+                assert_eq!(
+                    facts[0].evidence_refs[0].artifact_ref.as_deref(),
+                    Some("taskspace-state-commit")
+                );
             }
             other => panic!("unexpected args: {other:?}"),
         }
