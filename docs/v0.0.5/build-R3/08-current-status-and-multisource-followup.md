@@ -344,4 +344,65 @@ status = incomplete
 reason = outer command timeout after 20 minutes; residual benchmark PowerShell/validator processes were stopped manually.
 ```
 
-该 rerun 不计入收益结论。下一次需要用更长外层 timeout 或更小的 focused harness timeout 重新验证 shell chain normalization 的真实收益。
+前述 timeout rerun 不计入收益结论；shell-chain normalization 的真实 `&&` 触发样本仍需要额外 fixture 或 rerun。
+
+### 7.4 focused diagnostic rerun4：TaskSpace 侧已能真实解题通过
+
+在 `force_finish_validation` 语义门禁、rework-chain review gate、failed validation closeout normalization 与 Windows shell-chain normalization 修复后，追加了一次 focused diagnostic rerun：
+
+```text
+RunRoot = target\r3-multisource-after-shell-chain-normalization-rerun4
+PairReport = target\r3-multisource-after-shell-chain-normalization-rerun4\runs\terminal_bench__multi-source-data-merger\20260630-011704-254\pair-001\pair-report.md
+
+reported_evidence_level = E2-candidate
+failure_taxonomy = audit_unclean
+engineering_unclean = False
+outcome_standard = solved
+outcome_taskspace = solved
+valid_pair = True
+included_in_utility_aggregate = False
+```
+
+TaskSpace 侧关键结果：
+
+```text
+business_success = True
+exec_exit_code = 0
+exec_timed_out = False
+public_validation_exit_code = 0
+hidden_oracle_exit_code = 0
+right_validation_lifecycle_stage = tests_completed
+right_tests_started_seen = True
+open_leaf_nodes = 0
+changed_paths = conflicts.json, merge_users.py, merged_users.parquet
+maps = 1
+nodes = 3
+edges = 2
+taskspace_control_count = 4
+action_contract_taskspace_control_count = 4
+```
+
+这次 rerun 的真实收益结论：
+
+```text
+1. multi-source-data-merger 不再停在 false validation pass、rework gate 或 open leaf。
+2. TaskSpace 能生成最终业务产物，并通过 public validation 与 hidden oracle。
+3. graph health 显示 open_leaf_nodes=0、edge_order_violations=0，工程侧没有 unclean reason。
+```
+
+必须保留的限制：
+
+```text
+1. 该 rerun 使用了 -AllowStaleWhaleBin，因为 Cargo build 没有重写未变化的 whale.exe 时间戳；它是诊断证据，不计入 E3。
+2. repeats=1，且 human audit 未完成，所以 pair report 仍为 E2-candidate / audit_unclean / score_disabled。
+3. rerun4 中模型实际只执行了 `python merge_users.py`，没有再次发出 `&&` 链式命令；因此 shell-chain normalization 的直接证明仍来自单测，不应把 rerun4 写成 `&&` 现场收益证明。
+```
+
+下一步如果要把该收益升级为正式证据：
+
+```text
+1. 先解决 WhaleBinaryHealth 的时间戳/构建产物一致性问题，避免依赖 -AllowStaleWhaleBin。
+2. 对同一或相邻 Terminal-Bench 样本跑 repeats >= 5。
+3. 完成人工 audit review，使 utility score 与 E3 gate 可以纳入聚合。
+4. 额外增加一个能稳定触发 `&&` run_test 的 focused fixture，验证 Windows shell-chain normalization 的真实样本收益。
+```

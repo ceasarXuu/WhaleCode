@@ -3572,3 +3572,28 @@
 - Real-run note:
   - `target\r3-multisource-after-shell-chain-normalization` was started but the outer command timed out after 20 minutes. Residual benchmark PowerShell/validator processes were stopped manually, so this run is not counted as benefit evidence.
 - Time: 2026-06-30 01:15
+
+## Evidence E-068: focused diagnostic rerun solves multi-source-data-merger after the validation/rework repairs
+- Related hypotheses:
+  - H-041
+  - H-042
+  - H-043
+- Direction: supports-combined-real-benefit
+- Type: real-task-rerun
+- Source:
+  - `target\r3-multisource-after-shell-chain-normalization-rerun4\runs\terminal_bench__multi-source-data-merger\20260630-011704-254\pair-001\pair-report.md`
+  - `target\r3-multisource-after-shell-chain-normalization-rerun4\runs\terminal_bench__multi-source-data-merger\20260630-011704-254\pair-001\right\artifacts\taskspace-control-usage.json`
+  - `target\r3-multisource-after-shell-chain-normalization-rerun4\runs\terminal_bench__multi-source-data-merger\20260630-011704-254\pair-001\right\artifacts\graph-health.json`
+- Matched signal:
+  - Pair is valid and engineering-clean: `valid_pair=True`, `engineering_unclean=False`, `engineering_unclean_reasons=none`.
+  - Both modes solved, including TaskSpace: `outcome_taskspace=solved`, `business_success=True`, `exec_exit_code=0`, `exec_timed_out=False`.
+  - External validation passed: `public_validation_exit_code=0`, `hidden_oracle_exit_code=0`.
+  - TaskSpace lifecycle converged: `right_validation_lifecycle_stage=tests_completed`, `right_tests_started_seen=True`, `open_leaf_nodes=0`, `edge_order_violations=0`.
+  - TaskSpace produced final artifacts: `changed_paths=conflicts.json, merge_users.py, merged_users.parquet`.
+  - Action-contract controls were accepted: `taskspace_control_count=4`, `action_contract_taskspace_control_count=4`, `parse_errors=0`.
+- Limitation:
+  - This rerun used `-AllowStaleWhaleBin` because Cargo did not rewrite an unchanged binary timestamp after commit; it is diagnostic evidence, not E3 evidence.
+  - `reported_evidence_level=E2-candidate`, `failure_taxonomy=audit_unclean`, and utility scoring remained disabled because repeats and human audit were not complete.
+  - The model did not issue a `&&` chained run_test in this rerun, so H-043 direct real-run proof remains pending; H-043 is still unit-confirmed only.
+- Interpretation: The combined R3 validation/rework repairs have real task-level benefit on `multi-source-data-merger`; the sample moved from timeout/false validation/open-leaf states to solved. This does not yet establish E3 aggregate utility.
+- Time: 2026-06-30 01:45
