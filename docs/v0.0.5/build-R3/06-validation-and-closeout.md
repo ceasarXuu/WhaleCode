@@ -1860,3 +1860,79 @@ implement 成功后，TaskSpace 进入 smoke_test，但模型执行的是一个 
   - validation 策略能自动驱动输出生成；
   - multi-source-data-merger 是否同样收益。
 ```
+
+## F.32 2026-06-29 validation coverage gate 后的第四轮 rerun
+
+针对 F.31 的 vacuous validation blocker，本轮新增 validation coverage gate：
+
+```text
+规则：
+  - smoke_test/regression_test 在依赖实现节点有 changed artifacts 时，
+    run_test/build 命令必须执行或引用 changed artifact；
+  - 通用真实验证命令仍允许，例如 pytest、cargo test、npm test、run-tests；
+  - gate message 同时列出 changed_artifacts 和 output_contracts；
+  - `*** Add File:` 也被纳入 changed artifact 推断。
+```
+
+定向验证：
+
+```text
+cargo test -p codex-core validation_node_blocks_vacuous_test_after_changed_artifact --lib -- --nocapture = PASS
+cargo test -p codex-core validation_node --lib -- --nocapture = PASS, 15 tests
+cargo test -p codex-core changed_artifact --lib -- --nocapture = PASS, 5 tests
+cargo test -p codex-core taskspace_action_contract --lib -- --nocapture = PASS, 40 tests
+cargo build -p codex-cli --bin whale --profile dev-small = PASS
+```
+
+第四轮真实 rerun：
+
+```text
+RunRoot = target\r3-validation-coverage-recover-accuracy-log
+RunDir  = target\r3-validation-coverage-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-112704-778
+pair-001:
+  standard = solved
+  taskspace = engineering_unclean
+  failure_taxonomy = engineering_unclean, agent_patch_wrong, audit_unclean
+  taskspace changed_paths = recover.py
+  taskspace tool_call_count = 6
+  taskspace open_leaf_nodes = 1
+```
+
+真实收益：
+
+```text
+1. validation 不再跑空 pre-check。
+2. smoke_test 直接执行 changed artifact：
+   item_23 run_test command = python recover.py
+3. 失败已推进为脚本真实运行时错误：
+   FileNotFoundError: ./raw_logs/generator.log
+4. 这证明 validation coverage gate 成功把验证从“无关命令”推进到“执行实现产物”。
+```
+
+新 blocker：
+
+```text
+inspect 阶段已经证明：
+  - /app/raw_logs/generator.log 不存在；
+  - raw_logs/generator.log 不存在；
+  - task_deps/generator.log 存在并已读。
+
+但最终成功 apply_patch 的 recover.py 仍硬编码：
+  ./raw_logs/generator.log
+  ./raw_logs/judge.log
+
+run_test 失败后，validation 节点继续 read_file raw_logs/generator.log，
+再次得到同样 FileNotFoundError，然后 no-action recovery cap 结束。
+```
+
+下一修复方向：
+
+```text
+1. validation node 出现失败 test/build result 后，不能继续做重复路径 rediscovery。
+2. 如果失败原因指向实现代码需要修改，runtime 应要求：
+   - record failed validation result；
+   - finish/block validation node；
+   - create/bind implement_solution rework node；
+   - rework node 依赖 failed validation evidence 和原始 verified_input_evidence。
+3. context projection 需要把 failed validation traceback 与已验证输入路径一起暴露给 rework implement。
+```

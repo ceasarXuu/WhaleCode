@@ -2851,3 +2851,113 @@
   - none
 - Close reason:
   - not closed
+
+## Evidence E-048: validation coverage gate blocks vacuous tests and preserves real validators
+- Related hypotheses:
+  - H-032
+- Direction: supports-repair
+- Type: code-change-and-test
+- Source: `third_party\codex-cli\codex-rs\core\src\action_map\runtime.rs`
+- Prediction or plan link:
+  - H-032 repair design: validation commands must exercise changed artifacts or real validators.
+- Matched signal:
+  - Added `validation_test_coverage_block`.
+  - Validation nodes now collect changed artifacts from dependency implementation nodes.
+  - Output contract path-like targets are included in recovery evidence.
+  - Commands that do not mention changed artifacts are blocked unless they are recognized real validators such as `pytest`, `cargo test`, `npm test`, or `run-tests`.
+  - `*** Add File:` is now included in changed artifact extraction.
+- Correlation keys:
+  - `validation_test_missing_changed_artifact_coverage`
+  - `validation_node_blocks_vacuous_test_after_changed_artifact`
+  - `task_output_contract_artifact_targets`
+- Raw content:
+  ```text
+  cargo test -p codex-core validation_node_blocks_vacuous_test_after_changed_artifact --lib -- --nocapture = PASS
+  cargo test -p codex-core validation_node --lib -- --nocapture = PASS, 15 tests
+  cargo test -p codex-core changed_artifact --lib -- --nocapture = PASS, 5 tests
+  cargo test -p codex-core taskspace_action_contract --lib -- --nocapture = PASS, 40 tests
+  ```
+- Interpretation: The vacuous validation class is covered in unit tests without blocking ordinary project validators.
+- Time: 2026-06-29 11:20
+
+## Evidence E-049: real rerun now executes changed artifact during validation
+- Related hypotheses:
+  - H-032
+- Direction: supports-repair
+- Type: real-task-rerun
+- Source:
+  - `target\r3-validation-coverage-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-112704-778\pair-001\pair-report.md`
+  - `target\r3-validation-coverage-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-112704-778\pair-001\right\artifacts\whale-exec.jsonl`
+  - `target\r3-validation-coverage-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-112704-778\pair-001\right\artifacts\whale-exec.stderr.log`
+- Prediction or plan link:
+  - H-032 If true after repair: smoke_test should execute changed artifact or a real validator instead of a vacuous pre-check.
+- Matched signal:
+  - TaskSpace changed path is `recover.py`.
+  - `item_23` run_test command is `python recover.py`.
+  - The run_test fails with a real traceback from `recover.py`, not an empty pre-check.
+  - Failure taxonomy remains `agent_patch_wrong`, not `agent_no_patch`.
+- Correlation keys:
+  - `20260629-112704-778`
+  - `item_23`
+  - `python recover.py`
+  - `FileNotFoundError`
+- Raw content:
+  ```text
+  right / taskspace:
+    business_success = False
+    exec_exit_code = 1
+    public_validation_exit_code = 1
+    changed_paths = recover.py
+    tool_call_count = 6
+    open_leaf_nodes = 1
+
+  whale-exec:
+    item_23 run_test command = python recover.py
+
+  run_test output:
+    FileNotFoundError: [Errno 2] No such file or directory: './raw_logs/generator.log'
+  ```
+- Interpretation: H-032 is repaired enough to produce real validation of the changed artifact. The next blocker is failed-validation rework routing: the validation node reads the same missing path again instead of routing back to implementation with the traceback and known `task_deps` evidence.
+- Time: 2026-06-29 11:40
+
+## Hypothesis H-033: failed validation does not force rework routing when traceback points to an implementation defect
+- Claim: After a changed artifact is executed and fails, TaskSpace validation nodes may continue read/search rediscovery instead of recording the failed validation result and creating/binding an implementation rework node. This loses the opportunity to patch the changed artifact using the traceback plus prior verified input evidence.
+- Parent:
+  - H-032
+- If true:
+  - A rerun should show a failed `run_test` result from the changed artifact.
+  - The next validation action should be read/search of already known paths rather than state_commit/block/finish into implement_solution.
+  - The turn may fail by no-action recovery cap or open validation leaf.
+- If false:
+  - The failed validation should be recorded and routed into a follow-up implementation node, or the system should block with exact failed validation evidence.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: inspect actions after `python recover.py` failure in `20260629-112704-778`.
+  - Signal: failed test result, next action type, traceback target path, prior verified input evidence path.
+  - Capture method: parse `whale-exec.jsonl`, `graph-health.json`, and context projection artifacts.
+  - Event name or marker:
+    - `validator_failure`
+    - `validation_recovery`
+    - `TaskSpaceNoActionRecoveryV1`
+  - Correlation keys:
+    - `recover.py`
+    - `./raw_logs/generator.log`
+    - `task_deps/generator.log`
+  - Differentiates from:
+    - no-patch
+    - vacuous validation
+    - external validator infrastructure failure
+    - pure semantic accuracy mismatch after files exist
+  - Supports if:
+    - the failed validation is followed by repeated missing-path reads and no rework implementation node.
+  - Refutes if:
+    - a failed validation state commit or implement rework node is created immediately.
+- Evidence gate: pending
+- Related evidence:
+  - E-049
+- Conclusion: suspected
+- Repair design readiness: needs-design
+- Next step: add failed-validation rework policy so validation nodes with failed test/build results cannot continue broad rediscovery; they must state_commit failed result and route to implement_solution or block.
+- Blocker:
+  - none
+- Close reason:
+  - not closed

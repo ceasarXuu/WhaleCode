@@ -2031,6 +2031,39 @@ impl ActionMapRuntimeState {
                 )],
             ));
         }
+        if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+            && matches!(
+                descriptor.action_class,
+                ActionClass::Test | ActionClass::Build
+            )
+            && let Some(task) = map
+                .task_id
+                .as_ref()
+                .and_then(|task_id| self.tasks.get(task_id))
+            && let Some((reason, message, next_valid_actions, evidence_refs)) =
+                validation_test_coverage_block(map, node, task, &descriptor)
+        {
+            let recovery = gate_recovery_message(
+                &message,
+                &reason,
+                evidence_refs,
+                next_valid_actions,
+                Vec::new(),
+            );
+            return Err(ActionMapGateError::new(
+                recovery,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: node.kind.as_str().to_string(),
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason,
+                    },
+                )],
+            ));
+        }
         if descriptor.action_class != ActionClass::Control
             && let Some(call_id) = descriptor.call_id.as_deref()
         {
@@ -11665,6 +11698,230 @@ fn tool_action_descriptor_artifact_refs(descriptor: &ToolActionDescriptor) -> Ve
     }
 }
 
+fn validation_test_coverage_block(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    task: &TaskState,
+    descriptor: &ToolActionDescriptor,
+) -> Option<(String, String, Vec<String>, Vec<String>)> {
+    let command = tool_action_descriptor_command(descriptor)?;
+    if command_is_general_validation_runner(&command) {
+        return None;
+    }
+    let changed_artifacts = validation_dependency_changed_artifacts(map, node);
+    if changed_artifacts.is_empty()
+        || changed_artifacts
+            .iter()
+            .any(|artifact| command_mentions_artifact(&command, artifact))
+    {
+        return None;
+    }
+    let output_targets = task_output_contract_artifact_targets(task);
+    let changed_summary = changed_artifacts
+        .iter()
+        .take(4)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let output_summary = if output_targets.is_empty() {
+        "none recorded".to_string()
+    } else {
+        output_targets
+            .iter()
+            .take(4)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let reason = "validation_test_missing_changed_artifact_coverage".to_string();
+    let message = format!(
+        "TaskSpace blocked this validation command because current node `{}` kind: {} must validate the implementation edit, but requested command `{}` does not execute or reference changed artifact(s): {}. Declared output contract targets: {}. Run the changed artifact, run a real project/official validator such as pytest or run-tests, or block with the exact reason validation cannot exercise the edit.",
+        node.id,
+        node.kind.as_str(),
+        single_line_preview(&command, 220),
+        changed_summary,
+        output_summary
+    );
+    let mut next_valid_actions = changed_artifacts
+        .iter()
+        .take(3)
+        .map(|artifact| format!("run a validation command that executes or imports `{artifact}`"))
+        .collect::<Vec<_>>();
+    next_valid_actions.push("or run a real project/official validator command such as pytest, cargo test, npm test, or run-tests".to_string());
+    let mut evidence_refs = vec![format!("current_node:{}:{}", node.id, node.kind.as_str())];
+    evidence_refs.extend(
+        changed_artifacts
+            .iter()
+            .take(4)
+            .map(|artifact| format!("changed_artifact:{artifact}")),
+    );
+    evidence_refs.extend(
+        output_targets
+            .iter()
+            .take(4)
+            .map(|artifact| format!("output_contract:{artifact}")),
+    );
+    Some((reason, message, next_valid_actions, evidence_refs))
+}
+
+fn tool_action_descriptor_command(descriptor: &ToolActionDescriptor) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(&descriptor.preview)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("command")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            let preview = descriptor.preview.trim();
+            (!preview.is_empty()).then(|| preview.to_string())
+        })
+}
+
+fn command_is_general_validation_runner(command: &str) -> bool {
+    let lower = command.to_ascii_lowercase();
+    [
+        "pytest",
+        "cargo test",
+        "npm test",
+        "pnpm test",
+        "yarn test",
+        "go test",
+        "mvn test",
+        "gradle test",
+        "run-tests",
+        "run_tests",
+        "test_outputs.py",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+}
+
+fn validation_dependency_changed_artifacts(map: &ActionMapInstance, node: &MapNode) -> Vec<String> {
+    let dependency_ids = map
+        .edges
+        .iter()
+        .filter(|edge| edge.to == node.id)
+        .map(|edge| edge.from.as_str())
+        .collect::<Vec<_>>();
+    let mut artifacts = Vec::new();
+    for dependency_id in dependency_ids {
+        let Some(dependency) = map.nodes.get(dependency_id) else {
+            continue;
+        };
+        if dependency.kind != NodeKind::ImplementSolution {
+            continue;
+        }
+        for result_ref in &dependency.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind != NodeResultKind::MainToolCall
+                || result.tool_success != Some(true)
+                || result.action_class != Some(ActionClass::Edit)
+            {
+                continue;
+            }
+            for artifact in result_artifact_refs(result) {
+                if !artifacts.iter().any(|existing| existing == &artifact) {
+                    artifacts.push(artifact);
+                }
+            }
+        }
+    }
+    artifacts
+}
+
+fn task_output_contract_artifact_targets(task: &TaskState) -> Vec<String> {
+    let mut targets = Vec::new();
+    for contract in &task.cognitive_state.output_contracts {
+        for value in [&contract.id, &contract.description] {
+            for artifact in extract_artifact_like_refs(value) {
+                if !targets.iter().any(|existing| existing == &artifact) {
+                    targets.push(artifact);
+                }
+            }
+        }
+        for evidence in &contract.evidence_refs {
+            if let Some(artifact) = evidence.artifact_ref.as_deref() {
+                let artifact = normalize_artifact_ref(artifact);
+                if !targets.iter().any(|existing| existing == &artifact) {
+                    targets.push(artifact);
+                }
+            }
+        }
+    }
+    targets
+}
+
+fn command_mentions_artifact(command: &str, artifact: &str) -> bool {
+    let command = command.replace('\\', "/").to_ascii_lowercase();
+    artifact_command_match_variants(artifact)
+        .into_iter()
+        .any(|variant| !variant.is_empty() && command.contains(&variant))
+}
+
+fn artifact_command_match_variants(artifact: &str) -> Vec<String> {
+    let normalized = normalize_artifact_ref(artifact).to_ascii_lowercase();
+    let mut variants = vec![normalized.clone()];
+    for marker in ["/app/src/", "/app/", "app/src/", "app/"] {
+        if let Some((_, suffix)) = normalized.split_once(marker) {
+            variants.push(suffix.trim_matches('/').to_string());
+        }
+    }
+    if let Some(file_name) = normalized.rsplit('/').next()
+        && file_name.len() >= 4
+    {
+        variants.push(file_name.to_string());
+    }
+    variants.sort();
+    variants.dedup();
+    variants
+}
+
+fn extract_artifact_like_refs(text: &str) -> Vec<String> {
+    text.split(|ch: char| {
+        ch.is_whitespace()
+            || matches!(
+                ch,
+                '"' | '\'' | '`' | ',' | ';' | ':' | '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>'
+            )
+    })
+    .map(|token| token.trim_matches(|ch: char| matches!(ch, '.' | '!' | '?' | '#')))
+    .filter(|token| artifact_like_token(token))
+    .map(normalize_artifact_ref)
+    .collect()
+}
+
+fn artifact_like_token(token: &str) -> bool {
+    let token = token.trim();
+    if token.is_empty() {
+        return false;
+    }
+    let lower = token.to_ascii_lowercase();
+    lower.contains('/')
+        || lower.contains('\\')
+        || matches!(
+            lower.rsplit_once('.').map(|(_, ext)| ext),
+            Some(
+                "py" | "js"
+                    | "ts"
+                    | "rs"
+                    | "sh"
+                    | "json"
+                    | "jsonl"
+                    | "csv"
+                    | "tsv"
+                    | "txt"
+                    | "md"
+                    | "yaml"
+                    | "yml"
+                    | "toml"
+            )
+        )
+}
+
 fn read_command_artifact_ref(command: &str) -> Option<String> {
     if command.contains("Get-Content") {
         return powershell_path_arg(command)
@@ -11706,6 +11963,7 @@ fn extract_edit_changed_artifacts_from_tool_body(body: &str) -> Vec<String> {
             .or_else(|| trimmed.strip_prefix("A "))
             .or_else(|| trimmed.strip_prefix("D "))
             .or_else(|| trimmed.strip_prefix("*** Update File: "))
+            .or_else(|| trimmed.strip_prefix("*** Add File: "))
             .or_else(|| trimmed.strip_prefix("+++ b/"))
             .or_else(|| trimmed.strip_prefix("+++ "))
         else {
@@ -17891,6 +18149,150 @@ mod tests {
 
         assert!(error.contains("regression_test"));
         assert!(error.contains("edit"));
+    }
+
+    #[test]
+    fn validation_node_blocks_vacuous_test_after_changed_artifact() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Recover logs",
+            "Create recovered output files.",
+            "Implement recovery script",
+            "Create the script that generates recovered logs.",
+            true,
+        );
+        state
+            .record_output_contract_for_main(
+                owner,
+                "oc-results",
+                "artifact",
+                "/app/recovered_logs/results.json".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("user-request".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("output contract records");
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-script",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\n*** Add File: /app/recover_logs.py\n"
+                    .to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit".to_string(),
+                    statement: "Recovery script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created recovery script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run recovery validation".to_string(),
+                    context_summary: "Run validation that exercises the recovery script."
+                        .to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        assert!(outcome.next_node_id.is_some());
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &outcome.result_id,
+                "accepted",
+                "accepted implementation handoff".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-handoff".to_string(),
+                    statement: "Implementation can proceed to validation.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(outcome.result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(outcome.result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("handoff accepted");
+
+        let vacuous = serde_json::json!({
+            "command": "python -c \"import os, sys; os.makedirs('raw_logs', exist_ok=True); sys.exit(0)\"",
+            "timeout_ms": 10000
+        })
+        .to_string();
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, vacuous),
+            )
+            .expect_err("vacuous validation should not cover changed artifact");
+        assert!(
+            error.contains("validation_test_missing_changed_artifact_coverage"),
+            "{error}"
+        );
+        assert!(error.contains("recover_logs.py"), "{error}");
+        assert!(error.contains("recovered_logs/results.json"), "{error}");
+
+        let runs_changed_artifact = serde_json::json!({
+            "command": "python /app/recover_logs.py",
+            "timeout_ms": 120000
+        })
+        .to_string();
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Test,
+                    runs_changed_artifact,
+                ),
+            )
+            .expect("validation may execute the changed artifact");
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
+            )
+            .expect("general project validators remain allowed");
     }
 
     #[test]
