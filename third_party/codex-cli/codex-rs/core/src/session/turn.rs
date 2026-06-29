@@ -4040,6 +4040,47 @@ tax_calc.py\n\
     }
 
     #[test]
+    fn taskspace_apply_patch_keeps_existing_hunk_header_for_bare_file_patch() {
+        let patch = normalize_taskspace_apply_patch(
+            "*** Begin Patch\n\
+tax_calc.py\n\
+@@ -5,7 +5,7 @@ def calculate_tax(subtotal, region):\n\
+     if region not in RATES:\n\
+         raise ValueError(f\"unsupported region: {region}\")\n\
+-    return round(subtotal * RATES[region], 1)\n\
++    return round(subtotal * RATES[region], 2)\n\
+\n\
+\n\
+ def calculate_total(subtotal, region):\n\
+*** End Patch\n",
+        );
+
+        assert!(patch.starts_with("*** Begin Patch\n*** Update File: src/tax_calc.py\n"));
+        assert!(patch.contains("@@ -5,7 +5,7 @@ def calculate_tax(subtotal, region):"));
+        assert!(!patch.contains("\n@@\n@@ -5,7 +5,7 @@"));
+        assert!(patch.ends_with("*** End Patch\n"));
+    }
+
+    #[test]
+    fn taskspace_apply_patch_wraps_unwrapped_update_file_patch() {
+        let patch = normalize_taskspace_apply_patch(
+            "*** Update File: tax_calc.py\n\
+@@ -5,7 +5,7 @@ def calculate_tax(subtotal, region):\n\
+     if region not in RATES:\n\
+         raise ValueError(f\"unsupported region: {region}\")\n\
+-    return round(subtotal * RATES[region], 1)\n\
++    return round(subtotal * RATES[region], 2)\n\
+\n\
+\n\
+ def calculate_total(subtotal, region):",
+        );
+
+        assert!(patch.starts_with("*** Begin Patch\n*** Update File: src/tax_calc.py\n"));
+        assert!(patch.contains("@@ -5,7 +5,7 @@ def calculate_tax(subtotal, region):"));
+        assert!(patch.ends_with("*** End Patch\n"));
+    }
+
+    #[test]
     fn taskspace_finish_current_node_action_builds_control_finish() {
         let action =
             taskspace_finish_current_node_action(Some("node-2"), "Implementation edit succeeded.");
@@ -6497,6 +6538,9 @@ fn taskspace_action_arg_u64(args: &serde_json::Value, name: &str, default: u64) 
 
 fn normalize_taskspace_apply_patch(patch: &str) -> String {
     let normalized = patch.replace("\r\n", "\n");
+    if let Some(rewritten) = normalize_taskspace_unwrapped_apply_patch(&normalized) {
+        return rewritten;
+    }
     if let Some(rewritten) = normalize_taskspace_bare_file_patch(&normalized) {
         return rewritten;
     }
@@ -6542,12 +6586,52 @@ fn normalize_taskspace_bare_file_patch(patch: &str) -> Option<String> {
     let mut rewritten = Vec::with_capacity(lines.len() + 1);
     rewritten.push("*** Begin Patch".to_string());
     rewritten.push(format!("*** Update File: {path}"));
-    rewritten.push("@@".to_string());
+    let has_explicit_hunk = lines
+        .iter()
+        .skip(2)
+        .take(lines.len().saturating_sub(3))
+        .any(|line| line.starts_with("@@"));
+    if !has_explicit_hunk {
+        rewritten.push("@@".to_string());
+    }
     for line in lines.iter().skip(2).take(lines.len().saturating_sub(3)) {
         if line.trim().is_empty() && rewritten.last().is_some_and(|last| last == "@@") {
             continue;
         }
         rewritten.push((*line).to_string());
+    }
+    rewritten.push("*** End Patch".to_string());
+    Some(rewritten.join("\n") + "\n")
+}
+
+fn normalize_taskspace_unwrapped_apply_patch(patch: &str) -> Option<String> {
+    let lines = patch.lines().collect::<Vec<_>>();
+    if lines.is_empty()
+        || lines.first() == Some(&"*** Begin Patch")
+        || !lines
+            .iter()
+            .any(|line| line.starts_with("*** Update File: ") || line.starts_with("*** Add File: "))
+        || !lines
+            .iter()
+            .any(|line| line.starts_with('-') || line.starts_with('+'))
+    {
+        return None;
+    }
+
+    let mut rewritten = Vec::with_capacity(lines.len() + 2);
+    rewritten.push("*** Begin Patch".to_string());
+    for line in lines {
+        if line == "*** End Patch" {
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("*** Update File: ") {
+            let path = path.trim();
+            let path =
+                resolve_unique_existing_relative_path(path).unwrap_or_else(|| path.to_string());
+            rewritten.push(format!("*** Update File: {path}"));
+        } else {
+            rewritten.push(line.to_string());
+        }
     }
     rewritten.push("*** End Patch".to_string());
     Some(rewritten.join("\n") + "\n")
