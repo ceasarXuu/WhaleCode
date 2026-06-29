@@ -2530,3 +2530,324 @@
   ```
 - Interpretation: The specific failure chain seen in `recover-accuracy-log` pair-002 is now covered at the action-contract layer. This proves the recovery mechanics, but not yet external-task solve-rate improvement; the next evidence must come from a real rerun.
 - Time: 2026-06-29 10:20
+
+## Hypothesis H-030: input-data evidence is not promoted into implement working evidence
+- Claim: Some Terminal-Bench tasks require editing from verified input data rather than code/test source. TaskSpace treated successful reads of files such as `task_deps/generator.log` and `task_deps/judge.log` as historical tool output, not as dependency working evidence for the implementation node. That allowed implement nodes to rediscover wrong absolute paths instead of editing from already verified data.
+- Parent:
+  - H-029
+- If true:
+  - A real `recover-accuracy-log` rerun after strict-JSON recovery should still fail without triggering `TaskSpacePatchIntentFormatRecoveryV1`.
+  - The transcript should show inspect reading `task_deps/*.log`, then implement reading or listing wrong paths such as `/app/raw_logs/*`.
+  - Promoting input data artifact refs into working evidence should reduce rediscovery and force apply_patch/blocked.
+- If false:
+  - The rerun should either solve or fail from semantic patch/test issues after a successful edit.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: compare the post strict-JSON rerun with the post input-evidence rerun.
+  - Signal: `tool_call_count`, `open_leaf_nodes`, wrong-path reads, `TaskSpaceImplementNeedsEditRecoveryV1`, `changed_paths`.
+  - Capture method: inspect `whale-exec.jsonl`, `whale-exec.stderr.log`, active-context report, and pair artifacts.
+  - Event name or marker:
+    - `verified_input_evidence`
+    - `dependency_working_evidence`
+    - `TaskSpaceImplementNeedsEditRecoveryV1`
+  - Correlation keys:
+    - `target\r3-patch-intent-recover-accuracy-log`
+    - `target\r3-input-evidence-recover-accuracy-log`
+  - Differentiates from:
+    - strict JSON patch intent rejection
+    - Docker or validator infrastructure
+    - hard request budget stop
+    - semantic solve error after an edit
+  - Supports if:
+    - before fix: correct `task_deps` reads are followed by wrong-path rediscovery and no patch.
+    - after fix: wrong-path rediscovery stops and the model attempts apply_patch or blocks from edit execution evidence.
+  - Refutes if:
+    - no verified input data was read, or implement already received the data and still made only semantic mistakes after successful edit.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-043
+  - E-044
+- Conclusion: confirmed
+- Repair design readiness: ready
+- Next step: validate whether the next blocker is patch grammar rather than context evidence.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-043: post strict-JSON rerun still fails by losing verified input paths
+- Related hypotheses:
+  - H-030
+- Direction: supports
+- Type: real-task-rerun
+- Source: `target\r3-patch-intent-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-095321-016`
+- Prediction or plan link:
+  - H-030 before-repair prediction.
+- Matched signal:
+  - `standard=solved`
+  - `taskspace=wrong`
+  - `failure_taxonomy=engineering_unclean, agent_no_patch, audit_unclean`
+  - `changed_paths` empty
+  - `tool_call_count=11`
+  - `open_leaf_nodes=1`
+  - Active context replacement passed: `exact_payload_scan_passed=true`, `replacement_confirmed=true`, `legacy_taskspace_history_present=false`.
+  - No `TaskSpacePatchIntentFormatRecoveryV1` marker appeared in the run.
+  - Transcript showed successful reads of `task_deps/generator.log` and `task_deps/judge.log`, then implement-stage rediscovery of `/app/raw_logs/*`.
+- Correlation keys:
+  - `20260629-095321-016`
+  - `recover-accuracy-log`
+  - `agent_no_patch`
+- Raw content:
+  ```text
+  RunRoot = target\r3-patch-intent-recover-accuracy-log
+  pair-001 standard = solved
+  pair-001 taskspace = wrong
+  taskspace changed_paths = empty
+  taskspace tool_call_count = 11
+  taskspace open_leaf_nodes = 1
+  active context replacement = passed
+  ```
+- Interpretation: The strict JSON patch-intent recovery is not sufficient for this sample because the run did not reach that failure mode. The next limiting factor is context/evidence promotion from inspected input data into implementation pressure.
+- Time: 2026-06-29 10:35
+
+## Evidence E-044: input-data working evidence repair reduces rediscovery and reaches apply_patch
+- Related hypotheses:
+  - H-030
+- Direction: supports-repair
+- Type: code-change-test-and-real-task-rerun
+- Source:
+  - `third_party\codex-cli\codex-rs\core\src\action_map\runtime.rs`
+  - `target\r3-input-evidence-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-101533-488`
+- Prediction or plan link:
+  - H-030 after-repair prediction.
+- Matched signal:
+  - Added `projection_verified_input_evidence`.
+  - Successful reads of input artifacts with extensions such as `.log`, `.jsonl`, `.json`, `.csv`, `.tsv`, `.yaml`, `.yml`, and `.txt` now count as working evidence unless they are docs/tests/readme.
+  - `current_main_implement_progress_needs_edit()` becomes true when inspect dependency input data exists.
+  - Real rerun: `tool_call_count` dropped from 11 to 7, `open_leaf_nodes` dropped from 1 to 0.
+  - Real rerun: implement no longer continued path rediscovery after evidence pressure; it attempted `apply_patch` twice, then blocked.
+- Correlation keys:
+  - `projection_verified_input_evidence`
+  - `successful_read_result_has_working_evidence`
+  - `implement_dependency_input_data_evidence_blocks_rediscovery_reads`
+  - `20260629-101533-488`
+- Raw content:
+  ```text
+  cargo fmt -p codex-core = PASS
+  cargo test -p codex-core implement_dependency_input_data_evidence_blocks_rediscovery_reads --lib -- --nocapture = PASS
+  cargo test -p codex-core projection_ --lib -- --nocapture = PASS, 8 tests
+  cargo test -p codex-core implement_dependency --lib -- --nocapture = PASS, 2 tests
+  cargo test -p codex-core forced_inspect_transition_skips_with_readme_only_evidence --lib -- --nocapture = PASS
+  cargo test -p codex-core active_projection_keeps_high_signal_artifact_excerpt_for_implement_node --lib -- --nocapture = PASS
+  cargo test -p codex-core inspect_progress_convergence_force_finishes_after_contract_hint --lib -- --nocapture = PASS
+
+  real rerun pair-001:
+    standard = solved
+    taskspace = wrong
+    failure_taxonomy = engineering_unclean, agent_no_patch, audit_unclean
+    taskspace changed_paths = empty
+    taskspace tool_call_count = 7
+    taskspace open_leaf_nodes = 0
+  ```
+- Interpretation: This proves a real convergence benefit, but not solve-rate benefit. The blocker moved from context/path rediscovery to apply_patch new-file grammar.
+- Time: 2026-06-29 10:40
+
+## Hypothesis H-031: new-file apply_patch attempts use unified-diff add syntax that native apply_patch treats as update
+- Claim: After input-data evidence repair, the model reaches edit intent but emits a new-file patch using unified diff headers (`--- /dev/null`, `+++ b/<path>`, `@@ -0,0 +...`). The native apply_patch grammar expects `*** Add File: <path>` for new files, so the tool tries to update a missing file, fails, and the model incorrectly blocks because it thinks a missing file cannot be patched.
+- Parent:
+  - H-030
+- If true:
+  - Real rerun artifacts should show apply_patch payloads with `/dev/null` new-file headers.
+  - Tool stderr should contain `apply_patch verification failed: Failed to read file to update ...`.
+  - The model should then block with a reason similar to "target file does not exist".
+  - A recovery marker should instruct `*** Add File: <relative/path>` and count against implement-needs-edit cap.
+- If false:
+  - apply_patch failures should be due to semantic content, permissions, or validator/test failures rather than native patch grammar.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: parse right-side artifacts from `20260629-101533-488`.
+  - Signal: apply_patch payload headers, stderr tool error, blocked reason, new recovery marker tests.
+  - Capture method: targeted `Select-String` on `whale-exec.jsonl` and `whale-exec.stderr.log`.
+  - Event name or marker:
+    - `TaskSpaceApplyPatchMissingTargetRecoveryV1`
+    - `apply_patch verification failed`
+    - `Failed to read file to update`
+  - Correlation keys:
+    - `item_24`
+    - `item_27`
+    - `item_30`
+  - Differentiates from:
+    - no-action recovery
+    - strict JSON format rejection
+    - existing-file add recovery
+    - semantic wrong answer
+  - Supports if:
+    - patch payload is `/dev/null` new-file style and tool error says missing update target.
+  - Refutes if:
+    - patch syntax is native `*** Add File` or `*** Update File` and the failure is downstream validation.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-045
+  - E-046
+- Conclusion: confirmed
+- Repair design readiness: ready
+- Next step: rebuild whale and rerun `recover-accuracy-log` to prove whether the marker converts the next patch to `*** Add File` and records changed paths.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-045: real rerun shows unified-diff new-file payloads and missing update target failure
+- Related hypotheses:
+  - H-031
+- Direction: supports
+- Type: real-task-rerun-artifact
+- Source:
+  - `target\r3-input-evidence-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-101533-488\pair-001\right\artifacts\whale-exec.jsonl`
+  - `target\r3-input-evidence-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-101533-488\pair-001\right\artifacts\whale-exec.stderr.log`
+- Prediction or plan link:
+  - H-031 If true prediction.
+- Matched signal:
+  - `item_24` apply_patch payload starts with `--- /dev/null` and `+++ recover_accuracy.py`.
+  - `item_27` apply_patch payload starts with `--- /dev/null` and `+++ b/recover_accuracy.py`.
+  - stderr has two errors: `apply_patch verification failed: Failed to read file to update W:\app\src\recover_accuracy.py: 系统找不到指定的路径。 (os error 3)`.
+  - `item_30` blocks with `Cannot apply_patch because target file recover_accuracy.py does not exist... Need to create new Python script but current narrowed state prevents file creation.`
+- Correlation keys:
+  - `item_24`
+  - `item_27`
+  - `item_30`
+  - `recover_accuracy.py`
+- Raw content:
+  ```text
+  item_24 patch:
+    *** Begin Patch
+    --- /dev/null
+    +++ recover_accuracy.py
+    @@ -0,0 +1,112 @@
+
+  item_27 patch:
+    *** Begin Patch
+    --- /dev/null
+    +++ b/recover_accuracy.py
+    @@ -0,0 +1,80 @@
+
+  stderr:
+    apply_patch verification failed: Failed to read file to update W:\app\src\recover_accuracy.py:
+    系统找不到指定的路径。 (os error 3)
+  ```
+- Interpretation: The model had executable edit intent and enough task evidence, but the action-contract layer did not recover the native new-file patch grammar. This is a system contract gap rather than a task-solving failure.
+- Time: 2026-06-29 10:45
+
+## Evidence E-046: missing-target apply_patch recovery is implemented and covered by focused tests
+- Related hypotheses:
+  - H-031
+- Direction: supports-repair
+- Type: code-change-and-test
+- Source: `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Prediction or plan link:
+  - H-031 after-repair prediction.
+- Matched signal:
+  - Added `TaskSpaceApplyPatchMissingTargetRecoveryV1`.
+  - Tool errors matching `apply_patch verification failed: Failed to read file to update ...` are parsed into relative targets such as `recover_accuracy.py`.
+  - Recovery instructs native `*** Add File: <relative/path>` for new files and `*** Update File: <relative/path>` for existing targets.
+  - Recovery forbids `--- /dev/null`, `+++ b/<path>`, and `@@ -0,0 +...` native patch payloads.
+  - Recovery counts against implement-needs-edit cap, not generic no-action cap.
+  - Static TaskSpace action-contract instructions now mention native Add File / Update File grammar.
+- Correlation keys:
+  - `TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER`
+  - `taskspace_missing_update_targets_from_apply_patch_error`
+  - `build_taskspace_apply_patch_missing_target_recovery_item`
+- Raw content:
+  ```text
+  cargo test -p codex-core taskspace_apply_patch_missing_target --lib -- --nocapture = PASS, 2 tests
+  cargo test -p codex-core implement_dependency_input_data_evidence_blocks_rediscovery_reads --lib -- --nocapture = PASS
+  cargo test -p codex-core taskspace_patch_intent --lib -- --nocapture = PASS
+  cargo test -p codex-core taskspace_action_contract --lib -- --nocapture = PASS, 40 tests
+  cargo test -p codex-core implement_needs_edit --lib -- --nocapture = PASS
+  ```
+- Interpretation: The system now has a structured recovery path for the exact next blocker found by the real rerun. The remaining required proof is another real `recover-accuracy-log` rerun after rebuilding the CLI.
+- Time: 2026-06-29 10:50
+
+## Evidence E-047: post recovery rerun proves no-patch is eliminated and exposes validation strategy blocker
+- Related hypotheses:
+  - H-030
+  - H-031
+- Direction: supports-repair
+- Type: real-task-rerun
+- Source:
+  - `target\r3-missing-target-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-104713-839\pair-001\pair-report.md`
+  - `target\r3-missing-target-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-104713-839\pair-001\right\artifacts\whale-exec.jsonl`
+  - `target\r3-missing-target-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-104713-839\pair-001\right\artifacts\validation.stdout.log`
+- Prediction or plan link:
+  - H-031 next step: prove whether the marker/guidance converts the next patch to `*** Add File` and records changed paths.
+- Matched signal:
+  - `failure_taxonomy` changed from `agent_no_patch` to `agent_patch_wrong`.
+  - TaskSpace produced `changed_paths=recover_logs.py`.
+  - `tool_call_count` improved to 6.
+  - `open_leaf_nodes=0`.
+  - `item_23` uses native `*** Add File: /app/recover_logs.py`.
+  - `item_24` records completed file add for `W:\app\recover_logs.py`.
+  - Public validation fails because `/app/recovered_logs/results.json` does not exist.
+- Correlation keys:
+  - `20260629-104713-839`
+  - `recover_logs.py`
+  - `agent_patch_wrong`
+- Raw content:
+  ```text
+  pair-001:
+    standard = solved
+    taskspace = wrong
+    failure_taxonomy = engineering_unclean, agent_patch_wrong, audit_unclean
+    taskspace changed_paths = recover_logs.py
+    taskspace tool_call_count = 6
+    taskspace open_leaf_nodes = 0
+
+  whale-exec:
+    item_23: *** Begin Patch / *** Add File: /app/recover_logs.py / *** End Patch
+    item_24: file_change add W:\app\recover_logs.py completed
+
+  validation:
+    AssertionError: Expected output file /app/recovered_logs/results.json does not exist
+  ```
+- Interpretation: The context/action convergence repairs have real benefit: TaskSpace now edits. The remaining failure is not no-patch; it is that the smoke_test node accepted a vacuous pre-check and did not execute the changed artifact or generate the declared output contracts.
+- Time: 2026-06-29 11:00
+
+## Hypothesis H-032: validation nodes accept vacuous tests that do not exercise changed artifacts or output contracts
+- Claim: After a successful implementation edit, smoke_test/regression_test nodes can run a command that exits 0 without invoking changed artifacts or producing required output contracts. This lets the graph advance despite no task outputs being generated, leading to external public validation failure.
+- Parent:
+  - H-031
+- If true:
+  - The transcript should show a successful edit followed by a validation command that only checks or creates environment state.
+  - The validation command should not execute the changed file.
+  - External public validation should fail because declared output contracts are missing.
+- If false:
+  - The validation command should have executed the changed artifact and failure should be semantic output mismatch rather than missing files.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: inspect the post-edit smoke_test command and external validator output.
+  - Signal: changed_paths, run_test command text, output_contract paths, validator missing-file assertions.
+  - Capture method: parse `whale-exec.jsonl`, `pair-report.md`, and `validation.stdout.log`.
+  - Event name or marker:
+    - `run_test`
+    - `changed_paths`
+    - `output_contract`
+  - Correlation keys:
+    - `item_28`
+    - `recover_logs.py`
+    - `/app/recovered_logs/results.json`
+  - Differentiates from:
+    - no-patch
+    - patch grammar failure
+    - validator infrastructure failure
+    - semantic accuracy mismatch after outputs exist
+  - Supports if:
+    - smoke_test command exits 0 but does not execute the changed file or generate any declared outputs.
+  - Refutes if:
+    - smoke_test executes the changed artifact and outputs exist before external validation.
+- Evidence gate: pending
+- Related evidence:
+  - E-047
+- Conclusion: suspected
+- Repair design readiness: needs-design
+- Next step: enforce validation commands against changed artifacts and output contracts; validation should run the changed artifact or explicitly block rather than accept environment pre-checks.
+- Blocker:
+  - none
+- Close reason:
+  - not closed

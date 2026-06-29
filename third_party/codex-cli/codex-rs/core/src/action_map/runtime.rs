@@ -3069,7 +3069,7 @@ preview:\n\
             snapshot.request_count, snapshot.max_requests, evidence_summary
         );
         let context_summary = format!(
-            "Apply the narrow implementation change indicated by this inspected code/test evidence: {evidence_summary}"
+            "Apply the narrow implementation change indicated by this inspected working evidence: {evidence_summary}"
         );
         let next_node_draft = ActionMapNextNodeDraft {
             kind: NodeKind::ImplementSolution,
@@ -5652,7 +5652,7 @@ preview:\n\
             .map(|edge| edge.from.as_str())
             .collect::<Vec<_>>();
         evidence_node_ids.push(node.id.as_str());
-        let summary = code_or_test_read_summary_for_nodes(map, &evidence_node_ids);
+        let summary = working_evidence_summary_for_nodes(map, &evidence_node_ids);
         if summary.trim().is_empty() {
             Some(single_line_preview(&node.context.summary, 480))
         } else {
@@ -9309,6 +9309,7 @@ fn append_context_projection_with_header(
             )
         })
         .collect::<Vec<_>>();
+    let verified_input_evidence = projection_verified_input_evidence(map, current_node_id, 6);
     let critical_artifact_evidence =
         projection_critical_artifact_evidence(map, current_node_id, 4, 900);
     let hidden_refs = map
@@ -9347,6 +9348,11 @@ fn append_context_projection_with_header(
     append_projection_list(&mut projection, "decisions", &decisions);
     append_projection_list(&mut projection, "facts", &facts);
     append_projection_list(&mut projection, "relevant_results", &relevant_results);
+    append_projection_list(
+        &mut projection,
+        "verified_input_evidence",
+        &verified_input_evidence,
+    );
     append_projection_multiline_list(
         &mut projection,
         "critical_artifact_evidence",
@@ -9410,12 +9416,10 @@ fn append_projection_multiline_list(context: &mut String, label: &str, values: &
     }
 }
 
-fn projection_critical_artifact_evidence(
-    map: &ActionMapInstance,
-    current_node_id: Option<&str>,
-    max_results: usize,
-    max_excerpt_chars: usize,
-) -> Vec<String> {
+fn projection_evidence_node_ids<'a>(
+    map: &'a ActionMapInstance,
+    current_node_id: Option<&'a str>,
+) -> Vec<&'a str> {
     let Some(current_node_id) = current_node_id else {
         return Vec::new();
     };
@@ -9426,10 +9430,59 @@ fn projection_critical_artifact_evidence(
         .map(|edge| edge.from.as_str())
         .collect::<Vec<_>>();
     node_ids.push(current_node_id);
+    node_ids
+}
 
+fn projection_verified_input_evidence(
+    map: &ActionMapInstance,
+    current_node_id: Option<&str>,
+    max_results: usize,
+) -> Vec<String> {
     let mut evidence = Vec::new();
     let mut seen = HashSet::new();
-    for node_id in node_ids {
+    for node_id in projection_evidence_node_ids(map, current_node_id) {
+        let Some(node) = map.nodes.get(node_id) else {
+            continue;
+        };
+        for result_ref in &node.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if !successful_read_result_has_working_evidence(result) {
+                continue;
+            }
+            let artifacts = result_input_data_artifact_refs(result);
+            if artifacts.is_empty() {
+                continue;
+            }
+            let key = format!("{}:{}", result.id, artifacts.join("|"));
+            if !seen.insert(key) {
+                continue;
+            }
+            evidence.push(format!(
+                "{} node={} verified_paths={} preview={}",
+                result.id,
+                result.node_id,
+                artifacts.join(","),
+                single_line_preview(&result.body, 180)
+            ));
+            if evidence.len() >= max_results {
+                return evidence;
+            }
+        }
+    }
+    evidence
+}
+
+fn projection_critical_artifact_evidence(
+    map: &ActionMapInstance,
+    current_node_id: Option<&str>,
+    max_results: usize,
+    max_excerpt_chars: usize,
+) -> Vec<String> {
+    let mut evidence = Vec::new();
+    let mut seen = HashSet::new();
+    for node_id in projection_evidence_node_ids(map, current_node_id) {
         let Some(node) = map.nodes.get(node_id) else {
             continue;
         };
@@ -11847,13 +11900,7 @@ fn node_has_successful_code_or_test_inspect_result(
         let Some(result) = map.results.get(&result_ref.id) else {
             return false;
         };
-        if result.kind != NodeResultKind::MainToolCall
-            || result.tool_success != Some(true)
-            || result.action_class != Some(ActionClass::Read)
-        {
-            return false;
-        }
-        code_or_test_read_body_has_content_signal(&result.body)
+        successful_read_result_has_working_evidence(result)
     })
 }
 
@@ -12022,6 +12069,39 @@ fn mandatory_evidence_signal(body: &str) -> Option<&'static str> {
     }
 }
 
+fn successful_read_result_has_working_evidence(result: &NodeResult) -> bool {
+    if result.kind != NodeResultKind::MainToolCall
+        || result.tool_success != Some(true)
+        || result.action_class != Some(ActionClass::Read)
+    {
+        return false;
+    }
+    code_or_test_read_body_has_content_signal(&result.body)
+        || !result_input_data_artifact_refs(result).is_empty()
+}
+
+fn result_input_data_artifact_refs(result: &NodeResult) -> Vec<String> {
+    result_artifact_refs(result)
+        .into_iter()
+        .filter(|artifact| is_input_data_artifact_ref(artifact))
+        .collect()
+}
+
+fn is_input_data_artifact_ref(artifact_ref: &str) -> bool {
+    let normalized = artifact_ref.replace('\\', "/").to_ascii_lowercase();
+    if normalized == "readme.md"
+        || normalized.starts_with("docs/")
+        || normalized.starts_with("tests/")
+        || normalized.contains("/tests/")
+    {
+        return false;
+    }
+    matches!(
+        normalized.rsplit_once('.').map(|(_, ext)| ext),
+        Some("log" | "jsonl" | "json" | "csv" | "tsv" | "yaml" | "yml" | "txt")
+    )
+}
+
 fn code_or_test_read_body_has_content_signal(body: &str) -> bool {
     let body = body.to_ascii_lowercase();
     body.contains("def ")
@@ -12046,15 +12126,15 @@ const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_RESULTS: usize = 8;
 const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_CHARS: usize = 320;
 
 fn inspect_code_or_test_read_summary(map: &ActionMapInstance, node: &MapNode) -> String {
-    let summary = code_or_test_read_summary_for_nodes(map, &[node.id.as_str()]);
+    let summary = working_evidence_summary_for_nodes(map, &[node.id.as_str()]);
     if summary.is_empty() {
-        "successful code/test read evidence is recorded on the inspect node".to_string()
+        "successful working evidence is recorded on the inspect node".to_string()
     } else {
         summary
     }
 }
 
-fn code_or_test_read_summary_for_nodes(map: &ActionMapInstance, node_ids: &[&str]) -> String {
+fn working_evidence_summary_for_nodes(map: &ActionMapInstance, node_ids: &[&str]) -> String {
     let mut summaries: Vec<(usize, usize, String)> = node_ids
         .iter()
         .filter_map(|node_id| map.nodes.get(*node_id))
@@ -12065,19 +12145,21 @@ fn code_or_test_read_summary_for_nodes(map: &ActionMapInstance, node_ids: &[&str
                 .get(&result_ref.id)
                 .map(|result| (index, result))
         })
-        .filter(|result| {
-            result.1.kind == NodeResultKind::MainToolCall
-                && result.1.tool_success == Some(true)
-                && result.1.action_class == Some(ActionClass::Read)
-        })
-        .filter(|(_, result)| code_or_test_read_body_has_content_signal(&result.body))
+        .filter(|(_, result)| successful_read_result_has_working_evidence(result))
         .map(|(index, result)| {
+            let artifacts = result_artifact_refs(result);
+            let artifact_text = if artifacts.is_empty() {
+                String::new()
+            } else {
+                format!(" artifacts={}", artifacts.join(","))
+            };
             (
                 working_evidence_priority(&result.body),
                 index,
                 format!(
-                    "{}: {}",
+                    "{}{}: {}",
                     result.id,
+                    artifact_text,
                     single_line_preview(&result.body, TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_CHARS)
                 ),
             )
@@ -20367,6 +20449,105 @@ mod tests {
                 .with_call_id("implement-read"),
             )
             .expect_err("dependency evidence should block implementation reads until edit");
+        assert!(err.to_string().contains("dependency_working_evidence"));
+    }
+
+    #[test]
+    fn implement_dependency_input_data_evidence_blocks_rediscovery_reads() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, inspect_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect accuracy logs",
+            "Read task input logs before implementing recovery outputs.",
+            "Inspect accuracy logs",
+            "Read task input logs before implementing recovery outputs.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "Get-Content -LiteralPath \"task_deps/generator.log\" -TotalCount 240"
+                    })
+                    .to_string(),
+                )
+                .with_call_id("read-generator-log"),
+            )
+            .expect("input data read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-generator-log",
+                "shell_command",
+                true,
+                "{\"timestamp\":\"2025-08-20T05:01:38Z\",\"question_id\":\"q-0007\",\"prediction\":\"1\"}\n\
+{\"timestamp\":\"2025-08-20T05:01:39Z\",\"question_id\":\"q-0008\",\"prediction\":\"Timeout\"}"
+                    .to_string(),
+            )
+            .expect("input data evidence should record");
+
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(inspect_node_id),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("deep".to_string()),
+            profile_name: Some("taskspace-v005-deep".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 4,
+            max_requests: 20,
+            node_request_count: 4,
+            max_model_requests_per_node: 5,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+
+        state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_no_action_with_evidence",
+            )
+            .expect("input data inspect transition should be allowed")
+            .expect("input data inspect transition should create implement node");
+
+        assert!(
+            state.current_main_implement_progress_needs_edit(),
+            "implementation node should inherit input data evidence pressure"
+        );
+        let context = state.build_developer_context().expect("developer context");
+        assert!(context.contains("verified_input_evidence:"));
+        assert!(context.contains("verified_paths=task_deps/generator.log"));
+        assert!(context.contains("prediction"));
+
+        let err = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "Get-Content -LiteralPath \"/app/raw_logs/generator.log\" -TotalCount 240"
+                    })
+                    .to_string(),
+                )
+                .with_call_id("implement-raw-log-read"),
+            )
+            .expect_err("dependency input evidence should block implementation reads until edit");
         assert!(err.to_string().contains("dependency_working_evidence"));
     }
 

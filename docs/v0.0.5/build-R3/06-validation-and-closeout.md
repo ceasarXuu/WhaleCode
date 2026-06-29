@@ -1624,3 +1624,239 @@ cargo test -p codex-core implement_needs_edit --lib -- --nocapture = PASS
 3. 若仍出现 wrong-path 或 no-patch，但不再有 strict JSON patch rejection，
    则进入 context compiler implementation facts 修复。
 ```
+
+## F.30 2026-06-29 recover-accuracy-log 真实 rerun 后续收敛
+
+strict JSON patch intent recovery 修复后，先跑 `recover-accuracy-log` 单样本验证真实收益。第一轮 rerun 没有触发
+`TaskSpacePatchIntentFormatRecoveryV1`，因为模型没有输出 patch intent；它在 inspect 阶段已经读到
+`task_deps/generator.log` 和 `task_deps/judge.log`，但进入 implement 后仍回到 `/app/raw_logs/*` 绝对路径和重复
+list/read。
+
+证据：
+
+```text
+RunRoot = target\r3-patch-intent-recover-accuracy-log
+RunDir  = target\r3-patch-intent-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-095321-016
+pair-001:
+  standard = solved
+  taskspace = wrong
+  failure_taxonomy = engineering_unclean, agent_no_patch, audit_unclean
+  taskspace changed_paths = empty
+  taskspace tool_call_count = 11
+  taskspace open_leaf_nodes = 1
+active context replacement:
+  exact_payload_scan_passed = true
+  replacement_confirmed = true
+  legacy_taskspace_history_present = false
+```
+
+根因修复 1：输入数据证据也必须成为 implement 阶段的 working evidence。
+
+之前 `current_node_has_dependency_working_evidence` 主要由代码/测试文本特征触发，例如 `def`、`fn`、`pytest`
+等。Terminal-Bench 这类任务的关键 evidence 经常是输入数据文件，例如 `.log`、`.jsonl`、`.csv`、`.txt`。
+如果这些 evidence 不进入 active projection 和 implementation edit pressure，implement 节点会重新发现路径，而不是基于
+已验证输入数据直接编辑。
+
+本轮修复：
+
+```text
+third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs
+  projection_verified_input_evidence
+  successful_read_result_has_working_evidence
+  result_input_data_artifact_refs
+  is_input_data_artifact_ref
+  working_evidence_summary_for_nodes
+```
+
+验证：
+
+```text
+cargo fmt -p codex-core = PASS
+cargo test -p codex-core implement_dependency_input_data_evidence_blocks_rediscovery_reads --lib -- --nocapture = PASS
+cargo test -p codex-core projection_ --lib -- --nocapture = PASS, 8 tests
+cargo test -p codex-core implement_dependency --lib -- --nocapture = PASS, 2 tests
+cargo test -p codex-core forced_inspect_transition_skips_with_readme_only_evidence --lib -- --nocapture = PASS
+cargo test -p codex-core active_projection_keeps_high_signal_artifact_excerpt_for_implement_node --lib -- --nocapture = PASS
+cargo test -p codex-core inspect_progress_convergence_force_finishes_after_contract_hint --lib -- --nocapture = PASS
+```
+
+真实收益验证：第二轮 `recover-accuracy-log` rerun 证明该修复把失败从“继续路径 rediscovery/no patch”推进到了
+“实际尝试 apply_patch，但 patch 语法不符合 native Add File 规则”。
+
+```text
+RunRoot = target\r3-input-evidence-recover-accuracy-log
+RunDir  = target\r3-input-evidence-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-101533-488
+pair-001:
+  standard = solved
+  taskspace = wrong
+  failure_taxonomy = engineering_unclean, agent_no_patch, audit_unclean
+  taskspace changed_paths = empty
+  taskspace tool_call_count = 7
+  taskspace open_leaf_nodes = 0
+```
+
+收益边界：
+
+```text
+已证明：
+  - implement 后不再持续 read/list `/app/raw_logs/*`；
+  - TaskSpaceImplementNeedsEditRecoveryV1 触发，并把模型压到 apply_patch/blocked；
+  - taskspace tool_call_count 从 11 降到 7；
+  - open_leaf_nodes 从 1 降到 0；
+  - 失败形态从路径 rediscovery 前移到 patch 语法恢复缺口。
+未证明：
+  - recover-accuracy-log solve rate 提升；
+  - multi-source-data-merger 是否同样受益；
+  - 新文件 patch 语法恢复后是否能完成真实 edit。
+```
+
+根因修复 2：新文件 patch 必须把 unified-diff add-file 失败恢复为 native `*** Add File:`。
+
+第二轮 rerun 中模型两次尝试创建 `recover_accuracy.py`，但 payload 是：
+
+```text
+*** Begin Patch
+--- /dev/null
++++ recover_accuracy.py
+@@ -0,0 +1,112 @@
++...
+*** End Patch
+```
+
+以及：
+
+```text
+*** Begin Patch
+--- /dev/null
++++ b/recover_accuracy.py
+@@ -0,0 +1,80 @@
++...
+*** End Patch
+```
+
+native apply_patch 把这类输入当作更新现有文件，工具层错误为：
+
+```text
+apply_patch verification failed: Failed to read file to update W:\app\src\recover_accuracy.py:
+系统找不到指定的路径。 (os error 3)
+```
+
+模型随后错误地 blocked：
+
+```text
+Cannot apply_patch because target file recover_accuracy.py does not exist...
+Need to create new Python script but current narrowed state prevents file creation.
+```
+
+本轮修复：
+
+```text
+third_party/codex-cli/codex-rs/core/src/session/turn.rs
+  TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER
+  build_taskspace_apply_patch_missing_target_recovery_item
+  taskspace_missing_update_targets_from_apply_patch_error
+  taskspace_normalize_apply_patch_target
+```
+
+行为变化：
+
+```text
+1. apply_patch 工具报 `Failed to read file to update ...` 时，如果当前是 implement_solution，
+   recovery 会解析缺失目标路径。
+2. recovery 明确禁止“因为文件不存在而 blocked”。
+3. 如果目标是新建文件，下一轮必须使用 native:
+   *** Add File: <relative/path>
+   +...
+4. 如果目标应为已检查过的现有文件，下一轮必须使用:
+   *** Update File: <relative/path>
+5. 该 recovery 计入 implement-needs-edit cap，而不是普通 no-action cap。
+6. 静态 action contract 也补充了 Add File / Update File 的 native patch 语法提示。
+```
+
+定向验证：
+
+```text
+cargo test -p codex-core taskspace_apply_patch_missing_target --lib -- --nocapture = PASS, 2 tests
+cargo test -p codex-core implement_dependency_input_data_evidence_blocks_rediscovery_reads --lib -- --nocapture = PASS
+cargo test -p codex-core taskspace_patch_intent --lib -- --nocapture = PASS
+cargo test -p codex-core taskspace_action_contract --lib -- --nocapture = PASS, 40 tests
+cargo test -p codex-core implement_needs_edit --lib -- --nocapture = PASS
+```
+
+下一步真实验证：
+
+```text
+1. 重新构建 whale.exe。
+2. 第三轮 rerun recover-accuracy-log 单样本：
+   - 查是否出现 TaskSpaceApplyPatchMissingTargetRecoveryV1；
+   - 查第二次 patch 是否改为 *** Add File；
+   - 查 changed_paths 是否包含 recover_accuracy.py 或任务要求输出；
+   - 查 agent_no_patch 是否消失。
+3. 若仍 wrong，但已有 edit，则问题进入语义/validator 输出正确性，而不再是 action/context 收敛。
+```
+
+## F.31 2026-06-29 第三轮 rerun：no-patch 已消除，进入 validation 策略问题
+
+使用修复后的 `whale.exe` 重新跑 `recover-accuracy-log` 单样本：
+
+```text
+RunRoot = target\r3-missing-target-recover-accuracy-log
+RunDir  = target\r3-missing-target-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-104713-839
+pair-001:
+  standard = solved
+  taskspace = wrong
+  failure_taxonomy = engineering_unclean, agent_patch_wrong, audit_unclean
+  taskspace changed_paths = recover_logs.py
+  taskspace tool_call_count = 6
+  taskspace open_leaf_nodes = 0
+  taskspace wall_time_ms = 157550
+```
+
+真实收益已经成立：
+
+```text
+1. failure_taxonomy 从 agent_no_patch 变成 agent_patch_wrong。
+2. TaskSpace 不再停在无 edit 状态，已经产生 changed_paths=recover_logs.py。
+3. tool_call_count 从 11 -> 7 -> 6。
+4. open_leaf_nodes 保持 0。
+5. apply_patch payload 已使用 native Add File 语法并成功记录 file_change：
+   item_23: *** Begin Patch / *** Add File: /app/recover_logs.py / *** End Patch
+   item_24: file_change add W:\app\recover_logs.py completed
+6. 当前失败不再是 action/context 无法到达 edit，而是 edit 后 validation 没有执行产物生成路径。
+```
+
+新 blocker：
+
+```text
+implement 成功后，TaskSpace 进入 smoke_test，但模型执行的是一个 vacuous pre-check：
+  python -c "import os, json, sys; ... if not os.path.exists(raw_dir): os.makedirs(raw_dir); sys.exit(0)"
+
+该命令没有运行 recover_logs.py，也没有生成 recovered_logs/results.json 或 6 个 jsonl 输出。
+随后 public validator 报：
+  Expected output file /app/recovered_logs/results.json does not exist
+```
+
+这说明 R3 下一个修复点不是 patch 格式，而是 validation node 的行动约束：
+
+```text
+1. smoke_test/regression_test 不能接受与 changed artifact/output contract 无关的空预检查作为有效验证。
+2. 如果存在 output_contract，validation action 必须执行能生成或检查这些 output_contract 的命令。
+3. 如果 implement 只创建了脚本但没有生成目标文件，validation 应提示：
+   - 运行脚本；
+   - 或回到 implement 补充生成入口；
+   - 不能直接进入 final_candidate。
+4. 需要把 changed_paths、output_contract、success_criteria 汇编成 validation node 的强约束 context。
+```
+
+当前结论：
+
+```text
+已证明真实收益：
+  - 输入数据 evidence promotion 解决了 implement 阶段 rediscovery；
+  - Add File native grammar guidance 解决了无 edit / no-patch；
+  - recover-accuracy-log 的失败已经推进到 agent_patch_wrong。
+仍未证明：
+  - 端到端 solve；
+  - validation 策略能自动驱动输出生成；
+  - multi-source-data-merger 是否同样收益。
+```

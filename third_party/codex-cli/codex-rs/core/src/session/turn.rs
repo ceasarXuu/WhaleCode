@@ -147,6 +147,8 @@ const TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER: &str =
     "TaskSpaceForcedImplementTransitionRecoveryV1:";
 const TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER: &str = "TaskSpaceImplementNeedsEditRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_FORMAT_MARKER: &str = "TaskSpaceApplyPatchFormatRecoveryV1:";
+const TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER: &str =
+    "TaskSpaceApplyPatchMissingTargetRecoveryV1:";
 const TASKSPACE_PATCH_INTENT_FORMAT_MARKER: &str = "TaskSpacePatchIntentFormatRecoveryV1:";
 const TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER: &str = "TaskSpaceValidationInfraRecoveryV1:";
 const TASKSPACE_INSPECT_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-rg-files";
@@ -633,6 +635,15 @@ pub(crate) async fn run_turn(
                                 ) {
                                     format!(
                                         "TaskSpace inserted TaskSpacePatchIntentFormatRecoveryV1 because an apply_patch intent was rejected for non-strict JSON and must be re-emitted as one strict action. Recovery attempt {}/{} is being used.",
+                                        taskspace_implement_needs_edit_recovery_count,
+                                        TASKSPACE_IMPLEMENT_NEEDS_EDIT_RECOVERY_CAP
+                                    )
+                                } else if response_item_text_contains(
+                                    &recovery_item,
+                                    TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER,
+                                ) {
+                                    format!(
+                                        "TaskSpace inserted TaskSpaceApplyPatchMissingTargetRecoveryV1 because apply_patch tried to update a missing file and must be re-emitted with Add File or the correct existing target. Recovery attempt {}/{} is being used.",
                                         taskspace_implement_needs_edit_recovery_count,
                                         TASKSPACE_IMPLEMENT_NEEDS_EDIT_RECOVERY_CAP
                                     )
@@ -1259,7 +1270,7 @@ Action argument rules:
 - list_files args: {\"path\":\".\"}
 - search args: {\"pattern\":\"literal or regex\",\"path\":\".\"}
 - read_file args: {\"path\":\"relative/path\"}
-- apply_patch args: {\"patch\":\"*** Begin Patch\\n...\\n*** End Patch\\n\"}
+- apply_patch args: {\"patch\":\"*** Begin Patch\\n...\\n*** End Patch\\n\"}; create new files with native `*** Add File: <path>` plus `+` content lines, and update existing files with `*** Update File: <path>` hunks.
 - run_test args: {\"command\":\"test command\",\"timeout_ms\":120000}
 - taskspace_control args: {\"action\":\"start_task|finish_node|create_node|bind_node|block_node|record_fact|record_fact_source|record_output_contract|record_success_criteria|state_commit\",...}; use canonical key \"action\", not \"action_name\" or \"command\", for lifecycle commands.
 - final_answer args: {\"message\":\"user-facing final answer\"}
@@ -1398,6 +1409,34 @@ Current required behavior:\n\
 - For unified diff input, use `--- a/<path>` and `+++ b/<path>` for existing files, never `--- /dev/null`.\n\
 - If the inspected evidence named an invalid shebang, patch the first line of that existing file.\n\
 - Do not call finish_node or validation until the update patch succeeds."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn build_taskspace_apply_patch_missing_target_recovery_item(targets: &str) -> ResponseItem {
+    let targets = targets.trim();
+    let targets = if targets.is_empty() {
+        "(unknown missing file)"
+    } else {
+        targets
+    };
+    let text = format!(
+        "{TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER}\n\
+The previous apply_patch tried to update missing file(s): {targets}\n\
+This usually means the patch used unified-diff new-file syntax such as `--- /dev/null` / `+++ b/<path>`, which TaskSpace's native apply_patch grammar treats as an update.\n\
+Current required behavior:\n\
+- Do not return blocked merely because the file does not exist; missing files are created with native Add File syntax.\n\
+- If the intended change is to create the file, emit exactly one apply_patch now using `*** Add File: <relative/path>` and prefix every content line with `+`.\n\
+- If the intended change is to modify an already inspected existing artifact instead, emit exactly one apply_patch using `*** Update File: <relative/path>` for that existing artifact.\n\
+- Do not use `--- /dev/null`, `+++ b/<path>`, or `@@ -0,0 +...` unified-diff add-file headers in native apply_patch.\n\
+- Do not call read_file, list_files, search, finish_node, or validation until this edit succeeds."
     );
 
     ResponseItem::Message {
@@ -1560,6 +1599,7 @@ fn is_taskspace_no_action_recovery_item(item: &ResponseItem) -> bool {
 
 fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER)
+        || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER)
         || response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER)
 }
 
@@ -1568,6 +1608,8 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
         "TaskSpace inserted TaskSpaceForcedImplementTransitionRecoveryV1 after a provider-budget forced implement transition. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_FORMAT_MARKER) {
         "TaskSpace inserted TaskSpaceApplyPatchFormatRecoveryV1 after apply_patch tried to add an existing file. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER) {
+        "TaskSpace inserted TaskSpaceApplyPatchMissingTargetRecoveryV1 after apply_patch tried to update a missing file. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER) {
         "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 because implementation has enough read/search evidence and must edit or block. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER) {
@@ -1618,6 +1660,39 @@ fn taskspace_existing_file_add_targets_from_rejection(message: Option<&str>) -> 
         .unwrap_or(rest)
         .trim();
     (!targets.is_empty()).then(|| targets.to_string())
+}
+
+fn taskspace_missing_update_targets_from_apply_patch_error(
+    message: Option<&str>,
+) -> Option<String> {
+    let message = message?;
+    if !message.contains("TaskSpace tool call failed: apply_patch verification failed")
+        || !message.contains("Failed to read file to update ")
+    {
+        return None;
+    }
+    let (_, rest) = message.split_once("Failed to read file to update ")?;
+    let target = rest
+        .split_once(" (os error")
+        .map(|(target, _)| target)
+        .unwrap_or(rest)
+        .rsplit_once(':')
+        .map(|(target, _)| target)
+        .unwrap_or(rest)
+        .trim();
+    let target = taskspace_normalize_apply_patch_target(target);
+    (!target.is_empty()).then_some(target)
+}
+
+fn taskspace_normalize_apply_patch_target(target: &str) -> String {
+    let normalized = target.trim().trim_matches('"').replace('\\', "/");
+    if let Some((_, relative)) = normalized.split_once("/app/src/") {
+        return relative.trim_matches('/').to_string();
+    }
+    if let Some((_, relative)) = normalized.split_once("/workspace/") {
+        return relative.trim_matches('/').to_string();
+    }
+    normalized.trim_matches('/').to_string()
 }
 
 fn taskspace_snapshot_requires_implementation_edit(
@@ -3281,6 +3356,46 @@ Then I will inspect the file."#,
         assert!(text.contains("apply_patch with the patch payload"));
         assert!(text.contains("Do not call read_file, list_files, search"));
         assert!(text.contains("task_deps/generator.log"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+        assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+    }
+
+    #[test]
+    fn taskspace_apply_patch_missing_target_error_is_detected() {
+        let windows_message = "TaskSpace tool call failed: apply_patch verification failed: Failed to read file to update W:\\app\\src\\recover_accuracy.py: 系统找不到指定的路径。 (os error 3)";
+        let unix_message = "TaskSpace tool call failed: apply_patch verification failed: Failed to read file to update /app/src/recover_accuracy.py: No such file or directory (os error 2)";
+
+        assert_eq!(
+            taskspace_missing_update_targets_from_apply_patch_error(Some(windows_message)),
+            Some("recover_accuracy.py".to_string())
+        );
+        assert_eq!(
+            taskspace_missing_update_targets_from_apply_patch_error(Some(unix_message)),
+            Some("recover_accuracy.py".to_string())
+        );
+        assert_eq!(
+            taskspace_missing_update_targets_from_apply_patch_error(Some(
+                "TaskSpace tool call failed: failed to parse function arguments"
+            )),
+            None
+        );
+    }
+
+    #[test]
+    fn taskspace_apply_patch_missing_target_recovery_forces_add_file_grammar() {
+        let targets = taskspace_missing_update_targets_from_apply_patch_error(Some(
+            "TaskSpace tool call failed: apply_patch verification failed: Failed to read file to update W:\\app\\src\\recover_accuracy.py: 系统找不到指定的路径。 (os error 3)",
+        ))
+        .expect("missing update target parsed");
+        let item = build_taskspace_apply_patch_missing_target_recovery_item(&targets);
+        let text = item_text(item.clone());
+
+        assert_eq!(targets, "recover_accuracy.py");
+        assert!(text.contains(TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER));
+        assert!(text.contains("recover_accuracy.py"));
+        assert!(text.contains("*** Add File: <relative/path>"));
+        assert!(text.contains("Do not return blocked merely because the file does not exist"));
+        assert!(text.contains("Do not use `--- /dev/null`"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
     }
@@ -7698,6 +7813,16 @@ async fn try_run_sampling_request(
                             last_agent_message.as_deref(),
                         ) {
                             Some(build_taskspace_apply_patch_format_recovery_item(&targets))
+                        } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
+                            snapshot.node_kind.as_deref() == Some("implement_solution")
+                        }) && let Some(targets) =
+                            taskspace_missing_update_targets_from_apply_patch_error(
+                                last_agent_message.as_deref(),
+                            )
+                        {
+                            Some(build_taskspace_apply_patch_missing_target_recovery_item(
+                                &targets,
+                            ))
                         } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
                             snapshot.node_kind.as_deref() == Some("implement_solution")
                                 && taskspace_message_hit_apply_patch_intent_format_rejection(
