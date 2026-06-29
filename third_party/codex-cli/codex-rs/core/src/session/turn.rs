@@ -147,6 +147,7 @@ const TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER: &str =
     "TaskSpaceForcedImplementTransitionRecoveryV1:";
 const TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER: &str = "TaskSpaceImplementNeedsEditRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_FORMAT_MARKER: &str = "TaskSpaceApplyPatchFormatRecoveryV1:";
+const TASKSPACE_PATCH_INTENT_FORMAT_MARKER: &str = "TaskSpacePatchIntentFormatRecoveryV1:";
 const TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER: &str = "TaskSpaceValidationInfraRecoveryV1:";
 const TASKSPACE_INSPECT_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-rg-files";
 const TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-pytest";
@@ -626,11 +627,22 @@ pub(crate) async fn run_turn(
                             message: if counts_against_no_action_cap {
                                 format!("TaskSpace inserted TaskSpaceNoActionRecoveryV1 because the provider response requested follow-up or was rejected by the final-response gate without an actionable tool/control/final result. Recovery attempt {}/{} is being used.", taskspace_no_action_recovery_count, no_action_recovery_cap)
                             } else if counts_against_implement_needs_edit_cap {
-                                format!(
-                                    "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 because implementation has enough read/search evidence and must edit or block. Recovery attempt {}/{} is being used.",
-                                    taskspace_implement_needs_edit_recovery_count,
-                                    TASKSPACE_IMPLEMENT_NEEDS_EDIT_RECOVERY_CAP
-                                )
+                                if response_item_text_contains(
+                                    &recovery_item,
+                                    TASKSPACE_PATCH_INTENT_FORMAT_MARKER,
+                                ) {
+                                    format!(
+                                        "TaskSpace inserted TaskSpacePatchIntentFormatRecoveryV1 because an apply_patch intent was rejected for non-strict JSON and must be re-emitted as one strict action. Recovery attempt {}/{} is being used.",
+                                        taskspace_implement_needs_edit_recovery_count,
+                                        TASKSPACE_IMPLEMENT_NEEDS_EDIT_RECOVERY_CAP
+                                    )
+                                } else {
+                                    format!(
+                                        "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 because implementation has enough read/search evidence and must edit or block. Recovery attempt {}/{} is being used.",
+                                        taskspace_implement_needs_edit_recovery_count,
+                                        TASKSPACE_IMPLEMENT_NEEDS_EDIT_RECOVERY_CAP
+                                    )
+                                }
                             } else {
                                 taskspace_special_recovery_warning_message(&recovery_item)
                             },
@@ -1397,6 +1409,51 @@ Current required behavior:\n\
     }
 }
 
+fn build_taskspace_patch_intent_format_recovery_item(
+    evidence_summary: Option<&str>,
+    raw_preview: Option<&str>,
+) -> ResponseItem {
+    let evidence = evidence_summary
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            let bullets = value
+                .split(" | ")
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(|item| format!("- {item}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("\nAlready inspected evidence available to use now:\n{bullets}\n")
+        })
+        .unwrap_or_default();
+    let raw_preview = raw_preview
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("\nRejected assistant output preview: {value}\n"))
+        .unwrap_or_default();
+    let text = format!(
+        "{TASKSPACE_PATCH_INTENT_FORMAT_MARKER}\n\
+The previous assistant response appeared to contain an apply_patch action, but TaskSpace rejected it because the response was not exactly one taskspace-action-v1 JSON object.\n\
+{raw_preview}\
+{evidence}\
+Current required behavior:\n\
+- Do not call read_file, list_files, search, broad shell discovery, or validation tests from this implementation node.\n\
+- Emit exactly one valid taskspace-action-v1 JSON object now.\n\
+- The JSON action must be apply_patch with the patch payload, or blocked with the exact reason the patch cannot be safely emitted.\n\
+- Do not include markdown fences, prose before or after the JSON object, or a second action.\n\
+- Use the file contents and failure clues already present in inspected evidence; do not rediscover them."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn build_taskspace_forced_inspect_transition_recovery_item() -> ResponseItem {
     let text = format!(
         "{TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER}\n\
@@ -1503,6 +1560,7 @@ fn is_taskspace_no_action_recovery_item(item: &ResponseItem) -> bool {
 
 fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER)
+        || response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER)
 }
 
 fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
@@ -1512,6 +1570,8 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
         "TaskSpace inserted TaskSpaceApplyPatchFormatRecoveryV1 after apply_patch tried to add an existing file. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER) {
         "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 because implementation has enough read/search evidence and must edit or block. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER) {
+        "TaskSpace inserted TaskSpacePatchIntentFormatRecoveryV1 after an apply_patch intent was rejected for non-strict JSON. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER) {
         "TaskSpace inserted TaskSpaceValidationInfraRecoveryV1 after local validator infrastructure failed. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER) {
@@ -1523,6 +1583,30 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
 
 fn taskspace_message_hit_implementation_needs_edit(message: Option<&str>) -> bool {
     message.is_some_and(|message| message.contains("implementation_needs_edit"))
+}
+
+fn taskspace_message_hit_apply_patch_intent_format_rejection(message: Option<&str>) -> bool {
+    message.is_some_and(|message| {
+        message.contains("action_contract_output_not_strict_json:apply_patch_intent")
+    })
+}
+
+fn taskspace_rejected_apply_patch_intent_preview(message: Option<&str>) -> Option<&str> {
+    let message = message?;
+    let (_, preview) = message.split_once("Rejected assistant output preview:")?;
+    let preview = preview
+        .split_once(". Return exactly")
+        .map(|(preview, _)| preview)
+        .unwrap_or(preview)
+        .trim();
+    (!preview.is_empty()).then_some(preview)
+}
+
+fn taskspace_raw_text_mentions_apply_patch_intent(raw_text: &str) -> bool {
+    let raw_text = raw_text.to_ascii_lowercase();
+    raw_text.contains("\"action\"")
+        && raw_text.contains("apply_patch")
+        && raw_text.contains("taskspace-action-v1")
 }
 
 fn taskspace_existing_file_add_targets_from_rejection(message: Option<&str>) -> Option<String> {
@@ -3169,6 +3253,39 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_strict_json_apply_patch_intent_rejection_is_detected() {
+        let raw = r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** Update File: app.py\n*** End Patch\n"}} extra"#;
+        assert!(taskspace_raw_text_mentions_apply_patch_intent(raw));
+        let message = "TaskSpaceActionV1 rejected: action_contract_output_not_strict_json:apply_patch_intent. Rejected assistant output preview: {\"schema_version\":\"taskspace-action-v1\",\"action\":\"apply_patch\"} extra. Return exactly one valid taskspace-action-v1 JSON object.";
+
+        assert!(taskspace_message_hit_apply_patch_intent_format_rejection(
+            Some(message)
+        ));
+        assert_eq!(
+            taskspace_rejected_apply_patch_intent_preview(Some(message)),
+            Some("{\"schema_version\":\"taskspace-action-v1\",\"action\":\"apply_patch\"} extra")
+        );
+    }
+
+    #[test]
+    fn taskspace_patch_intent_format_recovery_forces_single_patch_action() {
+        let item = build_taskspace_patch_intent_format_recovery_item(
+            Some("result-9: task_deps/generator.log traceback"),
+            Some("{\"schema_version\":\"taskspace-action-v1\",\"action\":\"apply_patch\"} extra"),
+        );
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_PATCH_INTENT_FORMAT_MARKER));
+        assert!(text.contains("not exactly one taskspace-action-v1 JSON object"));
+        assert!(text.contains("Emit exactly one valid taskspace-action-v1 JSON object now"));
+        assert!(text.contains("apply_patch with the patch payload"));
+        assert!(text.contains("Do not call read_file, list_files, search"));
+        assert!(text.contains("task_deps/generator.log"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+        assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+    }
+
+    #[test]
     fn taskspace_action_contract_final_answer_allowed_without_active_node() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"final_answer","node_id":null,"args":{"message":"All tests pass."}}"#,
@@ -4465,6 +4582,16 @@ tax_calc.py\n\
 
         assert!(text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(text.contains("#!/bin/nonexistent"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+        assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+    }
+
+    #[test]
+    fn patch_intent_format_recovery_has_own_cap_marker() {
+        let item = build_taskspace_patch_intent_format_recovery_item(None, None);
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_PATCH_INTENT_FORMAT_MARKER));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
     }
@@ -7347,8 +7474,22 @@ async fn try_run_sampling_request(
                         Ok((_action, None, None)) => {}
                         Err(reason) => {
                             needs_follow_up = true;
+                            let patch_intent_suffix = if reason
+                                == "action_contract_output_not_strict_json"
+                                && taskspace_raw_text_mentions_apply_patch_intent(raw_text)
+                            {
+                                taskspace_last_message_preview(Some(raw_text))
+                                    .map(|preview| {
+                                        format!(
+                                            ":apply_patch_intent. Rejected assistant output preview: {preview}"
+                                        )
+                                    })
+                                    .unwrap_or_else(|| ":apply_patch_intent".to_string())
+                            } else {
+                                String::new()
+                            };
                             last_agent_message = Some(format!(
-                                "TaskSpaceActionV1 rejected: {reason}. Return exactly one valid taskspace-action-v1 JSON object."
+                                "TaskSpaceActionV1 rejected: {reason}{patch_intent_suffix}. Return exactly one valid taskspace-action-v1 JSON object."
                             ));
                         }
                     }
@@ -7557,6 +7698,20 @@ async fn try_run_sampling_request(
                             last_agent_message.as_deref(),
                         ) {
                             Some(build_taskspace_apply_patch_format_recovery_item(&targets))
+                        } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
+                            snapshot.node_kind.as_deref() == Some("implement_solution")
+                                && taskspace_message_hit_apply_patch_intent_format_rejection(
+                                    last_agent_message.as_deref(),
+                                )
+                        }) {
+                            let evidence_summary =
+                                sess.action_map_current_working_evidence_summary().await;
+                            Some(build_taskspace_patch_intent_format_recovery_item(
+                                evidence_summary.as_deref(),
+                                taskspace_rejected_apply_patch_intent_preview(
+                                    last_agent_message.as_deref(),
+                                ),
+                            ))
                         } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
                             snapshot.node_kind.as_deref() == Some("implement_solution")
                                 && taskspace_message_hit_implementation_needs_edit(

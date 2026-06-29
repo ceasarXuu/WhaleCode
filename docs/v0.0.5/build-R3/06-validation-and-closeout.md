@@ -1444,3 +1444,183 @@ multi-source-data-merger pair-001:
 ```
 
 下一轮 formal E3 前，由于 adapter 和 harness test 发生变化，必须重新提交、刷新 current-HEAD gates/markers/start gate。
+
+## F.28 2026-06-29 Docker Probe Fix 后的 Formal E3 结果
+
+刷新 current-HEAD gates、markers 和 start gate 后，正式 E3 使用短路径 run root 完成：
+
+```text
+SuiteRoot = target\e3f-after-docker-probe-timeout\suite-20260629-061122
+sample_set_id = terminal-bench_E3-P0_3_5
+task_list_hash = de1c223db57ea05e0c87839bb9d13677eb4faa84d3a3830df2b36d7e0ecac5a2
+profile_hash = e9278edb8951ccc392cda407be0a4213fa70e3ce2c1b9ee647b1d4720e9a6789
+source_version = 1a6ffa9674b571da0ed040c470cb40c4d85f9b9b
+```
+
+Suite 级结果：
+
+```text
+status = audit_required
+invalid_harness_sample_count = 0
+completed_child_processes = 3
+score_pending_audit_child_runs = 3
+suite_score_ready = false
+suite_score_valid = false
+expected_time_saved_basis = no_skipped_work
+```
+
+已证明的真实收益：
+
+```text
+1. pending-audit 状态机在正式 E3 中成立：
+   三个 child sample 全部保持 run_validity=valid；
+   缺人工审查时进入 audit_required，而不是 invalid_harness。
+
+2. Docker probe timeout 修复在正式 E3 中成立：
+   multi-source-data-merger 不再因 docker_backend_unavailable 熔断；
+   5/5 pairs 都跑到 agent、validator 和 pair report。
+
+3. 之前的 runner memory / observability / validator-source isolation blocker 没有复发：
+   未出现 observability blow-up、validator source isolation failure、
+   docker build proxy failure 或 repeated infra signature skip。
+```
+
+样本级摘要：
+
+| Sample | Run Validity | Score Block | Engineering Unclean | Audit Required | Failure Taxonomy |
+|---|---|---|---:|---:|---|
+| processing-pipeline | valid | audit_required | 0 | 5 | agent_patch_wrong=1, audit_unclean=5 |
+| multi-source-data-merger | valid | audit_required | 0 | 5 | agent_no_patch=4, taskspace_overhead_timeout=1, audit_unclean=5 |
+| recover-accuracy-log | valid | audit_required | 0 | 5 | agent_no_patch=5, audit_unclean=5 |
+
+processing-pipeline：
+
+```text
+pair-001: standard=wrong, taskspace=solved
+pair-002..005: standard=solved, taskspace=solved
+```
+
+该样本说明 TaskSpace 在部分外部任务上已经能带来真实正向差异，但仍需要人工审查后才能进入 E3 score。
+
+multi-source-data-merger：
+
+```text
+pair-001: standard=solved, taskspace=wrong
+pair-002: standard=solved, taskspace=agent_exec_timeout
+pair-003: standard=solved, taskspace=wrong
+pair-004: standard=solved, taskspace=wrong
+pair-005: standard=solved, taskspace=wrong
+```
+
+recover-accuracy-log：
+
+```text
+pair-001..005: standard=solved, taskspace=wrong
+failure_taxonomy = agent_no_patch
+exec_timed_out = false
+```
+
+新增未收敛问题：
+
+```text
+TaskSpace 在 multi-source-data-merger 和 recover-accuracy-log 上稳定输给 standard。
+主要表现不是 validator/harness 失败，而是 agent_no_patch：
+  - 已经发现正确输入路径后，仍回到错误绝对路径，例如 /app/raw_logs 或 /data/source_a。
+  - apply_patch 动作可能以 assistant 普通文本形式输出，
+    但因 strict JSON 后夹带解释文字或第二个动作被拒绝。
+  - 被拒绝后 recovery 继续 read/list，最终没有形成可验证 edit。
+  - profile hint 超出后进入 thin_downgraded / over_profile_hint；
+    该机制仍只是 advisory，不能解释为预算硬停。
+```
+
+下一步修复方向：
+
+```text
+1. Context compiler 必须把已验证存在的工作区路径和 validator 期望输出路径
+   编译为短、稳定、强约束的 implementation facts，不能只作为远历史 tool output。
+
+2. Action contract 必须把 apply_patch strict JSON 错误转化为可执行的结构化修复提示：
+   下一次响应只能重新发一个 JSON action，不能继续读已确认的文件。
+
+3. implement_solution 阶段需要引入 edit-intent latch：
+   一旦模型已经输出 apply_patch 但未成功执行，后续 read/search/list 必须被拒绝，
+   并要求重发 patch 或 blocked。
+
+4. profile 仍只能作为初始复杂度估算和 map/prompt 形态选择，
+   不得把 over_profile_hint 当成 session 成败或预算硬停依据。
+```
+
+## F.29 2026-06-29 strict JSON patch intent recovery 修复
+
+根据 F.28 暴露的 `agent_no_patch` 现场，先修复可直接证明的 action-contract 缺口：
+
+```text
+问题链路：
+  1. implement_solution 阶段已经积累足够 evidence；
+  2. 模型输出了 apply_patch 意图；
+  3. 输出因为 strict JSON 后有解释文本或第二个动作，被 parse 拒绝；
+  4. 旧 recovery 只把它当普通 no-action；
+  5. 下一轮允许继续 read/list/search，最终回到错误路径或无 patch。
+
+修复：
+  - 新增 TaskSpacePatchIntentFormatRecoveryV1；
+  - strict JSON rejection 中检测 apply_patch 意图，并只保留短 preview；
+  - implement_solution 下该 recovery 强制下一轮只能发一个严格 taskspace-action-v1 JSON；
+  - 允许的动作收敛为 apply_patch 或 blocked；
+  - 该 recovery 计入 implement-needs-edit cap，而不是普通 no-action cap；
+  - warning 日志区分 TaskSpacePatchIntentFormatRecoveryV1，便于后续 artifact 检索。
+```
+
+代码位置：
+
+```text
+third_party/codex-cli/codex-rs/core/src/session/turn.rs
+  TASKSPACE_PATCH_INTENT_FORMAT_MARKER
+  build_taskspace_patch_intent_format_recovery_item
+  taskspace_raw_text_mentions_apply_patch_intent
+  taskspace_message_hit_apply_patch_intent_format_rejection
+  response recovery dispatch before generic no-action recovery
+```
+
+验证：
+
+```text
+cargo fmt -p codex-core = PASS
+cargo test -p codex-core taskspace_patch_intent --lib -- --nocapture = PASS
+cargo test -p codex-core taskspace_strict_json_apply_patch_intent --lib -- --nocapture = PASS
+cargo test -p codex-core patch_intent_format_recovery_has_own_cap_marker --lib -- --nocapture = PASS
+cargo test -p codex-core taskspace_action_contract --lib -- --nocapture = PASS, 40 tests
+cargo test -p codex-core implement_needs_edit --lib -- --nocapture = PASS
+```
+
+当前收益边界：
+
+```text
+已证明：
+  - strict JSON 后的 apply_patch 意图不会再退化成普通 no-action recovery；
+  - 恢复提示会明确禁止 read_file/list_files/search；
+  - 恢复计数进入 implement-needs-edit 上限，重复失败会快速停在 patch/blocked 选择上；
+  - 现有 action-contract parser、policy、apply_patch normalize 行为未回归。
+
+未证明：
+  - multi-source-data-merger / recover-accuracy-log 的真实 solve rate 是否提升；
+  - path facts 是否足够稳定地从历史 evidence 进入当前实现提示；
+  - long-context 下 verified path / validator expected output 是否还会被弱化。
+```
+
+下一步必须用真实任务 rerun 验证收益：
+
+```text
+1. 先跑 recover-accuracy-log 单样本/少 pair，重点查：
+   - 是否出现 TaskSpacePatchIntentFormatRecoveryV1；
+   - strict JSON patch rejection 后是否重发 apply_patch 或 blocked；
+   - 是否还会继续读取 /app/raw_logs。
+
+2. 再跑 multi-source-data-merger 单样本/少 pair，重点查：
+   - correct source path evidence 是否保留到 implement；
+   - no-patch 是否下降；
+   - timeout 是否仍来自 TaskSpace overhead。
+
+3. 若仍出现 wrong-path 或 no-patch，但不再有 strict JSON patch rejection，
+   则进入 context compiler implementation facts 修复。
+```

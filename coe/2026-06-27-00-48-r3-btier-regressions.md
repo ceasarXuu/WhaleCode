@@ -2375,3 +2375,158 @@
   - Right-side Docker build succeeded and tests ran, so the TaskSpace side had a real wrong outcome independent of the left-side pretest failure.
 - Interpretation: H-028 must be fixed before this sample can be scored cleanly, but the TaskSpace behavior remains a product/agent-context issue for R3. It should not be hidden as a pure harness failure after Docker probe stability is restored.
 - Time: 2026-06-29 04:52
+
+## Hypothesis H-029: TaskSpace implement phase loses executable edit intent after path evidence and strict-JSON rejection
+- Status: confirmed
+- Parent: P-001
+- Claim: After harness blockers are cleared, the remaining formal E3 failures on `multi-source-data-merger` and `recover-accuracy-log` are caused by TaskSpace implement-phase context/action convergence, not by Docker, validator, DeepSeek outage, or request hard limits. The model sees useful path evidence, but the next provider payload does not constrain implementation strongly enough; when it emits `apply_patch` with extra prose or a second action, strict JSON rejection is followed by more read/list actions instead of a forced corrected patch.
+- Layer: taskspace-context-action-contract
+- Factor relation: recurring
+- Depends on:
+  - H-028
+- Rationale:
+  - The formal E3 run after the Docker probe timeout fix completed all three samples with `run_validity=valid` and no invalid harness samples.
+  - `multi-source-data-merger` and `recover-accuracy-log` both show standard solving the task while TaskSpace repeatedly reports `agent_no_patch`.
+  - The transcripts show TaskSpace discovered correct relative paths such as `task_deps/generator.log`, then later returned to wrong absolute paths such as `/app/raw_logs/generator.log`.
+  - At least one `apply_patch` response was rejected because the assistant output was not exactly one strict JSON action object; recovery then continued with file reads/lists.
+- Falsifiable predictions:
+  - If true before repair: formal artifacts show repeated `agent_no_patch`, `action_contract_output_not_strict_json`, wrong-path reads after correct-path evidence, and no successful edit artifact.
+  - If true after repair: a focused rerun should either execute a corrected patch after strict-JSON rejection or terminate as `blocked` with evidence, and should not allow read/list rediscovery after an emitted-but-unexecuted patch.
+  - If false: failures should correlate with validator infrastructure, Docker backend/build failures, model API errors, or hard request/session budget stops.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: inspect pair transcripts and pair reports from the completed formal E3 run.
+  - Signal: `failure_taxonomy`, `outcome_standard`, `outcome_taskspace`, `TaskSpaceProviderRequestBudgetEventV1`, `TaskSpaceProviderResponseActionabilityV1`, `action_contract_output_not_strict_json`, wrong-path read errors, and `apply_patch` assistant messages.
+  - Capture method: parse `pair-report.md` and `whale-exec.jsonl` for `multi-source-data-merger` and `recover-accuracy-log`.
+  - Event name or marker:
+    - `agent_no_patch`
+    - `action_contract_output_not_strict_json`
+    - `TaskSpaceNoActionRecoveryV1`
+    - `over_profile_hint`
+  - Correlation keys:
+    - `target\e3f-after-docker-probe-timeout\suite-20260629-061122`
+    - `terminal_bench__multi-source-data-merger`
+    - `terminal_bench__recover-accuracy-log`
+  - Differentiates from:
+    - Docker backend unavailability
+    - validator build/run environment failure
+    - API outage or billing failure
+    - request budget hard stop
+  - Supports if:
+    - run_validity stays valid, engineering_unclean_count stays zero, standard solves, and TaskSpace fails via no-patch / wrong-path / strict-JSON recovery loops.
+  - Refutes if:
+    - TaskSpace failures are invalid harness, validator infra, or hard budget stops.
+  - Instrumentation status: available
+  - Instrumentation lifecycle:
+    - formal E3 artifacts retained under target
+- Evidence gate: satisfied
+- Related evidence:
+  - E-040
+  - E-041
+- Conclusion: confirmed
+- Repair design readiness: ready
+- Next step: implement edit-intent latch plus context-compiler implementation facts for verified paths/output targets; update action-contract recovery so strict JSON patch rejection forces a single corrected action rather than rediscovery.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-040: Docker-probe-fixed formal E3 completes all samples as audit_required, not invalid_harness
+- Related hypotheses:
+  - H-029
+- Direction: supports
+- Type: formal-run
+- Source: `target\e3f-after-docker-probe-timeout\suite-20260629-061122\suite-health.json`
+- Prediction or plan link:
+  - H-029 differentiates from harness failure.
+- Matched signal:
+  - `status=audit_required`
+  - `invalid_harness_sample_count=0`
+  - `completed_child_processes=3`
+  - `score_pending_audit_child_runs=3`
+  - `suite_score_ready=false`
+  - `suite_score_valid=false`
+- Correlation keys:
+  - `terminal-bench_E3-P0_3_5`
+  - `de1c223db57ea05e0c87839bb9d13677eb4faa84d3a3830df2b36d7e0ecac5a2`
+  - `e9278edb8951ccc392cda407be0a4213fa70e3ce2c1b9ee647b1d4720e9a6789`
+- Raw content:
+  ```text
+  status = audit_required
+  invalid_harness_sample_count = 0
+  completed_child_processes = 3
+  score_pending_audit_child_runs = 3
+  expected_time_saved_basis = no_skipped_work
+  generated_at = 2026-06-29T09:15:29.5652387+08:00
+  ```
+- Interpretation: The current blocker is no longer a suite materialization or Docker probe failure. The suite produced valid, auditable artifacts for all selected samples.
+- Time: 2026-06-29 09:20
+
+## Evidence E-041: formal E3 shows stable agent_no_patch regression on two samples
+- Related hypotheses:
+  - H-029
+- Direction: supports
+- Type: formal-run-artifact
+- Source: `aggregate.json` and `pair-report.md` files under `target\e3f-after-docker-probe-timeout\suite-20260629-061122`
+- Prediction or plan link:
+  - H-029 If true prediction.
+- Matched signal:
+  - `recover-accuracy-log`: all five pairs `standard=solved`, `taskspace=wrong`, `failure_taxonomy=agent_no_patch`.
+  - `multi-source-data-merger`: all five pairs `standard=solved`; TaskSpace has four `wrong` and one `agent_exec_timeout`; taxonomy includes `agent_no_patch=4` and `taskspace_overhead_timeout=1`.
+  - `engineering_unclean_count=0` for both samples.
+- Correlation keys:
+  - `terminal_bench__recover-accuracy-log`
+  - `terminal_bench__multi-source-data-merger`
+  - `agent_no_patch`
+- Raw content:
+  ```text
+  recover-accuracy-log aggregate:
+    run_validity = valid
+    engineering_unclean_count = 0
+    audit_required_count = 5
+    failure_taxonomy_summary = agent_no_patch=5, audit_unclean=5
+
+  multi-source-data-merger aggregate:
+    run_validity = valid
+    engineering_unclean_count = 0
+    audit_required_count = 5
+    failure_taxonomy_summary = agent_no_patch=4, taskspace_overhead_timeout=1, audit_unclean=5
+
+  recover-accuracy-log pair-002 transcript:
+    action_contract_output_not_strict_json
+    later list/read actions continue
+    /app/raw_logs/generator.log not found after task_deps/generator.log was listed/read
+  ```
+- Interpretation: The failure is a real TaskSpace action/context strategy regression. It is not an infrastructure failure, and profile overrun remains advisory rather than a hard stop.
+- Time: 2026-06-29 09:20
+
+## Evidence E-042: strict JSON apply_patch intent now enters implementation edit recovery
+- Related hypotheses:
+  - H-029
+- Direction: supports-repair
+- Type: code-change-and-test
+- Source: `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Prediction or plan link:
+  - H-029 after-repair prediction: strict JSON patch rejection should force corrected patch or blocked, not rediscovery.
+- Matched signal:
+  - Added `TaskSpacePatchIntentFormatRecoveryV1`.
+  - `action_contract_output_not_strict_json` responses that contain a taskspace `apply_patch` intent now carry an `apply_patch_intent` marker plus a short rejected-output preview.
+  - Recovery dispatch handles this marker before generic `TaskSpaceNoActionRecoveryV1`.
+  - The recovery prompt forbids `read_file`, `list_files`, `search`, broad discovery, and validation from the implementation node.
+  - The recovery counts against the implementation edit recovery cap, not the generic no-action cap.
+  - Warning logs now distinguish `TaskSpacePatchIntentFormatRecoveryV1`.
+- Correlation keys:
+  - `TASKSPACE_PATCH_INTENT_FORMAT_MARKER`
+  - `taskspace_raw_text_mentions_apply_patch_intent`
+  - `taskspace_message_hit_apply_patch_intent_format_rejection`
+  - `build_taskspace_patch_intent_format_recovery_item`
+- Raw content:
+  ```text
+  cargo fmt -p codex-core = PASS
+  cargo test -p codex-core taskspace_patch_intent --lib -- --nocapture = PASS
+  cargo test -p codex-core taskspace_strict_json_apply_patch_intent --lib -- --nocapture = PASS
+  cargo test -p codex-core patch_intent_format_recovery_has_own_cap_marker --lib -- --nocapture = PASS
+  cargo test -p codex-core taskspace_action_contract --lib -- --nocapture = PASS, 40 tests
+  cargo test -p codex-core implement_needs_edit --lib -- --nocapture = PASS
+  ```
+- Interpretation: The specific failure chain seen in `recover-accuracy-log` pair-002 is now covered at the action-contract layer. This proves the recovery mechanics, but not yet external-task solve-rate improvement; the next evidence must come from a real rerun.
+- Time: 2026-06-29 10:20
