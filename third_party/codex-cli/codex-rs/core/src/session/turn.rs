@@ -1954,7 +1954,12 @@ async fn run_sampling_request(
                 prepare_provider_visible_prompt_items(prompt_source)
             }
             TaskspaceProviderTransportMode::CacheOptimizedActionContract => {
-                prepare_taskspace_action_contract_prompt_items(prompt_source)
+                prepare_taskspace_action_contract_prompt_items_for_node(
+                    prompt_source,
+                    provider_budget_snapshot
+                        .as_ref()
+                        .and_then(|snapshot| snapshot.node_kind.as_deref()),
+                )
             }
         };
         let budget_tool_visibility = provider_budget_snapshot
@@ -2264,7 +2269,15 @@ fn prepare_provider_visible_prompt_items(items: Vec<ResponseItem>) -> Vec<Respon
     composition.items
 }
 
+#[cfg(test)]
 fn prepare_taskspace_action_contract_prompt_items(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
+    prepare_taskspace_action_contract_prompt_items_for_node(items, None)
+}
+
+fn prepare_taskspace_action_contract_prompt_items_for_node(
+    items: Vec<ResponseItem>,
+    current_node_kind: Option<&str>,
+) -> Vec<ResponseItem> {
     let mut latest_user_input: Option<(usize, ResponseItem)> = None;
     let mut latest_taskspace_context: Option<ResponseItem> = None;
     let mut tool_outputs: Vec<(usize, ResponseItem)> = Vec::new();
@@ -2300,7 +2313,9 @@ fn prepare_taskspace_action_contract_prompt_items(items: Vec<ResponseItem>) -> V
             }
         })
         .collect::<Vec<_>>();
-    if let Some(item) = taskspace_action_contract_recent_tool_outputs_item(&post_user_outputs) {
+    if let Some(item) =
+        taskspace_action_contract_recent_tool_outputs_item(&post_user_outputs, current_node_kind)
+    {
         prepared.push(item);
     }
     prepared
@@ -2336,6 +2351,7 @@ fn is_actionable_taskspace_gate_feedback_output(item: &ResponseItem) -> bool {
 
 fn taskspace_action_contract_recent_tool_outputs_item(
     items: &[ResponseItem],
+    current_node_kind: Option<&str>,
 ) -> Option<ResponseItem> {
     let summaries = items
         .iter()
@@ -2379,8 +2395,16 @@ fn taskspace_action_contract_recent_tool_outputs_item(
         return None;
     }
 
+    let in_implement_rework = current_node_kind == Some("implement_solution");
     let progress_hint = if uncovered_high_signal_seen {
         "progress_hint: A previous finish_node was rejected because high-signal inspected evidence is still uncovered. Do not repeat finish_node. Next action must be apply_patch for the named uncovered artifact, or blocked with the exact reason it cannot be changed.\n"
+    } else if in_implement_rework
+        && local_validator_infra_failure_seen
+        && local_validator_infra_state_commit_seen
+    {
+        "progress_hint: Local validation infrastructure failed earlier and that failure is already recorded. The current node is implementation rework, not the closed validation node. Do not repeat state_commit or block for the same local validator infrastructure result. Next action must either patch the implementation or run the changed artifact with platform-compatible syntax, for example use PowerShell `;` or separate commands instead of bash `&&`.\n"
+    } else if in_implement_rework && local_validator_infra_failure_seen {
+        "progress_hint: The previous validation command hit local validator infrastructure or host-shell syntax, but the current node is implementation rework. Do not close this node as infrastructure-blocked. Next action must either patch the implementation or run the changed artifact with platform-compatible syntax, for example use PowerShell `;` or separate commands instead of bash `&&`.\n"
     } else if local_validator_infra_failure_seen && local_validator_infra_state_commit_seen {
         "progress_hint: Local validation already failed because the host validator infrastructure or shell is unavailable, and that failure has been recorded. Do not run more bash/PowerShell diagnostic commands for the same local validator failure. Next action must be blocked with the exact local validator infrastructure evidence, or taskspace_control with action=finish_node only if the node is explicitly being closed as infrastructure-blocked.\n"
     } else if local_validator_infra_failure_seen {
@@ -4608,13 +4632,103 @@ tax_calc.py\n\
         );
         let response_input = response_input_for_taskspace_action_tool_error(&tool_call, &err);
         let response_item: ResponseItem = response_input.into();
-        let recent = taskspace_action_contract_recent_tool_outputs_item(&[response_item])
+        let recent = taskspace_action_contract_recent_tool_outputs_item(&[response_item], None)
             .expect("recent feedback should be produced");
         let text = item_text(recent);
 
         assert!(text.contains("high-signal inspected evidence is still uncovered"));
         assert!(text.contains("generate_report.sh"));
         assert!(text.contains("Next action must be apply_patch"));
+    }
+
+    #[test]
+    fn action_contract_control_normalizes_block_node_snapshot_fields() {
+        let snapshot = provider_snapshot("smoke_test");
+        let args = serde_json::json!({
+            "action": "block_node",
+            "reason": "validation failed with IndentationError"
+        });
+
+        let normalized = normalize_taskspace_action_contract_control_args(&args, Some(&snapshot))
+            .expect("block node args should normalize");
+
+        assert_eq!(normalized["action"], "block_node");
+        assert_eq!(normalized["node_id"], "node-1");
+        assert_eq!(
+            normalized["blocker_summary"],
+            "validation failed with IndentationError"
+        );
+        assert!(normalized.get("reason").is_none());
+    }
+
+    #[test]
+    fn action_contract_control_normalizes_create_node_aliases() {
+        let args = serde_json::json!({
+            "action": "create_node",
+            "node_kind": "implement_solution",
+            "node_title": "Fix failed validation",
+            "description": "Patch merge_users.py after smoke_test failure",
+            "bind_current": true
+        });
+
+        let normalized = normalize_taskspace_action_contract_control_args(&args, None)
+            .expect("create node args should normalize");
+
+        assert_eq!(normalized["action"], "create_node");
+        assert_eq!(normalized["kind"], "implement_solution");
+        assert_eq!(normalized["title"], "Fix failed validation");
+        assert_eq!(
+            normalized["context_summary"],
+            "Patch merge_users.py after smoke_test failure"
+        );
+        assert!(normalized.get("node_kind").is_none());
+        assert!(normalized.get("description").is_none());
+    }
+
+    #[test]
+    fn action_contract_control_defaults_create_node_title_and_bind_when_no_active_node() {
+        let mut snapshot = provider_snapshot("unknown");
+        snapshot.node_id = None;
+        snapshot.node_kind = None;
+        let args = serde_json::json!({
+            "action": "create_node",
+            "kind": "inspect_code_context",
+            "label": "Inspect source files"
+        });
+
+        let normalized = normalize_taskspace_action_contract_control_args(&args, Some(&snapshot))
+            .expect("create node args should normalize");
+
+        assert_eq!(normalized["action"], "create_node");
+        assert_eq!(normalized["kind"], "inspect_code_context");
+        assert_eq!(normalized["title"], "Inspect source files");
+        assert!(
+            normalized["context_summary"]
+                .as_str()
+                .expect("context summary")
+                .contains("Inspect source files")
+        );
+        assert_eq!(normalized["bind_current"], true);
+    }
+
+    #[test]
+    fn action_contract_control_rewrites_bind_node_without_id_to_create_node() {
+        let mut snapshot = provider_snapshot("unknown");
+        snapshot.node_id = None;
+        snapshot.node_kind = None;
+        let args = serde_json::json!({
+            "action": "bind_node",
+            "child_kind": "inspect_code_context",
+            "child_name": "inspect_sources"
+        });
+
+        let normalized = normalize_taskspace_action_contract_control_args(&args, Some(&snapshot))
+            .expect("bind node args should normalize to create node");
+
+        assert_eq!(normalized["action"], "create_node");
+        assert_eq!(normalized["kind"], "inspect_code_context");
+        assert_eq!(normalized["title"], "inspect_sources");
+        assert_eq!(normalized["bind_current"], true);
     }
 
     #[test]
@@ -4687,6 +4801,37 @@ tax_calc.py\n\
         assert!(joined.contains("that failure has been recorded"));
         assert!(joined.contains("Do not run more bash/PowerShell diagnostic commands"));
         assert!(joined.contains("blocked with the exact local validator infrastructure evidence"));
+    }
+
+    #[test]
+    fn action_contract_prompt_guides_platform_compatible_rework_after_recorded_local_infra() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Merge the data"),
+            message("developer", &latest_active_projection),
+            tool_output_with_call_id(
+                "taskspace-action-contract-14-run_test",
+                "At line:2 char:23\n+ python merge_users.py && python -c \"...\"\n+                       ~~\nThe token '&&' is not a valid statement separator in this version.\nFullyQualifiedErrorId : InvalidEndOfLine",
+            ),
+            tool_output_with_call_id(
+                "taskspace-action-contract-15-taskspace_control",
+                "TaskSpace state_commit auto-123: status=accepted dry_run=false replayed=false accepted_sections=[result_validities,local_infra_blocker]",
+            ),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items_for_node(
+            items,
+            Some("implement_solution"),
+        );
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains("current node is implementation rework"));
+        assert!(joined.contains("Do not repeat state_commit or block"));
+        assert!(joined.contains("platform-compatible syntax"));
+        assert!(joined.contains("PowerShell `;`"));
+        assert!(!joined.contains("blocked with the exact local validator infrastructure evidence"));
     }
 
     #[test]
@@ -6842,47 +6987,152 @@ fn normalize_taskspace_action_contract_control_args(
         normalize_taskspace_action_contract_record_fact_as_state_commit(root, snapshot);
         return Ok(normalized);
     }
-    if inner_action != "finish_node" {
-        return Ok(normalized);
-    }
-    let Some(snapshot) = snapshot else {
-        return Ok(normalized);
-    };
-    if !root.contains_key("node_id")
-        && let Some(node_id) = snapshot.node_id.as_deref()
-    {
-        root.insert(
-            "node_id".to_string(),
-            serde_json::Value::String(node_id.to_string()),
-        );
-    }
-    if snapshot.node_kind.as_deref() == Some("implement_solution") {
-        root.entry("next_node_kind".to_string())
-            .or_insert_with(|| serde_json::Value::String("smoke_test".to_string()));
-        if root
-            .get("next_node_kind")
-            .and_then(serde_json::Value::as_str)
-            == Some("smoke_test")
-        {
-            root.entry("next_node_title".to_string())
-                .or_insert_with(|| serde_json::Value::String("Run focused validation".to_string()));
-            root.entry("next_node_context_summary".to_string())
+    normalize_taskspace_action_contract_lifecycle_args(root, &inner_action, snapshot);
+    Ok(normalized)
+}
+
+fn normalize_taskspace_action_contract_lifecycle_args(
+    root: &mut serde_json::Map<String, serde_json::Value>,
+    inner_action: &str,
+    snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
+) {
+    let current_node_id = snapshot.and_then(|snapshot| snapshot.node_id.as_deref());
+    match inner_action {
+        "create_node" => {
+            move_taskspace_json_alias(root, "child_kind", "kind");
+            move_taskspace_json_alias(root, "node_kind", "kind");
+            move_taskspace_json_alias(root, "child_name", "title");
+            move_taskspace_json_alias(root, "label", "title");
+            move_taskspace_json_alias(root, "name", "title");
+            move_taskspace_json_alias(root, "node_title", "title");
+            move_taskspace_json_alias(root, "objective", "context_summary");
+            move_taskspace_json_alias(root, "node_context_summary", "context_summary");
+            move_taskspace_json_alias(root, "summary", "context_summary");
+            move_taskspace_json_alias(root, "description", "context_summary");
+            root.entry("kind".to_string())
+                .or_insert_with(|| serde_json::Value::String("inspect_code_context".to_string()));
+            let kind = root
+                .get("kind")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("inspect_code_context")
+                .to_string();
+            root.entry("title".to_string()).or_insert_with(|| {
+                serde_json::Value::String(default_taskspace_action_node_title(&kind).to_string())
+            });
+            let title = root
+                .get("title")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("TaskSpace node")
+                .to_string();
+            root.entry("context_summary".to_string())
                 .or_insert_with(|| {
-                    serde_json::Value::String(
-                        "Run the focused test command after the implementation edit.".to_string(),
-                    )
+                    serde_json::Value::String(format!(
+                        "{title}. Continue the current TaskSpace task."
+                    ))
                 });
-            if !root.contains_key("next_dependency_node_ids")
-                && let Some(node_id) = snapshot.node_id.as_deref()
-            {
-                root.insert(
-                    "next_dependency_node_ids".to_string(),
-                    serde_json::json!([node_id]),
-                );
+            if snapshot.is_some_and(|snapshot| snapshot.node_id.is_none()) {
+                root.entry("bind_current".to_string())
+                    .or_insert_with(|| serde_json::Value::Bool(true));
             }
         }
+        "bind_node" if !root.contains_key("node_id") => {
+            if root.contains_key("node_kind")
+                || root.contains_key("kind")
+                || root.contains_key("child_kind")
+                || root.contains_key("objective")
+                || root.contains_key("label")
+                || root.contains_key("description")
+            {
+                root.insert(
+                    "action".to_string(),
+                    serde_json::Value::String("create_node".to_string()),
+                );
+                normalize_taskspace_action_contract_lifecycle_args(root, "create_node", snapshot);
+            }
+        }
+        "bind_node" | "block_node" | "finish_node" => {
+            if !root.contains_key("node_id")
+                && let Some(node_id) = current_node_id
+            {
+                root.insert(
+                    "node_id".to_string(),
+                    serde_json::Value::String(node_id.to_string()),
+                );
+            }
+            if inner_action == "block_node" {
+                move_taskspace_json_alias(root, "reason", "blocker_summary");
+                move_taskspace_json_alias(root, "summary", "blocker_summary");
+                move_taskspace_json_alias(root, "result", "blocker_summary");
+            }
+            if inner_action == "finish_node" {
+                move_taskspace_json_alias(root, "result", "result_summary");
+                move_taskspace_json_alias(root, "summary", "result_summary");
+                move_taskspace_json_alias(root, "reason", "result_summary");
+                root.entry("result_summary".to_string()).or_insert_with(|| {
+                    serde_json::Value::String(
+                        "TaskSpace node completed with the inspected evidence.".to_string(),
+                    )
+                });
+                if snapshot.is_some_and(|snapshot| {
+                    snapshot.node_kind.as_deref() == Some("implement_solution")
+                }) {
+                    root.entry("next_node_kind".to_string())
+                        .or_insert_with(|| serde_json::Value::String("smoke_test".to_string()));
+                    if root
+                        .get("next_node_kind")
+                        .and_then(serde_json::Value::as_str)
+                        == Some("smoke_test")
+                    {
+                        root.entry("next_node_title".to_string())
+                            .or_insert_with(|| {
+                                serde_json::Value::String("Run focused validation".to_string())
+                            });
+                        root.entry("next_node_context_summary".to_string())
+                            .or_insert_with(|| {
+                                serde_json::Value::String(
+                                    "Run the focused test command after the implementation edit."
+                                        .to_string(),
+                                )
+                            });
+                        if !root.contains_key("next_dependency_node_ids")
+                            && let Some(node_id) = current_node_id
+                        {
+                            root.insert(
+                                "next_dependency_node_ids".to_string(),
+                                serde_json::json!([node_id]),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
     }
-    Ok(normalized)
+}
+
+fn default_taskspace_action_node_title(kind: &str) -> &'static str {
+    match kind {
+        "inspect_code_context" => "Inspect code context",
+        "implement_solution" => "Apply implementation",
+        "smoke_test" => "Run focused validation",
+        "regression_test" => "Run regression validation",
+        "final_synthesis" => "Summarize final outcome",
+        _ => "TaskSpace node",
+    }
+}
+
+fn move_taskspace_json_alias(
+    root: &mut serde_json::Map<String, serde_json::Value>,
+    alias: &str,
+    canonical: &str,
+) {
+    if root.contains_key(canonical) {
+        root.remove(alias);
+        return;
+    }
+    if let Some(value) = root.remove(alias) {
+        root.insert(canonical.to_string(), value);
+    }
 }
 
 fn normalize_taskspace_action_contract_record_fact_as_state_commit(
@@ -7240,6 +7490,9 @@ async fn record_taskspace_observed_implement_edit(
     if sess
         .action_map_current_main_node_has_successful_action(ActionClass::Edit)
         .await
+        || sess
+            .action_map_active_map_has_successful_action(ActionClass::Edit)
+            .await
     {
         return false;
     }

@@ -3284,3 +3284,206 @@
   ```
 - Interpretation: The structural routing bug is repaired at runtime state-machine level. This evidence is not yet a real-task benefit proof because the current successful rerun used forced closeout instead of the failed-validation rework path.
 - Time: 2026-06-29 14:03
+
+## Hypothesis H-037: local infra validation failure must still route changed artifacts to rework
+- Claim: When a validation node fails because the local host shell or validator infrastructure is incompatible, but the failed validation is attached to changed artifacts that were never proven by a platform-compatible run, the runtime should not close the path as pure infra-blocked. It should create an implement_solution rework node so the changed artifact can be patched or executed with compatible syntax.
+- Parent:
+  - H-036
+- Evidence gate: satisfied by unit proof and focused real-run structural proof.
+- Related evidence:
+  - E-057
+  - E-058
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Close reason:
+  - real focused run showed rework node creation after local-infra validation failure.
+
+## Evidence E-057: local infra validation failure now creates a rework path for unproven changed artifact
+- Related hypotheses:
+  - H-037
+- Direction: supports-repair
+- Type: code-change-and-test
+- Source:
+  - `third_party\codex-cli\codex-rs\core\src\action_map\runtime.rs`
+- Matched signal:
+  - `validation_node_local_infra_unvalidated_artifact_result` detects local validator infrastructure failure plus dependency changed artifacts.
+  - `block_main_node` routes that state into an implement_solution rework node instead of treating it as a terminal infra-only blocker.
+- Raw content:
+  ```text
+  cargo test -p codex-core local_infra_validation_block_routes_unvalidated_changed_artifact_to_rework --lib -- --nocapture = PASS
+  cargo test -p codex-core validation_node --lib -- --nocapture = PASS, 16 tests
+  cargo build -p codex-cli --bin whale --profile dev-small = PASS
+  ```
+- Interpretation: Unit-level behavior confirms the local-infra failure path no longer loses the changed artifact proof obligation.
+- Time: 2026-06-29 18:40
+
+## Evidence E-058: focused multi-source rerun proves local-infra rework routing but exposes prompt/review blockers
+- Related hypotheses:
+  - H-037
+- Direction: supports-repair-and-finds-next-blocker
+- Type: real-task-rerun
+- Source:
+  - `target\r3-multisource-after-local-infra-rework-gib16\runs\terminal_bench__multi-source-data-merger\20260629-184450-157\pair-001\pair-report.md`
+- Matched signal:
+  - Previous current-HEAD run stopped after `state_commit invalid_results=["result-11"]` with only `merge_users.py` changed and no rework.
+  - After repair, the same focused sample created more graph structure (`nodes=5` instead of `nodes=3`), proving the runtime entered a rework path.
+  - The sample still failed because the prompt kept steering the implement rework node back toward state_commit/block behavior.
+- Interpretation: H-037 was structurally proven in a real run, but follow-up prompt specialization was required.
+- Time: 2026-06-29 18:55
+
+## Hypothesis H-038: rework prompt must be specialized by current node kind
+- Claim: Recent-tool-output guidance for local validator infrastructure failures was correct on validation nodes, but wrong after runtime already moved into implement_solution rework. In rework, the next valid action should be patching or platform-compatible execution, not repeating state_commit/block for the old validation failure.
+- Parent:
+  - H-037
+- Evidence gate: satisfied by unit proof and real-run differential evidence.
+- Related evidence:
+  - E-059
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Close reason:
+  - focused rerun after prompt repair moved past the repeated local-infra state_commit pattern and exposed the next runtime blocker.
+
+## Evidence E-059: implement rework prompt no longer repeats local-infra block instruction
+- Related hypotheses:
+  - H-038
+- Direction: supports-repair
+- Type: code-change-and-test
+- Source:
+  - `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+  - `target\r3-multisource-after-rework-prompt-gib16\runs\terminal_bench__multi-source-data-merger\20260629-191712-138\pair-001\right\artifacts\rollout.jsonl`
+- Matched signal:
+  - `prepare_taskspace_action_contract_prompt_items_for_node` now receives `current_node_kind`.
+  - On `implement_solution`, local-infra recovery text says the current node is implementation rework and the next action is patching or platform-compatible execution.
+  - Unit proof:
+    `cargo test -p codex-core action_contract_prompt_guides_platform_compatible_rework_after_recorded_local_infra --lib -- --nocapture = PASS`
+- Interpretation: Prompt-level recovery now matches the active node responsibility instead of leaking validation-node closeout guidance into implementation rework.
+- Time: 2026-06-29 19:20
+
+## Hypothesis H-039: observed old diffs must not be reattributed to a new rework node
+- Claim: After a rework node is created, the session-level observed edit recorder can see an old working-tree diff and incorrectly record it as a successful edit on the new node. That prematurely closes implementation rework without a real patch.
+- Parent:
+  - H-038
+- Evidence gate: satisfied by unit/build proof and real-run negative proof.
+- Related evidence:
+  - E-060
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Close reason:
+  - focused rerun after the fix no longer auto-completed the new rework node from the old diff.
+
+## Evidence E-060: active-map edit guard prevents stale diff attribution
+- Related hypotheses:
+  - H-039
+- Direction: supports-repair
+- Type: code-change-and-real-run
+- Source:
+  - `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+  - `third_party\codex-cli\codex-rs\core\src\session\mod.rs`
+  - `third_party\codex-cli\codex-rs\core\src\action_map\runtime.rs`
+  - `target\r3-multisource-after-diff-attribution-gib15\runs\terminal_bench__multi-source-data-merger\20260629-194145-129\pair-001\pair-report.md`
+- Matched signal:
+  - `record_taskspace_observed_implement_edit` now refuses to attribute an observed diff when the active map already has a successful edit action.
+  - Focused rerun after the fix left the rework node running instead of falsely completing it, proving stale-diff attribution was removed.
+  - That run timed out later because a separate unreviewed blocker result prevented ordinary rework actions.
+- Raw content:
+  ```text
+  cargo test -p codex-core action_contract_prompt_guides --lib -- --nocapture = PASS, 5 tests
+  cargo test -p codex-core local_infra_validation_block_routes_unvalidated_changed_artifact_to_rework --lib -- --nocapture = PASS
+  cargo build -p codex-cli --bin whale --profile dev-small = PASS
+  ```
+- Interpretation: The stale attribution bug is repaired; the next blocker moved to lifecycle-result review semantics.
+- Time: 2026-06-29 20:05
+
+## Hypothesis H-040: validation blocker result must not block its own active rework input
+- Claim: When a failed validation node is blocked and runtime creates an active implement_solution rework node, the blocker result is an input to the rework path. If the ordinary-work preflight requires that blocker result to be reviewed before allowing rework tools, the implementation node deadlocks.
+- Parent:
+  - H-039
+- Evidence gate: satisfied by unit proof and focused real-run benefit proof.
+- Related evidence:
+  - E-061
+  - E-062
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Close reason:
+  - focused real run moved from agent_exec_timeout to completed validation lifecycle after this repair.
+
+## Evidence E-061: active rework can edit while origin validation blocker remains unreviewed
+- Related hypotheses:
+  - H-040
+- Direction: supports-repair
+- Type: code-change-and-test
+- Source:
+  - `third_party\codex-cli\codex-rs\core\src\action_map\runtime.rs`
+- Matched signal:
+  - `block_main_node` now stamps the auto-created rework node with `origin_node_id` pointing at the blocked validation node.
+  - `validate_lifecycle_result_reviewed` allows the origin validation blocker as active rework input for ordinary work, while final-response readiness remains strict.
+  - Unit proof:
+    `cargo test -p codex-core blocked_validation_rework_can_edit_without_reviewing_blocker_result --lib -- --nocapture = PASS`
+- Interpretation: The deadlock is fixed at runtime state-machine level.
+- Time: 2026-06-29 20:18
+
+## Evidence E-062: focused multi-source rerun proves blocker deadlock removal
+- Related hypotheses:
+  - H-040
+- Direction: supports-repair-and-finds-next-blocker
+- Type: real-task-rerun
+- Source:
+  - `target\r3-multisource-after-rework-blocker-input-gib15\runs\terminal_bench__multi-source-data-merger\20260629-201802-132\pair-001\pair-report.md`
+  - `target\r3-multisource-after-rework-blocker-input-gib15\runs\terminal_bench__multi-source-data-merger\20260629-201802-132\pair-001\right\artifacts\metrics.json`
+- Matched signal:
+  - Previous run: `outcome_taskspace=agent_exec_timeout`, `exec_timed_out=True`, `right_validation_lifecycle_stage=unknown`, `open_leaf_nodes=1`.
+  - Current run: `exec_timed_out=False`, `right_validation_lifecycle_stage=tests_completed`, `tests_started_seen=True`, `tests_completed_seen=True`, `open_leaf_nodes=0`.
+  - The remaining failure changed to implementation correctness / action schema issues, not the unreviewed blocker deadlock.
+- Interpretation: This is a real benefit proof for H-040. It does not prove task solved; it proves the deadlock class is removed.
+- Time: 2026-06-29 20:40
+
+## Hypothesis H-041: action-contract lifecycle aliases must normalize before taskspace_control serde
+- Claim: The action-contract layer allowed semantically valid TaskSpace lifecycle actions but passed common fields such as `label`, `child_name`, `description`, and top-level/current node ids without converting them to runtime-required fields. This caused `missing field node_id/title/context_summary` loops.
+- Parent:
+  - H-040
+- Evidence gate: satisfied by unit proof; real rerun after the first normalization showed partial repair and exposed additional aliases; disk space prevented a final rerun after the expanded alias set.
+- Related evidence:
+  - E-063
+  - E-064
+- Conclusion: partially-confirmed
+- Repair design readiness: implemented
+- Blocker:
+  - D:\ free space dropped below the safe focused-run threshold after build and previous reruns.
+- Close reason:
+  - not closed; needs final real rerun when disk space is available.
+
+## Evidence E-063: action-contract control args now normalize block/create/bind lifecycle aliases
+- Related hypotheses:
+  - H-041
+- Direction: supports-repair
+- Type: code-change-and-test
+- Source:
+  - `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Matched signal:
+  - `block_node` fills missing `node_id` from provider snapshot and maps `reason|summary|result` to `blocker_summary`.
+  - `create_node` maps `node_kind|child_kind`, `node_title|label|name|child_name`, and `description|summary|objective` to runtime fields.
+  - If there is an existing task but no active node, `create_node` defaults `bind_current=true`.
+  - `bind_node` without `node_id` but with node-kind/title-like fields is rewritten to `create_node`.
+- Raw content:
+  ```text
+  cargo test -p codex-core action_contract_control_ --lib -- --nocapture = PASS, 4 tests
+  cargo test -p codex-core action_contract_prompt_guides --lib -- --nocapture = PASS, 5 tests
+  cargo build -p codex-cli --bin whale --profile dev-small = PASS
+  ```
+- Interpretation: The schema-normalization blocker is repaired at targeted unit level.
+- Time: 2026-06-29 21:15
+
+## Evidence E-064: partial real-run after initial control normalization removed engineering unclean but still missed aliases
+- Related hypotheses:
+  - H-041
+- Direction: mixed
+- Type: real-task-rerun
+- Source:
+  - `target\r3-multisource-after-control-normalization-gib14\runs\terminal_bench__multi-source-data-merger\20260629-204947-673\pair-001\pair-report.md`
+  - `target\r3-multisource-after-control-normalization-gib14\runs\terminal_bench__multi-source-data-merger\20260629-204947-673\pair-001\right\artifacts\rollout.jsonl`
+- Matched signal:
+  - `engineering_unclean=False`, `active_sentinel_warning_count=0`, and validation lifecycle reached `tests_completed`.
+  - However TaskSpace still ended `agent_no_patch`, with repeated `missing field title/context_summary/node_id` on create/bind actions using aliases not covered by the first normalization pass.
+  - Follow-up code added alias coverage for `label`, `child_name`, `child_kind`, `objective`, and default bind-current behavior.
+- Interpretation: The real run proves the repair direction, but the expanded alias set still needs a final rerun. Disk space is the current external blocker.
+- Time: 2026-06-29 21:25

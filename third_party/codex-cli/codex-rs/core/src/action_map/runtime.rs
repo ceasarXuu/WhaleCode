@@ -4567,11 +4567,11 @@ preview:\n\
         }
         let validation_rework =
             if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
-                validation_node_failed_noninfra_result(map, node).map(
-                    |(failed_result_id, failed_summary)| {
+                validation_node_failed_noninfra_result(map, node)
+                    .or_else(|| validation_node_local_infra_unvalidated_artifact_result(map, node))
+                    .map(|(failed_result_id, failed_summary)| {
                         (node.kind, failed_result_id, failed_summary)
-                    },
-                )
+                    })
             } else {
                 None
             };
@@ -4588,7 +4588,7 @@ preview:\n\
             let context_summary = format!(
                 "Validation node `{node_id}` was blocked after failed test/build result `{failed_result_id}`. Failure preview: {failed_summary}. Fix the implementation artifact(s) named in the failure output, then finish this implement_solution node into a fresh validation rerun."
             );
-            let (_, mut rework_events) = self.create_node_for_main_with_kind(
+            let (rework_node_id, mut rework_events) = self.create_node_for_main_with_kind(
                 owner_session_id,
                 NodeKind::ImplementSolution,
                 title,
@@ -4596,6 +4596,11 @@ preview:\n\
                 Vec::new(),
                 true,
             )?;
+            if let Some(map) = self.maps.get_mut(&map_id)
+                && let Some(rework_node) = map.nodes.get_mut(&rework_node_id)
+            {
+                rework_node.origin_node_id = Some(node_id.to_string());
+            }
             events.append(&mut rework_events);
         }
         Ok((blocker_result_id, events))
@@ -5908,6 +5913,18 @@ preview:\n\
         node_has_successful_action(map, node, action_class)
     }
 
+    pub(crate) fn active_map_has_successful_action(&self, action_class: ActionClass) -> bool {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return false;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return false;
+        };
+        map.nodes
+            .values()
+            .any(|node| node_has_successful_action(map, node, action_class))
+    }
+
     pub(crate) fn current_main_validation_node_has_local_infra_failure(&self) -> bool {
         self.current_main_validation_node_local_infra_failure_summary()
             .is_some()
@@ -6873,6 +6890,7 @@ preview:\n\
         self.validate_cognitive_preflight()?;
         self.validate_lifecycle_result_reviewed_for_final_response(
             ignore_completed_final_synthesis_result,
+            false,
         )?;
         self.validate_no_unresolved_broad_delegation_debt(
             owner_session_id,
@@ -8109,12 +8127,13 @@ preview:\n\
     }
 
     fn validate_lifecycle_result_reviewed(&self) -> Result<(), String> {
-        self.validate_lifecycle_result_reviewed_for_final_response(false)
+        self.validate_lifecycle_result_reviewed_for_final_response(false, true)
     }
 
     fn validate_lifecycle_result_reviewed_for_final_response(
         &self,
         ignore_completed_final_synthesis_result: bool,
+        allow_active_rework_input_blocker: bool,
     ) -> Result<(), String> {
         let Some(map_id) = self.active_map_id.as_deref() else {
             return Ok(());
@@ -8134,6 +8153,11 @@ preview:\n\
                 {
                     return false;
                 }
+                if allow_active_rework_input_blocker
+                    && self.unreviewed_result_is_active_rework_input_blocker(map, result)
+                {
+                    return false;
+                }
                 matches!(
                     result.kind,
                     NodeResultKind::Result
@@ -8145,11 +8169,37 @@ preview:\n\
             .min_by_key(|result| result.created_at_ms)
         {
             return Err(format!(
-                "TaskSpace result `{}` on node `{}` is still unreviewed. Before ordinary work or subagent spawn, call taskspace_control(action=mark_result_validity) with claims, evidence_refs, changed_artifacts, validator_refs, and remaining_uncertainty so the main agent explicitly accepts, questions, or rejects the node result before relying on it.",
+                "TaskSpace result `{}` on node `{}` is still unreviewed. Before ordinary work or subagent spawn, call taskspace_control(action=state_commit) with result_validities including claims, evidence_refs, changed_artifacts, validator_refs, and remaining_uncertainty so the main agent explicitly accepts, questions, or rejects the node result before relying on it.",
                 result.id, result.node_id
             ));
         }
         Ok(())
+    }
+
+    fn unreviewed_result_is_active_rework_input_blocker(
+        &self,
+        map: &ActionMapInstance,
+        result: &NodeResult,
+    ) -> bool {
+        if result.kind != NodeResultKind::Blocker {
+            return false;
+        }
+        let Some(current_node_id) = self.current_main_node_id.as_deref() else {
+            return false;
+        };
+        let Some(current_node) = map.nodes.get(current_node_id) else {
+            return false;
+        };
+        if current_node.kind != NodeKind::ImplementSolution
+            || current_node.status != NodeStatus::Running
+            || current_node.origin_node_id.as_deref() != Some(result.node_id.as_str())
+        {
+            return false;
+        }
+        map.nodes.get(&result.node_id).is_some_and(|origin| {
+            matches!(origin.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+                && origin.status == NodeStatus::Blocked
+        })
     }
 
     fn record_main_node_lifecycle_result(
@@ -11954,6 +12004,33 @@ fn validation_node_failed_noninfra_result(
             return None;
         }
         Some((result.id.clone(), single_line_preview(&result.body, 220)))
+    })
+}
+
+fn validation_node_local_infra_unvalidated_artifact_result(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Option<(String, String)> {
+    if node_has_successful_validation_action(map, node) {
+        return None;
+    }
+    let changed_artifacts = validation_dependency_changed_artifacts(map, node);
+    if changed_artifacts.is_empty() {
+        return None;
+    }
+    node.result_context.iter().rev().find_map(|result_ref| {
+        let result = map.results.get(&result_ref.id)?;
+        if !node_result_is_local_validator_infra_failure(result) {
+            return None;
+        }
+        Some((
+            result.id.clone(),
+            format!(
+                "local validator infrastructure failed before changed artifacts were proven. Changed artifacts still need platform-compatible execution: {}. Failure preview: {}",
+                changed_artifacts.join(", "),
+                single_line_preview(&result.body, 180)
+            ),
+        ))
     })
 }
 
@@ -23861,6 +23938,141 @@ fi\n"
     }
 
     #[test]
+    fn local_infra_validation_block_routes_unvalidated_changed_artifact_to_rework() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Merge user data",
+            "Generate parquet and conflict output artifacts.",
+            "Implement merge script",
+            "Create the script that generates merged outputs.",
+            true,
+        );
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-merge-script",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\n*** Add File: merge_users.py\n".to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit-merge-script".to_string(),
+                    statement: "Merge script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (handoff, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created merge script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run merge validation".to_string(),
+                    context_summary: "Run validation that exercises the merge script.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = handoff.next_node_id.expect("validation node id");
+        let (infra_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-merge-script",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "The token '&&' is not a valid statement separator in this version.\nFullyQualifiedErrorId : InvalidEndOfLine".to_string(),
+            )
+            .expect("local infra failure records")
+            .expect("infra result id");
+
+        let (outcome, _) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "local-infra-unvalidated-artifact".to_string(),
+                    result_validities: vec![ActionMapStateCommitResultValidityInput {
+                        result_id: infra_result_id.clone(),
+                        validity: "invalid".to_string(),
+                        validity_reason: "local validator infrastructure failed".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some(infra_result_id),
+                            ..Default::default()
+                        }],
+                        claims: Vec::new(),
+                        changed_artifacts: Vec::new(),
+                        validator_refs: Vec::new(),
+                        remaining_uncertainty: Vec::new(),
+                    }],
+                    ..Default::default()
+                },
+            )
+            .expect("local infra state_commit should block validation and route rework");
+
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
+        assert!(
+            outcome
+                .accepted_sections
+                .iter()
+                .any(|section| section == "local_infra_blocker")
+        );
+        let rework_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("local infra blocked validation should bind rework");
+        let map = state.maps.get(&map_id).expect("map");
+        assert_eq!(
+            map.nodes
+                .get(&validation_node_id)
+                .expect("validation node")
+                .status,
+            NodeStatus::Blocked
+        );
+        let rework_node = map.nodes.get(rework_node_id).expect("rework node");
+        assert_eq!(rework_node.kind, NodeKind::ImplementSolution);
+        assert!(
+            rework_node
+                .context
+                .summary
+                .contains("local validator infrastructure failed")
+        );
+        assert!(rework_node.context.summary.contains("merge_users.py"));
+        assert!(
+            rework_node
+                .context
+                .summary
+                .contains("platform-compatible execution")
+        );
+    }
+
+    #[test]
     fn active_map_detects_blocked_validation_result() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -23901,6 +24113,67 @@ fi\n"
             map.nodes.get(current).expect("rework node").kind,
             NodeKind::ImplementSolution
         );
+    }
+
+    #[test]
+    fn blocked_validation_rework_can_edit_without_reviewing_blocker_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, validation_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "IndentationError: unexpected indent at line 1 in merge_users.py".to_string(),
+            )
+            .expect("failed test result records");
+        let (blocker_result_id, _) = state
+            .block_main_node(owner, &validation_node_id, "pytest failed".to_string())
+            .expect("failed validation can be blocked and routed to rework");
+        let rework_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("blocked validation should bind rework")
+            .to_string();
+        let map = state.active_map().expect("active map");
+        let rework_node = map.nodes.get(&rework_node_id).expect("rework node");
+        assert_eq!(rework_node.kind, NodeKind::ImplementSolution);
+        assert_eq!(
+            rework_node.origin_node_id.as_deref(),
+            Some(validation_node_id.as_str())
+        );
+        assert_eq!(
+            map.results
+                .get(&blocker_result_id)
+                .expect("blocker result")
+                .evidence_package
+                .validity,
+            ResultValidity::Unreviewed
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "apply_patch",
+                    ActionClass::Edit,
+                    "*** Begin Patch\n*** Update File: merge_users.py\n*** End Patch",
+                ),
+            )
+            .expect("active rework edit should not be blocked by the origin blocker result");
     }
 
     #[test]

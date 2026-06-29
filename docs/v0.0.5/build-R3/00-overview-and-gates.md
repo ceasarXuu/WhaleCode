@@ -16,6 +16,7 @@ Related Links:
   docs/v0.0.5/build-R2/08-phase-h-e3-readiness.md
   docs/v0.0.5/build-R2/09-module-checklist-and-closeout.md
   docs/v0.0.5/build-R3/07-validation-gate-recovery-evidence.md
+  docs/v0.0.5/build-R3/08-current-status-and-multisource-followup.md
 Risk Level: High
 Plan Type: Full
 AI Agent 推理程度: high
@@ -1092,3 +1093,54 @@ multi-source-data-merger pair-001:
 ```
 
 因此 Docker probe 修复只恢复 harness 可判定性，不代表 multi-source 样本已经通过。后续 formal E3 需要重新刷新 current-HEAD gates/markers，再验证该样本的 TaskSpace 策略退化是否仍存在。
+
+## 0.23 2026-06-29 Multi-Source Rework Recovery Status
+
+继续 focused `multi-source-data-merger` 后，确认样本仍未 solved，但 R3 又收敛了几类
+会阻断真实修复路径的 TaskSpace 机制问题：
+
+```text
+已证明收益:
+  failed validation -> implement_solution rework 不再被 origin validation blocker 卡死
+  stale working-tree diff 不再误归因给新 rework node
+  local infra validation 不再吞掉 changed artifact 的重新证明义务
+  action-contract prompt 能按 implement_solution rework 职责提示平台兼容命令和 patch
+
+真实对比:
+  before: outcome_taskspace=agent_exec_timeout, open_leaf_nodes=1
+  after:  exec_timed_out=False, validation_lifecycle_stage=tests_completed, open_leaf_nodes=0
+```
+
+最新一轮 expanded control normalization 已覆盖真实日志暴露的 lifecycle alias：
+
+```text
+block_node:
+  reason | summary | result -> blocker_summary
+  missing node_id -> current snapshot node_id
+
+create_node:
+  node_kind | child_kind -> kind
+  node_title | label | name | child_name -> title
+  description | summary | objective -> context_summary
+  missing title/context_summary -> safe defaults
+
+bind_node:
+  no node_id but contains node creation fields -> rewrite to create_node
+```
+
+验证：
+
+```text
+cargo test -p codex-core action_contract_control_ --lib -- --nocapture = PASS
+cargo test -p codex-core action_contract_prompt_guides --lib -- --nocapture = PASS
+cargo test -p codex-core validation_node --lib -- --nocapture = PASS
+cargo build -p codex-cli --bin whale --profile dev-small = PASS
+```
+
+当前不能声明 R3 全部完成，原因是 expanded control normalization 后的真实 rerun
+尚未执行。阻塞原因是 D:\ 可用空间降到约 13.57 GiB，低于 focused run 临时门槛
+14 GiB，也低于推荐 16-20 GiB。恢复步骤和通过条件见：
+
+```text
+docs/v0.0.5/build-R3/08-current-status-and-multisource-followup.md
+```

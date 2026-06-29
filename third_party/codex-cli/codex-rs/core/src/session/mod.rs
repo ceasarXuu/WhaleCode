@@ -1012,6 +1012,16 @@ impl Session {
             .current_main_node_has_successful_action(action_class)
     }
 
+    pub(crate) async fn action_map_active_map_has_successful_action(
+        &self,
+        action_class: ActionClass,
+    ) -> bool {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .active_map_has_successful_action(action_class)
+    }
+
     pub(crate) async fn action_map_current_validation_node_has_local_infra_failure(&self) -> bool {
         let state = self.state.lock().await;
         state
