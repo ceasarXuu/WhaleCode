@@ -146,6 +146,8 @@ const TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER: &str =
     "TaskSpaceForcedInspectTransitionRecoveryV1:";
 const TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER: &str =
     "TaskSpaceForcedImplementTransitionRecoveryV1:";
+const TASKSPACE_FORCED_VALIDATION_CLOSEOUT_MARKER: &str =
+    "TaskSpaceForcedValidationCloseoutRecoveryV1:";
 const TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER: &str = "TaskSpaceImplementNeedsEditRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_FORMAT_MARKER: &str = "TaskSpaceApplyPatchFormatRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER: &str =
@@ -1543,6 +1545,25 @@ Current required behavior:\n\
     }
 }
 
+fn build_taskspace_forced_validation_closeout_recovery_item() -> ResponseItem {
+    let text = format!(
+        "{TASKSPACE_FORCED_VALIDATION_CLOSEOUT_MARKER}\n\
+TaskSpace already finished the current smoke_test/regression_test node because a successful validation tool result was recorded.\n\
+Current required behavior:\n\
+- Do not run more file discovery, reads, searches, or validation commands.\n\
+- Do not create more TaskSpace nodes.\n\
+- Emit exactly one final_answer now, summarizing that validation passed and the task result is ready."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn build_taskspace_validation_infra_recovery_item() -> ResponseItem {
     let text = format!(
         "{TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER}\n\
@@ -1628,6 +1649,8 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
         "TaskSpace inserted TaskSpaceValidationInfraRecoveryV1 after local validator infrastructure failed. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER) {
         "TaskSpace inserted TaskSpaceForcedInspectTransitionRecoveryV1 after a provider-budget forced inspect transition. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_FORCED_VALIDATION_CLOSEOUT_MARKER) {
+        "TaskSpace inserted TaskSpaceForcedValidationCloseoutRecoveryV1 after successful validation was finished automatically. This guidance does not consume the no-action recovery allowance.".to_string()
     } else {
         "TaskSpace inserted non-cap TaskSpace recovery guidance. This guidance does not consume the no-action recovery allowance.".to_string()
     }
@@ -4734,6 +4757,12 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
 
         assert!(text.contains(TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER));
         assert!(text.contains("Current required behavior"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+
+        let item = build_taskspace_forced_validation_closeout_recovery_item();
+        let text = item_text(item.clone());
+        assert!(text.contains(TASKSPACE_FORCED_VALIDATION_CLOSEOUT_MARKER));
+        assert!(text.contains("final_answer"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
     }
 
@@ -8165,6 +8194,46 @@ async fn try_run_sampling_request(
                     )
                     .await;
                 }
+            }
+        }
+    }
+    if let Ok(result) = &mut outcome
+        && result.taskspace_no_action_recovery_item.is_none()
+        && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
+        && matches!(
+            snapshot.node_kind.as_deref(),
+            Some("smoke_test" | "regression_test")
+        )
+        && (sess
+            .action_map_current_main_node_has_successful_action(ActionClass::Test)
+            .await
+            || sess
+                .action_map_current_main_node_has_successful_action(ActionClass::Build)
+                .await)
+    {
+        match sess
+            .force_finish_action_map_validation_after_successful_tool(
+                &turn_context,
+                snapshot,
+                "validation_success_after_tool_drain",
+            )
+            .await
+        {
+            Ok(true) => {
+                result.taskspace_no_action_recovery_item =
+                    Some(build_taskspace_forced_validation_closeout_recovery_item());
+            }
+            Ok(false) => {}
+            Err(error) => {
+                sess.send_event(
+                    &turn_context,
+                    EventMsg::Warning(WarningEvent {
+                        message: format!(
+                            "TaskSpaceForcedValidationCloseoutFailedV1 trigger=validation_success_after_tool_drain error={error}"
+                        ),
+                    }),
+                )
+                .await;
             }
         }
     }

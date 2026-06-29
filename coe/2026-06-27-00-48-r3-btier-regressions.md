@@ -3127,3 +3127,160 @@
   ```
 - Interpretation: This is a real focused-task benefit proof, not just a unit-level gate proof. It is still E2-candidate rather than formal E3 because repeats and human review are missing and the external Terminal-Bench validator remains downgraded for official-runner fidelity.
 - Time: 2026-06-29 12:40
+
+## Hypothesis H-035: successful validation lacks a runtime-owned closeout path
+- Claim: After a smoke_test/regression_test records a successful Test/Build result, TaskSpace still depends on the model to explicitly finish the validation node and emit final_answer. When the model keeps probing or asking for follow-up, this creates long no-action recovery tails even though validation evidence is already sufficient.
+- Parent:
+  - H-034
+- If true:
+  - A runtime check after tool drain can finish the validation node once successful validation evidence exists.
+  - The next provider request should receive a closeout recovery item and converge to final_candidate without more read/search/validation loops.
+- If false:
+  - Forced closeout would either not trigger or would leave open_leaf_nodes/non-final state unchanged.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: compare the failed `20260629-131743-056` focused run against a rerun after adding forced validation closeout.
+  - Signal: `TaskSpaceForcedValidationCloseoutV1`, final_candidate request count, business_success, validation exits, open_leaf_nodes, wall_time_ms, and runtime event count.
+  - Capture method: parse `pair-report.md`, `whale-exec.jsonl`, `metrics.json`, and `taskspace-control-usage.json`.
+  - Supports if:
+    - forced closeout fires after successful run_test, final_candidate appears, business_success=true, and open_leaf_nodes=0.
+  - Refutes if:
+    - validation succeeds but the run still loops without closeout or leaves an open validation node.
+- Evidence gate: satisfied by E-054 and E-055.
+- Related evidence:
+  - E-054
+  - E-055
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: keep formal E3 blocked until repeats/human review/official-runner fidelity are addressed.
+- Blocker:
+  - none for focused E2-candidate proof
+- Close reason:
+  - not closed
+
+## Evidence E-054: forced validation closeout implementation passes targeted gates
+- Related hypotheses:
+  - H-035
+- Direction: supports-repair
+- Type: code-change-and-test
+- Source:
+  - `third_party\codex-cli\codex-rs\core\src\action_map\runtime.rs`
+  - `third_party\codex-cli\codex-rs\core\src\session\mod.rs`
+  - `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Prediction or plan link:
+  - H-035 repair: successful validation evidence should allow runtime-owned closeout after tool drain.
+- Matched signal:
+  - `force_finish_validation_after_successful_tool` finishes a smoke/regression node when it already has successful Test/Build evidence.
+  - `TaskSpaceForcedValidationCloseoutV1` warning records trigger, request count, source node, and result id.
+  - `TaskSpaceForcedValidationCloseoutRecoveryV1` instructs the next model response to emit final_answer instead of reading, searching, validating, or creating nodes.
+- Correlation keys:
+  - `taskspace-forced-validation-closeout-v1`
+  - `TaskSpaceForcedValidationCloseoutV1`
+  - `validation_success_after_tool_drain`
+- Raw content:
+  ```text
+  cargo test -p codex-core force_finish_validation_after_successful_tool_closes_smoke_node --lib -- --nocapture = PASS
+  cargo test -p codex-core validation_node --lib -- --nocapture = PASS, 16 tests
+  cargo test -p codex-core active_context_replacement --lib -- --nocapture = PASS, 113 tests
+  cargo build -p codex-cli --bin whale --profile dev-small = PASS
+  ```
+- Interpretation: The runtime can now close a validation node from recorded validation evidence without requiring the model to discover the lifecycle transition.
+- Time: 2026-06-29 13:48
+
+## Evidence E-055: focused rerun proves forced validation closeout real benefit
+- Related hypotheses:
+  - H-035
+  - H-034
+- Direction: supports-repair
+- Type: real-task-rerun
+- Source:
+  - `target\r3-validation-rework-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-135014-854\pair-001\pair-report.md`
+  - `target\r3-validation-rework-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-135014-854\pair-001\right\artifacts\whale-exec.jsonl`
+  - `target\r3-validation-rework-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-135014-854\pair-001\right\artifacts\metrics.json`
+- Prediction or plan link:
+  - H-035 should convert successful validation evidence into closed graph and final_candidate without a long recovery tail.
+- Matched signal:
+  - TaskSpace outcome is solved: `business_success=True`, `exec_exit_code=0`, `public_validation_exit_code=0`, `hidden_oracle_exit_code=0`.
+  - `open_leaf_nodes=0`.
+  - `TaskSpaceForcedValidationCloseoutV1` fired at request_count 14/20 with `source_node_id=node-3` and `result_id=result-14`.
+  - final_candidate appeared at request_count 15/20.
+  - Compared with `20260629-131743-056`, wall time dropped from 808530 ms to 197838 ms and runtime events dropped from 1840 to 308.
+- Correlation keys:
+  - `20260629-135014-854`
+  - `TaskSpaceForcedValidationCloseoutV1`
+  - `result-14`
+  - `open_leaf_nodes=0`
+- Raw content:
+  ```text
+  previous focused run:
+    business_success = False
+    public_validation_exit_code = 1
+    wall_time_ms = 808530
+    taskspace_runtime_event_count = 1840
+    request_count = 49/20
+
+  current focused run:
+    business_success = True
+    public_validation_exit_code = 0
+    hidden_oracle_exit_code = 0
+    wall_time_ms = 197838
+    taskspace_runtime_event_count = 308
+    final_candidate at request_count = 15/20
+  ```
+- Interpretation: The benefit is real for this focused sample, but remains E2-candidate because the harness score is disabled by repeats, manual review, and external validator fidelity requirements.
+- Time: 2026-06-29 14:00
+
+## Hypothesis H-036: failed validation needs runtime-owned rework routing
+- Claim: When a smoke_test/regression_test records a non-infrastructure failed Test/Build result, the validation node cannot legally perform further read/search/edit work. If block_node only blocks the validation node and clears the binding, the model can keep using the old validation node id and repeatedly hit policy walls instead of entering a repair node.
+- Parent:
+  - H-035
+- If true:
+  - Blocking a failed validation node should create and bind an implement_solution rework node with the failed result preview.
+  - The map should retain blocked validation evidence while giving the model a legal edit node.
+- If false:
+  - block_node alone should already produce a valid rework path, or creating a rework node would not change the active binding.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: unit-level state transition after failed Test/Build result and block_node.
+  - Signal: validation node status blocked, current main node kind implement_solution, rework context contains failed result preview.
+  - Capture method: targeted runtime unit tests.
+  - Supports if:
+    - block_node returns with current_main_node_id bound to a new implement_solution node.
+  - Refutes if:
+    - current_main_node_id remains none or the new node cannot bind due blocked dependency semantics.
+- Evidence gate: satisfied by E-056 for code behavior; real-task benefit is not yet proven because the follow-up rerun did not trigger failed-validation rework.
+- Related evidence:
+  - E-056
+- Conclusion: confirmed-at-unit-level
+- Repair design readiness: implemented
+- Next step: require the next real failed-validation sample to prove the rework node appears in logs.
+- Blocker:
+  - no real-task trigger observed after implementation
+- Close reason:
+  - not closed
+
+## Evidence E-056: failed validation block creates a bound rework implementation node
+- Related hypotheses:
+  - H-036
+- Direction: supports-repair
+- Type: code-change-and-test
+- Source: `third_party\codex-cli\codex-rs\core\src\action_map\runtime.rs`
+- Prediction or plan link:
+  - H-036 repair: block_main_node should transform failed validation evidence into a legal implementation rework node.
+- Matched signal:
+  - `block_main_node` detects smoke/regression nodes with non-infra failed Test/Build result.
+  - It blocks the validation node, then creates and binds an `implement_solution` node.
+  - The rework node context includes the validation node id, failed result id, failure preview, and instruction to rerun validation after fixing.
+  - It intentionally does not depend on the blocked validation node because DAG readiness treats only completed dependencies as ready.
+- Correlation keys:
+  - `block_validation_node_allows_failed_validator_result`
+  - `active_map_detects_blocked_validation_result`
+  - `failed test/build result`
+- Raw content:
+  ```text
+  cargo test -p codex-core block_validation_node_allows_failed_validator_result --lib -- --nocapture = PASS
+  cargo test -p codex-core active_map_detects_blocked_validation_result --lib -- --nocapture = PASS
+  cargo test -p codex-core validation_node --lib -- --nocapture = PASS, 16 tests
+  cargo test -p codex-core active_context_replacement --lib -- --nocapture = PASS, 113 tests
+  cargo build -p codex-cli --bin whale --profile dev-small = PASS
+  ```
+- Interpretation: The structural routing bug is repaired at runtime state-machine level. This evidence is not yet a real-task benefit proof because the current successful rerun used forced closeout instead of the failed-validation rework path.
+- Time: 2026-06-29 14:03

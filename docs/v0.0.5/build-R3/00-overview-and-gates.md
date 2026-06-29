@@ -167,6 +167,36 @@ Remaining non-convergence:
   the same B-tier pair outcome is both_success_taskspace_cost_higher.
   taskspace_wall_time_ratio=4.87 and taskspace_tool_call_ratio=1.38.
   Therefore R3 can claim instrumentation and lifecycle correctness, but cannot claim speedup/cost saving.
+
+2026-06-29 validation recovery continuation:
+
+```text
+Focused recover-accuracy-log rerun proved an additional validation closeout benefit:
+  RunRoot = target\r3-validation-rework-recover-accuracy-log
+  RunDir  = ...\20260629-135014-854
+  taskspace business_success=true
+  public_validation_exit_code=0
+  hidden_oracle_exit_code=0
+  open_leaf_nodes=0
+  TaskSpaceForcedValidationCloseoutV1 fired at request_count=14/20
+  final_candidate appeared at request_count=15/20
+
+Compared with the previous failed focused run:
+  wall_time_ms improved from 808530 to 197838
+  taskspace_runtime_event_count improved from 1840 to 308
+  repeated no-action recovery fell from 40 observed repeats to 3
+
+This is still E2-candidate, not formal E3:
+  repeats_lt_3
+  manual_review_required
+  aggregate_not_enabled
+  external validator fidelity remains unproven
+
+Additional failed-validation rework routing was implemented and unit-tested:
+  block smoke_test/regression_test with a failed non-infra Test/Build result now
+  creates and binds an implement_solution rework node carrying the failed result
+  preview. Real rerun did not trigger this path because validation succeeded.
+```
 ```
 
 ## 0.6 R2 blocker 到 R3 phase 映射

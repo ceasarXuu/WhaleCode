@@ -3333,6 +3333,96 @@ preview:\n\
         Ok(Some((outcome, events)))
     }
 
+    pub(crate) fn force_finish_validation_after_successful_tool(
+        &mut self,
+        owner_session_id: ThreadId,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        trigger: &str,
+    ) -> Result<Option<(ActionMapFinishNodeOutcome, Vec<MapRuntimeEvent>)>, String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(None);
+        }
+        let node_id = match snapshot.node_id.as_deref() {
+            Some(node_id) => node_id,
+            None => return Ok(None),
+        };
+        let map_id = snapshot.map_id.clone();
+        let (task_id, node_kind, node_status, has_successful_validation) = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            let node = map
+                .nodes
+                .get(node_id)
+                .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
+            (
+                map.task_id.clone(),
+                node.kind,
+                node.status,
+                node_has_successful_action(map, node, ActionClass::Test)
+                    || node_has_successful_action(map, node, ActionClass::Build),
+            )
+        };
+        if !matches!(node_kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+            || node_status == NodeStatus::Completed
+            || !has_successful_validation
+        {
+            return Ok(None);
+        }
+        let result_summary = format!(
+            "{} successful validation evidence supported closeout after {trigger}; finish validation now and proceed to final answer.",
+            node_kind.as_str()
+        );
+        let (outcome, mut events) =
+            self.finish_main_node(owner_session_id, node_id, result_summary, None)?;
+        let id = self.next_trace_event_id();
+        let created_at_ms = now_ms();
+        let tags = vec![
+            "schema:taskspace-forced-validation-closeout-v1".to_string(),
+            "producer:tool_drain".to_string(),
+            format!("trigger:{trigger}"),
+            format!("request_count:{}", snapshot.request_count),
+            format!("max_requests:{}", snapshot.max_requests),
+            format!("source_node_kind:{}", node_kind.as_str()),
+            format!("result_id:{}", outcome.result_id),
+        ];
+        let trace_event = TaskSpaceTraceEvent {
+            id: id.clone(),
+            kind: "forced_validation_closeout".to_string(),
+            task_id,
+            map_id,
+            node_id: node_id.to_string(),
+            result_id: Some(outcome.result_id.clone()),
+            call_id: None,
+            action_class: Some(ActionClass::Control),
+            tool_success: Some(true),
+            tags,
+            artifact_refs: Vec::new(),
+            created_at_ms,
+        };
+        self.taskspace_trace_events.push(trace_event.clone());
+        events.push(MapRuntimeEvent::TaskspaceTraceEventRecorded(
+            MapRuntimeTraceEventRecordedEvent {
+                trace_event_id: id,
+                kind: trace_event.kind,
+                task_id: trace_event.task_id,
+                map_id: trace_event.map_id,
+                node_id: trace_event.node_id,
+                result_id: trace_event.result_id,
+                call_id: trace_event.call_id,
+                action_class: trace_event
+                    .action_class
+                    .map(|action_class| action_class.as_str().to_string()),
+                tool_success: trace_event.tool_success,
+                tags: trace_event.tags,
+                artifact_refs: trace_event.artifact_refs,
+                created_at_ms: trace_event.created_at_ms,
+            },
+        ));
+        Ok(Some((outcome, events)))
+    }
+
     fn accept_forced_transition_result(
         &mut self,
         map_id: &str,
@@ -4475,14 +4565,40 @@ preview:\n\
                 node.kind.as_str()
             ));
         }
-        self.record_main_node_lifecycle_result(
+        let validation_rework =
+            if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
+                validation_node_failed_noninfra_result(map, node).map(
+                    |(failed_result_id, failed_summary)| {
+                        (node.kind, failed_result_id, failed_summary)
+                    },
+                )
+            } else {
+                None
+            };
+        let (blocker_result_id, mut events) = self.record_main_node_lifecycle_result(
             owner_session_id,
             node_id,
             NodeResultKind::Blocker,
             blocker_summary.to_string(),
             NodeStatus::Blocked,
             false,
-        )
+        )?;
+        if let Some((node_kind, failed_result_id, failed_summary)) = validation_rework {
+            let title = format!("Fix failed {}", node_kind.as_str());
+            let context_summary = format!(
+                "Validation node `{node_id}` was blocked after failed test/build result `{failed_result_id}`. Failure preview: {failed_summary}. Fix the implementation artifact(s) named in the failure output, then finish this implement_solution node into a fresh validation rerun."
+            );
+            let (_, mut rework_events) = self.create_node_for_main_with_kind(
+                owner_session_id,
+                NodeKind::ImplementSolution,
+                title,
+                context_summary,
+                Vec::new(),
+                true,
+            )?;
+            events.append(&mut rework_events);
+        }
+        Ok((blocker_result_id, events))
     }
 
     pub(crate) fn record_output_contract_for_main(
@@ -23413,6 +23529,80 @@ fi\n"
     }
 
     #[test]
+    fn force_finish_validation_after_successful_tool_closes_smoke_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation command.",
+            "Run smoke validation",
+            "Run focused validation.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-pass",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "validation passed".to_string(),
+            )
+            .expect("successful validation result records")
+            .expect("test result id");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::SmokeTest.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("deep".to_string()),
+            profile_name: Some("taskspace-v005-deep".to_string()),
+            request_phase: Some("validation_recovery".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 21,
+            max_requests: 20,
+            node_request_count: 16,
+            max_model_requests_per_node: 5,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "over_profile_hint".to_string(),
+        };
+
+        let (outcome, events) = state
+            .force_finish_validation_after_successful_tool(
+                owner,
+                &snapshot,
+                "validation_success_after_tool_drain",
+            )
+            .expect("forced validation closeout should be valid")
+            .expect("successful validation should close the node");
+
+        assert!(outcome.next_node_id.is_none());
+        assert_eq!(state.current_main_node_id.as_deref(), None);
+        let map = state.maps.get(&map_id).expect("map");
+        assert!(
+            map.nodes
+                .get(&node_id)
+                .is_some_and(|node| { node.status == NodeStatus::Completed })
+        );
+        assert!(state.active_map_has_accepted_successful_validation_result());
+        assert!(events.iter().any(|event| matches!(
+            event,
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                if event.kind == "forced_validation_closeout"
+        )));
+    }
+
+    #[test]
     fn state_commit_accepts_validation_result_before_finishing_node_and_creating_next() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -23626,7 +23816,7 @@ fi\n"
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        let (_, _, node_id, _) = start_test_task_with_kind(
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
             &mut state,
             owner,
             NodeKind::SmokeTest,
@@ -23651,6 +23841,23 @@ fi\n"
         state
             .block_main_node(owner, &node_id, "pytest failed".to_string())
             .expect("failed validation can be blocked");
+        let rework_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("failed validation should bind rework node");
+        let map = state.maps.get(&map_id).expect("map");
+        let validation_node = map.nodes.get(&node_id).expect("validation node");
+        assert_eq!(validation_node.status, NodeStatus::Blocked);
+        let rework_node = map.nodes.get(rework_node_id).expect("rework node");
+        assert_eq!(rework_node.kind, NodeKind::ImplementSolution);
+        assert_eq!(rework_node.status, NodeStatus::Running);
+        assert!(
+            rework_node
+                .context
+                .summary
+                .contains("failed test/build result")
+        );
+        assert!(rework_node.context.summary.contains("pytest failed"));
     }
 
     #[test]
@@ -23685,7 +23892,15 @@ fi\n"
             .expect("failed validation can be blocked");
 
         assert!(state.active_map_has_blocked_validation_result());
-        assert!(state.current_main_node_id.is_none());
+        let current = state
+            .current_main_node_id
+            .as_deref()
+            .expect("blocked validation should route to rework");
+        let map = state.active_map().expect("active map");
+        assert_eq!(
+            map.nodes.get(current).expect("rework node").kind,
+            NodeKind::ImplementSolution
+        );
     }
 
     #[test]
