@@ -242,6 +242,8 @@ function New-FixtureRun([string]$Name, [string]$CostStatus, [bool]$ScoreValid, [
                 request_phase_attribution = (& $gateObject "request_phase_attribution")
                 release_decision_fixture = (& $gateObject "release_decision_fixture")
                 start_gate_fixture = (& $gateObject "start_gate_fixture")
+                external_wrapper_fixture = (& $gateObject "external_wrapper_fixture")
+                marker_writer_fixture = (& $gateObject "marker_writer_fixture")
             }
         }) (Join-Path $dir "v005-non-agent-gates.json")
     $codeCompletePath = Join-Path $dir "v005-code-complete.json"

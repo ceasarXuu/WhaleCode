@@ -793,7 +793,9 @@ $requiredV005NonAgentGates = @(
     "spawn_node_budget",
     "request_phase_attribution",
     "release_decision_fixture",
-    "start_gate_fixture"
+    "start_gate_fixture",
+    "external_wrapper_fixture",
+    "marker_writer_fixture"
 )
 $v005NonAgentGatesPass = ($v005NonAgentGates -and (Get-ReleaseString $v005NonAgentGates "status") -eq "pass" -and (Get-ReleaseInt $v005NonAgentGates "schema_version" 0) -eq 1)
 if ($v005NonAgentGatesPass) {

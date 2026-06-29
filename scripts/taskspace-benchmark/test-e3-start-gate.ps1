@@ -162,6 +162,8 @@ function New-V005MarkerFixtures {
                 request_phase_attribution = (& $gateObject "request_phase_attribution")
                 release_decision_fixture = (& $gateObject "release_decision_fixture")
                 start_gate_fixture = (& $gateObject "start_gate_fixture")
+                external_wrapper_fixture = (& $gateObject "external_wrapper_fixture")
+                marker_writer_fixture = (& $gateObject "marker_writer_fixture")
             }
         }) | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $nonAgentPath -Encoding UTF8
     [pscustomobject]($identity + @{

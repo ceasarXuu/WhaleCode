@@ -35,7 +35,9 @@ $requiredGates = @(
     "spawn_node_budget",
     "request_phase_attribution",
     "release_decision_fixture",
-    "start_gate_fixture"
+    "start_gate_fixture",
+    "external_wrapper_fixture",
+    "marker_writer_fixture"
 )
 foreach ($gateName in $requiredGates) {
     $gate = $artifact.gates.$gateName
