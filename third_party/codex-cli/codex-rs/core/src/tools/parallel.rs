@@ -17,6 +17,8 @@ use crate::session::turn_context::TurnContext;
 use crate::tools::context::AbortedToolOutput;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::context::ToolPayload;
+use crate::tools::context::bounded_model_visible_text_preview;
+use crate::tools::context::tool_output_model_visible_preview;
 use crate::tools::registry::AnyToolResult;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolCall;
@@ -126,6 +128,11 @@ impl ToolCallRuntime {
                         dispatch_span.record("aborted", true);
                         let response = Self::aborted_response(&call, secs);
                         if let Some(descriptor) = taskspace_descriptor.as_ref() {
+                            let preview = tool_output_model_visible_preview(
+                                response.result.as_ref(),
+                                &response.call_id,
+                                &response.payload,
+                            );
                             Self::record_taskspace_tool_result(
                                 &session,
                                 &turn,
@@ -133,7 +140,7 @@ impl ToolCallRuntime {
                                 &taskspace_tool_name,
                                 Some(descriptor.action_class),
                                 false,
-                                response.result.log_preview(),
+                                preview,
                             )
                                 .await;
                         }
@@ -160,6 +167,11 @@ impl ToolCallRuntime {
                         match result {
                             Ok(result) => {
                                 if let Some(descriptor) = taskspace_descriptor.as_ref() {
+                                    let preview = tool_output_model_visible_preview(
+                                        result.result.as_ref(),
+                                        &result.call_id,
+                                        &result.payload,
+                                    );
                                     Self::record_taskspace_tool_result(
                                         &session,
                                         &turn,
@@ -167,7 +179,7 @@ impl ToolCallRuntime {
                                         &taskspace_tool_name,
                                         Some(descriptor.action_class),
                                         result.result.success_for_logging(),
-                                        result.result.log_preview(),
+                                        preview,
                                     )
                                         .await;
                                 }
@@ -675,7 +687,7 @@ fn action_map_tool_error_preview(err: &FunctionCallError) -> String {
     match err {
         FunctionCallError::RespondToModel(message) => {
             taskspace_safe_local_validator_infra_error_summary(message)
-                .unwrap_or_else(|| "Tool call failed before producing a result.".to_string())
+                .unwrap_or_else(|| bounded_model_visible_text_preview(message))
         }
         FunctionCallError::MissingLocalShellCallId => {
             "Tool call failed because the shell call id was missing.".to_string()
@@ -721,13 +733,22 @@ mod tests {
     use crate::function_tool::FunctionCallError;
 
     #[test]
-    fn action_map_error_preview_does_not_persist_raw_error_text() {
+    fn action_map_error_preview_records_model_visible_error_text() {
         let preview = action_map_tool_error_preview(&FunctionCallError::RespondToModel(
-            "sensitive path D:\\secret\\project\\file.rs".to_string(),
+            "failed to parse apply_patch: missing field `action`".to_string(),
         ));
 
-        assert_eq!(preview, "Tool call failed before producing a result.");
-        assert!(!preview.contains("secret"));
+        assert!(preview.contains("failed to parse apply_patch"));
+        assert!(preview.contains("missing field `action`"));
+    }
+
+    #[test]
+    fn action_map_error_preview_bounds_model_visible_error_text() {
+        let long_error = format!("apply_patch failed\n{}", "line\n".repeat(128));
+        let preview = action_map_tool_error_preview(&FunctionCallError::RespondToModel(long_error));
+
+        assert!(preview.contains("apply_patch failed"));
+        assert!(preview.contains("telemetry preview truncated"));
     }
 
     #[test]

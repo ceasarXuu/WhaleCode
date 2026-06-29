@@ -113,6 +113,52 @@ pub trait ToolOutput: Send {
     }
 }
 
+pub(crate) fn tool_output_model_visible_preview(
+    output: &dyn ToolOutput,
+    call_id: &str,
+    payload: &ToolPayload,
+) -> String {
+    let response = output.to_response_item(call_id, payload);
+    bounded_model_visible_text_preview(&response_input_item_model_visible_text(response))
+}
+
+pub(crate) fn bounded_model_visible_text_preview(content: &str) -> String {
+    telemetry_preview(content)
+}
+
+fn response_input_item_model_visible_text(response: ResponseInputItem) -> String {
+    match response {
+        ResponseInputItem::Message { content, .. } => content
+            .into_iter()
+            .filter_map(|item| match item {
+                codex_protocol::models::ContentItem::InputText { text }
+                | codex_protocol::models::ContentItem::OutputText { text } => {
+                    (!text.trim().is_empty()).then_some(text)
+                }
+                codex_protocol::models::ContentItem::InputImage { image_url, .. } => {
+                    (!image_url.trim().is_empty()).then_some(image_url)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        ResponseInputItem::FunctionCallOutput { output, .. }
+        | ResponseInputItem::CustomToolCallOutput { output, .. } => {
+            output.body.to_text().unwrap_or_else(|| output.to_string())
+        }
+        ResponseInputItem::ToolSearchOutput { tools, .. } => serde_json::to_string(&tools)
+            .unwrap_or_else(|err| {
+                format!("failed to serialize tool_search model-visible output: {err}")
+            }),
+        ResponseInputItem::McpToolCallOutput { output, .. } => {
+            let payload = output.as_function_call_output_payload();
+            payload
+                .body
+                .to_text()
+                .unwrap_or_else(|| payload.to_string())
+        }
+    }
+}
+
 impl ToolOutput for CallToolResult {
     fn log_preview(&self) -> String {
         let output = self.as_function_call_output_payload();

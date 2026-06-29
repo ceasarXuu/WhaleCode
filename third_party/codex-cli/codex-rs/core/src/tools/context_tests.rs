@@ -397,6 +397,40 @@ fn log_preview_uses_content_items_when_plain_text_is_missing() {
 }
 
 #[test]
+fn model_visible_preview_uses_response_item_not_log_preview() {
+    struct DivergentToolOutput;
+
+    impl ToolOutput for DivergentToolOutput {
+        fn log_preview(&self) -> String {
+            "log-only-preview".to_string()
+        }
+
+        fn success_for_logging(&self) -> bool {
+            true
+        }
+
+        fn to_response_item(&self, call_id: &str, payload: &ToolPayload) -> ResponseInputItem {
+            function_tool_response(
+                call_id,
+                payload,
+                vec![FunctionCallOutputContentItem::InputText {
+                    text: "standard model-visible feedback".to_string(),
+                }],
+                Some(true),
+            )
+        }
+    }
+
+    let payload = ToolPayload::Function {
+        arguments: "{}".to_string(),
+    };
+    let preview = tool_output_model_visible_preview(&DivergentToolOutput, "call-1", &payload);
+
+    assert!(preview.contains("standard model-visible feedback"));
+    assert!(!preview.contains("log-only-preview"));
+}
+
+#[test]
 fn telemetry_preview_returns_original_within_limits() {
     let content = "short output";
     assert_eq!(telemetry_preview(content), content);
