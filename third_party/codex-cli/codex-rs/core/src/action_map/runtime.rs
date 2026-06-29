@@ -3360,8 +3360,7 @@ preview:\n\
                 map.task_id.clone(),
                 node.kind,
                 node.status,
-                node_has_successful_action(map, node, ActionClass::Test)
-                    || node_has_successful_action(map, node, ActionClass::Build),
+                node_has_successful_validation_action(map, node),
             )
         };
         if !matches!(node_kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
@@ -8181,6 +8180,9 @@ preview:\n\
         map: &ActionMapInstance,
         result: &NodeResult,
     ) -> bool {
+        if result.kind == NodeResultKind::Result {
+            return self.unreviewed_result_is_active_rework_dependency_finish(map, result);
+        }
         if result.kind != NodeResultKind::Blocker {
             return false;
         }
@@ -8194,12 +8196,78 @@ preview:\n\
             || current_node.status != NodeStatus::Running
             || current_node.origin_node_id.as_deref() != Some(result.node_id.as_str())
         {
-            return false;
+            return Self::current_node_is_validation_after_rework_input_blocker(
+                map,
+                current_node,
+                result,
+            );
         }
         map.nodes.get(&result.node_id).is_some_and(|origin| {
             matches!(origin.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
                 && origin.status == NodeStatus::Blocked
         })
+    }
+
+    fn current_node_is_validation_after_rework_input_blocker(
+        map: &ActionMapInstance,
+        current_node: &MapNode,
+        result: &NodeResult,
+    ) -> bool {
+        if !matches!(
+            current_node.kind,
+            NodeKind::SmokeTest | NodeKind::RegressionTest
+        ) || current_node.status != NodeStatus::Running
+        {
+            return false;
+        }
+        if !map.nodes.get(&result.node_id).is_some_and(|origin| {
+            matches!(origin.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+                && origin.status == NodeStatus::Blocked
+        }) {
+            return false;
+        }
+        map.edges
+            .iter()
+            .filter(|edge| edge.to == current_node.id)
+            .any(|edge| {
+                map.nodes.get(&edge.from).is_some_and(|dependency| {
+                    dependency.kind == NodeKind::ImplementSolution
+                        && dependency.status == NodeStatus::Completed
+                        && dependency.origin_node_id.as_deref() == Some(result.node_id.as_str())
+                })
+            })
+    }
+
+    fn unreviewed_result_is_active_rework_dependency_finish(
+        &self,
+        map: &ActionMapInstance,
+        result: &NodeResult,
+    ) -> bool {
+        let Some(current_node_id) = self.current_main_node_id.as_deref() else {
+            return false;
+        };
+        let Some(current_node) = map.nodes.get(current_node_id) else {
+            return false;
+        };
+        if !matches!(
+            current_node.kind,
+            NodeKind::SmokeTest | NodeKind::RegressionTest
+        ) || current_node.status != NodeStatus::Running
+        {
+            return false;
+        }
+        let Some(result_node) = map.nodes.get(&result.node_id) else {
+            return false;
+        };
+        if result_node.kind != NodeKind::ImplementSolution
+            || result_node.status != NodeStatus::Completed
+            || result_node.origin_node_id.is_none()
+        {
+            return false;
+        }
+        map.edges
+            .iter()
+            .any(|edge| edge.from == result.node_id && edge.to == current_node.id)
     }
 
     fn record_main_node_lifecycle_result(
@@ -11295,8 +11363,15 @@ fn trace_tags_for(
         "tool_failure".to_string()
     });
     match action_class {
-        Some(ActionClass::Build | ActionClass::Test) if success => {
+        Some(ActionClass::Build | ActionClass::Test)
+            if success && !validation_output_indicates_failure(body) =>
+        {
             tags.push("validator_success".to_string());
+        }
+        Some(ActionClass::Build | ActionClass::Test)
+            if success && validation_output_indicates_failure(body) =>
+        {
+            tags.push("validator_failure".to_string());
         }
         Some(ActionClass::Build | ActionClass::Test) if is_local_validator_infra_failure(body) => {
             tags.push("validator_infra_failure".to_string());
@@ -11317,6 +11392,26 @@ fn trace_tags_for(
 
 fn is_local_validator_infra_failure(body: &str) -> bool {
     text_mentions_local_validator_infra_failure(body)
+}
+
+fn validation_output_indicates_failure(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    let strong_failure_markers = [
+        "no source files found",
+        "filenotfounderror",
+        "assertionerror",
+        "traceback",
+        "failed",
+        "failure",
+        "error:",
+        "no such file",
+        "not found",
+        "0 passed",
+        "no tests ran",
+    ];
+    strong_failure_markers
+        .iter()
+        .any(|marker| text.contains(marker))
 }
 
 fn sanitize_trace_tags(tags: Vec<String>) -> Vec<String> {
@@ -12420,6 +12515,16 @@ fn node_has_successful_action(
     })
 }
 
+fn node_result_is_successful_validation(result: &NodeResult) -> bool {
+    result.kind == NodeResultKind::MainToolCall
+        && matches!(
+            result.action_class,
+            Some(ActionClass::Build | ActionClass::Test)
+        )
+        && result.tool_success == Some(true)
+        && !validation_output_indicates_failure(&result.body)
+}
+
 fn node_has_successful_code_or_test_inspect_result(
     map: &ActionMapInstance,
     node: &MapNode,
@@ -12917,12 +13022,7 @@ fn map_has_accepted_successful_validation_result(map: &ActionMapInstance) -> boo
             && node.result_context.iter().any(|result_ref| {
                 map.results.get(&result_ref.id).is_some_and(|result| {
                     result.evidence_package.validity == ResultValidity::Accepted
-                        && result.kind == NodeResultKind::MainToolCall
-                        && matches!(
-                            result.action_class,
-                            Some(ActionClass::Build | ActionClass::Test)
-                        )
-                        && result.tool_success == Some(true)
+                        && node_result_is_successful_validation(result)
                 })
             })
     })
@@ -12998,8 +13098,11 @@ fn map_has_accepted_implementation_result(map: &ActionMapInstance) -> bool {
 }
 
 fn node_has_successful_validation_action(map: &ActionMapInstance, node: &MapNode) -> bool {
-    node_has_successful_action(map, node, ActionClass::Test)
-        || node_has_successful_action(map, node, ActionClass::Build)
+    node.result_context.iter().any(|result_ref| {
+        map.results
+            .get(&result_ref.id)
+            .is_some_and(node_result_is_successful_validation)
+    })
 }
 
 fn latest_successful_validation_result_id(
@@ -13008,13 +13111,7 @@ fn latest_successful_validation_result_id(
 ) -> Option<NodeResultId> {
     node.result_context.iter().rev().find_map(|result_ref| {
         let result = map.results.get(&result_ref.id)?;
-        if result.kind == NodeResultKind::MainToolCall
-            && matches!(
-                result.action_class,
-                Some(ActionClass::Test | ActionClass::Build)
-            )
-            && result.tool_success == Some(true)
-        {
+        if node_result_is_successful_validation(result) {
             Some(result_ref.id.clone())
         } else {
             None
@@ -23680,6 +23777,73 @@ fi\n"
     }
 
     #[test]
+    fn force_finish_validation_rejects_semantic_failure_output() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation command.",
+            "Run smoke validation",
+            "Run focused validation.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-false-positive",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "Warning: /data/source_a/users.json not found, skipping source_a\nNo source files found. Exiting.".to_string(),
+            )
+            .expect("validation result records")
+            .expect("test result id");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::SmokeTest.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("deep".to_string()),
+            profile_name: Some("taskspace-v005-deep".to_string()),
+            request_phase: Some("validation_recovery".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 21,
+            max_requests: 20,
+            node_request_count: 16,
+            max_model_requests_per_node: 5,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "over_profile_hint".to_string(),
+        };
+
+        let result = state
+            .force_finish_validation_after_successful_tool(
+                owner,
+                &snapshot,
+                "validation_success_after_tool_drain",
+            )
+            .expect("semantic validation failure should not error");
+
+        assert!(result.is_none());
+        let map = state.maps.get(&map_id).expect("map");
+        assert!(
+            map.nodes
+                .get(&node_id)
+                .is_some_and(|node| { node.status == NodeStatus::Running })
+        );
+        assert!(!state.active_map_has_accepted_successful_validation_result());
+    }
+
+    #[test]
     fn state_commit_accepts_validation_result_before_finishing_node_and_creating_next() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -24174,6 +24338,94 @@ fi\n"
                 ),
             )
             .expect("active rework edit should not be blocked by the origin blocker result");
+    }
+
+    #[test]
+    fn validation_after_rework_can_test_without_reviewing_origin_blocker_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, validation_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "KeyError: user_id in merge_users.py".to_string(),
+            )
+            .expect("failed test result records");
+        let (blocker_result_id, _) = state
+            .block_main_node(owner, &validation_node_id, "pytest failed".to_string())
+            .expect("failed validation can be blocked and routed to rework");
+        let rework_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("blocked validation should bind rework")
+            .to_string();
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit-rework",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "patched merge_users.py".to_string(),
+            )
+            .expect("rework edit records");
+        let next_node_draft = ActionMapNextNodeDraft {
+            kind: NodeKind::SmokeTest,
+            title: "Run focused validation".to_string(),
+            context_summary: "Run the focused validation after rework.".to_string(),
+            dependency_node_ids: vec![rework_node_id.clone()],
+        };
+        let (_, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &rework_node_id,
+                "rework edit applied".to_string(),
+                None,
+                Some(next_node_draft),
+            )
+            .expect("rework should finish into validation");
+        let rerun_validation_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("new validation node should be bound")
+            .to_string();
+        let map = state.active_map().expect("active map");
+        assert_eq!(
+            map.results
+                .get(&blocker_result_id)
+                .expect("blocker result")
+                .evidence_package
+                .validity,
+            ResultValidity::Unreviewed
+        );
+        assert_eq!(
+            map.nodes
+                .get(&rerun_validation_node_id)
+                .expect("validation rerun")
+                .kind,
+            NodeKind::SmokeTest
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "python -m pytest"),
+            )
+            .expect("validation after rework should not be blocked by the origin blocker result");
     }
 
     #[test]

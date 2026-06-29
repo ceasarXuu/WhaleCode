@@ -3619,7 +3619,11 @@ Then I will inspect the file."#,
             ("./run_pipeline.sh", "bash run_pipeline.sh"),
             (
                 "cd /app && ./run_pipeline.sh",
-                "cd /app && bash run_pipeline.sh",
+                if cfg!(windows) {
+                    "cd /app; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bash run_pipeline.sh"
+                } else {
+                    "cd /app && bash run_pipeline.sh"
+                },
             ),
         ];
         for (input, expected) in cases {
@@ -3640,6 +3644,47 @@ Then I will inspect the file."#,
                 other => panic!("expected function payload, got {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn taskspace_action_contract_run_test_normalizes_powershell_and_chain() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"run_test","node_id":"node-1","args":{"command":"python merge_users.py && python -c 'print(\"ok\")'"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("smoke_test"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                if cfg!(windows) {
+                    assert_eq!(
+                        value["command"],
+                        "python merge_users.py; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; python -c 'print(\"ok\")'"
+                    );
+                } else {
+                    assert_eq!(
+                        value["command"],
+                        "python merge_users.py && python -c 'print(\"ok\")'"
+                    );
+                }
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_powershell_chain_split_ignores_quoted_ampersands() {
+        assert_eq!(
+            split_top_level_double_ampersand("python -c 'print(\"a && b\")' && pytest -q"),
+            Some(vec![
+                "python -c 'print(\"a && b\")'".to_string(),
+                "pytest -q".to_string()
+            ])
+        );
+        assert_eq!(split_top_level_double_ampersand("python -c 'a && b'"), None);
     }
 
     #[test]
@@ -4659,6 +4704,30 @@ tax_calc.py\n\
             "validation failed with IndentationError"
         );
         assert!(normalized.get("reason").is_none());
+    }
+
+    #[test]
+    fn action_contract_control_rewrites_failed_validation_finish_to_block() {
+        let snapshot = provider_snapshot("smoke_test");
+        let args = serde_json::json!({
+            "action": "finish_node",
+            "result_validities": {
+                "result-6": "invalid"
+            },
+            "decisions": [
+                "Test failed because merge_users.py used the wrong data path."
+            ]
+        });
+
+        let normalized = normalize_taskspace_action_contract_control_args(&args, Some(&snapshot))
+            .expect("failed validation finish should normalize");
+
+        assert_eq!(normalized["action"], "block_node");
+        assert_eq!(normalized["node_id"], "node-1");
+        assert_eq!(
+            normalized["blocker_summary"],
+            "Test failed because merge_users.py used the wrong data path."
+        );
     }
 
     #[test]
@@ -7059,12 +7128,31 @@ fn normalize_taskspace_action_contract_lifecycle_args(
                     serde_json::Value::String(node_id.to_string()),
                 );
             }
-            if inner_action == "block_node" {
+            let effective_action = if inner_action == "finish_node"
+                && taskspace_finish_node_should_block_failed_validation(root, snapshot)
+            {
+                root.insert(
+                    "action".to_string(),
+                    serde_json::Value::String("block_node".to_string()),
+                );
+                "block_node"
+            } else {
+                inner_action
+            };
+            if effective_action == "block_node" {
                 move_taskspace_json_alias(root, "reason", "blocker_summary");
                 move_taskspace_json_alias(root, "summary", "blocker_summary");
                 move_taskspace_json_alias(root, "result", "blocker_summary");
+                if !root.contains_key("blocker_summary") {
+                    root.insert(
+                        "blocker_summary".to_string(),
+                        serde_json::Value::String(taskspace_failed_validation_blocker_summary(
+                            root,
+                        )),
+                    );
+                }
             }
-            if inner_action == "finish_node" {
+            if effective_action == "finish_node" {
                 move_taskspace_json_alias(root, "result", "result_summary");
                 move_taskspace_json_alias(root, "summary", "result_summary");
                 move_taskspace_json_alias(root, "reason", "result_summary");
@@ -7108,6 +7196,79 @@ fn normalize_taskspace_action_contract_lifecycle_args(
         }
         _ => {}
     }
+}
+
+fn taskspace_finish_node_should_block_failed_validation(
+    root: &serde_json::Map<String, serde_json::Value>,
+    snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
+) -> bool {
+    if !snapshot.is_some_and(|snapshot| {
+        matches!(
+            snapshot.node_kind.as_deref(),
+            Some("smoke_test" | "regression_test")
+        )
+    }) {
+        return false;
+    }
+    taskspace_json_contains_failed_validity(root.get("result_validities"))
+        || taskspace_json_contains_failed_validity(root.get("validities"))
+        || taskspace_json_contains_failed_validity(root.get("results"))
+}
+
+fn taskspace_json_contains_failed_validity(value: Option<&serde_json::Value>) -> bool {
+    let Some(value) = value else {
+        return false;
+    };
+    match value {
+        serde_json::Value::String(value) => taskspace_validity_is_failed(value),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .any(|item| taskspace_json_contains_failed_validity(Some(item))),
+        serde_json::Value::Object(map) => map.iter().any(|(key, value)| {
+            taskspace_validity_is_failed(key)
+                || taskspace_json_contains_failed_validity(Some(value))
+        }),
+        _ => false,
+    }
+}
+
+fn taskspace_validity_is_failed(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "fail" | "failed" | "failure" | "invalid" | "questioned" | "blocked"
+    )
+}
+
+fn taskspace_failed_validation_blocker_summary(
+    root: &serde_json::Map<String, serde_json::Value>,
+) -> String {
+    for key in [
+        "blocker_summary",
+        "result_summary",
+        "summary",
+        "result",
+        "reason",
+    ] {
+        if let Some(value) = root.get(key).and_then(serde_json::Value::as_str) {
+            let value = value.trim();
+            if !value.is_empty() {
+                return value.to_string();
+            }
+        }
+    }
+    if let Some(decisions) = root.get("decisions").and_then(serde_json::Value::as_array) {
+        let summary = decisions
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !summary.is_empty() {
+            return summary;
+        }
+    }
+    "Validation failed; route to implementation rework.".to_string()
 }
 
 fn default_taskspace_action_node_title(kind: &str) -> &'static str {
@@ -7299,7 +7460,7 @@ fn normalize_taskspace_action_contract_state_commit_decisions(
 fn normalize_taskspace_action_contract_test_command(command: &str) -> String {
     let trimmed = command.trim();
     if let Some(normalized) = normalize_taskspace_shell_script_test_command(trimmed) {
-        return normalized;
+        return normalize_taskspace_host_shell_test_command(&normalized);
     }
     for prefix in [
         "pytest ",
@@ -7315,25 +7476,85 @@ fn normalize_taskspace_action_contract_test_command(command: &str) -> String {
         };
         if file.ends_with(".py") && !file.contains('/') && !file.contains('\\') {
             let suffix = suffix.trim();
-            return if suffix.is_empty() {
+            let normalized = if suffix.is_empty() {
                 format!("pytest tests/{file}")
             } else {
                 format!("pytest tests/{file} {suffix}")
             };
+            return normalize_taskspace_host_shell_test_command(&normalized);
         }
         if file.ends_with(".py")
             && !Path::new(file).exists()
             && let Some(resolved) = resolve_unique_test_file_for_missing_pytest_path(file)
         {
             let suffix = suffix.trim();
-            return if suffix.is_empty() {
+            let normalized = if suffix.is_empty() {
                 format!("pytest {resolved}")
             } else {
                 format!("pytest {resolved} {suffix}")
             };
+            return normalize_taskspace_host_shell_test_command(&normalized);
         }
     }
-    trimmed.to_string()
+    normalize_taskspace_host_shell_test_command(trimmed)
+}
+
+fn normalize_taskspace_host_shell_test_command(command: &str) -> String {
+    if cfg!(windows) {
+        normalize_taskspace_powershell_and_chain(command).unwrap_or_else(|| command.to_string())
+    } else {
+        command.to_string()
+    }
+}
+
+fn normalize_taskspace_powershell_and_chain(command: &str) -> Option<String> {
+    let segments = split_top_level_double_ampersand(command)?;
+    if segments.len() < 2 {
+        return None;
+    }
+    let mut normalized = String::new();
+    for (index, segment) in segments.iter().enumerate() {
+        if index > 0 {
+            normalized.push_str("; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; ");
+        }
+        normalized.push_str(segment.trim());
+    }
+    Some(normalized)
+}
+
+fn split_top_level_double_ampersand(command: &str) -> Option<Vec<String>> {
+    let mut segments = Vec::new();
+    let mut start = 0usize;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let chars = command.char_indices().collect::<Vec<_>>();
+    let mut index = 0usize;
+    while index < chars.len() {
+        let (byte_index, ch) = chars[index];
+        match ch {
+            '\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            '"' if !in_single_quote => in_double_quote = !in_double_quote,
+            '&' if !in_single_quote && !in_double_quote => {
+                if chars.get(index + 1).is_some_and(|(_, next)| *next == '&') {
+                    let left = command[start..byte_index].trim();
+                    if left.is_empty() {
+                        return None;
+                    }
+                    segments.push(left.to_string());
+                    start = byte_index + 2;
+                    index += 1;
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    let tail = command[start..].trim();
+    if tail.is_empty() || segments.is_empty() {
+        return None;
+    }
+    segments.push(tail.to_string());
+    Some(segments)
 }
 
 fn normalize_taskspace_shell_script_test_command(command: &str) -> Option<String> {
@@ -8457,12 +8678,6 @@ async fn try_run_sampling_request(
             snapshot.node_kind.as_deref(),
             Some("smoke_test" | "regression_test")
         )
-        && (sess
-            .action_map_current_main_node_has_successful_action(ActionClass::Test)
-            .await
-            || sess
-                .action_map_current_main_node_has_successful_action(ActionClass::Build)
-                .await)
     {
         match sess
             .force_finish_action_map_validation_after_successful_tool(

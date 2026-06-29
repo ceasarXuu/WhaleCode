@@ -200,3 +200,148 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\
 4. validation lifecycle 达到 tests_completed。
 5. 若仍 wrong，按 public validation 日志继续定位业务/提示问题，而不是继续修 schema gate。
 ```
+## 7. 2026-06-30 focused rerun 后的新增收敛
+
+### 7.1 expanded control normalization 已有真实收益，但暴露 validation 假阳性
+
+本轮清理 D:\ 后重跑了 `multi-source-data-merger` focused pair：
+
+```text
+RunRoot = target\r3-multisource-after-rework-chain-review-gate
+RunDir  = target\r3-multisource-after-rework-chain-review-gate\runs\terminal_bench__multi-source-data-merger\20260629-235542-254
+
+right / taskspace:
+  exec_timed_out = False
+  right_validation_lifecycle_stage = tests_completed
+  right_tests_started_seen = True
+  open_leaf_nodes = 0
+  engineering_unclean = False
+  outcome_taskspace = wrong
+  changed_paths = merge_users.py
+```
+
+收益：
+
+```text
+1. missing field title/context_summary/node_id 不再复现。
+2. rework-chain review gate 不再卡住验证节点。
+3. previous agent_exec_timeout / lifecycle unknown 推进为 tests_completed。
+```
+
+新问题：
+
+```text
+node-3 smoke_test 中 `python merge_users.py` exit_code=0，
+但输出包含：
+  Warning: /data/source_a/users.json not found
+  No source files found. Exiting.
+
+runtime 仍触发 forced_validation_closeout，并生成 “Validation passed; final result is ready.”
+外部 validator 随后证明 /app/merged_users.parquet 和 /app/conflicts.json 不存在。
+```
+
+根因是 `force_finish_validation_after_successful_tool` 和 `latest_successful_validation_result_id`
+只看 `tool_success=true`，没有判断测试输出的失败语义。
+
+### 7.2 semantic validation gate 修复与真实收益
+
+修复：
+
+```text
+runtime.rs:
+  node_result_is_successful_validation(result)
+    = MainToolCall
+    + action_class in {test, build}
+    + tool_success=true
+    + validation output does not contain strong failure markers
+
+trace_tags_for:
+  success=true 但输出包含 no source files found / FileNotFoundError / failed / no such file 等强失败语义时，
+  标记 validator_failure，而不是 validator_success。
+
+turn.rs:
+  validation closeout 不再在调用前重复使用旧的 current_main_node_has_successful_action(test/build) 前置条件；
+  统一交给 runtime 的 semantic validation 判断。
+```
+
+单测：
+
+```text
+cargo test -p codex-core force_finish_validation_ --lib -- --nocapture = PASS, 2 tests
+cargo test -p codex-core action_contract_control_ --lib -- --nocapture = PASS, 5 tests
+cargo build -p codex-cli --bin whale --profile dev-small = PASS
+```
+
+真实 rerun：
+
+```text
+RunRoot = target\r3-multisource-after-semantic-validation-gate
+RunDir  = target\r3-multisource-after-semantic-validation-gate\runs\terminal_bench__multi-source-data-merger\20260630-002557-891
+
+right / taskspace:
+  exec_exit_code = 1
+  exec_timed_out = False
+  right_validation_lifecycle_stage = tests_completed
+  right_tests_started_seen = True
+  open_leaf_nodes = 1
+  changed_paths = merge_users.py
+  forced_validation_closeout = not observed for the false-positive `No source files found` run
+```
+
+收益解释：
+
+```text
+1. 假阳性 closeout 被挡住：runtime 不再把 “No source files found. Exiting.” 当作验证通过。
+2. 失败从 “错误最终通过后被外部 validator 打脸” 变成 “内部验证失败后继续 rework，但未完成”。
+3. 这证明 validation gate 的真实性提升，但不证明样本已 solved。
+```
+
+### 7.3 shell chain normalization 修复
+
+semantic validation gate 后暴露新的系统性问题：
+
+```text
+agent 发出 run_test:
+  python merge_users.py && python -c ...
+
+Windows PowerShell 5.1 报错：
+  The token '&&' is not a valid statement separator in this version.
+```
+
+这不是业务解题错误，而是 action-contract shell command 与宿主 shell 的适配缺口。
+
+修复：
+
+```text
+turn.rs:
+  normalize_taskspace_action_contract_test_command
+    -> normalize_taskspace_host_shell_test_command
+    -> Windows: normalize_taskspace_powershell_and_chain
+
+转换规则：
+  a && b
+  =>
+  a; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; b
+
+并且只拆顶层 &&，引号内的 && 不拆。
+```
+
+验证：
+
+```text
+cargo test -p codex-core taskspace_action_contract_run_test_ --lib -- --nocapture = PASS, 3 tests
+cargo test -p codex-core force_finish_validation_ --lib -- --nocapture = PASS, 2 tests
+cargo test -p codex-core action_contract_control_ --lib -- --nocapture = PASS, 5 tests
+cargo fmt -p codex-core = PASS
+cargo build -p codex-cli --bin whale --profile dev-small = PASS
+```
+
+第二次真实 rerun：
+
+```text
+RunRoot = target\r3-multisource-after-shell-chain-normalization
+status = incomplete
+reason = outer command timeout after 20 minutes; residual benchmark PowerShell/validator processes were stopped manually.
+```
+
+该 rerun 不计入收益结论。下一次需要用更长外层 timeout 或更小的 focused harness timeout 重新验证 shell chain normalization 的真实收益。

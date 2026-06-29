@@ -3487,3 +3487,88 @@
   - Follow-up code added alias coverage for `label`, `child_name`, `child_kind`, `objective`, and default bind-current behavior.
 - Interpretation: The real run proves the repair direction, but the expanded alias set still needs a final rerun. Disk space is the current external blocker.
 - Time: 2026-06-29 21:25
+## Hypothesis H-042: validation closeout must require semantic validation success, not only tool success
+- Claim: A validation tool call can exit with `tool_success=true` while its output proves the task artifact was not generated. If TaskSpace force-closes validation on tool success alone, it records a false pass and lets an invalid final answer reach external scoring.
+- Parent:
+  - H-041
+- Evidence gate: satisfied by unit tests and focused real-run differential evidence.
+- Related evidence:
+  - E-065
+  - E-066
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Close reason:
+  - focused rerun after repair no longer treated `No source files found. Exiting.` as a validation pass; the failure moved to a rework/open-leaf state instead of a false final pass.
+
+## Evidence E-065: focused rerun exposed false validation closeout on semantic failure
+- Related hypotheses:
+  - H-042
+- Direction: supports-root-cause
+- Type: real-task-rerun
+- Source:
+  - `target\r3-multisource-after-rework-chain-review-gate\runs\terminal_bench__multi-source-data-merger\20260629-235542-254\pair-001\right\artifacts\whale-exec.jsonl`
+  - `target\r3-multisource-after-rework-chain-review-gate\runs\terminal_bench__multi-source-data-merger\20260629-235542-254\pair-001\right\artifacts\validation.stdout.log`
+- Matched signal:
+  - `python merge_users.py` exited 0 but printed `Warning: /data/source_a/users.json not found` and `No source files found. Exiting.`
+  - Runtime emitted `TaskSpaceForcedValidationCloseoutV1`.
+  - External validation later failed because `/app/merged_users.parquet` and `/app/conflicts.json` did not exist.
+- Interpretation: The old closeout rule conflated shell command success with validation success.
+- Time: 2026-06-30 00:20
+
+## Evidence E-066: semantic validation gate blocks the false-positive closeout
+- Related hypotheses:
+  - H-042
+- Direction: supports-repair
+- Type: code-change-and-real-run
+- Source:
+  - `third_party\codex-cli\codex-rs\core\src\action_map\runtime.rs`
+  - `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+  - `target\r3-multisource-after-semantic-validation-gate\runs\terminal_bench__multi-source-data-merger\20260630-002557-891\pair-001\pair-report.md`
+  - `target\r3-multisource-after-semantic-validation-gate\runs\terminal_bench__multi-source-data-merger\20260630-002557-891\pair-001\right\artifacts\whale-exec.jsonl`
+- Matched signal:
+  - `node_result_is_successful_validation` now requires test/build `tool_success=true` and rejects strong failure markers such as `no source files found`, `FileNotFoundError`, `failed`, and `no such file`.
+  - `trace_tags_for` marks such test/build outputs as `validator_failure` rather than `validator_success`.
+  - Focused rerun after the fix did not close the false-positive validation; it ended with `exec_exit_code=1`, `open_leaf_nodes=1`, and no false final pass.
+- Raw content:
+  ```text
+  cargo test -p codex-core force_finish_validation_ --lib -- --nocapture = PASS, 2 tests
+  cargo test -p codex-core action_contract_control_ --lib -- --nocapture = PASS, 5 tests
+  cargo build -p codex-cli --bin whale --profile dev-small = PASS
+  ```
+- Interpretation: Real benefit is increased validation truthfulness, not sample solve-rate.
+- Time: 2026-06-30 00:45
+
+## Hypothesis H-043: TaskSpace action-contract run_test commands need host-shell normalization
+- Claim: In Windows PowerShell 5.1, bash-style `&&` command chains fail before testing the changed artifact. Relying on the model to manually learn host-shell syntax causes repeated validation-infra recovery and read loops.
+- Parent:
+  - H-042
+- Evidence gate: unit proof satisfied; real-run proof still pending because the follow-up rerun exceeded the outer tool timeout.
+- Related evidence:
+  - E-067
+- Conclusion: partially-confirmed
+- Repair design readiness: implemented
+- Blocker:
+  - Needs another focused rerun with a longer outer timeout or smaller harness timeout.
+
+## Evidence E-067: run_test now normalizes top-level `&&` for Windows PowerShell
+- Related hypotheses:
+  - H-043
+- Direction: supports-repair-at-unit-level
+- Type: code-change-and-test
+- Source:
+  - `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Matched signal:
+  - `normalize_taskspace_action_contract_test_command` now calls host-shell normalization.
+  - On Windows, top-level `a && b` becomes `a; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; b`.
+  - The splitter ignores `&&` inside single or double quoted strings.
+- Raw content:
+  ```text
+  cargo test -p codex-core taskspace_action_contract_run_test_ --lib -- --nocapture = PASS, 3 tests
+  cargo test -p codex-core force_finish_validation_ --lib -- --nocapture = PASS, 2 tests
+  cargo test -p codex-core action_contract_control_ --lib -- --nocapture = PASS, 5 tests
+  cargo fmt -p codex-core = PASS
+  cargo build -p codex-cli --bin whale --profile dev-small = PASS
+  ```
+- Real-run note:
+  - `target\r3-multisource-after-shell-chain-normalization` was started but the outer command timed out after 20 minutes. Residual benchmark PowerShell/validator processes were stopped manually, so this run is not counted as benefit evidence.
+- Time: 2026-06-30 01:15
