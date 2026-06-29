@@ -3865,7 +3865,7 @@ Then I will inspect the file."#,
                 let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
                 assert_eq!(value["action"], "finish_node");
                 assert_eq!(value["node_id"], "node-1");
-                assert_eq!(value["result"], "All tests pass.");
+                assert_eq!(value["result_summary"], "All tests pass.");
             }
             other => panic!("expected function payload, got {other:?}"),
         }
