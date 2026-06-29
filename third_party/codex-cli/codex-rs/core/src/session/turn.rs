@@ -141,6 +141,7 @@ const TASKSPACE_DEEPSEEK_CACHE_ANCHOR_LINES: usize = 4200;
 const TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT: usize = 10;
 const TASKSPACE_IMPLEMENT_NEEDS_EDIT_RECOVERY_CAP: usize = 2;
 const TASKSPACE_NO_ACTION_RECOVERY_MARKER: &str = "TaskSpaceNoActionRecoveryV1:";
+const TASKSPACE_GATE_RECOVERY_MARKER: &str = "TaskSpaceGateRecoveryV1:";
 const TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER: &str =
     "TaskSpaceForcedInspectTransitionRecoveryV1:";
 const TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER: &str =
@@ -587,19 +588,8 @@ pub(crate) async fn run_turn(
                         .as_deref()
                         .map(taskspace_no_action_recovery_cap_for_node_kind)
                         .unwrap_or(1usize);
-                    if counts_against_no_action_cap
-                        && taskspace_no_action_recovery_count >= no_action_recovery_cap
-                    {
-                        sess.send_event(
-                            &turn_context,
-                            EventMsg::Error(ErrorEvent {
-                                message: format!("TaskSpace stopped this turn because the model produced too many non-action assistant messages while requesting follow-up ({taskspace_no_action_recovery_count}/{no_action_recovery_cap} recoveries spent). It must emit a tool call, taskspace_control transition, or a final blocked-with-evidence answer instead of commentary-only output."),
-                                codex_error_info: None,
-                            }),
-                        )
-                        .await;
-                        return None;
-                    }
+                    let no_action_recovery_over_advisory = counts_against_no_action_cap
+                        && taskspace_no_action_recovery_count >= no_action_recovery_cap;
                     if counts_against_implement_needs_edit_cap
                         && taskspace_implement_needs_edit_recovery_count
                             >= TASKSPACE_IMPLEMENT_NEEDS_EDIT_RECOVERY_CAP
@@ -627,7 +617,11 @@ pub(crate) async fn run_turn(
                         &turn_context,
                         EventMsg::Warning(WarningEvent {
                             message: if counts_against_no_action_cap {
-                                format!("TaskSpace inserted TaskSpaceNoActionRecoveryV1 because the provider response requested follow-up or was rejected by the final-response gate without an actionable tool/control/final result. Recovery attempt {}/{} is being used.", taskspace_no_action_recovery_count, no_action_recovery_cap)
+                                if no_action_recovery_over_advisory {
+                                    format!("TaskSpace inserted TaskSpaceNoActionRecoveryV1 beyond the advisory recovery threshold because the provider still requested follow-up or hit a recoverable action-contract rejection. Recovery attempt {} is being used after advisory threshold {}. The turn will continue; the model must emit a tool call, taskspace_control transition, or blocked-with-evidence result.", taskspace_no_action_recovery_count, no_action_recovery_cap)
+                                } else {
+                                    format!("TaskSpace inserted TaskSpaceNoActionRecoveryV1 because the provider response requested follow-up or was rejected by the final-response gate without an actionable tool/control/final result. Recovery attempt {}/{} is being used.", taskspace_no_action_recovery_count, no_action_recovery_cap)
+                                }
                             } else if counts_against_implement_needs_edit_cap {
                                 if response_item_text_contains(
                                     &recovery_item,
@@ -1370,16 +1364,18 @@ fn build_taskspace_no_action_recovery_item(last_message: Option<&str>) -> Respon
     let previous = last_message
         .filter(|message| !message.trim().is_empty())
         .unwrap_or("(no assistant text was captured)");
+    let gate_recovery = taskspace_gate_recovery_context(previous);
     let text = format!(
         "{TASKSPACE_NO_ACTION_RECOVERY_MARKER}\n\
 The previous assistant message requested follow-up but did not produce effective TaskSpace progress: no successful tool result, taskspace_control transition, or final response accepted by TaskSpace was recorded.\n\
 Previous assistant message: {previous}\n\
+{gate_recovery}\
 Required behavior for the next response:\n\
 - Do not send commentary-only text such as \"let me check\".\n\
 - Emit exactly one actionable operation now: a tool call, a taskspace_control finish/transition/state_commit, or a final blocked-with-evidence answer with the exact missing evidence.\n\
 - If the current node is inspect_code_context and no source/test evidence has been read yet, call shell_command with `rg --files` now.\n\
 - If inspect evidence is sufficient, finish the inspect node into implement_solution before more environment probing.\n\
-- If a tool was blocked, follow that tool output's recovery instructions instead of repeating the same blocked action.\n\
+- If a tool was blocked, follow the most recent TaskSpaceGateRecoveryV1 recovery instructions instead of repeating the same blocked action.\n\
 - If a concrete file edit is identified, call apply_patch now before any further validation."
     );
 
@@ -1390,6 +1386,20 @@ Required behavior for the next response:\n\
         end_turn: None,
         phase: None,
     }
+}
+
+fn taskspace_gate_recovery_context(message: &str) -> String {
+    let Some(marker_start) = message.find(TASKSPACE_GATE_RECOVERY_MARKER) else {
+        return String::new();
+    };
+    let gate = message[marker_start..]
+        .chars()
+        .take(1800)
+        .collect::<String>();
+    format!(
+        "Most recent blocked tool recovery context:\n{gate}\n\
+Current recovery priority: obey the `next_valid_actions` in this TaskSpaceGateRecoveryV1 payload before generic no-action guidance.\n"
+    )
 }
 
 fn build_taskspace_apply_patch_format_recovery_item(targets: &str) -> ResponseItem {
@@ -2782,6 +2792,19 @@ fn function_call_output_body_text(body: &FunctionCallOutputBody) -> String {
 
 fn response_item_text_contains(item: &ResponseItem, needle: &str) -> bool {
     response_item_texts_contain(item, &|text| text.contains(needle))
+}
+
+fn taskspace_gate_recovery_from_response_item(item: &ResponseItem) -> Option<String> {
+    let output = match item {
+        ResponseItem::FunctionCallOutput { output, .. }
+        | ResponseItem::CustomToolCallOutput { output, .. } => {
+            function_call_output_body_text(&output.body)
+        }
+        _ => return None,
+    };
+    output
+        .contains(TASKSPACE_GATE_RECOVERY_MARKER)
+        .then(|| output.chars().take(2200).collect::<String>())
 }
 
 fn response_item_texts_contain(item: &ResponseItem, predicate: &dyn Fn(&str) -> bool) -> bool {
@@ -4676,6 +4699,32 @@ tax_calc.py\n\
         assert!(text.contains("Do not send commentary-only text"));
         assert!(text.contains("call shell_command with `rg --files` now"));
         assert!(text.contains("finish the inspect node into implement_solution"));
+    }
+
+    #[test]
+    fn no_action_recovery_preserves_recent_gate_recovery_context() {
+        let blocked_output = "TaskSpace blocked this validation command.\n\
+TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_test_missing_changed_artifact_coverage\",\"next_valid_actions\":[\"run_test with command `python recover_logs.py` to execute changed artifact `recover_logs.py`\"]}";
+        let text = item_text(build_taskspace_no_action_recovery_item(Some(
+            blocked_output,
+        )));
+
+        assert!(text.contains(TASKSPACE_NO_ACTION_RECOVERY_MARKER));
+        assert!(text.contains(TASKSPACE_GATE_RECOVERY_MARKER));
+        assert!(text.contains("run_test with command `python recover_logs.py`"));
+        assert!(text.contains("obey the `next_valid_actions`"));
+    }
+
+    #[test]
+    fn extracts_gate_recovery_from_blocked_tool_output() {
+        let item = tool_output(
+            "TaskSpace blocked this validation command.\nTaskSpaceGateRecoveryV1: {\"next_valid_actions\":[\"run python recover_logs.py\"]}",
+        );
+        let extracted = taskspace_gate_recovery_from_response_item(&item)
+            .expect("gate recovery should be extracted from function output");
+
+        assert!(extracted.contains(TASKSPACE_GATE_RECOVERY_MARKER));
+        assert!(extracted.contains("run python recover_logs.py"));
     }
 
     #[test]
@@ -7537,6 +7586,7 @@ async fn try_run_sampling_request(
                             saw_actionable_output = true;
                             needs_follow_up = true;
                             let mut tool_error_message: Option<String> = None;
+                            let mut tool_gate_recovery_message: Option<String> = None;
                             match tool_runtime
                                 .clone()
                                 .handle_tool_call(
@@ -7546,12 +7596,14 @@ async fn try_run_sampling_request(
                                 .await
                             {
                                 Ok(response_input) => {
-                                    record_response_input_item(
+                                    let response_item = record_response_input_item(
                                         sess.as_ref(),
                                         turn_context.as_ref(),
                                         response_input,
                                     )
                                     .await;
+                                    tool_gate_recovery_message =
+                                        taskspace_gate_recovery_from_response_item(&response_item);
                                 }
                                 Err(err) => {
                                     let response_input =
@@ -7568,7 +7620,9 @@ async fn try_run_sampling_request(
                                         Some(format!("TaskSpace tool call failed: {err}"));
                                 }
                             }
-                            if let Some(message) = tool_error_message {
+                            if let Some(message) = tool_gate_recovery_message {
+                                last_agent_message = Some(message);
+                            } else if let Some(message) = tool_error_message {
                                 last_agent_message = Some(message);
                             } else if let Some(rationale) = action.rationale.as_deref()
                                 && !rationale.trim().is_empty()

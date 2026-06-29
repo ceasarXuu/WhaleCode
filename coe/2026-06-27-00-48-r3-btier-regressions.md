@@ -2961,3 +2961,169 @@
   - none
 - Close reason:
   - not closed
+
+## Evidence E-050: validation recovery gate now preserves executable changed-artifact guidance
+- Related hypotheses:
+  - H-033
+- Direction: supports-repair
+- Type: code-change-and-test
+- Source:
+  - `third_party\codex-cli\codex-rs\core\src\action_map\runtime.rs`
+  - `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Prediction or plan link:
+  - H-033 repair path: blocked validation commands must carry specific recovery guidance into the next request, otherwise the model can fall back to rediscovery.
+- Matched signal:
+  - `validation_test_coverage_block` now emits executable changed-artifact actions such as `run_test with command `python <artifact>``.
+  - The gate message explicitly forbids discovery commands such as `find`, `ls`, `rg`, and `Get-ChildItem` for rediscovering already-known changed artifacts.
+  - `turn.rs` extracts `TaskSpaceGateRecoveryV1` from failed `FunctionCallOutput` / `CustomToolCallOutput`.
+  - `TaskSpaceNoActionRecoveryV1` now replays the most recent `TaskSpaceGateRecoveryV1` and tells the model to obey `next_valid_actions`.
+- Correlation keys:
+  - `TaskSpaceGateRecoveryV1`
+  - `validation_test_missing_changed_artifact_coverage`
+  - `no_action_recovery_preserves_recent_gate_recovery_context`
+  - `extracts_gate_recovery_from_blocked_tool_output`
+- Raw content:
+  ```text
+  cargo test -p codex-core validation_node_blocks_vacuous_test_after_changed_artifact --lib -- --nocapture = PASS
+  cargo test -p codex-core no_action_recovery --lib -- --nocapture = PASS, 3 tests
+  cargo test -p codex-core extracts_gate_recovery_from_blocked_tool_output --lib -- --nocapture = PASS
+  cargo test -p codex-core validation_node --lib -- --nocapture = PASS, 16 tests
+  cargo test -p codex-core active_context_replacement --lib -- --nocapture = PASS, 113 tests
+  cargo build -p codex-cli --bin whale --profile dev-small = PASS
+  ```
+- Interpretation: The recovery instructions are now carried through the same active-context replacement path that had previously hidden legacy tool outputs, without reintroducing raw legacy TaskSpace history.
+- Time: 2026-06-29 12:05
+
+## Evidence E-051: rerun proves gate recovery bridge works but no-action hard stop remains a blocker
+- Related hypotheses:
+  - H-033
+- Direction: supports-and-refines
+- Type: real-task-rerun
+- Source:
+  - `target\r3-gate-recovery-recover-accuracy-log-rerun\runs\terminal_bench__recover-accuracy-log\20260629-120857-814\pair-001\pair-report.md`
+  - `target\r3-gate-recovery-recover-accuracy-log-rerun\runs\terminal_bench__recover-accuracy-log\20260629-120857-814\pair-001\right\artifacts\rollout.jsonl`
+  - `target\r3-gate-recovery-recover-accuracy-log-rerun\runs\terminal_bench__recover-accuracy-log\20260629-120857-814\pair-001\right\artifacts\taskspace-control-usage.json`
+- Prediction or plan link:
+  - E-050 should cause no-action recovery to include the exact changed artifact command after a validation coverage block.
+- Matched signal:
+  - Gate output line 276 says the changed artifact is `/app/recover.py` and gives `next_valid_actions=["run_test with command `python /app/recover.py` ...]`.
+  - No-action recovery line 284 replays that `TaskSpaceGateRecoveryV1`.
+  - The model still emits `list_files`; with smoke_test no-action cap at 1, the turn fails before another recovery can converge.
+- Correlation keys:
+  - `20260629-120857-814`
+  - `python /app/recover.py`
+  - `TaskSpaceNoActionRecoveryV1`
+  - `node_policy_violation:smoke_test:list_files`
+- Raw content:
+  ```text
+  right / taskspace:
+    outcome_taskspace = wrong
+    changed_paths = recover.py
+    tool_call_count = 7
+    open_leaf_nodes = 1
+
+  line 276:
+    next_valid_actions = run_test with command `python /app/recover.py`
+  line 284:
+    no-action recovery replayed TaskSpaceGateRecoveryV1
+  ```
+- Interpretation: H-033's gate-context loss is repaired. The remaining blocker is a hard no-action recovery stop that turns one validation-node policy violation into task failure.
+- Time: 2026-06-29 12:20
+
+## Hypothesis H-034: validation no-action recovery cap is a hard stop that prevents convergence after recoverable policy violations
+- Claim: On validation nodes, `TaskSpaceNoActionRecoveryV1` uses a cap of 1 and returns `None` after the first spent recovery. This makes a recoverable action-contract policy violation terminal, even when the runtime has exact next-valid-action guidance and remaining provider budget.
+- Parent:
+  - H-033
+- If true:
+  - A rerun should show correct `TaskSpaceGateRecoveryV1` guidance followed by one policy violation and then turn failure.
+  - Making the no-action threshold advisory should allow later provider requests to continue and eventually run the changed artifact.
+- If false:
+  - The failure would persist even after advisory no-action recovery, or the model would fail for semantic output correctness rather than premature turn stop.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: compare `20260629-120857-814` before advisory recovery and the next focused rerun after changing no-action cap behavior.
+  - Signal: `TaskSpaceNoActionRecoveryV1`, request count progression, final taskspace outcome, public/hidden validation exit codes, and open leaf count.
+  - Capture method: parse `pair-report.md`, `whale-exec.jsonl`, `rollout.jsonl`, and `taskspace-control-usage.json`.
+  - Event name or marker:
+    - `beyond the advisory recovery threshold`
+    - `TaskSpaceNoActionRecoveryV1`
+    - `provider_request_profile_hint_exceeded`
+  - Supports if:
+    - the post-change rerun continues past the previous cap and reaches successful validation.
+  - Refutes if:
+    - the rerun still stops at the same no-action recovery point.
+- Evidence gate: satisfied by E-052 and E-053.
+- Related evidence:
+  - E-051
+  - E-052
+  - E-053
+- Conclusion: confirmed
+- Repair design readiness: implemented
+- Next step: investigate why validation success still needs many redundant recovery turns before finalization.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-052: no-action recovery threshold is advisory, not terminal
+- Related hypotheses:
+  - H-034
+- Direction: supports-repair
+- Type: code-change-and-test
+- Source: `third_party\codex-cli\codex-rs\core\src\session\turn.rs`
+- Prediction or plan link:
+  - H-034 repair: recoverable no-action guidance should continue after the advisory threshold instead of ending the turn.
+- Matched signal:
+  - The previous `return None` branch for generic no-action cap exhaustion was removed.
+  - The warning now says recovery continues beyond the advisory threshold.
+  - Existing no-action and active-context replacement tests still pass.
+- Correlation keys:
+  - `TaskSpaceNoActionRecoveryV1 beyond the advisory recovery threshold`
+  - `no_action_recovery`
+  - `active_context_replacement`
+- Raw content:
+  ```text
+  cargo test -p codex-core no_action_recovery --lib -- --nocapture = PASS, 3 tests
+  cargo test -p codex-core active_context_replacement --lib -- --nocapture = PASS, 113 tests
+  cargo build -p codex-cli --bin whale --profile dev-small = PASS
+  ```
+- Interpretation: The generic no-action threshold no longer acts as a hard budget stop. This matches the R3 direction that profiles and recovery thresholds should guide behavior rather than terminate open-ended agent work.
+- Time: 2026-06-29 12:25
+
+## Evidence E-053: focused rerun solves recover-accuracy-log after advisory no-action recovery
+- Related hypotheses:
+  - H-031
+  - H-032
+  - H-033
+  - H-034
+- Direction: supports-repair
+- Type: real-task-rerun
+- Source:
+  - `target\r3-noaction-advisory-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-122726-092\pair-001\pair-report.md`
+  - `target\r3-noaction-advisory-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-122726-092\pair-001\right\artifacts\whale-exec.jsonl`
+  - `target\r3-noaction-advisory-recover-accuracy-log\runs\terminal_bench__recover-accuracy-log\20260629-122726-092\pair-001\right\artifacts\taskspace-control-usage.json`
+- Prediction or plan link:
+  - The chain of action-contract, validation coverage, gate-recovery, and advisory recovery repairs should convert `recover-accuracy-log` from no-patch/wrong into a solved focused sample.
+- Matched signal:
+  - TaskSpace outcome is `solved`.
+  - `business_success=True`, `exec_exit_code=0`, `public_validation_exit_code=0`, `hidden_oracle_exit_code=0`.
+  - `changed_paths` includes `recover_accuracy.py` plus all required `recovered_logs/*` outputs.
+  - `open_leaf_nodes=0`.
+  - `taskspace_control_count=4`.
+- Correlation keys:
+  - `20260629-122726-092`
+  - `recover_accuracy.py`
+  - `recovered_logs/results.json`
+  - `business_success: True`
+- Raw content:
+  ```text
+  right / taskspace:
+    business_success = True
+    exec_exit_code = 0
+    public_validation_exit_code = 0
+    hidden_oracle_exit_code = 0
+    tool_call_count = 6
+    open_leaf_nodes = 0
+    changed_paths = recover_accuracy.py, recovered_logs/results.json, recovered_logs/run_1_generator.jsonl, recovered_logs/run_1_judge.jsonl, recovered_logs/run_2_generator.jsonl, recovered_logs/run_2_judge.jsonl, recovered_logs/run_3_generator.jsonl, recovered_logs/run_3_judge.jsonl
+  ```
+- Interpretation: This is a real focused-task benefit proof, not just a unit-level gate proof. It is still E2-candidate rather than formal E3 because repeats and human review are missing and the external Terminal-Bench validator remains downgraded for official-runner fidelity.
+- Time: 2026-06-29 12:40

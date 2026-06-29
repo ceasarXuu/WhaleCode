@@ -7,7 +7,7 @@
 
 ```text
 Created: 2026-06-26
-Updated: 2026-06-28
+Updated: 2026-06-29
 Version: v0.0.5 build-R3
 Status: Draft
 Owner / Responsible: WhaleCode core runtime
@@ -15,6 +15,7 @@ Related Systems: TaskSpace runtime, session turn assembly, provider client, benc
 Related Links:
   docs/v0.0.5/build-R2/08-phase-h-e3-readiness.md
   docs/v0.0.5/build-R2/09-module-checklist-and-closeout.md
+  docs/v0.0.5/build-R3/07-validation-gate-recovery-evidence.md
 Risk Level: High
 Plan Type: Full
 AI Agent 推理程度: high

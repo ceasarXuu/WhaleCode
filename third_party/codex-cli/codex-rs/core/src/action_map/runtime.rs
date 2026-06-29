@@ -2064,6 +2064,49 @@ impl ActionMapRuntimeState {
                 )],
             ));
         }
+        if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+            && matches!(
+                descriptor.action_class,
+                ActionClass::Read | ActionClass::Search
+            )
+            && let Some((failed_result_id, failed_summary)) =
+                validation_node_failed_noninfra_result(map, node)
+        {
+            let reason = "validation_failed_requires_rework_routing".to_string();
+            let message = format!(
+                "TaskSpace blocked this {} because validation node `{}` already has a failed test/build result `{}`. Do not continue read/search rediscovery on the validation node. Record the failed validation result, then finish or block this validation node and create or bind an implement_solution rework node that depends on the failed validation evidence. Failure preview: {}",
+                descriptor.action_class.as_str(),
+                node.id,
+                failed_result_id,
+                failed_summary
+            );
+            let recovery = gate_recovery_message(
+                &message,
+                &reason,
+                vec![
+                    format!("current_node:{}:{}", node.id, node.kind.as_str()),
+                    format!("failed_validation_result:{failed_result_id}"),
+                ],
+                vec![
+                    "taskspace_control(action=state_commit) marking the failed validation result and routing to implement_solution rework".to_string(),
+                    "or taskspace_control(action=block_node) with the exact failed validation evidence".to_string(),
+                ],
+                Vec::new(),
+            );
+            return Err(ActionMapGateError::new(
+                recovery,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: node.kind.as_str().to_string(),
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason,
+                    },
+                )],
+            ));
+        }
         if descriptor.action_class != ActionClass::Control
             && let Some(call_id) = descriptor.call_id.as_deref()
         {
@@ -11735,7 +11778,7 @@ fn validation_test_coverage_block(
     };
     let reason = "validation_test_missing_changed_artifact_coverage".to_string();
     let message = format!(
-        "TaskSpace blocked this validation command because current node `{}` kind: {} must validate the implementation edit, but requested command `{}` does not execute or reference changed artifact(s): {}. Declared output contract targets: {}. Run the changed artifact, run a real project/official validator such as pytest or run-tests, or block with the exact reason validation cannot exercise the edit.",
+        "TaskSpace blocked this validation command because current node `{}` kind: {} must validate the implementation edit, but requested command `{}` does not execute or reference changed artifact(s): {}. Declared output contract targets: {}. Run the changed artifact directly, run a real project/official validator such as pytest or run-tests, or block with the exact reason validation cannot exercise the edit. Do not run discovery commands such as find, ls, rg, or Get-ChildItem to rediscover the changed artifact; it is already known.",
         node.id,
         node.kind.as_str(),
         single_line_preview(&command, 220),
@@ -11745,7 +11788,7 @@ fn validation_test_coverage_block(
     let mut next_valid_actions = changed_artifacts
         .iter()
         .take(3)
-        .map(|artifact| format!("run a validation command that executes or imports `{artifact}`"))
+        .map(|artifact| validation_changed_artifact_action(artifact))
         .collect::<Vec<_>>();
     next_valid_actions.push("or run a real project/official validator command such as pytest, cargo test, npm test, or run-tests".to_string());
     let mut evidence_refs = vec![format!("current_node:{}:{}", node.id, node.kind.as_str())];
@@ -11762,6 +11805,40 @@ fn validation_test_coverage_block(
             .map(|artifact| format!("output_contract:{artifact}")),
     );
     Some((reason, message, next_valid_actions, evidence_refs))
+}
+
+fn validation_changed_artifact_action(artifact: &str) -> String {
+    let normalized = normalize_artifact_ref(artifact);
+    let command = if normalized.ends_with(".py") {
+        format!("python {normalized}")
+    } else if normalized.ends_with(".js") || normalized.ends_with(".mjs") {
+        format!("node {normalized}")
+    } else if normalized.ends_with(".sh") {
+        format!("bash {normalized}")
+    } else {
+        normalized.clone()
+    };
+    format!("run_test with command `{command}` to execute changed artifact `{normalized}`")
+}
+
+fn validation_node_failed_noninfra_result(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Option<(String, String)> {
+    node.result_context.iter().rev().find_map(|result_ref| {
+        let result = map.results.get(&result_ref.id)?;
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(false)
+            || !matches!(
+                result.action_class,
+                Some(ActionClass::Test | ActionClass::Build)
+            )
+            || is_local_validator_infra_failure(&result.body)
+        {
+            return None;
+        }
+        Some((result.id.clone(), single_line_preview(&result.body, 220)))
+    })
 }
 
 fn tool_action_descriptor_command(descriptor: &ToolActionDescriptor) -> Option<String> {
@@ -18270,6 +18347,8 @@ mod tests {
         );
         assert!(error.contains("recover_logs.py"), "{error}");
         assert!(error.contains("recovered_logs/results.json"), "{error}");
+        assert!(error.contains("python /app/recover_logs.py"), "{error}");
+        assert!(error.contains("Do not run discovery commands"), "{error}");
 
         let runs_changed_artifact = serde_json::json!({
             "command": "python /app/recover_logs.py",
@@ -18293,6 +18372,52 @@ mod tests {
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
             )
             .expect("general project validators remain allowed");
+    }
+
+    #[test]
+    fn validation_node_failed_test_blocks_read_rediscovery() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate recovery script",
+            "Run the changed script and handle failures through rework.",
+            "Smoke test",
+            "Run the changed script.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-recover",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "Traceback (most recent call last): FileNotFoundError: ./raw_logs/generator.log"
+                    .to_string(),
+            )
+            .expect("failed validation result");
+
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "Get-Content -LiteralPath \"raw_logs/generator.log\" -TotalCount 240"
+                    })
+                    .to_string(),
+                ),
+            )
+            .expect_err("failed validation should route to rework, not rediscovery reads");
+
+        assert!(error.contains("validation_failed_requires_rework_routing"));
+        assert!(error.contains("implement_solution rework"));
+        assert!(error.contains("FileNotFoundError"));
     }
 
     #[test]
