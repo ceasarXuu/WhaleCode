@@ -3692,3 +3692,33 @@
   ```
 - Interpretation: R3 engineering code complete is true. Full E3 remains intentionally blocked by the explicit user-approval marker, not by an unresolved engineering bug.
 - Time: 2026-06-30 02:45
+
+## Evidence E-072: post-closeout light experiment shows TaskSpace patch recovery still loses a trivial one-line fix
+- Related hypotheses:
+  - H-044
+- Direction: limits-benefit-claim
+- Type: light-effect-experiment
+- Source:
+  - `target\r3-light-effect-single-file-20260630-024154\single-file-fast-fix\20260630-024155-720\pair-001\pair-report.md`
+  - `target\r3-light-effect-single-file-20260630-024154\single-file-fast-fix\20260630-024155-720\pair-001\right\artifacts\whale-exec.jsonl`
+  - `target\r3-light-effect-single-file-20260630-024154\single-file-fast-fix\20260630-024155-720\pair-001\right\artifacts\active-context-replacement-report.json`
+  - `docs\v0.0.5\build-R3\10-light-effect-experiment.md`
+- Matched signal:
+  - Standard solved the `single-file-fast-fix` pair; TaskSpace ended `wrong` with `agent_no_patch`.
+  - TaskSpace correctly identified the fix (`round(..., 1)` should become `round(..., 2)`) but failed to land the edit.
+  - First `apply_patch` omitted `*** Begin Patch`; second targeted `tax_calc.py` instead of `src/tax_calc.py`, causing context failure.
+  - Context replacement and cache remained healthy: `replacement_confirmed=true`, `legacy_taskspace_history_present=false`, `raw_taskspace_control_history_tokens=0`, `request_2_plus_hit_rate=0.985235`.
+- Raw content:
+  ```text
+  reported_evidence_level = E1
+  included_in_utility_aggregate = false
+  valid_pair = true
+  utility_direction = standard_better
+  outcome_standard = solved
+  outcome_taskspace = wrong
+  failure_taxonomy = agent_no_patch
+  taskspace_wall_time_ratio = 1.63
+  taskspace_tool_call_ratio = 0.71
+  ```
+- Interpretation: R3 engineering closeout is not disproved, but the lightweight effect signal is negative. The next benefit-oriented repair should target apply_patch failure recovery and path normalization, not more context or tighter budget controls.
+- Time: 2026-06-30 02:50
