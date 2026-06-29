@@ -17,6 +17,7 @@ Related Links:
   docs/v0.0.5/build-R2/09-module-checklist-and-closeout.md
   docs/v0.0.5/build-R3/07-validation-gate-recovery-evidence.md
   docs/v0.0.5/build-R3/08-current-status-and-multisource-followup.md
+  docs/v0.0.5/build-R3/09-r3-engineering-closeout.md
 Risk Level: High
 Plan Type: Full
 AI Agent 推理程度: high
