@@ -154,6 +154,7 @@ const TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER: &str =
     "TaskSpaceApplyPatchMissingTargetRecoveryV1:";
 const TASKSPACE_PATCH_INTENT_FORMAT_MARKER: &str = "TaskSpacePatchIntentFormatRecoveryV1:";
 const TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER: &str = "TaskSpaceValidationInfraRecoveryV1:";
+const TASKSPACE_TOOL_FEEDBACK_MARKER: &str = "TaskSpaceToolFeedbackV1:";
 const TASKSPACE_INSPECT_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-rg-files";
 const TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-pytest";
 const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
@@ -1704,6 +1705,15 @@ fn taskspace_missing_update_targets_from_apply_patch_error(
     {
         return None;
     }
+    taskspace_missing_update_targets_from_apply_patch_text(message)
+}
+
+fn taskspace_missing_update_targets_from_apply_patch_text(message: &str) -> Option<String> {
+    if !message.contains("apply_patch verification failed")
+        || !message.contains("Failed to read file to update ")
+    {
+        return None;
+    }
     let (_, rest) = message.split_once("Failed to read file to update ")?;
     let target = rest
         .split_once(" (os error")
@@ -2428,7 +2438,7 @@ fn taskspace_action_contract_recent_tool_outputs_item(
 }
 
 fn taskspace_action_contract_tool_output_summary(item: &ResponseItem) -> Option<(String, String)> {
-    let (call_id, text) = match item {
+    let (call_id, text, success) = match item {
         ResponseItem::FunctionCallOutput {
             call_id, output, ..
         }
@@ -2437,6 +2447,7 @@ fn taskspace_action_contract_tool_output_summary(item: &ResponseItem) -> Option<
         } => (
             call_id.as_str(),
             function_call_output_body_text(&output.body),
+            output.success,
         ),
         _ => return None,
     };
@@ -2444,7 +2455,50 @@ fn taskspace_action_contract_tool_output_summary(item: &ResponseItem) -> Option<
     if text.is_empty() {
         return None;
     }
-    Some((call_id.to_string(), text.to_string()))
+    Some((
+        call_id.to_string(),
+        taskspace_action_contract_tool_feedback_summary(call_id, text, success),
+    ))
+}
+
+fn taskspace_action_contract_tool_feedback_summary(
+    call_id: &str,
+    text: &str,
+    success: Option<bool>,
+) -> String {
+    if !call_id.starts_with("taskspace-action-contract-") || success != Some(false) {
+        return text.to_string();
+    }
+    let action = taskspace_action_contract_action_name_from_call_id(call_id).unwrap_or("unknown");
+    if action == "apply_patch"
+        && let Some(target) = taskspace_missing_update_targets_from_apply_patch_text(text)
+    {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: apply_patch\n\
+tool_result: failed\n\
+failure_kind: apply_patch_missing_update_target\n\
+target: {target}\n\
+next_valid_action: emit exactly one apply_patch. Use `*** Add File: <relative/path>` if the file should be created, or correct the path and use `*** Update File: <relative/path>` if the file already exists.\n\
+raw_output:\n{text}"
+        );
+    }
+    format!(
+        "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: {action}\n\
+tool_result: failed\n\
+failure_kind: tool_execution_failed\n\
+next_valid_action: inspect this tool result and emit one corrected taskspace-action-v1 action. Do not ignore this failed tool result or finish the node until the failure is resolved or explicitly blocked with evidence.\n\
+raw_output:\n{text}"
+    )
+}
+
+fn taskspace_action_contract_action_name_from_call_id(call_id: &str) -> Option<&str> {
+    let suffix = call_id.strip_prefix("taskspace-action-contract-")?;
+    let (_, action) = suffix.rsplit_once('-')?;
+    Some(action)
 }
 
 fn taskspace_output_mentions_local_validator_infra_failure(text: &str) -> bool {
@@ -4612,6 +4666,68 @@ tax_calc.py\n\
         assert!(joined.contains("call_id: call-1"));
         assert!(joined.contains("CA tax rate is 7.25%"));
         assert!(joined.contains("call_id: call-2"));
+    }
+
+    #[test]
+    fn action_contract_prompt_structures_internal_apply_patch_missing_target_feedback() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Fix the failing implementation"),
+            message("developer", &latest_active_projection),
+            ResponseItem::CustomToolCallOutput {
+                call_id: "taskspace-action-contract-7-apply_patch".to_string(),
+                name: Some("apply_patch".to_string()),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "apply_patch verification failed: Failed to read file to update W:\\app\\src\\call_stack_counter\\__main__.py: 系统找不到指定的路径。 (os error 3)"
+                            .to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("tool_source: action_contract_internal"));
+        assert!(joined.contains("tool_action: apply_patch"));
+        assert!(joined.contains("failure_kind: apply_patch_missing_update_target"));
+        assert!(joined.contains("target: call_stack_counter/__main__.py"));
+        assert!(joined.contains("next_valid_action: emit exactly one apply_patch"));
+        assert!(joined.contains("raw_output:"));
+        assert!(joined.contains("Failed to read file to update"));
+    }
+
+    #[test]
+    fn action_contract_prompt_structures_generic_internal_tool_failure() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Run the validation"),
+            message("developer", &latest_active_projection),
+            ResponseItem::FunctionCallOutput {
+                call_id: "taskspace-action-contract-9-run_test".to_string(),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "pytest failed: 2 failed, 1 passed".to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("tool_action: run_test"));
+        assert!(joined.contains("failure_kind: tool_execution_failed"));
+        assert!(joined.contains("pytest failed: 2 failed, 1 passed"));
     }
 
     #[test]

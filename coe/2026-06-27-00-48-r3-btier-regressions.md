@@ -3931,3 +3931,59 @@
   ```
 - Interpretation: This closes the R4-C direct-tool-error semantic split. It does not close action-contract internal tool parity, projection safety, or non-direct tool coverage.
 - Time: 2026-06-30 17:05
+
+## Hypothesis H-048: action-contract internal failed tool outputs need structured next-action feedback in the next prompt
+- Status: confirmed
+- Parent: P-001
+- Claim: Raw failed `taskspace-action-contract-*` tool outputs are not strong enough as next-turn guidance; failed internal tool outputs must be summarized as structured TaskSpace tool feedback carrying action, failure kind, target, next valid action, and raw output.
+- Layer: root-cause-component
+- Factor relation: all_of
+- Depends on:
+  - H-045
+  - H-046
+- Rationale:
+  - `count-call-stack` showed a failed internal `apply_patch` path where the model did not recover the path. The existing recent-output path could include the raw output, but did not classify it as an internal action-contract tool failure with an explicit next action.
+- Falsifiable predictions:
+  - If true before repair: a failed `taskspace-action-contract-*-apply_patch` output is summarized as raw text without a structured marker or next valid action.
+  - If repaired: the next action-contract prompt contains `TaskSpaceToolFeedbackV1`, `tool_source: action_contract_internal`, `failure_kind: apply_patch_missing_update_target`, the extracted target, and the raw failed output.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: build focused prompt assembly tests using failed action-contract tool outputs.
+  - Signal:
+    - `action_contract_prompt_structures_internal_apply_patch_missing_target_feedback`
+    - `action_contract_prompt_structures_generic_internal_tool_failure`
+  - Capture method: Rust unit tests.
+  - Supports if:
+    - both tests pass and show structured marker in the prepared action-contract prompt.
+  - Refutes if:
+    - failed internal tool output remains raw-only or loses target/raw output.
+- Evidence gate: unit gate satisfied; real sample gate pending.
+- Related evidence:
+  - E-076
+- Conclusion: confirmed-and-unit-repaired
+- Repair design readiness: implemented for prompt-level internal tool failure structuring; real sample validation remains required before closing R4-D.
+- Close reason:
+  - Focused prompt assembly tests pass, but R4-D remains open until `count-call-stack` rerun proves real benefit.
+
+## Evidence E-076: failed action-contract tool outputs become structured TaskSpaceToolFeedbackV1 prompt context
+- Related hypotheses:
+  - H-048
+- Direction: supports-repair
+- Type: code-change-and-test
+- Source:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Prediction or plan link:
+  - H-048 predicts failed internal tool outputs can be transformed into structured next-action feedback before the next model request.
+- Matched signal:
+  - `taskspace_action_contract_tool_output_summary(...)` now calls `taskspace_action_contract_tool_feedback_summary(...)`.
+  - Failed `taskspace-action-contract-*` outputs receive `TaskSpaceToolFeedbackV1`.
+  - Failed internal apply_patch missing update target includes `failure_kind: apply_patch_missing_update_target`, extracted target, next valid action, and raw output.
+- Raw content:
+  ```text
+  cargo test -p codex-core action_contract_prompt_structures_internal_apply_patch_missing_target_feedback --lib
+    1 passed
+
+  cargo test -p codex-core action_contract_prompt_structures_generic_internal_tool_failure --lib
+    1 passed
+  ```
+- Interpretation: The next action-contract prompt now carries structured internal tool feedback. This is not yet a real-sample benefit proof; `count-call-stack` must be rerun.
+- Time: 2026-06-30 18:05
