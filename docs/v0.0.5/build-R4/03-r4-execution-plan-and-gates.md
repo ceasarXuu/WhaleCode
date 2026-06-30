@@ -134,6 +134,33 @@ action-contract rejected output 不再被模型无视到继续提交 final/wrong
 recovery 停止条件基于语义进展，而不是粗暴固定尝试次数。
 ```
 
+2026-06-30 执行结果：
+
+```text
+RunDir: target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136
+outcome_standard=solved
+outcome_taskspace=solved
+failure_taxonomy=none
+standard_wall_time_ms=138205
+taskspace_wall_time_ms=154525
+taskspace_wall_time_ratio=1.12
+standard_tool_call_count=20
+taskspace_tool_call_count=11
+taskspace_tool_call_ratio=0.55
+changed_paths=src/call_stack_counter.py
+public_validation_exit_code=0
+```
+
+R4-D 当前关闭范围仅限这条 P0 internal tool feedback 链路：
+
+1. failed edit feedback 被保留并进入 edit-failure recovery。
+2. validation node 不再允许继续 discovery loop。
+3. local validator coverage failure 以 structured feedback 给出 exact next action。
+4. unreviewed-result blocker 以 structured feedback 给出 `result_validities` next action。
+5. implement projection 保留上游 inspect read evidence。
+
+R4-E/R4-F/R4-G 仍需继续验证 large-output、non-direct tools、public 10 样本。
+
 ## 3.5 Phase R4-E：Projection, Output Ref, and Performance Safeguards
 
 目标：

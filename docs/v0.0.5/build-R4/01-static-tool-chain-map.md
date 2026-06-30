@@ -130,3 +130,41 @@ Gate name:
 7. `intentionally-excluded` path 必须写明 rationale 和 test。
 
 这只能关闭 R4-A 的“管理机制/覆盖登记”缺口，不能代替 R4-C 到 R4-F 的 runtime 语义修复。
+
+## 1.7 2026-06-30 R4-D 链路更新
+
+`count-call-stack` 真实样本暴露出 action-contract internal tool path 不是单一 bug，而是连续 5 个反馈断点：
+
+1. failed edit feedback 有 stderr，但 generic needs-edit recovery 没把失败原因作为下一轮行动依据。
+2. fixed retry 能改对文件后，validation node 仍继续 read/list，进入发现循环。
+3. validation gate 已发现 `scripts/validate.py`，但 pytest-only failure 没有变成足够明确的 next action。
+4. unreviewed-result blocker 要求 `result_validities`，但反馈不够结构化，模型继续读文件。
+5. inspect 节点读到的源文件在 implement 投影中被压成 preview，导致 implement 节点认为还没读过可编辑源。
+
+对应 runtime 修复如下：
+
+| Path | Runtime Decision | Evidence |
+|---|---|---|
+| failed edit feedback | 保留最近 failed edit summary，插入 `TaskSpaceEditFailureRecoveryV1`，不再用固定 recovery 次数硬停 turn | `edit_failure_recovery_preserves_failed_tool_feedback` |
+| internal shell/test result map preview | TaskSpace 记录 tool result 前加 `TaskSpaceToolInvocationV1`，保留 tool 和 command 语义 | `taskspace_tool_result_preview_keeps_shell_command_context` |
+| validation node policy | validation node 只允许 `run_test`、`taskspace_control`、`blocked`，拒绝继续 read/search/list | `validation_needs_test_recovery_blocks_discovery_loop` |
+| local validator coverage | 如果已发现 `scripts/validate.py`，pytest-only validation 被拒绝，并给出 exact next action `python scripts/validate.py` | `validation_gate_requires_discovered_local_validator_over_pytest_only` |
+| action-contract gate feedback | local-validator coverage 和 unreviewed-result blocker 输出 `TaskSpaceToolFeedbackV1`，进入 recent tool feedback | `action_contract_prompt_structures_local_validator_coverage_failure` / `action_contract_prompt_structures_unreviewed_result_blocker` |
+| dependency read evidence | implement projection 增加 `dependency_read_evidence`，从上游 inspect 节点携带成功 read 的路径和有界内容 | `implement_projection_includes_dependency_read_evidence` |
+
+真实收益证明：
+
+```text
+RunDir: target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136
+outcome_standard: solved
+outcome_taskspace: solved
+failure_taxonomy: none
+standard_wall_time_ms: 138205
+taskspace_wall_time_ms: 154525
+standard_tool_call_count: 20
+taskspace_tool_call_count: 11
+changed_paths: src/call_stack_counter.py
+public_validation_exit_code: 0
+```
+
+结论：`action-contract-internal-tool-error` 这个 P0 path 已从 `needs-fix` 提升为 `canonical`。这不代表所有 parse/policy rejection、large output、CodeMode、multi-agent、MCP 路径都已关闭；这些仍由 R4-E/R4-F/R4-G 验证。

@@ -69,12 +69,24 @@
       "id": "action-contract-internal-tool-error",
       "class": "action_contract_internal_tool",
       "priority": "P0",
-      "status": "needs-fix",
+      "status": "canonical",
       "owner_phase": "R4-D",
       "source_anchors": [
         {
           "file": "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
           "pattern": "response_input_for_taskspace_action_tool_error"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
+          "pattern": "TaskSpaceToolFeedbackV1"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
+          "pattern": "TaskSpaceEditFailureRecoveryV1"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
+          "pattern": "taskspace_tool_result_preview_with_invocation"
         }
       ],
       "required_semantics": [
@@ -85,7 +97,7 @@
         "stderr_or_error_text",
         "next_payload_visibility"
       ],
-      "required_evidence": "Failed internal apply_patch/shell/test feedback appears in the next provider-visible payload."
+      "required_evidence": "Failed internal apply_patch/shell/test feedback appears in the next provider-visible payload and the R4-D count-call-stack rerun solved instead of no-patch/wrong."
     },
     {
       "id": "action-contract-parse-policy-rejection",

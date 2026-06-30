@@ -5836,6 +5836,17 @@ preview:\n\
                 })
     }
 
+    pub(crate) fn current_main_recent_failed_edit_summary(&self) -> Option<String> {
+        let map_id = self.active_map_id.as_ref()?;
+        let node_id = self.current_main_node_id.as_ref()?;
+        let map = self.maps.get(map_id)?;
+        let node = map.nodes.get(node_id)?;
+        if node.kind != NodeKind::ImplementSolution {
+            return None;
+        }
+        node_recent_failed_action_summary(map, node, ActionClass::Edit)
+    }
+
     pub(crate) fn current_main_working_evidence_summary(&self) -> Option<String> {
         let map_id = self.active_map_id.as_ref()?;
         let node_id = self.current_main_node_id.as_ref()?;
@@ -7570,16 +7581,8 @@ preview:\n\
                 context.push_str(node_id);
                 context.push_str(" kind=");
                 context.push_str(node.kind.as_str());
-                let contract = contract_for(node.kind);
                 context.push_str("\nCurrent node contract:\n- allowed action classes: ");
-                context.push_str(
-                    &contract
-                        .allowed_actions
-                        .iter()
-                        .map(|action| action.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
+                context.push_str(&compact_projection_allowed_actions_for_node(node.kind));
                 context.push_str("\nBefore requesting a blocked action, call taskspace_control(action=finish_node) and bind or create a suitable next node. If the current node kind is implement_solution, shell test commands will be blocked; after implementation edits, finish the implementation node and create or bind a smoke_test or regression_test node before running tests.\n");
             }
             context.push_str("\nNodes:\n");
@@ -7699,20 +7702,12 @@ preview:\n\
             if let Some(node_id) = self.current_main_node_id.as_ref()
                 && let Some(node) = map.nodes.get(node_id)
             {
-                let contract = contract_for(node.kind);
                 context.push_str("\nCurrent node contract:\n- node: ");
                 context.push_str(node_id);
                 context.push_str(" kind=");
                 context.push_str(node.kind.as_str());
                 context.push_str("\n- allowed action classes: ");
-                context.push_str(
-                    &contract
-                        .allowed_actions
-                        .iter()
-                        .map(|action| action.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
+                context.push_str(&compact_projection_allowed_actions_for_node(node.kind));
                 context.push('\n');
             }
             (
@@ -9620,6 +9615,8 @@ fn append_context_projection_with_header(
         })
         .collect::<Vec<_>>();
     let verified_input_evidence = projection_verified_input_evidence(map, current_node_id, 6);
+    let dependency_read_evidence =
+        projection_dependency_read_evidence(map, current_node_id, 4, 900);
     let critical_artifact_evidence =
         projection_critical_artifact_evidence(map, current_node_id, 4, 900);
     let hidden_refs = map
@@ -9662,6 +9659,11 @@ fn append_context_projection_with_header(
         &mut projection,
         "verified_input_evidence",
         &verified_input_evidence,
+    );
+    append_projection_multiline_list(
+        &mut projection,
+        "dependency_read_evidence",
+        &dependency_read_evidence,
     );
     append_projection_multiline_list(
         &mut projection,
@@ -9784,6 +9786,66 @@ fn projection_verified_input_evidence(
     evidence
 }
 
+fn projection_dependency_read_evidence(
+    map: &ActionMapInstance,
+    current_node_id: Option<&str>,
+    max_results: usize,
+    max_excerpt_chars: usize,
+) -> Vec<String> {
+    let Some(current_node) = current_node_id.and_then(|node_id| map.nodes.get(node_id)) else {
+        return Vec::new();
+    };
+    if current_node.kind != NodeKind::ImplementSolution {
+        return Vec::new();
+    }
+
+    let mut evidence = Vec::new();
+    let mut seen = HashSet::new();
+    for dependency_id in map
+        .edges
+        .iter()
+        .filter(|edge| edge.to == current_node.id)
+        .map(|edge| edge.from.as_str())
+    {
+        let Some(dependency) = map.nodes.get(dependency_id) else {
+            continue;
+        };
+        if dependency.kind != NodeKind::InspectCodeContext {
+            continue;
+        }
+        for result_ref in &dependency.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind != NodeResultKind::MainToolCall
+                || result.tool_success != Some(true)
+                || result.action_class != Some(ActionClass::Read)
+            {
+                continue;
+            }
+            let artifacts = result_artifact_refs(result);
+            if artifacts.is_empty() {
+                continue;
+            }
+            let artifact_key = artifacts.join("|");
+            if !seen.insert(format!("{}:{artifact_key}", result.id)) {
+                continue;
+            }
+            evidence.push(format!(
+                "{} node={} artifacts={}\nexcerpt:\n{}",
+                result.id,
+                dependency.id,
+                artifacts.join(","),
+                bounded_line_preserving_excerpt(&result.body, max_excerpt_chars)
+            ));
+            if evidence.len() >= max_results {
+                return evidence;
+            }
+        }
+    }
+    evidence
+}
+
 fn projection_critical_artifact_evidence(
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
@@ -9881,15 +9943,46 @@ fn projection_next_valid_actions(
             "edit implementation artifacts".to_string(),
             "taskspace_control(action=finish_node) into smoke_test/regression_test".to_string(),
         ],
-        NodeKind::SmokeTest | NodeKind::RegressionTest => vec![
-            "run validator/test command".to_string(),
-            "taskspace_control(action=state_commit) with result_validities and success_criteria"
-                .to_string(),
-        ],
+        NodeKind::SmokeTest | NodeKind::RegressionTest => {
+            let required_validators = discovered_required_local_validator_commands(map);
+            if !required_validators.is_empty() {
+                required_validators
+                    .into_iter()
+                    .map(|command| {
+                        format!("run_test with command `{command}` to execute discovered local validator")
+                    })
+                    .chain(std::iter::once(
+                        "taskspace_control(action=state_commit) only after validator evidence is recorded"
+                            .to_string(),
+                    ))
+                    .collect()
+            } else {
+                vec![
+                    "run validator/test command".to_string(),
+                    "taskspace_control(action=state_commit) with result_validities and success_criteria"
+                        .to_string(),
+                ]
+            }
+        }
         NodeKind::FinalSynthesis => {
             vec!["final response only after accepted validation".to_string()]
         }
         NodeKind::Custom => vec!["choose concrete built-in node kind for follow-up".to_string()],
+    }
+}
+
+fn compact_projection_allowed_actions_for_node(kind: NodeKind) -> String {
+    match kind {
+        NodeKind::SmokeTest | NodeKind::RegressionTest => "test, control".to_string(),
+        NodeKind::FinalSynthesis => "final_response, control".to_string(),
+        NodeKind::ImplementSolution => "read, search, edit, control".to_string(),
+        NodeKind::InspectCodeContext => "read, search, build, test, control".to_string(),
+        NodeKind::Custom => contract_for(kind)
+            .allowed_actions
+            .iter()
+            .map(|action| action.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
     }
 }
 
@@ -12009,6 +12102,27 @@ fn validation_test_coverage_block(
     descriptor: &ToolActionDescriptor,
 ) -> Option<(String, String, Vec<String>, Vec<String>)> {
     let command = tool_action_descriptor_command(descriptor)?;
+    if let Some(required_validator) = discovered_required_local_validator_commands(map)
+        .into_iter()
+        .find(|validator| !command_covers_local_validator(&command, validator))
+    {
+        let reason = "validation_test_missing_local_validator_coverage".to_string();
+        let message = format!(
+            "TaskSpace blocked this validation command because current node `{}` kind: {} has already discovered local validator `{}` but requested command `{}` does not run it. Unit tests such as pytest may pass while the local validator still fails. Run the discovered validator before closing validation.",
+            node.id,
+            node.kind.as_str(),
+            required_validator,
+            single_line_preview(&command, 220)
+        );
+        let next_valid_actions = vec![format!(
+            "run_test with command `{required_validator}` to execute the discovered local validator"
+        )];
+        let evidence_refs = vec![
+            format!("current_node:{}:{}", node.id, node.kind.as_str()),
+            format!("required_validator:{required_validator}"),
+        ];
+        return Some((reason, message, next_valid_actions, evidence_refs));
+    }
     if command_is_general_validation_runner(&command) {
         return None;
     }
@@ -12066,6 +12180,31 @@ fn validation_test_coverage_block(
             .map(|artifact| format!("output_contract:{artifact}")),
     );
     Some((reason, message, next_valid_actions, evidence_refs))
+}
+
+fn discovered_required_local_validator_commands(map: &ActionMapInstance) -> Vec<String> {
+    let mut commands = Vec::new();
+    for result in map.results.values() {
+        let body = result.body.replace('\\', "/").to_ascii_lowercase();
+        if body.contains("scripts/validate.py") {
+            push_unique_string(&mut commands, "python scripts/validate.py".to_string());
+        }
+    }
+    commands
+}
+
+fn command_covers_local_validator(command: &str, validator_command: &str) -> bool {
+    let command = command.replace('\\', "/").to_ascii_lowercase();
+    let validator_command = validator_command.replace('\\', "/").to_ascii_lowercase();
+    command.contains(&validator_command)
+        || command_mentions_artifact(&command, "scripts/validate.py")
+        || command.contains(" scripts/validate.py")
+}
+
+fn push_unique_string(values: &mut Vec<String>, value: String) {
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
 }
 
 fn validation_changed_artifact_action(artifact: &str) -> String {
@@ -12157,6 +12296,7 @@ fn command_is_general_validation_runner(command: &str) -> bool {
         "gradle test",
         "run-tests",
         "run_tests",
+        "scripts/validate.py",
         "test_outputs.py",
     ]
     .iter()
@@ -12512,6 +12652,24 @@ fn node_has_successful_action(
         result.kind == NodeResultKind::MainToolCall
             && result.action_class == Some(action_class)
             && result.tool_success == Some(true)
+    })
+}
+
+fn node_recent_failed_action_summary(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    action_class: ActionClass,
+) -> Option<String> {
+    node.result_context.iter().rev().find_map(|result_ref| {
+        let result = map.results.get(&result_ref.id)?;
+        if result.kind != NodeResultKind::MainToolCall
+            || result.action_class != Some(action_class)
+            || result.tool_success != Some(false)
+        {
+            return None;
+        }
+        let preview = single_line_preview(&result.body, 640);
+        Some(format!("{}: {}", result.id, preview))
     })
 }
 
@@ -16241,6 +16399,31 @@ mod tests {
             "Confirm output contract and evidence surface.",
             true,
         );
+        for index in
+            0..contract_for(NodeKind::ImplementSolution).max_main_tool_results_before_split_hint
+        {
+            let call_id = format!("read-{index}");
+            state
+                .prepare_main_tool_call(
+                    owner,
+                    ToolActionDescriptor::new(
+                        "shell_command",
+                        ActionClass::Read,
+                        "Get-Content src/call_stack_counter.py",
+                    )
+                    .with_call_id(call_id.as_str()),
+                )
+                .expect("pre-edit read should be allowed");
+            state
+                .record_main_tool_result(
+                    owner,
+                    call_id.as_str(),
+                    "shell_command",
+                    true,
+                    "def format_depth():\n    return f\"depth: {count_stack_depth()}\"".to_string(),
+                )
+                .expect("pre-edit read result records");
+        }
 
         state
             .prepare_main_tool_call(
@@ -18336,6 +18519,114 @@ mod tests {
     }
 
     #[test]
+    fn projection_prioritizes_discovered_local_validator_on_validation_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate local contract",
+            "Run the local validator.",
+            "Run focused validation",
+            "Run focused validation.",
+            true,
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "inspect-validator",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                ".\\scripts\\validate.py".to_string(),
+            )
+            .expect("validator discovery records")
+            .expect("result id");
+        let map = state.maps.get("map-1").expect("map");
+        let actions = projection_next_valid_actions(map, Some(&node_id));
+
+        assert_eq!(
+            compact_projection_allowed_actions_for_node(NodeKind::SmokeTest),
+            "test, control"
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("python scripts/validate.py"))
+        );
+        assert!(
+            !actions
+                .iter()
+                .any(|action| action == "run validator/test command")
+        );
+    }
+
+    #[test]
+    fn implement_projection_includes_dependency_read_evidence() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect formatter",
+            "Read formatter source before editing.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "Get-Content -LiteralPath \"src/call_stack_counter.py\" -TotalCount 240"
+                    })
+                    .to_string(),
+                )
+                .with_call_id("read-source"),
+            )
+            .expect("read should reserve source artifact");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-source",
+                "shell_command",
+                true,
+                "import inspect\n\n\ndef format_depth() -> str:\n    return f\"depth: {count_stack_depth()}\"\n"
+                    .to_string(),
+            )
+            .expect("read records")
+            .expect("result id");
+        state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "Inspected src/call_stack_counter.py and found wrong formatter prefix.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Patch formatter".to_string(),
+                    context_summary: "Patch src/call_stack_counter.py format_depth.".to_string(),
+                    dependency_node_ids: Vec::new(),
+                }),
+            )
+            .expect("finish creates implement node");
+
+        let map = state.maps.get("map-1").expect("map");
+        let evidence = projection_dependency_read_evidence(map, Some("node-2"), 4, 900);
+        let joined = evidence.join("\n");
+
+        assert!(joined.contains("src/call_stack_counter.py"));
+        assert!(joined.contains("format_depth"));
+        assert!(joined.contains("return f\"depth: {count_stack_depth()}\""));
+    }
+
+    #[test]
     fn implement_node_allows_edit_but_blocks_test() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -18662,6 +18953,117 @@ mod tests {
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
             )
             .expect("general project validators remain allowed");
+    }
+
+    #[test]
+    fn validation_gate_requires_discovered_local_validator_over_pytest_only() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Fix formatter",
+            "Repair CLI output format.",
+            "Source output matches validator.",
+            "Inspect README and validator.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-discover-validator",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "rg --files output: README.md\nscripts/validate.py\nsrc/call_stack_counter.py"
+                    .to_string(),
+            )
+            .expect("validator discovery records");
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nM src/call_stack_counter.py".to_string(),
+            )
+            .expect("edit result records")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "Formatter patch accepted for validation.".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-formatter-patched".to_string(),
+                    statement: "Formatter implementation was patched.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                vec!["src/call_stack_counter.py".to_string()],
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit result accepted");
+        let (outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Patched formatter.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run local validation".to_string(),
+                    context_summary: "Run the discovered local validator.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        accept_test_result(&mut state, owner, &outcome.result_id);
+        let validation_node_id = outcome.next_node_id.expect("validation node");
+        let pytest_only = serde_json::json!({
+            "command": "python -m pytest -v",
+            "timeout_ms": 120000
+        })
+        .to_string();
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, pytest_only),
+            )
+            .expect_err("pytest-only must not replace the discovered local validator");
+
+        assert!(
+            error.contains("validation_test_missing_local_validator_coverage"),
+            "{error}"
+        );
+        assert!(error.contains("python scripts/validate.py"), "{error}");
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(validation_node_id.as_str())
+        );
+
+        let local_validator = serde_json::json!({
+            "command": "python scripts/validate.py",
+            "timeout_ms": 120000
+        })
+        .to_string();
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, local_validator),
+            )
+            .expect("discovered local validator command is allowed");
     }
 
     #[test]
@@ -21181,6 +21583,46 @@ mod tests {
             map.nodes.get(&node_id).expect("implementation node"),
             ActionClass::Edit
         ));
+    }
+
+    #[test]
+    fn implement_failed_edit_summary_keeps_latest_tool_feedback() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Apply fix",
+            "Apply a narrow implementation change.",
+            "Apply fix",
+            "Apply a narrow implementation change.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "apply patch")
+                    .with_call_id("edit-1"),
+            )
+            .expect("edit should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "edit-1",
+                "apply_patch",
+                false,
+                "apply_patch verification failed: missing file call_stack_counter.py".to_string(),
+            )
+            .expect("failed edit result records");
+
+        let summary = state
+            .current_main_recent_failed_edit_summary()
+            .expect("failed edit summary should be available");
+        assert!(summary.contains("apply_patch verification failed"));
+        assert!(summary.contains("call_stack_counter.py"));
     }
 
     #[test]

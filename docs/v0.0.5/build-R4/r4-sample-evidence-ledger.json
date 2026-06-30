@@ -43,6 +43,18 @@
       "required_followup": "Prove action-contract internal apply_patch failure feedback is visible in the next provider payload."
     },
     {
+      "id": "r4-d-count-call-stack-feedback-loss-repaired",
+      "sample": "count-call-stack",
+      "failure_class": "tool_feedback_loss_repaired",
+      "owner_phase": "R4-D",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "solved",
+      "taskspace_wall_time_ratio": 1.12,
+      "taskspace_tool_call_ratio": 0.55,
+      "primary_evidence": "target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136/pair-001/pair-report.md",
+      "required_followup": "Keep as R4-D before/after proof that internal tool feedback, validation feedback, unreviewed result feedback, and dependency read evidence no longer make this public sample wrong/no-patch."
+    },
+    {
       "id": "r3-sweep-multi-file-order-pipeline-loop",
       "sample": "multi-file-order-pipeline",
       "failure_class": "action_contract_loop",

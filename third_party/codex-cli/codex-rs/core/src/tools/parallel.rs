@@ -133,6 +133,8 @@ impl ToolCallRuntime {
                                 &response.call_id,
                                 &response.payload,
                             );
+                            let preview =
+                                taskspace_tool_result_preview_with_invocation(&call, preview);
                             Self::record_taskspace_tool_result(
                                 &session,
                                 &turn,
@@ -172,6 +174,8 @@ impl ToolCallRuntime {
                                         &result.call_id,
                                         &result.payload,
                                     );
+                                    let preview =
+                                        taskspace_tool_result_preview_with_invocation(&call, preview);
                                     Self::record_taskspace_tool_result(
                                         &session,
                                         &turn,
@@ -189,6 +193,8 @@ impl ToolCallRuntime {
                                 if let Some(descriptor) = taskspace_descriptor.as_ref() {
                                     let response = Self::failure_response_for_error(&call, &err);
                                     let preview = response_input_model_visible_preview(&response);
+                                    let preview =
+                                        taskspace_tool_result_preview_with_invocation(&call, preview);
                                     Self::record_taskspace_tool_result(
                                         &session,
                                         &turn,
@@ -380,6 +386,37 @@ fn taskspace_action_contract_class(call_id: &str) -> Option<ActionClass> {
         "taskspace_control" => Some(ActionClass::Control),
         _ => None,
     }
+}
+
+fn taskspace_tool_result_preview_with_invocation(call: &ToolCall, preview: String) -> String {
+    let Some(command) = taskspace_tool_command_for_preview(call) else {
+        return preview;
+    };
+    format!(
+        "TaskSpaceToolInvocationV1:\n\
+tool: {}\n\
+command: {command}\n\
+raw_output:\n{preview}",
+        call.tool_name.display()
+    )
+}
+
+fn taskspace_tool_command_for_preview(call: &ToolCall) -> Option<String> {
+    let tool_name = call.tool_name.display().to_ascii_lowercase();
+    if !is_shell_like_tool(&tool_name) {
+        return None;
+    }
+    match &call.payload {
+        ToolPayload::Function { arguments }
+        | ToolPayload::Mcp {
+            raw_arguments: arguments,
+            ..
+        } => extract_command_from_json(arguments),
+        ToolPayload::LocalShell { params } => Some(params.command.join(" ")),
+        _ => None,
+    }
+    .map(|command| command.trim().to_string())
+    .filter(|command| !command.is_empty())
 }
 
 fn classify_tool_payload(tool_name: &str, payload: &ToolPayload) -> ActionClass {
@@ -736,6 +773,7 @@ mod tests {
     use super::ToolCallRuntime;
     use super::classify_shell_text;
     use super::taskspace_action_contract_class;
+    use super::taskspace_tool_result_preview_with_invocation;
     use crate::action_map::ActionClass;
     use crate::function_tool::FunctionCallError;
     use crate::tools::context::ToolPayload;
@@ -787,6 +825,29 @@ mod tests {
         assert!(preview.contains("local_validator_infra_failure"));
         assert!(preview.contains("Bash/Service/CreateInstance/E_ACCESSDENIED"));
         assert!(!preview.contains("garbled host output"));
+    }
+
+    #[test]
+    fn taskspace_tool_result_preview_keeps_shell_command_context() {
+        let call = ToolCall {
+            tool_name: ToolName::plain("shell_command"),
+            call_id: "taskspace-action-contract-16-run_test".to_string(),
+            payload: ToolPayload::Function {
+                arguments: serde_json::json!({
+                    "command": "python scripts/validate.py",
+                    "timeout_ms": 120000
+                })
+                .to_string(),
+            },
+        };
+        let preview =
+            taskspace_tool_result_preview_with_invocation(&call, "validator passed".to_string());
+
+        assert!(preview.contains("TaskSpaceToolInvocationV1"));
+        assert!(preview.contains("tool: shell_command"));
+        assert!(preview.contains("command: python scripts/validate.py"));
+        assert!(preview.contains("raw_output:"));
+        assert!(preview.contains("validator passed"));
     }
 
     #[test]

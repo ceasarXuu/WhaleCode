@@ -3987,3 +3987,95 @@
   ```
 - Interpretation: The next action-contract prompt now carries structured internal tool feedback. This is not yet a real-sample benefit proof; `count-call-stack` must be rerun.
 - Time: 2026-06-30 18:05
+
+## Hypothesis H-049: fixed recovery caps turn semantic failures into artificial no-patch failures
+- Status: confirmed
+- Parent: P-001
+- Claim: The implement-needs-edit recovery cap can stop a turn after failed edits even when the latest failed tool output contains actionable patch feedback. This is not equivalent to standard mode behavior because it limits retry opportunities by a TaskSpace-specific counter instead of provider/tool feedback progression.
+- Layer: mechanism
+- Factor relation: contributes_to
+- Depends on:
+  - H-048
+- Falsifiable predictions:
+  - If true before repair: `count-call-stack` contains failed apply_patch feedback and then stops with recovery attempts exhausted.
+  - If repaired: failed edit feedback is preserved in a model-visible recovery item and does not hard-stop the turn solely because a fixed counter is exhausted.
+- Related evidence:
+  - E-077
+- Conclusion: confirmed-and-repaired-for-R4-D
+
+## Hypothesis H-050: validation nodes can enter a discovery loop after a correct patch
+- Status: confirmed
+- Parent: P-001
+- Claim: Smoke/regression validation nodes allowed read/search/list-style discovery actions, so after a correct patch TaskSpace could spend the rest of the run rediscovering files instead of executing validation.
+- Layer: node-policy
+- Factor relation: contributes_to
+- Falsifiable predictions:
+  - If true before repair: a validation node has repeated rejected discovery actions and no successful `run_test`.
+  - If repaired: validation nodes only allow `run_test`, `taskspace_control`, or `blocked`, and invalid discovery gets validation-specific recovery.
+- Related evidence:
+  - E-077
+- Conclusion: confirmed-and-repaired-for-R4-D
+
+## Hypothesis H-051: local-validator and unreviewed-result gate feedback must be structured as next actions
+- Status: confirmed
+- Parent: P-001
+- Claim: Raw gate feedback for missing local-validator coverage or unreviewed results is not consistently actionable; it must carry `failure_kind`, required command/result, and exact next action.
+- Layer: action-contract-feedback
+- Factor relation: contributes_to
+- Falsifiable predictions:
+  - If true before repair: the model repeats pytest-only validation or read/list actions after receiving gate feedback.
+  - If repaired: action-contract prompt includes `TaskSpaceToolFeedbackV1` with exact required validator or `result_validities` next action.
+- Related evidence:
+  - E-077
+- Conclusion: confirmed-and-repaired-for-R4-D
+
+## Hypothesis H-052: implement projection can lose upstream read evidence across inspect -> implement transition
+- Status: confirmed
+- Parent: P-001
+- Claim: Even when an inspect node reads the needed source file, the implement node can receive only a compressed preview and conclude it still lacks source evidence, causing a block/no-patch result.
+- Layer: projection
+- Factor relation: contributes_to
+- Falsifiable predictions:
+  - If true before repair: `count-call-stack` has an inspect read of `src/call_stack_counter.py`, but implement blocks with “cannot edit without reading source”.
+  - If repaired: implement projection includes dependency read evidence with source path and bounded content.
+- Related evidence:
+  - E-077
+- Conclusion: confirmed-and-repaired-for-R4-D; broader projection/output-ref remains R4-E.
+
+## Evidence E-077: count-call-stack R4-D rerun solves after tool-feedback and dependency-evidence repair
+- Related hypotheses:
+  - H-049
+  - H-050
+  - H-051
+  - H-052
+- Direction: supports-repair
+- Type: real-sample-rerun
+- Source:
+  - `target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136/pair-001/pair-report.md`
+  - `docs/v0.0.5/build-R4/05-phase-benefit-evidence.md`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs`
+- Prediction or plan link:
+  - H-049/H-050/H-051/H-052 predict the same public sample should move from wrong/no-patch or timeout to solved when failed edit feedback, validation feedback, gate feedback, and dependency read evidence are preserved.
+- Matched signal:
+  - Pair report shows `outcome_standard: solved`, `outcome_taskspace: solved`, `failure_taxonomy: none`.
+  - Standard wall time is `138205ms`; TaskSpace wall time is `154525ms`; wall ratio is `1.12`.
+  - Standard tool call count is `20`; TaskSpace tool call count is `11`; tool ratio is `0.55`.
+  - TaskSpace changed `src/call_stack_counter.py`.
+  - Public validation exit code is `0`.
+- Raw content:
+  ```text
+  target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136/pair-001/pair-report.md
+  failure_taxonomy: none
+  outcome_standard: solved
+  outcome_taskspace: solved
+  standard_wall_time_ms: 138205
+  taskspace_wall_time_ms: 154525
+  standard_tool_call_count: 20
+  taskspace_tool_call_count: 11
+  changed_paths: src/call_stack_counter.py
+  public_validation_exit_code: 0
+  ```
+- Interpretation: This closes the R4-D `count-call-stack` P0 internal tool feedback path. It does not close R4-E large-output/projection globally, R4-F non-direct tool coverage, or R4-G public-10 acceptance.
+- Time: 2026-06-30 20:55

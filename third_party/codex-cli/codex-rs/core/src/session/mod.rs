@@ -1315,6 +1315,13 @@ impl Session {
             .current_main_implement_progress_needs_edit()
     }
 
+    pub(crate) async fn action_map_current_recent_failed_edit_summary(&self) -> Option<String> {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .current_main_recent_failed_edit_summary()
+    }
+
     pub(crate) async fn action_map_current_working_evidence_summary(&self) -> Option<String> {
         let state = self.state.lock().await;
         state
