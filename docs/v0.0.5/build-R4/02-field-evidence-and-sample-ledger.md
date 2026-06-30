@@ -144,3 +144,30 @@ provider-visible payload proof path
 ```
 
 没有这些字段时，样本只能作为诊断线索，不能作为 R4 benefit proof。
+
+## 2.5 R4-B 工程化账本门禁
+
+2026-06-30 补充：
+
+```text
+Ledger:
+  docs/v0.0.5/build-R4/r4-sample-evidence-ledger.json
+Validator:
+  scripts/taskspace-benchmark/test-r4-sample-ledger.ps1
+Gate integration:
+  scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1
+Gate name:
+  r4_sample_ledger
+```
+
+该账本把 R3/R4 已知真实现场变成机器可读证据行。validator 会检查：
+
+1. 至少 6 个样本证据行。
+2. 每个样本有唯一 id、failure class、owner phase 和 required follow-up。
+3. 每个 primary evidence 文件必须存在。
+4. secondary evidence 如果声明也必须存在。
+5. 必须覆盖 `solved_positive_control`、`tool_feedback_loss`、`action_contract_loop`、
+   `log_bloat_timeout`、`no_patch_after_known_fix`、`protocol_pairing_break` 六类现场。
+
+这关闭 R4-B 的“历史样本 scattered in target/CoE”管理缺口，但不等于这些样本已被修复；
+修复和收益验证仍由 R4-D/R4-E/R4-G 负责。

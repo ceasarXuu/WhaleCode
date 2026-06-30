@@ -40,6 +40,8 @@ if ($FixtureMode) {
         New-V005GateSpec "start_gate_fixture" $pass 30
         New-V005GateSpec "external_wrapper_fixture" $pass 30
         New-V005GateSpec "marker_writer_fixture" $pass 30
+        New-V005GateSpec "r4_tool_path_coverage" $pass 30
+        New-V005GateSpec "r4_sample_ledger" $pass 30
     )
 } else {
     $rustWorkspace = "Set-Location third_party\codex-cli\codex-rs;"
@@ -55,6 +57,8 @@ if ($FixtureMode) {
         New-V005GateSpec "start_gate_fixture" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-e3-start-gate.ps1" 420
         New-V005GateSpec "external_wrapper_fixture" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-external-wrapper-harness.ps1" 240
         New-V005GateSpec "marker_writer_fixture" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-v005-marker-writer.ps1" 120
+        New-V005GateSpec "r4_tool_path_coverage" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-r4-tool-path-coverage.ps1" 120
+        New-V005GateSpec "r4_sample_ledger" "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-r4-sample-ledger.ps1" 120
     )
 }
 

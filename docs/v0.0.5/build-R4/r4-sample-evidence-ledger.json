@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "artifact": "r4-sample-evidence-ledger",
+  "phase": "R4-B",
+  "updated": "2026-06-30",
+  "status": "active_baseline",
+  "benefit_gate": {
+    "claimed_engineering_benefit": "Known TaskSpace tool-chain field failures are tracked as machine-readable evidence rows with owner phases instead of scattered target/CoE references.",
+    "baseline": "R3/R4 known-bad and positive-control samples were only described in Markdown and previous conversation notes.",
+    "pass_threshold": "sample_count >= 6; missing_primary_evidence_count = 0; samples_without_owner_phase = 0; required_failure_classes_covered = solved_positive_control, tool_feedback_loss, action_contract_loop, log_bloat_timeout, no_patch_after_known_fix, protocol_pairing_break"
+  },
+  "required_failure_classes": [
+    "solved_positive_control",
+    "tool_feedback_loss",
+    "action_contract_loop",
+    "log_bloat_timeout",
+    "no_patch_after_known_fix",
+    "protocol_pairing_break"
+  ],
+  "samples": [
+    {
+      "id": "r3-rerun-single-file-fast-fix-positive-control",
+      "sample": "single-file-fast-fix",
+      "failure_class": "solved_positive_control",
+      "owner_phase": "R4-G",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "solved",
+      "taskspace_wall_time_ratio": 2.7,
+      "taskspace_tool_call_ratio": 0.71,
+      "primary_evidence": "target/r3-tool-feedback-rerun-single-file-20260630-0343/single-file-fast-fix/20260630-034332-008/pair-001/pair-report.md",
+      "required_followup": "Keep as positive control while measuring residual TaskSpace performance overhead."
+    },
+    {
+      "id": "r3-sweep-count-call-stack-feedback-loss",
+      "sample": "count-call-stack",
+      "failure_class": "tool_feedback_loss",
+      "owner_phase": "R4-D",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "wrong",
+      "taskspace_wall_time_ratio": 5.69,
+      "taskspace_tool_call_ratio": 0.73,
+      "primary_evidence": "target/r3-tools-result-sweep-20260630-3samples/count-call-stack/20260630-035312-839/pair-001/pair-report.md",
+      "required_followup": "Prove action-contract internal apply_patch failure feedback is visible in the next provider payload."
+    },
+    {
+      "id": "r3-sweep-multi-file-order-pipeline-loop",
+      "sample": "multi-file-order-pipeline",
+      "failure_class": "action_contract_loop",
+      "owner_phase": "R4-D",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "wrong",
+      "taskspace_wall_time_ratio": 2.2,
+      "taskspace_tool_call_ratio": 0.77,
+      "primary_evidence": "target/r3-tools-result-sweep-20260630-3samples/multi-file-order-pipeline/20260630-041950-584/pair-001/pair-report.md",
+      "required_followup": "Make parse and node-policy rejections structured enough to drive a valid next action."
+    },
+    {
+      "id": "r3-sweep-large-output-ref-smoke-timeout",
+      "sample": "large-output-ref-smoke",
+      "failure_class": "log_bloat_timeout",
+      "owner_phase": "R4-E",
+      "standard_outcome": "timeout_or_incomplete",
+      "taskspace_outcome": "timeout",
+      "primary_evidence": "target/r3-tools-result-sweep-20260630-3samples/large-output-ref-smoke/20260630-040045-153/pair-001/right/artifacts/rollout.jsonl",
+      "secondary_evidence": [
+        "target/r3-tools-result-sweep-20260630-3samples/large-output-ref-smoke/20260630-040045-153/pair-001/right/artifacts/validation.stdout.log",
+        "target/r3-tools-result-sweep-20260630-3samples/large-output-ref-smoke/20260630-040045-153/pair-001/right/artifacts/whale-exec.stderr.log"
+      ],
+      "required_followup": "Bound rollout/log growth while preserving retrievable failure feedback."
+    },
+    {
+      "id": "r3-light-single-file-fast-fix-no-patch",
+      "sample": "single-file-fast-fix",
+      "failure_class": "no_patch_after_known_fix",
+      "owner_phase": "R4-D",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "wrong",
+      "taskspace_wall_time_ratio": 1.63,
+      "taskspace_tool_call_ratio": 0.71,
+      "primary_evidence": "target/r3-light-effect-single-file-20260630-024154/single-file-fast-fix/20260630-024155-720/pair-001/pair-report.md",
+      "required_followup": "Ensure known correct edits are converted into successful file changes or clear model-visible failure feedback."
+    },
+    {
+      "id": "historical-invalid-tool-call-history",
+      "sample": "historical-invalid-tool-call-history",
+      "failure_class": "protocol_pairing_break",
+      "owner_phase": "R4-E",
+      "standard_outcome": "not_applicable",
+      "taskspace_outcome": "provider_protocol_failure",
+      "primary_evidence": "coe/2026-06-20-02-00-taskspace-tool-call-history.md",
+      "required_followup": "Keep tool call/result projection pair-safe under active context replacement."
+    }
+  ]
+}

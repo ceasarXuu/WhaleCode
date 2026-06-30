@@ -105,3 +105,28 @@ R4-A 完成时需要产出：
 3. 每个 `intentionally-excluded` path 有工程理由和回归测试。
 4. P0/P1 path 有对应 R4 phase owner。
 5. 至少一个静态测试或脚本能防止未来新增 tool path 未登记。
+
+2026-06-30 工程化补充：
+
+```text
+Manifest:
+  docs/v0.0.5/build-R4/r4-tool-path-coverage.json
+Validator:
+  scripts/taskspace-benchmark/test-r4-tool-path-coverage.ps1
+Gate integration:
+  scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1
+Gate name:
+  r4_tool_path_coverage
+```
+
+该 manifest 把 R4-A 静态链路矩阵变成机器可读门禁。validator 会检查：
+
+1. path id 唯一。
+2. status 只能是 `canonical`、`needs-fix`、`intentionally-excluded`、`out-of-scope`。
+3. 不允许 `unknown` 或 `unowned`。
+4. P0/P1 path 必须绑定 `R4-A` 到 `R4-H` 中的 owner phase。
+5. 每个 source anchor 必须能在当前源码中找到。
+6. 每个 path 必须声明 required semantics 和 required evidence。
+7. `intentionally-excluded` path 必须写明 rationale 和 test。
+
+这只能关闭 R4-A 的“管理机制/覆盖登记”缺口，不能代替 R4-C 到 R4-F 的 runtime 语义修复。

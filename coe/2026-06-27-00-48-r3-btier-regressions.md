@@ -3805,3 +3805,71 @@
   ```
 - Interpretation: The already-fixed standard direct path is not enough to prove global tool feedback correctness. The remaining risk is architectural coverage: each path needs a test proving model-visible feedback, provider payload inclusion or intentional projection, and TaskSpace map recording.
 - Time: 2026-06-30 04:55
+
+## Hypothesis H-046: R4-A/R4-B need executable governance gates before runtime repair can be called complete
+- Status: confirmed
+- Parent: P-001
+- Claim: The R4 tool-chain repair cannot be managed safely while tool paths and known-bad samples exist only in Markdown; machine-readable manifests and validators are required to prove coverage, owner phase, source anchors, and field-evidence availability.
+- Layer: diagnostic-governance
+- Factor relation: all_of
+- Depends on:
+  - H-045
+- Rationale:
+  - R4 explicitly requires every phase to prove engineering benefit. A document-only inventory cannot prove future regressions are caught or that known-bad samples are still available for rerun.
+- Falsifiable predictions:
+  - If true: adding validators will reveal whether every registered path has a source anchor, owner phase, required semantics, and whether every known sample has accessible evidence.
+  - If false: the existing Markdown plan would already provide an executable gate that fails on missing owners, missing anchors, or missing sample evidence.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: convert R4-A and R4-B inventories to machine-readable artifacts and run validators.
+  - Signal:
+    - `test-r4-tool-path-coverage.ps1` exit code and evidence JSON
+    - `test-r4-sample-ledger.ps1` exit code and evidence JSON
+    - `test-v005-non-agent-gates-builder.ps1` confirms gate builder includes the new gates.
+  - Capture method: local command execution.
+  - Event name or marker:
+    - `r4_tool_path_coverage`
+    - `r4_sample_ledger`
+  - Supports if:
+    - validators pass and produce evidence showing zero missing anchors/evidence/owners.
+  - Refutes if:
+    - validators cannot be expressed or fail because essential anchors/evidence are missing.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-074
+- Conclusion: confirmed
+- Repair design readiness: R4-A/R4-B governance complete; runtime repair remains governed by R4-C through R4-G.
+- Close reason:
+  - Machine-readable manifests and validators now exist and pass for R4-A/R4-B.
+
+## Evidence E-074: R4 tool path coverage and sample ledger gates pass with current evidence
+- Related hypotheses:
+  - H-046
+- Direction: supports
+- Type: gate-run
+- Source:
+  - `docs/v0.0.5/build-R4/r4-tool-path-coverage.json`
+  - `docs/v0.0.5/build-R4/r4-sample-evidence-ledger.json`
+  - `scripts/taskspace-benchmark/test-r4-tool-path-coverage.ps1`
+  - `scripts/taskspace-benchmark/test-r4-sample-ledger.ps1`
+  - `scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1`
+  - `target/r4-tool-path-coverage/r4-tool-path-coverage-evidence.json`
+  - `target/r4-sample-ledger/r4-sample-ledger-evidence.json`
+- Prediction or plan link:
+  - H-046 predicts executable governance can prove R4-A/R4-B coverage and evidence availability.
+- Matched signal:
+  - `test-r4-tool-path-coverage.ps1` passed with `path_count=9` and `failure_count=0`.
+  - `test-r4-sample-ledger.ps1` passed with `sample_count=6` and `failure_count=0`.
+  - `test-v005-non-agent-gates-builder.ps1` passed after adding `r4_tool_path_coverage` and `r4_sample_ledger` gates.
+- Raw content:
+  ```text
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-r4-tool-path-coverage.ps1
+    R4 tool path coverage gate passed: 9 paths
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-r4-sample-ledger.ps1
+    R4 sample ledger gate passed: 6 samples
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-v005-non-agent-gates-builder.ps1
+    v005 non-agent gates builder selftest passed
+  ```
+- Interpretation: R4-A and R4-B now have executable governance and benefit evidence. This does not fix runtime tool feedback yet; it prevents the remaining R4 runtime phases from being declared complete without registered paths and field evidence.
+- Time: 2026-06-30 16:25

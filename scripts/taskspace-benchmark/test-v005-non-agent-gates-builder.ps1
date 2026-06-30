@@ -37,7 +37,9 @@ $requiredGates = @(
     "release_decision_fixture",
     "start_gate_fixture",
     "external_wrapper_fixture",
-    "marker_writer_fixture"
+    "marker_writer_fixture",
+    "r4_tool_path_coverage",
+    "r4_sample_ledger"
 )
 foreach ($gateName in $requiredGates) {
     $gate = $artifact.gates.$gateName

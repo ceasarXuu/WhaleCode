@@ -47,8 +47,8 @@ evidence_paths
 
 | Phase | 必须证明的工程收益 | Baseline | After Evidence | Pass Threshold |
 |---|---|---|---|---|
-| R4-A | tool path 不再 unknown，新增 path 可被发现 | source audit 前 path matrix 为空或不完整 | tool path coverage table + unknown path guard | unknown/unowned path = 0 |
-| R4-B | 真实样本问题可分类、可追踪到证据 | R3 样本 scattered in target/CoE | sample ledger + taxonomy + run_dir evidence | known-bad 样本 100% 有 owner phase |
+| R4-A | tool path 不再 unknown，新增 path 可被发现 | source audit 前 path matrix 为空或不完整 | `r4-tool-path-coverage.json` + `test-r4-tool-path-coverage.ps1` + `r4_tool_path_coverage` gate | unknown/unowned path = 0；missing source anchor = 0 |
+| R4-B | 真实样本问题可分类、可追踪到证据 | R3 样本 scattered in target/CoE | `r4-sample-evidence-ledger.json` + `test-r4-sample-ledger.ps1` + `r4_sample_ledger` gate | known-bad 样本 100% 有 owner phase；primary evidence 全部存在 |
 | R4-C | standard feedback、provider payload、TaskSpace map 共享同一语义源 | success/error/internal path 各自摘要 | envelope trace + payload proof + map proof | direct success/error/rejection fixture 通过 |
 | R4-D | action-contract internal tool 失败可被 agent 下一轮看到并纠错 | `count-call-stack` wrong/no patch | rerun + exact payload proof | feedback-loss count = 0；样本 solved 或根因转移 |
 | R4-E | projection/output-ref 不丢语义且不制造日志膨胀 | large-output timeout / 491MB rollout | large-output rerun + projection audit | no timeout；rollout size controlled；failure details retrievable |
