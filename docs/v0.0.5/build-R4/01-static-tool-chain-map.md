@@ -56,7 +56,7 @@ projection decision and reason
 | Branch | Current Static Observation | Required R4 Decision |
 |---|---|---|
 | direct tool success | 已可通过 `ToolOutput::to_response_item` 生成 model-visible preview 并写 map | 保留，但补 payload hash / node attribution proof |
-| direct tool execution error | error path 使用 `action_map_tool_error_preview(&err)` | 改成 canonical envelope，确认 stderr/exit/path 不丢 |
+| direct tool execution error | 2026-06-30 已改为从 `failure_response_for_error` 的 standard `ResponseInputItem` 提取 map preview | 继续补 payload hash / envelope trace，确认 stderr/exit/path 不丢 |
 | direct tool fatal / abort | 可能不进入普通 response item | 明确是否 provider-visible、是否 map-visible、是否 terminal |
 | action-contract internal apply_patch | 由 `turn.rs` 合成 tool call/output，执行失败现场显示反馈不稳定 | 必须与 standard apply_patch failure 语义等价 |
 | action-contract shell/run_test | 可能被 node policy 拦截或作为 validation/recovery text | 区分 policy rejection、tool execution failure、test failure |

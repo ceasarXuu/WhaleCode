@@ -17,7 +17,7 @@ use crate::session::turn_context::TurnContext;
 use crate::tools::context::AbortedToolOutput;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::context::ToolPayload;
-use crate::tools::context::bounded_model_visible_text_preview;
+use crate::tools::context::response_input_model_visible_preview;
 use crate::tools::context::tool_output_model_visible_preview;
 use crate::tools::registry::AnyToolResult;
 use crate::tools::registry::ToolArgumentDiffConsumer;
@@ -187,7 +187,8 @@ impl ToolCallRuntime {
                             }
                             Err(err) => {
                                 if let Some(descriptor) = taskspace_descriptor.as_ref() {
-                                    let preview = action_map_tool_error_preview(&err);
+                                    let response = Self::failure_response_for_error(&call, &err);
+                                    let preview = response_input_model_visible_preview(&response);
                                     Self::record_taskspace_tool_result(
                                         &session,
                                         &turn,
@@ -217,16 +218,20 @@ impl ToolCallRuntime {
 
 impl ToolCallRuntime {
     fn failure_response(call: ToolCall, err: FunctionCallError) -> ResponseInputItem {
-        let message = err.to_string();
-        match call.payload {
+        Self::failure_response_for_error(&call, &err)
+    }
+
+    fn failure_response_for_error(call: &ToolCall, err: &FunctionCallError) -> ResponseInputItem {
+        let message = function_call_error_model_visible_message(err);
+        match &call.payload {
             ToolPayload::ToolSearch { .. } => ResponseInputItem::ToolSearchOutput {
-                call_id: call.call_id,
+                call_id: call.call_id.clone(),
                 status: "completed".to_string(),
                 execution: "client".to_string(),
                 tools: Vec::new(),
             },
             ToolPayload::Custom { .. } => ResponseInputItem::CustomToolCallOutput {
-                call_id: call.call_id,
+                call_id: call.call_id.clone(),
                 name: None,
                 output: codex_protocol::models::FunctionCallOutputPayload {
                     body: codex_protocol::models::FunctionCallOutputBody::Text(message),
@@ -234,7 +239,7 @@ impl ToolCallRuntime {
                 },
             },
             _ => ResponseInputItem::FunctionCallOutput {
-                call_id: call.call_id,
+                call_id: call.call_id.clone(),
                 output: codex_protocol::models::FunctionCallOutputPayload {
                     body: codex_protocol::models::FunctionCallOutputBody::Text(message),
                     success: Some(false),
@@ -242,7 +247,9 @@ impl ToolCallRuntime {
             },
         }
     }
+}
 
+impl ToolCallRuntime {
     fn aborted_response(call: &ToolCall, secs: f32) -> AnyToolResult {
         AnyToolResult {
             call_id: call.call_id.clone(),
@@ -683,11 +690,11 @@ fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(needle))
 }
 
-fn action_map_tool_error_preview(err: &FunctionCallError) -> String {
+fn function_call_error_model_visible_message(err: &FunctionCallError) -> String {
     match err {
         FunctionCallError::RespondToModel(message) => {
             taskspace_safe_local_validator_infra_error_summary(message)
-                .unwrap_or_else(|| bounded_model_visible_text_preview(message))
+                .unwrap_or_else(|| message.clone())
         }
         FunctionCallError::MissingLocalShellCallId => {
             "Tool call failed because the shell call id was missing.".to_string()
@@ -726,15 +733,31 @@ fn taskspace_compact_ascii_signal(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::action_map_tool_error_preview;
+    use super::ToolCallRuntime;
     use super::classify_shell_text;
     use super::taskspace_action_contract_class;
     use crate::action_map::ActionClass;
     use crate::function_tool::FunctionCallError;
+    use crate::tools::context::ToolPayload;
+    use crate::tools::context::response_input_model_visible_preview;
+    use crate::tools::router::ToolCall;
+    use codex_tools::ToolName;
+
+    fn failure_response_preview(err: FunctionCallError) -> String {
+        let call = ToolCall {
+            tool_name: ToolName::plain("apply_patch"),
+            call_id: "call-test".to_string(),
+            payload: ToolPayload::Function {
+                arguments: "{}".to_string(),
+            },
+        };
+        let response = ToolCallRuntime::failure_response_for_error(&call, &err);
+        response_input_model_visible_preview(&response)
+    }
 
     #[test]
-    fn action_map_error_preview_records_model_visible_error_text() {
-        let preview = action_map_tool_error_preview(&FunctionCallError::RespondToModel(
+    fn failure_response_preview_records_model_visible_error_text() {
+        let preview = failure_response_preview(FunctionCallError::RespondToModel(
             "failed to parse apply_patch: missing field `action`".to_string(),
         ));
 
@@ -743,21 +766,21 @@ mod tests {
     }
 
     #[test]
-    fn action_map_error_preview_bounds_model_visible_error_text() {
+    fn failure_response_preview_bounds_model_visible_error_text() {
         let long_error = format!("apply_patch failed\n{}", "line\n".repeat(128));
-        let preview = action_map_tool_error_preview(&FunctionCallError::RespondToModel(long_error));
+        let preview = failure_response_preview(FunctionCallError::RespondToModel(long_error));
 
         assert!(preview.contains("apply_patch failed"));
         assert!(preview.contains("telemetry preview truncated"));
     }
 
     #[test]
-    fn action_map_error_preview_keeps_safe_local_validator_infra_signal() {
+    fn failure_response_preview_keeps_safe_local_validator_infra_signal() {
         let nul_separated = "Bash/Service/CreateInstance/E_ACCESSDENIED"
             .chars()
             .flat_map(|ch| [ch, '\0'])
             .collect::<String>();
-        let preview = action_map_tool_error_preview(&FunctionCallError::RespondToModel(format!(
+        let preview = failure_response_preview(FunctionCallError::RespondToModel(format!(
             "garbled host output: {nul_separated}"
         )));
 

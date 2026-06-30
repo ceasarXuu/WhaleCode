@@ -44,12 +44,16 @@
       "id": "direct-tool-error-map-preview",
       "class": "direct_tool_error",
       "priority": "P1",
-      "status": "needs-fix",
+      "status": "canonical",
       "owner_phase": "R4-C",
       "source_anchors": [
         {
           "file": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
-          "pattern": "action_map_tool_error_preview"
+          "pattern": "failure_response_for_error"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
+          "pattern": "response_input_model_visible_preview"
         }
       ],
       "required_semantics": [
@@ -59,7 +63,7 @@
         "stderr_or_error_text",
         "model_visible_item_hash"
       ],
-      "required_evidence": "Error feedback uses the same canonical model-visible semantic source as success feedback."
+      "required_evidence": "Error feedback uses the same standard failure response item for provider-visible output and TaskSpace map preview."
     },
     {
       "id": "action-contract-internal-tool-error",

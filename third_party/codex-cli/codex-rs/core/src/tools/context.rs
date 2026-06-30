@@ -119,6 +119,10 @@ pub(crate) fn tool_output_model_visible_preview(
     payload: &ToolPayload,
 ) -> String {
     let response = output.to_response_item(call_id, payload);
+    response_input_model_visible_preview(&response)
+}
+
+pub(crate) fn response_input_model_visible_preview(response: &ResponseInputItem) -> String {
     bounded_model_visible_text_preview(&response_input_item_model_visible_text(response))
 }
 
@@ -126,17 +130,17 @@ pub(crate) fn bounded_model_visible_text_preview(content: &str) -> String {
     telemetry_preview(content)
 }
 
-fn response_input_item_model_visible_text(response: ResponseInputItem) -> String {
+fn response_input_item_model_visible_text(response: &ResponseInputItem) -> String {
     match response {
         ResponseInputItem::Message { content, .. } => content
-            .into_iter()
+            .iter()
             .filter_map(|item| match item {
                 codex_protocol::models::ContentItem::InputText { text }
                 | codex_protocol::models::ContentItem::OutputText { text } => {
-                    (!text.trim().is_empty()).then_some(text)
+                    (!text.trim().is_empty()).then_some(text.clone())
                 }
                 codex_protocol::models::ContentItem::InputImage { image_url, .. } => {
-                    (!image_url.trim().is_empty()).then_some(image_url)
+                    (!image_url.trim().is_empty()).then_some(image_url.clone())
                 }
             })
             .collect::<Vec<_>>()
