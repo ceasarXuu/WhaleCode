@@ -1,7 +1,7 @@
 # Problem P-001: R3 B-tier smoke exposes missing timing attribution and open TaskSpace leaf
 - Status: open
 - Created: 2026-06-27 00:48
-- Updated: 2026-06-27 01:54
+- Updated: 2026-06-30 04:55
 - Objective: Make the R3 B-tier smoke produce trustworthy benefit evidence by fixing proven harness attribution gaps and then closing the remaining TaskSpace graph lifecycle blocker.
 - Symptoms:
   - B-tier smoke finished with business success on both standard and TaskSpace, but speed evidence was blocked because `model_request_duration_ms` was missing.
@@ -3722,3 +3722,86 @@
   ```
 - Interpretation: R3 engineering closeout is not disproved, but the lightweight effect signal is negative. The next benefit-oriented repair should target apply_patch failure recovery and path normalization, not more context or tighter budget controls.
 - Time: 2026-06-30 02:50
+
+## Hypothesis H-045: tool result correctness is split across several non-identical TaskSpace paths
+- Status: unverified
+- Parent: P-001
+- Claim: After the standard direct-tool result path was aligned to `ToolOutput::to_response_item`, TaskSpace still has multiple tool-call or tool-return paths that can bypass, summarize, filter, or reclassify the model-visible result before the agent sees it again.
+- Layer: diagnostic
+- Factor relation: all_of
+- Depends on:
+  - H-044
+- Rationale:
+  - Recent focused samples show different symptoms around `apply_patch` failure feedback, `run_test` policy rejection, large-output log growth, and map control loops. These symptoms can share a broader cause family: TaskSpace has more than one result propagation path, and not all of them are proven equivalent to standard mode.
+- Falsifiable predictions:
+  - If true: code inspection will identify at least two tool result paths that do not trivially share the same `ToolOutput -> ResponseInputItem -> provider payload -> TaskSpace map` sequence.
+  - If false: all TaskSpace tool execution, action-contract execution, nested tool execution, tool errors, and projected-history summaries are generated from one standard response item and verified in provider-visible payload tests.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: audit current source paths for direct tool results, action-contract internal tool calls, action-contract compile rejections, active projection filtering, code-mode nested tools, MCP/tool-search outputs, multi-agent outputs, and large-output references.
+  - Signal: source code locations and focused run artifacts.
+  - Capture method: inspect `turn.rs`, `parallel.rs`, `registry.rs`, `context.rs`, code-mode and multi-agent handlers, plus the three-sample sweep artifacts.
+  - Event name or marker:
+    - `ToolOutput::to_response_item`
+    - `TaskSpaceActionContractRecentToolOutputsV1`
+    - `ProviderVisibleHistoryAction::Omit`
+  - Correlation keys:
+    - `target\r3-tools-result-sweep-20260630-3samples`
+  - Differentiates from:
+    - single apply_patch grammar failure
+    - model-only task-solving error
+  - Supports if:
+    - multiple code paths can transform or drop tool feedback differently before model resampling.
+  - Refutes if:
+    - every path is shown to record and project the same bounded response item with focused tests.
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: pending
+- Related evidence:
+  - E-073
+- Conclusion: unverified
+- Repair design readiness: blocked until the risky paths are converted into a concrete coverage matrix.
+- Next step: build a tool-return path matrix and classify each path as covered, risky, or out-of-scope before changing code.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-073: source audit finds additional tool-return paths not proven equivalent to standard mode
+- Related hypotheses:
+  - H-045
+- Direction: supports
+- Type: code-location
+- Source:
+  - `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/context.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/code_mode/mod.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/handlers/multi_agents_common.rs`
+- Prediction or plan link:
+  - H-045 predicts multiple non-identical result propagation paths.
+- Matched signal:
+  - Direct successful tools record TaskSpace map previews through `tool_output_model_visible_preview(...)`, but direct tool errors use `action_map_tool_error_preview(&err)`.
+  - Action-contract internal tools synthesize `ResponseItem` calls and outputs inside `turn.rs`, and action-contract parse/policy rejections are stored as recovery text rather than tool outputs.
+  - Action-contract recent-output summarization only considers `FunctionCallOutput` and `CustomToolCallOutput`, while active projection separately omits legacy TaskSpace outputs and large raw outputs.
+  - Code-mode nested tools use `ToolCallSource::CodeMode`, which `should_attribute_taskspace_tool` excludes from TaskSpace map attribution.
+  - Multi-agent outputs use JSON text wrappers and are also excluded from the direct TaskSpace tool attribution list.
+- Correlation keys:
+  - none
+- Raw content:
+  ```text
+  parallel.rs:
+  - Ok(result) -> tool_output_model_visible_preview(result.result.as_ref(), ...)
+  - Err(err) -> action_map_tool_error_preview(&err)
+  - should_attribute_taskspace_tool returns false for ToolCallSource != Direct and excludes spawn/wait/taskspace_control-style tools.
+
+  turn.rs:
+  - response_input_for_taskspace_action_tool_error(...) manually builds FunctionCallOutput/CustomToolCallOutput.
+  - prepare_taskspace_action_contract_prompt_items_for_node(...) builds TaskSpaceActionContractRecentToolOutputsV1 from selected recent tool outputs.
+  - provider_visible_history_action(...) omits LegacyTaskspaceToolOutput and LargeRawToolOutput when active projection is present.
+
+  code_mode/mod.rs:
+  - nested tools call handle_tool_call_with_source(... ToolCallSource::CodeMode ...) and return code_mode_result() rather than a normal provider-visible tool output.
+  ```
+- Interpretation: The already-fixed standard direct path is not enough to prove global tool feedback correctness. The remaining risk is architectural coverage: each path needs a test proving model-visible feedback, provider payload inclusion or intentional projection, and TaskSpace map recording.
+- Time: 2026-06-30 04:55
