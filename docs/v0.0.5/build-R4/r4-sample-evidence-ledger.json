@@ -81,6 +81,39 @@
       "required_followup": "Bound rollout/log growth while preserving retrievable failure feedback."
     },
     {
+      "id": "r4-e-large-output-ref-log-bloat-repaired",
+      "sample": "large-output-ref-smoke",
+      "failure_class": "log_bloat_timeout_repaired",
+      "owner_phase": "R4-E",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "wrong",
+      "taskspace_wall_time_ratio": 1.8,
+      "taskspace_tool_call_ratio": 0.12,
+      "primary_evidence": "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md",
+      "secondary_evidence": [
+        "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/exact-payload-scan-events.jsonl",
+        "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/output-ref-events.jsonl",
+        "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/rollout.jsonl"
+      ],
+      "required_followup": "Treat as R4-E benefit proof only: rollout dropped from 490,846,386 bytes to 360,600 bytes and no 900s timeout occurred, but correctness remains blocked by validation closeout semantics."
+    },
+    {
+      "id": "r4-e-large-output-ref-forced-validation-closeout",
+      "sample": "large-output-ref-smoke",
+      "failure_class": "validation_false_closeout",
+      "owner_phase": "R4-D",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "wrong",
+      "taskspace_wall_time_ratio": 1.8,
+      "taskspace_tool_call_ratio": 0.12,
+      "primary_evidence": "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md",
+      "secondary_evidence": [
+        "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/rollout.jsonl",
+        "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/validation.stdout.log"
+      ],
+      "required_followup": "Fix forced validation closeout so tool success cannot be reported as validation success when public_validation_exit_code=1 and changed_paths lacks the target source file."
+    },
+    {
       "id": "r3-light-single-file-fast-fix-no-patch",
       "sample": "single-file-fast-fix",
       "failure_class": "no_patch_after_known_fix",

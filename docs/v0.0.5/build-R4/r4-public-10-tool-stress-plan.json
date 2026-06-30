@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "artifact": "r4-public-10-tool-stress-plan",
+  "phase": "R4-G",
+  "updated": "2026-06-30",
+  "status": "planned",
+  "public_source": {
+    "benchmark": "terminal-bench-core",
+    "version": "0.1.1",
+    "registry_url": "https://raw.githubusercontent.com/laude-institute/terminal-bench/main/registry.json",
+    "source_url": "https://github.com/laude-institute/terminal-bench",
+    "branch": "dataset/terminal-bench-core/v0.1.x",
+    "commit": "91e10457b5410f16c44364da1a34cb6de8c488a5",
+    "dataset_path": "./tasks",
+    "verification_note": "Task ids are selected from terminal-bench-core 0.1.1 registry task_id_subset; no local invented tasks are allowed."
+  },
+  "benefit_gate": {
+    "claimed_engineering_benefit": "R4 final acceptance stresses real public tool-use tasks and reports per-sample standard vs TaskSpace correctness, latency, token, cache, projection, and tool-feedback behavior.",
+    "baseline": "R4 known-bad samples alone cannot prove broad tool-chain quality; public-sample selection and report fields were previously Markdown-only.",
+    "pass_threshold": "exactly 10 public samples; every sample has source metadata and tool-stress rationale; final report has one row per sample with all required tool/cost/performance fields."
+  },
+  "samples": [
+    {
+      "task_id": "build-linux-kernel-qemu",
+      "tool_stress_focus": "long shell commands, build logs, timeout handling",
+      "why_selected": "Exercises large output, timeout, failure summaries, and output refs."
+    },
+    {
+      "task_id": "qemu-alpine-ssh",
+      "tool_stress_focus": "VM/QEMU command orchestration, readiness probing",
+      "why_selected": "Exercises multi-step shell feedback and environment state judgment."
+    },
+    {
+      "task_id": "qemu-startup",
+      "tool_stress_focus": "process startup, logs, validation loop",
+      "why_selected": "Exercises repeated command feedback and recovery behavior."
+    },
+    {
+      "task_id": "git-multibranch",
+      "tool_stress_focus": "git state inspection, branch and file operations",
+      "why_selected": "Exercises state semantics and path attribution in tool results."
+    },
+    {
+      "task_id": "git-workflow-hack",
+      "tool_stress_focus": "git history and workflow repair",
+      "why_selected": "Exercises stdout/stderr influence on later decisions."
+    },
+    {
+      "task_id": "sanitize-git-repo",
+      "tool_stress_focus": "repo scanning and destructive-risk avoidance",
+      "why_selected": "Exercises tool output, permissions, and safety-semantics fidelity."
+    },
+    {
+      "task_id": "sqlite-with-gcov",
+      "tool_stress_focus": "database commands, compile and coverage output",
+      "why_selected": "Exercises structured failure parsing and validator feedback."
+    },
+    {
+      "task_id": "processing-pipeline",
+      "tool_stress_focus": "multi-step data and file pipeline",
+      "why_selected": "Exercises intermediate artifacts, changed paths, and test feedback."
+    },
+    {
+      "task_id": "csv-to-parquet",
+      "tool_stress_focus": "data conversion and file validation",
+      "why_selected": "Exercises file checks, command output, and artifact validation."
+    },
+    {
+      "task_id": "tmux-advanced-workflow",
+      "tool_stress_focus": "terminal/session workflow",
+      "why_selected": "Exercises non-trivial terminal interaction and tool-call ordering."
+    }
+  ],
+  "required_report_fields": [
+    "public_benchmark",
+    "benchmark_version",
+    "source_commit",
+    "task_id",
+    "task_id_registry_verified",
+    "standard_outcome",
+    "taskspace_outcome",
+    "standard_wall_time_ms",
+    "taskspace_wall_time_ms",
+    "taskspace_wall_time_ratio",
+    "standard_tool_calls",
+    "taskspace_tool_calls",
+    "taskspace_tool_call_ratio",
+    "standard_input_tokens",
+    "standard_output_tokens",
+    "taskspace_input_tokens",
+    "taskspace_output_tokens",
+    "taskspace_token_ratio",
+    "request_2_plus_cache_hit_rate",
+    "tool_feedback_loss_count",
+    "tool_feedback_semantic_loss_count",
+    "tool_result_projection_count_by_reason",
+    "taskspace_map_attribution_missing_count",
+    "large_output_ref_count",
+    "rollout_size_bytes",
+    "changed_paths_standard",
+    "changed_paths_taskspace",
+    "validation_result",
+    "failure_taxonomy",
+    "tool_call_analysis_summary",
+    "evidence_paths"
+  ],
+  "tool_analysis_questions": [
+    "Was the tool-call intent executed or rejected correctly?",
+    "Did the tool result enter the next provider payload with standard-equivalent semantics?",
+    "Were stderr, stdout, path, and exit code retained, summarized, ref-backed, or lost?",
+    "Did the TaskSpace map record the same semantics and attribution?",
+    "Was projection pair-safe and reasoned?",
+    "Did repeated failures produce semantic progress or a loop?",
+    "What were TaskSpace wall, token, and tool-call multipliers versus standard?"
+  ]
+}

@@ -190,6 +190,8 @@ use crate::config::resolve_web_search_mode_for_turn;
 use crate::context_manager::ContextManager;
 use crate::context_manager::TotalTokenUsageBreakdown;
 use crate::thread_rollout_truncation::initial_history_has_prior_user_turns;
+use crate::tools::output_reference::reference_text_for_raw_output;
+use crate::tools::output_reference::write_output_artifact_for_rollout;
 use codex_config::CONFIG_TOML_FILE;
 use codex_config::types::McpServerConfig;
 use codex_config::types::ShellEnvironmentPolicy;
@@ -331,6 +333,9 @@ use codex_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
 use codex_protocol::config_types::ServiceTier;
 use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::models::ContentItem;
+use codex_protocol::models::FunctionCallOutputBody;
+use codex_protocol::models::FunctionCallOutputContentItem;
+use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
@@ -4124,7 +4129,9 @@ impl Session {
 
     pub(crate) async fn persist_rollout_items(&self, items: &[RolloutItem]) {
         if let Some(live_thread) = self.live_thread()
-            && let Err(e) = live_thread.append_items(items).await
+            && let Err(e) = live_thread
+                .append_items(&self.sanitize_rollout_items_for_persistence(items).await)
+                .await
         {
             if matches!(e, ThreadStoreError::ThreadNotFound { .. })
                 && self.shutting_down.load(Ordering::SeqCst)
@@ -4134,6 +4141,128 @@ impl Session {
                 error!("failed to record rollout items: {e:#}");
             }
         }
+    }
+
+    async fn sanitize_rollout_items_for_persistence(
+        &self,
+        items: &[RolloutItem],
+    ) -> Vec<RolloutItem> {
+        let rollout_path = self.current_rollout_path().await.ok().flatten();
+        let mut sanitized = Vec::with_capacity(items.len());
+        for item in items {
+            sanitized.push(match item {
+                RolloutItem::ResponseItem(response_item) => RolloutItem::ResponseItem(
+                    self.sanitize_rollout_response_item_for_persistence(
+                        response_item,
+                        rollout_path.as_deref(),
+                    )
+                    .await,
+                ),
+                _ => item.clone(),
+            });
+        }
+        sanitized
+    }
+
+    async fn sanitize_rollout_response_item_for_persistence(
+        &self,
+        item: &ResponseItem,
+        rollout_path: Option<&Path>,
+    ) -> ResponseItem {
+        match item {
+            ResponseItem::FunctionCallOutput { call_id, output } => {
+                ResponseItem::FunctionCallOutput {
+                    call_id: call_id.clone(),
+                    output: self
+                        .sanitize_rollout_function_output_payload(output, rollout_path)
+                        .await,
+                }
+            }
+            ResponseItem::CustomToolCallOutput {
+                call_id,
+                name,
+                output,
+            } => ResponseItem::CustomToolCallOutput {
+                call_id: call_id.clone(),
+                name: name.clone(),
+                output: self
+                    .sanitize_rollout_function_output_payload(output, rollout_path)
+                    .await,
+            },
+            _ => item.clone(),
+        }
+    }
+
+    async fn sanitize_rollout_function_output_payload(
+        &self,
+        output: &FunctionCallOutputPayload,
+        rollout_path: Option<&Path>,
+    ) -> FunctionCallOutputPayload {
+        let body = match &output.body {
+            FunctionCallOutputBody::Text(text) => FunctionCallOutputBody::Text(
+                self.sanitize_rollout_output_text_for_persistence(text, rollout_path)
+                    .await,
+            ),
+            FunctionCallOutputBody::ContentItems(items)
+                if items.iter().all(|item| {
+                    matches!(item, FunctionCallOutputContentItem::InputText { .. })
+                }) =>
+            {
+                let text = items
+                    .iter()
+                    .filter_map(|item| match item {
+                        FunctionCallOutputContentItem::InputText { text } => Some(text.as_str()),
+                        FunctionCallOutputContentItem::InputImage { .. } => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                FunctionCallOutputBody::Text(
+                    self.sanitize_rollout_output_text_for_persistence(&text, rollout_path)
+                        .await,
+                )
+            }
+            FunctionCallOutputBody::ContentItems(items) => {
+                let mut sanitized = Vec::with_capacity(items.len());
+                for item in items {
+                    sanitized.push(match item {
+                        FunctionCallOutputContentItem::InputText { text } => {
+                            FunctionCallOutputContentItem::InputText {
+                                text: self
+                                    .sanitize_rollout_output_text_for_persistence(
+                                        text,
+                                        rollout_path,
+                                    )
+                                    .await,
+                            }
+                        }
+                        FunctionCallOutputContentItem::InputImage { .. } => item.clone(),
+                    });
+                }
+                FunctionCallOutputBody::ContentItems(sanitized)
+            }
+        };
+
+        FunctionCallOutputPayload {
+            body,
+            success: output.success,
+        }
+    }
+
+    async fn sanitize_rollout_output_text_for_persistence(
+        &self,
+        text: &str,
+        rollout_path: Option<&Path>,
+    ) -> String {
+        if text.contains("OutputReferenceV1") || text.contains("output-ref://") {
+            return text.to_string();
+        }
+
+        let raw = text.as_bytes();
+        let Ok(artifact_ref) = write_output_artifact_for_rollout(rollout_path, raw).await else {
+            return text.to_string();
+        };
+        reference_text_for_raw_output(raw, artifact_ref.as_deref())
+            .unwrap_or_else(|| text.to_string())
     }
 
     pub(crate) async fn clone_history(&self) -> ContextManager {

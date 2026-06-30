@@ -168,3 +168,29 @@ public_validation_exit_code: 0
 ```
 
 结论：`action-contract-internal-tool-error` 这个 P0 path 已从 `needs-fix` 提升为 `canonical`。这不代表所有 parse/policy rejection、large output、CodeMode、multi-agent、MCP 路径都已关闭；这些仍由 R4-E/R4-F/R4-G 验证。
+
+## 1.8 2026-06-30 R4-E 链路更新
+
+`large-output-ref-smoke` 历史现场证明：如果大输出只在 provider projection 层处理，而 rollout
+持久化仍保留完整 raw tool output，TaskSpace 会出现 artifact/log bloat，之前的右侧 rollout 达到
+`490,846,386` bytes 并触发 900s timeout。
+
+本轮补齐 persistence-layer 防线：
+
+| Path | Runtime Decision | Evidence |
+|---|---|---|
+| rollout persistence | `persist_rollout_items` 写入前调用 `sanitize_rollout_items_for_persistence` | `rollout_persistence_referenceizes_large_tool_outputs` |
+| large function output | `sanitize_rollout_output_text_for_persistence` 将大 text 输出写入 output-ref artifact，并在 rollout 中保留 `OutputReferenceV1` 摘要 | `target/r4-e-large-output-ref-20260630/.../right/artifacts/output-ref-events.jsonl` |
+| provider payload scan | exact payload scanner 确认 provider payload 没有 legacy history 和 large raw output | `large_raw_output_tokens=0`、`replacement_confirmed=true` |
+| real sample log bound | rerun 后 TaskSpace rollout 从 `490,846,386` bytes 降到 `360,600` bytes，且不再 900s timeout | `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md` |
+
+该结果把 `large-raw-tool-output-ref` 从 `needs-fix` 提升为 `canonical`，但不关闭整个 R4-E：
+`provider-visible-history-projection` 仍需证明 tool call/result pair-safe projection。
+
+同次运行暴露新 P0 path：
+
+| Path | Symptom | Owner |
+|---|---|---|
+| `validation-closeout-tool-drain` | `forced_validation_closeout` 将一次诊断工具成功误当成验证成功，模型最终声明 `Validation passed`，但 public validation exit code 为 1，目标源文件未修改 | R4-D |
+
+这个问题必须按 validation/tool-result 语义链路修，不应归因于 large output 或简单提示词。

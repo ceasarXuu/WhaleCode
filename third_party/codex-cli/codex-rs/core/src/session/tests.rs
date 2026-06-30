@@ -2459,6 +2459,71 @@ async fn thread_rollback_drops_last_turn_from_history() {
 }
 
 #[tokio::test]
+async fn rollout_persistence_referenceizes_large_tool_outputs() {
+    let (mut sess, _tc, _rx) = make_session_and_context_with_rx().await;
+    let rollout_path = attach_thread_persistence(
+        Arc::get_mut(&mut sess).expect("session should not have additional references"),
+    )
+    .await;
+    let sentinel = "R4_E_RAW_SENTINEL_SHOULD_NOT_BE_IN_ROLLOUT";
+    let raw_output = format!("{}{}{}", "A".repeat(60_000), sentinel, "B".repeat(60_000));
+    let item = RolloutItem::ResponseItem(ResponseItem::FunctionCallOutput {
+        call_id: "call-large-output".to_string(),
+        output: FunctionCallOutputPayload::from_text(raw_output.clone()),
+    });
+
+    sess.persist_rollout_items(&[item]).await;
+    sess.flush_rollout().await.expect("rollout should flush");
+
+    let rollout_text = tokio::fs::read_to_string(&rollout_path)
+        .await
+        .expect("read rollout");
+    assert!(rollout_text.contains("OutputReferenceV1"));
+    assert!(rollout_text.contains("output-ref://sha256/"));
+    assert!(!rollout_text.contains(sentinel));
+
+    let Some(sha) = rollout_text
+        .split("output-ref://sha256/")
+        .nth(1)
+        .map(|value| value.chars().take(64).collect::<String>())
+    else {
+        panic!("output ref sha missing");
+    };
+    let artifact_path = rollout_path
+        .parent()
+        .expect("rollout parent")
+        .join(format!(
+            "{}-artifacts",
+            rollout_path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .expect("rollout stem")
+        ))
+        .join("output-refs")
+        .join(format!("{sha}.stdout"));
+    let artifact_text = tokio::fs::read_to_string(&artifact_path)
+        .await
+        .expect("read output-ref artifact");
+    assert_eq!(artifact_text, raw_output);
+
+    let InitialHistory::Resumed(resumed) = RolloutRecorder::get_rollout_history(&rollout_path)
+        .await
+        .expect("read rollout history")
+    else {
+        panic!("expected resumed rollout history");
+    };
+    let persisted_output = resumed.history.iter().find_map(|item| match item {
+        RolloutItem::ResponseItem(ResponseItem::FunctionCallOutput { output, .. }) => {
+            output.text_content()
+        }
+        _ => None,
+    });
+    let persisted_output = persisted_output.expect("persisted function output");
+    assert!(persisted_output.contains("OutputReferenceV1"));
+    assert!(!persisted_output.contains(sentinel));
+}
+
+#[tokio::test]
 async fn thread_rollback_clears_history_when_num_turns_exceeds_existing_turns() {
     let (mut sess, tc, rx) = make_session_and_context_with_rx().await;
     attach_thread_persistence(

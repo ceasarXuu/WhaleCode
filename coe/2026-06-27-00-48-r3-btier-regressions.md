@@ -4079,3 +4079,88 @@
   ```
 - Interpretation: This closes the R4-D `count-call-stack` P0 internal tool feedback path. It does not close R4-E large-output/projection globally, R4-F non-direct tool coverage, or R4-G public-10 acceptance.
 - Time: 2026-06-30 20:55
+
+## Hypothesis H-053: large tool output must be bounded at rollout persistence, not only provider projection
+- Status: confirmed
+- Parent: P-001
+- Claim: Provider-visible projection can remove large raw outputs from model payloads, but rollout persistence can still duplicate raw tool output and create artifact/log bloat unless persistence has its own output-ref sanitizer.
+- Layer: persistence
+- Factor relation: contributes_to
+- Falsifiable predictions:
+  - If true before repair: `large-output-ref-smoke` produces a very large TaskSpace rollout and can hit timeout even when provider projection is active.
+  - If repaired: large tool output is written to an output-ref artifact before rollout append; provider payload scan reports `large_raw_output_tokens=0`; rollout size is bounded.
+- Related evidence:
+  - E-078
+- Conclusion: confirmed-and-repaired-for-R4-E-large-output-subpath
+
+## Hypothesis H-054: forced validation closeout can confuse tool success with business validation success
+- Status: confirmed
+- Parent: P-001
+- Claim: `forced_validation_closeout` can treat a successful diagnostic/tool drain as validation success and allow a final answer even when public validation has not passed and target files were not changed.
+- Layer: validation-semantics
+- Factor relation: contributes_to
+- Falsifiable predictions:
+  - If true: a run can contain `forced_validation_closeout trigger=validation_success_after_tool_drain`, final text says validation passed, but `public_validation_exit_code=1` and expected changed paths are missing.
+  - If repaired: closeout is gated by actual public validator result or emits structured failure feedback instead of final success.
+- Related evidence:
+  - E-079
+- Conclusion: confirmed-needs-fix
+
+## Evidence E-078: R4-E large-output rerun bounds rollout and preserves output-ref evidence
+- Related hypotheses:
+  - H-053
+- Direction: supports-repair
+- Type: real-sample-rerun
+- Source:
+  - `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md`
+  - `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/exact-payload-scan-events.jsonl`
+  - `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/output-ref-events.jsonl`
+  - `third_party/codex-cli/codex-rs/core/src/session/mod.rs`
+- Prediction or plan link:
+  - H-053 predicts that adding rollout persistence sanitization should reduce raw rollout bloat without relying on a hard timeout cap.
+- Matched signal:
+  - Historical TaskSpace rollout: `490846386` bytes.
+  - After repair TaskSpace rollout: `360600` bytes.
+  - Exact payload scan: `passed=true`, `large_raw_output_tokens=0`, `replacement_confirmed=true`.
+  - Output-ref event: `output_ref.created`.
+  - Pair report: TaskSpace did not hit exec timeout.
+- Raw content:
+  ```text
+  cargo test -j1 -p codex-core rollout_persistence_referenceizes_large_tool_outputs --lib
+    1 passed
+
+  large-output-ref-smoke rerun:
+    taskspace_exec_timed_out=False
+    previous_rollout_bytes=490846386
+    after_rollout_bytes=360600
+    exact_payload_scan large_raw_output_tokens=0
+    output_ref.created output-ref://sha256/16160b56...
+  ```
+- Interpretation: This closes the `large-raw-tool-output-ref` log-bloat/persistence subpath. It does not close TaskSpace correctness for this sample, because E-079 shows a separate validation closeout bug.
+- Time: 2026-06-30 21:25
+
+## Evidence E-079: large-output-ref-smoke exposes false validation closeout
+- Related hypotheses:
+  - H-054
+- Direction: supports-defect
+- Type: real-sample-rerun
+- Source:
+  - `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md`
+  - `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/rollout.jsonl`
+  - `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/validation.stdout.log`
+- Prediction or plan link:
+  - H-054 predicts that TaskSpace can finish with a validation-success narrative after a tool drain even though public validation fails.
+- Matched signal:
+  - Pair report shows `outcome_standard=solved`, `outcome_taskspace=wrong`.
+  - TaskSpace public validation exit code is `1`.
+  - TaskSpace changed paths only include `.large_output_probe_ran`; target source file was not changed.
+  - Rollout contains `forced_validation_closeout` with `trigger:validation_success_after_tool_drain`.
+- Raw content:
+  ```text
+  outcome_taskspace: wrong
+  public_validation_exit_code: 1
+  changed_paths: .large_output_probe_ran
+  forced_validation_closeout trigger:validation_success_after_tool_drain
+  ```
+- Interpretation: This is not a large-output persistence failure after E-078. It is a validation/tool-result semantic bug and is tracked as `validation-closeout-tool-drain` in R4 coverage.
+- Time: 2026-06-30 21:30

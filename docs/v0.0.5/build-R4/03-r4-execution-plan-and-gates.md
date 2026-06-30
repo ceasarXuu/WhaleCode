@@ -187,6 +187,26 @@ rerun large-output-ref-smoke:
   cache hit does not regress below R3 target
 ```
 
+2026-06-30 执行结果：
+
+```text
+RunDir: target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432
+previous_taskspace_rollout_bytes: 490846386
+after_taskspace_rollout_bytes: 360600
+outcome_standard: solved
+outcome_taskspace: wrong
+taskspace_exec_timed_out: False
+taskspace_public_validation_exit_code: 1
+taskspace_wall_time_ratio: 1.8
+taskspace_tool_call_ratio: 0.12
+output_ref_event: output_ref.created output-ref://sha256/16160b56...
+exact_payload_scan: passed=true; large_raw_output_tokens=0; replacement_confirmed=true
+```
+
+R4-E 当前只能关闭 `large-raw-tool-output-ref` 的日志膨胀/持久化子项。该样本仍失败，根因不是
+rollout bloat，而是 `validation-closeout-tool-drain`：一次诊断/工具成功被 closeout 语义误解释为
+验证成功，最终 `changed_paths` 只有 `.large_output_probe_ran`，没有修目标源文件。
+
 退出门禁：
 
 ```text
@@ -271,6 +291,24 @@ provider_payload_tool_feedback_proof
 | performance | wall time/log size/request loop 明显下降，不能只靠 hard cap |
 | cache | request 2+ hit rate `>= 0.95` |
 | public benchmark coverage | 10 个公开样本均有 source/commit/task_id 证明和 tool 调用分析表 |
+
+2026-06-30 门禁补强：
+
+```text
+Plan manifest:
+  docs/v0.0.5/build-R4/r4-public-10-tool-stress-plan.json
+Plan gate:
+  scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1
+Gate integration:
+  scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1
+Gate name:
+  r4_public_10_tool_stress_plan
+```
+
+该 gate 不替代真实 10 样本运行。它只保证最终综合验收的样本不是本地编造，且最终报告必须逐样本
+包含 standard/taskspace outcome、wall/token/tool-call 倍数、cache hit、tool feedback loss、
+projection、map attribution、large output ref 和证据路径字段。R4-G 只有在该计划 gate 和实际 paired
+run report 两者都通过后才能关闭。
 
 ## 3.8 Phase R4-H：Closeout
 

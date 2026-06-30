@@ -144,12 +144,20 @@
       "id": "large-raw-tool-output-ref",
       "class": "large_output",
       "priority": "P1",
-      "status": "needs-fix",
+      "status": "canonical",
       "owner_phase": "R4-E",
       "source_anchors": [
         {
           "file": "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
           "pattern": "is_large_raw_tool_output"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/mod.rs",
+          "pattern": "sanitize_rollout_items_for_persistence"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/mod.rs",
+          "pattern": "sanitize_rollout_output_text_for_persistence"
         }
       ],
       "required_semantics": [
@@ -158,7 +166,36 @@
         "retrievable_ref",
         "projection_reason"
       ],
-      "required_evidence": "Large stdout/stderr remains retrievable while payload and rollout growth are bounded."
+      "required_evidence": "Large stdout/stderr remains retrievable while payload and rollout growth are bounded; R4-E rerun reduced TaskSpace rollout from 490,846,386 bytes to 360,600 bytes with exact payload scan large_raw_output_tokens=0."
+    },
+    {
+      "id": "validation-closeout-tool-drain",
+      "class": "validation_closeout",
+      "priority": "P0",
+      "status": "needs-fix",
+      "owner_phase": "R4-D",
+      "source_anchors": [
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+          "pattern": "forced_validation_closeout"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+          "pattern": "validation_success_after_tool_drain"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
+          "pattern": "build_taskspace_forced_validation_closeout_recovery_item"
+        }
+      ],
+      "required_semantics": [
+        "validation_trigger",
+        "validator_exit_code",
+        "tool_success_vs_business_success",
+        "public_validation_result",
+        "next_payload_visibility"
+      ],
+      "required_evidence": "A diagnostic or shell tool success must not be converted into final validation success unless the public validator result is visible and passing."
     },
     {
       "id": "codemode-nested-tool-result",

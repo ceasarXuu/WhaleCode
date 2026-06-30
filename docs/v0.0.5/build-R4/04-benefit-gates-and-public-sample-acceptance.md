@@ -14,6 +14,10 @@ Gate R4-BENEFIT-PER-PHASE:
 Gate R4-PUBLIC-10-TOOL-STRESS:
   final acceptance must run 10 public benchmark samples selected for tool-call stress.
   samples must be traceable to public benchmark metadata, not invented local scenarios.
+
+Gate R4-PUBLIC-10-PLAN-MANIFEST:
+  the 10-sample selection and required report fields must be machine-readable.
+  the plan gate can pass before the paired run, but R4-G cannot close until the paired run report also passes.
 ```
 
 ## 4.2 每个 phase 的收益证据格式
@@ -78,6 +82,20 @@ Registry subset count: 80
 2. 运行前必须写入 source metadata、registry checksum、task id 校验结果。
 3. 不把 solution、hidden tests 或完整 benchmark dataset vendoring 到仓库。
 4. 如果某个样本因本地环境不可运行而替换，替换样本也必须来自同一公开 registry，并记录替换原因。
+
+机器可读计划和门禁：
+
+```text
+Plan manifest:
+  docs/v0.0.5/build-R4/r4-public-10-tool-stress-plan.json
+Plan gate:
+  scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1
+Default evidence:
+  target/r4-public-10-tool-stress/r4-public-10-tool-stress-evidence.json
+```
+
+该门禁会检查样本数、task id 唯一性、公开来源元数据、选择理由和最终报告必填字段。带 `-ReportPath`
+运行时，还会检查实际 10 样本结果表是否逐样本包含所有字段，以及 `task_id_registry_verified=true`。
 
 ## 4.5 R4 公开 10 样本候选
 
