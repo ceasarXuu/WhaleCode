@@ -18,6 +18,7 @@ Related Systems: TaskSpace runtime, tool runtime, action-contract transport,
 Related Links:
   docs/v0.0.5/build-R3/09-r3-engineering-closeout.md
   docs/v0.0.5/build-R3/10-light-effect-experiment.md
+  docs/v0.0.5/build-R4/04-benefit-gates-and-public-sample-acceptance.md
   coe/2026-06-20-02-00-taskspace-tool-call-history.md
   coe/2026-06-27-00-48-r3-btier-regressions.md
 Risk Level: High
@@ -81,7 +82,7 @@ timing attribution 和 start gate 脚手架收敛到工程可验状态。但轻�
 | R4-D | Action-contract internal tool parity | 内部 apply_patch/shell/test/rejection 与 standard 对齐 | 复跑已知 wrong sample，失败反馈可见且可纠错 |
 | R4-E | Projection/output-ref/performance safeguards | projection reason、large-output ref、log bloat 控制 | large-output 样本不再无界日志膨胀 |
 | R4-F | Multi-agent/MCP/CodeMode coverage | 非 direct tools 覆盖矩阵和必要修复 | 不再有未分类 tool result path |
-| R4-G | Benchmark gates and benefit validation | 小样本和 targeted gate | correctness、wall time、tool count、cache hit 均有真实证据 |
+| R4-G | Benchmark gates and benefit validation | known-bad 样本和 10 个公开 benchmark 综合验收 | correctness、wall time、tool count、token/cache、tool feedback 均有真实证据 |
 | R4-H | Closeout | 工程收口文档和后续 E3 入口 | 文档、代码、测试、样本证据一致 |
 
 ## 0.7 当前已知最高优先级问题
@@ -105,4 +106,6 @@ R4 完成不能只说“没有明显缺口”，必须满足：
 4. 对历史 invalid tool-call history 有回归 fixture 或等价协议检查。
 5. correctness 和性能收益必须分开报告：不能用 solved 掩盖 wall time/token/log bloat 回归。
 6. cache hit 不能因 tool feedback 修复倒退，request 2+ hit rate 目标为 `>= 0.95`。
-7. 工程变更完成后写入 closeout 文档，记录真实收益、未收敛风险和是否可进入后续 E3。
+7. 每个 phase 必须证明具体工程收益，证据至少包含 baseline、after、测量方法、artifact 路径和 pass/fail 结论。
+8. R4-G 必须从公开 benchmark 选择 10 个考验 tool 调用能力的真实样本，记录 source URL、版本、commit、task id、选择理由，并跑一轮综合验收。
+9. 工程变更完成后写入 closeout 文档，记录真实收益、未收敛风险和是否可进入后续 E3。

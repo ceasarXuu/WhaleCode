@@ -194,7 +194,9 @@ intentionally-excluded path 有测试证明不会影响 agent-visible feedback�
 
 目标：
 
-用真实样本证明 R4 的 correctness 和性能收益。
+用真实样本证明 R4 的 correctness 和性能收益。R4-G 不只复跑自建 known-bad
+场景，还必须执行 10 个公开 benchmark 样本的综合验收，具体门禁见
+`docs/v0.0.5/build-R4/04-benefit-gates-and-public-sample-acceptance.md`。
 
 最小样本集：
 
@@ -205,6 +207,7 @@ intentionally-excluded path 有测试证明不会影响 agent-visible feedback�
 | `multi-file-order-pipeline` | action-contract loop 降低或消除 |
 | `large-output-ref-smoke` | timeout/log bloat 消除 |
 | invalid-history fixture | provider protocol pass |
+| 10 个公开 Terminal-Bench 样本 | 综合分析 tool intent、tool result、projection、map attribution、wall/token/cache |
 
 报告格式：
 
@@ -225,6 +228,10 @@ request_2_plus_cache_hit_rate
 tool_feedback_loss_count
 projection_omit_count_by_reason
 rollout_size_bytes
+tool_feedback_semantic_loss_count
+tool_feedback_latency_ms
+taskspace_map_attribution_missing_count
+provider_payload_tool_feedback_proof
 ```
 
 收益判断：
@@ -236,6 +243,7 @@ rollout_size_bytes
 | protocol safety | no invalid tool-call history |
 | performance | wall time/log size/request loop 明显下降，不能只靠 hard cap |
 | cache | request 2+ hit rate `>= 0.95` |
+| public benchmark coverage | 10 个公开样本均有 source/commit/task_id 证明和 tool 调用分析表 |
 
 ## 3.8 Phase R4-H：Closeout
 
@@ -243,9 +251,11 @@ rollout_size_bytes
 
 1. 代码、测试、样本证据和文档全部指向同一 HEAD。
 2. R4 phase 表中没有未解释的未完成项。
-3. 每个未完全解决的问题都有明确降级等级、证据和后续 owner。
-4. 工程层 closeout 不伪装成 formal E3 pass。
-5. 按项目规则提交并 push 所有改动。
+3. 每个 phase 的工程收益都有 evidence row；没有收益证据的 phase 不能标记 completed。
+4. 每个未完全解决的问题都有明确降级等级、证据和后续 owner。
+5. 10 个公开 benchmark 综合验收完成，且报告逐样本列出 standard/taskspace 的工具调用表现。
+6. 工程层 closeout 不伪装成 formal E3 pass。
+7. 按项目规则提交并 push 所有改动。
 
 closeout 文档必须回答：
 
