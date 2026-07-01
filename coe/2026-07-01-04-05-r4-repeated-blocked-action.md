@@ -757,7 +757,7 @@
 
 - Related problems:
   - P-004
-- Status: confirmed-and-repaired-by-unit-tests
+- Status: confirmed-and-repaired-by-real-sample
 - Claim:
   - After P-004's first repair, TaskSpace correctly forced edit attempts, but `apply_patch` failures with `Failed to find expected lines` were summarized as generic tool failures. The model repeated mismatching hunks instead of using a different patch strategy such as exact-context update or full small-file replacement.
 - Evidence:
@@ -1025,7 +1025,22 @@
 
   cargo build -j1 --profile dev-small -p codex-cli --bin whale
   PASS
+
+  csv-to-parquet-v11
+  RunDir: C:\WhaleRunCache\r4-public10-20260701\actual\csv-to-parquet-v11\runs\terminal_bench__csv-to-parquet\20260702-030114-692
+  outcome_standard=solved
+  outcome_taskspace=solved
+  taskspace_exec_timed_out=false
+  taskspace_public_validation_exit_code=0
+  taskspace_hidden_oracle_exit_code=0
+  taskspace_open_leaf_nodes=0
+  taskspace_edges=2
+  taskspace_tool_call_count=4
+  taskspace_wall_time_ms=93,724
+  standard_wall_time_ms=42,415
+  taskspace_wall_time_ratio=2.21
   ```
-- Remaining validation:
-  - Rerun `csv-to-parquet` as v11 with the new binary and confirm TaskSpace no longer times out after a successful smoke test.
+- Interpretation:
+  - The same sample no longer times out after successful smoke validation. Compared with v10, open leaf dropped from 1 to 0 and edge count dropped from 313 to 2.
+  - The harness process still returned exit code 1 because E3/audit scoring gates were intentionally unmet (`repeats_lt_3`, `audit_review_missing`, external validator fidelity not E3 eligible). Pair-level business outcomes were solved on both sides.
 - Time: 2026-07-02 03:00
