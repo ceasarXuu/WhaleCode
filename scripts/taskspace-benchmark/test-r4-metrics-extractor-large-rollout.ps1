@@ -50,4 +50,20 @@ Assert-Equal (Test-TaskspaceOrdinaryToolBeforeBindingInRollout $ordinaryBeforeBi
 Assert-Equal (Test-TaskspaceOrdinaryToolBeforeBindingInRollout $bindingFirst) $false "binding-first rollout was incorrectly flagged"
 Assert-Equal (Test-TaskspaceOrdinaryToolBeforeBindingInRollout $largeBindingFirst) $false "large binding-first rollout was incorrectly flagged"
 
+$toolStatsPath = Join-Path $RunRoot "tool-stats.jsonl"
+@(
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{}","call_id":"control-1"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"control-1","output":"ok"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"shell_command","arguments":"{\"command\":\"rg --files\"}","call_id":"read-1"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"read-1","output":"Exit code: 0\nOutput:\nok"}}',
+    '{"type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","input":"*** Begin Patch","call_id":"patch-1"}}',
+    '{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"patch-1","output":"{\"output\":\"Success\",\"metadata\":{\"exit_code\":0}}"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"shell_command","arguments":"{\"command\":\"bash run_pipeline.sh\"}","call_id":"test-1"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"test-1","output":"Tool call failed before producing a result. local_validator_infra_failure: Bash/Service/CreateInstance/E_ACCESSDENIED"}}'
+) | Set-Content -Encoding UTF8 -LiteralPath $toolStatsPath
+$toolStats = Get-TaskspaceRolloutToolStats $toolStatsPath
+Assert-Equal $toolStats.Completed 3 "rollout ordinary tool calls were not counted"
+Assert-Equal $toolStats.Failed 1 "rollout failed tool calls were not counted"
+Assert-Equal $toolStats.Control 1 "rollout taskspace_control count was not separated"
+
 Write-Host "PASS: R4 metrics extractor large rollout gate passed"

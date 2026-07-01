@@ -5,8 +5,8 @@
 ## 5.1 当前状态
 
 ```text
-Updated: 2026-06-30
-Code state at evidence capture: this R4-D repair changeset
+Updated: 2026-07-01
+Code state at evidence capture: R4 tool-chain convergence changes through install/metrics fixes
 Status:
   R4-A pass: tool path coverage manifest and gate are executable.
   R4-B pass: known sample evidence ledger and gate are executable.
@@ -15,6 +15,7 @@ Status:
   R4-D remains open for validation-closeout-tool-drain, discovered by large-output-ref-smoke.
   R4-E partial pass for large raw output / rollout bloat: timeout removed and rollout bounded.
   R4-E remains open for full pair-safe projection semantics.
+  R4-G partial pass: processing-pipeline inspect no-progress now reaches implement/test with real edit.
   R4-F/R4-G/R4-H remain open until non-direct tools, public-10, and closeout gates finish.
 ```
 
@@ -22,13 +23,13 @@ Status:
 
 | Phase | Claimed Engineering Benefit | Baseline Artifact | After Artifact | Measurement Method | Metric | Baseline Value | After Value | Pass Threshold | Pass/Fail | Evidence Paths |
 |---|---|---|---|---|---|---|---|---|---|---|
-| R4-A | tool path 覆盖从人工 Markdown 变成机器可读 manifest 和 gate，新增或遗漏 path 可被门禁发现 | `docs/v0.0.5/build-R4/01-static-tool-chain-map.md` | `docs/v0.0.5/build-R4/r4-tool-path-coverage.json` + validator output | `test-r4-tool-path-coverage.ps1` 校验 schema、source anchors、owner phase、required semantics | `unknown/unowned/missing-anchor` | 无可执行检查 | `path_count=9`, `failure_count=0` | `failure_count=0` | pass | `target/r4-tool-path-coverage/r4-tool-path-coverage-evidence.json` |
-| R4-B | 历史 sample 现场从 scattered target/CoE 变成机器可读账本，known-bad 类型和 owner phase 可验证 | `docs/v0.0.5/build-R4/02-field-evidence-and-sample-ledger.md` | `docs/v0.0.5/build-R4/r4-sample-evidence-ledger.json` + validator output | `test-r4-sample-ledger.ps1` 校验 sample id、failure class、owner phase、evidence path、required classes | `sample_count/missing-evidence` | 无可执行检查 | `sample_count=7`, `failure_count=0` | `sample_count>=6`, `failure_count=0` | pass | `target/r4-sample-ledger/r4-sample-ledger-evidence.json` |
+| R4-A | tool path 覆盖从人工 Markdown 变成机器可读 manifest 和 gate，新增或遗漏 path 可被门禁发现 | `docs/v0.0.5/build-R4/01-static-tool-chain-map.md` | `docs/v0.0.5/build-R4/r4-tool-path-coverage.json` + validator output | `test-r4-tool-path-coverage.ps1` 校验 schema、source anchors、owner phase、required semantics | `unknown/unowned/missing-anchor` | 无可执行检查 | `path_count=10`, `failure_count=0` | `failure_count=0` | pass | `target/r4-tool-path-coverage/r4-tool-path-coverage-evidence.json` |
+| R4-B | 历史 sample 现场从 scattered target/CoE 变成机器可读账本，known-bad 类型和 owner phase 可验证 | `docs/v0.0.5/build-R4/02-field-evidence-and-sample-ledger.md` | `docs/v0.0.5/build-R4/r4-sample-evidence-ledger.json` + validator output | `test-r4-sample-ledger.ps1` 校验 sample id、failure class、owner phase、evidence path、required classes | `sample_count/missing-evidence` | 无可执行检查 | `sample_count=12`, `failure_count=0` | `sample_count>=6`, `failure_count=0` | pass | `target/r4-sample-ledger/r4-sample-ledger-evidence.json` |
 | R4-C | direct tool error 的 TaskSpace map preview 不再走独立摘要，而是从 standard failure response 的 model-visible item 派生 | `parallel.rs` success/error map preview 来源分叉；manifest `direct-tool-error-map-preview=needs-fix` | `failure_response_for_error` + `response_input_model_visible_preview`；manifest `direct-tool-error-map-preview=canonical` | focused Rust unit test + R4 coverage validator | `failure_response_preview` | error path 独立 `action_map_tool_error_preview` | focused tests pass；coverage path canonical | focused tests pass；coverage validator pass | pass | `cargo test -p codex-core failure_response_preview --lib`; `target/r4-tool-path-coverage/r4-tool-path-coverage-evidence.json` |
 | R4-D | action-contract internal failed tool outputs、validation gate failure、unreviewed-result blocker、dependency read evidence 都能以可执行语义进入下一轮，而不是被压成无法行动的 raw stderr 或 generic recovery | `count-call-stack` 历史 run：TaskSpace wrong/no patch，后续多轮 timeout；apply_patch 失败、validator 覆盖失败、unreviewed result、dependency read evidence 丢失分别导致卡住 | `third_party/codex-cli/codex-rs/core/src/session/turn.rs`、`action_map/runtime.rs`、`tools/parallel.rs` 修复；真实 rerun solved | focused Rust tests + paired public sample rerun | `outcome_taskspace`, `tool_call_count`, `wall_time_ratio`, `changed_paths`, `public_validation_exit_code` | wrong/no patch 或 900s timeout；`changed_paths` 空；validator/projection 链路卡死 | solved；`changed_paths=src/call_stack_counter.py`；`public_validation_exit_code=0`；tool calls 11 vs standard 20；wall ratio 1.12 | known feedback-loss sample 不再 wrong/no_patch；validation exit 0；无 evidence gate failure | pass for this P0 path | `target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136/pair-001/pair-report.md` |
 | R4-E | large raw tool output 不再把 provider payload / rollout 撑爆，output-ref 事件可追踪；但本 phase 的 pair-safe projection 总体尚未完全关闭 | `large-output-ref-smoke` timeout；TaskSpace rollout `490,846,386` bytes | `large-output-ref-smoke` rerun 无 900s timeout；TaskSpace rollout `360,600` bytes；`output_ref.created`；exact payload scan `large_raw_output_tokens=0`、`replacement_confirmed=true` | large-output rerun + rollout size + exact payload scan + output-ref events | `timeout`, `rollout_size_bytes`, `large_raw_output_tokens`, `output_ref.created` | timeout；rollout `490,846,386` bytes；失败日志膨胀 | no timeout；rollout `360,600` bytes；`large_raw_output_tokens=0`；`output_ref.created` | no timeout；rollout bounded；large raw not provider-visible；ref event present | partial pass: large-output/log-bloat 子项 pass；correctness/validation closeout fail | `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md`; `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/exact-payload-scan-events.jsonl`; `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/output-ref-events.jsonl` |
 | R4-F | CodeMode/multi-agent/MCP 等 non-direct tools 有明确 inclusion/exclusion 和 provider-visible feedback 证明 | R4-A manifest 标记 non-direct paths `needs-fix` | pending | coverage fixtures + exclusion proof | `classified_path_count`, `missing_feedback_count` | blind spots | pending | all non-direct paths classified or intentionally excluded with tests | open | pending |
-| R4-G | known-bad 和 10 个公开 benchmark 样本证明收益真实，而不是只靠局部单测 | R3/R4 scattered run evidence；public sample plan was Markdown-only | `r4-public-10-tool-stress-plan.json` + plan gate；paired run pending | public-10 plan gate + paired standard/taskspace 10 public samples + per-sample tool analysis | `tool_feedback_loss_count`, `wall/token/tool ratio`, `cache_hit`, `public_sample_count` | pending | plan gate pending after script run；paired run pending | public-10 plan gate pass；final report 10 rows；feedback loss 0；cache hit >= 0.95 or explained | open | `docs/v0.0.5/build-R4/r4-public-10-tool-stress-plan.json`; `scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1` |
+| R4-G | known-bad 和 10 个公开 benchmark 样本证明收益真实，而不是只靠局部单测 | `processing-pipeline` v3/v4：单 inspect 节点重复读取，`changed_paths=[]`，metrics `tool_call_count=0` 误导 | v7：`forced_inspect_transition` 触发，进入 implement/test，`changed_paths=[generate_report.sh]`；metrics extractor 可从 rollout 复算 tool calls | public-10 plan gate + paired standard/taskspace 10 public samples + per-sample tool analysis | `tool_feedback_loss_count`, `wall/token/tool ratio`, `cache_hit`, `public_sample_count`, `rollout_tool_call_count` | v3/v4: no implement/test, no edit；tool count 漏计 | v7: node_count 3, edge_count 2, rollout ordinary tools 15, failed 1, control 2；但 validator infra `E_ACCESSDENIED` 后仍 timeout | public-10 plan gate pass；final report 10 rows；feedback loss 0；cache hit >= 0.95 or explained | partial/open | `C:\WhaleRunCache\r4-public10-20260701\actual\processing-pipeline-v7\runs\terminal_bench__processing-pipeline\20260701-163507-220`; `scripts/taskspace-benchmark/test-r4-metrics-extractor-large-rollout.ps1` |
 | R4-H | 工程层收口可审计、可复现 | scattered phase evidence | pending | closeout doc + committed artifacts | `open_phase_count`, `unexplained_failure_count` | pending | pending | no phase marked completed without benefit evidence | open | pending |
 
 ## 5.3 R4-D count-call-stack 真实样本证据链
@@ -320,7 +321,7 @@ v3 不是完整通过。修掉 coverage block 后，TaskSpace 暴露出新的 re
 | 版本 | 改动 | 验证 | 真实样本结论 |
 | --- | --- | --- | --- |
 | first patch | 在 `record_main_tool_result_with_class` 写入 read/search 工具结果后，立即检查既有 `inspect_progress_convergence` 规则 | `inspect_progress_convergence_force_finishes_after_contract_hint` 通过 | v4 仍失败：`node_count=1`, `result_count=94`, `rollout=351,884,108 bytes`，没有 `forced_inspect_transition` |
-| second patch | 增加 `provider_request_progress_snapshot_for_node` fallback；收敛判断不再依赖 active budget snapshot，也不安装 active budget | 同一测试显式设置 `state.active_budget=None` 后通过；`cargo fmt --all --check`、`observed_edit_backfill...`、`cargo build` 通过 | 真实收益证明未闭合：v5 外层 10 分钟超时且被停止，没有导出 graph-health |
+| second patch | 增加 `provider_request_progress_snapshot_for_node` fallback；收敛判断不再依赖 active budget snapshot，也不安装 active budget | 同一测试显式设置 `state.active_budget=None` 后通过；`cargo fmt --all --check`、`observed_edit_backfill...`、`cargo build` 通过 | v7 真实样本证明 inspect 可转入 implement/test：`forced_inspect_transition`、`node_count=3`、`changed_paths=[generate_report.sh]`；新阻塞转为 validator infra `E_ACCESSDENIED` |
 
 v4 真实现场：
 
@@ -335,4 +336,93 @@ active-budget-events.jsonl length=0
 
 1. `processing-pipeline` 的 validation coverage blocker 已从 94 降为 0，这个收益已证明。
 2. inspect no-progress loop 的第一版修复被 v4 证伪，根因是仍依赖 budget snapshot。
-3. 第二版修复已通过单测/构建，但还缺真实样本证明；R4-G 不能关闭。
+3. 第二版修复已通过单测/构建和 v7 真实样本证明；R4-G 仍不能关闭，因为新阻塞转为 validator infra recovery、metrics 新字段 fresh-run 写出证明，以及公开 10 样本综合验收。
+
+### 5.8.5 2026-07-01 processing-pipeline v7 真实收益和新阻塞
+
+v6 暴露出一个门禁/安装链路问题：`scripts/install-whale-local.ps1` 默认优先安装
+`debug\whale.exe`，而当前构建命令产物是 `dev-small\whale.exe`。因此 v6 虽然
+刷新了 attestation，但实际仍运行旧二进制，不能作为 second patch 真实验证。
+
+修复：
+
+1. `install-whale-local.ps1` 在未显式传入 `-BinaryPath` 时改为从候选 `whale.exe`
+   中选择最新产物。
+2. 候选列表加入 `dev-small\whale.exe`。
+3. 安装后自动调用 `write-whale-binary-attestation.ps1` 刷新 binary attestation。
+
+验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -InstallDir D:\whalecode-alpha\target\install-whale-local-selftest-2
+Source: D:\BuildCache\whalecode\cargo-target\dev-small\whale.exe
+Hash: 29A68B8C57B425DFBFA326B23C9877D0E45B0BE51119A9D5CD82740181A9CB06
+WhaleBinaryAttestation: D:\whalecode-alpha\target\install-whale-local-selftest-2\whale.exe.build-attestation.json
+```
+
+随后用新二进制跑 `processing-pipeline-v7`：
+
+```text
+RunDir: C:\WhaleRunCache\r4-public10-20260701\actual\processing-pipeline-v7\runs\terminal_bench__processing-pipeline\20260701-163507-220
+forced_inspect_transition: count=18 in rollout scan
+trigger: inspect_progress_convergence
+request_count:13
+max_requests:20
+source_node_kind: inspect_code_context
+next_node_kind: implement_solution
+bound_next_node_id: node-2
+```
+
+真实收益：
+
+| 指标 | v6 旧 binary / 无效验证 | v7 新 binary / 有效验证 |
+| --- | --- | --- |
+| TaskSpace graph | `node_count=1`, `edge_count=0`, `changed_paths=[]` | `node_count=3`, `edge_count=2`, `changed_paths=[generate_report.sh]` |
+| inspect 收敛 | 无 `forced_inspect_transition` | `forced_inspect_transition` 出现，`node-1` 转入 `node-2` |
+| 实现动作 | 无 patch | `apply_patch` 成功修改 `generate_report.sh` |
+| 后续节点 | 无 implementation/test | `taskspace_control finish_node` 后进入 `node-3(smoke_test)` |
+
+这证明 second patch 的核心收益已经成立：TaskSpace 不再卡死在单个 inspect
+节点的重复读取里，而是能按工具反馈推进到实现节点并产生真实代码修改。
+
+新阻塞：
+
+```text
+taskspace-action-contract-16-run_test
+Tool call failed before producing a result.
+local_validator_infra_failure: Bash/Service/CreateInstance/E_ACCESSDENIED
+```
+
+该阻塞是本机 validator/shell 基础设施问题，不是当前 inspect 收敛修复的失败；
+但它仍会导致本次 paired run 在 `TimeoutSeconds=180` 下未完成 blocked/final 收口，
+所以 R4-G 仍不能关闭。
+
+同时发现 metrics 统计缺口：v7 修复前生成的 `metrics.json` 仍显示
+`tool_call_count=0`，但 rollout 复算结果为：
+
+```text
+Get-TaskspaceRolloutToolStats(v7 rollout)
+Completed: 15
+Failed: 1
+Control: 2
+Availability: measured
+```
+
+因此已修复 `metrics-extractor.ps1`：当 `whale-exec.jsonl` 缺少 action-contract
+工具项时，从可扫描的 `rollout.jsonl` 统计普通工具调用、失败工具调用和
+`taskspace_control` 调用，并新增 `rollout_tool_call_count`、
+`rollout_failed_tool_call_count`、`rollout_control_tool_call_count` 字段。
+
+验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-r4-metrics-extractor-large-rollout.ps1
+PASS: R4 metrics extractor large rollout gate passed
+```
+
+当前结论：
+
+1. `processing-pipeline` 的 inspect no-progress 工程缺陷已从真实样本层面收敛到下一层问题。
+2. R4-G 仍打开，原因转移为 validator infra recovery 收口、metrics 新字段在新 run 中写出证明、
+   以及公开 10 样本综合验收未完成。
+3. v7 是 R4-G 的阶段性正收益证据，不是 R4-G closeout。

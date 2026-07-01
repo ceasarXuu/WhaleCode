@@ -341,7 +341,7 @@
 - Time: 2026-07-01 14:13
 
 ## Problem P-002: TaskSpace can spend a full public sample budget in read-only inspect without node progress
-- Status: open
+- Status: confirmed-and-repaired-for-inspect-transition; validation closeout remains open
 - First observed: 2026-07-01 14:13
 - Symptom:
   - After H-003 was repaired, `processing-pipeline` no longer repeated validation coverage blocks, but TaskSpace timed out with only one `inspect_code_context` node, 107 results, no edges, and no implement/test node.
@@ -356,12 +356,12 @@
 - Evidence:
   - `C:\WhaleRunCache\r4-public10-20260701\actual\processing-pipeline-v3\runs\terminal_bench__processing-pipeline\20260701-141309-114`
 - Next diagnostic:
-  - Compare repeated read/list fingerprints inside node-1.
-  - Add a convergence rule based on inspected source/test coverage and unchanged read fingerprints, not a request hard cap.
-  - Patch metrics extraction to count action-contract internal tools from map/rollout summaries.
+  - Close the new validation-node infra failure path after `Bash/Service/CreateInstance/E_ACCESSDENIED`.
+  - Prove metrics extractor writes rollout-derived tool counts in a fresh paired run.
+  - Continue R4-G public 10 validation after the local validator infra path is controlled.
 
 ## Hypothesis H-004: inspect progress convergence was tied to provider budget snapshots
-- Status: supported-partial-fix
+- Status: confirmed-and-repaired
 - Parent: P-002
 - Claim: The existing `inspect_progress_convergence` rule was only checked through provider-response/budget-snapshot paths. Action-contract tool results could be recorded without an active budget snapshot, so a single inspect node kept accumulating successful read/search results without transitioning to `implement_solution`.
 - Layer: root-cause
@@ -373,15 +373,15 @@
 - Falsifiable predictions:
   - If true: an action-contract run with no active budget snapshot can exceed the inspect contract hint without forced transition.
   - If fixed: record-main-tool-result should use a progress snapshot fallback that does not install or depend on active budget.
-- Evidence gate: partially satisfied
+- Evidence gate: satisfied for inspect transition
 - Related evidence:
   - E-008
   - E-009
-- Conclusion: implemented a fallback progress snapshot and unit-tested it with `active_budget=None`; real paired validation is still pending because v5 was interrupted before artifact export.
-- Repair design readiness: implemented, needs real-sample proof
-- Next step: rerun `processing-pipeline` with enough outer harness time, then verify graph node_count > 1 or `forced_inspect_transition` appears before result_count explodes.
+- Conclusion: implemented a fallback progress snapshot and proved it in a real `processing-pipeline-v7` run. The sample now leaves inspect, edits `generate_report.sh`, and enters validation. The remaining timeout is a different validator infrastructure closeout problem.
+- Repair design readiness: implemented and real-sample-proven for inspect transition.
+- Next step: address validation infra recovery and public-10 closeout.
 - Blocker:
-  - Real proof pending.
+  - `Bash/Service/CreateInstance/E_ACCESSDENIED` during `run_test` prevents clean validation-node closure in the bounded run.
 
 ## Evidence E-008: v4 proves the first inspect-convergence patch did not cover real action-contract runtime
 - Related hypotheses:
@@ -425,3 +425,71 @@
   ```
 - Interpretation: The mechanism no longer depends on installing an active budget, matching the design constraint that profile/budget hints must not gate session progress.
 - Time: 2026-07-01 16:20
+
+## Evidence E-010: processing-pipeline v7 proves inspect transition and real edit with current binary
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: real-sample validation
+- Source: `C:\WhaleRunCache\r4-public10-20260701\actual\processing-pipeline-v7\runs\terminal_bench__processing-pipeline\20260701-163507-220`
+- Matched signal:
+  - `forced_inspect_transition` appears in rollout with `trigger:inspect_progress_convergence`.
+  - The transition binds `node-1` to `node-2` at `request_count:13`, `max_requests:20`.
+  - `graph-health.json`: `node_count=3`, `edge_count=2`, `result_count=17`.
+  - `metrics.json`: `changed_paths=[generate_report.sh]`.
+  - `rollout.jsonl`: `apply_patch` succeeds and `taskspace_control finish_node` creates `node-3`.
+- Raw content:
+  ```text
+  trace kind: forced_inspect_transition
+  tags: trigger:inspect_progress_convergence, request_count:13, max_requests:20,
+        source_node_kind:inspect_code_context, next_node_kind:implement_solution,
+        bound_next_node_id:node-2
+  apply_patch: Success. Updated generate_report.sh
+  run_test: local_validator_infra_failure: Bash/Service/CreateInstance/E_ACCESSDENIED
+  ```
+- Interpretation: The read-only inspect loop is no longer the current blocker. The next blocker is validator infrastructure failure after implementation.
+- Time: 2026-07-01 16:45
+
+## Evidence E-011: install script previously installed stale debug binary instead of dev-small
+- Related hypotheses:
+  - H-004
+- Direction: explains false-negative run
+- Type: harness integrity repair
+- Source: `scripts/install-whale-local.ps1`
+- Matched signal:
+  - Before repair, installed binary hash was `5DCBE599...` from `D:\BuildCache\whalecode\cargo-target\debug\whale.exe`.
+  - Current build artifact hash is `29A68B8C...` from `D:\BuildCache\whalecode\cargo-target\dev-small\whale.exe`.
+  - `processing-pipeline-v6` used the old binary, so it could not validate H-004.
+- Raw content:
+  ```text
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-whale-local.ps1 -InstallDir D:\whalecode-alpha\target\install-whale-local-selftest-2
+  Source: D:\BuildCache\whalecode\cargo-target\dev-small\whale.exe
+  Hash: 29A68B8C57B425DFBFA326B23C9877D0E45B0BE51119A9D5CD82740181A9CB06
+  WhaleBinaryAttestation: D:\whalecode-alpha\target\install-whale-local-selftest-2\whale.exe.build-attestation.json
+  ```
+- Interpretation: R4 benchmark integrity requires install/attestation to point at the actual current build artifact. The script now selects the latest candidate when `-BinaryPath` is omitted and refreshes attestation after install.
+- Time: 2026-07-01 16:50
+
+## Evidence E-012: metrics extractor now counts action-contract tools from rollout
+- Related hypotheses:
+  - P-002
+- Direction: supports
+- Type: metrics repair validation
+- Source: `scripts/taskspace-benchmark/lib/metrics-extractor.ps1`
+- Matched signal:
+  - `Get-TaskspaceRolloutToolStats` counts non-control rollout tool calls, failed calls, and `taskspace_control` separately.
+  - The focused gate covers shell success, apply_patch success, test infra failure, and taskspace_control separation.
+  - v7 rollout recomputation returns `Completed=15`, `Failed=1`, `Control=2`.
+- Raw content:
+  ```text
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-r4-metrics-extractor-large-rollout.ps1
+  PASS: R4 metrics extractor large rollout gate passed
+
+  Get-TaskspaceRolloutToolStats(v7 rollout)
+  Completed: 15
+  Failed: 1
+  Control: 2
+  Availability: measured
+  ```
+- Interpretation: Future paired reports can avoid the misleading `tool_call_count=0` when `whale-exec.jsonl` lacks action-contract internals but rollout is available for scan.
+- Time: 2026-07-01 16:55

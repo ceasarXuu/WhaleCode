@@ -19,12 +19,28 @@ if ([string]::IsNullOrWhiteSpace($InstallDir)) {
 }
 
 function Resolve-ExistingFile {
-    param([string[]]$Candidates)
+    param(
+        [string[]]$Candidates,
+        [string]$PreferredPath
+    )
 
+    if (-not [string]::IsNullOrWhiteSpace($PreferredPath) -and (Test-Path -LiteralPath $PreferredPath -PathType Leaf)) {
+        return (Resolve-Path -LiteralPath $PreferredPath).Path
+    }
+
+    $Existing = @()
     foreach ($Candidate in $Candidates) {
         if (-not [string]::IsNullOrWhiteSpace($Candidate) -and (Test-Path -LiteralPath $Candidate -PathType Leaf)) {
-            return (Resolve-Path -LiteralPath $Candidate).Path
+            $Item = Get-Item -LiteralPath $Candidate
+            $Existing += [pscustomobject]@{
+                Path = $Item.FullName
+                LastWriteTimeUtc = $Item.LastWriteTimeUtc
+            }
         }
+    }
+
+    if ($Existing.Count -gt 0) {
+        return [string](@($Existing | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)[0].Path)
     }
 
     throw "Cannot find whale.exe. Build first or pass -BinaryPath."
@@ -126,15 +142,17 @@ if (-not [string]::IsNullOrWhiteSpace($BinaryPath)) {
     $Candidates += $BinaryPath
 }
 if (-not [string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
+    $Candidates += (Join-Path $env:CARGO_TARGET_DIR "dev-small\whale.exe")
     $Candidates += (Join-Path $env:CARGO_TARGET_DIR "debug\whale.exe")
     $Candidates += (Join-Path $env:CARGO_TARGET_DIR "release\whale.exe")
     $Candidates += (Join-Path $env:CARGO_TARGET_DIR "dist\whale.exe")
 }
+$Candidates += (Join-Path $RepoRoot "third_party\codex-cli\codex-rs\target\dev-small\whale.exe")
 $Candidates += (Join-Path $RepoRoot "third_party\codex-cli\codex-rs\target\debug\whale.exe")
 $Candidates += (Join-Path $RepoRoot "third_party\codex-cli\codex-rs\target\release\whale.exe")
 $Candidates += (Join-Path $RepoRoot "third_party\codex-cli\codex-rs\target\dist\whale.exe")
 
-$Source = Resolve-ExistingFile -Candidates $Candidates
+$Source = Resolve-ExistingFile -Candidates $Candidates -PreferredPath $BinaryPath
 $SourceDir = Split-Path -Parent $Source
 $InstallDir = [System.IO.Path]::GetFullPath($InstallDir)
 $Destination = Join-Path $InstallDir "whale.exe"
@@ -195,3 +213,8 @@ Write-Host "Installed Whale: $Destination"
 Write-Host "Source: $Source"
 Write-Host "Hash:"
 Get-FileHash -LiteralPath $Destination -Algorithm SHA256 | Select-Object Path, Hash
+
+$AttestationScript = Join-Path $RepoRoot "scripts\taskspace-benchmark\write-whale-binary-attestation.ps1"
+if (Test-Path -LiteralPath $AttestationScript -PathType Leaf) {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $AttestationScript -WhaleBin $Destination
+}

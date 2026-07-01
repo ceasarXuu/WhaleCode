@@ -52,6 +52,55 @@ function Test-TaskspaceOrdinaryToolBeforeBindingInRollout {
     return $false
 }
 
+function Get-TaskspaceRolloutToolStats {
+    param([AllowEmptyString()][string]$RolloutPath = "")
+    $callNames = @{}
+    $ordinaryCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $controlCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $failedCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    if ([string]::IsNullOrWhiteSpace($RolloutPath) -or -not (Test-Path -LiteralPath $RolloutPath -PathType Leaf)) {
+        return [pscustomobject]@{ Completed = 0; Failed = 0; Control = 0; Availability = "missing" }
+    }
+    foreach ($line in [System.IO.File]::ReadLines($RolloutPath)) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        try { $evt = $line | ConvertFrom-Json } catch { continue }
+        if ([string]$evt.type -ne "response_item" -or $null -eq $evt.payload) { continue }
+        $payloadType = [string]$evt.payload.type
+        if ($payloadType -in @("function_call", "custom_tool_call")) {
+            $callId = [string]$evt.payload.call_id
+            if ([string]::IsNullOrWhiteSpace($callId)) { $callId = "rollout-call-$($callNames.Count)" }
+            $name = [string]$evt.payload.name
+            if ([string]::IsNullOrWhiteSpace($name)) { $name = "unknown" }
+            $callNames[$callId] = $name
+            if ($name -eq "taskspace_control") {
+                [void]$controlCallIds.Add($callId)
+            } else {
+                [void]$ordinaryCallIds.Add($callId)
+            }
+            continue
+        }
+        if ($payloadType -in @("function_call_output", "custom_tool_call_output")) {
+            $callId = [string]$evt.payload.call_id
+            if ([string]::IsNullOrWhiteSpace($callId)) { continue }
+            $name = if ($callNames.ContainsKey($callId)) { [string]$callNames[$callId] } else { "" }
+            if ($name -eq "taskspace_control") { continue }
+            $output = [string]$evt.payload.output
+            if ($output -match "Tool call failed" -or
+                $output -match "local_validator_infra_failure" -or
+                $output -match "(?m)^Exit code:\s*(?!0\b)\d+" -or
+                $output -match '"exit_code"\s*:\s*(?!0\b)\d+') {
+                [void]$failedCallIds.Add($callId)
+            }
+        }
+    }
+    [pscustomobject]@{
+        Completed = $ordinaryCallIds.Count
+        Failed = $failedCallIds.Count
+        Control = $controlCallIds.Count
+        Availability = "measured"
+    }
+}
+
 function Test-TaskspaceIgnoredChangedPath {
     param([AllowEmptyString()][string]$Path = "")
     $normalized = $Path.Trim().Trim('"').Replace("\", "/")
@@ -326,6 +375,9 @@ function Get-TaskspaceBenchmarkMetrics {
     Write-TaskspaceGraphHealthReport $graphHealthReport $graphHealthPath
     $observabilityJsonPath = if ($ObservabilityResult) { [string]$ObservabilityResult.observability_json } else { "" }
     $costInstrumentation = Write-TaskspaceCostInstrumentationArtifacts $Side.ArtifactDir $Exec.jsonl_path $observabilityJsonPath
+    $rolloutToolStats = Get-TaskspaceRolloutToolStats ([string]$costInstrumentation.cost_scan_policy.rollout_effective_scan_path)
+    $toolCallCount = [Math]::Max([int]$commandStats.Completed, [int]$rolloutToolStats.Completed)
+    $failedToolCallCount = [Math]::Max([int]$commandStats.Failed, [int]$rolloutToolStats.Failed)
     $subagentThreadIds = @()
     if ($obs) {
         $subagentThreadIds = @($obs.nodes | ForEach-Object {
@@ -340,8 +392,12 @@ function Get-TaskspaceBenchmarkMetrics {
         public_validation_exit_code = $Validation.exit_code
         hidden_oracle_exit_code = $Oracle.exit_code
         wall_time_ms = $Exec.wall_time_ms
-        tool_call_count = $commandStats.Completed
-        failed_tool_call_count = $commandStats.Failed
+        tool_call_count = $toolCallCount
+        failed_tool_call_count = $failedToolCallCount
+        rollout_tool_call_count = $rolloutToolStats.Completed
+        rollout_failed_tool_call_count = $rolloutToolStats.Failed
+        rollout_control_tool_call_count = $rolloutToolStats.Control
+        rollout_tool_call_availability = [string]$rolloutToolStats.Availability
         token_summary_path = [string]$costInstrumentation.token_summary_path
         cost_scan_policy_path = [string]$costInstrumentation.cost_scan_policy_path
         rollout_scan_mode = [string]$costInstrumentation.cost_scan_policy.rollout_scan_mode
