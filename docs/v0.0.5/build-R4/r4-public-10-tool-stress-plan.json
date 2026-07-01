@@ -23,9 +23,9 @@
   },
   "samples": [
     {
-      "task_id": "modernize-fortran-build",
-      "tool_stress_focus": "Makefile edits, compiler migration, build and run feedback",
-      "why_selected": "Exercises source inspection, build-system patching, compiler stderr/stdout feedback, generated binaries, and validator feedback without unpinned remote runtime assets."
+      "task_id": "fix-permissions",
+      "tool_stress_focus": "script execution failure, permission repair, rerun validation",
+      "why_selected": "Exercises exit-code feedback, stderr/stdout retention, chmod/file metadata changes, and validation reruns without heavyweight toolchain or unpinned remote runtime assets."
     },
     {
       "task_id": "qemu-alpine-ssh",
