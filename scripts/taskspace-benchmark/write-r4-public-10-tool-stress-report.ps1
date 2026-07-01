@@ -133,6 +133,62 @@ function Get-ChangedPaths {
     Get-StringArray $Metrics.changed_paths
 }
 
+function Get-ObservabilityToolCallStats {
+    param([string]$ArtifactsDir, [object]$Metrics)
+    $metricCount = Get-ObjectNumber $Metrics "observability_tool_call_count" -1
+    $metricSource = Get-ObjectString $Metrics "observability_tool_call_availability" "metrics_field"
+    if ($metricCount -ge 0) {
+        return [pscustomobject]@{ Count = [int]$metricCount; Source = $metricSource }
+    }
+
+    $obsPath = Get-ObjectString $Metrics "observability_json" ""
+    if ([string]::IsNullOrWhiteSpace($obsPath)) {
+        $obsPath = Join-Path $ArtifactsDir "observability\action-map-observability.json"
+    }
+    $obs = Read-JsonFile $obsPath
+    if ($null -eq $obs) {
+        return [pscustomobject]@{ Count = 0; Source = "missing" }
+    }
+
+    $resultCount = 0
+    foreach ($node in @($obs.nodes)) {
+        foreach ($result in @($node.results)) {
+            if ([string]$result.kind -eq "main_tool_call") {
+                $resultCount += 1
+            }
+        }
+    }
+    if ($resultCount -gt 0) {
+        return [pscustomobject]@{ Count = $resultCount; Source = "observability_results" }
+    }
+
+    $runtimeCounts = $obs.summary.runtimeEventCounts
+    if ($null -eq $runtimeCounts) {
+        return [pscustomobject]@{ Count = 0; Source = "unavailable" }
+    }
+    $count = [int]((Get-ObjectNumber $runtimeCounts "function_call" 0) + (Get-ObjectNumber $runtimeCounts "custom_tool_call" 0))
+    return [pscustomobject]@{ Count = $count; Source = "observability_runtime_counts" }
+}
+
+function Get-EffectiveToolCallStats {
+    param([string]$ArtifactsDir, [object]$Metrics)
+    $metricsCount = Get-ObjectNumber $Metrics "tool_call_count" 0
+    $rolloutCount = Get-ObjectNumber $Metrics "rollout_tool_call_count" 0
+    $observability = Get-ObservabilityToolCallStats $ArtifactsDir $Metrics
+    $count = [int]([math]::Max($metricsCount, [math]::Max($rolloutCount, [double]$observability.Count)))
+    $source = "metrics"
+    if ($metricsCount -le 0 -and [double]$observability.Count -gt 0) {
+        $source = [string]$observability.Source
+    }
+    if ($rolloutCount -eq $count -and $rolloutCount -gt $metricsCount) {
+        $source = "rollout"
+    }
+    if ([double]$observability.Count -eq $count -and [double]$observability.Count -gt [math]::Max($metricsCount, $rolloutCount)) {
+        $source = [string]$observability.Source
+    }
+    return [pscustomobject]@{ Count = $count; Source = $source }
+}
+
 function New-MissingRow {
     param([object]$Plan, [object]$Sample)
     [ordered]@{
@@ -196,11 +252,14 @@ function New-RunRow {
     $mapMissing = if ($null -eq $graph) { 1 } else { [int](Get-ObjectNumber $graph "attribution_missing_count" 0) }
     $feedbackLoss = if ($taxonomy -match "tool_feedback_loss") { 1 } else { 0 }
     $semanticLoss = if ($taxonomy -match "semantic_loss|tool_feedback_semantic_loss") { 1 } else { 0 }
-    $standardCalls = Get-ObjectNumber $standardMetrics "tool_call_count" 0
-    $taskspaceCalls = Get-ObjectNumber $taskspaceMetrics "tool_call_count" 0
+    $standardCallStats = Get-EffectiveToolCallStats $standard.artifacts_dir $standardMetrics
+    $taskspaceCallStats = Get-EffectiveToolCallStats $taskspace.artifacts_dir $taskspaceMetrics
+    $standardCalls = [int]$standardCallStats.Count
+    $taskspaceCalls = [int]$taskspaceCallStats.Count
     $standardWall = Get-ObjectNumber $standardMetrics "wall_time_ms" 0
     $taskspaceWall = Get-ObjectNumber $taskspaceMetrics "wall_time_ms" 0
     $summary = "standard=$($standardCalls) tool calls; taskspace=$($taskspaceCalls) tool calls; " +
+        "standard_tool_source=$($standardCallStats.Source); taskspace_tool_source=$($taskspaceCallStats.Source); " +
         "projection_count=$($projection.projection_count); protected_miss=$($projection.protected_miss_count); " +
         "feedback_loss=$feedbackLoss; semantic_loss=$semanticLoss."
 

@@ -101,6 +101,34 @@ function Get-TaskspaceRolloutToolStats {
     }
 }
 
+function Get-TaskspaceObservabilityToolStats {
+    param($Observability = $null)
+    if ($null -eq $Observability) {
+        return [pscustomobject]@{ Completed = 0; Failed = 0; Control = 0; Availability = "missing" }
+    }
+    $completed = 0
+    foreach ($node in @($Observability.nodes)) {
+        foreach ($result in @($node.results)) {
+            if ([string]$result.kind -eq "main_tool_call") { $completed++ }
+        }
+    }
+    if ($completed -gt 0) {
+        return [pscustomobject]@{ Completed = $completed; Failed = 0; Control = 0; Availability = "observability_results" }
+    }
+    if ($Observability.PSObject.Properties.Name -contains "summary" -and
+        $Observability.summary.PSObject.Properties.Name -contains "runtimeEventCounts") {
+        $counts = $Observability.summary.runtimeEventCounts
+        $functionCalls = if ($counts.PSObject.Properties.Name -contains "function_call") { [int]$counts.function_call } else { 0 }
+        $customCalls = if ($counts.PSObject.Properties.Name -contains "custom_tool_call") { [int]$counts.custom_tool_call } else { 0 }
+        $controlCalls = if ($counts.PSObject.Properties.Name -contains "taskspace_control") { [int]$counts.taskspace_control } else { 0 }
+        $completed = [Math]::Max(0, $functionCalls + $customCalls - $controlCalls)
+        if ($completed -gt 0) {
+            return [pscustomobject]@{ Completed = $completed; Failed = 0; Control = $controlCalls; Availability = "observability_runtime_counts" }
+        }
+    }
+    [pscustomobject]@{ Completed = 0; Failed = 0; Control = 0; Availability = "unavailable" }
+}
+
 function Test-TaskspaceIgnoredChangedPath {
     param([AllowEmptyString()][string]$Path = "")
     $normalized = $Path.Trim().Trim('"').Replace("\", "/")
@@ -376,8 +404,9 @@ function Get-TaskspaceBenchmarkMetrics {
     $observabilityJsonPath = if ($ObservabilityResult) { [string]$ObservabilityResult.observability_json } else { "" }
     $costInstrumentation = Write-TaskspaceCostInstrumentationArtifacts $Side.ArtifactDir $Exec.jsonl_path $observabilityJsonPath
     $rolloutToolStats = Get-TaskspaceRolloutToolStats ([string]$costInstrumentation.cost_scan_policy.rollout_effective_scan_path)
-    $toolCallCount = [Math]::Max([int]$commandStats.Completed, [int]$rolloutToolStats.Completed)
-    $failedToolCallCount = [Math]::Max([int]$commandStats.Failed, [int]$rolloutToolStats.Failed)
+    $observabilityToolStats = Get-TaskspaceObservabilityToolStats $obs
+    $toolCallCount = [Math]::Max([int]$commandStats.Completed, [Math]::Max([int]$rolloutToolStats.Completed, [int]$observabilityToolStats.Completed))
+    $failedToolCallCount = [Math]::Max([int]$commandStats.Failed, [Math]::Max([int]$rolloutToolStats.Failed, [int]$observabilityToolStats.Failed))
     $subagentThreadIds = @()
     if ($obs) {
         $subagentThreadIds = @($obs.nodes | ForEach-Object {
@@ -398,6 +427,9 @@ function Get-TaskspaceBenchmarkMetrics {
         rollout_failed_tool_call_count = $rolloutToolStats.Failed
         rollout_control_tool_call_count = $rolloutToolStats.Control
         rollout_tool_call_availability = [string]$rolloutToolStats.Availability
+        observability_tool_call_count = $observabilityToolStats.Completed
+        observability_failed_tool_call_count = $observabilityToolStats.Failed
+        observability_tool_call_availability = [string]$observabilityToolStats.Availability
         token_summary_path = [string]$costInstrumentation.token_summary_path
         cost_scan_policy_path = [string]$costInstrumentation.cost_scan_policy_path
         rollout_scan_mode = [string]$costInstrumentation.cost_scan_policy.rollout_scan_mode

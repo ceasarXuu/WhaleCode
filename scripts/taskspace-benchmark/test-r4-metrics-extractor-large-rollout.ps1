@@ -66,4 +66,22 @@ Assert-Equal $toolStats.Completed 3 "rollout ordinary tool calls were not counte
 Assert-Equal $toolStats.Failed 1 "rollout failed tool calls were not counted"
 Assert-Equal $toolStats.Control 1 "rollout taskspace_control count was not separated"
 
+$obsStats = Get-TaskspaceObservabilityToolStats ([pscustomobject]@{
+        nodes = @(
+            [pscustomobject]@{ results = @([pscustomobject]@{ kind = "main_tool_call" }, [pscustomobject]@{ kind = "result" }) },
+            [pscustomobject]@{ results = @([pscustomobject]@{ kind = "main_tool_call" }) }
+        )
+    })
+Assert-Equal $obsStats.Completed 2 "observability main_tool_call fallback did not count results"
+Assert-Equal $obsStats.Availability "observability_results" "observability fallback did not record source"
+
+$obsRuntimeStats = Get-TaskspaceObservabilityToolStats ([pscustomobject]@{
+        nodes = @()
+        summary = [pscustomobject]@{
+            runtimeEventCounts = [pscustomobject]@{ function_call = 4; custom_tool_call = 1 }
+        }
+    })
+Assert-Equal $obsRuntimeStats.Completed 5 "observability runtime-count fallback did not count calls"
+Assert-Equal $obsRuntimeStats.Availability "observability_runtime_counts" "observability runtime fallback did not record source"
+
 Write-Host "PASS: R4 metrics extractor large rollout gate passed"

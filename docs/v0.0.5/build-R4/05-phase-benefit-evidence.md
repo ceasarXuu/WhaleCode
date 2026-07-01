@@ -28,7 +28,7 @@ Status:
 | R4-D | action-contract internal failed tool outputs、validation gate failure、unreviewed-result blocker、dependency read evidence、validation closeout drain 都能以可执行语义进入下一轮或形成明确 closed validation 状态 | `count-call-stack` 历史 run：TaskSpace wrong/no patch，后续多轮 timeout；`large-output-ref-smoke` 曾把诊断工具成功误判为验证成功；processing-pipeline 曾在 infra failure 后继续 open leaf | `turn.rs`、`action_map/runtime.rs`、`tools/parallel.rs` 修复；真实 rerun solved 或收敛到 infra-blocked closed validation；manifest 对应 P0/P1 path canonical | focused Rust tests + paired public sample rerun + processing-pipeline v11 | `outcome_taskspace`, `changed_paths`, `public_validation_exit_code`, `open_leaf`, `invalid`, `closed_contract` | wrong/no patch、validation false-positive、900s timeout 或 open leaf | count-call-stack solved；large-output solved；processing-pipeline v11 `exec_timed_out=false`, `open_leaf=0`, `invalid=1`, `TaskSpaceActionContractClosedValidationV1=1` | known feedback-loss sample 不再 wrong/no_patch；诊断工具成功不再伪装 validation pass；closed validation 不再继续开新节点 | pass | `target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136/pair-001/pair-report.md`; `target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/pair-report.md`; `C:\WhaleRunCache\r4-public10-20260701\actual\processing-pipeline-v11\runs\terminal_bench__processing-pipeline\20260701-214838-298` |
 | R4-E | large raw tool output 不再把 provider payload / rollout 撑爆；tool call/result pair 在 active context replacement 中成组 omit/ref/keep，不产生 orphan tool history | `large-output-ref-smoke` timeout；TaskSpace rollout `490,846,386` bytes；active context replacement 曾出现 pair-safe 证明缺失 | `large-output-ref-smoke` rerun 无 900s timeout且 rollout bounded；pair-safe projection focused tests pass；manifest `large-raw-tool-output-ref` 与 `provider-visible-history-projection` 均 canonical | large-output rerun + rollout size + exact payload scan + output-ref events + focused Rust pair-safe tests | `timeout`, `rollout_size_bytes`, `large_raw_output_tokens`, `output_ref.created`, `paired_omit_tests` | timeout；rollout `490,846,386` bytes；失败日志膨胀；pair-safe 未证明 | no timeout；rollout `360,600` bytes；`large_raw_output_tokens=0`；`output_ref.created`；`active_context_replacement_omits_paired` pass | no timeout；rollout bounded；large raw not provider-visible；ref event present；tool call/result 不单边残留 | pass for projection/output-ref engineering gates | `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md`; `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/exact-payload-scan-events.jsonl`; `cargo test -j1 -p codex-core active_context_replacement_omits_paired --lib` |
 | R4-F | CodeMode/multi-agent/MCP 等 non-direct tools 有明确 inclusion/exclusion 和 provider-visible/code-runtime feedback 证明 | R4-A manifest 标记 non-direct paths `needs-fix`，multi-agent wrapper 缺少独立语义保真测试 | manifest 中 `codemode-nested-tool-result`、`multi-agent-tool-output-wrapper`、`mcp-tool-output-response-item` 均 canonical；新增 multi-agent wrapper tests | coverage fixtures + exclusion proof + R4 coverage validator | `classified_path_count`, `missing_feedback_count`, `coverage_test_presence` | blind spots；3 条 non-direct path needs-fix | `path_count=10`, `canonical_count=10`, `needs_fix_count=0`; CodeMode/MCP/multi-agent focused tests pass | all non-direct paths classified or intentionally excluded with tests | pass | `cargo test -j1 -p codex-core dispatch_lifecycle_trace_records_direct_and_code_mode_requesters --lib`; `cargo test -j1 -p codex-core mcp_tool_output_response_item --lib`; `cargo test -j1 -p codex-core multi_agent_tool_output --lib`; `target/r4-tool-path-coverage/r4-tool-path-coverage-evidence.json` |
-| R4-G | known-bad 和 10 个公开 benchmark 样本证明收益真实，而不是只靠局部单测 | `processing-pipeline` v3/v4：单 inspect 节点重复读取，`changed_paths=[]`，metrics `tool_call_count=0` 误导；公开 10 样本缺最终报告 | public-10 final report 10/10 rows；feedback loss 0/0；cache hit 可统计行约 `0.9810-0.9882`；同时暴露 TaskSpace utility no-go | public-10 plan gate + paired standard/taskspace 10 public samples + per-sample tool analysis | `tool_feedback_loss_count`, `wall/token/tool ratio`, `cache_hit`, `public_sample_count`, `rollout_tool_call_count` | no final public-10 report；TaskSpace utility 未验证 | `complete_run_count=10`, `missing_run_count=0`; TaskSpace solved 3/10；standard solved but TaskSpace timeout/wrong 的样本存在 | report gate pass；负收益明确记录，不进入 E3 | closed/evidence-negative | `target/r4-public-10-tool-stress/r4-public-10-tool-stress-report.json`; `docs/v0.0.5/build-R4/05-phase-benefit-evidence.md#510-2026-07-02-r4-g-public-10-final-run` |
+| R4-G | known-bad 和 10 个公开 benchmark 样本证明收益真实，而不是只靠局部单测 | `processing-pipeline` v3/v4：单 inspect 节点重复读取，`changed_paths=[]`，metrics `tool_call_count=0` 误导；公开 10 样本缺最终报告 | public-10 final report 10/10 rows；large-rollout 工具调用可从 observability 回退统计；feedback loss 0/0；cache hit 可统计行约 `0.9810-0.9882`；同时暴露 TaskSpace utility no-go | public-10 plan gate + paired standard/taskspace 10 public samples + per-sample tool analysis | `tool_feedback_loss_count`, `wall/token/tool ratio`, `cache_hit`, `public_sample_count`, `rollout_tool_call_count`, `observability_tool_call_count` | no final public-10 report；TaskSpace utility 未验证 | `complete_run_count=10`, `missing_run_count=0`; TaskSpace solved 3/10；standard solved but TaskSpace timeout/wrong 的样本存在 | report gate pass；负收益明确记录，不进入 E3 | closed/evidence-negative | `target/r4-public-10-tool-stress/r4-public-10-tool-stress-report.json`; `docs/v0.0.5/build-R4/05-phase-benefit-evidence.md#510-2026-07-02-r4-g-public-10-final-run` |
 | R4-H | 工程层收口可审计、可复现 | scattered phase evidence；无 E3 decision | closeout doc + committed artifacts + E3 no-go | closeout report + gate commands + git commits | `open_phase_count`, `unexplained_failure_count`, `e3_readiness` | open phase；pending closeout | R4 engineering deliverables 8/8；TaskSpace utility 3/10；E3 readiness 0% | no phase marked completed without benefit evidence；E3 decision explicit | pass | `docs/v0.0.5/build-R4/06-r4-engineering-closeout.md` |
 
 ## 5.3 R4-D count-call-stack 真实样本证据链
@@ -668,16 +668,35 @@ PASS
 | `vim-terminal-task` | solved | solved | 1.33 | 0.60 | 3.73 | 0.9876 | 0/0 |
 | `heterogeneous-dates` | solved | solved | 4.67 | 1.43 | 11.08 | 0.9856 | 0/0 |
 | `sqlite-db-truncate` | solved | wrong | 1.06 | 0.40 | 3.59 | 0.9864 | 0/0 |
-| `git-multibranch` | timeout | timeout | 1.00 | 0.00 | n/a | n/a | 0/0 |
+| `git-multibranch` | timeout | timeout | 1.00 | n/a | n/a | n/a | 0/0 |
 | `git-workflow-hack` | engineering_unclean | timeout | 2.13 | 0.20 | n/a | 0.9882 | 0/0 |
-| `organization-json-generator` | solved | timeout | 9.80 | 0.00 | n/a | n/a | 0/0 |
+| `organization-json-generator` | solved | timeout | 9.80 | 1.42 | n/a | n/a | 0/0 |
 | `sqlite-with-gcov` | wrong | wrong | 0.38 | 0.15 | 0.52 | 0.9825 | 0/0 |
-| `processing-pipeline` | timeout | wrong | 0.97 | 0.00 | n/a | 0.9810 | 0/0 |
+| `processing-pipeline` | timeout | wrong | 0.97 | n/a | n/a | 0.9810 | 0/0 |
 | `csv-to-parquet` | solved | solved | 2.21 | 0.80 | 5.40 | 0.9864 | 0/0 |
 | `tmux-advanced-workflow` | engineering_unclean | engineering_unclean | 1.97 | 0.41 | n/a | 0.9863 | 0/0 |
 
 说明：`token x=n/a` 表示至少一侧 agent 被 timeout 杀掉后 provider usage 未完整落盘，
-不能作为成本收益判断，只作为 timeout/收敛问题证据。
+不能作为成本收益判断，只作为 timeout/收敛问题证据。`tool x=n/a` 表示 standard
+侧工具调用数为 0，比例不可比；TaskSpace 绝对工具调用数仍在报告中保留。
+
+本轮对 large-rollout 工具调用统计做了证据修正：当 rollout 因超过扫描阈值被跳过时，
+报告会从 TaskSpace observability 的 `main_tool_call` 结果回退计数。修正后
+`organization-json-generator` 不再误报 TaskSpace `tool_call_count=0`，而是
+`standard_tool_calls=12`、`taskspace_tool_calls=17`、`tool x=1.42`，
+且 `tool_call_analysis_summary` 标记 `taskspace_tool_source=observability_results`。
+对应门禁：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-metrics-extractor-large-rollout.ps1 -RunRoot target/r4-metrics-extractor-large-rollout-selftest
+PASS: R4 metrics extractor large rollout gate passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/write-r4-public-10-tool-stress-report.ps1 -RequireComplete
+complete_run_count=10 missing_run_count=0
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1 -ReportPath target/r4-public-10-tool-stress/r4-public-10-tool-stress-report.json
+PASS: R4 public-10 tool-stress gate passed: 10 planned samples
+```
 
 真实收益结论：
 
