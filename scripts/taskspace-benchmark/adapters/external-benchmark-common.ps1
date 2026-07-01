@@ -74,8 +74,13 @@ function Copy-TaskspaceExternalFile {
         [Parameter(Mandatory = $true)][string]$SourcePath,
         [Parameter(Mandatory = $true)][string]$DestinationPath
     )
+    $sourceFull = [System.IO.Path]::GetFullPath($SourcePath)
+    $destinationFull = [System.IO.Path]::GetFullPath($DestinationPath)
+    if ([string]::Equals($sourceFull, $destinationFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return
+    }
     [System.IO.Directory]::CreateDirectory((ConvertTo-TaskspaceExternalLongPath (Split-Path -Parent $DestinationPath))) | Out-Null
-    [System.IO.File]::Copy((ConvertTo-TaskspaceExternalLongPath $SourcePath), (ConvertTo-TaskspaceExternalLongPath $DestinationPath), $true)
+    [System.IO.File]::Copy((ConvertTo-TaskspaceExternalLongPath $sourceFull), (ConvertTo-TaskspaceExternalLongPath $destinationFull), $true)
 }
 
 function Copy-TaskspaceExternalTreeContent {

@@ -49,6 +49,24 @@ $nestedBinaryOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapte
 $nestedBinaryScenarioDir = [string]($nestedBinaryOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
 Assert-True (Test-Path -LiteralPath (Join-Path $nestedBinaryScenarioDir "fixture\data\source_c\users.parquet") -PathType Leaf) "nested binary public fixture file was not copied"
 
+$samePathProjectionTask = Join-Path $runDir "same-path-projection"
+New-Item -ItemType Directory -Path $samePathProjectionTask | Out-Null
+@'
+instruction: "Read data.csv and create summary.txt."
+category: data-processing
+'@ | Set-Content -LiteralPath (Join-Path $samePathProjectionTask "task.yaml") -Encoding UTF8
+@'
+FROM scratch
+COPY data.csv /app/data.csv
+'@ | Set-Content -LiteralPath (Join-Path $samePathProjectionTask "Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $samePathProjectionTask "run-tests.sh") -Encoding UTF8
+"a,b`n1,2" | Set-Content -LiteralPath (Join-Path $samePathProjectionTask "data.csv") -Encoding UTF8
+$samePathProjectionOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $samePathProjectionTask -OutputRoot (Join-Path $runDir "same-path-projection-out") -SampleId "same-path-projection" -SourceVersion "pinned"
+$samePathProjectionScenarioDir = [string]($samePathProjectionOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$samePathProjectionScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $samePathProjectionScenarioDir "scenario.json") | ConvertFrom-Json
+Assert-True (Test-Path -LiteralPath (Join-Path $samePathProjectionScenarioDir "fixture\data.csv") -PathType Leaf) "same-path Docker COPY projection fixture file missing"
+Assert-True ([bool]$samePathProjectionScenario.external_benchmark.adapter_metadata.agent_app_fixture_projection.projected) "same-path Docker COPY projection was not recorded"
+
 $coveredTask = Join-Path $runDir "covered-uv-and-comment"
 New-Item -ItemType Directory -Path $coveredTask | Out-Null
 @'
