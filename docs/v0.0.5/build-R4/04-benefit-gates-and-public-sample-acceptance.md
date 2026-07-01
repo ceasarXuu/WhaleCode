@@ -118,7 +118,7 @@ Terminal-Bench public registry，校验 `terminal-bench-core` `0.1.1` 的 `githu
 | 3 | `sqlite-db-truncate` | SQLite recovery, binary/data inspection, JSON artifact validation | 考验数据库/文件工具、结构化输出生成、命令反馈和 validator 对比；替换 `qemu-startup`，因为后者和 `qemu-alpine-ssh` 共享未证明 Alpine ISO 远程资产 |
 | 4 | `git-multibranch` | git state inspection, branch/file operations | 考验工具结果中的状态语义和路径归因 |
 | 5 | `git-workflow-hack` | git history/workflow repair | 考验 command stderr/stdout 对后续决策的影响 |
-| 6 | `sanitize-git-repo` | repo scanning, destructive-risk avoidance | 考验 tool output、权限和安全语义保真 |
+| 6 | `organization-json-generator` | CSV inspection, schema reasoning, JSON generation and validation | 考验多文件读取、结构化转换、schema 约束输出和 validator feedback；替换 `sanitize-git-repo`，因为后者 `setup.sh` 需要未 pinned 的外部 git clone，无法形成可复现 paired run |
 | 7 | `sqlite-with-gcov` | DB commands, compile/test coverage output | 考验结构化失败解析和验证工具反馈 |
 | 8 | `processing-pipeline` | multi-step data/file pipeline | 考验中间产物、changed paths 和 test feedback |
 | 9 | `csv-to-parquet` | data conversion, file validation | 考验文件检查、命令输出和 artifact validation |

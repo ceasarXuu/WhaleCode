@@ -48,9 +48,9 @@
       "why_selected": "Exercises stdout/stderr influence on later decisions."
     },
     {
-      "task_id": "sanitize-git-repo",
-      "tool_stress_focus": "repo scanning and destructive-risk avoidance",
-      "why_selected": "Exercises tool output, permissions, and safety-semantics fidelity."
+      "task_id": "organization-json-generator",
+      "tool_stress_focus": "CSV inspection, schema reasoning, JSON generation and validation",
+      "why_selected": "Exercises multi-file reads, structured transformation, schema-constrained output, and validator feedback without unpinned runtime remote assets; replaces sanitize-git-repo because that task depends on an unpinned external git clone."
     },
     {
       "task_id": "sqlite-with-gcov",
