@@ -23,9 +23,9 @@
   },
   "samples": [
     {
-      "task_id": "fix-permissions",
-      "tool_stress_focus": "script execution failure, permission repair, rerun validation",
-      "why_selected": "Exercises exit-code feedback, stderr/stdout retention, chmod/file metadata changes, and validation reruns without heavyweight toolchain or unpinned remote runtime assets."
+      "task_id": "vim-terminal-task",
+      "tool_stress_focus": "script creation, text processing, command output validation",
+      "why_selected": "Exercises file creation, command execution, stdout comparison, and validator feedback without heavyweight toolchain, locked permission fixtures, or unpinned remote runtime assets."
     },
     {
       "task_id": "qemu-alpine-ssh",

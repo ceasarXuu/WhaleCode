@@ -113,7 +113,7 @@ Terminal-Bench public registry，校验 `terminal-bench-core` `0.1.1` 的 `githu
 
 | # | Public Task ID | Tool-call Stress Focus | Why It Belongs In R4 |
 |---|---|---|---|
-| 1 | `fix-permissions` | script execution failure, permission repair, rerun validation | 考验 exit code 反馈、stderr/stdout 保留、chmod/file metadata 变化和验证重跑；替换 `build-linux-kernel-qemu`，因为后者的官方测试运行时动态拉取 BusyBox 且没有 pinned hash，远程资产等价性无法证明，不能产生真实 paired tool-call 样本 |
+| 1 | `vim-terminal-task` | script creation, text processing, command output validation | 考验文件创建、命令执行、stdout 对比和验证反馈；替换 `build-linux-kernel-qemu`，因为后者的官方测试运行时动态拉取 BusyBox 且没有 pinned hash，远程资产等价性无法证明，不能产生真实 paired tool-call 样本 |
 | 2 | `qemu-alpine-ssh` | VM/QEMU command orchestration, readiness probing | 考验多步 shell feedback 和环境状态判断 |
 | 3 | `qemu-startup` | process startup, logs, validation loop | 考验 repeated command feedback 和 recovery |
 | 4 | `git-multibranch` | git state inspection, branch/file operations | 考验工具结果中的状态语义和路径归因 |
