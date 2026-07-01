@@ -2,8 +2,8 @@
   "schema_version": 1,
   "artifact": "r4-public-10-tool-stress-plan",
   "phase": "R4-G",
-  "updated": "2026-06-30",
-  "status": "planned",
+  "updated": "2026-07-02",
+  "status": "running",
   "public_source": {
     "benchmark": "terminal-bench-core",
     "version": "0.1.1",
@@ -23,9 +23,9 @@
   },
   "samples": [
     {
-      "task_id": "build-linux-kernel-qemu",
-      "tool_stress_focus": "long shell commands, build logs, timeout handling",
-      "why_selected": "Exercises large output, timeout, failure summaries, and output refs."
+      "task_id": "polyglot-rust-c",
+      "tool_stress_focus": "single-file creation, dual compiler feedback, runtime validation",
+      "why_selected": "Exercises generated code artifacts, compile/test tool results, stderr/stdout retention, and path attribution without unpinned remote runtime assets."
     },
     {
       "task_id": "qemu-alpine-ssh",
