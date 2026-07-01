@@ -4196,13 +4196,25 @@ preview:\n\
             "TaskSpace mode is active but no active task path exists. Call taskspace_control(action=start_task) to create a new semantic task before creating extra nodes."
                 .to_string()
         })?;
-        let node_count_before = {
+        let (node_count_before, failed_validation_rework) = {
             let map = self
                 .maps
                 .get(&map_id)
                 .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-            map.nodes.len()
+            (
+                map.nodes.len(),
+                unresolved_validation_rework_requirement(map),
+            )
         };
+        if kind != NodeKind::ImplementSolution
+            && let Some((validation_node_id, failed_result_id, failed_summary)) =
+                failed_validation_rework
+        {
+            return Err(format!(
+                "validation_failed_requires_rework_routing: TaskSpace cannot create a {} node because validation node `{validation_node_id}` already has failed test/build result `{failed_result_id}`. Do not route failed validation to inspect rediscovery or another validation branch. Block the validation node or create/bind an implement_solution rework node that depends on the failed validation evidence. Failure preview: {failed_summary}",
+                kind.as_str()
+            ));
+        }
         let active_budget = self.active_budget.as_ref().cloned().unwrap_or_else(|| {
             taskspace_active_budget_for_route(
                 "taskspace-v005-active",
@@ -12880,6 +12892,24 @@ fn validation_node_local_infra_unvalidated_artifact_result(
     })
 }
 
+fn unresolved_validation_rework_requirement(
+    map: &ActionMapInstance,
+) -> Option<(String, String, String)> {
+    let mut node_ids = map.nodes.keys().cloned().collect::<Vec<_>>();
+    node_ids.sort();
+    node_ids.into_iter().find_map(|node_id| {
+        let node = map.nodes.get(&node_id)?;
+        if !matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+            || matches!(node.status, NodeStatus::Blocked | NodeStatus::Completed)
+        {
+            return None;
+        }
+        validation_node_failed_noninfra_result(map, node)
+            .or_else(|| validation_node_local_infra_unvalidated_artifact_result(map, node))
+            .map(|(result_id, summary)| (node_id, result_id, summary))
+    })
+}
+
 fn tool_action_descriptor_command(descriptor: &ToolActionDescriptor) -> Option<String> {
     serde_json::from_str::<serde_json::Value>(&descriptor.preview)
         .ok()
@@ -20328,6 +20358,51 @@ def normalize_status(value: str) -> str:\n\
         assert!(error.contains("validation_failed_requires_rework_routing"));
         assert!(error.contains("implement_solution rework"));
         assert!(error.contains("FileNotFoundError"));
+    }
+
+    #[test]
+    fn validation_node_failed_test_blocks_inspect_node_rediscovery() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, validation_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate csv converter",
+            "Run the generated converter and tests.",
+            "Smoke test csv conversion",
+            "Run converter and pytest.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-converter",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "File \"V:\\app\\convert_csv.py\", line 1\n    import pandas as pd\nIndentationError: unexpected indent".to_string(),
+            )
+            .expect("failed validation result");
+
+        let error = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Inspect converter after validation failure".to_string(),
+                "Read the generated converter again after the failed test.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect_err("failed validation should route to implementation rework");
+
+        assert!(error.contains("validation_failed_requires_rework_routing"));
+        assert!(error.contains("implement_solution rework"));
+        assert!(error.contains(&validation_node_id));
+        assert!(error.contains("IndentationError"));
+        let map = state.maps.get(&map_id).expect("map");
+        assert_eq!(map.nodes.len(), 1);
     }
 
     #[test]

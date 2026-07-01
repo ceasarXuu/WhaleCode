@@ -623,3 +623,95 @@
   ```
 - Interpretation: the current TaskSpace tool-feedback/control path now reaches a stable closed graph for this sample instead of timing out or routing an unrecoverable executor failure back into implementation rework.
 - Time: 2026-07-01 22:05
+
+## Problem P-003: failed validation can still branch back into inspect rediscovery
+
+- Status: investigating
+- Symptom:
+  - In the R4 public 10 actual run, `csv-to-parquet` had `outcome_standard=solved` but `outcome_taskspace=engineering_unclean`.
+  - TaskSpace timed out after a failed validation result instead of routing the known failure into implementation rework.
+- Expected behavior:
+  - Once a smoke/regression validation node records a non-infra failed test/build result, the next structural step must be implementation rework that uses the failed validator evidence.
+  - TaskSpace must not create a fresh inspect node that reopens discovery after the failure is already known.
+- Actual behavior:
+  - The map recorded the failed `run_test` result, including `IndentationError: unexpected indent` from `convert_csv.py`.
+  - The runtime then allowed a new `inspect_code_context` node, which reread `convert_csv.py` and other files until the session timed out.
+- Fix criteria:
+  - A focused unit test proves `create_node(inspect_code_context)` is rejected after a failed validation result.
+  - The same `csv-to-parquet` public sample no longer times out on this branch.
+
+## Hypothesis H-008: create_node lacks the failed-validation rework guard
+
+- Related problems:
+  - P-003
+- Status: confirmed
+- Claim:
+  - Existing validation-failure routing only blocks read/search tool calls inside the validation node and rejects state commits that cite failed validation without rework. It does not guard the structural `create_node` path, so the model can create a new inspect node after the failed validation result is already present.
+- Predictions:
+  - Code should contain a guard in `prepare_main_tool_call` for read/search after failed validation.
+  - Code should not contain an equivalent guard in `create_node_for_main_with_kind`.
+  - Real sample map should show a failed validation result followed by a new inspect node.
+- Diagnostic evidence plan:
+  - Inspect `runtime.rs` around tool-call preparation, node creation, and validation-failure helpers.
+  - Inspect the `csv-to-parquet` observability map and graph health for node/result order.
+- Evidence:
+  - `prepare_main_tool_call` contains `validation_failed_requires_rework_routing` for read/search on a validation node.
+  - `create_node_for_main_with_kind` proceeds from active map lookup into budget/default-dependency logic without checking pending failed validation results.
+  - `csv-to-parquet-v2` graph had node-3 `smoke_test` with failed `run_test` result and node-4 `inspect_code_context` running afterward; `open_leaf_nodes=2`, `unreviewed_result_count=11`, `exec_timed_out=true`.
+- Conclusion:
+  - The root cause is a missing structural guard at node creation, not missing tool-result visibility.
+- Time: 2026-07-01 22:40
+
+## Evidence E-015: create_node failed-validation guard blocks rediscovery and real sample routes to rework
+
+- Related hypotheses:
+  - H-008
+- Direction: supports
+- Type: repair validation
+- Source:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `C:\WhaleRunCache\r4-public10-20260701\actual\csv-to-parquet-v3\runs\terminal_bench__csv-to-parquet\20260701-225045-476`
+- Matched signal:
+  - `create_node_for_main_with_kind` now rejects any non-`implement_solution` node while an unresolved smoke/regression validation node has a failed non-infra test/build result or recoverable local-validator infra failure.
+  - The focused unit test proves `create_node(inspect_code_context)` is rejected after a failed validation result with `validation_failed_requires_rework_routing`.
+  - In the `csv-to-parquet-v3` rerun, node-3 `smoke_test` failed with `IndentationError`, then node-3 was blocked and node-4 `implement_solution` was created. The old failure mode, a fresh inspect node after the failed validation, did not recur.
+- Raw content:
+  ```text
+  cargo test -j1 -p codex-core validation_node_failed_test_blocks_inspect_node_rediscovery --lib
+  PASS
+
+  cargo test -j1 -p codex-core validation_node_failed_test_blocks_read_rediscovery --lib
+  PASS
+
+  cargo test -j1 -p codex-core state_commit_rejects_failed_validation_result_without_rework_transition --lib
+  PASS
+
+  cargo test -j1 -p codex-core local_infra_validation_block_routes_unvalidated_changed_artifact_to_rework --lib
+  PASS
+
+  cargo fmt --all --check
+  PASS
+
+  cargo build -j1 --profile dev-small -p codex-cli --bin whale
+  PASS
+  ```
+- Interpretation:
+  - P-003's specific create-node rediscovery defect is repaired.
+  - The same public sample then exposed a separate no-action convergence defect on node-6 `implement_solution`: the runtime projected `next_valid_actions` requiring edit or finish, but the model produced no tool/control result until agent timeout.
+- Time: 2026-07-01 23:15
+
+## Problem P-004: implement rework can loop with tool-free no-action after clear next action
+
+- Status: investigating
+- Symptom:
+  - In `csv-to-parquet-v3`, TaskSpace reached node-6 `implement_solution` after node-5 validation failed with `FileNotFoundError: data.csv`.
+  - The compact projection told the model the current node was `implement_solution` and `next_valid_actions` were `edit implementation artifacts` or `taskspace_control(action=finish_node) into smoke_test/regression_test`.
+  - The provider kept receiving tool-free action-contract requests and no node-6 result was recorded before timeout.
+- Expected behavior:
+  - After a blocked validation node creates an implement rework node with a concrete failure summary, no-action recovery should force either an edit-capable tool call or an explicit blocked-with-evidence result.
+- Actual behavior:
+  - node-6 has zero results and remained running until the agent execution timeout.
+  - Trace events show repeated `provider_request_budget` entries on node-6 with `tools_present:false`, `request_shape_classifier:tool_free_action_contract`, and no actionable TaskSpace result.
+- Fix criteria:
+  - Runtime should not spend many model requests in an implement node with known failed-validation evidence and no result.
+  - A focused test should prove implement no-action recovery after blocked validation becomes concrete edit/block guidance, not generic follow-up.
