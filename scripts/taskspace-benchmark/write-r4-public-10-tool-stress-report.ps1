@@ -1,0 +1,298 @@
+param(
+    [string]$PlanPath = "",
+    [string[]]$RunRoots = @(),
+    [string]$OutputPath = "",
+    [switch]$RequireComplete
+)
+
+$ErrorActionPreference = "Stop"
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+if ([string]::IsNullOrWhiteSpace($PlanPath)) {
+    $PlanPath = Join-Path $repoRoot "docs\v0.0.5\build-R4\r4-public-10-tool-stress-plan.json"
+}
+if (-not $RunRoots -or $RunRoots.Count -eq 0) {
+    $RunRoots = @(
+        "C:\WhaleRunCache\r4-public10-20260701\actual",
+        "C:\WhaleRunCache\r4-public10-20260702\actual"
+    )
+}
+if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+    $OutputPath = Join-Path $repoRoot "target\r4-public-10-tool-stress\r4-public-10-tool-stress-report.json"
+}
+
+function Read-JsonFile {
+    param([AllowEmptyString()][string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return $null
+    }
+    Get-Content -Raw -Encoding UTF8 -LiteralPath $Path | ConvertFrom-Json
+}
+
+function Get-ObjectNumber {
+    param([object]$Object, [string]$Name, [double]$Default = 0)
+    if ($null -eq $Object) { return $Default }
+    if (-not ($Object.PSObject.Properties.Name -contains $Name)) { return $Default }
+    $value = $Object.$Name
+    if ($null -eq $value -or [string]::IsNullOrWhiteSpace([string]$value)) { return $Default }
+    return [double]$value
+}
+
+function Get-ObjectString {
+    param([object]$Object, [string]$Name, [string]$Default = "")
+    if ($null -eq $Object) { return $Default }
+    if (-not ($Object.PSObject.Properties.Name -contains $Name)) { return $Default }
+    if ($null -eq $Object.$Name) { return $Default }
+    return [string]$Object.$Name
+}
+
+function Get-Ratio {
+    param([double]$Numerator, [double]$Denominator)
+    if ($Denominator -le 0) { return 0 }
+    return [math]::Round(($Numerator / $Denominator), 4)
+}
+
+function Get-StringArray {
+    param([object]$Value)
+    if ($null -eq $Value) { return @() }
+    @($Value | ForEach-Object { [string]$_ })
+}
+
+function Get-ReportValue {
+    param([string[]]$Lines, [string]$Name, [string]$Default = "")
+    $pattern = "^\s*-\s*$([regex]::Escape($Name)):\s*(.+?)\s*$"
+    foreach ($line in $Lines) {
+        if ($line -match $pattern) { return $Matches[1].Trim() }
+    }
+    return $Default
+}
+
+function Get-RunStamp {
+    param([string]$Path)
+    if ($Path -match "\\runs\\[^\\]+\\([^\\]+)\\pair-\d+\\pair-report\.md$") {
+        return $Matches[1]
+    }
+    return ""
+}
+
+function Find-LatestPairReport {
+    param([string]$TaskId, [string[]]$Roots)
+    $reports = @()
+    foreach ($root in $Roots) {
+        if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
+        $reports += @(Get-ChildItem -LiteralPath $root -Recurse -Filter "pair-report.md" -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -like "*terminal_bench__$TaskId*" })
+    }
+    @($reports | Sort-Object LastWriteTimeUtc -Descending)[0]
+}
+
+function Get-MetricsByLogicalMode {
+    param([string]$PairDir)
+    $result = @{}
+    foreach ($side in @("left", "right")) {
+        $metricsPath = Join-Path $PairDir "$side\artifacts\metrics.json"
+        $metrics = Read-JsonFile $metricsPath
+        if ($null -eq $metrics) { continue }
+        $logicalMode = Get-ObjectString $metrics "logical_mode" $side
+        $result[$logicalMode] = [pscustomobject]@{
+            side = $side
+            metrics = $metrics
+            artifacts_dir = Join-Path $PairDir "$side\artifacts"
+            metrics_path = $metricsPath
+        }
+    }
+    return $result
+}
+
+function Get-CacheHitRate {
+    param([string]$ArtifactsDir, [object]$Metrics)
+    $summary = Read-JsonFile (Join-Path $ArtifactsDir "provider-cache-trace-summary.json")
+    $rate = Get-ObjectNumber $summary "request_2_plus_hit_rate" -1
+    if ($rate -ge 0) { return [math]::Round($rate, 6) }
+    $cached = Get-ObjectNumber $Metrics "cached_input_tokens" 0
+    $input = Get-ObjectNumber $Metrics "input_tokens" 0
+    return Get-Ratio $cached $input
+}
+
+function Get-ProjectionSummary {
+    param([string]$ArtifactsDir, [object]$Metrics)
+    $projection = Read-JsonFile (Join-Path $ArtifactsDir "context-projection-summary.json")
+    [ordered]@{
+        projection_count = [int](Get-ObjectNumber $Metrics "projection_count" (Get-ObjectNumber $projection "projection_count" 0))
+        protected_miss_count = [int](Get-ObjectNumber $Metrics "projection_protected_miss_count" (Get-ObjectNumber $projection "protected_miss_count" 0))
+        large_output_replay_count = [int](Get-ObjectNumber $Metrics "large_output_replay_count" 0)
+        rollout_scan_mode = Get-ObjectString $Metrics "rollout_scan_mode" "unknown"
+    }
+}
+
+function Get-ChangedPaths {
+    param([object]$Metrics)
+    $inventory = @($Metrics.changed_file_inventory)
+    if ($inventory.Count -gt 0) {
+        return @($inventory | ForEach-Object { [string]$_.path } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    }
+    Get-StringArray $Metrics.changed_paths
+}
+
+function New-MissingRow {
+    param([object]$Plan, [object]$Sample)
+    [ordered]@{
+        public_benchmark = [string]$Plan.public_source.benchmark
+        benchmark_version = [string]$Plan.public_source.version
+        source_commit = [string]$Plan.public_source.commit
+        task_id = [string]$Sample.task_id
+        task_id_registry_verified = $true
+        run_status = "missing"
+        standard_outcome = "missing_run"
+        taskspace_outcome = "missing_run"
+        standard_wall_time_ms = 0
+        taskspace_wall_time_ms = 0
+        taskspace_wall_time_ratio = 0
+        standard_tool_calls = 0
+        taskspace_tool_calls = 0
+        taskspace_tool_call_ratio = 0
+        standard_input_tokens = 0
+        standard_output_tokens = 0
+        taskspace_input_tokens = 0
+        taskspace_output_tokens = 0
+        taskspace_token_ratio = 0
+        request_2_plus_cache_hit_rate = 0
+        tool_feedback_loss_count = 0
+        tool_feedback_semantic_loss_count = 0
+        tool_result_projection_count_by_reason = [ordered]@{}
+        taskspace_map_attribution_missing_count = 1
+        large_output_ref_count = 0
+        rollout_size_bytes = 0
+        changed_paths_standard = @()
+        changed_paths_taskspace = @()
+        validation_result = [ordered]@{ status = "missing_run" }
+        failure_taxonomy = "missing_run"
+        tool_call_analysis_summary = "No paired run artifact found under configured R4 public-10 run roots."
+        evidence_paths = @()
+    }
+}
+
+function New-RunRow {
+    param([object]$Plan, [object]$Sample, [object]$PairReport)
+    $pairDir = Split-Path -Parent $PairReport.FullName
+    $modes = Get-MetricsByLogicalMode $pairDir
+    $standard = $modes["standard"]
+    $taskspace = $modes["taskspace"]
+    if ($null -eq $standard -or $null -eq $taskspace) {
+        $row = New-MissingRow $Plan $Sample
+        $row.run_status = "invalid_pair_artifacts"
+        $row.failure_taxonomy = "invalid_pair_artifacts"
+        $row.evidence_paths = @($PairReport.FullName)
+        return $row
+    }
+
+    $reportLines = Get-Content -Encoding UTF8 -LiteralPath $PairReport.FullName
+    $standardMetrics = $standard.metrics
+    $taskspaceMetrics = $taskspace.metrics
+    $standardTokens = (Get-ObjectNumber $standardMetrics "input_tokens" 0) + (Get-ObjectNumber $standardMetrics "output_tokens" 0)
+    $taskspaceTokens = (Get-ObjectNumber $taskspaceMetrics "input_tokens" 0) + (Get-ObjectNumber $taskspaceMetrics "output_tokens" 0)
+    $taxonomy = Get-ReportValue $reportLines "failure_taxonomy" "none"
+    $graph = Read-JsonFile (Join-Path $taskspace.artifacts_dir "graph-health.json")
+    $projection = Get-ProjectionSummary $taskspace.artifacts_dir $taskspaceMetrics
+    $mapMissing = if ($null -eq $graph) { 1 } else { [int](Get-ObjectNumber $graph "attribution_missing_count" 0) }
+    $feedbackLoss = if ($taxonomy -match "tool_feedback_loss") { 1 } else { 0 }
+    $semanticLoss = if ($taxonomy -match "semantic_loss|tool_feedback_semantic_loss") { 1 } else { 0 }
+    $standardCalls = Get-ObjectNumber $standardMetrics "tool_call_count" 0
+    $taskspaceCalls = Get-ObjectNumber $taskspaceMetrics "tool_call_count" 0
+    $standardWall = Get-ObjectNumber $standardMetrics "wall_time_ms" 0
+    $taskspaceWall = Get-ObjectNumber $taskspaceMetrics "wall_time_ms" 0
+    $summary = "standard=$($standardCalls) tool calls; taskspace=$($taskspaceCalls) tool calls; " +
+        "projection_count=$($projection.projection_count); protected_miss=$($projection.protected_miss_count); " +
+        "feedback_loss=$feedbackLoss; semantic_loss=$semanticLoss."
+
+    [ordered]@{
+        public_benchmark = [string]$Plan.public_source.benchmark
+        benchmark_version = [string]$Plan.public_source.version
+        source_commit = [string]$Plan.public_source.commit
+        task_id = [string]$Sample.task_id
+        task_id_registry_verified = $true
+        run_status = "found"
+        run_stamp = Get-RunStamp $PairReport.FullName
+        standard_outcome = Get-ReportValue $reportLines "outcome_standard" "unknown"
+        taskspace_outcome = Get-ReportValue $reportLines "outcome_taskspace" "unknown"
+        standard_wall_time_ms = [int64]$standardWall
+        taskspace_wall_time_ms = [int64]$taskspaceWall
+        taskspace_wall_time_ratio = Get-Ratio $taskspaceWall $standardWall
+        standard_tool_calls = [int]$standardCalls
+        taskspace_tool_calls = [int]$taskspaceCalls
+        taskspace_tool_call_ratio = Get-Ratio $taskspaceCalls $standardCalls
+        standard_input_tokens = [int64](Get-ObjectNumber $standardMetrics "input_tokens" 0)
+        standard_output_tokens = [int64](Get-ObjectNumber $standardMetrics "output_tokens" 0)
+        taskspace_input_tokens = [int64](Get-ObjectNumber $taskspaceMetrics "input_tokens" 0)
+        taskspace_output_tokens = [int64](Get-ObjectNumber $taskspaceMetrics "output_tokens" 0)
+        taskspace_token_ratio = Get-Ratio $taskspaceTokens $standardTokens
+        request_2_plus_cache_hit_rate = Get-CacheHitRate $taskspace.artifacts_dir $taskspaceMetrics
+        tool_feedback_loss_count = $feedbackLoss
+        tool_feedback_semantic_loss_count = $semanticLoss
+        tool_result_projection_count_by_reason = $projection
+        taskspace_map_attribution_missing_count = $mapMissing
+        large_output_ref_count = [int](Get-ObjectNumber $taskspaceMetrics "runtime_output_ref_created_count" 0)
+        rollout_size_bytes = [int64](Get-ObjectNumber $taskspaceMetrics "rollout_bytes" 0)
+        changed_paths_standard = @(Get-ChangedPaths $standardMetrics)
+        changed_paths_taskspace = @(Get-ChangedPaths $taskspaceMetrics)
+        validation_result = [ordered]@{
+            standard_public_exit_code = [int](Get-ObjectNumber $standardMetrics "public_validation_exit_code" -1)
+            taskspace_public_exit_code = [int](Get-ObjectNumber $taskspaceMetrics "public_validation_exit_code" -1)
+            standard_hidden_oracle_exit_code = [int](Get-ObjectNumber $standardMetrics "hidden_oracle_exit_code" -1)
+            taskspace_hidden_oracle_exit_code = [int](Get-ObjectNumber $taskspaceMetrics "hidden_oracle_exit_code" -1)
+            standard_exec_timed_out = [bool]$standardMetrics.exec_timed_out
+            taskspace_exec_timed_out = [bool]$taskspaceMetrics.exec_timed_out
+        }
+        failure_taxonomy = $taxonomy
+        tool_call_analysis_summary = $summary
+        evidence_paths = @(
+            $PairReport.FullName,
+            $standard.metrics_path,
+            $taskspace.metrics_path,
+            (Join-Path $taskspace.artifacts_dir "provider-cache-trace-summary.json"),
+            (Join-Path $taskspace.artifacts_dir "context-projection-summary.json"),
+            (Join-Path $taskspace.artifacts_dir "graph-health.json")
+        ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+    }
+}
+
+$plan = Read-JsonFile $PlanPath
+if ($null -eq $plan) { throw "plan not found: $PlanPath" }
+$rows = @()
+foreach ($sample in @($plan.samples)) {
+    $taskId = [string]$sample.task_id
+    $pairReport = Find-LatestPairReport $taskId $RunRoots
+    if ($null -eq $pairReport) {
+        $rows += [pscustomobject](New-MissingRow $plan $sample)
+    } else {
+        $rows += [pscustomobject](New-RunRow $plan $sample $pairReport)
+    }
+}
+
+$completeRows = @($rows | Where-Object { [string]$_.run_status -eq "found" })
+$missingRows = @($rows | Where-Object { [string]$_.run_status -ne "found" })
+$report = [ordered]@{
+    schema_version = 1
+    artifact = "r4-public-10-tool-stress-report"
+    generated_at = (Get-Date).ToString("o")
+    plan_path = [System.IO.Path]::GetFullPath($PlanPath)
+    run_roots = @($RunRoots)
+    summary = [ordered]@{
+        row_count = @($rows).Count
+        complete_run_count = @($completeRows).Count
+        missing_run_count = @($missingRows).Count
+        missing_task_ids = @($missingRows | ForEach-Object { [string]$_.task_id })
+    }
+    rows = @($rows)
+}
+
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $OutputPath) | Out-Null
+[pscustomobject]$report | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+
+if ($RequireComplete -and @($missingRows).Count -gt 0) {
+    $missingIds = (@($missingRows | ForEach-Object { [string]$_.task_id }) -join ", ")
+    Write-Error "R4 public-10 report incomplete: $(@($completeRows).Count)/$(@($rows).Count) found; missing: $missingIds"
+    exit 1
+}
+
+Write-Host "R4 public-10 report written: $OutputPath"
+Write-Host "complete_run_count=$(@($completeRows).Count) missing_run_count=$(@($missingRows).Count)"
