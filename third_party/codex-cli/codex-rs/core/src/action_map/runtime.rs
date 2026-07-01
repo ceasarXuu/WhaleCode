@@ -2529,6 +2529,15 @@ preview:\n\
             let (_, mut blocker_events) =
                 self.block_main_node(owner_session_id, &validation_node_id, blocker_summary)?;
             events.append(&mut blocker_events);
+        } else if success
+            && matches!(
+                recorded_action_class,
+                Some(ActionClass::Build | ActionClass::Test)
+            )
+        {
+            let mut validation_accept_events =
+                self.auto_accept_validation_result_for_finish(owner_session_id, &node_id, &body)?;
+            events.append(&mut validation_accept_events);
         }
         let progress_snapshot = self
             .provider_request_budget_snapshot()
@@ -26182,6 +26191,59 @@ fi\n"
                 None,
             )
             .expect("successful validation auto-creates satisfied criterion before finish gates");
+
+        let map = state.active_map().expect("active map");
+        let task = state.tasks.get("task-1").expect("task");
+        assert!(
+            map.results
+                .get(&result_id)
+                .is_some_and(|result| result.evidence_package.validity == ResultValidity::Accepted)
+        );
+        assert!(
+            task.problem_ledger
+                .success_criteria
+                .iter()
+                .any(|criterion| {
+                    criterion.status == "satisfied"
+                        && criterion.evidence_refs.iter().any(|evidence_ref| {
+                            evidence_ref.result_id.as_deref() == Some(result_id.as_str())
+                        })
+                })
+        );
+    }
+
+    #[test]
+    fn successful_validation_tool_result_auto_accepts_at_record_time() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::SmokeTest,
+                "Validate csv conversion".to_string(),
+                "Run the focused validator.".to_string(),
+                "Run focused validation".to_string(),
+                "Run convert.py and check data.parquet.".to_string(),
+                true,
+            )
+            .expect("validation task starts");
+
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-csv-test-pass",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "Exit code: 0\nOutput:\nTest passed".to_string(),
+            )
+            .expect("successful validation result records")
+            .expect("validation result id");
+
+        state
+            .validate_completion_evidence(&node_id)
+            .expect("record-time auto accept satisfies validation completion gate");
 
         let map = state.active_map().expect("active map");
         let task = state.tasks.get("task-1").expect("task");

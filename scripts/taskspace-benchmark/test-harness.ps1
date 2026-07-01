@@ -848,7 +848,10 @@ instruction: |-
   Create a file called hello.txt.
 category: file-operations
 '@ | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "task.yaml") -Encoding UTF8
-"FROM scratch" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "Dockerfile") -Encoding UTF8
+@'
+FROM scratch
+COPY task-deps/input.csv ./
+'@ | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "Dockerfile") -Encoding UTF8
 "do not leak" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "solution.sh") -Encoding UTF8
 "echo ok" | Set-Content -LiteralPath (Join-Path $terminalBenchNoEnv "run-tests.sh") -Encoding UTF8
 New-Item -ItemType Directory -Path (Join-Path $terminalBenchNoEnv "task-deps\nested") -Force | Out-Null
@@ -861,6 +864,7 @@ $adapterScenarioDir = [string]($adapterOutput | Select-Object -Last 1 | ForEach-
 Assert-True (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "prompt.txt")) "terminal-bench adapter did not extract task.yaml instruction"
 Assert-True (-not (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\solution.sh"))) "terminal-bench adapter leaked solution.sh from official task root"
 Assert-True (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\task-deps\input.csv")) "terminal-bench adapter dropped public task-deps fixture"
+Assert-True (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\input.csv")) "terminal-bench adapter did not project Dockerfile COPY into agent /app fixture"
 Assert-True (-not (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\task-deps\nested\run-tests.sh"))) "terminal-bench adapter leaked nested validator script"
 Assert-True (-not (Test-Path -LiteralPath (Join-Path $adapterScenarioDir "fixture\task-deps\tests\case.py"))) "terminal-bench adapter leaked nested tests directory"
 $adapterScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $adapterScenarioDir "scenario.json") | ConvertFrom-Json
@@ -871,6 +875,9 @@ Assert-True ([bool]$adapterScenario.external_benchmark.validator_fidelity.docker
 Assert-True ([string]$adapterScenario.external_benchmark.adapter_metadata.instruction_extraction_mode -eq "literal") "terminal-bench literal instruction mode was not recorded"
 Assert-True (@($adapterScenario.prompt_guard.source_spans).Count -eq 2) "terminal-bench prompt guard source spans were not recorded"
 Assert-True (@($adapterScenario.external_benchmark.adapter_metadata.generated_fixture_allowlist) -contains "task-deps/input.csv") "terminal-bench recursive fixture allowlist missed public file"
+Assert-True (@($adapterScenario.external_benchmark.adapter_metadata.generated_fixture_allowlist) -contains "input.csv") "terminal-bench fixture allowlist missed projected app file"
+Assert-True ([bool]$adapterScenario.external_benchmark.adapter_metadata.agent_app_fixture_projection.projected) "terminal-bench fixture projection metadata was not recorded"
+Assert-True ([string]$adapterScenario.external_benchmark.adapter_metadata.agent_app_fixture_projection.projections[0].destination -eq "input.csv") "terminal-bench fixture projection destination was not recorded"
 $adapterValidatorText = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $adapterScenarioDir "external-validator.ps1")
 Assert-True ($adapterValidatorText -match "proxy_env_preserved_loopback") "terminal-bench validator did not preserve WSL loopback proxy under host networking"
 Assert-True ($adapterValidatorText -match [regex]::Escape('$proxyBuildArgs += @("--build-arg", "$proxyName=$proxyValue")')) "terminal-bench validator did not forward proxy variables to Docker build"

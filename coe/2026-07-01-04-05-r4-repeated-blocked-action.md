@@ -937,7 +937,7 @@
 
 - Related problems:
   - P-004
-- Status: open-new-problem
+- Status: confirmed-and-repaired-by-harness-tests
 - Claim:
   - After H-014, `csv-to-parquet-v9` no longer shows timeout, open leaf, or tool feedback loss. The remaining wrong result comes from the agent choosing a local-harness path default (`task-deps/data.csv`) while the public validator compares against `/app/data.csv`.
 - Evidence:
@@ -956,7 +956,76 @@
 - Root cause candidate:
   - The agent-visible local workspace exposes `task-deps/data.csv`, while the task instruction and public validator semantics refer to `/app/data.csv`.
   - TaskSpace's failed local validation feedback pushed the model toward local path repair instead of preserving the container-visible `/app/data.csv` contract.
-- Required next analysis:
-  - Inspect Terminal-Bench adapter materialization and validation workspace mapping.
-  - Determine whether the harness should materialize a local `/app/data.csv` equivalent, rewrite task-deps path evidence into container-path contracts, or instruct validation commands through the official container path instead of host-local path assumptions.
+- Root cause:
+  - The Terminal-Bench adapter correctly adapted the prompt to say the current working directory is `/app`, but fixture materialization only copied public files as source-tree paths.
+  - The validator builds the Docker image, where `Dockerfile` executes `COPY task-deps/data.csv ./`, but then runs the validator with `-v ${repoDockerPath}:/app`. That bind mount replaces the image's `/app` contents with the agent repo, so Dockerfile-created `/app/data.csv` disappears unless the fixture also projects it into the repo root.
+  - Standard solved v9 by creating root `data.csv`; TaskSpace did not, because the local workspace exposed `task-deps/data.csv` and the failed validation feedback made that path appear to be the available repair target.
+- Repair:
+  - Added a Terminal-Bench fixture projection helper that parses simple public `COPY`/`ADD` Dockerfile file copies and materializes their `/app` destinations into the agent-visible fixture.
+  - The projection is adapter-scoped, not TaskSpace runtime-scoped, so runtime tool feedback remains benchmark-agnostic.
+  - Projection metadata is recorded under `external_benchmark.adapter_metadata.agent_app_fixture_projection`.
+- Validation:
+  ```text
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-harness.ps1
+  PASS
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-terminal-bench-adapter-harness.ps1
+  PASS
+
+  csv-to-parquet adapter materialization check
+  root_data_csv=true
+  task_deps_data_csv=true
+  projected=true
+  projection_destination=data.csv
+  allowlist_contains_data_csv=true
+  ```
+- Remaining validation:
+  - Run `csv-to-parquet` through the paired agent benchmark again and confirm TaskSpace no longer fails public validation due missing `/app/data.csv`.
 - Time: 2026-07-02 02:25
+
+## Hypothesis H-016: successful validation result must be accepted at record time
+
+- Related problems:
+  - P-004
+- Status: confirmed-and-repaired-by-unit-tests
+- Claim:
+  - After H-015, `csv-to-parquet-v10` produced the correct files but still timed out because TaskSpace left the smoke-test node running. The successful test result was present, but success criterion/result validity were not recorded until `finish_node`; the action-contract recovery loop could hit completion gates before the auto-accept finish path had a chance to mutate state.
+- Evidence:
+  - `csv-to-parquet-v10` TaskSpace side:
+    - `exec_timed_out=true`;
+    - `tool_call_count=0` in pair metrics because `whale-exec.jsonl` was empty, while `rollout.jsonl` was 77MB;
+    - graph health showed `node-3` as `smoke_test/running`, `open_leaf_nodes=1`, `edge_count=313`;
+    - final app had `data.csv`, `convert.py`, and `data.parquet`.
+  - `node-3` result `result-6` was a successful test:
+    - command: `python convert.py; ... assert os.path.exists('data.parquet')`;
+    - output: `Test passed`;
+    - action class: `test`;
+    - tool success: `true`.
+  - The provider repeatedly called `finish_node`, but runtime returned:
+    - `cannot be completed without a satisfied success criterion tied to this validation node's successful test/build result`.
+- Root cause:
+  - Successful validation auto-accept ran inside `finish_main_node`, but not when the successful test/build result was first recorded.
+  - Other recovery/action-contract paths can evaluate validation completion state before the finish path mutates result validity and success criteria, so a valid test result can be visible while the completion gate still rejects closeout.
+- Repair:
+  - Extended `record_main_tool_result_with_class` so a successful `Test` or `Build` result on a validation node immediately reuses the existing validation auto-accept logic.
+  - The runtime now records accepted result validity and a satisfied success criterion at the same time it records successful validation evidence.
+- Validation:
+  ```text
+  cargo test -j1 -p codex-core successful_validation_tool_result_auto_accepts_at_record_time --lib
+  PASS
+
+  cargo test -j1 -p codex-core validation_node_failed_test --lib
+  PASS, 3 passed
+
+  cargo test -j1 -p codex-core validation --lib
+  PASS, 56 passed
+
+  cargo fmt --all --check
+  PASS
+
+  cargo build -j1 --profile dev-small -p codex-cli --bin whale
+  PASS
+  ```
+- Remaining validation:
+  - Rerun `csv-to-parquet` as v11 with the new binary and confirm TaskSpace no longer times out after a successful smoke test.
+- Time: 2026-07-02 03:00

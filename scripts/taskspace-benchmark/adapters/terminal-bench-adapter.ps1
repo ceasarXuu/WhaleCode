@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "external-benchmark-common.ps1")
+. (Join-Path $PSScriptRoot "terminal-bench-fixture-projection.ps1")
 . (Join-Path $PSScriptRoot "terminal-bench-uv-cache.ps1")
 . (Join-Path $PSScriptRoot "terminal-bench-remote-assets.ps1")
 . (Join-Path $PSScriptRoot "terminal-bench-equivalence.ps1")
@@ -205,6 +206,12 @@ $remoteInjection = Initialize-TerminalBenchRemoteAssetInjection $fixtureSource $
 $fixtureSource = [string]$remoteInjection.fixture_source
 $remoteAssets = @($remoteInjection.remote_assets)
 $remoteAssetsE3Eligible = @($remoteAssets | Where-Object { $_.required_for_e3 -and -not [bool]$_.equivalence_proven }).Count -eq 0
+$appProjection = ConvertTo-TerminalBenchAgentAppFixture $fixtureSource $generatedDir $SampleId
+$fixtureSource = [string]$appProjection.fixture_source
+if ($fixtureMode -eq "generated_public_allowlist" -and [bool]$appProjection.projected) {
+    $projectedDestinations = @($appProjection.projections | ForEach-Object { [string]$_.destination })
+    $generatedFixtureAllowlist = @(@($generatedFixtureAllowlist) + $projectedDestinations | Sort-Object -Unique)
+}
 $validatorSourceDir = New-TaskspaceExternalDir (Join-Path $generatedDir "terminal-bench-$($SampleId -replace '[^A-Za-z0-9_.-]', '_')-validator-source")
 Copy-TaskspaceExternalShellScript $validatorSource (Join-Path $validatorSourceDir "run-tests.sh")
 if (Test-Path -LiteralPath (Join-Path $taskRoot "tests")) {
@@ -762,6 +769,11 @@ $adapterMetadata = [ordered]@{
     generated_validator_path = $validator
     validator_probe_supported = $true
     prompt_adaptation = "current_working_directory_is_terminal_bench_app"
+    agent_app_fixture_projection = [ordered]@{
+        projected = [bool]$appProjection.projected
+        source = "dockerfile_public_copy_add_to_agent_app"
+        projections = @($appProjection.projections)
+    }
     original_instruction_sha256 = (Get-TaskspaceExternalFileSha256 $originalPromptSource)
     solution_visible_to_agent = $false
     engineering_smoke_only = $false
