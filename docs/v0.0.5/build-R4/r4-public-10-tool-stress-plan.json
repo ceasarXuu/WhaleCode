@@ -23,9 +23,9 @@
   },
   "samples": [
     {
-      "task_id": "polyglot-rust-c",
-      "tool_stress_focus": "single-file creation, dual compiler feedback, runtime validation",
-      "why_selected": "Exercises generated code artifacts, compile/test tool results, stderr/stdout retention, and path attribution without unpinned remote runtime assets."
+      "task_id": "modernize-fortran-build",
+      "tool_stress_focus": "Makefile edits, compiler migration, build and run feedback",
+      "why_selected": "Exercises source inspection, build-system patching, compiler stderr/stdout feedback, generated binaries, and validator feedback without unpinned remote runtime assets."
     },
     {
       "task_id": "qemu-alpine-ssh",

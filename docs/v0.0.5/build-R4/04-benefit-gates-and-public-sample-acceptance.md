@@ -113,7 +113,7 @@ Terminal-Bench public registry，校验 `terminal-bench-core` `0.1.1` 的 `githu
 
 | # | Public Task ID | Tool-call Stress Focus | Why It Belongs In R4 |
 |---|---|---|---|
-| 1 | `polyglot-rust-c` | single-file creation, dual compiler feedback, runtime validation | 考验生成代码产物、编译/测试反馈、stderr/stdout 保留和路径归因；替换 `build-linux-kernel-qemu`，因为后者的官方测试运行时动态拉取 BusyBox 且没有 pinned hash，远程资产等价性无法证明，不能产生真实 paired tool-call 样本 |
+| 1 | `modernize-fortran-build` | Makefile edits, compiler migration, build and run feedback | 考验源码检查、构建系统修改、编译 stderr/stdout、生成二进制和验证反馈；替换 `build-linux-kernel-qemu`，因为后者的官方测试运行时动态拉取 BusyBox 且没有 pinned hash，远程资产等价性无法证明，不能产生真实 paired tool-call 样本 |
 | 2 | `qemu-alpine-ssh` | VM/QEMU command orchestration, readiness probing | 考验多步 shell feedback 和环境状态判断 |
 | 3 | `qemu-startup` | process startup, logs, validation loop | 考验 repeated command feedback 和 recovery |
 | 4 | `git-multibranch` | git state inspection, branch/file operations | 考验工具结果中的状态语义和路径归因 |
