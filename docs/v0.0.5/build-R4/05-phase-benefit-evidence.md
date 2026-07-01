@@ -426,3 +426,153 @@ PASS: R4 metrics extractor large rollout gate passed
 2. R4-G 仍打开，原因转移为 validator infra recovery 收口、metrics 新字段在新 run 中写出证明、
    以及公开 10 样本综合验收未完成。
 3. v7 是 R4-G 的阶段性正收益证据，不是 R4-G closeout。
+
+### 5.8.6 2026-07-01 validator infra closeout 修复
+
+v7 暴露的新阻塞不是解题错误，也不是 inspect 收敛修复失败，而是 validation 工具返回了确定性的本地基础设施错误后，TaskSpace 仍要求模型再发一轮 `state_commit` 或 `blocked` 来把该事实写回 map：
+
+```text
+taskspace-action-contract-16-run_test
+Tool call failed before producing a result.
+local_validator_infra_failure: Bash/Service/CreateInstance/E_ACCESSDENIED
+```
+
+根因：
+1. 工具反馈已经通过标准 `MainToolCall` 结果进入 TaskSpace map。
+2. runtime 已有 `current_main_validation_node_local_infra_failure_summary`、`validation_node_local_infra_unvalidated_artifact_result`、`block_main_node` 等结构化能力。
+3. 但自动阻塞路径只挂在 `state_commit_for_main` 后面；也就是必须等模型再请求一次 `taskspace_control(action=state_commit)`，才能把确定性的 infra 失败转成 validation node 的 blocked/closure 证据。
+4. 在 `TimeoutSeconds=180` 的真实样本里，v7 到达 recovery prompt 时已经接近外层超时，导致没来得及闭环。
+
+修复：
+1. 在 `record_main_tool_result_with_class` 记录失败的 `Build`/`Test` 工具结果后，立即复用现有 local-infra 判定器检查当前 validation node。
+2. 如果命中本地验证基础设施失败，则把该工具结果标记为 `ResultValidity::Invalid`，原因是它不能证明或证伪 changed artifacts。
+3. 随后复用 `block_main_node` 关闭 validation node；有上游 changed artifact 时沿用现有逻辑创建 implement rework node。
+4. 这不是新的旁路工具反馈机制；模型可见反馈仍来自标准工具结果，TaskSpace 只是把确定性的 map 状态提交从模型下一轮搬到 runtime。
+
+已验证：
+```text
+cargo test -j1 -p codex-core local_infra_tool_result_auto_blocks_validation_node --lib
+PASS
+
+cargo test -j1 -p codex-core action_contract_run_test_local_infra_result_auto_blocks_validation --lib
+PASS
+
+cargo test -j1 -p codex-core local_infra_validation_block_routes_unvalidated_changed_artifact_to_rework --lib
+PASS
+
+cargo test -j1 -p codex-core local_infra --lib
+PASS: 6 passed
+
+cargo fmt --all --check
+PASS
+```
+
+当前收益边界：
+1. 已证明工程机制层面消除了“local validator infra failure 必须再等模型 state_commit 才能关闭 validation node”的额外请求依赖。
+2. 该修复应降低 v7 现场那类 validation infra blocker 的超时概率，并让 map 状态更早形成 `invalid result + blocked validation node`。
+3. 仍需重新构建/安装二进制并复跑 `processing-pipeline`，验证真实样本是否从 `E_ACCESSDENIED` 后的 recovery 超时变成可观测的 blocked/rework 收口。
+
+### 5.8.7 2026-07-01 inspect 引用脚本补读与 local infra 分类收口
+
+v8 复跑证明上一节的 local infra closeout 不是唯一阻塞。`processing-pipeline`
+在 inspect 阶段已经读到 `run_pipeline.sh` 引用了 `./generate_report.sh`，但没有强制
+读取该被引用脚本，模型继续反复读取已读文件，最终：
+
+```text
+processing-pipeline-v8
+exec_timed_out=true
+changed_paths=[]
+node_count=1
+open_leaf_nodes=1
+```
+
+修复：
+
+1. runtime 在 `inspect_code_context` 节点发现已读脚本引用了未读脚本时，阻止
+   list/search/re-read/apply_patch/run_test 等非目标读取动作。
+2. action-contract prompt 增加 `TaskSpaceActionContractInspectMissingScriptsV1`，
+   明确给出下一步必须读取的脚本目标。
+
+验证：
+
+```text
+cargo test -j1 -p codex-core inspect_unread_referenced_script_gate_requires_missing_read --lib
+PASS
+
+cargo test -j1 -p codex-core taskspace_action_contract_inspect_missing_scripts_narrows_to_read_file --lib
+PASS
+```
+
+v9 随后证明该问题被推进：TaskSpace 读到了 `generate_report.sh`，产生
+`forced_inspect_transition`，并进入实现节点修改 `generate_report.sh`。但 v9 暴露出
+新的分类问题：`Bash/Service/CreateInstance/E_ACCESSDENIED` 被当成“可通过实现 rework
+解决”的 local infra 问题，导致 validation blocked 后又创建 implement rework。
+
+根因：
+
+1. `InvalidEndOfLine` 确实是可由 agent 改命令分隔符解决的 host-shell syntax failure。
+2. `E_ACCESSDENIED` 是执行器/服务不可用，不是代码失败，也不是可通过 patch 代码恢复。
+3. 旧逻辑把两者都归入 local validator infra，并在存在 changed artifact 时统一路由到 rework。
+
+修复：
+
+1. 新增 local infra recoverability 分类：只有 `InvalidEndOfLine`/statement separator
+   这类命令语法错误允许进入平台兼容 rework。
+2. `E_ACCESSDENIED` 这类不可恢复 executor/service failure 只把 validation result 标记
+   为 `invalid`，并关闭 validation node，不创建 implement rework。
+3. prompt recovery 同步区分 recoverable command failure 与 unrecoverable infra failure。
+4. validation 已 blocked 且没有 active node 时增加
+   `TaskSpaceActionContractClosedValidationV1`，要求直接 final/blocked，禁止重新
+   `start_task/create_node`。
+
+验证：
+
+```text
+cargo test -j1 -p codex-core access_denied_local_infra_blocks_validation_without_rework_after_changed_artifact --lib
+PASS
+
+cargo test -j1 -p codex-core local_infra_validation_block_routes_unvalidated_changed_artifact_to_rework --lib
+PASS
+
+cargo test -j1 -p codex-core taskspace_action_contract_closed_validation_forbids_new_nodes --lib
+PASS
+
+cargo test -j1 -p codex-core local_infra --lib
+PASS: 8 passed
+
+cargo build -j1 --profile dev-small -p codex-cli --bin whale
+PASS
+```
+
+真实样本收益：
+
+| 指标 | v8 未读引用脚本循环 | v9 误入 infra rework | v11 分类与闭环修复后 |
+| --- | --- | --- | --- |
+| timeout | `true` | `true` | `false` |
+| changed_paths | 空 | `generate_report.sh` | `generate_report.sh` 为实际 diff |
+| node_count | 1 | 4 | 3 |
+| open_leaf_nodes | 1 | 1 | 0 |
+| validation infra | 未到达 | `E_ACCESSDENIED` 后进入 rework | `E_ACCESSDENIED` 后 validation blocked |
+| closed contract | 无 | 无 | `TaskSpaceActionContractClosedValidationV1=1` |
+
+v11 真实运行：
+
+```text
+RunDir: C:\WhaleRunCache\r4-public10-20260701\actual\processing-pipeline-v11\runs\terminal_bench__processing-pipeline\20260701-214838-298
+exec_timed_out=false
+wall_time_ms=174916
+node_count=3
+edge_count=2
+result_count=15
+blocked_node_ratio=0.3333
+open_leaf=0
+invalid=1
+rollout_tool_call_count=12
+rollout_failed_tool_call_count=1
+TaskSpaceActionContractClosedValidationV1=1
+```
+
+注意：pair 级别仍因外部 scoring harness 的
+`e3_external_validator_fidelity_unproven` / `e3_external_validator_not_e3_eligible`
+返回 PairAbort；这不是 TaskSpace 内部图闭环失败。v11 的内部证据证明 R4 当前这条
+tool-feedback/control 闭环已经从真实超时收敛为可解释的 infra-blocked 完成态。

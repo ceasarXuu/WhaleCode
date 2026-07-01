@@ -2027,6 +2027,63 @@ impl ActionMapRuntimeState {
                 )],
             ));
         }
+        if node.kind == NodeKind::InspectCodeContext
+            && descriptor.action_class != ActionClass::Control
+        {
+            let unread_script_refs = inspect_node_unread_referenced_scripts(map, node);
+            if !unread_script_refs.is_empty()
+                && (descriptor.action_class != ActionClass::Read
+                    || !tool_action_descriptor_targets_any_artifact(
+                        &descriptor,
+                        &unread_script_refs,
+                    ))
+            {
+                let reason = format!(
+                    "inspect_code_context has unread referenced scripts: {}",
+                    unread_script_refs.join(", ")
+                );
+                let message = format!(
+                    "TaskSpace blocked this {} because current node `{}` has already read a script that references unread script(s): {}. Before more discovery, edits, or validation, read the missing referenced script with read_file.",
+                    descriptor.action_class.as_str(),
+                    node.id,
+                    unread_script_refs.join(", ")
+                );
+                let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
+                let blocked_node_kind = node.kind.as_str().to_string();
+                let repeated_block = self.record_blocked_action_repeat(
+                    &map_id,
+                    &node_id,
+                    progress_signature,
+                    &reason,
+                    &descriptor,
+                );
+                let next_actions = unread_script_refs
+                    .iter()
+                    .map(|script| format!("read_file({script})"))
+                    .collect::<Vec<_>>();
+                let recovery = gate_recovery_message_with_repeated_block(
+                    &message,
+                    &reason,
+                    vec![current_node_item],
+                    next_actions,
+                    Vec::new(),
+                    Some(&repeated_block),
+                );
+                return Err(ActionMapGateError::new(
+                    recovery,
+                    vec![MapRuntimeEvent::ToolActionBlocked(
+                        MapRuntimeToolActionBlockedEvent {
+                            map_id,
+                            node_id,
+                            node_kind: blocked_node_kind,
+                            tool_name: descriptor.tool_name,
+                            action_class: descriptor.action_class.as_str().to_string(),
+                            reason,
+                        },
+                    )],
+                ));
+            }
+        }
         if node.kind == NodeKind::ImplementSolution
             && matches!(
                 descriptor.action_class,
@@ -2423,6 +2480,24 @@ preview:\n\
         if let Some(barrier) = raised_barrier {
             events.push(maintenance_barrier_raised_event(&barrier));
             self.maintenance_barriers.insert(map_id.clone(), barrier);
+        }
+        if !success
+            && matches!(
+                recorded_action_class,
+                Some(ActionClass::Build | ActionClass::Test)
+            )
+            && let Some((validation_node_id, blocker_summary)) =
+                self.current_main_validation_node_local_infra_failure_summary()
+            && validation_node_id == node_id
+        {
+            if let Some(validity_event) =
+                self.invalidate_local_infra_validation_result(&map_id, &result_id)?
+            {
+                events.push(validity_event);
+            }
+            let (_, mut blocker_events) =
+                self.block_main_node(owner_session_id, &validation_node_id, blocker_summary)?;
+            events.append(&mut blocker_events);
         }
         let progress_snapshot = self
             .provider_request_budget_snapshot()
@@ -3719,6 +3794,57 @@ preview:\n\
             "Runtime accepted inspect convergence into implementation after sufficient code or test evidence.",
             validity_reason,
         )
+    }
+
+    fn invalidate_local_infra_validation_result(
+        &mut self,
+        map_id: &str,
+        result_id: &str,
+    ) -> Result<Option<MapRuntimeEvent>, String> {
+        let map = self
+            .maps
+            .get_mut(map_id)
+            .ok_or_else(|| format!("TaskSpace task path `{map_id}` is missing."))?;
+        let task_id = map.task_id.clone();
+        let result = map.results.get_mut(result_id).ok_or_else(|| {
+            format!("TaskSpace result `{result_id}` does not exist on task path `{map_id}`.")
+        })?;
+        if result.evidence_package.validity != ResultValidity::Unreviewed {
+            return Ok(None);
+        }
+        let mut adoption = NodeResultAdoption::default();
+        adoption.refresh_state(ResultValidity::Invalid);
+        let evidence_ref = EvidenceRef {
+            result_id: Some(result_id.to_string()),
+            claim_id: None,
+            fact_source_id: None,
+            trace_event_id: None,
+            artifact_ref: None,
+            validator_ref: None,
+        };
+        result.evidence_package = NodeResultEvidencePackage {
+            claims: Vec::new(),
+            evidence_refs: vec![evidence_ref],
+            changed_artifacts: Vec::new(),
+            validator_refs: Vec::new(),
+            remaining_uncertainty: vec![
+                "Local validator infrastructure failed before validation could prove or disprove the changed artifacts.".to_string(),
+            ],
+            validity: ResultValidity::Invalid,
+            validity_reason:
+                "Runtime marked local validator infrastructure failure as invalid validation evidence."
+                    .to_string(),
+            adoption,
+        };
+        Ok(Some(MapRuntimeEvent::ResultValidityChanged(
+            MapRuntimeResultValidityChangedEvent {
+                task_id,
+                map_id: map_id.to_string(),
+                node_id: result.node_id.clone(),
+                result_id: result_id.to_string(),
+                validity: ResultValidity::Invalid.as_str().to_string(),
+            },
+        )))
     }
 
     pub(crate) fn prepare_child_tool_call(
@@ -6064,6 +6190,25 @@ preview:\n\
                     >= contract_for(NodeKind::InspectCodeContext)
                         .max_main_tool_results_before_split_hint
             })
+    }
+
+    pub(crate) fn current_main_inspect_unread_referenced_scripts(&self) -> Vec<String> {
+        let Some(map_id) = self.active_map_id.as_ref() else {
+            return Vec::new();
+        };
+        let Some(node_id) = self.current_main_node_id.as_ref() else {
+            return Vec::new();
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return Vec::new();
+        };
+        let Some(node) = map.nodes.get(node_id) else {
+            return Vec::new();
+        };
+        if node.kind != NodeKind::InspectCodeContext {
+            return Vec::new();
+        }
+        inspect_node_unread_referenced_scripts(map, node)
     }
 
     pub(crate) fn current_main_implement_progress_needs_edit(&self) -> bool {
@@ -12719,7 +12864,9 @@ fn validation_node_local_infra_unvalidated_artifact_result(
     }
     node.result_context.iter().rev().find_map(|result_ref| {
         let result = map.results.get(&result_ref.id)?;
-        if !node_result_is_local_validator_infra_failure(result) {
+        if !node_result_is_local_validator_infra_failure(result)
+            || !local_validator_infra_failure_can_rework_command(&result.body)
+        {
             return None;
         }
         Some((
@@ -12746,6 +12893,20 @@ fn tool_action_descriptor_command(descriptor: &ToolActionDescriptor) -> Option<S
             let preview = descriptor.preview.trim();
             (!preview.is_empty()).then(|| preview.to_string())
         })
+}
+
+fn tool_action_descriptor_targets_any_artifact(
+    descriptor: &ToolActionDescriptor,
+    artifact_refs: &[String],
+) -> bool {
+    let Some(command) = tool_action_descriptor_command(descriptor) else {
+        return false;
+    };
+    let normalized_command = normalize_artifact_ref(&command).to_ascii_lowercase();
+    artifact_refs.iter().any(|artifact_ref| {
+        let key = artifact_key(artifact_ref);
+        !key.is_empty() && normalized_command.contains(&key)
+    })
 }
 
 fn inspect_duplicate_successful_diagnostic_test(
@@ -14014,6 +14175,17 @@ fn text_mentions_local_validator_infra_failure(text: &str) -> bool {
         || compact.contains("wslservicee_accessdenied")
         || compact.contains("eaccessdenied")
         || compact.contains("e_accessdenied")
+        || compact.contains("invalidendofline")
+}
+
+fn local_validator_infra_failure_can_rework_command(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    let compact = text
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+        .collect::<String>();
+    text.contains("invalidendofline")
+        || text.contains("not a valid statement separator")
         || compact.contains("invalidendofline")
 }
 
@@ -23713,6 +23885,65 @@ fi\n"
     }
 
     #[test]
+    fn inspect_unread_referenced_script_gate_requires_missing_read() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect pipeline",
+            "Read pipeline scripts before implementing.",
+            "Inspect pipeline",
+            "Read pipeline scripts before implementing.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-Content run_pipeline.sh",
+                )
+                .with_call_id("read-run-pipeline"),
+            )
+            .expect("initial script read is allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-run-pipeline",
+                "shell_command",
+                true,
+                "Get-Content run_pipeline.sh\n./collect_data.sh\n./process_data.sh\n./generate_report.sh".to_string(),
+            )
+            .expect("script read result records");
+
+        let blocked = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "rg --files .")
+                    .with_call_id("repeat-list"),
+            )
+            .expect_err("read discovery should be narrowed to missing referenced scripts");
+        let message = blocked.to_string();
+        assert!(message.contains("unread referenced scripts"));
+        assert!(message.contains("generate_report.sh"));
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-Content generate_report.sh",
+                )
+                .with_call_id("read-generate-report"),
+            )
+            .expect("reading a missing referenced script is allowed");
+    }
+
+    #[test]
     fn provider_budget_follow_up_does_not_force_finish_implementation_into_smoke_test_after_edit() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -26201,7 +26432,7 @@ summary: diagnostic payload for output reference smoke\n\
             )
             .expect("finish implementation into validation");
         let validation_node_id = handoff.next_node_id.expect("validation node id");
-        let (infra_result_id, _) = state
+        let (infra_result_id, events) = state
             .record_main_tool_result_with_class(
                 owner,
                 "run-merge-script",
@@ -26213,41 +26444,24 @@ summary: diagnostic payload for output reference smoke\n\
             .expect("local infra failure records")
             .expect("infra result id");
 
-        let (outcome, _) = state
-            .state_commit_for_main(
-                owner,
-                ActionMapStateCommitInput {
-                    commit_id: "local-infra-unvalidated-artifact".to_string(),
-                    result_validities: vec![ActionMapStateCommitResultValidityInput {
-                        result_id: infra_result_id.clone(),
-                        validity: "invalid".to_string(),
-                        validity_reason: "local validator infrastructure failed".to_string(),
-                        evidence_refs: vec![ActionMapEvidenceRefInput {
-                            result_id: Some(infra_result_id),
-                            ..Default::default()
-                        }],
-                        claims: Vec::new(),
-                        changed_artifacts: Vec::new(),
-                        validator_refs: Vec::new(),
-                        remaining_uncertainty: Vec::new(),
-                    }],
-                    ..Default::default()
-                },
-            )
-            .expect("local infra state_commit should block validation and route rework");
-
-        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
         assert!(
-            outcome
-                .accepted_sections
+            events
                 .iter()
-                .any(|section| section == "local_infra_blocker")
+                .any(|event| matches!(event, MapRuntimeEvent::ResultValidityChanged(changed) if changed.result_id == infra_result_id && changed.validity == "invalid"))
         );
         let rework_node_id = state
             .current_main_node_id
             .as_deref()
             .expect("local infra blocked validation should bind rework");
         let map = state.maps.get(&map_id).expect("map");
+        let infra_result = map
+            .results
+            .get(&infra_result_id)
+            .expect("infra validation result");
+        assert_eq!(
+            infra_result.evidence_package.validity,
+            ResultValidity::Invalid
+        );
         assert_eq!(
             map.nodes
                 .get(&validation_node_id)
@@ -26270,6 +26484,100 @@ summary: diagnostic payload for output reference smoke\n\
                 .summary
                 .contains("platform-compatible execution")
         );
+    }
+
+    #[test]
+    fn access_denied_local_infra_blocks_validation_without_rework_after_changed_artifact() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Fix shell pipeline",
+            "Patch the failing pipeline script.",
+            "Patch report generator",
+            "Fix generate_report.sh.",
+            true,
+        );
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-report",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\n*** Update File: generate_report.sh\n"
+                    .to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit-report".to_string(),
+                    statement: "Report generator was patched.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (handoff, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Patched report generator.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run pipeline validation".to_string(),
+                    context_summary: "Run the pipeline after the patch.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = handoff.next_node_id.expect("validation node id");
+        let (infra_result_id, events) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-pipeline",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "Tool call failed before producing a result. local_validator_infra_failure: Bash/Service/CreateInstance/E_ACCESSDENIED".to_string(),
+            )
+            .expect("local infra failure records")
+            .expect("infra result id");
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ResultValidityChanged(changed)
+                    if changed.result_id == infra_result_id && changed.validity == "invalid"
+            )
+        }));
+        let map = state.maps.get(&map_id).expect("map");
+        let validation_node = map.nodes.get(&validation_node_id).expect("validation node");
+        assert_eq!(validation_node.status, NodeStatus::Blocked);
+        assert_eq!(state.current_main_node_id.as_deref(), None);
+        assert!(!map.nodes.values().any(|node| {
+            node.kind == NodeKind::ImplementSolution
+                && node.origin_node_id.as_deref() == Some(validation_node_id.as_str())
+        }));
     }
 
     #[test]
@@ -26465,11 +26773,11 @@ summary: diagnostic payload for output reference smoke\n\
     }
 
     #[test]
-    fn current_validation_node_detects_local_infra_failure() {
+    fn local_infra_tool_result_auto_blocks_validation_node() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        start_test_task_with_kind(
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
             &mut state,
             owner,
             NodeKind::SmokeTest,
@@ -26485,7 +26793,7 @@ summary: diagnostic payload for output reference smoke\n\
             .chars()
             .flat_map(|ch| [ch, '\0'])
             .collect::<String>();
-        state
+        let (result_id, events) = state
             .record_main_tool_result_with_class(
                 owner,
                 "call-test-fail",
@@ -26494,13 +26802,30 @@ summary: diagnostic payload for output reference smoke\n\
                 false,
                 nul_separated_error,
             )
-            .expect("failed test result records");
+            .expect("failed test result records")
+            .expect("test result id");
 
-        assert!(state.current_main_validation_node_has_local_infra_failure());
+        assert!(!state.current_main_validation_node_has_local_infra_failure());
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ResultValidityChanged(changed)
+                    if changed.result_id == result_id && changed.validity == "invalid"
+            )
+        }));
+        let map = state.maps.get(&map_id).expect("active map");
+        let result = map
+            .results
+            .get(&result_id)
+            .expect("infra validation result");
+        assert_eq!(result.evidence_package.validity, ResultValidity::Invalid);
+        let node = map.nodes.get(&node_id).expect("validation node");
+        assert_eq!(node.status, NodeStatus::Blocked);
+        assert!(state.active_map_has_blocked_validation_result());
     }
 
     #[test]
-    fn state_commit_auto_blocks_local_infra_validation_node() {
+    fn local_infra_auto_block_does_not_require_state_commit() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -26530,50 +26855,21 @@ summary: diagnostic payload for output reference smoke\n\
             .expect("failed test result records")
             .expect("test result id");
 
-        let (outcome, _) = state
-            .state_commit_for_main(
-                owner,
-                ActionMapStateCommitInput {
-                    commit_id: "commit-local-infra-validation".to_string(),
-                    result_validities: vec![ActionMapStateCommitResultValidityInput {
-                        result_id: result_id.clone(),
-                        validity: "invalid".to_string(),
-                        validity_reason: "local validator infrastructure failed".to_string(),
-                        claims: Vec::new(),
-                        evidence_refs: vec![ActionMapEvidenceRefInput {
-                            result_id: Some(result_id),
-                            validator_ref: Some("bash run_pipeline.sh".to_string()),
-                            ..Default::default()
-                        }],
-                        changed_artifacts: Vec::new(),
-                        validator_refs: vec!["bash run_pipeline.sh".to_string()],
-                        remaining_uncertainty: Vec::new(),
-                    }],
-                    ..Default::default()
-                },
-            )
-            .expect("local infra validation state_commit should auto-block node");
-
-        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
-        assert!(
-            outcome
-                .accepted_sections
-                .iter()
-                .any(|section| section == "local_infra_blocker")
-        );
         let map_id = state.active_map_id.clone().expect("active map");
-        let node = state
-            .maps
-            .get(&map_id)
-            .and_then(|map| map.nodes.get(&node_id))
-            .expect("validation node");
+        let map = state.maps.get(&map_id).expect("active map state");
+        let result = map
+            .results
+            .get(&result_id)
+            .expect("infra validation result");
+        assert_eq!(result.evidence_package.validity, ResultValidity::Invalid);
+        let node = map.nodes.get(&node_id).expect("validation node");
         assert_eq!(node.status, NodeStatus::Blocked);
         assert!(state.current_main_node_id.is_none());
         assert!(state.active_map_has_blocked_validation_result());
     }
 
     #[test]
-    fn state_commit_resolves_action_contract_run_test_call_id_to_validation_result() {
+    fn action_contract_run_test_local_infra_result_auto_blocks_validation() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -26604,31 +26900,6 @@ summary: diagnostic payload for output reference smoke\n\
             .expect("failed test result records")
             .expect("test result id");
 
-        let (outcome, _) = state
-            .state_commit_for_main(
-                owner,
-                ActionMapStateCommitInput {
-                    commit_id: "commit-action-contract-run-test".to_string(),
-                    result_validities: vec![ActionMapStateCommitResultValidityInput {
-                        result_id: call_id.to_string(),
-                        validity: "invalid".to_string(),
-                        validity_reason: "local validator infrastructure failed".to_string(),
-                        claims: Vec::new(),
-                        evidence_refs: vec![ActionMapEvidenceRefInput {
-                            result_id: Some(call_id.to_string()),
-                            validator_ref: Some("bash run_pipeline.sh".to_string()),
-                            ..Default::default()
-                        }],
-                        changed_artifacts: Vec::new(),
-                        validator_refs: vec!["bash run_pipeline.sh".to_string()],
-                        remaining_uncertainty: Vec::new(),
-                    }],
-                    ..Default::default()
-                },
-            )
-            .expect("action-contract call id should resolve to recorded validation result");
-
-        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
         let map_id = state.active_map_id.clone().expect("active map");
         let map = state.maps.get(&map_id).expect("active map state");
         let result = map
@@ -26636,6 +26907,7 @@ summary: diagnostic payload for output reference smoke\n\
             .get(&actual_result_id)
             .expect("actual validation result");
         assert_eq!(result.evidence_package.validity, ResultValidity::Invalid);
+        assert!(result.body.contains(call_id));
         let node = map.nodes.get(&node_id).expect("validation node");
         assert_eq!(node.status, NodeStatus::Blocked);
     }

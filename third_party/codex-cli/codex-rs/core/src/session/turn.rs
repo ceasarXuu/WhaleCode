@@ -1349,6 +1349,47 @@ No active TaskSpace task exists yet. The next action must be taskspace_control w
     }
 }
 
+fn taskspace_action_contract_closed_validation_item() -> ResponseItem {
+    let text = "TaskSpaceActionContractClosedValidationV1:\n\
+Existing TaskSpace task has no active bound node because validation is closed as blocked by local infrastructure evidence.\n\
+Current request allowed actions are narrowed to final_answer or blocked only.\n\
+Do not call start_task, create_node, bind_node, list_files, read_file, search, apply_patch, run_test, or spawn_agent.\n\
+The next response must summarize the exact validator infrastructure blocker and the implementation evidence already recorded."
+        .to_string();
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn taskspace_action_contract_inspect_unread_scripts_item(scripts: &[String]) -> ResponseItem {
+    let mut text = String::from(
+        "TaskSpaceActionContractInspectMissingScriptsV1:\n\
+Inspect convergence is blocked because already-read script evidence references script(s) that have not been read yet.\n\
+Current request allowed actions are narrowed to read_file or blocked only. Do not call list_files, search, apply_patch, run_test, taskspace_control finish_node, or re-read already inspected files before these missing script(s) are read.\n\
+Required read_file targets:",
+    );
+    for script in scripts {
+        text.push_str("\n- ");
+        text.push_str(script);
+    }
+    if let Some(first) = scripts.first() {
+        text.push_str("\nThe next action must be read_file for `");
+        text.push_str(first);
+        text.push_str("` unless an external blocker makes that impossible.");
+    }
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn build_taskspace_provider_budget_guidance_item(
     _request_count: usize,
     _max_requests: usize,
@@ -2184,6 +2225,19 @@ async fn run_sampling_request(
             && transport_mode == TaskspaceProviderTransportMode::CacheOptimizedActionContract
         {
             prompt_input.push(taskspace_action_contract_state_item(snapshot));
+            if snapshot.node_id.is_none() && sess.action_map_has_blocked_validation_result().await {
+                prompt_input.push(taskspace_action_contract_closed_validation_item());
+            }
+            if snapshot.node_kind.as_deref() == Some("inspect_code_context") {
+                let unread_scripts = sess
+                    .action_map_current_inspect_unread_referenced_scripts()
+                    .await;
+                if !unread_scripts.is_empty() {
+                    prompt_input.push(taskspace_action_contract_inspect_unread_scripts_item(
+                        &unread_scripts,
+                    ));
+                }
+            }
         } else if provider_budget_snapshot.is_none()
             && transport_mode == TaskspaceProviderTransportMode::CacheOptimizedActionContract
         {
@@ -2572,6 +2626,12 @@ fn taskspace_action_contract_recent_tool_outputs_item(
     let local_validator_infra_failure_seen = summaries
         .iter()
         .any(|(_, text)| taskspace_output_mentions_local_validator_infra_failure(text));
+    let recoverable_local_validator_command_failure_seen = summaries.iter().any(|(_, text)| {
+        taskspace_output_mentions_recoverable_local_validator_command_failure(text)
+    });
+    let unrecoverable_local_validator_infra_failure_seen = summaries.iter().any(|(_, text)| {
+        taskspace_output_mentions_unrecoverable_local_validator_infra_failure(text)
+    });
     let local_validator_infra_state_commit_seen = summaries
         .iter()
         .any(|(_, text)| taskspace_output_mentions_local_validator_infra_state_commit(text));
@@ -2639,6 +2699,11 @@ fn taskspace_action_contract_recent_tool_outputs_item(
         "progress_hint: A previous run_test was rejected because it skipped a discovered local validator. Do not repeat pytest or discovery. Next action must be run_test with command `python scripts/validate.py`, or blocked with the exact reason that command cannot run.\n"
     } else if uncovered_high_signal_seen {
         "progress_hint: A previous finish_node was rejected because high-signal inspected evidence is still uncovered. Do not repeat finish_node. Next action must be apply_patch for the named uncovered artifact, or blocked with the exact reason it cannot be changed.\n"
+    } else if in_implement_rework
+        && unrecoverable_local_validator_infra_failure_seen
+        && !recoverable_local_validator_command_failure_seen
+    {
+        "progress_hint: Local validation failed because the host validator service or shell executor was unavailable, not because implementation code produced a test failure. Do not patch code or run more shell-discovery commands for the same E_ACCESSDENIED-style infrastructure failure. Next action must be blocked with the exact local validator infrastructure evidence.\n"
     } else if in_implement_rework
         && local_validator_infra_failure_seen
         && local_validator_infra_state_commit_seen
@@ -2848,6 +2913,28 @@ fn taskspace_output_mentions_local_validator_infra_failure(text: &str) -> bool {
         || signal.contains("eaccessdenied")
         || signal.contains("e_accessdenied")
         || signal.contains("invalidendofline")
+}
+
+fn taskspace_output_mentions_recoverable_local_validator_command_failure(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    let signal = taskspace_compact_ascii_signal(&text);
+    text.contains("invalidendofline")
+        || text.contains("not a valid statement separator")
+        || signal.contains("invalidendofline")
+}
+
+fn taskspace_output_mentions_unrecoverable_local_validator_infra_failure(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    let signal = taskspace_compact_ascii_signal(&text);
+    text.contains("bash/service/createinstance/e_accessdenied")
+        || text.contains("wsl/service/e_accessdenied")
+        || text.contains("e_accessdenied")
+        || signal.contains("bashservicecreateinstanceeaccessdenied")
+        || signal.contains("bashservicecreateinstancee_accessdenied")
+        || signal.contains("wslserviceeaccessdenied")
+        || signal.contains("wslservicee_accessdenied")
+        || signal.contains("eaccessdenied")
+        || signal.contains("e_accessdenied")
 }
 
 fn taskspace_output_mentions_local_validator_infra_state_commit(text: &str) -> bool {
@@ -3428,6 +3515,31 @@ mod active_context_replacement_tests {
         assert!(text.contains("Existing TaskSpace task has no active bound node"));
         assert!(text.contains("return final_answer"));
         assert!(!text.contains("action=start_task"));
+    }
+
+    #[test]
+    fn taskspace_action_contract_closed_validation_forbids_new_nodes() {
+        let text = item_text(taskspace_action_contract_closed_validation_item());
+
+        assert!(text.contains("TaskSpaceActionContractClosedValidationV1"));
+        assert!(text.contains("final_answer or blocked only"));
+        assert!(text.contains("Do not call start_task"));
+        assert!(text.contains("create_node"));
+        assert!(text.contains("validator infrastructure blocker"));
+    }
+
+    #[test]
+    fn taskspace_action_contract_inspect_missing_scripts_narrows_to_read_file() {
+        let scripts = vec!["generate_report.sh".to_string()];
+        let text = item_text(taskspace_action_contract_inspect_unread_scripts_item(
+            &scripts,
+        ));
+
+        assert!(text.contains("TaskSpaceActionContractInspectMissingScriptsV1"));
+        assert!(text.contains("read_file or blocked only"));
+        assert!(text.contains("generate_report.sh"));
+        assert!(text.contains("The next action must be read_file"));
+        assert!(text.contains("Do not call list_files"));
     }
 
     #[test]
@@ -5611,6 +5723,32 @@ tax_calc.py\n\
         assert!(joined.contains("platform-compatible syntax"));
         assert!(joined.contains("PowerShell `;`"));
         assert!(!joined.contains("blocked with the exact local validator infrastructure evidence"));
+    }
+
+    #[test]
+    fn action_contract_prompt_blocks_unrecoverable_local_infra_in_rework_context() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Fix the pipeline"),
+            message("developer", &latest_active_projection),
+            tool_output_with_call_id(
+                "taskspace-action-contract-13-run_test",
+                "Tool call failed before producing a result. local_validator_infra_failure: Bash/Service/CreateInstance/E_ACCESSDENIED",
+            ),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items_for_node(
+            items,
+            Some("implement_solution"),
+        );
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains("host validator service or shell executor was unavailable"));
+        assert!(joined.contains("Do not patch code"));
+        assert!(joined.contains("blocked with the exact local validator infrastructure evidence"));
+        assert!(!joined.contains("platform-compatible syntax"));
     }
 
     #[test]

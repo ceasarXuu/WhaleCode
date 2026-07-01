@@ -493,3 +493,133 @@
   ```
 - Interpretation: Future paired reports can avoid the misleading `tool_call_count=0` when `whale-exec.jsonl` lacks action-contract internals but rollout is available for scan.
 - Time: 2026-07-01 16:55
+
+## Hypothesis H-005: local validator infra failure closeout depends on an unnecessary model turn
+
+- Related problems:
+  - P-002
+- Status: confirmed-and-repaired-by-unit-tests; real-sample rerun pending
+- Claim: after TaskSpace records a definitive local validator infrastructure failure from a validation tool result, runtime still relies on a later model `state_commit` or `blocked` action to close the validation node. In bounded runs this can consume the remaining wall-clock window even though the tool result already contains sufficient evidence for map-level invalidation and blocking.
+- Predictions:
+  - A `run_test` result containing `local_validator_infra_failure` or `Bash/Service/CreateInstance/E_ACCESSDENIED` will be visible in the map as a validation tool failure before timeout.
+  - Existing runtime code can already block validation nodes and create rework nodes for local infra failures, but the automatic path is only attached to `state_commit`.
+  - Moving the deterministic invalidation/blocking step into `record_main_tool_result_with_class` will let the same tool result produce `ResultValidity::Invalid` plus a blocked validation node without another model request.
+- Diagnostic evidence plan:
+  - Inspect runtime code around tool result recording and existing local-infra auto-block after state_commit.
+  - Add focused unit tests for direct local-infra tool-result closeout, action-contract `run_test` closeout, and changed-artifact rework routing.
+  - Re-run a bounded `processing-pipeline` sample after building/installing the updated binary to confirm real-sample closeout.
+- Conclusion: confirmed by E-013 for the code path and unit behavior. Real-sample evidence is still required before marking the R4 public-sample closeout done.
+
+## Evidence E-013: local infra validation failures now close at tool-result recording time
+
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: repair validation
+- Source: `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Matched signal:
+  - `record_main_tool_result_with_class` now checks failed `Build`/`Test` results immediately after recording the standard tool feedback.
+  - When the current validation node contains a local validator infra failure, runtime marks that tool result `invalid` via `ResultValidityChanged` and reuses `block_main_node` for the existing blocked-validation/rework semantics.
+  - The fix does not introduce a separate tool-feedback path; it operates after the same `MainToolCall` result has been persisted to the map.
+- Raw content:
+  ```text
+  cargo test -j1 -p codex-core local_infra_tool_result_auto_blocks_validation_node --lib
+  PASS
+
+  cargo test -j1 -p codex-core action_contract_run_test_local_infra_result_auto_blocks_validation --lib
+  PASS
+
+  cargo test -j1 -p codex-core local_infra_validation_block_routes_unvalidated_changed_artifact_to_rework --lib
+  PASS
+
+  cargo test -j1 -p codex-core local_infra --lib
+  PASS: 6 passed
+
+  cargo fmt --all --check
+  PASS
+  ```
+- Interpretation: the current blocker is no longer "TaskSpace needs the model to restate a deterministic validator infra failure before the map can close the validation node." The remaining required proof is a fresh real-sample run using the updated binary.
+- Time: 2026-07-01 21:05
+
+## Hypothesis H-006: inspect convergence must force unread referenced scripts before implementation
+
+- Related problems:
+  - P-002
+- Status: confirmed-and-repaired-by-unit-tests-and-real-sample
+- Claim: after reading an orchestrator script, TaskSpace can know that referenced scripts remain unread. If the active inspect node does not force those reads, the model may keep rereading already inspected files or listing the directory instead of completing the evidence set.
+- Evidence:
+  - `processing-pipeline-v8` timed out with `exec_timed_out=true`, `changed_paths=[]`, `node_count=1`, and no `forced_inspect_transition`.
+  - The rollout had repeated reads of `run_pipeline.sh`, `collect_data.sh`, and `process_data.sh`, but no successful read of `generate_report.sh`.
+  - `run_pipeline.sh` referenced `./generate_report.sh`; runtime correctly recognized this as missing referenced evidence, but the prompt/gate did not force the missing read.
+- Repair:
+  - `prepare_main_tool_call` now blocks non-read actions on an inspect node while referenced scripts remain unread.
+  - The action-contract prompt injects `TaskSpaceActionContractInspectMissingScriptsV1` with the exact required `read_file` target list.
+- Validation:
+  ```text
+  cargo test -j1 -p codex-core inspect_unread_referenced_script_gate_requires_missing_read --lib
+  PASS
+
+  cargo test -j1 -p codex-core taskspace_action_contract_inspect_missing_scripts_narrows_to_read_file --lib
+  PASS
+  ```
+- Real-sample result:
+  - `processing-pipeline-v9` and later runs read `generate_report.sh`, produced `forced_inspect_transition`, and reached implementation.
+- Time: 2026-07-01 21:30
+
+## Hypothesis H-007: local validator infra failures need recoverability classification
+
+- Related problems:
+  - P-002
+- Status: confirmed-and-repaired-by-unit-tests-and-real-sample
+- Claim: treating all local validator infra failures the same causes incorrect rework. `InvalidEndOfLine` is recoverable by changing command syntax, but `Bash/Service/CreateInstance/E_ACCESSDENIED` is an unavailable executor/service failure and should close validation as infrastructure-blocked instead of creating implementation rework.
+- Evidence:
+  - `processing-pipeline-v9` reached `generate_report.sh` and hit `local_validator_infra_failure: Bash/Service/CreateInstance/E_ACCESSDENIED`.
+  - Runtime marked the validation result invalid and blocked node-3, but then created node-4 `implement_solution` because the previous policy routed any local infra failure with changed artifacts to rework.
+  - The next prompt told the model to patch implementation or run platform-compatible syntax, which is valid for `InvalidEndOfLine` but wrong for `E_ACCESSDENIED`.
+- Repair:
+  - Added `local_validator_infra_failure_can_rework_command`.
+  - Validation rework routing now only applies to recoverable host-shell command syntax failures such as `InvalidEndOfLine`.
+  - Unrecoverable executor/service failures such as `E_ACCESSDENIED` mark the validation result invalid and close the validation node without creating rework.
+  - Prompt recovery now distinguishes recoverable command syntax from unrecoverable executor/service failures.
+- Validation:
+  ```text
+  cargo test -j1 -p codex-core access_denied_local_infra_blocks_validation_without_rework_after_changed_artifact --lib
+  PASS
+
+  cargo test -j1 -p codex-core local_infra_validation_block_routes_unvalidated_changed_artifact_to_rework --lib
+  PASS
+
+  cargo test -j1 -p codex-core local_infra --lib
+  PASS: 8 passed
+  ```
+- Real-sample result:
+  - `processing-pipeline-v10`: `exec_timed_out=false`, `open_leaf=0`, `node_count=3`, `blocked_node_ratio=0.3333`, `invalid=1`.
+  - `processing-pipeline-v11`: same closed graph shape, plus `TaskSpaceActionContractClosedValidationV1=1` and final task completion message summarizing the local infra blocker.
+- Time: 2026-07-01 22:00
+
+## Evidence E-014: processing-pipeline v11 closes the TaskSpace graph after local infra failure
+
+- Related hypotheses:
+  - H-006
+  - H-007
+- Direction: supports
+- Type: real-sample validation
+- Source: `C:\WhaleRunCache\r4-public10-20260701\actual\processing-pipeline-v11\runs\terminal_bench__processing-pipeline\20260701-214838-298`
+- Matched signal:
+  - `exec_timed_out=false`
+  - `open_leaf=0`
+  - `node_count=3`
+  - `edge_count=2`
+  - `result_count=15`
+  - `invalid=1`
+  - `TaskSpaceActionContractClosedValidationV1=1`
+  - final task message: local validator infrastructure failure prevents shell-script execution; implementation evidence and `generate_report.sh` patch are recorded.
+- Raw content:
+  ```text
+  local_validator_infra_failure: Bash/Service/CreateInstance/E_ACCESSDENIED
+  result_validity_changed node-3 result-14 validity=invalid
+  node_status_changed node-3 running -> blocked
+  task_complete last_agent_message=blocked_by_taskspace_action_contract: Local validator infrastructure failure...
+  ```
+- Interpretation: the current TaskSpace tool-feedback/control path now reaches a stable closed graph for this sample instead of timing out or routing an unrecoverable executor failure back into implementation rework.
+- Time: 2026-07-01 22:05
