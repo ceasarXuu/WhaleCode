@@ -715,3 +715,248 @@
 - Fix criteria:
   - Runtime should not spend many model requests in an implement node with known failed-validation evidence and no result.
   - A focused test should prove implement no-action recovery after blocked validation becomes concrete edit/block guidance, not generic follow-up.
+
+## Hypothesis H-009: blocked validation rework was not classified as implementation evidence
+
+- Related problems:
+  - P-004
+- Status: confirmed-and-repaired-by-unit-and-real-sample-tests
+- Claim:
+  - The runtime only treated successful inspect/read evidence or repeated implement-node reads as `implementation_needs_edit`. A rework node created from a blocked validation node had clear failed-validation evidence in its context, but that evidence did not set `current_node_has_dependency_working_evidence` and did not make `current_main_implement_progress_needs_edit()` true.
+- Predictions:
+  - The real sample should show the rework node created correctly but with zero results until timeout.
+  - Code should gate implement read/search on inspect dependency evidence and progress count, but not on blocked validation dependency evidence.
+  - A unit reproduction should fail before the fix by allowing read/search after blocked validation rework, and pass after the fix by requiring edit/block.
+- Evidence:
+  - `csv-to-parquet-v3` node-5 `smoke_test` blocked with `FileNotFoundError: data.csv`; node-6 `implement_solution` was created, but recorded zero results and remained running until timeout.
+  - `provider_request_budget` traces on node-6 repeatedly had `tools_present:false` and `request_shape_classifier:tool_free_action_contract`, while the projection still allowed read/search/edit/control instead of narrowed edit/block.
+  - `prepare_main_tool_call` and `current_main_implement_progress_needs_edit` checked `implement_node_has_dependency_working_evidence` and progress count, but blocked validation evidence was a separate shape and did not satisfy either condition.
+- Repair:
+  - Added `implement_node_dependency_validation_rework_summary`.
+  - Treat blocked smoke/regression validation evidence as implementation rework evidence when deriving provider snapshots, no-action recovery, and implement read/search gating.
+  - Preserve the failed validation result and blocker summary as the working evidence summary for the active rework node.
+- Validation:
+  ```text
+  cargo test -j1 -p codex-core blocked_validation_rework_requires_edit_before_rediscovery --lib
+  PASS
+
+  cargo test -j1 -p codex-core blocked_validation_rework_can_edit_without_reviewing_blocker_result --lib
+  PASS
+
+  cargo test -j1 -p codex-core validation_after_rework_can_test_without_reviewing_origin_blocker_result --lib
+  PASS
+
+  cargo fmt --all --check
+  PASS
+  ```
+- Interpretation:
+  - The runtime now classifies failed-validation rework as concrete implementation evidence and blocks rediscovery reads before an edit. Real-sample validation is still required before P-004 can be marked fixed end-to-end.
+- Time: 2026-07-01 23:40
+
+## Hypothesis H-010: action-contract apply_patch hunk mismatch feedback was under-structured
+
+- Related problems:
+  - P-004
+- Status: confirmed-and-repaired-by-unit-tests
+- Claim:
+  - After P-004's first repair, TaskSpace correctly forced edit attempts, but `apply_patch` failures with `Failed to find expected lines` were summarized as generic tool failures. The model repeated mismatching hunks instead of using a different patch strategy such as exact-context update or full small-file replacement.
+- Evidence:
+  - `csv-to-parquet-v4` improved over v3: TaskSpace tool calls dropped from 17 to 8, nodes from 6 to 4, and node-4 produced edit attempts instead of no-action.
+  - node-4 result-8 and result-9 were both failed `apply_patch` calls with `Failed to find expected lines in V:\app\convert.py`.
+  - No successful edit or validation rerun followed; node-4 remained running until timeout.
+- Repair:
+  - Added `apply_patch_expected_lines_mismatch` classification in action-contract tool feedback.
+  - Extracts and normalizes the target path from Windows `/app` style paths, including `V:\app\convert.py`.
+  - Provides an explicit next action: do not repeat the same hunk; use exact existing context or, for small/generated files with known intended contents, `*** Delete File` plus `*** Add File`.
+- Validation:
+  ```text
+  cargo test -j1 -p codex-core action_contract_prompt_structures_apply_patch_expected_lines_feedback --lib
+  PASS
+
+  cargo test -j1 -p codex-core taskspace_apply_patch_expected_lines_target_is_detected --lib
+  PASS
+
+  cargo test -j1 -p codex-core edit_failure_recovery_preserves_failed_tool_feedback --lib
+  PASS
+
+  cargo test -j1 -p codex-core blocked_validation_rework_requires_edit_before_rediscovery --lib
+  PASS
+
+  cargo fmt --all --check
+  PASS
+  ```
+- Interpretation:
+  - The tool feedback path now carries a semantically distinct patch-hunk mismatch signal and a concrete recovery strategy. Real-sample validation is still required.
+- Time: 2026-07-01 23:58
+
+## Hypothesis H-011: failed validation nodes could repeat validation instead of yielding to rework
+
+- Related problems:
+  - P-004
+- Status: confirmed-and-repaired-by-unit-tests
+- Claim:
+  - The runtime blocked read/search rediscovery after a smoke/regression validation node had a failed non-infra test result, but it still allowed another non-control `run_test` call in the same failed validation node. This let TaskSpace spend the remaining session budget repeating known-failed validation rather than routing the concrete failure back to implementation rework.
+- Evidence:
+  - In `csv-to-parquet-v5`, node-2 successfully created `convert.py`.
+  - node-3 `smoke_test` then recorded repeated failed validation results:
+    - result-8: `pytest` collected zero tests and emitted cache permission warnings.
+    - result-9: `python convert.py` failed with `FileNotFoundError: data.csv`.
+    - result-10: another validation call hit the same failure class.
+  - The session ended with TaskSpace timeout instead of forcing rework from the first actionable validation failure.
+- Root cause:
+  - `prepare_main_tool_call` had a failed-validation guard, but the guard only rejected `Read` and `Search`. A repeated `RunTest` was neither read nor search, so it remained allowed even after the node had already produced a non-infra failed test result.
+- Repair:
+  - Changed the guard to reject any non-`Control` action after a validation node has a failed non-infra result.
+  - Kept control actions available so the runtime/model can finish or block the validation node and route the failure into implementation rework.
+  - Updated the rejection message to cover validation retry and rediscovery, not only read/search.
+- Validation:
+  ```text
+  cargo test -j1 -p codex-core validation_node_failed_test_blocks_repeated_validation --lib
+  PASS
+
+  cargo test -j1 -p codex-core validation_node_failed_test_blocks_read_rediscovery --lib
+  PASS
+
+  cargo fmt --all --check
+  PASS
+  ```
+- Interpretation:
+  - The runtime now treats the first actionable validation failure as a phase transition signal instead of allowing repeated validation calls inside the same failed node. Real-sample validation is still required.
+- Time: 2026-07-02 00:20
+
+## Hypothesis H-012: failed validation routing still depended on model-driven control after tool blocking
+
+- Related problems:
+  - P-004
+- Status: confirmed-and-repaired-by-unit-tests
+- Claim:
+  - Blocking repeated validation tools was insufficient because the failed validation node remained running. The model-visible recovery message told the agent to block/finish the node and create rework, but runtime did not perform the state transition. When the model kept attempting the blocked test, TaskSpace consumed requests until agent timeout.
+- Evidence:
+  - In `csv-to-parquet-v6`, TaskSpace produced only `convert.py` as changed path and the artifact inventory showed the intended implementation file.
+  - The run still timed out after 360 seconds with `open_leaf_nodes=1`; node-3 `smoke_test` remained `running`.
+  - node-3 recorded one failed validator result (`result-11`) and then 16 `tool_action_blocked` events for repeated test attempts.
+  - Request summary showed 29 model requests, about 3.49M input tokens, and about 3.47M cached input tokens, meaning the cache path was stable but the session still wasted repeated recovery requests.
+  - The last actionability event preview showed the runtime feedback: "TaskSpace blocked this test because validation node `node-3` already has a failed test/build result `result-11`..."
+- Root cause:
+  - `prepare_main_tool_call` rejected repeated non-control actions on a failed validation node, but only returned a gate error plus blocked-tool event. It did not invoke the existing `block_main_node` path that records a blocker, changes the validation node to `blocked`, and creates the dependent `implement_solution` rework node.
+- Repair:
+  - Reused the existing `block_main_node` transition from the failed-validation tool gate.
+  - The blocked tool feedback remains model-visible, but runtime now also records the blocker and routes to the runtime-created implementation rework node.
+  - Recovery text now tells the model to continue on the runtime-created rework node instead of asking it to perform the routing manually.
+- Validation:
+  ```text
+  cargo test -j1 -p codex-core validation_node_failed_test_blocks_repeated_validation --lib
+  PASS
+
+  cargo test -j1 -p codex-core validation_node_failed_test_blocks_read_rediscovery --lib
+  PASS
+
+  cargo test -j1 -p codex-core blocked_validation_rework_requires_edit_before_rediscovery --lib
+  PASS
+
+  cargo fmt --all --check
+  PASS
+  ```
+- Interpretation:
+  - Failed validation recovery is now a runtime state transition instead of a model-only instruction. Real-sample validation is still required.
+- Time: 2026-07-02 00:45
+
+## Hypothesis H-013: successful validation finish rejected unconfirmed but valid test output
+
+- Related problems:
+  - P-004
+- Status: confirmed-and-repaired-by-unit-tests
+- Claim:
+  - After implementation and validation succeeded, TaskSpace still rejected `finish_node` on the validation node because validation completion required a satisfied test/validator success criterion before the auto-accept path had created one. The auto-accept path also treated successful `Test/Build` tool results without explicit "passed" wording as unconfirmed, even when the tool succeeded and had no failure signal.
+- Evidence:
+  - In `csv-to-parquet-v7`, TaskSpace edited `convert.py`, produced `data.parquet`, and recorded a successful validation result:
+    - `Conversion completed: data.parquet created`
+    - `5 rows written`
+  - The rollout then emitted repeated `taskspace_control finish_node` calls for `node-3`.
+  - Each was rejected with: "cannot be completed without a satisfied success criterion tied to this validation node's successful test/build result."
+  - The run timed out with only 5 tool calls and no repeated blocked-action loop, showing this was a new closeout gate problem rather than the previous validation-retry bug.
+- Root cause:
+  - `finish_main_node_with_next` called `validate_existing_validation_criteria_for_finish` before `auto_accept_validation_result_for_finish`, so the auto-accept path could not create the missing satisfied criterion before the gate checked it.
+  - `node_result_is_successful_validation` also required explicit success wording such as "passed"; benchmark validators often express success through exit status plus task-specific output, so valid successful `run_test` results were classified as unconfirmed.
+- Repair:
+  - Reordered validation finish so `auto_accept_validation_result_for_finish` runs before the completion evidence gate.
+  - Introduced a shared `validation_output_supports_successful_tool_result` predicate used by both trace tagging and validation evidence recognition.
+  - The predicate trusts successful `Test/Build` tool execution unless the output contains strong failure signals or matches the existing pure-diagnostic-output guard.
+- Validation:
+  ```text
+  cargo test -j1 -p codex-core validation --lib
+  PASS, 55 passed
+  ```
+- Interpretation:
+  - Successful validation closeout no longer depends on the model manually recording state_commit criteria after a successful validator. The remaining required proof is a real rerun of `csv-to-parquet`.
+- Time: 2026-07-02 01:05
+
+## Hypothesis H-014: failed validation results must route to rework at record time, not on the next model action
+
+- Related problems:
+  - P-004
+- Status: confirmed-and-repaired-by-unit-tests
+- Claim:
+  - The H-012 fix still left a timeout window: runtime routed a failed validation node to rework only when the model attempted another non-control action after the failed result. If the session timed out immediately after recording the failed validation result, the validation node stayed running and graph health reported an open leaf.
+- Evidence:
+  - In `csv-to-parquet-v8`, TaskSpace reached a later and narrower failure mode:
+    - `tool_call_count=13`, `node_count=5`, `edge_count=4`, `blockedToolActions=1`;
+    - rollout request count was 19 with about 2.28M input tokens and about 2.25M cached input tokens, so cache behavior remained stable;
+    - `node-5` remained `smoke_test/running` with `result-16` failed validation;
+    - graph health reported `open_leaf_nodes=1`;
+    - the agent timed out at 360s before another action could trigger H-012's delayed failed-validation gate.
+  - The final `convert.py` still read `data.csv`, and `result-16` showed `FileNotFoundError: 'data.csv'`.
+- Root cause:
+  - `record_main_tool_result_with_class` already auto-blocked local-infra validation failures immediately, but ordinary non-infra failed validation results were only observed and left for a later `prepare_main_tool_call` gate.
+  - This split made failed-validation routing depend on one extra model turn.
+- Repair:
+  - Added `current_main_validation_node_failed_noninfra_summary`.
+  - Extended `record_main_tool_result_with_class` so a failed non-infra `Test/Build` result on the current validation node immediately calls the existing `block_main_node` transition.
+  - Updated tests that previously expected the next read/test/create-node action to trigger routing; they now assert immediate `blocked` validation plus bound `implement_solution` rework.
+- Validation:
+  ```text
+  cargo test -j1 -p codex-core validation_node_failed_test --lib
+  PASS, 3 passed
+
+  cargo test -j1 -p codex-core validation --lib
+  PASS, 55 passed
+
+  csv-to-parquet-v9
+  RunDir: C:\WhaleRunCache\r4-public10-20260701\actual\csv-to-parquet-v9\runs\terminal_bench__csv-to-parquet\20260702-021506-444
+  TaskSpace exec_timed_out=false
+  TaskSpace open_leaf_nodes=0
+  TaskSpace model_request_count=8 from rollout
+  TaskSpace input_tokens=959,735
+  TaskSpace cached_input_tokens=947,456
+  ```
+- Interpretation:
+  - Failed validation recovery is now an atomic runtime transition at result-record time. Compared with v8, the same sample no longer timed out, open leaf dropped from 1 to 0, rollout model requests dropped from 19 to 8, and input tokens dropped from about 2.28M to about 0.96M.
+- Time: 2026-07-02 01:55
+
+## Hypothesis H-015: remaining csv-to-parquet wrong is a path-semantics issue, not a TaskSpace state-machine stall
+
+- Related problems:
+  - P-004
+- Status: open-new-problem
+- Claim:
+  - After H-014, `csv-to-parquet-v9` no longer shows timeout, open leaf, or tool feedback loss. The remaining wrong result comes from the agent choosing a local-harness path default (`task-deps/data.csv`) while the public validator compares against `/app/data.csv`.
+- Evidence:
+  - `csv-to-parquet-v9` TaskSpace side:
+    - `exec_exit_code=0`;
+    - `exec_timed_out=false`;
+    - `open_leaf_nodes=0`;
+    - `tool_call_count=5`;
+    - `nodes=3`, `edges=2`;
+    - `public_validation_exit_code=1`;
+    - `outcome_taskspace=wrong`.
+  - Final `convert.py` defaulted to `task-deps/data.csv`:
+    - `input_csv = sys.argv[1] if len(sys.argv) > 1 else 'task-deps/data.csv'`
+    - `output_parquet = sys.argv[2] if len(sys.argv) > 2 else 'data.parquet'`
+  - Public validation failed `test_data_matches` because it tried `pd.read_csv('/app/data.csv')` and hit `FileNotFoundError`.
+- Root cause candidate:
+  - The agent-visible local workspace exposes `task-deps/data.csv`, while the task instruction and public validator semantics refer to `/app/data.csv`.
+  - TaskSpace's failed local validation feedback pushed the model toward local path repair instead of preserving the container-visible `/app/data.csv` contract.
+- Required next analysis:
+  - Inspect Terminal-Bench adapter materialization and validation workspace mapping.
+  - Determine whether the harness should materialize a local `/app/data.csv` equivalent, rewrite task-deps path evidence into container-path contracts, or instruct validation commands through the official container path instead of host-local path assumptions.
+- Time: 2026-07-02 02:25

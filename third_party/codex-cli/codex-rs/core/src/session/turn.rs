@@ -1810,6 +1810,7 @@ Current required behavior:\n\
 - Do not ignore the failed edit result.\n\
 - Do not call read_file, list_files, search, broad shell discovery, or validation before resolving the failed edit.\n\
 - Emit exactly one apply_patch action using the inspected existing artifact path and native apply_patch grammar, or return blocked with the exact reason the edit cannot be made.\n\
+- If the failure says `Failed to find expected lines`, do not repeat the same hunk. Use exact existing context if known; for a small/generated file whose full intended contents are known, replace it with `*** Delete File: <path>` followed by `*** Add File: <path>` and the complete corrected contents.\n\
 - If the failure says the target file is missing, use the already listed/read existing path when available."
     );
 
@@ -1939,9 +1940,29 @@ fn taskspace_missing_update_targets_from_apply_patch_text(message: &str) -> Opti
     (!target.is_empty()).then_some(target)
 }
 
+fn taskspace_expected_lines_target_from_apply_patch_text(message: &str) -> Option<String> {
+    if !message.contains("apply_patch verification failed")
+        || !message.contains("Failed to find expected lines in ")
+    {
+        return None;
+    }
+    let (_, rest) = message.split_once("Failed to find expected lines in ")?;
+    let target = rest
+        .lines()
+        .next()
+        .unwrap_or(rest)
+        .trim()
+        .trim_end_matches(':');
+    let target = taskspace_normalize_apply_patch_target(target);
+    (!target.is_empty()).then_some(target)
+}
+
 fn taskspace_normalize_apply_patch_target(target: &str) -> String {
     let normalized = target.trim().trim_matches('"').replace('\\', "/");
     if let Some((_, relative)) = normalized.split_once("/app/src/") {
+        return relative.trim_matches('/').to_string();
+    }
+    if let Some((_, relative)) = normalized.split_once("/app/") {
         return relative.trim_matches('/').to_string();
     }
     if let Some((_, relative)) = normalized.split_once("/workspace/") {
@@ -2777,6 +2798,20 @@ tool_result: failed\n\
 failure_kind: apply_patch_missing_update_target\n\
 target: {target}\n\
 next_valid_action: emit exactly one apply_patch. Use `*** Add File: <relative/path>` if the file should be created, or correct the path and use `*** Update File: <relative/path>` if the file already exists.\n\
+raw_output:\n{text}"
+        );
+    }
+    if action == "apply_patch"
+        && let Some(target) = taskspace_expected_lines_target_from_apply_patch_text(text)
+    {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: apply_patch\n\
+tool_result: failed\n\
+failure_kind: apply_patch_expected_lines_mismatch\n\
+target: {target}\n\
+next_valid_action: emit exactly one corrected apply_patch. Do not repeat the same context hunk. If the intended full contents are known or the file is small/generated, use `*** Delete File: {target}` followed by `*** Add File: {target}` with the complete corrected file contents; otherwise use an `*** Update File: {target}` hunk with exact existing context.\n\
 raw_output:\n{text}"
         );
     }
@@ -3956,6 +3991,27 @@ Then I will inspect the file."#,
             taskspace_missing_update_targets_from_apply_patch_error(Some(
                 "TaskSpace tool call failed: failed to parse function arguments"
             )),
+            None
+        );
+    }
+
+    #[test]
+    fn taskspace_apply_patch_expected_lines_target_is_detected() {
+        let windows_message = "apply_patch verification failed: Failed to find expected lines in V:\\app\\convert.py:\n    import pandas as pd";
+        let unix_message = "apply_patch verification failed: Failed to find expected lines in /app/src/recover_accuracy.py:\n    def recover";
+
+        assert_eq!(
+            taskspace_expected_lines_target_from_apply_patch_text(windows_message),
+            Some("convert.py".to_string())
+        );
+        assert_eq!(
+            taskspace_expected_lines_target_from_apply_patch_text(unix_message),
+            Some("recover_accuracy.py".to_string())
+        );
+        assert_eq!(
+            taskspace_expected_lines_target_from_apply_patch_text(
+                "apply_patch verification failed: invalid hunk"
+            ),
             None
         );
     }
@@ -5164,6 +5220,38 @@ tax_calc.py\n\
         assert!(joined.contains("next_valid_action: emit exactly one apply_patch"));
         assert!(joined.contains("raw_output:"));
         assert!(joined.contains("Failed to read file to update"));
+    }
+
+    #[test]
+    fn action_contract_prompt_structures_apply_patch_expected_lines_feedback() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Fix the failed validation"),
+            message("developer", &latest_active_projection),
+            ResponseItem::CustomToolCallOutput {
+                call_id: "taskspace-action-contract-10-apply_patch".to_string(),
+                name: Some("apply_patch".to_string()),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "apply_patch verification failed: Failed to find expected lines in V:\\app\\convert.py:\n    import pandas as pd\nimport pyarrow as pa"
+                            .to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("failure_kind: apply_patch_expected_lines_mismatch"));
+        assert!(joined.contains("target: convert.py"));
+        assert!(joined.contains("Do not repeat the same context hunk"));
+        assert!(joined.contains("*** Delete File: convert.py"));
+        assert!(joined.contains("*** Add File: convert.py"));
     }
 
     #[test]
