@@ -101,6 +101,28 @@ $coveredFileSize = [int64](Get-Item -LiteralPath ([string]$coveredAssets[0].cach
 Assert-True ([int64]$coveredAssets[0].size_bytes -eq $coveredFileSize) "uv-covered runtime dependency size did not match concrete cache file"
 Assert-True (-not [bool]$coveredScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "uv-covered/comment-only scenario should not be downgraded by remote asset proof"
 
+$localServiceTask = Join-Path $runDir "local-service-url"
+New-Item -ItemType Directory -Path (Join-Path $localServiceTask "tests") -Force | Out-Null
+@'
+instruction: "Create hello.txt."
+category: data-processing
+'@ | Set-Content -LiteralPath (Join-Path $localServiceTask "task.yaml") -Encoding UTF8
+"FROM scratch" | Set-Content -LiteralPath (Join-Path $localServiceTask "Dockerfile") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $localServiceTask "run-tests.sh") -Encoding UTF8
+@'
+def test_local_service():
+    assert "curl -sk https://localhost:8443/index.html)" is not None
+'@ | Set-Content -LiteralPath (Join-Path $localServiceTask "tests\test_outputs.py") -Encoding UTF8
+$localServiceOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $localServiceTask -OutputRoot (Join-Path $runDir "local-service-out") -SampleId "local-service" -SourceVersion "pinned"
+$localServiceScenarioDir = [string]($localServiceOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$localServiceScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $localServiceScenarioDir "scenario.json") | ConvertFrom-Json
+$localServiceAssets = @($localServiceScenario.external_benchmark.adapter_metadata.remote_assets)
+Assert-True ($localServiceAssets.Count -eq 1) "local service URL was not recorded for audit"
+Assert-True ([string]$localServiceAssets[0].url -eq "https://localhost:8443/index.html") "local service URL retained trailing punctuation"
+Assert-True ([string]$localServiceAssets[0].asset_kind -eq "local_service_endpoint") "localhost validator URL was not classified as local service endpoint"
+Assert-True (-not [bool]$localServiceAssets[0].required_for_e3) "localhost validator URL should not require external asset proof"
+Assert-True (-not [bool]$localServiceScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "localhost validator URL should not downgrade E3"
+
 $dockerUvTask = Join-Path $runDir "docker-uv"
 New-Item -ItemType Directory -Path $dockerUvTask | Out-Null
 @'

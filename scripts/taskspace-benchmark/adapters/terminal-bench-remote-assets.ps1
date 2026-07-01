@@ -18,6 +18,22 @@ function Test-TerminalBenchRemoteAssetScanPath {
     $true
 }
 
+function Normalize-TerminalBenchRemoteAssetUrl {
+    param([Parameter(Mandatory = $true)][string]$Url)
+    $Url.TrimEnd(")", "]", "}", ".", ",", ";", ":")
+}
+
+function Test-TerminalBenchLocalServiceUrl {
+    param([Parameter(Mandatory = $true)][string]$Url)
+    try {
+        $uri = [uri]$Url
+    } catch {
+        return $false
+    }
+    $uriHost = $uri.Host.ToLowerInvariant()
+    $uriHost -eq "localhost" -or $uriHost -eq "127.0.0.1" -or $uriHost -eq "::1"
+}
+
 function Get-TerminalBenchRemoteAssetKind {
     param(
         [Parameter(Mandatory = $true)][string]$Line,
@@ -26,6 +42,7 @@ function Get-TerminalBenchRemoteAssetKind {
     )
     $trimmed = $Line.Trim()
     if ($trimmed.StartsWith("#")) { return "metadata_comment" }
+    if (Test-TerminalBenchLocalServiceUrl $Url) { return "local_service_endpoint" }
     $uri = [uri]$Url
     $leaf = Split-Path -Leaf $uri.AbsolutePath
     $fileLikeLeaf = $leaf -match '(?i)\.(zip|tar|tgz|gz|xz|bz2|sqlite|db|csv|json|jsonl|parquet|whl|sh|py|bin|txt)$'
@@ -70,7 +87,7 @@ function Get-TerminalBenchRemoteAssets {
             $line = [string]$lines[$index]
             if ($line.TrimStart().StartsWith("#")) { continue }
             foreach ($match in [regex]::Matches($line, $urlPattern)) {
-                $url = [string]$match.Value
+                $url = Normalize-TerminalBenchRemoteAssetUrl ([string]$match.Value)
                 $assetKind = Get-TerminalBenchRemoteAssetKind $line $url $relative
                 if ($assetKind -eq "metadata_comment") { continue }
                 $key = Get-TerminalBenchStringSha256 $url
