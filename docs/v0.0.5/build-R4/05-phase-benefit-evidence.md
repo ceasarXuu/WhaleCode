@@ -612,3 +612,86 @@ PASS: R4 tool path coverage gate passed: 10 paths
 2. R4-D/E 的 manifest 级缺口已经关闭，但真实收益仍以 5.3、5.7、5.8 的样本证据为准。
 3. R4-G 仍不能关闭：还缺 10 个公开 benchmark 的实际 paired run/report。
 4. R4-H 仍不能关闭：最终 closeout 依赖 R4-G 的 10 样本综合验收结果。
+
+## 5.10 2026-07-02 R4-G public-10 final run
+
+本轮完成 R4-G 公开 10 样本综合验收。最终计划文件：
+
+```text
+docs/v0.0.5/build-R4/r4-public-10-tool-stress-plan.json
+```
+
+最终报告：
+
+```text
+target/r4-public-10-tool-stress/r4-public-10-tool-stress-report.json
+```
+
+已执行门禁：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/write-r4-public-10-tool-stress-report.ps1 -RequireComplete
+PASS: complete_run_count=10 missing_run_count=0
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1 -ReportPath target/r4-public-10-tool-stress/r4-public-10-tool-stress-report.json
+PASS: R4 public-10 tool-stress gate passed: 10 planned samples
+```
+
+样本调整：
+
+1. `sanitize-git-repo` 被剔除：`setup.sh` 真实执行未 pinned 的
+   `git clone https://github.com/jeffreywpli/test-secret-removal.git`，无法给出本地等价证明。
+2. 替换为 `organization-json-generator`：来自同一 `terminal-bench-core 0.1.1`
+   public registry subset，预检只包含 JSON schema metadata URL 和 uv validator cache。
+
+本轮同时修复两类 external asset scanner 误判：
+
+1. `https://localhost:8443/...` validator 本地服务端点被误判为外部网络依赖；
+   修复后标记为 `local_service_endpoint`，并去除 URL 尾随标点。
+2. shell heredoc 内写入 fixture 的 URL 被误判为 runtime network；修复后标记为
+   `fixture_literal_endpoint`，仍记录审计但不要求远程资产证明。
+
+验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-terminal-bench-adapter-harness.ps1 -RunRoot C:\WhaleRunCache\r4-public10-20260702\adapter-selftest-local-url
+PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-terminal-bench-adapter-harness.ps1 -RunRoot C:\WhaleRunCache\r4-public10-20260702\adapter-selftest-heredoc-url
+PASS
+```
+
+10 样本结果摘要：
+
+| sample | standard | taskspace | wall x | tool x | token x | cache hit | feedback loss |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `vim-terminal-task` | solved | solved | 1.33 | 0.60 | 3.73 | 0.9876 | 0/0 |
+| `heterogeneous-dates` | solved | solved | 4.67 | 1.43 | 11.08 | 0.9856 | 0/0 |
+| `sqlite-db-truncate` | solved | wrong | 1.06 | 0.40 | 3.59 | 0.9864 | 0/0 |
+| `git-multibranch` | timeout | timeout | 1.00 | 0.00 | n/a | n/a | 0/0 |
+| `git-workflow-hack` | engineering_unclean | timeout | 2.13 | 0.20 | n/a | 0.9882 | 0/0 |
+| `organization-json-generator` | solved | timeout | 9.80 | 0.00 | n/a | n/a | 0/0 |
+| `sqlite-with-gcov` | wrong | wrong | 0.38 | 0.15 | 0.52 | 0.9825 | 0/0 |
+| `processing-pipeline` | timeout | wrong | 0.97 | 0.00 | n/a | 0.9810 | 0/0 |
+| `csv-to-parquet` | solved | solved | 2.21 | 0.80 | 5.40 | 0.9864 | 0/0 |
+| `tmux-advanced-workflow` | engineering_unclean | engineering_unclean | 1.97 | 0.41 | n/a | 0.9863 | 0/0 |
+
+说明：`token x=n/a` 表示至少一侧 agent 被 timeout 杀掉后 provider usage 未完整落盘，
+不能作为成本收益判断，只作为 timeout/收敛问题证据。
+
+真实收益结论：
+
+1. R4-G 的 public benchmark 选择、公开 registry 校验、报告生成和报告字段门禁已经跑通；
+   `-RequireComplete` 明确证明 10/10 样本均有一行结果。
+2. 已知 tool feedback loss 在 10 行报告中为 `0/0`，说明当前 direct tool result
+   进入 TaskSpace map/报告链路没有再出现已知的语义丢失计数。
+3. DeepSeek provider cache 命中率在可统计 TaskSpace 行中约为 `0.9810-0.9882`，
+   证明上下文前缀/cache 维护机制在这些长流程中基本稳定。
+4. TaskSpace 解题质量和成本收益没有被证明。相反，公开 10 样本显示明显负证据：
+   `organization-json-generator` standard solved 但 TaskSpace 900s timeout；
+   `sqlite-db-truncate` standard solved 但 TaskSpace wrong；
+   `heterogeneous-dates` 虽同解但 wall/token 分别约 4.67x/11.08x；
+   `csv-to-parquet` 虽同解但 wall/token 分别约 2.21x/5.40x。
+
+R4-G 状态可以关闭为“验收机制与证据生成完成，TaskSpace 当前收益不成立且问题已暴露”。
+R4-H 关闭前必须把这些负证据转化为后续工程项，而不是声明 TaskSpace 已优于 standard。
