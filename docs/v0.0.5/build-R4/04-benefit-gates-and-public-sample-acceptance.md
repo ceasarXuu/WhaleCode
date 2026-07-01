@@ -114,8 +114,8 @@ Terminal-Bench public registry，校验 `terminal-bench-core` `0.1.1` 的 `githu
 | # | Public Task ID | Tool-call Stress Focus | Why It Belongs In R4 |
 |---|---|---|---|
 | 1 | `vim-terminal-task` | script creation, text processing, command output validation | 考验文件创建、命令执行、stdout 对比和验证反馈；替换 `build-linux-kernel-qemu`，因为后者的官方测试运行时动态拉取 BusyBox 且没有 pinned hash，远程资产等价性无法证明，不能产生真实 paired tool-call 样本 |
-| 2 | `qemu-alpine-ssh` | VM/QEMU command orchestration, readiness probing | 考验多步 shell feedback 和环境状态判断 |
-| 3 | `qemu-startup` | process startup, logs, validation loop | 考验 repeated command feedback 和 recovery |
+| 2 | `heterogeneous-dates` | CSV inspection, numeric calculation, single-file answer artifact | 考验文件读取、数据解析、确定性计算、answer file 创建和验证反馈；替换 `qemu-alpine-ssh`，因为后者 Dockerfile 动态拉取 Alpine ISO 且没有 pinned hash |
+| 3 | `sqlite-db-truncate` | SQLite recovery, binary/data inspection, JSON artifact validation | 考验数据库/文件工具、结构化输出生成、命令反馈和 validator 对比；替换 `qemu-startup`，因为后者和 `qemu-alpine-ssh` 共享未证明 Alpine ISO 远程资产 |
 | 4 | `git-multibranch` | git state inspection, branch/file operations | 考验工具结果中的状态语义和路径归因 |
 | 5 | `git-workflow-hack` | git history/workflow repair | 考验 command stderr/stdout 对后续决策的影响 |
 | 6 | `sanitize-git-repo` | repo scanning, destructive-risk avoidance | 考验 tool output、权限和安全语义保真 |

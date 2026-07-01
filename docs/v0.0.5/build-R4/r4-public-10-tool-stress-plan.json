@@ -28,14 +28,14 @@
       "why_selected": "Exercises file creation, command execution, stdout comparison, and validator feedback without heavyweight toolchain, locked permission fixtures, or unpinned remote runtime assets."
     },
     {
-      "task_id": "qemu-alpine-ssh",
-      "tool_stress_focus": "VM/QEMU command orchestration, readiness probing",
-      "why_selected": "Exercises multi-step shell feedback and environment state judgment."
+      "task_id": "heterogeneous-dates",
+      "tool_stress_focus": "CSV inspection, numeric calculation, single-file answer artifact",
+      "why_selected": "Exercises file reads, data parsing, deterministic calculation, answer-file creation, and validation feedback without unpinned remote runtime assets."
     },
     {
-      "task_id": "qemu-startup",
-      "tool_stress_focus": "process startup, logs, validation loop",
-      "why_selected": "Exercises repeated command feedback and recovery behavior."
+      "task_id": "sqlite-db-truncate",
+      "tool_stress_focus": "SQLite recovery, binary/data inspection, JSON artifact validation",
+      "why_selected": "Exercises database/file tooling, structured output generation, command feedback, and validator comparison without unpinned remote runtime assets."
     },
     {
       "task_id": "git-multibranch",
