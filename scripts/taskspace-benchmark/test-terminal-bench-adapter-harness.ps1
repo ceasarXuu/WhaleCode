@@ -61,14 +61,16 @@ FROM scratch
 '@ | Set-Content -LiteralPath (Join-Path $coveredTask "Dockerfile") -Encoding UTF8
 @'
 #!/bin/sh
-curl -LsSf https://astral.sh/uv/0.7.13/install.sh | sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
 echo ok
 '@ | Set-Content -LiteralPath (Join-Path $coveredTask "run-tests.sh") -Encoding UTF8
+"curl -L https://example.invalid/official-answer-only.sh | sh" | Set-Content -LiteralPath (Join-Path $coveredTask "solution.sh") -Encoding UTF8
 $coveredOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $coveredTask -OutputRoot (Join-Path $runDir "covered-out") -SampleId "covered" -SourceVersion "pinned"
 $coveredScenarioDir = [string]($coveredOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
 $coveredScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $coveredScenarioDir "scenario.json") | ConvertFrom-Json
 $coveredAssets = @($coveredScenario.external_benchmark.adapter_metadata.remote_assets)
-Assert-True ($coveredAssets.Count -eq 1) "uv-covered scenario should record only the uv runtime URL, not comment URLs"
+Assert-True ($coveredAssets.Count -eq 1) "uv-covered scenario should record only the uv runtime URL, not comment URLs or hidden solution URLs"
+Assert-True ([string]$coveredAssets[0].url -eq "https://astral.sh/uv/install.sh") "uv-covered runtime dependency did not keep the source URL for audit"
 Assert-True ([string]$coveredAssets[0].asset_kind -eq "validator_dependency_cache") "uv-covered runtime dependency did not record validator dependency kind"
 Assert-True (-not [bool]$coveredAssets[0].required_for_e3) "uv-covered runtime dependency should not be required as a task remote asset"
 Assert-True ([string]$coveredAssets[0].injection_method -eq "covered_by_terminal_bench_uv_cache") "uv-covered runtime dependency did not record cache coverage"

@@ -305,10 +305,11 @@ Gate name:
   r4_public_10_tool_stress_plan
 ```
 
-该 gate 不替代真实 10 样本运行。它只保证最终综合验收的样本不是本地编造，且最终报告必须逐样本
-包含 standard/taskspace outcome、wall/token/tool-call 倍数、cache hit、tool feedback loss、
-projection、map attribution、large output ref 和证据路径字段。R4-G 只有在该计划 gate 和实际 paired
-run report 两者都通过后才能关闭。
+该 gate 不替代真实 10 样本运行。它会在线读取 Terminal-Bench public registry，证明最终综合验收的
+10 个 task id 属于 `terminal-bench-core` `0.1.1` 的公开 `task_id_subset`，并记录 registry commit、
+subset count 和 checksum；最终报告还必须逐样本包含 standard/taskspace outcome、wall/token/tool-call
+倍数、cache hit、tool feedback loss、projection、map attribution、large output ref 和证据路径字段。
+R4-G 只有在该计划 gate 和实际 paired run report 两者都通过后才能关闭。
 
 ## 3.8 Phase R4-H：Closeout
 

@@ -1,7 +1,9 @@
 param(
     [string]$PlanPath = "",
     [string]$ReportPath = "",
-    [string]$EvidencePath = ""
+    [string]$EvidencePath = "",
+    [int]$RegistryTimeoutSeconds = 30,
+    [switch]$SkipLiveRegistryCheck
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,21 +32,26 @@ function Test-TruthValue {
     return [string]$Value -eq "true"
 }
 
-$knownRegistryTaskIds = @(
-    "build-linux-kernel-qemu",
-    "qemu-alpine-ssh",
-    "qemu-startup",
-    "git-multibranch",
-    "git-workflow-hack",
-    "sanitize-git-repo",
-    "sqlite-with-gcov",
-    "processing-pipeline",
-    "csv-to-parquet",
-    "tmux-advanced-workflow"
-)
+function Get-Sha256String {
+    param([string]$Value)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
+        $hash = $sha.ComputeHash($bytes)
+        return (($hash | ForEach-Object { $_.ToString("x2") }) -join "")
+    } finally {
+        $sha.Dispose()
+    }
+}
 
 $failures = New-Object System.Collections.Generic.List[string]
 $plan = $null
+$registryTaskIds = @()
+$registryVerified = $false
+$registryEntryCommit = ""
+$registryEntryTaskCount = 0
+$registryTaskSubsetSha256 = ""
+$registryError = ""
 if (-not (Test-Path -LiteralPath $PlanPath -PathType Leaf)) {
     Add-Failure $failures "plan not found: $PlanPath"
 } else {
@@ -67,6 +74,55 @@ if (-not (Test-Path -LiteralPath $PlanPath -PathType Leaf)) {
         }
     }
 
+    if ($SkipLiveRegistryCheck) {
+        Add-Failure $failures "live public registry verification is required for R4 public-10 gate"
+    } else {
+        try {
+            $registry = Invoke-RestMethod `
+                -Uri ([string]$plan.public_source.registry_url) `
+                -TimeoutSec $RegistryTimeoutSeconds
+            $entry = @($registry | Where-Object {
+                    [string]$_.name -eq [string]$plan.public_source.benchmark -and
+                    [string]$_.version -eq [string]$plan.public_source.version
+                })[0]
+            if ($null -eq $entry) {
+                Add-Failure $failures "public registry entry not found for $($plan.public_source.benchmark) $($plan.public_source.version)"
+            } else {
+                $registryEntryCommit = [string]$entry.commit_hash
+                $registryTaskIds = Get-StringArray $entry.task_id_subset
+                $registryEntryTaskCount = @($registryTaskIds).Count
+                $registryTaskSubsetSha256 = Get-Sha256String (($registryTaskIds | Sort-Object) -join "`n")
+                $registryVerified = $true
+                if ([string]$entry.github_url -ne [string]$plan.public_source.source_url) {
+                    Add-Failure $failures "public_source.source_url does not match registry github_url"
+                }
+                if ([string]$entry.branch -ne [string]$plan.public_source.branch) {
+                    Add-Failure $failures "public_source.branch does not match registry branch"
+                }
+                if ([string]$entry.dataset_path -ne [string]$plan.public_source.dataset_path) {
+                    Add-Failure $failures "public_source.dataset_path does not match registry dataset_path"
+                }
+                if ($registryEntryCommit -ne [string]$plan.public_source.commit) {
+                    Add-Failure $failures "public_source.commit does not match registry commit_hash"
+                }
+                if ($registryEntryTaskCount -lt 10) {
+                    Add-Failure $failures "public registry task_id_subset must contain at least 10 tasks"
+                }
+                if ($null -ne $plan.public_source.registry_subset_count -and
+                    [int]$plan.public_source.registry_subset_count -ne $registryEntryTaskCount) {
+                    Add-Failure $failures "public_source.registry_subset_count does not match live registry"
+                }
+                if ($null -ne $plan.public_source.registry_task_id_subset_sha256 -and
+                    [string]$plan.public_source.registry_task_id_subset_sha256 -ne $registryTaskSubsetSha256) {
+                    Add-Failure $failures "public_source.registry_task_id_subset_sha256 does not match live registry"
+                }
+            }
+        } catch {
+            $registryError = $_.Exception.Message
+            Add-Failure $failures "failed to verify live public registry: $registryError"
+        }
+    }
+
     $samples = @($plan.samples)
     if ($samples.Count -ne 10) {
         Add-Failure $failures "plan must contain exactly 10 public samples"
@@ -82,8 +138,8 @@ if (-not (Test-Path -LiteralPath $PlanPath -PathType Leaf)) {
             Add-Failure $failures "duplicate task_id: $taskId"
         }
         $seen[$taskId] = $true
-        if ($knownRegistryTaskIds -notcontains $taskId) {
-            Add-Failure $failures "task_id is not in the pinned R4 Terminal-Bench public-10 registry subset: $taskId"
+        if ($registryTaskIds -notcontains $taskId) {
+            Add-Failure $failures "task_id is not in the live Terminal-Bench public registry subset: $taskId"
         }
         if ([string]::IsNullOrWhiteSpace([string]$sample.tool_stress_focus)) {
             Add-Failure $failures "tool_stress_focus missing for $taskId"
@@ -126,9 +182,13 @@ if (-not [string]::IsNullOrWhiteSpace($ReportPath)) {
         if ($reportRows.Count -ne 10) {
             Add-Failure $failures "report must contain exactly 10 rows"
         }
+        $plannedTaskIds = @($plan.samples | ForEach-Object { [string]$_.task_id })
         $requiredFields = if ($plan) { Get-StringArray $plan.required_report_fields } else { @() }
         foreach ($row in $reportRows) {
             $taskId = [string]$row.task_id
+            if ($plannedTaskIds -notcontains $taskId) {
+                Add-Failure $failures "report row task_id was not in planned public-10 sample set: $taskId"
+            }
             foreach ($field in $requiredFields) {
                 if (-not ($row.PSObject.Properties.Name -contains $field)) {
                     Add-Failure $failures "report row ${taskId} missing field: $field"
@@ -150,6 +210,13 @@ $evidence = [ordered]@{
     plan_sha256 = if (Test-Path -LiteralPath $PlanPath -PathType Leaf) {
         (Get-FileHash -LiteralPath $PlanPath -Algorithm SHA256).Hash.ToLowerInvariant()
     } else { "" }
+    registry_url = if ($plan) { [string]$plan.public_source.registry_url } else { "" }
+    live_registry_checked = -not [bool]$SkipLiveRegistryCheck
+    registry_verified = $registryVerified
+    registry_entry_commit_hash = $registryEntryCommit
+    registry_task_count = $registryEntryTaskCount
+    registry_task_id_subset_sha256 = $registryTaskSubsetSha256
+    registry_error = $registryError
     report_path = if ([string]::IsNullOrWhiteSpace($ReportPath)) { "" } else { [System.IO.Path]::GetFullPath($ReportPath) }
     status = if ($failures.Count -eq 0) { "pass" } else { "fail" }
     sample_count = if ($plan) { @($plan.samples).Count } else { 0 }

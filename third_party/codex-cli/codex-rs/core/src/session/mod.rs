@@ -1017,14 +1017,41 @@ impl Session {
             .current_main_node_has_successful_action(action_class)
     }
 
-    pub(crate) async fn action_map_active_map_has_successful_action(
-        &self,
-        action_class: ActionClass,
-    ) -> bool {
+    pub(crate) async fn action_map_active_map_has_successful_edit_artifacts(&self) -> bool {
         let state = self.state.lock().await;
         state
             .action_map_runtime
-            .active_map_has_successful_action(action_class)
+            .active_map_has_successful_edit_artifacts()
+    }
+
+    pub(crate) async fn backfill_action_map_successful_implementation_edit_artifacts(
+        &self,
+        turn_context: &TurnContext,
+        call_id: &str,
+        preview: String,
+    ) -> bool {
+        let result = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .backfill_successful_implementation_edit_artifacts(call_id, preview)
+        };
+        match result {
+            Ok(Some(events)) => {
+                self.emit_action_map_events_for_turn(turn_context, events)
+                    .await;
+                true
+            }
+            Ok(None) => false,
+            Err(error) => {
+                warn!(
+                    %error,
+                    call_id,
+                    "failed to backfill TaskSpace implementation edit artifacts"
+                );
+                false
+            }
+        }
     }
 
     pub(crate) async fn action_map_current_validation_node_has_local_infra_failure(&self) -> bool {

@@ -28,6 +28,30 @@ function Get-TaskspaceChangedPaths {
     @((Get-TaskspaceChangedFileInventory $RepoDir $DiffText) | ForEach-Object { $_.path })
 }
 
+function Test-TaskspaceOrdinaryToolBeforeBindingInRollout {
+    param([AllowEmptyString()][string]$RolloutPath = "")
+    if ([string]::IsNullOrWhiteSpace($RolloutPath)) { return $false }
+    if (-not (Test-Path -LiteralPath $RolloutPath -PathType Leaf)) { return $false }
+
+    foreach ($line in [System.IO.File]::ReadLines($RolloutPath)) {
+        if ($line -match '"name"\s*:\s*"taskspace_control"' -or
+            $line -match '"action"\s*:\s*"taskspace_control"' -or
+            $line -match 'taskspace-action-contract-bootstrap-taskspace_control') {
+            return $false
+        }
+        if ($line -match '"type"\s*:\s*"function_call"' -and
+            $line -match '"name"\s*:\s*"' -and
+            $line -notmatch '"name"\s*:\s*"taskspace_control"') {
+            return $true
+        }
+        if ($line -match '"type"\s*:\s*"local_shell_call"' -or
+            $line -match '"type"\s*:\s*"custom_tool_call"') {
+            return $true
+        }
+    }
+    return $false
+}
+
 function Test-TaskspaceIgnoredChangedPath {
     param([AllowEmptyString()][string]$Path = "")
     $normalized = $Path.Trim().Trim('"').Replace("\", "/")
@@ -423,8 +447,7 @@ function Get-TaskspaceBenchmarkMetrics {
         open_leaf_nodes = $graphHealth.OpenLeafNodeCount
         ordinary_before_binding = if ($Side.LogicalMode -eq "taskspace" -and $ObservabilityResult) {
             $rolloutPath = [string]$ObservabilityResult.rollout_path
-            $rolloutText = if ($rolloutPath -and (Test-Path -LiteralPath $rolloutPath)) { Get-Content -Raw -Encoding UTF8 -LiteralPath $rolloutPath } else { "" }
-            (Get-SuccessfulTaskspaceOrdering $rolloutText).OrdinaryToolBeforeBinding
+            Test-TaskspaceOrdinaryToolBeforeBindingInRollout $rolloutPath
         } else { $false }
         graph_health_path = $graphHealthPath
         graph_health_warnings = @($graphHealthReport.warnings)

@@ -114,6 +114,53 @@
       "required_followup": "Fix forced validation closeout so tool success cannot be reported as validation success when public_validation_exit_code=1 and changed_paths lacks the target source file."
     },
     {
+      "id": "r4-d-large-output-ref-smoke-solved-after-missing-source-blocker",
+      "sample": "large-output-ref-smoke",
+      "failure_class": "resolved_action_contract_feedback_loop",
+      "owner_phase": "R4-D",
+      "standard_outcome": "solved",
+      "taskspace_outcome": "solved",
+      "taskspace_wall_time_ratio": 6.45,
+      "taskspace_tool_call_ratio": 0.57,
+      "primary_evidence": "target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/pair-report.md",
+      "secondary_evidence": [
+        "target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/right/artifacts/rollout.jsonl",
+        "target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/right/artifacts/exact-payload-scan-events.jsonl",
+        "target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/pair-timing.json"
+      ],
+      "required_followup": "Correctness blocker is resolved for this sample: TaskSpace now patches src/large_output_demo.py and passes public/hidden validation. Keep R4-G open because wall time remains 6.45x and evidence is still single-repeat E2-candidate."
+    },
+    {
+      "id": "r4-g-terminal-bench-processing-pipeline-validation-coverage-loop",
+      "sample": "terminal-bench/processing-pipeline",
+      "failure_class": "validation_coverage_block_loop",
+      "owner_phase": "R4-G",
+      "standard_outcome": "wrong",
+      "taskspace_outcome": "agent_exec_timeout",
+      "taskspace_wall_time_ratio": 3.55,
+      "taskspace_tool_call_ratio": 0,
+      "primary_evidence": "coe/2026-07-01-04-05-r4-repeated-blocked-action.md",
+      "secondary_evidence": [
+        "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md"
+      ],
+      "required_followup": "Resolved by successful implement edit artifact backfill: validation_test_missing_changed_artifact_coverage repeated 94 times before the fix."
+    },
+    {
+      "id": "r4-g-terminal-bench-processing-pipeline-artifact-backfill-benefit",
+      "sample": "terminal-bench/processing-pipeline",
+      "failure_class": "validation_coverage_block_loop_repaired",
+      "owner_phase": "R4-G",
+      "standard_outcome": "wrong",
+      "taskspace_outcome": "agent_exec_timeout",
+      "taskspace_wall_time_ratio": 2.95,
+      "taskspace_tool_call_ratio": 0,
+      "primary_evidence": "coe/2026-07-01-04-05-r4-repeated-blocked-action.md",
+      "secondary_evidence": [
+        "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md"
+      ],
+      "required_followup": "Concrete benefit: validation_test_missing_changed_artifact_coverage dropped from 94 to 0. R4-G remains open because the same run exposed read-only inspect no-progress timeout and action-contract tool metrics undercount."
+    },
+    {
       "id": "r3-light-single-file-fast-fix-no-patch",
       "sample": "single-file-fast-fix",
       "failure_class": "no_patch_after_known_fix",

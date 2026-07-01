@@ -42,6 +42,7 @@ for arg in "$@"; do
   prev="$arg"
 done
 case "$url" in
+  *astral.sh/uv/install.sh*) src=/tbench-uv-cache/install.sh ;;
   *astral.sh/uv/0.7.13/install.sh*) src=/tbench-uv-cache/install.sh ;;
   *github.com/astral-sh/uv/releases/download/0.7.13/*x86_64-unknown-linux-gnu*) src=/tbench-uv-cache/uv-x86_64-unknown-linux-gnu.tar.gz ;;
   *) exec /usr/bin/curl "$@" ;;
@@ -76,6 +77,7 @@ exec /usr/bin/apt-get "$@"
         enabled = $enabled
         root = $cache
         installer_url = $installerUrl
+        installer_alias_url = "https://astral.sh/uv/install.sh"
         archive_url = $archiveUrl
         installer_path = $installer
         archive_path = $archive

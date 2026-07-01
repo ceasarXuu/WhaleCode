@@ -12,6 +12,8 @@
     "branch": "dataset/terminal-bench-core/v0.1.x",
     "commit": "91e10457b5410f16c44364da1a34cb6de8c488a5",
     "dataset_path": "./tasks",
+    "registry_subset_count": 80,
+    "registry_task_id_subset_sha256": "c3a4e299ff002f3c2201de9dfdf0a7ed64a41cd1ea4253480d99502e086ce190",
     "verification_note": "Task ids are selected from terminal-bench-core 0.1.1 registry task_id_subset; no local invented tasks are allowed."
   },
   "benefit_gate": {

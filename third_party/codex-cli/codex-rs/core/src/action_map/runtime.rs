@@ -800,6 +800,7 @@ pub(crate) struct ActionMapRuntimeState {
     active_budget: Option<TaskSpaceActiveBudgetV1>,
     budget_counters: TaskSpaceBudgetCounters,
     legacy_state_action_attempts: Vec<LegacyStateActionAttemptV1>,
+    blocked_action_repeats: HashMap<String, usize>,
     budget_state: TaskSpaceBudgetState,
     budget_violations: Vec<TaskSpaceBudgetViolation>,
     sentinel_warnings: Vec<TaskSpaceSentinelWarning>,
@@ -930,6 +931,7 @@ impl Default for ActionMapRuntimeState {
             active_budget: None,
             budget_counters: TaskSpaceBudgetCounters::default(),
             legacy_state_action_attempts: Vec::new(),
+            blocked_action_repeats: HashMap::new(),
             budget_state: TaskSpaceBudgetState::Normal,
             budget_violations: Vec::new(),
             sentinel_warnings: Vec::new(),
@@ -966,6 +968,39 @@ impl ActionMapRuntimeState {
                 .unwrap_or_else(|| "taskspace-v005-active".to_string());
             self.install_active_budget_for_route(profile_name.trim(), route_mode);
         }
+    }
+
+    fn record_blocked_action_repeat(
+        &mut self,
+        map_id: &str,
+        node_id: &str,
+        progress_signature: usize,
+        reason: &str,
+        descriptor: &ToolActionDescriptor,
+    ) -> BlockedActionRepeatReport {
+        let command = tool_action_descriptor_command(descriptor)
+            .map(|command| normalize_command_for_repeat_detection(&command))
+            .unwrap_or_default();
+        let fingerprint = format!(
+            "{}|{}|{}|{}",
+            reason,
+            descriptor.tool_name,
+            descriptor.action_class.as_str(),
+            single_line_preview(&command, 240)
+        );
+        let key = format!("{map_id}\x1f{node_id}\x1f{progress_signature}\x1f{fingerprint}");
+        let count = self.blocked_action_repeats.entry(key).or_insert(0);
+        *count += 1;
+        BlockedActionRepeatReport {
+            fingerprint,
+            count: *count,
+        }
+    }
+
+    fn clear_blocked_action_repeats_for_node(&mut self, map_id: &str, node_id: &str) {
+        let prefix = format!("{map_id}\x1f{node_id}\x1f");
+        self.blocked_action_repeats
+            .retain(|key, _| !key.starts_with(&prefix));
     }
 
     fn install_active_budget_for_route(
@@ -1915,6 +1950,9 @@ impl ActionMapRuntimeState {
         let lease_id = self.current_main_lease_id.clone().ok_or_else(|| {
             ActionMapGateError::from("TaskSpace mode is active but no current main lease exists.")
         })?;
+        let progress_signature = self
+            .current_node_progress_signature(&map_id, &node_id)
+            .unwrap_or_default();
         let map = self.maps.get(&map_id).ok_or_else(|| {
             ActionMapGateError::from(format!("TaskSpace active task path `{map_id}` is missing."))
         })?;
@@ -1958,12 +1996,22 @@ impl ActionMapRuntimeState {
                     node.id
                 )
             };
-            let recovery = gate_recovery_message(
+            let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
+            let blocked_node_kind = node.kind.as_str().to_string();
+            let repeated_block = self.record_blocked_action_repeat(
+                &map_id,
+                &node_id,
+                progress_signature,
+                &reason,
+                &descriptor,
+            );
+            let recovery = gate_recovery_message_with_repeated_block(
                 &message,
                 &reason,
-                vec![format!("current_node:{}:{}", node.id, node.kind.as_str())],
+                vec![current_node_item],
                 vec![next_valid_action],
                 Vec::new(),
+                Some(&repeated_block),
             );
             return Err(ActionMapGateError::new(
                 recovery,
@@ -1971,7 +2019,7 @@ impl ActionMapRuntimeState {
                     MapRuntimeToolActionBlockedEvent {
                         map_id,
                         node_id,
-                        node_kind: node.kind.as_str().to_string(),
+                        node_kind: blocked_node_kind,
                         tool_name: descriptor.tool_name,
                         action_class: descriptor.action_class.as_str().to_string(),
                         reason,
@@ -2007,15 +2055,25 @@ impl ActionMapRuntimeState {
                 descriptor.tool_name,
                 descriptor.action_class.as_str()
             );
-            let recovery = gate_recovery_message(
+            let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
+            let blocked_node_kind = node.kind.as_str().to_string();
+            let repeated_block = self.record_blocked_action_repeat(
+                &map_id,
+                &node_id,
+                progress_signature,
+                &reason,
+                &descriptor,
+            );
+            let recovery = gate_recovery_message_with_repeated_block(
                 &message,
                 &reason,
-                vec![format!("current_node:{}:{}", node.id, node.kind.as_str())],
+                vec![current_node_item],
                 vec![
                     "call apply_patch for the current implementation node".to_string(),
                     "or return blocked with exact missing evidence".to_string(),
                 ],
                 Vec::new(),
+                Some(&repeated_block),
             );
             return Err(ActionMapGateError::new(
                 recovery,
@@ -2023,7 +2081,64 @@ impl ActionMapRuntimeState {
                     MapRuntimeToolActionBlockedEvent {
                         map_id,
                         node_id,
-                        node_kind: node.kind.as_str().to_string(),
+                        node_kind: blocked_node_kind,
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason,
+                    },
+                )],
+            ));
+        }
+        if node.kind == NodeKind::InspectCodeContext
+            && matches!(
+                descriptor.action_class,
+                ActionClass::Test | ActionClass::Build
+            )
+            && let Some((previous_result_id, command)) =
+                inspect_duplicate_successful_diagnostic_test(map, node, &descriptor)
+        {
+            let reason = "inspect_duplicate_successful_diagnostic_test".to_string();
+            let message = format!(
+                "TaskSpace blocked this diagnostic command because inspect node `{}` already recorded successful diagnostic evidence `{}` for the same command `{}`. Do not rerun the same diagnostic without a code change. Continue with read/search evidence, record accepted findings, or finish this inspect node into implement_solution.",
+                node.id,
+                previous_result_id,
+                single_line_preview(&command, 220)
+            );
+            let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
+            let blocked_node_kind = node.kind.as_str().to_string();
+            let finish_node_action = format!(
+                "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
+                node.id
+            );
+            let repeated_block = self.record_blocked_action_repeat(
+                &map_id,
+                &node_id,
+                progress_signature,
+                &reason,
+                &descriptor,
+            );
+            let recovery = gate_recovery_message_with_repeated_block(
+                &message,
+                &reason,
+                vec![
+                    current_node_item,
+                    format!("previous_diagnostic_result:{previous_result_id}"),
+                ],
+                vec![
+                    "read_file or search for implementation/test evidence".to_string(),
+                    "taskspace_control(action=state_commit) for accepted findings".to_string(),
+                    finish_node_action,
+                ],
+                Vec::new(),
+                Some(&repeated_block),
+            );
+            return Err(ActionMapGateError::new(
+                recovery,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: blocked_node_kind,
                         tool_name: descriptor.tool_name,
                         action_class: descriptor.action_class.as_str().to_string(),
                         reason,
@@ -2043,12 +2158,21 @@ impl ActionMapRuntimeState {
             && let Some((reason, message, next_valid_actions, evidence_refs)) =
                 validation_test_coverage_block(map, node, task, &descriptor)
         {
-            let recovery = gate_recovery_message(
+            let blocked_node_kind = node.kind.as_str().to_string();
+            let repeated_block = self.record_blocked_action_repeat(
+                &map_id,
+                &node_id,
+                progress_signature,
+                &reason,
+                &descriptor,
+            );
+            let recovery = gate_recovery_message_with_repeated_block(
                 &message,
                 &reason,
                 evidence_refs,
                 next_valid_actions,
                 Vec::new(),
+                Some(&repeated_block),
             );
             return Err(ActionMapGateError::new(
                 recovery,
@@ -2056,7 +2180,7 @@ impl ActionMapRuntimeState {
                     MapRuntimeToolActionBlockedEvent {
                         map_id,
                         node_id,
-                        node_kind: node.kind.as_str().to_string(),
+                        node_kind: blocked_node_kind,
                         tool_name: descriptor.tool_name,
                         action_class: descriptor.action_class.as_str().to_string(),
                         reason,
@@ -2080,11 +2204,20 @@ impl ActionMapRuntimeState {
                 failed_result_id,
                 failed_summary
             );
-            let recovery = gate_recovery_message(
+            let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
+            let blocked_node_kind = node.kind.as_str().to_string();
+            let repeated_block = self.record_blocked_action_repeat(
+                &map_id,
+                &node_id,
+                progress_signature,
+                &reason,
+                &descriptor,
+            );
+            let recovery = gate_recovery_message_with_repeated_block(
                 &message,
                 &reason,
                 vec![
-                    format!("current_node:{}:{}", node.id, node.kind.as_str()),
+                    current_node_item,
                     format!("failed_validation_result:{failed_result_id}"),
                 ],
                 vec![
@@ -2092,6 +2225,7 @@ impl ActionMapRuntimeState {
                     "or taskspace_control(action=block_node) with the exact failed validation evidence".to_string(),
                 ],
                 Vec::new(),
+                Some(&repeated_block),
             );
             return Err(ActionMapGateError::new(
                 recovery,
@@ -2099,7 +2233,7 @@ impl ActionMapRuntimeState {
                     MapRuntimeToolActionBlockedEvent {
                         map_id,
                         node_id,
-                        node_kind: node.kind.as_str().to_string(),
+                        node_kind: blocked_node_kind,
                         tool_name: descriptor.tool_name,
                         action_class: descriptor.action_class.as_str().to_string(),
                         reason,
@@ -2260,6 +2394,7 @@ preview:\n\
             });
             (task_id, None)
         };
+        self.clear_blocked_action_repeats_for_node(&map_id, &node_id);
         let trace_events = self.append_main_tool_trace_events(MainToolTraceDraft {
             task_id,
             map_id: map_id.clone(),
@@ -2288,6 +2423,27 @@ preview:\n\
         if let Some(barrier) = raised_barrier {
             events.push(maintenance_barrier_raised_event(&barrier));
             self.maintenance_barriers.insert(map_id.clone(), barrier);
+        }
+        let progress_snapshot = self
+            .provider_request_budget_snapshot()
+            .or_else(|| self.provider_request_progress_snapshot_for_node(&map_id, &node_id));
+        if success
+            && matches!(
+                recorded_action_class,
+                Some(ActionClass::Read | ActionClass::Search)
+            )
+            && let Some(snapshot) = progress_snapshot
+            && snapshot.node_id.as_deref() == Some(node_id.as_str())
+            && snapshot.node_kind.as_deref() == Some(NodeKind::InspectCodeContext.as_str())
+            && self.current_main_inspect_progress_ready_for_transition()
+            && let Some((_outcome, transition_events)) = self
+                .force_finish_inspect_for_provider_budget(
+                    owner_session_id,
+                    &snapshot,
+                    "inspect_progress_convergence",
+                )?
+        {
+            events.extend(transition_events);
         }
         Ok(Some((result_id, events)))
     }
@@ -2516,6 +2672,61 @@ preview:\n\
             node_request_count,
             max_model_requests_per_node: budget.max_model_requests_per_node,
             post_budget_grace_requests: budget.post_budget_grace_requests,
+            post_budget_grace_request_count: self.budget_counters.post_budget_grace_request_count,
+            budget_state: self.budget_state.as_str().to_string(),
+        })
+    }
+
+    fn provider_request_progress_snapshot_for_node(
+        &self,
+        map_id: &str,
+        node_id: &str,
+    ) -> Option<ActionMapProviderRequestBudgetSnapshot> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return None;
+        }
+        let map = self.maps.get(map_id)?;
+        let node = map.nodes.get(node_id)?;
+        let current_node_has_successful_edit =
+            node_has_successful_action(map, node, ActionClass::Edit);
+        let current_node_has_dependency_working_evidence = node.kind == NodeKind::ImplementSolution
+            && implement_node_has_dependency_working_evidence(map, node);
+        let current_node_uncovered_mandatory_evidence = if node.kind == NodeKind::ImplementSolution
+        {
+            implement_node_uncovered_mandatory_evidence(map, node)
+        } else {
+            Vec::new()
+        };
+        let node_request_count = self
+            .budget_counters
+            .model_request_count_by_node
+            .get(node_id)
+            .copied()
+            .unwrap_or(0);
+        Some(ActionMapProviderRequestBudgetSnapshot {
+            task_id: map.task_id.clone(),
+            map_id: map_id.to_string(),
+            node_id: Some(node_id.to_string()),
+            node_kind: Some(node.kind.as_str().to_string()),
+            current_node_progress_signature: self.current_node_progress_signature(map_id, node_id),
+            current_node_has_successful_edit,
+            current_node_has_dependency_working_evidence,
+            current_node_has_uncovered_mandatory_evidence:
+                !current_node_uncovered_mandatory_evidence.is_empty(),
+            current_node_uncovered_mandatory_evidence,
+            route_mode: None,
+            profile_name: None,
+            request_phase: Some(
+                TaskSpaceProviderRequestPhase::ModelSampling
+                    .as_str()
+                    .to_string(),
+            ),
+            provider_request_context_missing_reason: None,
+            request_count: self.budget_counters.rollout_model_request_count,
+            max_requests: 0,
+            node_request_count,
+            max_model_requests_per_node: 0,
+            post_budget_grace_requests: 0,
             post_budget_grace_request_count: self.budget_counters.post_budget_grace_request_count,
             budget_state: self.budget_state.as_str().to_string(),
         })
@@ -3113,8 +3324,14 @@ preview:\n\
         }
         let evidence_driven_no_action_recovery = trigger == "inspect_no_action_with_evidence";
         let progress_driven_convergence = trigger == "inspect_progress_convergence";
+        let duplicate_diagnostic_gate_recovery =
+            trigger == "inspect_duplicate_diagnostic_gate_recovery";
+        let repeated_blocked_gate_recovery =
+            trigger == "inspect_repeated_blocked_action_with_evidence";
         if !evidence_driven_no_action_recovery
             && !progress_driven_convergence
+            && !duplicate_diagnostic_gate_recovery
+            && !repeated_blocked_gate_recovery
             && !provider_request_budget_pressure_active_for_node(
                 snapshot.request_count,
                 snapshot.max_requests,
@@ -3123,7 +3340,22 @@ preview:\n\
         {
             return Ok(None);
         }
-        if !self.inspect_node_has_successful_code_or_test_read(&map_id, node_id)? {
+        if duplicate_diagnostic_gate_recovery || repeated_blocked_gate_recovery {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            let node = map
+                .nodes
+                .get(node_id)
+                .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
+            if !node_has_successful_diagnostic_test_result(map, node) {
+                return Ok(None);
+            }
+            if !node_has_successful_code_or_test_inspect_result(map, node) {
+                return Ok(None);
+            }
+        } else if !self.inspect_node_has_successful_code_or_test_read(&map_id, node_id)? {
             return Ok(None);
         }
         let unread_script_refs = {
@@ -4564,6 +4796,32 @@ preview:\n\
                 node.kind.as_str()
             ));
         }
+        if node.kind == NodeKind::ImplementSolution
+            && blocker_claims_missing_completed_diagnostic(blocker_summary)
+            && node_has_dependency_successful_diagnostic(map, node)
+        {
+            return Err(format!(
+                "TaskSpace implement_solution node `{node_id}` cannot be blocked for a missing diagnostic prerequisite because a dependency inspect node already recorded successful diagnostic evidence. Next valid action: apply_patch with the smallest concrete implementation fix from inspected evidence, or block only with a different unresolved external blocker."
+            ));
+        }
+        if node.kind == NodeKind::ImplementSolution
+            && !node_has_successful_action(map, node, ActionClass::Edit)
+            && implement_node_has_dependency_implementation_source_evidence(map, node)
+            && blocker_claims_missing_inspected_source_evidence(blocker_summary)
+        {
+            return Err(format!(
+                "TaskSpace implement_solution node `{node_id}` cannot be blocked for missing source visibility because a dependency inspect node already recorded implementation source evidence. Next valid action: retry apply_patch using the inspected source evidence and the failed patch feedback, or block only with a specific external blocker that makes editing impossible."
+            ));
+        }
+        if node.kind == NodeKind::ImplementSolution
+            && !node_has_successful_action(map, node, ActionClass::Edit)
+            && implement_node_has_dependency_working_evidence(map, node)
+            && blocker_claims_internal_policy_instead_of_external_blocker(blocker_summary)
+        {
+            return Err(format!(
+                "TaskSpace implement_solution node `{node_id}` cannot be blocked for an internal node-policy or diagnostic-repeat concern because inspected implementation evidence is already available and no edit has been attempted. Next valid action: apply_patch with the smallest concrete implementation fix from dependency evidence, or block only with a specific external blocker that makes editing impossible."
+            ));
+        }
         let validation_rework =
             if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
                 validation_node_failed_noninfra_result(map, node)
@@ -5923,7 +6181,7 @@ preview:\n\
         node_has_successful_action(map, node, action_class)
     }
 
-    pub(crate) fn active_map_has_successful_action(&self, action_class: ActionClass) -> bool {
+    pub(crate) fn active_map_has_successful_edit_artifacts(&self) -> bool {
         let Some(map_id) = self.active_map_id.as_deref() else {
             return false;
         };
@@ -5932,7 +6190,114 @@ preview:\n\
         };
         map.nodes
             .values()
-            .any(|node| node_has_successful_action(map, node, action_class))
+            .filter(|node| node.kind == NodeKind::ImplementSolution)
+            .any(|node| !successful_edit_artifact_set(map, node).is_empty())
+    }
+
+    pub(crate) fn backfill_successful_implementation_edit_artifacts(
+        &mut self,
+        call_id: &str,
+        preview: String,
+    ) -> Result<Option<Vec<MapRuntimeEvent>>, String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(None);
+        }
+        let map_id = match self.active_map_id.clone() {
+            Some(map_id) => map_id,
+            None => return Ok(None),
+        };
+        let artifacts = extract_edit_changed_artifacts_from_tool_body(&preview);
+        if artifacts.is_empty() {
+            return Ok(None);
+        }
+
+        let (task_id, node_id, result_id, added_artifacts) = {
+            let map = self
+                .maps
+                .get_mut(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            let mut candidate: Option<(MapNodeId, NodeResultId, i64)> = None;
+            for node in map.nodes.values() {
+                if node.kind != NodeKind::ImplementSolution {
+                    continue;
+                }
+                for result_ref in &node.result_context {
+                    let Some(result) = map.results.get(&result_ref.id) else {
+                        continue;
+                    };
+                    if result.kind != NodeResultKind::MainToolCall
+                        || result.action_class != Some(ActionClass::Edit)
+                        || result.tool_success != Some(true)
+                    {
+                        continue;
+                    }
+                    if candidate
+                        .as_ref()
+                        .is_none_or(|(_, _, created_at_ms)| result.created_at_ms >= *created_at_ms)
+                    {
+                        candidate =
+                            Some((node.id.clone(), result.id.clone(), result.created_at_ms));
+                    }
+                }
+            }
+            let Some((node_id, result_id, _)) = candidate else {
+                return Ok(None);
+            };
+            let result = map
+                .results
+                .get_mut(&result_id)
+                .ok_or_else(|| format!("TaskSpace result `{result_id}` is missing."))?;
+            let mut added_artifacts = Vec::new();
+            for artifact in artifacts {
+                if !result
+                    .evidence_package
+                    .changed_artifacts
+                    .iter()
+                    .any(|existing| existing == &artifact)
+                {
+                    result
+                        .evidence_package
+                        .changed_artifacts
+                        .push(artifact.clone());
+                    added_artifacts.push(artifact.clone());
+                }
+                let has_ref = result
+                    .evidence_package
+                    .evidence_refs
+                    .iter()
+                    .any(|existing| existing.artifact_ref.as_deref() == Some(artifact.as_str()));
+                if !has_ref {
+                    result.evidence_package.evidence_refs.push(EvidenceRef {
+                        artifact_ref: Some(artifact),
+                        ..Default::default()
+                    });
+                }
+            }
+            (map.task_id.clone(), node_id, result_id, added_artifacts)
+        };
+
+        if added_artifacts.is_empty() {
+            return Ok(None);
+        }
+        let trace_event = TaskSpaceTraceEvent {
+            id: self.next_trace_event_id(),
+            kind: "observed_implementation_edit_artifacts".to_string(),
+            task_id,
+            map_id,
+            node_id,
+            result_id: Some(result_id),
+            call_id: Some(call_id.to_string()),
+            action_class: Some(ActionClass::Edit),
+            tool_success: Some(true),
+            tags: added_artifacts
+                .iter()
+                .map(|artifact| format!("changed_artifact:{artifact}"))
+                .collect(),
+            artifact_refs: added_artifacts,
+            created_at_ms: now_ms(),
+        };
+        self.taskspace_trace_events.push(trace_event.clone());
+        Ok(Some(vec![map_runtime_event_from_trace_event(trace_event)]))
     }
 
     pub(crate) fn current_main_validation_node_has_local_infra_failure(&self) -> bool {
@@ -9817,26 +10182,25 @@ fn projection_dependency_read_evidence(
             let Some(result) = map.results.get(&result_ref.id) else {
                 continue;
             };
-            if result.kind != NodeResultKind::MainToolCall
-                || result.tool_success != Some(true)
-                || result.action_class != Some(ActionClass::Read)
-            {
+            if !successful_inspect_result_has_working_evidence(result) {
                 continue;
             }
-            let artifacts = result_artifact_refs(result);
-            if artifacts.is_empty() {
-                continue;
-            }
+            let artifacts = result_visible_artifact_refs(result);
             let artifact_key = artifacts.join("|");
             if !seen.insert(format!("{}:{artifact_key}", result.id)) {
                 continue;
             }
+            let artifact_label = if artifacts.is_empty() {
+                "inline_tool_output".to_string()
+            } else {
+                artifacts.join(",")
+            };
             evidence.push(format!(
                 "{} node={} artifacts={}\nexcerpt:\n{}",
                 result.id,
                 dependency.id,
-                artifacts.join(","),
-                bounded_line_preserving_excerpt(&result.body, max_excerpt_chars)
+                artifact_label,
+                working_evidence_body_excerpt(&result.body, max_excerpt_chars)
             ));
             if evidence.len() >= max_results {
                 return evidence;
@@ -9862,29 +10226,28 @@ fn projection_critical_artifact_evidence(
             let Some(result) = map.results.get(&result_ref.id) else {
                 continue;
             };
-            if result.kind != NodeResultKind::MainToolCall
-                || result.tool_success != Some(true)
-                || result.action_class != Some(ActionClass::Read)
-            {
+            if !successful_inspect_result_has_working_evidence(result) {
                 continue;
             }
             let Some(signal) = mandatory_evidence_signal(&result.body) else {
                 continue;
             };
-            let artifacts = result_artifact_refs(result);
-            if artifacts.is_empty() {
-                continue;
-            }
+            let artifacts = result_visible_artifact_refs(result);
             let key = format!("{}:{}", result.id, artifacts.join("|"));
             if !seen.insert(key) {
                 continue;
             }
+            let artifact_label = if artifacts.is_empty() {
+                "inline_tool_output".to_string()
+            } else {
+                artifacts.join(",")
+            };
             evidence.push(format!(
                 "{} artifacts={} signal={}\nexcerpt:\n{}",
                 result.id,
-                artifacts.join(","),
+                artifact_label,
                 signal,
-                bounded_line_preserving_excerpt(&result.body, max_excerpt_chars)
+                working_evidence_body_excerpt(&result.body, max_excerpt_chars)
             ));
             if evidence.len() >= max_results {
                 return evidence;
@@ -9909,6 +10272,50 @@ fn bounded_line_preserving_excerpt(text: &str, max_chars: usize) -> String {
         count += 1;
     }
     excerpt.trim_end().to_string()
+}
+
+fn working_evidence_body_excerpt(body: &str, max_chars: usize) -> String {
+    let focused = body
+        .split_once("\nraw_output:\n")
+        .map(|(_, rest)| rest)
+        .or_else(|| body.split_once("\r\nraw_output:\r\n").map(|(_, rest)| rest))
+        .unwrap_or(body);
+    let mut output = String::new();
+    let mut count = 0usize;
+    for line in focused.lines() {
+        let trimmed = line.trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if trimmed.is_empty()
+            || lower.starts_with("exit code:")
+            || lower.starts_with("wall time:")
+            || lower == "output:"
+            || lower.starts_with("taskspacetoolinvocationv1:")
+            || lower.starts_with("tool:")
+            || lower.starts_with("command:")
+            || lower.starts_with("raw_output:")
+            || lower.starts_with("preview:")
+            || lower.starts_with("success:")
+            || lower.starts_with("call_id:")
+            || lower.starts_with("action_class:")
+        {
+            continue;
+        }
+        let normalized = line.trim_end_matches('\r');
+        let line_chars = normalized.chars().count() + 1;
+        if count + line_chars > max_chars {
+            output.push_str("\n...");
+            break;
+        }
+        output.push_str(normalized);
+        output.push('\n');
+        count += line_chars;
+    }
+    let output = output.trim_end();
+    if output.is_empty() {
+        bounded_line_preserving_excerpt(body, max_chars)
+    } else {
+        output.to_string()
+    }
 }
 
 fn projection_next_valid_actions(
@@ -10022,7 +10429,34 @@ fn gate_recovery_message(
     next_valid_actions: Vec<String>,
     missing_evidence: Vec<String>,
 ) -> String {
-    let recovery = serde_json::json!({
+    gate_recovery_message_with_repeated_block(
+        message,
+        reason,
+        blocking_items,
+        next_valid_actions,
+        missing_evidence,
+        None,
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BlockedActionRepeatReport {
+    fingerprint: String,
+    count: usize,
+}
+
+fn gate_recovery_message_with_repeated_block(
+    message: &str,
+    reason: &str,
+    mut blocking_items: Vec<String>,
+    next_valid_actions: Vec<String>,
+    missing_evidence: Vec<String>,
+    repeated_block: Option<&BlockedActionRepeatReport>,
+) -> String {
+    if let Some(repeated) = repeated_block.filter(|repeated| repeated.count > 1) {
+        blocking_items.push(format!("repeated_blocked_action:{}", repeated.fingerprint));
+    }
+    let mut recovery = serde_json::json!({
         "schema_version": "TaskSpaceGateRecoveryV1",
         "allowed": false,
         "reason": reason,
@@ -10030,6 +10464,14 @@ fn gate_recovery_message(
         "next_valid_actions": next_valid_actions,
         "missing_evidence": missing_evidence,
     });
+    if let Some(repeated) = repeated_block.filter(|repeated| repeated.count > 1) {
+        recovery["repeated_blocked_action"] = serde_json::json!({
+            "fingerprint": repeated.fingerprint,
+            "repeat_count": repeated.count,
+            "same_action_allowed": false,
+            "excluded_until": "current node records new successful evidence or changes state",
+        });
+    }
     format!("{message}\nTaskSpaceGateRecoveryV1: {recovery}")
 }
 
@@ -11456,18 +11898,20 @@ fn trace_tags_for(
         "tool_failure".to_string()
     });
     match action_class {
+        Some(ActionClass::Build | ActionClass::Test) if is_local_validator_infra_failure(body) => {
+            tags.push("validator_infra_failure".to_string());
+        }
         Some(ActionClass::Build | ActionClass::Test)
-            if success && !validation_output_indicates_failure(body) =>
+            if success
+                && !validation_output_indicates_failure(body)
+                && validation_output_indicates_success(body) =>
         {
             tags.push("validator_success".to_string());
         }
         Some(ActionClass::Build | ActionClass::Test)
-            if success && validation_output_indicates_failure(body) =>
+            if success && !validation_output_indicates_failure(body) =>
         {
-            tags.push("validator_failure".to_string());
-        }
-        Some(ActionClass::Build | ActionClass::Test) if is_local_validator_infra_failure(body) => {
-            tags.push("validator_infra_failure".to_string());
+            tags.push("validator_unconfirmed".to_string());
         }
         Some(ActionClass::Build | ActionClass::Test) => {
             tags.push("validator_failure".to_string());
@@ -11503,6 +11947,26 @@ fn validation_output_indicates_failure(text: &str) -> bool {
         "no tests ran",
     ];
     strong_failure_markers
+        .iter()
+        .any(|marker| text.contains(marker))
+}
+
+fn validation_output_indicates_success(text: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    let strong_success_markers = [
+        "validation passed",
+        "tests passed",
+        "test passed",
+        "pytest passed",
+        " passed in ",
+        " passed,",
+        " passed\n",
+        " passed\r\n",
+        "validator_tests_completed=true",
+        "validator_lifecycle_stage=tests_completed",
+        "validator_success",
+    ];
+    strong_success_markers
         .iter()
         .any(|marker| text.contains(marker))
 }
@@ -11563,6 +12027,7 @@ fn is_known_trace_tag(tag: &str) -> bool {
             | "validator_success"
             | "validator_failure"
             | "validator_infra_failure"
+            | "validator_unconfirmed"
             | "unclassified_shell_action"
             | "unclassified_tool_action"
     ) || tag.starts_with("schema:")
@@ -12283,6 +12748,54 @@ fn tool_action_descriptor_command(descriptor: &ToolActionDescriptor) -> Option<S
         })
 }
 
+fn inspect_duplicate_successful_diagnostic_test(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    descriptor: &ToolActionDescriptor,
+) -> Option<(NodeResultId, String)> {
+    let command = tool_action_descriptor_command(descriptor)?;
+    let normalized_command = normalize_command_for_repeat_detection(&command);
+    if normalized_command.is_empty() {
+        return None;
+    }
+    node.result_context.iter().rev().find_map(|result_ref| {
+        let result = map.results.get(&result_ref.id)?;
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(true)
+            || !matches!(
+                result.action_class,
+                Some(ActionClass::Test | ActionClass::Build)
+            )
+        {
+            return None;
+        }
+        let previous_command = result_body_command(result)
+            .map(|command| normalize_command_for_repeat_detection(&command))
+            .unwrap_or_default();
+        if previous_command == normalized_command {
+            Some((result.id.clone(), command.clone()))
+        } else {
+            None
+        }
+    })
+}
+
+fn result_body_command(result: &NodeResult) -> Option<String> {
+    result
+        .body
+        .lines()
+        .find_map(|line| line.strip_prefix("command: ").map(str::trim))
+        .map(str::to_string)
+}
+
+fn normalize_command_for_repeat_detection(command: &str) -> String {
+    command
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
 fn command_is_general_validation_runner(command: &str) -> bool {
     let lower = command.to_ascii_lowercase();
     [
@@ -12296,6 +12809,7 @@ fn command_is_general_validation_runner(command: &str) -> bool {
         "gradle test",
         "run-tests",
         "run_tests",
+        "run_pipeline",
         "scripts/validate.py",
         "test_outputs.py",
     ]
@@ -12681,6 +13195,7 @@ fn node_result_is_successful_validation(result: &NodeResult) -> bool {
         )
         && result.tool_success == Some(true)
         && !validation_output_indicates_failure(&result.body)
+        && validation_output_indicates_success(&result.body)
 }
 
 fn node_has_successful_code_or_test_inspect_result(
@@ -12691,8 +13206,77 @@ fn node_has_successful_code_or_test_inspect_result(
         let Some(result) = map.results.get(&result_ref.id) else {
             return false;
         };
-        successful_read_result_has_working_evidence(result)
+        successful_inspect_result_has_working_evidence(result)
     })
+}
+
+fn node_has_successful_diagnostic_test_result(map: &ActionMapInstance, node: &MapNode) -> bool {
+    node.result_context.iter().any(|result_ref| {
+        let Some(result) = map.results.get(&result_ref.id) else {
+            return false;
+        };
+        result.kind == NodeResultKind::MainToolCall
+            && result.tool_success == Some(true)
+            && matches!(
+                result.action_class,
+                Some(ActionClass::Build | ActionClass::Test)
+            )
+            && !validation_output_indicates_failure(&result.body)
+    })
+}
+
+fn node_has_dependency_successful_diagnostic(map: &ActionMapInstance, node: &MapNode) -> bool {
+    map.edges.iter().any(|edge| {
+        if edge.to != node.id {
+            return false;
+        }
+        map.nodes
+            .get(&edge.from)
+            .is_some_and(|dependency| node_has_successful_diagnostic_test_result(map, dependency))
+    })
+}
+
+fn blocker_claims_missing_completed_diagnostic(blocker_summary: &str) -> bool {
+    let lower = blocker_summary.to_ascii_lowercase();
+    (lower.contains("diagnostic") || lower.contains("emit_large_log"))
+        && (lower.contains("must be run first")
+            || lower.contains("needs to be run first")
+            || lower.contains("before any patch")
+            || lower.contains("before editing")
+            || lower.contains("prerequisite"))
+}
+
+fn blocker_claims_internal_policy_instead_of_external_blocker(blocker_summary: &str) -> bool {
+    let lower = blocker_summary.to_ascii_lowercase();
+    lower.contains("implementation_needs_edit")
+        || lower.contains("allowed actions are only apply_patch")
+        || lower.contains("proceeding directly to apply")
+        || lower.contains("proceeding directly to apply the fix")
+        || ((lower.contains("diagnostic") || lower.contains("emit_large_log"))
+            && lower.contains("not permitted")
+            && (lower.contains("current node") || lower.contains("state")))
+        || (lower.contains("cannot run")
+            && lower.contains("current node")
+            && (lower.contains("allowed actions") || lower.contains("state")))
+}
+
+fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bool {
+    let lower = blocker_summary.to_ascii_lowercase();
+    let source_subject = lower.contains("implementation")
+        || lower.contains("source")
+        || lower.contains("src/")
+        || lower.contains("src\\")
+        || lower.contains("file content")
+        || lower.contains("current code");
+    let missing_claim = lower.contains("unknown")
+        || lower.contains("no excerpt")
+        || lower.contains("not provided")
+        || lower.contains("not visible")
+        || lower.contains("not shown")
+        || lower.contains("need to read")
+        || lower.contains("need source")
+        || lower.contains("cannot guess");
+    source_subject && missing_claim
 }
 
 fn inspect_node_unread_referenced_scripts(map: &ActionMapInstance, node: &MapNode) -> Vec<String> {
@@ -12752,6 +13336,60 @@ fn implement_node_has_dependency_working_evidence(map: &ActionMapInstance, node:
             node_has_successful_code_or_test_inspect_result(map, dependency)
         })
     })
+}
+
+fn implement_node_has_dependency_implementation_source_evidence(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> bool {
+    map.edges.iter().any(|edge| {
+        if edge.to != node.id {
+            return false;
+        }
+        let Some(dependency) = map.nodes.get(&edge.from) else {
+            return false;
+        };
+        dependency.result_context.iter().any(|result_ref| {
+            map.results.get(&result_ref.id).is_some_and(|result| {
+                successful_inspect_result_has_working_evidence(result)
+                    && result_visible_artifact_refs(result)
+                        .iter()
+                        .any(|artifact_ref| is_inspected_implementation_source_ref(artifact_ref))
+            })
+        })
+    })
+}
+
+fn is_inspected_implementation_source_ref(artifact_ref: &str) -> bool {
+    let normalized = normalize_artifact_ref(artifact_ref).to_ascii_lowercase();
+    if normalized.starts_with("scripts/")
+        || normalized.starts_with("tests/")
+        || normalized.contains("/tests/")
+        || normalized == "readme.md"
+        || normalized.starts_with("docs/")
+    {
+        return false;
+    }
+    normalized.starts_with("src/")
+        || normalized.contains("/src/")
+        || normalized.ends_with(".py")
+        || normalized.ends_with(".rs")
+        || normalized.ends_with(".js")
+        || normalized.ends_with(".jsx")
+        || normalized.ends_with(".ts")
+        || normalized.ends_with(".tsx")
+        || normalized.ends_with(".go")
+        || normalized.ends_with(".java")
+        || normalized.ends_with(".kt")
+        || normalized.ends_with(".swift")
+        || normalized.ends_with(".rb")
+        || normalized.ends_with(".php")
+        || normalized.ends_with(".c")
+        || normalized.ends_with(".cc")
+        || normalized.ends_with(".cpp")
+        || normalized.ends_with(".h")
+        || normalized.ends_with(".hpp")
+        || normalized.ends_with(".cs")
 }
 
 fn implement_node_uncovered_mandatory_evidence(
@@ -12841,6 +13479,30 @@ fn result_artifact_refs(result: &NodeResult) -> Vec<String> {
     artifacts
 }
 
+fn result_visible_artifact_refs(result: &NodeResult) -> Vec<String> {
+    let mut artifacts = result_artifact_refs(result);
+    for artifact_ref in result_body_section_artifact_refs(&result.body) {
+        if !artifact_ref.is_empty() && !artifacts.iter().any(|existing| existing == &artifact_ref) {
+            artifacts.push(artifact_ref);
+        }
+    }
+    artifacts
+}
+
+fn result_body_section_artifact_refs(body: &str) -> Vec<String> {
+    let mut artifacts = Vec::new();
+    for line in body.lines().map(str::trim) {
+        let Some(raw_path) = line.strip_prefix("=====") else {
+            continue;
+        };
+        let artifact_ref = normalize_artifact_ref(raw_path.trim());
+        if !artifact_ref.is_empty() && !artifacts.iter().any(|existing| existing == &artifact_ref) {
+            artifacts.push(artifact_ref);
+        }
+    }
+    artifacts
+}
+
 fn artifact_key(path: &str) -> String {
     normalize_artifact_ref(path).to_ascii_lowercase()
 }
@@ -12867,8 +13529,130 @@ fn successful_read_result_has_working_evidence(result: &NodeResult) -> bool {
     {
         return false;
     }
+    if read_result_body_is_path_listing_only(&result.body) {
+        return false;
+    }
     code_or_test_read_body_has_content_signal(&result.body)
         || !result_input_data_artifact_refs(result).is_empty()
+}
+
+fn successful_inspect_result_has_working_evidence(result: &NodeResult) -> bool {
+    if result.kind != NodeResultKind::MainToolCall
+        || result.tool_success != Some(true)
+        || !matches!(
+            result.action_class,
+            Some(ActionClass::Read | ActionClass::Search)
+        )
+    {
+        return false;
+    }
+    if read_result_body_is_path_listing_only(&result.body) {
+        return false;
+    }
+    code_or_test_read_body_has_content_signal(&result.body)
+        || !result_input_data_artifact_refs(result).is_empty()
+}
+
+fn read_result_body_is_path_listing_only(body: &str) -> bool {
+    let lower = body.to_ascii_lowercase();
+    if body
+        .lines()
+        .map(str::trim)
+        .map(|line| line.to_ascii_lowercase())
+        .any(|line| read_body_line_has_code_content_signal(&line))
+    {
+        return false;
+    }
+    if lower.contains("command: rg --files")
+        || lower.contains("command: get-childitem")
+        || lower.contains("command: dir ")
+        || lower.contains("command: ls ")
+    {
+        return true;
+    }
+
+    let mut path_like_lines = 0usize;
+    let mut considered_lines = 0usize;
+    for line in body.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        let lower_line = line.to_ascii_lowercase();
+        if lower_line.starts_with("taskspacetoolinvocationv1")
+            || lower_line.starts_with("main tool call")
+            || lower_line.starts_with("tool:")
+            || lower_line.starts_with("call_id:")
+            || lower_line.starts_with("action_class:")
+            || lower_line.starts_with("success:")
+            || lower_line.starts_with("command:")
+            || lower_line.starts_with("raw_output:")
+            || lower_line == "preview:"
+            || lower_line.starts_with("exit code:")
+            || lower_line.starts_with("wall time:")
+            || lower_line == "output:"
+        {
+            continue;
+        }
+        if read_body_line_has_code_content_signal(&lower_line) {
+            return false;
+        }
+        considered_lines += 1;
+        if is_probable_path_listing_line(line) {
+            path_like_lines += 1;
+        } else {
+            return false;
+        }
+    }
+
+    considered_lines >= 2 && path_like_lines == considered_lines
+}
+
+fn read_body_line_has_code_content_signal(lower_line: &str) -> bool {
+    lower_line.contains("def ")
+        || lower_line.contains("fn ")
+        || lower_line.contains("function ")
+        || lower_line.contains("#!/bin/")
+        || lower_line.contains("#!/usr/bin/env bash")
+        || lower_line.contains("set -e")
+        || lower_line.contains("return ")
+        || lower_line.contains("import ")
+        || lower_line.contains("const ")
+        || lower_line.contains("let ")
+        || lower_line.contains("class ")
+        || lower_line.contains("assert ")
+        || lower_line.contains("#[test]")
+        || lower_line.contains("describe(")
+        || lower_line.contains("it(")
+}
+
+fn is_probable_path_listing_line(line: &str) -> bool {
+    let normalized = normalize_artifact_ref(line);
+    let lower = normalized.to_ascii_lowercase();
+    if lower.is_empty() || lower.len() > 240 || lower.contains(" ") {
+        return false;
+    }
+    lower.contains('/')
+        || matches!(
+            lower.rsplit_once('.').map(|(_, ext)| ext),
+            Some(
+                "py" | "rs"
+                    | "js"
+                    | "ts"
+                    | "tsx"
+                    | "jsx"
+                    | "go"
+                    | "java"
+                    | "cpp"
+                    | "c"
+                    | "h"
+                    | "hpp"
+                    | "md"
+                    | "toml"
+                    | "json"
+                    | "yaml"
+                    | "yml"
+                    | "txt"
+                    | "sh"
+                    | "ps1"
+            )
+        )
 }
 
 fn result_input_data_artifact_refs(result: &NodeResult) -> Vec<String> {
@@ -12895,26 +13679,11 @@ fn is_input_data_artifact_ref(artifact_ref: &str) -> bool {
 
 fn code_or_test_read_body_has_content_signal(body: &str) -> bool {
     let body = body.to_ascii_lowercase();
-    body.contains("def ")
-        || body.contains("fn ")
-        || body.contains("function ")
-        || body.contains("#!/bin/")
-        || body.contains("#!/usr/bin/env bash")
-        || body.contains("set -e")
-        || body.contains("return ")
-        || body.contains("import ")
-        || body.contains("const ")
-        || body.contains("let ")
-        || body.contains("class ")
-        || body.contains("assert ")
-        || body.contains("#[test]")
-        || body.contains("describe(")
-        || body.contains("it(")
-        || body.contains("test_")
+    read_body_line_has_code_content_signal(&body) || body.contains("test_")
 }
 
 const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_RESULTS: usize = 8;
-const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_CHARS: usize = 320;
+const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_CHARS: usize = 1200;
 
 fn inspect_code_or_test_read_summary(map: &ActionMapInstance, node: &MapNode) -> String {
     let summary = working_evidence_summary_for_nodes(map, &[node.id.as_str()]);
@@ -12936,9 +13705,9 @@ fn working_evidence_summary_for_nodes(map: &ActionMapInstance, node_ids: &[&str]
                 .get(&result_ref.id)
                 .map(|result| (index, result))
         })
-        .filter(|(_, result)| successful_read_result_has_working_evidence(result))
+        .filter(|(_, result)| successful_inspect_result_has_working_evidence(result))
         .map(|(index, result)| {
-            let artifacts = result_artifact_refs(result);
+            let artifacts = result_visible_artifact_refs(result);
             let artifact_text = if artifacts.is_empty() {
                 String::new()
             } else {
@@ -12951,7 +13720,13 @@ fn working_evidence_summary_for_nodes(map: &ActionMapInstance, node_ids: &[&str]
                     "{}{}: {}",
                     result.id,
                     artifact_text,
-                    single_line_preview(&result.body, TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_CHARS)
+                    single_line_preview(
+                        &working_evidence_body_excerpt(
+                            &result.body,
+                            TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_CHARS,
+                        ),
+                        TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_CHARS
+                    )
                 ),
             )
         })
@@ -16998,6 +17773,72 @@ mod tests {
     }
 
     #[test]
+    fn observed_edit_backfill_records_changed_artifacts_on_implementation_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Backfill edit".to_string(),
+                "Record changed artifact from turn diff.".to_string(),
+                "Implement fix".to_string(),
+                "Patch source.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        seed_test_cognitive_preflight(&mut state, owner);
+
+        let (result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Done".to_string(),
+            )
+            .expect("edit result records")
+            .expect("result is recorded");
+        assert!(!state.active_map_has_successful_edit_artifacts());
+
+        let events = state
+            .backfill_successful_implementation_edit_artifacts(
+                "diff-backfill",
+                "diff --git a/generate_report.sh b/generate_report.sh\\n--- a/generate_report.sh\\n+++ b/generate_report.sh\\n@@\\n-old\\n+new\\n".to_string(),
+            )
+            .expect("backfill succeeds")
+            .expect("backfill emits event");
+        assert!(state.active_map_has_successful_edit_artifacts());
+        let snapshot = state.snapshot();
+        let map = snapshot.maps.first().expect("map exists");
+        let result = map
+            .results
+            .iter()
+            .find(|result| result.id == result_id)
+            .expect("result remains present");
+        assert_eq!(
+            result.evidence_package.changed_artifacts,
+            vec!["generate_report.sh".to_string()]
+        );
+        assert_eq!(
+            result.evidence_package.evidence_refs[0]
+                .artifact_ref
+                .as_deref(),
+            Some("generate_report.sh")
+        );
+        assert!(matches!(
+            &events[0],
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                if event.kind == "observed_implementation_edit_artifacts"
+                    && event.result_id.as_deref() == Some(result_id.as_str())
+                    && event.artifact_refs == vec!["generate_report.sh".to_string()]
+        ));
+        assert!(command_is_general_validation_runner("bash run_pipeline.sh"));
+    }
+
+    #[test]
     fn trace_event_does_not_parse_shell_preview_as_structured_semantics() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -18450,6 +19291,122 @@ mod tests {
     }
 
     #[test]
+    fn inspect_node_blocks_repeated_successful_diagnostic_test_command() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect before edit",
+            "Run one diagnostic before editing.",
+            true,
+        );
+        let descriptor = ToolActionDescriptor::new(
+            "shell_command",
+            ActionClass::Test,
+            r#"{"command":"python scripts/emit_large_log.py","timeout_ms":120000}"#,
+        );
+
+        state
+            .prepare_main_tool_call(owner, descriptor.clone())
+            .expect("first diagnostic test is allowed");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "diagnostic-1",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python scripts/emit_large_log.py\n\
+raw_output:\n\
+Exit code: 0\n\
+OutputReferenceV1: output-ref://sha256/example"
+                    .to_string(),
+            )
+            .expect("successful diagnostic records");
+
+        let error = state
+            .prepare_main_tool_call(owner, descriptor.clone())
+            .expect_err("same successful diagnostic command should not rerun");
+        let (message, events) = error.into_parts();
+
+        assert!(message.contains("inspect_duplicate_successful_diagnostic_test"));
+        assert!(message.contains("previous_diagnostic_result:result-1"));
+        assert!(message.contains("read_file or search"));
+        assert!(message.contains("finish_node"));
+        assert!(message.contains("implement_solution"));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ToolActionBlocked(blocked)
+                    if blocked.reason == "inspect_duplicate_successful_diagnostic_test"
+                        && blocked.node_kind == "inspect_code_context"
+                        && blocked.action_class == "test"
+            )
+        }));
+
+        let repeat_error = state
+            .prepare_main_tool_call(owner, descriptor.clone())
+            .expect_err("second identical blocked action should carry repeat state");
+        let (repeat_message, repeat_events) = repeat_error.into_parts();
+
+        assert!(repeat_message.contains("\"repeated_blocked_action\""));
+        assert!(repeat_message.contains("\"repeat_count\":2"));
+        assert!(repeat_message.contains("\"same_action_allowed\":false"));
+        assert!(repeat_message.contains(
+            "\"excluded_until\":\"current node records new successful evidence or changes state\""
+        ));
+        assert!(
+            repeat_message
+                .contains("repeated_blocked_action:inspect_duplicate_successful_diagnostic_test")
+        );
+        assert!(repeat_events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ToolActionBlocked(blocked)
+                    if blocked.reason == "inspect_duplicate_successful_diagnostic_test"
+                        && blocked.node_kind == "inspect_code_context"
+                        && blocked.action_class == "test"
+            )
+        }));
+
+        let read_descriptor = ToolActionDescriptor::new(
+            "shell_command",
+            ActionClass::Read,
+            r#"{"command":"Get-Content tests/test_large_output.py"}"#,
+        );
+        state
+            .prepare_main_tool_call(owner, read_descriptor)
+            .expect("read evidence remains allowed after repeated blocked diagnostic");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-1",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: Get-Content tests/test_large_output.py\n\
+raw_output:\n\
+def test_large_output_ref():\n\
+    assert probe()"
+                    .to_string(),
+            )
+            .expect("successful read clears stale blocked-action repeat state");
+
+        let after_progress_error = state
+            .prepare_main_tool_call(owner, descriptor)
+            .expect_err("same duplicate diagnostic is still blocked after progress");
+        let (after_progress_message, _) = after_progress_error.into_parts();
+        assert!(!after_progress_message.contains("\"repeated_blocked_action\""));
+        assert!(after_progress_message.contains("inspect_duplicate_successful_diagnostic_test"));
+    }
+
+    #[test]
     fn provider_request_budget_snapshot_uses_final_synthesis_phase() {
         let owner = ThreadId::new();
         let mut state = ActionMapRuntimeState::default();
@@ -18624,6 +19581,95 @@ mod tests {
         assert!(joined.contains("src/call_stack_counter.py"));
         assert!(joined.contains("format_depth"));
         assert!(joined.contains("return f\"depth: {count_stack_depth()}\""));
+    }
+
+    #[test]
+    fn implement_projection_includes_search_bootstrap_file_content_evidence() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect normalization",
+            "Run diagnostic and inspect README/tests before editing.",
+            true,
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "search-bootstrap",
+                "shell_command",
+                Some(ActionClass::Search),
+                true,
+                "Main tool call\n\
+tool: shell_command\n\
+call_id: taskspace-inspect-bootstrap-read\n\
+action_class: search\n\
+success: true\n\
+preview:\n\
+TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: rg --files -g '*.py' -g '*.md' | Select-Object -First 8 | ForEach-Object { Write-Output ('===== ' + $_); Get-Content -LiteralPath $_ -TotalCount 120 }\n\
+raw_output:\n\
+Exit code: 0\n\
+Wall time: 1.0 seconds\n\
+Output:\n\
+===== tests\\test_large_output_demo.py\n\
+from large_output_demo import normalize_status\n\
+\n\
+def test_normalize_status_strips_and_lowercases():\n\
+    assert normalize_status(\" Ready \") == \"ready\"\n\
+    assert normalize_status(\"BLOCKED\") == \"blocked\"\n\
+\n\
+def test_normalize_status_rejects_empty_after_strip():\n\
+    with pytest.raises(ValueError, match=\"status\"):\n\
+        normalize_status(\"   \")\n\
+===== README.md\n\
+# Large Output Ref Smoke\n\
+Expected behavior:\n\
+- Trim surrounding whitespace.\n\
+- Convert the value to lowercase.\n\
+- Reject an empty normalized value with `ValueError`.\n\
+===== src\\large_output_demo.py\n\
+def normalize_status(value: str) -> str:\n\
+    if value == \"\":\n\
+        raise ValueError(\"status must not be empty\")\n\
+    return value\n"
+                    .to_string(),
+            )
+            .expect("search bootstrap records")
+            .expect("result id");
+        state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "Inspected normalization behavior.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Patch normalization".to_string(),
+                    context_summary: "Patch src/large_output_demo.py from inspected evidence."
+                        .to_string(),
+                    dependency_node_ids: Vec::new(),
+                }),
+            )
+            .expect("finish creates implement node");
+
+        let map = state.maps.get("map-1").expect("map");
+        let evidence = projection_dependency_read_evidence(map, Some("node-2"), 4, 1400);
+        let joined = evidence.join("\n");
+        let working_summary = working_evidence_summary_for_nodes(map, &["node-1"]);
+
+        assert!(joined.contains("tests/test_large_output_demo.py"));
+        assert!(joined.contains("normalize_status(\" Ready \") == \"ready\""));
+        assert!(joined.contains("src/large_output_demo.py"));
+        assert!(joined.contains("return value"));
+        assert!(!joined.contains("TaskSpaceToolInvocationV1"));
+        assert!(working_summary.contains("Trim surrounding whitespace"));
+        assert!(working_summary.contains("return value"));
+        assert!(!working_summary.contains("Get-Content -LiteralPath"));
     }
 
     #[test]
@@ -20823,7 +21869,7 @@ mod tests {
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
         state.activate_active_budget_for_route("taskspace-v005-thin", TaskSpaceRouteMode::Thin);
-        start_test_task_with_kind(
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
             &mut state,
             owner,
             NodeKind::InspectCodeContext,
@@ -20850,6 +21896,12 @@ mod tests {
                 "src/tax_calc.py\ntests/test_tax_calc.py".to_string(),
             )
             .expect("file listing result records");
+        assert!(
+            !state
+                .inspect_node_has_successful_code_or_test_read(&map_id, &node_id)
+                .expect("inspect node should exist"),
+            "path discovery alone must not count as source/test content evidence"
+        );
 
         state
             .prepare_main_tool_call(
@@ -20862,6 +21914,21 @@ mod tests {
                 .with_call_id("read-source"),
             )
             .expect("narrow source read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-source",
+                "shell_command",
+                true,
+                "def calculate_tax(subtotal, region):\n    return subtotal".to_string(),
+            )
+            .expect("source read result records");
+        assert!(
+            state
+                .inspect_node_has_successful_code_or_test_read(&map_id, &node_id)
+                .expect("inspect node should exist"),
+            "concrete source content should count as working evidence"
+        );
     }
 
     #[test]
@@ -21146,6 +22213,479 @@ mod tests {
             Some("node-1"),
             "runtime should leave the inspect node active for recovery"
         );
+    }
+
+    #[test]
+    fn forced_inspect_transition_accepts_duplicate_diagnostic_gate_recovery() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Diagnostic inspection",
+            "Run the required diagnostic exactly once.",
+            "Diagnostic inspection",
+            "Run the required diagnostic exactly once.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "diagnostic-1",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python scripts/emit_large_log.py\n\
+raw_output:\n\
+Exit code: 0\n\
+OutputReferenceV1: output-ref://sha256/example"
+                    .to_string(),
+            )
+            .expect("diagnostic records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 2,
+            max_requests: 8,
+            node_request_count: 2,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+
+        let forced_without_source_read = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_duplicate_diagnostic_gate_recovery",
+            )
+            .expect("duplicate diagnostic gate recovery should not error");
+
+        assert!(
+            forced_without_source_read.is_none(),
+            "diagnostic success alone must not force implementation without source/test evidence"
+        );
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(node_id.as_str())
+        );
+        let repeated_forced_without_source_read = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_repeated_blocked_action_with_evidence",
+            )
+            .expect("repeated blocked gate recovery should not error");
+
+        assert!(
+            repeated_forced_without_source_read.is_none(),
+            "repeated blocked recovery must not force implementation without source/test evidence"
+        );
+
+        let mut search_evidence_state = state.clone();
+        search_evidence_state
+            .record_main_tool_result_with_class(
+                owner,
+                "search-1",
+                "shell_command",
+                Some(ActionClass::Search),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: rg --files -g '*.py' -g '*.md' -g '*.txt' | Select-Object -First 8 | ForEach-Object { Write-Output ('===== ' + $_); Get-Content -LiteralPath $_ -TotalCount 120 }\n\
+raw_output:\n\
+===== README.md\n\
+Expected behavior:\n\
+- Trim surrounding whitespace.\n\
+- Convert the value to lowercase.\n\
+===== tests/test_large_output_demo.py\n\
+def test_normalize_status_strips_and_lowercases():\n\
+    assert normalize_status(\" Ready \") == \"ready\"\n\
+===== src/large_output_demo.py\n\
+def normalize_status(value: str) -> str:\n\
+    return value"
+                    .to_string(),
+            )
+            .expect("bootstrap search evidence records");
+
+        let repeated_forced_with_search = search_evidence_state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_repeated_blocked_action_with_evidence",
+            )
+            .expect("repeated blocked gate recovery should not error")
+            .expect(
+                "repeated blocked action plus bounded search evidence should force inspect transition",
+            );
+
+        assert_eq!(
+            repeated_forced_with_search.0.next_node_id.as_deref(),
+            Some("node-2")
+        );
+        assert_eq!(
+            search_evidence_state.current_main_node_id.as_deref(),
+            Some("node-2")
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-1",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: Get-Content tests/test_large_output_demo.py\n\
+raw_output:\n\
+def test_normalize_status_strips_and_lowercases():\n\
+    assert normalize_status(\" Ready \") == \"ready\""
+                    .to_string(),
+            )
+            .expect("source/test read records");
+        let mut repeated_state = state.clone();
+
+        let forced = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_duplicate_diagnostic_gate_recovery",
+            )
+            .expect("duplicate diagnostic gate recovery should not error")
+            .expect(
+                "successful diagnostic plus source/test evidence should force inspect transition",
+            );
+
+        assert_eq!(forced.0.next_node_id.as_deref(), Some("node-2"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+        let map = state.maps.get(&map_id).expect("map");
+        assert_eq!(
+            map.nodes.get(&node_id).expect("source node").status,
+            NodeStatus::Completed
+        );
+        assert_eq!(
+            map.nodes.get("node-2").expect("next node").kind,
+            NodeKind::ImplementSolution
+        );
+        assert!(forced.1.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
+                    if recorded.kind == "forced_inspect_transition"
+                        && recorded.tags.iter().any(|tag| tag == "trigger:inspect_duplicate_diagnostic_gate_recovery")
+            )
+        }));
+
+        let repeated_forced = repeated_state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_repeated_blocked_action_with_evidence",
+            )
+            .expect("repeated blocked gate recovery should not error")
+            .expect(
+                "repeated blocked action plus source/test evidence should force inspect transition",
+            );
+
+        assert_eq!(repeated_forced.0.next_node_id.as_deref(), Some("node-2"));
+        assert_eq!(
+            repeated_state.current_main_node_id.as_deref(),
+            Some("node-2")
+        );
+        assert!(repeated_forced.1.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
+                    if recorded.kind == "forced_inspect_transition"
+                        && recorded.tags.iter().any(|tag| tag == "trigger:inspect_repeated_blocked_action_with_evidence")
+            )
+        }));
+    }
+
+    #[test]
+    fn implement_node_rejects_blocker_for_already_completed_diagnostic() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect before implementation",
+            "Run diagnostic and inspect source.",
+            "Inspect before implementation",
+            "Run diagnostic and inspect source.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "diagnostic-1",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python scripts/emit_large_log.py\n\
+raw_output:\n\
+Exit code: 0"
+                    .to_string(),
+            )
+            .expect("diagnostic records");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "diagnostic-1",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python scripts/emit_large_log.py\n\
+raw_output:\n\
+Exit code: 0\n\
+OutputReferenceV1: output-ref://sha256/example"
+                    .to_string(),
+            )
+            .expect("diagnostic records");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "search-1",
+                "shell_command",
+                Some(ActionClass::Search),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: rg --files -g '*.py' | Select-Object -First 8 | ForEach-Object { Get-Content -LiteralPath $_ -TotalCount 120 }\n\
+raw_output:\n\
+def normalize_status(value: str) -> str:\n\
+    return value\n\
+def test_normalize_status_strips_and_lowercases():\n\
+    assert normalize_status(\" Ready \") == \"ready\""
+                    .to_string(),
+            )
+            .expect("search evidence records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 4,
+            max_requests: 8,
+            node_request_count: 4,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
+        };
+        state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_duplicate_diagnostic_gate_recovery",
+            )
+            .expect("force finish should not error")
+            .expect("force finish should create implement node");
+
+        let error = state
+            .block_main_node(
+                owner,
+                "node-2",
+                "The diagnostic command (python scripts/emit_large_log.py) must be run first before any patch is applied."
+                    .to_string(),
+            )
+            .expect_err("completed diagnostic prerequisite must not become a blocker");
+
+        assert!(error.contains("already recorded successful diagnostic evidence"));
+        assert!(error.contains("apply_patch"));
+    }
+
+    #[test]
+    fn implement_node_rejects_internal_policy_blocker_when_edit_evidence_is_available() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect before implementation",
+            "Run diagnostic and inspect source.",
+            "Inspect before implementation",
+            "Run diagnostic and inspect source.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "diagnostic-1",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python scripts/emit_large_log.py\n\
+raw_output:\n\
+Exit code: 0"
+                    .to_string(),
+            )
+            .expect("diagnostic records");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "search-1",
+                "shell_command",
+                Some(ActionClass::Search),
+                true,
+                "raw_output:\n\
+===== README.md\n\
+- Trim surrounding whitespace.\n\
+- Convert the value to lowercase.\n\
+- Reject an empty normalized value with `ValueError`.\n\
+===== src\\large_output_demo.py\n\
+def normalize_status(value: str) -> str:\n\
+    if value == \"\":\n\
+        raise ValueError(\"status must not be empty\")\n\
+    return value\n\
+===== tests\\test_large_output_demo.py\n\
+def test_normalize_status_strips_and_lowercases():\n\
+    assert normalize_status(\" Ready \") == \"ready\""
+                    .to_string(),
+            )
+            .expect("search evidence records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 4,
+            max_requests: 8,
+            node_request_count: 4,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
+        };
+        state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_duplicate_diagnostic_gate_recovery",
+            )
+            .expect("force finish should not error")
+            .expect("force finish should create implement node");
+
+        let error = state
+            .block_main_node(
+                owner,
+                "node-2",
+                "Current node (implement_solution) state is implementation_needs_edit; allowed actions are only apply_patch, taskspace_control, or blocked. Running the diagnostic command python scripts/emit_large_log.py is not permitted in this state. Proceeding directly to apply the fix for the failing test."
+                    .to_string(),
+            )
+            .expect_err("internal node policy concern must not become a blocker");
+
+        assert!(error.contains("cannot be blocked for an internal node-policy"));
+        assert!(error.contains("apply_patch"));
+    }
+
+    #[test]
+    fn implement_node_rejects_missing_source_blocker_when_source_evidence_is_available() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, _, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect before implementation",
+            "Run diagnostic and inspect source.",
+            "Inspect before implementation",
+            "Run diagnostic and inspect source.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "search-1",
+                "shell_command",
+                Some(ActionClass::Search),
+                true,
+                "raw_output:\n\
+===== README.md\n\
+- Trim surrounding whitespace.\n\
+===== tests\\test_large_output_demo.py\n\
+assert normalize_status(\" Ready \") == \"ready\"\n\
+===== src\\large_output_demo.py\n\
+def normalize_status(value: str) -> str:\n\
+    if value == \"\":\n\
+        raise ValueError(\"status must not be empty\")\n\
+    return value"
+                    .to_string(),
+            )
+            .expect("source evidence records");
+        state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "Inspected README, tests, and src/large_output_demo.py.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Apply inspected fix".to_string(),
+                    context_summary: "Patch src/large_output_demo.py from inspected evidence."
+                        .to_string(),
+                    dependency_node_ids: Vec::new(),
+                }),
+            )
+            .expect("finish should create implement node");
+
+        let error = state
+            .block_main_node(
+                owner,
+                "node-2",
+                "Current implementation of src/large_output_demo.py is unknown because no excerpt was provided in the inspect evidence. I need to read the file to understand what to fix."
+                    .to_string(),
+            )
+            .expect_err("available source evidence must not be hidden behind a blocker");
+
+        assert!(error.contains("missing source visibility"));
+        assert!(error.contains("retry apply_patch"));
     }
 
     #[test]
@@ -22024,7 +23564,8 @@ fi\n"
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        let (_, map_id, node_id, _) = start_test_task_with_kind(
+        state.active_budget = None;
+        let (_, _map_id, node_id, _) = start_test_task_with_kind(
             &mut state,
             owner,
             NodeKind::InspectCodeContext,
@@ -22034,9 +23575,13 @@ fi\n"
             "Inspect enough pipeline scripts to identify a concrete implementation.",
             true,
         );
+        let mut transition_events = Vec::new();
         for index in
-            0..contract_for(NodeKind::InspectCodeContext).max_main_tool_results_before_split_hint
+            0..=contract_for(NodeKind::InspectCodeContext).max_main_tool_results_before_split_hint
         {
+            if state.current_main_node_id.as_deref() != Some(node_id.as_str()) {
+                break;
+            }
             let call_id = format!("read-{index}");
             state
                 .prepare_main_tool_call(
@@ -22061,43 +23606,9 @@ fi\n"
                         "#!/bin/bash\nset -e\necho pipeline step".to_string()
                     },
                 )
-                .expect("source read result records");
+                .expect("source read result records")
+                .map(|(_, events)| transition_events.extend(events));
         }
-        assert!(
-            state.current_main_inspect_progress_ready_for_transition(),
-            "inspect node should be ready to converge after enough code reads"
-        );
-        let snapshot = ActionMapProviderRequestBudgetSnapshot {
-            task_id: state.active_task_id.clone(),
-            map_id,
-            node_id: Some(node_id.clone()),
-            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
-            current_node_progress_signature: None,
-            current_node_has_successful_edit: false,
-            current_node_has_dependency_working_evidence: false,
-            current_node_has_uncovered_mandatory_evidence: false,
-            current_node_uncovered_mandatory_evidence: Vec::new(),
-            route_mode: Some("deep".to_string()),
-            profile_name: Some("taskspace-v005-deep".to_string()),
-            request_phase: Some("model_sampling".to_string()),
-            provider_request_context_missing_reason: None,
-            request_count: 1,
-            max_requests: 20,
-            node_request_count: 1,
-            max_model_requests_per_node: 5,
-            post_budget_grace_requests: 1,
-            post_budget_grace_request_count: 0,
-            budget_state: "normal".to_string(),
-        };
-
-        let (outcome, events) = state
-            .force_finish_inspect_for_provider_budget(
-                owner,
-                &snapshot,
-                "inspect_progress_convergence",
-            )
-            .expect("progress-driven transition should not error")
-            .expect("progress-driven transition should run without budget pressure");
 
         let map = state.active_map().expect("active map");
         assert_eq!(
@@ -22106,7 +23617,8 @@ fi\n"
         );
         let next_node = map
             .nodes
-            .get(&outcome.next_node_id.expect("next node"))
+            .values()
+            .find(|node| node.kind == NodeKind::ImplementSolution)
             .expect("implementation node");
         assert_eq!(next_node.kind, NodeKind::ImplementSolution);
         assert!(
@@ -22120,7 +23632,7 @@ fi\n"
                 .contains("#!/bin/nonexistent"),
             "implementation recovery should be able to expose dependency evidence"
         );
-        assert!(events.iter().any(|event| {
+        assert!(transition_events.iter().any(|event| {
             match event {
                 MapRuntimeEvent::TaskspaceTraceEventRecorded(event) => event
                     .tags
@@ -24216,6 +25728,88 @@ fi\n"
             MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
                 if event.kind == "forced_validation_closeout"
         )));
+    }
+
+    #[test]
+    fn force_finish_validation_rejects_successful_diagnostic_output_without_validator_signal() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation command.",
+            "Run smoke validation",
+            "Run focused validation.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "taskspace-action-contract-1-run_test",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python scripts/emit_large_log.py\n\
+raw_output:\n\
+Exit code: 0\n\
+OutputReferenceV1:\n\
+summary: diagnostic payload for output reference smoke\n\
+0000 middle-secret-marker diagnostic payload for output reference smoke"
+                    .to_string(),
+            )
+            .expect("successful diagnostic result records")
+            .expect("test result id");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::SmokeTest.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("validation_recovery".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 1,
+            max_requests: 8,
+            node_request_count: 1,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+
+        let result = state
+            .force_finish_validation_after_successful_tool(
+                owner,
+                &snapshot,
+                "validation_success_after_tool_drain",
+            )
+            .expect("unconfirmed diagnostic output should not error");
+
+        assert!(result.is_none());
+        let map = state.maps.get(&map_id).expect("map");
+        let node = map.nodes.get(&node_id).expect("node");
+        assert_eq!(node.status, NodeStatus::Running);
+        assert!(!node_has_successful_validation_action(map, node));
+        assert!(!state.active_map_has_accepted_successful_validation_result());
+        let trace = state
+            .taskspace_trace_events
+            .iter()
+            .find(|event| event.call_id.as_deref() == Some("taskspace-action-contract-1-run_test"))
+            .expect("diagnostic result trace exists");
+        assert!(trace.tags.iter().any(|tag| tag == "tool_success"));
+        assert!(trace.tags.iter().any(|tag| tag == "validator_unconfirmed"));
+        assert!(!trace.tags.iter().any(|tag| tag == "validator_success"));
+        assert!(!trace.tags.iter().any(|tag| tag == "validator_failure"));
     }
 
     #[test]

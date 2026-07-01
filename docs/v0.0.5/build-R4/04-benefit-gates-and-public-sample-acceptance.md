@@ -18,6 +18,11 @@ Gate R4-PUBLIC-10-TOOL-STRESS:
 Gate R4-PUBLIC-10-PLAN-MANIFEST:
   the 10-sample selection and required report fields must be machine-readable.
   the plan gate can pass before the paired run, but R4-G cannot close until the paired run report also passes.
+
+Gate R4-PUBLIC-10-LIVE-REGISTRY:
+  the plan gate must fetch the public benchmark registry and prove that all 10 task ids belong to the pinned
+  terminal-bench-core 0.1.1 task_id_subset.
+  a local hard-coded allow-list is not sufficient evidence.
 ```
 
 ## 4.2 每个 phase 的收益证据格式
@@ -74,6 +79,7 @@ Branch: dataset/terminal-bench-core/v0.1.x
 Commit: 91e10457b5410f16c44364da1a34cb6de8c488a5
 Dataset path: ./tasks
 Registry subset count: 80
+Registry task_id_subset sha256: c3a4e299ff002f3c2201de9dfdf0a7ed64a41cd1ea4253480d99502e086ce190
 ```
 
 选择要求：
@@ -94,8 +100,11 @@ Default evidence:
   target/r4-public-10-tool-stress/r4-public-10-tool-stress-evidence.json
 ```
 
-该门禁会检查样本数、task id 唯一性、公开来源元数据、选择理由和最终报告必填字段。带 `-ReportPath`
-运行时，还会检查实际 10 样本结果表是否逐样本包含所有字段，以及 `task_id_registry_verified=true`。
+该门禁会检查样本数、task id 唯一性、公开来源元数据、选择理由和最终报告必填字段。默认运行时会在线读取
+Terminal-Bench public registry，校验 `terminal-bench-core` `0.1.1` 的 `github_url`、`branch`、`commit_hash`、
+`dataset_path`、80 个 `task_id_subset` 和 subset checksum；10 个候选样本必须全部属于该公开 subset。
+带 `-ReportPath` 运行时，还会检查实际 10 样本结果表是否逐样本包含所有字段、样本是否属于计划集合，以及
+`task_id_registry_verified=true`。
 
 ## 4.5 R4 公开 10 样本候选
 

@@ -157,6 +157,9 @@ const TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER: &str = "TaskSpaceValidationInf
 const TASKSPACE_VALIDATION_NEEDS_TEST_MARKER: &str = "TaskSpaceValidationNeedsTestRecoveryV1:";
 const TASKSPACE_TOOL_FEEDBACK_MARKER: &str = "TaskSpaceToolFeedbackV1:";
 const TASKSPACE_INSPECT_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-rg-files";
+const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID: &str =
+    "taskspace-inspect-bootstrap-repeated-blocked-read";
+const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND: &str = "rg --files -g '*.py' -g '*.md' -g '*.txt' | Select-Object -First 8 | ForEach-Object { Write-Output ('===== ' + $_); Get-Content -LiteralPath $_ -TotalCount 120 }";
 const TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-pytest";
 const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
 
@@ -1248,7 +1251,7 @@ Required JSON shape:
 Allowed actions by active node kind:
 - bootstrap/no active task: taskspace_control, blocked
 - existing task with no active node: final_answer, taskspace_control, blocked
-- inspect_code_context: list_files, search, read_file, taskspace_control, blocked
+- inspect_code_context: list_files, search, read_file, run_test, taskspace_control, blocked; use run_test only for pre-edit diagnostic or baseline evidence, not final validation closeout
 - implement_solution: list_files, search, read_file, apply_patch, taskspace_control, blocked before implementation_needs_edit; once TaskSpaceActionContractStateV1 says implementation_needs_edit, only apply_patch, taskspace_control, or blocked are valid
 - smoke_test/regression_test: run_test, taskspace_control, blocked
 - final_synthesis: final_answer, taskspace_control, blocked
@@ -1399,6 +1402,88 @@ fn taskspace_gate_recovery_context(message: &str) -> String {
         "Most recent blocked tool recovery context:\n{gate}\n\
 Current recovery priority: obey the `next_valid_actions` in this TaskSpaceGateRecoveryV1 payload before generic no-action guidance.\n"
     )
+}
+
+fn taskspace_message_has_gate_recovery(message: Option<&str>) -> bool {
+    message.is_some_and(|message| message.contains(TASKSPACE_GATE_RECOVERY_MARKER))
+}
+
+fn taskspace_message_has_gate_recovery_reason(message: Option<&str>, reason: &str) -> bool {
+    message.is_some_and(|message| {
+        message.contains(TASKSPACE_GATE_RECOVERY_MARKER) && message.contains(reason)
+    })
+}
+
+fn taskspace_message_has_repeated_blocked_action(message: Option<&str>) -> bool {
+    message.is_some_and(|message| {
+        message.contains("\"repeated_blocked_action\"")
+            || message.contains("repeated_blocked_action:")
+    })
+}
+
+fn build_taskspace_duplicate_diagnostic_inspect_recovery_item(
+    last_message: Option<&str>,
+) -> ResponseItem {
+    let previous = last_message
+        .filter(|message| !message.trim().is_empty())
+        .unwrap_or("(no assistant text was captured)");
+    let gate_recovery = taskspace_gate_recovery_context(previous);
+    let text = format!(
+        "TaskSpaceDuplicateDiagnosticInspectRecoveryV1:\n\
+The required diagnostic command has already completed successfully on this inspect_code_context node. The last blocked tool feedback only means the same diagnostic must not be rerun.\n\
+Previous assistant/tool feedback: {previous}\n\
+{gate_recovery}\
+Current required behavior:\n\
+- Do not rerun the blocked diagnostic command.\n\
+- Treat the user's first-command diagnostic requirement as already satisfied by the recorded diagnostic result named in the blocked feedback.\n\
+- The next action must not be run_test. Emit a read_file or search action for source/test evidence.\n\
+- Do not finish this inspect node into implement_solution until source or test file contents have been read.\n\
+- Emit exactly one inspect action now: read_file or search for the concrete source/test artifact named by recent file-list or diagnostic evidence.\n\
+- If file-list evidence names both a source file and a test file, prefer reading the test file first, then the source file on the following turn.\n\
+- Do not return blocked merely because the diagnostic cannot be rerun.\n\
+Example action intent: action=read_file, node_id=<active inspect node id>, args.path=tests/test_example.py."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn build_taskspace_inspect_bootstrap_evidence_item(
+    command: &str,
+    response_item: &ResponseItem,
+) -> ResponseItem {
+    let output = match response_item {
+        ResponseItem::FunctionCallOutput { output, .. }
+        | ResponseItem::CustomToolCallOutput { output, .. } => {
+            function_call_output_body_text(&output.body)
+        }
+        _ => String::new(),
+    };
+    let output_preview = output.chars().take(6000).collect::<String>();
+    let truncated_note = if output.chars().count() > 6000 {
+        "\n[preview_truncated=true]"
+    } else {
+        ""
+    };
+    let text = format!(
+        "TaskSpaceInspectBootstrapEvidenceV1:\n\
+command: {command}\n\
+The following bounded read/search evidence was collected automatically after the same diagnostic action was blocked repeatedly. Treat it as current inspect evidence; do not rerun the blocked diagnostic command. Use this evidence to choose the next legal action: read/search another concrete file, state_commit accepted findings, or finish the inspect node into implement_solution.\n\
+result_preview:\n{output_preview}{truncated_note}"
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
 }
 
 fn build_taskspace_apply_patch_format_recovery_item(targets: &str) -> ResponseItem {
@@ -1913,11 +1998,14 @@ fn classify_taskspace_provider_response_actionability(
     needs_follow_up: bool,
     saw_actionable_output: bool,
     assistant_message_present: bool,
+    gate_recovery_message_present: bool,
     final_response_rejected: bool,
     _provider_budget_exhausted_followup: bool,
 ) -> TaskspaceProviderResponseActionability {
     if final_response_rejected {
         TaskspaceProviderResponseActionability::FinalRejected
+    } else if gate_recovery_message_present {
+        TaskspaceProviderResponseActionability::NoActionFollowUp
     } else if saw_actionable_output {
         TaskspaceProviderResponseActionability::Actionable
     } else if needs_follow_up && assistant_message_present {
@@ -2444,6 +2532,19 @@ fn is_actionable_taskspace_gate_feedback_output(item: &ResponseItem) -> bool {
         || response_item_text_contains(item, "required_validator:python scripts/validate.py")
         || (response_item_text_contains(item, "still unreviewed")
             && response_item_text_contains(item, "result_validities"))
+        || (response_item_text_contains(item, "missing diagnostic prerequisite")
+            && response_item_text_contains(item, "already recorded successful diagnostic evidence"))
+        || (response_item_text_contains(
+            item,
+            "cannot be completed without a recorded successful edit action",
+        ) && response_item_text_contains(item, "Execute the edit in this node"))
+        || (response_item_text_contains(item, "cannot be blocked for an internal node-policy")
+            && response_item_text_contains(
+                item,
+                "inspected implementation evidence is already available",
+            ))
+        || (response_item_text_contains(item, "cannot be blocked for missing source visibility")
+            && response_item_text_contains(item, "already recorded implementation source evidence"))
         || response_item_texts_contain(item, &|text| {
             taskspace_output_mentions_local_validator_infra_state_commit(text)
         })
@@ -2482,6 +2583,26 @@ fn taskspace_action_contract_recent_tool_outputs_item(
         text.contains("taskspace_unreviewed_result_blocker")
             || (text.contains("still unreviewed") && text.contains("result_validities"))
     });
+    let diagnostic_prerequisite_already_satisfied_seen = summaries.iter().any(|(_, text)| {
+        text.contains("diagnostic_prerequisite_already_satisfied")
+            || (text.contains("missing diagnostic prerequisite")
+                && text.contains("already recorded successful diagnostic evidence"))
+    });
+    let implement_missing_edit_before_finish_seen = summaries.iter().any(|(_, text)| {
+        text.contains("implement_missing_edit_before_finish")
+            || (text.contains("cannot be completed without a recorded successful edit action")
+                && text.contains("Execute the edit in this node"))
+    });
+    let internal_policy_blocker_rejected_seen = summaries.iter().any(|(_, text)| {
+        text.contains("internal_policy_blocker_rejected")
+            || (text.contains("cannot be blocked for an internal node-policy")
+                && text.contains("inspected implementation evidence is already available"))
+    });
+    let missing_source_blocker_rejected_seen = summaries.iter().any(|(_, text)| {
+        text.contains("missing_source_visibility_blocker_rejected")
+            || (text.contains("cannot be blocked for missing source visibility")
+                && text.contains("already recorded implementation source evidence"))
+    });
 
     let mut remaining_chars = TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS;
     let mut sections = Vec::new();
@@ -2504,7 +2625,15 @@ fn taskspace_action_contract_recent_tool_outputs_item(
     }
 
     let in_implement_rework = current_node_kind == Some("implement_solution");
-    let progress_hint = if unreviewed_result_blocker_seen {
+    let progress_hint = if missing_source_blocker_rejected_seen {
+        "progress_hint: A previous block_node action was rejected because implementation source evidence is already available. Do not create another inspect node and do not rerun diagnostics. Next action must be apply_patch; use the failed patch feedback to correct the target, function signature, or context lines.\n"
+    } else if internal_policy_blocker_rejected_seen {
+        "progress_hint: A previous block_node action was rejected because it described TaskSpace internal policy or a repeated diagnostic, not an external blocker. Do not create another inspect node and do not rerun the diagnostic. Next action must be apply_patch with the smallest concrete implementation fix from dependency evidence.\n"
+    } else if implement_missing_edit_before_finish_seen {
+        "progress_hint: A previous finish_node action was rejected because the implement_solution node has no successful edit. Do not finish, block, create another inspect node, or rerun diagnostics. Next action must be apply_patch with the smallest concrete implementation fix from dependency evidence.\n"
+    } else if diagnostic_prerequisite_already_satisfied_seen {
+        "progress_hint: A previous block_node action was rejected because the dependency inspect node already recorded successful diagnostic evidence. Do not rerun diagnostic commands and do not block for the same prerequisite. Next action must be apply_patch with the smallest concrete implementation fix from inspected evidence.\n"
+    } else if unreviewed_result_blocker_seen {
         "progress_hint: A previous ordinary tool was blocked because a TaskSpace node result is still unreviewed. Do not repeat read/list/search. Next action must be taskspace_control with action=state_commit and result_validities for the named result.\n"
     } else if local_validator_coverage_failure_seen {
         "progress_hint: A previous run_test was rejected because it skipped a discovered local validator. Do not repeat pytest or discovery. Next action must be run_test with command `python scripts/validate.py`, or blocked with the exact reason that command cannot run.\n"
@@ -2614,6 +2743,58 @@ failure_kind: taskspace_unreviewed_result_blocker\n\
 blocked_result: {result_id}\n\
 blocked_node: {node_id}\n\
 next_valid_action: emit exactly one taskspace_control action with args.action `state_commit` and result_validities for `{result_id}` before any read_file, list_files, search, run_test, or apply_patch.\n\
+raw_output:\n{text}"
+        );
+    }
+    if text.contains("missing diagnostic prerequisite")
+        && text.contains("already recorded successful diagnostic evidence")
+    {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: {action}\n\
+tool_result: blocked\n\
+failure_kind: diagnostic_prerequisite_already_satisfied\n\
+next_valid_action: emit exactly one apply_patch action with the smallest concrete implementation fix from inspected evidence. Do not rerun the diagnostic and do not block for the same prerequisite.\n\
+raw_output:\n{text}"
+        );
+    }
+    if text.contains("cannot be completed without a recorded successful edit action")
+        && text.contains("Execute the edit in this node")
+    {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: {action}\n\
+tool_result: blocked\n\
+failure_kind: implement_missing_edit_before_finish\n\
+next_valid_action: emit exactly one apply_patch action with the smallest concrete implementation fix from dependency evidence. Do not finish_node, block_node, create another inspect node, or rerun diagnostics before a successful edit is recorded.\n\
+raw_output:\n{text}"
+        );
+    }
+    if text.contains("cannot be blocked for an internal node-policy")
+        && text.contains("inspected implementation evidence is already available")
+    {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: {action}\n\
+tool_result: blocked\n\
+failure_kind: internal_policy_blocker_rejected\n\
+next_valid_action: emit exactly one apply_patch action with the smallest concrete implementation fix from dependency evidence. Do not create another inspect node, rerun diagnostics, or block for TaskSpace internal policy.\n\
+raw_output:\n{text}"
+        );
+    }
+    if text.contains("cannot be blocked for missing source visibility")
+        && text.contains("already recorded implementation source evidence")
+    {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: {action}\n\
+tool_result: blocked\n\
+failure_kind: missing_source_visibility_blocker_rejected\n\
+next_valid_action: emit exactly one apply_patch action. Use the failed patch feedback plus inspected source evidence to correct the target, function signature, or context lines. Do not create another inspect node, rerun diagnostics, or block for missing source visibility.\n\
 raw_output:\n{text}"
         );
     }
@@ -3532,7 +3713,7 @@ Then I will inspect the file."#,
     }
 
     #[test]
-    fn taskspace_action_contract_policy_rejects_dsml_test_in_inspect_node() {
+    fn taskspace_action_contract_policy_allows_dsml_diagnostic_test_in_inspect_node() {
         let action = parse_taskspace_action_v1(
             r#"<｜｜DSML｜｜tool_calls>
 <｜｜DSML｜｜invoke name="shell_command">
@@ -3541,11 +3722,22 @@ Then I will inspect the file."#,
 </｜｜DSML｜｜tool_calls>"#,
         )
         .expect("known DSML test command should map to run_test");
-        let err =
+        let call =
             taskspace_action_to_tool_call(&action, &provider_snapshot("inspect_code_context"))
-                .expect_err("inspect nodes cannot run tests");
+                .expect("inspect nodes allow diagnostic tests")
+                .expect("diagnostic test maps to shell command");
 
-        assert!(err.contains("node_policy_violation:inspect_code_context:run_test"));
+        assert_eq!(call.tool_name.name, "shell_command");
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(
+                    value["command"],
+                    "python -m pytest tests/test_tax_calc.py -v"
+                );
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
     }
 
     #[test]
@@ -3758,6 +3950,7 @@ Then I will inspect the file."#,
                 needs_follow_up,
                 saw_actionable_output,
                 true,
+                false,
                 false,
                 false,
             ),
@@ -4327,7 +4520,7 @@ tax_calc.py\n\
             "apply_patch",
             Some("inspect_code_context")
         ));
-        assert!(!taskspace_action_allowed_for_node(
+        assert!(taskspace_action_allowed_for_node(
             "run_test",
             Some("inspect_code_context")
         ));
@@ -4959,6 +5152,138 @@ tax_calc.py\n\
     }
 
     #[test]
+    fn action_contract_prompt_structures_completed_diagnostic_blocker() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Continue the task"),
+            message("developer", &latest_active_projection),
+            ResponseItem::FunctionCallOutput {
+                call_id: "taskspace-action-contract-5-blocked".to_string(),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "TaskSpace implement_solution node `node-2` cannot be blocked for a missing diagnostic prerequisite because a dependency inspect node already recorded successful diagnostic evidence. Next valid action: apply_patch with the smallest concrete implementation fix from inspected evidence.\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"taskspace_gate_blocked\"}"
+                            .to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items_for_node(
+            items,
+            Some("implement_solution"),
+        );
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("failure_kind: diagnostic_prerequisite_already_satisfied"));
+        assert!(joined.contains("next_valid_action: emit exactly one apply_patch action"));
+        assert!(!joined.contains("failure_kind: tool_execution_failed"));
+    }
+
+    #[test]
+    fn action_contract_prompt_structures_implement_finish_missing_edit() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Continue the task"),
+            message("developer", &latest_active_projection),
+            ResponseItem::FunctionCallOutput {
+                call_id: "taskspace-action-contract-5-taskspace_control".to_string(),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "TaskSpace implement_solution node `node-2` cannot be completed without a recorded successful edit action. Execute the edit in this node, or block the node if the edit cannot be made."
+                            .to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items_for_node(
+            items,
+            Some("implement_solution"),
+        );
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("failure_kind: implement_missing_edit_before_finish"));
+        assert!(joined.contains("progress_hint: A previous finish_node action was rejected"));
+        assert!(joined.contains("next_valid_action: emit exactly one apply_patch action"));
+        assert!(!joined.contains("failure_kind: tool_execution_failed"));
+    }
+
+    #[test]
+    fn action_contract_prompt_structures_internal_policy_blocker_rejection() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Continue the task"),
+            message("developer", &latest_active_projection),
+            ResponseItem::FunctionCallOutput {
+                call_id: "taskspace-action-contract-7-blocked".to_string(),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "TaskSpace implement_solution node `node-2` cannot be blocked for an internal node-policy or diagnostic-repeat concern because inspected implementation evidence is already available and no edit has been attempted. Next valid action: apply_patch with the smallest concrete implementation fix from dependency evidence, or block only with a specific external blocker that makes editing impossible."
+                            .to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items_for_node(
+            items,
+            Some("implement_solution"),
+        );
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("failure_kind: internal_policy_blocker_rejected"));
+        assert!(joined.contains("progress_hint: A previous block_node action was rejected"));
+        assert!(joined.contains("next_valid_action: emit exactly one apply_patch action"));
+        assert!(!joined.contains("failure_kind: tool_execution_failed"));
+    }
+
+    #[test]
+    fn action_contract_prompt_structures_missing_source_blocker_rejection() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Continue the task"),
+            message("developer", &latest_active_projection),
+            ResponseItem::FunctionCallOutput {
+                call_id: "taskspace-action-contract-6-blocked".to_string(),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "TaskSpace implement_solution node `node-2` cannot be blocked for missing source visibility because a dependency inspect node already recorded implementation source evidence. Next valid action: retry apply_patch using the inspected source evidence and the failed patch feedback, or block only with a specific external blocker that makes editing impossible."
+                            .to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items_for_node(
+            items,
+            Some("implement_solution"),
+        );
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("failure_kind: missing_source_visibility_blocker_rejected"));
+        assert!(joined.contains("progress_hint: A previous block_node action was rejected"));
+        assert!(joined.contains("Next action must be apply_patch"));
+        assert!(joined.contains("failed patch feedback"));
+        assert!(!joined.contains("failure_kind: tool_execution_failed"));
+    }
+
+    #[test]
     fn action_contract_prompt_omits_pre_user_tool_output() {
         let latest_active_projection = format!(
             "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
@@ -5338,6 +5663,46 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
+    fn gate_recovery_message_is_not_treated_as_inspect_bootstrap_gap() {
+        let blocked_output = "TaskSpace blocked this diagnostic command.\n\
+TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"inspect_duplicate_successful_diagnostic_test\",\"next_valid_actions\":[\"read_file or search for implementation/test evidence\",\"taskspace_control(action=finish_node, node_id=\\\"node-1\\\", next_node_kind=\\\"implement_solution\\\")\"]}";
+
+        assert!(taskspace_message_has_gate_recovery(Some(blocked_output)));
+        assert!(taskspace_message_has_gate_recovery_reason(
+            Some(blocked_output),
+            "inspect_duplicate_successful_diagnostic_test"
+        ));
+        assert!(!taskspace_message_has_gate_recovery_reason(
+            Some("inspect_duplicate_successful_diagnostic_test"),
+            "inspect_duplicate_successful_diagnostic_test"
+        ));
+        assert!(!taskspace_message_has_gate_recovery(Some(
+            "Run python -m pytest -q now."
+        )));
+        let recovery = item_text(build_taskspace_no_action_recovery_item(Some(
+            blocked_output,
+        )));
+        assert!(recovery.contains("inspect_duplicate_successful_diagnostic_test"));
+        assert!(recovery.contains("read_file or search"));
+        assert!(recovery.contains("obey the `next_valid_actions`"));
+    }
+
+    #[test]
+    fn duplicate_diagnostic_recovery_keeps_inspect_on_source_evidence() {
+        let blocked_output = "TaskSpace blocked this diagnostic command.\n\
+TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"inspect_duplicate_successful_diagnostic_test\",\"next_valid_actions\":[\"read_file or search for implementation/test evidence\"]}";
+        let item = build_taskspace_duplicate_diagnostic_inspect_recovery_item(Some(blocked_output));
+        let text = item_text(item.clone());
+
+        assert!(text.contains("TaskSpaceDuplicateDiagnosticInspectRecoveryV1"));
+        assert!(text.contains("diagnostic command has already completed successfully"));
+        assert!(text.contains("Do not rerun the blocked diagnostic command"));
+        assert!(text.contains("read_file or search"));
+        assert!(text.contains("Do not return blocked"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+    }
+
+    #[test]
     fn extracts_gate_recovery_from_blocked_tool_output() {
         let item = tool_output(
             "TaskSpace blocked this validation command.\nTaskSpaceGateRecoveryV1: {\"next_valid_actions\":[\"run python recover_logs.py\"]}",
@@ -5481,8 +5846,9 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
 
     #[test]
     fn provider_response_actionability_classifies_final_gate_rejection_as_recovery() {
-        let classification =
-            classify_taskspace_provider_response_actionability(true, false, true, true, false);
+        let classification = classify_taskspace_provider_response_actionability(
+            true, false, true, false, true, false,
+        );
 
         assert_eq!(
             classification,
@@ -5494,8 +5860,9 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
 
     #[test]
     fn provider_response_actionability_classifies_no_action_follow_up() {
-        let classification =
-            classify_taskspace_provider_response_actionability(true, false, true, false, false);
+        let classification = classify_taskspace_provider_response_actionability(
+            true, false, true, false, false, false,
+        );
 
         assert_eq!(
             classification,
@@ -5580,8 +5947,9 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
 
     #[test]
     fn provider_response_actionability_keeps_actionable_response_out_of_recovery() {
-        let classification =
-            classify_taskspace_provider_response_actionability(true, true, true, false, false);
+        let classification = classify_taskspace_provider_response_actionability(
+            true, true, true, false, false, false,
+        );
 
         assert_eq!(
             classification,
@@ -5591,9 +5959,23 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
+    fn provider_response_actionability_treats_gate_recovery_as_recovery() {
+        let classification = classify_taskspace_provider_response_actionability(
+            true, true, true, true, false, false,
+        );
+
+        assert_eq!(
+            classification,
+            TaskspaceProviderResponseActionability::NoActionFollowUp
+        );
+        assert!(classification.needs_recovery());
+    }
+
+    #[test]
     fn provider_response_actionability_treats_profile_hint_overrun_as_actionable() {
-        let classification =
-            classify_taskspace_provider_response_actionability(true, true, true, false, true);
+        let classification = classify_taskspace_provider_response_actionability(
+            true, true, true, false, false, true,
+        );
 
         assert_eq!(
             classification,
@@ -6456,7 +6838,10 @@ async fn run_taskspace_inspect_bootstrap(
             cancellation_token,
         )
         .await?;
-    record_response_input_item(sess.as_ref(), turn_context.as_ref(), response_input).await;
+    let response_item =
+        record_response_input_item(sess.as_ref(), turn_context.as_ref(), response_input).await;
+    let evidence_item = build_taskspace_inspect_bootstrap_evidence_item(command, &response_item);
+    record_completed_response_item(sess.as_ref(), turn_context.as_ref(), &evidence_item).await;
     Ok(())
 }
 
@@ -6636,6 +7021,7 @@ fn taskspace_action_allowed_for_node(action: &str, node_kind: Option<&str>) -> b
             "list_files"
                 | "search"
                 | "read_file"
+                | "run_test"
                 | "taskspace_control"
                 | "state_commit"
                 | "blocked"
@@ -8169,11 +8555,8 @@ async fn record_taskspace_observed_implement_edit(
     request_count: usize,
 ) -> bool {
     if sess
-        .action_map_current_main_node_has_successful_action(ActionClass::Edit)
+        .action_map_active_map_has_successful_edit_artifacts()
         .await
-        || sess
-            .action_map_active_map_has_successful_action(ActionClass::Edit)
-            .await
     {
         return false;
     }
@@ -8195,6 +8578,16 @@ async fn record_taskspace_observed_implement_edit(
             .collect::<Vec<_>>()
             .join("\\n")
     );
+    if sess
+        .backfill_action_map_successful_implementation_edit_artifacts(
+            turn_context,
+            &format!("taskspace-observed-implement-edit-backfill-{request_count}"),
+            preview.clone(),
+        )
+        .await
+    {
+        return true;
+    }
     sess.record_action_map_main_tool_result(
         turn_context,
         &format!("taskspace-observed-implement-edit-{request_count}"),
@@ -8818,72 +9211,165 @@ async fn try_run_sampling_request(
                     needs_follow_up,
                     saw_actionable_output,
                     assistant_message_present,
+                    taskspace_message_has_gate_recovery(last_agent_message.as_deref()),
                     final_response_rejected
                         || budget_pressure_follow_up_intent
                         || budget_pressure_silent_action_transition,
                     provider_budget_exhausted_followup,
                 );
-                let mut taskspace_no_action_recovery_item =
-                    if response_actionability.needs_recovery() && current_budget_snapshot.is_some()
+                let mut taskspace_no_action_recovery_item = if response_actionability
+                    .needs_recovery()
+                    && current_budget_snapshot.is_some()
+                {
+                    if let Some(targets) = taskspace_existing_file_add_targets_from_rejection(
+                        last_agent_message.as_deref(),
+                    ) {
+                        Some(build_taskspace_apply_patch_format_recovery_item(&targets))
+                    } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
+                        snapshot.node_kind.as_deref() == Some("implement_solution")
+                    }) && let Some(targets) =
+                        taskspace_missing_update_targets_from_apply_patch_error(
+                            last_agent_message.as_deref(),
+                        )
                     {
-                        if let Some(targets) = taskspace_existing_file_add_targets_from_rejection(
+                        Some(build_taskspace_apply_patch_missing_target_recovery_item(
+                            &targets,
+                        ))
+                    } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
+                        snapshot.node_kind.as_deref() == Some("implement_solution")
+                            && taskspace_message_hit_apply_patch_intent_format_rejection(
+                                last_agent_message.as_deref(),
+                            )
+                    }) {
+                        let evidence_summary =
+                            sess.action_map_current_working_evidence_summary().await;
+                        Some(build_taskspace_patch_intent_format_recovery_item(
+                            evidence_summary.as_deref(),
+                            taskspace_rejected_apply_patch_intent_preview(
+                                last_agent_message.as_deref(),
+                            ),
+                        ))
+                    } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
+                        snapshot.node_kind.as_deref() == Some("implement_solution")
+                            && taskspace_message_hit_implementation_needs_edit(
+                                last_agent_message.as_deref(),
+                            )
+                    }) {
+                        let evidence_summary =
+                            sess.action_map_current_working_evidence_summary().await;
+                        Some(build_taskspace_implement_needs_edit_recovery_item(
+                            evidence_summary.as_deref(),
+                        ))
+                    } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
+                        matches!(
+                            snapshot.node_kind.as_deref(),
+                            Some("smoke_test" | "regression_test")
+                        ) && taskspace_message_hit_validation_needs_test(
+                            last_agent_message.as_deref(),
+                        )
+                    }) {
+                        Some(build_taskspace_validation_needs_test_recovery_item(
+                            last_agent_message.as_deref(),
+                        ))
+                    } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
+                        snapshot.node_kind.as_deref() == Some("inspect_code_context")
+                            && taskspace_message_has_gate_recovery_reason(
+                                last_agent_message.as_deref(),
+                                "inspect_duplicate_successful_diagnostic_test",
+                            )
+                    }) {
+                        let snapshot = current_budget_snapshot
+                            .as_ref()
+                            .expect("snapshot checked above")
+                            .clone();
+                        if taskspace_message_has_repeated_blocked_action(
                             last_agent_message.as_deref(),
                         ) {
-                            Some(build_taskspace_apply_patch_format_recovery_item(&targets))
-                        } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
-                            snapshot.node_kind.as_deref() == Some("implement_solution")
-                        }) && let Some(targets) =
-                            taskspace_missing_update_targets_from_apply_patch_error(
-                                last_agent_message.as_deref(),
-                            )
-                        {
-                            Some(build_taskspace_apply_patch_missing_target_recovery_item(
-                                &targets,
-                            ))
-                        } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
-                            snapshot.node_kind.as_deref() == Some("implement_solution")
-                                && taskspace_message_hit_apply_patch_intent_format_rejection(
-                                    last_agent_message.as_deref(),
+                            match sess
+                                .force_finish_action_map_inspect_for_provider_budget(
+                                    &turn_context,
+                                    snapshot.clone(),
+                                    "inspect_repeated_blocked_action_with_evidence",
                                 )
-                        }) {
-                            let evidence_summary =
-                                sess.action_map_current_working_evidence_summary().await;
-                            Some(build_taskspace_patch_intent_format_recovery_item(
-                                evidence_summary.as_deref(),
-                                taskspace_rejected_apply_patch_intent_preview(
-                                    last_agent_message.as_deref(),
-                                ),
-                            ))
-                        } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
-                            snapshot.node_kind.as_deref() == Some("implement_solution")
-                                && taskspace_message_hit_implementation_needs_edit(
-                                    last_agent_message.as_deref(),
-                                )
-                        }) {
-                            let evidence_summary =
-                                sess.action_map_current_working_evidence_summary().await;
-                            Some(build_taskspace_implement_needs_edit_recovery_item(
-                                evidence_summary.as_deref(),
-                            ))
-                        } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
-                            matches!(
-                                snapshot.node_kind.as_deref(),
-                                Some("smoke_test" | "regression_test")
-                            ) && taskspace_message_hit_validation_needs_test(
-                                last_agent_message.as_deref(),
-                            )
-                        }) {
-                            Some(build_taskspace_validation_needs_test_recovery_item(
-                                last_agent_message.as_deref(),
-                            ))
+                                .await
+                            {
+                                Ok(true) => {
+                                    Some(build_taskspace_forced_inspect_transition_recovery_item())
+                                }
+                                Ok(false) => {
+                                    run_taskspace_inspect_bootstrap(
+                                        tool_runtime.clone(),
+                                        sess.clone(),
+                                        turn_context.clone(),
+                                        snapshot.request_count,
+                                        TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID,
+                                        TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND,
+                                        "TaskSpaceRepeatedBlockedInspectBootstrapV1 executed bounded source/test reads after an inspect_code_context action repeated an already-blocked diagnostic command.",
+                                        cancellation_token.child_token(),
+                                    )
+                                    .await?;
+                                    None
+                                }
+                                Err(error) => {
+                                    sess.send_event(
+                                        &turn_context,
+                                        EventMsg::Warning(WarningEvent {
+                                            message: format!(
+                                                "TaskSpaceForcedInspectTransitionFailedV1 trigger=inspect_repeated_blocked_action_with_evidence error={error}"
+                                            ),
+                                        }),
+                                    )
+                                    .await;
+                                    Some(
+                                        build_taskspace_duplicate_diagnostic_inspect_recovery_item(
+                                            last_agent_message.as_deref(),
+                                        ),
+                                    )
+                                }
+                            }
                         } else {
-                            Some(build_taskspace_no_action_recovery_item(
-                                last_agent_message.as_deref(),
-                            ))
+                            match sess
+                                .force_finish_action_map_inspect_for_provider_budget(
+                                    &turn_context,
+                                    snapshot,
+                                    "inspect_duplicate_diagnostic_gate_recovery",
+                                )
+                                .await
+                            {
+                                Ok(true) => {
+                                    Some(build_taskspace_forced_inspect_transition_recovery_item())
+                                }
+                                Ok(false) => Some(
+                                    build_taskspace_duplicate_diagnostic_inspect_recovery_item(
+                                        last_agent_message.as_deref(),
+                                    ),
+                                ),
+                                Err(error) => {
+                                    sess.send_event(
+                                        &turn_context,
+                                        EventMsg::Warning(WarningEvent {
+                                            message: format!(
+                                                "TaskSpaceForcedInspectTransitionFailedV1 trigger=inspect_duplicate_diagnostic_gate_recovery error={error}"
+                                            ),
+                                        }),
+                                    )
+                                    .await;
+                                    Some(
+                                        build_taskspace_duplicate_diagnostic_inspect_recovery_item(
+                                            last_agent_message.as_deref(),
+                                        ),
+                                    )
+                                }
+                            }
                         }
                     } else {
-                        None
-                    };
+                        Some(build_taskspace_no_action_recovery_item(
+                            last_agent_message.as_deref(),
+                        ))
+                    }
+                } else {
+                    None
+                };
                 if let Some(snapshot) = current_budget_snapshot {
                     let recovery_action = if taskspace_no_action_recovery_item.is_some() {
                         "developer_recovery"
@@ -9252,23 +9738,123 @@ async fn try_run_sampling_request(
         let taskspace_progress_after_request =
             sess.action_map_current_main_node_progress_signature().await;
         if taskspace_progress_after_request == taskspace_progress_before_request {
-            let inspect_bootstrap = provider_budget_snapshot
+            if taskspace_message_has_gate_recovery(result.last_agent_message.as_deref()) {
+                let mut forced_transition = false;
+                let mut repeated_block_bootstrap = false;
+                if taskspace_message_has_gate_recovery_reason(
+                    result.last_agent_message.as_deref(),
+                    "inspect_duplicate_successful_diagnostic_test",
+                ) && let Some(snapshot) = provider_budget_snapshot
+                    .as_ref()
+                    .filter(|snapshot| {
+                        snapshot.node_kind.as_deref() == Some("inspect_code_context")
+                    })
+                    .cloned()
+                {
+                    if taskspace_message_has_repeated_blocked_action(
+                        result.last_agent_message.as_deref(),
+                    ) {
+                        match sess
+                            .force_finish_action_map_inspect_for_provider_budget(
+                                &turn_context,
+                                snapshot.clone(),
+                                "inspect_repeated_blocked_action_with_evidence",
+                            )
+                            .await
+                        {
+                            Ok(true) => {
+                                result.taskspace_no_action_recovery_item =
+                                    Some(build_taskspace_forced_inspect_transition_recovery_item());
+                                forced_transition = true;
+                            }
+                            Ok(false) => {
+                                run_taskspace_inspect_bootstrap(
+                                    tool_runtime.clone(),
+                                    sess.clone(),
+                                    turn_context.clone(),
+                                    snapshot.request_count,
+                                    TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID,
+                                    TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND,
+                                    "TaskSpaceRepeatedBlockedInspectBootstrapV1 executed bounded source/test reads after progress stayed unchanged on a repeated blocked diagnostic command.",
+                                    cancellation_token.child_token(),
+                                )
+                                .await?;
+                                repeated_block_bootstrap = true;
+                            }
+                            Err(error) => {
+                                sess.send_event(
+                                    &turn_context,
+                                    EventMsg::Warning(WarningEvent {
+                                        message: format!(
+                                            "TaskSpaceForcedInspectTransitionFailedV1 trigger=inspect_repeated_blocked_action_with_evidence error={error}"
+                                        ),
+                                    }),
+                                )
+                                .await;
+                            }
+                        }
+                    } else {
+                        match sess
+                            .force_finish_action_map_inspect_for_provider_budget(
+                                &turn_context,
+                                snapshot,
+                                "inspect_duplicate_diagnostic_gate_recovery",
+                            )
+                            .await
+                        {
+                            Ok(true) => {
+                                result.taskspace_no_action_recovery_item =
+                                    Some(build_taskspace_forced_inspect_transition_recovery_item());
+                                forced_transition = true;
+                            }
+                            Ok(false) => {}
+                            Err(error) => {
+                                sess.send_event(
+                                        &turn_context,
+                                        EventMsg::Warning(WarningEvent {
+                                            message: format!(
+                                                "TaskSpaceForcedInspectTransitionFailedV1 trigger=inspect_duplicate_diagnostic_gate_recovery error={error}"
+                                            ),
+                                        }),
+                                    )
+                                    .await;
+                            }
+                        }
+                    }
+                }
+                if !forced_transition && !repeated_block_bootstrap {
+                    result.taskspace_no_action_recovery_item = Some(
+                        if taskspace_message_has_gate_recovery_reason(
+                            result.last_agent_message.as_deref(),
+                            "inspect_duplicate_successful_diagnostic_test",
+                        ) {
+                            build_taskspace_duplicate_diagnostic_inspect_recovery_item(
+                                result.last_agent_message.as_deref(),
+                            )
+                        } else {
+                            build_taskspace_no_action_recovery_item(
+                                result.last_agent_message.as_deref(),
+                            )
+                        },
+                    );
+                }
+            } else if let Some(snapshot) = provider_budget_snapshot
                 .as_ref()
                 .filter(|snapshot| snapshot.node_kind.as_deref() == Some("inspect_code_context"))
-                .cloned();
-            if let Some(snapshot) = inspect_bootstrap {
+                .cloned()
+            {
                 if taskspace_message_requests_validation(result.last_agent_message.as_deref()) {
                     run_taskspace_inspect_bootstrap(
-                        tool_runtime.clone(),
-                        sess.clone(),
-                        turn_context.clone(),
-                        snapshot.request_count,
-                        TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID,
-                        "python -m pytest -q",
-                        "TaskSpaceInspectTestBootstrapV1 executed `python -m pytest -q` after inspect_code_context requested validation but produced no tool call.",
-                        cancellation_token.child_token(),
-                    )
-                    .await?;
+                            tool_runtime.clone(),
+                            sess.clone(),
+                            turn_context.clone(),
+                            snapshot.request_count,
+                            TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID,
+                            "python -m pytest -q",
+                            "TaskSpaceInspectTestBootstrapV1 executed `python -m pytest -q` after inspect_code_context requested validation but produced no tool call.",
+                            cancellation_token.child_token(),
+                        )
+                        .await?;
                 } else {
                     let forced_transition = match sess
                         .force_finish_action_map_inspect_for_provider_budget(

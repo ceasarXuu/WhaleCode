@@ -11,6 +11,13 @@ function Test-TerminalBenchValidatorRuntimePath {
     $path -eq "run-tests.sh" -or $path -eq "verify.sh" -or $path -eq "test.sh" -or $path.StartsWith("tests/")
 }
 
+function Test-TerminalBenchRemoteAssetScanPath {
+    param([Parameter(Mandatory = $true)][string]$RelativePath)
+    $path = $RelativePath.Replace("\", "/")
+    if ($path -eq "solution.sh" -or $path -eq "solution.yaml") { return $false }
+    $true
+}
+
 function Get-TerminalBenchRemoteAssetKind {
     param(
         [Parameter(Mandatory = $true)][string]$Line,
@@ -47,6 +54,7 @@ function Get-TerminalBenchRemoteAssets {
     if ($null -ne $UvCache) {
         foreach ($pair in @(
                 @([string]$UvCache.installer_url, [string]$UvCache.installer_path, [string]$UvCache.installer_sha256, [int64]$UvCache.installer_size_bytes),
+                @([string]$UvCache.installer_alias_url, [string]$UvCache.installer_path, [string]$UvCache.installer_sha256, [int64]$UvCache.installer_size_bytes),
                 @([string]$UvCache.archive_url, [string]$UvCache.archive_path, [string]$UvCache.archive_sha256, [int64]$UvCache.archive_size_bytes)
             )) {
             if (-not [string]::IsNullOrWhiteSpace($pair[0])) {
@@ -56,6 +64,7 @@ function Get-TerminalBenchRemoteAssets {
     }
     foreach ($file in @(Get-ChildItem -LiteralPath $TaskRoot -Recurse -File -Force -ErrorAction SilentlyContinue)) {
         $relative = $file.FullName.Substring($TaskRoot.Length).TrimStart("\", "/").Replace("\", "/")
+        if (-not (Test-TerminalBenchRemoteAssetScanPath $relative)) { continue }
         $lines = @(Get-Content -Encoding UTF8 -LiteralPath $file.FullName -ErrorAction SilentlyContinue)
         for ($index = 0; $index -lt @($lines).Count; $index++) {
             $line = [string]$lines[$index]
