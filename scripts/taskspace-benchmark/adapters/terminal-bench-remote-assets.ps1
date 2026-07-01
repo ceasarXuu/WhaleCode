@@ -83,12 +83,29 @@ function Get-TerminalBenchRemoteAssets {
         $relative = $file.FullName.Substring($TaskRoot.Length).TrimStart("\", "/").Replace("\", "/")
         if (-not (Test-TerminalBenchRemoteAssetScanPath $relative)) { continue }
         $lines = @(Get-Content -Encoding UTF8 -LiteralPath $file.FullName -ErrorAction SilentlyContinue)
+        $hereDocTerminator = ""
         for ($index = 0; $index -lt @($lines).Count; $index++) {
             $line = [string]$lines[$index]
+            $lineIsFixtureLiteral = $false
+            if (-not [string]::IsNullOrWhiteSpace($hereDocTerminator)) {
+                if ($line.Trim() -eq $hereDocTerminator) {
+                    $hereDocTerminator = ""
+                    continue
+                }
+                $lineIsFixtureLiteral = $true
+            } else {
+                $hereDocMatch = [regex]::Match($line, "<<\s*['`"]?([A-Za-z_][A-Za-z0-9_]*)['`"]?")
+                if ($hereDocMatch.Success) {
+                    $hereDocTerminator = $hereDocMatch.Groups[1].Value
+                }
+            }
             if ($line.TrimStart().StartsWith("#")) { continue }
             foreach ($match in [regex]::Matches($line, $urlPattern)) {
                 $url = Normalize-TerminalBenchRemoteAssetUrl ([string]$match.Value)
                 $assetKind = Get-TerminalBenchRemoteAssetKind $line $url $relative
+                if ($lineIsFixtureLiteral -and $assetKind -eq "unknown_runtime_network_dependency") {
+                    $assetKind = "fixture_literal_endpoint"
+                }
                 if ($assetKind -eq "metadata_comment") { continue }
                 $key = Get-TerminalBenchStringSha256 $url
                 $leaf = Split-Path -Leaf ([uri]$url).AbsolutePath
